@@ -254,6 +254,16 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
+    },
+    {
+      "from": "silver-court-auction-code",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "detail 의 코드 옆에 사이트가 붙이는 이름(기일결과 매각·유찰, 기일종류, 목록구분, 물건종류, 입찰구분, 감정요항표 항목)을 `*_name` 으로 싣는다. 계약 common_codes 의 names 가 어느 칸인지 정하고, 이름이 바뀐 코드를 쓰는 물건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
     }
   ],
   "by_pnu_lanes": {
@@ -327,13 +337,20 @@
           "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
           "decision": "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md",
           "reason": "each round gains its detail from the 물건상세 (rounds[].detail: case, 매각물건명세서 summary, 기일내역, 목록내역, 제시외건물, 감정요항표; codes stay codes), an optional field, null until read"
+        },
+        {
+          "major": 1,
+          "revision": 5,
+          "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
+          "decision": "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md",
+          "reason": "each code of a round's detail gains the site's name beside it (*_name: 기일종류·기일결과·목록구분·물건종류·입찰구분·감정요항표 표와 항목), from the 공통코드 the collector asks each run (silver.court_auction_code); optional fields, null while a code has no name"
         }
       ],
       "consumers": [
         {
           "name": "web",
           "at": "products/gongzzang/apps/web/lib/api/court-auction.generated.ts",
-          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas); each item's 물건상세 (root ADR-0540): 사건·매각물건명세서·기일내역·목록내역·제시외건물·감정평가요항표",
+          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas); each item's 물건상세 (root ADR-0540): 사건·매각물건명세서·기일내역·목록내역·제시외건물·감정평가요항표; the names the site gives their codes (기일결과 매각·유찰, 기일종류, 목록구분, 물건종류, 입찰구분, 감정요항표 항목; root ADR-0540 §5)",
           "reads": [
             {
               "path": "schema_version",
@@ -544,6 +561,14 @@
               "required": false
             },
             {
+              "path": "court_auction.rounds[].detail.spec.item_usage_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.spec.bid_kind_name",
+              "required": false
+            },
+            {
               "path": "court_auction.rounds[].detail.schedule",
               "required": true
             },
@@ -561,6 +586,14 @@
             },
             {
               "path": "court_auction.rounds[].detail.schedule[].minimum_bid_price_krw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.schedule[].schedule_kind_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.schedule[].result_name",
               "required": false
             },
             {
@@ -592,6 +625,10 @@
               "required": false
             },
             {
+              "path": "court_auction.rounds[].detail.objects[].list_kind_name",
+              "required": false
+            },
+            {
               "path": "court_auction.rounds[].detail.annexes",
               "required": true
             },
@@ -617,6 +654,10 @@
             },
             {
               "path": "court_auction.rounds[].detail.appraisal_points[].content",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.appraisal_points[].item_name",
               "required": false
             }
           ]

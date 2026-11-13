@@ -8,7 +8,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver load of 법원경매정보 (root ADR-0280; infra/lakehouse/spark/jobs/courtauction_go_kr.py): the objects of each search that no commit of its table records (plan-silver-load-objects, R2 alone), oldest first, give every row its PNU through the one place-identity resolver (its legal-dong code and lot carried to the current code, else its address; root ADR-0288, ADR-0382) and appends to silver.court_auction_item the rows whose content changed and, for a complete item search, a removal marker per 물건 that left it, and to silver.court_auction_sale_result the rows whose content changed; each 물건상세 object's new photos, its changed documents (case, 매각물건명세서 summary, 기일내역, 목록내역, 제시외건물, 감정요항표; root ADR-0540) and then its reads. 06:30 KST, after the night's collection; `unchanged` without Spark when nothing is owed.",
+      "description": "Silver load of 법원경매정보 (root ADR-0280; infra/lakehouse/spark/jobs/courtauction_go_kr.py): the objects of each search that no commit of its table records (plan-silver-load-objects, R2 alone), oldest first, give every row its PNU through the one place-identity resolver (its legal-dong code and lot carried to the current code, else its address; root ADR-0288, ADR-0382) and appends to silver.court_auction_item the rows whose content changed and, for a complete item search, a removal marker per 물건 that left it, and to silver.court_auction_sale_result the rows whose content changed; each 물건상세 object's new photos, its changed documents (case, 매각물건명세서 summary, 기일내역, 목록내역, 제시외건물, 감정요항표; root ADR-0540) and then its reads; each 공통코드 object's codes whose name changed (silver.court_auction_code, root ADR-0540 §5). 06:30 KST, after the night's collection; `unchanged` without Spark when nothing is owed.",
       "systemd_service": "foundation-court-auction-silver-load.service",
       "systemd_timer": null,
       "state_paths": [
@@ -49,7 +49,8 @@
         "source-courtauction-go-kr-to-silver-court-auction-item-schedule",
         "source-courtauction-go-kr-to-silver-court-auction-item-object",
         "source-courtauction-go-kr-to-silver-court-auction-item-annex",
-        "source-courtauction-go-kr-to-silver-court-auction-appraisal-point"
+        "source-courtauction-go-kr-to-silver-court-auction-appraisal-point",
+        "source-courtauction-go-kr-to-silver-court-auction-code"
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T13:30:00Z",

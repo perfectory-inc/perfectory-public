@@ -333,6 +333,61 @@ class DetailPlanTest(unittest.TestCase):
             self.assertEqual(len(job.planned_objects(dirs, CONTRACT)), 1)
 
 
+def code_line(codes, outcome="read"):
+    """A 공통코드 line as the collector writes it, with made-up names (root ADR-0540 §5)."""
+
+    body = {"status": 200, "data": {"sccdLst": codes}}
+    return {"operation": "sccdList", "request": {"intgGrpCdLst": "LJH-AUCTN_DXDY_RSLT_CD"}, "http_status": 200,
+            "read_outcome": outcome, "body": json.dumps(body, ensure_ascii=False)}
+
+
+def code(system, group, value, name, owner=None):
+    return {"systmCd": system, "intgCdOnrIdntId": owner or system, "intgGrpCd": group, "intgCd": value,
+            "intgCdNm": name, "intgCdOnrDvsCd": 1, "intgInscrtMtjrCdLstCtt": None, "fstmIntgCdAddCtt": None,
+            "scntmIntgCdAddCtt": None}
+
+
+class CodeRowsTest(unittest.TestCase):
+    def rows(self, lines):
+        return job.code_rows_of(lines, CONTRACT[job.CODES_ROLE], "codes-object", "20990102T030405Z",
+                                datetime(2099, 1, 2, 3, 4, 5))
+
+    def test_each_code_of_a_read_is_a_row_and_the_last_naming_it_wins(self):
+        rows = self.rows([
+            code_line([code("LJH", "AUCTN_DXDY_RSLT_CD", "001", "합성매각"),
+                       code("LJH", "AUCTN_DXDY_RSLT_CD", "002", "합성유찰")]),
+            code_line([code("LJH", "AUCTN_DXDY_RSLT_CD", "002", "합성유찰2"),
+                       code("LJH", "ULTMT_DVS_CD", "000", "합성미종국", owner="JH")]),
+        ])
+        by = {(r["system_code"], r["owner_code"], r["group_code"], r["code"]): r for r in rows}
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(by[("LJH", "LJH", "AUCTN_DXDY_RSLT_CD", "002")]["name"], "합성유찰2")
+        self.assertEqual(by[("LJH", "LJH", "AUCTN_DXDY_RSLT_CD", "002")]["source_line_number"], 2)
+        self.assertIn(("LJH", "JH", "ULTMT_DVS_CD", "000"), by, "an owner other than the system is kept")
+        self.assertEqual(by[("LJH", "LJH", "AUCTN_DXDY_RSLT_CD", "001")]["owner_kind_code"], "1")
+
+    def test_a_failed_read_gives_no_code(self):
+        self.assertEqual(self.rows([{**code_line([]), "read_outcome": "failed", "body": "<html>"}]), [])
+        self.assertEqual(self.rows([code_line([code("LJH", "AUCTN_DXDY_RSLT_CD", "001", "x")], outcome="failed")]),
+                         [])
+
+    def test_a_code_row_names_only_the_code_tables_columns(self):
+        names = [c["name"] for c in load_lakehouse_contract(job.CODE_TABLE)["columns"]]
+        rows = self.rows([code_line([code("PGJ", "BID_DVS_CD", "000331", "합성기일입찰")])])
+        self.assertEqual(sorted(rows[0]), sorted(names))
+        self.assertEqual(tuple(load_lakehouse_contract(job.CODE_TABLE)["current_row_latest"]["key"]), job.CODE_KEY)
+
+    def test_the_code_objects_are_a_role_of_this_load(self):
+        self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_common_code"], job.CODES_ROLE)
+
+    def test_every_named_column_is_a_column_of_a_table_this_load_writes(self):
+        for group in CONTRACT["common_codes"]["groups"]:
+            for named in group["names"]:
+                table, column = named.rsplit(".", 1)
+                self.assertIn(table, job.DOCUMENT_TABLES, named)
+                self.assertIn(column, {c["name"] for c in load_lakehouse_contract(table)["columns"]}, named)
+
+
 @unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")
 class ChangesTest(unittest.TestCase):
     @classmethod

@@ -320,12 +320,13 @@ fn appends_as_a_declared_family(table_name: &str) -> bool {
 /// The versioned tables, and only they, say which row is current (root ADR-0267).
 /// The 법원경매 tables whose newest row per key is current and where none vanishes (root ADR-0384,
 /// ADR-0454, ADR-0540).
-const COURT_AUCTION_NEWEST_PER_KEY: [&str; 5] = [
+const COURT_AUCTION_NEWEST_PER_KEY: [&str; 6] = [
     SILVER_COURT_AUCTION_SALE_RESULT.table_name,
     SILVER_COURT_AUCTION_ITEM_DETAIL.table_name,
     SILVER_COURT_AUCTION_ITEM_PHOTO.table_name,
     lakehouse_domain::SILVER_COURT_AUCTION_CASE.table_name,
     lakehouse_domain::SILVER_COURT_AUCTION_ITEM_SPEC.table_name,
+    lakehouse_domain::SILVER_COURT_AUCTION_CODE.table_name,
 ];
 
 /// Tables appended per run whose newest row per key is current: an ILIS notice read and its
@@ -405,7 +406,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // A closed round's result is asked again only when the provider had none yet; the
             // newest answer is current, and a result never vanishes (root ADR-0280).
             // A 물건상세 read and a case's photo are appended; the newest per key is current, and none
-            // vanishes (root ADR-0384); so are the case and spec a read states (root ADR-0540).
+            // vanishes (root ADR-0384); so are the case and spec a read states and the site's code names
+            // (root ADR-0540).
             // An item's media index: the newest run that recorded a (item, hash) wins, and a
             // photo reference never vanishes (root ADR-0298). A notice read and its attachments
             // likewise (root ADR-0484). Document text and facts: once per extractor version, panel

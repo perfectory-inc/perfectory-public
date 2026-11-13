@@ -30,8 +30,10 @@ const round = {
       {
         schedule_date: "2099-03-15",
         schedule_time_raw: "1000",
+        schedule_kind_name: "합성매각기일",
         schedule_place: "제1호 법정",
         minimum_bid_price_krw: 100_000_000,
+        result_name: "합성유찰",
       },
     ],
     objects: [{ object_seq: 1, realty_kind: "토지", land_category: "공장용지", area_raw: "330㎡" }],
@@ -66,6 +68,14 @@ describe("court auction detail", () => {
     expect(screen.getByText("제1호 법정")).toBeTruthy();
     expect(screen.getByText("최저매각가격의 10%")).toBeTruthy();
     expect(screen.getByText("합성도 가나동 소재")).toBeTruthy();
+  });
+
+  it("shows the name the site gives a code, and nothing for a code without one (root ADR-0540 §5)", () => {
+    renderCard({ rounds: [round], source_attribution: "x" } as CourtAuction);
+    expect(screen.getByText("기일결과")).toBeTruthy();
+    expect(screen.getByText("합성유찰")).toBeTruthy();
+    expect(screen.getByText("합성매각기일")).toBeTruthy();
+    expect(screen.queryByText("물건종류"), "no name, no row").toBeNull();
   });
 
   it("shows an item whose 물건상세 is not read yet without a detail", () => {

@@ -54,7 +54,8 @@ table, slug = os.environ[prefix + "TABLE"], os.environ[prefix + "SOURCE_SLUGS"]
 assert {table: slug} in ({"silver.court_auction_item": "courtauctiongokr__auction_item"},
                          {"silver.court_auction_sale_result": "courtauctiongokr__auction_sale_result"},
                          {"silver.court_auction_item_detail": "courtauctiongokr__auction_item_detail"},
-                         {"silver.court_auction_appraisal_point": "courtauctiongokr__auction_item_detail"}), (table, slug)
+                         {"silver.court_auction_appraisal_point": "courtauctiongokr__auction_item_detail"},
+                         {"silver.court_auction_code": "courtauctiongokr__auction_common_code"}), (table, slug)
 assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "7")
 out = os.environ[prefix + "OUTPUT_DIR"]
 os.makedirs(out, exist_ok=True)
@@ -183,7 +184,8 @@ class CourtAuctionCommands(unittest.TestCase):
         plans = [call[i + 1].rsplit("/", 1)[1] for i, arg in enumerate(call) if arg == "--plan-dir"]
         # The 물건상세 objects are planned against their read record (root ADR-0384) and their last
         # document table, so a new document table is filled from the window's objects (root ADR-0540).
-        self.assertEqual(plans, ["items", "results", "details", "documents"])
+        # The 공통코드 objects are planned against the code table (root ADR-0540 §5).
+        self.assertEqual(plans, ["items", "results", "details", "documents", "codes"])
 
 
 if __name__ == "__main__":

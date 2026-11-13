@@ -11148,6 +11148,115 @@
         "object_suffix_separator": null
       }
     },
+    "silver.court_auction_code": {
+      "table_name": "silver.court_auction_code",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "system_code",
+          "owner_code",
+          "group_code",
+          "code"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY system_code, owner_code, group_code, code ORDER BY source_snapshot_id DESC NULLS LAST, source_line_number DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "system_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "owner_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "group_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "owner_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "listed_codes_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "first_extra_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "second_extra_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "system_code",
+        "owner_code",
+        "group_code",
+        "code"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(system_code, owner_code, group_code, code, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.industrial_complex_notice_detail": {
       "table_name": "silver.industrial_complex_notice_detail",
       "physical_format": "Parquet",

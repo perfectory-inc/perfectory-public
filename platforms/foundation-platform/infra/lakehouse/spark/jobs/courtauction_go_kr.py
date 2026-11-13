@@ -25,7 +25,9 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
   photos. Between them, the document's parts (root ADR-0540): `silver.court_auction_case` and
   `silver.court_auction_item_spec` the rows whose content changed, the lists (기일내역, 목록내역,
   제시외건물, 감정요항표) a whole edition per property or case whose list changed. A field that names a
-  person is not read; free text has its names masked (the contract's `personal_names`).
+  person is not read; free text has its names masked (the contract's `personal_names`);
+- for a 공통코드 object (root ADR-0540 §5): appends to `silver.court_auction_code` the codes whose
+  name changed, the site's name for each code the documents carry.
 
 `parse` reads the plan directories without Spark. The last stdout line is `court-auction-summary-json {json}`.
 """
@@ -76,6 +78,9 @@ DOCUMENT_TABLES = (*LATEST_KEYS, *EDITION_PER)
 # What one 물건상세 object commits, in order: its photos, its documents, then the read record the
 # collector's next frontier is computed from, so an object the record holds has everything else.
 DETAIL_TABLES = (PHOTO_TABLE, *DOCUMENT_TABLES, DETAIL_TABLE)
+CODES_ROLE = "common_codes"
+CODE_TABLE = "silver.court_auction_code"
+CODE_KEY = ("system_code", "owner_code", "group_code", "code")
 
 
 def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
@@ -288,7 +293,8 @@ def search_complete(lines: Sequence[Mapping[str, Any]], search: Mapping[str, Any
 def search_roles(contract: Mapping[str, Any]) -> dict[str, str]:
     """Source slug → the search its objects hold (root ADR-0014 `{provider}__{dataset}`)."""
 
-    return {f"courtauctiongokr__{contract[role]['dataset_slug']}": role for role in (*ROLE_TABLE, DETAIL_ROLE)}
+    return {f"courtauctiongokr__{contract[role]['dataset_slug']}": role
+            for role in (*ROLE_TABLE, DETAIL_ROLE, CODES_ROLE)}
 
 
 def snapshot_id(object_key: str) -> str:
@@ -331,6 +337,10 @@ def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], prefixes:
 
     with gzip.open(entry["path"], "rt", encoding="utf-8") as handle:
         lines = [json.loads(line) for line in handle if line.strip()]
+    if entry["role"] == CODES_ROLE:
+        return {"object_key": entry["object_key"], "complete": True,
+                "rows": code_rows_of(lines, contract[CODES_ROLE], entry["object_key"], entry["source_snapshot_id"],
+                                     ingested_at)}
     if entry["role"] == DETAIL_ROLE:
         rows = detail_rows_of(lines, contract[DETAIL_ROLE], entry["object_key"], entry["source_snapshot_id"], ingested_at)
         return {"object_key": entry["object_key"], "complete": True, **rows}
@@ -397,6 +407,37 @@ def detail_rows_of(lines: Sequence[Mapping[str, Any]], detail: Mapping[str, Any]
     return {"rows": details, "photo_rows": list(found.values()),
             "documents": {table: [row for value in rows.values() for row in (value if isinstance(value, list) else [value])]
                           for table, rows in documents.items()}}
+
+
+def code_rows_of(lines: Sequence[Mapping[str, Any]], codes: Mapping[str, Any], object_key: str, snapshot_id: str,
+                 ingested_at: datetime) -> list[dict[str, Any]]:
+    """A 공통코드 object's rows: one per (system, owner, group, code) a read answer lists
+    (`common_codes.result_pointer`), the last naming it winning. A failed read gives none."""
+
+    found: dict[tuple, dict[str, Any]] = {}
+    for number, line in enumerate(lines, start=1):
+        if line.get("read_outcome") != "read":
+            continue
+        try:
+            listed: Any = json.loads(line.get("body") or "")
+        except ValueError:
+            continue
+        for part in codes["result_pointer"].strip("/").split("/"):
+            listed = listed.get(part) if isinstance(listed, dict) else None
+        for item in _list(listed):
+            system, group, code = (text_or_none(item.get(f)) for f in ("systmCd", "intgGrpCd", "intgCd"))
+            if not system or not group or code is None:
+                continue
+            row = {"system_code": system, "owner_code": text_or_none(item.get("intgCdOnrIdntId")) or system,
+                   "group_code": group, "code": code, "name": text_or_none(item.get("intgCdNm")),
+                   "owner_kind_code": text_or_none(item.get("intgCdOnrDvsCd")),
+                   "listed_codes_raw": text_or_none(item.get("intgInscrtMtjrCdLstCtt")),
+                   "first_extra_raw": text_or_none(item.get("fstmIntgCdAddCtt")),
+                   "second_extra_raw": text_or_none(item.get("scntmIntgCdAddCtt")),
+                   "source_record_id": object_key, "source_line_number": number, "source_snapshot_id": snapshot_id,
+                   "ingested_at_utc": ingested_at}
+            found[tuple(row[k] for k in CODE_KEY)] = row
+    return list(found.values())
 
 
 def _list(value: Any) -> list[Mapping[str, Any]]:
@@ -663,6 +704,34 @@ def load_detail_object(spark: Any, args: argparse.Namespace, entry: Mapping[str,
     return counts
 
 
+def load_code_object(spark: Any, args: argparse.Namespace, entry: Mapping[str, Any],
+                     search: Mapping[str, Any]) -> dict[str, Any]:
+    """Commits one 공통코드 object: the codes whose name (or extra fields) changed, empty if none, so
+    the table records it (root ADR-0540 §5)."""
+
+    from data_go_kr_onbid import changed_only  # noqa: PLC0415 - the same changed-key compare
+    from lakehouse_ingest import append_source_object  # noqa: PLC0415
+    from platform_contracts import (  # noqa: PLC0415
+        column_names, current_rows, ensure_contract_table, load_lakehouse_contract, spark_sql_type,
+    )
+
+    contract = load_lakehouse_contract(CODE_TABLE)
+    table = f"`{args.iceberg_catalog_name}`.`silver`.`{CODE_TABLE.split('.', 1)[1]}{args.table_suffix}`"
+    ensure_contract_table(spark, table, contract)
+    columns = list(column_names(contract))
+    ddl = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
+    staged = spark.createDataFrame([tuple(row.get(c) for c in columns) for row in search["rows"]], ddl)
+    content = [c for c in columns if c not in (*CODE_KEY, *LOAD_COLUMNS)]
+    staged = changed_only(staged, current_rows(spark.table(table), contract), CODE_KEY, content)
+    staged = staged.select(*columns).cache()
+    counts = {"object": entry["object_key"], "role": CODES_ROLE, "rows": len(search["rows"]),
+              "appended_rows": staged.count()}
+    counts["appended"] = append_source_object(spark, staged, columns, table, entry["object_key"],
+                                              contract_table=CODE_TABLE)
+    staged.unpersist()
+    return counts
+
+
 def relinked_rows(rows: Sequence[Mapping[str, Any]], record: str, snapshot: str, ingested_at: datetime,
                   prefixes: Mapping[str, str], dongs: Mapping[tuple[str, str], str]) -> list[dict[str, Any]]:
     """The current rows again, each with what its kept address offers the joins now (root ADR-0416).
@@ -782,6 +851,9 @@ def _load(argv: Sequence[str]) -> int:
             role = entry["role"]
             if role == DETAIL_ROLE:
                 summary["objects"].append(load_detail_object(spark, args, entry, search))
+                continue
+            if role == CODES_ROLE:
+                summary["objects"].append(load_code_object(spark, args, entry, search))
                 continue
             contract_table = ROLE_TABLE[role]
             contract = load_lakehouse_contract(contract_table)

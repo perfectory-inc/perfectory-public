@@ -287,6 +287,7 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 실거래가 (`silver.real_transaction`) | `parcel-real-transaction` | — | 화면 |
 | 거래·공매·경매 | 법원경매 감정요항표 (`silver.court_auction_appraisal_point`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 사건 (`silver.court_auction_case`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 법원경매 공통코드 (`silver.court_auction_code`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 진행 물건 (`silver.court_auction_item`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 제시외건물 (`silver.court_auction_item_annex`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 목록내역 (`silver.court_auction_item_object`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
