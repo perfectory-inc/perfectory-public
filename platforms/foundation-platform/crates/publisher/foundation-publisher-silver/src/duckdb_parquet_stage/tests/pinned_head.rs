@@ -47,7 +47,7 @@ impl Lineage {
     }
 
     /// Whether a staged file named `name` was uploaded under the table's `data/`.
-    async fn uploaded(&self, name: &str) -> anyhow::Result<bool> {
+    fn uploaded(&self, name: &str) -> anyhow::Result<bool> {
         let location = format!("{}/data/{name}.parquet", self.shape.location);
         Ok(std::fs::exists(
             location.strip_prefix("file://").unwrap_or(&location),
@@ -90,7 +90,7 @@ async fn rows_diffed_against_a_head_are_appended_only_while_main_is_that_head() 
         (refused.expected, refused.found),
         (None, Some(snapshot_a.snapshot_id))
     );
-    assert!(!lineage.uploaded("run-b").await?);
+    assert!(!lineage.uploaded("run-b")?);
     assert_eq!(lineage.snapshot_count().await?, 1);
 
     // Another commit moves main (a compaction, another run): the difference against A is stale.

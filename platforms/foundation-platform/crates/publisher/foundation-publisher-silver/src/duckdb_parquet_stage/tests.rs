@@ -116,7 +116,13 @@ async fn catalog_partitioned(
             NestedField::optional(id, column.name, kind)
         }));
         if let Some((_, transform)) = partitions.iter().find(|(name, _)| *name == column.name) {
-            partition = partition.add_partition_field(id, column.name, *transform)?;
+            // Iceberg keeps a column's own name for its identity partition alone.
+            let name = if *transform == Transform::Identity {
+                column.name.to_owned()
+            } else {
+                format!("{}_{transform}", column.name).replace(['[', ']'], "_")
+            };
+            partition = partition.add_partition_field(id, name, *transform)?;
         }
     }
     catalog
