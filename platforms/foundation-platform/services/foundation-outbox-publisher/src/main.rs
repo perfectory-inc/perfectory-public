@@ -253,6 +253,7 @@ enum Command {
     MeasureBronzeObjectMembers,
     ClearStagingNamespace,
     ExportLineageStewardFold,
+    AppendLineageStewardFold,
     ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -565,6 +566,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::MeasureBronzeObjectMembers => Box::pin(bronze_object_members::run()),
         Command::ClearStagingNamespace => Box::pin(staging_namespace::clear()),
         Command::ExportLineageStewardFold => Box::pin(lineage_steward_fold::export()),
+        Command::AppendLineageStewardFold => Box::pin(lineage_steward_fold::append()),
         Command::ExportLegalDongStewardDecisions => {
             Box::pin(lineage_steward_fold::export_legal_dong())
         }
@@ -713,6 +715,7 @@ where
         Some("measure-bronze-object-members") => Ok(Command::MeasureBronzeObjectMembers),
         Some("clear-staging-namespace") => Ok(Command::ClearStagingNamespace),
         Some("export-lineage-steward-fold") => Ok(Command::ExportLineageStewardFold),
+        Some("append-lineage-steward-fold") => Ok(Command::AppendLineageStewardFold),
         Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),

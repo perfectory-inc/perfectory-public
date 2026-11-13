@@ -168,6 +168,10 @@ fn lineage_steward_fold_commands_are_explicit() -> anyhow::Result<()> {
         Command::ExportLineageStewardFold
     );
     assert_eq!(
+        parse_command(["foundation-outbox-publisher", "append-lineage-steward-fold"])?,
+        Command::AppendLineageStewardFold
+    );
+    assert_eq!(
         parse_command([
             "foundation-outbox-publisher",
             "export-legal-dong-steward-decisions"

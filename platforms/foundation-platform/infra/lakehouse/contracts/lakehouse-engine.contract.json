@@ -176,7 +176,11 @@
         "wave": 3
       },
       "lineage_steward_fold_to_silver": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1367,
+          "rows": 50000,
+          "fingerprint": null
+        }
       },
       "onbid_public_auction_silver_to_gold": {
         "wave": 3

@@ -14,7 +14,8 @@
 #               (parcel_lineage_scheduled.py, root ADR-0113 §1). 쌓인 묶음은 건너뛰고 예산을 넘기면 다음 회차가 잇는다.
 #
 #   1. 접기   — 서 있는 스튜어드 결정을 silver.parcel_lineage 에 steward 행으로 쌓는다
-#               (export-lineage-steward-fold → Spark → record-lineage-steward-folds).
+#               (export-lineage-steward-fold → append-lineage-steward-fold → record-lineage-steward-folds;
+#               발행기 안의 DuckDB 와 발행기의 Iceberg 추가 커밋, root ADR-0560).
 #   2. 목록   — 계보에서 검토 목록을 다시 만든다(gold.lineage_review_queue + 넘김 파일).
 #               접기를 먼저 해야 방금 결정한 필지가 목록에서 빠진다.
 #   3. 적재   — 넘김 파일을 스튜어드 DB 에 통째로 바꿔 넣는다(load-lineage-review-items).
@@ -185,8 +186,11 @@ FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_OUTPUT="${work}/fold.json" \
   "${PUBLISHER_BIN}" export-lineage-steward-fold >> "${run_log}" 2>&1
 folded=0
 if [ "$(json_field "${work}/fold.json" '["row_count"]')" != 0 ]; then
-  spark lineage_steward_fold_to_silver.py --input "${container_work}/fold.json" \
-    --summary-output "${container_work}/fold-summary.json" --allow-non-smoke-write
+  # 발행기 안의 DuckDB 가 행을 준비하고 발행기가 한 번의 Iceberg 추가 커밋으로 붙인다(root ADR-0560).
+  # Spark 세션을 열지 않는다. main 이 이미 그 run 을 기록했으면 아무것도 쓰지 않는다.
+  FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_OUTPUT="${work}/fold.json" \
+  FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_SUMMARY="${work}/fold-summary.json" \
+    "${PUBLISHER_BIN}" append-lineage-steward-fold >> "${run_log}" 2>&1
   FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_SUMMARY="${work}/fold-summary.json" \
     "${PUBLISHER_BIN}" record-lineage-steward-folds >> "${run_log}" 2>&1
   folded="$(json_field "${work}/fold-summary.json" '["rows"]')"

@@ -36,8 +36,9 @@ last_reviewed: 2026-10-16
 
 1. `foundation-outbox-publisher export-lineage-steward-fold` — 서 있고(대체 안 됨), 효력 있고(승인 불필요 또는 승인됨),
    근거가 그대로이고, 아직 안 접힌 결정을 계보 행 파일로 쓴다. 행 모양은 `stewardship_domain::fold::lineage_row`.
-2. `lineage_steward_fold_to_silver.py --input <파일> --summary-output <요약>` — `silver.parcel_lineage` 에 한 번만 덧붙인다
-   (결정 id 로 만든 run id 라 재실행해도 두 번 쌓이지 않는다).
+2. `foundation-outbox-publisher append-lineage-steward-fold` — 파일을 다시 검사하고, 발행기 안의 DuckDB 가 행을 준비해
+   발행기가 `silver.parcel_lineage` 에 한 번의 Iceberg 추가 커밋으로 덧붙인다(ADR-0560; Spark 세션을 열지 않는다).
+   결정 id 로 만든 run id 라 재실행해도 두 번 쌓이지 않는다.
 3. `foundation-outbox-publisher record-lineage-steward-folds` — 요약을 읽어 접힘을 기록한다.
 
 법정동 짝(ADR-0263)은 `export-legal-dong-steward-decisions` 가 서 있는 승인을 내보내고, 짝 맞추기
