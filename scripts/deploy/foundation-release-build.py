@@ -7,7 +7,8 @@ Runs on a GitHub-hosted runner from a checkout of the commit it builds; nothing 
 credential. It builds what the server's release admission builds today, from the same definitions,
 read from foundation-release-admission.py rather than repeated (its images, the Spark image and the
 engine's packages for the jars), and also every image a compose file builds (foundation-api and the
-recovery Postgres, which the server builds outside admission today). It writes:
+recovery Postgres, which the server builds outside admission today), and the DuckDB extension files
+the engine contract pins, which this release's publisher must load with no network. It writes:
 
     <dir>/manifest.json            foundation-platform.release_manifest.v1
     <dir>/blobs/sha256/<digest>    every file, jar and OCI blob the manifest names, once
@@ -46,6 +47,7 @@ COMPOSE_FILES = ("docker-compose.yml", "compose.recovery.yml", "compose.lakehous
                  "../../consoles/dawneer/compose.yml", "../intelligence-platform/compose.document-jobs.yml")
 FILE_MODES = {"foundation-outbox-publisher": "0555"}
 JAR_MODE = "0444"
+EXTENSION_MODE = "0444"
 
 
 def admission():
@@ -220,6 +222,26 @@ def resolve_jars(release, work: Path) -> list[Path]:
     return jars
 
 
+def engine_extensions(release, work: Path) -> list[tuple[Path, str]]:
+    """The DuckDB extension files the release's contract pins (root ADR-0559 §6), fetched by the one
+    pinned fetcher of this commit and held to the contract: (path, artifact name)."""
+    fetched = work / "engine-extensions"
+    fetched.mkdir()
+    release.fetch_engine_extensions(PLATFORM, fetched, fetcher=ROOT / "scripts" / "ci" / "fetch_pinned.py",
+                                    environment=dict(os.environ))
+    release.require_engine_extensions(PLATFORM, fetched)
+    return [(fetched / name, name) for name in release.engine_extensions(PLATFORM)]
+
+
+def extensions_load_offline(tree: Path, publisher_image: str) -> None:
+    """This release's publisher loads this release's extension files with no network, before anything
+    is signed: the files are where the executable looks (beside it), they are builds for its DuckDB,
+    and nothing is fetched to load them. A release that fails here would fail in front of a running job."""
+    run("docker", "run", "--rm", "--network", "none", "--user", f"{os.getuid()}:{os.getgid()}",
+        "--mount", f"type=bind,src={tree},dst=/release,readonly",
+        "--entrypoint", "/release/foundation-outbox-publisher", publisher_image, "verify-lakehouse-engine-extensions")
+
+
 def generated_paths() -> tuple[str, ...]:
     """The artifacts the declared definitions generate (scripts/catalog/declared_definitions.py), as
     repository paths; this checkout holds them (CI generates them after its checkout, root ADR-0418)."""
@@ -273,11 +295,18 @@ def main() -> int:
         # holds them as it holds the images; the manifest names each file's own digest as well.
         tree = work / "files"
         (tree / "jars").mkdir(parents=True)
+        started = time.monotonic()
+        extensions = engine_extensions(release, work)
         for path, name, mode in [(binary, "foundation-outbox-publisher", FILE_MODES["foundation-outbox-publisher"]),
-                                 *((jar, f"jars/{jar.name}", JAR_MODE) for jar in jars)]:
+                                 *((jar, f"jars/{jar.name}", JAR_MODE) for jar in jars),
+                                 *((path, name, EXTENSION_MODE) for path, name in extensions)]:
+            (tree / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, tree / name)
             (tree / name).chmod(int(mode, 8))
             files[name] = {"sha256": f"sha256:{sha256_of(path)}", "size": path.stat().st_size, "mode": mode}
+        extensions_load_offline(tree, images["publisher"]["config"])
+        measured["engine_extensions"] = {"seconds": round(time.monotonic() - started), "files": len(extensions),
+                                         "bytes": sum(path.stat().st_size for path, _ in extensions)}
         (work / "files.Dockerfile").write_text("FROM scratch\nCOPY . /\n", encoding="utf-8")
         images["files"], measured["files"] = build_image(release, "files", str(work / "files.Dockerfile"), str(tree), {},
                                                          work, blobs)

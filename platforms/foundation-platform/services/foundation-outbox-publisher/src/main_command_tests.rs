@@ -587,6 +587,18 @@ fn write_r2_bronze_key_cleanup_candidates_command_is_explicit() -> anyhow::Resul
 }
 
 #[test]
+fn verify_lakehouse_engine_extensions_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "verify-lakehouse-engine-extensions"
+        ])?,
+        Command::VerifyLakehouseEngineExtensions
+    );
+    Ok(())
+}
+
+#[test]
 fn verify_r2_cleanup_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "verify-r2-cleanup"])?,

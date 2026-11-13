@@ -406,7 +406,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}-${{ hashFiles('tools/pinned-artifacts.json', 'tools/*.env', 'platforms/foundation-platform/config/static-release-toolchain.contract.json') }}
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ hashFiles('tools/pinned-artifacts.json', 'tools/*.env', 'platforms/foundation-platform/config/static-release-toolchain.contract.json', 'platforms/foundation-platform/infra/lakehouse/contracts/duckdb-extensions.contract.json') }}
 
       - name: Select Windows static-release toolchain gate
         working-directory: ${{ github.workspace }}
@@ -1123,6 +1123,14 @@ jobs:
       - name: Room for the build
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/release-build-runner-room.sh
+      # The DuckDB extension files the release carries are pinned downloads (root ADR-0559 §6): the
+      # build takes them from the cache main filled, not from the network a release would wait on.
+      - name: Restore pinned release binaries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/pinned
+          key: pinned-release-binaries-v1-${{ runner.os }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
       - name: Build the release, attest and publish nothing
         working-directory: ${{ github.workspace }}
         run: python3 scripts/deploy/foundation-release-build.py --out "$RUNNER_TEMP/release" --cache-ref "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release" --cache-read-only

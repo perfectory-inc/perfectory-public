@@ -135,6 +135,7 @@
     }
   },
   "contracts": [
-    "platforms/foundation-platform/config/static-release-toolchain.contract.json"
+    "platforms/foundation-platform/config/static-release-toolchain.contract.json",
+    "platforms/foundation-platform/infra/lakehouse/contracts/duckdb-extensions.contract.json"
   ]
 }

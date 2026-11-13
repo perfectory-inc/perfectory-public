@@ -333,8 +333,10 @@ def seal_artifacts(release_id: str, target: Path, images: dict[str, str],
     """
     files = artifact_files(target)
     jars = [name for name in files if re.fullmatch(r"jars/[A-Za-z0-9_.-]+\.jar", name)]
-    if not jars or set(files) != {"foundation-outbox-publisher", *jars}:
-        raise ValueError("unexpected build output; a publisher and resolved jars are required")
+    extensions = [name for name in files if ENGINE_EXTENSION_FILE.fullmatch(name)]
+    if not jars or set(files) != {"foundation-outbox-publisher", *jars, *extensions}:
+        raise ValueError("unexpected build output; a publisher, resolved jars and at most the engine's "
+                         "extension files are required")
     own = {name for name, _, _, _ in RELEASE_IMAGES}
     if set(images) - set(OPTIONAL_COMPOSE_IMAGES) not in (own, own | set(COMPOSE_IMAGES)) or not all(
             re.fullmatch(r"sha256:[0-9a-f]{64}", image) for image in images.values()):
@@ -392,6 +394,65 @@ def engine_packages(target: Path) -> str:
          "from lakehouse_engine import iceberg_packages;print(iceberg_packages())"],
         cwd=target, env=control_environment(), stderr=subprocess.PIPE,
     ).decode().strip()
+
+
+# The DuckDB extension files the release's publisher loads by path, never from the network (root
+# ADR-0559 §6): pinned in the release's own contract, shipped beside the executable.
+ENGINE_EXTENSIONS_CONTRACT = "infra/lakehouse/contracts/duckdb-extensions.contract.json"
+ENGINE_EXTENSION_FILE = re.compile(r"duckdb-extensions/[a-z0-9_]+\.duckdb_extension")
+ENGINE_EXTENSIONS_PLATFORM = "linux-x86_64"
+
+
+def engine_extensions(target: Path) -> dict[str, dict]:
+    """Artifact name -> {distribution, sha256, size} of each extension file the release pins.
+
+    A release from before the contract pins none, and its artifacts hold none (a rollback).
+    """
+    path = target / ENGINE_EXTENSIONS_CONTRACT
+    if not path.is_file():
+        return {}
+    contract = json.loads(path.read_text(encoding="utf-8"))
+    result = {}
+    for distribution in contract["load_order"]:
+        file = contract["distributions"][distribution]["platforms"][ENGINE_EXTENSIONS_PLATFORM]["file"]
+        name = f"{contract['directory']}/{file['name']}"
+        if not ENGINE_EXTENSION_FILE.fullmatch(name) or not re.fullmatch(r"[0-9a-f]{64}", file["sha256"]):
+            raise ValueError(f"the engine extension contract names an unusable file: {name}")
+        result[name] = {"distribution": distribution, "sha256": file["sha256"], "size": file["size"]}
+    if len(result) != len(contract["load_order"]) or set(contract["load_order"]) != set(contract["distributions"]):
+        raise ValueError("the engine extension contract's load order and distributions differ")
+    return result
+
+
+def fetch_engine_extensions(target: Path, output: Path, fetcher: Path | None = None,
+                            environment: dict[str, str] | None = None) -> None:
+    """Write every pinned extension file under `output`, through the one pinned fetcher (root ADR-0197).
+
+    The server's own build calls it with the control checkout's fetcher and the administrator's
+    cache; the CI release build passes the fetcher of the commit it builds and its own environment.
+    """
+    if environment is None:
+        PINNED_CACHE.mkdir(mode=0o700, parents=True, exist_ok=True)
+        protected_path(PINNED_CACHE)
+        environment = {**control_environment(), "PERFECTORY_PINNED_CACHE": str(PINNED_CACHE)}
+    for name, pin in engine_extensions(target).items():
+        subprocess.check_output(
+            ["/usr/bin/python3", "-I", "-B", str(fetcher or CONTROL_ROOT / "scripts/ci/fetch_pinned.py"),
+             "distribution", str(target / ENGINE_EXTENSIONS_CONTRACT), pin["distribution"], "--output", str(output / name)],
+            env=environment, stderr=subprocess.PIPE)
+
+
+def require_engine_extensions(target: Path, output: Path) -> None:
+    """The build output's extension files are exactly the ones the release's own contract pins.
+
+    The files a registry release carries are signed, but signed by the build; this holds them to the
+    source the release was admitted as, so a publisher never loads an extension its contract did not name.
+    """
+    expected = {name: pin["sha256"] for name, pin in engine_extensions(target).items()}
+    actual = {name: digest for name, digest in artifact_files(output).items() if ENGINE_EXTENSION_FILE.fullmatch(name)}
+    if actual != expected:
+        raise ValueError("the build output's DuckDB extension files are not the ones the release's contract pins: "
+                         f"{sorted(set(actual) ^ set(expected)) or sorted(name for name in expected if actual[name] != expected[name])}")
 
 
 # Spark is in the lakehouse-batch profile; without it Compose leaves the service out of `config`.
@@ -934,6 +995,7 @@ def build_artifacts(target: Path) -> None:
                                                 env=control_environment(), stderr=subprocess.PIPE)
             if b"not found" in libraries:
                 raise ValueError("publisher requires unavailable host runtime libraries")
+            require_engine_extensions(target, output)
             seal_artifacts(release_id, output, images)
             output.rename(destination)
         verify_artifacts(release_id, destination)
@@ -1045,6 +1107,8 @@ def build_locked(target: Path, release_id: str, destination: Path, limits) -> No
             if jar.is_symlink() or not jar.is_file():
                 raise ValueError("dependency resolver produced a non-regular jar")
             shutil.copyfile(jar, output / "jars" / jar.name)
+        fetch_engine_extensions(target, output)
+        require_engine_extensions(target, output)
         seal_artifacts(release_id, output, images, caches_used)
         output.rename(destination)
     verify_artifacts(release_id, destination)

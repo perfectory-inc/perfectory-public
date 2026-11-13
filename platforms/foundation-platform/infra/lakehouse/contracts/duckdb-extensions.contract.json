@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md",
+  "purpose": "Single source of truth for the DuckDB extension files a release carries beside the publisher (root ADR-0559 §6). The publisher's bundled DuckDB reads Bronze objects and Iceberg tables on R2 through them, loaded by path from the release and never downloaded at run time: automatic install and load stay off (root ADR-0127). The release build fetches each pinned download through scripts/ci/fetch_pinned.py, unpacks it, holds the file to the digest and size below, puts it under `directory` in the release's files, and then runs that release's own publisher with no network (`verify-lakehouse-engine-extensions`) before anything is signed; release admission holds the installed files to this contract again. A build of an extension only loads into the DuckDB it was built for, so `duckdb_version` and `platform` are what the bundled DuckDB must report, and raising the `duckdb` crate means raising every pin here in the same pull request.",
+  "duckdb_version": "v2.0.0",
+  "platform": "linux_amd64",
+  "directory": "duckdb-extensions",
+  "load_order": ["httpfs", "avro", "iceberg"],
+  "load_order_reason": "iceberg reads manifests through avro and data files through httpfs. With automatic loading off it does not load them itself, so they are loaded first.",
+  "distributions": {
+    "httpfs": {
+      "extension_version": "77392a7207",
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/httpfs.duckdb_extension.gz",
+          "sha256": "ee6c7d7e60a5da1b6f6bf6156b4298b55ddce0496a5bfe628bd6ab6d47eb8e3e",
+          "file": {
+            "name": "httpfs.duckdb_extension",
+            "compression": "gzip",
+            "sha256": "77e6c429aa04f25da7962572f12b19113e0ce46080fa1365ad66017aadcdb68d",
+            "size": 26929718
+          }
+        }
+      }
+    },
+    "avro": {
+      "extension_version": "345c3f4e82",
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/avro.duckdb_extension.gz",
+          "sha256": "35447cb42ade2f723f53416ee336dc9ee30ba3584f290e01165398c80f56fd92",
+          "file": {
+            "name": "avro.duckdb_extension",
+            "compression": "gzip",
+            "sha256": "3f37797ca9a4ef3b5a07e65278c653fe0a32f7edea1498c801022fed49afedc7",
+            "size": 28342942
+          }
+        }
+      }
+    },
+    "iceberg": {
+      "extension_version": "4c0c0874c4",
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/iceberg.duckdb_extension.gz",
+          "sha256": "ddc8e8f4af60e6e3accffa1b38043c328c810db91215d6299f29cc933655bf1a",
+          "file": {
+            "name": "iceberg.duckdb_extension",
+            "compression": "gzip",
+            "sha256": "b93676e544e5c6843915fb3392e3b3c35859c065fa6ace7a26cb46ca4394e56d",
+            "size": 57088302
+          }
+        }
+      }
+    }
+  }
+}
