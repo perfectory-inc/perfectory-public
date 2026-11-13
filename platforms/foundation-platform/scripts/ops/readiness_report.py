@@ -117,7 +117,7 @@ def job_row(job: dict, runs: dict, reason: str | None, problems: list[dict], now
         "state": state, "last_success_utc": iso(success), "last_failure_utc": iso(failure),
         "budget_hours": None if budget is None else round(budget / 3600, 1),
         "success_age_hours": None if success is None else round((now - success) / 3600, 1),
-        "result": result_of(runs["failure"][1]) if failing else None,
+        "result": result_of(runs["failure"][1], reason) if failing else None,
         "reason": reason if failing else None,
         "problems": sorted({f'{p["kind"]}: {p["summary"]}' for p in problems}),
         "outcome_missed": [f'{m["expectation"]}: none in {round((m["expected_seconds"] + m["overdue_seconds"]) / 3600, 1)} h'
@@ -125,9 +125,13 @@ def job_row(job: dict, runs: dict, reason: str | None, problems: list[dict], now
     }
 
 
-def result_of(message: str) -> str | None:
-    """systemd's word for how a failed run ended: exit-code, timeout, signal, oom-kill."""
+def result_of(message: str, reason: str | None = None) -> str | None:
+    """systemd's word for how a failed run ended: exit-code, timeout, signal, oom-kill. A run whose
+    Spark container its memory limit killed ends `exit-code` to systemd, outside Docker's cgroup; its
+    `oom-kill:` line (admitted-writer-runtime.sh lakehouse_spark_run) makes it `oom-kill`."""
     found = re.search(r"Failed with result '([\w-]+)'", message)
+    if found and found[1] == "exit-code" and reason and "oom-kill:" in reason:
+        return "oom-kill"
     return found[1] if found else None
 
 

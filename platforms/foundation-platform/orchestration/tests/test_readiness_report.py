@@ -51,6 +51,14 @@ class Jobs(unittest.TestCase):
         row = report.job_row(job(), runs, "Error: boom", [], NOW)
         self.assertEqual((row["state"], row["result"], row["reason"]), ("failing", "timeout", "Error: boom"))
 
+    def test_a_spark_container_killed_by_its_memory_limit_is_oom_kill_not_exit_code(self):
+        # 2026-11-13 18:40Z rt-molit-silver-load: kernel memory-cgroup kill of java, systemd `exit-code`.
+        runs = report.unit_runs([event(NOW - 7200, "x.service: Deactivated successfully."),
+                                 event(NOW - 600, "x.service: Failed with result 'exit-code'.")])
+        reason = "lakehouse-spark-run: oom-kill: the spark container of p ran out of its memory limit (Docker oom event); exit 137"
+        self.assertEqual(report.job_row(job(), runs, reason, [], NOW)["result"], "oom-kill")
+        self.assertEqual(report.job_row(job(), runs, "Error: boom", [], NOW)["result"], "exit-code")
+
     def test_a_success_older_than_one_period_and_the_limit_is_stale(self):
         runs = report.unit_runs([event(NOW - 86400 - 90 * 60 - 1, "Finished x.")])
         self.assertEqual(report.job_row(job(), runs, None, [], NOW)["state"], "stale")
