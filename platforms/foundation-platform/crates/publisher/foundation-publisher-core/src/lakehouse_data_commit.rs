@@ -11,25 +11,30 @@
 //! staged on a branch and a `MERGE` stay on the Spark commit path (ADR-0560 §4, §5). Reads, tags
 //! and branch publishes stay in `lakehouse_infrastructure::IcebergRestCatalog`; nothing here reads
 //! rows.
+//!
+//! A table of appended row versions (root ADR-0564 §3) is appended to with
+//! [`LakehouseDataCommitter::append_at_head`]: its rows were diffed against one snapshot of `main`,
+//! so they are appended only while `main` is still that snapshot.
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fs::File,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex, PoisonError},
 };
 
 use anyhow::{bail, ensure, Context};
+use async_trait::async_trait;
 use bytes::Bytes;
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
 use iceberg::{
     spec::{
         DataContentType, DataFile, DataFileBuilder, DataFileFormat, Datum, Literal, NestedField,
-        PrimitiveType, Struct, Transform, Type,
+        PrimitiveLiteral, PrimitiveType, Struct, Transform, Type,
     },
     table::Table,
     transaction::{ApplyTransactionAction, Transaction},
-    Catalog, CatalogBuilder, NamespaceIdent, TableIdent,
+    Catalog, CatalogBuilder, Namespace, NamespaceIdent, TableCommit, TableCreation, TableIdent,
 };
 use iceberg_catalog_rest::RestCatalogBuilder;
 use iceberg_storage_opendal::OpenDalStorageFactory;
@@ -125,6 +130,144 @@ pub enum AppendOutcome {
     AlreadyIngested,
 }
 
+/// `main` is not at the snapshot the caller's rows were computed against, so nothing was appended
+/// ([`LakehouseDataCommitter::append_at_head`]). The caller plans again from the new head; when the
+/// new head records the caller's own batch, an earlier attempt's commit landed and its response
+/// was lost.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeadMoved {
+    /// `namespace.table`.
+    pub table_name: String,
+    /// The snapshot the rows were diffed against (`None`: a table with no snapshot yet).
+    pub expected: Option<i64>,
+    /// What `main` names now.
+    pub found: Option<i64>,
+}
+
+impl std::fmt::Display for HeadMoved {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} moved from snapshot {:?} to {:?} since its rows were computed: nothing was appended",
+            self.table_name, self.expected, self.found
+        )
+    }
+}
+
+impl std::error::Error for HeadMoved {}
+
+/// A catalog that loads a table only while its `main` is at one snapshot.
+///
+/// The library's commit reloads the table before every attempt and re-applies the append to
+/// whatever head it finds (`iceberg` 0.11.0 `Transaction::do_commit`): right for a blind append,
+/// wrong for rows that are a difference against one head. Its actions cannot be given a
+/// requirement of ours (`TransactionAction` is crate-private), so the reload itself is where the
+/// head is checked. When it passes, the requirement the library sends
+/// (`RefSnapshotIdMatch(main, that head)`) makes the catalog refuse a commit that raced in after.
+#[derive(Debug)]
+struct HeadPinned {
+    inner: Arc<dyn Catalog>,
+    expected: Option<i64>,
+    /// The head a reload found instead, once one did.
+    moved_to: Mutex<Option<Option<i64>>>,
+}
+
+#[async_trait]
+impl Catalog for HeadPinned {
+    async fn list_namespaces(
+        &self,
+        parent: Option<&NamespaceIdent>,
+    ) -> iceberg::Result<Vec<NamespaceIdent>> {
+        self.inner.list_namespaces(parent).await
+    }
+
+    async fn create_namespace(
+        &self,
+        namespace: &NamespaceIdent,
+        properties: HashMap<String, String>,
+    ) -> iceberg::Result<Namespace> {
+        self.inner.create_namespace(namespace, properties).await
+    }
+
+    async fn get_namespace(&self, namespace: &NamespaceIdent) -> iceberg::Result<Namespace> {
+        self.inner.get_namespace(namespace).await
+    }
+
+    async fn namespace_exists(&self, namespace: &NamespaceIdent) -> iceberg::Result<bool> {
+        self.inner.namespace_exists(namespace).await
+    }
+
+    async fn update_namespace(
+        &self,
+        namespace: &NamespaceIdent,
+        properties: HashMap<String, String>,
+    ) -> iceberg::Result<()> {
+        self.inner.update_namespace(namespace, properties).await
+    }
+
+    async fn drop_namespace(&self, namespace: &NamespaceIdent) -> iceberg::Result<()> {
+        self.inner.drop_namespace(namespace).await
+    }
+
+    async fn list_tables(&self, namespace: &NamespaceIdent) -> iceberg::Result<Vec<TableIdent>> {
+        self.inner.list_tables(namespace).await
+    }
+
+    async fn create_table(
+        &self,
+        namespace: &NamespaceIdent,
+        creation: TableCreation,
+    ) -> iceberg::Result<Table> {
+        self.inner.create_table(namespace, creation).await
+    }
+
+    async fn load_table(&self, table: &TableIdent) -> iceberg::Result<Table> {
+        let loaded = self.inner.load_table(table).await?;
+        let found = loaded.metadata().current_snapshot_id();
+        if found != self.expected {
+            *self.moved_to.lock().unwrap_or_else(PoisonError::into_inner) = Some(found);
+            // Not retryable: the rows are a difference against `expected`, and no retry makes
+            // `main` that snapshot again.
+            return Err(iceberg::Error::new(
+                iceberg::ErrorKind::DataInvalid,
+                format!(
+                    "main is at snapshot {found:?}, not the {:?} the rows were computed against",
+                    self.expected
+                ),
+            ));
+        }
+        Ok(loaded)
+    }
+
+    async fn drop_table(&self, table: &TableIdent) -> iceberg::Result<()> {
+        self.inner.drop_table(table).await
+    }
+
+    async fn purge_table(&self, table: &TableIdent) -> iceberg::Result<()> {
+        self.inner.purge_table(table).await
+    }
+
+    async fn table_exists(&self, table: &TableIdent) -> iceberg::Result<bool> {
+        self.inner.table_exists(table).await
+    }
+
+    async fn rename_table(&self, src: &TableIdent, dest: &TableIdent) -> iceberg::Result<()> {
+        self.inner.rename_table(src, dest).await
+    }
+
+    async fn register_table(
+        &self,
+        table: &TableIdent,
+        metadata_location: String,
+    ) -> iceberg::Result<Table> {
+        self.inner.register_table(table, metadata_location).await
+    }
+
+    async fn update_table(&self, commit: TableCommit) -> iceberg::Result<Table> {
+        self.inner.update_table(commit).await
+    }
+}
+
 /// Commits staged Parquet files to Iceberg tables of one catalog.
 #[derive(Clone)]
 pub struct LakehouseDataCommitter {
@@ -207,6 +350,42 @@ impl LakehouseDataCommitter {
     /// a missing bound on a column the contract sorts by, and a file that is not one partition.
     /// Returns the library's error when the catalog refuses the commit after its retries.
     pub async fn append(&self, request: DataAppend<'_>) -> anyhow::Result<AppendOutcome> {
+        ensure!(
+            !request.files.is_empty(),
+            "an append to {} names no staged file",
+            request.table_name
+        );
+        self.append_on(request, None).await
+    }
+
+    /// [`Self::append`], only while `main` is still at `expected_head` (the snapshot the staged
+    /// rows were computed against; `None` for a table with no snapshot yet): the commit of a table
+    /// of appended row versions (root ADR-0564 §3). Its rows are the keys whose content differs
+    /// from that snapshot's current rows, so appended over any other head they could bury a newer
+    /// version of a key under an older one.
+    ///
+    /// The request may name no file: the inputs moved and no key changed, and the snapshot only
+    /// records the new summary (the input pins), as an empty `MERGE` did, so the next plan starts
+    /// from them.
+    ///
+    /// # Errors
+    /// Everything [`Self::append`] refuses, and [`HeadMoved`] (downcast it) when `main` is at
+    /// another snapshot before the upload, at the commit, or because another commit won the race:
+    /// nothing is committed, and files already uploaded are named by no snapshot.
+    pub async fn append_at_head(
+        &self,
+        request: DataAppend<'_>,
+        expected_head: Option<i64>,
+    ) -> anyhow::Result<AppendOutcome> {
+        self.append_on(request, Some(expected_head)).await
+    }
+
+    /// `pinned`: the head the append is valid on, when it is valid on one head only.
+    async fn append_on(
+        &self,
+        request: DataAppend<'_>,
+        pinned: Option<Option<i64>>,
+    ) -> anyhow::Result<AppendOutcome> {
         let table_name = request.table_name;
         let batch = batch_identities(request.batch)?;
         let held: Vec<&String> = batch
@@ -220,10 +399,6 @@ impl LakehouseDataCommitter {
             held.is_empty(),
             "{table_name} already holds {held:?} of batch {batch:?}: a batch is appended whole or not at all"
         );
-        ensure!(
-            !request.files.is_empty(),
-            "an append to {table_name} names no staged file"
-        );
         for key in request.summary.keys() {
             ensure!(
                 key != INGEST_BATCH_OBJECTS_KEY && key != INGEST_BATCH_TOKEN_KEY,
@@ -232,6 +407,18 @@ impl LakehouseDataCommitter {
         }
 
         let table = self.load(table_name).await?;
+        if let Some(expected) = pinned {
+            let found = table.metadata().current_snapshot_id();
+            if found != expected {
+                // Before anything is uploaded.
+                return Err(HeadMoved {
+                    table_name: table_name.to_owned(),
+                    expected,
+                    found,
+                }
+                .into());
+            }
+        }
         let location = table.metadata().location().trim_end_matches('/').to_owned();
         let mut data_files = Vec::with_capacity(request.files.len());
         let mut uploads = Vec::with_capacity(request.files.len());
@@ -285,14 +472,36 @@ impl LakehouseDataCommitter {
             batch.join(&OBJECT_NAME_SEPARATOR.to_string()),
         );
         let transaction = Transaction::new(&table);
-        let committed = transaction
+        let transaction = transaction
             .fast_append()
             .add_data_files(data_files)
             .set_snapshot_properties(summary)
-            .apply(transaction)?
-            .commit(self.catalog.as_ref())
-            .await
-            .with_context(|| format!("failed to commit the append to {table_name}"))?;
+            .apply(transaction)?;
+        let committed = match pinned {
+            None => transaction.commit(self.catalog.as_ref()).await,
+            Some(expected) => {
+                let catalog = HeadPinned {
+                    inner: Arc::clone(&self.catalog),
+                    expected,
+                    moved_to: Mutex::new(None),
+                };
+                let committed = transaction.commit(&catalog).await;
+                let moved_to = *catalog
+                    .moved_to
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                if let (Err(_), Some(found)) = (&committed, moved_to) {
+                    return Err(HeadMoved {
+                        table_name: table_name.to_owned(),
+                        expected,
+                        found,
+                    }
+                    .into());
+                }
+                committed
+            }
+        }
+        .with_context(|| format!("failed to commit the append to {table_name}"))?;
         let snapshot = committed
             .metadata()
             .current_snapshot()
@@ -487,26 +696,36 @@ fn manifest_entry(
     let spec = table.metadata().default_partition_spec();
     let mut partition = Vec::with_capacity(spec.fields().len());
     for part in spec.fields() {
-        ensure!(
-            part.transform == Transform::Identity,
-            "{}: partition {} is {}, and only identity partitions are appended here (root ADR-0560 §2)",
-            local.display(),
-            part.name,
-            part.transform
-        );
         let fact = facts
             .get(&part.source_id)
             .with_context(|| format!("partition {} names a column the file lacks", part.name))?;
-        match (&fact.bounds, fact.nulls) {
-            (Some((low, high)), Some(0)) if low == high => {
-                partition.push(Some(Literal::Primitive(low.literal().clone())));
-            }
-            (bounds, nulls) => bail!(
-                "{}: holds more than one value of partition {} ({bounds:?}, nulls {nulls:?}), so it is not one partition",
+        let (Some((low, high)), Some(0)) = (&fact.bounds, fact.nulls) else {
+            bail!(
+                "{}: holds a null or no bounds for partition {} ({:?}, nulls {:?}), so it is not one partition",
                 local.display(),
-                part.name
-            ),
-        }
+                part.name,
+                fact.bounds,
+                fact.nulls
+            );
+        };
+        let (Some(low), Some(high)) = (
+            partition_value(part.transform, low),
+            partition_value(part.transform, high),
+        ) else {
+            bail!(
+                "{}: partition {} is {}, and only identity and text truncate partitions are appended here (root ADR-0560 §2, ADR-0564 §2)",
+                local.display(),
+                part.name,
+                part.transform
+            );
+        };
+        ensure!(
+            low == high,
+            "{}: holds more than one value of partition {} ({low:?} to {high:?}), so it is not one partition",
+            local.display(),
+            part.name
+        );
+        partition.push(Some(Literal::Primitive(low)));
     }
 
     let mut column_sizes = HashMap::new();
@@ -545,6 +764,20 @@ fn manifest_entry(
         .upper_bounds(upper_bounds)
         .split_offsets(Some(split_offsets))
         .build()?)
+}
+
+/// The partition value `transform` gives a column value, for the transforms a staged file may be
+/// partitioned by: the value itself, or the first `width` characters of a text (Iceberg truncates
+/// text by Unicode code points; a 시도 is `truncate(2, pnu)`, root ADR-0564 §2). `None` for any other
+/// transform or type: the file is then refused.
+fn partition_value(transform: Transform, value: &Datum) -> Option<PrimitiveLiteral> {
+    match (transform, value.literal()) {
+        (Transform::Identity, literal) => Some(literal.clone()),
+        (Transform::Truncate(width), PrimitiveLiteral::String(text)) => Some(
+            PrimitiveLiteral::String(text.chars().take(usize::try_from(width).ok()?).collect()),
+        ),
+        _ => None,
+    }
 }
 
 /// Per field id, what every row group of the file says. Refuses a file whose columns are not
