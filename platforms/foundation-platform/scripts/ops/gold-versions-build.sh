@@ -24,7 +24,8 @@ run_log="${work}/run.log"
 mkdir -p "${work}"
 # The runs a disk keeps: the last 30 (each holds a summary and a log; DuckDB's stage directory is
 # removed by the publisher when it ends).
-ls -1d "${STATE_ROOT}"/runs/*/ 2>/dev/null | head -n -30 | xargs -r rm -rf --
+mapfile -t kept < <(ls -1d "${STATE_ROOT}"/runs/*/ 2>/dev/null)
+((${#kept[@]} <= 30)) || rm -rf -- "${kept[@]:0:${#kept[@]}-30}"
 
 on_error() {
   job_journal "${journal}" "gold versions ${lane} FAILED at line $1 run=${run_id}" >&2
