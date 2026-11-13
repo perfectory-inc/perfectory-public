@@ -104,10 +104,12 @@ class ComplexFactsTest(unittest.TestCase):
         ]}}}}
         self.assertEqual(d.admitted(extraction), [("land_use_area", "rule", "text_layer")])
 
-    def test_the_contract_admits_the_three_kinds_measured_on_text_pages(self) -> None:
+    def test_the_contract_admits_only_the_kinds_whose_last_measurement_passes(self) -> None:
+        # land_use_area was 30/30 on the 2026-11-11 sample and 21/30 on the production facts of
+        # 2026-11-13 (a per-phase table and a park facility table both close on their own totals), so
+        # the gate takes it off the screen until the rules are fixed and measured again.
         self.assertEqual(d.admitted(d.load_extraction(EXTRACTION_PATH)), [
-            ("invited_industry", "rule", "text_layer"), ("land_use_area", "rule", "text_layer"),
-            ("parcel_lot", "rule", "text_layer")])
+            ("invited_industry", "rule", "text_layer"), ("parcel_lot", "rule", "text_layer")])
 
     def test_each_kind_comes_from_the_newest_notice_that_states_it_in_order(self) -> None:
         rows = [fact(notice=99001, index=0, sha="b" * 64), fact(notice=99002, index=1, notice_date=date(2099, 6, 1)),
