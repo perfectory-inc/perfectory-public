@@ -106,9 +106,11 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="${work}/spool"
 # The pinned reference tools/technology-versions.contract.json lists.
 AWS_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
 while read -r file_key object_key; do
+  # --memory 512m: amazon/aws-cli 2.17.0 measured on ai-server 2026-10-18 (cgroup v2): anonymous memory peaked at 133 MiB over `s3 cp` of 1 GiB up and down (file and stdin/stdout), `s3 sync` of 5 x 200 MiB and `s3 mv`; the rest is reclaimable page cache.
+  # These comments stay above the assignments: a comment line after them ends the command there, and
+  # docker then starts without the keys (2026-11-13, "Unable to locate credentials").
   AWS_ACCESS_KEY_ID="${FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID}" \
   AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY}" \
-  # --memory 512m: amazon/aws-cli 2.17.0 measured on ai-server 2026-10-18 (cgroup v2): anonymous memory peaked at 133 MiB over `s3 cp` of 1 GiB up and down (file and stdin/stdout), `s3 sync` of 5 x 200 MiB and `s3 mv`; the rest is reclaimable page cache.
   docker run --rm --memory 512m --user "$(id -u):$(id -g)" -e HOME=/tmp -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION=auto \
     -v "${work}/downloads:/w" "${AWS_IMAGE}" s3 cp --only-show-errors \
     --endpoint-url "${FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT}" \

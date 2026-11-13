@@ -80,10 +80,18 @@ else:
 """
 
 # docker run ... -v <host>:/w <image> s3 cp ... s3://bucket/<ds>-<n>--sha256-<hex>.zip /w/<name>: copy
-# the fixture for file <n>.
+# the fixture for file <n>. Like the real `-e NAME`, a name passed without a value is read from
+# docker's own environment, and the aws CLI without the read key ends as it did on 2026-11-13: a
+# comment line between the two key assignments and `docker run` (there since 2026-10-18) had made
+# them plain shell variables, and the first changed file since then could not be read back.
 FAKE_DOCKER = r"""#!/usr/bin/env python3
 import os, shutil, sys
 args = sys.argv[1:]
+passed = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "-e" and "=" not in args[i + 1]]
+for name, source in (("AWS_ACCESS_KEY_ID", "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"),
+                     ("AWS_SECRET_ACCESS_KEY", "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY")):
+    if name not in passed or os.environ.get(name) != "planted-" + source.lower():
+        sys.exit("fatal error: Unable to locate credentials")
 host = next(a.split(":")[0] for a in args if a.endswith(":/w"))
 source, target = args[-2], args[-1]
 file_no = source.rsplit("/", 1)[-1].split("--sha256-")[0].rsplit("-", 1)[1]
