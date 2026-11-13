@@ -1,14 +1,20 @@
 # ADR 0561: MERGE 로 갈아 끼우는 Gold 는 바뀐 행을 쌓는 표가 되어 Spark 를 떠난다 — 아직 태어나지 않은 두 Gold 에서 먼저 잰다
 
-- Status: Proposed
-- Date: 2026-11-12
+- Status: Accepted
+- Date: 2026-11-12 (권고), 2026-11-14 (수락)
 - Builds on: [ADR-0559](./0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md) §4,
   [ADR-0560](./0560-the-publisher-commits-duckdb-staged-parquet-with-iceberg-rust-fast-append-and-only-tables-whose-commit-is-an-append-move-off-spark.md)(Consequences: "Gold 의 커밋 모양을 따로 결정해야 한다"),
   [ADR-0286](./0286-every-table-contract-declares-how-its-rows-are-versioned.md)(행 판),
   [ADR-0344](./0344-gold-merges-write-only-the-changed-rows-as-merge-on-read-deletes-that-compaction-folds.md)(바뀐 행만 쓰는 MERGE),
   [ADR-0347](./0347-unit-ids-and-link-evidence-are-named-by-content-and-every-gold-commit-records-its-changed-keys.md)(`__changes`)
 - 받아들여지면 고치는 것(옮겨지는 표에 한해): ADR-0344 의 merge-on-read 커밋, ADR-0347 의 `__changes` 쓰기, ADR-0286 의 그 표 분류.
-- 결정할 사람: 사장. 이 문서는 조정자가 요청한 권고다(W75c). 받아들여지기 전에는 아무것도 짓지 않는다.
+- 결정한 사람: 사장(2026-11-14, 조정자 전달: "1번은 대기업 수준으로 해" — 길 ⓐ, 바뀐 행을 쌓는 Gold 와 발행기 커밋).
+  이 문서는 조정자가 요청한 권고였고(W75c), 수락과 함께 범위가 넓어졌다: 사장은 아직 없는 두 표만이 아니라 `MERGE` 로 쓰는 Gold 전부와
+  덮어쓰는 Gold 여섯을 이 길로 정했다. 그래서 아래 Decision 2 번("기존 `Replaced` Gold 는 이 문서로 정하지 않는다")은 수락 시점에
+  "옮긴다, 순서와 방법은 [ADR-0564](./0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md)"로
+  읽는다. 3 번의 전제들을 어떻게 채우는지도 그 문서가 정한다.
+- 수락 시점에 달라진 사실(2026-11-14 실측): `gold.parcel_real_transaction` 은 2026-11-12 14:00Z 에 태어났고(12,094,440 행) 11-13 부터
+  서빙된다. "아직 태어나지 않은 두 Gold" 가운데 지금도 없는 것은 `gold.parcel_nearby` 하나다. ADR-0564 가 이 차이를 다룬다.
 
 ## 사장에게: 세 줄
 
