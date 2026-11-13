@@ -951,8 +951,7 @@ async fn run_reports(
         return Ok((reports::ReportsResult::default(), None, report));
     }
     let today = (Utc::now() + chrono::Duration::hours(KST_HOURS)).date_naive();
-    let gone_since =
-        today - chrono::Duration::days(contract.collection.recrawl.max_age_days.into());
+    let gone_since = today - chrono::Duration::days(contract.collection.recrawl.max_age_days);
     let wanted = match reports::frontier_from_lakehouse(item, gone_since).await {
         Ok(wanted) => wanted,
         Err(error) => {
