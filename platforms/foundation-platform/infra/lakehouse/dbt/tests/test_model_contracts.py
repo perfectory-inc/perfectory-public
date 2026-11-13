@@ -406,6 +406,12 @@ class FoundationDbtModelContractTest(unittest.TestCase):
             "silver.court_auction_item_object": (
                 "물건상세 목록내역의 건물명 원문 — 표시용(식별은 법원·사건·물건·목록번호와 법정동 코드·지번, root ADR-0540)"
             ),
+            "silver.court_auction_case_object": (
+                "사건상세 목록의 건물명 원문 — 표시용(식별은 법원·사건·목록번호와 법정동 코드·지번, root ADR-0540)"
+            ),
+            "silver.court_auction_survey_object": (
+                "현황조사 목록의 건물명 원문 — 표시용(식별은 법원·사건·회차·목록번호, root ADR-0540)"
+            ),
             "silver.real_transaction": "실거래의 단지명·건물명 원문 — 표시용(식별은 내용 이름과 주소로 찾은 PNU, root ADR-0349)",
             "silver.building_maintenance_regular_inspection_history": (
                 "정기점검 건물의 동명 원문 — 표시용(식별은 관리건축물대장PK 로 잇는 표제부, root ADR-0404)"
