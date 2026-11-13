@@ -131,6 +131,14 @@ class Layout(unittest.TestCase):
         self.assertLess(check.region_read_share(self.ORDERED, 2), 0.3)
         self.assertEqual(check.layout_findings("gold.t", "pnu", self.ORDERED, None), ([], []))
 
+    def test_two_files_in_key_order_pass_and_two_country_wide_ones_fail(self):
+        # 2026-11-13 gold.parcel_real_transaction: range-written in pnu order, 2 files that meet in 시도 41.
+        ordered = [("1100000000000000000", "4199999999999999999"), ("4100000000000000000", "5299999999999999999")]
+        failures, _ = check.layout_findings("gold.t", "pnu", ordered, None)
+        self.assertEqual(failures, [])
+        failures, _ = check.layout_findings("gold.t", "pnu", self.COUNTRY_WIDE[:2], None)
+        self.assertEqual(len(failures), 1)
+
     def test_one_file_is_never_misplaced(self):
         self.assertEqual(check.region_read_share(self.COUNTRY_WIDE[:1], 2), 0.0)
 
