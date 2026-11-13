@@ -67,8 +67,10 @@ gold 단계였으므로 매번 패널 재구축 잠금을 160 분 쥐었고, 그
 - 유닛 상한 60 분, 메모리 상한 8G(측정 최고 5.01 GiB 의 1.5 배 위). DuckDB 버퍼는 유닛에 남은 메모리의 5 분의 3 이다.
 - 풀은 spark 3 칸 그대로다: 엔진과 오케스트레이션을 한 PR 에서 바꾸지 않는다(작업 이동 W82b). 메모리 계약의 슬롯 계산이 Spark 작업과
   겹치지 않게 지킨다.
-- `version_seq` 변경 집합을 굽기가 읽기 전까지(ADR-0564 §5, 다음 PR) 첫 발행 뒤의 새 커밋은 굽기의 변경 집합이 아니라 표가 바뀐 레인의 전량
-  굽기로 반영된다. 그 PR 이 닫을 때까지의 한계다.
+- 굽기는 판을 쌓는 표를 그 규칙대로 읽는다(ADR-0564 §4·§5): 팩 굽기의 스캔은 읽은 행에 계약의 현재 행 규칙을 적용하고
+  (`LakehouseTableContract::current_rows`), Gold 의 행 수는 카탈로그가 기록한 `foundation.current-records` 다
+  (`load_snapshot_record_count`). 반영한 스냅샷과 새 스냅샷 사이의 변경 집합은 발행기 명령 `export-gold-versions-change-set` 이
+  `version_seq` 범위로 낸다(지운 키는 반영한 스냅샷이 서빙하던 것만). Spark `by_pnu_panel_delta.py` 는 이 레인에서 돌지 않는다.
 
 ## 하지 않은 것, 확인하지 못한 것
 
