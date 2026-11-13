@@ -158,3 +158,22 @@ ADR-0332 가 적재 기록을 표 속성으로 옮겼다. 그래서 기록은 �
   없다"). 증인을 인증한 검사 자신이 태그를 건다.
 - **Gold 계획이 계보 대신 태그를 바로 읽게 바꾸기** — 압축만 사이에 있다는 확인(`head_build_pins`)을 잃는다. 그 몇 개
   커밋을 남기는 비용이 더 싸다.
+
+## 개정 각주 — 2026-11-14
+
+§Decision 5 는 카탈로그 밖 고정값이 만료될 스냅숏을 가리키면 "그 표는 실패하고 아무것도 지우지 않는다" 고 적었다.
+지우지 않는 것은 그대로다. 두 가지를 실물에 맞춘다(W83, 2026-11-13 01:36Z 실행: 117 표 중 115 정비, 2 거부, 유닛 실패).
+
+1. **거부는 실패가 아니라 보고되는 결과다.** 거부는 이 작업이 설계대로 한 일이다. 실행은 거부된 표를
+   `maintenance-refused table=… reason=…` 으로 남기고 `foundation-job-outcome waiting …` 으로 끝난다
+   ([ADR-0260](./0260-a-scheduled-job-ends-by-saying-its-outcome-and-silence-is-failure.md) 의 어휘, 새 결과 없음).
+   `waiting` 은 `done` 이 아니므로([ADR-0480](./0480-every-job-is-held-to-the-outcome-its-definition-expects-not-to-its-units-exit.md))
+   거부가 작업의 done 기한(일정 한 주기 + 시간 상한 + 1시간)을 넘겨 이어지면 주인을 부른다. 정말 실패한 표가 하나라도
+   있으면 실행은 `failed` 와 종료 코드 1 이다.
+2. **섹션 팩으로 서빙하는 레인의 고정값은 팩의 반영 스냅숏 하나다.** 레인이 팩으로 서빙하면 굽기의 모든 선택은 팩
+   상태로 하고 객체 manifest 는 그대로 남는다(`by-pnu-serving-bake.sh`,
+   [ADR-0147](./0147-by-pnu-documents-are-served-from-section-packs.md)). 그 manifest 가 반영한 스냅숏은 아무도 읽지 않고
+   `served-` 태그도 `release_older` 가 이미 풀었다. 그런데 래퍼는 `state.json` 의 `published` 와 `section_packs` 를 둘 다
+   고정값으로 모았다. `gold.parcel_land_rights`·`gold.parcel_transfer_history` 의 객체 manifest(객체 0개, 2026-10-12
+   스냅숏 반영)가 30일을 넘긴 날부터 거부가 시작됐고, 객체 0개인 나머지 레인 14개가 차례로 따라올 것이었다. 래퍼는 이제
+   `section_packs` 가 있으면 그것만, 없으면 `published` 를 모은다.

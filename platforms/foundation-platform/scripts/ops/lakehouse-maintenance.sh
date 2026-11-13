@@ -15,12 +15,15 @@
 #
 # Before Spark starts, the pins this host holds outside the catalog are written to the run's
 # keep-snapshots.json: the Gold snapshot every by-PNU lane's unfinished bake is pinned to
-# (in-progress*.json, root ADR-0310) and the one its last-read served state reflects (state.json).
+# (in-progress*.json, root ADR-0310) and the one its last-read served state reflects (state.json:
+# the section packs' when the lane serves packs, else the object manifest's).
 # Expiry refuses a table where one of them would go. They are tagged too (`baking-`, `served-`);
 # this catches a pin made before its tag existed, and a tag that failed.
 #
 # The run ends with `foundation-job-outcome unchanged`: compaction rewrites files, not rows, so no
-# downstream job has new data to read (root ADR-0171).
+# downstream job has new data to read (root ADR-0171). A table expiry refused is not a failure: the
+# run ends `waiting` and names the tables (`maintenance-refused`); a table that failed ends it
+# `failed` with exit 1.
 #
 # Spark runs in the Compose project foundation-lakehouse-maintenance-<INVOCATION_ID>. A timeout kills
 # this script and the compose client but not the daemon-owned container, which would keep its 20g
@@ -96,10 +99,15 @@ for path in sorted(root.glob("*/in-progress*.json")):
     keep[str(int(json.loads(path.read_text())["gold_iceberg_snapshot_id"]))] = f"the bake pin in {path}"
 for path in sorted(root.glob("*/state.json")):
     state = json.loads(path.read_text())
-    for served in (state.get("published") or {}, state.get("section_packs") or {}):
-        reflected = served.get("reflected_gold_iceberg_snapshot_id")
-        if reflected:
-            keep.setdefault(str(int(reflected)), f"the served state in {path}")
+    # A lane that serves section packs makes every choice against the packs and its object manifest
+    # stays as it was (by-pnu-serving-bake.sh, root ADR-0147): nothing reads Gold at the snapshot
+    # that manifest reflects, and the lane has released its tag. 2026-11-13: the object manifests of
+    # two pack lanes (0 objects, reflecting 2026-10-12) passed 30 days and expiry was refused for a
+    # snapshot no reader holds.
+    served = state.get("section_packs") or state.get("published") or {}
+    reflected = served.get("reflected_gold_iceberg_snapshot_id")
+    if reflected:
+        keep.setdefault(str(int(reflected)), f"the served state in {path}")
 out.write_text(json.dumps(keep, indent=1, sort_keys=True) + "\n")
 print(f"lakehouse-maintenance: {len(keep)} snapshots pinned outside the catalog")
 PY
@@ -118,7 +126,7 @@ lakehouse_spark_run "foundation-lakehouse-maintenance-${INVOCATION_ID}" -v "${SC
   --state-file /workspace/target/lakehouse/rotation.json \
   --keep-snapshots "/workspace/target/lakehouse/runs/${run_id}/keep-snapshots.json" ${DRY_RUN[@]+"${DRY_RUN[@]}"} \
   >"${work}/lakehouse_maintenance.log" 2>&1 || status=$?
-grep -a -E '^maintenance-(done|floor|failed|deferred|summary|would|expiring)|^maintenance-skip step=snapshot_expiry|^foundation-job-outcome' "${work}/lakehouse_maintenance.log" || true
+grep -a -E '^maintenance-(done|floor|failed|refused|deferred|summary|would|expiring)|^maintenance-skip step=snapshot_expiry|^foundation-job-outcome' "${work}/lakehouse_maintenance.log" || true
 # Each table's deleted-row and delete-byte ratios for node-exporter (root ADR-0344 §5), kept per table
 # in the state root so a table this run did not reach keeps its last measurement. A metrics write that
 # fails is logged and does not fail the maintenance.
