@@ -274,10 +274,18 @@ impl SigunguCrosswalk {
             .map(String::as_str)
     }
 
-    /// Whether `sigungu` is a declared placeholder, which composes no PNU.
+    /// Whether `sigungu` names no 시군구, so composes no PNU: a declared placeholder, or a 시도's
+    /// own code (`xx000`).
+    ///
+    /// In the 법정동 code system a 시군구 of `000` is the 시도 level, which holds no parcel; every
+    /// parcel lies in a 시군구. The hub writes it for a row its 시도 registered: 2026-11-12 the
+    /// housing-permit annex parking file carried 시군구 12000 (전남광주통합특별시), which code.go.kr
+    /// records at level `sido` with two predecessors (29000 and 46000, reference.legal_dong_code_change),
+    /// so no 시군구 mapping can name it, and the hub lane family failed at every run.
     #[must_use]
     pub fn is_placeholder(&self, sigungu: &str) -> bool {
-        self.placeholders.contains(sigungu.trim())
+        let trimmed = sigungu.trim();
+        self.placeholders.contains(trimmed) || is_sido_level(trimmed)
     }
 
     /// Whether `sido` (2 digits) is a merged 시도 this crosswalk governs.
@@ -320,6 +328,11 @@ impl SigunguCrosswalk {
         }
         Ok(trimmed)
     }
+}
+
+/// Whether a 5-digit 시군구 code is a 시도's own code: its 시군구 part is `000`.
+fn is_sido_level(code: &str) -> bool {
+    code.len() == 5 && code.bytes().all(|b| b.is_ascii_digit()) && code.ends_with("000")
 }
 
 /// Composes a standard PNU from hub register codes, normalizing the 시군구
@@ -546,6 +559,32 @@ mod tests {
                 "code={code}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn a_sidos_own_code_composes_no_pnu_and_is_not_refused() -> Result<(), SigunguCrosswalkError> {
+        // 2026-11-12 허브 주택인허가 부설주차장 파일의 시군구 12000(통합 시도 자체): 시군구 매핑이
+        // 이름 붙일 수 없는 시도 단위 코드다. 통합 시도 99 안이든 밖이든 None 이고 거부하지 않는다.
+        let crosswalk = seed_crosswalk()?;
+        for code in ["99000", "98000", " 99000 "] {
+            assert!(crosswalk.is_placeholder(code), "{code:?}");
+            assert_eq!(
+                standard_pnu_from_hub_register_codes_via(
+                    &crosswalk, code, "00000", "0", "0001", "0000"
+                ),
+                Ok(None),
+                "code={code:?}"
+            );
+        }
+        // 시군구 자리가 000 이 아니면 그대로: 매핑 없는 통합 시도 코드는 여전히 거부된다.
+        assert!(!crosswalk.is_placeholder("99001"));
+        assert_eq!(
+            crosswalk.resolve("99001"),
+            Err(SigunguCrosswalkError::UnmappedGovernedSigungu(
+                "99001".to_owned()
+            ))
+        );
         Ok(())
     }
 
