@@ -45,6 +45,13 @@
       "inputs": ["scripts/ops/publish-outbox.sh", "scripts/ops/admitted-writer-runtime.sh", "scripts/ops/database-url.sh",
                  "infra/systemd/foundation-outbox-publish.service", "crates/foundation-outbox", "migrations"]
     },
+    "start-once.industrial_complex_edge_export": {
+      "inputs": ["scripts/ops/industrial-complex-edge-export.sh", "scripts/ops/admitted-writer-runtime.sh", "scripts/ops/job-journal.sh",
+                 "infra/systemd/foundation-industrial-complex-edge-export.service",
+                 "services/foundation-outbox-publisher/src/industrial_complex_gold_profile_export.rs",
+                 "services/foundation-outbox-publisher/src/industrial_complex_gold_profile_export",
+                 "crates/publisher/foundation-publisher-core/src/industrial_complex_gold_profile_store.rs"]
+    },
     "start-once.map_edit_fold_admin": {
       "inputs": ["scripts/ops/map-edit-fold.sh", "scripts/ops/admitted-writer-runtime.sh", "infra/systemd/foundation-map-edit-fold@.service",
                  "infra/lakehouse/spark/jobs/administrative_boundary_served_gold.py",

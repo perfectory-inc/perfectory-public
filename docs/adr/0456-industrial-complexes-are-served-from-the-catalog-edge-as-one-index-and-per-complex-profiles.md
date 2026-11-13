@@ -75,3 +75,7 @@
 - 비용(계산): 첫 회차 PUT 약 1,445 회(R2 class A $4.50/백만 → 약 $0.007). 이후 하루 Gold 스캔 1회(수 MB, egress 0)와 바뀐 단지 수만큼의
   PUT. 서빙은 Worker 요청과 R2 GET(class B $0.36/백만)이다.
 - 새 문서 모양은 레지스트리 개정으로만 바뀐다(FULL_TRANSITIVE, ADR-0336).
+
+## 개정 기록
+
+- 2026-11-13: §5 의 일정(계보 순환의 한 단계)은 [ADR-0563](./0563-the-model-claims-the-memory-it-takes-not-the-spark-pool-and-a-complex-s-profile-is-exported-when-its-facts-or-its-row-change.md) §3 이 갈았다. 내보내기는 자기 작업 `industrial_complex_edge_export` 이고, `gold.complex_catalog` 나 `gold.complex_document_facts` 가 바뀌면 시작한다. Spark 를 쓰지 않는 명령이 spark 3칸짜리 순환 뒤에서 하루를 기다렸다.

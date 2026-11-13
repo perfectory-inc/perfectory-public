@@ -296,6 +296,90 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
                 self.assertEqual(self.job_units("claim", str(JOBS), *args).returncode, 64)
 
 
+# As FAKE_SYSTEMCTL, and answers `show` from FAKE_MEMORY ("unit=MemoryMax:MemoryCurrent" pairs) the way
+# systemd prints the two properties: bytes, or `infinity` and `[not set]`.
+FAKE_SYSTEMCTL_WITH_MEMORY = FAKE_SYSTEMCTL.replace("units = dict(", r'''if args and args[0] == "show":
+    wanted = args[args.index("--") + 1:]
+    memory = dict(pair.split("=") for pair in os.environ.get("FAKE_MEMORY", "").split(",") if pair)
+    print("\n\n".join(f"Id={unit}\nMemoryMax={memory[unit].split(':')[0]}\nMemoryCurrent={memory[unit].split(':')[1]}"
+                      for unit in wanted if unit in memory))
+    sys.exit(0)
+units = dict(''', 1)
+
+
+class AMemoryClaimWaitsForMemoryNotForAnEmptyPool(unittest.TestCase):
+    """Root ADR-0563: the fact job's model is admitted against the host's available memory.
+
+    2026-11-13: intelligence_document_fact took all three spark slots so its 24G model never sat beside
+    Spark; the pool was never empty and its start waited 24,600 s, while node-exporter's MemAvailable
+    was 30 GiB or more for 95% of the week. It now holds no spark slot and states the model runtime
+    unit as its memory_claim."""
+
+    MODEL = "intelligence-model-runtime-ollama.service"
+    GIB = 1 << 30
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="job-units-memory-")
+        self.addCleanup(temp.cleanup)
+        self.root = pathlib.Path(temp.name)
+        (self.root / "systemctl").write_text(FAKE_SYSTEMCTL_WITH_MEMORY)
+        (self.root / "systemctl").chmod(0o755)
+
+    def pool_full(self, available_gib, units=None, held_gib=None, cap=None):
+        meminfo = self.root / "meminfo"
+        meminfo.write_text(f"MemTotal:       65651712 kB\nMemAvailable:   {int(available_gib * (1 << 20))} kB\n")
+        current = "[not set]" if held_gib is None else str(int(held_gib * self.GIB))
+        return subprocess.run(
+            [sys.executable, "-I", "-B", str(JOB_UNITS), "pool-full", str(JOBS), "intelligence_document_fact"],
+            env={**os.environ, "PATH": f"{self.root}{os.pathsep}{os.environ['PATH']}",
+                 "FAKE_LOG": str(self.root / "systemctl.log"), "FOUNDATION_HOST_MEMINFO": str(meminfo),
+                 "FOUNDATION_CAPACITY_CLAIMS_DIR": str(self.root / "capacity"),
+                 "FOUNDATION_START_QUEUE_DIR": str(self.root / "queue"),
+                 "FAKE_MEMORY": f"{self.MODEL}={cap or 24 * self.GIB}:{current}",
+                 "FAKE_UNITS": ",".join(f"{unit}=activating" for unit in units or ())},
+            capture_output=True, text=True, timeout=30)
+
+    def test_the_fact_job_states_the_model_as_its_claim_and_holds_no_spark_slot(self):
+        listing = json.loads(JOBS.read_text(encoding="utf-8"))
+        job = next(job for job in listing["jobs"] if job["id"] == "intelligence_document_fact")
+        self.assertEqual(job["memory_claim"], {"units": [self.MODEL]})
+        self.assertEqual((job["pool"], listing["pools"][job["pool"]]["slots"]), ("documents", 1))
+        self.assertRegex(listing["memory_claims"]["keep_available"], r"^[0-9]+g$")
+        unit = (PLATFORM / "infra/systemd/foundation-intelligence-document-fact.service").read_text(encoding="utf-8")
+        self.assertIn(f"Requires={self.MODEL}", unit)
+
+    def test_it_starts_beside_a_running_spark_job_when_the_host_has_the_memory(self):
+        # The 11-13 replay: a spark-pool job and a lane cut-over's claim on the whole pool, 40 GiB available.
+        claims = self.root / "capacity"
+        claims.mkdir()
+        cutover = "foundation-by-pnu-lane-cutover-g1.service"
+        (claims / "by_pnu_lane_cutover.json").write_text(json.dumps({"unit": cutover, "since": int(time.time())}))
+        result = self.pool_full(40, units=["foundation-gold-panel-rebuild.service", cutover])
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, ""), result.stderr)
+
+    def test_it_is_refused_while_the_model_and_what_stays_free_do_not_fit_in_what_is_available(self):
+        result = self.pool_full(28)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("the host has no memory for foundation-intelligence-document-fact.service's claim", result.stdout)
+        self.assertIn(f"{self.MODEL} may take 24.0 GiB more, 28.0 GiB is available and 6.0 GiB stays free", result.stdout)
+        self.assertEqual(self.pool_full(30).stdout.strip(), "")
+
+    def test_what_the_model_already_holds_is_not_claimed_twice(self):
+        # The runtime is up with 20 GiB resident, so MemAvailable already lacks it: 4 GiB more is the claim.
+        self.assertEqual(self.pool_full(10, held_gib=20).stdout.strip(), "")
+        self.assertIn("may take 4.0 GiB more", self.pool_full(9, held_gib=20).stdout)
+
+    def test_a_unit_with_no_cap_cannot_be_claimed(self):
+        result = self.pool_full(60, cap="infinity")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cannot be sized", result.stdout)
+        self.assertIn("states no MemoryMax", result.stdout)
+
+    def test_the_other_document_job_still_holds_the_one_slot(self):
+        result = self.pool_full(60, units=["foundation-intelligence-document-text.service"])
+        self.assertIn("the documents pool has no room", result.stdout)
+
+
 class TheOneDefinition(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="job-units-")
