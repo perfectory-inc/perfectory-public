@@ -51,14 +51,14 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The cited facts of the notice attachments' text (root ADR-0477 §5; scripts/ops/intelligence-document-fact.sh): the hashes with a text outcome of the fact version's text version and no intelligence.document_fact_outcome of the fact version, newest text first, at most document_fact.per_run_limit and until its run_time_budget_seconds. Rules first with their table totals; only the land-use tables the rules cannot close go to the local model (MODEL_RUNTIME_*, root ADR-0478), at most model_pages_per_run pages, and an OCR'd value is kept only if its table closes or the local vision model reads the same digits on the drawn page. Facts are appended before their outcomes; then the complexes whose attachments got facts in the run get one gold.complex_document_facts row each with the facts their panel may show (fold-complex-facts: only the kinds the hand-checked gate admits, each from the newest notice stating it; every complex when the gate or fact version changed). It runs the model runtime unit for as long as it runs and holds every spark slot meanwhile, so the model never holds memory beside Spark.",
+      "description": "The cited facts of the notice attachments' text (root ADR-0477 §5; scripts/ops/intelligence-document-fact.sh): the hashes with a text outcome of the fact version's text version and no intelligence.document_fact_outcome of the fact version, newest text first, at most document_fact.per_run_limit and until its run_time_budget_seconds. Rules first with their table totals; only the land-use tables the rules cannot close go to the local model (MODEL_RUNTIME_*, root ADR-0478), at most model_pages_per_run pages, and an OCR'd value is kept only if its table closes or the local vision model reads the same digits on the drawn page. Facts are appended before their outcomes; then the complexes whose attachments got facts in the run get one gold.complex_document_facts row each with the facts their panel may show (fold-complex-facts: only the kinds the hand-checked gate admits, each from the newest notice stating it; every complex when the gate or fact version changed). Started when the text job says it appended pages, and hourly as the fallback, which also reads again the documents a run left for the model. It takes the documents pool's one slot (one document job at a time, so one job on the GPU) and no spark slot: its Spark steps are spark-small sessions. The model runtime unit runs for as long as it runs and loads the model at the first question; that memory is its memory_claim, admitted against what the host has available when it starts (root ADR-0563), so it waits for memory and not for an empty spark pool.",
       "systemd_service": "foundation-intelligence-document-fact.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/intelligence-documents"
       ],
-      "schedule": "50 2 * * *",
-      "started_by": "schedule",
+      "schedule": "5 * * * *",
+      "started_by": "inputs",
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 80,
@@ -75,8 +75,12 @@
           "estimated_from": "computed from its own bounds: documents stop starting at run_time_budget_seconds (3,300 s); rules take milliseconds and the model is asked at most model_pages_per_run (60) pages, each call bounded by model_timeout_seconds (600 s; 13.3 s a notice measured on ai-server, root ADR-0478), so the call in flight finishes after the budget; plus the model runtime's start (up to 120 s, its unit), the plan and append Spark steps (about 300 s) and the fold step (one more spark-small session over the run's complexes, about 180 s). About 3,300 + 200 + 120 + 300 + 180 = 4,100 s, inside the 4,320 s share of the 80-minute limit."
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
+      "pool": "documents",
+      "memory_claim": {
+        "units": [
+          "intelligence-model-runtime-ollama.service"
+        ]
+      },
       "priority_weight": 10,
       "retries": 0,
       "pipeline_graph_edges": [

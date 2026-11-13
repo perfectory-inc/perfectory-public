@@ -109,3 +109,7 @@ spark 풀이 비어 있을 때만 돌렸고, Strata 는 사용자 cgroup `Memory
 - 시험에 쓴 것(엔진·가중치·묶음 약 100 GB, Ollama 별칭 하나, 파이썬 이미지, 사용자 유닛)은 측정 직후 지웠다(루트 여유 133 GB 로 복귀).
   그동안 루트 디스크가 85 % 까지 찼다. 증설 첫날의 유닛·메모리 정의는 #1248(draft), Spark 임시 쓰기의 NVMe 이동은 #1246(draft)이다.
 - Strata 는 7 주 된, 한 사람이 거의 모든 커밋을 쓰는 프로젝트다. 판을 올릴 때는 그 판의 이슈를 먼저 읽고 같은 16 건으로 다시 잰다.
+
+## 개정 기록
+
+- 2026-11-13: §2 의 "작업이 spark 풀의 슬롯을 전부 잡고 도는 동안만 뜨고" 는 [ADR-0563](./0563-the-model-claims-the-memory-it-takes-not-the-spark-pool-and-a-complex-s-profile-is-exported-when-its-facts-or-its-row-change.md) 가 갈았다. 런타임을 부르는 작업은 spark 칸을 잡지 않고 런타임 유닛을 `memory_claim` 으로 적으며, 시작할 때 호스트에 그만큼의 메모리가 남아 있을 때만 승인된다. 풀 전부를 잡던 사실 작업이 2026-11-13 에 빈 풀을 24,600 초 기다렸다.
