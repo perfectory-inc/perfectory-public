@@ -415,6 +415,17 @@ async fn loaded_since(
         .collect()
 }
 
+/// The lines not seen before, in order: two Silver rows of one key that load the same columns are
+/// one roster row. A key is a set of rows (`keep_ties`): the 2026-11-11 file repeats 10 office keys
+/// within one 시군구, 3 of them as identical rows (measured 2026-11-13).
+fn distinct_lines(lines: Vec<String>) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    lines
+        .into_iter()
+        .filter(|line| seen.insert(line.clone()))
+        .collect()
+}
+
 /// The COPY lines of the office rows, and how many had no comparable 등록번호.
 fn office_copy_lines(offices: &[&OfficeRow]) -> (Vec<String>, usize) {
     let mut skipped = 0_usize;
@@ -436,7 +447,7 @@ fn office_copy_lines(offices: &[&OfficeRow]) -> (Vec<String>, usize) {
             ]))
         })
         .collect();
-    (lines, skipped)
+    (distinct_lines(lines), skipped)
 }
 
 /// The COPY lines of the people, and how many had no name or no comparable 등록번호.
@@ -470,7 +481,7 @@ fn member_copy_lines(members: &[&MemberRow]) -> (Vec<String>, usize) {
             ]))
         })
         .collect();
-    (lines, skipped)
+    (distinct_lines(lines), skipped)
 }
 
 /// One load, everything read and ready to write.
@@ -586,6 +597,28 @@ mod tests {
         assert!(!valid_watermark("2026-11-12' OR TRUE --"));
         assert!(!valid_watermark("2026-11-12 03:00:00') --"));
         assert!(!valid_watermark("yesterday"));
+    }
+
+    fn office(name: &str) -> OfficeRow {
+        OfficeRow {
+            sigungu_code: "99999".to_owned(),
+            registration_no: "99999-2026-00001".to_owned(),
+            office_name: Some(name.to_owned()),
+            status_code: Some("1".to_owned()),
+            status_name: None,
+            data_reference_date: Some("2026-11-12".to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_key_keeps_its_distinct_rows_and_one_of_each_copy() {
+        // The 2026-11-11 file: one key as two identical rows, another as two offices by name.
+        let (same, other) = (office("가 공인중개사사무소"), office("나 공인중개사사무소"));
+        let (lines, skipped) = office_copy_lines(&[&same, &same, &other]);
+        assert_eq!((lines.len(), skipped), (2, 0));
+        assert!(
+            lines[0].contains("가 공인중개사사무소") && lines[1].contains("나 공인중개사사무소")
+        );
     }
 
     #[test]
