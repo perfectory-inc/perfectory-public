@@ -44,6 +44,7 @@
       ],
       "enabled": true,
       "enabled_since": "2026-11-10T21:00:00Z",
+      "dagster_stage": "shadow",
       "started_once_after_deploy": null,
       "disabled_reason": null
     },
@@ -89,6 +90,7 @@
       ],
       "enabled": true,
       "enabled_since": "2026-11-10T21:00:00Z",
+      "dagster_stage": "shadow",
       "started_once_after_deploy": null,
       "disabled_reason": null
     }

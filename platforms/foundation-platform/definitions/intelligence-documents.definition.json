@@ -44,6 +44,7 @@
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when the attachment index gains a hash; that it is not behind it is the owed count each run reports (intelligence-documents-summary-json owed)."
       },
+      "dagster_stage": "shadow",
       "enabled_since": "2026-11-11T07:00:00Z"
     },
     {
@@ -96,6 +97,7 @@
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when the text job appends pages; that it is not behind them is the owed count each run reports (intelligence-documents-summary-json owed)."
       },
+      "dagster_stage": "shadow",
       "enabled_since": "2026-11-11T07:00:00Z"
     }
   ],
