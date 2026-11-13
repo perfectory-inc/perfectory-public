@@ -53,6 +53,12 @@ repository="https://github.com/$(python3 -c 'import json,sys; print(json.load(op
 log() { printf '\n==== %s\n' "$*"; }
 as_deployer() { sudo -u "${deployer}" -H "$@"; }
 airflow() { as_deployer bash "${release_root}/current/scripts/deploy/airflow-runtime.sh" exec airflow-scheduler airflow "$@"; }
+# The jobs Dagster decides are held, released and started through Dagster (root ADR-0565), by the release
+# now current; a release from before it has no such job (jobs_of dagster-decided lists none).
+dagster_jobs() {
+  python3 -I -B "${release_root}/current/scripts/deploy/job_orchestrator.py" "$1" \
+    "${release_root}/current/orchestration/jobs.v1.json" "${@:2}"
+}
 # Which jobs missed an input event while paused (root ADR-0337), asked in the scheduler, which mounts
 # the release at the same path; a release from before it has nothing to ask with and owes nothing.
 owed_by_inputs() {
@@ -70,6 +76,9 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
     if which == "enabled" and job["enabled"]:
         print(job["id"])
     elif which == "disabled" and not job["enabled"]:
+        print(job["id"])
+    elif which == "dagster-decided" and job["enabled"] and job.get("dagster_stage", "airflow") == "dagster":
+        # Held, released and started through Dagster, not an Airflow DAG (job_orchestrator.py, root ADR-0565).
         print(job["id"])
     elif which == "units":
         # What step 0 stops or waits for (root ADR-0301, ADR-0308); a registry before ADR-0301 says
@@ -229,19 +238,21 @@ trap 'exit 143' TERM INT HUP
 deploy_metric_phase drain
 declare -A enabled=()
 for id in "${jobs[@]}"; do enabled["${id}"]=1; done
+deploy_dagster_decided
 if [[ "${drains_all}" == yes ]]; then
   deploy_metric_paused all
-  for id in "${jobs[@]}"; do airflow dags pause "foundation_${id}" >/dev/null; done
+  deploy_pause_jobs "${jobs[@]}"
   echo "paused ${#jobs[@]} DAGs"
   # Disabled jobs are paused too (a no-op when already paused); nothing here unpauses them.
   for id in "${disabled[@]}"; do airflow dags pause "foundation_${id}" >/dev/null 2>&1 || true; done
 else
-  count=0
+  pausing=()
   for id in "${drain[@]}"; do
     [[ -n "${enabled["${id}"]-}" ]] || continue
-    airflow dags pause "foundation_${id}" >/dev/null
-    count=$((count + 1))
+    pausing+=("${id}")
   done
+  count="${#pausing[@]}"
+  deploy_pause_jobs "${pausing[@]}"
   echo "paused ${count} DAGs; every other job keeps its schedule and its run"
   ((count == 0)) || deploy_metric_paused held
 fi

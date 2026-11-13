@@ -39,6 +39,9 @@ from airflow.sdk.exceptions import AirflowSkipException
 from openlineage.client.event_v2 import Dataset
 
 from job_specs import (
+    CHECK_TIMEOUT_MINUTES,
+    DAGSTER_LOCATION,
+    DAGSTER_REPOSITORY,
     DEFAULT_POOL,
     OUTCOME_TAG,
     OWED_TAG,
@@ -67,19 +70,14 @@ RUN_KIND = (
     "if dag_run.conf and dag_run.conf.get('operator_request') "
     "else ('' if dag_run.run_type == 'scheduled' else ' triggered') }}"
 )
-# A job's check (jobs.v1.json `check_service`, root ADR-0277) and its bound: the slowest lane's
-# took 4.2 s (2026-10-14..18), the unit's own TimeoutStartSec is 5 minutes.
+# A job's check (jobs.v1.json `check_service`, root ADR-0277), bounded by job_specs.CHECK_TIMEOUT_MINUTES.
 CHECK_TASK_ID = "check"
-CHECK_TIMEOUT_MINUTES = 6
 # The reconciler's XCom from `run` to `select`: [[job id, key]], never the journal (root ADR-0333 §7).
 OWED_KEY = "owed"
 # A run of a reconciled job that is queued or running already covers what it is owed.
 ACTIVE_STATES = ("queued", "running")
 # Where a proxied `run` reaches Dagster (compose.orchestration.yml): the webserver on the project's network.
 DAGSTER_URL = os.environ.get("FOUNDATION_DAGSTER_URL", "http://dagster-webserver:3000")
-# The code location and the repository a `@definitions` function makes (orchestration/dagster/workspace.yaml).
-DAGSTER_LOCATION = "foundation"
-DAGSTER_REPOSITORY = "__repository__"
 # How often a proxied `run` asks whether its Dagster run ended: a run lasts minutes to hours and the
 # webserver answers every DAG's polls (its cap is 304m); the next task starts at most this much later.
 DAGSTER_POLL_SECONDS = 10
@@ -152,11 +150,15 @@ class SelectOwed(BaseOperator):
 
     Asked through the task SDK (RuntimeTaskInstance.get_dr_count), one count per owed job: the tick
     reads no table of its own. Verified on apache/airflow:3.3.2 (ADR-0333 test (e)).
+
+    An owed job Dagster decides (`decided_by_dagster`) has no DAG here: its own sensor reads the same
+    owed runs from this reconciler's Dagster run and starts it (orchestration/dagster/decide.py).
     """
 
-    def __init__(self, *, dag_id_prefix, **kwargs):
+    def __init__(self, *, dag_id_prefix, decided_by_dagster=(), **kwargs):
         super().__init__(**kwargs)
         self.dag_id_prefix = dag_id_prefix
+        self.decided_by_dagster = frozenset(decided_by_dagster)
 
     def execute(self, context):
         from airflow.sdk.execution_time.task_runner import RuntimeTaskInstance
@@ -164,6 +166,9 @@ class SelectOwed(BaseOperator):
         owed = context["ti"].xcom_pull(task_ids=RUN_TASK_ID, key=OWED_KEY) or []
         starts = []
         for job, key in owed:
+            if job in self.decided_by_dagster:
+                self.log.info("%s owes versions %s; Dagster decides it and starts it", job, key)
+                continue
             dag_id = self.dag_id_prefix + job
             active = RuntimeTaskInstance.get_dr_count(dag_id=dag_id, states=list(ACTIVE_STATES))
             self.log.info("%s owes versions %s; %d runs queued or running", job, key, active)
@@ -309,7 +314,8 @@ for spec in SPECS:
             extend_global_openlineage_emission_policy(publish, emit_task_events=False)
             run >> publish
         if spec.reconciles or spec.requeues:
-            select = SelectOwed(task_id="select", dag_id_prefix=spec.dag_id.removesuffix(spec.job_id), retries=0)
+            select = SelectOwed(task_id="select", dag_id_prefix=spec.dag_id.removesuffix(spec.job_id), retries=0,
+                                decided_by_dagster=[other.job_id for other in SPECS if other.dagster_stage == "dagster"])
             # Each owed job once per key; a run id that exists already (this key was started) is skipped.
             start = TriggerDagRunOperator.partial(task_id="start", skip_when_already_exists=True,
                                                   wait_for_completion=False, retries=0).expand_kwargs(select.output)

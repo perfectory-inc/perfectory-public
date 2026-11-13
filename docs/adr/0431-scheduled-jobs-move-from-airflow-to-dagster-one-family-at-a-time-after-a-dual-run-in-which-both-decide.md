@@ -208,3 +208,9 @@ Dagster 의 기본 스케줄은 진행 중인 run 과 상관없이 틱마다 run
   (c) `registered_factory` 11-12 11:20 틱은 Airflow 가 15:48:11 에 돌렸고 검사가 15:48:06 에 읽었다: 같은 틱이고, 다음 비교가 같다고 센다.
 - **고친 규칙으로 같은 기간을 다시 비교(운영 Airflow API 읽기 전용, 한 창).** 시계 틱 2,338개·입력 사건 80개가 같고 **차이 0**,
   일시정지 구간의 결정 130개는 따로. 원장은 추가 전용이라 옛 줄의 차이는 남는다: 작업마다 마지막 차이 뒤로 다시 센다(ADR-0458 §3).
+
+## 개정 각주 — 2026-11-14, `dagster` 단계의 나머지 경로
+
+이 각주는 결정을 바꾸지 않는다. 위 각주가 남긴 목록(배포의 드레인과 한 번 시작, run-now, 계보, 운영 지도)과 그 목록에 없던 둘(자산 조정자가
+말한 빚을 누가 시작하나, `check` 과제와 재시도)의 설계는 [ADR-0565](./0565-a-job-dagster-decides-is-reached-through-dagster-by-everything-that-reached-it-through-its-airflow-dag.md)
+가 정한다: 경로마다 장치 하나, 어느 쪽으로 닿는지는 작업의 `dagster_stage` 하나, `job_specs.py` 는 그 경로가 모두 선 PR 에서 단계를 연다.

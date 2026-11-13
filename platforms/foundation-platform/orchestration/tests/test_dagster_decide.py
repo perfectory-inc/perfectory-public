@@ -10,6 +10,7 @@ skip fails that lane.
 import copy
 import datetime
 import importlib.util
+import json
 import pathlib
 import sys
 import unittest
@@ -124,6 +125,99 @@ class TheDecisionsTest(unittest.TestCase):
         runs = replay(spec, at("2026-11-09T10:00:00"), at("2026-11-09T11:00:00"), 600, events=events,
                       down=[(at("2026-11-09T10:05:00"), at("2026-11-09T10:40:00"))])
         self.assertEqual([key for _, _, key in runs], ["inputs:2026-11-09T10:10:00+00:00"])
+
+
+@unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
+class TheOwedRunsTest(unittest.TestCase):
+    """Root ADR-0565 §4: what the reconciler's run says a job is owed starts the job from the job's own
+    sensor, as the reconciler's DAG tasks `select` and `start` did for a job with a DAG."""
+
+    def decide(self, cursor, now, held=False, events=(), owed=()):
+        import decide
+
+        spec = spec_of("gold_unit_price_rebuild")
+        return decide.decide(spec, limit_of(spec.job_id), cursor, now, held, list(events), 0, list(owed))
+
+    def test_an_owed_key_starts_one_triggered_run_named_by_the_key(self):
+        now = at("2026-11-09T10:00:00")
+        _, cursor = self.decide(None, now, owed=["0123456789abcdef"])
+        self.assertEqual(self.decide(None, now, owed=["0123456789abcdef"])[0], [], "the first look starts nothing")
+        requests, cursor = self.decide(cursor, now + STEP, owed=["0123456789abcdef", "fedcba9876543210"])
+        self.assertEqual([(request.key, request.kind) for request in requests], [("reconcile:fedcba9876543210", "triggered")])
+
+    def test_an_open_run_or_a_run_starting_now_covers_what_is_owed(self):
+        now = at("2026-11-09T10:00:00")
+        _, cursor = self.decide(None, now)
+        # Held: Airflow's `select` kept only the jobs with no run queued or running.
+        self.assertEqual(self.decide(cursor, now + STEP, held=True, owed=["0123456789abcdef"])[0], [])
+        # An input event starts the run now; that run reads the inputs as they are.
+        requests, _ = self.decide(cursor, now + STEP, events=[(1, now + 1)], owed=["0123456789abcdef"])
+        self.assertEqual(len(requests), 1)
+        self.assertTrue(requests[0].key.startswith("inputs:"))
+
+    def test_the_sensor_reads_the_owed_runs_from_the_reconcilers_dagster_runs(self):
+        import observe_assets
+        from dagster import DagsterInstance, RunRequest, SkipReason, build_sensor_context, job, op
+
+        import decide
+
+        job_specs = observe_assets.job_specs
+        spec = spec_of("gold_unit_price_rebuild")
+        reconciler = next(found for found in job_specs.load_specs() if spec.job_id in found.reconciles)
+
+        @op
+        def run():
+            pass
+
+        @job(name=reconciler.dagster_job)
+        def reconcile():
+            run()
+
+        def reconciled(instance, owed, outcome="unchanged"):
+            reconcile.execute_in_process(instance=instance, tags={
+                job_specs.OUTCOME_TAG: outcome, job_specs.OWED_TAG: json.dumps(owed)})
+
+        clock = [at("2026-11-09T10:00:00")]
+        evaluate = decide.evaluator(spec, limit_of(spec.job_id), clock=lambda: clock[0], reconcilers=[reconciler])
+        with DagsterInstance.ephemeral() as instance:
+            context = build_sensor_context(instance=instance)
+            self.assertIsInstance(evaluate(context), SkipReason)
+            # A reconciler whose run was skipped (`waiting`) started nothing through Airflow either.
+            reconciled(instance, [[spec.job_id, "aaaaaaaaaaaaaaaa"]], outcome="waiting")
+            reconciled(instance, [["by_pnu_unit_price_bake", "bbbbbbbbbbbbbbbb"]])
+            clock[0] += STEP
+            context = build_sensor_context(instance=instance, cursor=context.cursor)
+            self.assertIsInstance(evaluate(context), SkipReason, "nothing is owed to this job")
+            reconciled(instance, [[spec.job_id, "0123456789abcdef"]])
+            clock[0] += STEP
+            context = build_sensor_context(instance=instance, cursor=context.cursor)
+            (request,) = evaluate(context)
+            self.assertIsInstance(request, RunRequest)
+            self.assertEqual(request.run_key, "reconcile:0123456789abcdef")
+            self.assertEqual(request.tags["foundation/run-kind"], "triggered")
+
+    def test_a_job_s_sensor_knows_the_reconciler_only_once_dagster_runs_it(self):
+        import observe_assets
+
+        import decide
+
+        jobs, graph = (copy.deepcopy(value) for value in observe_assets.contracts())
+        by_id = {job["id"]: job for job in jobs["jobs"]}
+        # The bake is the end of its chain: nothing started by its outputs has to move before it.
+        by_id["by_pnu_unit_price_bake"]["dagster_stage"] = "dagster"
+        reconciler = next(job for job in jobs["jobs"] if job.get("reconciles"))
+        stages = (*observe_assets.job_specs.IMPLEMENTED_DAGSTER_STAGES, "dagster")
+        seen = []
+        with mock.patch.object(observe_assets.job_specs, "IMPLEMENTED_DAGSTER_STAGES", stages), \
+                mock.patch.object(decide, "evaluator", lambda spec, limit, reconcilers=(): seen.append(
+                    [found.job_id for found in reconcilers]) or (lambda context: None)):
+            reconciler["dagster_stage"] = "proxied"
+            decide.sensors(jobs, graph)
+            # The order rule refuses the other arrangement: a job at dagster under a reconciler Airflow runs.
+            reconciler["dagster_stage"] = "shadow"
+            with self.assertRaises(observe_assets.job_specs.JobListError):
+                decide.sensors(jobs, graph)
+        self.assertEqual(seen, [[reconciler["id"]]])
 
 
 @unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)

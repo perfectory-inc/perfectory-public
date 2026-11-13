@@ -31,8 +31,16 @@ Where Dagster does not do as Airflow did, by decision, with the incident each ru
   host's start (job_units.py pool-full) still holds back a start that would leave a higher claim no room,
   whoever starts it: a late run of a low class waits rather than run into a publish.
 
-Each request's run key names its decision (`tick:<iso>`, `inputs:<latest event>`), so a repeated
-evaluation never starts a decision twice.
+- **Owed runs** (root ADR-0333 §7, ADR-0462): the asset reconciler's run says which jobs are owed a run and
+  a key of what each owes (job_specs.OWED_LINE), and its Dagster run keeps them as a tag (run_jobs.py,
+  job_specs.OWED_TAG). The job's sensor reads the reconciler's runs that ended since it last looked and
+  starts the job once per key, unless a run of the job is open (that run covers it) or a tick or an input
+  event starts one now: Airflow's `select` and `start` tasks of the reconciler's DAG, which a job Dagster
+  decides has no DAG for. A stopped sensor (a deploy holds the job) starts nothing owed either; the
+  reconciler says it again on its next tick.
+
+Each request's run key names its decision (`tick:<iso>`, `inputs:<latest event>`, `reconcile:<key>`), so a
+repeated evaluation never starts a decision twice.
 """
 
 import datetime
@@ -46,11 +54,17 @@ import observe_assets
 
 job_specs = observe_assets.job_specs
 
-SENSOR_PREFIX = "foundation_decide__"
+SENSOR_PREFIX = job_specs.DAGSTER_SENSOR_PREFIX
 SENSOR_SECONDS = 30
 # Longer than this between two evaluations is an outage of the decider (the daemon was down or the sensor
 # stopped), not its loop: ten loops, which a daemon restart for a release (about two minutes) stays inside.
 OUTAGE_SECONDS = 10 * SENSOR_SECONDS
+# A reconciler's run is read again this long after it was first in reach: its tags are set before it ends,
+# and its end is stamped by another process than the one that reads the clock here. The run key keeps a run
+# read twice from starting the job twice.
+OWED_OVERLAP_SECONDS = 2 * SENSOR_SECONDS
+# The reconciler's outcomes after which Airflow's `select` did not run (its `run` task was skipped or failed).
+OWED_WITHHELD = ("waiting", "skipped", "failed")
 # The run states in which a job's run holds it (a tick or an event waits behind it).
 OPEN_STATUSES = ("NOT_STARTED", "QUEUED", "STARTING", "STARTED", "CANCELING")
 
@@ -90,12 +104,13 @@ def _iso(at):
     return datetime.datetime.fromtimestamp(at, datetime.UTC).isoformat()
 
 
-def decide(spec, run_limit_seconds, cursor, now, held, events, newest_event_id=0):
+def decide(spec, run_limit_seconds, cursor, now, held, events, newest_event_id=0, owed=()):
     """(requests, the next cursor) for one evaluation at `now`.
 
     `cursor` is the previous evaluation's (None on the first look), `held` whether a run of the job is
     open, `events` the (storage id, time) of the starting inputs' materializations after `cursor.event_id`,
-    and `newest_event_id` the event log's newest storage id on the first look, where taking starts.
+    `newest_event_id` the event log's newest storage id on the first look, where taking starts, and `owed`
+    the keys the reconciler's runs since the last look say the job is owed a run for, oldest first.
     """
     if cursor is None:
         # A sensor's first look starts from now: no tick or event from before it is a decision of its.
@@ -120,6 +135,9 @@ def decide(spec, run_limit_seconds, cursor, now, held, events, newest_event_id=0
         requests.append(Request(key=f"inputs:{_iso(newest)}", kind="triggered", at=newest))
     # A tick and an event due together are one run (the tick's, which reads the inputs as they are), as
     # Airflow's AssetOrTimeSchedule starts one run for both.
+    if owed and not requests:
+        # What the reconciler found owed is state, not an event: the newest key says all of it.
+        requests.append(Request(key=f"reconcile:{owed[-1]}", kind="triggered", at=now))
     return requests, Cursor(since=now, event_id=event_id)
 
 
@@ -139,8 +157,26 @@ def _events(instance, keys, after_id):
                 AssetRecordsFilter(asset_key=key, after_storage_id=after_id), limit=1000).records]
 
 
-def evaluator(spec, run_limit_seconds, clock=time.time):
-    """The sensor function of one job (`clock` stands in for the wall clock in the tests)."""
+def _owed(instance, reconcilers, job_id, since):
+    """The keys the reconcilers' Dagster runs updated after `since` say `job_id` is owed, oldest first."""
+    from dagster import DagsterRunStatus, RunsFilter
+
+    after = datetime.datetime.fromtimestamp(since - OWED_OVERLAP_SECONDS, datetime.UTC)
+    keys = []
+    for reconciler in reconcilers:
+        records = instance.get_run_records(RunsFilter(job_name=reconciler.dagster_job, updated_after=after,
+                                                      statuses=[DagsterRunStatus.SUCCESS]), limit=20)
+        for record in sorted(records, key=lambda record: record.update_timestamp):
+            tags = record.dagster_run.tags
+            if tags.get(job_specs.OUTCOME_TAG) in OWED_WITHHELD:
+                continue
+            keys += [key for job, key in json.loads(tags.get(job_specs.OWED_TAG) or "[]") if job == job_id]
+    return keys
+
+
+def evaluator(spec, run_limit_seconds, clock=time.time, reconcilers=()):
+    """The sensor function of one job (`clock` stands in for the wall clock in the tests; `reconcilers`
+    are the specs of the jobs whose runs may say this one is owed a run)."""
     from dagster import DagsterRunStatus, RunRequest, RunsFilter, SkipReason
 
     inputs = [observe_assets.asset_key(dataset) for dataset in spec.starting_inputs]
@@ -151,7 +187,8 @@ def evaluator(spec, run_limit_seconds, clock=time.time):
             job_name=spec.dagster_job, statuses=[DagsterRunStatus(status) for status in OPEN_STATUSES])) > 0
         events = _events(context.instance, inputs, cursor.event_id) if cursor is not None else []
         first = _newest_event_id(context.instance, inputs) if cursor is None else 0
-        requests, cursor = decide(spec, run_limit_seconds, cursor, clock(), held, events, first)
+        owed = _owed(context.instance, reconcilers, spec.job_id, cursor.since) if cursor is not None and not held else []
+        requests, cursor = decide(spec, run_limit_seconds, cursor, clock(), held, events, first, owed)
         context.update_cursor(cursor.dump())
         if not requests:
             return SkipReason("a run of the job is open; what is due waits" if held else "nothing is due")
@@ -167,8 +204,14 @@ def sensors(jobs=None, graph=None):
     if jobs is None or graph is None:
         jobs, graph = observe_assets.contracts()
     by_id = {job["id"]: job for job in jobs["jobs"]}
+    specs = job_specs.load_specs(jobs, graph)
+    # Who may say a job is owed a run: the jobs that reconcile or requeue it, once Dagster runs them.
+    starters = {spec.job_id: [other for other in specs if other.dagster_stage in job_specs.DAGSTER_RUNS
+                              and spec.job_id in job_specs.started_for(jobs, by_id[other.job_id])]
+                for spec in specs if spec.dagster_stage == "dagster"}
     return [sensor(name=SENSOR_PREFIX + spec.job_id, job_name=spec.dagster_job, minimum_interval_seconds=SENSOR_SECONDS,
                    default_status=DefaultSensorStatus.RUNNING,
                    description=f"Decides when {spec.job_id} runs (root ADR-0431 §3, orchestration/dagster/decide.py)")(
-                evaluator(spec, 60 * job_specs.run_limit_minutes(by_id[spec.job_id])))
-            for spec in job_specs.load_specs(jobs, graph) if spec.dagster_stage == "dagster"]
+                evaluator(spec, 60 * job_specs.run_limit_minutes(by_id[spec.job_id]),
+                          reconcilers=starters[spec.job_id]))
+            for spec in specs if spec.dagster_stage == "dagster"]
