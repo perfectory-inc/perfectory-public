@@ -411,6 +411,8 @@ def full_document_frames(spark, round_row):
                                 "remarks": "합성"},
         job.APPRAISAL_ROUND_DOC: {"round_seq": 1, "appraisal_no": "합성-01", "price_basis_date": date(2099, 1, 10),
                                   "written_date": date(2099, 1, 12), "opinion": "합성"},
+        job.REPORT_DOC: {"round_seq": 1, "appraisal_no": "합성-01", "written_date": date(2099, 1, 12),
+                         "sha256": "a" * 64, "media_format": "pdf", "size_bytes": 1000},
     }
     from platform_contracts import load_lakehouse_contract, spark_sql_type
 

@@ -840,9 +840,10 @@ const APPRAISAL_REPORT_KEY: &[&str] = &[
     "written_date",
 ];
 
-/// A stored 감정평가서 PDF of one 감정평가 round, by its content hash in the shared media store (root
-/// ADR-0540 §1, ADR-0298): only reports the store holds, so the media reconcile reads every row as a
-/// key (data-go-kr-onbid.contract.json media.reconcile.index_tables). A report never changes; the
+/// A stored 감정평가서 PDF of one 감정평가 round, by its content hash (root ADR-0540 §1, ADR-0298).
+///
+/// Only reports the shared media store holds, so the media reconcile reads every row as a key
+/// (`data-go-kr-onbid.contract.json` `media.reconcile.index_tables`). A report never changes; the
 /// newest row per round key is current.
 pub const SILVER_COURT_AUCTION_APPRAISAL_REPORT: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.court_auction_appraisal_report",
@@ -878,9 +879,10 @@ pub const SILVER_COURT_AUCTION_APPRAISAL_REPORT: LakehouseTableContract = Lakeho
     load: OBJECT_LOAD,
 };
 
-/// One row per 감정평가서 request, CAPTCHA skips and failures included: the record the next run's
-/// report frontier reads (a recent `gone` is not asked again) and the count of CAPTCHAs the viewer
-/// asked (root ADR-0540 §1, §3). The newest row per round key is current.
+/// One row per 감정평가서 request, CAPTCHA skips and failures included (root ADR-0540 §1, §3).
+///
+/// The record the next run's report frontier reads (a recent `gone` is not asked again) and the
+/// count of CAPTCHAs the viewer asked. The newest row per round key is current.
 pub const SILVER_COURT_AUCTION_APPRAISAL_REPORT_READ: LakehouseTableContract =
     LakehouseTableContract {
         table_name: "silver.court_auction_appraisal_report_read",
