@@ -12105,6 +12105,7 @@
         "removal_column": null,
         "keep_ties": false
       },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY court_office_code, case_no, round_seq, appraisal_no, written_date ORDER BY source_snapshot_id DESC NULLS LAST, source_line_number DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1",
       "row_versions": {
         "kind": "latest_per_key"
       },
@@ -12216,6 +12217,7 @@
         "removal_column": null,
         "keep_ties": false
       },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY court_office_code, case_no, round_seq, appraisal_no, written_date ORDER BY source_snapshot_id DESC NULLS LAST, source_line_number DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1",
       "row_versions": {
         "kind": "latest_per_key"
       },
