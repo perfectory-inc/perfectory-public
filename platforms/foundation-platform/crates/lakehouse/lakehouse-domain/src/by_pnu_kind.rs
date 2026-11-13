@@ -8,11 +8,15 @@
 //! join columns after `attached_via` (root ADR-0483): the parcel's stable `place_id` (ADR-0288 §5) and,
 //! for a kind that links rows to a 본번 group, the group's `main_lot_group_place_ids`. They are Gold's
 //! join keys, not served content. Nothing of a kind's table is written by hand.
+//!
+//! A line that says `versions_table` also has `gold.<lane>_versions` beside that table (root
+//! ADR-0564 §1, `gold_versions_table`): the same columns as appended row versions.
 
 use std::sync::OnceLock;
 
 use serde::Deserialize;
 
+use crate::gold_versions_table::gold_versions_table;
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey,
     LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
@@ -39,6 +43,9 @@ struct Lane {
     columns: Vec<String>,
     #[serde(default)]
     place_identity: Vec<String>,
+    /// The kind has a table of appended row versions beside the replaced one (root ADR-0564 §1).
+    #[serde(default)]
+    versions_table: bool,
 }
 
 /// The Gold tables of the contract's kinds, in lane name order; empty when the contract's lane
@@ -67,15 +74,20 @@ fn derived() -> &'static Result<Vec<LakehouseTableContract>, String> {
 pub fn derive(contract: &str) -> Result<Vec<LakehouseTableContract>, String> {
     let contract: Contract = serde_json::from_str(contract)
         .map_err(|error| format!("invalid R2 connection contract: {error}"))?;
-    contract
-        .by_pnu_lanes
-        .into_iter()
-        .filter_map(|(name, lane)| {
-            lane.host
-                .map(|host| (name, host, lane.columns, lane.place_identity))
-        })
-        .map(|(name, host, columns, joins)| table(&name, &host, &columns, &joins))
-        .collect()
+    let mut tables = Vec::new();
+    for (name, lane) in contract.by_pnu_lanes {
+        let Some(host) = lane.host else { continue };
+        let replaced = table(&name, &host, &lane.columns, &lane.place_identity)?;
+        // Root ADR-0564 §1: the versions table is born beside the replaced one, whose contract,
+        // data and producer stay as they are until the lane is taken over.
+        let versions = lane
+            .versions_table
+            .then(|| gold_versions_table(&replaced))
+            .transpose()?;
+        tables.push(replaced);
+        tables.extend(versions);
+    }
+    Ok(tables)
 }
 
 fn leak(text: String) -> &'static str {
@@ -240,6 +252,39 @@ mod tests {
                     .concat()
                 ),
             ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_line_with_a_versions_table_has_both_tables() -> Result<(), String> {
+        let tables = derive(
+            r#"{"by_pnu_lanes": {
+                "parcel-example": {"host": "parcel_by_pnu_gateway", "columns": ["things_json"],
+                                   "versions_table": true},
+                "parcel-other": {"host": "parcel_by_pnu_gateway", "columns": ["others_json"]}}}"#,
+        )?;
+        assert_eq!(
+            tables
+                .iter()
+                .map(|table| table.table_name)
+                .collect::<Vec<_>>(),
+            [
+                "gold.parcel_example",
+                "gold.parcel_example_versions",
+                "gold.parcel_other"
+            ]
+        );
+        // The replaced table is as it was: the take-over does not touch it.
+        assert!(matches!(
+            tables[0].row_versions,
+            LakehouseRowVersions::Replaced { .. }
+        ));
+        assert_eq!(tables[0].partition_spec, ["source_snapshot_id"]);
+        assert_eq!(tables[1].partition_spec, ["truncate(2, pnu)"]);
+        assert_eq!(
+            tables[1].columns[..tables[0].columns.len()],
+            *tables[0].columns
         );
         Ok(())
     }

@@ -157,6 +157,44 @@
           "value": "gold.real_transaction_region_stats"
         }
       ]
+    },
+    {
+      "id": "gold-parcel-real-transaction-versions",
+      "type": "gold_table",
+      "title": "필지 실거래 by-PNU 표(판을 쌓는 표)",
+      "description": "gold.parcel_real_transaction 과 같은 칸에 version_seq·row_state 를 더한, 바뀐 PNU 의 행만 덧붙이는 표다(루트 ADR-0561, ADR-0564 §1·§2). 현재 행은 PNU 마다 version_seq 가 가장 큰 행이고 row_state 가 removed 면 그 PNU 는 없다. 그냥 조회하면 옛 판과 삭제 표시가 보인다. 발행기 안의 DuckDB 가 계산하고 발행기가 추가 커밋으로 붙인다. 아직 쓰는 작업이 없고, 레인은 옛 표를 굽는다: 판정(옛 표의 행과 이 표의 현재 행이 같다) 뒤에 레인 줄의 gold_table 이 이 표로 옮겨진다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md",
+        "platforms/foundation-platform/crates/lakehouse/lakehouse-domain/src/gold_versions_table.rs"
+      ],
+      "table_name": "gold.parcel_real_transaction_versions",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_real_transaction_versions"
+        }
+      ]
+    },
+    {
+      "id": "gold-real-transaction-region-stats-versions",
+      "type": "gold_table",
+      "title": "실거래 지역 통계(판을 쌓는 표)",
+      "description": "gold.real_transaction_region_stats 와 같은 칸에 version_seq·row_state 를 더한, 바뀐 (데이터셋, 지역, 기간) 행만 덧붙이는 표다(루트 ADR-0564 §6-9). 독자가 실거래 Gold 의 생산자 하나라 레인 스위치 없이 새 생산자와 함께 태어난다. 아직 쓰는 작업이 없다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md",
+        "platforms/foundation-platform/crates/lakehouse/lakehouse-domain/src/gold_versions_table.rs"
+      ],
+      "table_name": "gold.real_transaction_region_stats_versions",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.real_transaction_region_stats_versions"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -315,6 +353,7 @@
         "main_lot_group_place_ids"
       ],
       "producer": "real_transaction_silver_to_gold",
+      "versions_table": true,
       "decision": "docs/adr/0479-the-real-transaction-history-fills-every-category-s-recent-years-first-and-the-lane-publishes-before-it-is-whole-saying-from-when.md",
       "spark_held_test": "infra/lakehouse/spark/tests/test_real_transaction_gold.py",
       "first_publish_waits_for_history": [

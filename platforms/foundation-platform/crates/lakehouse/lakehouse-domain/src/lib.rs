@@ -29,6 +29,7 @@ mod building_register_sub_parcel;
 mod by_pnu_kind;
 mod court_auction;
 mod data_go_kr_file_data;
+mod gold_versions_table;
 mod housing_permit_basis_outline;
 mod hub_lane_family;
 mod industrial_complex_notice;
@@ -93,6 +94,10 @@ pub use data_go_kr_file_data::{
     SILVER_SUBWAY_STATION, SILVER_UNIVERSITY,
 };
 pub use errors::LakehouseError;
+pub use gold_versions_table::{
+    gold_versions_table, GOLD_VERSIONS_PNU_PARTITION, GOLD_VERSIONS_REMOVAL_COLUMN,
+    GOLD_VERSIONS_TABLE_SUFFIX, GOLD_VERSION_SEQ_COLUMN,
+};
 pub use housing_permit_basis_outline::SILVER_HOUSING_PERMIT_BASIS_OUTLINE;
 pub use hub_lane_family::{
     hub_family_lane_by_export, hub_family_lane_by_id, hub_family_lane_error, hub_family_lanes,

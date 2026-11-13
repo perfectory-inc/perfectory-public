@@ -494,7 +494,8 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
 ///
 /// The industrial complex `PoC` contracts come in publish order, then the Silver table of every HUB
 /// family lane (root ADR-0551) and the Gold table of every by-PNU data kind the R2 connection
-/// contract names (root ADR-0193).
+/// contract names (root ADR-0193), a kind's versions table beside it, and the versions tables of
+/// the Golds outside the lanes (root ADR-0564 §1).
 #[must_use]
 pub fn industrial_complex_lakehouse_contracts() -> &'static [LakehouseTableContract] {
     static ALL: std::sync::OnceLock<Vec<LakehouseTableContract>> = std::sync::OnceLock::new();
@@ -503,6 +504,7 @@ pub fn industrial_complex_lakehouse_contracts() -> &'static [LakehouseTableContr
             INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS,
             &crate::hub_lane_family::hub_family_tables(),
             crate::by_pnu_kind_tables(),
+            crate::gold_versions_table::gold_versions_tables_outside_the_lanes(),
         ]
         .concat()
     })

@@ -13085,6 +13085,102 @@
         "unit": "derived"
       }
     },
+    "gold.parcel_real_transaction_versions": {
+      "table_name": "gold.parcel_real_transaction_versions",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "pnu"
+        ],
+        "newest_first": [
+          "version_seq"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY pnu ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "real_transaction_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "transaction_total",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "place_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_lot_group_place_ids",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "version_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "truncate(2, pnu)"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "append_only",
+        "(pnu, version_seq) unique",
+        "of the current rows: one row per pnu",
+        "of the current rows: pnu matches the cadastral grammar",
+        "of the current rows: every row has its section",
+        "of the current rows: row_digest contains content only",
+        "of the current rows: published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "gold.real_transaction_region_stats": {
       "table_name": "gold.real_transaction_region_stats",
       "physical_format": "Parquet",
@@ -13197,6 +13293,141 @@
         "region_code is a 10-digit 법정동 or 시군구 code",
         "row_digest contains content only",
         "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.real_transaction_region_stats_versions": {
+      "table_name": "gold.real_transaction_region_stats_versions",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "dataset_slug",
+          "region_level",
+          "region_code",
+          "period_kind",
+          "period"
+        ],
+        "newest_first": [
+          "version_seq"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY dataset_slug, region_level, region_code, period_kind, period ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "dataset_slug",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "region_level",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "region_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "period_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "period",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "deal_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "cancelled_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "land_price_per_m2_p25",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "land_price_per_m2_median",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "land_price_per_m2_p75",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "building_price_per_m2_p25",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "building_price_per_m2_median",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "building_price_per_m2_p75",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "version_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "dataset_slug"
+      ],
+      "sort_order": [
+        "region_code",
+        "period"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(dataset_slug, region_level, region_code, period_kind, period, version_seq) unique",
+        "of the current rows: one row per (dataset_slug, region_level, region_code, period_kind, period)",
+        "of the current rows: region_code is a 10-digit 법정동 or 시군구 code",
+        "of the current rows: row_digest contains content only",
+        "of the current rows: published_at_utc is present"
       ],
       "load": {
         "unit": "derived"
