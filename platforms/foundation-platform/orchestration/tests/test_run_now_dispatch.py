@@ -98,10 +98,17 @@ class RunNowDispatch(unittest.TestCase):
         next(entry for entry in jobs["jobs"] if entry["id"] == job)["dagster_stage"] = "dagster"
         path.write_text(json.dumps(jobs))
         (self.root / "opt/current/scripts/deploy/job_orchestrator.py").write_text(
-            "import os, sys\n"
-            "with open(os.path.join(os.environ['FIXTURE_ROOT'], 'dagster.log'), 'a') as log:\n"
-            "    log.write(' '.join([sys.argv[1], *sys.argv[3:]]) + '\\n')\n"
-            "sys.exit(1 if os.environ.get('FIXTURE_DAGSTER_FAILS') else 0)\n")
+            "import importlib.util, os, sys\n"
+            f"spec = importlib.util.spec_from_file_location('real_job_orchestrator', {str(PLATFORM / 'scripts/deploy/job_orchestrator.py')!r})\n"
+            "real = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(real)\n"
+            "decided = real.decided\n"
+            "if __name__ == '__main__':\n"
+            "    if sys.argv[1] == 'decided':\n"
+            "        sys.exit(real.main(sys.argv[1:]))\n"
+            "    with open(os.path.join(os.environ['FIXTURE_ROOT'], 'dagster.log'), 'a') as log:\n"
+            "        log.write(' '.join([sys.argv[1], *sys.argv[3:]]) + '\\n')\n"
+            "    sys.exit(1 if os.environ.get('FIXTURE_DAGSTER_FAILS') in ('1', sys.argv[1]) else 0)\n")
 
     def test_a_job_dagster_decides_is_started_in_dagster_once_with_the_request_id(self):
         # Root ADR-0565 §6: the job has no DAG to trigger; the request reaches the same gate as a run kind.

@@ -51,7 +51,7 @@ PY
   # Which jobs Dagster decides is job_orchestrator.py's answer (root ADR-0565).
   orchestrator="${release_root}/current/scripts/deploy/job_orchestrator.py"
   if [[ "${enabled}" == yes && -f "${orchestrator}" ]] \
-    && python3 -I -B "${orchestrator}" decided "${jobs_file}" | grep -qx "${job}"; then
+    && grep -qx "${job}" < <(python3 -I -B "${orchestrator}" decided "${jobs_file}"); then
     enabled=dagster
   fi
   case "${enabled}" in

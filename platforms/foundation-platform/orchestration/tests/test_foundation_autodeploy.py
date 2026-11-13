@@ -976,10 +976,17 @@ class TheWholeDeploy(unittest.TestCase):
         # Airflow builds no DAG for such a job, so its list does not name it.
         self.no_dag = " ".join(job_ids)
         (running / "scripts/deploy/job_orchestrator.py").write_text(
-            "import os, sys\n"
-            "with open(os.path.join(os.environ['FIXTURE_ROOT'], 'dagster.log'), 'a') as log:\n"
-            "    log.write(' '.join([sys.argv[1], *sys.argv[3:]]) + '\\n')\n"
-            "sys.exit(1 if os.environ.get('FIXTURE_DAGSTER_FAILS') == sys.argv[1] else 0)\n")
+            "import importlib.util, os, sys\n"
+            f"spec = importlib.util.spec_from_file_location('real_job_orchestrator', {str(PLATFORM / 'scripts/deploy/job_orchestrator.py')!r})\n"
+            "real = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(real)\n"
+            "decided = real.decided\n"
+            "if __name__ == '__main__':\n"
+            "    if sys.argv[1] == 'decided':\n"
+            "        sys.exit(real.main(sys.argv[1:]))\n"
+            "    with open(os.path.join(os.environ['FIXTURE_ROOT'], 'dagster.log'), 'a') as log:\n"
+            "        log.write(' '.join([sys.argv[1], *sys.argv[3:]]) + '\\n')\n"
+            "    sys.exit(1 if os.environ.get('FIXTURE_DAGSTER_FAILS') in ('1', sys.argv[1]) else 0)\n")
 
     def dagster_told(self):
         path = self.root / "dagster.log"

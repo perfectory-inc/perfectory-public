@@ -317,7 +317,7 @@ sys.exit(0 if any(u.get("email") == os.environ["EMAIL"] for u in json.load(sys.s
 trigger() {
   (($# == 1)) || fail "usage: $0 trigger JOB"
   [[ "$1" =~ ^[a-z][a-z0-9_]*$ ]] || fail "job ids are lower_snake names"
-  if python3 -I -B "${root_dir}/scripts/deploy/job_orchestrator.py" decided "${jobs_file}" | grep -qx "$1"; then
+  if grep -qx "$1" < <(python3 -I -B "${root_dir}/scripts/deploy/job_orchestrator.py" decided "${jobs_file}"); then
     fail "Dagster decides $1 and Airflow has no DAG for it: scripts/deploy/job_orchestrator.py start ${jobs_file} $1"
   fi
   airflow_cli dags trigger "foundation_$1"
