@@ -49,10 +49,26 @@ mkdir -p "${work}/collect" "${STATE_ROOT}/collector"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "onbid collect FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 
+# 0b. 목록을 떠난 뒤 수집기가 잊은 미상세 물건(루트 ADR-0542 §3)을 Silver 에서 한 번 읽는다. 한 run 이
+#     받아 가면 표시(closed-owed-seed.done)를 남기고 다시 읽지 않는다. 읽기가 실패하면 이 run 은 시드 없이
+#     돌고 다음 run 이 다시 읽는다 — 수집을 깨지 않는다.
+seed_done="${STATE_ROOT}/collector/closed-owed-seed.done"
+seed_env=()
+if [ ! -e "${seed_done}" ]; then
+  if python3 -I "${RELEASE_ROOT}/scripts/ops/onbid_closed_owed_seed.py" "${work}/closed-owed-seed.json" >> "${run_log}" 2>&1; then
+    seed_env=("${COLLECT}_CLOSED_OWED_SEED=${work}/closed-owed-seed.json")
+  else
+    job_journal "${journal}" "onbid closed-owed seed skipped run=${run_id} (Silver read failed; the next run reads it)"
+  fi
+fi
+
 # 1. 수집. 물건상세·미디어 커버리지는 node-exporter textfile 로 남긴다(루트 ADR-0330 §4; 이 작업의 state_paths).
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_STATE_DIR=${STATE_ROOT}/collector" "${COLLECT}_LIVE_WRITE=1" \
-  "${COLLECT}_METRICS_DIR=/var/lib/foundation-jobs/metrics" \
+  "${COLLECT}_METRICS_DIR=/var/lib/foundation-jobs/metrics" "${seed_env[@]}" \
   "${PUBLISHER_BIN}" collect-data-go-kr-onbid >> "${run_log}" 2>&1
+if [ "${#seed_env[@]}" -gt 0 ]; then
+  date -u +%Y-%m-%dT%H:%M:%SZ > "${seed_done}"
+fi
 
 outcome="$(grep '^foundation-job-outcome ' "${run_log}" | tail -1)"
 job_journal "${journal}" "onbid collect ok run=${run_id} ${outcome#foundation-job-outcome }"
