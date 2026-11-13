@@ -712,7 +712,8 @@ def region_read_share(spark: Any, qualified: str, column: str) -> float | None:
 def compaction_reasons(small_files: int, total_files: int, compaction: dict[str, Any],
                        deletes: dict[str, float] | None, read_share: float | None) -> tuple[str, ...]:
     """Why to compact now: enough small files (`should_compact`), deletes past any of the contract's
-    fold bounds (`fold_due`), or data files the shape-ledger check would call out of order."""
+    fold bounds (`fold_due`), or data files the shape-ledger check would call out of order. Any
+    compaction of a table with live deletes also folds them."""
     import table_layout  # noqa: PLC0415
 
     reasons = []
@@ -722,6 +723,12 @@ def compaction_reasons(small_files: int, total_files: int, compaction: dict[str,
         reasons.append(FOLD_DELETES)
     if read_share is not None and read_share > table_layout.read_share_limit(total_files):
         reasons.append(OUT_OF_ORDER)
+    # A rewrite of a table that carries deletes folds them all. Otherwise it drops the deleted rows of
+    # the files it rewrites and keeps their delete files, whose deletes then point at no live file and
+    # still count in `total-position-deletes`: 2026-11-13 a small-files compaction of gold.parcel_panel
+    # left 17, and the by-PNU bake read 39,861,494 rows for a table of 39,861,511 and refused every run.
+    if reasons and deletes is not None and FOLD_DELETES not in reasons:
+        reasons.insert(1 if reasons[0] == SMALL_FILES else 0, FOLD_DELETES)
     return tuple(reasons)
 
 

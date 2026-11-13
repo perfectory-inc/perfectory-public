@@ -323,6 +323,27 @@ class RecordedChangeSet(unittest.TestCase):
         with self.assertRaises(ValueError):
             delta.live_rows("100", "0", "3")
 
+    def test_a_compaction_that_keeps_its_delete_files_does_not_lose_rows(self):
+        # gold.parcel_panel 2026-11-11..13: a merge, a compaction that kept the merge's delete files
+        # (17 deletes then pointed at no live file), an empty append. Twin of the Rust adapter test.
+        snapshots = {
+            10: (None, "overwrite", {"total-records": "39861511", "total-position-deletes": "0"}),
+            12: (10, "overwrite", {"added-records": "1389", "added-position-deletes": "70600",
+                                   "total-records": "39932111", "total-position-deletes": "70600"}),
+            13: (12, "replace", {"deleted-records": "70600", "added-records": "70583",
+                                 "total-records": "39932094", "total-position-deletes": "70600"}),
+            14: (13, "append", {"total-records": "39932094", "total-position-deletes": "70600"}),
+            15: (14, "overwrite", {"added-records": "5", "removed-position-deletes": "100",
+                                   "added-position-deletes": "105", "total-records": "39932099",
+                                   "total-position-deletes": "70605"}),
+        }
+        for head in (12, 13, 14):
+            summary = snapshots[head][2]
+            self.assertEqual(delta.live_rows(summary["total-records"], summary["total-position-deletes"], None)
+                             + delta.dangling_deletes(snapshots, head), 39_861_511, head)
+        with self.assertRaises(ValueError):
+            delta.dangling_deletes(snapshots, 15)
+
 
 if __name__ == "__main__":
     unittest.main()
