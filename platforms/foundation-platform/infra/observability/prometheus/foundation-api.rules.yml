@@ -552,9 +552,10 @@ groups:
         # Root ADR-0444: behind its inputs, not old. 2026-10-17..11-07 four lanes whose packs held the
         # newest Silver there was paged hourly on a 498-hour-old manifest. The reconciler dates the
         # oldest change a lane does not serve; where it cannot, the manifest's age is held instead.
+        # `group_left` keeps the lane's bake_job, by which Alertmanager sends one notice per bake (W83b).
         expr: >-
           foundation_by_pnu_lane_behind_seconds
-          > on(lane) foundation_by_pnu_serving_freshness_budget_seconds
+          > on(lane) group_left foundation_by_pnu_serving_freshness_budget_seconds
           or (
             foundation_by_pnu_served_manifest_age_seconds
             > on(lane) foundation_by_pnu_serving_freshness_budget_seconds
