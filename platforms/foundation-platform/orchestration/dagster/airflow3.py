@@ -111,6 +111,18 @@ class Airflow3Instance(AirflowInstance):
         body = response.json()
         return body["event_logs"], body["total_entries"]
 
+    def get_asset_events(self, after, *, limit=100, offset=0):
+        """A page of the asset events Airflow recorded at or after `after` (a datetime), oldest first
+        (`GET /assets/events`, which a Viewer may read; 3.3.2 serves at most 100 a page): (events, total).
+        An event's `timestamp` is the moment Airflow's scheduler decides from, and its `uri` the asset's."""
+        params = {"timestamp_gte": after.isoformat(), "limit": limit, "offset": offset, "order_by": "timestamp"}
+        response = self.auth_backend.get_session().get(f"{self.get_api_url()}/assets/events", params=params,
+                                                       timeout=REQUEST_SECONDS)
+        if response.status_code != 200:
+            raise RuntimeError(f"GET /assets/events answered {response.status_code}: {response.text[:200]}")
+        body = response.json()
+        return body["asset_events"], body["total_entries"]
+
     def get_task_instance_batch(self, *args, **kwargs):
         return self._dated(super().get_task_instance_batch(*args, **kwargs))
 
