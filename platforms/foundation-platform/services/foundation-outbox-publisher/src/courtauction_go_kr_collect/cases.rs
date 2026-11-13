@@ -197,9 +197,10 @@ pub(crate) fn last_reads_of<'a>(
     for row in rows {
         let key: Option<CaseKey> = ["court_office_code", "case_no"]
             .iter()
-            .map(|column| text(&row[*column]))
+            .map(|column| row.get(*column).and_then(text))
             .collect();
-        let (Some(key), Some(snapshot)) = (key, text(&row["source_snapshot_id"])) else {
+        let (Some(key), Some(snapshot)) = (key, row.get("source_snapshot_id").and_then(text))
+        else {
             continue;
         };
         let Some(day) = run_day(&snapshot) else {
@@ -207,7 +208,7 @@ pub(crate) fn last_reads_of<'a>(
         };
         let read = LastRead {
             day,
-            fingerprint: text(&row["list_fingerprint"]),
+            fingerprint: row.get("list_fingerprint").and_then(text),
         };
         match out.get(&key) {
             Some((seen, _)) if *seen >= snapshot => {}
