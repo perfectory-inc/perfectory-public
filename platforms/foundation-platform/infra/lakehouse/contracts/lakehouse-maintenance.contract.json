@@ -92,7 +92,7 @@
         {"path": "infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py", "reads": 1, "kept_by": "head", "reason": "each parcel source's head, read in the same run; the queue records that id only to skip an unmoved source next time and never reads it back (root ADR-0483 §5)"},
         {"path": "infra/lakehouse/spark/jobs/lineage_review_queue_to_gold.py", "reads": 1, "kept_by": "head", "reason": "parcel_lineage's head, read in the same run"},
         {"path": "infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py", "reads": 2, "kept_by": "head", "reason": "the Silver head and the Gold snapshot this run just wrote"},
-        {"path": "infra/lakehouse/spark/jobs/parcel_lineage_scheduled.py", "reads": 2, "kept_by": "head", "reason": "the heads this run pinned a moment before"},
+        {"path": "services/foundation-outbox-publisher/src/parcel_lineage_derive.rs", "reads": 2, "kept_by": "head", "reason": "the heads this run pinned a moment before"},
         {"path": "infra/lakehouse/spark/jobs/section_coverage.py", "reads": 1, "kept_by": "head", "reason": "the served Gold head the plan named in this run"},
         {"path": "infra/lakehouse/spark/jobs/unit_official_price.py", "reads": 1, "kept_by": "head", "reason": "main's head; an operator's --price/--exclusive-snapshot-id names its own and fails if it expired"},
         {"path": "infra/lakehouse/spark/jobs/changelog.py", "reads": 2, "kept_by": null, "reason": "changes_between: its one caller is the land use zone by-tile maintenance (below); a missing step returns None and the caller reads the head whole"},

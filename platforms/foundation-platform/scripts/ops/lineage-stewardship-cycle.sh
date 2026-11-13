@@ -11,7 +11,8 @@
 #               Gold 가 그대로면 아무것도 쓰지 않는다. 실패해도 계보는 돌고 단위는 끝에 실패한다.
 #
 #   0b. 도출   — 원천 계약의 필지 판 이웃 쌍마다, 시도 묶음마다 계보를 한 번 도출해 쌓는다
-#               (parcel_lineage_scheduled.py, root ADR-0113 §1). 쌓인 묶음은 건너뛰고 예산을 넘기면 다음 회차가 잇는다.
+#               (derive-parcel-lineage: 발행기 안의 DuckDB 와 발행기의 Iceberg 추가 커밋, root ADR-0113 §1, ADR-0559).
+#               쌓인 묶음은 건너뛰고 예산을 넘기면 다음 회차가 잇는다.
 #
 #   1. 접기   — 서 있는 스튜어드 결정을 silver.parcel_lineage 에 steward 행으로 쌓는다
 #               (export-lineage-steward-fold → append-lineage-steward-fold → record-lineage-steward-folds;
@@ -156,11 +157,14 @@ fi
 # 0b. 계보 도출 (root ADR-0113 §1). 원천 계약이 가진 필지 판의 이웃 쌍마다, 시도 묶음마다 한 번 도출해
 # silver.parcel_lineage 에 쌓는다. 이미 쌓은 묶음은 건너뛰고, 예산이 지나면 새 묶음을 시작하지 않는다 —
 # 남은 묶음은 다음 회차가 잇는다. 예산은 단위 상한(2h) 안에서 뒤 단계 몫을 남긴다.
-spark parcel_lineage_scheduled.py --allow-non-smoke-write \
-  --deadline-minutes "${FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES:-60}" --work-dir "${container_work}" \
-  --summary-output "${container_work}/derive-summary.json"
+# 발행기 안의 DuckDB 가 고정한 입력을 R2 에서 읽어 규칙을 적용하고, 발행기가 묶음마다 한 번의 Iceberg 추가 커밋으로
+# 붙인다(root ADR-0559, ADR-0560). Spark 세션을 열지 않는다. 확장은 릴리스가 실은 파일을 경로로 로드한다.
+lakehouse_run_log "${run_log}"
+FOUNDATION_PLATFORM_PARCEL_LINEAGE_SUMMARY="${work}/derive-summary.json" \
+FOUNDATION_PLATFORM_PARCEL_LINEAGE_DEADLINE_MINUTES="${FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES:-60}" \
+  "${PUBLISHER_BIN}" derive-parcel-lineage >> "${run_log}" 2>&1
 derive_refused="$(json_field "${work}/derive-summary.json" '["refused"]')"
-job_journal "${journal}" "lineage derive run=${run_id} derived=$(json_field "${work}/derive-summary.json" '["derived"]') deferred=$(json_field "${work}/derive-summary.json" '["deferred"]') refused=${derive_refused} waiting=$(json_field "${work}/derive-summary.json" '.get("waiting", [])')"
+job_journal "${journal}" "lineage derive engine=$(json_field "${work}/derive-summary.json" '["engine"]') run=${run_id} derived=$(json_field "${work}/derive-summary.json" '["derived"]') deferred=$(json_field "${work}/derive-summary.json" '["deferred"]') refused=${derive_refused} waiting=$(json_field "${work}/derive-summary.json" '.get("waiting", [])')"
 # A refused group did not stop the others or the steps below; the unit still fails at the end.
 grep -a '^parcel-lineage-refused ' "${run_log}" >&2 || true
 

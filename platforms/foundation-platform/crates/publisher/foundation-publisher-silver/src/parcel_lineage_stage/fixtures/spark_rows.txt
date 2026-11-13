@@ -1,0 +1,19 @@
+9999910100100020000|9999910100100020001|split|1:1|2099-07-02|official|history_text|2번에서 분할
+9999910100100030000|9999910100106020000|split|1:1|2099-08-01|official|history_text|3번에서 분할
+9999910100100040000|9999910100100010000|merge|1:1|2099-07-01|official|history_text|1번과 합병되어 말소
+9999910100200270001|9999910100105000000|registration_conversion|1:1|2099-07-03|official|history_text|산 27-1번에서 등록전환
+9999920100100010000|9999930100100010000|code_change|1:1|NULL|code_derived|same_lot_paired_dong|derived:code-go-kr:date+name:synthetic
+9999920100100020000|9999930100100020000|code_change|1:1|NULL|code_derived|same_lot_paired_dong|derived:code-go-kr:date+name:synthetic
+9999920100100030000|9999930100100030000|code_change|1:1|NULL|code_derived|same_lot_paired_dong|derived:code-go-kr:date+name:synthetic
+9999920100100040000|9999930100100040000|code_change|1:1|NULL|code_derived|same_lot_paired_dong|derived:code-go-kr:date+name:synthetic
+9999920100100050000|9999930100100050000|code_change|N:1|NULL|code_derived|same_lot_paired_dong|derived:code-go-kr:date+name:synthetic
+9999920100100090000|9999930100100050000|merge|N:1|2099-08-02|official|history_text|5번과 합병되어 말소
+9999920200100010000|9999930200100010000|code_change|1:1|NULL|code_derived|same_lot_paired_dong|steward:synthetic
+9999920200100020000|9999930200100020000|code_change|1:1|NULL|code_derived|same_lot_paired_dong|steward:synthetic
+9999920300100010000|9999930400100010000|code_change|1:1|NULL|code_derived|same_lot_paired_dong|official:parcel-history
+9999920300100020000|9999930400100020000|code_change|1:1|NULL|code_derived|same_lot_paired_dong|official:parcel-history
+9999950100100110000|9999940100100010000|jurisdiction_transfer|1:1|NULL|evidence_weak|area+category|NULL
+9999950100100140000|9999940100100050000|jurisdiction_transfer|1:1|NULL|evidence_weak|area+category|NULL
+NULL|9999940100100020000|jurisdiction_transfer|NULL|NULL|pending|no unique attribute match|NULL
+NULL|9999940100100030000|jurisdiction_transfer|NULL|NULL|pending|no unique attribute match|NULL
+NULL|9999940100100040000|jurisdiction_transfer|NULL|NULL|pending|no unique attribute match|NULL

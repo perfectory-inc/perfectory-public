@@ -361,7 +361,12 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # (duckdb_extensions.rs, root ADR-0559 §6): the extension names and builds a publisher expects are the
 # ones it was built with. The directory is already an input of the publisher image
 # (Dockerfile.lakehouse-control copies infra/lakehouse/contracts).
-COMPILE_TIME_READ_BASELINE="${3:-179}"
+# 179 -> 185: the scheduled parcel lineage derivation left Spark (root ADR-0559). foundation-publisher-silver
+# compiles in the two SQL files DuckDB runs for it (parcel_lineage_stage/inputs.sql, derive.sql: the SQL
+# is reviewed and compared as SQL, and the engine-equality verdict ran derive.sql against production's
+# rows), the parcel source contract its edition pairs come from (parcel_lineage_schedule.rs), and its test
+# compiles in the synthetic group and the rows and counts the Python kernels derive from it (fixtures/).
+COMPILE_TIME_READ_BASELINE="${3:-185}"
 
 cd "$repo_root"
 

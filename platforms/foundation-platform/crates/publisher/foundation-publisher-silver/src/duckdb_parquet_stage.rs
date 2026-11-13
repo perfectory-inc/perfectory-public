@@ -18,6 +18,31 @@ use foundation_publisher_core::lakehouse_data_commit::{StagedFile, TableShape};
 
 use crate::{lakehouse_engine_contract::execution_profile, serving_scratch};
 
+/// The name a stage that reads the lakehouse attaches its catalog under.
+pub const LAKEHOUSE_CATALOG: &str = "lakehouse";
+const QUOTE: char = '\'';
+
+/// What a stage needs to read the lakehouse on R2 (root ADR-0559 §6).
+///
+/// The catalog and its token, and the key pair the data files are read with: the values
+/// `LakehouseCatalogConfig` and `R2ObjectStorageConfig` hold for the publisher's own reads.
+pub struct LakehouseRead {
+    /// Where the release keeps its extension files (`duckdb_extensions::release_directory`).
+    pub extensions: std::path::PathBuf,
+    /// The Iceberg REST catalog's URI.
+    pub catalog_uri: String,
+    /// The warehouse name.
+    pub warehouse: String,
+    /// The catalog token.
+    pub catalog_token: String,
+    /// The R2 endpoint of the lakehouse bucket.
+    pub s3_endpoint: String,
+    /// The access key id the data files are read with.
+    pub s3_access_key_id: String,
+    /// Its secret.
+    pub s3_secret_access_key: String,
+}
+
 /// One transform's `DuckDB` and the directory its staged files and spill live in.
 ///
 /// Dropping it removes the directory, so a staged file is committed (uploaded) before that.
@@ -54,6 +79,76 @@ impl DuckDbParquetStage {
         connection.execute_batch(&format!(
             "SET allowed_directories=['{root}']; SET enable_external_access=false"
         ))?;
+        Ok(Self {
+            connection,
+            directory,
+        })
+    }
+
+    /// Opens a `DuckDB` that reads the lakehouse on R2 through its own Iceberg reader, attached as
+    /// `LAKEHOUSE_CATALOG`.
+    ///
+    /// The release's extensions are loaded by path (`duckdb_extensions`, root ADR-0559 §6) and
+    /// nothing is installed or auto-loaded. Unlike [`Self::open`] the database is a file in the
+    /// stage directory, so a group's intermediate tables spill to disk instead of the buffer
+    /// (root ADR-0559 §7), and external access stays on: reading R2 is the point. The reads are
+    /// by the keys given, never by credentials the catalog vends (a read token is refused them).
+    ///
+    /// # Errors
+    /// Returns an error when the directory cannot be made, an extension does not load, a setting
+    /// holds a quote, or the catalog refuses the token. The error never carries a credential.
+    pub fn open_reading_lakehouse(parent: &Path, read: &LakehouseRead) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(parent)?;
+        let directory = tempfile::Builder::new()
+            .prefix(".duckdb-stage-")
+            .tempdir_in(parent)?;
+        let root = sql_path(directory.path())?;
+        let profile = execution_profile()?;
+        let config = Config::default()
+            .max_memory(&format!("{}MiB", profile.memory_mib / 2))?
+            .threads(i64::from(profile.cpu_slots))?
+            .with("temp_directory", format!("{root}/spill"))?
+            .with("autoload_known_extensions", "false")?
+            .with("autoinstall_known_extensions", "false")?;
+        let connection =
+            Connection::open_with_flags(directory.path().join("stage.duckdb"), config)?;
+        connection.execute(
+            "SET max_temp_directory_size = ?",
+            [format!("{}B", serving_scratch::configured_maximum_bytes()?)],
+        )?;
+        crate::duckdb_extensions::load(&connection, &read.extensions)?;
+        for value in [
+            &read.catalog_uri,
+            &read.warehouse,
+            &read.catalog_token,
+            &read.s3_endpoint,
+            &read.s3_access_key_id,
+            &read.s3_secret_access_key,
+        ] {
+            ensure!(
+                !value.is_empty() && !value.contains(QUOTE),
+                "a lakehouse read setting is empty or holds a quote"
+            );
+        }
+        let endpoint = read
+            .s3_endpoint
+            .trim_start_matches("https://")
+            .trim_end_matches('/');
+        // DuckDB's message for a failed statement repeats the statement: drop it.
+        connection
+            .execute_batch(&format!(
+                "CREATE SECRET lakehouse_catalog (TYPE iceberg, TOKEN '{}'); \
+                 CREATE SECRET lakehouse_objects (TYPE s3, KEY_ID '{}', SECRET '{}', ENDPOINT '{endpoint}', \
+                 URL_STYLE 'path', REGION 'auto')",
+                read.catalog_token, read.s3_access_key_id, read.s3_secret_access_key
+            ))
+            .map_err(|_| anyhow::anyhow!("DuckDB refused the lakehouse credentials"))?;
+        connection
+            .execute_batch(&format!(
+                "ATTACH '{}' AS {LAKEHOUSE_CATALOG} (TYPE iceberg, ENDPOINT '{}', ACCESS_DELEGATION_MODE 'none')",
+                read.warehouse, read.catalog_uri
+            ))
+            .map_err(|_| anyhow::anyhow!("DuckDB could not attach the lakehouse catalog"))?;
         Ok(Self {
             connection,
             directory,

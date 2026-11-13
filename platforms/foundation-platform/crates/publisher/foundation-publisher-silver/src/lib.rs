@@ -113,6 +113,14 @@ pub mod duckdb_extensions;
 /// The first transform that left Spark with its commit (root ADR-0560).
 pub mod lineage_steward_fold_stage;
 
+/// Derives `silver.parcel_lineage` for one pair of parcel editions and one sido group (root ADR-0113).
+///
+/// It was the Spark jobs `parcel_lineage_to_silver.py` and `parcel_lineage_scheduled.py`.
+pub mod parcel_lineage_stage;
+
+/// Which parcel lineage groups the schedule derives and which it already holds (root ADR-0148).
+pub mod parcel_lineage_schedule;
+
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
 /// keeps the executable's lint posture (root ADR-0200 §4).
 #[allow(

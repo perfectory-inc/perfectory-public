@@ -1,0 +1,354 @@
+{
+ "from_date": "2099-06-01",
+ "to_date": "2099-09-01",
+ "before": [
+  "99999-bad-pnu",
+  "9999910100100010000",
+  "9999910100100020000",
+  "9999910100100030000",
+  "9999910100100040000",
+  "9999910100200270001",
+  "9999920100100010000",
+  "9999920100100020000",
+  "9999920100100030000",
+  "9999920100100040000",
+  "9999920100100050000",
+  "9999920100100090000",
+  "9999920200100010000",
+  "9999920200100020000",
+  "9999920300100010000",
+  "9999920300100020000",
+  "9999920400100010000",
+  "9999920400100020000",
+  "9999920500100010000",
+  "9999920500100020000",
+  "9999950100100010000",
+  "9999950100100110000",
+  "9999950100100120000",
+  "9999950100100130000",
+  "9999950100100140000"
+ ],
+ "after": [
+  "9999910100100010000",
+  "9999910100100020000",
+  "9999910100100020001",
+  "9999910100100030000",
+  "9999910100105000000",
+  "9999910100106000000",
+  "9999910100106010000",
+  "9999910100106020000",
+  "9999920500100010000",
+  "9999920500100020000",
+  "9999930100100010000",
+  "9999930100100020000",
+  "9999930100100030000",
+  "9999930100100040000",
+  "9999930100100050000",
+  "9999930200100010000",
+  "9999930200100020000",
+  "9999930400100010000",
+  "9999930400100020000",
+  "9999930500100010000",
+  "9999930600100020000",
+  "9999940100100010000",
+  "9999940100100020000",
+  "9999940100100030000",
+  "9999940100100040000",
+  "9999940100100050000",
+  "9999950100100010000"
+ ],
+ "code_changes": [
+  {
+   "kind": "pair",
+   "old_code": "9999920100",
+   "new_code": "9999930100",
+   "level": "ri",
+   "effective_date": "2099-07-01",
+   "source": "derived:code-go-kr:date+name:synthetic"
+  },
+  {
+   "kind": "pair",
+   "old_code": "9999920100",
+   "new_code": "9999930100",
+   "level": "ri",
+   "effective_date": "",
+   "source": "derived:code-go-kr:date+name:synthetic"
+  },
+  {
+   "kind": "pair",
+   "old_code": "9999920200",
+   "new_code": "9999930200",
+   "level": "eupmyeondong",
+   "effective_date": "20990615",
+   "source": "steward:synthetic"
+  },
+  {
+   "kind": "supersession",
+   "old_code": "9999920200",
+   "new_code": "9999930200",
+   "level": "eupmyeondong",
+   "effective_date": "2099-06-15",
+   "source": "official:parcel-history"
+  },
+  {
+   "kind": "pair",
+   "old_code": "9999920300",
+   "new_code": "9999930300",
+   "level": "ri",
+   "effective_date": "2099-07-01",
+   "source": "derived:parcel-jibun:synthetic"
+  },
+  {
+   "kind": "supersession",
+   "old_code": "9999920300",
+   "new_code": "9999930300",
+   "level": "ri",
+   "effective_date": "2099-07-01",
+   "source": "official:parcel-history"
+  },
+  {
+   "kind": "pair",
+   "old_code": "9999920300",
+   "new_code": "9999930400",
+   "level": "ri",
+   "effective_date": "2099-07-01",
+   "source": "official:parcel-history"
+  },
+  {
+   "kind": "pair",
+   "old_code": "9999920400",
+   "new_code": "9999930500",
+   "level": "ri",
+   "effective_date": "2099-08-01",
+   "source": "derived:children"
+  },
+  {
+   "kind": "pair",
+   "old_code": "9999920400",
+   "new_code": "9999930600",
+   "level": "ri",
+   "effective_date": "2099-08-01",
+   "source": "derived:children"
+  },
+  {
+   "kind": "pair",
+   "old_code": "9999920500",
+   "new_code": "9999930700",
+   "level": "ri",
+   "effective_date": "2099-09-02",
+   "source": "derived:children"
+  }
+ ],
+ "history": [
+  {
+   "pnu": "9999910100100040000",
+   "reason_code": "30",
+   "reason": "1번과 합병되어 말소",
+   "moved_at": "2099-07-01",
+   "erased_at": null,
+   "land_category_code": "01",
+   "area_m2": 100.0,
+   "transfer_history_seq": 1
+  },
+  {
+   "pnu": "9999910100100020001",
+   "reason_code": "20",
+   "reason": " 2번에서 분할 ",
+   "moved_at": "2099-07-02",
+   "erased_at": null,
+   "land_category_code": "01",
+   "area_m2": 100.0,
+   "transfer_history_seq": 2
+  },
+  {
+   "pnu": "9999910100105000000",
+   "reason_code": "10",
+   "reason": "산 27-1번에서 등록전환",
+   "moved_at": "2099-07-03",
+   "erased_at": null,
+   "land_category_code": "01",
+   "area_m2": 100.0,
+   "transfer_history_seq": 3
+  },
+  {
+   "pnu": "9999910100106000000",
+   "reason_code": "20",
+   "reason": "12345번에서 분할",
+   "moved_at": "2099-07-04",
+   "erased_at": null,
+   "land_category_code": "01",
+   "area_m2": 100.0,
+   "transfer_history_seq": 4
+  },
+  {
+   "pnu": "9999910100106010000",
+   "reason_code": "20",
+   "reason": "3번에서 분할",
+   "moved_at": "2099-05-30",
+   "erased_at": null,
+   "land_category_code": "01",
+   "area_m2": 100.0,
+   "transfer_history_seq": 5
+  },
+  {
+   "pnu": "9999910100106020000",
+   "reason_code": "20",
+   "reason": "3번에서 분할",
+   "moved_at": "2099-08-01",
+   "erased_at": null,
+   "land_category_code": "01",
+   "area_m2": 100.0,
+   "transfer_history_seq": 6
+  },
+  {
+   "pnu": "9999910100106020000",
+   "reason_code": "20",
+   "reason": "3번에서 분할",
+   "moved_at": "2099-08-01",
+   "erased_at": null,
+   "land_category_code": "01",
+   "area_m2": 100.0,
+   "transfer_history_seq": 7
+  },
+  {
+   "pnu": "9999930100100090000",
+   "reason_code": "30",
+   "reason": "5번과 합병되어 말소",
+   "moved_at": "2099-08-02",
+   "erased_at": null,
+   "land_category_code": "01",
+   "area_m2": 100.0,
+   "transfer_history_seq": 8
+  },
+  {
+   "pnu": "9999940100100010000",
+   "reason_code": "52",
+   "reason": "합성동 1번에서 행정관할구역변경",
+   "moved_at": "2099-07-10",
+   "erased_at": null,
+   "land_category_code": "01",
+   "area_m2": 330.5,
+   "transfer_history_seq": 9
+  },
+  {
+   "pnu": "9999940100100020000",
+   "reason_code": "52",
+   "reason": "합성동 2번에서 행정관할구역변경",
+   "moved_at": "2099-07-10",
+   "erased_at": null,
+   "land_category_code": "02",
+   "area_m2": 200.0,
+   "transfer_history_seq": 10
+  },
+  {
+   "pnu": "9999940100100030000",
+   "reason_code": "52",
+   "reason": "합성동 3번에서 행정관할구역변경",
+   "moved_at": "2099-07-10",
+   "erased_at": null,
+   "land_category_code": "02",
+   "area_m2": 200.0,
+   "transfer_history_seq": 11
+  },
+  {
+   "pnu": "9999940100100040000",
+   "reason_code": "52",
+   "reason": "합성동 4번에서 행정관할구역변경",
+   "moved_at": "2099-07-10",
+   "erased_at": null,
+   "land_category_code": "03",
+   "area_m2": null,
+   "transfer_history_seq": 12
+  },
+  {
+   "pnu": "9999940100100050000",
+   "reason_code": "52",
+   "reason": "합성동 5번에서 행정관할구역변경",
+   "moved_at": "2099-07-10",
+   "erased_at": null,
+   "land_category_code": "05",
+   "area_m2": 77.0,
+   "transfer_history_seq": 13
+  },
+  {
+   "pnu": "9999950100100110000",
+   "reason_code": "40",
+   "reason": "지목변경",
+   "moved_at": "2090-01-01",
+   "erased_at": null,
+   "land_category_code": "08",
+   "area_m2": 1.0,
+   "transfer_history_seq": 14
+  },
+  {
+   "pnu": "9999950100100110000",
+   "reason_code": "20",
+   "reason": "분할되어 본번에 -1을 부함",
+   "moved_at": "2095-01-01",
+   "erased_at": null,
+   "land_category_code": "01",
+   "area_m2": 330.5,
+   "transfer_history_seq": 15
+  },
+  {
+   "pnu": "9999950100100120000",
+   "reason_code": "40",
+   "reason": "지목변경",
+   "moved_at": "2090-01-01",
+   "erased_at": null,
+   "land_category_code": "08",
+   "area_m2": 1.0,
+   "transfer_history_seq": 16
+  },
+  {
+   "pnu": "9999950100100120000",
+   "reason_code": "20",
+   "reason": "분할되어 본번에 -1을 부함",
+   "moved_at": "2095-01-01",
+   "erased_at": null,
+   "land_category_code": "02",
+   "area_m2": 200.0,
+   "transfer_history_seq": 17
+  },
+  {
+   "pnu": "9999950100100130000",
+   "reason_code": "40",
+   "reason": "지목변경",
+   "moved_at": "2090-01-01",
+   "erased_at": null,
+   "land_category_code": "08",
+   "area_m2": 1.0,
+   "transfer_history_seq": 18
+  },
+  {
+   "pnu": "9999950100100130000",
+   "reason_code": "20",
+   "reason": "분할되어 본번에 -1을 부함",
+   "moved_at": "2095-01-01",
+   "erased_at": null,
+   "land_category_code": "09",
+   "area_m2": 999.0,
+   "transfer_history_seq": 19
+  },
+  {
+   "pnu": "9999950100100140000",
+   "reason_code": "75",
+   "reason": "토지개발사업 시행신고폐지",
+   "moved_at": "2096-02-02",
+   "erased_at": null,
+   "land_category_code": "05",
+   "area_m2": 90.0,
+   "transfer_history_seq": 20
+  },
+  {
+   "pnu": "9999950100100140000",
+   "reason_code": "20",
+   "reason": "분할되어 본번에 -2을 부함",
+   "moved_at": "2096-02-02",
+   "erased_at": null,
+   "land_category_code": "05",
+   "area_m2": 77.0,
+   "transfer_history_seq": 21
+  }
+ ]
+}
