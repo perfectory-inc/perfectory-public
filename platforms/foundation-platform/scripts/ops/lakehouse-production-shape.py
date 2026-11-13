@@ -58,6 +58,42 @@ def nested_ids(iceberg_type: object) -> list[int]:
     return found
 
 
+# The write layout the deploy's lakehouse migration brings a table to (platform_contracts.write_order_drift),
+# as Spark shows it: `SHOW TBLPROPERTIES` and `DESCRIBE TABLE`. The deploy reads it to hold only the tables
+# the migration would change (release_changes.planned_tables, W83b).
+LAYOUT_PROPERTIES = ("write.distribution-mode", "write.merge.distribution-mode")
+
+
+def partition_field(field: dict, names: dict[int, str]) -> str:
+    """One partition field as Spark's DESCRIBE TABLE prints it: `col`, `bucket(16, col)`,
+    `truncate(4, col)`; another transform as Iceberg names it, which no contract field equals."""
+    column, transform = names.get(field["source-id"], str(field["source-id"])), field["transform"]
+    if transform == "identity":
+        return column
+    for kind in ("bucket", "truncate"):
+        if transform.startswith(f"{kind}[") and transform.endswith("]"):
+            return f"{kind}({transform[len(kind) + 1:-1]}, {column})"
+    return f"{transform}({column})"
+
+
+def table_layout(metadata: dict) -> dict:
+    """The table's write layout now: its distribution properties, its sort order as Spark's `sort-order`
+    property, and its current partition spec's fields."""
+    names = {field["id"]: field["name"] for schema in metadata["schemas"] for field in schema["fields"]}
+    properties = metadata.get("properties") or {}
+    layout: dict = {key: properties[key] for key in LAYOUT_PROPERTIES if key in properties}
+    orders = {order["order-id"]: order for order in metadata.get("sort-orders", [])}
+    order = orders.get(metadata.get("default-sort-order-id"), {"fields": []})
+    if order["fields"]:
+        layout["sort-order"] = ", ".join(
+            f"{partition_field({'source-id': f['source-id'], 'transform': f['transform']}, names)} "
+            f"{f['direction'].upper()} {f['null-order'].upper().replace('-', ' ')}" for f in order["fields"])
+    specs = {spec["spec-id"]: spec for spec in metadata.get("partition-specs", [])}
+    spec = specs.get(metadata.get("default-spec-id"), {"fields": []})
+    layout["partitions"] = [partition_field(field, names) for field in spec["fields"]]
+    return layout
+
+
 def table_shape(metadata: dict, file_shapes: list[list[int]]) -> dict:
     """A table's shape by Iceberg field id: every field it ever had, the current schema's columns in
     their order, and every other set of columns a live data file holds (`file_shapes`)."""
@@ -88,7 +124,7 @@ def table_shape(metadata: dict, file_shapes: list[list[int]]) -> dict:
     shapes = {tuple(sorted({column_of[leaf] for leaf in ids})) for ids in file_shapes}
     earlier = sorted(list(ids) for ids in shapes if list(ids) != sorted(columns))
     return {"has_rows": rows > 0, "fields": sorted(fields.values()),
-            "columns": columns, "earlier": earlier}
+            "columns": columns, "earlier": earlier, "layout": table_layout(metadata)}
 
 
 def trino_rows(url: str, sql: str) -> list[list]:
@@ -133,7 +169,7 @@ def render(ledger: dict) -> str:
             "   \"fields\": " + block("   ", [f"    {line(field)}," for field in table["fields"]], "]"),
             f"   \"columns\": {line(table['columns'])}",
             "   \"earlier\": " + block("   ", [f"    {line(ids)}," for ids in table["earlier"]], "]"),
-        ]
+        ] + ([f"   \"layout\": {line(table['layout'])}"] if "layout" in table else [])
         tables.append(f"  {line(name)}: {{\n" + ",\n".join(body) + "\n  }")
     rendered = "\n".join(out + [" \"tables\": {", ",\n".join(tables), " }", "}"]) + "\n"
     # Drop the trailing comma each list item carries; JSON allows none before a closing bracket.

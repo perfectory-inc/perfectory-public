@@ -22,6 +22,11 @@ Both are a Foundation Platform tree (the running one is /opt/foundation-platform
   A job whose every edge lands in a source group (Bronze objects and their ledger) writes no
   lakehouse table and is neither (root ADR-0557).
 
+With --host, where the inputs alone would hold every lakehouse table, the migration's own plan over
+the host's shape ledger (the step's `reverify.production_shape`, captured at most LEDGER_MAX_AGE ago)
+names the tables instead: those it has something to do to (lakehouse_schema_migrate.ledger_plan). A
+ledger missing, older or without layouts holds every table, as before.
+
 With --host, the running release is the baseline only when this host's record says its migration
 ran against it (deploy_steps.py should-run answers skip for it): a migration that failed, a catalog
 restore, a record removed by hand or production drift found by shape_ledger_check make every
@@ -39,6 +44,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import ast
@@ -52,6 +58,9 @@ MIGRATIONS = "migrations"
 JOBS = "orchestration/jobs.v1.json"
 GRAPH = "docs/catalog/pipeline-graph.v1.json"
 STEP = "lakehouse-migrate"
+# A shape ledger older than this does not narrow the hold: the check captures it every few hours and at
+# every deploy (root ADR-0259, ADR-0476).
+LEDGER_MAX_AGE_SECONDS = 24 * 3600
 
 
 def read(path: Path):
@@ -153,6 +162,42 @@ def changed_tables(running: Path, new: Path, host: Path | None) -> tuple[list[st
     return sorted(tables), ""
 
 
+def ledger_planned(new: Path, host: Path, now: float) -> tuple[list[str] | None, str]:
+    """(the tables the new release's migration would change in production, what was read), by the
+    migration program's `ledger_plan` over the host's shape ledger; None when the ledger cannot answer."""
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    entry = deploy_steps.step_of(new, STEP)
+    closure, recorded = entry.get("closure"), (entry.get("reverify") or {}).get("production_shape")
+    if not closure or not recorded:
+        return None, "the migration step names no shape ledger"
+    path = host / recorded.lstrip("/")
+    try:
+        ledger = read(path)
+        captured = datetime.strptime(ledger["captured_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+    except (OSError, ValueError, KeyError) as error:
+        return None, f"{path} cannot be read ({type(error).__name__}: {error})"
+    age = now - captured
+    if age > LEDGER_MAX_AGE_SECONDS:
+        return None, f"{path} was captured {age / 3600:.0f} h ago, over {LEDGER_MAX_AGE_SECONDS // 3600} h"
+    jobs = str(new / closure["directories"][0])
+    sys.path.insert(0, jobs)
+    try:
+        import importlib  # noqa: PLC0415
+
+        program = importlib.import_module(closure["program"])
+        plan = getattr(program, "ledger_plan", None)
+        if plan is None:
+            return None, f"{closure['program']} has no ledger_plan"
+        planned = plan(ledger["tables"])
+    except Exception as error:  # noqa: BLE001 -- no answer holds every table
+        return None, f"{closure['program']}.ledger_plan failed ({type(error).__name__}: {error})"
+    finally:
+        sys.path.remove(jobs)
+    said = "; ".join(f"{table}: {what}" for table, what in sorted(planned.items()))
+    return sorted(planned), f"captured {ledger['captured_at']}: {said or 'nothing to do'}"
+
+
 def added_migrations(running: Path, new: Path) -> list[str]:
     def names(root: Path) -> set[str]:
         folder = root / MIGRATIONS
@@ -205,12 +250,21 @@ def main(argv: list[str]) -> int:
         return 64
     running, new = Path(argv[0]), Path(argv[1])
     tables, every = changed_tables(running, new, host)
+    said = []
+    if every and host is not None:
+        planned, read_from = ledger_planned(new, host, time.time())
+        said.append(f"the migration's plan over the live shape ledger: {read_from}")
+        if planned is not None:
+            said.append(f"by its inputs alone: every table ({len(tables)}): {every}")
+            tables, every = planned, ""
     migrations = added_migrations(running, new)
     writing, unknown = writers(new, tables, every_table=bool(migrations))
     if every:
         print(f"lakehouse tables this release changes: every table ({len(tables)}): {every}")
     else:
         print(f"lakehouse tables this release changes: {', '.join(tables) or 'none'}")
+    for line in said:
+        print(line)
     print(f"postgres migrations this release adds: {', '.join(migrations) or 'none'}")
     if tables or migrations:
         why = " (a postgres migration: every job)" if migrations else ""
