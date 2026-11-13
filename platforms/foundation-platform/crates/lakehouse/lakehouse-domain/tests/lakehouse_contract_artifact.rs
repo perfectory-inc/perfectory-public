@@ -133,7 +133,7 @@ fn the_row_rule_picks_the_rows_the_artifact_sql_picks() -> TestResult {
         .ok_or("cases must be an array")?;
     assert!(!cases.is_empty());
     for case in cases {
-        let name = case["name"].as_str().unwrap_or_default();
+        let name = case["case"].as_str().unwrap_or_default();
         let table = case["table"].as_str().ok_or("a case names its table")?;
         let contract = lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(table)
             .ok_or("a case names a contract table")?;

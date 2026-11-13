@@ -53,7 +53,7 @@ class CurrentRowsSqlTest(unittest.TestCase):
         cases = json.loads(CASES.read_text(encoding="utf-8"))["cases"]
         self.assertTrue(cases)
         for case in cases:
-            with self.subTest(case["name"]):
+            with self.subTest(case["case"]):
                 contract = platform_contracts.load_lakehouse_contract(case["table"])
                 self.assertEqual(ordered(run(contract, case["rows"])), ordered(case["current"]))
 

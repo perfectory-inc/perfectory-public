@@ -2,7 +2,7 @@
   "purpose": "One set of versions per case, and the rows that are current among them. The Rust rule over scanned rows (crates/lakehouse/lakehouse-domain/tests/lakehouse_contract_artifact.rs) and the SQL the contract artifact carries (infra/lakehouse/spark/tests/test_current_rows_sql.py, run in SQLite) must both pick `current` (root ADR-0564 §4). Synthetic keys only.",
   "cases": [
     {
-      "name": "the newest version wins, a removed key has no row, a key removed and written again has its newest",
+      "case": "the newest version wins, a removed key has no row, a key removed and written again has its newest",
       "table": "gold.land_use_zone_area_by_tile",
       "rows": [
         {"tile_key": "99999-0", "zone_id": "a", "ingested_at_utc": "2099-01-01T00:00:00Z", "row_state": null},
@@ -22,7 +22,7 @@
       ]
     },
     {
-      "name": "a table that never removes: the newest run per key",
+      "case": "a table that never removes: the newest run per key",
       "table": "gold.complex_document_facts",
       "rows": [
         {"official_complex_code": "99999", "run_id": "run-1"},
