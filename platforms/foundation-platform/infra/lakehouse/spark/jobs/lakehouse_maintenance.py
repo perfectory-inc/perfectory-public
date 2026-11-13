@@ -425,6 +425,30 @@ def set_properties_sql(qualified: str, properties: dict[str, str]) -> str:
     return f"ALTER TABLE {qualified} SET TBLPROPERTIES ({pairs})"
 
 
+class ExpiryRefused(ValueError):
+    """Expiry left a table alone because a pin this host holds outside the catalog names a snapshot
+    that would go (root ADR-0338 §5). The run did what it is built to do: nothing was removed, and
+    the table waits for whoever holds the pin."""
+
+
+def run_outcome(failed: list[str], refused: list[str]) -> tuple[str, int]:
+    """The run's outcome line (root ADR-0260) and exit status.
+
+    A table expiry refused is not a table that failed: 2026-11-13 two refusals among 117 tables
+    marked the whole unit failed, beside units that had really failed. A refusal is `waiting` with
+    the tables named; it is still not `done` (root ADR-0480), so one that lasts past the job's done
+    bound calls the owner. A failed table fails the run whatever else it did.
+    """
+    if failed:
+        return f"foundation-job-outcome failed {len(failed)} tables failed: {','.join(failed)}", 1
+    if refused:
+        return (f"foundation-job-outcome waiting expiry refused {len(refused)} tables whose snapshot a pin "
+                f"outside the catalog names: {','.join(refused)}"), 0
+    # Compaction rewrites files, never rows, and expiry removes history only: nothing downstream
+    # has new data to read (root ADR-0171).
+    return "foundation-job-outcome unchanged", 0
+
+
 def run_snapshot_expiry(
     spark: Any, catalog: str, table: str, expiry: dict[str, Any], now: datetime, dry_run: bool,
     keep: dict[int, str] | None = None,
@@ -523,8 +547,8 @@ def run_snapshot_expiry(
           f"snapshots={len(expiring)} of={len(snapshots)} older_than={cutoff} ids={listed or '-'}", flush=True)
     held = held_by_pins(expiring, keep or {})
     if held:
-        raise ValueError(f"refused to expire {table}: {held} would expire, and a pin outside the catalog "
-                         "still names them; tag them or end what pins them first (root ADR-0338)")
+        raise ExpiryRefused(f"refused to expire {table}: {held} would expire, and a pin outside the catalog "
+                            "still names them; tag them or end what pins them first (root ADR-0338)")
     if dry_run or not expiring:
         return
     result = spark.sql(expire_snapshots_sql(catalog, table, cutoff, expiry["retain_last"])).collect()[0]
@@ -866,7 +890,7 @@ def main() -> int:
     tables = rotation_order(
         catalog_tables(spark, args.catalog, sorted(load_lakehouse_artifact()["contracts"])), rotation
     )
-    done, failed, deferred = 0, [], 0
+    done, failed, refused, deferred = 0, [], [], 0
     for table in tables:
         if datetime.now(timezone.utc) >= deadline:
             deferred += 1
@@ -874,6 +898,11 @@ def main() -> int:
             continue
         try:
             maintain_table(spark, args.catalog, table, contract, skip, args.dry_run, keep)
+        except ExpiryRefused as refusal:
+            # Not marked maintained: the table is first again at the next run.
+            refused.append(table)
+            print(f"maintenance-refused table={table} reason={str(refusal)[:300]}", flush=True)
+            continue
         except Exception as error:  # noqa: BLE001 - one table's failure must not stop the others
             failed.append(table)
             print(f"maintenance-failed table={table} error={type(error).__name__}: {str(error)[:300]}", flush=True)
@@ -883,14 +912,14 @@ def main() -> int:
             rotation[table] = datetime.now(timezone.utc).isoformat()
             write_rotation(args.state_file, rotation)
     print(
-        f"maintenance-summary tables={len(tables)} done={done} failed={len(failed)} deferred={deferred}",
+        f"maintenance-summary tables={len(tables)} done={done} failed={len(failed)} "
+        f"refused={len(refused)} deferred={deferred}",
         flush=True,
     )
-    # Compaction rewrites files, never rows, and expiry removes history only: nothing downstream
-    # has new data to read (root ADR-0171).
-    print("foundation-job-outcome unchanged", flush=True)
+    outcome, status = run_outcome(failed, refused)
+    print(outcome, flush=True)
     spark.stop()
-    return 1 if failed else 0
+    return status
 
 
 if __name__ == "__main__":

@@ -42,6 +42,7 @@ from lakehouse_maintenance import (  # noqa: E402
     set_properties_sql,
     read_rotation,
     rotation_order,
+    run_outcome,
     should_compact,
     timestamp_before,
     validate_maintenance_contract,
@@ -563,6 +564,26 @@ class CompactionReasonTest(unittest.TestCase):
                 contract["compaction"]["fold_deletes"].update(broken)
                 with self.assertRaises(ValueError, msg=(bound, broken)):
                     validate_maintenance_contract(contract)
+
+
+class RunOutcomeTest(unittest.TestCase):
+    """2026-11-13: 115 of 117 tables were maintained and expiry refused two by design (root ADR-0338
+    §5); the run exited 1 and the unit stood among the really failed ones."""
+
+    def test_a_refusal_is_reported_as_waiting_and_does_not_fail_the_run(self) -> None:
+        outcome, status = run_outcome([], ["gold.parcel_land_rights", "gold.parcel_transfer_history"])
+        self.assertEqual(status, 0)
+        self.assertTrue(outcome.startswith("foundation-job-outcome waiting "), outcome)
+        self.assertIn("gold.parcel_land_rights,gold.parcel_transfer_history", outcome)
+        self.assertEqual(len(outcome.splitlines()), 1)
+
+    def test_a_failed_table_fails_the_run_and_says_so_whatever_was_refused(self) -> None:
+        outcome, status = run_outcome(["silver.land_use_plan"], ["gold.parcel_land_rights"])
+        self.assertEqual(status, 1)
+        self.assertEqual(outcome, "foundation-job-outcome failed 1 tables failed: silver.land_use_plan")
+
+    def test_a_run_with_neither_is_unchanged(self) -> None:
+        self.assertEqual(run_outcome([], []), ("foundation-job-outcome unchanged", 0))
 
 
 class DeleteMetricsTest(unittest.TestCase):
