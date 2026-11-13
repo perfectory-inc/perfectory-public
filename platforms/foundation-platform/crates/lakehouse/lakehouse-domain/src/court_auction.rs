@@ -791,9 +791,10 @@ pub const SILVER_COURT_AUCTION_SURVEY_OBJECT: LakehouseTableContract = Lakehouse
     load: OBJECT_LOAD,
 };
 
-/// A case's 감정평가 of one round (`dma_ordTsIndvdAeeWevlInf`): its number and dates (the key of its
-/// 감정평가서) and the opinion, names masked; never the appraiser's name (root ADR-0540 §4). Newest
-/// per (case, round).
+/// A case's 감정평가 of one round (`dma_ordTsIndvdAeeWevlInf`), newest per (case, round).
+///
+/// Its number and dates (the key of its 감정평가서) and the opinion, names masked; never the
+/// appraiser's name (root ADR-0540 §4).
 pub const SILVER_COURT_AUCTION_APPRAISAL: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.court_auction_appraisal",
     layer: LakehouseLayer::Silver,

@@ -397,6 +397,28 @@ def full_document_frames(spark, round_row):
         for column, (system, owner, group) in columns:
             named.append((system, owner, group, row[column], f"합성 {column}", "s1"))
     frames[job.CODE_SOURCE] = code_frame(spark, named)
+    case = {"court_office_code": round_row["court_office_code"], "case_no": round_row["case_no"],
+            "source_record_id": "o", "source_line_number": 1, "source_snapshot_id": "s1"}
+    # The case's own documents (root ADR-0540 §1), every served field present.
+    rows = {
+        job.RELATED_DOC: {"related_seq": 1, "list": "related", "related_user_case_no": "2099타경9",
+                          "relation_kind_name": "중복", "related_court_name": "합성지방법원"},
+        job.CASE_OBJECT_DOC: {"object_seq": 1, "closure_kind_name": "미종국"},
+        job.PARTY_DOC: {"party_seq": 1, "party_kind_name": "채권자"},
+        job.SURVEY_DOC: {"round_seq": 1, "surveyed_raw": "2099년01월02일", "possession_summary": "합성",
+                         "lease_text": "합성"},
+        job.SURVEY_OBJECT_DOC: {"round_seq": 1, "object_seq": 1, "possession_text": "합성", "lease_count": 1,
+                                "remarks": "합성"},
+        job.APPRAISAL_ROUND_DOC: {"round_seq": 1, "appraisal_no": "합성-01", "price_basis_date": date(2099, 1, 10),
+                                  "written_date": date(2099, 1, 12), "opinion": "합성"},
+    }
+    from platform_contracts import load_lakehouse_contract, spark_sql_type
+
+    for source, extra in rows.items():
+        columns = load_lakehouse_contract(source)["columns"]
+        row = {**case, **extra}
+        frames[source] = spark.createDataFrame([tuple(row.get(c["name"]) for c in columns)],
+                                               ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in columns))
     return frames
 
 
