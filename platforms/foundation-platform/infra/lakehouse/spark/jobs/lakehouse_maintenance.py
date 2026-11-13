@@ -720,7 +720,7 @@ def compaction_reasons(small_files: int, total_files: int, compaction: dict[str,
         reasons.append(SMALL_FILES)
     if fold_due(deletes, compaction["fold_deletes"]):
         reasons.append(FOLD_DELETES)
-    if read_share is not None and read_share > table_layout.REGION_READ_SHARE_LIMIT:
+    if read_share is not None and read_share > table_layout.read_share_limit(total_files):
         reasons.append(OUT_OF_ORDER)
     return tuple(reasons)
 
