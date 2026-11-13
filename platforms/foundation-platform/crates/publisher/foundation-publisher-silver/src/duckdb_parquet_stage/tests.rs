@@ -32,6 +32,8 @@ use lakehouse_infrastructure::IcebergSnapshotManifestList;
 
 use super::DuckDbParquetStage;
 
+mod pinned_head;
+
 /// Reads the objects of a table whose location is a local directory.
 struct LocalFiles;
 
@@ -63,6 +65,21 @@ fn contract(name: &str) -> anyhow::Result<&'static LakehouseTableContract> {
 async fn catalog_with(
     warehouse: &Path,
     contract: &LakehouseTableContract,
+) -> anyhow::Result<Arc<dyn Catalog>> {
+    let identity = contract
+        .partition_spec
+        .iter()
+        .map(|column| (*column, Transform::Identity))
+        .collect::<Vec<_>>();
+    catalog_partitioned(warehouse, contract, &identity).await
+}
+
+/// [`catalog_with`], the table partitioned by `partitions` (column, transform) instead of the
+/// contract's identity columns.
+async fn catalog_partitioned(
+    warehouse: &Path,
+    contract: &LakehouseTableContract,
+    partitions: &[(&str, Transform)],
 ) -> anyhow::Result<Arc<dyn Catalog>> {
     let catalog = MemoryCatalogBuilder::default()
         .with_storage_factory(Arc::new(LocalFsStorageFactory))
@@ -98,8 +115,8 @@ async fn catalog_with(
         } else {
             NestedField::optional(id, column.name, kind)
         }));
-        if contract.partition_spec.contains(&column.name) {
-            partition = partition.add_partition_field(id, column.name, Transform::Identity)?;
+        if let Some((_, transform)) = partitions.iter().find(|(name, _)| *name == column.name) {
+            partition = partition.add_partition_field(id, column.name, *transform)?;
         }
     }
     catalog
