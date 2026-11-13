@@ -366,7 +366,11 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # is reviewed and compared as SQL, and the engine-equality verdict ran derive.sql against production's
 # rows), the parcel source contract its edition pairs come from (parcel_lineage_schedule.rs), and its test
 # compiles in the synthetic group and the rows and counts the Python kernels derive from it (fixtures/).
-COMPILE_TIME_READ_BASELINE="${3:-185}"
+# 185 -> 186: the 실거래 region statistics left Spark's compute (root ADR-0559 §3, ADR-0564 §9).
+# foundation-publisher-silver compiles in the SQL file DuckDB runs for it
+# (real_transaction_gold_stage/region_stats.sql: reviewed and compared as SQL; the national
+# engine-equality verdict ran that file's rules).
+COMPILE_TIME_READ_BASELINE="${3:-186}"
 
 cd "$repo_root"
 

@@ -121,6 +121,9 @@ pub mod parcel_lineage_stage;
 /// Which parcel lineage groups the schedule derives and which it already holds (root ADR-0148).
 pub mod parcel_lineage_schedule;
 
+/// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
+pub mod real_transaction_gold_stage;
+
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
 /// keeps the executable's lint posture (root ADR-0200 §4).
 #[allow(
