@@ -118,7 +118,12 @@ def run_job(spec, transport=None):
     # Airflow retries a proxied job's `run` task itself; a job Dagster decides is retried here.
     retry = RetryPolicy(max_retries=spec.retries, delay=60 * job_specs.RETRY_DELAY_MINUTES) if decided_here else None
 
-    @op(name="run", description=f"Runs systemd service {spec.systemd_service} through the host's forced command.",
+    # The definition's name is the job's: one repository holds every job's op, and Dagster refuses two
+    # definitions of one name (2026-11-13 22:40Z, five jobs proxied at once: the code location stopped
+    # loading and every proxied run, the dual run and the observer stopped with it). The node is `run`
+    # in each job (the alias below), so a step and its logs are named as before.
+    @op(name=f"run__{spec.job_id}",
+        description=f"Runs systemd service {spec.systemd_service} through the host's forced command.",
         retry_policy=retry)
     def run(context: OpExecutionContext):
         if decided_here and spec.check_service:
@@ -144,7 +149,7 @@ def run_job(spec, transport=None):
             context.log_event(materialization)
 
     def runs_the_unit():
-        run()
+        run.alias("run")()
 
     # A run launched from Dagster's UI queues like Airflow's: the same pool, priority and job count.
     return job(name=spec.dagster_job, tags={key: value for key, value in spec.dagster_tags().items()

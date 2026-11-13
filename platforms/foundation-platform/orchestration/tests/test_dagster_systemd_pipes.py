@@ -6,6 +6,7 @@ Dagster's own: open_pipes_session, the message handler, the step's result. Run b
 `dagster-observe` lane in the code location's image; skipped elsewhere, where a skip fails that lane.
 """
 
+import copy
 import dataclasses
 import importlib.util
 import io
@@ -260,6 +261,28 @@ class AJobDagsterRunsTest(unittest.TestCase):
         spec = dataclasses.replace(self.decided_by_dagster(), retries=2)
         policy = run_jobs.run_job(spec, transport=Stand([])).graph.node_defs[0].retry_policy
         self.assertEqual((policy.max_retries, policy.delay), (2, 60 * observe_assets.job_specs.RETRY_DELAY_MINUTES))
+
+    def test_every_job_s_dagster_job_loads_in_one_repository(self):
+        # 2026-11-13 22:40Z: #1384 proxied five jobs, each op was named `run`, and Dagster refused the
+        # repository ("Conflicting definitions ... with name 'run'"); the code location did not load.
+        # Every enabled job is made proxied here: the most Dagster jobs one repository can hold.
+        import observe_assets
+        import run_jobs
+        from dagster import Definitions
+
+        jobs, graph = (copy.deepcopy(value) for value in observe_assets.contracts())
+        for job in jobs["jobs"]:
+            if job["enabled"]:
+                job["dagster_stage"] = "proxied"
+        built = run_jobs.run_jobs(jobs, graph, transport=Stand([]))
+        self.assertGreater(len(built), 1)
+        definitions = Definitions(jobs=built)
+        # What a code server does when it loads the location; it raised for the duplicate op.
+        Definitions.validate_loadable(definitions)
+        repository = definitions.get_repository_def()
+        self.assertEqual({job.name for job in built} - {job.name for job in repository.get_all_jobs()}, set())
+        for job in built:
+            self.assertEqual([node.name for node in job.graph.nodes], ["run"], "the step is `run` in every job")
 
     def test_the_reconcilers_owed_runs_go_back_to_airflow(self):
         spec = self.spec(reconciles=True)
