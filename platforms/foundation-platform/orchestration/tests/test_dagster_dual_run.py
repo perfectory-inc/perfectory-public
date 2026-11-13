@@ -117,6 +117,36 @@ class RulesTest(unittest.TestCase):
                 dual_run.Run("scheduled__2", "scheduled", 2 * HOUR + 30, 2 * HOUR + 49)]
         self.assertEqual(dual_run.due_ticks(ticks, runs), [0.0, 1 * HOUR, 2 * HOUR, 3 * HOUR])
 
+    def test_a_catch_up_tick_airflow_skipped_for_one_within_its_lag_is_not_a_difference(self):
+        import dual_run
+
+        # rt_molit_real_transaction_collect 2026-11-12: unpaused 13 s after a tick, which alone ran.
+        hourly = self.spec(schedule="25 * * * *")
+        paused = [(1.2 * HOUR, 2 * HOUR + 25 * 60 + 13)]
+        runs = [dual_run.Run(f"scheduled__1970-01-01T0{hour}:25:00+00:00", "scheduled", hour * HOUR + 25 * 60 + 17,
+                             hour * HOUR + 32 * 60) for hour in (0, 2, 3)]
+        found = dual_run.compare(hourly, {}, runs, [], 0.0, 4.4 * HOUR, paused=paused)
+        self.assertEqual((found.only_dagster, found.only_airflow), ([], []))
+        self.assertEqual(found.agreed, [("schedule", hour * HOUR + 25 * 60) for hour in (0, 2, 3)])
+        self.assertEqual(found.paused, [("schedule", 1 * HOUR + 25 * 60)])
+        # Had Airflow run both (2026-11-03, above), both are agreed.
+        both = [*runs, dual_run.Run("scheduled__1970-01-01T01:25:00+00:00", "scheduled", 2 * HOUR + 25 * 60 + 14,
+                                    2 * HOUR + 25 * 60 + 16)]
+        self.assertEqual(len(dual_run.compare(hourly, {}, both, [], 0.0, 4.4 * HOUR, paused=paused).agreed), 4)
+
+    def test_a_tick_whose_job_came_free_within_the_lag_of_the_read_is_not_compared_yet(self):
+        import dual_run
+
+        # unit_price_versions_migration 2026-11-09: the check read Airflow 18 s after the holding run ended.
+        hourly = self.spec(schedule="0 * * * *")
+        held = [dual_run.Run("scheduled__1970-01-01T00:00:00+00:00", "scheduled", 2.0, 60.0),
+                dual_run.Run("reconcile__x", "operator_triggered", 0.5 * HOUR, 3 * HOUR + 50 * 60)]
+        soon = dual_run.compare(hourly, {}, held, [], 0.0, 3 * HOUR + 50 * 60 + 18)
+        self.assertEqual((soon.only_dagster, soon.agreed, soon.decisions), ([], [("schedule", 0.0)], 1))
+        # A lag later the run is there, or it is a difference.
+        later = dual_run.compare(hourly, {}, held, [], 0.0, 3 * HOUR + 50 * 60 + 90)
+        self.assertEqual(later.only_dagster, [("schedule", 3 * HOUR)])
+
     def test_an_operators_run_that_takes_the_job_first_keeps_the_ticks_waiting(self):
         import dual_run
 
@@ -231,6 +261,40 @@ class LiveCheckTest(unittest.TestCase):
         self.assertEqual(server.calls[0]["included_events"], ["cli_dag_pause", "cli_dag_unpause"])
         # No event at all before the window: Airflow made the DAG paused.
         self.assertEqual(dual_run.airflow_pauses(airflow, "foundation_new", 1 * HOUR, 5 * HOUR), [(1 * HOUR, math.inf)])
+
+    def test_input_events_are_airflows_own_at_the_time_airflow_recorded_them(self):
+        import dual_run
+
+        def event(at, uri):
+            stamp = datetime.datetime.fromtimestamp(at, datetime.UTC).isoformat().replace("+00:00", "Z")
+            return {"uri": uri, "timestamp": stamp}
+
+        # Airflow 3.3.2's `GET /api/v2/assets/events`: at most 100 a page, the uri with a trailing slash.
+        recorded = [event(HOUR + index, "iceberg://silver.synthetic/") for index in range(150)]
+        recorded += [event(2 * HOUR, "iceberg://silver.other/"), event(0.5 * HOUR, "iceberg://silver.synthetic/")]
+        test, calls = self, []
+
+        class Server:
+            def get(self, url, params=None, **_):
+                from test_dagster_observe import Answer
+
+                test.assertTrue(url.endswith("/api/v2/assets/events"))
+                calls.append(params)
+                since = params["timestamp_gte"].replace("+00:00", "Z")
+                found = sorted((e for e in recorded if e["timestamp"] >= since), key=lambda e: e["timestamp"])
+                return Answer({"asset_events": found[params["offset"]:params["offset"] + 100], "total_entries": len(found)})
+
+        airflow, _ = self.airflow([])
+        airflow.auth_backend.get_session = Server
+        found = dual_run.airflow_input_events(airflow, [("iceberg", "silver.synthetic")], 0.75 * HOUR)
+        self.assertEqual(found, [HOUR + index for index in range(150)])
+        self.assertEqual([call["offset"] for call in calls], [0, 100])
+        self.assertEqual(dual_run.airflow_input_events(airflow, [], 0.0), [], "a job no input starts asks nothing")
+        # The run Airflow started 8 s after its event is that event's run (source sweep 2026-11-13).
+        spec = synthetic_spec(schedule="", started_by="inputs")
+        run = [dual_run.Run("asset_triggered__a", "asset_triggered", HOUR + 8, 2 * HOUR)]
+        self.assertEqual(dual_run.compare(spec, {}, run, [HOUR], 0.0, 24 * HOUR).agreed, [("inputs", HOUR + 8)])
+        self.assertFalse(dual_run.compare(spec, {}, run, [HOUR + 27], 0.0, 24 * HOUR).matches, "airlift's later time")
 
     def test_every_comparison_is_appended_to_the_ledger(self):
         import dual_run

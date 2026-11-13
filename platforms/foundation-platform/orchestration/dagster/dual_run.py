@@ -1,9 +1,10 @@
 """The dual run of a job moving to Dagster: both orchestrators decide, Airflow alone runs (root ADR-0431 §2).
 
 A job at `dagster_stage: shadow` (orchestration/jobs.v1.json) is still started and run by Airflow. Dagster
-reads those runs from Airflow's API (every state: a failed run was a decision too) and the
-materializations of the job's inputs airlift observed (the publish tasks of the jobs that feed it), and
-decides beside Airflow by the rules it will use once the job is its own:
+reads those runs from Airflow's API (every state: a failed run was a decision too) and the asset
+events on the job's inputs, also from Airflow's API (`airflow_input_events`: the fact Airflow decides
+from, at the time Airflow recorded it), and decides beside Airflow by the rules it will use once the job
+is its own:
 
 - a `schedule` tick: Dagster's own cron iteration of the job's `schedule` in UTC (the iterator Dagster's
   schedules use), against Airflow's `scheduled` runs, whose run id carries the tick. A DAG runs one run
@@ -144,13 +145,22 @@ def due_ticks(ticks, runs, paused=()):
     08:27), and the ticks wait on. A run still in progress, or a pause still open, holds every tick
     after it.
     """
+    return _due(ticks, runs, paused)[0]
+
+
+def _due(ticks, runs, paused=()):
+    """`due_ticks`, and the catch-up ticks among them that Airflow may as well skip: when a tick came
+    within the scheduler's lag of the moment the job is free, which of the two the scheduler takes
+    first is a race with its own loop. It ran both on 2026-11-03 and 11-04 (above) and only the later
+    one on 2026-11-12 (rt_molit_real_transaction_collect, unpaused 18:25:13: the 18:25 tick ran and
+    17:25 never did). Either is how Airflow decides; Dagster's own rule runs the latest one."""
     changes = sorted([(run.start, 1, run.run_type) for run in runs]
                      + [(run.end, -1, "") for run in runs if run.end is not None]
                      + [(a, 2, "") for a, _ in paused] + [(b, -2, "") for _, b in paused if b != math.inf])
     running = held = 0
     awaiting = None  # when a decided tick stops holding the job if no run started
     before = None  # the ticks waiting before the last decision, while it awaits its run
-    waiting, due = [], []
+    waiting, due, either = [], [], set()
 
     def free(now):
         nonlocal awaiting, before, waiting
@@ -160,6 +170,8 @@ def due_ticks(ticks, runs, paused=()):
         before = waiting
         due.append(max(early or waiting))
         waiting = [tick for tick in waiting if early and tick > now - SCHEDULER_LAG_SECONDS]
+        if waiting:
+            either.add(due[-1])
         awaiting = now + SCHEDULER_LAG_SECONDS
 
     index = 0
@@ -170,7 +182,7 @@ def due_ticks(ticks, runs, paused=()):
             if change in (1, -1):
                 running = max(0, running + change)
                 if change == 1 and awaiting is not None and at < awaiting and run_type != "scheduled":
-                    due.pop()
+                    either.discard(due.pop())
                     waiting = sorted({*before, *waiting})
                 if change == 1:
                     awaiting = None
@@ -182,7 +194,18 @@ def due_ticks(ticks, runs, paused=()):
         free(awaiting if awaiting is not None and not running and not held and awaiting <= tick else tick)
         waiting.append(tick)
         free(tick)
-    return due
+    return due, either
+
+
+def _freed(at, spans):
+    """When a job held at `at` by any of `spans` (its runs and pauses) is free again; `at` if it is not held."""
+    held = True
+    while held:
+        held = False
+        for a, b in spans:
+            if a <= at < b:
+                at, held = b, True
+    return at
 
 
 def outage_gap_seconds(specs):
@@ -261,7 +284,15 @@ def compare(spec, job, runs, input_events, start, end, out=(), paused=()):
         # the ticks after it.
         horizon = max([settled, *(run.end for run in runs if run.end is not None), *(b for _, b in paused if b != math.inf)])
         ticks = schedule_ticks(spec.schedule, start, horizon + 1)
-        dagster = {tick for tick in due_ticks(ticks, runs, paused) if tick < settled}
+        due, either = _due(ticks, runs, paused)
+        dagster = {tick for tick in due if tick < settled}
+        # Not compared: a catch-up tick Airflow may skip (`_due`), and a tick whose job came free within
+        # the scheduler's lag of `end`, whose run Airflow has not created yet (unit_price_versions_migration
+        # 2026-11-09: the run that held the 18:45 tick ended 21:49:53, the check read Airflow at 21:50:11.0
+        # and the tick's run was queued at 21:50:11.7).
+        spans = [(run.start, math.inf if run.end is None else run.end) for run in runs] + list(paused)
+        dagster -= {tick for tick in dagster - airflow
+                    if tick in either or _freed(tick, spans) > end - SCHEDULER_LAG_SECONDS}
         found.paused += [("schedule", tick) for tick in ticks
                          if tick < settled and tick not in dagster and _inside(tick, paused)]
         found.decisions += len(dagster)
@@ -305,10 +336,28 @@ def dag_key(spec):
     return AssetKey([INSTANCE_NAME, "dag", spec.dag_id])
 
 
-def _records(instance, key, after):
-    from dagster import AssetRecordsFilter
+def airflow_input_events(airflow, datasets, after):
+    """When (epoch seconds) Airflow recorded an asset event on any of `datasets` since `after`, from
+    Airflow's own asset events.
 
-    return instance.fetch_materializations(AssetRecordsFilter(asset_key=key, after_timestamp=after), limit=1000).records
+    Not the materializations airlift observed: airlift's sensor writes those when it next polls, 3 to
+    27 s after the event, and Airflow's scheduler starts the `asset_triggered` run in between (source
+    sweep 2026-11-13: event 04:14:31.9, the land use plan refresh started 04:14:39.7, materialization
+    04:14:59.1). Read from the event log, every such run came before its event: 2026-11-09..13, 81 runs
+    "without an event" and 56 events "without a run" over 39 jobs, and 3 input decisions agreed.
+    """
+    uris = {job_specs.asset_uri(dataset) for dataset in datasets}
+    if not uris:
+        return []
+    found, offset = [], 0
+    since = datetime.datetime.fromtimestamp(after, datetime.UTC)
+    while True:
+        events, total = airflow.get_asset_events(since, offset=offset)
+        found += [datetime.datetime.fromisoformat(event["timestamp"]).timestamp() for event in events
+                  if event["uri"].rstrip("/") in uris]
+        offset += len(events)
+        if not events or offset >= total:
+            return found
 
 
 # Every state a run can be seen in: a failed or still running run was a decision too (airlift's DAG
@@ -454,8 +503,6 @@ def _evaluator(airflow, spec, job, every_dag, gap, ledger):
     # A closure, not default arguments: Dagster reads every parameter after the context as an input.
     from dagster import AssetCheckExecutionContext
 
-    inputs = [observe_assets.asset_key(dataset) for dataset in spec.starting_inputs]
-
     def evaluate(context: AssetCheckExecutionContext):
         end = time.time()
         start = end - WINDOW_SECONDS - settle_seconds(spec, job)
@@ -463,7 +510,7 @@ def _evaluator(airflow, spec, job, every_dag, gap, ledger):
         after = start - settle_seconds(spec, job)
         runs = airflow_runs(airflow, every_dag, after)
         starts = [run.start for found in runs.values() for run in found]
-        events = [record.timestamp for key in inputs for record in _records(context.instance, key, after)]
+        events = airflow_input_events(airflow, spec.starting_inputs, after)
         comparison = compare(spec, job, runs.get(spec.dag_id, []), events, start, end,
                              outages(starts, gap, start, end), airflow_pauses(airflow, spec.dag_id, after, end))
         append(ledger, ledger_line(spec, comparison, start, end, _run_id(context), RELEASE))

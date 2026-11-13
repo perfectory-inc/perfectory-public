@@ -186,3 +186,25 @@ Dagster 의 기본 스케줄은 진행 중인 run 과 상관없이 틱마다 run
 - **Airflow 는 `dagster` 작업의 DAG 를 만들지 않는다**(`foundation_jobs.py`). 그러나 `job_specs.py` 는 아직 `dagster` 를 거부한다: 배포의 드레인과
   배포 뒤 한 번 시작(`foundation-deploy.sh`·`deploy-start-once.sh`), 운영자의 run-now(`run-now-dispatch.sh`), run 의 계보(OpenLineage, ADR-0118 §2), 운영 지도의
   진행 중·실패 로그(`foundation-api` `data_catalog/facts.rs`)가 아직 작업을 Airflow DAG 로 찾는다. 그것들을 옮기는 조각이 단계를 연다.
+
+## 개정 각주 — 2026-11-14, 입력 사건은 Airflow 가 기록한 시각으로 읽는다(§2)
+
+이 각주는 결정을 바꾸지 않는다. §2 의 비교가 읽는 사실을 §3 대로 "Airflow 가 결정한 그 사실"로 맞춘다.
+
+- **잰 값(운영 원장, 2026-11-09 04:00Z..11-13 16:31Z, 2,532줄, 작업 71개 모두 `shadow`).** 시계 틱은 2,803개가 같고 3개가 달랐다.
+  입력 사건은 **3개만 같고** Airflow 만 한 결정 81개·Dagster 만 한 결정 56개가 작업 39개에 걸쳐 있었다. ADR-0458 의 문턱을
+  지난 작업은 25개이고, 못 지난 46개 중 43개는 `event` 종류의 일치가 하나도 없어서였다.
+- **원인.** 비교는 입력 사건을 airlift 가 관찰한 물질화의 시각으로 읽었다. 그 시각은 airlift 센서가 다음에 Airflow 를 읽은
+  때이고, Airflow 스케줄러는 그 전에 `asset_triggered` run 을 시작한다(11-13 `source_sweep`: 자산 사건 04:14:31.9, 토지이용계획
+  Silver run 시작 04:14:39.7, 물질화 04:14:59.1 — 3~27초 늦다). 그래서 run 은 "사건 없는 run", 사건은 "run 없는 사건"이 됐다.
+  11-07 각주의 8일 재생이 차이 0 이었던 것은 Airflow 의 `asset_event` 표를 읽었기 때문이다.
+- **고침.** 비교는 입력 사건을 Airflow 의 자산 사건(`GET /api/v2/assets/events`, Viewer 계정, `dual_run.airflow_input_events`)에서
+  읽는다. Airflow 가 결정하는 동안(`shadow`·`proxied`)의 사실은 Airflow 의 것이다. `dagster` 단계의 센서(`decide.py`)는 그대로
+  Dagster 의 이벤트 기록으로 결정한다: 같은 결정을 관찰 지연만큼 늦게 한다.
+- **시계 틱 3개.** (a) 막힌 구간이 끝나고 스케줄러 지연(60초) 안에 Airflow 를 읽으면 따라잡는 run 이 아직 없다
+  (`unit_price_versions_migration` 11-09: 막던 run 이 21:49:53 에 끝났고 검사는 21:50:11.0 에 읽었고 run 은 21:50:11.7 에 생겼다) — 그
+  틱은 다음 비교가 센다. (b) 풀리기 60초 안쪽의 틱이 있을 때 그 앞 틱까지 도는지는 스케줄러 루프와의 경주다: 11-03·11-04 에는
+  둘 다 돌았고 11-12 `rt_molit_real_transaction_collect`(18:25:13 에 풀림)에는 18:25 만 돌았다 — 앞 틱은 어느 쪽이어도 차이가 아니다.
+  (c) `registered_factory` 11-12 11:20 틱은 Airflow 가 15:48:11 에 돌렸고 검사가 15:48:06 에 읽었다: 같은 틱이고, 다음 비교가 같다고 센다.
+- **고친 규칙으로 같은 기간을 다시 비교(운영 Airflow API 읽기 전용, 한 창).** 시계 틱 2,338개·입력 사건 80개가 같고 **차이 0**,
+  일시정지 구간의 결정 130개는 따로. 원장은 추가 전용이라 옛 줄의 차이는 남는다: 작업마다 마지막 차이 뒤로 다시 센다(ADR-0458 §3).
