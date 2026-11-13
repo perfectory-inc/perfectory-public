@@ -85,6 +85,15 @@ last_reviewed: 2026-11-12
 묻는다. 예산은 계약 `case_documents.run_time_budget_seconds`(물건상세가 그만큼 먼저 멈춘다). 실행 줄
 `courtauction.go.kr case documents:` 에 대상·요청·실패 수가 나온다. 다 못 물은 사건은 다음 실행이 이어 묻는다.
 
+## 감정평가서 PDF (루트 ADR-0540 §1)
+
+사건 문서 뒤에 같은 실행이 `silver.court_auction_appraisal` 의 회차 가운데 아직 저장하지 않은 감정평가서를, 사이트의 감정평가 화면이
+여는 kapanet 뷰어(`ca.kapanet.or.kr/view/…`)에서 받아 공용 저장소(`onbid/media/sha256/<해시>.pdf`)에 한 번 담는다. 상한·동시·예산은
+계약 `appraisal_reports`. 뷰어가 reCAPTCHA 를 요구하면 **풀지 않는다**: 그 파일은 `captcha` 로 기록하고 건너뛰며, 계약의 대기를 두고,
+연속 `captcha_stop_after` 번이면 그 실행은 멈춘다(다음 실행이 다시 묻는다). 실행 줄 `courtauction.go.kr appraisal reports:` 에
+요청·저장·캡차 수가 나온다. 캡차 기록은 `silver.court_auction_appraisal_report_read` 의 `outcome = 'captcha'`. 매각물건명세서 PDF 는
+받지 않는다(법원 쪽 열람 기록·개인정보 워터마크).
+
 ## 개인정보 (루트 ADR-0540)
 
 받은 응답은 Bronze 에 바이트 그대로 있다. 사람 이름이 있는 칸(지분 서술 `dspslStkCtt`, 사법보좌관 `jdgeAojAsstnNm`, 당사자 `intrpsNm`, 감정평가사 `aeeEvlExamrNm` 등)은

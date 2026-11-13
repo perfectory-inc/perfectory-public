@@ -101,6 +101,10 @@ export const ParcelCourtAuctionByPnuSchema = z.object({
           price_basis_date: z.string().nullish(),
           written_date: z.string().nullish(),
           opinion: z.string().nullish(),
+          report: z.object({
+            sha256: z.string().regex(/^[0-9a-f]{64}$/),
+            media_format: z.enum(["pdf"]),
+          }).nullish(),
         }).nullish(),
       }).nullish(),
     })),

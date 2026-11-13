@@ -52,7 +52,12 @@ const round = {
       lease_text: "임차인 ○○○ 점유",
       objects: [{ object_seq: 1, possession_text: "합성 점유", lease_count: 1 }],
     },
-    appraisal: { round_seq: 1, price_basis_date: "2099-01-10", opinion: "합성 의견" },
+    appraisal: {
+      round_seq: 1,
+      price_basis_date: "2099-01-10",
+      opinion: "합성 의견",
+      report: { sha256: "a".repeat(64), media_format: "pdf", size_bytes: 1000 },
+    },
   },
 };
 
@@ -109,6 +114,8 @@ describe("court auction detail", () => {
     expect(screen.getByText("2099년01월02일")).toBeTruthy();
     expect(screen.getByText("임차인 ○○○ 점유")).toBeTruthy();
     expect(screen.getByText("합성 의견")).toBeTruthy();
+    const report = screen.getByRole("link", { name: "감정평가서" });
+    expect(report.getAttribute("href")).toContain(`sha256/${"a".repeat(64)}.pdf`);
   });
 
   it("shows an item whose 물건상세 is not read yet without a detail", () => {
