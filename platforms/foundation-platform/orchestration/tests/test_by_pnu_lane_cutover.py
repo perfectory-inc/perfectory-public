@@ -338,10 +338,12 @@ class LaneCutover(OperatorHarness):
         # A lane whose own Gold job is off is not pending: its gold step would build that Gold under
         # the one rebuild lock anyway (2026-11-12..13 parcel-nearby, four 160-minute timeouts).
         off = {job["systemd_service"] for job in JOBS if not job.get("enabled", True)}
-        rebuild = json.loads((PLATFORM / "infra/lakehouse/contracts/gold-panel-rebuild.contract.json")
-                             .read_text(encoding="utf-8"))["tables"]
+        import gold_rebuild  # noqa: PLC0415 -- beside by_pnu_kinds on the path
+
+        rebuild = gold_rebuild.load_contract()["tables"]
         held = {lane for lane in CONTRACT["by_pnu_lanes"]
-                if f"foundation-gold-lane-rebuild@{rebuild[by_pnu_kinds.lane_fields(lane)['gold_table']]['unit']}.service" in off}
+                if f"foundation-gold-lane-rebuild@{rebuild[by_pnu_kinds.lane_fields(lane)['gold_table']]['unit']}.service"
+                in off}
         self.assertIn("parcel-nearby", held)
         result, _ = self.runner("lanes", "--pending")
         self.assertEqual(result.returncode, 0, result.stderr)
