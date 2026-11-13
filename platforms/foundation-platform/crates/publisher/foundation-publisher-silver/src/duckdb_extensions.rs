@@ -219,7 +219,10 @@ mod tests {
     #[test]
     fn the_contract_pins_a_file_for_every_extension_it_loads() -> anyhow::Result<()> {
         let contract = contract()?;
-        assert_eq!(contract.load_order, ["httpfs", "avro", "iceberg"]);
+        assert_eq!(
+            contract.load_order,
+            ["httpfs", "avro", "iceberg", "spatial", "h3"]
+        );
         for name in &contract.load_order {
             let pin = &contract.distributions[name].platforms["linux-x86_64"];
             assert_eq!(pin.file.name, format!("{name}.duckdb_extension"));

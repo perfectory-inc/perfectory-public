@@ -8,15 +8,15 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "주변 kind Gold (root ADR-0465; scripts/ops/gold-panel-rebuild.sh parcel-nearby): gold.parcel_nearby, for every served parcel what is near its centroid — the nearest 공항, 철도역, 도시철도역, 초중등학교 and 대학 with the spheroid distance (Apache Sedona ST_KNN), the 상가(상권) stores in the H3 rings around it (Sedona ST_H3CellIDs/ST_H3KRing) and the 고속도로 출입시설 of its 시군구 — when the Silver lanes or the served parcel edition moved past the pins the current Gold recorded. A changed store recomputes only the parcels within the rings of the cells it left or entered, a changed parcel only itself, and merges them; a change of a facility file or the code change table rebuilds whole and publishes only the documents whose digest changed (parcel_nearby_silver_to_gold.WHOLE_TABLE_INPUTS: those files hold 14 to 12,004 rows and any parcel's nearest point may move). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_nearby_bake bakes its commit.",
-      "systemd_service": "foundation-gold-lane-rebuild@parcel-nearby.service",
+      "description": "주변 kind Gold (root ADR-0465, ADR-0564 §9 turn 2; scripts/ops/gold-versions-build.sh parcel-nearby → publisher build-parcel-nearby-versions): gold.parcel_nearby_versions, for every served parcel what is near its centroid — the nearest 공항, 철도역, 도시철도역, 초중등학교 and 대학 with the spheroid distance, the 상가(상권) stores in the H3 rings around it and the 고속도로 출입시설 of its 시군구 — computed by DuckDB inside the publisher (spatial, h3) one 시도 at a time and appended by the publisher as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of a facility file, the highway file or the code change table recomputes every 시도 (any parcel's nearest point may move; those files hold 14 to 12,004 rows and change a few times a year); a change of the parcels, the stores or the place ids recomputes only the 시도 it touches (parcel_nearby_stage.changed_sidos). The nearest is exact and an equal-distance tie goes to the facility's row_key (owner 2026-11-12, root ADR-0559 exception ⓑ). It was the Spark job parcel_nearby_silver_to_gold.py, which never committed (four 160-minute timeouts, 2026-11-12..13). by_pnu_parcel_nearby_bake bakes its commit.",
+      "systemd_service": "foundation-gold-versions@parcel-nearby.service",
       "systemd_timer": null,
       "state_paths": [],
       "schedule": "45 10 * * *",
       "started_by": "inputs",
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
-      "time_limit_minutes": 150,
+      "time_limit_minutes": 60,
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -24,8 +24,8 @@
         "measured_run_seconds": null,
         "unmeasured_reason": "Its four runs as the cut-over's gold step (2026-11-12..13) each ended at the 160-minute limit, so none measures a full build; off until its Gold is born on DuckDB (W81b, W83b), whose run is measured then.",
         "first_run": {
-          "estimate_seconds": 5400,
-          "estimated_from": "computed, never run: one read of the served parcel boundaries (39,861,511 parcels, a centroid and an H3 cell each), five Sedona ST_KNN joins against at most 12,004 points, 756 million H3 ring rows (19 per parcel) joined to a broadcast count of 2,753,778 stores by cell, and the highway list per 시군구; the same unit template's parcel-ownership build over 39,396,906 parcels and about 120 million owner rows measured 1,602 s (2026-11-05, its cut-over's gold step), so about three such passes, 5,400 s, inside the 8,100 s share of the 150-minute limit; a first run past it is stopped by TimeoutStartSec and the auto-promotion's gold step resumes it"
+          "estimate_seconds": 900,
+          "estimated_from": "measured, not under this unit: the same SQL computed every served parcel (39,861,511) one 시도 at a time in 445.6 s with a 5.01 GiB peak at a 5 GB DuckDB limit and 4 threads (W81b, 2026-11-13, ai-server, read-only); the reads of the inputs, the diff against the head and the upload of about 40 million rows (one file per 시도) are about as much again, so 900 s, a quarter of the 60-minute limit"
         }
       },
       "pool": "spark",
@@ -33,17 +33,16 @@
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
-        "silver-parcel-boundaries-to-gold-parcel-nearby",
-        "silver-airport-to-gold-parcel-nearby",
-        "silver-railway-station-to-gold-parcel-nearby",
-        "silver-subway-station-to-gold-parcel-nearby",
-        "silver-school-location-to-gold-parcel-nearby",
-        "silver-university-to-gold-parcel-nearby",
-        "silver-commercial-district-to-gold-parcel-nearby",
-        "silver-highway-access-point-to-gold-parcel-nearby",
-        "reference-legal-dong-code-change-to-gold-parcel-nearby",
-        "gold-place-id-bridge-to-gold-parcel-nearby",
-        "gold-place-id-changelog-to-gold-parcel-nearby"
+        "silver-parcel-boundaries-to-gold-parcel-nearby-versions",
+        "silver-airport-to-gold-parcel-nearby-versions",
+        "silver-railway-station-to-gold-parcel-nearby-versions",
+        "silver-subway-station-to-gold-parcel-nearby-versions",
+        "silver-school-location-to-gold-parcel-nearby-versions",
+        "silver-university-to-gold-parcel-nearby-versions",
+        "silver-commercial-district-to-gold-parcel-nearby-versions",
+        "silver-highway-access-point-to-gold-parcel-nearby-versions",
+        "reference-legal-dong-code-change-to-gold-parcel-nearby-versions",
+        "gold-place-id-bridge-to-gold-parcel-nearby-versions"
       ],
       "enabled": false,
       "disabled_reason": "Off 2026-11-13 (W83b): its first full build on Spark did not finish within the 160-minute limit four times in a row (2026-11-12 19:42Z, 11-13 00:15Z, 05:21Z, 14:22Z, each a by-PNU auto-promotion cut-over's gold step), and each attempt held the one Gold rebuild lock for those 160 minutes, so the owed gold.parcel_panel rebuild could only end `waiting` behind it. gold.parcel_nearby is born on DuckDB instead (root ADR-0559; measured on 경기: DuckDB 260 s / 3.84 GiB, Spark 1,766 s / 6.88 GiB). Turned on, with by_pnu_parcel_nearby_bake, by the pull request that makes the DuckDB producer this lane's and records its first measured run. While it is off, the auto-promotion does not start the lane's cut-over (by-pnu-lane-cutover.sh lanes --pending leaves out a lane whose own Gold job is off).",
@@ -57,7 +56,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Reflect each new Gold snapshot of gold.parcel_nearby (the own-producer 주변 kind, root ADR-0465) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-nearby), as section packs (root ADR-0147, ADR-0193 §9), exactly as the building-permit bake. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the lane's first publish (root ADR-0190, ADR-0435). Started when gold_parcel_nearby_rebuild commits a new snapshot, and at 11:45 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound (root ADR-0138).",
+      "description": "Reflect each new Gold snapshot of gold.parcel_nearby_versions (the own-producer 주변 kind, root ADR-0465, ADR-0564) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-nearby), as section packs (root ADR-0147, ADR-0193 §9), exactly as the building-permit bake. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the lane's first publish (root ADR-0190, ADR-0435). Started when gold_parcel_nearby_rebuild commits a new snapshot, and at 11:45 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound (root ADR-0138).",
       "capabilities": [
         "by_pnu_kind_section_pack_patches"
       ],
@@ -88,7 +87,7 @@
       "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [
-        "gold-parcel-nearby-to-parcel-nearby-by-pnu-section-packs"
+        "gold-parcel-nearby-versions-to-parcel-nearby-by-pnu-section-packs"
       ],
       "enabled": false,
       "disabled_reason": "Off 2026-11-13 (W83b) with gold_parcel_nearby_rebuild, which feeds it: gold.parcel_nearby has no snapshot and its first build moves to DuckDB (see that job's disabled_reason). Switched on with it.",
@@ -102,13 +101,13 @@
     {
       "id": "gold-parcel-nearby",
       "type": "gold_table",
-      "title": "필지 주변 by-PNU 표",
-      "description": "서빙 필지판의 필지마다 그 중심에서 가장 가까운 공항·철도역·도시철도역·초중등학교·대학(이름과 회전타원체 거리), 둘레 H3 칸의 상가(상권) 수, 같은 시군구의 고속도로 출입시설을 담는 데이터 종류 표(루트 ADR-0465). Apache Sedona 의 ST_KNN·H3 함수로 Gold 에서 계산한다. 바뀐 상가 둘레와 바뀐 필지만 다시 계산하고, 시설 파일이 바뀌면 통째로 지어 digest 가 다른 문서만 발행한다.",
-      "status": "implemented",
+      "title": "필지 주변 by-PNU 표(만들지 않는 옛 모양)",
+      "description": "gold.parcel_nearby_versions 가 칸을 물려받는 계약의 모양이다. 판을 쌓는 표는 옛 표 옆에 태어나지만(루트 ADR-0564 §1) 주변 표는 옛 표 없이 태어났으므로 이 표는 만들지 않는다: Spark 생산자는 한 번도 커밋하지 못하고(160 분 상한에 네 번) 지워졌다.",
+      "status": "contract_only",
       "owner": "foundation-platform",
       "evidence_refs": [
-        "platforms/foundation-platform/config/r2-connections.contract.json",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md",
+        "platforms/foundation-platform/crates/lakehouse/lakehouse-domain/src/gold_versions_table.rs"
       ],
       "table_name": "gold.parcel_nearby",
       "runtime_bindings": [
@@ -119,10 +118,30 @@
       ]
     },
     {
+      "id": "gold-parcel-nearby-versions",
+      "type": "gold_table",
+      "title": "필지 주변 by-PNU 표(판을 쌓는 표)",
+      "description": "필지마다 경계의 중심에서 가장 가까운 공항·철도역·도시철도역·초중등학교·대학(이름과 회전타원체 거리), 둘레 H3 칸의 상가(상권) 수, 필지 시군구의 고속도로 출입시설을 담는 표(루트 ADR-0465). gold.parcel_nearby 의 칸에 version_seq·row_state 를 더해 바뀐 PNU 의 행만 덧붙인다(루트 ADR-0564 §1·§2): 현재 행은 PNU 마다 version_seq 가 가장 큰 행이고 row_state 가 removed 면 그 PNU 는 없다. 발행기 안의 DuckDB(spatial·h3)가 시도 하나씩 정확한 최근접을 구하고(같은 거리는 시설의 row_key 순, 사장 2026-11-12 승인, 루트 ADR-0559 예외 ⓑ) 발행기가 추가 커밋으로 붙인다. 시설 파일·고속도로·법정동 변경은 모든 시도를, 필지·상가·place id 의 변경은 닿은 시도만 다시 계산한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_nearby_versions_build.rs"
+      ],
+      "table_name": "gold.parcel_nearby_versions",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_nearby_versions"
+        }
+      ]
+    },
+    {
       "id": "parcel-nearby-by-pnu-section-packs",
       "type": "serving_surface",
       "title": "필지 주변 by-PNU 묶음 파일",
-      "description": "gold.parcel_nearby 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/nearby/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0465). 첫 발행은 자동 승격(루트 ADR-0435)이 한다.",
+      "description": "gold.parcel_nearby_versions 의 현재 행을 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/nearby/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0465). 첫 발행은 자동 승격(루트 ADR-0435)이 한다.",
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -135,97 +154,97 @@
   "dependencies": [
     {
       "from": "silver-parcel-boundaries",
-      "to": "gold-parcel-nearby",
+      "to": "gold-parcel-nearby-versions",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs"
       ],
-      "description": "서빙 필지판의 필지마다 경계의 중심(Sedona ST_Centroid)이 거리를 재는 점이고 그 H3 칸이 상가 둘레의 가운데다(루트 ADR-0465). 들고 나거나 경계가 바뀐 필지만 다시 계산한다."
+      "description": "서빙 필지판의 필지마다 경계의 중심(DuckDB spatial ST_Centroid)이 거리를 재는 점이고 그 H3 칸이 상가 둘레의 가운데다(루트 ADR-0465). 들고 나거나 경계가 바뀐 필지만 다시 계산한다."
     },
     {
       "from": "silver-airport",
-      "to": "gold-parcel-nearby",
+      "to": "gold-parcel-nearby-versions",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs"
       ],
-      "description": "가장 가까운 공항(공항명)과 회전타원체 거리, 위도·경도(WGS84좌표)로(Sedona ST_KNN, 루트 ADR-0465). 이 파일이 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
+      "description": "가장 가까운 공항(공항명)과 회전타원체 거리, 위도·경도(WGS84좌표)로(DuckDB spatial 의 정확한 최근접, 루트 ADR-0465). 이 파일이 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
     },
     {
       "from": "silver-railway-station",
-      "to": "gold-parcel-nearby",
+      "to": "gold-parcel-nearby-versions",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs"
       ],
-      "description": "가장 가까운 철도역(역이름)과 거리, 위도좌표·경도좌표로(Sedona ST_KNN, 루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
+      "description": "가장 가까운 철도역(역이름)과 거리, 위도좌표·경도좌표로(DuckDB spatial 의 정확한 최근접, 루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
     },
     {
       "from": "silver-subway-station",
-      "to": "gold-parcel-nearby",
+      "to": "gold-parcel-nearby-versions",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs"
       ],
-      "description": "가장 가까운 도시철도역(역사명·노선명)과 거리, 위도·경도로(Sedona ST_KNN, 루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
+      "description": "가장 가까운 도시철도역(역사명·노선명)과 거리, 위도·경도로(DuckDB spatial 의 정확한 최근접, 루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
     },
     {
       "from": "silver-school-location",
-      "to": "gold-parcel-nearby",
+      "to": "gold-parcel-nearby-versions",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs"
       ],
-      "description": "가장 가까운 초중등학교(학교명·학교급구분)와 거리, 위도·경도로(Sedona ST_KNN, 루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
+      "description": "가장 가까운 초중등학교(학교명·학교급구분)와 거리, 위도·경도로(DuckDB spatial 의 정확한 최근접, 루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
     },
     {
       "from": "silver-university",
-      "to": "gold-parcel-nearby",
+      "to": "gold-parcel-nearby-versions",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs"
       ],
       "description": "가장 가까운 대학(학교명·학교구분명)과 거리. 파일에 좌표가 없어 주소가 이른 필지의 중심을 쓴다(루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
     },
     {
       "from": "silver-commercial-district",
-      "to": "gold-parcel-nearby",
+      "to": "gold-parcel-nearby-versions",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs"
       ],
-      "description": "상가 좌표(경도·위도)의 H3 칸(해상도 9)마다 상가 수를 세어, 필지 칸 둘레 두 겹의 합을 싣는다(Sedona ST_H3CellIDs·ST_H3KRing, 루트 ADR-0465). 상가가 떠나거나 들어온 칸의 둘레 안 필지만 다시 계산한다."
+      "description": "상가 좌표(경도·위도)의 H3 칸(해상도 9)마다 상가 수를 세어, 필지 칸 둘레 두 겹의 합을 싣는다(DuckDB h3, 루트 ADR-0465). 상가가 떠나거나 들어온 칸의 둘레 안 필지만 다시 계산한다."
     },
     {
       "from": "silver-highway-access-point",
-      "to": "gold-parcel-nearby",
+      "to": "gold-parcel-nearby-versions",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs"
       ],
       "description": "필지의 시군구(법정동 코드 앞 다섯 자리)에 있는 고속도로 출입시설(노선명·출입시설)을 싣는다. 파일에 좌표도 지번도 없어 거리를 재지 않는다(루트 ADR-0401 §4, ADR-0465). 바뀌면 통째로 짓는다."
     },
     {
       "from": "reference-legal-dong-code-change",
-      "to": "gold-parcel-nearby",
+      "to": "gold-parcel-nearby-versions",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs",
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
       ],
       "description": "대학의 PNU 와 출입시설의 법정동 코드를 서빙 필지판의 코드로 읽는다(모든 필지 종류와 같은 renumbered, 루트 ADR-0329 §3). 이 표가 바뀌면 종류를 통째로 짓는다."
     },
     {
-      "from": "gold-parcel-nearby",
+      "from": "gold-parcel-nearby-versions",
       "to": "parcel-nearby-by-pnu-section-packs",
       "relation": "feeds",
       "status": "implemented",
@@ -235,25 +254,14 @@
     },
     {
       "from": "gold-place-id-bridge",
-      "to": "gold-parcel-nearby",
+      "to": "gold-parcel-nearby-versions",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs",
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_join.py"
       ],
       "description": "행마다 그 필지의 안정 place_id 를 싣는다(루트 ADR-0483, ADR-0288 §5): 다리의 필지 단위 열린 기간(없으면 마지막 기간)의 id. 짓는 PNU 의 다리 행만 읽는다."
-    },
-    {
-      "from": "gold-place-id-changelog",
-      "to": "gold-parcel-nearby",
-      "relation": "feeds",
-      "status": "implemented",
-      "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_join.py"
-      ],
-      "description": "발행이 덧붙인 변경 이력 행의 코드(옛·새)만 다시 계산한다(루트 ADR-0483): 이력은 append-only 라 고정한 스냅숏 뒤에 붙은 행만 읽는다."
     }
   ],
   "by_pnu_lanes": {
@@ -268,15 +276,16 @@
         "place_id"
       ],
       "producer": "parcel_nearby_silver_to_gold",
+      "versions_table": true,
+      "gold_table": "gold.parcel_nearby_versions",
       "decision": "docs/adr/0465-a-parcel-shows-what-is-near-it-computed-in-gold-with-sedona-and-h3.md",
-      "spark_held_test": "infra/lakehouse/spark/tests/test_parcel_nearby_gold.py"
+      "spark_held_test": "crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage/tests.rs"
     }
   },
   "host_memory": {
     "gold_parcel_nearby_rebuild": [
       {
-        "project": "foundation-platform-compute",
-        "service": "spark"
+        "unit": "MemoryMax"
       }
     ],
     "by_pnu_parcel_nearby_bake": [
@@ -297,7 +306,7 @@
       "major": 1,
       "owner": {
         "lane": "parcel-nearby",
-        "producer": "infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+        "producer": "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs"
       },
       "revisions": [
         {

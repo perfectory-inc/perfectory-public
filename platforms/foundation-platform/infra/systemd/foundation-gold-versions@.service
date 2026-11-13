@@ -1,0 +1,34 @@
+[Unit]
+Description=Foundation Platform Gold of appended row versions of %i: DuckDB inside the publisher computes it and the publisher appends the changed keys (root ADR-0564)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/gold-panel-rebuild.md
+X-Foundation-Owner=lakehouse
+After=network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/gold-versions-build.sh %i
+# The job list's time_limit_minutes (jobs.v1.json).
+# Generated from the list, not hand-set: `cargo run -p foundation-jobs -- generate` (committed_units test).
+TimeoutStartSec=1h
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# Summaries, run logs and DuckDB's stage directory (its database file and spill) of each run.
+StateDirectory=foundation-gold-versions
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
+MemoryHigh=7372M
+MemoryMax=8G
+OOMScoreAdjust=500
+
+[Install]
+WantedBy=multi-user.target

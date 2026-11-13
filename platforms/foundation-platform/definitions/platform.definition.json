@@ -1505,6 +1505,12 @@
             "memory_max": "512M",
             "measured_peak": "312M",
             "measured": "journal `memory peak` 2026-11-12 20:55Z, its first run (311.2M: the job script, the Docker client and python3 -c reads; its containers and the model runtime have their own caps)"
+          },
+          "foundation-gold-versions@.service": {
+            "class": "batch",
+            "memory_max": "8G",
+            "measured_peak": "5131M",
+            "measured": "not this unit's: never run under it. The same DuckDB SQL in a container capped like it (W81b, 2026-11-13, ai-server): every served parcel, one 시도 at a time, 5.01 GiB anon peak at a 5 GB DuckDB limit with 4 threads. The publisher gives DuckDB three fifths of what the unit has left (parcel_nearby_versions_build MEMORY_SHARE), so about 4.8 GiB here; its first runs log the unit's own peak."
           }
         }
       },

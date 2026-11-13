@@ -549,10 +549,20 @@ pub const PACK_LANE_NON_CONTENT_COLUMNS: [&str; 4] = [
 /// contract's `by_pnu_kind::PLACE_IDENTITY_COLUMNS` names the same.
 pub const PACK_LANE_JOIN_COLUMNS: [&str; 2] = ["place_id", "main_lot_group_place_ids"];
 
+/// The columns a table of appended row versions adds to its replaced table's (root ADR-0564 §2): its
+/// commit number and its removal marker. They order a key's versions and are no part of a document; a
+/// lane that bakes such a table (`gold_table`) serves the same documents the replaced table's would.
+pub const PACK_LANE_VERSION_COLUMNS: [&str; 2] = [
+    lakehouse_domain::GOLD_VERSION_SEQ_COLUMN,
+    lakehouse_domain::GOLD_VERSIONS_REMOVAL_COLUMN,
+];
+
 /// Whether a Gold column is part of a pack lane's document.
 #[must_use]
 pub fn pack_lane_content_column(column: &str) -> bool {
-    !PACK_LANE_NON_CONTENT_COLUMNS.contains(&column) && !PACK_LANE_JOIN_COLUMNS.contains(&column)
+    !PACK_LANE_NON_CONTENT_COLUMNS.contains(&column)
+        && !PACK_LANE_JOIN_COLUMNS.contains(&column)
+        && !PACK_LANE_VERSION_COLUMNS.contains(&column)
 }
 
 /// Resolves one entry, refusing a name, a baseline, a Gold table or a document the pack-only

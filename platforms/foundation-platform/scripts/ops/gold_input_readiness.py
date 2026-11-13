@@ -40,7 +40,11 @@ def required_inputs(gold_table: str) -> tuple[str, ...] | None:
 
     entry = gold_rebuild.load_contract()["tables"].get(gold_table)
     if entry is None:
-        raise ValueError(f"{gold_table} is not a table of gold-panel-rebuild.contract.json")
+        graph = graph_inputs(gold_table)
+        if graph is None:
+            raise ValueError(f"{gold_table} is not a table of gold-panel-rebuild.contract.json or one the "
+                             "publisher builds")
+        return graph
     try:
         producer = importlib.import_module(entry["producer"])
     except ModuleNotFoundError as error:
@@ -50,6 +54,25 @@ def required_inputs(gold_table: str) -> tuple[str, ...] | None:
     required, optional, _ = gold_rebuild.producer_inputs(producer, entry)
     accepted = entry.get("absent_inputs_accepted", {})
     return (*required, *(name for name in optional if name not in accepted))
+
+
+GRAPH = PLATFORM / "docs" / "catalog" / "pipeline-graph.v1.json"
+
+
+def graph_inputs(gold_table: str, graph_path: Path = GRAPH) -> tuple[str, ...] | None:
+    """The inputs of a table of appended row versions the publisher builds (root ADR-0564): every table
+    the pipeline graph feeds it from, which its build pins and reads at their heads and refuses to run
+    without. None for a table the graph does not hold, or one no data edge feeds."""
+    import json  # noqa: PLC0415
+
+    if not gold_table.endswith("_versions"):
+        return None
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    targets = {node["id"] for node in graph["nodes"] if node.get("table_name") == gold_table}
+    inputs = sorted({nodes[edge["from"]]["table_name"] for edge in graph["edges"]
+                     if edge["to"] in targets and nodes[edge["from"]].get("table_name")})
+    return tuple(inputs) or None
 
 
 def verdict(gold_table: str, required: tuple[str, ...] | None, loaded) -> tuple[bool, str]:

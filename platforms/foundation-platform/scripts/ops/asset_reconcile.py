@@ -168,7 +168,9 @@ def assets(jobs: dict, graph: dict, contract: dict) -> list[Asset]:
             node = nodes[outputs[0]]
             uri = job_specs.asset_uri((job_specs.platform_of(node), job_specs.name_of(node)))
             tables = [nodes[name]["table_name"] for name in inputs if nodes[name].get("table_name")]
-            entry = contract["tables"][node["table_name"]]
+            # A table of appended row versions the publisher builds (root ADR-0564) is no table of the
+            # Spark rebuild contract: it is pinned to nothing but its own inputs.
+            entry = contract["tables"].get(node["table_name"], {})
             pins_from = entry.get("pins_from")
             pinning = pins_from["gold_table"] if pins_from else None
             found.append(Asset(job_id, uri, service, gold=node["table_name"],

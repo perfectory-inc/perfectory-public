@@ -29,7 +29,9 @@
 #              It is bounded by the unit it starts (gold_panel_rebuild's time_limit_minutes); the
 #              dry run shows that limit for a lane whose own Gold job
 #              (foundation-gold-lane-rebuild@<unit>) has no measured run in orchestration/jobs.v1.json
-#              (per_run_cap.measured_run_seconds, root ADR-0386)
+#              (per_run_cap.measured_run_seconds, root ADR-0386). A lane whose Gold is a table of
+#              appended row versions the publisher builds (root ADR-0564, ADR-0567) starts its own job's
+#              unit instead, foundation-gold-versions@<lane>, bounded by that job's limit
 #   parity     the producer's check against the bundle Gold, when the rebuild contract declares one
 #              for the table (`pins_from.parity_argument`): a full rebuild refuses, before it
 #              writes, a kind that differs from the bundle on any PNU (ADR-0193 §6-2). An
@@ -110,6 +112,8 @@ VERIFY_ATTEMPTS="${FOUNDATION_CUTOVER_VERIFY_ATTEMPTS:-5}"
 VERIFY_PAUSE_SECONDS="${FOUNDATION_CUTOVER_VERIFY_PAUSE_SECONDS:-60}"
 EDGE_PROBE="${FOUNDATION_CUTOVER_EDGE_PROBE:-${PLATFORM_ROOT}/scripts/ops/by-pnu-edge-probe.py}"
 INPUT_READINESS="${FOUNDATION_CUTOVER_INPUT_READINESS:-${PLATFORM_ROOT}/scripts/ops/gold_input_readiness.py}"
+SYSTEMCTL="${FOUNDATION_CUTOVER_SYSTEMCTL:-systemctl}"
+JOURNALCTL="${FOUNDATION_CUTOVER_JOURNALCTL:-journalctl}"
 now() { echo "${FOUNDATION_CUTOVER_NOW:-$(date -u +%s)}"; }
 
 STEPS=(history inputs preview gold parity bake equality latency publish monitor-sample verify)
@@ -170,27 +174,37 @@ for lane in chosen:
             line.startswith(sample) for line in open(monitor, encoding="utf-8")):
         continue
     table = rebuild.get(entry["gold_table"])
+    # A table of appended row versions the publisher builds (root ADR-0564): the gold step starts its
+    # own job's unit, bounded by that job's limit, and it has no parity with a bundle Gold.
+    versions_job = by_service.get(f"foundation-gold-versions@{lane}.service")
+    if table is None and versions_job is not None and entry["gold_table"].endswith("_versions"):
+        table = {"unit": versions_job["systemd_service"]}
     if table is None:
-        sys.exit(f"{lane}: its Gold {entry['gold_table']} is not a table of gold-panel-rebuild.contract.json")
+        sys.exit(f"{lane}: its Gold {entry['gold_table']} is not a table of gold-panel-rebuild.contract.json"
+                 " nor one a foundation-gold-versions unit builds")
     # The pending list (the auto-promotion's) leaves out a lane whose own Gold job is off (its
     # disabled_reason says why): its gold step would build that Gold anyway, under the one rebuild lock
     # (2026-11-12..13 parcel-nearby's Spark build ran out its 160 minutes four times and held the owed
-    # panel rebuild back each time). An operator's run that names lanes still plans them.
-    own_gold = by_service.get(f"foundation-gold-lane-rebuild@{table['unit']}.service")
+    # panel rebuild back each time). An operator's run that names lanes still plans them. A Gold the
+    # publisher builds is its versions job's (root ADR-0564).
+    own_gold = versions_job if table["unit"].endswith(".service") else by_service.get(
+        f"foundation-gold-lane-rebuild@{table['unit']}.service")
     if pending and own_gold is not None and not own_gold.get("enabled", True):
         continue
     own, capabilities = block(lane)
     base, base_capabilities = block(entry["latency_baseline_lane"])
     parity = (table.get("pins_from") or {}).get("parity_argument") or "-"
     # The step starts a copy of the panel rebuild's unit, whose limit bounds an untimed build.
-    gold_job = by_service.get(f"foundation-gold-lane-rebuild@{table['unit']}.service")
+    gold_job = versions_job if table["unit"].endswith(".service") else by_service.get(
+        f"foundation-gold-lane-rebuild@{table['unit']}.service")
     timed = gold_job is None or (gold_job.get("per_run_cap") or {}).get("measured_run_seconds") is not None
     worker = lanes[lane]["host"].removesuffix("_by_pnu_gateway") if "host" in lanes.get(lane, {}) else lane
     print(lane, entry["gold_table"], table["unit"], parity,
           own["section_packs"]["preview_worker"]["public_hostname"], capabilities,
           base["section_packs"]["preview_worker"]["public_hostname"], base_capabilities, monitor,
           ",".join(lanes.get(lane, {}).get("first_publish_waits_for_history") or []) or "-",
-          60 if timed else panel_limit, worker, own["public_hostname"])
+          60 if timed else (gold_job["time_limit_minutes"] if table["unit"].endswith(".service") else panel_limit),
+          worker, own["public_hostname"])
 
 # Every spark-pool job and the units this runner's own Spark steps run in (the claimant's work_units,
 # root ADR-0462: the reconciler alerts on a claim none of them runs under).
@@ -251,7 +265,7 @@ if [[ -n "${DRY_RUN}" ]]; then
         history) [[ "${history}" == - ]] && what="not-declared: the lane waits for no history"                    || what="serving_history_readiness.py ${lane}: the recent history of ${history} is loaded" ;;
         inputs) what="gold_input_readiness.py ${table}: every input its planner requires exists" ;;
         preview) what="GET the two capabilities paths above" ;;
-        gold) what="by-pnu-pack-operator.sh ${lane} gold-rebuild (gold-panel-rebuild.sh ${unit}, ${table}; bounded by ${gold_budget} min)" ;;
+        gold) [[ "${unit}" == *.service ]] && what="systemctl start ${unit} (${table}, the publisher's build; bounded by ${gold_budget} min)"                 || what="by-pnu-pack-operator.sh ${lane} gold-rebuild (gold-panel-rebuild.sh ${unit}, ${table}; bounded by ${gold_budget} min)" ;;
         parity) [[ "${parity}" == - ]] && what="not-declared: ${table} has no pins_from.parity_argument" \
                   || what="passes only if ${table}'s head was committed by a full rebuild, whose ${parity} checks every PNU" ;;
         verify) what="by-pnu-edge-probe.py --base-url https://${hostname} ${worker}: GET the lane's served sample twice" ;;
@@ -411,6 +425,21 @@ PY
         reason="$(tail -n 1 <<<"${reason}")"
         ;;
       gold)
+        if [[ "${unit}" == *.service ]]; then
+          # The lane's own Gold job (root ADR-0564): its unit, started and waited for (a oneshot), the
+          # same one the scheduler starts, so a run already in progress is joined, not doubled. Its
+          # account is its last journal lines: `committed <table>: ...` or `... nothing to do ...`.
+          since="$(date -u '+%Y-%m-%d %H:%M:%S')"
+          "${SYSTEMCTL}" start "${unit}" || { rc=$?
+            fail "${lane}" "${step}" "$(($(now) - started))" "systemctl start ${unit} failed (exit ${rc}); see journalctl -u ${unit}"; }
+          reason="$("${JOURNALCTL}" -u "${unit}" -o cat --since "${since}" 2>/dev/null                      | grep -E "^committed ${table}:|nothing to do" | tail -1 || true)"
+          reason="${reason:-${unit} finished}"
+          release_spark
+          seconds=$(($(now) - started))
+          record "${lane}" "${step}" passed "${seconds}" "${reason}"
+          log "${lane} ${step}: passed in ${seconds}s"
+          continue
+        fi
         # What this run appends to the operator's Gold log (by-pnu-pack-operator.sh GOLD_LOG) is the
         # rebuild's own account: its `gold-kind` line and whether it committed.
         offset="$(stat -c %s "${GOLD_LOG}" 2>/dev/null || echo 0)"

@@ -30,7 +30,8 @@ use foundation_outbox::object_storage::R2ObjectStorageConfig;
 use iceberg::{
     spec::{
         DataContentType, DataFile, DataFileBuilder, DataFileFormat, Datum, Literal, NestedField,
-        PrimitiveLiteral, PrimitiveType, Struct, Transform, Type,
+        NullOrder, PrimitiveLiteral, PrimitiveType, Schema, SortDirection, SortField, SortOrder,
+        Struct, Transform, Type, UnboundPartitionSpec,
     },
     table::Table,
     transaction::{ApplyTransactionAction, Transaction},
@@ -316,6 +317,65 @@ impl LakehouseDataCommitter {
         Ok(Self::new(Arc::new(catalog)))
     }
 
+    /// Creates `contract`'s table when the catalog does not hold it yet, as Spark's
+    /// `platform_contracts.ensure_contract_table` creates one: field ids in column order, the
+    /// contract's partition fields (a column itself, or `truncate(N, column)` named
+    /// `<column>_trunc`), its sort order ascending with nulls first, format version 2, zstd Parquet
+    /// and the contract's write distribution. Returns whether it created the table; a table that
+    /// exists is left as it is (the deploy's lakehouse migration brings it to its contract).
+    ///
+    /// A table of appended row versions is born on its first commit (root ADR-0564 §1): nothing
+    /// else creates it, and the lakehouse migration leaves an absent table to the load that makes
+    /// it.
+    ///
+    /// # Errors
+    /// Refuses a column type or partition entry this has no Iceberg form for, and returns the
+    /// catalog's refusal.
+    pub async fn create_table_if_absent(
+        &self,
+        contract: &LakehouseTableContract,
+    ) -> anyhow::Result<bool> {
+        let ident = table_ident(contract.table_name)?;
+        if self.catalog.table_exists(&ident).await? {
+            return Ok(false);
+        }
+        let (schema, partition, sort_order) = contract_layout(contract)?;
+        let range = contract.write_distribution.mode() == "range";
+        let mut properties = HashMap::from([
+            (
+                "write.parquet.compression-codec".to_owned(),
+                "zstd".to_owned(),
+            ),
+            (
+                "write.distribution-mode".to_owned(),
+                contract.write_distribution.mode().to_owned(),
+            ),
+        ]);
+        if range {
+            properties.insert(
+                "write.merge.distribution-mode".to_owned(),
+                "range".to_owned(),
+            );
+        }
+        let creation = TableCreation::builder()
+            .name(ident.name().to_owned())
+            .schema(schema)
+            .partition_spec(partition)
+            .sort_order(sort_order)
+            .properties(properties)
+            .build();
+        match self.catalog.create_table(ident.namespace(), creation).await {
+            Ok(_) => Ok(true),
+            // Another run created it between the check and the create.
+            Err(error) if self.catalog.table_exists(&ident).await.unwrap_or(false) => {
+                tracing::info!(table = contract.table_name, %error, "the table was created by another run");
+                Ok(false)
+            }
+            Err(error) => Err(anyhow::Error::new(error)
+                .context(format!("failed to create {}", contract.table_name))),
+        }
+    }
+
     /// The table's location and the field ids a staged file must carry.
     ///
     /// # Errors
@@ -524,19 +584,105 @@ impl LakehouseDataCommitter {
     }
 
     async fn load(&self, table_name: &str) -> anyhow::Result<Table> {
-        let (namespace, table) = table_name
-            .rsplit_once('.')
-            .filter(|(namespace, table)| !namespace.is_empty() && !table.is_empty())
-            .with_context(|| format!("{table_name} is not namespace.table"))?;
-        let ident = TableIdent::new(
-            NamespaceIdent::from_strs(namespace.split('.'))?,
-            table.to_owned(),
-        );
+        let ident = table_ident(table_name)?;
         self.catalog
             .load_table(&ident)
             .await
             .with_context(|| format!("failed to load {table_name} for a data commit"))
     }
+}
+
+fn table_ident(table_name: &str) -> anyhow::Result<TableIdent> {
+    let (namespace, table) = table_name
+        .rsplit_once('.')
+        .filter(|(namespace, table)| !namespace.is_empty() && !table.is_empty())
+        .with_context(|| format!("{table_name} is not namespace.table"))?;
+    Ok(TableIdent::new(
+        NamespaceIdent::from_strs(namespace.split('.'))?,
+        table.to_owned(),
+    ))
+}
+
+/// The Iceberg type of a contract column's logical type.
+fn iceberg_type(logical_type: &str) -> anyhow::Result<PrimitiveType> {
+    Ok(match logical_type {
+        "string" => PrimitiveType::String,
+        "long" => PrimitiveType::Long,
+        "int" | "integer" => PrimitiveType::Int,
+        "double" => PrimitiveType::Double,
+        "boolean" => PrimitiveType::Boolean,
+        "date" => PrimitiveType::Date,
+        "timestamp" => PrimitiveType::Timestamptz,
+        other => bail!("no Iceberg type here for the contract type {other}"),
+    })
+}
+
+/// A contract's schema (field ids in column order), partition spec and sort order.
+fn contract_layout(
+    contract: &LakehouseTableContract,
+) -> anyhow::Result<(Schema, UnboundPartitionSpec, SortOrder)> {
+    let mut fields = Vec::with_capacity(contract.columns.len());
+    let mut ids = HashMap::new();
+    for (index, column) in contract.columns.iter().enumerate() {
+        let id = i32::try_from(index + 1)?;
+        let kind = Type::Primitive(iceberg_type(column.logical_type)?);
+        fields.push(Arc::new(if column.required {
+            NestedField::required(id, column.name, kind)
+        } else {
+            NestedField::optional(id, column.name, kind)
+        }));
+        ids.insert(column.name, id);
+    }
+    let id_of = |name: &str| -> anyhow::Result<i32> {
+        ids.get(name).copied().with_context(|| {
+            format!(
+                "{} names {name}, which is not its column",
+                contract.table_name
+            )
+        })
+    };
+    let mut partition = UnboundPartitionSpec::builder();
+    for entry in contract.partition_spec {
+        let (column, transform, name) = match entry
+            .strip_prefix("truncate(")
+            .and_then(|rest| rest.strip_suffix(')'))
+        {
+            Some(arguments) => {
+                let (width, column) = arguments
+                    .split_once(',')
+                    .with_context(|| format!("{entry} is not truncate(width, column)"))?;
+                let column = column.trim();
+                (
+                    column,
+                    Transform::Truncate(width.trim().parse()?),
+                    format!("{column}_trunc"),
+                )
+            }
+            None => (*entry, Transform::Identity, (*entry).to_owned()),
+        };
+        partition = partition.add_partition_field(id_of(column)?, name, transform)?;
+    }
+    let mut order = SortOrder::builder();
+    for column in contract.sort_order {
+        order.with_sort_field(
+            SortField::builder()
+                .source_id(id_of(column)?)
+                .transform(Transform::Identity)
+                .direction(SortDirection::Ascending)
+                .null_order(NullOrder::First)
+                .build(),
+        );
+    }
+    let order = if contract.sort_order.is_empty() {
+        SortOrder::unsorted_order()
+    } else {
+        order.with_order_id(1).build_unbound()?
+    };
+    Ok((
+        Schema::builder().with_fields(fields).build()?,
+        partition.build(),
+        order,
+    ))
 }
 
 /// Which of `targets` the table's current snapshot already names as live data files.

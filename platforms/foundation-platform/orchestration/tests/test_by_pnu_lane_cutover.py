@@ -498,6 +498,32 @@ class LaneCutover(OperatorHarness):
         gold = {lane: next(line for line in lines if f"dry run {lane} gold:" in line) for lane in (LANE, lanes[0])}
         self.assertIn(f"bounded by {limit} min", gold[lanes[0]])
 
+    def test_a_gold_the_publisher_builds_is_its_own_job_s_unit(self):
+        # Root ADR-0564, ADR-0567: parcel-nearby bakes gold.parcel_nearby_versions, which no Spark rebuild
+        # builds. Its gold step starts the lane's own job unit, bounded by that job's limit, and it has no
+        # parity with a bundle Gold. 2026-11-12..13: the Spark build of it held the rebuild lock four times
+        # for 160 minutes and never committed.
+        lane = "parcel-nearby"
+        job = next(job for job in JOBS if job["systemd_service"] == f"foundation-gold-versions@{lane}.service")
+        result, calls = self.runner(lane, "1", "--dry-run", now=at(2))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        gold = next(line for line in result.stderr.splitlines() if f"dry run {lane} gold:" in line)
+        self.assertIn(f"systemctl start foundation-gold-versions@{lane}.service", gold)
+        self.assertIn(f"bounded by {job['time_limit_minutes']} min", gold)
+        parity = next(line for line in result.stderr.splitlines() if f"dry run {lane} parity:" in line)
+        self.assertIn("not-declared", parity)
+        self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "systemctl")])
+
+    def test_the_gold_step_of_a_publisher_built_gold_starts_its_unit_and_passes(self):
+        lane = "parcel-nearby"
+        result, calls = self.runner(lane, "1")
+        started = [call["args"] for call in calls if call["tool"] == "systemctl" and call["args"][:1] == ["start"]]
+        self.assertIn(["start", f"foundation-gold-versions@{lane}.service"], started, result.stderr)
+        gold = [step for step in self.evidence() if step["step"] == "gold"]
+        self.assertEqual(gold[-1]["outcome"], "passed", result.stderr)
+        self.assertFalse([call for call in calls if call["tool"] == "systemd-run"
+                          and any("gold-rebuild" in arg for arg in call["args"])])
+
     def test_a_dry_run_says_every_step_and_starts_nothing(self):
         result, calls = self.run_operator(LANE, "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
         self.assertEqual(result.returncode, 0, result.stderr)
