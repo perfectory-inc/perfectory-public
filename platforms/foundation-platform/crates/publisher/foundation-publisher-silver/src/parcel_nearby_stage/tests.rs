@@ -264,17 +264,21 @@ fn every_served_parcel_gets_its_nearest_facilities_stores_and_highways() -> anyh
     let third = &rows[2].1;
     assert_eq!(third["school"]["school_level"], Value::Null);
     assert_eq!(third["commercial_store_count"], 0);
-    // The digest is Spark's: the content columns as JSON, a null field left out.
-    let expected = format!(
-        "{:x}",
-        Sha256::digest(
-            serde_json::to_string(&serde_json::json!({
-                "pnu": pnu, "nearby_json": text, "place_id": "p-open"
-            }))?
-            .as_bytes()
-        )
-    );
-    assert_eq!(digest, &expected);
+    // The digest is Spark's: `to_json(struct(pnu, nearby_json, attached_via, place_id))` in that
+    // order, a null field left out.
+    let spark_digest = |pnu: &str, text: &str, place_id: Option<&str>| -> anyhow::Result<String> {
+        let place = place_id
+            .map(|place_id| serde_json::to_string(place_id).map(|id| format!(",\"place_id\":{id}")))
+            .transpose()?
+            .unwrap_or_default();
+        let json = format!(
+            "{{\"pnu\":{},\"nearby_json\":{}{place}}}",
+            serde_json::to_string(pnu)?,
+            serde_json::to_string(text)?
+        );
+        Ok(format!("{:x}", Sha256::digest(json.as_bytes())))
+    };
+    assert_eq!(digest, &spark_digest(pnu, &text, Some("p-open"))?);
     let (pnu, _, place_id, digest) = &rows[1];
     assert_eq!(place_id, &None, "a code-pair line is no period of the PNU");
     let text: String = connection.query_row(
@@ -282,14 +286,7 @@ fn every_served_parcel_gets_its_nearest_facilities_stores_and_highways() -> anyh
         [pnu],
         |row| row.get(0),
     )?;
-    let expected = format!(
-        "{:x}",
-        Sha256::digest(
-            serde_json::to_string(&serde_json::json!({"pnu": pnu, "nearby_json": text}))?
-                .as_bytes()
-        )
-    );
-    assert_eq!(digest, &expected);
+    assert_eq!(digest, &spark_digest(pnu, &text, None)?);
     Ok(())
 }
 
@@ -402,10 +399,15 @@ fn the_headers_are_the_file_contract_s() -> anyhow::Result<()> {
         }
     }
     let university = header(UNIVERSITY_SOURCE)?;
-    assert!(UNIVERSITY.1.iter().all(|(_, name)| university.contains(*name)));
+    assert!(UNIVERSITY
+        .1
+        .iter()
+        .all(|(_, name)| university.contains(*name)));
     let stores = header(STORE_SOURCE)?;
     assert!(stores.contains(STORE_COORDINATES.0) && stores.contains(STORE_COORDINATES.1));
     let highway = header(HIGHWAY_SOURCE)?;
-    assert!(HIGHWAY_FIELDS.iter().all(|(_, name)| highway.contains(*name)));
+    assert!(HIGHWAY_FIELDS
+        .iter()
+        .all(|(_, name)| highway.contains(*name)));
     Ok(())
 }
