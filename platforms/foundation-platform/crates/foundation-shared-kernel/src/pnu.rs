@@ -280,7 +280,7 @@ impl SigunguCrosswalk {
     /// In the 법정동 code system a 시군구 of `000` is the 시도 level, which holds no parcel; every
     /// parcel lies in a 시군구. The hub writes it for a row its 시도 registered: 2026-11-12 the
     /// housing-permit annex parking file carried 시군구 12000 (전남광주통합특별시), which code.go.kr
-    /// records at level `sido` with two predecessors (29000 and 46000, reference.legal_dong_code_change),
+    /// records at level `sido` with two predecessors (29000 and 46000, `reference.legal_dong_code_change`),
     /// so no 시군구 mapping can name it, and the hub lane family failed at every run.
     #[must_use]
     pub fn is_placeholder(&self, sigungu: &str) -> bool {
