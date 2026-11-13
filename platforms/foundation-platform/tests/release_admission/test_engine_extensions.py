@@ -11,6 +11,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[4]
 PLATFORM = ROOT / "platforms" / "foundation-platform"
@@ -113,6 +114,24 @@ class EngineExtensionsTest(unittest.TestCase):
                 self.carry(carried)
                 with self.assertRaisesRegex(ValueError, "not the ones the release's contract pins"):
                     self.module.require_engine_extensions(self.target, self.output)
+
+    def test_the_server_build_fetches_each_pin_through_the_control_fetcher_and_none_for_an_old_release(self):
+        calls = []
+        cache = self.root / "pinned"
+        with mock.patch.object(self.module, "PINNED_CACHE", cache),                 mock.patch.object(self.module, "protected_path"),                 mock.patch.object(self.module.subprocess, "check_output", side_effect=lambda args, **kw: calls.append((args, kw))):
+            self.target.mkdir()
+            self.module.fetch_engine_extensions(self.target, self.output)
+            self.assertEqual(calls, [], "a release from before the contract fetches nothing")
+            self.assertFalse(cache.exists())
+            self.pin({"httpfs": b"httpfs build", "iceberg": b"iceberg build"})
+            self.module.fetch_engine_extensions(self.target, self.output)
+        contract = str(self.target / self.module.ENGINE_EXTENSIONS_CONTRACT)
+        fetcher = str(self.module.CONTROL_ROOT / "scripts/ci/fetch_pinned.py")
+        self.assertEqual([args for args, _ in calls], [
+            ["/usr/bin/python3", "-I", "-B", fetcher, "distribution", contract, name, "--output",
+             str(self.output / f"duckdb-extensions/{name}.duckdb_extension")] for name in ("httpfs", "iceberg")])
+        for _, kwargs in calls:
+            self.assertEqual(kwargs["env"], {**self.module.control_environment(), "PERFECTORY_PINNED_CACHE": str(cache)})
 
     def test_a_file_that_is_neither_a_jar_nor_an_extension_is_still_refused(self):
         (self.output / "duckdb-extensions").mkdir()

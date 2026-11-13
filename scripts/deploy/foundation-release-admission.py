@@ -431,11 +431,14 @@ def fetch_engine_extensions(target: Path, output: Path, fetcher: Path | None = N
     The server's own build calls it with the control checkout's fetcher and the administrator's
     cache; the CI release build passes the fetcher of the commit it builds and its own environment.
     """
+    pins = engine_extensions(target)
+    if not pins:
+        return
     if environment is None:
         PINNED_CACHE.mkdir(mode=0o700, parents=True, exist_ok=True)
         protected_path(PINNED_CACHE)
         environment = {**control_environment(), "PERFECTORY_PINNED_CACHE": str(PINNED_CACHE)}
-    for name, pin in engine_extensions(target).items():
+    for name, pin in pins.items():
         subprocess.check_output(
             ["/usr/bin/python3", "-I", "-B", str(fetcher or CONTROL_ROOT / "scripts/ci/fetch_pinned.py"),
              "distribution", str(target / ENGINE_EXTENSIONS_CONTRACT), pin["distribution"], "--output", str(output / name)],
