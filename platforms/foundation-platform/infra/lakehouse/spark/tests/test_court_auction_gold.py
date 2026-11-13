@@ -256,7 +256,7 @@ class DocumentSparkTest(unittest.TestCase):
         photo = F.expr(f"CAST(array(named_struct('sha256', repeat('a', 64), 'media_kind', 'photo', 'kind_code', '1', "
                        f"'sequence', 0, 'title', 'front', 'media_format', 'jpg', 'size_bytes', 100)) AS {job.PHOTO_STRUCT})")
         # And its 물건상세 documents, one row each, so every detail path is written (root ADR-0540 §5).
-        rows = job.with_detail(rows, document_frames(self.spark, rows.first()))
+        rows = job.with_detail(rows, full_document_frames(self.spark, rows.first()))
         placed = (rows.withColumn("photos", photo).withColumn("pnu", F.col("source_pnu"))
                   .withColumn("attached_via", F.lit(None).cast("string")))
         sales = self.sales([sale_row("S", date(2099, 1, 1))])
@@ -384,6 +384,19 @@ def document_frames(spark, round_row):
         row = {**key, **extra}
         frames[source] = spark.createDataFrame([tuple(row.get(c["name"]) for c in columns)],
                                                ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in columns))
+    return frames
+
+
+def full_document_frames(spark, round_row):
+    """Every document table a round reads, with the site's name for each code it carries, so every
+    path the registry records is written (root ADR-0540 §5)."""
+    frames = document_frames(spark, round_row)
+    named = []
+    for source, columns in job.NAMED.items():
+        row = frames[source].first()
+        for column, (system, owner, group) in columns:
+            named.append((system, owner, group, row[column], f"합성 {column}", "s1"))
+    frames[job.CODE_SOURCE] = code_frame(spark, named)
     return frames
 
 

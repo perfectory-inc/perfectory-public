@@ -531,8 +531,9 @@ pub const SILVER_COURT_AUCTION_APPRAISAL_POINT: LakehouseTableContract = Lakehou
 
 const CODE_KEY: &[&str] = &["system_code", "owner_code", "group_code", "code"];
 
-/// The site's 공통코드: the name its screens give each code the documents carry, as the run's one
-/// request answered it (root ADR-0540 §5). A name that changed is appended; the newest per code is
+/// The site's 공통코드: the name its screens give each code the documents carry (root ADR-0540 §5).
+///
+/// As the run's one request answered it. A name that changed is appended; the newest per code is
 /// current, and a code never vanishes. No name is kept in the repository (root ADR-0403).
 pub const SILVER_COURT_AUCTION_CODE: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.court_auction_code",

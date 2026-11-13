@@ -23,9 +23,6 @@ pub(crate) struct CodeGroup {
     #[serde(default)]
     pub(crate) owner: Option<String>,
     pub(crate) group: String,
-    /// The Silver columns (`table.column`) whose codes this group names.
-    #[allow(dead_code)]
-    pub(crate) names: Vec<String>,
 }
 
 /// The contract's `common_codes`.
@@ -214,9 +211,15 @@ mod tests {
 
     #[test]
     fn every_named_column_is_a_table_column() {
-        let contract = super::super::source_contract().expect("the contract parses");
-        for group in &contract.common_codes.groups {
-            for named in &group.names {
+        // The Silver columns (`table.column`) each group names; the Gold build reads them.
+        let contract: JsonValue =
+            serde_json::from_str(super::super::CONTRACT_JSON).expect("the contract parses");
+        for group in contract["common_codes"]["groups"]
+            .as_array()
+            .expect("groups")
+        {
+            for named in group["names"].as_array().expect("names") {
+                let named = named.as_str().expect("table.column");
                 let (table, column) = named.rsplit_once('.').expect("table.column");
                 let contract = lakehouse_domain::industrial_complex_lakehouse_contracts()
                     .iter()
