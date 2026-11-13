@@ -499,7 +499,10 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
                 since = None
             if since is not None:
                 behind = max(now - since, 0.0) if since else 0.0
-                metrics.append(f'foundation_by_pnu_lane_behind_seconds{{lane="{asset.lane}"}} {behind:.0f}')
+                # `bake_job`: the job that publishes the lane. Lanes one bake publishes are one condition
+                # when they fall behind together, and Alertmanager sends one notice for them (W83b).
+                metrics.append(f'foundation_by_pnu_lane_behind_seconds{{lane="{asset.lane}",bake_job="{asset.job}"}} '
+                               f'{behind:.0f}')
         if verdict.owed or busy:
             not_current.add(asset.job)
         if busy or full:

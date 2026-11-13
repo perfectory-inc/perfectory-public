@@ -452,7 +452,7 @@ class Reconciler(unittest.TestCase):
         self.assertNotEqual(forward, owed)
 
     def behind(self, metrics, lane):
-        found = [line for line in metrics if line.startswith(f'foundation_by_pnu_lane_behind_seconds{{lane="{lane}"}} ')]
+        found = [line for line in metrics if line.startswith(f'foundation_by_pnu_lane_behind_seconds{{lane="{lane}",')]
         return float(found[0].split()[-1]) if found else None
 
     def test_2026_11_07_a_lane_serving_its_newest_inputs_is_not_behind_however_old_its_manifest(self):
