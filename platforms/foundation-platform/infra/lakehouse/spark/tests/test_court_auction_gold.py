@@ -497,6 +497,8 @@ class DetailSparkTest(unittest.TestCase):
             job.SURVEY_DOC: [{"round_seq": 1, "lease_text": "옛 회차"}, {"round_seq": 2, "lease_text": "새 회차"}],
             job.SURVEY_OBJECT_DOC: [{"round_seq": 2, "object_seq": 1, "possession_text": "○○○ 점유", "lease_count": 1}],
             job.APPRAISAL_ROUND_DOC: [{"round_seq": 1, "appraisal_no": "합성-0001", "written_date": date(2099, 1, 12)}],
+            job.REPORT_DOC: [{"round_seq": 1, "appraisal_no": "합성-0001", "written_date": date(2099, 1, 12),
+                              "sha256": "a" * 64, "media_format": "pdf", "size_bytes": 1000}],
         }
         for source, given in rows.items():
             columns = load_lakehouse_contract(source)["columns"]
@@ -511,6 +513,8 @@ class DetailSparkTest(unittest.TestCase):
         self.assertEqual((detail["survey"]["round_seq"], detail["survey"]["lease_text"]), (2, "새 회차"))
         self.assertEqual(detail["survey"]["objects"][0]["lease_count"], 1)
         self.assertEqual(detail["appraisal"]["appraisal_no"], "합성-0001")
+        self.assertEqual(detail["appraisal"]["report"], {"sha256": "a" * 64, "media_format": "pdf", "size_bytes": 1000},
+                         "the round's stored 감정평가서")
         bare = json.loads(job.with_detail(rounds, document_frames(self.spark, rounds.first()))
                           .select(F.to_json("detail").alias("j")).first().j)
         self.assertEqual((bare["related_cases"], bare["parties"]), ([], []), "a case never read has empty lists")

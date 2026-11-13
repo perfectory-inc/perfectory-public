@@ -12085,6 +12085,233 @@
         "object_suffix_separator": null
       }
     },
+    "silver.court_auction_appraisal_report": {
+      "table_name": "silver.court_auction_appraisal_report",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "court_office_code",
+          "case_no",
+          "round_seq",
+          "appraisal_no",
+          "written_date"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "round_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "appraisal_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "written_date",
+          "logical_type": "date",
+          "required": true
+        },
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "media_format",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "size_bytes",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "requested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "round_seq",
+        "appraisal_no",
+        "written_date"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, round_seq, appraisal_no, written_date, source_snapshot_id) unique",
+        "every row names a stored object (sha256, media_format)"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.court_auction_appraisal_report_read": {
+      "table_name": "silver.court_auction_appraisal_report_read",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "court_office_code",
+          "case_no",
+          "round_seq",
+          "appraisal_no",
+          "written_date"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "round_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "appraisal_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "written_date",
+          "logical_type": "date",
+          "required": true
+        },
+        {
+          "name": "outcome",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "http_status",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "file_http_status",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "requested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "round_seq",
+        "appraisal_no",
+        "written_date"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, round_seq, appraisal_no, written_date, source_snapshot_id) unique",
+        "a CAPTCHA is recorded, never solved"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.industrial_complex_notice_detail": {
       "table_name": "silver.industrial_complex_notice_detail",
       "physical_format": "Parquet",

@@ -881,7 +881,8 @@
           "appraisal": "감정평가",
           "priceBasis": "가격시점",
           "written": "작성일",
-          "opinion": "평가의견"
+          "opinion": "평가의견",
+          "appraisalReport": "감정평가서"
         }
       }
     },

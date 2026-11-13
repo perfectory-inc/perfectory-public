@@ -8,7 +8,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver load of 법원경매정보 (root ADR-0280; infra/lakehouse/spark/jobs/courtauction_go_kr.py): the objects of each search that no commit of its table records (plan-silver-load-objects, R2 alone), oldest first, give every row its PNU through the one place-identity resolver (its legal-dong code and lot carried to the current code, else its address; root ADR-0288, ADR-0382) and appends to silver.court_auction_item the rows whose content changed and, for a complete item search, a removal marker per 물건 that left it, and to silver.court_auction_sale_result the rows whose content changed; each 물건상세 object's new photos, its changed documents (case, 매각물건명세서 summary, 기일내역, 목록내역, 제시외건물, 감정요항표; root ADR-0540) and then its reads; each 공통코드 object's codes whose name changed (silver.court_auction_code, root ADR-0540 §5); each 사건상세, 현황조사 and 감정평가 object's changed documents (the case, related cases, 목록 종국결과, 당사자 kinds; a 현황조사 round and its 목록; a 감정평가 round) and then its reads (silver.court_auction_case_document_read, root ADR-0540 §1, §3). 06:30 KST, after the night's collection; `unchanged` without Spark when nothing is owed.",
+      "description": "Silver load of 법원경매정보 (root ADR-0280; infra/lakehouse/spark/jobs/courtauction_go_kr.py): the objects of each search that no commit of its table records (plan-silver-load-objects, R2 alone), oldest first, give every row its PNU through the one place-identity resolver (its legal-dong code and lot carried to the current code, else its address; root ADR-0288, ADR-0382) and appends to silver.court_auction_item the rows whose content changed and, for a complete item search, a removal marker per 물건 that left it, and to silver.court_auction_sale_result the rows whose content changed; each 물건상세 object's new photos, its changed documents (case, 매각물건명세서 summary, 기일내역, 목록내역, 제시외건물, 감정요항표; root ADR-0540) and then its reads; each 공통코드 object's codes whose name changed (silver.court_auction_code, root ADR-0540 §5); each 사건상세, 현황조사 and 감정평가 object's changed documents (the case, related cases, 목록 종국결과, 당사자 kinds; a 현황조사 round and its 목록; a 감정평가 round) and then its reads (silver.court_auction_case_document_read, root ADR-0540 §1, §3); each 감정평가서 object's stored reports (silver.court_auction_appraisal_report, the media reconcile's index) and then every request (silver.court_auction_appraisal_report_read). 06:30 KST, after the night's collection; `unchanged` without Spark when nothing is owed.",
       "systemd_service": "foundation-court-auction-silver-load.service",
       "systemd_timer": null,
       "state_paths": [
@@ -57,7 +57,9 @@
         "source-courtauction-go-kr-to-silver-court-auction-case-party",
         "source-courtauction-go-kr-to-silver-court-auction-survey",
         "source-courtauction-go-kr-to-silver-court-auction-survey-object",
-        "source-courtauction-go-kr-to-silver-court-auction-appraisal"
+        "source-courtauction-go-kr-to-silver-court-auction-appraisal",
+        "source-courtauction-go-kr-to-silver-court-auction-appraisal-report",
+        "source-courtauction-go-kr-to-silver-court-auction-appraisal-report-read"
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T13:30:00Z",

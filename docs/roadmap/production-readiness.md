@@ -287,6 +287,7 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 실거래가 (`silver.real_transaction`) | `parcel-real-transaction` | — | 화면 |
 | 거래·공매·경매 | 법원경매 감정평가 (`silver.court_auction_appraisal`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 감정요항표 (`silver.court_auction_appraisal_point`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 법원경매 감정평가서 (`silver.court_auction_appraisal_report`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 사건 (`silver.court_auction_case`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 목록별 종국결과 (`silver.court_auction_case_object`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 당사자 구분 (`silver.court_auction_case_party`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
@@ -301,6 +302,7 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 법원경매 매각결과 (`silver.court_auction_sale_result`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 현황조사 (`silver.court_auction_survey`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 현황조사 목록 (`silver.court_auction_survey_object`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 법원경매 감정평가서 읽은 기록 (`silver.court_auction_appraisal_report_read`) | — | — | 없음 |
 | 거래·공매·경매 | 법원경매 사건 문서 읽은 기록 (`silver.court_auction_case_document_read`) | — | — | 없음 |
 | 거래·공매·경매 | 법원경매 물건상세 읽은 기록 (`silver.court_auction_item_detail`) | — | — | 없음 |
 | 물류 입지 | 공항 (`silver.airport`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |

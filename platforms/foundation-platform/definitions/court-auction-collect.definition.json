@@ -52,7 +52,12 @@
         "source-courtauction-go-kr-to-silver-court-auction-survey",
         "source-courtauction-go-kr-to-silver-court-auction-survey-object",
         "source-courtauction-go-kr-to-silver-court-auction-appraisal",
-        "silver-court-auction-case-document-read-to-source-courtauction-go-kr"
+        "silver-court-auction-case-document-read-to-source-courtauction-go-kr",
+        "source-courtauction-go-kr-to-silver-court-auction-appraisal-report",
+        "source-courtauction-go-kr-to-silver-court-auction-appraisal-report-read",
+        "silver-court-auction-appraisal-to-source-courtauction-go-kr",
+        "silver-court-auction-appraisal-report-to-source-courtauction-go-kr",
+        "silver-court-auction-appraisal-report-read-to-source-courtauction-go-kr"
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T13:30:00Z",
@@ -405,6 +410,44 @@
           "value": "silver.court_auction_appraisal"
         }
       ]
+    },
+    {
+      "id": "silver-court-auction-appraisal-report",
+      "type": "silver_table",
+      "title": "법원경매 감정평가서",
+      "description": "감정평가 회차마다의 감정평가서 PDF 를 공용 내용주소 저장소(onbid/media/sha256)에 한 번 담고, 저장된 것만 회차 열쇠(법원·사건·회차·평가번호·작성일)와 해시로 싣는다. 미디어 대조기의 색인이다(루트 ADR-0540 §1, ADR-0298).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_appraisal_report",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_appraisal_report"
+        }
+      ]
+    },
+    {
+      "id": "silver-court-auction-appraisal-report-read",
+      "type": "silver_table",
+      "title": "법원경매 감정평가서 읽은 기록",
+      "description": "감정평가서 요청마다 한 행(저장·캡차 건너뜀·없음·실패): 수집기가 다음 실행에 물어볼 감정평가서를 이 표와 감정평가서 표로 계산한다. 캡차는 기록만 하고 풀지 않는다(루트 ADR-0540 §1·§3).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_appraisal_report_read",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_appraisal_report_read"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -720,6 +763,40 @@
       "description": "감정평가 회차마다 평가번호·가격시점·조사일·작성일(감정평가서의 열쇠)과 평가 의견을 싣는다. 감정평가사 이름은 싣지 않는다(루트 ADR-0540 §4)."
     },
     {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-appraisal-report",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/reports.rs"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_appraisal_report"
+      ],
+      "description": "감정평가 회차마다의 감정평가서 PDF 를 공용 내용주소 저장소(onbid/media/sha256)에 한 번 담고, 저장된 것만 회차 열쇠(법원·사건·회차·평가번호·작성일)와 해시로 싣는다. 미디어 대조기의 색인이다(루트 ADR-0540 §1, ADR-0298)."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-appraisal-report-read",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/reports.rs"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_appraisal_report"
+      ],
+      "description": "감정평가서 요청마다 한 행(저장·캡차 건너뜀·없음·실패): 수집기가 다음 실행에 물어볼 감정평가서를 이 표와 감정평가서 표로 계산한다. 캡차는 기록만 하고 풀지 않는다(루트 ADR-0540 §1·§3)."
+    },
+    {
       "from": "silver-court-auction-case-document-read",
       "to": "source-courtauction-go-kr",
       "relation": "schedules",
@@ -728,6 +805,36 @@
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "description": "수집기가 매 실행 이 표의 마지막 읽음으로 물어볼 사건을 계산한다(진행 중 목록의 사건과 맞춰, 한 번도 읽지 않은 것 먼저, 재수집 규칙이 부르는 것을 매각기일 순으로; 루트 ADR-0352, ADR-0540 §3)."
+    },
+    {
+      "from": "silver-court-auction-appraisal",
+      "to": "source-courtauction-go-kr",
+      "relation": "schedules",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/reports.rs"
+      ],
+      "description": "수집기가 매 실행 감정평가 회차 표에서 저장된 감정평가서와 최근 없음(gone)을 빼고 물어볼 감정평가서를 계산한다(작성일 최신 먼저, 실행당 상한; 루트 ADR-0352, ADR-0540 §1)."
+    },
+    {
+      "from": "silver-court-auction-appraisal-report",
+      "to": "source-courtauction-go-kr",
+      "relation": "schedules",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/reports.rs"
+      ],
+      "description": "수집기가 매 실행 감정평가 회차 표에서 저장된 감정평가서와 최근 없음(gone)을 빼고 물어볼 감정평가서를 계산한다(작성일 최신 먼저, 실행당 상한; 루트 ADR-0352, ADR-0540 §1)."
+    },
+    {
+      "from": "silver-court-auction-appraisal-report-read",
+      "to": "source-courtauction-go-kr",
+      "relation": "schedules",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/reports.rs"
+      ],
+      "description": "수집기가 매 실행 감정평가 회차 표에서 저장된 감정평가서와 최근 없음(gone)을 빼고 물어볼 감정평가서를 계산한다(작성일 최신 먼저, 실행당 상한; 루트 ADR-0352, ADR-0540 §1)."
     }
   ],
   "asset_checks": [

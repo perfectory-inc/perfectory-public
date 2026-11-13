@@ -831,3 +831,89 @@ pub const SILVER_COURT_AUCTION_APPRAISAL: LakehouseTableContract = LakehouseTabl
     ],
     load: OBJECT_LOAD,
 };
+
+const APPRAISAL_REPORT_KEY: &[&str] = &[
+    "court_office_code",
+    "case_no",
+    "round_seq",
+    "appraisal_no",
+    "written_date",
+];
+
+/// A stored 감정평가서 PDF of one 감정평가 round, by its content hash in the shared media store (root
+/// ADR-0540 §1, ADR-0298): only reports the store holds, so the media reconcile reads every row as a
+/// key (data-go-kr-onbid.contract.json media.reconcile.index_tables). A report never changes; the
+/// newest row per round key is current.
+pub const SILVER_COURT_AUCTION_APPRAISAL_REPORT: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_appraisal_report",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: APPRAISAL_REPORT_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("round_seq", "int", true),
+        column("appraisal_no", "string", true),
+        column("written_date", "date", true),
+        column("sha256", "string", true),
+        column("media_format", "string", true),
+        column("size_bytes", "long", false),
+        column("requested_at_utc", "timestamp", true),
+    ),
+    partition_spec: &[],
+    sort_order: APPRAISAL_REPORT_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, round_seq, appraisal_no, written_date, source_snapshot_id) unique",
+        "every row names a stored object (sha256, media_format)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// One row per 감정평가서 request, CAPTCHA skips and failures included: the record the next run's
+/// report frontier reads (a recent `gone` is not asked again) and the count of CAPTCHAs the viewer
+/// asked (root ADR-0540 §1, §3). The newest row per round key is current.
+pub const SILVER_COURT_AUCTION_APPRAISAL_REPORT_READ: LakehouseTableContract =
+    LakehouseTableContract {
+        table_name: "silver.court_auction_appraisal_report_read",
+        layer: LakehouseLayer::Silver,
+        physical_format: LakehousePhysicalFormat::Parquet,
+        serving_role: LakehouseServingRole::Canonical,
+        current_row_predicate: None,
+        row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+            key: APPRAISAL_REPORT_KEY,
+            newest_first: LATEST,
+            removal_column: None,
+            keep_ties: false,
+        }),
+        columns: with_load_columns!(
+            column("court_office_code", "string", true),
+            column("case_no", "string", true),
+            column("round_seq", "int", true),
+            column("appraisal_no", "string", true),
+            column("written_date", "date", true),
+            // stored, captcha, no_key, gone, not_stored or failed.
+            column("outcome", "string", true),
+            column("http_status", "int", false),
+            column("file_http_status", "int", false),
+            column("sha256", "string", false),
+            column("requested_at_utc", "timestamp", true),
+        ),
+        partition_spec: &[],
+        sort_order: APPRAISAL_REPORT_KEY,
+        write_distribution: LakehouseWriteDistribution::Hash,
+        quality_gates: &[
+            "append_only",
+            "(court_office_code, case_no, round_seq, appraisal_no, written_date, source_snapshot_id) unique",
+            "a CAPTCHA is recorded, never solved",
+        ],
+        load: OBJECT_LOAD,
+    };

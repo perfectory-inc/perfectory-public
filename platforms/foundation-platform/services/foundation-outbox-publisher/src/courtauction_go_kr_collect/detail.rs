@@ -295,11 +295,14 @@ pub(crate) async fn last_reads_from_lakehouse(
 /// The prefix the photos are stored under: the value the contract points at (one store, its
 /// writer's contract is its one record, root ADR-0296 §2).
 pub(crate) fn photo_prefix(detail: &ItemDetail) -> anyhow::Result<ObjectKeyPrefix> {
-    let (file, pointer) = detail
-        .photos
-        .object_prefix_from
+    photo_prefix_of(&detail.photos.object_prefix_from)
+}
+
+/// The shared store's prefix a contract's `object_prefix_from` (`<file>#<pointer>`) points at.
+pub(crate) fn photo_prefix_of(object_prefix_from: &str) -> anyhow::Result<ObjectKeyPrefix> {
+    let (file, pointer) = object_prefix_from
         .split_once('#')
-        .context("photos.object_prefix_from is <file>#<pointer>")?;
+        .context("object_prefix_from is <file>#<pointer>")?;
     anyhow::ensure!(
         file == "data-go-kr-onbid.contract.json",
         "photos.object_prefix_from names {file}; the store's writer contract is data-go-kr-onbid.contract.json"

@@ -81,6 +81,7 @@ customProperties:
       - "reference.legal_dong_code_change"
       - "silver.court_auction_appraisal"
       - "silver.court_auction_appraisal_point"
+      - "silver.court_auction_appraisal_report"
       - "silver.court_auction_case"
       - "silver.court_auction_case_object"
       - "silver.court_auction_case_party"

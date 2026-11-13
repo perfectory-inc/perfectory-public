@@ -8,7 +8,7 @@ import type {
   CourtAuctionRound,
   CourtAuctionSaleResult,
 } from "@/lib/api/court-auction";
-import { parcelMediaStore } from "@/lib/api/public-auction";
+import { onbidMediaSrc, parcelMediaStore } from "@/lib/api/public-auction";
 import { formatPriceKrw } from "@/lib/listings/format";
 
 /** The parcel's 법원경매 (court auctions) as a category page: one card per item in progress, then
@@ -259,6 +259,17 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
               [t("detail.opinion"), detail.appraisal.opinion],
             ])}
           />
+          {/* The 감정평가서 PDF sits once in the shared store the parcel edge serves (root ADR-0540 §1). */}
+          {detail.appraisal.report && (
+            <a
+              href={onbidMediaSrc(detail.appraisal.report)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block text-[var(--color-accent)]"
+            >
+              {t("detail.appraisalReport")}
+            </a>
+          )}
         </Section>
       )}
       {detail.appraisal_points.length > 0 && (

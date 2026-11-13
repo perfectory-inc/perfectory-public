@@ -23,7 +23,7 @@ import media_reconcile  # noqa: E402
 
 PREFIX = "onbid/media/sha256/"
 TABLES = ["silver.onbid_real_estate_item_photo", "silver.court_auction_item_photo",
-          "silver.industrial_complex_notice_attachment"]
+          "silver.industrial_complex_notice_attachment", "silver.court_auction_appraisal_report"]
 TABLE = "+".join(TABLES)
 NOW = 1_800_000_000.0  # a synthetic instant
 

@@ -485,6 +485,47 @@ class CaseDocumentRowsTest(unittest.TestCase):
             self.assertEqual(job.search_roles(CONTRACT)[f"courtauctiongokr__{next(d for d in CONTRACT['case_documents']['documents'] if d['role'] == role)['dataset_slug']}"], role)
 
 
+def report_line(case, outcome, sha=None):
+    """A 감정평가서 line as the collector writes it, with made-up values (root ADR-0540 §1)."""
+
+    return {"operation": "kapanetAppraisalReport",
+            "request": {"court_office_code": "B999999", "case_no": case, "round_seq": 1, "appraisal_no": "합성-01",
+                        "written_date": "20990112"},
+            "requested_at_utc": "2099-01-13T03:04:05+00:00", "outcome": outcome, "sha256": sha,
+            "media_format": "pdf" if sha else None, "size_bytes": 1000 if sha else None,
+            "facts": {"view_url": "https://example.invalid/view", "http_status": 200, "file_http_status": 200}}
+
+
+class ReportRowsTest(unittest.TestCase):
+    def rows(self, lines):
+        return job.report_rows_of(lines, "report-object", "20990113T030405Z", datetime(2099, 1, 13, 3, 4, 5))
+
+    def test_only_a_stored_report_is_an_index_row_and_every_request_is_a_read(self):
+        tables = self.rows([report_line("A", "stored", "a" * 64), report_line("B", "captcha"),
+                            report_line("C", "gone")])
+        [stored] = tables[job.REPORT_TABLE]
+        self.assertEqual((stored["case_no"], stored["sha256"], stored["media_format"], stored["written_date"]),
+                         ("A", "a" * 64, "pdf", date(2099, 1, 12)))
+        self.assertEqual([r["outcome"] for r in tables[job.REPORT_READ_TABLE]], ["stored", "captcha", "gone"])
+        for table in job.REPORT_TABLES:
+            names = {c["name"] for c in load_lakehouse_contract(table)["columns"]}
+            self.assertLessEqual(set(tables[table][0]), names, table)
+        self.assertEqual(job.REPORT_TABLES[-1], job.REPORT_READ_TABLE, "the read record commits last")
+        self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_appraisal_report"], job.REPORTS_ROLE)
+
+    def test_a_read_without_its_key_is_refused(self):
+        line = report_line("A", "failed")
+        line["request"].pop("written_date")
+        with self.assertRaises(ValueError):
+            self.rows([line])
+
+    def test_the_store_index_is_one_the_media_reconcile_reads(self):
+        onbid = json.loads((job.CONTRACTS / "data-go-kr-onbid.contract.json").read_text(encoding="utf-8"))
+        self.assertIn(job.REPORT_TABLE, onbid["media"]["reconcile"]["index_tables"])
+        self.assertEqual(CONTRACT["appraisal_reports"]["reports_from"], job.REPORT_TABLE)
+        self.assertEqual(CONTRACT["appraisal_reports"]["reads_from"], job.REPORT_READ_TABLE)
+
+
 @unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")
 class ChangesTest(unittest.TestCase):
     @classmethod
