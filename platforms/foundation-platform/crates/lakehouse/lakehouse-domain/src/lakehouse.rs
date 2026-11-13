@@ -62,34 +62,6 @@ pub struct LakehouseCurrentRowLatest {
 /// Rust twin of `platform_contracts.REMOVED`.
 pub const REMOVED_MARKER: &str = "removed";
 
-impl LakehouseCurrentRowLatest {
-    /// A Trino query of the current rows of `source` (a table reference, pinned by the caller),
-    /// projecting `columns`, among the rows `filter` keeps: the Rust twin of
-    /// `platform_contracts.current_rows` for a newest-per-key table (root ADR-0267, ADR-0550 §2).
-    /// The newest rows per key by `newest_first`, every tied row when `keep_ties` (else a tie keeps
-    /// one more row than one, which the caller refuses), and none for a key whose newest is a
-    /// removal marker. `filter` restricts which keys are read, never which versions of a key.
-    #[must_use]
-    pub fn trino_current_rows_sql(&self, source: &str, columns: &[&str], filter: &str) -> String {
-        let order = self
-            .newest_first
-            .iter()
-            .map(|column| format!("{column} DESC NULLS LAST"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let removal = self.removal_column.map_or_else(String::new, |column| {
-            format!(" AND ({column} IS NULL OR {column} <> '{REMOVED_MARKER}')")
-        });
-        format!(
-            "SELECT {projection} FROM (SELECT *, rank() OVER (PARTITION BY {key} ORDER BY {order}) \
-             AS foundation_current_rank FROM {source} WHERE {filter}) \
-             WHERE foundation_current_rank = 1{removal}",
-            projection = columns.join(", "),
-            key = self.key.join(", "),
-        )
-    }
-}
-
 /// How a table's rows pile up, and so which rows a reader takes as current (root ADR-0286).
 ///
 /// Required on every contract: a table that appends without saying how is what failed the complex
@@ -179,8 +151,9 @@ pub struct LakehouseTableContract {
     /// Machine-readable predicate selecting the current logical row, when the table is versioned.
     pub current_row_predicate: Option<&'static str>,
     /// How the rows pile up and which are current (root ADR-0286). Applied after
-    /// `current_row_predicate`; readers take both through one helper
-    /// (`platform_contracts.current_rows`), never by hand (root ADR-0267).
+    /// `current_row_predicate`; readers take both through one helper, never by hand (root
+    /// ADR-0267): `platform_contracts.current_rows` in Spark, and this crate's `current_rows` and
+    /// `current_rows_sql_template` (root ADR-0564 §4).
     pub row_versions: LakehouseRowVersions,
     /// Stable column contract.
     pub columns: &'static [LakehouseColumn],
@@ -402,11 +375,15 @@ impl LakehouseWriteDistribution {
 mod building_and_gold_columns;
 mod core_contracts;
 mod core_silver_columns;
+mod current_rows;
 mod legal_dong_and_place_id;
 mod map_edit_and_boundaries;
 
 pub use core_contracts::*;
 pub use core_silver_columns::*;
+pub use current_rows::{
+    CurrentRowsError, CURRENT_ROWS_COLUMNS, CURRENT_ROWS_FILTER, CURRENT_ROWS_SOURCE,
+};
 pub use legal_dong_and_place_id::*;
 pub use map_edit_and_boundaries::*;
 

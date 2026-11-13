@@ -1,13 +1,14 @@
 //! The facts a complex's notice attachments state, as foundation admits them for its panel.
 //!
 //! `gold.complex_document_facts` holds one row per complex per fold run (root ADR-0477 §1·§5);
-//! the newest run is the complex's current row (its contract's `current_row_latest`). A row whose
+//! the newest run is the complex's current row, chosen by the contract's own rule
+//! (`LakehouseTableContract::current_rows`, root ADR-0564 §4), never here. A row whose
 //! document admits no kind is the record that the complex's facts left the panel, so it yields no
 //! entry here and the profile carries no `document_facts`.
 
 use std::collections::HashMap;
 
-use anyhow::{bail, ensure, Context};
+use anyhow::{ensure, Context};
 use lakehouse_domain::GOLD_COMPLEX_DOCUMENT_FACTS;
 use lakehouse_infrastructure::IcebergSnapshotManifestList;
 use serde::Serialize;
@@ -48,22 +49,15 @@ pub(super) fn newest_per_complex(
     table: &str,
     iceberg_snapshot_id: &str,
 ) -> anyhow::Result<HashMap<String, DocumentFacts>> {
-    let mut newest: HashMap<String, &JsonMap<String, JsonValue>> = HashMap::new();
     for row in rows {
-        let code = text(row, "official_complex_code")?;
-        let run_id = text(row, "run_id")?;
-        match newest.get(code) {
-            Some(held) if text(held, "run_id")? == run_id => {
-                bail!("{table} holds two rows of complex {code} from run {run_id}")
-            }
-            Some(held) if text(held, "run_id")? > run_id => {}
-            _ => {
-                newest.insert(code.to_owned(), row);
-            }
-        }
+        text(row, "official_complex_code")?;
+        text(row, "run_id")?;
     }
-    let mut facts = HashMap::with_capacity(newest.len());
-    for (code, row) in newest {
+    // Two rows of one complex from one run tie, and the rule refuses them.
+    let current = GOLD_COMPLEX_DOCUMENT_FACTS.current_rows(rows)?;
+    let mut facts = HashMap::with_capacity(current.len());
+    for row in current {
+        let code = text(row, "official_complex_code")?.to_owned();
         let document: JsonValue = serde_json::from_str(text(row, "document_facts_json")?)
             .with_context(|| {
                 format!("{table}: complex {code}'s document_facts_json is not JSON")

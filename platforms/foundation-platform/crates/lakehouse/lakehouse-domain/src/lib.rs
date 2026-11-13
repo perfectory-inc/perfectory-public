@@ -113,9 +113,10 @@ pub use intelligence_document::{
 };
 pub use lakehouse::{
     industrial_complex_lakehouse_contract_by_table_name, industrial_complex_lakehouse_contracts,
-    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseEditionRead, LakehouseLayer,
-    LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey, LakehouseRowVersions,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution, NewestEditionError,
+    CurrentRowsError, LakehouseColumn, LakehouseCurrentRowLatest, LakehouseEditionRead,
+    LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    NewestEditionError, CURRENT_ROWS_COLUMNS, CURRENT_ROWS_FILTER, CURRENT_ROWS_SOURCE,
     GOLD_ADMINISTRATIVE_BOUNDARY_SERVED, GOLD_BUILDING_PANEL, GOLD_COMPLEX_CATALOG,
     GOLD_COMPLEX_SPATIAL_LOCATOR, GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
     GOLD_LAND_USE_ZONE_AREA_BY_TILE, GOLD_LINEAGE_REVIEW_QUEUE, GOLD_PARCEL_PANEL,

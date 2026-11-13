@@ -429,6 +429,36 @@ def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
                             keep_ties=keep_ties)
 
 
+# The slots of a contract's `current_rows_sql` (lakehouse-domain `CURRENT_ROWS_*`).
+CURRENT_ROWS_SLOTS = ("{columns}", "{source}", "{filter}")
+_SQL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def current_rows_sql(contract: dict[str, Any], source: str, columns: list[str] | tuple[str, ...],
+                     row_filter: str = "TRUE") -> str:
+    """The query of ``contract``'s current rows of ``source``, projecting ``columns``.
+
+    The text is the contract artifact's ``current_rows_sql``, rendered once by the Rust contract
+    (root ADR-0564 §4): standard SQL that Trino, DuckDB and Spark SQL run alike, the SQL twin of
+    ``current_rows``. Nothing is rendered here; a reader that built its own rank query read a second
+    copy of the rule (2026-10-16: ``silver.industrial_complexes`` read three times over without one).
+    ``source`` is the caller's table reference, pinned by the caller. ``row_filter`` restricts which
+    keys are read, never which versions of a key. The query keeps every row tied as newest: SQL
+    cannot refuse a tie, so a reader that needs one row per key counts them.
+    """
+
+    table = contract.get("table_name")
+    if current_row_latest(contract) is None:
+        raise ValueError(f"lakehouse contract {table} keeps no versions per key: it has no current_rows_sql")
+    text = contract.get("current_rows_sql")
+    if not isinstance(text, str) or any(text.count(slot) != 1 for slot in CURRENT_ROWS_SLOTS):
+        raise ValueError(f"lakehouse contract {table} carries no current_rows_sql with its three slots")
+    if not columns or any(not _SQL_NAME.fullmatch(column) for column in columns):
+        raise ValueError(f"not contract column names: {list(columns)!r}")
+    return (text.replace("{columns}", ", ".join(columns)).replace("{source}", source)
+            .replace("{filter}", row_filter))
+
+
 def with_contract_columns(frame: Any, contract: dict[str, Any]) -> Any:
     """``frame`` with every contract column: one the table gained after the snapshot ``frame`` was read
     at is null, as Iceberg reads it from files written before it. A missing required column is refused.

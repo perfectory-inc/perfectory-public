@@ -141,6 +141,8 @@ fn contract_json(contract: &LakehouseTableContract) -> Value {
             "removal_column": latest.removal_column,
             "keep_ties": latest.keep_ties
         })),
+        // The one SQL rendering of the rule every SQL reader substitutes into (root ADR-0564 §4).
+        "current_rows_sql": contract.current_rows_sql_template(),
         "row_versions": row_versions_json(&contract.row_versions),
         "columns": contract.columns.iter().map(|column| {
             serde_json::json!({
