@@ -335,13 +335,23 @@ class LaneCutover(OperatorHarness):
         self.assertIn("no earlier manifest to go back to", last["reason"])
 
     def test_the_pending_lanes_are_those_not_cut_over_in_contract_order(self):
+        # A lane whose own Gold job is off is not pending: its gold step would build that Gold under
+        # the one rebuild lock anyway (2026-11-12..13 parcel-nearby, four 160-minute timeouts).
+        off = {job["systemd_service"] for job in JOBS if not job.get("enabled", True)}
+        import gold_rebuild  # noqa: PLC0415 -- beside by_pnu_kinds on the path
+
+        rebuild = gold_rebuild.load_contract()["tables"]
+        held = {lane for lane in CONTRACT["by_pnu_lanes"]
+                if f"foundation-gold-lane-rebuild@{rebuild[by_pnu_kinds.lane_fields(lane)['gold_table']]['unit']}.service"
+                in off}
+        self.assertIn("parcel-nearby", held)
         result, _ = self.runner("lanes", "--pending")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.split(), list(CONTRACT["by_pnu_lanes"]))
+        self.assertEqual(result.stdout.split(), [lane for lane in CONTRACT["by_pnu_lanes"] if lane not in held])
         self.mark_cut_over(LANE, "parcel-zoning")
         result, calls = self.runner("lanes", "--pending")
         self.assertEqual(result.stdout.split(), [lane for lane in CONTRACT["by_pnu_lanes"]
-                                                 if lane not in (LANE, "parcel-zoning")])
+                                                 if lane not in (LANE, "parcel-zoning") and lane not in held])
         self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "curl")])
 
     def test_the_automatic_cut_over_is_root_without_sudo_one_pending_lane_and_pages_on_failure(self):

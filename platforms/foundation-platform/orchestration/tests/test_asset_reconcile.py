@@ -162,9 +162,10 @@ class Reconciler(unittest.TestCase):
             self.assertFalse(published("parcel-nearby"))
 
     def test_the_assets_are_those_the_reconciler_names_each_one_asset(self):
-        # The court auction Gold and its bake join when they are switched on (root ADR-0353, ADR-0386 §3).
+        # The court auction Gold and its bake join when they are switched on (root ADR-0353, ADR-0386 §3),
+        # and the parcel-nearby bake again when its DuckDB-born Gold switches it back on (W83b).
         self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake",
-                                            "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake",
+                                            "by_pnu_parcel_building_permits_bake",
                                             *(f"by_pnu_parcel_{kind}_bake" for kind in (
                                                 "ownership", "sub_parcels", "energy", "demolitions", "factories",
                                                 "register_masters", "real_transaction"))})
