@@ -12,7 +12,7 @@
 //! Each is decoded and stored once in the shared content-addressed media store
 //! (`media_store::store_bytes`, root ADR-0298); the Bronze line keeps the response with the value
 //! replaced by `sha256:<hex>`, so the line and the store together give the response back. Each
-//! stored photo then gets its display ladder (`media_renditions::ensure_ladders`, root ADR-0427 §7)
+//! stored photo's display ladder is made apart from the run, by the hourly ladder backlog
 //! once the night's Bronze has landed.
 
 use std::collections::{BTreeMap, HashMap};
@@ -31,7 +31,6 @@ use sha2::{Digest as _, Sha256};
 use tokio::time::Instant;
 
 use super::{may_ask, Asking, Collection, Search, SourceContract, Stop, KST_HOURS};
-use crate::media_renditions::RenditionBudget;
 use crate::media_store::{store_bytes, Stored};
 
 #[derive(Clone, Debug, Deserialize)]
@@ -42,9 +41,6 @@ pub(crate) struct PhotoFields {
     pub(crate) max_file_bytes: u64,
     /// How many of one answer's photos are stored at once (root ADR-0540 §2).
     pub(crate) store_concurrency: usize,
-    /// The bound of the night's ladder step (root ADR-0427 §7); what it leaves, the backlog job
-    /// takes from the Silver photo index.
-    pub(crate) renditions: RenditionBudget,
 }
 
 /// The contract's `item_detail` (root ADR-0384).
@@ -325,10 +321,6 @@ pub(crate) struct PhotoReport {
     pub(crate) deduplicated: u64,
     pub(crate) bytes_stored: u64,
     pub(crate) not_stored: u64,
-    /// Each stored (or already-stored) photo once, `(sha256, media_format)`, in the order read: the
-    /// sources of the night's ladder step.
-    #[serde(skip)]
-    pub(crate) sources: Vec<(String, String)>,
 }
 
 impl PhotoReport {
@@ -339,7 +331,6 @@ impl PhotoReport {
         self.deduplicated += other.deduplicated;
         self.bytes_stored += other.bytes_stored;
         self.not_stored += other.not_stored;
-        self.sources.extend(other.sources);
     }
 }
 
@@ -354,8 +345,7 @@ pub(crate) struct Named {
 }
 
 /// The photos a run has stored or found stored, by the received bytes' hash: a case's properties
-/// answer the same photos, so one already here is neither asked of the store nor a ladder source
-/// again (root ADR-0540 §2). Two answers in flight with the same new photo both ask the store, which
+/// answer the same photos, so one already here is not asked of the store again (root ADR-0540 §2). Two answers in flight with the same new photo both ask the store, which
 /// deduplicates by content.
 pub(crate) type SeenPhotos = std::sync::Mutex<HashMap<String, Named>>;
 
@@ -465,7 +455,6 @@ pub(crate) async fn rewrite_photos(
         while let Some(outcome) = stored.next().await {
             done.push(outcome);
         }
-        // In list order, so the ladder sources keep the order read.
         done.sort_by_key(|(index, ..)| *index);
         for (index, received, stored) in done {
             let media = match stored? {
@@ -486,16 +475,9 @@ pub(crate) async fn rewrite_photos(
                 size_bytes: media.size_bytes,
                 source: media.source,
             };
-            let first = seen
-                .lock()
+            seen.lock()
                 .map_err(|_| anyhow::anyhow!("the seen photos lock was poisoned"))?
-                .insert(received.clone(), entry.clone())
-                .is_none();
-            if first {
-                report
-                    .sources
-                    .push((entry.sha256.clone(), entry.media_format.clone()));
-            }
+                .insert(received.clone(), entry.clone());
             named.insert(index, entry);
         }
         for (index, first) in copies {
@@ -940,7 +922,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn every_stored_photo_is_a_ladder_source_once_in_the_shared_store() {
+    async fn every_photo_is_stored_once_in_the_shared_store() {
         let contract = contract();
         let fields = &contract.item_detail.photos;
         let root = tempfile::tempdir().unwrap();
@@ -971,9 +953,8 @@ mod tests {
         .unwrap();
         assert_eq!((report.stored, report.deduplicated), (1, 1));
         let sha = hex(&Sha256::digest(&pixels));
-        assert_eq!(report.sources, vec![(sha.clone(), "jpg".to_owned())]);
-        // Another property of the case answers the same photo later in the run: not stored or a
-        // ladder source again (root ADR-0540 §2).
+        // Another property of the case answers the same photo later in the run: not stored again
+        // (root ADR-0540 §2).
         let mut again = json!({"csPicLst": [{"picFile": jpeg, "cortAuctnPicSeq": "1"}]});
         let mut later = PhotoReport::default();
         rewrite_photos(
@@ -986,18 +967,13 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(
-            (later.stored, later.deduplicated, later.sources.len()),
-            (0, 1, 0)
-        );
+        assert_eq!((later.stored, later.deduplicated), (0, 1));
         assert_eq!(again["csPicLst"][0]["sha256"], json!(sha.clone()));
         assert!(storage
             .read_object_sha256(&format!("onbid/media/sha256/{sha}.jpg"))
             .await
             .unwrap()
             .is_some());
-        // The night's budget is the contract's (root ADR-0427 §7).
-        assert_eq!(fields.renditions.per_run_limit, 1500);
     }
 
     #[test]
