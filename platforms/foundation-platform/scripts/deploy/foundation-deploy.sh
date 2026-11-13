@@ -304,6 +304,11 @@ if ((${#drain[@]} > 0)); then
         echo "foundation-deploy: cannot record ${unit} as owed a run (${owed_dir:-no deferred-dir}); waiting for it instead of stopping it" >&2
         continue
       fi
+      # The run's turn ends `waiting`, not failed (root ADR-0260): the unit's SIGTERM is a success
+      # (foundation-release-admission.conf) and the outcome ledger says why.
+      python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" record-outcome "${held_job["${unit}"]}" \
+        "foundation-job-outcome waiting stopped by the deploy of ${sha:0:12}; owed a run" \
+        || echo "foundation-deploy: cannot record the outcome of ${held_job["${unit}"]}" >&2
       systemctl stop --no-block "${unit}"
       echo "stopped ${unit}: ${sha} holds it and it is interruptible; it is owed a run, started when the deploy gives the schedule back (root ADR-0301, ADR-0260)"
     done
