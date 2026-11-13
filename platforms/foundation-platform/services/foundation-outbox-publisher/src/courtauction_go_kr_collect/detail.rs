@@ -67,6 +67,8 @@ pub(crate) struct ItemDetail {
     pub(crate) status_field: String,
     pub(crate) result_pointer: String,
     pub(crate) per_run_limit: u32,
+    /// How many 물건상세 lines one Bronze object holds: the run commits each part as it fills.
+    pub(crate) commit_every_lines: usize,
     pub(crate) read_from: String,
     pub(crate) photos: PhotoFields,
 }
@@ -331,7 +333,7 @@ pub(crate) struct PhotoReport {
 
 impl PhotoReport {
     /// Adds another answer's report to this one.
-    fn absorb(&mut self, other: Self) {
+    pub(crate) fn absorb(&mut self, other: Self) {
         self.photos += other.photos;
         self.stored += other.stored;
         self.deduplicated += other.deduplicated;

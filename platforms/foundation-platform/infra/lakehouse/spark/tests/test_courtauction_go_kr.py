@@ -310,6 +310,13 @@ class DocumentRowsTest(unittest.TestCase):
                          "the load script plans against the last document table too")
 
 
+class DetailPartTest(unittest.TestCase):
+    def test_a_detail_part_carries_its_runs_id(self):
+        key = ("bronze/source=courtauctiongokr__auction_item_detail/operation=selectAuctnCsSrchRslt/"
+               "auction-item-detail-part0002-20990102t030405z.gz")
+        self.assertEqual(job.snapshot_id(key), "20990102T030405Z")
+
+
 class DetailPlanTest(unittest.TestCase):
     def test_an_object_two_plans_name_is_loaded_once(self):
         key = "bronze/source=courtauctiongokr__auction_item_detail/operation=selectAuctnCsSrchRslt/auction-item-detail-20990102t030405z.gz"

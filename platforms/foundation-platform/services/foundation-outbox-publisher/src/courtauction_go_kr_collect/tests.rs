@@ -515,3 +515,21 @@ fn lines_held_gzipped_land_as_the_same_object_as_lines_held_as_text() -> anyhow:
     );
     Ok(())
 }
+
+#[test]
+fn a_detail_part_is_its_own_object_keyed_by_the_run() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let search = contract.item_detail.as_search();
+    let at = at("2099-01-02T16:05:04Z");
+    let run = foundation_shared_kernel::ids::IngestionRunId::new(uuid::Uuid::new_v4());
+    let first = super::plan(&search, gzip_lines(&["{}".to_owned()])?, run, at, Some(1))?;
+    let second = super::plan(&search, gzip_lines(&["{}".to_owned()])?, run, at, Some(2))?;
+    let key = first.object_key.as_str();
+    assert!(
+        key.ends_with("auction-item-detail-part0001-20990102t160504z.gz"),
+        "{key}"
+    );
+    assert_ne!(first.dedupe_key, second.dedupe_key, "each part lands");
+    assert!(contract.item_detail.commit_every_lines >= 1);
+    Ok(())
+}

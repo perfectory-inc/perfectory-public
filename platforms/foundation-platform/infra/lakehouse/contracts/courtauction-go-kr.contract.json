@@ -53,6 +53,8 @@
     "status_field": "jinstatCd",
     "result_pointer": "/data/dma_result",
     "per_run_limit": 60000,
+    "$commit_every_lines": "Root ADR-0540 §2. The run commits its 물건상세 lines a part at a time, each part its own Bronze object (auction-item-detail-partNNNN-<run>.gz), as soon as it fills: on 2026-11-12 the first night that asked every in-progress property held all its lines until one end-of-run commit and was oom-killed at its 1G cap after 2 h 9 min, so nothing of the night landed. A killed run keeps every committed part and the next run's frontier asks only what is left. 10,000 lines ≈ 190 MB of text (19 KB each, measured), held gzipped; a night of the 37,244 in-progress properties is 4 parts, inside silver_load.max_objects (7) per table.",
+    "commit_every_lines": 10000,
     "read_from": "silver.court_auction_item_detail",
     "photos": {
       "list_field": "csPicLst",

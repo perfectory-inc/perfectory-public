@@ -575,9 +575,13 @@ pub(crate) fn plan(
     bytes: Vec<u8>,
     run: IngestionRunId,
     at: DateTime<Utc>,
+    part: Option<u32>,
 ) -> anyhow::Result<PublicDataBulkFilePlan> {
+    // A run's 물건상세 lands in parts, each its own object; the run id stays the key's last part, as
+    // the Silver load reads it.
+    let part = part.map(|n| format!("part{n:04}-")).unwrap_or_default();
     let file_id = format!(
-        "{}-{}",
+        "{}-{part}{}",
         search.dataset_slug.replace('_', "-"),
         run_id(at).to_ascii_lowercase()
     );
@@ -655,6 +659,7 @@ where
         output_dir,
         gzip_lines(lines)?,
         lines.len(),
+        None,
         at,
         night,
         live,
@@ -668,6 +673,7 @@ pub(crate) async fn persist_gzipped<Uow, Storage>(
     output_dir: &Path,
     bytes: Vec<u8>,
     count: usize,
+    part: Option<u32>,
     at: DateTime<Utc>,
     night: &JsonValue,
     live: Option<(&Uow, &Storage)>,
@@ -677,7 +683,7 @@ where
     Storage: ObjectStorageService + ?Sized,
 {
     let Some((uow, storage)) = live else {
-        let plan = plan(search, bytes, IngestionRunId::new(Uuid::new_v4()), at)?;
+        let plan = plan(search, bytes, IngestionRunId::new(Uuid::new_v4()), at, part)?;
         let local = write_local_copy(output_dir, &plan)?;
         return Ok(
             json!({"object_key": plan.object_key.as_str(), "checksum_sha256": plan.checksum_sha256, "local_path": local, "written": false}),
@@ -692,7 +698,7 @@ where
         .create_ingestion_run(&ingestion_run(source.id, search, night, at))
         .await
         .with_context(|| format!("failed to create the {} run", search.dataset_slug))?;
-    let plan = plan(search, bytes, run.id, at)?;
+    let plan = plan(search, bytes, run.id, at, part)?;
     let outcome = BRONZE_COMMITTER
         .commit(
             &writer,
@@ -840,13 +846,11 @@ impl Config {
 /// search and the lakehouse's last reads, then the reads, on the same pool and tally, until
 /// `deadline`. A failure to read the last reads skips the phase (the lists still land); it never
 /// asks blind.
-async fn run_details(
+async fn detail_frontier(
     contract: &SourceContract,
-    asking: &Asking<'_>,
-    deadline: Instant,
     results: &BTreeMap<&'static str, SearchResult>,
     storage: Option<&dyn ObjectStorageService>,
-) -> anyhow::Result<(detail::DetailResult, Option<Stop>, JsonValue)> {
+) -> anyhow::Result<(Vec<detail::Wanted>, JsonValue)> {
     let item = &contract.item_detail;
     let lines = results
         .get("item_search")
@@ -859,7 +863,7 @@ async fn run_details(
             Err(error) => {
                 tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: the detail frontier could not be read; no detail asked");
                 let report = json!({"asked": 0, "skipped": format!("{error:#}")});
-                return Ok((detail::DetailResult::default(), None, report));
+                return Ok((Vec::new(), report));
             }
         }
     } else {
@@ -874,22 +878,12 @@ async fn run_details(
         today,
         item.per_run_limit,
     );
-    let store = detail::PhotoStore {
-        prefix: detail::photo_prefix(item)?,
-        storage,
-    };
-    let (result, stop) =
-        detail::collect_details(contract, asking, deadline, &asked, &store, Utc::now).await?;
     let report = json!({
         "in_progress": candidates,
         "read_before": last.len(),
         "frontier": asked.len(),
-        "asked": result.asked,
-        "failed": result.failed,
-        "photos": result.photos,
     });
-    println!("courtauction.go.kr item detail: {report}");
-    Ok((result, stop, report))
+    Ok((asked, report))
 }
 
 /// Collects one run into Bronze.
@@ -931,7 +925,37 @@ pub async fn run() -> anyhow::Result<()> {
         None
     };
     let (results, mut stop) = collect(&contract, &asking, Utc::now).await?;
-    let mut details = None;
+    // The lists commit as soon as they are read: a run killed later keeps them (root ADR-0540 §2).
+    let failed: BTreeMap<&str, &[FailedPage]> = results
+        .iter()
+        .map(|(role, result)| (*role, result.failed.as_slice()))
+        .collect();
+    let lists_night = night_summary(
+        asking.tally.counts(),
+        &pool.sessions(),
+        &failed,
+        stop.as_ref(),
+    );
+    let mut objects = Vec::new();
+    for (role, search) in searches(&contract) {
+        let Some(result) = results.get(role).filter(|result| !result.lines.is_empty()) else {
+            continue;
+        };
+        let mut entry = persist(
+            search,
+            &config.output_dir,
+            &result.lines,
+            started,
+            &lists_night,
+            live,
+        )
+        .await?;
+        entry["role"] = json!(role);
+        entry["complete"] = json!(result.complete);
+        entry["rows"] = json!(result.rows);
+        objects.push(entry);
+    }
+    let mut details: Option<(detail::DetailResult, JsonValue)> = None;
     if stop.is_none() {
         // The detail asking leaves the ladder step its budget inside the run's (root ADR-0427 §7).
         let detail_deadline = deadline
@@ -943,67 +967,74 @@ pub async fn run() -> anyhow::Result<()> {
                     .run_time_budget_seconds,
             ))
             .unwrap_or(deadline);
-        let (result, detail_stop, report) = run_details(
-            &contract,
-            &asking,
-            detail_deadline,
-            &results,
-            live.map(|(_, s)| s),
-        )
-        .await?;
-        stop = detail_stop;
-        details = Some((result, report));
+        let (asked, mut report) =
+            detail_frontier(&contract, &results, live.map(|(_, s)| s)).await?;
+        let store = detail::PhotoStore {
+            prefix: detail::photo_prefix(&contract.item_detail)?,
+            storage: live.map(|(_, s)| s),
+        };
+        // Committed in parts of commit_every_lines, each its own object: a run killed at its memory
+        // cap or its unit's limit keeps every part it committed, and the next run's frontier (the
+        // Silver read record) asks only what is left (root ADR-0352).
+        let mut total = detail::DetailResult::default();
+        let mut parts = 0;
+        for chunk in asked.chunks(contract.item_detail.commit_every_lines.max(1)) {
+            let (result, detail_stop) = detail::collect_details(
+                &contract,
+                &asking,
+                detail_deadline,
+                chunk,
+                &store,
+                Utc::now,
+            )
+            .await?;
+            stop = detail_stop;
+            if !result.lines.is_empty() {
+                parts += 1;
+                let night = night_summary(
+                    asking.tally.counts(),
+                    &pool.sessions(),
+                    &failed,
+                    stop.as_ref(),
+                );
+                let count = result.lines.len();
+                let mut entry = persist_gzipped(
+                    &contract.item_detail.as_search(),
+                    &config.output_dir,
+                    result.lines.finish()?,
+                    count,
+                    Some(parts),
+                    started,
+                    &night,
+                    live,
+                )
+                .await?;
+                entry["role"] = json!("item_detail");
+                entry["complete"] = json!(stop.is_none());
+                entry["rows"] = json!(result.asked);
+                objects.push(entry);
+            }
+            total.asked += result.asked;
+            total.failed += result.failed;
+            total.photos.absorb(result.photos);
+            if stop.is_some() {
+                break;
+            }
+        }
+        report["asked"] = json!(total.asked);
+        report["failed"] = json!(total.failed);
+        report["photos"] = json!(total.photos);
+        report["parts"] = json!(parts);
+        println!("courtauction.go.kr item detail: {report}");
+        details = Some((total, report));
     }
     let counts = asking.tally.counts();
     let sessions = pool.sessions();
-    let failed = results
-        .iter()
-        .map(|(role, result)| (*role, result.failed.as_slice()))
-        .collect();
     let night = night_summary(counts, &sessions, &failed, stop.as_ref());
-
-    let mut objects = Vec::new();
-    for (role, search) in searches(&contract) {
-        let Some(result) = results.get(role).filter(|result| !result.lines.is_empty()) else {
-            continue;
-        };
-        let mut entry = persist(
-            search,
-            &config.output_dir,
-            &result.lines,
-            started,
-            &night,
-            live,
-        )
-        .await?;
-        entry["role"] = json!(role);
-        entry["complete"] = json!(result.complete);
-        entry["rows"] = json!(result.rows);
-        objects.push(entry);
-    }
     let ladder_sources = details
         .as_ref()
         .map(|(result, _)| result.photos.sources.clone());
     let detail_report = match details {
-        Some((result, report)) if !result.lines.is_empty() => {
-            let search = contract.item_detail.as_search();
-            let count = result.lines.len();
-            let mut entry = persist_gzipped(
-                &search,
-                &config.output_dir,
-                result.lines.finish()?,
-                count,
-                started,
-                &night,
-                live,
-            )
-            .await?;
-            entry["role"] = json!("item_detail");
-            entry["complete"] = json!(stop.is_none());
-            entry["rows"] = json!(result.asked);
-            objects.push(entry);
-            report
-        }
         Some((_, report)) => report,
         None => json!({"asked": 0, "skipped": "the list pass did not end cleanly"}),
     };
