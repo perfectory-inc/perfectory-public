@@ -190,14 +190,14 @@
       },
       "parcel_lineage_scheduled": {
         "moved": {
-          "pull_request": 0,
+          "pull_request": 1380,
           "rows": 6530065,
           "fingerprint": null
         }
       },
       "parcel_lineage_to_silver": {
         "moved": {
-          "pull_request": 0,
+          "pull_request": 1380,
           "rows": 6530065,
           "fingerprint": null
         }
