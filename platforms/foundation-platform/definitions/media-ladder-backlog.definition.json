@@ -38,7 +38,7 @@
       "enabled": true,
       "enabled_since": "2026-11-14T00:00:00Z",
       "dagster_stage": "proxied",
-      "started_once_after_deploy": true,
+      "started_once_after_deploy": false,
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "An operation, not a data producer: `unchanged` is its normal outcome. That it keeps finishing is the done bound."
