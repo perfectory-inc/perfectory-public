@@ -101,6 +101,7 @@ use foundation_publisher_tiles::lakehouse_tile_bake;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
+mod parcel_lineage_derive;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;
@@ -254,6 +255,7 @@ enum Command {
     ClearStagingNamespace,
     ExportLineageStewardFold,
     AppendLineageStewardFold,
+    DeriveParcelLineage,
     ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -568,6 +570,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ClearStagingNamespace => Box::pin(staging_namespace::clear()),
         Command::ExportLineageStewardFold => Box::pin(lineage_steward_fold::export()),
         Command::AppendLineageStewardFold => Box::pin(lineage_steward_fold::append()),
+        Command::DeriveParcelLineage => Box::pin(parcel_lineage_derive::run()),
         Command::ExportLegalDongStewardDecisions => {
             Box::pin(lineage_steward_fold::export_legal_dong())
         }
@@ -720,6 +723,7 @@ where
         Some("clear-staging-namespace") => Ok(Command::ClearStagingNamespace),
         Some("export-lineage-steward-fold") => Ok(Command::ExportLineageStewardFold),
         Some("append-lineage-steward-fold") => Ok(Command::AppendLineageStewardFold),
+        Some("derive-parcel-lineage") => Ok(Command::DeriveParcelLineage),
         Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),

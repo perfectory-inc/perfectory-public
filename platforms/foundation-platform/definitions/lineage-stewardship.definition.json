@@ -268,7 +268,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs",
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
       ],
       "description": "계보는 동·리 짝을 직접 계산하지 않고 변경표에서 읽는다(루트 ADR-0145 §2). 변경표는 계보를 증거로 읽지 않는다."
@@ -279,7 +279,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs"
       ]
     },
     {
@@ -288,7 +288,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs"
       ]
     },
     {
@@ -297,7 +297,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs"
       ]
     },
     {

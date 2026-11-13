@@ -23,7 +23,6 @@
     "test_lakehouse_schema_migrate_spark.py": 21,
     "test_land_ownership_gold.py": 9,
     "test_legal_dong_edition_parcels_spark.py": 6,
-    "test_lineage_snapshot_pins_iceberg.py": 17,
     "test_load_branch_iceberg.py": 8,
     "test_masked_lot_inference.py": 11,
     "test_month_end_tags_iceberg.py": 17,

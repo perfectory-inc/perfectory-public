@@ -190,10 +190,18 @@
         "wave": 5
       },
       "parcel_lineage_scheduled": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1380,
+          "rows": 6530065,
+          "fingerprint": null
+        }
       },
       "parcel_lineage_to_silver": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1380,
+          "rows": 6530065,
+          "fingerprint": null
+        }
       },
       "parcel_matching_gate": {
         "wave": 4

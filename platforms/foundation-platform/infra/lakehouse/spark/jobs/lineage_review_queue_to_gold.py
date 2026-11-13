@@ -18,7 +18,7 @@ from typing import Any
 import lineage_review_queue as q
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
-from parcel_lineage_to_silver import IDENTIFIER, PREFIX
+from parcel_lineage import IDENTIFIER, PREFIX
 from platform_contracts import (
     admit_write,
     column_names,
