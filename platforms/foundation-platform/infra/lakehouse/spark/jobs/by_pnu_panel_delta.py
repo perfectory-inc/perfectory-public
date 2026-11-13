@@ -40,16 +40,18 @@ import time
 from pathlib import Path
 from typing import Any
 
+import by_pnu_kinds
+
 JOB_NAME = "by_pnu_panel_delta"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
 R2_CONTRACT_PATH = Path(__file__).resolve().parents[4] / "config" / "r2-connections.contract.json"
 # The parcel and building lanes, and every pack-only lane the R2 contract names (root ADR-0190; a
-# kind line's Gold is gold.<lane with - as _>, root ADR-0193): each lane's Gold panel is one row per
-# PNU with a row_digest, so one comparison serves them all.
+# kind line's Gold is the one by_pnu_kinds resolves, root ADR-0193 and ADR-0564 §6-1): each lane's Gold
+# panel is one row per PNU with a row_digest, so one comparison serves them all.
 _CONTRACT = json.loads(R2_CONTRACT_PATH.read_text(encoding="utf-8"))
 _LANES = _CONTRACT.get("by_pnu_lanes", {})
 GOLD_TABLES = {"parcel": "gold.parcel_panel", "building": "gold.building_panel",
-               **{name: lane.get("gold_table") or "gold." + name.replace("-", "_") for name, lane in _LANES.items()}}
+               **by_pnu_kinds.baked_gold_tables(R2_CONTRACT_PATH)}
 # A lane keyed narrower than a PNU (root ADR-0204) names the Gold column that follows the PNU in its
 # document key; its change set lists keys (PNU then that column's value), which the bake's upserts
 # and tombstones are by.

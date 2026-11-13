@@ -128,7 +128,10 @@
       "r2-connections.contract.json": {
         "reason": "Every R2 connection and serving setting in one file: 38 of its commits in the same 30 days, 16 for section packs and 12 for the building gateway that no Gold producer reads. A producer reads its by-PNU lanes (kind lines and their columns) and the building gateway's PNU pattern.",
         "keep": ["building_by_pnu_gateway.object_key"],
-        "entries": {"by_pnu_lanes": "lanes"}
+        "entries": {"by_pnu_lanes": "lanes"},
+        "row_neutral_fields": {
+          "versions_table": "Root ADR-0564 §6-1: it says the kind has a table of appended row versions beside the replaced one, which the publisher writes. The Spark producer builds the replaced table from the same Silver pins by the same code whether or not that other table exists; counting the field would recompute the whole replaced table the day the shadow table is declared (for gold.parcel_real_transaction that is the full build that was killed 26 times on 2026-11-11)."
+        }
       }
     }
   },

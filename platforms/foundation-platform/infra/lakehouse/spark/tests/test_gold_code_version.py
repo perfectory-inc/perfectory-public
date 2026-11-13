@@ -205,6 +205,28 @@ class Version(unittest.TestCase):
         tree.write("contracts/lanes.json", json.dumps({"by_pnu_lanes": {**own, "v": {**own["v"], "x": 4}}}))
         self.assertFalse(code.same(kind, tree.version(scoped=scoped, table="gold.v")))
 
+    def test_a_row_neutral_lane_field_is_not_the_tables_code(self):
+        # Root ADR-0564 §6-1: declaring a kind's versions table must not recompute its replaced table
+        # (for gold.parcel_real_transaction, the full build killed 26 times on 2026-11-11).
+        lanes = {"by_pnu_lanes": {"v": {"host": "parcel_by_pnu_gateway", "producer": "v_silver_to_gold", "x": 1}}}
+        rule = {"reason": "fixture", "entries": {"by_pnu_lanes": "lanes"}}
+        neutral = {"lanes.json": {**rule, "row_neutral_fields": {"versions_table": "another table's existence"}}}
+        tree = fixture_tree(self).write("jobs/helper.py", HELPER.replace('"rules.contract.json"', '"lanes.json"'))
+        tree.write("contracts/lanes.json", json.dumps(lanes))
+        counted = tree.version(scoped={"lanes.json": rule}, table="gold.v")
+        before = tree.version(scoped=neutral, table="gold.v")
+        declared = {"by_pnu_lanes": {"v": {**lanes["by_pnu_lanes"]["v"], "versions_table": True}}}
+        tree.write("contracts/lanes.json", json.dumps(declared))
+        self.assertTrue(code.same(before, tree.version(scoped=neutral, table="gold.v")))
+        self.assertFalse(code.same(counted, tree.version(scoped={"lanes.json": rule}, table="gold.v")))
+        # Any other field of the line still is.
+        tree.write("contracts/lanes.json", json.dumps({"by_pnu_lanes": {"v": {**declared["by_pnu_lanes"]["v"], "x": 2}}}))
+        self.assertFalse(code.same(before, tree.version(scoped=neutral, table="gold.v")))
+        self.assertIn("versions_table", code.settings(rebuild.load_contract())["scoped"]["r2-connections.contract.json"]
+                      ["row_neutral_fields"])
+        with self.assertRaises(ValueError):
+            code.settings({"code_version": {"scoped_contracts": {"x.json": {**rule, "row_neutral_fields": {"f": " "}}}}})
+
     def test_the_contract_names_only_existing_plumbing_modules_and_known_selectors_with_reasons(self):
         declared = code.settings(rebuild.load_contract())
         self.assertIn("gold_rebuild", declared["plumbing"])

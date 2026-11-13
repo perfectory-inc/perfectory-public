@@ -177,7 +177,7 @@ pub const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gat
 /// built from its own Silver names its Spark `producer` (root ADR-0287); the bake serves it alike.
 /// A lane whose first cut-over waits for a recent history names it (root ADR-0479): the cut-over
 /// reads it (by-pnu-lane-cutover.sh, serving_history_readiness.py), the bake does not.
-const DERIVED_LANE_HAND_FIELDS: [&str; 16] = [
+const DERIVED_LANE_HAND_FIELDS: [&str; 18] = [
     "decision",
     "host",
     "kind",
@@ -195,7 +195,47 @@ const DERIVED_LANE_HAND_FIELDS: [&str; 16] = [
     "first_publish_waits_for_history_reason",
     // The Gold join columns (root ADR-0483): the lakehouse contract's, not the gateway's.
     "place_identity",
+    // Root ADR-0564 §6-1: the kind has a table of appended row versions beside the replaced one
+    // (`versions_table`), and the lane bakes it once `gold_table` names it.
+    "versions_table",
+    "gold_table",
 ];
+
+/// What a kind's table of appended row versions is named after the table it replaces (root
+/// ADR-0564 §1; `by_pnu_kinds.py` `VERSIONS_SUFFIX`).
+pub const KIND_VERSIONS_TABLE_SUFFIX: &str = "_versions";
+
+/// The Gold a kind lane bakes and serves (root ADR-0564 §6-1): `gold.<lane with - as _>`, the
+/// table a `MERGE` replaces rows of, or the table of appended row versions beside it once the line
+/// declares it (`versions_table: true`) and names it (`gold_table`). No other place builds a
+/// lane's table from its name; `by_pnu_kinds.py` `line_tables` resolves the same.
+///
+/// # Errors
+/// Refuses a `versions_table` that is not `true`, and a `gold_table` that is not the declared
+/// versions table.
+pub fn kind_lane_gold_table(
+    name: &str,
+    fields: &serde_json::Map<String, serde_json::Value>,
+) -> Result<String, String> {
+    let replaced = format!("gold.{}", name.replace('-', "_"));
+    let declared = match fields.get("versions_table") {
+        None => false,
+        Some(serde_json::Value::Bool(true)) => true,
+        Some(_) => {
+            return Err(format!(
+                "by_pnu_lanes.{name}.versions_table says only true, or is left out"
+            ))
+        }
+    };
+    let versions = format!("{replaced}{KIND_VERSIONS_TABLE_SUFFIX}");
+    match fields.get("gold_table") {
+        None => Ok(replaced),
+        Some(stated) if declared && stated.as_str() == Some(versions.as_str()) => Ok(versions),
+        Some(_) => Err(format!(
+            "by_pnu_lanes.{name}.gold_table names only {versions}, beside versions_table: a kind              that bakes {replaced} leaves the field out"
+        )),
+    }
+}
 
 /// The job capability every kind lane's scheduled bake shares: the bake reads the lanes from the
 /// contract, so one capability covers every line added to it.
@@ -205,7 +245,8 @@ pub const KIND_LANE_BAKE_CAPABILITY: &str = "by_pnu_kind_section_pack_patches";
 /// (root ADR-0190). An entry with one (a kind line, root ADR-0193 §4) is its host's gateway block
 /// with `{kind}/` inserted before the `by-pnu` segment of its request path and object keys and
 /// before the `packs` segment of its pack root, one `documents` section, the kind lanes' bake
-/// capability, its document schema and Gold table by name, the host lane as its latency baseline
+/// capability, its document schema by name, its Gold table ([`kind_lane_gold_table`]), the host
+/// lane as its latency baseline
 /// and the documents it follows (unless the line names another), and the rule's latency bound.
 /// The Worker (`lane.ts`) applies the same paths; the contract's `by_pnu_lane_rule.test_vectors`
 /// hold both to them.
@@ -359,7 +400,10 @@ pub fn resolve_lane_entry(
         }
     }
     derived.insert("document_schema_version".to_owned(), json!(version));
-    derived.insert("gold_table".to_owned(), json!(format!("gold.{snake}")));
+    derived.insert(
+        "gold_table".to_owned(),
+        json!(kind_lane_gold_table(name, fields)?),
+    );
     derived.insert("latency_baseline_lane".to_owned(), json!(host_lane));
     derived.insert("documents_follow_lane".to_owned(), json!(host_lane));
     derived.insert(
@@ -1352,6 +1396,10 @@ mod tests {
             ("host", json!("by_pnu_lanes")),
             ("kind", json!("Zoning")),
             ("gold_table", json!("gold.elsewhere")),
+            // Root ADR-0564 §6-1: only the versions table, and only beside its declaration.
+            ("gold_table", json!("gold.parcel_zoning")),
+            ("gold_table", json!("gold.parcel_zoning_versions")),
+            ("versions_table", json!(false)),
         ] {
             let mut entry = lane.clone();
             entry[field] = value;
@@ -1360,6 +1408,23 @@ mod tests {
                 "{field}"
             );
         }
+        // A kind that declares its versions table still bakes the replaced one, until its line
+        // names the versions table as its Gold (the take-over, root ADR-0564 §6-4).
+        let mut shadow = lane.clone();
+        shadow["versions_table"] = json!(true);
+        assert_eq!(
+            resolve_lane_entry("parcel-zoning", &shadow, &contract).map_err(anyhow::Error::msg)?
+                ["gold_table"],
+            json!("gold.parcel_zoning")
+        );
+        shadow["gold_table"] = json!("gold.parcel_zoning_versions");
+        assert_eq!(
+            resolve_lane_entry("parcel-zoning", &shadow, &contract).map_err(anyhow::Error::msg)?
+                ["gold_table"],
+            json!("gold.parcel_zoning_versions")
+        );
+        shadow["gold_table"] = json!("gold.parcel_price_versions");
+        assert!(resolve_lane_entry("parcel-zoning", &shadow, &contract).is_err());
         // A stated document version is a later version of the lane's own name, with its reason.
         let reason = json!("a field was added");
         for (version, reason) in [
