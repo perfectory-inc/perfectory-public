@@ -452,6 +452,8 @@ class LaneCutover(OperatorHarness):
         # The real check with no catalog settings: it cannot tell, so the run stops and pages, as history.
         del self.env["FOUNDATION_CUTOVER_INPUT_READINESS"]
         lane = "parcel-nearby"
+        # A Gold the publisher builds is fed what the release's pipeline graph feeds it (root ADR-0564).
+        shutil.copytree(PLATFORM / "docs/catalog", self.release / "docs/catalog", dirs_exist_ok=True)
         result, calls = self.runner(lane, "1")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "curl")])
