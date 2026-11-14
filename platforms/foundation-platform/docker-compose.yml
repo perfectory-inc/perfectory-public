@@ -154,7 +154,7 @@ services:
       context: .
       dockerfile: services/foundation-api/Dockerfile
     environment: &foundation-api-environment
-      DATABASE_URL: postgres://foundation_api:${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}@postgres:5432/foundation
+      DATABASE_URL: postgres://foundation_api:${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}@postgres:5432/foundation?application_name=foundation-api
       FOUNDATION_PLATFORM_API_BIND_ADDR: 0.0.0.0:8080
       IDENTITY_API_BASE_URL: ${IDENTITY_API_BASE_URL:-https://identity.example.test}
       ZITADEL_ISSUER_URL: ${ZITADEL_ISSUER_URL:-https://identity.example.test}
