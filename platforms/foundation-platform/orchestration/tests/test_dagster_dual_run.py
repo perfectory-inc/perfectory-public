@@ -400,5 +400,32 @@ class LiveCheckTest(unittest.TestCase):
         self.assertGreater(len(line["paused"]), 20)
 
 
+
+class ARetriedFailureNamesItsTick(unittest.TestCase):
+    """2026-11-13 22:50-23:31Z: every asset_reconcile run failed and retried for 5 minutes while the Dagster
+    code location did not load; each ended seconds after the next tick and Airflow started that tick's run
+    within 4 s. The scheduled run's id names the tick it took; the comparison must agree on every tick."""
+
+    def test_the_tick_a_scheduled_run_names_is_the_decision(self):
+        from datetime import datetime
+
+        import dual_run
+
+        def at(text):
+            return datetime.fromisoformat(f"2026-11-13T{text}+00:00").timestamp()
+
+        recorded = [("22:50:00", "22:54:07", "23:00:11"), ("23:00:00", "23:00:12", "23:05:23"),
+                    ("23:05:00", "23:05:24", "23:10:33"), ("23:10:00", "23:10:34", "23:15:46"),
+                    ("23:15:00", "23:15:49", "23:21:07"), ("23:20:00", "23:21:11", "23:26:30"),
+                    ("23:25:00", "23:26:37", "23:31:53")]
+        runs = [dual_run.Run(f"scheduled__2026-11-13T{tick}+00:00", "scheduled", at(start), at(end))
+                for tick, start, end in recorded]
+        ticks = [at("22:50:00") + 300 * step for step in range(9)]
+        due, either = dual_run._due(ticks, runs)
+        taken = [at(tick) for tick, _, _ in recorded]
+        self.assertEqual([tick for tick in due if tick <= taken[-1]], taken)
+        self.assertEqual(either & set(taken), set(), "a tick Airflow named is no race")
+
+
 if __name__ == "__main__":
     unittest.main()
