@@ -297,3 +297,13 @@ fn a_registered_lane_takes_its_document_schema_from_the_registry_alone() -> anyh
     }
     Ok(())
 }
+
+#[test]
+fn a_versions_table_s_order_and_removal_columns_are_no_part_of_a_document() {
+    // Root ADR-0564 §2, ADR-0567: parcel-nearby bakes gold.parcel_nearby_versions, whose rows carry
+    // version_seq and row_state; the documents are the replaced table's, byte for byte.
+    for column in PACK_LANE_VERSION_COLUMNS {
+        assert!(!pack_lane_content_column(column), "{column}");
+    }
+    assert!(pack_lane_content_column("nearby_json"));
+}

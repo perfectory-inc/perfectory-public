@@ -207,7 +207,11 @@
         "wave": 4
       },
       "parcel_nearby_silver_to_gold": {
-        "wave": 1
+        "moved": {
+          "pull_request": 1407,
+          "rows": 5208587,
+          "fingerprint": null
+        }
       },
       "parcel_panel_silver_to_gold": {
         "wave": 2

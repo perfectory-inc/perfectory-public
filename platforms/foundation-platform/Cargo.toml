@@ -105,6 +105,10 @@ geo = { version = "0.33", default-features = false }
 proj4rs = { version = "0.1.10", default-features = false }
 proj4wkt = "0.1.1"
 shapefile = { version = "0.9.0", default-features = false, features = ["encoding_rs", "geo-types"] }
+# H3 cells and rings for the parcel nearby Gold (root ADR-0567): the same H3 v4 as Sedona's ST_H3CellIDs and
+# the h3 C library. DuckDB's community h3 extension loads only with unsigned extensions allowed (the release
+# refuses that), so the publisher computes the cells. BSD-3-Clause, default features (std).
+h3o = "0.11.1"
 # Photo rendition ladder (root ADR-0427): decode with EXIF orientation, Lanczos3 resize, JPEG and
 # AVIF (rav1e through ravif, no nasm) encode. WebP lossy is libwebp itself (the `image` WebP
 # encoder is lossless only). No hand-written codec.

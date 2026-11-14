@@ -171,6 +171,25 @@ fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn build_parcel_nearby_versions_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-nearby-versions"
+        ])?,
+        Command::BuildParcelNearbyVersions
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-gold-versions-change-set"
+        ])?,
+        Command::ExportGoldVersionsChangeSet
+    );
+    Ok(())
+}
+
+#[test]
 fn lineage_steward_fold_commands_are_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "export-lineage-steward-fold"])?,

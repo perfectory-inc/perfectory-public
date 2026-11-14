@@ -23,10 +23,13 @@ import iceberg_metadata  # noqa: E402
 
 class GoldInputReadiness(unittest.TestCase):
     def test_the_inputs_are_the_planners_required_and_unaccepted_optional_ones(self):
-        nearby = readiness.required_inputs("gold.parcel_nearby")
+        # A table the publisher builds (root ADR-0564) waits for every table the graph feeds it from.
+        nearby = readiness.required_inputs("gold.parcel_nearby_versions")
         self.assertIn("silver.parcel_boundaries", nearby)
         self.assertIn("silver.airport", nearby)
         self.assertIn("reference.legal_dong_code_change", nearby)
+        self.assertIn("gold.place_id_bridge", nearby)
+        self.assertEqual(len(nearby), 10)
         # An optional input the contract accepts absent is not waited for; one it does not accept is,
         # because the planner refuses without it (2026-11-09 parcel-court-auction, its photo table).
         entry = gold_rebuild.load_contract()["tables"]["gold.parcel_court_auction"]
@@ -69,7 +72,7 @@ class GoldInputReadiness(unittest.TestCase):
     def test_no_catalog_is_cannot_tell(self):
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith("FOUNDATION_PLATFORM_LAKEHOUSE_")}
-        result = subprocess.run([sys.executable, "-I", "-B", str(SCRIPT), "gold.parcel_nearby"],
+        result = subprocess.run([sys.executable, "-I", "-B", str(SCRIPT), "gold.parcel_nearby_versions"],
                                 capture_output=True, text=True, env=environment, timeout=60)
         self.assertEqual(result.returncode, 65, result.stderr)
         self.assertIn("cannot tell", result.stderr)

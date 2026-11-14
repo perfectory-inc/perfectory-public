@@ -155,6 +155,33 @@ impl DuckDbParquetStage {
         })
     }
 
+    /// Sets the buffer manager's limit to `share_numerator / share_denominator` of the memory this
+    /// process may still take (its unit's `MemoryMax`, `process_memory::available_bytes`), instead
+    /// of the execution profile's half: a transform whose unit declares its own bound (root
+    /// ADR-0455) uses it. The rest is for what the buffer manager does not count (`DuckDB`'s own
+    /// structures, the allocator, the commit's uploads). Returns the limit set, or `None` when the
+    /// platform publishes no limit and the profile's stays.
+    ///
+    /// # Errors
+    /// Returns `DuckDB`'s refusal.
+    pub fn use_share_of_available_memory(
+        &self,
+        share_numerator: u64,
+        share_denominator: u64,
+    ) -> anyhow::Result<Option<u64>> {
+        ensure!(
+            share_denominator > 0 && share_numerator < share_denominator,
+            "a share of the memory is less than all of it"
+        );
+        let Some(available) = crate::process_memory::available_bytes() else {
+            return Ok(None);
+        };
+        let bytes = available / share_denominator * share_numerator;
+        self.connection
+            .execute("SET memory_limit = ?", [format!("{bytes}B")])?;
+        Ok(Some(bytes))
+    }
+
     /// The connection a transform loads its inputs into and computes on.
     #[must_use]
     pub const fn connection(&self) -> &Connection {

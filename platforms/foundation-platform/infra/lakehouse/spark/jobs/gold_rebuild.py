@@ -130,6 +130,17 @@ def kind_tables(template: dict[str, Any], kinds: dict[str, Any],
     return tables
 
 
+ENGINE_CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "lakehouse-engine.contract.json"
+
+
+def producer_left_spark(producer: str | None, path: Path = ENGINE_CONTRACT_PATH) -> bool:
+    """Whether the engine ledger records `producer` as moved off Spark (root ADR-0559 §2)."""
+    if producer is None:
+        return False
+    sessions = json.loads(path.read_text(encoding="utf-8"))["engines"]["spark_sessions"]
+    return "moved" in sessions.get(producer, {})
+
+
 def load_contract(path: Path = CONTRACT_PATH, kinds: dict[str, Any] | None = None) -> dict[str, Any]:
     contract = json.loads(path.read_text(encoding="utf-8"))
     tables = contract.get("tables")
@@ -138,6 +149,9 @@ def load_contract(path: Path = CONTRACT_PATH, kinds: dict[str, Any] | None = Non
     if "kind_tables" in contract:
         import by_pnu_kinds
         found = by_pnu_kinds.kinds() if kinds is None else kinds
+        # A kind whose producer left Spark (its engine ledger line is `moved`, root ADR-0559) is built
+        # by the publisher into its table of appended row versions (root ADR-0564): Spark rebuilds none.
+        found = {lane: kind for lane, kind in found.items() if not producer_left_spark(kind.producer)}
         derived = kind_tables(contract["kind_tables"], found, tables)
         clash = sorted(set(derived) & set(tables))
         if clash:

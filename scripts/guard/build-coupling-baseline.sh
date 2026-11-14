@@ -370,7 +370,13 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # foundation-publisher-silver compiles in the SQL file DuckDB runs for it
 # (real_transaction_gold_stage/region_stats.sql: reviewed and compared as SQL; the national
 # engine-equality verdict ran that file's rules).
-COMPILE_TIME_READ_BASELINE="${3:-186}"
+# 186 -> 194: the parcel nearby Gold is born on DuckDB (root ADR-0564 §9 turn 2). foundation-publisher-silver
+# compiles in the two SQL files DuckDB runs for it (parcel_nearby_stage/nearest.sql, document.sql) and the
+# code change views every DuckDB stage now shares (legal_dong_code_change_stage/pair_rows.sql, moved out of
+# the lineage's derive.sql, and renumbered_into.sql); the publisher compiles in the parcel source contract
+# (the served edition) and the Gold rebuild contract (the kinds' row-loss bound) it reads; the stage's test
+# compiles in the document's registry schema and the file contract's headers it holds the build to.
+COMPILE_TIME_READ_BASELINE="${3:-194}"
 
 cd "$repo_root"
 
