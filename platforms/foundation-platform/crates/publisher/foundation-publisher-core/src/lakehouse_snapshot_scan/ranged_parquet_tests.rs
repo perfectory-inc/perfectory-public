@@ -148,6 +148,7 @@ fn data_file(bytes: &[u8]) -> anyhow::Result<ScannedDataFile> {
         file_path: LOCATION.to_owned(),
         record_count: u64::try_from(ROW_GROUPS * ROWS_PER_GROUP)?,
         file_size_in_bytes: u64::try_from(bytes.len())?,
+        column_size_field_ids: Vec::new(),
         column_statistics: BTreeMap::new(),
     })
 }
