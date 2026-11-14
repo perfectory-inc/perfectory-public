@@ -225,8 +225,10 @@ class Replays(unittest.TestCase):
         self.assertIn("would gain required columns ['building_id'] with no registered backfill", refusals[0])
 
     def test_pr469_the_replay_is_the_shape_production_holds(self) -> None:
-        self.assertEqual(replay_pr469()["shapes"]["gold.unit_price_panel"],
-                         migrate.load_production_shape()["gold.unit_price_panel"])
+        # The fields and rows are the replay; the layout the published ledger now records too (#1404)
+        # is not part of it.
+        held = {k: v for k, v in migrate.load_production_shape()["gold.unit_price_panel"].items() if k != "layout"}
+        self.assertEqual(replay_pr469()["shapes"]["gold.unit_price_panel"], held)
 
     def test_pr469_on_an_empty_table_would_have_passed(self) -> None:
         # The refusal comes from the rows production held: the shape, not the contract alone.
