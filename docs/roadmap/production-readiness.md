@@ -229,7 +229,7 @@ last_reviewed: 2026-11-07
 | 토지 | 필지별 토지이용계획 (`silver.land_use_plan`) | `parcel` | — | 화면 |
 | 토지 | 용도지역지구 구역 (`silver.land_use_zone_area`) | `parcel-regulation-zones (꺼짐)` | `zoning-overlay-tiles` | 화면 |
 | 토지 | 용도지역 코드 사전 (`silver.land_use_zone_code`) | `parcel` | — | 화면 |
-| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-nearby (꺼짐)`<br>`parcel-real-transaction`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles` | 화면 |
+| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-nearby`<br>`parcel-real-transaction`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles` | 화면 |
 | 토지 | 필지 계보 (`silver.parcel_lineage`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
 | 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy` | — | 화면 |
 | 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy` | — | 화면 |
@@ -296,14 +296,14 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 법원경매 매각물건명세서 요약 (`silver.court_auction_item_spec`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 매각결과 (`silver.court_auction_sale_result`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 물건상세 읽은 기록 (`silver.court_auction_item_detail`) | — | — | 없음 |
-| 물류 입지 | 공항 (`silver.airport`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
-| 물류 입지 | 고속도로 출입시설 (`silver.highway_access_point`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
-| 물류 입지 | 철도역 (`silver.railway_station`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
-| 물류 입지 | 도시철도역 (`silver.subway_station`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
+| 물류 입지 | 공항 (`silver.airport`) | `parcel-nearby` | — | 화면 |
+| 물류 입지 | 고속도로 출입시설 (`silver.highway_access_point`) | `parcel-nearby` | — | 화면 |
+| 물류 입지 | 철도역 (`silver.railway_station`) | `parcel-nearby` | — | 화면 |
+| 물류 입지 | 도시철도역 (`silver.subway_station`) | `parcel-nearby` | — | 화면 |
 | 물류 입지 | 항만 (`silver.port`) | — | — | 없음 |
-| 주변 생활 | 상가(상권) (`silver.commercial_district`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
-| 주변 생활 | 초중등학교 위치 (`silver.school_location`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
-| 주변 생활 | 대학·전문대학 (`silver.university`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
+| 주변 생활 | 상가(상권) (`silver.commercial_district`) | `parcel-nearby` | — | 화면 |
+| 주변 생활 | 초중등학교 위치 (`silver.school_location`) | `parcel-nearby` | — | 화면 |
+| 주변 생활 | 대학·전문대학 (`silver.university`) | `parcel-nearby` | — | 화면 |
 | 주변 생활 | 행정동 성별 연령별 인구 (`silver.dong_population`) | — | — | 없음 |
 | 주변 생활 | 행정동 세대원수별 세대수 (`silver.household_count`) | — | — | 없음 |
 | 행정·내부 | 행정경계(읍면동) (`silver.administrative_boundaries`) | — | `admin-tiles` | 화면 |
