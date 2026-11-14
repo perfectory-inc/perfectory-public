@@ -215,7 +215,13 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let mut seconds_by_sido = BTreeMap::new();
     for sido in &sidos {
         let at = Instant::now();
-        build_sido(connection, sido, &parcels_snapshot, &published_at_utc)?;
+        build_sido(
+            connection,
+            &read.store_cells,
+            sido,
+            &parcels_snapshot,
+            &published_at_utc,
+        )?;
         seconds_by_sido.insert(sido.clone(), at.elapsed().as_secs_f64());
         println!(
             "gold-versions {TABLE} built {sido} in {:.1}s (memory peak {:?} bytes)",

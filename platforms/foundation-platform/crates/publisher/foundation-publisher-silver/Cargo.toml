@@ -28,6 +28,7 @@ collection-infrastructure = { workspace = true }
 duckdb = { workspace = true }
 encoding_rs = { workspace = true }
 flate2 = { workspace = true }
+h3o = { workspace = true }
 foundation-normalization-domain = { workspace = true }
 foundation-outbox = { workspace = true }
 foundation-publisher-core = { workspace = true }

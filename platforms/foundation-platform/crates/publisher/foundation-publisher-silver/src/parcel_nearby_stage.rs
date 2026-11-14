@@ -17,7 +17,7 @@
 //! memory: nationally 39,861,511 parcels in 445.6 s with a 5.01 GiB peak (W81b, 2026-11-13, 4
 //! threads, a 5 GB `DuckDB` limit). Nothing here commits.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::{ensure, Context};
 use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableContract};
@@ -340,12 +340,72 @@ pub struct NearbyInputs {
     pub highway_sigungu: u64,
     /// Codes the renumbering translates.
     pub renumbered_codes: u64,
+    /// The located stores per H3 cell, which [`build_sido`] counts the rings of.
+    #[serde(skip)]
+    pub store_cells: StoreCells,
+}
+
+/// The H3 cell (resolution [`STORE_H3_RESOLUTION`]) of a point, as Sedona's `ST_H3CellIDs` and the
+/// h3 library give it (H3 v4).
+fn cell(lat: f64, lon: f64) -> anyhow::Result<h3o::CellIndex> {
+    let resolution = h3o::Resolution::try_from(STORE_H3_RESOLUTION)?;
+    Ok(h3o::LatLng::new(lat, lon)
+        .with_context(|| format!("({lat}, {lon}) is no point"))?
+        .to_cell(resolution))
+}
+
+/// The located stores per H3 cell.
+///
+/// H3 is computed in the publisher with h3o (a Rust implementation of the H3 library): `DuckDB`'s
+/// community h3 extension loads only with unsigned extensions allowed, which the release refuses.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct StoreCells(HashMap<u64, u64>);
+
+impl StoreCells {
+    /// The stores at `points` (latitude, longitude), counted per cell.
+    ///
+    /// # Errors
+    /// Returns an error when a point is not a coordinate.
+    pub fn from_points(points: &[(f64, f64)]) -> anyhow::Result<Self> {
+        let mut cells = HashMap::new();
+        for (lat, lon) in points {
+            *cells.entry(u64::from(cell(*lat, *lon)?)).or_insert(0) += 1;
+        }
+        Ok(Self(cells))
+    }
+
+    /// Every store counted.
+    #[must_use]
+    pub fn total(&self) -> u64 {
+        self.0.values().sum()
+    }
+
+    /// The stores in the cells within [`STORE_H3_RING`] rings of the cell of (`lat`, `lon`).
+    ///
+    /// # Errors
+    /// Returns an error when the point is not a coordinate.
+    pub fn ring_count(&self, lat: f64, lon: f64) -> anyhow::Result<u64> {
+        Ok(cell(lat, lon)?
+            .grid_disk::<Vec<_>>(u32::from(STORE_H3_RING))
+            .into_iter()
+            .filter_map(|ring| self.0.get(&u64::from(ring)))
+            .sum())
+    }
+}
+
+/// The (latitude, longitude) rows `query` returns.
+fn points(connection: &Connection, query: &str) -> anyhow::Result<Vec<(f64, f64)>> {
+    connection
+        .prepare(query)?
+        .query_map([], |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()
+        .context("DuckDB failed to read the points")
 }
 
 /// Reads every input from `source` into `connection`.
 ///
-/// It defines the macros the build runs and leaves `parcels(pnu, lon, lat, cell)` of the served
-/// `edition`, a `f_<key>` table per nearest kind, `stores(cell, n)`, `highway(sigungu,
+/// It defines the macros the build runs and leaves `parcels(pnu, lon, lat)` of the served
+/// `edition`, a `f_<key>` table per nearest kind, the stores per H3 cell, `highway(sigungu,
 /// highway_access_points)`, `place_ids(pnu, place_id)` and an empty `built`.
 ///
 /// # Errors
@@ -368,7 +428,7 @@ pub fn load_inputs(
         .context("silver.parcel_boundaries names its current rows by a predicate")?;
     connection.execute_batch(&format!(
         "CREATE OR REPLACE TABLE parcels AS \
-         SELECT pnu, ST_X(g) AS lon, ST_Y(g) AS lat, h3_latlng_to_cell(ST_Y(g), ST_X(g), {STORE_H3_RESOLUTION}) AS cell \
+         SELECT pnu, ST_X(g) AS lon, ST_Y(g) AS lat \
          FROM (SELECT pnu, ST_Centroid(ST_GeomFromWKB(geometry_wkb)) AS g \
                FROM {parcels_table} \
                WHERE source_snapshot_id = '{edition}' AND ({predicate}) AND geometry_wkb IS NOT NULL);",
@@ -464,12 +524,13 @@ pub fn load_inputs(
     ];
     let store_columns = store_columns.iter().map(String::as_str).collect::<Vec<_>>();
     let rows = current_rows(connection, source, STORE_SOURCE, &store_columns)?;
-    connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE stores AS \
-         SELECT h3_latlng_to_cell(lat, lon, {STORE_H3_RESOLUTION}) AS cell, count(*) AS n \
-         FROM ({rows}) WHERE {inside} GROUP BY 1;",
-        inside = inside("lat", "lon")
-    ))?;
+    let store_cells = StoreCells::from_points(&points(
+        connection,
+        &format!(
+            "SELECT lat, lon FROM ({rows}) WHERE {}",
+            inside("lat", "lon")
+        ),
+    )?)?;
 
     let mut highway_columns = vec!["legal_dong_code".to_owned()];
     for (name, header) in HIGHWAY_FIELDS {
@@ -529,9 +590,10 @@ pub fn load_inputs(
     Ok(NearbyInputs {
         parcels_by_sido,
         facilities,
-        stores: count("SELECT coalesce(sum(n), 0) FROM stores")?,
+        stores: store_cells.total(),
         highway_sigungu: count("SELECT count(*) FROM highway")?,
         renumbered_codes: count("SELECT count(*) FROM renumbering")?,
+        store_cells,
     })
 }
 
@@ -547,9 +609,9 @@ pub fn changed_sidos(
     connection: &Connection,
     old: &Source<'_>,
     new: &Source<'_>,
-    moved: &std::collections::BTreeSet<String>,
+    moved: &BTreeSet<String>,
     edition: &str,
-) -> anyhow::Result<std::collections::BTreeSet<String>> {
+) -> anyhow::Result<BTreeSet<String>> {
     ensure!(
         is_plain(edition),
         "the edition {edition:?} is not a plain snapshot id"
@@ -582,6 +644,7 @@ pub fn changed_sidos(
             "SELECT substr(pnu, 1, 2) FROM (({after}) EXCEPT ({before}))              UNION SELECT substr(pnu, 1, 2) FROM (({before}) EXCEPT ({after}))"
         ));
     }
+    let mut found = BTreeSet::new();
     if moved.contains(STORE_SOURCE) {
         let (lat, lon) = STORE_COORDINATES;
         let columns = [
@@ -590,29 +653,62 @@ pub fn changed_sidos(
             format!("TRY_CAST(trim({}) AS DOUBLE) AS lon", field(lon)?),
         ];
         let columns = columns.iter().map(String::as_str).collect::<Vec<_>>();
-        let side = |source: &Source<'_>| -> anyhow::Result<String> {
-            Ok(format!(
-                "SELECT row_key, h3_latlng_to_cell(lat, lon, {STORE_H3_RESOLUTION}) AS cell FROM ({}) WHERE {}",
+        let side = |source: &Source<'_>| -> anyhow::Result<BTreeSet<(String, u64)>> {
+            let query = format!(
+                "SELECT row_key, lat, lon FROM ({}) WHERE {}",
                 current_rows(connection, source, STORE_SOURCE, &columns)?,
                 inside("lat", "lon")
-            ))
+            );
+            connection
+                .prepare(&query)?
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, f64>(1)?,
+                        row.get::<_, f64>(2)?,
+                    ))
+                })?
+                .map(|row| {
+                    let (key, lat, lon) = row?;
+                    Ok((key, u64::from(cell(lat, lon)?)))
+                })
+                .collect()
         };
         let (before, after) = (side(old)?, side(new)?);
-        parts.push(format!(
-            "SELECT DISTINCT substr(p.pnu, 1, 2) FROM parcels p JOIN (                SELECT unnest(h3_grid_disk(cell, {STORE_H3_RING})) AS cell FROM (                  SELECT cell FROM (({after}) EXCEPT ({before})) UNION SELECT cell FROM (({before}) EXCEPT ({after})))) t              USING (cell)"
-        ));
+        // The cells a store left or entered, and every cell within the rings of one.
+        let mut touched = BTreeSet::new();
+        for (_, moved_cell) in before.symmetric_difference(&after) {
+            let center = h3o::CellIndex::try_from(*moved_cell)?;
+            for ring in center.grid_disk::<Vec<_>>(u32::from(STORE_H3_RING)) {
+                touched.insert(u64::from(ring));
+            }
+        }
+        if !touched.is_empty() {
+            let mut statement = connection.prepare("SELECT pnu, lat, lon FROM parcels")?;
+            let mut rows = statement.query([])?;
+            while let Some(row) = rows.next()? {
+                let pnu: String = row.get(0)?;
+                let prefix = pnu.get(..2).unwrap_or_default().to_owned();
+                if !found.contains(&prefix)
+                    && touched.contains(&u64::from(cell(row.get(1)?, row.get(2)?)?))
+                {
+                    found.insert(prefix);
+                }
+            }
+        }
     }
-    if parts.is_empty() {
-        return Ok(std::collections::BTreeSet::new());
+    if !parts.is_empty() {
+        let sidos = connection
+            .prepare(&format!(
+                "SELECT DISTINCT * FROM ({}) ORDER BY 1",
+                parts.join(" UNION ")
+            ))?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()
+            .context("DuckDB failed to find the 시도 the moved inputs touch")?;
+        found.extend(sidos);
     }
-    connection
-        .prepare(&format!(
-            "SELECT DISTINCT * FROM ({}) ORDER BY 1",
-            parts.join(" UNION ")
-        ))?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<Result<_, _>>()
-        .context("DuckDB failed to find the 시도 the moved inputs touch")
+    Ok(found)
 }
 
 /// The table [`build_sido`] appends to: the Gold's columns but `version_seq` and `row_state`.
@@ -643,6 +739,7 @@ pub fn is_sido(sido: &str) -> bool {
 /// Returns an error when `sido` is not two digits, a stamp is not plain text, or `DuckDB` fails.
 pub fn build_sido(
     connection: &Connection,
+    stores: &StoreCells,
     sido: &str,
     source_snapshot_id: &str,
     published_at_utc: &str,
@@ -698,15 +795,25 @@ pub fn build_sido(
     }
     document.push("'commercial_store_count': coalesce(r.store_count, 0)".to_owned());
     document.push("'highway_access_points': h.highway_access_points".to_owned());
-    let (ring, joins, document) = (
-        STORE_H3_RING.to_string(),
-        joins.join(" "),
-        format!("{{{}}}", document.join(", ")),
-    );
+    // Each parcel's stores within the rings of its cell.
+    connection.execute_batch("CREATE OR REPLACE TABLE ring (pnu VARCHAR, store_count BIGINT);")?;
+    {
+        let mut appender = connection.appender("ring")?;
+        let mut statement = connection.prepare("SELECT pnu, lat, lon FROM sp")?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let pnu: String = row.get(0)?;
+            let count = i64::try_from(stores.ring_count(row.get(1)?, row.get(2)?)?)?;
+            if count > 0 {
+                appender.append_row(duckdb::params![pnu, count])?;
+            }
+        }
+        appender.flush()?;
+    }
+    let (joins, document) = (joins.join(" "), format!("{{{}}}", document.join(", ")));
     let sql = fill(
         DOCUMENT_SQL,
         &[
-            ("ring", &ring),
             ("joins", &joins),
             ("document", &document),
             ("source_snapshot_id", source_snapshot_id),

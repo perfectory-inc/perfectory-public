@@ -221,7 +221,7 @@ mod tests {
         let contract = contract()?;
         assert_eq!(
             contract.load_order,
-            ["httpfs", "avro", "iceberg", "spatial", "h3"]
+            ["httpfs", "avro", "iceberg", "spatial"]
         );
         for name in &contract.load_order {
             let pin = &contract.distributions[name].platforms["linux-x86_64"];
