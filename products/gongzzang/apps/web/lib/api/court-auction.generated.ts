@@ -67,6 +67,7 @@ export const ParcelCourtAuctionByPnuSchema = z.object({
           area_raw: z.string().nullish(),
           land_category: z.string().nullish(),
           appraisal_amount_krw: z.number().int().nullish(),
+          closure_kind_name: z.string().nullish(),
         })),
         annexes: z.array(z.object({
           object_seq: z.number().int(),
@@ -78,6 +79,33 @@ export const ParcelCourtAuctionByPnuSchema = z.object({
           item_name: z.string().nullish(),
           content: z.string().nullish(),
         })),
+        related_cases: z.array(z.object({
+          related_user_case_no: z.string().nullish(),
+          relation_kind_name: z.string().nullish(),
+        })).nullish(),
+        parties: z.array(z.object({
+          kind_name: z.string().nullish(),
+          count: z.number().int(),
+        })).nullish(),
+        survey: z.object({
+          surveyed_raw: z.string().nullish(),
+          possession_summary: z.string().nullish(),
+          lease_text: z.string().nullish(),
+          objects: z.array(z.object({
+            object_seq: z.number().int(),
+            possession_text: z.string().nullish(),
+            lease_count: z.number().int().nullish(),
+          })),
+        }).nullish(),
+        appraisal: z.object({
+          price_basis_date: z.string().nullish(),
+          written_date: z.string().nullish(),
+          opinion: z.string().nullish(),
+          report: z.object({
+            sha256: z.string().regex(/^[0-9a-f]{64}$/),
+            media_format: z.enum(["pdf"]),
+          }).nullish(),
+        }).nullish(),
       }).nullish(),
     })),
     sale_results: z.array(z.object({

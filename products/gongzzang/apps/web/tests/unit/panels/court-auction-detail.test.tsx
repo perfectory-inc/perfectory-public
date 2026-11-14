@@ -39,6 +39,25 @@ const round = {
     objects: [{ object_seq: 1, realty_kind: "토지", land_category: "공장용지", area_raw: "330㎡" }],
     annexes: [{ object_seq: 1, usage_raw: "창고", structure_raw: "판넬조" }],
     appraisal_points: [{ content: "합성도 가나동 소재" }],
+    related_cases: [
+      { list: "related", related_user_case_no: "2099타경9", relation_kind_name: "중복" },
+    ],
+    parties: [
+      { kind_name: "채권자", count: 1 },
+      { kind_name: "임차인", count: 2 },
+    ],
+    survey: {
+      round_seq: 1,
+      surveyed_raw: "2099년01월02일^^",
+      lease_text: "임차인 ○○○ 점유",
+      objects: [{ object_seq: 1, possession_text: "합성 점유", lease_count: 1 }],
+    },
+    appraisal: {
+      round_seq: 1,
+      price_basis_date: "2099-01-10",
+      opinion: "합성 의견",
+      report: { sha256: "a".repeat(64), media_format: "pdf", size_bytes: 1000 },
+    },
   },
 };
 
@@ -76,6 +95,27 @@ describe("court auction detail", () => {
     expect(screen.getByText("합성유찰")).toBeTruthy();
     expect(screen.getByText("합성매각기일")).toBeTruthy();
     expect(screen.queryByText("물건종류"), "no name, no row").toBeNull();
+  });
+
+  it("shows the case's own documents: 관련사건·당사자·현황조사서·감정평가 (root ADR-0540 §1)", () => {
+    renderCard({ rounds: [round], source_attribution: "x" } as CourtAuction);
+    for (const word of [
+      "관련사건내역",
+      "당사자내역",
+      "현황조사서",
+      "임대차관계",
+      "감정평가",
+      "가격시점",
+    ]) {
+      expect(screen.getByText(word)).toBeTruthy();
+    }
+    expect(screen.getByText("2099타경9 · 중복")).toBeTruthy();
+    expect(screen.getByText("채권자 1 · 임차인 2")).toBeTruthy();
+    expect(screen.getByText("2099년01월02일")).toBeTruthy();
+    expect(screen.getByText("임차인 ○○○ 점유")).toBeTruthy();
+    expect(screen.getByText("합성 의견")).toBeTruthy();
+    const report = screen.getByRole("link", { name: "감정평가서" });
+    expect(report.getAttribute("href")).toContain(`sha256/${"a".repeat(64)}.pdf`);
   });
 
   it("shows an item whose 물건상세 is not read yet without a detail", () => {

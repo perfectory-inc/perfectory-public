@@ -94,6 +94,74 @@
       {"system": "LJH", "owner": "JH", "group": "AUCTN_CS_NM_CD", "names": []}
     ]
   },
+  "case_documents": {
+    "$comment": "Root ADR-0540 §1, §3. A case's own documents: 사건상세, 현황조사 and 감정평가, asked per case after the 물건상세 phase, on the same pool, tally and pace group, until the run's deadline (the 물건상세 phase stops run_time_budget_seconds before it, so these keep their share; the display ladders are not the run's, root ADR-0566). Which cases is computed each run (root ADR-0352): the cases of this run's in-progress list rows (a case's sale date is its soonest, its fingerprint the hash of its properties' item_detail fingerprints) against the last read the read_from table records, never-read first, then what collection.recrawl says is due, soonest sale date first, at most per_run_limit. A due case is asked every document. A document with rounds (현황조사·감정평가 회차) is asked with round_field empty, which answers its newest round and lists every round at rounds_pointer; each other listed round is then asked by number. Every request is one Bronze line with the answer as received, one object per document; names stay in Bronze (root ADR-0540 §4). Measured 2026-11-12 on a live case: each document answered a plain POST with only cortOfcCd and csNo (and the constants), 638 to 5,549 bytes; on the 2026-10-21 prototype's 30,067 cases, 357 surveys and 273 appraisals listed a second round, and the case detail's case basics equalled the 물건상세's for 2,898 of 2,898 cases compared.",
+    "pace_group": "case_detail",
+    "key_fields": ["cortOfcCd", "csNo"],
+    "per_run_limit": 60000,
+    "run_time_budget_seconds": 1800,
+    "read_from": "silver.court_auction_case_document_read",
+    "documents": [
+      {
+        "role": "case_detail",
+        "dataset_slug": "auction_case_detail",
+        "operation": "selectAuctnCsSrchRslt",
+        "path": "/pgj/pgj15A/selectAuctnCsSrchRslt.on",
+        "headers": {"submissionid": "mf_wfm_mainFrame_sbm_selectCsDtlInf", "SC-Pgmid": "PGJ15AF01"},
+        "request_object": "dma_srchCsDtlInf",
+        "request_constants": {}
+      },
+      {
+        "role": "case_survey",
+        "dataset_slug": "auction_case_survey",
+        "operation": "selectCurstExmnRletIndctLst",
+        "path": "/pgj/pgj15B/selectCurstExmnRletIndctLst.on",
+        "headers": {"submissionid": "mf_sbm_selectCurstExmnRletIndctLst", "SC-Pgmid": "PGJ15BP02"},
+        "request_object": "dma_srchCurstExmndcRletIndctLst",
+        "request_constants": {"auctnInfOriginDvsCd": "2"},
+        "round_field": "ordTsCnt",
+        "rounds_pointer": "/data/dlt_rletCsCurstExmnTs",
+        "answered_round_pointer": "/data/dma_ordTsCurstExmnMngInf/ordTsCnt"
+      },
+      {
+        "role": "case_appraisal",
+        "dataset_slug": "auction_case_appraisal",
+        "operation": "selectAeeWevlInfo",
+        "path": "/pgj/pgj15B/selectAeeWevlInfo.on",
+        "headers": {"submissionid": "mf_sbm_selectAeeWevlInfo", "SC-Pgmid": "PGJ15BP03"},
+        "request_object": "dma_srchAeeWevl",
+        "request_constants": {"auctnInfOriginDvsCd": "4", "pgmId": "PGJ15BP03"},
+        "round_field": "ordTsCnt",
+        "rounds_pointer": "/data/dlt_aeeWevlOrdTsLst",
+        "answered_round_pointer": "/data/dma_ordTsIndvdAeeWevlInf/ordTsCnt"
+      }
+    ]
+  },
+  "appraisal_reports": {
+    "$comment": "Root ADR-0540 §1, §3, §6 of the chain. The 감정평가서 PDF of each 감정평가 round, from the viewer the site's own 감정평가 screen opens (PGJ15BP03: https://ca.kapanet.or.kr/view/{court}/{case}/{round}/{appraisal_no}/{written}, the court office code without its leading B). Asked after the case documents, until the run's deadline (the case documents stop run_time_budget_seconds before it, so these keep their share), at most per_run_limit, concurrency at a time. Which reports: the rounds of read_from whose (court, case, round, appraisal_no, written) no row of reports_from records and whose last read in reads_from is not gone within collection.recrawl.max_age_days, newest written first; a report is immutable, so a stored one is never asked again. One GET of the viewer page gives the file key (file_key_pattern); one GET of display_path?key= gives the PDF, sniffed and stored once in the shared content-addressed store (object_prefix_from), the same store the parcel edge serves (r2-connections.contract.json parcel_media). The viewer sometimes asks for a reCAPTCHA (captcha_marker, the page then carries no file key): that report is skipped and recorded as captcha, the asking waits captcha_waits_seconds[n] (the last repeats) and stops for the run after captcha_stop_after in a row. A CAPTCHA is never solved or bypassed and captcha-verify is never called. Each request is one Bronze line (the outcome and the stored hash, not the bytes). Measured 2026-11-12 on two live reports: the viewer page 4,349 bytes HTML with the key and no CAPTCHA, the PDF HTTP 200/206 application/pdf, 4,334,616 to 17,914,543 bytes, no cookie needed, asked as user_agent (our own name, not a browser's). The 매각물건명세서 PDF is not asked (root ADR-0540 §1: the court logs every view and the file carries a 개인정보 watermark).",
+    "dataset_slug": "auction_appraisal_report",
+    "operation": "kapanetAppraisalReport",
+    "base_url": "https://ca.kapanet.or.kr",
+    "view_path": "/view/{court}/{case}/{round}/{appraisal_no}/{written}",
+    "court_code_prefix": "B",
+    "file_key_pattern": "/auction/display\\?key=([0-9A-Za-z-]{8,64})",
+    "captcha_marker": "id=\"captcha_section\"",
+    "display_path": "/auction/display",
+    "key_param": "key",
+    "headers": {"Referer": "https://www.courtauction.go.kr/"},
+    "user_agent": "foundation-platform-court-auction-collector/1 (+root ADR-0540)",
+    "read_from": "silver.court_auction_appraisal",
+    "reports_from": "silver.court_auction_appraisal_report",
+    "reads_from": "silver.court_auction_appraisal_report_read",
+    "object_prefix_from": "data-go-kr-onbid.contract.json#/media/object_prefix",
+    "max_file_bytes": 104857600,
+    "request_timeout_seconds": 120,
+    "per_run_limit": 6000,
+    "concurrency": 4,
+    "run_time_budget_seconds": 1800,
+    "captcha_waits_seconds": [60, 300, 900],
+    "captcha_stop_after": 3
+  },
   "collection": {
     "$comment": "Root ADR-0289/0290 values the collection rules (collection-domain::court_auction), the asking (collection-application::court_auction_asking) and the browser session pool (collection-infrastructure::court_auction_browser) read.",
     "block_signals": {

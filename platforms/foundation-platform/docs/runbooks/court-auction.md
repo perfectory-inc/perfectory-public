@@ -16,7 +16,7 @@ last_reviewed: 2026-11-12
 | 작업 | 단위 | 하는 일 |
 |---|---|---|
 | `court_auction_collect` (작업 등록부 일정, default_pool) | `foundation-court-auction-collect.service` → `scripts/ops/court-auction-collect.sh` | `collect-courtauction-go-kr`: 물건 검색 네 조합 → 매각결과 검색 두 조합. 조합마다 첫 쪽으로 쪽 수를 알고, 나머지 쪽은 계약 `collection.pace` 의 폭만큼 동시에. 검색 하나에 gzip JSON Lines Bronze 객체 하나 |
-| `court_auction_silver` (spark 3칸) | `foundation-court-auction-silver-load.service` → `scripts/ops/court-auction-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 검색마다 표의 커밋 요약이 아직 기록하지 않은 객체를 받고(계약 `silver_load`), `courtauction_go_kr.py load`: 주소로 PNU, `silver.court_auction_item`·`silver.court_auction_sale_result` 에 바뀐 행만. 물건상세 객체는 사진, 문서 여섯 표(사건·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표, 루트 ADR-0540)의 바뀐 것, 읽은 기록 순으로 커밋한다. 계획은 읽은 기록 표와 마지막 문서 표 둘 다 기준이라, 새 문서 표는 창 안의 물건상세 객체로 처음 채워진다. 공통코드 객체(목록을 끝까지 읽은 실행마다 한 요청, 계약 `common_codes`)는 이름이 바뀐 코드를 `silver.court_auction_code` 에 쌓는다(루트 ADR-0540 §5) |
+| `court_auction_silver` (spark 3칸) | `foundation-court-auction-silver-load.service` → `scripts/ops/court-auction-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 검색마다 표의 커밋 요약이 아직 기록하지 않은 객체를 받고(계약 `silver_load`), `courtauction_go_kr.py load`: 주소로 PNU, `silver.court_auction_item`·`silver.court_auction_sale_result` 에 바뀐 행만. 물건상세 객체는 사진, 문서 여섯 표(사건·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표, 루트 ADR-0540)의 바뀐 것, 읽은 기록 순으로 커밋한다. 계획은 읽은 기록 표와 마지막 문서 표 둘 다 기준이라, 새 문서 표는 창 안의 물건상세 객체로 처음 채워진다. 공통코드 객체(목록을 끝까지 읽은 실행마다 한 요청, 계약 `common_codes`)는 이름이 바뀐 코드를 `silver.court_auction_code` 에 쌓는다(루트 ADR-0540 §5). 사건상세·현황조사·감정평가 객체는 문서 표(사건·관련사건·목록별 종국결과·당사자 구분, 현황조사 회차와 목록, 감정평가 회차)의 바뀐 것, 그다음 읽은 기록(`silver.court_auction_case_document_read`) 순으로 커밋하고, 계획은 문서마다 읽은 기록 표 기준이다 |
 
 상태: `/var/lib/foundation-platform/court-auction/`(`journal.log`, 실행마다 `runs/<실행>/run.log`). 다음 실행을 막는 상태 파일은 없다.
 
@@ -78,9 +78,25 @@ last_reviewed: 2026-11-12
 적힌 칸 옆에 `*_name` 으로 붙인다. 화면에 이름 대신 빈칸이 보이면: 그 실행의 `courtauction.go.kr common codes:` 줄(실패 사유),
 `silver.court_auction_code` 에 그 묶음·코드가 있는지 본다. 새 묶음이 필요하면 계약에 묶음과 칸을 더한다(다음 실행부터 받는다).
 
+## 사건 문서 (루트 ADR-0540 §1·§3)
+
+물건상세 뒤에 같은 실행이 이번 목록의 진행 사건 가운데 때가 된 것(한 번도 안 읽음 → 사건의 물건 목록 칸이 바뀜 → 기일 전후 →
+30 일 backstop)의 사건상세·현황조사·감정평가를 묻는다. 현황조사·감정평가는 최신 회차를 묻고, 답이 다른 회차를 나열하면 그 회차도
+묻는다. 예산은 계약 `case_documents.run_time_budget_seconds`(물건상세가 그만큼 먼저 멈춘다). 실행 줄
+`courtauction.go.kr case documents:` 에 대상·요청·실패 수가 나온다. 다 못 물은 사건은 다음 실행이 이어 묻는다.
+
+## 감정평가서 PDF (루트 ADR-0540 §1)
+
+사건 문서 뒤에 같은 실행이 `silver.court_auction_appraisal` 의 회차 가운데 아직 저장하지 않은 감정평가서를, 사이트의 감정평가 화면이
+여는 kapanet 뷰어(`ca.kapanet.or.kr/view/…`)에서 받아 공용 저장소(`onbid/media/sha256/<해시>.pdf`)에 한 번 담는다. 상한·동시·예산은
+계약 `appraisal_reports`. 뷰어가 reCAPTCHA 를 요구하면 **풀지 않는다**: 그 파일은 `captcha` 로 기록하고 건너뛰며, 계약의 대기를 두고,
+연속 `captcha_stop_after` 번이면 그 실행은 멈춘다(다음 실행이 다시 묻는다). 실행 줄 `courtauction.go.kr appraisal reports:` 에
+요청·저장·캡차 수가 나온다. 캡차 기록은 `silver.court_auction_appraisal_report_read` 의 `outcome = 'captcha'`. 매각물건명세서 PDF 는
+받지 않는다(법원 쪽 열람 기록·개인정보 워터마크).
+
 ## 개인정보 (루트 ADR-0540)
 
-받은 응답은 Bronze 에 바이트 그대로 있다. 사람 이름이 있는 칸(지분 서술 `dspslStkCtt`, 사법보좌관 `jdgeAojAsstnNm` 등)은
+받은 응답은 Bronze 에 바이트 그대로 있다. 사람 이름이 있는 칸(지분 서술 `dspslStkCtt`, 사법보좌관 `jdgeAojAsstnNm`, 당사자 `intrpsNm`, 감정평가사 `aeeEvlExamrNm` 등)은
 Silver 칸이 없고, Silver 가 싣는 서술(명세서 요약·비고·감정요항표)은 계약 `personal_names` 규칙으로 이름을 `○○○` 로 가린다.
 가림이 놓친 이름을 보면 그 낱말 자리(앞뒤 낱말)를 계약에 더하고, 다음 물건상세 읽기부터 고쳐진다(바뀐 판만 새로 붙는다).
 
