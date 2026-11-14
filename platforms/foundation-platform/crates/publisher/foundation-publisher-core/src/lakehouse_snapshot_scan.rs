@@ -261,6 +261,19 @@ pub async fn scan_snapshot_inventory(
     })
 }
 
+/// The live data files of `snapshot` as its manifests record them, without opening one: the production
+/// shape ledger's view of a table (which columns each file was written with, its key bounds), read where
+/// it read Trino's `$files` (root ADR-0259, ADR-0565).
+///
+/// # Errors
+/// Returns an error when the manifest list or a manifest cannot be read.
+pub async fn scan_snapshot_data_files(
+    lakehouse: &impl LakehouseByteReader,
+    snapshot: &IcebergSnapshotManifestList,
+) -> anyhow::Result<Vec<iceberg_scan::ScannedDataFile>> {
+    Ok(snapshot_files(lakehouse, snapshot).await?.0)
+}
+
 /// The shards of a by-PNU bake of `snapshot`, planned from its manifests alone (no data file is
 /// opened), and the snapshot's whole record count before deletes, an upper bound: see
 /// [`shard_plan`].

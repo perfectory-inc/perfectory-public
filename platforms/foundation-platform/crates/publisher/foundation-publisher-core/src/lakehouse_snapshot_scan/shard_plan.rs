@@ -112,6 +112,7 @@ mod tests {
             file_path: format!("s3://fixture/{lower}-{upper}.parquet"),
             record_count: records,
             file_size_in_bytes: 1,
+            column_size_field_ids: Vec::new(),
             column_statistics: BTreeMap::from([(
                 "pnu".to_owned(),
                 ColumnStatistics {

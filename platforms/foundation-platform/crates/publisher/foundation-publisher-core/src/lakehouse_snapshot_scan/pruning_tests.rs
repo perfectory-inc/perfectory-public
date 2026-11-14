@@ -391,6 +391,7 @@ fn file(lower: Option<&str>, upper: Option<&str>, nulls: Option<u64>) -> Scanned
         file_path: "s3://lakehouse/gold/fixture/x.parquet".to_owned(),
         record_count: 1,
         file_size_in_bytes: 1,
+        column_size_field_ids: Vec::new(),
         column_statistics: BTreeMap::from([(
             "pnu".to_owned(),
             ColumnStatistics {

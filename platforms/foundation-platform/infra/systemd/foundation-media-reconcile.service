@@ -12,7 +12,6 @@ Type=oneshot
 User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
-EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/media-reconcile.sh
 # The job list's time_limit_minutes (jobs.v1.json): the index rows since the last run through Trino
