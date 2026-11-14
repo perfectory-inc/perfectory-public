@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -246,7 +247,7 @@ class FactRunTest(unittest.TestCase):
                 return []
 
             with unittest.mock.patch.dict("os.environ", {}, clear=True), \
-                    unittest.mock.patch.object(fact_run.Port, "from_env", return_value=unittest.mock.Mock(model="m")), \
+                    unittest.mock.patch.object(fact_run.Port, "from_env", return_value=fact_run.Port("http://127.0.0.1:9", "/v1/chat/completions", "m", None, None, 600)), \
                     unittest.mock.patch.object(fact_run, "land_use_by_model", side_effect=model):
                 fact_run.main(["--pages", str(root), "--out", str(root / "out")])
             outcomes = [json.loads(l)["sha256"] for l in (root / "out" / "document_fact_outcome.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -255,6 +256,35 @@ class FactRunTest(unittest.TestCase):
         self.assertIn(closes, written_when_asked[0])
         self.assertEqual(outcomes, [closes, needs_model])
         self.assertEqual(summary["counts"]["closed_by_rules"], 1)
+
+    def test_no_model_call_outlasts_the_runs_budget(self) -> None:
+        """2026-11-13 22:43Z: the budget was checked only between documents, a document's model pages
+        ran past it and systemd killed the run at 80 minutes, before the fold. A call starts only
+        before the deadline and is cut at it; the document it was for is left to the next run."""
+        from document_text.model_port import Port
+        late = Port("http://127.0.0.1:9", "/v1/chat/completions", "m", None, None, 600, deadline=time.monotonic() - 1)
+        with self.assertRaises(TimeoutError):
+            late.chat([{"role": "user", "content": "x"}])
+        seen = []
+
+        def opened(request, timeout):
+            seen.append(timeout)
+            raise OSError("closed")
+
+        soon = Port("http://127.0.0.1:9", "/v1/chat/completions", "m", None, None, 600, deadline=time.monotonic() + 5)
+        with unittest.mock.patch("urllib.request.urlopen", side_effect=opened), self.assertRaises(OSError):
+            soon.chat([{"role": "user", "content": "x"}])
+        self.assertLessEqual(seen[0], 5)
+        spent = dict(load_contract())
+        spent["document_fact"] = {**spent["document_fact"], "run_time_budget_seconds": 0}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write(root, [("text_layer", "토지이용계획\n계 1,000 100.0\n산업시설용지 600 60.0\n공공시설용지 300 30.0")])
+            env = {"MODEL_RUNTIME_BASE_URL": "http://127.0.0.1:9", "MODEL_RUNTIME_DEFAULT_MODEL": "m"}
+            with unittest.mock.patch.dict("os.environ", env, clear=True), \
+                    unittest.mock.patch.object(fact_run, "load_contract", return_value=spent):
+                fact_run.main(["--pages", str(root), "--out", str(root / "out")])
+            self.assertEqual((root / "out" / "document_fact_outcome.jsonl").read_text(encoding="utf-8"), "")
 
     def test_an_ocr_value_without_a_total_waits_for_the_vision_check(self) -> None:
         facts, outcomes, _ = self.run_once([("ocr", "주요유치업종\n전기장비 제조업(28)")])

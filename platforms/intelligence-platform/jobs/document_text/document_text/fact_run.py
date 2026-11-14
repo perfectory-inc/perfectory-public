@@ -20,6 +20,7 @@ holds back only the documents that need it.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 import time
@@ -157,13 +158,19 @@ def main(argv: list[str] | None = None) -> int:
                 pages[row["sha256"]].append(Page(row["page_number"], row["char_start"], row["char_end"], row["method"], row["text"]))
     planned = sorted(formats)[: settings["per_run_limit"]]
     port = Port.from_env(settings["model_timeout_seconds"])
+    started = time.monotonic()
+    if port is not None:
+        # A model call is bounded by the run's budget, not only by the document it is in:
+        # 2026-11-13 22:43Z a run's last documents asked the model page after page past
+        # run_time_budget_seconds and the unit was killed at its 80-minute limit before the fold.
+        # A document whose call the deadline cuts is not written; the next run reads it again.
+        port = dataclasses.replace(port, deadline=started + settings["run_time_budget_seconds"])
     ksic = load_ksic()
     budget = {"model_pages": settings["model_pages_per_run"]}
 
     args.out.mkdir(parents=True, exist_ok=True)
     totals: Counter = Counter()
     dropped: Counter = Counter()
-    started = time.monotonic()
     with (args.out / "document_fact.jsonl").open("w", encoding="utf-8") as fact_file, (args.out / "document_fact_outcome.jsonl").open("w", encoding="utf-8") as outcome_file:
         def read(sha: str, model: Port | None) -> bool:
             """Reads one document and writes it if it is complete; False when it has to wait."""
