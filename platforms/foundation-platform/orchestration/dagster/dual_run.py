@@ -153,10 +153,16 @@ def _due(ticks, runs, paused=()):
     within the scheduler's lag of the moment the job is free, which of the two the scheduler takes
     first is a race with its own loop. It ran both on 2026-11-03 and 11-04 (above) and only the later
     one on 2026-11-12 (rt_molit_real_transaction_collect, unpaused 18:25:13: the 18:25 tick ran and
-    17:25 never did). Either is how Airflow decides; Dagster's own rule runs the latest one."""
-    changes = sorted([(run.start, 1, run.run_type) for run in runs]
-                     + [(run.end, -1, "") for run in runs if run.end is not None]
-                     + [(a, 2, "") for a, _ in paused] + [(b, -2, "") for _, b in paused if b != math.inf])
+    17:25 never did). Either is how Airflow decides; Dagster's own rule runs the latest one.
+
+    The scheduled run that starts while a decision awaits its run names the tick Airflow took (its run id,
+    `tick_of`): that tick is the decision, and the waiting ticks up to it fold into it. Without it the
+    guess shifted one tick along a run of retried failures, each ending seconds after the next tick
+    (asset_reconcile 2026-11-13 22:50-23:31Z, every run failing for 5 min while the code location did
+    not load): the 23:15 tick read as Airflow's alone."""
+    changes = sorted([(run.start, 1, run.run_type, run.run_id) for run in runs]
+                     + [(run.end, -1, "", "") for run in runs if run.end is not None]
+                     + [(a, 2, "", "") for a, _ in paused] + [(b, -2, "", "") for _, b in paused if b != math.inf])
     running = held = 0
     awaiting = None  # when a decided tick stops holding the job if no run started
     before = None  # the ticks waiting before the last decision, while it awaits its run
@@ -177,13 +183,25 @@ def _due(ticks, runs, paused=()):
     index = 0
     for tick in [*ticks, math.inf]:
         while index < len(changes) and changes[index][0] <= tick:
-            at, change, run_type = changes[index]
+            at, change, run_type, run_id = changes[index]
             index += 1
             if change in (1, -1):
                 running = max(0, running + change)
                 if change == 1 and awaiting is not None and at < awaiting and run_type != "scheduled":
                     either.discard(due.pop())
                     waiting = sorted({*before, *waiting})
+                elif change == 1 and awaiting is not None and at < awaiting:
+                    try:
+                        taken = tick_of(run_id)
+                    except ValueError:  # a run id that names no tick says nothing about the race
+                        taken = None
+                    if taken is not None and taken != due[-1] and taken in {*before, *waiting}:
+                        # Airflow took a later waiting tick than the guess: that one is the decision.
+                        either.discard(due.pop())
+                        due.append(taken)
+                        waiting = [tick for tick in waiting if tick > taken]
+                    elif taken == due[-1]:
+                        either.discard(taken)
                 if change == 1:
                     awaiting = None
             else:
