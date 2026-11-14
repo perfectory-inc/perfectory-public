@@ -341,10 +341,18 @@ class LaneCutover(OperatorHarness):
         import gold_rebuild  # noqa: PLC0415 -- beside by_pnu_kinds on the path
 
         rebuild = gold_rebuild.load_contract()["tables"]
-        held = {lane for lane in CONTRACT["by_pnu_lanes"]
-                if f"foundation-gold-lane-rebuild@{rebuild[by_pnu_kinds.lane_fields(lane)['gold_table']]['unit']}.service"
-                in off}
-        self.assertIn("parcel-nearby", held)
+
+        def own_gold(lane):
+            # A Gold the publisher builds is its versions job's (root ADR-0564, ADR-0567).
+            table = rebuild.get(by_pnu_kinds.lane_fields(lane)["gold_table"])
+            if table is None:
+                return f"foundation-gold-versions@{lane}.service"
+            return f"foundation-gold-lane-rebuild@{table['unit']}.service"
+
+        held = {lane for lane in CONTRACT["by_pnu_lanes"] if own_gold(lane) in off}
+        self.assertIn("parcel-regulation-zones", held)
+        # parcel-nearby's Gold moved to the publisher, and its job is on again.
+        self.assertNotIn("parcel-nearby", held)
         result, _ = self.runner("lanes", "--pending")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.split(), [lane for lane in CONTRACT["by_pnu_lanes"] if lane not in held])
