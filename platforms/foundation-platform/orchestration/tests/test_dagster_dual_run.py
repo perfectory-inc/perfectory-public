@@ -401,6 +401,7 @@ class LiveCheckTest(unittest.TestCase):
 
 
 
+@unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
 class ARetriedFailureNamesItsTick(unittest.TestCase):
     """2026-11-13 22:50-23:31Z: every asset_reconcile run failed and retried for 5 minutes while the Dagster
     code location did not load; each ended seconds after the next tick and Airflow started that tick's run
