@@ -53,6 +53,15 @@ class HeldLock(unittest.TestCase):
         self.assertLess(recorded, deploy.index('systemctl stop --no-block "${unit}"'),
                         "the outcome is recorded before the stop")
 
+    def test_every_job_names_itself_to_postgres(self):
+        # 2026-11-13 23:28:36Z a backend died by SIGPIPE, Postgres restarted every process, and no log
+        # line said which client it served.
+        self.assertRegex(ADMISSION.read_text(encoding="utf-8"), r"(?m)^Environment=PGAPPNAME=%N$")
+        recovery = (job_specs.PLATFORM_ROOT / "compose.recovery.yml").read_text(encoding="utf-8")
+        for setting in ("log_line_prefix=%m [%p] %q%a %u@%d %r ", "log_connections=on",
+                        "recovery_init_sync_method=syncfs"):
+            self.assertIn(setting, recovery)
+
     def test_no_job_ends_a_held_lock_as_a_failure(self):
         # A job's program that finds its lock held ends through the helper, never a bare 75.
         bare = re.compile(r"\b(exit|return)\s+75\b|flock -n.*\b75\b")
