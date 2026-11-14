@@ -12,11 +12,10 @@ use super::*;
 
 const EDITION: &str = "synthetic__parcel-209906";
 
-/// A connection with the spatial and h3 extensions, as the release loads them by path.
+/// A connection with the spatial extension, as the release loads it by path.
 fn connection() -> anyhow::Result<Connection> {
     let connection = Connection::open_in_memory()?;
-    connection
-        .execute_batch("INSTALL spatial; LOAD spatial; INSTALL h3 FROM community; LOAD h3;")?;
+    connection.execute_batch("INSTALL spatial; LOAD spatial;")?;
     Ok(connection)
 }
 
@@ -213,7 +212,13 @@ fn every_served_parcel_gets_its_nearest_facilities_stores_and_highways() -> anyh
     assert_eq!(read.facilities["railway_station"], 2);
     assert_eq!(read.facilities["university"], 1);
     assert_eq!(
-        build_sido(&connection, "99", "123", "2099-01-01T00:00:00Z")?,
+        build_sido(
+            &connection,
+            &read.store_cells,
+            "99",
+            "123",
+            "2099-01-01T00:00:00Z"
+        )?,
         3
     );
     let rows = documents(&connection)?;
@@ -358,8 +363,14 @@ fn a_document_carries_exactly_the_registry_s_fields() -> anyhow::Result<()> {
     schema_paths(&schema["properties"]["nearby"], "nearby", &mut recorded);
     let connection = connection()?;
     load(&connection)?;
-    load_inputs(&connection, &Source::Local, EDITION)?;
-    build_sido(&connection, "99", "123", "2099-01-01T00:00:00Z")?;
+    let read = load_inputs(&connection, &Source::Local, EDITION)?;
+    build_sido(
+        &connection,
+        &read.store_cells,
+        "99",
+        "123",
+        "2099-01-01T00:00:00Z",
+    )?;
     // The first parcel's document names every facility, a store count and a highway list.
     let (_, first, _, _) = documents(&connection)?
         .into_iter()

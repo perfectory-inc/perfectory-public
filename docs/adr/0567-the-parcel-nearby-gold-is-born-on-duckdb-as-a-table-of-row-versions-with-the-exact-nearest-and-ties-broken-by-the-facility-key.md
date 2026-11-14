@@ -36,7 +36,7 @@ gold 단계였으므로 매번 패널 재구축 잠금을 160 분 쥐었고, 그
    `LatestPerKey(pnu, version_seq)`, `truncate(2, pnu)`. 계약은 종류 줄의 `versions_table: true` 에서 `by_pnu_kind::derive` 가 만들고, 줄의
    `gold_table` 이 레인이 굽는 표를 이것으로 정한다. `gold.parcel_nearby` 는 칸을 물려주는 계약으로만 남고 만들지 않는다(그래프 `contract_only`).
 2. **생산자는 발행기 명령 하나다: `build-parcel-nearby-versions`**(작업 `gold_parcel_nearby_rebuild`, 유닛 `foundation-gold-versions@parcel-nearby`).
-   발행기 안의 DuckDB(`spatial`·`h3` 확장, 릴리스가 실어 경로로 로드 — `duckdb-extensions.contract.json`)가 계산하고
+   발행기 안의 DuckDB(`spatial` 확장, 릴리스가 실어 경로로 로드 — `duckdb-extensions.contract.json`)가 계산하고
    (`parcel_nearby_stage`: `nearest.sql`·`document.sql`), 발행기가 ADR-0564 §3 의 길로 붙인다(`gold_versions_commit`: 기준 커밋에서 계획,
    머리의 현재 행과 `row_digest` 로 차분, 바뀐 키만 한 번의 추가 커밋, 머리가 아직 그 스냅샷일 때만, 그 뒤 빌드·입력 태그). Spark 세션은 없다.
    표가 없으면 첫 run 이 계약대로 만든다(`LakehouseDataCommitter::create_table_if_absent`): 배포의 lakehouse 이전은 없는 표를 그 적재에 남긴다.
@@ -63,7 +63,10 @@ gold 단계였으므로 매번 패널 재구축 잠금을 160 분 쥐었고, 그
 
 - 레인의 문서 `source.table` 은 `gold.parcel_nearby_versions` 다. 문서 스키마는 그대로다(레지스트리 주제 판 1). 그 필드 목록은 Rust 시험이
   레지스트리 스키마와 대조한다(`a_document_carries_exactly_the_registry_s_fields`).
-- 릴리스가 `spatial`(108 MB)·`h3`(0.5 MB) 확장을 싣는다. 모든 DuckDB 단계가 같은 다섯 확장을 로드한다.
+- 릴리스가 `spatial`(108 MB) 확장을 싣는다. 모든 DuckDB 단계가 같은 네 확장을 로드한다.
+- H3 칸(해상도 9)과 두 고리는 발행기가 h3o(H3 라이브러리의 Rust 구현, BSD-3, Sedona `ST_H3CellIDs` 와 같은 H3 v4)로 센다.
+  DuckDB 의 커뮤니티 h3 확장은 경로로 로드할 때 서명이 인정되지 않아 `allow_unsigned_extensions` 를 켜야만 로드된다(릴리스 빌드의 오프라인
+  로드가 거부했다, 2026-11-14). 서명 검사를 끄는 대신 칸 계산을 발행기로 옮겼다.
 - 유닛 상한 60 분, 메모리 상한 8G(측정 최고 5.01 GiB 의 1.5 배 위). DuckDB 버퍼는 유닛에 남은 메모리의 5 분의 3 이다.
 - 풀은 spark 3 칸 그대로다: 엔진과 오케스트레이션을 한 PR 에서 바꾸지 않는다(작업 이동 W82b). 메모리 계약의 슬롯 계산이 Spark 작업과
   겹치지 않게 지킨다.
