@@ -234,7 +234,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-bake-shards.sh"
 ENV_PREFIX="$(by_pnu_lane_env_prefix "${UNIT}")"
 # The Gold table the lane bakes (by_pnu_kinds.baked_gold_table): a table of appended row versions
 # names its change set by version_seq (root ADR-0564 §5), every other one by the delta job.
-LANE_GOLD="$(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import by_pnu_kinds; print(by_pnu_kinds.baked_gold_tables().get(sys.argv[2], ""))'   "${RELEASE_ROOT}/infra/lakehouse/spark/jobs" "${UNIT}")"
+# The parcel and building lanes bake their panels; only a by_pnu_lanes lane can name such a table.
+LANE_GOLD=""
+if [[ "${UNIT}" != parcel && "${UNIT}" != building ]]; then
+  LANE_GOLD="$(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import by_pnu_kinds; print(by_pnu_kinds.baked_gold_tables().get(sys.argv[2], ""))'     "${RELEASE_ROOT}/infra/lakehouse/spark/jobs" "${UNIT}")"
+fi
 STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}/${UNIT}"
 # A full bake an operator approved in the console (`force_full`, root ADR-0433 §5) instead of a line
 # in the environment file: switches/full.d/<id> (foundation-api's, read here) names this lane. The
