@@ -184,25 +184,54 @@ class Layout(unittest.TestCase):
         contracts = {"gold.a__changes": {"write_distribution": "range", "sort_order": ["pnu"]}}
         self.assertEqual(check.clustered_tables(contracts), {})
 
-    def test_layout_reads_only_metadata_tables_and_skips_tables_without_rows(self):
+    def test_layout_reads_the_manifests_answer_and_skips_tables_without_rows(self):
+        # Root ADR-0565: the bounds come from the publisher's reading of the manifests, the last
+        # commit from the table's metadata; nothing asks Trino.
         contracts = {"gold.a": {"write_distribution": "range", "sort_order": ["pnu"]},
                      "gold.b": {"write_distribution": "range", "sort_order": ["pnu"]},
                      "silver.c": {"write_distribution": "hash", "sort_order": ["pnu"]}}
         shape = {"has_rows": True, "fields": [[7, "pnu", "string", True]]}
         lakehouse = {"tables": {"gold.a": shape, "gold.b": {**shape, "has_rows": False}, "silver.c": shape}}
+        answers = {table: {"table": table, "shapes": [[7]], "bounds": [list(pair) for pair in self.COUNTRY_WIDE]}
+                   for table in ("gold.a", "gold.b", "silver.c")}
+        failures, _ = check.layout(answers, {}, contracts, lakehouse)
+        self.assertEqual([failure.split(":")[0] for failure in failures], ["gold.a"])
+        self.assertEqual(check.clustered_tables(contracts), {"gold.a": "pnu", "gold.b": "pnu"})
+
+    def test_the_last_data_commit_is_the_newest_with_a_parent_that_is_not_a_compaction(self):
+        capture = repository_capture()
+        metadata = {"snapshots": [
+            {"snapshot-id": 1, "timestamp-ms": 1, "summary": {"operation": "append"}},
+            {"snapshot-id": 2, "parent-snapshot-id": 1, "timestamp-ms": 2, "summary": {"operation": "overwrite", "x": "1"}},
+            {"snapshot-id": 3, "parent-snapshot-id": 2, "timestamp-ms": 3, "summary": {"operation": "replace"}}]}
+        self.assertEqual(capture.last_data_commit(metadata), ({"operation": "overwrite", "x": "1"}, "overwrite"))
+        self.assertIsNone(capture.last_data_commit({"snapshots": metadata["snapshots"][:1]}))
+
+    def test_one_publisher_run_answers_every_table_and_a_missing_answer_fails(self):
+        capture = repository_capture()
         asked = []
 
-        def rows(url, sql):
-            asked.append(sql)
-            return [[low, high] for low, high in self.COUNTRY_WIDE] if "$files" in sql else []
+        def run(lines):
+            asked.append(lines)
+            return "".join(json.dumps({"table": line.split()[0], "shapes": [[1]]}) + "\n" for line in lines)
 
-        failures, _ = check.layout(rows, "http://trino", contracts, lakehouse)
-        self.assertEqual(len(failures), 1)
-        self.assertTrue(failures[0].startswith("gold.a:"))
-        self.assertEqual(len(asked), 2)
-        self.assertTrue(all('"a$files"' in sql or '"a$snapshots"' in sql for sql in asked))
-        self.assertIn("element_at(lower_bounds, 7)", asked[0])
+        found = capture.file_answers({"gold.a": "pnu", "silver.b": None}, run)
+        self.assertEqual(asked, [["gold.a pnu", "silver.b"]])
+        self.assertEqual(sorted(found), ["gold.a", "silver.b"])
+        with self.assertRaises(RuntimeError):
+            capture.file_answers({"gold.a": None}, lambda lines: "")
+        self.assertEqual(capture.file_answers({}, lambda lines: self.fail("asked")), {})
 
+
+
+def repository_capture():
+    """The capture module of this checkout (load_capture reads the installed release's)."""
+    spec = importlib.util.spec_from_file_location(
+        "lakehouse_production_shape_under_test",
+        pathlib.Path(__file__).resolve().parents[2] / "scripts/ops/lakehouse-production-shape.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 class Publish(unittest.TestCase):
     """Root ADR-0476: each new shape once, the head every run, the history when the pair changed."""

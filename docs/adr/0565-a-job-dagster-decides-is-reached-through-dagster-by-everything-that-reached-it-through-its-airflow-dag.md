@@ -168,3 +168,20 @@ Airflow 가 결정하는 동안은 `run` 과제의 재시도가 같은 유닛 ru
 - **DataHub 의 Dagster 플러그인(`acryl-datahub-dagster-plugin`)이나 `openlineage-dagster` 로 계보**: 흐름의 정체가 Dagster 의 작업 이름으로 바뀌어
   작업마다 이력이 둘로 끊기고, `operations.rs` 가 두 이름을 이어야 한다. 플러그인은 Dagster 버전에 묶인다(잠금 파일의 1.13.27 과 따로 움직인다).
 - **단계를 조각마다 반쯤 열기**(예: 계보 없이 `dagster` 허용): 옮긴 작업이 운영 지도에서 사라진다. §1.
+
+## 개정 각주 — 2026-11-14, 첫 Trino 독자가 떠난다: 운영 모양 원장
+
+이 각주는 결정을 바꾸지 않는다. Airflow 끄기와 함께 맡은 Trino 끄기의 첫 독자(운영 모양 원장, 2026-11-12 Trino 문장 1,939개 중 1,390개)를
+어디로 옮기는지 적는다.
+
+- **엔진 없이 매니페스트로.** 원장과 배치 검사가 Trino 의 `$files`·`$snapshots` 에 묻던 것은 표의 메타데이터뿐이다. 이미 있는 Rust
+  매니페스트 읽기(`lakehouse_snapshot_scan`, `inventory-lakehouse` 가 쓰는 것)가 파일마다 열 크기를 기록한 필드 id 를 더 내고, 발행기
+  명령 `lakehouse-file-shapes` 가 표마다 그 집합과 군집 키의 경계를 한 줄로 낸다. 마지막 데이터 커밋은 카탈로그 REST 메타데이터의
+  스냅숏 목록에서 읽는다. 원장 단위는 현재 릴리스의 승인된 발행기(`admitted-writer-runtime.sh`)를 부른다. 2026-11-13 운영 표 5개에서
+  DuckDB 로 매니페스트를 직접 읽은 열 집합이 Trino `$files` 와 같았다(표당 약 1초).
+- **읽기 전용 키만.** 매니페스트를 읽으려면 lakehouse 읽기 키 쌍과 버킷·엔드포인트가 필요한데, 버킷·엔드포인트를 가진 그룹
+  파일은 모두 쓰기 토큰도 가졌다(`source-sweep.env`, `parcel-publication.env`). 그룹은 이제 `fills` 를 선언할 수 있다: 배포의
+  `runtime_secrets.py rename` 단계가, 그 그룹 파일에 없는 비밀 아닌 설정을 그것을 이미 가진 다른 그룹 파일들이 같은 값으로 가질 때
+  덧붙인다. 자격 증명 모양의 이름(토큰에서 나온 이름, `TOKEN`·`KEY`·`SECRET`·`PASSWORD`·`URL` 을 담은 이름)은 계약이 거부한다.
+  `lakehouse-reader.env` 가 버킷·엔드포인트를 채우므로, 그것만 읽던 단위 셋(`admin-boundary-release`, `complex-boundary-release`,
+  `media-reconcile`)은 쓰기 토큰이 든 파일을 더 이상 읽지 않는다. 사람 단계는 없다.

@@ -13,6 +13,7 @@ User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=-/etc/foundation-platform/operations-map.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 # Root (+) and from the control checkout, like the edge settings: it reads the account token's file
 # itself and mints this run's 20-minute writer key, shape-ledger/ of the ledger bucket only, into the
 # RuntimeDirectory (root ADR-0476). The check never sees the token; it never fails the run.

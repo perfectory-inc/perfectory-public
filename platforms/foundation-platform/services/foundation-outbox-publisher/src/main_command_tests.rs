@@ -463,6 +463,15 @@ fn write_parcel_publication_evidence_command_is_explicit() -> anyhow::Result<()>
 }
 
 #[test]
+fn lakehouse_file_shapes_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "lakehouse-file-shapes"])?,
+        Command::LakehouseFileShapes
+    );
+    Ok(())
+}
+
+#[test]
 fn inventory_lakehouse_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "inventory-lakehouse"])?,

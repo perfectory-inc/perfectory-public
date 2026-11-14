@@ -50,6 +50,10 @@ pub struct ScannedDataFile {
     /// What the manifest recorded per top-level column, by column name. A column the manifest
     /// recorded nothing for, or whose field id the manifest's schema does not name, is absent.
     pub column_statistics: BTreeMap<String, ColumnStatistics>,
+    /// Every field id the manifest recorded a column size for, ascending: the columns the file was
+    /// written with (a nested column by its leaf ids). The production shape ledger reads this where
+    /// it read Trino's `$files.column_sizes` (root ADR-0259, ADR-0565).
+    pub column_size_field_ids: Vec<i64>,
 }
 
 /// What a manifest recorded about one column of one data file.
@@ -289,6 +293,7 @@ pub fn data_files(manifest_avro: &[u8]) -> anyhow::Result<Vec<ScannedDataFile>> 
             file_size_in_bytes: u64::try_from(file_size_in_bytes)
                 .context("Iceberg data file file_size_in_bytes must not be negative")?,
             column_statistics: column_statistics(data_file, &column_names),
+            column_size_field_ids: column_size_field_ids(data_file),
         });
     }
     Ok(data_files)
@@ -315,6 +320,19 @@ fn manifest_column_names(header: &HashMap<String, Vec<u8>>) -> BTreeMap<i64, Str
             ))
         })
         .collect()
+}
+
+/// The field ids a manifest recorded a column size for, for one data file (`column_sizes`, an Avro
+/// array of `{key: field id, value: bytes}` records), ascending and once each.
+fn column_size_field_ids(data_file: &AvroValue) -> Vec<i64> {
+    let Some(AvroValue::Array(entries)) = field(data_file, "column_sizes").map(resolve) else {
+        return Vec::new();
+    };
+    let ids: BTreeSet<i64> = entries
+        .iter()
+        .filter_map(|entry| optional_integer_field(entry, "key").ok().flatten())
+        .collect();
+    ids.into_iter().collect()
 }
 
 /// The bounds and null counts a manifest recorded for one data file, by column name.
@@ -879,6 +897,94 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].record_count, 37);
         assert_eq!(files[0].file_size_in_bytes, 4_096);
+        Ok(())
+    }
+
+    /// The production shape ledger reads which columns each live file was written with from here
+    /// (root ADR-0259, ADR-0565): every field id `column_sizes` names, a nested column by its leaf
+    /// ids, once each; a file that records none has none; a deleted entry is not a live file.
+    #[test]
+    fn data_files_name_every_field_id_a_column_size_is_recorded_for() -> anyhow::Result<()> {
+        let schema = Schema::parse_str(
+            r#"{
+              "type": "record",
+              "name": "manifest_entry",
+              "fields": [
+                {"name": "status", "type": "int"},
+                {"name": "data_file", "type": {
+                  "type": "record",
+                  "name": "data_file",
+                  "fields": [
+                    {"name": "content", "type": "int"},
+                    {"name": "file_path", "type": "string"},
+                    {"name": "file_format", "type": "string"},
+                    {"name": "record_count", "type": "long"},
+                    {"name": "file_size_in_bytes", "type": "long"},
+                    {"name": "column_sizes", "type": ["null", {"type": "array", "items": {
+                      "type": "record", "name": "k117_v118",
+                      "fields": [{"name": "key", "type": "int"}, {"name": "value", "type": "long"}]
+                    }}], "default": null}
+                  ]
+                }}
+              ]
+            }"#,
+        )?;
+        let entry = |status: i32, path: &str, ids: Option<&[i32]>| {
+            let sizes = ids.map_or(AvroValue::Union(0, Box::new(AvroValue::Null)), |ids| {
+                AvroValue::Union(
+                    1,
+                    Box::new(AvroValue::Array(
+                        ids.iter()
+                            .map(|id| {
+                                AvroValue::Record(vec![
+                                    ("key".to_owned(), AvroValue::Int(*id)),
+                                    ("value".to_owned(), AvroValue::Long(10)),
+                                ])
+                            })
+                            .collect(),
+                    )),
+                )
+            });
+            AvroValue::Record(vec![
+                ("status".to_owned(), AvroValue::Int(status)),
+                (
+                    "data_file".to_owned(),
+                    AvroValue::Record(vec![
+                        ("content".to_owned(), AvroValue::Int(0)),
+                        ("file_path".to_owned(), AvroValue::String(path.to_owned())),
+                        (
+                            "file_format".to_owned(),
+                            AvroValue::String("PARQUET".to_owned()),
+                        ),
+                        ("record_count".to_owned(), AvroValue::Long(1)),
+                        ("file_size_in_bytes".to_owned(), AvroValue::Long(1)),
+                        ("column_sizes".to_owned(), sizes),
+                    ]),
+                ),
+            ])
+        };
+        let mut writer = Writer::new(&schema, Vec::new());
+        writer.append(entry(1, "s3://lakehouse/a.parquet", Some(&[3, 1, 7, 1])))?;
+        writer.append(entry(0, "s3://lakehouse/b.parquet", None))?;
+        writer.append(entry(2, "s3://lakehouse/gone.parquet", Some(&[9])))?;
+        let files = data_files(&writer.into_inner()?)?;
+
+        let found: Vec<(&str, &[i64])> = files
+            .iter()
+            .map(|file| {
+                (
+                    file.file_path.as_str(),
+                    file.column_size_field_ids.as_slice(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ("s3://lakehouse/a.parquet", &[1_i64, 3, 7][..]),
+                ("s3://lakehouse/b.parquet", &[][..]),
+            ]
+        );
         Ok(())
     }
 
