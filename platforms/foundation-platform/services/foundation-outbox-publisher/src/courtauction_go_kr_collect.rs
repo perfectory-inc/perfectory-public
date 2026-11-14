@@ -895,19 +895,10 @@ async fn run_cases(
     contract: &SourceContract,
     asking: &Asking<'_>,
     deadline: Instant,
-    results: &BTreeMap<&'static str, SearchResult>,
+    wanted: Vec<cases::WantedCase>,
     live: bool,
 ) -> anyhow::Result<(cases::CasesResult, Option<Stop>, JsonValue)> {
     let documents = &contract.case_documents;
-    let lines = results
-        .get("item_search")
-        .map(|r| r.lines.as_slice())
-        .unwrap_or_default();
-    let wanted = cases::cases_of(&detail::wanted_from_lines(
-        lines,
-        &contract.item_detail,
-        &contract.collection,
-    ));
     let last = if live {
         match cases::last_reads_from_lakehouse(documents).await {
             Ok(last) => last,
@@ -1047,6 +1038,7 @@ pub async fn run() -> anyhow::Result<()> {
         }
     }
     let mut details: Option<(detail::DetailResult, JsonValue)> = None;
+    let mut case_wanted: Vec<cases::WantedCase> = Vec::new();
     // The case documents end the run; the 물건상세 leave them their budget (root ADR-0540 §1). The
     // photos' display ladders are the hourly backlog's, not the run's (root ADR-0566).
     let cases_deadline = deadline;
@@ -1058,6 +1050,15 @@ pub async fn run() -> anyhow::Result<()> {
             .unwrap_or(cases_deadline);
         let (asked, mut report) =
             detail_frontier(&contract, &results, live.map(|(_, s)| s)).await?;
+        // The cases of this run's in-progress list rows, taken before the lines go (root ADR-0540 §3).
+        case_wanted = cases::cases_of(&detail::wanted_from_lines(
+            results
+                .get("item_search")
+                .map(|r| r.lines.as_slice())
+                .unwrap_or_default(),
+            &contract.item_detail,
+            &contract.collection,
+        ));
         // The list lines are in Bronze and the frontier is read from them: nothing reads them again,
         // and the detail asking runs for hours. 2026-11-08 a run that read the lists only peaked at
         // 546 MB, and from 11-10 the details were asked with the lists still held: 922 MB, then an
@@ -1126,8 +1127,14 @@ pub async fn run() -> anyhow::Result<()> {
     // theirs; an operator's window that ended does not.
     let mut case_documents = None;
     if matches!(stop, None | Some(Stop::TimeBudget)) && details.is_some() {
-        let (result, cases_stop, report) =
-            run_cases(&contract, &asking, cases_deadline, &results, live.is_some()).await?;
+        let (result, cases_stop, report) = run_cases(
+            &contract,
+            &asking,
+            cases_deadline,
+            case_wanted,
+            live.is_some(),
+        )
+        .await?;
         stop = cases_stop.or(stop);
         case_documents = Some((result, report));
     }
