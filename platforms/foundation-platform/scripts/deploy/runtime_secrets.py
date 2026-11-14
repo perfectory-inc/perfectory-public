@@ -19,7 +19,9 @@ checked against it:
                  derived from a recorded Cloudflare token or named in not_cloudflare (root ADR-0247).
     rename       on the data host, as root, before host: a group file holding a token's old name
                  (`renamed_from`) and not its derived one gains the derived name with the same value
-                 (root ADR-0247). Prints the files and names it changed, never a value.
+                 (root ADR-0247). Then a group's `fills` (non-secret settings it takes from the one
+                 other group file that already holds them, root ADR-0565) are appended where missing.
+                 Prints the files and names it changed, never a value.
     host         on the data host, as root: every group file a unit loads exists, is owned and
                  no more open than the contract says, and holds every name it declares. Prints
                  names, never values.
@@ -43,7 +45,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 AREA = Path(__file__).resolve().parents[2]
 CONTRACT = Path("config/runtime-secrets.contract.json")
@@ -80,6 +82,7 @@ class Group:
     mode: int | None = None
     optional: bool = False
     release: bool = False  # sourced by the unit's own ExecStart from the release, not an EnvironmentFile
+    fills: frozenset[str] = frozenset()  # non-secret names the deploy copies in from another group's file
 
 
 @dataclass
@@ -112,6 +115,55 @@ class Contract:
 
         wanted = set(consumer.needs.values()) | set(consumer.unenumerated) | set(consumer.optional_groups)
         return [group for name, group in self.groups.items() if name in wanted]
+
+
+# A name that can carry a secret is never copied between files: credentials go through `set` (an
+# operator) or a token's rename only, so a group cannot gain one it was not given.
+SECRET_SHAPED = re.compile(r"(?:TOKEN|KEY|SECRET|PASSWORD|URL|DSN|CREDENTIAL)")
+
+
+def not_a_setting(name: str, tokens: Mapping[str, list[str]]) -> bool:
+    """Whether `name` may carry a secret: a token's derived name, credential-shaped, or named like one."""
+    return (any(name in derived for derived in tokens.values()) or bool(CREDENTIAL.fullmatch(name))
+            or bool(SECRET_SHAPED.search(name)))
+
+
+def fill(area: Path = AREA, root: Path = Path("/")) -> list[str]:
+    """Appends each name a group `fills` and its file lacks, with the value the other group files that
+    hold it agree on (root ADR-0565). Lines of the files changed or left as they were; names only.
+
+    A non-secret setting (the lakehouse bucket and its endpoint) is written on the host once, in the
+    group of the units that write with it; a read-only group takes it from there at the deploy, so a
+    unit that only reads never has to load a file that also holds a writer token. A name no other file
+    holds, or holds with different values, is reported and not written: `host` then names it missing.
+    """
+
+    contract = load(area)
+    changed = []
+    files = {group.name: root / group.path.lstrip("/") for group in contract.groups.values() if not group.release}
+    values: dict[str, dict[str, str]] = {}
+    for name, path in files.items():
+        if path.is_file() and not path.is_symlink():
+            values[name] = _values_in(path.read_text(encoding="utf-8"))
+    for group in contract.groups.values():
+        path = files.get(group.name)
+        if not group.fills or group.name not in values:
+            continue
+        text = path.read_text(encoding="utf-8")
+        added = []
+        for wanted in sorted(group.fills - set(values[group.name])):
+            found = {found[wanted] for other, found in values.items() if other != group.name and wanted in found}
+            if len(found) != 1:
+                changed.append(f"{group.path}: {wanted} not filled: "
+                               f"{'no other group file holds it' if not found else 'other group files differ'}")
+                continue
+            text += ("" if text.endswith("\n") or not text else "\n") + f"{wanted}={found.pop()}\n"
+            added.append(wanted)
+        if added:
+            info = path.stat()
+            _replace_atomically(path, text, info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode))
+            changed.extend(f"{group.path}: {name} filled" for name in added)
+    return changed
 
 
 def derived_names(token: str, gives: str) -> list[str]:
@@ -192,10 +244,16 @@ def load(area: Path = AREA) -> Contract:
         mode = entry.get("mode")
         if not release and not entry.get("optional") and not (entry.get("owner") and entry.get("group") and mode):
             raise ContractError(f"group {name!r}: owner, group and mode are required")
+        holds = _resolve_holds(area, entry.get("holds", []), tokens)
+        fills = frozenset(entry.get("fills", []))
+        secret = sorted(fill for fill in fills if not_a_setting(fill, tokens))
+        if fills and (fills - holds or secret or release):
+            raise ContractError(f"group {name!r}: fills must be names the host group holds and no credential"
+                                f" ({sorted(fills - holds) or secret or 'a release group fills nothing'})")
         groups[name] = Group(
-            name=name, path=entry["path"], holds=_resolve_holds(area, entry.get("holds", []), tokens),
+            name=name, path=entry["path"], holds=holds,
             owner=entry.get("owner"), group=entry.get("group"), mode=int(mode, 8) if mode else None,
-            optional=bool(entry.get("optional")), release=release,
+            optional=bool(entry.get("optional")), release=release, fills=fills,
         )
     consumers = []
     for entry in raw["consumers"]:
@@ -672,6 +730,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "rename":
             for entry in rename(args.area, args.root):
                 print(f"renamed {entry}")
+            for entry in fill(args.area, args.root):
+                print(f"fill {entry}")
             return 0
         if args.command == "host":
             findings = host(args.area, args.root)

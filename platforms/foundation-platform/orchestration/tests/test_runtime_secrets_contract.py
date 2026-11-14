@@ -285,6 +285,60 @@ class TheHost(unittest.TestCase):
         self.assertEqual(self.findings(), [])
         self.assertEqual(runtime_secrets.rename(self.area, self.root), [], "a second run changes nothing")
 
+    def test_fill_gives_a_read_only_group_the_settings_another_group_already_holds(self):
+        # Root ADR-0565: the shape check reads the lakehouse with the read-only key pair and needs the
+        # bucket and its endpoint, which only files that also hold a writer token held before.
+        bucket, endpoint = "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET", "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT"
+        self.assertEqual(self.contract.groups["lakehouse-reader"].fills, {bucket, endpoint})
+        held = self.contract.groups["lakehouse-reader"].holds - {bucket, endpoint}
+        self.reader.write_text("".join(f"{name}=planted-secret-value\n" for name in sorted(held)), encoding="utf-8")
+        self.reader.chmod(0o600)
+        sweep = self.root / "etc/foundation-platform/source-sweep.env"
+        sweep.write_text(f"{bucket}=planted-bucket\n{endpoint}=planted-endpoint\n", encoding="utf-8")
+        for group in ("parcel-publication", "operations-map"):
+            path = self.root / self.contract.groups[group].path.lstrip("/")
+            if path.is_file():
+                kept = [line for line in path.read_text(encoding="utf-8").splitlines(keepends=True)
+                        if not line.startswith((bucket, endpoint))]
+                path.write_text("".join(kept), encoding="utf-8")
+        changed = runtime_secrets.fill(self.area, self.root)
+        self.assertEqual(changed, [f"/etc/foundation-platform/lakehouse-reader.env: {name} filled"
+                                   for name in sorted((bucket, endpoint))])
+        self.assertIn(f"{bucket}=planted-bucket", self.reader.read_text(encoding="utf-8").splitlines())
+        self.assertEqual(self.reader.stat().st_mode & 0o777, 0o600, "the file keeps its mode")
+        self.assertEqual(runtime_secrets.fill(self.area, self.root), [], "a second run changes nothing")
+
+    def test_fill_writes_nothing_where_the_holders_disagree_or_none_holds_it(self):
+        bucket = "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET"
+        held = self.contract.groups["lakehouse-reader"].holds - {bucket}
+        self.reader.write_text("".join(f"{name}=planted-secret-value\n" for name in sorted(held)), encoding="utf-8")
+        self.reader.chmod(0o600)
+        holders = [self.root / group.path.lstrip("/") for group in self.contract.groups.values()
+                   if bucket in group.holds and group.name != "lakehouse-reader"
+                   and (self.root / group.path.lstrip("/")).is_file()]
+        for index, path in enumerate(holders):
+            kept = [line for line in path.read_text(encoding="utf-8").splitlines(keepends=True) if not line.startswith(bucket)]
+            path.write_text("".join(kept) + f"{bucket}=planted-{index}\n", encoding="utf-8")
+        if len(holders) > 1:
+            self.assertEqual(runtime_secrets.fill(self.area, self.root),
+                             [f"/etc/foundation-platform/lakehouse-reader.env: {bucket} not filled: other group files differ"])
+        for path in holders:
+            path.write_text("".join(line for line in path.read_text(encoding="utf-8").splitlines(keepends=True)
+                                    if not line.startswith(bucket)), encoding="utf-8")
+        self.assertEqual(runtime_secrets.fill(self.area, self.root),
+                         [f"/etc/foundation-platform/lakehouse-reader.env: {bucket} not filled: no other group file holds it"])
+        self.assertNotIn(bucket, self.reader.read_text(encoding="utf-8"))
+
+    def test_a_group_never_fills_a_credential(self):
+        contract = json.loads((self.area / "config/runtime-secrets.contract.json").read_text(encoding="utf-8"))
+        reader = next(g for g in contract["groups"] if g["name"] == "lakehouse-reader")
+        for name in (READER, "FOUNDATION_PLATFORM_SOME_DATABASE_URL", "FOUNDATION_PLATFORM_NOT_HELD"):
+            with self.subTest(name):
+                reader["fills"] = [name]
+                (self.area / "config/runtime-secrets.contract.json").write_text(json.dumps(contract), encoding="utf-8")
+                with self.assertRaises(runtime_secrets.ContractError):
+                    runtime_secrets.load(self.area)
+
     def test_an_old_line_goes_when_its_value_is_under_another_held_name(self):
         """The map's file held the reader token under the writer's old name (root ADR-0247 phase three)."""
         operations_map = self.root / "etc/foundation-platform/operations-map.env"

@@ -205,24 +205,18 @@ def layout_findings(table: str, key: str, bounds: list[tuple[str, str]], summary
     return failures, notes
 
 
-def layout(trino_rows, trino_url: str, contracts: dict, lakehouse: dict) -> tuple[list[str], list[str]]:
-    """(failures, notes) for every clustered table production holds rows in, read from Trino's
-    `$files` and `$snapshots` metadata tables; no data file is read."""
+def layout(answers: dict, commits: dict, contracts: dict, lakehouse: dict) -> tuple[list[str], list[str]]:
+    """(failures, notes) for every clustered table production holds rows in, from what its manifests
+    and metadata say (lakehouse-production-shape.py capture_with_files: each file's key bounds, the
+    last data commit); no data file is read and no engine runs (root ADR-0565)."""
     failures, notes = [], []
     for table, key in clustered_tables(contracts).items():
         shape = lakehouse["tables"].get(table)
-        if not shape or not shape["has_rows"]:
+        if not shape or not shape["has_rows"] or table not in answers:
             continue
-        field = next(field[0] for field in shape["fields"] if field[1] == key)
-        namespace, name = table.split(".", 1)
-        bounds = [(low, high) for low, high in trino_rows(trino_url, (
-            f"SELECT element_at(lower_bounds, {field}), element_at(upper_bounds, {field}) "
-            f'FROM r2.{namespace}."{name}$files" WHERE content = 0')) if low is not None and high is not None]
-        last = trino_rows(trino_url, (
-            f'SELECT summary, operation FROM r2.{namespace}."{name}$snapshots" '
-            "WHERE operation <> 'replace' AND parent_id IS NOT NULL ORDER BY committed_at DESC LIMIT 1"))
-        found, noted = layout_findings(table, key, bounds, dict(last[0][0]) if last else None,
-                                       last[0][1] if last else None)
+        bounds = [tuple(pair) for pair in answers[table].get("bounds") or []]
+        last = commits.get(table)
+        found, noted = layout_findings(table, key, bounds, last[0] if last else None, last[1] if last else None)
         failures += found
         notes += noted
     return failures, notes
@@ -282,7 +276,8 @@ def outcome(now: datetime, published: bool, written: bool, said: str, misplaced:
 def main() -> int:
     STATE.mkdir(parents=True, exist_ok=True)
     capture = load_capture()
-    lakehouse = capture.capture()
+    contracts = json.loads((RELEASE / CONTRACTS).read_text(encoding="utf-8"))["contracts"]
+    lakehouse, answers, commits = capture.capture_with_files(clustered_tables(contracts))
     files = {Path(LAKEHOUSE).name: capture.render(lakehouse),
              Path(POSTGRES).name: subprocess.run(["bash", str(RELEASE / "scripts/ops/postgres-production-shape.sh")],
                                                  capture_output=True, text=True, check=True, timeout=600).stdout}
@@ -298,9 +293,7 @@ def main() -> int:
     print(f"shape-ledger-check: captures {said}")
     if head is not None:
         (STATE / PUBLISHED).write_text(json.dumps({"at": now.isoformat(), "head": head}) + "\n", encoding="utf-8")
-    trino_url = os.environ.get("FOUNDATION_PLATFORM_TRINO_URL", "http://127.0.0.1:18081").rstrip("/")
-    misplaced, notes = layout(capture.trino_rows, trino_url,
-                              json.loads((RELEASE / CONTRACTS).read_text(encoding="utf-8"))["contracts"], lakehouse)
+    misplaced, notes = layout(answers, commits, contracts, lakehouse)
     for line in notes:
         print(f"shape-ledger-check: NOTE {line}")
     for line in misplaced:
