@@ -41,6 +41,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -89,6 +90,39 @@ OUTCOME_WORDS = ("changed", "unchanged", "waiting", "failed", "skipped")
 # a job's memory claim is admitted against (root ADR-0563).
 MEMINFO = "/proc/meminfo"
 SIZE = re.compile(r"(\d+)([kmg])")
+
+
+# What a running deploy holds (foundation-deploy.sh `deploy_hold`): its pid, then `*` from its step 0
+# until its build is done, then the jobs its release changes the tables of until the release is live.
+DEPLOY_HOLD = "/run/foundation-deploy-hold"
+
+
+def deploy_hold_path() -> str:
+    return os.environ.get("FOUNDATION_DEPLOY_HOLD") or DEPLOY_HOLD
+
+
+def deploy_holds(job_ids, path=None, alive=lambda pid: os.path.isdir(f"/proc/{pid}")) -> str:
+    """Why a running deploy holds one of `job_ids` (root ADR-0270 deploy D5, root ADR-0565 §5), or "".
+
+    A hold left by a deploy that is gone holds nothing. Liveness is the deploy's /proc entry, not a
+    signal: the scheduler's account may not signal root's process, and `kill -0` answers "gone" for
+    a deploy that is running. Every start reads this here: the host's forced command, whoever asked it
+    (Airflow, Dagster's sensor or retry, a run-now), and the operator's by-PNU script.
+    """
+    try:
+        lines = pathlib.Path(path or deploy_hold_path()).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return ""
+    pid = next((line[len("pid "):] for line in lines if line.startswith("pid ")), "")
+    if not pid.isdigit() or not alive(int(pid)):
+        return ""
+    held = {line.strip() for line in lines if line.strip() and not line.startswith("pid ")}
+    if "*" in held:
+        return "a deploy is building its release; every job waits until the build is done (ask again)"
+    for job_id in job_ids:
+        if job_id in held:
+            return f"the deploy holds {job_id} until its release is live: the release changes what {job_id} writes"
+    return ""
 
 
 def deferred_dir() -> str:
@@ -635,6 +669,12 @@ def preempted(jobs_file, job_id, running_units=running) -> str:
 
 
 def main(argv) -> int:
+    if len(argv) >= 2 and argv[0] == "deploy-holds":
+        # Prints why a running deploy holds one of the jobs, or nothing (exit 0 either way).
+        reason = deploy_holds(argv[1:])
+        if reason:
+            print(reason)
+        return 0
     if len(argv) == 2 and argv[0] == "services":
         print("\n".join(registered_services(argv[1])))
         return 0
