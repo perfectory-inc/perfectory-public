@@ -503,5 +503,30 @@ class TheDeferredJobs(unittest.TestCase):
                              ["map_edit_fold_complex", "outbox_publish"])
 
 
+
+class WhatTheDeployHolds(unittest.TestCase):
+    """job_units.deploy_holds is the one reader of the deploy's hold (root ADR-0565 §5)."""
+
+    def holds(self, text, jobs, alive=True):
+        sys.path.insert(0, str(JOB_UNITS.parent))
+        import job_units
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "hold"
+            if text is not None:
+                path.write_text(text)
+            return job_units.deploy_holds(jobs, path, alive=lambda pid: alive)
+
+    def test_the_rules(self):
+        self.assertEqual(self.holds(None, ["a"]), "", "no deploy")
+        self.assertIn("building its release", self.holds("pid 12\n*\n", ["a"]))
+        self.assertIn("the deploy holds a", self.holds("pid 12\na\nb\n", ["x", "a"]))
+        self.assertEqual(self.holds("pid 12\nb\n", ["a"]), "", "another job")
+        self.assertEqual(self.holds("pid 12\n", ["a"]), "", "a deploy that holds nothing")
+        self.assertEqual(self.holds("pid 12\na\n", ["a"], alive=False), "", "a deploy that is gone")
+        self.assertEqual(self.holds("a\n", ["a"]), "", "no pid: nothing proves a deploy runs")
+        self.assertEqual(self.holds("pid 12\nab\n", ["a"]), "", "a name is matched whole")
+
+
 if __name__ == "__main__":
     unittest.main()

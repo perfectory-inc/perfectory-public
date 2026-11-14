@@ -398,6 +398,10 @@ deploy_metric_phase switch
 log "5. Airflow picks up the release's DAGs and pools"
 as_deployer bash "${release_root}/current/scripts/deploy/airflow-runtime.sh" up -d
 
+# The release is live: it holds nothing any more. Cleared before step 6 and 7 start what is owed, since
+# the host's forced command makes a start of a held job wait and owe itself (root ADR-0565 §5).
+rm -f "${deploy_hold}"
+
 log "6. start once, under the new release, each job its registry marks started_once_after_deploy"
 # Then 7: unpause the enabled DAGs, whatever those runs did (deploy-start-once.sh, root ADR-0173).
 phase=after-switch
