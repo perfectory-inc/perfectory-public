@@ -344,10 +344,13 @@ pub(super) fn job_statuses(
             let catalog_job_urn = latest.map(|(job_urn, _, _)| job_urn.clone());
             let last_run = latest.map(|(_, run, _)| run.clone());
             // The same catalog job's runs only: the DAG and its task each report every run, so
-            // taking both would count one run twice.
+            // taking both would count one run twice. Matched by the job's name in its flow, not the
+            // whole urn: a job Dagster decides reports the same names under its own engine's flow of
+            // the same id (root ADR-0565 §7), and its runs continue the ones Airflow reported.
+            let own_name = catalog_job_urn.as_deref().map(job_name);
             let mut own: Vec<&(String, ScheduledJobRun, i64)> = runs
                 .iter()
-                .filter(|(job_urn, _, _)| Some(job_urn) == catalog_job_urn.as_ref())
+                .filter(|(job_urn, _, _)| Some(job_name(job_urn)) == own_name)
                 .collect();
             let typical = typical_duration(own.iter().map(|(_, run, _)| run));
             own.sort_by(|a, b| (b.2, &b.1.run_urn).cmp(&(a.2, &a.1.run_urn)));
@@ -454,6 +457,16 @@ fn with_run_task_starts(
             (job_urn, run, last_event)
         })
         .collect()
+}
+
+/// A catalog job's name in its flow: `foundation_x.run` of
+/// `urn:li:dataJob:(urn:li:dataFlow:(dagster,foundation_x,perfectory),foundation_x.run)`; the whole
+/// urn when it is not that shape.
+fn job_name(job_urn: &str) -> &str {
+    job_urn
+        .rsplit_once("),")
+        .and_then(|(_, name)| name.strip_suffix(')'))
+        .unwrap_or(job_urn)
 }
 
 /// The next time a five-field cron schedule starts a job after `now`, in UTC as Airflow reads it.
@@ -791,11 +804,16 @@ mod tests {
     }
 
     fn flow(flow_id: &str, jobs: &[(&str, Vec<JsonValue>)]) -> JsonValue {
+        flow_of("synthetic", flow_id, jobs)
+    }
+
+    /// A flow as DataHub names it from the engine that reported it (`processing_engine`).
+    fn flow_of(engine: &str, flow_id: &str, jobs: &[(&str, Vec<JsonValue>)]) -> JsonValue {
         json!({
-            "urn": format!("urn:li:dataFlow:(synthetic,{flow_id},test)"),
+            "urn": format!("urn:li:dataFlow:({engine},{flow_id},test)"),
             "flowId": flow_id,
             "jobs": { "relationships": jobs.iter().map(|(job, runs)| json!({ "entity": {
-                "urn": format!("urn:li:dataJob:(urn:li:dataFlow:(synthetic,{flow_id},test),{job})"),
+                "urn": format!("urn:li:dataJob:(urn:li:dataFlow:({engine},{flow_id},test),{job})"),
                 "runs": { "runs": runs },
             }})).collect::<Vec<_>>() },
         })
@@ -1027,6 +1045,64 @@ mod tests {
             last.map(|run| run.outcome),
             Some(ScheduledJobRunOutcome::Running)
         );
+    }
+
+    /// Root ADR-0565 §7: a job Dagster decides reports the same flow id and job names as its DAG did,
+    /// under its own engine's flow; its history goes on from the runs Airflow reported.
+    #[test]
+    fn a_job_moved_to_dagster_keeps_one_run_history_across_the_two_engines_flows() {
+        let now = at("2026-01-06T12:00:00Z");
+        let mut engines: Vec<(Vec<JsonValue>, Vec<JsonValue>)> = vec![(Vec::new(), Vec::new()); 2];
+        for number in 1..=5 {
+            let (dag, task) = day(number, Some("07:21"), 10);
+            let (dags, tasks) = &mut engines[usize::from(number > 3)];
+            dags.push(dag);
+            tasks.extend(task);
+        }
+        let flows: Vec<JsonValue> = ["airflow", "dagster"]
+            .iter()
+            .zip(engines)
+            .map(|(engine, (dags, tasks))| {
+                flow_of(
+                    engine,
+                    "synthetic_nightly",
+                    &[
+                        ("synthetic_nightly", dags),
+                        ("synthetic_nightly.run", tasks),
+                    ],
+                )
+            })
+            .collect();
+        let statuses = job_statuses(&list(), &dependencies(&list()), &flows, now);
+        let nightly = &statuses[0];
+        assert_eq!(
+            nightly.catalog_job_urn.as_deref(),
+            Some("urn:li:dataJob:(urn:li:dataFlow:(dagster,synthetic_nightly,test),synthetic_nightly)"),
+            "the latest run is Dagster's"
+        );
+        assert_eq!(
+            nightly
+                .recent_runs
+                .iter()
+                .map(|run| run.run_urn.as_str())
+                .collect::<Vec<_>>(),
+            (1..=5)
+                .rev()
+                .map(|number| format!("urn:li:dataProcessInstance:dag-{number}"))
+                .collect::<Vec<_>>(),
+            "the runs either engine reported, newest first, each once"
+        );
+        assert_eq!(nightly.typical_duration_runs, 5);
+        assert_eq!(nightly.typical_duration_seconds, Some(600));
+    }
+
+    #[test]
+    fn job_name_is_the_part_after_its_flow() {
+        assert_eq!(
+            job_name("urn:li:dataJob:(urn:li:dataFlow:(dagster,foundation_x,perfectory),foundation_x.run)"),
+            "foundation_x.run"
+        );
+        assert_eq!(job_name("not a job urn"), "not a job urn");
     }
 
     #[test]

@@ -15,6 +15,11 @@ x-log-cap: &log-cap
     max-size: "50m"
     max-file: "3"
 
+# Where every run is reported to the data catalog (root ADR-0118 §2), on the network DataHub's GMS joins:
+# Airflow's OpenLineage provider for a DAG's runs, and the op of a job Dagster decides for its own
+# (orchestration/dagster/lineage.py, root ADR-0565 §7), so both reach the same endpoint.
+x-openlineage-transport: &openlineage-transport '{"type": "http", "url": "http://datahub-gms:8080", "endpoint": "openapi/openlineage/api/v1/lineage"}'
+
 x-airflow-environment: &airflow-environment
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
   # One run per slot of the pools in orchestration/jobs.v1.json (`spark`: FLOOR alone, or one fold
@@ -32,9 +37,8 @@ x-airflow-environment: &airflow-environment
   AIRFLOW__API_AUTH__JWT_SECRET: "${AIRFLOW_JWT_SECRET:?run airflow-runtime.sh init-secrets}"
   AIRFLOW__API__SECRET_KEY: "${AIRFLOW_API_SECRET_KEY:?run airflow-runtime.sh init-secrets}"
   AIRFLOW__API__BASE_URL: http://127.0.0.1:19080
-  # Every run reports to the data catalog (root ADR-0118 §2), on the network DataHub's GMS joins.
   AIRFLOW__OPENLINEAGE__NAMESPACE: perfectory
-  AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type": "http", "url": "http://datahub-gms:8080", "endpoint": "openapi/openlineage/api/v1/lineage"}'
+  AIRFLOW__OPENLINEAGE__TRANSPORT: *openlineage-transport
   # Where a proxied job's `run` task launches its Dagster run (root ADR-0431 §5): the webserver, on this
   # project's network.
   FOUNDATION_DAGSTER_URL: http://dagster-webserver:3000
@@ -236,6 +240,8 @@ services:
       # scheduler's connection from runtime.env, whose key can only run the forced command, and only from
       # this project's network. Only this container holds it: runs are its processes.
       FOUNDATION_HOST_CONNECTION: "${AIRFLOW_CONN_FOUNDATION_HOST:?run airflow-runtime.sh init-secrets}"
+      # A job Dagster decides reports its runs from its op, as its DAG did (lineage.py).
+      FOUNDATION_OPENLINEAGE_TRANSPORT: *openlineage-transport
     extra_hosts:
       - "foundation-host:host-gateway"
     volumes:
@@ -248,7 +254,8 @@ services:
       retries: 30
       start_period: 1m0s
     # The asset checks' runs read the lakehouse through Trino, on the compute project's network, and
-    # the dual run pages through Alertmanager, on the runtime project's. The host sees a job run come
+    # the dual run pages through Alertmanager, on the runtime project's; a run reports to DataHub's GMS on
+    # the shared metadata network. The host sees a job run come
     # from this project's network (`default`, the gateway every other route loses to): the scheduler's
     # key is accepted only from there (foundation-release.sh `timers`, authorized_keys `from=`).
     networks:
@@ -256,6 +263,7 @@ services:
         gw_priority: 1
       lakehouse-compute: {}
       foundation-runtime: {}
+      metadata-shared: {}
     depends_on:
       airflow-apiserver:
         condition: service_healthy
