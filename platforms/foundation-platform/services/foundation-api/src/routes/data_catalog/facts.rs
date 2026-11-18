@@ -38,7 +38,7 @@ const FRESH_FOR: Duration = Duration::seconds(30);
 const TABLE_FRESH_FOR: Duration = Duration::minutes(30);
 /// How many tables' metadata one read loads at once. On 2026-11-14..18 the read loaded all 166
 /// stale tables together, and the API, 20 glibc arenas wide, held each burst until its 512 MiB cap
-/// killed it (root ADR-0568).
+/// killed it (root ADR-0573).
 const TABLE_READS_AT_ONCE: usize = 4;
 /// The scheduler's address inside the runtime, its sign-in and its web address for staff.
 const SCHEDULER_API_URL_ENV: &str = "FOUNDATION_PLATFORM_AIRFLOW_API_URL";
@@ -384,7 +384,7 @@ async fn read_tables(
         }
     }
     // A few tables at a time, not every stale table at once: each answer is the table's whole
-    // metadata, read and parsed before its snapshots are kept (root ADR-0568).
+    // metadata, read and parsed before its snapshots are kept (root ADR-0573).
     // The futures are made first so the stream holds no closure over borrowed names: the read runs
     // in a spawned task, which must be `Send` for every lifetime.
     let pending: Vec<_> = stale

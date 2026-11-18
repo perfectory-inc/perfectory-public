@@ -1,4 +1,4 @@
-# ADR 0568: foundation-api 는 malloc 아레나를 둘로 묶고, 표 메타데이터는 몇 개씩만 읽는다
+# ADR 0573: foundation-api 는 malloc 아레나를 둘로 묶고, 표 메타데이터는 몇 개씩만 읽는다
 
 - Status: Accepted
 - Date: 2026-11-19
