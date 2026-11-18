@@ -19,7 +19,7 @@
     "node": "24.20.0",
     "pnpm": "9.12.0",
     "packageManager": "pnpm@9.12.0",
-    "next": "16.4.1",
+    "next": "16.4.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "typescript": "5.9.3",
