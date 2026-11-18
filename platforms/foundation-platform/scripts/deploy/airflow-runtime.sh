@@ -224,7 +224,7 @@ env_value() { sed -n "s/^$1=//p" "${env_file}" | tail -1; }
 # Dagster follows orchestration/jobs.v1.json `observers.dagster` (root ADR-0333 stage 0). It runs
 # no job, so it never fails the deploy: what goes wrong is said on stderr and Airflow goes on.
 sync_dagster() {
-  local code load_error
+  local code load_error reloaded
   if [[ "${COMPOSE_PROFILES:-}" != dagster-observe ]]; then
     # Off: its containers go; its database and history stay.
     compose --profile dagster-observe rm --stop --force "${dagster_services[@]}" >/dev/null 2>&1 || true
@@ -264,10 +264,11 @@ sync_dagster() {
     [[ "${code}" == 200 ]] && break
     sleep 10
   done
-  if [[ "${code}" == 200 ]] && ! curl -s -X POST -H 'Content-Type: application/json' http://127.0.0.1:19085/graphql \
-      --data '{"query":"mutation { reloadRepositoryLocation(repositoryLocationName: \"foundation\") { __typename } }"}' |
-      grep -q '"WorkspaceLocationEntry"'; then
-    printf 'airflow-runtime: WARN dagster: the code location did not reload; it serves the release it loaded last\n' >&2
+  if [[ "${code}" == 200 ]]; then
+    reloaded="$(curl -s -X POST -H 'Content-Type: application/json' http://127.0.0.1:19085/graphql       --data '{"query":"mutation { reloadRepositoryLocation(repositoryLocationName: \"foundation\") { __typename } }"}' || true)"
+    grep -q '"WorkspaceLocationEntry"' <<<"${reloaded}" ||
+      printf 'airflow-runtime: WARN dagster: the code location did not reload; it serves the release it loaded last
+' >&2
   fi
   if [[ "${code}" == 200 ]]; then
     # The UI answers while the code location fails to load: from 2026-11-06 21:16Z to 11-09 every load
