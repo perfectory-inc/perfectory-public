@@ -3,7 +3,7 @@
 
 WORKER=gongzzang-web-preview
 WRANGLER_VERSION=4.151.0
-OPENNEXT_VERSION=1.20.13
+OPENNEXT_VERSION=1.20.17
 
 wrangler() { npx --yes "wrangler@${WRANGLER_VERSION}" "$@"; }
 
