@@ -426,19 +426,73 @@ pub fn index_path(
 }
 
 pub fn write_index(path: &Path, records: &[Record]) -> anyhow::Result<()> {
-    let mut out = BufWriter::with_capacity(1 << 20, File::create(path)?);
-    out.write_all(INDEX_MAGIC)?;
-    out.write_all(&(records.len() as u64).to_le_bytes())?;
+    let mut out = IndexWriter::create(path)?;
     for record in records {
-        out.write_all(&encode(record))?;
+        out.push(record)?;
     }
-    out.into_inner()
-        .map_err(|error| error.into_error())?
-        .sync_all()?;
-    Ok(())
+    out.finish()
+}
+
+/// Writes an index file record by record, in strictly ascending id order; the header's count is
+/// written at [`IndexWriter::finish`], so a writer that did not finish leaves no valid index.
+pub struct IndexWriter {
+    out: BufWriter<File>,
+    count: u64,
+    last: Option<u128>,
+}
+
+impl IndexWriter {
+    pub fn create(path: &Path) -> anyhow::Result<Self> {
+        let mut out = BufWriter::with_capacity(1 << 20, File::create(path)?);
+        out.write_all(INDEX_MAGIC)?;
+        out.write_all(&u64::MAX.to_le_bytes())?;
+        Ok(Self {
+            out,
+            count: 0,
+            last: None,
+        })
+    }
+
+    pub fn push(&mut self, record: &Record) -> anyhow::Result<()> {
+        ensure!(
+            self.last.is_none_or(|last| last < record.id),
+            "an index is written in ascending id order, each id once"
+        );
+        self.out.write_all(&encode(record))?;
+        self.last = Some(record.id);
+        self.count += 1;
+        Ok(())
+    }
+
+    pub fn finish(self) -> anyhow::Result<()> {
+        let mut file = self.out.into_inner().map_err(|error| error.into_error())?;
+        file.seek(std::io::SeekFrom::Start(INDEX_MAGIC.len() as u64))?;
+        file.write_all(&self.count.to_le_bytes())?;
+        file.sync_all()?;
+        Ok(())
+    }
 }
 
 pub fn read_index(path: &Path) -> anyhow::Result<Vec<Record>> {
+    let mut stream = open_index(path)?;
+    let records = stream.by_ref().collect();
+    stream.finish()?;
+    Ok(records)
+}
+
+/// An index file's records in id order, read as they are asked for: one record in memory, whatever
+/// the snapshot's size. The iterator stops at the first unreadable or out-of-order record and
+/// [`IndexStream::finish`] says why; a walk over a stream is only valid once `finish` is `Ok`.
+pub struct IndexStream {
+    input: BufReader<File>,
+    path: PathBuf,
+    left: u64,
+    last: Option<u128>,
+    error: Option<anyhow::Error>,
+}
+
+/// Opens the index at `path`, refusing a file that is not one or whose length is not its count.
+pub fn open_index(path: &Path) -> anyhow::Result<IndexStream> {
     let mut input = BufReader::with_capacity(1 << 20, File::open(path)?);
     let mut head = [0_u8; 16];
     input.read_exact(&mut head)?;
@@ -447,28 +501,111 @@ pub fn read_index(path: &Path) -> anyhow::Result<Vec<Record>> {
         "{} is not a feature index",
         path.display()
     );
-    let count = usize::try_from(u64::from_le_bytes(head[8..].try_into()?))?;
-    let expected = 16
-        + count
-            .checked_mul(RECORD_BYTES)
-            .context("index size overflows")?;
+    let count = u64::from_le_bytes(head[8..].try_into()?);
+    let expected = count
+        .checked_mul(RECORD_BYTES as u64)
+        .and_then(|bytes| bytes.checked_add(16))
+        .context("index size overflows")?;
     ensure!(
-        usize::try_from(std::fs::metadata(path)?.len())? == expected,
+        std::fs::metadata(path)?.len() == expected,
         "{} is not {count} records long",
         path.display()
     );
-    let mut records = Vec::with_capacity(count);
-    let mut raw = [0_u8; RECORD_BYTES];
-    for _ in 0..count {
-        input.read_exact(&mut raw)?;
-        records.push(decode(&raw)?);
+    Ok(IndexStream {
+        input,
+        path: path.to_owned(),
+        left: count,
+        last: None,
+        error: None,
+    })
+}
+
+impl IndexStream {
+    /// The records the stream has not given yet.
+    pub fn len(&self) -> u64 {
+        self.left
     }
-    ensure!(
-        records.windows(2).all(|pair| pair[0].id < pair[1].id),
-        "{} is not sorted by id",
-        path.display()
-    );
-    Ok(records)
+
+    /// `Ok` once the stream gave every record of its file in strictly ascending id order.
+    pub fn finish(self) -> anyhow::Result<()> {
+        if let Some(error) = self.error {
+            return Err(error);
+        }
+        ensure!(
+            self.left == 0,
+            "{} was not read to its end",
+            self.path.display()
+        );
+        Ok(())
+    }
+}
+
+impl Iterator for IndexStream {
+    type Item = Record;
+
+    fn next(&mut self) -> Option<Record> {
+        if self.left == 0 || self.error.is_some() {
+            return None;
+        }
+        let mut raw = [0_u8; RECORD_BYTES];
+        let record = self
+            .input
+            .read_exact(&mut raw)
+            .map_err(anyhow::Error::from)
+            .and_then(|()| decode(&raw));
+        match record {
+            Ok(record) if self.last.is_none_or(|last| last < record.id) => {
+                self.left -= 1;
+                self.last = Some(record.id);
+                Some(record)
+            }
+            Ok(_) => {
+                self.error = Some(anyhow::anyhow!(
+                    "{} is not sorted by id",
+                    self.path.display()
+                ));
+                None
+            }
+            Err(error) => {
+                self.error = Some(error.context(format!("feature index {}", self.path.display())));
+                None
+            }
+        }
+    }
+}
+
+/// The changes between the indexes at `old` and `new`, read side by side: two records in memory.
+pub fn diff_files(old: &Path, new: &Path) -> anyhow::Result<Changes> {
+    let (mut before, mut after) = (open_index(old)?, open_index(new)?);
+    let changes = diff_walk(before.by_ref(), after.by_ref());
+    before.finish()?;
+    after.finish()?;
+    Ok(changes)
+}
+
+/// Every id of the index at `path`, in order: 16 bytes a feature, the served ids of a snapshot.
+pub fn index_ids(path: &Path) -> anyhow::Result<Vec<u128>> {
+    let mut stream = open_index(path)?;
+    let ids = stream.by_ref().map(|record| record.id).collect();
+    stream.finish()?;
+    Ok(ids)
+}
+
+/// The ids of the index at `path` whose box touches a tile of the neighbourhood at minzoom: the
+/// rows a patch's neighbourhood bake takes, a few thousand where the index holds millions.
+pub fn neighbourhood_ids(
+    path: &Path,
+    min_zoom: u8,
+    tiles: &HashSet<(u32, u32)>,
+) -> anyhow::Result<HashSet<u128>> {
+    let mut stream = open_index(path)?;
+    let ids = stream
+        .by_ref()
+        .filter(|record| in_neighbourhood(record.bbox, min_zoom, tiles))
+        .map(|record| record.id)
+        .collect();
+    stream.finish()?;
+    Ok(ids)
 }
 
 /// Keeps a served snapshot's index: create-only, so an index once used is never rewritten.
@@ -503,27 +640,32 @@ impl Changes {
 
 /// Merge-joins two sorted indexes.
 pub fn diff(old: &[Record], new: &[Record]) -> Changes {
+    diff_walk(old.iter().copied(), new.iter().copied())
+}
+
+/// [`diff`] over two id-ordered record streams: a merge walk holding one record of each side.
+pub fn diff_walk(old: impl Iterator<Item = Record>, new: impl Iterator<Item = Record>) -> Changes {
     let mut changes = Changes::default();
-    let (mut i, mut j) = (0, 0);
-    while i < old.len() || j < new.len() {
-        match (old.get(i), new.get(j)) {
+    let (mut old, mut new) = (old.peekable(), new.peekable());
+    loop {
+        match (old.peek().copied(), new.peek().copied()) {
             (Some(before), Some(after)) if before.id == after.id => {
                 if before.content != after.content || before.bbox != after.bbox {
                     changes.upserted.push(after.id);
                     changes.boxes.extend([before.bbox, after.bbox]);
                 }
-                i += 1;
-                j += 1;
+                old.next();
+                new.next();
             }
             (Some(before), after) if after.is_none_or(|after| before.id < after.id) => {
                 changes.deleted.push(before.id);
                 changes.boxes.push(before.bbox);
-                i += 1;
+                old.next();
             }
             (_, Some(after)) => {
                 changes.upserted.push(after.id);
                 changes.boxes.push(after.bbox);
-                j += 1;
+                new.next();
             }
             (_, None) => break,
         }
@@ -607,12 +749,11 @@ pub fn in_neighbourhood(bbox: [f32; 4], min_zoom: u8, tiles: &HashSet<(u32, u32)
     })
 }
 
-/// The GDAL input of the neighbourhood: the rows whose box touches it, looked up in the new index.
+/// The GDAL input of the neighbourhood: the rows whose id [`neighbourhood_ids`] found in the new
+/// index (the index was built from this handoff, so every handed row is in it).
 pub struct NeighbourhoodCsv<W> {
     pub inner: W,
-    pub index: std::sync::Arc<Vec<Record>>,
-    pub min_zoom: u8,
-    pub tiles: HashSet<(u32, u32)>,
+    pub ids: HashSet<u128>,
     pub kept: usize,
 }
 
@@ -622,15 +763,7 @@ impl<W: CsvOut> CsvOut for NeighbourhoodCsv<W> {
     }
 
     fn row(&mut self, feature_id: &str, line: &str) -> std::io::Result<()> {
-        let id = id_hash(feature_id);
-        let record = self
-            .index
-            .binary_search_by_key(&id, |record| record.id)
-            .map(|at| self.index[at])
-            .map_err(|_| {
-                std::io::Error::other(format!("feature {feature_id} is not in the index"))
-            })?;
-        if in_neighbourhood(record.bbox, self.min_zoom, &self.tiles) {
+        if self.ids.contains(&id_hash(feature_id)) {
             self.kept += 1;
             self.inner.row(feature_id, line)?;
         }
