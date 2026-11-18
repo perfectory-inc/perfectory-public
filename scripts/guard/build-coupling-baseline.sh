@@ -370,7 +370,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # foundation-publisher-silver compiles in the SQL file DuckDB runs for it
 # (real_transaction_gold_stage/region_stats.sql: reviewed and compared as SQL; the national
 # engine-equality verdict ran that file's rules).
-COMPILE_TIME_READ_BASELINE="${3:-186}"
+# 186 -> 187: lakehouse-domain compiles in a third HUB family file, the building register family
+# (hub-lane-family-building-register.v1.json, root ADR-0496): its 오수정화시설 lane is one entry.
+COMPILE_TIME_READ_BASELINE="${3:-187}"
 
 cd "$repo_root"
 

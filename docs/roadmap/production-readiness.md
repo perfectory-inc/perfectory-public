@@ -261,6 +261,7 @@ last_reviewed: 2026-11-07
 | 건물 | 건축인허가 오수정화시설 (`silver.building_permit_sewage_facility`) | — | — | 없음 |
 | 건물 | 건축인허가 호별전유공용면적 (`silver.building_permit_unit_exclusive_common_area`) | — | — | 없음 |
 | 건물 | 건축인허가 호별개요 (`silver.building_permit_unit_outline`) | — | — | 없음 |
+| 건물 | 건축물대장 오수정화시설 (`silver.building_register_sewage_facility`) | — | — | 없음 |
 | 건물 | 주택인허가 행위개요 (`silver.housing_permit_act_outline`) | — | — | 없음 |
 | 건물 | 주택인허가 행위호전유공용면적 (`silver.housing_permit_act_unit_exclusive_common_area`) | — | — | 없음 |
 | 건물 | 주택인허가 부대시설 (`silver.housing_permit_ancillary_facility`) | — | — | 없음 |
