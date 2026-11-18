@@ -115,21 +115,15 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER event_append_only BEFORE UPDATE OR DELETE ON audit.event
-    FOR EACH ROW EXECUTE FUNCTION audit.refuse_change();
-CREATE TRIGGER event_never_truncated BEFORE TRUNCATE ON audit.event
+-- Statement-level, so a rewrite is refused even when it matches no row: an
+-- `UPDATE`/`DELETE` that "succeeds" on an empty table is still an attempt.
+CREATE TRIGGER event_append_only BEFORE UPDATE OR DELETE OR TRUNCATE ON audit.event
     FOR EACH STATEMENT EXECUTE FUNCTION audit.refuse_change();
-CREATE TRIGGER digest_append_only BEFORE UPDATE OR DELETE ON audit.digest
-    FOR EACH ROW EXECUTE FUNCTION audit.refuse_change();
-CREATE TRIGGER digest_never_truncated BEFORE TRUNCATE ON audit.digest
+CREATE TRIGGER digest_append_only BEFORE UPDATE OR DELETE OR TRUNCATE ON audit.digest
     FOR EACH STATEMENT EXECUTE FUNCTION audit.refuse_change();
-CREATE TRIGGER import_cursor_append_only BEFORE UPDATE OR DELETE ON audit.import_cursor
-    FOR EACH ROW EXECUTE FUNCTION audit.refuse_change();
-CREATE TRIGGER import_cursor_never_truncated BEFORE TRUNCATE ON audit.import_cursor
+CREATE TRIGGER import_cursor_append_only BEFORE UPDATE OR DELETE OR TRUNCATE ON audit.import_cursor
     FOR EACH STATEMENT EXECUTE FUNCTION audit.refuse_change();
-CREATE TRIGGER source_append_only BEFORE UPDATE OR DELETE ON audit.source
-    FOR EACH ROW EXECUTE FUNCTION audit.refuse_change();
-CREATE TRIGGER source_never_truncated BEFORE TRUNCATE ON audit.source
+CREATE TRIGGER source_append_only BEFORE UPDATE OR DELETE OR TRUNCATE ON audit.source
     FOR EACH STATEMENT EXECUTE FUNCTION audit.refuse_change();
 
 -- The one rendering of a timestamp in the chain: UTC, microseconds, `Z`.
