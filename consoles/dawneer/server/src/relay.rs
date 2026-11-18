@@ -89,6 +89,14 @@ const DATA_CATALOG_ROUTES: &[(Method, &[Segment])] = &[
             Literal("operator-actions"),
         ],
     ),
+    // The audit chain: read by account, object and time, exported, and its importers (root
+    // ADR-0569 §7). Read only: the chain is written by the actions it records.
+    (Method::GET, &[Literal("audit"), Literal("events")]),
+    (
+        Method::GET,
+        &[Literal("audit"), Literal("events"), Literal("export")],
+    ),
+    (Method::GET, &[Literal("audit"), Literal("import-status")]),
 ];
 
 /// Whether `method path` (path relative to `/catalog/v1/`) may be relayed.
@@ -251,5 +259,20 @@ mod tests {
             !allowed(&Method::GET, "search"),
             "the catalog list does not open data catalog paths"
         );
+    }
+
+    #[test]
+    fn the_audit_chain_is_read_and_exported_never_written() {
+        assert!(data_catalog_allowed(&Method::GET, "audit/events"));
+        assert!(data_catalog_allowed(&Method::GET, "audit/events/export"));
+        assert!(data_catalog_allowed(&Method::GET, "audit/import-status"));
+        for method in [Method::POST, Method::PUT, Method::PATCH, Method::DELETE] {
+            assert!(
+                !data_catalog_allowed(&method, "audit/events"),
+                "{method} audit/events: the chain is written by the actions it records"
+            );
+        }
+        assert!(!data_catalog_allowed(&Method::GET, "audit"));
+        assert!(!data_catalog_allowed(&Method::GET, "audit/events/1"));
     }
 }

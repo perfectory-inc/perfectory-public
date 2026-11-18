@@ -359,6 +359,7 @@ where
     test().await
 }
 
+mod audit;
 mod cors_and_labels;
 mod health_and_metrics;
 mod lineage_review;

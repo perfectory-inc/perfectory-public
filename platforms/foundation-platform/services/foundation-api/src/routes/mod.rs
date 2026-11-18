@@ -333,6 +333,12 @@ const STAFF_JOBS_OPERATE: IdentityRoutePolicy = IdentityRoutePolicy {
     resource: "foundation.operations",
     action: "operate",
 };
+/// Reading the audit chain of every change to the platform (root ADR-0569 §7).
+const STAFF_AUDIT_READ: IdentityRoutePolicy = IdentityRoutePolicy {
+    required_principal_kind: RequiredPrincipalKind::Staff,
+    resource: "foundation.operations",
+    action: "audit_read",
+};
 const SERVICE_NORMALIZATION_PROPOSE: IdentityRoutePolicy = IdentityRoutePolicy {
     required_principal_kind: RequiredPrincipalKind::Service,
     resource: "foundation.normalization",
@@ -349,7 +355,7 @@ const SERVICE_REAL_ESTATE_BROKER_VERIFY: IdentityRoutePolicy = IdentityRoutePoli
 /// `config/identity-route-policies.contract.json` (checked by `routes::tests::route_policies`), and
 /// Identity checks its staff role matrix and workload policy against that file (root ADR-0214).
 #[cfg(test)]
-const ROUTE_POLICIES: [IdentityRoutePolicy; 12] = [
+const ROUTE_POLICIES: [IdentityRoutePolicy; 13] = [
     STAFF_CATALOG_WRITE,
     SERVICE_CATALOG_READ,
     STAFF_LAKEHOUSE_BATCH_AUDIT,
@@ -360,6 +366,7 @@ const ROUTE_POLICIES: [IdentityRoutePolicy; 12] = [
     STAFF_LINEAGE_REVIEW,
     STAFF_LINEAGE_ADJUDICATE,
     STAFF_JOBS_OPERATE,
+    STAFF_AUDIT_READ,
     SERVICE_NORMALIZATION_PROPOSE,
     SERVICE_REAL_ESTATE_BROKER_VERIFY,
 ];

@@ -709,3 +709,112 @@ pub struct ByPnuCutovers {
     /// Why they could not be read, when they could not.
     pub error: Option<String>,
 }
+
+/// One change in the audit chain (root ADR-0569 §2). Names and mail are not here: the console adds
+/// them from the identity API when it shows a row.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AuditEventView {
+    /// Its place in the chain, from 1 without a gap.
+    pub seq: i64,
+    /// The event's id.
+    pub event_id: String,
+    /// When it happened.
+    pub occurred_at: DateTime<Utc>,
+    /// When the chain took it; later than `occurred_at` for an imported event.
+    pub recorded_at: DateTime<Utc>,
+    /// Where it came from: `dawneer`, `audit`, `github`, `merge_queue`, `deploy`, `host_command`,
+    /// `repo_settings` or `identity`.
+    pub source: String,
+    /// The one action's id inside its source.
+    pub source_event_id: String,
+    /// `area.verb`, e.g. `operator_action.run_now`.
+    pub action: String,
+    /// `create`, `modify`, `remove`, `execute` or `access`.
+    pub operation: String,
+    /// `staff`, `service`, `system` or `unlinked`.
+    pub actor_kind: String,
+    /// The staff account that acted, for a staff actor.
+    pub actor_staff_id: Option<String>,
+    /// The staff account's Zitadel subject, when the source knew it.
+    pub actor_subject: Option<String>,
+    /// The source's own immutable id of the actor: `github:<id>` or `unix:<uid>@<host>`.
+    pub actor_external: Option<String>,
+    /// Whether the source verified the actor.
+    pub actor_verified: bool,
+    /// Who ran it on the actor's behalf, e.g. `github-app:<id>`.
+    pub on_behalf_of: Option<String>,
+    /// What it changed: its kind, e.g. `job`, `lane`, `pull_request`, `commit`.
+    pub object_type: String,
+    /// What it changed: its id.
+    pub object_id: String,
+    /// The changed keys before.
+    #[schema(value_type = Option<Object>)]
+    pub before: Option<serde_json::Value>,
+    /// The changed keys after, or an execution's arguments.
+    #[schema(value_type = Option<Object>)]
+    pub after: Option<serde_json::Value>,
+    /// Why, as the person wrote it.
+    pub reason: Option<String>,
+    /// How it was applied: `pull_request`, `approval`, `host_command`, `deploy` or `api`.
+    pub applied_via_kind: Option<String>,
+    /// That way's number or id.
+    pub applied_via_ref: Option<String>,
+    /// `requested`, `succeeded`, `failed`, `refused` or `expired`.
+    pub result: String,
+    /// Why it failed or was refused.
+    pub error: Option<String>,
+    /// The id every event of one change shares.
+    pub change_id: Option<String>,
+    /// The row before's hash, lowercase hex.
+    pub prev_hash: String,
+    /// This row's hash, lowercase hex: `sha256(prev_hash || canon(row))`.
+    pub row_hash: String,
+}
+
+/// One page of the audit chain, newest first.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AuditEventPage {
+    /// Newest first, by `seq`.
+    pub events: Vec<AuditEventView>,
+    /// The `before_seq` of the next page; absent on the last.
+    pub next_before_seq: Option<i64>,
+}
+
+/// Where one importer has read its source to (root ADR-0569 §6).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AuditImportSource {
+    /// The source.
+    pub source: String,
+    /// The cursor, as the importer wrote it.
+    pub cursor: String,
+    /// `running`, `waiting_for_credential` or `gap`.
+    pub state: String,
+    /// When it last moved.
+    pub advanced_at: DateTime<Utc>,
+}
+
+/// The newest digest of the chain and its public witness (root ADR-0569 §4).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AuditDigestView {
+    /// The first row it covers.
+    pub from_seq: i64,
+    /// The last row it covers.
+    pub to_seq: i64,
+    /// The `row_hash` of `to_seq`.
+    pub head_hash: String,
+    /// The digest's SHA-256, lowercase hex.
+    pub digest_sha256: String,
+    /// Its entry in the public Rekor log, once witnessed.
+    pub rekor_log_index: Option<i64>,
+    /// When it was made.
+    pub made_at: DateTime<Utc>,
+}
+
+/// Each importer's cursor and the newest digest.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct AuditImportStatusPage {
+    /// One per source an importer has written, by source.
+    pub sources: Vec<AuditImportSource>,
+    /// The newest digest; absent before the first.
+    pub latest_digest: Option<AuditDigestView>,
+}

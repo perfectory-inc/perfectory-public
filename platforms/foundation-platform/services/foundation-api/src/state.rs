@@ -11,8 +11,8 @@ use catalog_application::{
     RegisterIndustrialComplex, RollbackVectorTileManifest, UpdateIndustrialComplex,
 };
 use catalog_infrastructure::{
-    FileJobSwitchBoard, PgCatalogRepository, PgCatalogUnitOfWork, PgOperatorActionLedger,
-    PgRealEstateBrokerRoster, UnconfiguredJobSwitchBoard,
+    FileJobSwitchBoard, PgAuditEventStore, PgCatalogRepository, PgCatalogUnitOfWork,
+    PgOperatorActionLedger, PgRealEstateBrokerRoster, UnconfiguredJobSwitchBoard,
 };
 
 /// Where the host's operator switches live inside the container (root ADR-0282 §3).
@@ -302,6 +302,8 @@ pub struct AppState {
     pub lineage_stewardship: Arc<dyn LineageStewardshipStore>,
     /// Operator switches of scheduled jobs, into the append-only ledger (root ADR-0282).
     pub record_operator_action: RecordOperatorAction,
+    /// The audit chain of every change to the platform (root ADR-0569).
+    pub audit_events: Arc<dyn catalog_application::ports::AuditEventStore>,
     /// One person against the 부동산중개업 roster, then the live register (root ADR-0550).
     pub verify_real_estate_broker: VerifyRealEstateBroker,
     pub identity_authorization: Arc<dyn IdentityAuthorization>,
@@ -710,6 +712,17 @@ impl AppState {
         self
     }
 
+    /// Reads and appends this audit chain instead of the database one (route tests).
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_audit_event_store(
+        mut self,
+        store: Arc<dyn catalog_application::ports::AuditEventStore>,
+    ) -> Self {
+        self.audit_events = store;
+        self
+    }
+
     /// Asks this live register on a roster miss (root ADR-0550 §5).
     #[must_use]
     pub fn with_live_broker_register(mut self, live: Arc<dyn BrokerRegister>) -> Self {
@@ -805,6 +818,7 @@ impl AppState {
             Arc::new(PgRealEstateBrokerRoster::new(pool.clone())),
             None,
         );
+        let audit_events = Arc::new(PgAuditEventStore::new(pool.clone()));
 
         Self {
             database_pool: pool,
@@ -828,6 +842,7 @@ impl AppState {
             rollback_normalization_application,
             lineage_stewardship,
             record_operator_action,
+            audit_events,
             verify_real_estate_broker,
             identity_authorization,
             // Fail closed. Only a deployment that says so turns publication on, so a test
