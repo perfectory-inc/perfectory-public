@@ -91,8 +91,17 @@ last_reviewed: 2026-11-12
 여는 kapanet 뷰어(`ca.kapanet.or.kr/view/…`)에서 받아 공용 저장소(`onbid/media/sha256/<해시>.pdf`)에 한 번 담는다. 상한·동시·예산은
 계약 `appraisal_reports`. 뷰어가 reCAPTCHA 를 요구하면 **풀지 않는다**: 그 파일은 `captcha` 로 기록하고 건너뛰며, 계약의 대기를 두고,
 연속 `captcha_stop_after` 번이면 그 실행은 멈춘다(다음 실행이 다시 묻는다). 실행 줄 `courtauction.go.kr appraisal reports:` 에
-요청·저장·캡차 수가 나온다. 캡차 기록은 `silver.court_auction_appraisal_report_read` 의 `outcome = 'captcha'`. 매각물건명세서 PDF 는
-받지 않는다(법원 쪽 열람 기록·개인정보 워터마크).
+요청·저장·캡차 수가 나온다. 캡차 기록은 `silver.court_auction_appraisal_report_read` 의 `outcome = 'captcha'`.
+
+## 매각물건명세서 PDF (루트 ADR-0575)
+
+물건상세 뒤, 사건 문서 앞에 같은 실행이 그 실행에 읽은 물건 가운데 사이트 화면이 명세서를 여는 것(실물, 기일입찰은 매각기일 7 일 전부터,
+기간입찰은 입찰 시작 7 일 전부터)의 판(문서 ID)을 `silver.court_auction_sale_specification_read` 에 저장·없음으로 적히지 않았을 때만
+묻는다. 한 판은 요청 셋이다: 사이트의 열람 기록 단계(법원 쪽 열람 기록이 판마다 한 번 남는다) → 법원 문서뷰어(`ecfs.scourt.go.kr`)
+문서 정보 → PDF. 워터마크는 이름·받는 시각 없이 "개인정보유출주의 제출일시: <작성 시각>" 만 보낸다. PDF 에는 사람 이름이 있으므로
+공용 저장소가 아니라 `courtauction-go-kr/sale-specifications/sha256/<해시>.pdf`(필지 경계가 서빙하지 않는 접두)에 둔다. 상한·동시·예산은
+계약 `sale_specifications`. 캡차나 로그인 화면이 오면 풀지 않고 `captcha` 로 적은 뒤 그 실행의 명세서 단계를 멈춘다. 실행 줄
+`courtauction.go.kr sale specifications:` 에 제안·대상·요청·저장 수가 나온다.
 
 ## 개인정보 (루트 ADR-0540)
 

@@ -539,6 +539,8 @@ pub(crate) struct DetailResult {
     pub(crate) asked: u32,
     pub(crate) failed: u32,
     pub(crate) photos: PhotoReport,
+    /// The 매각물건명세서 versions the answers offered (root ADR-0575 §1): a few strings each.
+    pub(crate) specs: Vec<super::specs::WantedSpec>,
 }
 
 /// The request body of one property.
@@ -615,6 +617,7 @@ enum Read {
         line: String,
         failed: bool,
         photos: PhotoReport,
+        spec: Option<super::specs::WantedSpec>,
     },
     Stopped(Stop),
 }
@@ -632,6 +635,7 @@ async fn read_one(
     now: &(dyn Fn() -> DateTime<Utc> + Sync),
     store: &PhotoStore<'_>,
     seen: &SeenPhotos,
+    specs: &super::specs::SaleSpecifications,
 ) -> anyhow::Result<Read> {
     let (at, body, asked) = match send(asking, gate, deadline, detail, headers, wanted, now).await?
     {
@@ -656,6 +660,7 @@ async fn read_one(
         Asked::Unfinished => return Ok(Read::Stopped(Stop::TimeBudget)),
     };
     let mut photos = PhotoReport::default();
+    let mut spec = None;
     let failed = read.is_err();
     match read {
         Err((reason, text)) => {
@@ -666,6 +671,7 @@ async fn read_one(
         Ok(mut value) => {
             let photo_count = match value.pointer_mut(&detail.result_pointer) {
                 Some(found) => {
+                    spec = super::specs::spec_of(specs, found);
                     rewrite_photos(
                         found,
                         &detail.photos,
@@ -687,6 +693,7 @@ async fn read_one(
         line: serde_json::to_string(&line)?,
         failed,
         photos,
+        spec,
     })
 }
 
@@ -727,7 +734,16 @@ pub(crate) async fn collect_details(
         .iter()
         .map(|wanted| {
             read_one(
-                asking, gate, deadline, detail, &headers, wanted, &now, store, &seen,
+                asking,
+                gate,
+                deadline,
+                detail,
+                &headers,
+                wanted,
+                &now,
+                store,
+                &seen,
+                &contract.sale_specifications,
             )
         })
         .collect();
@@ -740,10 +756,12 @@ pub(crate) async fn collect_details(
                 line,
                 failed,
                 photos,
+                spec,
             } => {
                 result.asked += 1;
                 result.failed += u32::from(failed);
                 result.photos.absorb(photos);
+                result.specs.extend(spec);
                 result.lines.push(&line)?;
             }
         }

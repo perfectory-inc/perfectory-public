@@ -526,6 +526,45 @@ class ReportRowsTest(unittest.TestCase):
         self.assertEqual(CONTRACT["appraisal_reports"]["reads_from"], job.REPORT_READ_TABLE)
 
 
+def spec_line(document, outcome, sha=None):
+    """A 매각물건명세서 line as the collector writes it, with made-up values (root ADR-0575)."""
+
+    return {"operation": "saleSpecificationPdf",
+            "request": {"court_office_code": "B999999", "case_no": "20990130099999", "item_seq": "1",
+                        "document_id": document, "written_date": "20991026"},
+            "requested_at_utc": "2099-11-13T03:04:05+00:00", "outcome": outcome, "sha256": sha,
+            "media_format": "pdf" if sha else None, "size_bytes": 1000 if sha else None,
+            "facts": {"log_http_status": 200, "info_http_status": 200, "file_http_status": 200,
+                      "document_name": "매각물건명세서", "document_written_ymd": "20991026",
+                      "document_written_hm": "2359"}}
+
+
+class SpecReadRowsTest(unittest.TestCase):
+    def rows(self, lines):
+        return job.spec_read_rows_of(lines, "spec-object", "20991113T030405Z", datetime(2099, 11, 13, 3, 4, 5))
+
+    def test_every_version_asked_is_a_read_row_with_no_name(self):
+        rows = self.rows([spec_line("DOC1", "stored", "a" * 64), spec_line("DOC2", "captcha")])
+        self.assertEqual([(r["document_id"], r["outcome"]) for r in rows], [("DOC1", "stored"), ("DOC2", "captcha")])
+        self.assertEqual((rows[0]["sha256"], rows[0]["spec_written_date"], rows[0]["document_written_date"]),
+                         ("a" * 64, date(2099, 10, 26), date(2099, 10, 26)))
+        names = {c["name"] for c in load_lakehouse_contract(job.SPEC_READ_TABLE)["columns"]}
+        self.assertLessEqual(set(rows[0]), names)
+        self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_sale_specification"], job.SPECS_ROLE)
+        self.assertEqual(CONTRACT["sale_specifications"]["reads_from"], job.SPEC_READ_TABLE)
+
+    def test_a_read_without_its_document_id_is_refused(self):
+        line = spec_line("DOC1", "failed")
+        line["request"].pop("document_id")
+        with self.assertRaises(ValueError):
+            self.rows([line])
+
+    def test_the_pdfs_are_not_in_the_served_media_store(self):
+        onbid = json.loads((job.CONTRACTS / "data-go-kr-onbid.contract.json").read_text(encoding="utf-8"))
+        self.assertNotIn(job.SPEC_READ_TABLE, onbid["media"]["reconcile"]["index_tables"])
+        self.assertFalse(CONTRACT["sale_specifications"]["object_prefix"].startswith(onbid["media"]["object_prefix"]))
+
+
 @unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")
 class ChangesTest(unittest.TestCase):
     @classmethod

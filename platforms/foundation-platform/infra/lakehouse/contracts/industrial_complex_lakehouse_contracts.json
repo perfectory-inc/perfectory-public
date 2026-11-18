@@ -12314,6 +12314,147 @@
         "object_suffix_separator": null
       }
     },
+    "silver.court_auction_sale_specification_read": {
+      "table_name": "silver.court_auction_sale_specification_read",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "court_office_code",
+          "case_no",
+          "item_seq",
+          "document_id"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY court_office_code, case_no, item_seq, document_id ORDER BY source_snapshot_id DESC NULLS LAST, source_line_number DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "item_seq",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "document_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "spec_written_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "document_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "document_written_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "outcome",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "log_http_status",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "info_http_status",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "file_http_status",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "media_format",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "size_bytes",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "requested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "item_seq",
+        "document_id"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, item_seq, document_id, source_snapshot_id) unique",
+        "a CAPTCHA is recorded, never solved",
+        "no column names a person"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.industrial_complex_notice_detail": {
       "table_name": "silver.industrial_complex_notice_detail",
       "physical_format": "Parquet",
