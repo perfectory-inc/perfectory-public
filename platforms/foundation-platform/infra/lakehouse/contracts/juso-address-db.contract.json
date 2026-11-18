@@ -1,0 +1,60 @@
+{
+  "$comment": "Root ADR-0495. The 주소DB (구 매칭데이터, rtlDtaDtlSn 8) of 주소기반산업지원서비스, collected with no login and no key through the provider's own public download screen API: a list answer names the month's full file and every day's change file, and a download answer is the zip. Measured 2026-11-11 (W65 msg_91b0674446b7, W66): the list is HTTP 200 JSON, the 202610 full is 181,440,694 bytes (HTTP 200, 49 s), the 20261029 day file 18,583 bytes; a list for month M names the days of M and M-1. The collector (`collect-juso-address-db` in services/foundation-outbox-publisher) and the Silver load (infra/lakehouse/spark/jobs/juso_address_db.py) read this file; nothing else restates these values.",
+  "version": 1,
+  "base_url": "https://business.juso.go.kr",
+  "user_agent": "foundation-platform-juso-address-db-collector/1 (+root ADR-0495; one full once, then each day's change file)",
+  "request_spacing_seconds": 3,
+  "request_timeout_seconds": 900,
+  "item": {
+    "rtl_dta_dtl_sn": "8",
+    "name_ko": "주소DB"
+  },
+  "list": {
+    "$comment": "POST JSON {rtlDtaDtlSn, year, month, expand}. results.allMonthFileList holds the year's twelve months, results.dayFileList the days of the asked month and the month before; isExist Y names a file that is there.",
+    "path": "/api/jst/selectAttrbDBDwldList",
+    "expand": "Y"
+  },
+  "download": {
+    "$comment": "GET with these query parameters, each filled from the list row: regYmd the period's year, reqType the file kind's req_type, ctprvnCd the kind's ctprvn_cd, stdde the period (crtrYm or crtrYmd), fileName the row's fileNm, realFileName its tmprFileNm, intFileNo and intNum empty. The answer is the zip (content-type says application/json; the bytes start with PK).",
+    "path": "/api/jst/download"
+  },
+  "files": {
+    "$comment": "Keyed by the catalog's dataset slug (Bronze source jusogokr__<slug>). monthly_full is landed once, as the base; daily_change every day from the base's month on (one month of overlap: a change replayed onto a base that already holds it ends in the same row, root ADR-0494 does the same).",
+    "address_db_monthly_full": {
+      "name_ko": "주소DB 월전체",
+      "list_field": "allMonthFileList",
+      "period_field": "crtrYm",
+      "req_type": "ALLMTCHG",
+      "ctprvn_cd": "00"
+    },
+    "address_db_daily_change": {
+      "name_ko": "주소DB 일변동",
+      "list_field": "dayFileList",
+      "period_field": "crtrYmd",
+      "req_type": "DCM",
+      "ctprvn_cd": ""
+    }
+  },
+  "per_run_cap": {
+    "$comment": "A run lands the base when it has none, then the day files from its cursor to yesterday (KST), oldest first, up to max_day_files_per_run files and max_bytes_per_run bytes over the run, whichever comes first; the cursor stops where the run stopped. The base is 181 MB and a day file 1 KB to 100 KB (the 61 listed on 2026-11-11 hold 16 to 1,883 changed addresses each), so the first run is the base and about 41 days, and every run after one day.",
+    "max_day_files_per_run": 62,
+    "max_bytes_per_run": 1000000000
+  },
+  "max_file_bytes": 600000000,
+  "timezone": "Asia/Seoul",
+  "members": {
+    "$comment": "The text members inside the zips, CP949, '|'-separated, no header line (the provider's guide 「주소DB 활용방법」 in the full zip). The full has 주소_<시도>.txt, 지번_<시도>.txt, 부가정보_<시도>.txt and 개선_도로명코드_전체분.txt; a day file AlterD.JUSUMT.<YYYYMMDD>.MATCHING_JUSO/JIBUN/ADDINFO/ROAD.TXT with the same columns plus a change reason (변경사유코드: 31 신규, 34 변경, 63 폐지). The Silver load reads only the address and jibun members and the road code table.",
+    "encoding": "cp949",
+    "separator": "|",
+    "full": {
+      "address": "주소_",
+      "jibun": "지번_",
+      "road_code": "개선_도로명코드_전체분.txt"
+    },
+    "daily": {
+      "address": ".MATCHING_JUSO.TXT",
+      "jibun": ".MATCHING_JIBUN.TXT",
+      "road_code": ".MATCHING_ROAD.TXT"
+    }
+  }
+}

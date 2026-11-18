@@ -370,7 +370,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # foundation-publisher-silver compiles in the SQL file DuckDB runs for it
 # (real_transaction_gold_stage/region_stats.sql: reviewed and compared as SQL; the national
 # engine-equality verdict ran that file's rules).
-COMPILE_TIME_READ_BASELINE="${3:-186}"
+# 186 -> 187: the 주소DB collector embeds its source contract once, as the 전자지도 collector does
+# (root ADR-0495).
+COMPILE_TIME_READ_BASELINE="${3:-187}"
 
 cd "$repo_root"
 
