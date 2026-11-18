@@ -192,6 +192,113 @@
         ]
       }
     },
+    "/identity/v1/staff/{staff_id}/external-accounts": {
+      "post": {
+        "tags": [
+          "crate::routes::staff"
+        ],
+        "operationId": "change_external_account",
+        "parameters": [
+          {
+            "name": "staff_id",
+            "in": "path",
+            "description": "Staff identifier the account belongs to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffExternalAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Link record appended",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffExternalAccountResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid staff identifier, provider or account id, or a valid_from in the future",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credential is invalid, expired, or revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Verified staff principal cannot link accounts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target staff does not exist, or holds no link to the account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The account is already linked over that interval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Opaque internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/identity/v1/staff/{staff_id}/roles": {
       "post": {
         "tags": [
@@ -371,6 +478,14 @@
           }
         }
       },
+      "ExternalAccountChange": {
+        "type": "string",
+        "description": "Whether a request ties an account to the staff principal or ends the tie.",
+        "enum": [
+          "link",
+          "unlink"
+        ]
+      },
       "HealthResponse": {
         "type": "object",
         "description": "Safe health response without configuration details.",
@@ -479,6 +594,79 @@
           "allow",
           "deny"
         ]
+      },
+      "StaffExternalAccountRequest": {
+        "type": "object",
+        "description": "Request body for linking or unlinking a source's account to the staff principal in the route.\n\nThe actor credential is supplied only in the `Authorization: Bearer` header. Records are only\nappended; an unlink appends the same link with `valid_to` filled.",
+        "required": [
+          "change",
+          "provider",
+          "external_id"
+        ],
+        "properties": {
+          "change": {
+            "$ref": "#/components/schemas/ExternalAccountChange",
+            "description": "`link` or `unlink`."
+          },
+          "external_id": {
+            "type": "string",
+            "description": "The source's immutable id: a numeric GitHub user id, or `<uid>@<host>`. Never a login name."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Source of the account: `github` or `unix`."
+          },
+          "valid_from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "For `link`: when the link starts to hold, at most now. Defaults to now. Ignored by `unlink`."
+          }
+        }
+      },
+      "StaffExternalAccountResponse": {
+        "type": "object",
+        "description": "The appended link record.",
+        "required": [
+          "principal_id",
+          "provider",
+          "external_id",
+          "valid_from",
+          "linked_by"
+        ],
+        "properties": {
+          "external_id": {
+            "type": "string",
+            "description": "The source's immutable id."
+          },
+          "linked_by": {
+            "$ref": "#/components/schemas/PrincipalId",
+            "description": "Authenticated principal that recorded this record."
+          },
+          "principal_id": {
+            "$ref": "#/components/schemas/PrincipalId",
+            "description": "Staff principal the account belongs to."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Source of the account."
+          },
+          "valid_from": {
+            "type": "string",
+            "format": "date-time",
+            "description": "UTC timestamp from which the link holds."
+          },
+          "valid_to": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "UTC timestamp at which the link stopped holding; absent while it holds."
+          }
+        }
       },
       "StaffRoleResponse": {
         "type": "object",

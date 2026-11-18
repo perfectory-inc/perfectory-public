@@ -27,6 +27,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/identity/v1/staff/{staff_id}/roles",
             post(staff::assign_role),
         )
+        .route(
+            "/identity/v1/staff/{staff_id}/external-accounts",
+            post(staff::change_external_account),
+        )
         .route("/identity/v1/policy/decisions", post(policy::decide))
         .route("/healthz", get(live))
         .route("/readyz", get(ready))

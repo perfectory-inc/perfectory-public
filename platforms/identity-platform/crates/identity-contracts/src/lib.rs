@@ -14,11 +14,12 @@ pub mod http;
 
 pub use delivery::IdentityEventDeliveryV1;
 pub use events::{
-    IdentityEventV1, ServiceCapabilityChangedV1, StaffInvitedV1, StaffRoleAssignedV1,
-    StaffSessionRevokedV1,
+    IdentityEventV1, ServiceCapabilityChangedV1, StaffExternalAccountChangedV1, StaffInvitedV1,
+    StaffRoleAssignedV1, StaffSessionRevokedV1,
 };
 pub use http::{
-    AssignStaffRoleRequest, PolicyDecisionRequest, PolicyDecisionResponse, PrincipalId,
-    ResourceAction, StaffRoleResponse, VerifyStaffSessionResponse, ASSIGN_STAFF_ROLE_ROUTE,
-    POLICY_DECISION_ROUTE, REVOKE_STAFF_SESSION_ROUTE, VERIFY_STAFF_SESSION_ROUTE,
+    AssignStaffRoleRequest, ExternalAccountChange, PolicyDecisionRequest, PolicyDecisionResponse,
+    PrincipalId, ResourceAction, StaffExternalAccountRequest, StaffExternalAccountResponse,
+    StaffRoleResponse, VerifyStaffSessionResponse, ASSIGN_STAFF_ROLE_ROUTE, POLICY_DECISION_ROUTE,
+    REVOKE_STAFF_SESSION_ROUTE, STAFF_EXTERNAL_ACCOUNTS_ROUTE, VERIFY_STAFF_SESSION_ROUTE,
 };

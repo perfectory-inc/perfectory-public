@@ -4,8 +4,11 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use authorization_application::ports::{RoleGrantPersistenceError, RoleGrantUnitOfWork};
-use authorization_application::{AssignStaffRole, EvaluateAccess};
+use authorization_application::ports::{
+    ExternalAccountLinkPersistenceError, ExternalAccountLinkUnitOfWork, RoleGrantPersistenceError,
+    RoleGrantUnitOfWork,
+};
+use authorization_application::{AssignStaffRole, EvaluateAccess, LinkStaffExternalAccount};
 use authorization_domain::{Permission, RoleCode, RoleGrant};
 use axum::body::{to_bytes, Body};
 use axum::http::{header, Method, Request, StatusCode};
@@ -15,8 +18,8 @@ use chrono::{Duration, TimeZone, Utc};
 use identity_api::state::{AppState, ReadinessProbe};
 use identity_api::{openapi_document, router};
 use identity_contracts::{
-    PolicyDecisionResponse, PrincipalId, ResourceAction, StaffRoleResponse,
-    VerifyStaffSessionResponse,
+    PolicyDecisionResponse, PrincipalId, ResourceAction, StaffExternalAccountResponse,
+    StaffRoleResponse, VerifyStaffSessionResponse,
 };
 use identity_shared_kernel::StaffId;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
@@ -32,7 +35,9 @@ use staff_identity_application::ports::{
     EffectiveRoleReader, OidcVerifier, StaffRepository, StaffSessionUnitOfWork, VerifiedOidcClaims,
 };
 use staff_identity_application::VerifyStaffSession;
-use staff_identity_domain::{Staff, StaffIdentityError, StaffSession};
+use staff_identity_domain::{
+    ExternalAccount, ExternalAccountLink, Staff, StaffIdentityError, StaffSession,
+};
 use staff_identity_infrastructure::ZitadelOidcVerifier;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -83,6 +88,11 @@ async fn protected_routes_require_a_well_formed_bearer_header() -> Result<(), Bo
             Method::POST,
             "/identity/v1/staff/00000000-0000-0000-0000-000000000002/roles",
             Some(json!({"role_code": "CATALOG_ADMIN"})),
+        ),
+        (
+            Method::POST,
+            "/identity/v1/staff/00000000-0000-0000-0000-000000000002/external-accounts",
+            Some(json!({"change": "link", "provider": "github", "external_id": "1"})),
         ),
         (
             Method::POST,
@@ -615,10 +625,16 @@ fn test_harness_with_readiness(database_ready: bool, issuer_ready: bool) -> Harn
     let authorize = Arc::new(AuthorizeServiceCall::new(Arc::new(FakeAuditSink {
         events: events.clone(),
     })));
+    let link = Arc::new(LinkStaffExternalAccount::new(Arc::new(
+        FakeExternalAccountLinkUnitOfWork {
+            events: events.clone(),
+        },
+    )));
     let state = AppState::new(
         verify,
         revoke,
         assign,
+        link,
         EvaluateAccess::new(),
         Arc::new(FakeServiceVerifier {
             events: events.clone(),
@@ -652,6 +668,11 @@ fn real_verifier_harness(issuer: &str) -> Harness {
     let authorize = Arc::new(AuthorizeServiceCall::new(Arc::new(FakeAuditSink {
         events: events.clone(),
     })));
+    let link = Arc::new(LinkStaffExternalAccount::new(Arc::new(
+        FakeExternalAccountLinkUnitOfWork {
+            events: events.clone(),
+        },
+    )));
     let service_verifier = Arc::new(ZitadelMachineTokenVerifier::new(
         issuer,
         "identity-api",
@@ -661,6 +682,7 @@ fn real_verifier_harness(issuer: &str) -> Harness {
         verify,
         revoke,
         assign,
+        link,
         EvaluateAccess::new(),
         service_verifier,
         authorize,
@@ -1091,4 +1113,137 @@ fn count_event(events: &Arc<Mutex<Vec<&'static str>>>, expected: &str) -> usize 
 
 fn event_snapshot(events: &Arc<Mutex<Vec<&'static str>>>) -> Vec<&'static str> {
     events.lock().map(|guard| guard.clone()).unwrap_or_default()
+}
+
+#[tokio::test]
+async fn an_external_account_is_linked_and_unlinked_only_by_master_admin(
+) -> Result<(), Box<dyn Error>> {
+    let uri = "/identity/v1/staff/00000000-0000-0000-0000-000000000002/external-accounts";
+    let harness = test_harness(true);
+    let linked = send(
+        &harness.app,
+        Method::POST,
+        uri,
+        Some(bearer(Some("staff"), "staff-admin")),
+        Some(json!({"change": "link", "provider": "github", "external_id": "583231"})),
+        &[],
+    )
+    .await?;
+    assert_eq!(linked.status, StatusCode::OK);
+    let body: StaffExternalAccountResponse = serde_json::from_slice(&linked.body)?;
+    assert_eq!(body.principal_id, PrincipalId::new(TARGET_ID));
+    assert_eq!(body.linked_by, PrincipalId::new(ACTOR_ID));
+    assert_eq!(
+        (
+            body.provider.as_str(),
+            body.external_id.as_str(),
+            body.valid_to
+        ),
+        ("github", "583231", None)
+    );
+    assert_eq!(
+        event_snapshot(&harness.events),
+        vec!["staff.verify", "session.persist", "account.link"]
+    );
+
+    let unlinked = send(
+        &harness.app,
+        Method::POST,
+        uri,
+        Some(bearer(Some("staff"), "staff-admin")),
+        Some(json!({"change": "unlink", "provider": "unix", "external_id": "1000@ai-server"})),
+        &[],
+    )
+    .await?;
+    assert_eq!(unlinked.status, StatusCode::OK);
+    let body: StaffExternalAccountResponse = serde_json::from_slice(&unlinked.body)?;
+    assert!(body.valid_to.is_some());
+
+    for (authorization, request, status) in [
+        (
+            "staff-user",
+            json!({"change": "link", "provider": "github", "external_id": "1"}),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "staff-admin",
+            json!({"change": "link", "provider": "github", "external_id": "octocat"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "staff-admin",
+            json!({"change": "link", "provider": "github", "external_id": "1",
+                   "valid_from": "2999-01-01T00:00:00Z"}),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "staff-admin",
+            json!({"change": "link", "provider": "github", "external_id": "409"}),
+            StatusCode::CONFLICT,
+        ),
+        (
+            "staff-admin",
+            json!({"change": "unlink", "provider": "github", "external_id": "404"}),
+            StatusCode::NOT_FOUND,
+        ),
+    ] {
+        let response = send(
+            &test_harness(true).app,
+            Method::POST,
+            uri,
+            Some(bearer(Some("staff"), authorization)),
+            Some(request.clone()),
+            &[],
+        )
+        .await?;
+        assert_eq!(response.status, status, "{request}");
+    }
+    Ok(())
+}
+
+struct FakeExternalAccountLinkUnitOfWork {
+    events: Arc<Mutex<Vec<&'static str>>>,
+}
+
+#[async_trait]
+impl ExternalAccountLinkUnitOfWork for FakeExternalAccountLinkUnitOfWork {
+    async fn link(
+        &self,
+        staff_id: StaffId,
+        account: &ExternalAccount,
+        valid_from: chrono::DateTime<Utc>,
+        linked_by: StaffId,
+    ) -> Result<ExternalAccountLink, ExternalAccountLinkPersistenceError> {
+        record(&self.events, "account.link");
+        if account.external_id() == "409" {
+            return Err(ExternalAccountLinkPersistenceError::AlreadyLinked);
+        }
+        Ok(ExternalAccountLink {
+            staff_id,
+            account: account.clone(),
+            valid_from,
+            valid_to: None,
+            linked_by,
+        })
+    }
+
+    async fn unlink(
+        &self,
+        staff_id: StaffId,
+        account: &ExternalAccount,
+        unlinked_by: StaffId,
+    ) -> Result<ExternalAccountLink, ExternalAccountLinkPersistenceError> {
+        record(&self.events, "account.unlink");
+        if account.external_id() == "404" {
+            return Err(ExternalAccountLinkPersistenceError::NotLinked);
+        }
+        let now = Utc::now();
+        Ok(ExternalAccountLink {
+            staff_id,
+            account: account.clone(),
+            valid_from: now,
+            valid_to: Some(now),
+            linked_by: unlinked_by,
+        })
+    }
 }

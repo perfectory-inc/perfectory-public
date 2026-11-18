@@ -7,10 +7,11 @@ use anyhow::{bail, Context};
 use async_trait::async_trait;
 use authorization_application::{
     AssignStaffRole, BootstrapMasterAdmin, BootstrapMasterAdminInput, BootstrapMasterAdminOutcome,
-    EvaluateAccess,
+    EvaluateAccess, LinkStaffExternalAccount,
 };
 use authorization_infrastructure::{
-    PgEffectiveRoleReader, PgIdentityBootstrapUnitOfWork, PgRoleGrantUnitOfWork,
+    PgEffectiveRoleReader, PgExternalAccountLinkUnitOfWork, PgIdentityBootstrapUnitOfWork,
+    PgRoleGrantUnitOfWork,
 };
 use service_identity_application::ports::ServiceCredentialVerifier;
 use service_identity_application::AuthorizeServiceCall;
@@ -46,6 +47,7 @@ pub struct AppState {
     pub(crate) verify_staff_session: Arc<VerifyStaffSession>,
     pub(crate) revoke_staff_session: Arc<RevokeStaffSession>,
     pub(crate) assign_staff_role: Arc<AssignStaffRole>,
+    pub(crate) link_external_account: Arc<LinkStaffExternalAccount>,
     pub(crate) evaluate_access: EvaluateAccess,
     pub(crate) service_credential_verifier: Arc<dyn ServiceCredentialVerifier>,
     pub(crate) authorize_service_call: Arc<AuthorizeServiceCall>,
@@ -60,6 +62,7 @@ impl AppState {
         verify_staff_session: Arc<VerifyStaffSession>,
         revoke_staff_session: Arc<RevokeStaffSession>,
         assign_staff_role: Arc<AssignStaffRole>,
+        link_external_account: Arc<LinkStaffExternalAccount>,
         evaluate_access: EvaluateAccess,
         service_credential_verifier: Arc<dyn ServiceCredentialVerifier>,
         authorize_service_call: Arc<AuthorizeServiceCall>,
@@ -69,6 +72,7 @@ impl AppState {
             verify_staff_session,
             revoke_staff_session,
             assign_staff_role,
+            link_external_account,
             evaluate_access,
             service_credential_verifier,
             authorize_service_call,
@@ -124,6 +128,9 @@ impl AppState {
         let assign_staff_role = Arc::new(AssignStaffRole::new(Arc::new(
             PgRoleGrantUnitOfWork::new(pool.clone()),
         )));
+        let link_external_account = Arc::new(LinkStaffExternalAccount::new(Arc::new(
+            PgExternalAccountLinkUnitOfWork::new(pool.clone()),
+        )));
         let service_reader = Arc::new(PgServicePrincipalCapabilityReader::new(pool.clone()));
         let service_credential_verifier = Arc::new(ZitadelMachineTokenVerifier::new(
             &config.zitadel_issuer_url,
@@ -138,6 +145,7 @@ impl AppState {
             verify_staff_session,
             revoke_staff_session,
             assign_staff_role,
+            link_external_account,
             EvaluateAccess::new(),
             service_credential_verifier,
             authorize_service_call,

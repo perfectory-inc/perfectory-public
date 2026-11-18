@@ -3,4 +3,7 @@
 /// PostgreSQL-backed authorization adapters.
 pub mod postgres;
 
-pub use postgres::{PgEffectiveRoleReader, PgIdentityBootstrapUnitOfWork, PgRoleGrantUnitOfWork};
+pub use postgres::{
+    PgEffectiveRoleReader, PgExternalAccountLinkUnitOfWork, PgIdentityBootstrapUnitOfWork,
+    PgRoleGrantUnitOfWork,
+};

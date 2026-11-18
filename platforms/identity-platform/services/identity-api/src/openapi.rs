@@ -8,8 +8,9 @@ use utoipa::{Modify, OpenApi as OpenApiDerive};
 use crate::error::ApiErrorResponse;
 use crate::routes::{HealthResponse, ReadinessResponse};
 use identity_contracts::{
-    AssignStaffRoleRequest, PolicyDecisionRequest, PolicyDecisionResponse, PrincipalId,
-    ResourceAction, StaffRoleResponse, VerifyStaffSessionResponse,
+    AssignStaffRoleRequest, ExternalAccountChange, PolicyDecisionRequest, PolicyDecisionResponse,
+    PrincipalId, ResourceAction, StaffExternalAccountRequest, StaffExternalAccountResponse,
+    StaffRoleResponse, VerifyStaffSessionResponse,
 };
 
 #[derive(OpenApiDerive)]
@@ -26,17 +27,21 @@ use identity_contracts::{
         crate::routes::policy::decide,
         crate::routes::staff::verify_session,
         crate::routes::staff::revoke_session,
-        crate::routes::staff::assign_role
+        crate::routes::staff::assign_role,
+        crate::routes::staff::change_external_account
     ),
     components(schemas(
         ApiErrorResponse,
         AssignStaffRoleRequest,
+        ExternalAccountChange,
         HealthResponse,
         PolicyDecisionRequest,
         PolicyDecisionResponse,
         PrincipalId,
         ReadinessResponse,
         ResourceAction,
+        StaffExternalAccountRequest,
+        StaffExternalAccountResponse,
         StaffRoleResponse,
         VerifyStaffSessionResponse
     )),
