@@ -37,6 +37,8 @@ The rebuild contract's `code_version` (contracts/gold-panel-rebuild.contract.jso
   only at the entries this table reads: the parts it `keep`s, and under each `entries` path the
   entries its selector picks: `tables` (the Gold table and its inputs) or `lanes` (the by-PNU lanes
   whose Gold is the table, or whose host panel is and which have no producer of their own). An edit to another table's entry is not this table's code.
+  `row_neutral_fields` names fields of those entries that cannot change a row, each with its reason
+  (a kind line's `versions_table`, root ADR-0564 §6-1): they are left out of the hash.
 
 The value is JSON `{"sha256": <of the whole>, "parts": {<path>[::<symbol>]: <sha256 prefix>}}`: the
 planner names the symbols and contracts that changed.
@@ -191,6 +193,10 @@ def settings(contract: dict[str, Any], jobs: Path = JOBS) -> dict[str, Any]:
                 and isinstance(rule.get("keep", []), list) and str(rule.get("reason", "")).strip()):
             raise ValueError(f"code_version.scoped_contracts.{name} needs `entries` (path -> one of {SELECTORS}), "
                              "an optional `keep` list and its reason")
+        left_out = rule.get("row_neutral_fields", {})
+        if not (isinstance(left_out, dict) and all(isinstance(w, str) and w.strip() for w in left_out.values())):
+            raise ValueError(f"code_version.scoped_contracts.{name}.row_neutral_fields must map each entry field "
+                             "to why it cannot change a row")
     return {"plumbing": plumbing, "plumbing_symbols": symbols, "scoped": scoped}
 
 
@@ -216,7 +222,9 @@ def _scoped(document: Any, rule: dict[str, Any], table: str, tables: set[str]) -
     kept = {path: _at(document, path) for path in rule.get("keep", [])}
     for path, selector in rule["entries"].items():
         found = _at(document, path) or {}
-        kept[path] = {k: v for k, v in sorted(found.items()) if _picks(selector, k, v, table, tables)}
+        neutral = rule.get("row_neutral_fields", {})
+        kept[path] = {k: {f: x for f, x in v.items() if f not in neutral} if neutral and isinstance(v, dict) else v
+                      for k, v in sorted(found.items()) if _picks(selector, k, v, table, tables)}
     return kept
 
 

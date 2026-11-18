@@ -132,6 +132,7 @@
               "silver_table",
               "gold_table",
               "reference_table",
+              "intelligence_table",
               "serving_group",
               "serving_surface"
             ]

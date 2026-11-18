@@ -100,7 +100,8 @@ class HostFixture(unittest.TestCase):
                     "FOUNDATION_JOB_SWITCHES_DIR": str(self.root / "switches"),
                     "FOUNDATION_SCHEDULED_CONSUMED_DIR": str(self.root / "consumed"),
                     "FOUNDATION_OPERATOR_STOPS_DIR": str(self.root / "stopped"),
-                    "FOUNDATION_START_QUEUE_DIR": str(self.root / "queue")}
+                    "FOUNDATION_START_QUEUE_DIR": str(self.root / "queue"),
+                    "FOUNDATION_DEPLOY_HOLD": str(self.root / "deploy-hold")}
         (self.root / "switches/run-now.d").mkdir(parents=True)
 
     def start(self, job, **env):
@@ -523,6 +524,39 @@ class TheCheckBeforeThePool(HostFixture):
             with self.subTest(request):
                 result, asked = self.start(request)
                 self.assertEqual((result.returncode, asked), (64, ""), result.stdout)
+
+
+class AJobTheDeployHolds(HostFixture):
+    """Root ADR-0565 §5: a running deploy's hold stops every start of the jobs it holds here, whoever asked:
+    pausing a DAG or stopping a sensor stops new decisions, not a retry, a queued run or a run-now. The
+    start waits like a build's and, at its limit, is owed for the deploy to start once the release is live."""
+
+    def hold(self, *jobs, pid=None):
+        (self.root / "deploy-hold").write_text(f"pid {pid or os.getpid()}\n" + "".join(f"{job}\n" for job in jobs))
+
+    def test_a_held_job_waits_then_is_owed_and_says_why(self):
+        self.hold("floor")
+        result, asked = self.start("floor")
+        self.assertEqual(asked, "", "a held job's unit never starts")
+        self.assertIn("floor waits up to 2 minutes: the deploy holds floor until its release is live", result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-1],
+                         "foundation-job-outcome waiting held by the deploy; this job starts when its release is live")
+        self.assertEqual(sorted(path.name for path in self.deferred.iterdir()), ["floor"])
+
+    def test_a_triggered_start_and_a_run_now_are_held_too(self):
+        self.hold("*")
+        result, asked = self.start("fold triggered")
+        self.assertEqual(asked, "")
+        self.assertIn("held by the deploy", result.stdout.splitlines()[-1])
+
+    def test_a_job_the_deploy_does_not_hold_and_a_hold_left_by_a_gone_deploy_start(self):
+        self.hold("floor")
+        _, asked = self.start("fold")
+        self.assertIn("systemctl start --no-block foundation-fold.service", asked)
+        # A pid no process has: the deploy that wrote it is gone and holds nothing.
+        self.hold("floor", pid=2 ** 22 + 7)
+        _, asked = self.start("floor")
+        self.assertIn("systemctl start --no-block foundation-floor.service", asked)
 
 
 class AJobDueDuringAReleaseBuild(HostFixture):

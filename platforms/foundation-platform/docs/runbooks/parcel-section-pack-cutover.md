@@ -83,7 +83,7 @@ sudo -n $op parcel monitor-sample 1 --requested-at "$(date +%s)" --reason "<왜>
 
 **첫 발행은 사람이 시작하지 않는다(루트 ADR-0435).** `foundation-by-pnu-auto-promote.timer`(15분)가 cut-over 안 된
 레인을 하나씩 `cutover <세대> --auto` 로 시작한다. 러너의 단계가 자동 분석이고(마지막 `verify` 는 운영 호스트를 GET
-두 번), 실패하면 발행 전에 멈추고 유닛이 알린다. 발행 못 한 레인은 1·2·4…24시간 뒤 다시. 시각 창은 없다: run 이
+두 번), 실패하면 발행 전에 멈추고 유닛이 알린다. 발행 못 한 레인은 1·2·4…24시간 뒤 다시. 몇 초 만의 실패는 새 릴리스가 기다림을 지우지만, gold·bake 가 풀을 10분 넘게 쥐고 실패한 시도는 어느 릴리스든 센다(루트 ADR-0521: 11-11 실거래 첫 Gold 가 OOM 으로 26번 다시 돌았다). 서둘러 다시 돌릴 땐 레인의 Gold 작업을 run-now 로 돌린다: Gold 가 생기면 cut-over 의 gold 걸음은 할 일이 없다. 시각 창은 없다: run 이
 spark 풀을 claim 하고 용량을 기다린다(backfill 은 걸음 경계에서 양보). 시도 기록은
 `/var/lib/foundation-run-now/auto-promote/<레인>.jsonl`.
 

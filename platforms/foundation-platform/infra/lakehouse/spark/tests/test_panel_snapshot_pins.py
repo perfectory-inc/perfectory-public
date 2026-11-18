@@ -149,6 +149,9 @@ class PanelSnapshotPinsTest(unittest.TestCase):
                 self.write(pins)
                 stack.enter_context(mock.patch.object(job, "parse_args", return_value=args))
                 spark, frame = mock.MagicMock(), mock.MagicMock()
+                # The plan pins go to the run's local dir; a mock's `spark.local.dir` is a path named
+                # after the mock, relative to the working directory (PR #1252 committed six of them).
+                stack.enter_context(mock.patch.object(job.incremental, "local_dir", return_value=self.path.parent))
 
                 def start(*unused):
                     self.write({name: "22" for name in pins})

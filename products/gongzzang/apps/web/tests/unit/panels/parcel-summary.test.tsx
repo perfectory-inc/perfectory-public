@@ -295,6 +295,42 @@ describe("parcel panel sections", () => {
     expect(anchors()).not.toContain("에너지");
   });
 
+  it("shows 인입 가능성 from the 가스 rows and 도로접면, without a source note", async () => {
+    reads.energy = {
+      months: [
+        {
+          use_ym: "209908",
+          electricity_usage: 10,
+          electricity_rows: 1,
+          gas_usage: null,
+          gas_rows: 0,
+        },
+        { use_ym: "209907", electricity_usage: 10, electricity_rows: 1, gas_usage: 0, gas_rows: 1 },
+      ],
+      electricity_unit: "kWh",
+      latest_use_ym: "209908",
+    };
+    try {
+      renderPanel(parcel({ characteristics: { road_contact: "세로한면(가)" } }));
+      // The energy read settles after the parcel's own 도로접면 is shown.
+      const gas = await screen.findByText("사용 실적 있음 · 2099.07 사용분");
+      expect(anchors()).toContain("인입 가능성");
+      const group = screen.getByRole("heading", { name: "인입 가능성" })
+        .parentElement as HTMLElement;
+      expect(group.contains(gas)).toBe(true);
+      expect(within(group).getByText("세로한면(가)")).toBeTruthy();
+      expect(group.textContent).not.toContain("건축HUB");
+    } finally {
+      reads.energy = null;
+    }
+  });
+
+  it("shows no 인입 가능성 for a parcel with neither a 가스 row nor a 도로접면", async () => {
+    renderPanel(parcel());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("인입 가능성")).toBeNull();
+  });
+
   it("shows the parcel's 멸실된 건물 in the source's words, newest first", async () => {
     reads.demolitions = {
       records: [
@@ -408,7 +444,7 @@ describe("parcel panel sections", () => {
     try {
       renderPanel(parcel());
       expect(await screen.findByText("건축인허가 3건")).toBeTruthy();
-      expect(anchors()).toContain("건축인허가");
+      expect(anchors()).toContain("인허가 이력");
       expect(screen.getByText("신축 · 공장")).toBeTruthy();
       expect(screen.getByText("대지면적 1000.5㎡ · 연면적 800㎡")).toBeTruthy();
       expect(screen.getByText("건축허가일 2098.01.01 · 실제착공일 2098.03.01")).toBeTruthy();
@@ -444,11 +480,35 @@ describe("parcel panel sections", () => {
         ],
       },
       site_locations: null,
+      housing_permits: {
+        total: 1,
+        records: [
+          {
+            purpose_name: "공동주택",
+            structure_name: null,
+            total_household_count: "150",
+            main_building_count: "3",
+            total_floor_area_m2: "12000.5",
+            approval_date: "20980115",
+            start_scheduled_date: "",
+            start_actual_date: "20980710",
+            use_inspection_scheduled_date: "",
+            use_inspection_date: null,
+          },
+        ],
+      },
     };
     try {
       renderPanel(parcel());
       expect(await screen.findByText("가설건축물 2건")).toBeTruthy();
-      expect(anchors()).toContain("건축인허가");
+      // Root ADR-0511: the 주택인허가 기본개요 is one more list of the same section, in the provider's words.
+      expect(screen.getByText("주택인허가 1건")).toBeTruthy();
+      expect(
+        screen.getByText(
+          "총세대수 150세대 · 주건축물수 3 · 연면적 12000.5㎡ · 승인일 2098.01.15 · 착공일 2098.07.10",
+        ),
+      ).toBeTruthy();
+      expect(anchors()).toContain("인허가 이력");
       expect(screen.queryByText(/^건축인허가 \d+건$/)).toBeNull();
       expect(screen.getByText("창고시설 · 컨테이너조")).toBeTruthy();
       expect(

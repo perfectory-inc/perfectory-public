@@ -20,9 +20,9 @@
 //! the request body, the HTTP status and the response body as received. The Silver load
 //! (`infra/lakehouse/spark/jobs/courtauction_go_kr.py`) parses them.
 //!
-//! After a list pass that was not cut short, the same run asks the 물건상세 of the properties due,
-//! on the same pool and tally, and stores their photos once in the shared media store
-//! ([`detail`], root ADR-0384).
+//! After a list pass that was not cut short, the same run asks the site's 공통코드 once ([`codes`],
+//! root ADR-0540 §5), then the 물건상세 of the properties due, on the same pool and tally, and stores
+//! their photos once in the shared media store ([`detail`], root ADR-0384).
 
 use std::{
     collections::BTreeMap,
@@ -60,7 +60,6 @@ use crate::bronze_object_storage::{
     live_write_bronze_object_storage_from_env, live_write_target_preflight,
     BronzeObjectStorageWriter,
 };
-use crate::media_renditions;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
 
 /// `infra/lakehouse/contracts/courtauction-go-kr.contract.json`, as compiled in.
@@ -178,6 +177,7 @@ pub(crate) struct SourceContract {
     pub(crate) item_search: Search,
     pub(crate) sale_result_search: Search,
     pub(crate) item_detail: detail::ItemDetail,
+    pub(crate) common_codes: codes::CommonCodes,
     pub(crate) collection: Collection,
 }
 
@@ -511,12 +511,58 @@ pub(crate) async fn collect(
 }
 
 pub(crate) fn gzip_lines(lines: &[String]) -> anyhow::Result<Vec<u8>> {
-    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut gz = GzLines::default();
     for line in lines {
-        encoder.write_all(line.as_bytes())?;
-        encoder.write_all(b"\n")?;
+        gz.push(line)?;
     }
-    Ok(encoder.finish()?)
+    gz.finish()
+}
+
+/// Bronze lines gzipped as they are added: a night's 물건상세 lines are held compressed until the
+/// commit, not as text. On 2026-11-12 the first night that asked every in-progress property held
+/// them as text and the unit was killed at its 1G cap after 2 h 9 min (memory peak 1,023.9M), so
+/// nothing of the night landed.
+pub(crate) struct GzLines {
+    encoder: flate2::write::GzEncoder<Vec<u8>>,
+    count: usize,
+}
+
+impl Default for GzLines {
+    fn default() -> Self {
+        Self {
+            encoder: flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()),
+            count: 0,
+        }
+    }
+}
+
+impl std::fmt::Debug for GzLines {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GzLines")
+            .field("count", &self.count)
+            .finish()
+    }
+}
+
+impl GzLines {
+    pub(crate) fn push(&mut self, line: &str) -> anyhow::Result<()> {
+        self.encoder.write_all(line.as_bytes())?;
+        self.encoder.write_all(b"\n")?;
+        self.count += 1;
+        Ok(())
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.count
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    pub(crate) fn finish(self) -> anyhow::Result<Vec<u8>> {
+        Ok(self.encoder.finish()?)
+    }
 }
 
 /// The run's id and every object's `source_snapshot_id`: when the run started.
@@ -529,9 +575,13 @@ pub(crate) fn plan(
     bytes: Vec<u8>,
     run: IngestionRunId,
     at: DateTime<Utc>,
+    part: Option<u32>,
 ) -> anyhow::Result<PublicDataBulkFilePlan> {
+    // A run's 물건상세 lands in parts, each its own object; the run id stays the key's last part, as
+    // the Silver load reads it.
+    let part = part.map(|n| format!("part{n:04}-")).unwrap_or_default();
     let file_id = format!(
-        "{}-{}",
+        "{}-{part}{}",
         search.dataset_slug.replace('_', "-"),
         run_id(at).to_ascii_lowercase()
     );
@@ -604,9 +654,36 @@ where
     Uow: BronzeIngestUnitOfWork + ?Sized,
     Storage: ObjectStorageService + ?Sized,
 {
-    let bytes = gzip_lines(lines)?;
+    persist_gzipped(
+        search,
+        output_dir,
+        gzip_lines(lines)?,
+        lines.len(),
+        None,
+        at,
+        night,
+        live,
+    )
+    .await
+}
+
+/// [`persist`] for lines already gzipped (`count` of them).
+pub(crate) async fn persist_gzipped<Uow, Storage>(
+    search: &Search,
+    output_dir: &Path,
+    bytes: Vec<u8>,
+    count: usize,
+    part: Option<u32>,
+    at: DateTime<Utc>,
+    night: &JsonValue,
+    live: Option<(&Uow, &Storage)>,
+) -> anyhow::Result<JsonValue>
+where
+    Uow: BronzeIngestUnitOfWork + ?Sized,
+    Storage: ObjectStorageService + ?Sized,
+{
     let Some((uow, storage)) = live else {
-        let plan = plan(search, bytes, IngestionRunId::new(Uuid::new_v4()), at)?;
+        let plan = plan(search, bytes, IngestionRunId::new(Uuid::new_v4()), at, part)?;
         let local = write_local_copy(output_dir, &plan)?;
         return Ok(
             json!({"object_key": plan.object_key.as_str(), "checksum_sha256": plan.checksum_sha256, "local_path": local, "written": false}),
@@ -621,7 +698,7 @@ where
         .create_ingestion_run(&ingestion_run(source.id, search, night, at))
         .await
         .with_context(|| format!("failed to create the {} run", search.dataset_slug))?;
-    let plan = plan(search, bytes, run.id, at)?;
+    let plan = plan(search, bytes, run.id, at, part)?;
     let outcome = BRONZE_COMMITTER
         .commit(
             &writer,
@@ -640,12 +717,12 @@ where
                     source_partition_key: Some(plan.source_partition_key.clone()),
                     source_identity_key: plan.source_identity_key.clone(),
                     dedupe_key: plan.dedupe_key.clone(),
-                    request_params: with_night(&plan.request_params, lines.len(), night),
+                    request_params: with_night(&plan.request_params, count, night),
                     object_key: plan.object_key.clone(),
                     checksum_sha256: plan.checksum_sha256.clone(),
                     content_type: plan.content_type.clone(),
                     size_bytes: plan.size_bytes,
-                    logical_record_count: u64::try_from(lines.len()).ok(),
+                    logical_record_count: u64::try_from(count).ok(),
                     collected_at: at,
                     snapshot_period: plan.snapshot_period.clone(),
                     snapshot_date: plan.snapshot_date,
@@ -671,7 +748,7 @@ where
         id: run.id,
         status: IngestionRunStatus::Succeeded,
         finished_at: Utc::now(),
-        logical_records_seen: u64::try_from(lines.len()).unwrap_or(u64::MAX),
+        logical_records_seen: u64::try_from(count).unwrap_or(u64::MAX),
         objects_written: 1,
         error_message: None,
     })
@@ -769,13 +846,11 @@ impl Config {
 /// search and the lakehouse's last reads, then the reads, on the same pool and tally, until
 /// `deadline`. A failure to read the last reads skips the phase (the lists still land); it never
 /// asks blind.
-async fn run_details(
+async fn detail_frontier(
     contract: &SourceContract,
-    asking: &Asking<'_>,
-    deadline: Instant,
     results: &BTreeMap<&'static str, SearchResult>,
     storage: Option<&dyn ObjectStorageService>,
-) -> anyhow::Result<(detail::DetailResult, Option<Stop>, JsonValue)> {
+) -> anyhow::Result<(Vec<detail::Wanted>, JsonValue)> {
     let item = &contract.item_detail;
     let lines = results
         .get("item_search")
@@ -788,7 +863,7 @@ async fn run_details(
             Err(error) => {
                 tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: the detail frontier could not be read; no detail asked");
                 let report = json!({"asked": 0, "skipped": format!("{error:#}")});
-                return Ok((detail::DetailResult::default(), None, report));
+                return Ok((Vec::new(), report));
             }
         }
     } else {
@@ -803,22 +878,12 @@ async fn run_details(
         today,
         item.per_run_limit,
     );
-    let store = detail::PhotoStore {
-        prefix: detail::photo_prefix(item)?,
-        storage,
-    };
-    let (result, stop) =
-        detail::collect_details(contract, asking, deadline, &asked, &store, Utc::now).await?;
     let report = json!({
         "in_progress": candidates,
         "read_before": last.len(),
         "frontier": asked.len(),
-        "asked": result.asked,
-        "failed": result.failed,
-        "photos": result.photos,
     });
-    println!("courtauction.go.kr item detail: {report}");
-    Ok((result, stop, report))
+    Ok((asked, report))
 }
 
 /// Collects one run into Bronze.
@@ -860,37 +925,22 @@ pub async fn run() -> anyhow::Result<()> {
         None
     };
     let (results, mut stop) = collect(&contract, &asking, Utc::now).await?;
-    let mut details = None;
-    if stop.is_none() {
-        // The detail asking leaves the ladder step its budget inside the run's (root ADR-0427 §7).
-        let detail_deadline = deadline
-            .checked_sub(Duration::from_secs(
-                contract
-                    .item_detail
-                    .photos
-                    .renditions
-                    .run_time_budget_seconds,
-            ))
-            .unwrap_or(deadline);
-        let (result, detail_stop, report) = run_details(
-            &contract,
-            &asking,
-            detail_deadline,
-            &results,
-            live.map(|(_, s)| s),
-        )
-        .await?;
-        stop = detail_stop;
-        details = Some((result, report));
-    }
-    let counts = asking.tally.counts();
-    let sessions = pool.sessions();
-    let failed = results
+    // The lists commit as soon as they are read: a run killed later keeps them (root ADR-0540 §2).
+    // Owned, so the list lines can go once the detail frontier is read (below).
+    let failed_pages: BTreeMap<&str, Vec<FailedPage>> = results
         .iter()
-        .map(|(role, result)| (*role, result.failed.as_slice()))
+        .map(|(role, result)| (*role, result.failed.clone()))
         .collect();
-    let night = night_summary(counts, &sessions, &failed, stop.as_ref());
-
+    let failed: BTreeMap<&str, &[FailedPage]> = failed_pages
+        .iter()
+        .map(|(role, pages)| (*role, pages.as_slice()))
+        .collect();
+    let lists_night = night_summary(
+        asking.tally.counts(),
+        &pool.sessions(),
+        &failed,
+        stop.as_ref(),
+    );
     let mut objects = Vec::new();
     for (role, search) in searches(&contract) {
         let Some(result) = results.get(role).filter(|result| !result.lines.is_empty()) else {
@@ -901,7 +951,7 @@ pub async fn run() -> anyhow::Result<()> {
             &config.output_dir,
             &result.lines,
             started,
-            &night,
+            &lists_night,
             live,
         )
         .await?;
@@ -910,56 +960,113 @@ pub async fn run() -> anyhow::Result<()> {
         entry["rows"] = json!(result.rows);
         objects.push(entry);
     }
-    let ladder_sources = details
-        .as_ref()
-        .map(|(result, _)| result.photos.sources.clone());
-    let detail_report = match details {
-        Some((result, report)) if !result.lines.is_empty() => {
-            let search = contract.item_detail.as_search();
+    // The 공통코드 are asked once and commit at once, as the lists do (root ADR-0540 §5).
+    if stop.is_none() {
+        let (result, codes_stop) = codes::collect_codes(&contract, &asking, Utc::now).await?;
+        println!(
+            "courtauction.go.kr common codes: {:?} codes{}",
+            result.codes,
+            result
+                .failure
+                .as_deref()
+                .map(|why| format!(", failed: {why}"))
+                .unwrap_or_default()
+        );
+        stop = codes_stop;
+        if !result.lines.is_empty() {
             let mut entry = persist(
-                &search,
+                &contract.common_codes.as_search(),
                 &config.output_dir,
                 &result.lines,
                 started,
-                &night,
+                &lists_night,
                 live,
             )
             .await?;
-            entry["role"] = json!("item_detail");
-            entry["complete"] = json!(stop.is_none());
-            entry["rows"] = json!(result.asked);
+            entry["role"] = json!("common_codes");
+            entry["complete"] = json!(result.codes.is_some());
+            entry["rows"] = json!(result.codes.unwrap_or(0));
             objects.push(entry);
-            report
         }
+    }
+    let mut details: Option<(detail::DetailResult, JsonValue)> = None;
+    if stop.is_none() {
+        // The run collects; the photos' display ladders are the hourly ladder backlog's
+        // (media_ladder_backlog, root ADR-0429), so the details have the run's whole budget.
+        let detail_deadline = deadline;
+        let (asked, mut report) =
+            detail_frontier(&contract, &results, live.map(|(_, s)| s)).await?;
+        // The list lines are in Bronze and the frontier is read from them: nothing reads them again,
+        // and the detail asking runs for hours. 2026-11-08 a run that read the lists only peaked at
+        // 546 MB, and from 11-10 the details were asked with the lists still held: 922 MB, then an
+        // OOM at the 1 GiB cap (11-12), then 2.07 GB held at MemoryHigh for five hours (11-13).
+        drop(results);
+        let store = detail::PhotoStore {
+            prefix: detail::photo_prefix(&contract.item_detail)?,
+            storage: live.map(|(_, s)| s),
+        };
+        // Committed in parts of commit_every_lines, each its own object: a run killed at its memory
+        // cap or its unit's limit keeps every part it committed, and the next run's frontier (the
+        // Silver read record) asks only what is left (root ADR-0352).
+        let mut total = detail::DetailResult::default();
+        let mut parts = 0;
+        for chunk in asked.chunks(contract.item_detail.commit_every_lines.max(1)) {
+            let (result, detail_stop) = detail::collect_details(
+                &contract,
+                &asking,
+                detail_deadline,
+                chunk,
+                &store,
+                Utc::now,
+            )
+            .await?;
+            stop = detail_stop;
+            if !result.lines.is_empty() {
+                parts += 1;
+                let night = night_summary(
+                    asking.tally.counts(),
+                    &pool.sessions(),
+                    &failed,
+                    stop.as_ref(),
+                );
+                let count = result.lines.len();
+                let mut entry = persist_gzipped(
+                    &contract.item_detail.as_search(),
+                    &config.output_dir,
+                    result.lines.finish()?,
+                    count,
+                    Some(parts),
+                    started,
+                    &night,
+                    live,
+                )
+                .await?;
+                entry["role"] = json!("item_detail");
+                entry["complete"] = json!(stop.is_none());
+                entry["rows"] = json!(result.asked);
+                objects.push(entry);
+            }
+            total.asked += result.asked;
+            total.failed += result.failed;
+            total.photos.absorb(result.photos);
+            if stop.is_some() {
+                break;
+            }
+        }
+        report["asked"] = json!(total.asked);
+        report["failed"] = json!(total.failed);
+        report["photos"] = json!(total.photos);
+        report["parts"] = json!(parts);
+        println!("courtauction.go.kr item detail: {report}");
+        details = Some((total, report));
+    }
+    let counts = asking.tally.counts();
+    let sessions = pool.sessions();
+    let night = night_summary(counts, &sessions, &failed, stop.as_ref());
+    let detail_report = match details {
         Some((_, report)) => report,
         None => json!({"asked": 0, "skipped": "the list pass did not end cleanly"}),
     };
-    // After the night's Bronze landed (no site request is made here): each photo stored or seen this
-    // night gets its display ladder from the shared store, within the contract's budget (root
-    // ADR-0427 §7). A ladder that fails or is deferred is not lost: the backlog job takes it from
-    // the Silver photo index. A ladder failure never fails the night.
-    let mut detail_report = detail_report;
-    if let (Some((_, storage)), Some(sources)) = (live, ladder_sources.as_deref()) {
-        let prefix = detail::photo_prefix(&contract.item_detail)?;
-        match media_renditions::ensure_ladders(
-            prefix.as_str(),
-            sources,
-            &contract.item_detail.photos.renditions,
-            storage,
-        )
-        .await
-        {
-            Ok((ladders, _left)) => detail_report["ladders"] = json!(ladders),
-            Err(error) => {
-                tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: no rendition ladder this night");
-                detail_report["ladders"] = json!({"skipped": format!("{error:#}")});
-            }
-        }
-        println!(
-            "courtauction.go.kr photo ladders: {}",
-            detail_report["ladders"]
-        );
-    }
     write_json_file(
         &config.output_dir.join("manifest.json"),
         &json!({
@@ -1000,6 +1107,7 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+pub(crate) mod codes;
 pub(crate) mod detail;
 
 #[cfg(test)]

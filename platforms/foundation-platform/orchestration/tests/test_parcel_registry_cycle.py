@@ -34,6 +34,8 @@ with open(os.environ["FAKE_LOG"], "a") as log:
                           "memory": submit[submit.index("--driver-memory") + 1]}) + "\n")
 if "--probe-missing" in job_args:
     print("parcel-registry-probe " + json.dumps({"to_snapshot_id": "x", "missing": json.loads(os.environ["FAKE_MISSING"])}))
+elif "--probe-advance" in job_args:
+    print("parcel-registry-advance-probe " + json.dumps({"to_snapshot_id": "x", "waiting": json.loads(os.environ.get("FAKE_ADVANCE", "[]"))}))
 elif "--probe-stale" in job_args:
     print("place-id-parcel-probe " + json.dumps({"stale": json.loads(os.environ.get("FAKE_STALE", "[]"))}))
 elif os.environ.get("FAKE_FAIL_REGION") and os.environ["FAKE_FAIL_REGION"] in job_args:
@@ -75,7 +77,8 @@ class ParcelRegistryCycle(unittest.TestCase):
                     "FOUNDATION_PARCEL_REGISTRY_STATE_ROOT": str(self.state),
                     "FOUNDATION_PARCEL_REGISTRY_LAKEHOUSE_ROOT": str(self.root / "lakehouse"),
                     # What map-edit-fold.env gives the unit: the fold's folder, not this job's.
-                    "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": str(self.root / "fold-only")}
+                    "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": str(self.root / "fold-only"),
+                    "FOUNDATION_PARCEL_EDITION_READINESS_PATH": str(self.root / "readiness.json")}
 
     def run_job(self, missing, **env):
         result = subprocess.run(["bash", str(self.script)], env={**self.env, "FAKE_MISSING": json.dumps(missing), **env},
@@ -104,6 +107,44 @@ class ParcelRegistryCycle(unittest.TestCase):
         self.assertIn("registered=98,99 remaining=0", lines[-2])
         journal = (self.state / "journal.log").read_text()
         self.assertIn("region=98 parcels=10 seconds=", journal)
+
+    def test_the_readiness_candidate_advances_region_by_region_from_each_regions_newest_edition(self):
+        # Root ADR-0490 §4a: 2026-11-11 the registry knew only 202606 and the gate refused 202609's 6,517,338
+        # parcels with no current id. Synthetic regions; 95 is the region a lineage joins 96·97 into.
+        cli = [sys.executable, str(PLATFORM / "infra/lakehouse/spark/jobs/vworld_parcel_editions.py")]
+        served = subprocess.run([*cli, "served"], capture_output=True, text=True, check=True).stdout.strip()
+        newer = [e for e in subprocess.run([*cli, "editions"], capture_output=True, text=True, check=True).stdout.split()
+                 if e > served]
+        candidate = newer[0]
+        (self.root / "readiness.json").write_text(json.dumps({"editions": [
+            {"edition": served, "first_failing_stage": None},
+            {"edition": candidate, "first_failing_stage": "rehearsal"}]}))
+        source = subprocess.run([*cli, "snapshot-id", "--edition", served], capture_output=True, text=True,
+                                check=True).stdout.strip()
+        target = subprocess.run([*cli, "snapshot-id", "--edition", candidate], capture_output=True, text=True,
+                                check=True).stdout.strip()
+        result, calls = self.run_job([], FAKE_ADVANCE=json.dumps([["98", "98", source, 10], ["95", "95,96,97", source, 20]]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        probe = next(c["args"] for c in calls if "--probe-advance" in c["args"])
+        self.assertEqual(probe[probe.index("--to-snapshot-id") + 1], target)
+        steps = [c["args"] for c in calls if c["job"] == "parcel_registry_to_silver.py" and "--to-sido" in c["args"]]
+        self.assertEqual([(a[a.index("--to-sido") + 1], a[a.index("--from-sido") + 1]) for a in steps],
+                         [("98", "98"), ("95", "95,96,97")])
+        date = subprocess.run([*cli, "valid-from", "--edition", candidate], capture_output=True, text=True,
+                              check=True).stdout.strip()[:10]
+        for args in steps:
+            self.assertEqual(args[args.index("--to-snapshot-id") + 1], target)
+            self.assertEqual(args[args.index("--from-snapshot-id") + 1], source)
+            self.assertEqual(args[args.index("--to-date") + 1], date)
+            self.assertNotIn("--bootstrap", args)
+        self.assertIn(f"candidate={candidate} advanced=98/95 unadvanced=0", result.stdout)
+        self.assertIn("parcel registry advance edition=", (self.state / "journal.log").read_text())
+
+    def test_without_a_candidate_nothing_is_advanced(self):
+        result, calls = self.run_job([])
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertFalse([c for c in calls if "--probe-advance" in c["args"]])
+        self.assertIn("candidate=- advanced= unadvanced=0", result.stdout)
 
     def test_the_work_folder_is_this_jobs_own_whatever_the_fold_environment_says(self):
         # 2026-10-16: the unit loads map-edit-fold.env, whose FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT

@@ -141,7 +141,46 @@ class Capture(unittest.TestCase):
             "fields": [[1, "a", "string", True], [2, "b", "timestamp", False], [3, "c", "array<string>", True]],
             "columns": [1, 2, 3],
             "earlier": [[1, 2]],
+            "layout": {"partitions": []},
         })
+
+    def test_the_layout_is_what_spark_shows_the_migration(self) -> None:
+        metadata = {**self.METADATA,
+                    "properties": {"write.distribution-mode": "range", "write.merge.distribution-mode": "range",
+                                   "write.parquet.compression-codec": "zstd"},
+                    "default-sort-order-id": 1,
+                    "sort-orders": [{"order-id": 0, "fields": []},
+                                    {"order-id": 1, "fields": [{"source-id": 1, "transform": "identity",
+                                                                "direction": "asc", "null-order": "nulls-first"}]}],
+                    "default-spec-id": 1,
+                    "partition-specs": [{"spec-id": 0, "fields": []},
+                                        {"spec-id": 1, "fields": [{"source-id": 1, "transform": "truncate[2]"},
+                                                                  {"source-id": 2, "transform": "bucket[16]"},
+                                                                  {"source-id": 2, "transform": "day"}]}]}
+        self.assertEqual(load_capture().table_layout(metadata), {
+            "write.distribution-mode": "range", "write.merge.distribution-mode": "range",
+            "sort-order": "a ASC NULLS FIRST", "partitions": ["truncate(2, a)", "bucket(16, b)", "day(b)"]})
+
+    def test_the_migrations_plan_over_the_ledger_names_only_what_it_would_change(self) -> None:
+        # W83b: 2026-11-13 a change to lakehouse-engine.contract.json held all 140 tables for a
+        # migration that changed none. The plan over the ledger holds only a table it would change.
+        key = {"name": "k", "logical_type": "string", "required": True}
+        extra = {"name": "extra", "logical_type": "string", "required": False}
+        contracts = {name: {"table_name": name, "write_distribution": "hash", "sort_order": [], "partition_spec": [],
+                            "columns": columns}
+                     for name, columns in (("silver.same", [key]), ("silver.grows", [key, extra]),
+                                           ("silver.unlaid", [key]))}
+        layout = {"partitions": []}
+        shape = {"has_rows": True, "fields": [[1, "k", "string", False]], "columns": [1], "earlier": []}
+        shapes = {"silver.same": {**shape, "layout": layout}, "silver.grows": {**shape, "layout": layout},
+                  "silver.unlaid": shape}
+        original = migrate.load_lakehouse_artifact
+        migrate.load_lakehouse_artifact = lambda: {"contracts": contracts}
+        try:
+            planned = migrate.ledger_plan(shapes)
+        finally:
+            migrate.load_lakehouse_artifact = original
+        self.assertEqual(planned, {"silver.grows": "add", "silver.unlaid": "the ledger records no layout"})
 
     def test_a_schema_no_live_file_was_written_under_is_no_shape(self) -> None:
         # A backfill rewrote every file: schema 0 is in the metadata, no file of it is live.

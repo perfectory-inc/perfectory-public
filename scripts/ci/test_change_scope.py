@@ -117,6 +117,19 @@ class GlobTest(unittest.TestCase):
 
 
 class DecideTest(unittest.TestCase):
+    def test_a_declared_crate_read_must_name_a_file_or_directory(self) -> None:
+        fixture = Fixture(self)
+        fixture.contract["crates"]["reads"] = {"$comment": "why", "kernel": ["platforms/example/src"]}
+        self.assertEqual(fixture.errors(), [])
+        fixture.contract["crates"]["reads"] = {"kernel": ["platforms/example/gone"], "api": []}
+        self.assertEqual(
+            fixture.errors(),
+            [
+                "crates.reads.api must be a non-empty list of paths",
+                "crates.reads.kernel: `platforms/example/gone` names no file or directory of the checkout (stale)",
+            ],
+        )
+
     def test_untouched_area_does_not_run(self) -> None:
         # A path an unscoped workflow owns is answered for; it needs no scoped run.
         self.assertFalse(Fixture(self).decide("pull_request", {"docs/guide.md"}))
@@ -334,6 +347,29 @@ class ReadScanTest(unittest.TestCase):
         self.assertTrue(any("reads `platforms/other/contract.json`" in e for e in errors), errors)
         self.assertFalse(any("unread.json" in e or "reads `platforms/other`" in e for e in errors), errors)
 
+    def test_a_path_from_the_package_directory_joined_at_run_time_is_refused(self) -> None:
+        # 2026-11-11: gongzzang's media_mirrors_foundation.rs, the read #1302 broke without running it.
+        errors = self.scan(
+            "platforms/example/crates/kernel/tests/mirror.rs",
+            'fn other(path: &str) -> String {\n'
+            '    std::fs::read_to_string(PathBuf::from("../../../other").join(path)).unwrap()\n'
+            "}\n"
+            'fn t() { other("crates/kernel/src/media.rs"); }\n',
+            {
+                "platforms/example/crates/kernel/Cargo.toml": "[package]\n",
+                "platforms/other/crates/kernel/src/media.rs": "",
+                "platforms/other/crates/kernel/src/unread.rs": "",
+            },
+        )
+        self.assertTrue(any("reads `platforms/other/crates/kernel/src/media.rs`" in e for e in errors), errors)
+        self.assertFalse(any("unread.rs" in e for e in errors), errors)
+
+    def test_the_package_directory_is_the_nearest_manifest_above_the_source(self) -> None:
+        tracked = {"a/Cargo.toml", "a/b/package.json", "a/b/src/x.ts", "a/c/src/y.rs", "z/q.py"}
+        self.assertEqual(cs.package_dir("a/b/src/x.ts", tracked), "a/b")
+        self.assertEqual(cs.package_dir("a/c/src/y.rs", tracked), "a")
+        self.assertIsNone(cs.package_dir("z/q.py", tracked))
+
     def test_comment_is_not_a_read(self) -> None:
         self.assertEqual(self.scan("platforms/example/src/a.rs", '// see "docs/guide.md"\n'), [])
 
@@ -415,6 +451,37 @@ class CratesTest(unittest.TestCase):
         tracked = [source, "platforms/ws/config/routes.json", "platforms/ws/migrations/0001_a.sql"]
         reads = cs.member_reads(root, self.WS, self.MEMBERS, tracked)
         self.assertEqual(reads["api"], {"platforms/ws/config/routes.json", "platforms/ws/migrations"})
+
+    def test_a_declared_directory_selects_its_reader_for_a_file_its_sources_do_not_quote(self) -> None:
+        # 2026-11-11 (#1268, run 42959846237): foundation-jobs opens infra/systemd by the job list's
+        # names and quotes two test units, so a third unit's edit selected nothing and main failed.
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        source = "platforms/ws/tools/tool/src/lib.rs"
+        (root / source).parent.mkdir(parents=True)
+        (root / source).write_text(
+            'pub const UNIT_DIR: &str = "infra/systemd";\n#[test]\nfn t() { name("a.service"); }\n', encoding="utf-8"
+        )
+        tracked = [source, "platforms/ws/infra/systemd/a.service", "platforms/ws/infra/systemd/b.service"]
+        reads = cs.member_reads(root, self.WS, self.MEMBERS, tracked)
+        changed = {"platforms/ws/infra/systemd/b.service"}
+        self.assertEqual(self.decide(changed, reads=reads)[0], set())
+        contract = {"crates": {**self.CONTRACT["crates"], "reads": {"tool": ["platforms/ws/infra/systemd"], "other-ws": ["x"]}}}
+        for name, paths in cs.declared_reads(contract, self.MEMBERS, reads).items():
+            reads[name] |= paths
+        self.assertEqual(cs.decide_crates(contract, self.WS, "pull_request", changed, self.MEMBERS, reads)[0], {"tool"})
+
+    def test_a_generated_artifact_is_read_like_a_tracked_file(self) -> None:
+        # A job list change (a definition, root ADR-0418) reaches the crates that quote the job list.
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        source = "platforms/ws/tools/tool/src/lib.rs"
+        (root / source).parent.mkdir(parents=True)
+        (root / source).write_text('pub const JOB_LIST: &str = "orchestration/jobs.v1.json";\n', encoding="utf-8")
+        generated = "platforms/ws/orchestration/jobs.v1.json"
+        self.assertEqual(cs.member_reads(root, self.WS, self.MEMBERS, [source])["tool"], set())
+        self.assertEqual(cs.member_reads(root, self.WS, self.MEMBERS, [source, generated])["tool"], {generated})
+        self.assertIn("platforms/foundation-platform/orchestration/jobs.v1.json", cs.checkout_files(cs.ROOT))
 
     def test_a_test_that_walks_every_crate_reads_every_crate(self) -> None:
         root = Path(tempfile.mkdtemp())
@@ -530,6 +597,9 @@ class SuiteModulesTest(unittest.TestCase):
         "platforms/ws/services/gw/package.json": "{}\n",
         "platforms/ws/services/gw/src/index.ts": 'readFileSync("platforms/ws/config/routes.json")\n',
         "platforms/ws/data/orphan.csv": "a,b\n",
+        "platforms/ws/jobs/listed.py": "Y = 3\n",
+        "platforms/ws/tests/test_listed_by_name.py": 'MODULES = ("listed",)\nimportlib.import_module(MODULES[0])\n',
+        "platforms/ws/tests/test_quotes_a_word.py": 'LABEL = "listed"\n',
     }
 
     def select(self, changed: set[str]):
@@ -547,6 +617,12 @@ class SuiteModulesTest(unittest.TestCase):
         self.assertIn("platforms/ws/tests/test_bake.py", tests, "test_bake starts bake.sh, which runs gold")
         self.assertNotIn("platforms/ws/tests/test_other.py", tests)
         self.assertEqual(nodes, set())
+
+    def test_a_module_loaded_by_its_quoted_name_selects_the_test_that_loads_it(self) -> None:
+        # 2026-11-11: #1330 and test_deferred_pyspark_names_resolve.py.
+        tests, _, _ = self.select({"platforms/ws/jobs/listed.py"})
+        self.assertIn("platforms/ws/tests/test_listed_by_name.py", tests)
+        self.assertNotIn("platforms/ws/tests/test_quotes_a_word.py", tests, "a quoted word alone imports nothing")
 
     def test_a_file_selects_the_tests_and_packages_that_name_it(self) -> None:
         tests, nodes, _ = self.select({"platforms/ws/config/routes.json"})

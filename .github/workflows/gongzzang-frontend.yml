@@ -154,10 +154,48 @@ jobs:
       - name: Bundle size
         run: pnpm --filter=@gongzzang/web run test:bundle
 
+      # scripts/ci/apt-install.sh keeps the .deb files it had to download here; a hit installs this
+      # job's packages with no network (the 2026-11-11 Ubuntu mirror outage).
+      - name: Restore apt package cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}
+          restore-keys: apt-packages-v1-${{ runner.os }}-${{ github.job }}-
+      # Playwright names the system packages Chromium lacks (`install-deps --dry-run` simulates the
+      # install against the image's own package lists, offline, and exits 1 when some are missing);
+      # scripts/ci/apt-install.sh installs them. `--with-deps` ran its own apt-get update, which the
+      # 2026-11-11 mirror outage failed. Measured before: nine font packages, 21.1 MB, every run.
       - name: Install Playwright browsers
-        run: pnpm --filter=@gongzzang/web exec playwright install chromium --with-deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          plan="$(pnpm --filter=@gongzzang/web exec playwright install-deps --dry-run chromium 2>&1)" || status=$?
+          printf '%s\n' "$plan"
+          if grep -q 'All system dependencies are installed' <<<"$plan"; then
+            packages=""
+          elif [ "$status" -eq 1 ] && grep -q '^Missing system dependencies' <<<"$plan"; then
+            packages="$(sed -n 's/^  \([a-z0-9][a-z0-9.+-]*\)$/\1/p' <<<"$plan")"
+          else
+            echo "::error::playwright install-deps --dry-run gave no package list (exit $status)"
+            exit 1
+          fi
+          if [ -n "$packages" ]; then
+            # shellcheck disable=SC2086 # one package per word
+            bash "$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" $packages
+          fi
+          pnpm --filter=@gongzzang/web exec playwright install chromium
         env:
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+      # Saved from main's runs only (root ADR-0269), and only when apt-install.sh downloaded a set the
+      # restored cache did not hold.
+      - name: Save apt package cache
+        if: ${{ always() && env.PERFECTORY_APT_CACHE_SAVE != '' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}-${{ env.PERFECTORY_APT_CACHE_SAVE }}
 
       - name: Playwright e2e + a11y
         run: pnpm --filter=@gongzzang/web run test:e2e

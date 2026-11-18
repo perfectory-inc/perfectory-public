@@ -164,6 +164,8 @@ build_source() {
   mkdir -p "${dir}/config"
   cp "${repo_root}/scripts/deploy/runtime_secrets.py" "${dir}/scripts/deploy/"
   cp "${repo_root}/config/r2-connections.contract.json" "${dir}/config/"
+  # A group may hold the names another contract owns (`@config/...#/pointer`, root ADR-0550 §5).
+  cp "${repo_root}/config/environment-variable-naming.contract.json" "${dir}/config/"
   python3 - "${repo_root}/config/runtime-secrets.contract.json" "${dir}/config/runtime-secrets.contract.json" <<'PY'
 import grp, json, os, pwd, sys
 contract = json.load(open(sys.argv[1], encoding="utf-8"))

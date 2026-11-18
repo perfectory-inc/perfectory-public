@@ -89,6 +89,7 @@ class ParcelPlaceIdReleaseTest(unittest.TestCase):
 
         other = self.spark.createDataFrame([("x", "9999990100100010000", "current", "2026-06-01", None, None, T1)], ROWS)
         rows = self.rows().unionByName(other.withColumn("scope", F.lit("98")))  # another region, synthetic
+        rows = rows.withColumn("visible_at_utc", F.col("recorded_at_utc"))
         published = self.spark.createDataFrame([("99", datetime.datetime(2026, 10, 1)),
                                                 ("98", datetime.datetime(2026, 10, 1))],
                                                "scope string, published_at_utc timestamp")
@@ -99,6 +100,10 @@ class ParcelPlaceIdReleaseTest(unittest.TestCase):
         early = self.spark.createDataFrame([("99", datetime.datetime(2026, 7, 1)), ("98", datetime.datetime(2026, 10, 1))],
                                            "scope string, published_at_utc timestamp")
         self.assertEqual(self.release.stale_scopes(rows, early, set()), [("99", 5)])
+        # A candidate's step, recorded before the release and served by a promotion after it (ADR-0490 §4a).
+        promoted = rows.withColumn("visible_at_utc", F.when(F.col("scope") == "98", F.lit(datetime.datetime(2026, 11, 1)))
+                                   .otherwise(F.col("visible_at_utc")))
+        self.assertEqual(self.release.stale_scopes(promoted, published, set()), [("98", 1)])
 
     def test_a_code_change_moves_only_the_regions_holding_a_pnu_under_it(self):
         rows = self.rows()

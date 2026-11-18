@@ -1,7 +1,7 @@
 "use client";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
-import { ZONING_LAYER_IDS } from "@/lib/map/foundation-vector-fill-layers";
+import { foundationVectorUnitLayerIds } from "@/lib/map/foundation-vector-fill-layers";
 import type { MapboxGLLike } from "@/lib/map/listing-map-runtime";
 import {
   ZONING_FAMILIES,
@@ -22,8 +22,8 @@ export function ZoningLayerToggle({ mapbox }: { mapbox: MapboxGLLike }) {
 
   useEffect(() => {
     const filter = zoningLayerFilter(enabled);
-    for (const layerId of ZONING_LAYER_IDS) {
-      if (mapbox.getLayer?.(layerId)) mapbox.setFilter?.(layerId, filter);
+    for (const layerId of foundationVectorUnitLayerIds(mapbox, "zoning")) {
+      mapbox.setFilter?.(layerId, filter);
     }
   }, [mapbox, enabled]);
 

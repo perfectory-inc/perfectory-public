@@ -1,0 +1,745 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_court_auction_by_pnu major 1 revision 4",
+  "description": "A parcel's court auction (법원경매) items in progress, served by PNU on the parcel edge (lane parcel-court-auction), soonest sale date first. A field that is not required may be absent or null. The court's data is a public work its consumers attribute (source_attribution, 저작권법 제24조의2; root ADR-0281 §6). Revision 3 adds the parcel's 매각결과 (sale_results, newest sale date first, at most 50; sale_result_total counts them all, root ADR-0454). Revision 4 adds each round's detail, from its 물건상세 (rounds[].detail: the case, the 매각물건명세서 summary, the 기일내역, 목록내역, 제시외건물 and 감정요항표; codes stay codes; null until the property's 물건상세 is read; root ADR-0540).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_court_auction_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "court_auction": {
+      "type": "object",
+      "properties": {
+        "rounds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "court_office_code": {
+                "type": "string"
+              },
+              "case_no": {
+                "type": "string"
+              },
+              "property_seq": {
+                "type": "integer"
+              },
+              "item_seq": {
+                "type": "integer"
+              },
+              "user_case_no": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "court_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "department_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "print_address_raw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "case_status_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "item_status_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "item_in_progress_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage_lcls_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage_mcls_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage_scls_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "appraisal_amount_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "minimum_bid_price_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sale_amount_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sale_date": {
+                "type": "string"
+              },
+              "sale_time_raw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sale_decision_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sale_place": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "failed_bid_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "attached_via": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "photos": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "description": "The case's photos from its 물건상세, content-addressed: the web builds each public URL from sha256 and media_format on the parcel edge (root ADR-0296 §5, ADR-0384)",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "media_kind": {
+                      "type": "string",
+                      "enum": [
+                        "photo"
+                      ]
+                    },
+                    "kind_code": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "sequence": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "title": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "media_format": {
+                      "type": "string",
+                      "enum": [
+                        "jpg",
+                        "png",
+                        "gif",
+                        "pdf"
+                      ]
+                    },
+                    "size_bytes": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "sha256",
+                    "media_kind",
+                    "media_format",
+                    "size_bytes"
+                  ]
+                }
+              },
+              "detail": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "description": "The round's 물건상세 (root ADR-0540): null until it is read. Names of people are not served.",
+                "properties": {
+                  "case": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "case_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "case_received_date": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "commencement_date": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "claim_amount_krw": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "department_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "department_phone": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "dividend_demand_deadline": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  },
+                  "spec": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "spec_written_date": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "assumed_rights": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "superficies": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "spec_remarks": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "first_rank_setting": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "item_remarks": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "item_usage_code": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "bid_kind_code": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "bid_start_date": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "bid_end_date": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "sale_decision_date": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "sale_decision_time_raw": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "sale_decision_place": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "deposit_rate_percent": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      }
+                    }
+                  },
+                  "schedule": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "schedule_date": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "schedule_time_raw": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "schedule_kind_code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "schedule_place": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "result_code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "minimum_bid_price_krw": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "sale_amount_krw": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "objects": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "object_seq": {
+                          "type": "integer"
+                        },
+                        "list_kind_code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "realty_kind": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "building_structure": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "area_raw": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "land_category": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "appraisal_amount_krw": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "print_address_raw": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "building_unit_raw": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "share_numerator": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "share_denominator": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "object_seq"
+                      ]
+                    }
+                  },
+                  "annexes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "object_seq": {
+                          "type": "integer"
+                        },
+                        "usage_raw": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "structure_raw": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "area_raw": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "appraisal_amount_krw": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "remarks": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "object_seq"
+                      ]
+                    }
+                  },
+                  "appraisal_points": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "table_code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "item_code": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "content": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "schedule",
+                  "objects",
+                  "annexes",
+                  "appraisal_points"
+                ]
+              }
+            },
+            "required": [
+              "court_office_code",
+              "case_no",
+              "property_seq",
+              "item_seq",
+              "sale_date"
+            ]
+          }
+        },
+        "sale_results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "court_office_code": {
+                "type": "string"
+              },
+              "case_no": {
+                "type": "string"
+              },
+              "property_seq": {
+                "type": "integer"
+              },
+              "item_seq": {
+                "type": "integer"
+              },
+              "user_case_no": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "court_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "department_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "print_address_raw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "item_status_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage_lcls_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage_mcls_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage_scls_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "appraisal_amount_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "minimum_bid_price_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sale_amount_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sale_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sale_decision_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "failed_bid_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "attached_via": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "court_office_code",
+              "case_no",
+              "property_seq",
+              "item_seq"
+            ]
+          }
+        },
+        "sale_result_total": {
+          "type": "integer"
+        },
+        "source_datasets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_attribution": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rounds",
+        "source_datasets",
+        "source_attribution"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "court_auction"
+  ]
+}

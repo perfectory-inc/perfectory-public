@@ -789,10 +789,13 @@ async fn http_identity_client_forwards_only_bearer_and_published_decision_body(
         .expect(1)
         .mount(&identity)
         .await;
+    // What is forwarded is the subject here, not how fast: on 2026-11-13 a stalled CI runner let
+    // the 200 ms this client used to get pass before the mock answered, and the merge queue
+    // dropped the pull request under test and the two queued behind it.
     let client = HttpIdentityClient::new(
         identity.uri(),
-        Duration::from_millis(100),
-        Duration::from_millis(200),
+        Duration::from_secs(5),
+        Duration::from_secs(10),
     )?;
 
     let result = client
@@ -887,6 +890,10 @@ async fn identity_request_timeout_fails_closed() -> Result<(), Box<dyn Error>> {
 /// 2026-10-17: Dawneer's review list answered 503 in 0.5-1 s while Identity was healthy. The
 /// policy decision was cut at one fifth of the authorization budget (400 ms of 2 s) and sent
 /// again, so a staff decision that took longer than a slice failed though the budget had time.
+///
+/// The budget is 10 s and the decision takes 2.5 s (a slice is 2 s): the ratio is the subject, and
+/// a 2 s budget left the token metadata fetches 400 ms each, which a stalled CI runner used up
+/// before the decision was ever asked (2026-11-13, merge queue).
 #[tokio::test]
 async fn a_policy_decision_slower_than_a_budget_slice_is_answered_within_the_budget(
 ) -> Result<(), Box<dyn Error>> {
@@ -898,7 +905,7 @@ async fn a_policy_decision_slower_than_a_budget_slice_is_answered_within_the_bud
         .and(path("/identity/v1/policy/decisions"))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_delay(Duration::from_millis(600))
+                .set_delay(Duration::from_millis(2_500))
                 .set_body_json(json!({
                     "principal_id": principal_id,
                     "decision": "allow",
@@ -913,7 +920,7 @@ async fn a_policy_decision_slower_than_a_budget_slice_is_answered_within_the_bud
         zitadel.uri(),
         TEST_AUDIENCE.to_owned(),
         identity.uri(),
-        Duration::from_secs(2),
+        Duration::from_secs(10),
     )?;
     let token = signed_token(&zitadel.uri(), "staff")?;
 

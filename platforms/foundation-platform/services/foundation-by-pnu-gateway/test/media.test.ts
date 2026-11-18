@@ -75,6 +75,19 @@ describe("the parcel edge serves content-addressed media", () => {
 		).toBe(404);
 	});
 
+	// Root ADR-0503: a BMP or TIFF photo is kept as received under sources/ and never served; its PNG
+	// display master in sha256/ is what the screens read.
+	it("never serves a kept source a browser cannot show, even when it is stored", async () => {
+		if (runtime === undefined) throw new Error("Miniflare did not start");
+		const bucket = await runtime.getR2Bucket(BINDING);
+		const kept = `onbid/media/sources/sha256/${HASH}.bmp`;
+		await bucket.put(kept, new Uint8Array([0x42, 0x4d, 0x00]), {
+			httpMetadata: { contentType: "image/bmp" },
+		});
+		expect((await get(kept)).status).toBe(404);
+		expect((await get(`onbid/media/sha256/${HASH}.bmp`)).status).toBe(404);
+	});
+
 	it("404s a hash with no stored object", async () => {
 		expect((await get(`onbid/media/sha256/${"b".repeat(64)}.jpg`)).status).toBe(
 			404,

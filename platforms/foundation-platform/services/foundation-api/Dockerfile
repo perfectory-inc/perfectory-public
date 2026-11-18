@@ -9,6 +9,10 @@ COPY services /workspace/services
 COPY migrations /workspace/migrations
 # lakehouse-domain derives each by-PNU data kind's Gold table from its line here (root ADR-0193 §9).
 COPY config/r2-connections.contract.json /workspace/config/r2-connections.contract.json
+# The broker check's live VWorld register reads its credential names from here (root ADR-0550 §5).
+COPY config/environment-variable-naming.contract.json /workspace/config/environment-variable-naming.contract.json
+# lakehouse-domain derives the HUB family lanes' Silver tables from their family files (root ADR-0551).
+COPY infra/lakehouse/contracts/hub-lane-family-*.v1.json /workspace/infra/lakehouse/contracts/
 RUN cargo build --locked --release -p foundation-api \
     --bin foundation-api --bin foundation-migrate
 

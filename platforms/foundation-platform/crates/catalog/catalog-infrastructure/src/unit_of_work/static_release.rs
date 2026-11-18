@@ -43,6 +43,8 @@ pub(super) struct LockedValidatedBuild {
     pub(super) validation_evidence_sha256: String,
     /// The recipe the archive was baked with: a lakehouse bake's own, a readdress's input's.
     pub(super) bake_inputs_sha256: Option<String>,
+    /// Root ADR-0492: the maxzoom a lakehouse bake cut its archive to, when not its input's.
+    pub(super) tile_max_zoom: Option<i16>,
 }
 
 pub(super) struct StaticPromotionPlan<'a> {
@@ -107,7 +109,13 @@ pub(super) async fn publish_static_release_tx(
     lock_release_rows_tx(tx, &releases_to_lock).await?;
 
     insert_static_release_tx(tx, plan.target.id, plan.build).await?;
-    copy_release_layers_tx(tx, plan.build.input_release_id, plan.build.release_id).await?;
+    copy_release_layers_tx(
+        tx,
+        plan.build.input_release_id,
+        plan.build.release_id,
+        plan.build.tile_max_zoom,
+    )
+    .await?;
     insert_static_runtime_manifest_tx(tx, plan.manifest_id, plan.build.input_source_record_id)
         .await?;
     insert_manifest_units_tx(tx, plan.manifest_id, &selections).await?;
@@ -178,7 +186,8 @@ pub(super) async fn lock_validated_build_tx(
                 build.result_pmtiles_bytes, build.result_evidence_sha256,
                 input.source_record_id, input.source_file_asset_ids, input.source_kind,
                 CASE WHEN build.kind = 'readdress' THEN input.bake_inputs_sha256
-                     ELSE build.bake_inputs_sha256 END AS bake_inputs_sha256
+                     ELSE build.bake_inputs_sha256 END AS bake_inputs_sha256,
+                build.tile_max_zoom
          FROM catalog.vector_tile_build_job AS build
          JOIN catalog.vector_tile_publication_unit AS unit
            ON unit.id = build.publication_unit_id
@@ -247,6 +256,7 @@ pub(super) async fn lock_validated_build_tx(
             .ok_or_else(|| invalid_runtime("validated build is missing result_pmtiles_bytes"))?,
         validation_evidence_sha256: required_text("result_evidence_sha256")?,
         bake_inputs_sha256: row.try_get("bake_inputs_sha256").map_err(map_sqlx)?,
+        tile_max_zoom: row.try_get("tile_max_zoom").map_err(map_sqlx)?,
     })
 }
 
@@ -358,10 +368,13 @@ pub(super) async fn insert_static_release_tx(
     Ok(())
 }
 
+/// The input release's layers on the new release, cut to `tile_max_zoom` when the build was
+/// (root ADR-0492).
 pub(super) async fn copy_release_layers_tx(
     tx: &mut Transaction<'_, Postgres>,
     input_release_id: Uuid,
     release_id: Uuid,
+    tile_max_zoom: Option<i16>,
 ) -> Result<(), CatalogError> {
     let inserted = sqlx::query(
         "INSERT INTO catalog.vector_tile_release_layer
@@ -369,13 +382,14 @@ pub(super) async fn copy_release_layers_tx(
           tile_min_zoom, tile_max_zoom, render_min_zoom, render_max_zoom,
           feature_filter_properties)
          SELECT $2, layer_id, source_layer, feature_id_property,
-                tile_min_zoom, tile_max_zoom, render_min_zoom, render_max_zoom,
+                tile_min_zoom, coalesce($3, tile_max_zoom), render_min_zoom, render_max_zoom,
                 feature_filter_properties
          FROM catalog.vector_tile_release_layer
          WHERE release_id = $1",
     )
     .bind(input_release_id)
     .bind(release_id)
+    .bind(tile_max_zoom)
     .execute(&mut **tx)
     .await
     .map_err(map_sqlx)?

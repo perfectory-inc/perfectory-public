@@ -1,0 +1,26 @@
+{
+ "links_by_grade": {
+  "code_derived": 9,
+  "evidence_weak": 2,
+  "official": 5,
+  "pending": 3
+ },
+ "links_by_relation": {
+  "code_change": 9,
+  "jurisdiction_transfer": 5,
+  "merge": 2,
+  "registration_conversion": 1,
+  "split": 2
+ },
+ "namespace": "synthetic: every parcel is under sido 99",
+ "reconciliation": {
+  "after": 27,
+  "appeared": 12,
+  "appeared_explained": 5,
+  "balanced": true,
+  "before": 24,
+  "kept": 15,
+  "vanished": 9,
+  "vanished_explained": 5
+ }
+}

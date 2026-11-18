@@ -48,6 +48,15 @@ export function wholeSquareMetres(value: string | null | undefined): number | nu
  * and an older one may omit it, so one branch in the card handles both spellings of "the source did
  * not state this".
  */
+/**
+ * The facts the complex's notice attachments state, as foundation admits them for the panel
+ * (profile revision 2, root ADR-0477 §5): absent from an older profile and from a complex with none.
+ */
+export const ComplexDocumentFactsSchema = IndustrialComplexGoldProfileSchema.shape.document_facts
+  .unwrap()
+  .unwrap();
+export type ComplexDocumentFacts = z.infer<typeof ComplexDocumentFactsSchema>;
+
 export const ComplexInfoSchema = z.object({
   lakehouse_complex_id: z.string(),
   official_complex_code: z.string(),
@@ -77,6 +86,7 @@ export const ComplexInfoSchema = z.object({
   development_method_raw: z.string().nullish(),
   development_purpose_raw: z.string().nullish(),
   invited_industries_raw: z.string().nullish(),
+  document_facts: ComplexDocumentFactsSchema.nullish(),
 });
 
 export type ComplexInfo = z.infer<typeof ComplexInfoSchema>;
@@ -102,5 +112,6 @@ export async function fetchComplex(
     ...a,
     lakehouse_complex_id: a.complex_id,
     area_m2: wholeSquareMetres(a.official_area_sqm),
+    document_facts: profile.document_facts,
   });
 }

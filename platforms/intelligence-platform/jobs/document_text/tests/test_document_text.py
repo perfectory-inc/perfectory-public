@@ -7,6 +7,7 @@ there (root ADR-0477 §Consequences); nothing here imports them.
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,7 +17,7 @@ from document_text import extract as extract_module
 from document_text.extract import Result, classify, extract, pages_needing_ocr
 from document_text.pages import assemble, citation_holds, cite, document_text
 from document_text.plan import plan
-from document_text.run import CONTRACT, load_contract, main, outcome_row, page_rows
+from document_text.run import CONTRACT, extract_isolated, load_contract, main, outcome_row, page_rows
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -138,6 +139,26 @@ class ContractTest(unittest.TestCase):
             self.assertEqual((root / "out" / "document_text_outcome.jsonl").read_text(encoding="utf-8"), "")
             summary = json.loads((root / "out" / "summary.json").read_text(encoding="utf-8"))
             self.assertEqual((summary["planned"], summary["read"]), (1, 0))
+
+    def test_a_worker_that_dies_is_that_documents_failure_and_the_run_goes_on(self) -> None:
+        dies = (sys.executable, "-c", "import os; os._exit(137)")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "index.jsonl").write_text(
+                "\n".join(json.dumps({"sha256": s, "media_format": "pdf", "notice_sequence": n}) for s, n in [(SHA_A, 2), (SHA_B, 1)]),
+                encoding="utf-8",
+            )
+            with mock.patch("document_text.run.WORKER", dies), mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+                self.assertEqual(main(["--index", str(root / "index.jsonl"), "--media", tmp, "--out", str(root / "out")]), 0)
+            outcomes = [json.loads(l) for l in (root / "out" / "document_text_outcome.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([(o["sha256"], o["outcome"]) for o in outcomes], [(SHA_A, "failed"), (SHA_B, "failed")])
+            self.assertTrue(all(o["error"].startswith("worker exit 137") for o in outcomes))
+
+    def test_a_worker_hands_back_what_extract_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp)
+            result = extract_isolated(scratch / "x.zip", "zip", load_contract()["document_text"], scratch)
+        self.assertEqual((result.outcome, result.pages, result.error), ("unsupported_format", [], None))
 
     def test_the_contract_is_the_areas_file(self) -> None:
         self.assertEqual(CONTRACT.parent.name, "config")

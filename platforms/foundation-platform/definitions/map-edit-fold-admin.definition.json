@@ -35,7 +35,7 @@
       },
       "pool": "spark",
       "pool_slots": 2,
-      "priority_weight": 5,
+      "priority_weight": 50,
       "pipeline_graph_edges": [
         "map-edit-store-to-silver-map-edit-ledger",
         "silver-map-edit-ledger-to-gold-administrative-boundary-served",
@@ -60,7 +60,11 @@
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [],
-      "surface_kind": "tiles"
+      "surface_kind": "tiles",
+      "publication_unit": {
+        "key": "admin",
+        "snapshot_table": "gold.administrative_boundary_served"
+      }
     },
     {
       "id": "silver-map-edit-ledger",

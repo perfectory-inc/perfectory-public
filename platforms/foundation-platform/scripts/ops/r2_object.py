@@ -62,10 +62,29 @@ def signed_request(method: str, endpoint: str, bucket: str, key: str, access_key
                                            "Authorization": authorization})
 
 
+def exists(endpoint: str, bucket: str, key: str, access_key: str, secret: str, session_token: str = "") -> bool:
+    """Whether `bucket/key` holds an object (HEAD: 200 yes, 404 no; anything else raises)."""
+    request = signed_request("HEAD", endpoint, bucket, key, access_key, secret, session_token=session_token)
+    try:
+        with urllib.request.urlopen(request, timeout=60):
+            return True
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return False
+        raise
+
+
 def put(endpoint: str, bucket: str, key: str, access_key: str, secret: str, body: bytes,
         session_token: str = "", only_new: bool = False) -> bool:
-    """Writes the object; False when `only_new` and the key already holds one (If-None-Match: *,
-    HTTP 412), which leaves it as it was."""
+    """Writes the object; False when `only_new` and the key already holds one, which leaves it as it was.
+
+    `only_new` asks first (HEAD) and then writes with If-None-Match: * for a writer that raced it (HTTP
+    412). Asking first is not an optimisation: a key under an R2 bucket lock rule answers a conditional
+    PUT with 409 Conflict, not 412, when it holds an object. 2026-11-11..13 every shape-ledger run after
+    the first published nothing (`HTTP Error 409: Conflict`): its shapes were the ones already kept
+    under the lock of shape-ledger/objects/ (infra/shape-ledger/main.tf)."""
+    if only_new and exists(endpoint, bucket, key, access_key, secret, session_token):
+        return False
     extra = {"if-none-match": "*"} if only_new else None
     request = signed_request("PUT", endpoint, bucket, key, access_key, secret, body,
                              session_token=session_token, extra=extra)

@@ -254,7 +254,7 @@ fn the_run_identity_names_the_lane_month_and_exact_bytes() -> anyhow::Result<()>
 
 #[test]
 fn every_lane_parses_by_its_instance_name_and_its_contract_is_valid() -> anyhow::Result<()> {
-    for lane in Lane::ALL {
+    for lane in Lane::all() {
         assert_eq!(Lane::parse(lane.id())?, lane);
         let contract = lane.contract()?;
         assert_eq!(contract.table, lane.table());
@@ -288,12 +288,35 @@ fn the_lanes_are_the_silver_refresh_jobs_of_the_job_list() -> anyhow::Result<()>
         .filter_map(|service| service.strip_prefix("foundation-silver-refresh@"))
         .map(|instance| instance.strip_suffix(".service").unwrap_or(instance))
         .collect();
-    let known: BTreeSet<&str> = Lane::ALL.into_iter().map(Lane::id).collect();
+    // A hand lane is its own instance; the HUB family lanes run in one (root ADR-0551).
+    let known: BTreeSet<&str> = Lane::all()
+        .into_iter()
+        .filter(|lane| !matches!(lane, Lane::Family(_)))
+        .map(Lane::id)
+        .chain([FAMILY_INSTANCE])
+        .collect();
     assert_eq!(
         scheduled, known,
-        "jobs.v1.json's silver refresh instances and Lane::ALL differ"
+        "jobs.v1.json's silver refresh instances and the hand lanes with the family differ"
+    );
+    assert!(
+        Lane::parse(FAMILY_INSTANCE).is_err(),
+        "the family is no lane"
     );
     Ok(())
+}
+
+#[test]
+fn a_family_lane_line_is_not_the_run_outcome() {
+    let line = "silver-refresh-outcome lane=housing-permit-unit-outline outcome=changed reason=exported_and_loaded";
+    assert_eq!(
+        family_lane_line(line),
+        "silver-refresh-lane lane=housing-permit-unit-outline outcome=changed reason=exported_and_loaded"
+    );
+    assert_eq!(
+        family_lane_line(&as_plan(line)),
+        "silver-refresh-lane-plan lane=housing-permit-unit-outline outcome=would_change reason=exported_and_loaded"
+    );
 }
 
 #[test]
@@ -467,7 +490,7 @@ fn an_overwrite_nobody_declared_is_refused() -> anyhow::Result<()> {
     assert!(LaneContract::parse(Lane::Titles, &priced)?
         .compare_content
         .is_none());
-    for lane in Lane::ALL {
+    for lane in Lane::all() {
         let (_, text) = lane.contract_source();
         let value: serde_json::Value = serde_json::from_str(text)?;
         let block = &value["silver_refresh"];
@@ -901,7 +924,7 @@ fn a_measured_lane_starts_its_last_step_early_enough_to_end_inside_its_unit() ->
 {
     let fit = UNIT_TIME_LIMIT_MINUTES * 60 * FIT_SHARE_PERCENT / 100;
     let mut measured = Vec::new();
-    for lane in Lane::ALL {
+    for lane in Lane::all() {
         let contract = lane.contract()?;
         let Some(step) = contract.step_seconds_max else {
             continue;

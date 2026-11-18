@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0511-housing-permits-and-the-rest-of-the-collected-files-reach-silver-and-the-permit-panel-shows-housing-permits.md",
+  "source": "bronze/source=hubgokr__housing_permit_basis_outline",
+  "measured_at_utc": "2026-11-11",
+  "dataset_series": "mart_jty_01",
+  "how_measured": "운영 Bronze 의 최신 판 ZIP(2026-10, 7,627,051 바이트, 멤버 mart_jty_01.txt 56,425,710 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 381,382 행, 모든 행 29칸, UTF-8. 칸 0(관리주택대장PK)은 모든 행이 채워졌고 381,382 개 모두 다르다(행을 가른다). PNU 입력(시군구 5·법정동 5·번 1–4·지 1–4 자리 숫자) 372,998 행(97.80%), 표준 PNU 로 조합되는 행(대지구분 0·1) 366,788 행(96.17%). 표본 2,000 행(조합된 PNU, 서로 다른 1,666 개, 대응표 없는 단순 조합)의 1,601 개(96.1%)가 silver.parcel_boundaries 에 있다. 채움: 승인일 380,668·착공예정일 139,700·착공일 64,669·사용검사예정일 150,902·사용검사일 153,030·생성일자 381,382 행. 용도: 빈칸 345,199·공동주택 33,335·단독주택 1,362.",
+  "field_layout_authority": "공공데이터포털 국토교통부_주택인허가 기본개요 파일(data.go.kr 15044697)의 항목 설명(대지위치·시군구코드·법정동코드·대지구분코드·번·지·관리주택대장PK·건물명·특수지명·블록·로트, 승인일·착공일·사용검사일·생성일자)과 주택인허가 기본개요 API 응답 항목 순서(bldNm·splotNm·block·lot·purpsCd·purpsCdNm·strctCd·strctCdNm·mainBldCnt·totArea·totHhldCnt, PublicDataReader HousingLicense 문서), 2026-10 판 실측의 교차 확인. 날짜 칸 23–28: 칸 28 은 모든 행에 있고 다른 날보다 늦어 생성일자다. 생성일자보다 늦은 날이 칸 24·26 은 38,418·67,457 행이라 예정일, 칸 23·25·27 은 12·152·14 행이라 실제 날이다. 23 ≤ 27 이 99.95%, 25 ≤ 27 이 99.6%, 24 ≤ 26 이 99.8% 라 23 승인일·24 착공예정일·25 착공일·26 사용검사예정일·27 사용검사일이다. 건축인허가 기본개요(ADR-0356)처럼 관리 키·대지위치·건물명이 앞으로 와 칸 0–2 이고 칸 3 부터 시군구코드 순서다.",
+  "unmapped_columns": "이름을 붙이지 않은 칸(대지위치 1·건물명 2·특수지명 8·블록 9·로트 10, 빈 칸 18–22, 생성일자 28)은 raw_columns 의 원래 index 로만 보존한다. 칸 18–22 는 2026-10 판에서 모든 행이 비어 뜻을 확인하지 못했다. 칸 2(건물명)는 화면에 내보내지 않는다(ADR-0356 §4).",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_jty_01.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 29,
+  "columns": {
+    "mgmt_key": {
+      "index": 0,
+      "meaning": "관리주택대장PK 원문: 주택건설사업계획승인 한 건의 키. 2026-10 판의 모든 행이 채워졌고 서로 다르다"
+    },
+    "sigungu_cd": {
+      "index": 3,
+      "meaning": "시군구코드"
+    },
+    "bjdong_cd": {
+      "index": 4,
+      "meaning": "법정동코드"
+    },
+    "san_gubun": {
+      "index": 5,
+      "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+    },
+    "bonbeon": {
+      "index": 6,
+      "meaning": "번 원문"
+    },
+    "bubeon": {
+      "index": 7,
+      "meaning": "지 원문"
+    },
+    "purpose_code": {
+      "index": 11,
+      "meaning": "용도코드 원문(02000 공동주택·01000 단독주택 등)"
+    },
+    "purpose_name": {
+      "index": 12,
+      "meaning": "용도코드명 원문(공동주택·단독주택 등)"
+    },
+    "structure_code": {
+      "index": 13,
+      "meaning": "구조코드 원문(11 벽돌구조·21 철근콘크리트구조 등)"
+    },
+    "structure_name": {
+      "index": 14,
+      "meaning": "구조코드명 원문"
+    },
+    "main_building_count": {
+      "index": 15,
+      "meaning": "주건축물수 원문"
+    },
+    "total_floor_area_m2": {
+      "index": 16,
+      "meaning": "연면적 원문(㎡)"
+    },
+    "total_household_count": {
+      "index": 17,
+      "meaning": "총세대수 원문(세대)"
+    },
+    "approval_date": {
+      "index": 23,
+      "meaning": "승인일(사업계획승인) YYYYMMDD 또는 빈칸"
+    },
+    "start_scheduled_date": {
+      "index": 24,
+      "meaning": "착공예정일 YYYYMMDD 또는 빈칸"
+    },
+    "start_actual_date": {
+      "index": 25,
+      "meaning": "착공일(실제) YYYYMMDD 또는 빈칸"
+    },
+    "use_inspection_scheduled_date": {
+      "index": 26,
+      "meaning": "사용검사예정일 YYYYMMDD 또는 빈칸"
+    },
+    "use_inspection_date": {
+      "index": 27,
+      "meaning": "사용검사일(실제) YYYYMMDD 또는 빈칸"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__housing_permit_basis_outline",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@housing-permit-basis-outline.service 의 실행 값(root ADR-0169 §3, ADR-0511). 판은 장부가 정한다. compare 가 main 의 현재 행과 mgmt_key(관리주택대장PK)마다 비교해 바뀐 승인의 행과 사라진 승인의 삭제 표시만 changes branch 에 한 묶음으로 커밋하고(전국 38만 행이라 나누지 않는다), 다 되면 main 으로 한 번에 발행한다(ADR-0318). 판마다 바뀌는 vintage·적재 열은 content_columns 에 넣지 않는다.",
+    "table": "silver.housing_permit_basis_outline",
+    "roles": {
+      "source": "hubgokr__housing_permit_basis_outline"
+    },
+    "export": "export-housing-permit-basis-outline-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "sigungu_cd",
+        "bjdong_cd",
+        "san_gubun",
+        "bonbeon",
+        "bubeon",
+        "purpose_code",
+        "purpose_name",
+        "structure_code",
+        "structure_name",
+        "main_building_count",
+        "total_floor_area_m2",
+        "total_household_count",
+        "approval_date",
+        "start_scheduled_date",
+        "start_actual_date",
+        "use_inspection_scheduled_date",
+        "use_inspection_date",
+        "pnu",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 0
+    }
+  }
+}

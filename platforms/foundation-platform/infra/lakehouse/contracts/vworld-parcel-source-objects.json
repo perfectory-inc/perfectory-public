@@ -13,6 +13,11 @@
   },
   "served_edition": "202606",
   "served_edition_reason": "The edition the map, the parcel catalog projection, the PostGIS mirror, the parcel panel Gold and the 시군구 crosswalk's cadastral 시도 are built from, and the only parcel universe a served reader takes (vworld_parcel_editions.served_rows, root ADR-0291 §5). Other editions are evidence (the legal-dong pairing reads two of them). It moves only through parcel_edition_readiness.py promote, which refuses an edition that is not ready and appends to promotions (root ADR-0291 §4, ADR-0379).",
+  "host_promotions_ledger": {
+    "$comment": "Root ADR-0490 §5. Where a granted promotion takes effect with no pull request: parcel_edition_readiness.py grant appends it, one JSON line, to this file on the host, and every reader of this contract (vworld_parcel_editions.load, the Rust served_edition_view) lays it after `promotions`, so its last line is the served edition. compose.lakehouse.yml mounts the directory read-only in the Spark containers at container_path. A reviewed change may copy a host promotion into `promotions`; the same edition and instant are then not counted twice. Off the host neither directory exists and this contract's own ledger is the whole ledger.",
+    "path": "/var/lib/foundation-platform/parcel-editions/served-ledger.jsonl",
+    "container_path": "/workspace/state/parcel-editions/served-ledger.jsonl"
+  },
   "readiness": {
     "$comment": "What parcel_edition_readiness.py asks of an edition before it may be served (root ADR-0291 §2, ADR-0379). Silver: at most max_row_loss_fraction fewer rows than the served edition (202606 → 202609 measured 2026-10-21: 39.86M → 39.88M, +0.05%; 1% is about 400k parcels, a missing 시도 or two). A report older than max_report_age_hours is measured again: the table and the provider move daily.",
     "max_row_loss_fraction": 0.01,

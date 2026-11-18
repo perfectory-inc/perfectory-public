@@ -17,10 +17,19 @@ POSIX one. Such a name either cannot be checked out on Windows at all (`:`,
 into the U+F000-U+F0FF range. Both are refused here, along with the other names
 Windows cannot create: control characters, a component ending in a dot or a
 space, and the reserved device names.
+
+PR #1252 committed six `pins.json` files under
+platforms/foundation-platform/MagicMock/mock.conf.get().split().__getitem__()/<id>/.
+A test handed `gold_incremental.local_dir` a `unittest.mock.MagicMock` Spark
+session: `Path()` of the mock's `spark.local.dir` is its `__fspath__`, the mock's
+own name, so every run wrote its plan pins relative to the working directory.
+A component that is a mock's class or name (`MagicMock`, `mock.conf.get()`) is
+the same kind of name: a test double that leaked into a path, never a real file.
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -36,8 +45,17 @@ RESERVED_DEVICE_NAMES = frozenset(
     | {f"LPT{n}" for n in range(1, 10)}
 )
 
+# `unittest.mock` doubles: `str(Path(mock))` is the class name, then the mock's
+# dotted call path (`mock.conf.get().split().__getitem__()`).
+MOCK_CLASS_NAMES = frozenset(
+    {"Mock", "MagicMock", "NonCallableMock", "NonCallableMagicMock", "AsyncMock", "PropertyMock"}
+)
+MOCK_NAME = re.compile(r"^mock(\.\w+(\(\))?)*\.\w+\(\)(\.\w+(\(\))?)*$")
+
 
 def component_problem(component: str) -> str | None:
+    if component in MOCK_CLASS_NAMES or MOCK_NAME.match(component):
+        return "is a unittest.mock name, a test double that leaked into a path"
     for character in component:
         if character in RESERVED_CHARACTERS:
             return f"contains {character!r}, which Windows cannot store"

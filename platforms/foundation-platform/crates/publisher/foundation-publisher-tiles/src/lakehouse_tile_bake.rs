@@ -48,7 +48,7 @@ use catalog_domain::{
     FeatureIdProperty, PmtilesChecksum, RuntimeTileLayer, RuntimeTilesUrlTemplate,
     ServingGeneration, ValidatedPmtilesArtifact, VectorTileBuildOutcome,
 };
-use catalog_infrastructure::PgCatalogUnitOfWork;
+use catalog_infrastructure::{PgCatalogUnitOfWork, RELEASE_IS_LAKEHOUSE_MADE_SQL};
 use foundation_outbox::object_storage::R2ObjectStorage;
 use foundation_shared_kernel::ids::{
     FileAssetId, StaffId, VectorTileBuildJobId, VectorTileReleaseId,
@@ -99,10 +99,11 @@ use gate::classify_missing;
 pub use gate::{check_pmtiles_header, gate_archive, IdGate, Missing, ServedLayer};
 pub use min_zoom::{FeatureMinZoom, LowZoomGeneralization};
 pub use partitions::{
-    bake_partitions, partition_archive, tile_join_args, CsvOut, CsvPart, PartitionedCsv,
+    bake_partitions, partition_archive, tile_join_args, warm_partitions, CsvOut, CsvPart,
+    PartitionedCsv, Warmed,
 };
 use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
-use upload::{bake_and_upload, compared_with, rehearse, Upload};
+use upload::{bake_and_upload, compared_with, ensure_comparable, rehearse, Upload};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE";
 const CONTRACT_JSON: &str = include_str!("../../../../config/tile-bake-containers.contract.json");
@@ -149,6 +150,14 @@ pub struct BakeContract {
     /// W42: a unit listed here is refused when any stored (compressed) tile exceeds these bytes.
     #[serde(default)]
     pub tile_bytes_budget: std::collections::BTreeMap<String, u64>,
+    /// Root ADR-0492: the zoom a unit listed here is cut to, in place of the active release's;
+    /// the release the bake promotes carries it.
+    #[serde(default)]
+    pub tile_max_zoom: std::collections::BTreeMap<String, u8>,
+    /// Root ADR-0493: a partitioned unit listed here starts no partition this many seconds after
+    /// the run started; the run ends deferred and the next start continues from the cache.
+    #[serde(default)]
+    pub partition_run_budget_seconds: std::collections::BTreeMap<String, u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -226,6 +235,8 @@ impl BakeContract {
             contract.tile_bytes_budget.values().all(|bytes| *bytes > 0),
             "a tile_bytes_budget is positive"
         );
+        partitions::validate_budgets(&contract)?;
+        min_zoom::validate_tile_max_zoom(&contract)?;
         Ok(contract)
     }
 
@@ -682,6 +693,10 @@ struct Config {
     low_zoom_generalization: Option<LowZoomGeneralization>,
     /// W42: the contract's largest stored tile for this unit, if it sets one.
     tile_bytes_budget: Option<u64>,
+    /// Root ADR-0492: the contract's maxzoom for this unit, if it sets one.
+    tile_max_zoom: Option<u8>,
+    /// Root ADR-0493: when this run starts no more partitions, if the contract budgets them.
+    partition_deadline: Option<std::time::Instant>,
 }
 
 /// `{PREFIX}_REHEARSAL`: unset or `0` is a bake, `1` a rehearsal; anything else is refused, so a
@@ -749,12 +764,16 @@ impl Config {
             feature_min_zoom: None,
             low_zoom_generalization: None,
             tile_bytes_budget: None,
+            tile_max_zoom: None,
+            partition_deadline: None,
         })
     }
 }
 
 struct ActiveStatic {
     release_id: VectorTileReleaseId,
+    /// The tile zooms the active release is cut at; `layer` carries the ones this bake cuts.
+    served_tile_zoom: (u8, u8),
     origin: ActiveOrigin,
     pmtiles_object_key: String,
     serving_generation: ServingGeneration,
@@ -772,22 +791,23 @@ impl ActiveStatic {
     }
 }
 
-async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<ActiveStatic> {
-    let row = sqlx::query(
+/// The active release, with `layer` the one the bake produces: the served layer, cut to the
+/// contract's `tile_max_zoom` when it sets one (root ADR-0492).
+async fn read_active_static(pool: &PgPool, config: &Config) -> anyhow::Result<ActiveStatic> {
+    let unit_key = config.unit_key.as_str();
+    let row = sqlx::query(&format!(
         "SELECT unit.active_release_id, unit.serving_generation, release.source_kind,
                 release.canonical_iceberg_snapshot_id, release.pmtiles_object_key,
                 release.bake_inputs_sha256,
-                EXISTS (SELECT 1 FROM catalog.vector_tile_build_job AS build
-                        WHERE build.result_release_id = release.id
-                          AND build.kind = 'lakehouse_bake') AS produced_by_lakehouse_bake,
+                {RELEASE_IS_LAKEHOUSE_MADE_SQL} AS produced_by_lakehouse_bake,
                 layer.source_layer, layer.feature_id_property,
                 layer.tile_min_zoom, layer.tile_max_zoom, layer.render_max_zoom,
                 layer.feature_filter_properties
          FROM catalog.vector_tile_publication_unit AS unit
          JOIN catalog.vector_tile_release AS release ON release.id = unit.active_release_id
          JOIN catalog.vector_tile_release_layer AS layer ON layer.release_id = release.id
-         WHERE unit.unit_key = $1",
-    )
+         WHERE unit.unit_key = $1"
+    ))
     .bind(unit_key)
     .fetch_all(pool)
     .await?;
@@ -811,8 +831,17 @@ async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<Act
             .map(|map| map.keys().cloned().collect::<Vec<_>>())
             .unwrap_or_default(),
     );
+    let tile_min_zoom = u8::try_from(row.try_get::<i16, _>("tile_min_zoom")?)?;
+    let served_max_zoom = u8::try_from(row.try_get::<i16, _>("tile_max_zoom")?)?;
+    let render_max_zoom = u8::try_from(row.try_get::<i16, _>("render_max_zoom")?)?;
+    let tile_max_zoom = config.tile_max_zoom.unwrap_or(served_max_zoom);
+    ensure!(
+        (tile_min_zoom..=render_max_zoom).contains(&tile_max_zoom),
+        "{unit_key} cannot be cut to z{tile_max_zoom}: its tiles start at z{tile_min_zoom} and are drawn to z{render_max_zoom}"
+    );
     Ok(ActiveStatic {
         release_id: VectorTileReleaseId::new(row.try_get("active_release_id")?),
+        served_tile_zoom: (tile_min_zoom, served_max_zoom),
         origin: if row.try_get("produced_by_lakehouse_bake")? {
             ActiveOrigin::LakehouseBake
         } else {
@@ -830,9 +859,9 @@ async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<Act
         layer: ServedLayer {
             source_layer: row.try_get("source_layer")?,
             feature_id_property,
-            tile_min_zoom: u8::try_from(row.try_get::<i16, _>("tile_min_zoom")?)?,
-            tile_max_zoom: u8::try_from(row.try_get::<i16, _>("tile_max_zoom")?)?,
-            render_max_zoom: u8::try_from(row.try_get::<i16, _>("render_max_zoom")?)?,
+            tile_min_zoom,
+            tile_max_zoom,
+            render_max_zoom,
             properties,
         },
     })
@@ -1210,6 +1239,12 @@ pub async fn run() -> anyhow::Result<()> {
         .get(&config.unit_key)
         .cloned();
     config.tile_bytes_budget = contract.tile_bytes_budget.get(&config.unit_key).copied();
+    config.tile_max_zoom = contract.tile_max_zoom.get(&config.unit_key).copied();
+    // The budget counts from the run's start: reading the handoff is part of the run.
+    config.partition_deadline = contract
+        .partition_run_budget_seconds
+        .get(&config.unit_key)
+        .map(|seconds| std::time::Instant::now() + Duration::from_secs(*seconds));
     let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
     let summary: ServedSummary =
         serde_json::from_str(&std::fs::read_to_string(&config.served_summary)?)
@@ -1321,13 +1356,24 @@ async fn bake_in(
         )
         .await;
     }
-    let active = read_active_static(&pool, &config.unit_key).await?;
+    let active = read_active_static(&pool, config).await?;
     let srid = summary.geometry_srid;
     let inputs = bake_inputs(&contract.images, srid, &active.layer, &prepared.0, config);
     let recipe = recipe_digest(&inputs);
     if active.shows(&summary.canonical_iceberg_snapshot_id, &recipe) {
         unchanged(&config.unit_key, &active.snapshot);
         return Ok(());
+    }
+    ensure_comparable(
+        &config.unit_key,
+        compared_with(&active),
+        config.low_zoom_generalization.as_ref(),
+    )?;
+    if let Some(parts) = prepared.2.as_deref() {
+        let unbaked = (&contract.images, prepared.0.as_slice(), srid, &active.layer);
+        if partitions::deferred(config, work, parts, &inputs, &summary, unbaked).await? {
+            return Ok(());
+        }
     }
     if config.rehearsal {
         return rehearse(
@@ -1360,6 +1406,8 @@ async fn bake_in(
                 summary.bound_silver_snapshot(),
             )?,
             bake_inputs_sha256: Some(recipe),
+            tile_max_zoom: (active.layer.tile_max_zoom != active.served_tile_zoom.1)
+                .then_some(active.layer.tile_max_zoom),
         })
         .await?;
 

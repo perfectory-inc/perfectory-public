@@ -165,6 +165,111 @@ where
     Ok(archives)
 }
 
+/// What [`warm_partitions`] left: every partition's archive is in the cache, or some still wait.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Warmed {
+    All,
+    /// The run reached its budget with these partitions not baked yet; `baked` are the ones this
+    /// run added to the cache.
+    Deferred {
+        baked: Vec<String>,
+        remaining: Vec<String>,
+    },
+}
+
+/// Root ADR-0493: bakes the partitions whose archive is not in the cache under `root` yet, one at a
+/// time, and starts none after `deadline`. Each archive lands create-only as it completes, so a run
+/// stopped at its budget loses nothing and the next start continues where it stopped. The CSVs stay
+/// for [`bake_partitions`], which then finds every archive and only joins them.
+pub async fn warm_partitions<F, Fut>(
+    work: &Path,
+    root: &Path,
+    parts: &[CsvPart],
+    bake_inputs: &str,
+    deadline: std::time::Instant,
+    mut bake: F,
+) -> anyhow::Result<Warmed>
+where
+    F: FnMut(PathBuf) -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<()>>,
+{
+    let mut baked = Vec::new();
+    let waiting: Vec<&CsvPart> = parts
+        .iter()
+        .filter(|part| !partition_archive(root, part, bake_inputs).exists())
+        .collect();
+    for (at, part) in waiting.iter().enumerate() {
+        if std::time::Instant::now() >= deadline {
+            let remaining = waiting[at..]
+                .iter()
+                .map(|part| part.prefix.clone())
+                .collect();
+            return Ok(Warmed::Deferred { baked, remaining });
+        }
+        let dir = work.join(format!("warm-{}", part.prefix));
+        std::fs::create_dir_all(dir.join("tmp"))?;
+        std::fs::hard_link(&part.csv, dir.join("served.csv"))?;
+        bake(dir.clone()).await?;
+        let archive = partition_archive(root, part, bake_inputs);
+        std::fs::create_dir_all(root.join(&part.prefix))?;
+        std::fs::hard_link(dir.join("unit.pmtiles"), &archive)
+            .with_context(|| format!("partition archive {}", archive.display()))?;
+        std::fs::remove_dir_all(&dir)?;
+        baked.push(part.prefix.clone());
+    }
+    Ok(Warmed::All)
+}
+
+/// Root ADR-0493: a run budget is positive and belongs to a partitioned unit.
+pub(super) fn validate_budgets(contract: &super::BakeContract) -> anyhow::Result<()> {
+    for (unit, budget) in &contract.partition_run_budget_seconds {
+        anyhow::ensure!(
+            *budget > 0 && contract.partition_by_feature_id_prefix.contains_key(unit),
+            "{unit}'s partition_run_budget_seconds is positive and names a partitioned unit"
+        );
+    }
+    Ok(())
+}
+
+/// Root ADR-0493: warms the partition cache within the contract's run budget, before any Catalog or
+/// R2 write. `true` when the run reached its budget and ends deferred, said on the line the job
+/// reads; the next start continues from the cache.
+pub(super) async fn deferred(
+    config: &super::Config,
+    work: &Path,
+    parts: &[CsvPart],
+    bake_inputs: &str,
+    summary: &super::ServedSummary,
+    (images, columns, srid, layer): (&super::ImageSet, &[String], i32, &super::ServedLayer),
+) -> anyhow::Result<bool> {
+    let Some(deadline) = config.partition_deadline else {
+        return Ok(false);
+    };
+    let root = config
+        .work_root
+        .join(format!("{}-partitions", config.unit_key));
+    let warmed = warm_partitions(
+        work,
+        &root,
+        parts,
+        bake_inputs,
+        deadline,
+        |dir| async move { super::bake_unit(config, images, &dir, columns, srid, layer).await },
+    )
+    .await?;
+    let Warmed::Deferred { baked, remaining } = warmed else {
+        return Ok(false);
+    };
+    println!(
+        "lakehouse-tile-bake-deferred unit={} gold_snapshot={} baked={} remaining={}",
+        config.unit_key,
+        summary.canonical_iceberg_snapshot_id,
+        baked.join(","),
+        remaining.join(",")
+    );
+    Ok(true)
+}
+
 /// tile-join's arguments after the image: every partition archive (linked as
 /// `/w/join/<prefix>.pmtiles`) into one archive, every tile kept whole.
 pub fn tile_join_args(prefixes: &[String]) -> Vec<OsString> {

@@ -201,7 +201,16 @@ if physical is None or reserved is None:
     print(f"FAIL {NAME}: {CONTRACT} host sizes must look like 62g or 512m", file=sys.stderr)
     sys.exit(1)
 
-outside = [entry["path_prefix"] for entry in contract.get("outside_scope", [])]
+# An entry names its prefix from the repository root (path_prefix), or a path inside an area by the area's
+# slug (area + path), read from tools/areas.contract.json: a file listing areas by hand is refused
+# (area-registry.sh), and the host's one-shot images live in more than one area.
+def area_dir(slug: str) -> str:
+    areas = json.loads((ROOT / "tools/areas.contract.json").read_text(encoding="utf-8"))["areas"]
+    return next(area["dir"] for area in areas if area["slug"] == slug)
+
+
+outside = [entry["path_prefix"] if "path_prefix" in entry else f"{area_dir(entry['area'])}/{entry['path']}"
+           for entry in contract.get("outside_scope", [])]
 placed: set[str] = set()
 report: list[str] = []
 standing_total = 0
@@ -431,6 +440,59 @@ if "scheduled_jobs" in contract:
         scheduled = scheduled_load(contract["scheduled_jobs"])
     except (OSError, ValueError, KeyError, TypeError) as error:
         errors.append(f"{CONTRACT}: scheduled_jobs: {error}")
+
+
+def memory_claim_problems(section: dict) -> list[str]:
+    """A job's memory_claim is held to what the host measurably has available (root ADR-0563).
+
+    What real incident does failing this prevent? 2026-11-13: the fact job, to keep its 24G model off
+    Spark, claimed every spark slot; the pool was never empty and it waited 24,600 s while the host had
+    30 GiB or more available for 95% of the week. A claim is admitted against available memory instead,
+    so one larger than the host usually has is the same starvation again, and one on a unit with no cap
+    or a protected class is memory nothing bounds or the OOM killer spares."""
+    jobs_list = json.loads(repository_file(section["jobs"], "jobs").read_text(encoding="utf-8"))
+    claiming = {job["id"]: job["memory_claim"]["units"] for job in jobs_list["jobs"] if "memory_claim" in job}
+    declared = section.get("memory_claims")
+    if not claiming:
+        return [f"{CONTRACT}: scheduled_jobs.memory_claims is stated but no job states a memory_claim"] if declared else []
+    if not isinstance(declared, dict):
+        return [f"{CONTRACT}: jobs state a memory_claim ({', '.join(sorted(claiming))}) but scheduled_jobs.memory_claims is absent"]
+    found = []
+    keep = size_of(str((jobs_list.get("memory_claims") or {}).get("keep_available", "")))
+    usual = size_of(str((declared.get("available") or {}).get("p05", "")))
+    if keep is None or usual is None:
+        return [f"{CONTRACT}: memory claims need jobs.v1.json memory_claims.keep_available and scheduled_jobs.memory_claims.available.p05 as sizes"]
+    unit_files = (contract.get("systemd_units") or {}).get("unit_files") or {}
+    measured = declared.get("claimed_measured") or {}
+    for job_id, units in sorted(claiming.items()):
+        caps = []
+        for unit in units:
+            entry = unit_files.get(unit)
+            cap = size_of(str((entry or {}).get("memory_max", "")))
+            if entry is None or cap is None:
+                found.append(f"{CONTRACT}: {job_id} claims {unit}, which has no systemd_units entry with a memory_max")
+                continue
+            if entry.get("class") != "batch":
+                found.append(f"{CONTRACT}: {job_id} claims {unit} of class {entry.get('class')!r}; a claimed unit is batch, killed first")
+            if unit not in measured:
+                found.append(f"{CONTRACT}: {job_id} claims {unit}, whose measured memory scheduled_jobs.memory_claims.claimed_measured does not state")
+            caps.append(cap)
+        if sum(caps) + keep > usual:
+            found.append(
+                f"{CONTRACT}: {job_id} claims {gib(sum(caps))} and keeps {gib(keep)} free, over the {gib(usual)} the host had"
+                f" available for 95% of the measured period: it would wait as the fact job did on 2026-11-13"
+            )
+    stale = sorted(set(measured) - {unit for units in claiming.values() for unit in units})
+    if stale:
+        found.append(f"{CONTRACT}: scheduled_jobs.memory_claims.claimed_measured names units no job claims: {', '.join(stale)}")
+    return found
+
+
+if "scheduled_jobs" in contract:
+    try:
+        errors.extend(memory_claim_problems(contract["scheduled_jobs"]))
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        errors.append(f"{CONTRACT}: scheduled_jobs.memory_claims: {error}")
 
 # Every systemd unit's MemoryHigh, MemoryMax and OOMScoreAdjust are its systemd_units entry's, and no
 # one cap alone can take what the standing services and host_reserved leave (root ADR-0455).

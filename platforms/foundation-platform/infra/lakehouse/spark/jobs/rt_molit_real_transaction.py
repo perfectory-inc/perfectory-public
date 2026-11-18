@@ -24,14 +24,17 @@ from __future__ import annotations
 
 import argparse
 import csv
+import functools
 import hashlib
 import io
 import json
+import os
 import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, NamedTuple, Sequence
+from urllib.parse import urlparse
 
 JOB_NAME = "rt_molit_real_transaction"
 TABLE = "silver.real_transaction"
@@ -172,7 +175,22 @@ class _Recorded:
 
 def export_rows(data: bytes, encoding: str, header_first: str, month: str | None = None
                 ) -> tuple[list[str], list[tuple[int, list[str]]], list[Rejected]]:
-    """(header, [(line number, cells)], rejected lines) of one export.
+    """(header, [(line number, cells)], rejected lines) of one export (export_lines, gathered)."""
+
+    lines = export_lines(data, encoding, header_first, month)
+    header = next(lines)
+    rows: list[tuple[int, list[str]]] = []
+    rejected: list[Rejected] = []
+    for item in lines:
+        if isinstance(item, Rejected):
+            rejected.append(item)
+        else:
+            rows.append(item)
+    return header, rows, rejected
+
+
+def export_lines(data: bytes, encoding: str, header_first: str, month: str | None = None) -> Iterable[Any]:
+    """One export's header, then each record in order: (line number, cells) or a Rejected line.
 
     The text is read as CSV from the header line on, in one pass (a quoted field may span lines, and
     only CR/LF end a line: `str.splitlines` also broke on form feeds and other separators). An export
@@ -194,8 +212,7 @@ def export_rows(data: bytes, encoding: str, header_first: str, month: str | None
     reader = csv.reader(source)
     header = next(reader)
     source.taken = []
-    rows: list[tuple[int, list[str]]] = []
-    rejected: list[Rejected] = []
+    yield header
     expected = 1
     line = first_line
     for cells in reader:
@@ -204,16 +221,15 @@ def export_rows(data: bytes, encoding: str, header_first: str, month: str | None
         if not any(c.strip() for c in cells):
             continue
         if len(cells) != len(header):
-            rejected.append(Rejected(number, raw, f"cells_{len(cells)}_of_{len(header)}"))
+            yield Rejected(number, raw, f"cells_{len(cells)}_of_{len(header)}")
             # A broken row of this export still took its number; another export's row did not.
             expected += 1 if cells and cells[0].strip() == str(expected) else 0
             continue
         if cells[0].strip() != str(expected):
-            rejected.append(Rejected(number, raw, f"row_number_{cells[0].strip()}_where_{expected}"))
+            yield Rejected(number, raw, f"row_number_{cells[0].strip()}_where_{expected}")
             continue
         expected += 1
-        rows.append((number, cells))
-    return header, rows, rejected
+        yield number, cells
 
 
 def identity(dataset: str, month: str, fields: Mapping[str, str], drop: Iterable[str]) -> str:
@@ -312,14 +328,14 @@ def rejected_share(rows: int, rejected: int) -> float:
     return rejected / (rows + rejected) if rows + rejected else 0.0
 
 
-def quarantine_reason(rows: int, rejected: Sequence[Rejected], refused: bool, max_share: float) -> str | None:
+def quarantine_reason(rows: int, rejected: Sequence[Rejected] | int, refused: bool, max_share: float) -> str | None:
     """Why an export is quarantined whole, or None when its accepted rows load (root ADR-0364): refused
     outright, or more of its lines rejected than the contract allows (a mixed export: what passed the
     line checks is not trusted either; the collector asks the month again in a clean session)."""
 
     if refused:
         return "export_refused"
-    share = rejected_share(rows, len(rejected))
+    share = rejected_share(rows, rejected if isinstance(rejected, int) else len(rejected))
     return f"export_quarantined: {share:.4%} of lines rejected" if share > max_share else None
 
 
@@ -401,6 +417,30 @@ def link_report(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return report
 
 
+def link_counts(staged: Any, F: Any) -> tuple[dict[str, Any], int, int]:
+    """(link_report's report, unmasked lots, those that found no current parcel) of a resolved frame,
+    aggregated in Spark: the driver reads one row per dataset and reason, never the rows."""
+
+    report: dict[str, dict[str, Any]] = {}
+    lots = unresolved = 0
+    is_lot = ~F.coalesce(F.col("pnu_unresolved_reason").isin(*NOT_A_LOT), F.lit(False))
+    grouped = (staged.groupBy("dataset_slug", "pnu_unresolved_reason")
+               .agg(F.count("*").alias("rows"), F.count("pnu").alias("pnu"),
+                    F.sum(F.when(F.col("pnu").isNull() & F.col("legal_dong_code").isNotNull(), 1).otherwise(0))
+                    .alias("legal_dong_only"),
+                    F.sum(F.when(is_lot, 1).otherwise(0)).alias("lots"),
+                    F.sum(F.when(is_lot & F.col("pnu").isNull(), 1).otherwise(0)).alias("unresolved_lots")))
+    for row in grouped.collect():
+        entry = report.setdefault(row["dataset_slug"], {"rows": 0, "pnu": 0, "legal_dong_only": 0, "unresolved": {}})
+        for name in ("rows", "pnu", "legal_dong_only"):
+            entry[name] += row[name]
+        if row["pnu_unresolved_reason"]:
+            entry["unresolved"][row["pnu_unresolved_reason"]] = row["rows"]
+        lots += row["lots"]
+        unresolved += row["unresolved_lots"]
+    return report, lots, unresolved
+
+
 def unmasked_lots(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     return [r for r in rows if r.get("pnu_unresolved_reason") not in NOT_A_LOT]
 
@@ -416,7 +456,14 @@ MIN_UNMASKED_LOTS = 50
 
 
 def below_link_bound(rows: Sequence[Mapping[str, Any]], bound: float) -> bool:
-    return len(unmasked_lots(rows)) >= MIN_UNMASKED_LOTS and unmasked_unresolved_share(rows) > bound
+    lots = unmasked_lots(rows)
+    return link_bound_breached(len(lots), sum(1 for r in lots if not r.get("pnu")), bound)
+
+
+def link_bound_breached(lots: int, unresolved: int, bound: float) -> bool:
+    """Whether enough unmasked lots were read and too many of them found no current parcel."""
+
+    return lots >= MIN_UNMASKED_LOTS and unresolved / lots > bound
 
 
 def link_bound(silver_load: Mapping[str, Any], dataset: str) -> float:
@@ -424,6 +471,94 @@ def link_bound(silver_load: Mapping[str, Any], dataset: str) -> float:
 
     own = (silver_load.get("max_unmasked_unresolved_share_by_dataset") or {}).get(dataset)
     return float(silver_load["max_unmasked_unresolved_share"] if own is None else own)
+
+
+# The kinds of record one export's parse yields in the Python worker (export_records).
+ROW, REJECTED_LINE, META = "row", "rejected", "meta"
+
+
+def export_records(data: bytes, entry: Mapping[str, Any], csv_contract: Mapping[str, Any], ingested_at: datetime,
+                   dongs: Mapping[str, str], remap: Mapping[str, str], ambiguous: frozenset[str],
+                   columns: Sequence[str]) -> Iterable[tuple[Any, ...]]:
+    """One export's records as (kind, line, raw, reason, meta json, row), streamed line by line: one `meta`
+    record first (unrepresented columns, refused whole), then its rejected lines and its rows. A row is
+    in `columns` order with `row_key` left for `ranked`, then its unresolved reason, its name and the
+    mutable fields that rank rows of the same name (rows_of's rule, ADR-0349 §2).
+
+    Run in Spark's Python worker over the export's bytes (W59, 2026-11-11): the driver held each export
+    as Python rows, shipped them to the JVM as a local collection and collected their links back, and
+    the small Spark's 2.5GiB was outgrown three times in 13 hours (11-10 21:16Z, 21:19Z, 11-11 09:58Z,
+    java 2.33-2.42 GB). Streamed, the worker holds the export's text and one line."""
+
+    dataset, month = entry["dataset"], entry["month"]
+    number_column, mutable = csv_contract["row_number_column"], csv_contract["mutable_columns"]
+    drop = [number_column, *mutable]
+    try:
+        lines = export_lines(data, csv_contract["encoding"], csv_contract["header_first_column"], month)
+        header = next(lines)
+    except (ValueError, UnicodeDecodeError) as error:
+        yield META, None, None, None, json.dumps({"unknown": [], "refused": True}), None
+        yield REJECTED_LINE, 0, "", f"export_refused: {error}", None, None
+        return
+    yield META, None, None, None, json.dumps({"unknown": unrepresented(header), "refused": False}), None
+    for item in lines:
+        if isinstance(item, Rejected):
+            yield REJECTED_LINE, item.line, item.raw, item.reason, None, None
+            continue
+        number, cells = item
+        fields = dict(zip(header, cells))
+        if fields.get("계약년월", month).strip() != month:
+            yield REJECTED_LINE, number, ",".join(f'"{c}"' for c in cells), "deal_month_outside_export", None, None
+            continue
+        row = build_row(dataset, month, {k: v for k, v in fields.items() if k != number_column})
+        row.update(source_record_id=entry["object_key"], source_line_number=number,
+                   source_snapshot_id=entry["source_snapshot_id"], ingested_at_utc=ingested_at)
+        code, reason = legal_dong_code(row, dongs)
+        lot_reason, lot = lot_of(row)
+        row["legal_dong_code"] = None if code in ambiguous else remap.get(code, code) if code else None
+        row["pnu"] = candidate_pnu(code, lot)
+        yield ROW, None, None, None, None, (
+            *(None if c == "row_key" else row.get(c) for c in columns),
+            reason or (lot_reason if lot_reason != "ok" else None),
+            identity(dataset, month, fields, drop), [fields.get(c, "") for c in mutable])
+
+
+def file_records(by_path: Mapping[str, Mapping[str, Any]], csv_contract: Mapping[str, Any], ingested_at: datetime,
+                 dongs: Mapping[str, str], remap: Mapping[str, str], ambiguous: frozenset[str], columns: Sequence[str],
+                 item: tuple[str, bytes]) -> Iterable[tuple[Any, ...]]:
+    """export_records of one `binaryFiles` item (its URI, its bytes), its entry found by its path. A module
+    function, bound with functools.partial: the worker unpickles it from this file (addPyFile), and no
+    closure carries the driver's state there."""
+
+    return export_records(item[1], by_path[os.path.normpath(urlparse(item[0]).path)], csv_contract, ingested_at,
+                          dongs, remap, ambiguous, columns)
+
+
+def ranked(rows: Any, F: Any) -> Any:
+    """`rows` (export_records' rows) with `row_key`, `<name>-<rank>`: rows of the same name ranked by the
+    mutable fields, then by line, as rows_of's stable sort ranks them."""
+
+    from pyspark.sql import Window  # noqa: PLC0415
+
+    order = Window.partitionBy("_name").orderBy(F.col("_sort").asc(), F.col("source_line_number").asc())
+    return (rows.withColumn("row_key", F.concat(F.col("_name"), F.lit("-"), F.row_number().over(order).cast("string")))
+            .drop("_name", "_sort"))
+
+
+def asked_forms(remap: Mapping[str, str], ambiguous: Iterable[str]) -> list[tuple[str, str]]:
+    """(source code, code it is asked under) for every code a pair touches: its current code and its
+    earlier forms (place_identity_resolver.candidate_pnus, as rows to join); a code no pair touches is
+    asked under itself, and one that splits under none."""
+
+    import place_identity_resolver  # noqa: PLC0415
+
+    split = set(ambiguous)
+    found = {(code, remap.get(code, code)) for code in remap if code not in split}
+    for code, form, _rank in place_identity_resolver.served_forms(remap):
+        if code not in split:
+            found.add((code, form))
+            found.add((code, remap.get(code, code)))
+    return sorted(found)
 
 
 def dataset_of(source_slug: str, contract: Mapping[str, Any]) -> str:
@@ -550,6 +685,8 @@ def _load(argv: Sequence[str]) -> int:
     from lakehouse_ingest import Deadline, append_source_object  # noqa: PLC0415
     from platform_contracts import REMOVED, current_rows  # noqa: PLC0415
     from pyspark.sql import SparkSession, functions as F  # noqa: PLC0415
+    from pyspark import StorageLevel  # noqa: PLC0415
+    from pyspark.sql.types import IntegerType, StringType, StructField, StructType  # noqa: PLC0415
     from silver_release_compare import release_changes  # noqa: PLC0415
     from vworld_parcel_editions import served_rows  # noqa: PLC0415
 
@@ -560,6 +697,12 @@ def _load(argv: Sequence[str]) -> int:
     summary: dict[str, Any] = {"job": JOB_NAME, "objects": [], "status": "loaded"}
     builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}").config("spark.sql.session.timeZone", "UTC")
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
+    # The exports are parsed in the Python worker (export_records), where this directory is not on the path.
+    spark.sparkContext.addPyFile(__file__)
+    # What a run keeps between steps is on disk, not in the heap (W59, measured 2026-11-11 on four real
+    # 13-16 MB exports, eight objects a run, in the 2560m small Spark): memory-and-disk 1.90 GB anon at a 1g
+    # heap, disk-only 1.76 GB. An object's frames are a few MB of Parquet-like blocks on the data disk.
+    DISK = StorageLevel.DISK_ONLY
     below_bound: list[str] = []
     over_rejected: list[str] = []
     max_rejected = float(source["silver_load"]["max_rejected_share"])
@@ -573,61 +716,89 @@ def _load(argv: Sequence[str]) -> int:
             # crosswalk; a pnu only when it is a current parcel. Read once for the run.
             dongs = dong_index(newest_snapshot_rows(spark, args.iceberg_catalog_name))
             remap, ambiguous = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
+            split = frozenset(ambiguous)
+            row_type = spark.createDataFrame([], schema + ", _reason string, _name string, _sort array<string>").schema
+            records_type = StructType([StructField("kind", StringType()), StructField("line", IntegerType()),
+                                       StructField("raw", StringType()), StructField("reason", StringType()),
+                                       StructField("meta", StringType()), StructField("row", row_type)])
+            csv_contract = source["csv"]
+
+            def parsed(chosen):
+                """The records of `chosen` exports, parsed in the Python worker (export_records): the
+                driver holds no row of them."""
+                by_path = {os.path.normpath(str(entry["path"])): {k: v for k, v in entry.items() if k != "path"}
+                           for entry in chosen}
+                records = functools.partial(file_records, by_path, csv_contract, now, dongs, remap, split, columns)
+                files = spark.sparkContext.binaryFiles(",".join(sorted(by_path)), minPartitions=len(by_path))
+                return spark.createDataFrame(files.flatMap(records), records_type)
+
             # One read of the ~40M current parcels for the run, cut to the PNUs these objects can ask
             # about (2026-10-31: read again per object, it was most of each object's 1-3 minutes and
-            # a run of 60 objects outlived its unit's 40-minute limit, every hour).
-            wanted: set[str] = set()
-            for entry in objects:
-                wanted |= candidate_pnus(read_export(entry, source["csv"], now)[0], dongs, remap)
+            # a run of 60 objects outlived its unit's 40-minute limit, every hour). The candidates
+            # are a DataFrame of the parsed rows: none of them comes to the driver.
+            sources = (parsed(objects).where(F.col("kind") == ROW).select(F.col("row.pnu").alias("pnu"))
+                       .where(F.col("pnu").isNotNull()).distinct()
+                       .withColumn("_code10", F.substring("pnu", 1, 10)))
+            forms = F.broadcast(spark.createDataFrame(asked_forms(remap, split), "_code10 string, _ask10 string"))
+            splits = F.broadcast(spark.createDataFrame([(c,) for c in sorted(split)], "_code10 string"))
+            touched = forms.select("_code10").distinct().withColumn("_touched", F.lit(True))
+            asked = (sources.join(splits, "_code10", "left_anti")
+                     .join(forms, "_code10", "left")
+                     .join(touched, "_code10", "left")
+                     .where(F.col("_ask10").isNotNull() | F.col("_touched").isNull())
+                     .select(F.concat(F.coalesce("_ask10", "_code10"), F.substring("pnu", 11, 9)).alias("pnu"))
+                     .distinct().persist(DISK))
             every = served_rows(spark.table(f"`{args.iceberg_catalog_name}`.`silver`.`parcel_boundaries`")).select("pnu")
-            asked = spark.createDataFrame([(pnu,) for pnu in sorted(wanted)], "pnu string")
-            parcels = every.join(F.broadcast(asked), "pnu", "left_semi").distinct().cache()
-            summary["parcels_read"] = {"asked": len(wanted), "held": parcels.count()}
+            parcels = every.join(F.broadcast(asked), "pnu", "left_semi").distinct().persist(DISK)
+            summary["parcels_read"] = {"asked": asked.count(), "held": parcels.count()}
+            asked.unpersist()
         for entry in objects:
             if deadline.passed():
                 deferred.append(entry["object_key"])
                 continue
-            rows, unknown, rejected, refused = read_export(entry, source["csv"], now)
-            share_rejected = rejected_share(len(rows), len(rejected))
-            quarantined = quarantine_reason(len(rows), rejected, refused, max_rejected)
+            export = parsed([entry]).persist(DISK)
+            meta = json.loads(export.where(F.col("kind") == META).first()["meta"])
+            unknown, refused = meta["unknown"], meta["refused"]
+            lines_out = export.where(F.col("kind") == REJECTED_LINE).select("line", "raw", "reason")
+            rows = ranked(export.where(F.col("kind") == ROW).select("row.*"), F)
+            counted = rows.agg(F.count("*").alias("rows"),
+                               F.coalesce(F.sum(F.col("cancelled").cast("int")), F.lit(0)).alias("cancelled")).first()
+            rejected = lines_out.count()
+            reasons = {r["reason"].split(":")[0] for r in lines_out.select("reason").distinct().collect()}
+            share_rejected = rejected_share(counted["rows"], rejected)
+            quarantined = quarantine_reason(counted["rows"], rejected, refused, max_rejected)
             if quarantined:
                 # The whole export waits for its clean copy: nothing of it loads, and it is recorded so
                 # no later run stops on it again (root ADR-0364; the alert fires once, from the metric).
                 if not refused:
-                    rejected = [Rejected(0, "", quarantined), *rejected]
-                rows = []
+                    marker = spark.createDataFrame([(0, "", quarantined)], "line int, raw string, reason string")
+                    lines_out = marker.unionByName(lines_out)
+                    rejected, reasons = rejected + 1, reasons | {quarantined.split(":")[0]}
                 over_rejected.append(entry["object_key"])
             # Root ADR-0364: the lines not loaded land first, in their own table, referencing Bronze.
             if rejected:
-                dead = spark.createDataFrame(rejected_rows(entry, rejected, now), schema=dead_schema)
-                append_source_object(spark, dead, dead_columns, dead_table, entry["object_key"],
-                                     contract_table=REJECTED_TABLE)
+                dead = lines_out.select(F.lit(entry["dataset"]), F.lit(entry["month"]), F.lit(entry["object_key"]),
+                                        "line", "raw", "reason", F.lit(entry["source_snapshot_id"]),
+                                        F.lit(now).cast("timestamp")).toDF(*dead_columns)
+                append_source_object(spark, spark.createDataFrame(dead.rdd, dead_schema), dead_columns, dead_table,
+                                     entry["object_key"], contract_table=REJECTED_TABLE)
             if quarantined:
                 # Recorded with no rows and no comparison: an empty export compared with the month would
                 # remove every row the month holds.
                 empty = spark.createDataFrame([], schema=schema)
                 summary["objects"].append({
                     "object": entry["object_key"], "dataset": entry["dataset"], "month": entry["month"],
-                    "rows": 0, "rejected": len(rejected), "rejected_share": round(share_rejected, 6),
-                    "refused": refused, "quarantined": quarantined,
-                    "rejected_reasons": sorted({r.reason.split(":")[0] for r in rejected}),
+                    "rows": 0, "rejected": rejected, "rejected_share": round(share_rejected, 6),
+                    "refused": refused, "quarantined": quarantined, "rejected_reasons": sorted(reasons),
                     "appended": append_source_object(spark, empty, columns, table, entry["object_key"],
                                                        contract_table=TABLE)})
+                export.unpersist()
                 continue
-            for row in rows:
-                code, reason = legal_dong_code(row, dongs)
-                lot_reason, lot = lot_of(row)
-                row["legal_dong_code"] = None if code in ambiguous else remap.get(code, code) if code else None
-                row["pnu"] = candidate_pnu(code, lot)
-                row["_reason"] = reason or (lot_reason if lot_reason != "ok" else None)
-            frame = spark.createDataFrame([tuple(r.get(c) for c in columns) + (r["_reason"],) for r in rows],
-                                          schema=schema + ", _reason string")
-            resolved = place_identity_resolver.resolve(frame, remap, ambiguous, parcels)
+            resolved = place_identity_resolver.resolve(rows, remap, ambiguous, parcels)
             resolved = resolved.withColumn("pnu_unresolved_reason", F.when(F.col("pnu").isNotNull(), F.lit(None))
                                            .otherwise(F.coalesce(F.col("_reason"), F.col("pnu_unresolved_reason"))))
-            staged = resolved.select(*columns).cache()
-            linked = [r.asDict() for r in staged.select("dataset_slug", "pnu", "legal_dong_code",
-                                                         "pnu_unresolved_reason").collect()]
+            staged = resolved.select(*columns).persist(DISK)
+            report, lots, unresolved = link_counts(staged, F)
             # The month's current rows only: an export is the whole month (root ADR-0349 §3).
             current = current_rows(spark.table(table).where((F.col("dataset_slug") == entry["dataset"])
                                                             & (F.col("deal_ym") == entry["month"])), contract)
@@ -635,22 +806,20 @@ def _load(argv: Sequence[str]) -> int:
                 staged, current, key=KEY, content=content_columns(contract), removal="row_state",
                 source_snapshot_id=entry["source_snapshot_id"], ingested_at=F.lit(now).cast("timestamp"),
                 columns=columns,
-            ).withColumn("source_record_id", F.lit(entry["object_key"])).cache()
-            share = unmasked_unresolved_share(linked)
+            ).withColumn("source_record_id", F.lit(entry["object_key"])).persist(DISK)
             line = {"object": entry["object_key"], "dataset": entry["dataset"], "month": entry["month"],
-                    "rows": len(rows), "cancelled": sum(1 for r in rows if r["cancelled"]),
+                    "rows": counted["rows"], "cancelled": counted["cancelled"],
                     "changes": changes.count(), "removed": changes.where(F.col("row_state") == REMOVED).count(),
-                    "linked": link_report(linked), "unmasked_unresolved_share": round(share, 4),
-                    "rejected": len(rejected), "rejected_share": round(share_rejected, 6), "refused": refused,
-                    "quarantined": None,
-                    "rejected_reasons": sorted({r.reason.split(":")[0] for r in rejected}),
-                    "unrepresented_fields": unknown}
+                    "linked": report, "unmasked_unresolved_share": round(unresolved / lots if lots else 0.0, 4),
+                    "rejected": rejected, "rejected_share": round(share_rejected, 6), "refused": refused,
+                    "quarantined": None, "rejected_reasons": sorted(reasons), "unrepresented_fields": unknown}
             line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"],
                                                      contract_table=TABLE)
-            if below_link_bound(linked, link_bound(source["silver_load"], entry["dataset"])):
+            if link_bound_breached(lots, unresolved, link_bound(source["silver_load"], entry["dataset"])):
                 below_bound.append(entry["object_key"])
             changes.unpersist()
             staged.unpersist()
+            export.unpersist()
             summary["objects"].append(line)
     finally:
         spark.stop()

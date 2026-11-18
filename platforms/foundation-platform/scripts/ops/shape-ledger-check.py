@@ -185,10 +185,10 @@ def layout_findings(table: str, key: str, bounds: list[tuple[str, str]], summary
     A whole `overwrite` is the full rebuild, a declared exception (root ADR-0314): it says how many
     keys it changed since root ADR-0347, and the check names that share instead of failing it."""
     failures, notes = [], []
-    share = region_read_share(bounds, REGION_DIGITS[key])
-    if share > REGION_READ_SHARE_LIMIT:
+    share, limit = region_read_share(bounds, REGION_DIGITS[key]), table_layout.read_share_limit(len(bounds))
+    if share > limit:
         failures.append(f"{table}: a one-region read of {key} opens {share:.0%} of its {len(bounds)} data files "
-                        f"(limit {REGION_READ_SHARE_LIMIT:.0%}); its files are not ordered by {key}")
+                        f"(limit {limit:.0%}); its files are not ordered by {key}")
     if summary is not None:
         byte_share, key_share = amplification(summary)
         if key_share is None:

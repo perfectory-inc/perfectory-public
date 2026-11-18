@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "$comment": "건축HUB 건축인허가 대용량 파일의 계열 레인(루트 ADR-0551). 항목 하나가 Silver 레인 하나다: id 가 레인·systemd 인스턴스, hubgokr__<id> 가 Bronze 원천, silver.<id> 가 표, export-<id>-silver-handoff 가 내보내기다. 표 계약·원천 계약은 lakehouse-domain hub_lane_family 가, 작업·그래프는 scripts/catalog/declared_definitions.py 가 이 파일에서 짓는다.",
+  "decision": "docs/adr/0551-a-hub-bulk-file-becomes-a-silver-lane-by-one-contract-entry.md",
+  "field_layout_authority": "공공데이터포털 국토교통부_건축HUB_건축인허가정보 서비스(data.go.kr 15136267, ArchPmsHubService)의 작업별 응답 항목와 2026-10 판 실측의 교차 확인. 대용량 파일은 PK 들·대지위치·(PK 와 특수지명 사이 항목)·지번 다섯·특수지명·블록·로트 순이고 나머지는 명세 순서다(ADR-0551 §3).",
+  "measured_at_utc": "2026-11-12",
+  "defaults": {
+    "rows_per_part": 1000000,
+    "max_row_bytes": 1048576,
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "job": {
+      "schedule": "0 7 * * *",
+      "stop_grace_minutes": 10,
+      "time_limit_minutes": 150,
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "enabled_since": "2026-11-13T03:00:00Z",
+      "first_run_cap_seconds": 8100,
+      "first_run_basis": "computed, about 2.5x the measured neighbours on the same template unit (root ADR-0386): silver_refresh_building_permit_basis_outline 357 s for a 438 MB release, _parking 251 s for 59 MB, _demolition_loss 161 s for 15 MB, interpolated by release size, at least 600 s",
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "building HUB files are released monthly (expected_cadence monthly, 1080 h, in the endpoint catalog) plus one daily fallback; this lane has not run yet, so its first change is its first load (root ADR-0551)."
+      },
+      "pnu_resolution": "pnu composed at Silver by the Rust hub export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; parcels since merged, split or recoded are followed by the consumer through the place-identity resolver (root ADR-0288) and views.changed_codes (ADR-0329 §3), not resolved once at load"
+    }
+  },
+  "lanes": {
+    "building-permit-district-zone": {
+      "title": "건축인허가 지역지구구역",
+      "description": "건축인허가 지역지구구역: 원문 19칸을 행 글자의 SHA-256마다 바뀐 행만 쌓는다. 이름 붙인 칸 14개는 OpenAPI 항목명 그대로, 대지위치·건물명·특수지명·블록·로트·생성일자는 raw_columns 의 원래 index 로 남긴다. PNU 는 엔진이 짓고 코드 변경은 소비자가 views.changed_codes 로 따라간다(루트 ADR-0551).",
+      "inner_file": "mart_kcy_14.txt",
+      "column_count": 19,
+      "key": "sha256_of_row",
+      "bucket_prefix_length": 2,
+      "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 227,663,624 바이트, 멤버 mart_kcy_14.txt 2,198,233,191 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다(2026-11-12): 12,820,196 줄, 19칸 12,820,196 행, UTF-8, `|` 구분, 머리줄 없음. 서로 다른 행 11,595,611. 칸 0 채움 11,602,388·서로 다른 값 5,504,276 → 키는 행 글자의 SHA-256(row_key, ADR-0397). PNU 입력(칸 2–6) 다섯 칸이 모두 채워진 행 하한 11,577,017. 칸 배치는 OpenAPI getApJijiguInfo 의 항목 19개를 대용량 파일 순서 규칙(ADR-0551 §3)으로 놓고 칸마다 실측 모양(숫자 자리수·날짜 8자리·소수)과 맞췄다",
+      "first_run": {
+        "estimate_seconds": 750,
+        "release": "this lane's newest release is 227.7 MB in the Bronze ledger (2026-11-12)"
+      },
+      "columns": {
+        "mgm_pmsrgst_pk": [0, "관리허가대장PK 원문 (OpenAPI mgmPmsrgstPk); 2026-10 판 12,820,196 행 중 11,602,388 행만 채워졌고 서로 다른 값 5,504,276 개라 행을 가르지 못한다"],
+        "sigungu_cd": [2, "시군구코드 (OpenAPI sigunguCd)"],
+        "bjdong_cd": [3, "법정동코드 (OpenAPI bjdongCd)"],
+        "san_gubun": [4, "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023) (OpenAPI platGbCd)"],
+        "bonbeon": [5, "번 원문 (OpenAPI bun)"],
+        "bubeon": [6, "지 원문 (OpenAPI ji)"],
+        "jijigu_gb_cd": [10, "지역지구구역구분코드 원문 (OpenAPI jijiguGbCd)"],
+        "jijigu_gb_cd_nm": [11, "지역지구구역구분코드명 원문 (OpenAPI jijiguGbCdNm)"],
+        "jijigu_cd": [12, "지역지구구역코드 원문 (OpenAPI jijiguCd)"],
+        "jijigu_cd_nm": [13, "지역지구구역코드명 원문 (OpenAPI jijiguCdNm)"],
+        "repr_yn": [14, "대표여부 원문 (OpenAPI reprYn)"],
+        "main_dong_gb_cd": [15, "주동구분코드 원문 (OpenAPI mainDongGbCd)"],
+        "main_dong_gb_cd_nm": [16, "주동구분코드명 원문 (OpenAPI mainDongGbCdNm)"],
+        "jijigu_nm": [17, "지역지구구역명 원문 (OpenAPI jijiguNm)"]
+      }
+    },
+    "building-permit-exclusive-common-area": {
+      "title": "건축인허가 전유공용면적",
+      "description": "건축인허가 전유공용면적: 원문 26칸을 제공자 키(mgmt_key)마다 바뀐 행만 쌓는다. 이름 붙인 칸 21개는 OpenAPI 항목명 그대로, 대지위치·건물명·특수지명·블록·로트·생성일자는 raw_columns 의 원래 index 로 남긴다. PNU 는 엔진이 짓고 코드 변경은 소비자가 views.changed_codes 로 따라간다(루트 ADR-0551).",
+      "inner_file": "mart_kcy_12.txt",
+      "column_count": 26,
+      "key": "column",
+      "bucket_prefix_length": 2,
+      "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 117,834,601 바이트, 멤버 mart_kcy_12.txt 1,791,586,049 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다(2026-11-12): 7,827,771 줄, 26칸 7,827,751 행, UTF-8, `|` 구분, 머리줄 없음. 서로 다른 행 7,827,771. 칸 0 채움 7,827,751·서로 다른 값 7,827,751 → 키는 칸 0(mgmt_key). PNU 입력(칸 3–7) 다섯 칸이 모두 채워진 행 하한 7,826,606. 칸 배치는 OpenAPI getApExposPubuseAreaInfo 의 항목 26개를 대용량 파일 순서 규칙(ADR-0551 §3)으로 놓고 칸마다 실측 모양(숫자 자리수·날짜 8자리·소수)과 맞췄다. 20 줄은 칸 수가 달랐다: 값 안의 줄바꿈이 행을 잘랐고 앞뒤 줄을 이으면 정확히 26칸이다 → broken_lines",
+      "first_run": {
+        "estimate_seconds": 670,
+        "release": "this lane's newest release is 117.8 MB in the Bronze ledger (2026-11-12)"
+      },
+      "columns": {
+        "mgmt_key": [0, "관리전유공용면적PK 원문 (OpenAPI mgmExposPubuseAreaPk); 2026-10 판의 모든 행이 채워졌고 서로 다르다"],
+        "mgm_pmsrgst_pk": [1, "관리허가대장PK 원문 (OpenAPI mgmPmsrgstPk)"],
+        "sigungu_cd": [3, "시군구코드 (OpenAPI sigunguCd)"],
+        "bjdong_cd": [4, "법정동코드 (OpenAPI bjdongCd)"],
+        "san_gubun": [5, "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023) (OpenAPI platGbCd)"],
+        "bonbeon": [6, "번 원문 (OpenAPI bun)"],
+        "bubeon": [7, "지 원문 (OpenAPI ji)"],
+        "pngtyp_gb_nm": [11, "평형구분명 원문 (OpenAPI pngtypGbNm)"],
+        "expos_pubuse_gb_cd": [12, "전유공용구분코드 원문 (OpenAPI exposPubuseGbCd)"],
+        "expos_pubuse_gb_cd_nm": [13, "전유공용구분코드명 원문 (OpenAPI exposPubuseGbCdNm)"],
+        "main_atch_gb_cd": [14, "주부속구분코드 원문 (OpenAPI mainAtchGbCd)"],
+        "main_atch_gb_cd_nm": [15, "주부속구분코드명 원문 (OpenAPI mainAtchGbCdNm)"],
+        "flr_gb_cd": [16, "층구분코드 원문 (OpenAPI flrGbCd)"],
+        "flr_gb_cd_nm": [17, "층구분코드명 원문 (OpenAPI flrGbCdNm)"],
+        "flr_no": [18, "층번호 원문 (OpenAPI flrNo)"],
+        "strct_cd": [19, "구조코드 원문 (OpenAPI strctCd)"],
+        "strct_cd_nm": [20, "구조코드명 원문 (OpenAPI strctCdNm)"],
+        "main_purps_cd": [21, "주용도코드 원문 (OpenAPI mainPurpsCd)"],
+        "main_purps_cd_nm": [22, "주용도코드명 원문 (OpenAPI mainPurpsCdNm)"],
+        "etc_purps": [23, "기타용도 원문 (OpenAPI etcPurps)"],
+        "area": [24, "면적(㎡) 원문 (OpenAPI area)"]
+      },
+      "broken_lines": {
+        "measured_rows": 20
+      }
+    },
+    "building-permit-housing-type": {
+      "title": "건축인허가 주택유형",
+      "description": "건축인허가 주택유형: 원문 16칸을 행 글자의 SHA-256마다 바뀐 행만 쌓는다. 이름 붙인 칸 10개는 OpenAPI 항목명 그대로, 대지위치·건물명·특수지명·블록·로트·생성일자는 raw_columns 의 원래 index 로 남긴다. PNU 는 엔진이 짓고 코드 변경은 소비자가 views.changed_codes 로 따라간다(루트 ADR-0551).",
+      "inner_file": "mart_kcy_17.txt",
+      "column_count": 16,
+      "key": "sha256_of_row",
+      "bucket_prefix_length": 0,
+      "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 3,225,826 바이트, 멤버 mart_kcy_17.txt 45,933,240 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다(2026-11-12): 264,924 줄, 16칸 264,924 행, UTF-8, `|` 구분, 머리줄 없음. 서로 다른 행 261,643. 칸 0 채움 264,924·서로 다른 값 48,753 → 키는 행 글자의 SHA-256(row_key, ADR-0397). PNU 입력(칸 3–7) 다섯 칸이 모두 채워진 행 하한 264,921. 칸 배치는 OpenAPI getApHsTpInfo 의 항목 16개를 대용량 파일 순서 규칙(ADR-0551 §3)으로 놓고 칸마다 실측 모양(숫자 자리수·날짜 8자리·소수)과 맞췄다; 칸 13, 14 은 모양이 명세 순서와 서로 바뀌어 있어 모양대로 붙였다",
+      "first_run": {
+        "estimate_seconds": 600,
+        "release": "this lane's newest release is 3.2 MB in the Bronze ledger (2026-11-12)"
+      },
+      "columns": {
+        "mgm_pmsrgst_pk": [0, "관리허가대장PK 원문 (OpenAPI mgmPmsrgstPk); 2026-10 판 264,924 행 중 264,924 행만 채워졌고 서로 다른 값 48,753 개라 행을 가르지 못한다"],
+        "sigungu_cd": [3, "시군구코드 (OpenAPI sigunguCd)"],
+        "bjdong_cd": [4, "법정동코드 (OpenAPI bjdongCd)"],
+        "san_gubun": [5, "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023) (OpenAPI platGbCd)"],
+        "bonbeon": [6, "번 원문 (OpenAPI bun)"],
+        "bubeon": [7, "지 원문 (OpenAPI ji)"],
+        "hstp_gb_cd": [11, "주택유형구분코드 원문 (OpenAPI hstpGbCd)"],
+        "hstp_gb_cd_nm": [12, "주택유형구분코드명 원문 (OpenAPI hstpGbCdNm)"],
+        "sil_ho_hhld_area": [13, "실호세대수면적(㎡) 원문 (OpenAPI silHoHhldArea)"],
+        "sil_ho_hhld_cnt": [14, "실호세대수(세대) 원문 (OpenAPI silHoHhldCnt)"]
+      }
+    },
+    "building-permit-road-ledger": {
+      "title": "건축인허가 도로명대장",
+      "description": "건축인허가 도로명대장: 원문 24칸을 행 글자의 SHA-256마다 바뀐 행만 쌓는다. 이름 붙인 칸 19개는 OpenAPI 항목명 그대로, 대지위치·건물명·특수지명·블록·로트·생성일자는 raw_columns 의 원래 index 로 남긴다. PNU 는 엔진이 짓고 코드 변경은 소비자가 views.changed_codes 로 따라간다(루트 ADR-0551).",
+      "inner_file": "mart_kcy_15.txt",
+      "column_count": 24,
+      "key": "sha256_of_row",
+      "bucket_prefix_length": 0,
+      "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 7,432,554 바이트, 멤버 mart_kcy_15.txt 36,190,931 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다(2026-11-12): 242,762 줄, 24칸 242,762 행, UTF-8, `|` 구분, 머리줄 없음. 서로 다른 행 242,637. 칸 0 채움 239,075·서로 다른 값 231,680 → 키는 행 글자의 SHA-256(row_key, ADR-0397). PNU 입력(칸 2–6) 다섯 칸이 모두 채워진 행 하한 232,163. 칸 배치는 OpenAPI getApRoadRgstInfo 의 항목 24개를 대용량 파일 순서 규칙(ADR-0551 §3)으로 놓고 칸마다 실측 모양(숫자 자리수·날짜 8자리·소수)과 맞췄다",
+      "first_run": {
+        "estimate_seconds": 600,
+        "release": "this lane's newest release is 7.4 MB in the Bronze ledger (2026-11-12)"
+      },
+      "columns": {
+        "mgm_pmsrgst_pk": [0, "관리허가대장PK 원문 (OpenAPI mgmPmsrgstPk); 2026-10 판 242,762 행 중 239,075 행만 채워졌고 서로 다른 값 231,680 개라 행을 가르지 못한다"],
+        "sigungu_cd": [2, "시군구코드 (OpenAPI sigunguCd)"],
+        "bjdong_cd": [3, "법정동코드 (OpenAPI bjdongCd)"],
+        "san_gubun": [4, "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023) (OpenAPI platGbCd)"],
+        "bonbeon": [5, "번 원문 (OpenAPI bun)"],
+        "bubeon": [6, "지 원문 (OpenAPI ji)"],
+        "rano_year": [10, "도로지정번호년 원문 (OpenAPI ranoYear)"],
+        "rano_seqno": [11, "도로지정번호일련번호 원문 (OpenAPI ranoSeqno)"],
+        "rdasn_gb_cd": [12, "도로지정구분코드 원문 (OpenAPI rdasnGbCd)"],
+        "rdasn_gb_cd_nm": [13, "도로지정구분코드명 원문 (OpenAPI rdasnGbCdNm)"],
+        "rdasn_day": [14, "도로지정일 원문 (OpenAPI rdasnDay)"],
+        "road_chang_day": [15, "도로변경일 원문 (OpenAPI roadChangDay)"],
+        "road_chang_odr": [16, "도로변경차수 원문 (OpenAPI roadChangOdr)"],
+        "road_close_day": [17, "도로폐지일 원문 (OpenAPI roadCloseDay)"],
+        "mgm_sigungu_cd": [18, "관리시군구코드 원문 (OpenAPI mgmSigunguCd)"],
+        "rdasn_chang_day": [19, "도시지정변경일 원문 (OpenAPI rdasnChangDay)"],
+        "road_len_total": [20, "도로길이합계 원문 (OpenAPI roadLenTotal)"],
+        "road_width_total": [21, "도로너비합계 원문 (OpenAPI roadWidthTotal)"],
+        "road_area_total": [22, "도로면적합계 원문 (OpenAPI roadAreaTotal)"]
+      }
+    },
+    "building-permit-sewage-facility": {
+      "title": "건축인허가 오수정화시설",
+      "description": "건축인허가 오수정화시설: 원문 18칸을 행 글자의 SHA-256마다 바뀐 행만 쌓는다. 이름 붙인 칸 13개는 OpenAPI 항목명 그대로, 대지위치·건물명·특수지명·블록·로트·생성일자는 raw_columns 의 원래 index 로 남긴다. PNU 는 엔진이 짓고 코드 변경은 소비자가 views.changed_codes 로 따라간다(루트 ADR-0551).",
+      "inner_file": "mart_kcy_09.txt",
+      "column_count": 18,
+      "key": "sha256_of_row",
+      "bucket_prefix_length": 2,
+      "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 74,239,006 바이트, 멤버 mart_kcy_09.txt 607,820,372 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다(2026-11-12): 4,352,339 줄, 18칸 4,352,339 행, UTF-8, `|` 구분, 머리줄 없음. 서로 다른 행 3,682,694. 칸 0 채움 3,654,029·서로 다른 값 3,554,790 → 키는 행 글자의 SHA-256(row_key, ADR-0397). PNU 입력(칸 2–6) 다섯 칸이 모두 채워진 행 하한 3,646,614. 칸 배치는 OpenAPI getApWclfInfo 의 항목 18개를 대용량 파일 순서 규칙(ADR-0551 §3)으로 놓고 칸마다 실측 모양(숫자 자리수·날짜 8자리·소수)과 맞췄다",
+      "first_run": {
+        "estimate_seconds": 640,
+        "release": "this lane's newest release is 74.2 MB in the Bronze ledger (2026-11-12)"
+      },
+      "columns": {
+        "mgm_pmsrgst_pk": [0, "관리허가대장PK 원문 (OpenAPI mgmPmsrgstPk); 2026-10 판 4,352,339 행 중 3,654,029 행만 채워졌고 서로 다른 값 3,554,790 개라 행을 가르지 못한다"],
+        "sigungu_cd": [2, "시군구코드 (OpenAPI sigunguCd)"],
+        "bjdong_cd": [3, "법정동코드 (OpenAPI bjdongCd)"],
+        "san_gubun": [4, "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023) (OpenAPI platGbCd)"],
+        "bonbeon": [5, "번 원문 (OpenAPI bun)"],
+        "bubeon": [6, "지 원문 (OpenAPI ji)"],
+        "repr_yn": [10, "대표여부 원문 (OpenAPI reprYn)"],
+        "wclf_mode_cd": [11, "오수정화시설형식코드 원문 (OpenAPI wclfModeCd)"],
+        "wclf_mode_cd_nm": [12, "오수정화시설형식코드명 원문 (OpenAPI wclfModeCdNm)"],
+        "main_dong_gb_cd": [13, "주동구분코드 원문 (OpenAPI mainDongGbCd)"],
+        "main_dong_gb_cd_nm": [14, "주동구분코드명 원문 (OpenAPI mainDongGbCdNm)"],
+        "capa_psper": [15, "용량(인용) 원문 (OpenAPI capaPsper)"],
+        "capa_lube": [16, "용량(루베) 원문 (OpenAPI capaLube)"]
+      }
+    },
+    "building-permit-unit-exclusive-common-area": {
+      "title": "건축인허가 호별전유공용면적",
+      "description": "건축인허가 호별전유공용면적: 원문 26칸을 제공자 키(mgmt_key)마다 바뀐 행만 쌓는다. 이름 붙인 칸 21개는 OpenAPI 항목명 그대로, 대지위치·건물명·특수지명·블록·로트·생성일자는 raw_columns 의 원래 index 로 남긴다. PNU 는 엔진이 짓고 코드 변경은 소비자가 views.changed_codes 로 따라간다(루트 ADR-0551).",
+      "inner_file": "mart_kcy_13.txt",
+      "column_count": 26,
+      "key": "column",
+      "bucket_prefix_length": 2,
+      "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 298,734,999 바이트, 멤버 mart_kcy_13.txt 4,684,548,530 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다(2026-11-12): 20,268,134 줄, 26칸 20,268,114 행, UTF-8, `|` 구분, 머리줄 없음. 서로 다른 행 20,268,134. 칸 0 채움 20,268,114·서로 다른 값 20,268,114 → 키는 칸 0(mgmt_key). PNU 입력(칸 3–7) 다섯 칸이 모두 채워진 행 하한 20,016,941. 칸 배치는 OpenAPI getApHoExposPubuseAreaInfo 의 항목 26개를 대용량 파일 순서 규칙(ADR-0551 §3)으로 놓고 칸마다 실측 모양(숫자 자리수·날짜 8자리·소수)과 맞췄다. 20 줄은 칸 수가 달랐다: 값 안의 줄바꿈이 행을 잘랐고 앞뒤 줄을 이으면 정확히 26칸이다 → broken_lines",
+      "first_run": {
+        "estimate_seconds": 800,
+        "release": "this lane's newest release is 298.7 MB in the Bronze ledger (2026-11-12)"
+      },
+      "columns": {
+        "mgmt_key": [0, "관리호별전유공용면적PK 원문 (OpenAPI mgmHoExposPubuseAreaPk); 2026-10 판의 모든 행이 채워졌고 서로 다르다"],
+        "mgm_ho_detl_pk": [1, "관리호별명세PK 원문 (OpenAPI mgmHoDetlPk)"],
+        "sigungu_cd": [3, "시군구코드 (OpenAPI sigunguCd)"],
+        "bjdong_cd": [4, "법정동코드 (OpenAPI bjdongCd)"],
+        "san_gubun": [5, "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023) (OpenAPI platGbCd)"],
+        "bonbeon": [6, "번 원문 (OpenAPI bun)"],
+        "bubeon": [7, "지 원문 (OpenAPI ji)"],
+        "pngtyp_gb_nm": [11, "평형구분명 원문 (OpenAPI pngtypGbNm)"],
+        "expos_pubuse_gb_cd": [12, "전유공용구분코드 원문 (OpenAPI exposPubuseGbCd)"],
+        "expos_pubuse_gb_cd_nm": [13, "전유공용구분코드명 원문 (OpenAPI exposPubuseGbCdNm)"],
+        "main_atch_gb_cd": [14, "주부속구분코드 원문 (OpenAPI mainAtchGbCd)"],
+        "main_atch_gb_cd_nm": [15, "주부속구분코드명 원문 (OpenAPI mainAtchGbCdNm)"],
+        "flr_gb_cd": [16, "층구분코드 원문 (OpenAPI flrGbCd)"],
+        "flr_gb_cd_nm": [17, "층구분코드명 원문 (OpenAPI flrGbCdNm)"],
+        "flr_no": [18, "층번호 원문 (OpenAPI flrNo)"],
+        "strct_cd": [19, "구조코드 원문 (OpenAPI strctCd)"],
+        "strct_cd_nm": [20, "구조코드명 원문 (OpenAPI strctCdNm)"],
+        "main_purps_cd": [21, "주용도코드 원문 (OpenAPI mainPurpsCd)"],
+        "main_purps_cd_nm": [22, "주용도코드명 원문 (OpenAPI mainPurpsCdNm)"],
+        "etc_purps": [23, "기타용도 원문 (OpenAPI etcPurps)"],
+        "area": [24, "면적(㎡) 원문 (OpenAPI area)"]
+      },
+      "broken_lines": {
+        "measured_rows": 20
+      }
+    },
+    "building-permit-unit-outline": {
+      "title": "건축인허가 호별개요",
+      "description": "건축인허가 호별개요: 원문 21칸을 제공자 키(mgmt_key)마다 바뀐 행만 쌓는다. 이름 붙인 칸 16개는 OpenAPI 항목명 그대로, 대지위치·건물명·특수지명·블록·로트·생성일자는 raw_columns 의 원래 index 로 남긴다. PNU 는 엔진이 짓고 코드 변경은 소비자가 views.changed_codes 로 따라간다(루트 ADR-0551).",
+      "inner_file": "mart_kcy_04.txt",
+      "column_count": 21,
+      "key": "column",
+      "bucket_prefix_length": 2,
+      "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 55,949,493 바이트, 멤버 mart_kcy_04.txt 789,775,940 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다(2026-11-12): 5,152,271 줄, 21칸 5,152,267 행, UTF-8, `|` 구분, 머리줄 없음. 서로 다른 행 5,152,271. 칸 0 채움 5,152,267·서로 다른 값 5,152,267 → 키는 칸 0(mgmt_key). PNU 입력(칸 4–8) 다섯 칸이 모두 채워진 행 하한 5,136,879. 칸 배치는 OpenAPI getApHoOulnInfo 의 항목 21개를 대용량 파일 순서 규칙(ADR-0551 §3)으로 놓고 칸마다 실측 모양(숫자 자리수·날짜 8자리·소수)과 맞췄다. 4 줄은 칸 수가 달랐다: 값 안의 줄바꿈이 행을 잘랐고 앞뒤 줄을 이으면 정확히 21칸이다 → broken_lines",
+      "first_run": {
+        "estimate_seconds": 620,
+        "release": "this lane's newest release is 55.9 MB in the Bronze ledger (2026-11-12)"
+      },
+      "columns": {
+        "mgmt_key": [0, "관리호별명세PK 원문 (OpenAPI mgmHoDetlPk); 2026-10 판의 모든 행이 채워졌고 서로 다르다"],
+        "mgm_dong_ouln_pk": [1, "관리동별개요PK 원문 (OpenAPI mgmDongOulnPk)"],
+        "mgm_pmsrgst_pk": [2, "관리허가대장PK 원문 (OpenAPI mgmPmsrgstPk)"],
+        "sigungu_cd": [4, "시군구코드 (OpenAPI sigunguCd)"],
+        "bjdong_cd": [5, "법정동코드 (OpenAPI bjdongCd)"],
+        "san_gubun": [6, "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023) (OpenAPI platGbCd)"],
+        "bonbeon": [7, "번 원문 (OpenAPI bun)"],
+        "bubeon": [8, "지 원문 (OpenAPI ji)"],
+        "ho_no": [12, "호번호 원문 (OpenAPI hoNo)"],
+        "ho_nm": [13, "호명칭 원문 (OpenAPI hoNm)"],
+        "pngtyp_gb_nm": [14, "평형구분명 원문 (OpenAPI pngtypGbNm)"],
+        "flr_no": [15, "층번호 원문 (OpenAPI flrNo)"],
+        "flr_gb_cd": [16, "층구분코드 원문 (OpenAPI flrGbCd)"],
+        "flr_gb_cd_nm": [17, "층구분코드명 원문 (OpenAPI flrGbCdNm)"],
+        "chang_gb_cd": [18, "변경구분코드 원문 (OpenAPI changGbCd)"],
+        "chang_gb_cd_nm": [19, "변경구분코드명 원문 (OpenAPI changGbCdNm)"]
+      },
+      "broken_lines": {
+        "measured_rows": 4
+      }
+    }
+  }
+}

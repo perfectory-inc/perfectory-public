@@ -21,6 +21,7 @@ mkdir -p "${STATE_ROOT}/${run_id}"
 # The Spark container runs as uid 185: its init step checks it can write the state root it mounts.
 chmod 0777 "${STATE_ROOT}" "${STATE_ROOT}/${run_id}"
 rc=0
+lakehouse_run_log "${STATE_ROOT}/${run_id}/spark.log"
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${STATE_ROOT}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
 lakehouse_spark_run foundation-platform-compute \
