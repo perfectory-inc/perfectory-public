@@ -161,6 +161,36 @@ impl DuckDbParquetStage {
         &self.connection
     }
 
+    /// Lowers the memory `DuckDB` may hold before it spills to `mib`, for a reader whose unit is capped
+    /// below the engine contract's execution profile (half of it is the default): `DuckDB` must spill
+    /// before the kernel's limit, not after.
+    ///
+    /// # Errors
+    /// `DuckDB` refuses the setting.
+    pub fn limit_memory(&self, mib: u64) -> anyhow::Result<()> {
+        self.connection
+            .execute_batch(&format!("SET memory_limit = '{mib}MiB'"))
+            .context("DuckDB refused the memory limit")
+    }
+
+    /// The rows `query` answers, one JSON object per row as `DuckDB`'s `to_json` writes it, for a
+    /// reader that loads them somewhere else (the Silver-to-Postgres loads, root ADR-0565: they read
+    /// through Trino's CLI before, one JSON object per row as well).
+    ///
+    /// # Errors
+    /// The query fails or a row cannot be rendered.
+    pub fn json_rows(&self, query: &str) -> anyhow::Result<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare(&format!("SELECT to_json(q)::VARCHAR FROM ({query}) AS q"))
+            .context("DuckDB refused the query")?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("DuckDB failed to run the query")?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .context("DuckDB failed to read a row")
+    }
+
     /// Writes the rows of `query` as one Parquet file carrying the table's field ids.
     ///
     /// `query` returns one column per column of `shape`, by name; `name` names the file for the

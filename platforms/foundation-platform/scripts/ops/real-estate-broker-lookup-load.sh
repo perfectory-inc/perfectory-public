@@ -26,7 +26,9 @@ on_error() {
 }
 trap 'on_error ${LINENO}' ERR
 
-"${PUBLISHER_BIN}" load-real-estate-broker-lookup >> "${run_log}" 2>&1
+# The DuckDB the load reads Silver with keeps its database and spill here (root ADR-0565).
+mkdir -p "${STATE_ROOT}/work"
+FOUNDATION_PLATFORM_REAL_ESTATE_BROKER_LOOKUP_WORK="${STATE_ROOT}/work"   "${PUBLISHER_BIN}" load-real-estate-broker-lookup >> "${run_log}" 2>&1
 result="$(grep -E '^real-estate-broker-lookup-load ' "${run_log}" | tail -n 1)"
 job_journal "${journal}" "${result} run=${run_id}"
 case "${result}" in
