@@ -32,8 +32,8 @@ consoles/dawneer/
 데이터 흐름 화면의 「서비스 점검」 탭은 서버가 매시 잰 한국→서비스 주소 경로(colo·p50·p95)와 주별 PR CI 시간을
 보인다([ADR-0209](../../docs/adr/0209-the-data-flow-map-shows-the-edge-path-from-korea-and-the-ci-time-trend.md)).
 
-감사 기록(제안, [ADR-0569](../../docs/adr/0569-every-change-to-the-platform-is-one-hash-chained-audit-event-keyed-by-the-staff-account-and-dawneer-shows-it-and-proposes-config-changes-as-pull-requests.md)):
-플랫폼의 모든 변경(더니어 동작·PR·배포·호스트 명령·지도 편집)을 직원 계정별 한 표로 보이고, 코드에 든 설정은 더니어가 PR 로 제안한다. 아직 없다.
+감사 기록([ADR-0569](../../docs/adr/0569-every-change-to-the-platform-is-one-hash-chained-audit-event-keyed-by-the-staff-account-and-dawneer-shows-it-and-proposes-config-changes-as-pull-requests.md)):
+플랫폼의 모든 변경(더니어 동작·PR·배포·호스트 명령·지도 편집)을 직원 계정별 한 표로 보이고, 코드에 든 설정은 더니어가 PR 로 제안한다. 단계별로 만드는 중이다.
 
 ## 어디서 도나
 

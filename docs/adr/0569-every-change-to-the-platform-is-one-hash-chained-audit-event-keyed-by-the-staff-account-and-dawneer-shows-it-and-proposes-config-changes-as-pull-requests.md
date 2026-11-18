@@ -1,14 +1,15 @@
 # ADR 0569: 플랫폼의 모든 변경은 직원 계정을 열쇠로 한 해시 사슬 감사 사건 하나로 남는다 — 더니어가 보이고, 코드에 든 설정은 더니어가 PR 로 제안한다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-19
 - Revises: [ADR-0434](./0434-dawneer-is-served-from-the-data-host-behind-cloudflare-access-and-a-tunnel-and-relays-zitadels-sign-in-pages.md) §5
   ("승인·결정은 Foundation API 를 거쳐 그 주인의 append-only 기록에 남는다. 더니어는 기록을 갖지 않는다.")
   — **유지**: 더니어는 기록을 갖지 않고 정본은 Foundation 이다. **바뀜**: 주인마다 흩어진 기록 대신 모든 변경이 Foundation 의 표 하나
   (`audit.event`)에 모이고, 더니어가 그 표를 보인다. 로그인(Access·Zitadel)은 §5 그대로 각자의 기록에 남는다.
   [ADR-0282](./0282-operator-switches-are-issued-by-foundation-api-and-land-as-files-the-runner-reads.md) §2
-  — **유지**: `catalog.operator_action` 과 트리거. **바뀜**: `foundation_api` 의 그 표 `DELETE`·`TRUNCATE` 권한을 회수한다(`UPDATE` 는
-  `consumed_at`·`outcome` 한 번 채우기에 필요해 남는다). 원장의 모든 줄과 응답은 트리거로 감사 사건이 된다(§3).
+  — **유지**: `catalog.operator_action` 과 트리거. **바뀜**: `foundation_api` 의 그 표 `UPDATE`·`DELETE`·`TRUNCATE` 권한을 회수한다.
+  `consumed_at`·`outcome` 을 채우는 코드는 지금 저장소에 없다(2026-11-19 실측, 시험만 쓴다). 채우는 문이 생기면 그 두 열만
+  열 단위 `GRANT UPDATE (consumed_at, outcome)` 로 준다. 원장의 모든 줄과 응답은 트리거로 감사 사건이 된다(§3).
 - Builds on: [ADR-0114](./0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md) §3(더니어는 틀만, 쓰기는 주인의 API),
   [ADR-0116](./0116-dawneer-keeps-staff-tokens-on-its-rust-server.md)(BFF·허용 목록 중계·CSRF),
   [ADR-0165](./0165-dawneer-shows-operations-status-from-the-data-catalog-and-the-job-list.md)(운영 현황 화면),
