@@ -102,3 +102,15 @@ journalctl -u foundation-outbox-publish.service -n 20 # Airflow 가 시작한 �
   하나도 없으면 `FoundationDualRunSilent`, 파일이 30분 넘게 낡으면 `FoundationDagsterUnread`(모두 `service: dual-run`).
   2026-11-06 21:16Z–11-09 위치가 매번 로드에 실패했는데 UI 는 답하고 배포는 "observing" 이라 했고, 원장은 한 줄도 없었다(#1204).
   원인은 `docker logs airflow-dagster-daemon-1` 의 마지막 `DagsterUserCodeLoadError`.
+
+## Dagster 가 결정하는 작업 (`dagster` 단계)의 경보
+
+[루트 ADR-0565](../../../../docs/adr/0565-a-job-dagster-decides-is-reached-through-dagster-by-everything-that-reached-it-through-its-airflow-dag.md)
+§9 (c)·§11. 같은 `dagster.prom` 에 작업마다 센서 상태와, Dagster 작업마다 끝나지 않은 run 이 한도를 넘긴 시간이 더해진다.
+
+| 경보 | 뜻 | 할 일 |
+|---|---|---|
+| `FoundationDagsterDecidesNothing` (page) | `dagster` 작업이 있는데 코드 위치가 15분 넘게 안 뜬다: 그 작업들이 하나도 시작되지 않는다. 이때 `FoundationDagsterCodeLocationDown` 은 조용하다. | `docker logs airflow-dagster-code-server-1` 의 마지막 오류. 고친 릴리스를 배포한다(쥐기는 Dagster 에 기대지 않는다, §5). |
+| `FoundationDagsterSensorStopped` | 작업의 센서가 30분 넘게 멈춰 있는데 배포가 그 작업을 쥐고 있지 않다(`job_units.py deploy-holds` 가 빈 답). 배포가 놓다가 실패했거나 누가 UI 에서 멈췄다. | `python3 scripts/deploy/job_orchestrator.py unpause orchestration/jobs.v1.json <작업>` |
+| `FoundationDagsterSensorTickFailing` | 센서의 최신 틱이 30분 넘게 실패한다: 그동안 결정하지 않는다. | Dagster UI 의 센서 `foundation_decide__<작업>` 틱 오류. 대개 코드나 입력 읽기(카탈로그) 오류다. |
+| `FoundationDagsterRunOverdue` | Dagster run 이 끝나지 않은 채 한도(작업의 run 은 그 예약 시작의 한도, 다른 run 은 1시간)를 넘겼다. run monitoring 이 닫지 못한 run 이고, 그 작업의 센서는 이 run 을 열린 run 으로 보고 다시 시작하지 않는다. 2026-11-14 배포가 데몬을 다시 띄워 검사 run 하나가 6,265분 열려 있었다. | run 의 프로세스가 코드 서버 안에 살아 있는지 본다. 아니면 UI 에서 그 run 을 끝낸다(Terminate). 유닛은 systemd 의 것이라 따로 돌고, 다음 시작이 도는 유닛에 붙는다. |
