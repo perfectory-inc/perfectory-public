@@ -11,7 +11,7 @@ import json
 import sys
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
@@ -80,6 +80,64 @@ class RunRowsTest(unittest.TestCase):
 
     def test_a_run_that_wrote_no_file_has_no_rows(self) -> None:
         self.assertEqual(d.run_rows(Path(tempfile.gettempdir()) / "absent-intelligence.jsonl", ["run_id"], "r", []), [])
+
+
+def fact(code="999990", notice=99001, kind="land_use_area", index=0, sha=SHA, page_method="text_layer", method="rule",
+         notice_date=date(2099, 1, 1), file_sequence=1, value=None):
+    return {"official_complex_code": code, "notice_sequence": notice, "notice_number": f"합성시 고시 제{notice}호",
+            "notice_title": "합성 산업단지계획(변경) 승인 고시", "notice_date": notice_date, "sha256": sha,
+            "file_sequence": file_sequence, "file_title": "고시문.pdf", "media_format": "pdf", "fact_kind": kind,
+            "fact_index": index, "value_json": json.dumps(value or {"label": f"용지{index}", "area_m2": 100.0 + index}),
+            "page_number": 3, "quote": f"용지{index} 100", "method": method, "page_method": page_method,
+            "check": "table_total"}
+
+
+GATE = [("invited_industry", "rule", "text_layer"), ("land_use_area", "rule", "text_layer")]
+
+
+class ComplexFactsTest(unittest.TestCase):
+    def test_the_gate_admits_only_what_was_checked_by_hand_enough_and_precisely_enough(self) -> None:
+        extraction = {"outputs": {"document_fact": {"accuracy_gate": {"hand_checked_sample_min": 30, "min_precision": 0.98, "measured": [
+            {"fact_kind": "land_use_area", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 30},
+            {"fact_kind": "invited_industry", "method": "rule", "page_method": "ocr", "checked": 30, "correct": 29},
+            {"fact_kind": "parcel_lot", "method": "rule", "page_method": "text_layer", "checked": 29, "correct": 29},
+        ]}}}}
+        self.assertEqual(d.admitted(extraction), [("land_use_area", "rule", "text_layer")])
+
+    def test_the_contract_admits_only_the_kinds_whose_last_measurement_passes(self) -> None:
+        # land_use_area was 30/30 on the 2026-11-11 sample and 21/30 on the production facts of
+        # 2026-11-13 (a per-phase table and a park facility table both close on their own totals), so
+        # the gate takes it off the screen until the rules are fixed and measured again.
+        self.assertEqual(d.admitted(d.load_extraction(EXTRACTION_PATH)), [
+            ("invited_industry", "rule", "text_layer"), ("parcel_lot", "rule", "text_layer")])
+
+    def test_each_kind_comes_from_the_newest_notice_that_states_it_in_order(self) -> None:
+        rows = [fact(notice=99001, index=0, sha="b" * 64), fact(notice=99002, index=1, notice_date=date(2099, 6, 1)),
+                fact(notice=99002, index=0, notice_date=date(2099, 6, 1)),
+                fact(notice=99001, kind="invited_industry", sha="b" * 64, value={"ksic_division": "24"})]
+        document = d.complex_facts(rows, GATE)["999990"]
+        land = document["kinds"]["land_use_area"]
+        self.assertEqual((land["source"]["notice_sequence"], land["source"]["notice_date"]), (99002, "2099-06-01"))
+        self.assertEqual([f["value"]["label"] for f in land["facts"]], ["용지0", "용지1"])
+        self.assertEqual(land["facts"][0]["page_number"], 3)
+        # An older notice still answers the kinds a newer one does not state.
+        self.assertEqual(document["kinds"]["invited_industry"]["source"]["sha256"], "b" * 64)
+
+    def test_what_the_gate_does_not_admit_and_the_lots_are_not_shown(self) -> None:
+        rows = [fact(page_method="ocr"), fact(method="local_llm"), fact(kind="parcel_lot"), fact(page_method=None)]
+        self.assertEqual(d.complex_facts(rows, [*GATE, ("parcel_lot", "rule", "text_layer")]), {})
+
+    def test_a_complex_in_scope_without_admitted_facts_gets_an_empty_row(self) -> None:
+        extraction = d.load_extraction(EXTRACTION_PATH)
+        documents = d.complex_facts([fact()], GATE)
+        rows = d.complex_fact_rows(documents, ["999991", "999990", "999990"], extraction, GATE, "20991231T000000Z",
+                                   datetime(2099, 12, 31))
+        self.assertEqual([(r[0], r[2]) for r in rows], [("999990", 1), ("999991", 0)])
+        self.assertEqual(json.loads(rows[1][1]), {"schema": d.COMPLEX_FACTS_SCHEMA, "kinds": {}})
+        self.assertEqual(json.loads(rows[0][4]), [list(g) for g in GATE])
+        contract = json.loads(ARTIFACT.read_text(encoding="utf-8"))["contracts"][d.COMPLEX_FACTS]
+        self.assertEqual(len(rows[0]), len(contract["columns"]))
+        self.assertEqual(contract["load"], {"unit": "run", "column": d.RUN_COLUMN})
 
 
 if __name__ == "__main__":

@@ -188,10 +188,13 @@ services:
       dockerfile: orchestration/dagster/Dockerfile
     pull_policy: never
     profiles: ["dagster-observe"]
-    # Anonymous memory, the part the kernel cannot reclaim, peaked at 271 MiB (memory.peak 277 MiB with
-    # its page cache, measured 2026-10-29 against Airflow 3.3.2); about x1.12. The host budget
-    # (every-container-has-a-memory-cap.sh) had 0.81g left on 2026-11-05 for both containers.
-    mem_limit: 304m
+    # Anonymous memory, the part the kernel cannot reclaim, peaked at 271 MiB on 2026-10-29 (54 jobs
+    # observed) and the cap was 304m. On 2026-11-13 (71 jobs, each with a run job and a dual-run check)
+    # it stood at the cap: anon 298.6 MiB of 304, no swap, memory.events max 46 in the 36 minutes after a
+    # start, so what it needs was not measurable under it. A proxied job's Airflow task launches and
+    # polls its run here (root ADR-0431 §5), so the cap leaves room before the first job is proxied:
+    # x1.5 of the capped reading, measured again after the first proxied family's first day.
+    mem_limit: 448m
     restart: unless-stopped
     command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster/home/workspace.yaml"]
     environment:

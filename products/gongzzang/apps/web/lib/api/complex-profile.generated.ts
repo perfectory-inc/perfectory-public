@@ -32,4 +32,40 @@ export const IndustrialComplexGoldProfileSchema = z.object({
     development_purpose_raw: z.string().nullish(),
     invited_industries_raw: z.string().nullish(),
   }),
+  document_facts: z.object({
+    kinds: z.object({
+      land_use_area: z.object({
+        source: z.object({
+          notice_number: z.string().nullish(),
+          notice_date: z.string().nullish(),
+          sha256: z.string().regex(/^[0-9a-f]{64}$/),
+          media_format: z.string(),
+        }),
+        facts: z.array(z.object({
+          value: z.object({
+            label: z.string(),
+            parent: z.string().nullish(),
+            area_m2: z.number(),
+            ratio_pct: z.number().nullish(),
+          }),
+          page_number: z.number().int(),
+        })),
+      }).nullish(),
+      invited_industry: z.object({
+        source: z.object({
+          notice_number: z.string().nullish(),
+          notice_date: z.string().nullish(),
+          sha256: z.string().regex(/^[0-9a-f]{64}$/),
+          media_format: z.string(),
+        }),
+        facts: z.array(z.object({
+          value: z.object({
+            ksic_division: z.string(),
+            ksic_name: z.string(),
+          }),
+          page_number: z.number().int(),
+        })),
+      }).nullish(),
+    }),
+  }).nullish(),
 });

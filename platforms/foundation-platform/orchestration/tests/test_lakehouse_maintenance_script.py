@@ -117,15 +117,23 @@ class LakehouseMaintenance(unittest.TestCase):
         """Root ADR-0338: an unfinished bake's pin and the served state's reflected snapshot are kept.
 
         The building lane's bake pinned 9999900000000000001 before any `baking-` tag existed; expiry
-        must refuse a table where it would go."""
+        must refuse a table where it would go. A lane that serves section packs reads Gold only at
+        the packs' snapshot (by-pnu-serving-bake.sh, root ADR-0147): 2026-11-13 the object manifests
+        two pack lanes still carried (0 objects, reflecting 2026-10-12, their `served-` tags long
+        released) passed 30 days and expiry was refused for a snapshot no reader holds
+        (9999900000000000004 here)."""
         bake = self.root / "by-pnu-bake"
         (bake / "building").mkdir(parents=True)
         (bake / "parcel").mkdir()
+        (bake / "unit-price").mkdir()
         (bake / "building/in-progress-packs.json").write_text(json.dumps(
             {"gold_iceberg_snapshot_id": "9999900000000000001", "mode": "full", "base_generation": 1, "target": 2}))
+        (bake / "building/state.json").write_text(json.dumps(
+            {"published": {"reflected_gold_iceberg_snapshot_id": "9999900000000000002"}, "section_packs": None}))
         (bake / "parcel/state.json").write_text(json.dumps(
-            {"published": {"reflected_gold_iceberg_snapshot_id": "9999900000000000002"},
+            {"published": {"reflected_gold_iceberg_snapshot_id": "9999900000000000004", "object_count": 0},
              "section_packs": {"reflected_gold_iceberg_snapshot_id": "9999900000000000003"}}))
+        (bake / "unit-price/state.json").write_text(json.dumps({"published": None, "section_packs": None}))
         result, [call] = self.run_script()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         path = call["args"][call["args"].index("--keep-snapshots") + 1]

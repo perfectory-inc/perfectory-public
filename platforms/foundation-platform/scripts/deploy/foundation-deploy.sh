@@ -53,6 +53,12 @@ repository="https://github.com/$(python3 -c 'import json,sys; print(json.load(op
 log() { printf '\n==== %s\n' "$*"; }
 as_deployer() { sudo -u "${deployer}" -H "$@"; }
 airflow() { as_deployer bash "${release_root}/current/scripts/deploy/airflow-runtime.sh" exec airflow-scheduler airflow "$@"; }
+# The jobs Dagster decides are held, released and started through Dagster (root ADR-0565), by the release
+# now current; a release from before it has no such job (jobs_of dagster-decided lists none).
+dagster_jobs() {
+  python3 -I -B "${release_root}/current/scripts/deploy/job_orchestrator.py" "$1" \
+    "${release_root}/current/orchestration/jobs.v1.json" "${@:2}"
+}
 # Which jobs missed an input event while paused (root ADR-0337), asked in the scheduler, which mounts
 # the release at the same path; a release from before it has nothing to ask with and owes nothing.
 owed_by_inputs() {
@@ -80,6 +86,15 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
         # starts the unit itself, so it never waits for the host;
         # test_foundation_autodeploy holds the two to the same answer on the real list.
         print(job["systemd_service"], job["time_limit_minutes"] + job["stop_grace_minutes"], job["id"])
+if which == "dagster-decided":
+    # Held, released and started through Dagster, not an Airflow DAG: job_orchestrator.py's own answer
+    # (root ADR-0565); a release from before it has none.
+    import os
+    deploy = os.path.join(os.path.dirname(path), "..", "scripts", "deploy")
+    if os.path.isfile(os.path.join(deploy, "job_orchestrator.py")):
+        sys.path.insert(0, deploy)
+        from job_orchestrator import decided
+        print("\n".join(decided(json.load(open(path, encoding="utf-8")))))
 if which == "enabled-consumers-first":
     # Airflow drops an output event for a DAG that is still paused (root ADR-0179): the order is the
     # job registry's own dependency graph, consumers first (orchestration/dags/job_specs.py).
@@ -229,19 +244,21 @@ trap 'exit 143' TERM INT HUP
 deploy_metric_phase drain
 declare -A enabled=()
 for id in "${jobs[@]}"; do enabled["${id}"]=1; done
+deploy_dagster_decided
 if [[ "${drains_all}" == yes ]]; then
   deploy_metric_paused all
-  for id in "${jobs[@]}"; do airflow dags pause "foundation_${id}" >/dev/null; done
+  deploy_pause_jobs "${jobs[@]}"
   echo "paused ${#jobs[@]} DAGs"
   # Disabled jobs are paused too (a no-op when already paused); nothing here unpauses them.
   for id in "${disabled[@]}"; do airflow dags pause "foundation_${id}" >/dev/null 2>&1 || true; done
 else
-  count=0
+  pausing=()
   for id in "${drain[@]}"; do
     [[ -n "${enabled["${id}"]-}" ]] || continue
-    airflow dags pause "foundation_${id}" >/dev/null
-    count=$((count + 1))
+    pausing+=("${id}")
   done
+  count="${#pausing[@]}"
+  deploy_pause_jobs "${pausing[@]}"
   echo "paused ${count} DAGs; every other job keeps its schedule and its run"
   ((count == 0)) || deploy_metric_paused held
 fi
@@ -287,6 +304,11 @@ if ((${#drain[@]} > 0)); then
         echo "foundation-deploy: cannot record ${unit} as owed a run (${owed_dir:-no deferred-dir}); waiting for it instead of stopping it" >&2
         continue
       fi
+      # The run's turn ends `waiting`, not failed (root ADR-0260): the unit's SIGTERM is a success
+      # (foundation-release-admission.conf) and the outcome ledger says why.
+      python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" record-outcome "${held_job["${unit}"]}" \
+        "foundation-job-outcome waiting stopped by the deploy of ${sha:0:12}; owed a run" \
+        || echo "foundation-deploy: cannot record the outcome of ${held_job["${unit}"]}" >&2
       systemctl stop --no-block "${unit}"
       echo "stopped ${unit}: ${sha} holds it and it is interruptible; it is owed a run, started when the deploy gives the schedule back (root ADR-0301, ADR-0260)"
     done
@@ -375,6 +397,10 @@ deploy_metric_phase switch
 
 log "5. Airflow picks up the release's DAGs and pools"
 as_deployer bash "${release_root}/current/scripts/deploy/airflow-runtime.sh" up -d
+
+# The release is live: it holds nothing any more. Cleared before step 6 and 7 start what is owed, since
+# the host's forced command makes a start of a held job wait and owe itself (root ADR-0565 §5).
+rm -f "${deploy_hold}"
 
 log "6. start once, under the new release, each job its registry marks started_once_after_deploy"
 # Then 7: unpause the enabled DAGs, whatever those runs did (deploy-start-once.sh, root ADR-0173).

@@ -47,6 +47,10 @@ ENDPOINTS = "platforms/foundation-platform/docs/catalog/public-source-endpoint-c
 EXAMPLE = "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json"
 DEFINITIONS = "platforms/foundation-platform/definitions"
 LANE_INDEX = "platforms/foundation-platform/config/by-pnu-lane-index.v1.json"
+# HUB family files (root ADR-0551): each entry is a Silver refresh lane whose definition is derived
+# here, as its table and source contracts are in Rust (lakehouse-domain `hub_lane_family`).
+FAMILY_CONTRACTS = "platforms/foundation-platform/infra/lakehouse/contracts"
+FAMILY_GLOB = "hub-lane-family-*.v1.json"
 LANE_INDEX_SCHEMA = "foundation-platform.by_pnu_lane_index.v1"
 
 # Every slot: the artifact, the path of the item collection in it, its shape (a list of objects
@@ -352,6 +356,8 @@ def write_definitions(directory, platform, definitions):
 
 
 def read_definitions(directory):
+    """The platform file and every group's definition: the definition files, then one per HUB family
+    lane (`family_definitions`) from the family files of the same tree."""
     platform = read_json(directory / PLATFORM_FILE)
     definitions = {}
     for path in sorted(directory.glob(f"*{SUFFIX}")):
@@ -360,7 +366,127 @@ def read_definitions(directory):
         definition = read_json(path)
         definition.pop("$schema", None)
         definitions[path.name[: -len(SUFFIX)]] = definition
+    root = directory.parents[len(pathlib.PurePosixPath(DEFINITIONS).parts) - 1]
+    for group, definition in family_definitions(root / FAMILY_CONTRACTS).items():
+        if group in definitions:
+            raise DefinitionError(f"{group}{SUFFIX}: a HUB family lane's definition is derived from its family "
+                                  "file entry (root ADR-0551); remove the file")
+        definitions[group] = definition
     return platform, definitions
+
+
+def family_definitions(contracts):
+    """group -> the definitions the HUB family files make (root ADR-0551).
+
+    Each lane is a group of its own: its Silver table (asset) and the edge from the building HUB source
+    (dependency). The family is one more group, `silver-refresh-hub-lane-family`: the one Silver
+    refresh job that runs every lane in one run (`foundation-silver-refresh@hub-lane-family`), so the
+    family holds the spark pool once, not once per lane. What the lanes share is each file's
+    `defaults.job`, the same in every file.
+    """
+    definitions = {}
+    edges, estimates, shared, files = [], [], None, []
+    for path in sorted(pathlib.Path(contracts).glob(FAMILY_GLOB)):
+        family = read_json(path)
+        if shared is not None and family["defaults"]["job"] != shared:
+            raise DefinitionError(f"{path.name}: defaults.job differs from the other family files; one job runs them all")
+        shared = family["defaults"]["job"]
+        files.append(f"{FAMILY_CONTRACTS}/{path.name}")
+        for lane, entry in sorted(family["lanes"].items()):
+            snake = lane.replace("-", "_")
+            table = f"silver.{snake}"
+            edges.append(f"source-building-hub-bulk-to-silver-{lane}")
+            estimates.append(entry["first_run"]["estimate_seconds"])
+            definitions[f"silver-{lane}"] = {
+                "definition": DEFINITION,
+                "group": f"silver-{lane}",
+                "assets": [{
+                    "id": f"silver-{lane}",
+                    "type": "silver_table",
+                    "title": entry["title"],
+                    "description": entry["description"],
+                    "status": "contract_only",
+                    "owner": "foundation-platform",
+                    "evidence_refs": [f"{FAMILY_CONTRACTS}/{path.name}", family["decision"]],
+                    "table_name": table,
+                    "runtime_bindings": [{"kind": "lakehouse_contract", "value": table}],
+                }],
+                "dependencies": [{
+                    "from": "source-building-hub-bulk",
+                    "to": f"silver-{lane}",
+                    "relation": "feeds",
+                    "status": "partial",
+                    "via": [
+                        f"export-{lane}-silver-handoff",
+                        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+                        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py",
+                    ],
+                    "source_slugs": [f"hubgokr__{snake}"],
+                    "description": (f"{entry['title']}({entry['inner_file'].removesuffix('.txt')}) "
+                                    f"{entry['column_count']}칸을 바뀐 행만 append-only Silver 로 쌓는다"
+                                    f"(루트 ADR-0551 계열 레인, {path.name})."),
+                    "pnu_resolution": shared["pnu_resolution"],
+                }],
+            }
+    if not edges:
+        return definitions
+    job_id = "silver_refresh_hub_lane_family"
+    total = sum(estimates)
+    # A run starts no step after its deadline (root ADR-0391): the first load spans as many runs as it
+    # needs, each resuming where the last stopped.
+    one_run = min(total, shared["first_run_cap_seconds"])
+    definitions["silver-refresh-hub-lane-family"] = {
+        "definition": DEFINITION,
+        "group": "silver-refresh-hub-lane-family",
+        "jobs": [{
+            "id": job_id,
+            "scope": "changed-keys",
+            "interruptible": True,
+            "commits": "as_it_goes",
+            "description": (
+                f"Silver refresh of the {len(edges)} HUB family lanes (root ADR-0169 ②, ADR-0551; "
+                f"{', '.join(files)}), one run for all: for each lane in name order pick the newest complete "
+                "hub.go.kr release in the Bronze ledger and, unless its table already records it or a newer one "
+                "(seconds, nothing written), export it, stage it on a load branch, compare it with the table's "
+                "current rows and append to main only the changed rows and a removal marker per row it no "
+                "longer holds (root ADR-0318). The first lane that runs out of the run's time ends the run and "
+                "the next run resumes it. `changed` when any lane changed. Started when a source_sweep run lands "
+                "new files, and daily as the fallback (root ADR-0171); it takes the compose `spark` cap."),
+            "systemd_service": "foundation-silver-refresh@hub-lane-family.service",
+            "check_service": "foundation-silver-refresh-plan@hub-lane-family.service",
+            "systemd_timer": None,
+            "state_paths": ["/data/foundation-platform/silver-refresh"],
+            "schedule": shared["schedule"],
+            "started_by": "inputs",
+            "stop_grace_minutes": shared["stop_grace_minutes"],
+            "wait_limit_minutes": 0,
+            "time_limit_minutes": shared["time_limit_minutes"],
+            "per_run_cap": {
+                "unit": "run",
+                "limits": [],
+                "deadline": None,
+                "measured_run_seconds": None,
+                "first_run": {
+                    "estimate_seconds": one_run,
+                    "estimated_from": (f"{shared['first_run_basis']}; the {len(edges)} lanes sum to {total} s, and a run "
+                                       f"starts no step after its deadline, so the first load is {one_run} s per run "
+                                       f"over about {-(-total // one_run)} runs"),
+                },
+            },
+            "pool": "spark",
+            "pool_slots": shared["pool_slots"],
+            "priority_weight": shared["priority_weight"],
+            "retries": 0,
+            "pipeline_graph_edges": edges,
+            "enabled": True,
+            "enabled_since": shared["enabled_since"],
+            "dagster_stage": "shadow",
+            "expected_outcome": dict(shared["expected_outcome"]),
+        }],
+        "host_memory": {job_id: [{"unit": "MemoryMax"},
+                                 {"project": "foundation-platform-compute", "service": "spark"}]},
+    }
+    return definitions
 
 
 def committed(root):
@@ -390,7 +516,11 @@ def with_generated(paths):
     artifact: a reader of an artifact is changed by what generates it (the CI selectors ask this)."""
     paths = set(paths)
     generator = ("scripts/catalog/declared_definitions.py", "scripts/catalog/definition.v1.schema.json")
-    if any(path.startswith(DEFINITIONS + "/") or path in generator for path in paths):
+
+    def family(path):
+        return path.startswith(FAMILY_CONTRACTS + "/") and pathlib.PurePosixPath(path).match(FAMILY_GLOB)
+
+    if any(path.startswith(DEFINITIONS + "/") or path in generator or family(path) for path in paths):
         paths |= set(GENERATED)
     return paths
 
@@ -432,6 +562,12 @@ def show(root, rev, path):
         directory.mkdir(parents=True)
         for name in _git(root, "ls-tree", "--name-only", f"{rev}:{DEFINITIONS}").decode().split():
             (directory / name).write_bytes(_git(root, "show", f"{rev}:{DEFINITIONS}/{name}"))
+        family = tree / FAMILY_CONTRACTS
+        family.mkdir(parents=True)
+        listed = subprocess.run(["git", "-C", str(root), "ls-tree", "--name-only", f"{rev}:{FAMILY_CONTRACTS}"],
+                                capture_output=True, text=True).stdout.split()
+        for name in (n for n in listed if pathlib.PurePosixPath(n).match(FAMILY_GLOB)):
+            (family / name).write_bytes(_git(root, "show", f"{rev}:{FAMILY_CONTRACTS}/{name}"))
         documents = generate(*read_definitions(directory))
         if path in documents:
             return dump(documents[path])

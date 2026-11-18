@@ -41,7 +41,7 @@ import parcel_registry_frames as registry_frames
 import vworld_parcel_editions as editions
 from lineage_review_queue import steward_resolved
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
-from parcel_lineage_to_silver import IDENTIFIER, PREFIX, SNAPSHOT_ID, sql_prefixes
+from parcel_lineage import IDENTIFIER, PREFIX, SNAPSHOT_ID, sql_prefixes
 from legal_dong_code_snapshot_to_reference import newest_snapshot
 from platform_contracts import current_rows_of_versioned, load_lakehouse_contract, pinned_edition
 

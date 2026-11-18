@@ -96,26 +96,6 @@ class SilverReadersCurrentRowsTest(unittest.TestCase):
         unversioned = {**contract, "current_row_latest": None}
         self.assertEqual(held(unversioned), [pnu(1), pnu(2), pnu(3)], "an unversioned table is read as it is")
 
-    def test_the_lineage_binds_a_versioned_table_to_its_current_rows(self):
-        import parcel_lineage_inputs as inputs_module
-
-        name = "silver.land_transfer_history"
-        once = [{"pnu": pnu(i), "transfer_history_seq": 1, "reason": "split", "ingested_at_utc": OLD} for i in range(1, 4)]
-        contract, before = self.frame(name, once)
-        _, after = self.frame(name, once + [{**once[0], "reason": "merge", "ingested_at_utc": NEW}])
-        inputs = inputs_module.LineageInputs({"history": {"table": name, "snapshot_id": "1"}},
-                                             inputs_module.OwnershipInput({}, None), inputs_module.OwnershipInput({}, None))
-
-        def bound(frame, rule):
-            with mock.patch.object(inputs_module, "read_pinned_iceberg", return_value=frame), \
-                    mock.patch("platform_contracts.load_lakehouse_contract", side_effect=lambda _: rule):
-                view = inputs_module.bind_input_views(self.spark, "lakehouse", inputs)["history"]
-            return sorted((r.pnu, r.reason) for r in self.spark.table(view).select("pnu", "reason").collect())
-
-        key = ["pnu", "transfer_history_seq"]
-        self.assertEqual(bound(before, versioned(contract, key)), bound(before, contract))
-        self.assertEqual(bound(after, versioned(contract, key)), [(pnu(1), "merge"), (pnu(2), "split"), (pnu(3), "split")])
-
     def test_the_unit_proposal_export_reads_the_current_units(self):
         import building_register_unit_proposal_context_export as job
 

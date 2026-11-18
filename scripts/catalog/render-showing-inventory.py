@@ -29,7 +29,7 @@ LIVE = {"implemented", "partial"}
 TIERS = (
     ("공장·산업단지", ("silver.registered_factory", "silver.industrial_complex", "silver.complex_parcel")),
     ("토지", ("silver.land_", "silver.parcel_")),
-    ("건물", ("silver.building_", "silver.unit_official_price")),
+    ("건물", ("silver.building_", "silver.housing_permit_", "silver.unit_official_price")),
     ("거래·공매·경매", ("silver.real_transaction", "silver.onbid_", "silver.court_auction_")),
     ("물류 입지", ("silver.highway_", "silver.port", "silver.airport", "silver.railway_", "silver.subway_")),
     ("주변 생활", ("silver.commercial_", "silver.school_", "silver.university", "silver.dong_population",

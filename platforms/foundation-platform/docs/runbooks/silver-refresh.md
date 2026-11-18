@@ -53,6 +53,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `land-use-plan` | `silver.land_use_plan` | 토지이용계획 `AL_D155` 시도 전부 | load branch 에 첫 4 객체 overwrite, 나머지 4개씩 append; 비교는 시도마다 (`compare`, ADR-0318) |
 | `land-use-zone-code` | `silver.land_use_zone_code` | 용도지역 코드표 `LART_LMISZONE` 전국 1 | load branch 에 한 객체 overwrite, 바뀐 코드만 main 에 (`compare`) |
 | `real-estate-broker-office` | `silver.real_estate_broker_office` | 중개사무소 등록 `AL_D171` 전국 1, 매일 (루트 ADR-0511 §4) | load branch 에 한 객체 overwrite, 바뀐 사무소만 main 에 (`compare`, 키 = 시군구·등록번호, 묶음 = 시군구 앞 두 자리) |
+| `real-estate-broker-member` | `silver.real_estate_broker_member` | 중개사무소 소속 인원 `AL_D172` 전국 1, 매일 (루트 ADR-0511 §4) | load branch 에 한 객체 overwrite, 명단이 바뀐 사무소의 행 전부만 main 에 (`compare`, 키 = 시군구·등록번호, 묶음 = 시군구 앞 두 자리) |
 
 ## 1. 한 번의 실행
 

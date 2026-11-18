@@ -28,6 +28,7 @@ last_reviewed: 2026-07-29
 - [로컬 모델 런타임 — spark 풀 시간 나눔·평가·증설 첫날 순서](./model-runtime.md)
 - [고시 첨부 텍스트·사실 — intelligence 이미지·documents 풀·켜기](./intelligence-documents.md)
 - [법원경매정보 (courtauction.go.kr) — 정직한 수집·멈춤·적재](./court-auction.md)
+- [중개사 가입 확인 명부 — 바뀐 사무소만 싣는 적재와 VWorld 실시간 대체](./real-estate-broker-lookup.md)
 - [온비드 공매 (data.go.kr) — 수집·적재](./data-go-kr-onbid.md)
 - [산업입지정보시스템(ILIS) 산업단지 고시 첨부 — 수집·적재](./industrial-complex-notice.md)
 - [VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재](./vworld-parcel-editions.md)

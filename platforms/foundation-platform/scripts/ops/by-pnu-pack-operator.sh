@@ -370,17 +370,11 @@ refuse_while_pool_full() {
 # left by a deploy that is gone holds nothing.
 DEPLOY_HOLD="${FOUNDATION_OPERATOR_DEPLOY_HOLD:-/run/foundation-deploy-hold}"
 refuse_while_the_deploy_holds() {
-  local pid held job
-  [[ -r "${DEPLOY_HOLD}" ]] || return 0
-  pid="$(sed -n 's/^pid \([0-9][0-9]*\)$/\1/p' "${DEPLOY_HOLD}" | sed -n 1p)"
-  [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null || return 0
-  held="$(grep -v '^pid ' "${DEPLOY_HOLD}" || true)"
-  ! grep -qxF '*' <<<"${held}" \
-    || refuse "a deploy is building its release; every job waits until the build is done (ask again)" 75
-  for job in "$@"; do
-    ! grep -qxF -- "${job}" <<<"${held}" \
-      || refuse "the deploy holds ${job} until its release is live: the release changes what ${job} writes" 75
-  done
+  local why
+  # The one reader of the hold, which the host's forced command asks too (job_units.py deploy_holds).
+  why="$(FOUNDATION_DEPLOY_HOLD="${DEPLOY_HOLD}" python3 -I -B "${RELEASE}/scripts/deploy/job_units.py" deploy-holds "$@")" \
+    || refuse "cannot read what the deploy holds (${DEPLOY_HOLD})" 75
+  [[ -z "${why}" ]] || refuse "${why}" 75
 }
 # Refuses (75) while a by-PNU bake runs: the scheduled one, a pack generation bake, or anything else
 # holding a lane lock (a hand-run publish takes it too). The lock is only tested, never created.

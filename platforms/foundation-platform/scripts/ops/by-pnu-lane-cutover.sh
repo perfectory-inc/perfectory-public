@@ -120,9 +120,9 @@ STEPS=(history inputs preview gold parity bake equality latency publish monitor-
 # bounded by (60 when timed, else its unit's limit; shown by the dry run), and the lane whose Worker
 # serves it with that Worker's production hostname (the verify step's). Then the spark-pool units'
 # run limits and a last line naming those units.
-mapfile -t PLAN < <(python3 -I - "${PLATFORM_ROOT}" "${TARGET}" "${ETC}" <<'PY'
+mapfile -t PLAN < <(python3 -I - "${PLATFORM_ROOT}" "${TARGET}" "${ETC}" "${PENDING:-}" <<'PY'
 import json, os, sys
-root, target, etc = sys.argv[1], sys.argv[2], sys.argv[3]
+root, target, etc, pending = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] == "1"
 def load(path):
     with open(os.path.join(root, path), encoding="utf-8") as handle:
         return json.load(handle)
@@ -172,6 +172,13 @@ for lane in chosen:
     table = rebuild.get(entry["gold_table"])
     if table is None:
         sys.exit(f"{lane}: its Gold {entry['gold_table']} is not a table of gold-panel-rebuild.contract.json")
+    # The pending list (the auto-promotion's) leaves out a lane whose own Gold job is off (its
+    # disabled_reason says why): its gold step would build that Gold anyway, under the one rebuild lock
+    # (2026-11-12..13 parcel-nearby's Spark build ran out its 160 minutes four times and held the owed
+    # panel rebuild back each time). An operator's run that names lanes still plans them.
+    own_gold = by_service.get(f"foundation-gold-lane-rebuild@{table['unit']}.service")
+    if pending and own_gold is not None and not own_gold.get("enabled", True):
+        continue
     own, capabilities = block(lane)
     base, base_capabilities = block(entry["latency_baseline_lane"])
     parity = (table.get("pins_from") or {}).get("parity_argument") or "-"

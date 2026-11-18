@@ -13,7 +13,7 @@ fn floor_stage_uses_duckdb() -> anyhow::Result<()> {
         .connection()?
         .query_row("SELECT version()", [], |row| row.get::<_, String>(0));
     scratch.close()?;
-    assert_eq!(version?, "v1.5.6");
+    assert_eq!(version?, "v2.0.0");
     Ok(())
 }
 

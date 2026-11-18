@@ -37,7 +37,6 @@
       },
       "pool": "spark",
       "pool_slots": 3,
-      "priority_weight": 10,
       "pipeline_graph_edges": [
         "source-code-go-kr-to-reference-legal-dong-code-snapshot",
         "reference-legal-dong-code-snapshot-to-reference-legal-dong-code-change",
@@ -269,7 +268,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs",
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
       ],
       "description": "계보는 동·리 짝을 직접 계산하지 않고 변경표에서 읽는다(루트 ADR-0145 §2). 변경표는 계보를 증거로 읽지 않는다."
@@ -280,7 +279,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs"
       ]
     },
     {
@@ -289,7 +288,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs"
       ]
     },
     {
@@ -298,7 +297,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage_to_silver.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs"
       ]
     },
     {
@@ -350,7 +349,8 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/lineage_steward_fold.rs",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_steward_fold_to_silver.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/lakehouse_data_commit.rs"
       ],
       "description": "서 있는 스튜어드 결정을 evidence_kind=steward 계보 행으로 접는다. 모든 계보 소비자는 steward_resolved 로 읽는다(루트 ADR-0115 9항)."
     },

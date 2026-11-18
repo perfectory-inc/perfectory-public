@@ -6,7 +6,9 @@ section's content columns. A line that also names a `producer` is a kind built f
 Silver by that Spark job (root ADR-0287) rather than from a panel section: it is served on the
 host's lane the same way, but is not pinned to or checked against the host panel. Everything a
 kind needs follows from that line: its Gold table
-(`gold.<lane with - as _>`, lakehouse-domain `by_pnu_kind.rs`), its rebuild
+(`gold.<lane with - as _>`, lakehouse-domain `by_pnu_kind.rs`; the lane bakes that one, or the table
+of appended row versions beside it once the line's `gold_table` names it: `baked_gold_table`, root
+ADR-0564 §6-1), its rebuild
 (`gold-panel-rebuild.contract.json` `kind_tables`, `gold_rebuild.load_contract`), its producer run
 (`by_pnu_kind_silver_to_gold.py --lane <lane>`) and its serving lane. Pure Python: the planner
 and the host scripts read it without Spark.
@@ -41,6 +43,9 @@ class Kind:
 
     @property
     def gold_table(self) -> str:
+        # The table the kind's Spark producer replaces rows of. What the lane bakes is
+        # `baked_gold_table(lane)`: this class is part of every producer's recorded code version
+        # (gold_code_version.py), so the lane's table is resolved beside it, not in it.
         return "gold." + self.lane.replace("-", "_")
 
     @property
@@ -77,20 +82,58 @@ def kinds(path: Path = CONTRACT_PATH) -> dict[str, Kind]:
     return found
 
 
+# What a kind's table of appended row versions is named after the table it replaces (root ADR-0564 §1).
+VERSIONS_SUFFIX = "_versions"
+
+
+def line_tables(lane: str, entry: dict) -> tuple[str, str | None, str]:
+    """A `by_pnu_lanes` line's Gold tables (root ADR-0564 §6-1): the table a `MERGE` replaces rows of,
+    the table of appended row versions beside it (None unless the line says `versions_table`), and
+    the one of the two the lane bakes and serves (the versions table once the line's `gold_table`
+    names it). A lane written whole names its one table. No other place builds a lane's table from
+    its name."""
+    if "host" not in entry:
+        return entry["gold_table"], None, entry["gold_table"]
+    replaced = "gold." + lane.replace("-", "_")
+    declared = entry.get("versions_table", False)
+    if declared is not False and declared is not True:
+        raise ValueError(f"by_pnu_lanes.{lane}.versions_table says only true, or is left out")
+    versions = replaced + VERSIONS_SUFFIX if declared else None
+    stated = entry.get("gold_table")
+    if stated is not None and stated != versions:
+        raise ValueError(f"by_pnu_lanes.{lane}.gold_table names only {replaced}{VERSIONS_SUFFIX}, beside "
+                         f"versions_table: a kind that bakes {replaced} leaves the field out")
+    return replaced, versions, stated or replaced
+
+
+def baked_gold_tables(path: Path = CONTRACT_PATH) -> dict[str, str]:
+    """{lane: the Gold it bakes and serves} of every `by_pnu_lanes` line, in the contract's order."""
+    lanes = json.loads(path.read_text(encoding="utf-8")).get("by_pnu_lanes", {})
+    return {lane: line_tables(lane, entry)[2] for lane, entry in lanes.items()}
+
+
+def baked_gold_table(lane: str, path: Path = CONTRACT_PATH) -> str:
+    found = baked_gold_tables(path).get(lane)
+    if found is None:
+        raise ValueError(f"the R2 connection contract names no by_pnu_lanes lane {lane}")
+    return found
+
+
 def lane_fields(lane: str, path: Path = CONTRACT_PATH) -> dict[str, str]:
     """What the operator's and bake's scripts read of a `by_pnu_lanes` lane, whether it is written
-    whole (root ADR-0190) or as a kind line (root ADR-0193 §4, §9): its Gold table, the lane whose
+    whole (root ADR-0190) or as a kind line (root ADR-0193 §4, §9): its Gold table
+    (the one it bakes and serves, `line_tables`), the lane whose
     preview its latency is measured against, the lane whose documents it follows (`""` for none),
     the runtime-secrets group its serving monitor reads, and its Spark `producer` (`""` for none):
     an own-producer kind bakes in its own by-PNU bake job, not in `all` (root ADR-0303)."""
     entry = json.loads(path.read_text(encoding="utf-8"))["by_pnu_lanes"][lane]
     if "host" not in entry:
-        return {"gold_table": entry["gold_table"], "latency_baseline_lane": entry["latency_baseline_lane"],
+        return {"gold_table": line_tables(lane, entry)[2], "latency_baseline_lane": entry["latency_baseline_lane"],
                 "documents_follow_lane": entry.get("documents_follow_lane", ""),
                 "monitor_group": f"{lane}-serving-monitor", "own_producer": ""}
     found = kind(lane, path)
     host_lane = found.host.removesuffix("_by_pnu_gateway")
-    return {"gold_table": found.gold_table, "latency_baseline_lane": host_lane,
+    return {"gold_table": line_tables(lane, entry)[2], "latency_baseline_lane": host_lane,
             "documents_follow_lane": entry.get("documents_follow_lane", host_lane),
             "monitor_group": "by-pnu-kind-serving-monitor", "own_producer": found.producer or ""}
 

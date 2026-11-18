@@ -208,9 +208,9 @@ tests:
         values: '1792800x3'
       - series: 'foundation_by_pnu_serving_freshness_budget_seconds{lane="parcel-zoning"}'
         values: '172800x3'
-      - series: 'foundation_by_pnu_lane_behind_seconds{lane="parcel-zoning"}'
+      - series: 'foundation_by_pnu_lane_behind_seconds{lane="parcel-zoning",bake_job="by_pnu_serving_bake"}'
         values: '0x3'
-      - series: 'foundation_by_pnu_lane_behind_seconds{lane="parcel"}'
+      - series: 'foundation_by_pnu_lane_behind_seconds{lane="parcel",bake_job="by_pnu_serving_bake"}'
         values: '1044000x3'
 
       - series: 'foundation_by_pnu_served_manifest_age_seconds{lane="parcel-public-auction"}'
@@ -229,6 +229,7 @@ tests:
               severity: page
               service: serving-freshness
               lane: parcel
+              bake_job: by_pnu_serving_bake
             exp_annotations:
               summary: 'parcel 레인 화면이 입력보다 12d 2h 0m 0s 뒤처진 데이터를 보여 주고 있어요(예산을 넘김) — 그 뒤 굽기가 발행하지 못했거나 그 Gold 가 다시 지어지지 않았어요. 굽기의 거부 이유(journalctl -u foundation-by-pnu-lane-bake@parcel.service, 필지·건물 레인은 foundation-by-pnu-serving-bake.service)와 Gold 재빌드 작업을 보세요'
               runbook: docs/runbooks/parcel-by-pnu-serving-bake.md

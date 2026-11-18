@@ -435,4 +435,41 @@ expect_fail "a service that states an oom_score_adj compose_oom does not name"
 write_oom_fixture 100 named
 expect_fail "a critical service whose oom_score_adj is not its class's"
 
+# A job's memory_claim is held to the memory the host measurably has available (root ADR-0563).
+write_claim_fixture() {
+  local cap="$1" usual="$2" class="${3:-batch}" measured="${4:-fixture-model.service}"
+  write_unit_fixture '{"class": "batch", "memory_max": "1G", "measured_peak": "300M", "measured": "fixture"}' \
+    "{\"fixture-model.service\": {\"class\": \"${class}\", \"memory_max\": \"${cap}\", \"measured\": \"fixture\"}}" no-render
+  printf '[Service]\nType=exec\nExecStart=/bin/true\n' > "$fixture/unit-memory/fixture-model.service"
+  python3 - "$fixture" "$usual" "$measured" "$root/scripts/ci" <<'PY'
+import json, pathlib, sys
+root, usual, measured, ci = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
+sys.path.insert(0, ci)
+import unit_memory
+(root / "unit-memory/jobs.json").write_text(json.dumps({
+    "pools": {}, "memory_claims": {"keep_available": "1g"},
+    "jobs": [{"id": "a", "pool": "default_pool", "systemd_service": "fixture-job.service",
+              "memory_claim": {"units": ["fixture-model.service"]}}],
+}))
+path = root / "tools/host-memory-budget.contract.json"
+contract = json.loads(path.read_text())
+contract["scheduled_jobs"] = {"jobs": "unit-memory/jobs.json", "units": "unit-memory", "memory": {}, "why": "fixture"}
+if usual:
+    contract["scheduled_jobs"]["memory_claims"] = {"available": {"p05": usual}, "claimed_measured": {measured: "fixture"}}
+path.write_text(json.dumps(contract))
+unit_memory.write(root, contract)
+PY
+}
+
+write_claim_fixture 1G 3g
+expect_pass "a memory claim that, with what stays free, fits in what the host usually has available"
+write_claim_fixture 1G 1g
+expect_fail "a memory claim larger than the host usually has available"
+write_claim_fixture 1G 3g control
+expect_fail "a memory claim on a unit that is not batch"
+write_claim_fixture 1G ""
+expect_fail "a job with a memory claim and no measured availability in the contract"
+write_claim_fixture 1G 3g batch fixture-other.service
+expect_fail "a claimed unit whose measured memory is not stated"
+
 echo "OK $name"

@@ -10,6 +10,9 @@ export FOUNDATION_PLATFORM_MAP_EDIT_ENV_FILE="${FOUNDATION_PLATFORM_MAP_EDIT_ENV
 # The operations map's scheduler sign-in, lakehouse catalog token and tool addresses (root
 # ADR-0195); compose carries them to foundation-api only.
 export FOUNDATION_PLATFORM_OPERATIONS_MAP_ENV_FILE="${FOUNDATION_PLATFORM_OPERATIONS_MAP_ENV_FILE:-/etc/foundation-platform/operations-map.env}"
+# The VWorld key the broker sign-up check asks the live register with on a roster miss (root
+# ADR-0550 §5), apart from source-sweep.env so foundation-api reads this key and no other secret.
+export FOUNDATION_PLATFORM_VWORLD_LIVE_ENV_FILE="${FOUNDATION_PLATFORM_VWORLD_LIVE_ENV_FILE:-/etc/foundation-platform/vworld-live.env}"
 export FOUNDATION_PLATFORM_STATE_ROOT="${FOUNDATION_PLATFORM_STATE_ROOT:-/var/lib/foundation-platform}"
 export FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:-${FOUNDATION_PLATFORM_STATE_ROOT}/lakehouse}"
 export FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_STATE_ROOT="${FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_STATE_ROOT:-${FOUNDATION_PLATFORM_STATE_ROOT}/remote-lakehouse}"

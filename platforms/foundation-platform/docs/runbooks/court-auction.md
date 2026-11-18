@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # 법원경매정보 (courtauction.go.kr) — 수집·적재 런북
@@ -16,7 +16,7 @@ last_reviewed: 2026-11-11
 | 작업 | 단위 | 하는 일 |
 |---|---|---|
 | `court_auction_collect` (작업 등록부 일정, default_pool) | `foundation-court-auction-collect.service` → `scripts/ops/court-auction-collect.sh` | `collect-courtauction-go-kr`: 물건 검색 네 조합 → 매각결과 검색 두 조합. 조합마다 첫 쪽으로 쪽 수를 알고, 나머지 쪽은 계약 `collection.pace` 의 폭만큼 동시에. 검색 하나에 gzip JSON Lines Bronze 객체 하나 |
-| `court_auction_silver` (spark 3칸) | `foundation-court-auction-silver-load.service` → `scripts/ops/court-auction-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 검색마다 표의 커밋 요약이 아직 기록하지 않은 객체를 받고(계약 `silver_load`), `courtauction_go_kr.py load`: 주소로 PNU, `silver.court_auction_item`·`silver.court_auction_sale_result` 에 바뀐 행만. 물건상세 객체는 사진, 문서 여섯 표(사건·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표, 루트 ADR-0540)의 바뀐 것, 읽은 기록 순으로 커밋한다. 계획은 읽은 기록 표와 마지막 문서 표 둘 다 기준이라, 새 문서 표는 창 안의 물건상세 객체로 처음 채워진다 |
+| `court_auction_silver` (spark 3칸) | `foundation-court-auction-silver-load.service` → `scripts/ops/court-auction-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 검색마다 표의 커밋 요약이 아직 기록하지 않은 객체를 받고(계약 `silver_load`), `courtauction_go_kr.py load`: 주소로 PNU, `silver.court_auction_item`·`silver.court_auction_sale_result` 에 바뀐 행만. 물건상세 객체는 사진, 문서 여섯 표(사건·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표, 루트 ADR-0540)의 바뀐 것, 읽은 기록 순으로 커밋한다. 계획은 읽은 기록 표와 마지막 문서 표 둘 다 기준이라, 새 문서 표는 창 안의 물건상세 객체로 처음 채워진다. 공통코드 객체(목록을 끝까지 읽은 실행마다 한 요청, 계약 `common_codes`)는 이름이 바뀐 코드를 `silver.court_auction_code` 에 쌓는다(루트 ADR-0540 §5) |
 
 상태: `/var/lib/foundation-platform/court-auction/`(`journal.log`, 실행마다 `runs/<실행>/run.log`). 다음 실행을 막는 상태 파일은 없다.
 
@@ -70,6 +70,13 @@ last_reviewed: 2026-11-11
 
 원천의 출처 표시 의무(대한민국법원 법원경매정보, 저작권 보호정책)는 ODCS 목적 칸과 Silver 행의 원천·Bronze 키에
 남는다(ADR-0281 §6). 공짱 화면은 출처를 보이지 않는다(루트 ADR-0428).
+
+## 코드 이름 (루트 ADR-0540 §5)
+
+기일결과(매각·유찰 ...)·기일종류·목록구분·물건종류·입찰구분·감정요항표 항목의 이름은 저장소에 두지 않는다. 수집기가 실행마다
+사이트의 공통코드(`/pgj/scframe/lib/sccd/list.on`)를 계약 `common_codes.groups` 의 묶음 전부로 한 번 묻고, Gold 가 `names` 에
+적힌 칸 옆에 `*_name` 으로 붙인다. 화면에 이름 대신 빈칸이 보이면: 그 실행의 `courtauction.go.kr common codes:` 줄(실패 사유),
+`silver.court_auction_code` 에 그 묶음·코드가 있는지 본다. 새 묶음이 필요하면 계약에 묶음과 칸을 더한다(다음 실행부터 받는다).
 
 ## 개인정보 (루트 ADR-0540)
 

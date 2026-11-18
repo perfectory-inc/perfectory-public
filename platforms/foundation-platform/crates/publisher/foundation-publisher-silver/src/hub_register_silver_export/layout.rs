@@ -81,6 +81,10 @@ pub struct Layout {
     pub(super) extra_pnus: BTreeMap<String, PnuInputs>,
     #[serde(default)]
     pub(super) parcel_link: Option<ParcelLink>,
+    /// Some values hold a line break: a row cut short is joined with the lines that complete it
+    /// (root ADR-0551 §4; 건축인허가 전유공용면적 2026-10, 10 rows each cut in two).
+    #[serde(default)]
+    pub(super) joins_broken_lines: bool,
     /// Whether the Silver table has a `pnu` column: a linked layout's table must not (root ADR-0404).
     #[serde(skip)]
     table_has_pnu: bool,

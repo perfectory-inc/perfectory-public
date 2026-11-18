@@ -50,5 +50,25 @@ class TheRefusalAlert(unittest.TestCase):
         self.assertLess(block.index("lineage_refusal_text"), block.index("exit 1"))
 
 
+class TheDerivationRunsInThePublisher(unittest.TestCase):
+    """Root ADR-0559: the scheduled lineage derivation is the publisher's `derive-parcel-lineage`
+    (DuckDB and the publisher's own Iceberg append), not a Spark submission. 2026-11-11: one Spark
+    pool held 18 jobs waiting while JVM jobs failed on memory."""
+
+    def test_the_cycle_calls_the_publisher_and_submits_no_lineage_job_to_spark(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('"${PUBLISHER_BIN}" derive-parcel-lineage', text)
+        self.assertNotIn("spark parcel_lineage", text)
+        # The summary the later steps read is the one the command writes.
+        start = text.index("FOUNDATION_PLATFORM_PARCEL_LINEAGE_SUMMARY=")
+        call = text[start:text.index('"${PUBLISHER_BIN}" derive-parcel-lineage', start)]
+        self.assertIn('"${work}/derive-summary.json"', call)
+        self.assertIn("FOUNDATION_PLATFORM_PARCEL_LINEAGE_DEADLINE_MINUTES=", call)
+
+    def test_the_journal_line_names_the_engine_the_run_derived_with(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('lineage derive engine=$(json_field "${work}/derive-summary.json" \'["engine"]\')', text)
+
+
 if __name__ == "__main__":
     unittest.main()

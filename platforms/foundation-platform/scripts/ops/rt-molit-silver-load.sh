@@ -72,6 +72,7 @@ chmod -R a+rX "${work}" # Spark 컨테이너는 uid 185 로 읽는다.
 # 이었다. 잰 값(2026-11-11, 실제 13~16 MB 내보내기 4개를 한 실행 8 객체로, 같은 2560m 컨테이너): 예전 경로 1500m 는
 # 익명 메모리 2.67 GB 에서 죽고, 새 경로는 1500m 2.39 GB, 1000m 1.76 GB(java 1,417 MB·파이썬 296 MB, 상한까지 31%).
 
+lakehouse_run_log "${run_log}"
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
 lakehouse_spark_run foundation-platform-compute \

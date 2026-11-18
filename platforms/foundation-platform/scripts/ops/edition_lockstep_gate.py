@@ -53,7 +53,8 @@ def lockstep_tables() -> dict[str, str]:
     """{by-PNU lane: its Gold table} of every lane built from the served parcels."""
 
     lanes = {PARCEL_LANE: PARCEL_PANEL}
-    lanes.update({name: kind.gold_table for name, kind in by_pnu_kinds.kinds().items() if kind.host_panel == PARCEL_PANEL})
+    lanes.update({name: by_pnu_kinds.baked_gold_table(name) for name, kind in by_pnu_kinds.kinds().items()
+                  if kind.host_panel == PARCEL_PANEL})
     return lanes
 
 

@@ -19,7 +19,7 @@ use super::*;
 const PRICE: &str = "vworldkr__land_individual_price";
 const ZONE: &str = "vworldkr__land_use_zone_code";
 
-const LAND_LANES: [Lane; 10] = [
+const LAND_LANES: [Lane; 11] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
@@ -30,6 +30,7 @@ const LAND_LANES: [Lane; 10] = [
     Lane::LandUseZoneArea,
     Lane::LandUseZoneCode,
     Lane::RealEstateBrokerOffice,
+    Lane::RealEstateBrokerMember,
 ];
 
 fn rule() -> LandRule {
@@ -582,6 +583,10 @@ fn members(lane: Lane) -> (&'static str, &'static [&'static str]) {
             "AL_D171_00_20991231.csv",
             &["AL_D172_00_20991231.csv", "AL_D170_00_20991231.shp"],
         ),
+        Lane::RealEstateBrokerMember => (
+            "AL_D172_00_20991231.csv",
+            &["AL_D171_00_20991231.csv", "AL_D170_00_20991231.shp"],
+        ),
         _ => ("LART_LMISZONE.csv", &["[Content_Types].xml"]),
     }
 }
@@ -920,7 +925,7 @@ fn a_failed_region_export_fails_the_release() {
 
 /// The land lanes whose table marks vanished keys append each release's changes (root ADR-0275,
 /// ADR-0311); the other two state why they still write whole.
-const COMPARING_LANES: [Lane; 10] = [
+const COMPARING_LANES: [Lane; 11] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
@@ -931,6 +936,7 @@ const COMPARING_LANES: [Lane; 10] = [
     Lane::LandUseZoneArea,
     Lane::LandUseZoneCode,
     Lane::RealEstateBrokerOffice,
+    Lane::RealEstateBrokerMember,
 ];
 
 #[test]
@@ -997,7 +1003,7 @@ fn a_compare_the_table_cannot_answer_is_refused() -> anyhow::Result<()> {
 #[test]
 fn a_geometry_tolerance_is_measured_bounded_and_over_the_tables_geometry() -> anyhow::Result<()> {
     // The zone lane tolerates a provider's few-centimetre re-projection; no other lane does.
-    for lane in Lane::ALL {
+    for lane in Lane::all() {
         let expected = (lane == Lane::LandUseZoneArea)
             .then(|| "geometry_wkb,geometry_checksum_sha256,0.1".to_owned());
         assert_eq!(
@@ -1110,7 +1116,7 @@ fn a_release_compare_names_its_branch_release_and_every_object() -> anyhow::Resu
 #[test]
 fn a_sido_lane_compares_by_the_pnus_sido_and_a_national_lane_in_one_piece() -> anyhow::Result<()> {
     // ADR-0318: a 시도 lane's buckets are the PNU's 시도, its first two digits.
-    for lane in Lane::ALL {
+    for lane in Lane::all() {
         let contract = lane.contract()?;
         let (Some(rule), Some(_)) = (&contract.land, &contract.compare_content) else {
             continue;

@@ -59,6 +59,8 @@ pub mod building_permit_site_location_silver_export;
 
 /// Headerless HUB 주택인허가 기본개요 ZIP to partitioned Silver handoff, keyed by 관리주택대장PK (root ADR-0511).
 pub mod housing_permit_basis_outline_silver_export;
+/// Every HUB family lane's headerless ZIP to partitioned Silver handoff (root ADR-0551).
+pub mod hub_family_silver_export;
 
 /// Headerless HUB 건축물 정기점검이력 ZIP to partitioned Silver handoff (root ADR-0402).
 pub mod building_maintenance_regular_inspection_history_silver_export;
@@ -98,6 +100,29 @@ pub mod serving_scratch;
 
 /// Shared FLOOR producer and native resource contract support.
 pub mod lakehouse_engine_contract;
+
+/// `DuckDB` computes a transform's rows and stages them as Parquet an Iceberg table can adopt
+/// (root ADR-0559, ADR-0560).
+pub mod duckdb_parquet_stage;
+
+/// The `DuckDB` extensions a release carries (root ADR-0559 §6).
+pub mod duckdb_extensions;
+
+/// Stages standing steward decisions as `silver.parcel_lineage` rows (root ADR-0115 §9).
+///
+/// The first transform that left Spark with its commit (root ADR-0560).
+pub mod lineage_steward_fold_stage;
+
+/// Derives `silver.parcel_lineage` for one pair of parcel editions and one sido group (root ADR-0113).
+///
+/// It was the Spark jobs `parcel_lineage_to_silver.py` and `parcel_lineage_scheduled.py`.
+pub mod parcel_lineage_stage;
+
+/// Which parcel lineage groups the schedule derives and which it already holds (root ADR-0148).
+pub mod parcel_lineage_schedule;
+
+/// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
+pub mod real_transaction_gold_stage;
 
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
 /// keeps the executable's lint posture (root ADR-0200 §4).

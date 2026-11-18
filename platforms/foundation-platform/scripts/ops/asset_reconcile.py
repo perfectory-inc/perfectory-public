@@ -499,7 +499,10 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
                 since = None
             if since is not None:
                 behind = max(now - since, 0.0) if since else 0.0
-                metrics.append(f'foundation_by_pnu_lane_behind_seconds{{lane="{asset.lane}"}} {behind:.0f}')
+                # `bake_job`: the job that publishes the lane. Lanes one bake publishes are one condition
+                # when they fall behind together, and Alertmanager sends one notice for them (W83b).
+                metrics.append(f'foundation_by_pnu_lane_behind_seconds{{lane="{asset.lane}",bake_job="{asset.job}"}} '
+                               f'{behind:.0f}')
         if verdict.owed or busy:
             not_current.add(asset.job)
         if busy or full:
@@ -612,7 +615,9 @@ def missed_starts(now: float, jobs: dict, reconciler: dict, starts: dict | None,
     owed, metrics = [], []
     for job_id in job_specs.requeued(jobs, reconciler):
         job = listing[job_id]
-        if job.get("takes_turns") or job_id in queued or paused(job_id):
+        # A job Dagster decides has its missed ticks decided by its own sensor, which runs one late only
+        # if it ends before the next tick (orchestration/dagster/decide.py, root ADR-0565 §4): one rule.
+        if job.get("takes_turns") or job_id in queued or paused(job_id) or job.get("dagster_stage") == "dagster":
             continue
         slot = job_specs.previous_slot(job["schedule"], now - MISSED_START_GRACE)
         since = job_specs._instant(job.get("enabled_since"))

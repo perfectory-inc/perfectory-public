@@ -48,7 +48,8 @@
         "hand_checked_sample_min": 30,
         "min_precision": 0.98,
         "measured": [
-          {"fact_kind": "land_use_area", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 30, "measured_on": "2026-11-11"},
+          {"fact_kind": "land_use_area", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 21, "measured_on": "2026-11-13",
+           "note": "운영 표에서 새로 뽑은 표본(사실 141 개·문서 11 건 중 30 개, 2026-11-13 run). 값을 쪽 텍스트의 표와 대조했다(쪽 그림 대조가 아니다). 틀린 9 개는 문서 2 건에 몰려 있다: (1) 단계별 토지이용계획 표(합계·1단계·2단계 열)에서 단지 전체가 아니라 단계 열을 읽었고 기정 표의 값도 섞였다, (2) 공원 세부시설 조서(시설명·부호·부지면적)를 토지이용계획 표로 읽었다. 두 표 모두 자기 합계로는 닫혀서 table_total 검산을 지난다. 그 두 문서의 사실은 전체 141 개 중 36 개다. 2026-11-11 의 30/30 은 표본 97 문서(노트북)에서 잰 값이었다. 규칙을 고친 뒤 새 표본으로 다시 잰다."},
           {"fact_kind": "invited_industry", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 30, "measured_on": "2026-11-11"},
           {"fact_kind": "parcel_lot", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 30, "measured_on": "2026-11-11"}
         ]

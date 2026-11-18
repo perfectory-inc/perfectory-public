@@ -1027,3 +1027,81 @@ async fn one_api_of_one_run_is_one_gzip_object_of_its_lines() -> anyhow::Result<
     assert!(PREFIX.starts_with("FOUNDATION_PLATFORM_"));
     Ok(())
 }
+
+// Incident 2026-11-11 (root ADR-0542): 2,569 items left the list before the detail backlog reached
+// them, and the collector forgot them with the list, so they never got a 물건상세 or photos.
+#[test]
+fn an_item_that_leaves_the_list_without_its_detail_is_owed_one_as_a_closed_item() {
+    let first = at("2099-01-01T00:00:00Z");
+    let mut state = State::default();
+    let opened = BTreeSet::from([key("A-1", 1), key("B-1", 1), key("C-1", 1), key("C-1", 2)]);
+    close_vanished(&mut state, opened, first);
+    // B-1 was detailed while open; C-1 is still listed through another round.
+    state.items.insert("B-1".to_owned(), ItemMark::default());
+    close_vanished(
+        &mut state,
+        BTreeSet::from([key("C-1", 2)]),
+        at("2099-01-01T03:00:00Z"),
+    );
+    assert_eq!(
+        state.closed_owed.keys().cloned().collect::<Vec<_>>(),
+        vec![key("A-1", 1)]
+    );
+}
+
+#[test]
+fn a_closed_item_is_let_go_once_its_media_landed_or_after_its_asks() {
+    use super::closed::{settle_closed, CLOSED_MAX_ASKS};
+
+    let mut state = State::default();
+    state.closed_owed.insert(key("A-1", 1), 0);
+    state.closed_owed.insert(key("B-1", 1), CLOSED_MAX_ASKS - 1);
+    state.closed_owed.insert(key("C-1", 1), 0);
+    let fetched = [key("A-1", 1), key("B-1", 1), key("C-1", 1)]
+        .into_iter()
+        .enumerate()
+        .map(|(line, key)| super::Fetched {
+            key,
+            seen: BTreeSet::new(),
+            refresh: false,
+            line,
+        })
+        .collect::<Vec<_>>();
+    let complete = LineOutcome {
+        complete: true,
+        ..LineOutcome::default()
+    };
+    let mut report = super::closed::ClosedReport {
+        fetched,
+        ..Default::default()
+    };
+    settle_closed(
+        &mut state,
+        &mut report,
+        &[complete, LineOutcome::default(), LineOutcome::default()],
+    );
+    assert_eq!((report.landed, report.owed), (1, 1));
+    // B-1 spent its last ask; C-1 is asked again by a later run.
+    assert_eq!(
+        state.closed_owed.into_iter().collect::<Vec<_>>(),
+        vec![(key("C-1", 1), 1)]
+    );
+}
+
+#[test]
+fn a_seed_adds_only_the_closed_items_not_listed_and_not_owed_already() {
+    use super::closed::seed_closed;
+
+    let mut state = State {
+        open_items: Some(BTreeSet::from([key("A-1", 1)])),
+        ..State::default()
+    };
+    state.closed_owed.insert(key("B-1", 1), 2);
+    let added = seed_closed(&mut state, &[key("A-1", 1), key("B-1", 1), key("C-1", 1)]);
+    assert_eq!(added, 1);
+    assert_eq!(state.closed_owed.get(&key("B-1", 1)), Some(&2));
+    assert_eq!(state.closed_owed.get(&key("C-1", 1)), Some(&0));
+    // The state round-trips with its closed items.
+    let text = serde_json::to_string(&state).unwrap_or_default();
+    assert_eq!(serde_json::from_str::<State>(&text).ok(), Some(state));
+}

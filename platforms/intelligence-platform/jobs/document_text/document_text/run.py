@@ -13,16 +13,44 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
+import tempfile
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .extract import extract
+from .extract import Result
+from .pages import Page
 from .plan import plan
 
 CONTRACT = Path(__file__).resolve().parents[3] / "config" / "document-extraction.contract.json"
+
+
+# Each document is read by its own worker process (document_text/worker.py).
+WORKER = (sys.executable, "-m", "document_text.worker")
+
+
+def extract_isolated(source: Path, media_format: str, settings: dict, scratch: Path) -> Result:
+    """`extract` in a worker process: a worker killed for memory (or any other way) is that
+    document's `failed` outcome, and the run goes on to the next one."""
+    config, out = scratch / "settings.json", scratch / "result.json"
+    config.write_text(json.dumps(settings), encoding="utf-8")
+    out.unlink(missing_ok=True)
+    try:
+        done = subprocess.run([*WORKER, str(source), media_format, str(config), str(out)], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=settings["run_time_budget_seconds"])
+    except subprocess.TimeoutExpired as error:
+        return Result("failed", error=f"timeout after {error.timeout}s: worker")
+    if done.returncode != 0 or not out.exists():
+        reason = f"worker killed by signal {-done.returncode}" if done.returncode < 0 else f"worker exit {done.returncode}"
+        if done.returncode == -9:
+            reason += " (the image's memory cap)"
+        tail = (done.stderr or b"").decode("utf-8", "replace").strip().splitlines()[-1:]
+        return Result("failed", error=" ".join([reason, *tail]))
+    data = json.loads(out.read_text(encoding="utf-8"))
+    return Result(data["outcome"], [Page(**page) for page in data["pages"]], data["ocr_page_count"], data["error"])
 
 
 def load_contract(path: Path = CONTRACT) -> dict:
@@ -96,13 +124,13 @@ def main(argv: list[str] | None = None) -> int:
     started = time.monotonic()
     with (args.out / "document_text_outcome.jsonl").open("w", encoding="utf-8") as outcomes, (
         args.out / "document_text_page.jsonl"
-    ).open("w", encoding="utf-8") as pages:
+    ).open("w", encoding="utf-8") as pages, tempfile.TemporaryDirectory(prefix="document-text-run-") as scratch:
         for doc in docs:
             if time.monotonic() - started >= settings["run_time_budget_seconds"]:
                 break  # unread documents have no outcome, so the next run plans them
             source = args.media / f"{doc.sha256}.{doc.media_format}"
             t0 = time.monotonic()
-            result = extract(source, doc.media_format, settings)
+            result = extract_isolated(source, doc.media_format, settings, Path(scratch))
             elapsed = time.monotonic() - t0
             at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             outcomes.write(json.dumps(outcome_row(contract, doc, result, int(elapsed * 1000), at), ensure_ascii=False) + "\n")

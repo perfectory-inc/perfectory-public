@@ -15,6 +15,7 @@ platforms/foundation-platform/crates/foundation-outbox/tests/live_kafka_outage.r
 platforms/foundation-platform/crates/foundation-outbox/tests/live_kafka_outbox_roundtrip.rs:1
 platforms/foundation-platform/crates/foundation-outbox/tests/postgres_jobbus.rs:1
 platforms/foundation-platform/crates/lakehouse/lakehouse-domain/src/by_pnu_kind.rs:1
+platforms/foundation-platform/crates/lakehouse/lakehouse-domain/src/hub_lane_family.rs:2
 platforms/foundation-platform/crates/lakehouse/lakehouse-domain/tests/lakehouse_contract_artifact.rs:1
 platforms/foundation-platform/crates/lakehouse/lakehouse-domain/tests/lakehouse_lineage_event.rs:1
 platforms/foundation-platform/crates/lakehouse/lakehouse-domain/tests/lakehouse_quality_rules.rs:1
@@ -58,11 +59,18 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/b
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_master_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_sub_parcel_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/code_go_kr_legal_dong_contract.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_extensions.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/housing_permit_basis_outline_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lakehouse_engine_contract.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage.rs:2
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage/tests.rs:2
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_schedule.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs:2
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage/tests.rs:3
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_gold_stage.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/floor_cycle/native_runtime.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/silver_refresh/land_tests.rs:1
-platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/silver_refresh/lane.rs:13
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/silver_refresh/lane.rs:14
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/silver_refresh/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/tests.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/sigungu_crosswalk.rs:3
@@ -79,6 +87,7 @@ platforms/foundation-platform/services/foundation-api/src/routes/pipeline_graph.
 platforms/foundation-platform/services/foundation-api/src/routes/tests/cors_and_labels.rs:1
 platforms/foundation-platform/services/foundation-api/src/routes/tests/health_and_metrics.rs:1
 platforms/foundation-platform/services/foundation-api/src/routes/tests/route_policies.rs:1
+platforms/foundation-platform/services/foundation-api/src/vworld_broker_register.rs:1
 platforms/foundation-platform/services/foundation-api/tests/administrative_boundary_contract.rs:1
 platforms/foundation-platform/services/foundation-api/tests/catalog_openapi_contract.rs:1
 platforms/foundation-platform/services/foundation-api/tests/deploy_contract.rs:6

@@ -74,3 +74,7 @@ bash scripts/github/configure-public-repository.sh verify
 - **`ALLGREEN` 유지, 동시 빌드만 2로**: 큐의 러너 사용은 줄지만 묶음이 생기지 않는다. 건마다 빌드가 필요하다.
 - **`min_entries_to_merge` 2(대기 5분과 함께)**: 큐가 한가할 때도 묶음을 만든다. 대신 혼자 온 한 건이 5분 늦어진다.
   이번에는 요청 범위 밖이라 1로 두고, 3항에 남겼다.
+
+---
+
+2026-11-12 개정 주: 1항의 `HEADGREEN` 은 [ADR-0552](./0552-the-merge-queue-merges-a-pull-request-only-when-its-own-queue-run-is-green.md)가 `ALLGREEN` 으로 바꿨다. 큐 실행은 앞 항목과 비교하므로 머리의 초록이 앞 항목을 보증하지 않았다.

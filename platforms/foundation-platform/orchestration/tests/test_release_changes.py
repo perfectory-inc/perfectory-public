@@ -149,6 +149,29 @@ class ReleaseChanges(unittest.TestCase):
             "jobs the deploy holds until the release is live: bake_a, maintenance, write_a",
         ])
 
+    def test_a_job_that_lands_bronze_only_is_not_held_by_a_table_change(self):
+        # Root ADR-0557. 2026-11-12 04:19Z a release that changed silver.real_estate_broker_member
+        # drained the daily source sweep 29 minutes in: its edges reach only source groups (Bronze
+        # objects and their ledger), so the graph placed it nowhere and every table change held it.
+        # Its RAON step (eight files, about 2.3 h) never ran. A Postgres migration still holds it.
+        graph = {"nodes": [{"id": "sweep"}, {"id": "src", "type": "source_group"}, *GRAPH["nodes"][1:]],
+                 "edges": [*GRAPH["edges"], {"id": "sweep-to-src", "from": "sweep", "to": "src"}]}
+        jobs = {"jobs": [*JOBS["jobs"], {"id": "sweep", "pipeline_graph_edges": ["sweep-to-src"]}]}
+        for root in (self.running, self.new):
+            self.write(root, "docs/catalog/pipeline-graph.v1.json", graph)
+            self.write(root, "orchestration/jobs.v1.json", jobs)
+        changed = {**CONTRACTS, "silver.a": {"columns": [{"name": "k"}, {"name": "added"}]}}
+        self.write(self.new, "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json", {"contracts": changed})
+        self.assertEqual(self.run_script()[2:], [
+            "jobs that write them: write_a",
+            "jobs whose writes the pipeline graph does not name: maintenance",
+            "jobs the deploy holds until the release is live: maintenance, write_a",
+        ])
+        (self.new / "migrations/0002_second.sql").write_text("select 2;\n")
+        lines = self.run_script()
+        self.assertIn("sweep", lines[3])
+        self.assertEqual(lines[4], "jobs the deploy holds until the release is live: every job")
+
     def test_a_new_input_file_is_a_change_and_a_readme_is_not(self):
         (self.new / "infra/lakehouse/contracts/README.md").write_text("prose")
         self.assertEqual(self.run_script()[0], "lakehouse tables this release changes: none")
@@ -172,6 +195,42 @@ class ReleaseChanges(unittest.TestCase):
                         "lakehouse-migrate"], env={**os.environ, "FOUNDATION_DEPLOY_STEPS_HOST_ROOT": str(host)},
                        check=True, timeout=30)
         self.assertEqual(self.host_run(host)[0], "lakehouse tables this release changes: none")
+
+    def test_on_the_host_the_migrations_plan_over_a_fresh_ledger_names_the_tables(self):
+        # W83b: 2026-11-13 deploy 4014f933 changed lakehouse-engine.contract.json, held every table (140),
+        # paused 92 DAGs and stopped three running jobs; the migration had nothing to do to them.
+        host = self.running.parent / "host"
+        (host / "var/lib/perfectory").mkdir(parents=True)
+        (host / "var/lib/perfectory").chmod(0o755)
+        subprocess.run([sys.executable, "-I", "-B", str(SCRIPT.parent / "deploy_steps.py"), "ran", str(self.running),
+                        "lakehouse-migrate"], env={**os.environ, "FOUNDATION_DEPLOY_STEPS_HOST_ROOT": str(host)},
+                       check=True, timeout=30)
+        steps = json.loads(json.dumps(STEPS))
+        steps["steps"]["lakehouse-migrate"]["closure"] = {"program": "migrate", "directories": [
+            "infra/lakehouse/spark/jobs", "infra/lakehouse/contracts"], "backfills": "BACKFILLS"}
+        steps["steps"]["lakehouse-migrate"]["reverify"] = {"production_shape": "/var/lib/shape/ledger.json"}
+        steps["steps"]["lakehouse-migrate"]["inputs"].append("scripts/ops/lakehouse-migrate.sh")
+        plan = "def ledger_plan(shapes):\n    return {name: 'add' for name in shapes if name == 'silver.b'}\n"
+        for root in (self.running, self.new):
+            self.write(root, "config/deploy-steps.contract.json", steps)
+            (root / "infra/lakehouse/spark/jobs/migrate.py").write_text(plan, encoding="utf-8")
+            (root / "scripts/ops").mkdir(parents=True, exist_ok=True)
+        # The migration's runner changed: by its inputs alone, every table.
+        (self.running / "scripts/ops/lakehouse-migrate.sh").write_text("old", encoding="utf-8")
+        (self.new / "scripts/ops/lakehouse-migrate.sh").write_text("new", encoding="utf-8")
+        now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+        self.write(host, "var/lib/shape/ledger.json",
+                   {"captured_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "tables": {"silver.a": {}, "silver.b": {}}})
+        lines = self.host_run(host)
+        self.assertIn("lakehouse tables this release changes: silver.b", lines)
+        self.assertIn("jobs the deploy holds until the release is live: maintenance, write_b", lines)
+        # An old ledger cannot answer: every table, as before.
+        old = now - __import__("datetime").timedelta(hours=25)
+        self.write(host, "var/lib/shape/ledger.json",
+                   {"captured_at": old.strftime("%Y-%m-%dT%H:%M:%SZ"), "tables": {"silver.a": {}, "silver.b": {}}})
+        lines = self.host_run(host)
+        self.assertTrue(any(line.startswith("lakehouse tables this release changes: every table") for line in lines),
+                        lines)
 
     def test_two_trees_are_its_arguments(self):
         result = subprocess.run([sys.executable, "-I", "-B", str(SCRIPT), str(self.new)], capture_output=True, text=True)

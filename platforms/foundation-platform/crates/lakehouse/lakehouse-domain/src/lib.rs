@@ -29,7 +29,9 @@ mod building_register_sub_parcel;
 mod by_pnu_kind;
 mod court_auction;
 mod data_go_kr_file_data;
+mod gold_versions_table;
 mod housing_permit_basis_outline;
+mod hub_lane_family;
 mod industrial_complex_notice;
 mod intelligence_document;
 mod land_characteristic;
@@ -92,7 +94,15 @@ pub use data_go_kr_file_data::{
     SILVER_SUBWAY_STATION, SILVER_UNIVERSITY,
 };
 pub use errors::LakehouseError;
+pub use gold_versions_table::{
+    gold_versions_table, GOLD_VERSIONS_PNU_PARTITION, GOLD_VERSIONS_REMOVAL_COLUMN,
+    GOLD_VERSIONS_TABLE_SUFFIX, GOLD_VERSION_SEQ_COLUMN,
+};
 pub use housing_permit_basis_outline::SILVER_HOUSING_PERMIT_BASIS_OUTLINE;
+pub use hub_lane_family::{
+    hub_family_lane_by_export, hub_family_lane_by_id, hub_family_lane_error, hub_family_lanes,
+    HubFamilyLane,
+};
 pub use industrial_complex_gold_pointer::{
     IndustrialComplexGoldPointer, IndustrialComplexGoldPointerPublished,
 };
@@ -103,14 +113,15 @@ pub use industrial_complex_jsonl_transport::{
     INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
 };
 pub use intelligence_document::{
-    INTELLIGENCE_DOCUMENT_FACT, INTELLIGENCE_DOCUMENT_FACT_OUTCOME,
+    GOLD_COMPLEX_DOCUMENT_FACTS, INTELLIGENCE_DOCUMENT_FACT, INTELLIGENCE_DOCUMENT_FACT_OUTCOME,
     INTELLIGENCE_DOCUMENT_TEXT_OUTCOME, INTELLIGENCE_DOCUMENT_TEXT_PAGE,
 };
 pub use lakehouse::{
     industrial_complex_lakehouse_contract_by_table_name, industrial_complex_lakehouse_contracts,
-    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseEditionRead, LakehouseLayer,
-    LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey, LakehouseRowVersions,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution, NewestEditionError,
+    CurrentRowsError, LakehouseColumn, LakehouseCurrentRowLatest, LakehouseEditionRead,
+    LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    NewestEditionError, CURRENT_ROWS_COLUMNS, CURRENT_ROWS_FILTER, CURRENT_ROWS_SOURCE,
     GOLD_ADMINISTRATIVE_BOUNDARY_SERVED, GOLD_BUILDING_PANEL, GOLD_COMPLEX_CATALOG,
     GOLD_COMPLEX_SPATIAL_LOCATOR, GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
     GOLD_LAND_USE_ZONE_AREA_BY_TILE, GOLD_LINEAGE_REVIEW_QUEUE, GOLD_PARCEL_PANEL,
@@ -119,8 +130,8 @@ pub use lakehouse::{
     SILVER_ADMINISTRATIVE_BOUNDARIES, SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES, SILVER_BUILDING_REGISTER_UNITS,
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
-    SILVER_COURT_AUCTION_APPRAISAL_POINT, SILVER_COURT_AUCTION_CASE, SILVER_COURT_AUCTION_ITEM,
-    SILVER_COURT_AUCTION_ITEM_ANNEX, SILVER_COURT_AUCTION_ITEM_DETAIL,
+    SILVER_COURT_AUCTION_APPRAISAL_POINT, SILVER_COURT_AUCTION_CASE, SILVER_COURT_AUCTION_CODE,
+    SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_ITEM_ANNEX, SILVER_COURT_AUCTION_ITEM_DETAIL,
     SILVER_COURT_AUCTION_ITEM_OBJECT, SILVER_COURT_AUCTION_ITEM_PHOTO,
     SILVER_COURT_AUCTION_ITEM_SCHEDULE, SILVER_COURT_AUCTION_ITEM_SPEC,
     SILVER_COURT_AUCTION_SALE_RESULT, SILVER_INDUSTRIAL_COMPLEXES,
@@ -156,6 +167,6 @@ pub use lakehouse_run_summary::{
     SparkRunSummary, SparkRunSummaryError, SparkRunTarget, SparkRunWriteDisposition,
     SparkRunWriteMode, SPARK_RUN_SUMMARY_SCHEMA_VERSION,
 };
-pub use real_estate_broker::SILVER_REAL_ESTATE_BROKER_OFFICE;
+pub use real_estate_broker::{SILVER_REAL_ESTATE_BROKER_MEMBER, SILVER_REAL_ESTATE_BROKER_OFFICE};
 pub use unit_official_price::{SILVER_UNIT_OFFICIAL_PRICE, SILVER_UNIT_OFFICIAL_PRICE_VERSIONS};
 pub use unit_price_panel::GOLD_UNIT_PRICE_PANEL;

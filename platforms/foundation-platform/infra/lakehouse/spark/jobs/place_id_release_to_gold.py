@@ -28,7 +28,7 @@ import place_identity_resolver as pir
 import vworld_parcel_editions as editions
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from lakehouse_ingest import append_batch_once
-from parcel_lineage_to_silver import IDENTIFIER, PREFIX
+from parcel_lineage import IDENTIFIER, PREFIX
 from platform_contracts import (
     admit_write,
     column_names,

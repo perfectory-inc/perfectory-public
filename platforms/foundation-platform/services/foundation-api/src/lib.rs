@@ -16,6 +16,7 @@ mod map_edit_http_store;
 mod routes;
 mod state;
 mod traffic;
+mod vworld_broker_register;
 
 #[cfg(test)]
 mod identity_authorization_tests;

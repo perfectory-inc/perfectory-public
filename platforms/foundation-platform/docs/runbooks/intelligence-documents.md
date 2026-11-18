@@ -17,9 +17,10 @@ ADR-0478(로컬 모델 런타임)의 운영 절차다. 값(추출기 판·쪽 �
 | 작업 | 유닛 | 풀 | 읽는 것 | 쓰는 것 |
 |---|---|---|---|---|
 | `intelligence_document_text` | `foundation-intelligence-document-text.service` | `documents` 1칸 | `silver.industrial_complex_notice_attachment`, 공용 저장소의 바이트 | `intelligence.document_text_page` → `intelligence.document_text_outcome` |
-| `intelligence_document_fact` | `foundation-intelligence-document-fact.service` | `spark` 3칸 전부, 하루 한 번 | 위 두 표, OCR 쪽이 있는 PDF 의 바이트 | `intelligence.document_fact` → `intelligence.document_fact_outcome` |
+| `intelligence_document_fact` | `foundation-intelligence-document-fact.service` | `documents` 1칸 + 모델 유닛의 메모리 claim, 텍스트가 쪽을 쌓으면·매시 | 위 두 표, OCR 쪽이 있는 PDF 의 바이트 | `intelligence.document_fact` → `intelligence.document_fact_outcome` → `gold.complex_document_facts` |
+| `industrial_complex_edge_export` | `foundation-industrial-complex-edge-export.service` | 풀 없음(Spark 안 씀), Gold 나 문서 사실이 바뀌면·매일 | `gold.complex_catalog`, `gold.complex_document_facts`, 엣지 목록 | 바뀐 단지의 프로필, 목록의 새 세대 |
 
-한 run 의 순서는 둘 다 같다: Spark 로 계획(`infra/lakehouse/spark/jobs/intelligence_documents.py plan-*`) → 읽기 키로 바이트 받기
+문서 작업 둘의 한 run 은 순서가 같다: Spark 로 계획(`infra/lakehouse/spark/jobs/intelligence_documents.py plan-*`) → 읽기 키로 바이트 받기
 → intelligence 이미지(`intelligence-document-text:local`)가 로컬 파일만 읽고 씀 → Spark 로 쌓기(`append-*`). 이미지는 레이크하우스에
 닿지 않는다. 표는 이 Spark 단계만 쓴다.
 
@@ -27,9 +28,15 @@ ADR-0478(로컬 모델 런타임)의 운영 절차다. 값(추출기 판·쪽 �
   spark 풀에 1칸으로 두면 그 풀의 굶주림 한도(STARVATION_CYCLES × 주기)를 매시 run 으로는 넘을 수 없다(최악 대기 9,305 분 > 1,200).
   그래서 자기 풀 `documents`(1칸)에서 돌고, 계획·쌓기만 작은 Spark(`spark-small`)다. 메모리 예산은 두 풀이 동시에 찬 경우를 센다
   (`every-container-has-a-memory-cap.sh`: 61.34g / 62g).
-- **왜 사실 작업은 spark 풀 전부인가.** 모델 런타임을 `Requires=` 하므로 그 run 동안 모델이 뜬다. 풀을 다 쥐어 모델이 Spark 옆에서
-  메모리를 쥐지 않는다(ADR-0478 §2). 하루 한 번(02:50 UTC)이고 입력이 바뀌었다는 신호로는 시작하지 않는다: 매시 시작하면 같은 굶주림
-  한도를 넘는다.
+- **왜 사실 작업은 spark 풀이 아닌가(루트 ADR-0563).** 모델 런타임을 `Requires=` 하므로 그 run 동안 런타임이 뜨고, 첫 질문에서
+  모델이 메모리에 오른다. 그 메모리는 풀의 칸이 아니라 작업의 `memory_claim`(모델 유닛의 `MemoryMax`)이다: 시작할 때
+  `job_units.py pool-full` 이 호스트의 `MemAvailable` 에서 그만큼을 빼고도 `memory_claims.keep_available` 이 남는지 본다. 안 남으면
+  `foundation-job-outcome waiting the host has no memory for …` 로 끝나고 다음 주기(매시)가 다시 묻는다. spark 3칸을 다 쥐던
+  때는 풀이 빌 때만 시작할 수 있어 2026-11-13 에 24,600 초를 기다렸다. `documents` 1칸이라 텍스트 작업과는 번갈아 돈다(GPU 는 한 작업).
+- **단지 패널까지.** 사실 작업이 접기에서 `gold.complex_document_facts` 를 바꾸면 `changed` 로 끝나고, 그것이
+  `industrial_complex_edge_export` 를 시작시킨다(계보 순환이 단지의 코드를 바꿨을 때도 같다). 내보내기는 내용 해시가 바뀐 단지의
+  프로필만 쓰고 목록 세대를 올린다. 저널: `/var/lib/foundation-platform/industrial-complex-edge/journal.log` 의
+  `industrial-complex edge generation=… written=… unchanged=… document_facts_complexes=…`.
 - **이미지는 서버에서 짓지 않는다.** CI 의 릴리스 빌드가 `platforms/intelligence-platform/compose.document-jobs.yml` 로 짓고 서명한
   릴리스에 담는다. 릴리스 승인이 compose 이름으로 태그한다(루트 ADR-0276 §13). 그 이미지가 없는 옛 릴리스로 되돌려도 승인된다.
 - **판은 이미지의 것이다.** 계획 단계는 이미지가 담은 계약(`/opt/intelligence/config/document-extraction.contract.json`)을 꺼내 읽는다.

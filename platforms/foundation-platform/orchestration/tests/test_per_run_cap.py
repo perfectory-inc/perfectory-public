@@ -126,6 +126,8 @@ HELD_OFF = {
     "gold_parcel_regulation_zones_rebuild": "its first national build ran 9,610 s, past the 150-minute limit "
                                             "(2026-11-07, root ADR-0435 개정 ②)",
     "gold_court_auction_rebuild": "the court-auction lane's own work (W18h, root ADR-0353)",
+    "gold_parcel_nearby_rebuild": "its first full build on Spark timed out at 160 minutes four times "
+                                  "(2026-11-12..13) holding the one rebuild lock; it is born on DuckDB (W81b, W83b)",
 }
 
 
@@ -235,8 +237,9 @@ class TheGuardRefuses(unittest.TestCase):
         jobs = copy.deepcopy(real_jobs())
         gold = next(job for job in jobs["jobs"] if job["id"] == "gold_parcel_nearby_rebuild")
         gold.update(enabled=False)
+        not_held = {name: why for name, why in HELD_OFF.items() if name != gold["id"]}
         self.assertIn("gold_parcel_nearby_rebuild: off, but it reads what data_go_kr_file_data takes its first run to make",
-                      idle_readers(jobs, real_graph()))
+                      idle_readers(jobs, real_graph(), not_held))
 
     def test_a_reader_left_off_behind_a_measured_loader(self):
         # 2026-11-10: silver_refresh_land_ownership loads on schedule, gold_parcel_ownership_rebuild off, so

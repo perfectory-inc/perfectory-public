@@ -21,7 +21,8 @@
         ".cargo/config.toml",
         "rust-toolchain.toml",
         "platforms/identity-platform/docs/openapi/identity.v1.json",
-        "platforms/identity-platform/config/workload-principal-policy.v1.json"
+        "platforms/identity-platform/config/workload-principal-policy.v1.json",
+        "platforms/foundation-platform/schemas/**"
       ]
     },
     "identity-ci.yml": {
@@ -45,7 +46,8 @@
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
         "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
-        ".github/workflows/gongzzang-*.yml"
+        ".github/workflows/gongzzang-*.yml",
+        "platforms/foundation-platform/crates/foundation-shared-kernel/src/media.rs"
       ]
     },
     "gongzzang-db-migrations.yml": {
@@ -60,7 +62,8 @@
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
         "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
-        ".github/workflows/gongzzang-*.yml"
+        ".github/workflows/gongzzang-*.yml",
+        "platforms/foundation-platform/crates/foundation-shared-kernel/src/media.rs"
       ]
     },
     "gongzzang-frontend.yml": {
@@ -111,7 +114,8 @@
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
         "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
         ".github/workflows/gongzzang-*.yml",
-        "tools/xtask/**"
+        "tools/xtask/**",
+        "platforms/foundation-platform/crates/foundation-shared-kernel/src/media.rs"
       ]
     },
     "gongzzang-walking-skeleton.yml": {
@@ -126,7 +130,8 @@
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
         "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
-        ".github/workflows/gongzzang-*.yml"
+        ".github/workflows/gongzzang-*.yml",
+        "platforms/foundation-platform/crates/foundation-shared-kernel/src/media.rs"
       ]
     },
     "foundation-ci.yml": {
@@ -172,7 +177,8 @@
         "tools/sigstore/**",
         "tools/biome/**",
         "scripts/catalog/declared_definitions.py",
-        "scripts/catalog/definition.v1.schema.json"
+        "scripts/catalog/definition.v1.schema.json",
+        "platforms/identity-platform/docs/openapi/identity.v1.json"
       ]
     },
     "foundation-release-build.yml": {
@@ -199,7 +205,8 @@
         "docs/architecture/administrative-boundary-versioning.md",
         "docs/architecture/single-source-spatial-publication.md",
         "scripts/catalog/declared_definitions.py",
-        "scripts/catalog/definition.v1.schema.json"
+        "scripts/catalog/definition.v1.schema.json",
+        "platforms/identity-platform/docs/openapi/identity.v1.json"
       ]
     }
   },

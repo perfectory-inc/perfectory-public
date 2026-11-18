@@ -31,7 +31,7 @@ import parcel_registry_frames as frames
 import vworld_parcel_editions as editions
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from lakehouse_ingest import append_batch_once
-from parcel_lineage_to_silver import DATE, IDENTIFIER, PREFIX, SNAPSHOT_ID, sql_prefixes
+from parcel_lineage import DATE, IDENTIFIER, PREFIX, SNAPSHOT_ID, sql_prefixes
 from platform_contracts import (
     column_names,
     create_table_columns_sql,

@@ -74,6 +74,13 @@ COMPARED = ("shadow", "proxied")
 # (orchestration/dagster/run_jobs.py, root ADR-0417). Both sides read these names from here, so the
 # Airflow image and the Dagster code location cannot drift apart.
 DAGSTER_JOB_PREFIX = "foundation_job__"
+# The sensor that decides a job at `dagster` (orchestration/dagster/decide.py). A deploy holds such a job by
+# stopping this sensor, as it pauses the DAG of a job Airflow decides (scripts/deploy/job_orchestrator.py).
+DAGSTER_SENSOR_PREFIX = "foundation_decide__"
+# The code location and the repository a `@definitions` function makes (orchestration/dagster/workspace.yaml):
+# what Airflow's proxied `run` task and the host's deploy and run-now name a Dagster job or sensor by.
+DAGSTER_LOCATION = "foundation"
+DAGSTER_REPOSITORY = "__repository__"
 # Run tags. Airflow sends how the run was started (the forced command's words after the job id: empty for
 # a clock start, `triggered`, or `requested <id>`); Dagster's run answers with its outcome word and, for
 # the asset reconciler, the runs it found owed, which Airflow's `run` task pushes as today's XComs.
@@ -101,6 +108,9 @@ WITHHOLDS_EVENTS = ("unchanged", "waiting", "failed", "skipped")
 # The line a job's check service prints last (jobs.v1.json `check_service`, root ADR-0277). Only
 # `unchanged` skips the run; any other word, or none, lets the run decide for itself.
 CHECK_LINE = re.compile(r"^foundation-job-check (\S+)\r?$", re.MULTILINE)
+# A job's check and its bound: the slowest lane's took 4.2 s (2026-10-14..18), the unit's own
+# TimeoutStartSec is 5 minutes. Airflow's `check` task and Dagster's run of a job it decides both keep it.
+CHECK_TIMEOUT_MINUTES = 6
 # The run's output is the journal of a run that can last a day; the line is at its end.
 OUTCOME_TAIL_BYTES = 64 * 1024
 # What the asset reconciler prints for each job it finds owed a run (root ADR-0333 §7): the job and
@@ -143,7 +153,7 @@ class JobSpec:
 
     def dagster_tags(self, run_kind=""):
         """The tags a Dagster run of this job carries: how it was started, and what the run queue reads."""
-        return {RUN_KIND_TAG: run_kind, JOB_RUN_TAG: "job", POOL_TAG: self.pool, PRIORITY_TAG: str(self.priority)}
+        return run_tags(self.pool, self.priority, run_kind)
 
     @property
     def starting_inputs(self):
@@ -158,6 +168,12 @@ class JobSpec:
 
 class JobListError(ValueError):
     pass
+
+
+def run_tags(pool, priority, run_kind=""):
+    """The tags a Dagster run of a job carries, whoever launches it (Airflow's proxied task, the job's
+    sensor, the deploy or a run-now): how it was started, and what the run queue reads."""
+    return {RUN_KIND_TAG: run_kind, JOB_RUN_TAG: "job", POOL_TAG: pool, PRIORITY_TAG: str(priority)}
 
 
 def asset_uri(dataset):
@@ -453,11 +469,55 @@ def retries(job):
 
 
 def priority_weight(job):
-    """Which waiting job Airflow starts first when slots free (`priority_weight`, 1 when absent)."""
+    """The job's tier in its pool's queue (`priority_weight`, 1 when absent); queue_weights raises it
+    above the jobs that read what the job writes, and that is the weight Airflow orders by."""
     value = job.get("priority_weight", 1)
     if type(value) is not int or value < 1:
         raise JobListError(f"{job['id']}: priority_weight must be a positive integer")
     return value
+
+
+def queue_weights(jobs, feeders):
+    """Job id -> the weight Airflow orders its pool's waiting tasks by (root ADR-0138, ADR-0558): the
+    job's own priority_weight, raised until it is above every job of its pool that reads what it
+    writes. The data dependency is the pipeline graph's (`feeders`, producers()), so no weight is kept
+    in step with it by hand; Airflow's own default rule does the same inside one DAG (`weight_rule`
+    "downstream": a task outranks what waits on it), and every job here is its own DAG. Jobs that read
+    each other's outputs in a circle (the two map-edit folds share one ledger) are one group with one
+    weight.
+
+    2026-11-11 12:15Z..: data_go_kr_file_data (weight 1) waited over 16 hours in the spark pool's queue
+    while gold_parcel_nearby_rebuild (weight 2), which reads the eight Silver tables only it loads, ran
+    ahead of it and failed on tables that did not exist yet.
+    """
+    by_id = {job["id"]: job for job in jobs["jobs"]}
+    readers = {job_id: [] for job_id in by_id}
+    for reader, writers in feeders.items():
+        for writer in writers:
+            if by_id[writer]["pool"] == by_id[reader]["pool"]:
+                readers[writer].append(reader)
+
+    def reach(start):
+        seen, stack = set(), [start]
+        while stack:
+            for reader in readers[stack.pop()]:
+                if reader not in seen:
+                    seen.add(reader)
+                    stack.append(reader)
+        return seen
+
+    downstream = {job_id: reach(job_id) for job_id in by_id}
+    group = {job_id: frozenset({job_id} | {other for other in downstream[job_id] if job_id in downstream[other]})
+             for job_id in by_id}
+    weights = {}
+    # A group with fewer jobs downstream reads nothing of one with more, so each is weighed after
+    # everything that waits on it.
+    for members in sorted(set(group.values()), key=lambda members: len(downstream[min(members)] - members)):
+        waiting = {reader for member in members for reader in readers[member]} - members
+        weight = max([priority_weight(by_id[member]) for member in members]
+                     + [weights[reader] + 1 for reader in waiting])
+        weights.update(dict.fromkeys(members, weight))
+    return weights
 
 
 def priority_class(jobs, entry, name):
@@ -493,6 +553,33 @@ def inherited_class(job, by_id, found):
     if job.get("priority_class", "default") != other.get("priority_class", "default"):
         raise JobListError(f"{job['id']}: priority_class {job.get('priority_class', 'default')!r} is not "
                            f"{other.get('priority_class', 'default')!r}, the class of {source} it takes it from")
+
+
+def memory_claims(jobs):
+    """Each job's `memory_claim` (root ADR-0563), checked: the systemd units whose MemoryMax its run
+    takes beyond what its pool's slots stand for, admitted against the host's available memory when it
+    starts (scripts/deploy/job_units.py memory_short). A claim needs the list's
+    `memory_claims.keep_available`, names units, and belongs to a job of a pool with one slot: two
+    claiming jobs started together would each be admitted against the same available memory."""
+    claiming = [job for job in jobs["jobs"] if "memory_claim" in job]
+    if not claiming:
+        return
+    keep = (jobs.get("memory_claims") or {}).get("keep_available")
+    if not isinstance(keep, str) or not re.fullmatch(r"[1-9][0-9]*[mg]", keep):
+        raise JobListError("memory_claims.keep_available must be a size like 6g when a job states a memory_claim")
+    for job in claiming:
+        claim = job["memory_claim"]
+        units = claim.get("units") if isinstance(claim, dict) else None
+        named = isinstance(units, list) and units and all(
+            isinstance(unit, str) and re.fullmatch(r"[a-z0-9-]+\.service", unit) for unit in units)
+        if not named or set(claim) != {"units"}:
+            raise JobListError(f"{job['id']}: memory_claim must be an object with only `units`, systemd service names")
+        if (jobs.get("pools") or {}).get(job["pool"], {}).get("slots") != 1:
+            raise JobListError(f"{job['id']}: a job with a memory_claim runs in a pool of one slot, so no two claims"
+                               " are admitted against the same available memory")
+    pools = {job["pool"] for job in claiming}
+    if len(pools) > 1:
+        raise JobListError(f"jobs with a memory_claim are in more than one pool ({sorted(pools)}); they must share one")
 
 
 def capacity_claimants(jobs, pools):
@@ -600,7 +687,13 @@ def dagster_stage(job, jobs=None):
         raise JobListError(f"{job['id']}: dagster_stage {value} has no implementation yet (root ADR-0431 §5)")
     if value != "airflow" and not job["enabled"]:
         raise JobListError(f"{job['id']}: a switched-off job runs nowhere; it stays at dagster_stage airflow")
-    if value in ("proxied", "dagster") and jobs is not None and             ((jobs.get("observers") or {}).get("dagster") or {}).get("enabled") is not True:
+    observed = jobs is not None and ((jobs.get("observers") or {}).get("dagster") or {}).get("enabled") is True
+    if value == "airflow" and job["enabled"] and observed:
+        # 2026-11-13: 24 switched-on jobs (the own-producer lanes' Gold and bakes, the intelligence and notice
+        # jobs) had no stage, so Airflow alone decided them and the move gate had no line of theirs.
+        raise JobListError(f"{job['id']}: a switched-on job is in the dual run from its first release: "
+                           "dagster_stage shadow (root ADR-0458)")
+    if value in ("proxied", "dagster") and jobs is not None and not observed:
         raise JobListError(f"{job['id']}: dagster_stage {value} runs in Dagster, which observers.dagster.enabled leaves off")
     return value
 
@@ -611,20 +704,43 @@ def dagster_order(jobs, feeders):
     a Dagster run never records. Downstream families move first."""
     stages = {job["id"]: job.get("dagster_stage", "airflow") for job in jobs["jobs"]}
     by_id = {job["id"]: job for job in jobs["jobs"]}
-    return [f"{consumer}: started by the outputs of {producer}, which Dagster decides; it moves to dagster first"
-            for consumer, producers in sorted(feeders.items()) if started_by(by_id[consumer]) == "inputs"
-            for producer in producers if stages[producer] == "dagster" and stages[consumer] != "dagster"]
+    problems = [f"{consumer}: started by the outputs of {producer}, which Dagster decides; it moves to dagster first"
+                for consumer, producers in sorted(feeders.items()) if started_by(by_id[consumer]) == "inputs"
+                for producer in producers if stages[producer] == "dagster" and stages[consumer] != "dagster"]
+    # A reconciler and the jobs it starts (started_for). A job Dagster decides reads what it is owed from
+    # the reconciler's Dagster run, which exists only once Dagster runs the reconciler; a reconciler Dagster
+    # decides has no DAG whose `start` task could trigger the DAG of a job Airflow decides. So the
+    # reconciler is `proxied` before the first job it starts moves, and `dagster` after the last.
+    for job in jobs["jobs"]:
+        for started in started_for(jobs, job):
+            if stages[started] == "dagster" and stages[job["id"]] not in DAGSTER_RUNS:
+                problems.append(f"{started}: Dagster decides it, but {job['id']}, which starts it when it is owed a "
+                                f"run, runs in Airflow; {job['id']} moves to proxied first")
+            if stages[job["id"]] == "dagster" and stages[started] != "dagster":
+                problems.append(f"{job['id']}: Dagster decides it, but it starts {started}, which Airflow decides; "
+                                f"{started} moves to dagster first")
+    return problems
 
 
 def requeued(jobs, job):
     """The jobs whose starts their pool refused `job` starts again from the host's start queue
-    (`requeues_refused_starts_in`, its pools; root ADR-0462): every enabled job of those pools that
-    Airflow starts, besides the ones it reconciles. A job Dagster decides has no DAG to start."""
+    (`requeues_refused_starts_in`, its pools; root ADR-0462): every enabled job of those pools, besides
+    the ones it reconciles. Which orchestrator starts an owed job is the job's stage (started_for)."""
     pools = job.get("requeues_refused_starts_in") or ()
     reconciled = set(job.get("reconciles", ()))
     return tuple(sorted(other["id"] for other in jobs["jobs"]
-                        if other["pool"] in pools and other["enabled"] and other["id"] not in reconciled
-                        and dagster_stage(other, jobs) != "dagster"))
+                        if other["pool"] in pools and other["enabled"] and other["id"] not in reconciled))
+
+
+def started_for(jobs, job):
+    """The jobs `job`'s run may say are owed a run: those it reconciles and those it requeues.
+
+    Its run prints them (OWED_LINE). While Airflow decides the owed job, the reconciler's DAG triggers the
+    job's DAG (foundation_jobs.py `select`, `start`); once Dagster decides it, the job's own sensor reads
+    the reconciler's Dagster run (OWED_TAG, orchestration/dagster/decide.py). dagster_order holds the two
+    to stages in which each can reach the other.
+    """
+    return tuple(job.get("reconciles", ())) + requeued(jobs, job)
 
 
 def started_by(job):
@@ -667,8 +783,11 @@ def pool_starvation(jobs, graph=None):
     """Every job that could wait for its pool's slots longer than STARVATION_CYCLES of its runs."""
     problems = []
     cycles = cycle_minutes(jobs, graph)
+    weights = queue_weights(jobs, producers(jobs, graph if graph is not None
+                                           else json.loads(GRAPH.read_text(encoding="utf-8"))))
     for pool, slots in declared_pools(jobs).items():
-        members = [job for job in jobs["jobs"] if job["pool"] == pool]
+        # Weighed as Airflow orders them: by the weight the data dependency raised (queue_weights).
+        members = [{**job, "priority_weight": weights[job["id"]]} for job in jobs["jobs"] if job["pool"] == pool]
         for starved in members:
             if pool_slots(starved) > slots:
                 problems.append(f"{starved['id']} takes {pool_slots(starved)} slots of pool {pool!r}, which has {slots}")
@@ -874,7 +993,9 @@ def owed_by_inputs(specs, newest_event, newest_run, queued):
     """
     owed = []
     for spec in specs:
-        if not spec.enabled or spec.started_by != "inputs" or spec.dag_id in queued:
+        # A job Dagster decides has no DAG to miss an event: its sensor keeps the events that came while it
+        # was stopped and starts one run for them (orchestration/dagster/decide.py).
+        if not spec.enabled or spec.started_by != "inputs" or spec.dag_id in queued or spec.dagster_stage == "dagster":
             continue
         changes = [newest_event[asset_uri(dataset)] for dataset in spec.starting_inputs
                    if newest_event.get(asset_uri(dataset)) is not None]
@@ -904,9 +1025,13 @@ def load_specs(jobs=None, graph=None):
 
     pools = {DEFAULT_POOL, *declared_pools(jobs)}
     capacity_claimants(jobs, pools)
+    memory_claims(jobs)
     found = datasets(jobs, graph)
     feeders = producers(jobs, graph)
     by_id = {job["id"]: job for job in jobs["jobs"]}
+    for job in jobs["jobs"]:
+        priority_weight(job)
+    weights = queue_weights(jobs, feeders)
 
     specs, seen_ids, seen_services = [], set(), set()
     for job in jobs["jobs"]:
@@ -984,7 +1109,7 @@ def load_specs(jobs=None, graph=None):
             if len(made) != 1 and not all(by_pnu_lane_of(node) for _, node in made) \
                     and not (golds and all(node.startswith("gold.") for node in golds)):
                 raise JobListError(f"{job_id}: reconciles {name}, which does not make exactly one asset")
-        requeues = requeued(jobs, job)
+        requeues = requeued(jobs, job)  # dagster_order holds the stages of these to the reconciler's
         unknown = set(job.get("requeues_refused_starts_in") or ()) - set(declared_pools(jobs))
         if unknown or requeues and not reconciles:
             raise JobListError(f"{job_id}: requeues_refused_starts_in names pools the list bounds"
@@ -1001,7 +1126,7 @@ def load_specs(jobs=None, graph=None):
                 pool=job["pool"],
                 pool_slots=pool_slots(job),
                 retries=retries(job),
-                priority_weight=priority_weight(job),
+                priority_weight=weights[job_id],
                 systemd_service=service,
                 systemd_timer=timer,
                 enabled=job["enabled"],

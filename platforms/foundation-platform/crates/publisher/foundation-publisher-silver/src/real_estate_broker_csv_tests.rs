@@ -94,3 +94,44 @@ async fn the_office_lane_refuses_header_drift_and_the_member_roster_sibling() {
     .expect_err("the roster is not this lane's member");
     assert!(error.to_string().contains("no member"), "{error}");
 }
+
+const MEMBER_HEADER: &str = "법정동코드,법정동명,등록번호,사업자상호,중개업자명,중개업자종별코드,중개업자종별명,자격증번호,자격증취득일,직위구분코드,직위구분명,데이터기준일자";
+// Synthetic only: the representative with a license, then an assistant, who holds none.
+const BROKER_ROW: &str = "99999,가상도 가상군,99999-2026-00001,\"가상,공인중개사사무소\",홍길동,2,공인중개사,99-2026-00001,2026-01-02,01,대표,2026-11-10";
+const ASSISTANT_ROW: &str = "99999,가상도 가상군,99999-2026-00001,\"가상,공인중개사사무소\",김가상,4,중개보조원,,,04,일반,2026-11-10";
+
+#[tokio::test]
+async fn a_roster_keeps_an_assistant_without_a_license_and_refuses_a_row_without_its_office(
+) -> anyhow::Result<()> {
+    let officeless = BROKER_ROW.replace("99999-2026-00001", "");
+    let (report, body) = export_csv(
+        &REAL_ESTATE_BROKER_MEMBER_LANE,
+        MEMBER_HEADER,
+        &format!("{BROKER_ROW}\n{ASSISTANT_ROW}\n{officeless}"),
+        "AL_D172_00_20261109.csv",
+    )
+    .await?;
+    assert_eq!(report.output_row_count, 2);
+    assert_eq!(
+        report.rejected_row_reasons.get("blank_registration_no"),
+        Some(&1)
+    );
+    let rows: Vec<serde_json::Value> = body
+        .lines()
+        .map(serde_json::from_str)
+        .collect::<Result<_, _>>()?;
+    for (key, value) in [
+        ("registration_no", "99999-2026-00001"),
+        ("office_name", "가상,공인중개사사무소"),
+        ("member_name", "홍길동"),
+        ("member_kind_name", "공인중개사"),
+        ("license_no", "99-2026-00001"),
+        ("license_acquired_on", "2026-01-02"),
+        ("position_name", "대표"),
+    ] {
+        assert_eq!(rows[0][key], value, "{key}");
+    }
+    assert_eq!(rows[1]["member_kind_name"], "중개보조원");
+    assert!(rows[1]["license_no"].is_null());
+    Ok(())
+}

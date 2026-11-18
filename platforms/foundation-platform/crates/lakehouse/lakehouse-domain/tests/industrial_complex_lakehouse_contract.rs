@@ -5,13 +5,14 @@ use std::{collections::BTreeSet, error::Error, io};
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseColumn, LakehouseCurrentRowLatest,
     LakehouseLayer, LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
-    LakehouseWriteDistribution, GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR,
-    SILVER_BUILDING_PERMIT_BASIS_OUTLINE, SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS,
-    SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT, SILVER_BUILDING_REGISTER_FLOORS,
-    SILVER_BUILDING_REGISTER_MASTER, SILVER_BUILDING_REGISTER_TITLES,
-    SILVER_BUILDING_REGISTER_UNITS, SILVER_BUILDING_REGISTER_UNIT_AREAS,
-    SILVER_COMPLEX_PARCEL_MEMBERSHIPS, SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_ITEM_DETAIL,
-    SILVER_COURT_AUCTION_ITEM_PHOTO, SILVER_COURT_AUCTION_SALE_RESULT, SILVER_INDUSTRIAL_COMPLEXES,
+    LakehouseWriteDistribution, GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_DOCUMENT_FACTS,
+    GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_PERMIT_BASIS_OUTLINE,
+    SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS, SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
+    SILVER_BUILDING_REGISTER_FLOORS, SILVER_BUILDING_REGISTER_MASTER,
+    SILVER_BUILDING_REGISTER_TITLES, SILVER_BUILDING_REGISTER_UNITS,
+    SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
+    SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_ITEM_DETAIL, SILVER_COURT_AUCTION_ITEM_PHOTO,
+    SILVER_COURT_AUCTION_SALE_RESULT, SILVER_INDUSTRIAL_COMPLEXES,
     SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT,
     SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
     SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_OWNERSHIP, SILVER_LAND_RIGHT_REGISTRATION,
@@ -306,16 +307,34 @@ const HUB_APPENDING_LANES: &[lakehouse_domain::LakehouseTableContract] = &[
     lakehouse_domain::SILVER_BUILDING_PERMIT_SITE_LOCATION,
     lakehouse_domain::SILVER_BUILDING_MAINTENANCE_REGULAR_INSPECTION_HISTORY,
 ];
+/// A table of a family whose tables are declared together: data.go.kr files and HUB family lanes.
+fn appends_as_a_declared_family(table_name: &str) -> bool {
+    lakehouse_domain::DATA_GO_KR_FILE_DATA_TABLES
+        .iter()
+        .any(|table| table.table_name == table_name)
+        || lakehouse_domain::hub_family_lanes()
+            .iter()
+            .any(|lane| lane.table.table_name == table_name)
+}
 
 /// The versioned tables, and only they, say which row is current (root ADR-0267).
 /// The 법원경매 tables whose newest row per key is current and where none vanishes (root ADR-0384,
 /// ADR-0454, ADR-0540).
-const COURT_AUCTION_NEWEST_PER_KEY: [&str; 5] = [
+const COURT_AUCTION_NEWEST_PER_KEY: [&str; 6] = [
     SILVER_COURT_AUCTION_SALE_RESULT.table_name,
     SILVER_COURT_AUCTION_ITEM_DETAIL.table_name,
     SILVER_COURT_AUCTION_ITEM_PHOTO.table_name,
     lakehouse_domain::SILVER_COURT_AUCTION_CASE.table_name,
     lakehouse_domain::SILVER_COURT_AUCTION_ITEM_SPEC.table_name,
+    lakehouse_domain::SILVER_COURT_AUCTION_CODE.table_name,
+];
+
+/// Tables appended per run whose newest row per key is current: an ILIS notice read and its
+/// attachments (root ADR-0484), and a complex's panel facts per fold run (root ADR-0477 §5).
+const APPENDED_PER_RUN: &[&str] = &[
+    SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL.table_name,
+    SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT.table_name,
+    GOLD_COMPLEX_DOCUMENT_FACTS.table_name,
 ];
 
 #[test]
@@ -342,6 +361,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_LAND_RIGHT_REGISTRATION.table_name
             || contract.table_name == SILVER_LAND_OWNERSHIP.table_name
             || contract.table_name == lakehouse_domain::SILVER_REAL_ESTATE_BROKER_OFFICE.table_name
+            || contract.table_name == lakehouse_domain::SILVER_REAL_ESTATE_BROKER_MEMBER.table_name
             || contract.table_name == SILVER_LAND_USE_PLAN.table_name
             || contract.table_name == SILVER_LAND_USE_ZONE_AREA.table_name
             || contract.table_name == lakehouse_domain::GOLD_LAND_USE_ZONE_AREA_BY_TILE.table_name
@@ -358,9 +378,11 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM.table_name
             || contract.table_name == SILVER_COURT_AUCTION_ITEM.table_name
             || contract.table_name == lakehouse_domain::SILVER_REAL_TRANSACTION.table_name
-            || lakehouse_domain::DATA_GO_KR_FILE_DATA_TABLES
-                .iter()
-                .any(|table| table.table_name == contract.table_name)
+            || appends_as_a_declared_family(contract.table_name)
+            // A Gold born as appended row versions (root ADR-0564 §1, §2): `gold_versions_table`.
+            || contract
+                .table_name
+                .ends_with(lakehouse_domain::GOLD_VERSIONS_TABLE_SUFFIX)
         {
             // A lane that appends its changes marks vanished keys (root ADR-0275, ADR-0311, ADR-0318).
             assert_eq!(contract.current_row_predicate, None);
@@ -375,8 +397,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_DETAIL.table_name
             || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_DETAIL.table_name
             || contract.table_name == SILVER_ONBID_ITEM_BID_INFO.table_name
-            || contract.table_name == SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL.table_name
-            || contract.table_name == SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT.table_name
+            || APPENDED_PER_RUN.contains(&contract.table_name)
             || contract.layer == LakehouseLayer::Intelligence
         {
             // Root ADR-0340: an Onbid announcement, detail or bid-info row is appended when its
@@ -385,11 +406,12 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // A closed round's result is asked again only when the provider had none yet; the
             // newest answer is current, and a result never vanishes (root ADR-0280).
             // A 물건상세 read and a case's photo are appended; the newest per key is current, and none
-            // vanishes (root ADR-0384); so are the case and spec a read states (root ADR-0540).
+            // vanishes (root ADR-0384); so are the case and spec a read states and the site's code names
+            // (root ADR-0540).
             // An item's media index: the newest run that recorded a (item, hash) wins, and a
             // photo reference never vanishes (root ADR-0298). A notice read and its attachments
-            // likewise (root ADR-0484). A document's text, pages and facts are read once per
-            // extractor version; a repeated run's append is the newest run (root ADR-0477 §3).
+            // likewise (root ADR-0484). Document text and facts: once per extractor version, panel
+            // facts once per fold run; the newest run is current (root ADR-0477 §3, §5).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
                 .current_row_latest()

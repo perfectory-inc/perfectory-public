@@ -36,7 +36,7 @@
       },
       "pool": "spark",
       "pool_slots": 3,
-      "priority_weight": 2,
+      "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-onbid-real-estate-item-to-gold-parcel-public-auction",
@@ -94,7 +94,7 @@
       },
       "pool": "spark",
       "pool_slots": 1,
-      "priority_weight": 1,
+      "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [

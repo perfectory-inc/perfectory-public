@@ -270,6 +270,30 @@ class DocumentSparkTest(unittest.TestCase):
         (industrial,) = [d for d in other_doc["region"]["datasets"] if d["dataset_slug"] == job.INDUSTRIAL]
         self.assertEqual(industrial["deal_count"], 1)
 
+    def test_a_staged_build_writes_the_same_documents(self):
+        # 2026-11-12 the first 시도 shard's one plan ran the driver out of heap writing its text; the
+        # sharded build stages what the build reads several times over, and that changes no row.
+        import tempfile
+
+        factory, house = pnu(OTHER, 5), pnu(OTHER, 7)
+        deals = [self.deal("m-1", OTHER_NAME, "3**", date(2098, 4, 2)),
+                 self.deal("o-1", OTHER_NAME, "5", date(2098, 2, 1), land=800.0, building=400.0),
+                 self.deal("h-1", OTHER_NAME, "7", date(2098, 3, 1), dataset="real_transaction_detached_house_trade")]
+        frames = self.frames(deals, [], [factory, house], [(factory, "공장용지", 800.0, "계획관리지역"),
+                                                            (house, "대", 300.0, "계획관리지역")])
+        staged, root = [], Path(tempfile.mkdtemp())
+
+        def stage(name, frame):
+            staged.append(name)
+            frame.write.parquet(str(root / name))
+            return self.spark.read.parquet(str(root / name))
+
+        args = (frames, INFERENCE, date(2098, 5, 3), "snap-1", "2098-05-03T00:00:00Z", GOLD_COLUMNS)
+        plain = job.gold_rows(*args, coverage=COVERAGE)
+        cut = job.gold_rows(*args, coverage=COVERAGE, stage=stage)
+        self.assertEqual(sorted(cut.collect()), sorted(plain.collect()))
+        self.assertEqual(staged, ["sales", "placed"])
+
     def test_a_document_carries_exactly_the_registry_s_fields(self):
         import by_pnu_kinds
 

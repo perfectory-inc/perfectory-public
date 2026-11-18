@@ -157,7 +157,7 @@ class MonthEndTagsIceberg(unittest.TestCase):
         self.spark.sql(f"CREATE TABLE proof.{table} (pnu STRING, row_digest STRING) USING iceberg")
         baked = self.commit(table, "a")
         self.commit(table, "b")
-        with self.assertRaisesRegex(ValueError, "refused to expire"):
+        with self.assertRaisesRegex(maintenance.ExpiryRefused, "refused to expire"):
             maintenance.run_snapshot_expiry(self.spark, "proof", table, expiry, later, False,
                                             {int(baked): "the bake pin"})
         self.assertIn(baked, self.ids(table))

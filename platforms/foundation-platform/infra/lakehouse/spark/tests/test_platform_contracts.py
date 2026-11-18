@@ -390,6 +390,26 @@ def unadmitted_writes(jobs: Path) -> list[str]:
     return sorted(qualified for qualified, _, _, writes, _ in functions if writes and qualified not in admitted)
 
 
+class Rfc3339UtcTest(unittest.TestCase):
+    """Every fraction chrono writes reads the same on the Spark image's Python 3.10."""
+
+    def test_any_fraction_and_either_spelling_of_utc_is_read(self):
+        from datetime import datetime
+
+        from platform_contracts import rfc3339_utc
+
+        expected = datetime(2099, 1, 2, 3, 4, 5, 66475)
+        for value in ("2099-01-02T03:04:05.066475637+00:00", "2099-01-02T03:04:05.066475Z",
+                      "2099-01-02T12:04:05.066475637+09:00"):
+            with self.subTest(value=value):
+                self.assertEqual(rfc3339_utc(value), expected)
+        self.assertEqual(rfc3339_utc("2099-01-02T03:04:05.0664+00:00"), datetime(2099, 1, 2, 3, 4, 5, 66400))
+        self.assertEqual(rfc3339_utc("2099-01-02T03:04:05Z"), datetime(2099, 1, 2, 3, 4, 5))
+        for value in (None, "", "2099-01-02", "not a time", "2099-13-02T03:04:05Z"):
+            with self.subTest(value=value):
+                self.assertIsNone(rfc3339_utc(value))
+
+
 class CanonicalReaderRuleTest(unittest.TestCase):
     """Root ADR-0286 §6: a table whose current state is a domain fold is read through that fold.
 
