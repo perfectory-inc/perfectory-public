@@ -12,6 +12,8 @@ Type=oneshot
 User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=-/etc/foundation-platform/operations-map.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/parcel-edition-readiness.sh
 # Measured 2026-11-04: the partition metadata query and both judgements together take seconds.
 TimeoutStartSec=10m

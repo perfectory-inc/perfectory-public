@@ -153,6 +153,7 @@ mod tests {
                 })
                 .unwrap_or_default(),
             column_size_field_ids: ids.to_vec(),
+            partition: std::collections::BTreeMap::new(),
         }
     }
 

@@ -76,6 +76,7 @@ use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
 mod lakehouse_file_shapes;
 mod lakehouse_inventory;
+mod lakehouse_partitions;
 mod lakehouse_quality_rules_evaluate;
 mod lakehouse_query;
 mod lakehouse_reader;
@@ -295,6 +296,7 @@ enum Command {
     RunPublisher,
     InventoryLakehouse,
     LakehouseFileShapes,
+    LakehousePartitions,
     LakehouseQuery,
     MigrateR2BronzeKeys,
     SeedLakehouseRegistry,
@@ -641,6 +643,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         // main() runs it before any runtime starts and exits with its outcome.
         Command::InventoryLakehouse => Box::pin(lakehouse_inventory::run()),
         Command::LakehouseFileShapes => Box::pin(lakehouse_file_shapes::run()),
+        Command::LakehousePartitions => Box::pin(lakehouse_partitions::run()),
         Command::LakehouseQuery => Box::pin(lakehouse_query::run()),
         Command::MigrateR2BronzeKeys => Box::pin(r2_bronze_key_migration::run()),
         Command::WriteR2BronzeKeyCleanupCandidates => {
@@ -928,6 +931,7 @@ where
         Some("register-serving-source-lineage") => Ok(Command::RegisterServingSourceLineage),
         Some("inventory-lakehouse") => Ok(Command::InventoryLakehouse),
         Some("lakehouse-file-shapes") => Ok(Command::LakehouseFileShapes),
+        Some("lakehouse-partitions") => Ok(Command::LakehousePartitions),
         Some("lakehouse-query") => Ok(Command::LakehouseQuery),
         Some("migrate-r2-bronze-keys") => Ok(Command::MigrateR2BronzeKeys),
         Some("write-r2-bronze-key-cleanup-candidates") => {
