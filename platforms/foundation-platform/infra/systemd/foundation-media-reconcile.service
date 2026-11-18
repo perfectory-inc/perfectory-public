@@ -13,8 +13,8 @@ User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=-/etc/foundation-platform/operations-map.env
 EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
-EnvironmentFile=/etc/foundation-platform/operations-map.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/media-reconcile.sh
 # The job list's time_limit_minutes (jobs.v1.json): the index data files added since the last run,
 # read by the publisher from the lakehouse, and ~190 list calls (2026-11-15). Generated from the list, not hand-set: `cargo run -p
