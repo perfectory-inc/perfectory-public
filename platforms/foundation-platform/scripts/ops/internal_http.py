@@ -1,6 +1,6 @@
 """The one bounded retry the host's daily jobs use for the services they call (root ADR-0102's shape).
 
-A daily job that asks DataHub GMS or Trino one question and stops on the first `503` turns a
+A daily job that asks DataHub GMS or the lakehouse one question and stops on the first `503` turns a
 blip into a failed day: foundation-data-quality.service failed on 2026-10-15 at 18:06 on one
 `HTTP Error 503` while both services were healthy minutes later. Every such call goes through
 here instead of growing a retry of its own:
@@ -11,8 +11,9 @@ here instead of growing a retry of its own:
 - `open_json(request)` is urllib's request with that retry: a `5xx` that can pass (`502`, `503`,
   `504`), `429`, a refused or reset connection and a timeout are asked again; any other answer is
   final, so a wrong request still fails at once.
-- `trino_transient(stderr)` names the Trino CLI failures that mean the server was not answering,
-  never a query error.
+- `retry_run(argv)` is a subprocess that exits non-zero only when a service it calls did not answer
+  (the publisher's `lakehouse-query` answers a query error in its output), run again after such an
+  exit.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from __future__ import annotations
 import json
 import random
 import socket
+import subprocess
 import sys
 import time
 import urllib.error
@@ -31,13 +33,6 @@ T = TypeVar("T")
 
 RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
 # What the CLI (or `docker exec`) prints when no server answered; a query error prints none of these.
-TRINO_TRANSIENT = (
-    "statusCode=502", "statusCode=503", "statusCode=504", "SERVER_STARTING_UP",
-    "Connection refused", "ConnectException", "Connection reset", "SocketTimeoutException",
-    "Failed to connect", "is restarting, wait until the container is running", "is not running",
-)
-
-
 @dataclass(frozen=True)
 class RetryPolicy:
     attempts: int
@@ -93,15 +88,8 @@ def open_json(request: urllib.request.Request, timeout: float, **options: Any) -
     return call(once, transient=http_transient, describe=f"{request.get_method()} {request.full_url}", **options)
 
 
-class TrinoUnavailable(RuntimeError):
-    """The Trino CLI got no answer from the server. Not a `LookupError`: a Trino that stays down
-    fails the run instead of making every table look absent."""
-
-
-def trino_transient(stderr: str) -> bool:
-    return any(marker in stderr for marker in TRINO_TRANSIENT)
-
-
-def retry_trino(run_once: Callable[[], T], **options: Any) -> T:
-    """`run_once()` asked again while it raises `TrinoUnavailable`."""
-    return call(run_once, transient=lambda error: isinstance(error, TrinoUnavailable), describe="trino", **options)
+def retry_run(run_once: Callable[[], T], describe: str, **options: Any) -> T:
+    """`run_once()` asked again while it raises `subprocess.CalledProcessError`: a command whose
+    failing exit means a service it calls did not answer."""
+    return call(run_once, transient=lambda error: isinstance(error, subprocess.CalledProcessError),
+                describe=describe, **options)
