@@ -54,6 +54,9 @@ pub struct ScannedDataFile {
     /// written with (a nested column by its leaf ids). The production shape ledger reads this where
     /// it read Trino's `$files.column_sizes` (root ADR-0259, ADR-0565).
     pub column_size_field_ids: Vec<i64>,
+    /// The file's partition values, by partition field name, as text (`None` for a null): what
+    /// Trino's `$partitions` grouped by. A table that is not partitioned records none.
+    pub partition: BTreeMap<String, Option<String>>,
 }
 
 /// What a manifest recorded about one column of one data file.
@@ -294,6 +297,7 @@ pub fn data_files(manifest_avro: &[u8]) -> anyhow::Result<Vec<ScannedDataFile>> 
                 .context("Iceberg data file file_size_in_bytes must not be negative")?,
             column_statistics: column_statistics(data_file, &column_names),
             column_size_field_ids: column_size_field_ids(data_file),
+            partition: partition_values(data_file),
         });
     }
     Ok(data_files)
@@ -318,6 +322,30 @@ fn manifest_column_names(header: &HashMap<String, Vec<u8>>) -> BTreeMap<i64, Str
                 field.get("id")?.as_i64()?,
                 field.get("name")?.as_str()?.to_owned(),
             ))
+        })
+        .collect()
+}
+
+/// One data file's partition record (`partition`, an Avro record of the partition fields), each value
+/// as text. A value of a type this does not name is left out, never guessed.
+fn partition_values(data_file: &AvroValue) -> BTreeMap<String, Option<String>> {
+    let Some(AvroValue::Record(fields)) = field(data_file, "partition").map(resolve) else {
+        return BTreeMap::new();
+    };
+    fields
+        .iter()
+        .filter_map(|(name, value)| {
+            let text = match resolve(value) {
+                AvroValue::Null => None,
+                AvroValue::Boolean(value) => Some(value.to_string()),
+                AvroValue::Int(value) | AvroValue::Date(value) => Some(value.to_string()),
+                AvroValue::Long(value)
+                | AvroValue::TimestampMillis(value)
+                | AvroValue::TimestampMicros(value) => Some(value.to_string()),
+                AvroValue::String(value) => Some(value.clone()),
+                _ => return None,
+            };
+            Some((name.clone(), text))
         })
         .collect()
 }
@@ -983,6 +1011,92 @@ mod tests {
             vec![
                 ("s3://lakehouse/a.parquet", &[1_i64, 3, 7][..]),
                 ("s3://lakehouse/b.parquet", &[][..]),
+            ]
+        );
+        Ok(())
+    }
+
+    /// The parcel edition readiness reads rows per edition from here (root ADR-0565, where it asked
+    /// Trino's `$partitions`): each live file's partition values by field name, a null as `None`.
+    #[test]
+    fn data_files_carry_their_partition_values() -> anyhow::Result<()> {
+        let schema = Schema::parse_str(
+            r#"{
+              "type": "record",
+              "name": "manifest_entry",
+              "fields": [
+                {"name": "status", "type": "int"},
+                {"name": "data_file", "type": {
+                  "type": "record",
+                  "name": "data_file",
+                  "fields": [
+                    {"name": "content", "type": "int"},
+                    {"name": "file_path", "type": "string"},
+                    {"name": "file_format", "type": "string"},
+                    {"name": "partition", "type": {"type": "record", "name": "r102", "fields": [
+                      {"name": "source_snapshot_id", "type": ["null", "long"], "default": null},
+                      {"name": "sido", "type": ["null", "string"], "default": null}
+                    ]}},
+                    {"name": "record_count", "type": "long"},
+                    {"name": "file_size_in_bytes", "type": "long"}
+                  ]
+                }}
+              ]
+            }"#,
+        )?;
+        let entry = |path: &str, snapshot: Option<i64>, sido: Option<&str>| {
+            let nullable = |value: Option<AvroValue>| {
+                value.map_or(AvroValue::Union(0, Box::new(AvroValue::Null)), |value| {
+                    AvroValue::Union(1, Box::new(value))
+                })
+            };
+            AvroValue::Record(vec![
+                ("status".to_owned(), AvroValue::Int(1)),
+                (
+                    "data_file".to_owned(),
+                    AvroValue::Record(vec![
+                        ("content".to_owned(), AvroValue::Int(0)),
+                        ("file_path".to_owned(), AvroValue::String(path.to_owned())),
+                        (
+                            "file_format".to_owned(),
+                            AvroValue::String("PARQUET".to_owned()),
+                        ),
+                        (
+                            "partition".to_owned(),
+                            AvroValue::Record(vec![
+                                (
+                                    "source_snapshot_id".to_owned(),
+                                    nullable(snapshot.map(AvroValue::Long)),
+                                ),
+                                (
+                                    "sido".to_owned(),
+                                    nullable(sido.map(|sido| AvroValue::String(sido.to_owned()))),
+                                ),
+                            ]),
+                        ),
+                        ("record_count".to_owned(), AvroValue::Long(3)),
+                        ("file_size_in_bytes".to_owned(), AvroValue::Long(1)),
+                    ]),
+                ),
+            ])
+        };
+        let mut writer = Writer::new(&schema, Vec::new());
+        writer.append(entry("s3://lakehouse/a.parquet", Some(202_609), Some("99")))?;
+        writer.append(entry("s3://lakehouse/b.parquet", None, None))?;
+        let files = data_files(&writer.into_inner()?)?;
+        let partitions: Vec<std::collections::BTreeMap<String, Option<String>>> =
+            files.into_iter().map(|file| file.partition).collect();
+        assert_eq!(
+            partitions,
+            vec![
+                std::collections::BTreeMap::from([
+                    ("sido".to_owned(), Some("99".to_owned())),
+                    ("source_snapshot_id".to_owned(), Some("202609".to_owned())),
+                ]),
+                std::collections::BTreeMap::from([
+                    ("sido".to_owned(), None),
+                    ("source_snapshot_id".to_owned(), None),
+                ]),
             ]
         );
         Ok(())

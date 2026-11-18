@@ -428,6 +428,7 @@ fn file(lower: Option<&str>, upper: Option<&str>, nulls: Option<u64>) -> Scanned
         record_count: 1,
         file_size_in_bytes: 1,
         column_size_field_ids: Vec::new(),
+        partition: std::collections::BTreeMap::new(),
         column_statistics: BTreeMap::from([(
             "pnu".to_owned(),
             ColumnStatistics {
