@@ -125,7 +125,6 @@ def real_graph():
 HELD_OFF = {
     "gold_parcel_regulation_zones_rebuild": "its first national build ran 9,610 s, past the 150-minute limit "
                                             "(2026-11-07, root ADR-0435 개정 ②)",
-    "gold_court_auction_rebuild": "the court-auction lane's own work (W18h, root ADR-0353)",
 }
 
 
@@ -251,8 +250,8 @@ class TheGuardRefuses(unittest.TestCase):
 
     def test_a_held_off_reader_switched_on_is_stale(self):
         jobs = copy.deepcopy(real_jobs())
-        next(job for job in jobs["jobs"] if job["id"] == "gold_court_auction_rebuild").update(enabled=True)
-        self.assertIn("gold_court_auction_rebuild: held off, but it is on; delete its HELD_OFF line",
+        next(job for job in jobs["jobs"] if job["id"] == "gold_parcel_regulation_zones_rebuild").update(enabled=True)
+        self.assertIn("gold_parcel_regulation_zones_rebuild: held off, but it is on; delete its HELD_OFF line",
                       idle_readers(jobs, real_graph()))
 
     def test_a_count_that_names_nothing(self):
