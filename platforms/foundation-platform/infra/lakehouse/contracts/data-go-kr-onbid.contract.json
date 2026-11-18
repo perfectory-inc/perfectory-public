@@ -157,7 +157,8 @@
   "silver_load": {
     "$comment": "What one Silver load may take (plan-silver-load-objects): Bronze objects of item_list and item_bid_result that no commit of their table records, landed within window_days, oldest first, at most max_objects per table. The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it. A day of item passes (8) and results (24) fits one run.",
     "window_days": 7,
-    "max_objects": 24,
+    "max_objects": 6,
+    "$max_objects": "W83b, measured 2026-11-14..18 on ai-server: from 00:46Z on 11-14 every run (32 in 36 h, none since 11-13 23:07Z) ended `lakehouse-spark-run: oom-kill: the spark-small container ... ran out of its memory limit` at exit 137. Two deploy stops (11-13 19:17Z, 11-14 00:05Z) left a backlog, and a run of 24 objects per table read the parcels of every item list object at once: the run held more than the 2560m container, committed little or nothing, and the backlog only grew. The Bronze objects are small (item list at most 6.7 MB, 40 of them over those days), so the bound is the number a run reads together. 6 per table is 144 an item-list day at hourly runs against at most 104 objects a day landed, drains four days of item lists in seven runs, and 540 + 6 x 54 = 864 s stays inside the 1500 s budget.",
     "run_time_budget_seconds": 1500,
     "run_start_seconds": 540,
     "measured_object_seconds": {"p50": 16, "p90": 54, "max": 563, "measured_on": "2026-11-03"},
