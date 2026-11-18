@@ -54,6 +54,12 @@ class RunsAreReadFromSystemdsLines(unittest.TestCase):
         line = unit_limits.row(UNIT, unit_limits.attribute_scopes(unit_limits.runs(lines))[UNIT], DECLARED[UNIT])
         self.assertEqual((line["runs"], line["oom"], line["state"]), (3, 1, "failing"))
 
+    def test_the_newest_run_killed_at_its_cap_counts_before_the_unit_starts_again(self):
+        lines = ok_run(0, 60, 300) + oom_run(100, 30) + [event(500, unit_limits.STARTING)]
+        line = unit_limits.row(UNIT, unit_limits.runs(lines[:-1])[UNIT], DECLARED[UNIT])
+        running = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT])
+        self.assertEqual((line["runs"], line["oom"], running["runs"]), (2, 1, 2))
+
     def test_a_timeout_is_a_failure_at_the_time_limit(self):
         lines = [event(0, unit_limits.STARTING), event(2400, unit_limits.FAILED, UNIT_RESULT="timeout"),
                  event(2400, unit_limits.RESOURCES, MEMORY_PEAK=str(200 * MIB))]
