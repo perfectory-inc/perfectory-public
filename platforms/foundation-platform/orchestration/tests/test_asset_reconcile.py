@@ -647,6 +647,48 @@ class Reconciler(unittest.TestCase):
             self.assertIn(name, rules)
         self.assertEqual(asset_reconcile.DAGSTER_METRICS_NAME, "dagster.prom")
 
+    def test_the_sensors_dagster_decides_with_and_its_runs_past_their_limit_are_said(self):
+        # Root ADR-0565 §9 (c), §11: a sensor stopped outside a deploy, or failing its ticks, decides
+        # nothing; a run never closed (2026-11-14 a check run stayed STARTED 6,265 minutes) is one the
+        # sensor waits on forever. Job ids are synthetic.
+        jobs = {"observers": {"dagster": {"enabled": True, "ui": "http://127.0.0.1:19085"}},
+                "jobs": [{"id": "synthetic_a", "wait_limit_minutes": 10, "time_limit_minutes": 30, "stop_grace_minutes": 5}]}
+        asked = []
+        now = 1_800_000_000.0
+
+        def post(query):
+            asked.append(query)
+            return {"workspaceOrError": {"locationEntries": []},
+                    "s0": {"__typename": "Sensor", "sensorState": {"status": "STOPPED", "ticks": [{"status": "SUCCESS"}]}},
+                    "s1": {"__typename": "Sensor", "sensorState": {"status": "RUNNING", "ticks": [{"status": "FAILURE"}]}},
+                    "s2": {"__typename": "SensorNotFoundError"},
+                    "runs": {"__typename": "Runs", "results": [
+                        # 45 minutes is synthetic_a's limit (10 + 30 + 5): one run 15 minutes past it.
+                        {"jobName": "foundation_job__synthetic_a", "creationTime": now - 3600},
+                        {"jobName": "foundation_job__synthetic_a", "creationTime": now - 60},
+                        # Not a job's run: the instance's hour, here 6,265 minutes old.
+                        {"jobName": "__ASSET_JOB", "creationTime": now - 6265 * 60}]}}
+
+        text = asset_reconcile.dagster_state(jobs, {}, post, ["synthetic_b", "synthetic_a", "synthetic_c"],
+                                             held=lambda job: job == "synthetic_a", now=lambda: now)
+        self.assertIn("foundation_dagster_decided_jobs 3\n", text)
+        self.assertIn('foundation_dagster_sensor_running{job="synthetic_a"} 0\n', text)
+        self.assertIn('foundation_dagster_sensor_held{job="synthetic_a"} 1\n', text, "the deploy stopped it")
+        self.assertIn('foundation_dagster_sensor_tick_failed{job="synthetic_b"} 1\n', text)
+        self.assertIn('foundation_dagster_sensor_running{job="synthetic_c"} 0\n', text, "a sensor the location lacks")
+        self.assertIn('foundation_dagster_run_overdue_seconds{run_job="foundation_job__synthetic_a"} 900\n', text)
+        self.assertIn('foundation_dagster_run_overdue_seconds{run_job="__ASSET_JOB"} 372300\n', text)
+        self.assertIn('s0: sensorOrError(sensorSelector: {repositoryLocationName: "foundation", repositoryName: '
+                      '"__repository__", sensorName: "foundation_decide__synthetic_a"})', asked[0], "in job order")
+        self.assertIn("runsOrError(filter: {statuses: [QUEUED, NOT_STARTED, STARTING, STARTED, CANCELING]}", asked[0])
+        quiet = asset_reconcile.dagster_state(jobs, {}, lambda query: {"workspaceOrError": {"locationEntries": []}})
+        self.assertIn("foundation_dagster_decided_jobs 0\n", quiet)
+        self.assertNotIn("foundation_dagster_run_overdue_seconds{", quiet, "no unfinished run, no series")
+        rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
+        for name in ("alert: FoundationDagsterDecidesNothing", "alert: FoundationDagsterSensorStopped",
+                     "alert: FoundationDagsterSensorTickFailing", "alert: FoundationDagsterRunOverdue"):
+            self.assertIn(name, rules)
+
     def test_the_dual_run_check_is_named_as_the_code_location_names_it(self):
         # The host has no Dagster to import dual_run from; its names are read from the file.
         import ast

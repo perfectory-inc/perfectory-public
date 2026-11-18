@@ -876,12 +876,59 @@ groups:
         expr: >-
           (foundation_dagster_answered == 0 or min(foundation_dagster_code_location_loaded) == 0)
           and on() foundation_dagster_observing == 1
+          unless on() foundation_dagster_decided_jobs > 0
         for: 15m
         labels:
           severity: ticket
           service: dual-run
         annotations:
           summary: 'Dagster 코드 위치가 15분 넘게 뜨지 않아요 — 이중 실행이 비교를 하나도 남기지 못하고 옮기는 문턱이 멈춰요. docker logs airflow-dagster-daemon-1 의 마지막 오류를 보세요'
+          runbook: docs/runbooks/production-orchestrator-cutover.md
+      - alert: FoundationDagsterDecidesNothing
+        # Root ADR-0565 §11: once a job is at `dagster`, Dagster is what starts it. The same location that
+        # does not load is then no job started at all, not a stalled comparison.
+        expr: >-
+          (foundation_dagster_answered == 0 or min(foundation_dagster_code_location_loaded) == 0)
+          and on() foundation_dagster_decided_jobs > 0
+        for: 15m
+        labels:
+          severity: page
+          service: orchestration
+        annotations:
+          summary: 'Dagster 코드 위치가 15분 넘게 뜨지 않아요 — Dagster 가 결정하는 작업 {{ with query "foundation_dagster_decided_jobs" }}{{ . | first | value }}{{ end }}개가 하나도 시작되지 않아요. docker logs airflow-dagster-code-server-1 의 마지막 오류를 보세요'
+          runbook: docs/runbooks/production-orchestrator-cutover.md
+      - alert: FoundationDagsterSensorStopped
+        # A deploy stops the sensors of the jobs it holds and starts them again (job_orchestrator.py); a
+        # sensor stopped while no deploy holds its job is a job nobody starts.
+        expr: >-
+          foundation_dagster_sensor_running == 0
+          unless on(job) foundation_dagster_sensor_held == 1
+        for: 30m
+        labels:
+          severity: ticket
+          service: orchestration
+        annotations:
+          summary: '{{ $labels.job }} 을 결정하는 Dagster 센서가 30분 넘게 멈춰 있는데 배포가 쥐고 있지 않아요 — 그 작업은 시작되지 않아요. 되돌리기: python3 scripts/deploy/job_orchestrator.py unpause orchestration/jobs.v1.json {{ $labels.job }}'
+          runbook: docs/runbooks/production-orchestrator-cutover.md
+      - alert: FoundationDagsterSensorTickFailing
+        expr: foundation_dagster_sensor_tick_failed == 1
+        for: 30m
+        labels:
+          severity: ticket
+          service: orchestration
+        annotations:
+          summary: '{{ $labels.job }} 을 결정하는 Dagster 센서의 틱이 30분 넘게 실패해요 — 실패하는 동안 그 작업은 시작되지 않아요. Dagster UI 의 센서 foundation_decide__{{ $labels.job }} 틱 오류를 보세요'
+          runbook: docs/runbooks/production-orchestrator-cutover.md
+      - alert: FoundationDagsterRunOverdue
+        # Root ADR-0565 §9 (c): run monitoring closes a run past its max runtime; one still open past its
+        # limit was not closed, and the sensor of its job sees it as an open run and never starts another.
+        expr: foundation_dagster_run_overdue_seconds > 0
+        for: 15m
+        labels:
+          severity: ticket
+          service: orchestration
+        annotations:
+          summary: 'Dagster 작업 {{ $labels.run_job }} 의 run 이 한도를 {{ $value | humanizeDuration }} 넘겨 열려 있어요 — run monitoring 이 닫지 못했어요. 그 run 의 프로세스가 살아 있는지 보고, 아니면 Dagster UI 에서 끝내세요(유닛은 systemd 의 것이라 따로 돌아요)'
           runbook: docs/runbooks/production-orchestrator-cutover.md
       - alert: FoundationDualRunSilent
         # A check compares after every Airflow run of its job; eight of the jobs run more than once a

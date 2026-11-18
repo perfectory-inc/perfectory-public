@@ -829,14 +829,34 @@ DAGSTER_HELP = """# HELP foundation_dagster_observing Whether Dagster observes A
 # TYPE foundation_dual_run_jobs gauge
 # HELP foundation_dual_run_last_comparison_timestamp_seconds When a job's dual-run check last compared, and so appended to the ledger (root ADR-0458).
 # TYPE foundation_dual_run_last_comparison_timestamp_seconds gauge
+# HELP foundation_dagster_decided_jobs How many jobs Dagster decides (dagster_stage dagster, root ADR-0565): while there is one, a code location that does not load decides nothing.
+# TYPE foundation_dagster_decided_jobs gauge
+# HELP foundation_dagster_sensor_running Whether the sensor that decides a job runs (root ADR-0565 §11).
+# TYPE foundation_dagster_sensor_running gauge
+# HELP foundation_dagster_sensor_held Whether a running deploy holds the job, and so stopped its sensor itself (root ADR-0565 §5).
+# TYPE foundation_dagster_sensor_held gauge
+# HELP foundation_dagster_sensor_tick_failed Whether the newest tick of the sensor that decides a job failed.
+# TYPE foundation_dagster_sensor_tick_failed gauge
+# HELP foundation_dagster_run_overdue_seconds How long past its limit the oldest unfinished Dagster run of a Dagster job is (root ADR-0565 §9 (c)): a run never closed is one the sensor waits on forever.
+# TYPE foundation_dagster_run_overdue_seconds gauge
 """
+# A Dagster run that is not a job's own (an asset check's) is closed by run monitoring at the instance's
+# max runtime (orchestration/dagster/dagster.yaml, root ADR-0565 §9); a job's run at its scheduled start's
+# limit (job_specs.scheduler_timeout_minutes), counted from when the run was made.
+OTHER_RUN_LIMIT_SECONDS = 3600
+UNFINISHED_RUN_STATUSES = "[QUEUED, NOT_STARTED, STARTING, STARTED, CANCELING]"
 
 
-def dagster_state(jobs: dict, dag_ids: dict, post) -> str:
+def dagster_state(jobs: dict, dag_ids: dict, post, decided=(), held=lambda job: False, now=time.time) -> str:
     """The textfile of whether Dagster's code location loads and when each job in the dual run last
     compared (root ADR-0431, ADR-0458). `dag_ids` is job id -> DAG id of the jobs at `shadow`; `post`
     sends one GraphQL query to Dagster and returns its `data`, raising OSError or ValueError when
     Dagster does not answer.
+
+    Root ADR-0565 §9 (c), §11: for each job in `decided` (at `dagster`), whether its sensor runs, whether
+    a deploy holds it (`held(job)`: the deploy stops the sensor itself), and whether its newest tick
+    failed; for every Dagster job's unfinished runs, how far past its limit the oldest is. 2026-11-14 a
+    deploy restarted the daemon under a check run, which stayed STARTED for 6,265 minutes.
 
     From 2026-11-06 21:16Z to 11-09 the code location failed every load (6,222 times in the daemon's
     log), so no dual-run check ran and the ledger got no line, while Dagster's UI answered and the
@@ -853,8 +873,16 @@ def dagster_state(jobs: dict, dag_ids: dict, post) -> str:
         f' j{index}: assetCheckExecutions(assetKey: {{path: {json.dumps([*DUAL_RUN_KEY_PREFIX, dag_ids[job]])}}},'
         f' checkName: "{DUAL_RUN_CHECK}", limit: 1) {{ evaluation {{ timestamp }} }}'
         for index, job in enumerate(names))
+    decided = sorted(decided)
+    sensors = "".join(
+        f' s{index}: sensorOrError(sensorSelector: {{repositoryLocationName: "{job_specs.DAGSTER_LOCATION}",'
+        f' repositoryName: "{job_specs.DAGSTER_REPOSITORY}", sensorName: "{job_specs.DAGSTER_SENSOR_PREFIX}{job}"}})'
+        ' { __typename ... on Sensor { sensorState { status ticks(limit: 1) { status } } } }'
+        for index, job in enumerate(decided))
+    runs = (f" runs: runsOrError(filter: {{statuses: {UNFINISHED_RUN_STATUSES}}}, limit: 200)"
+            " { __typename ... on Runs { results { jobName creationTime } } }")
     query = ("{ workspaceOrError { __typename ... on Workspace { locationEntries { name locationOrLoadError"
-             " { __typename } } } }" + checks + " }")
+             " { __typename } } } }" + checks + sensors + runs + " }")
     try:
         data = post(query)
         entries = data["workspaceOrError"]["locationEntries"]
@@ -869,7 +897,43 @@ def dagster_state(jobs: dict, dag_ids: dict, post) -> str:
         evaluation = (found[0] if found else {}).get("evaluation")
         if evaluation:
             text += f'foundation_dual_run_last_comparison_timestamp_seconds{{job="{label(job)}"}} {evaluation["timestamp"]}\n'
+    text += f"foundation_dagster_decided_jobs {len(decided)}\n"
+    for index, job in enumerate(decided):
+        sensor = data.get(f"s{index}") or {}
+        state = sensor.get("sensorState") if sensor.get("__typename") == "Sensor" else None
+        if state is None:
+            # No such sensor: the location did not load this release's job list (decide.py).
+            text += f'foundation_dagster_sensor_running{{job="{label(job)}"}} 0\n'
+        else:
+            ticks = state.get("ticks") or []
+            text += (f'foundation_dagster_sensor_running{{job="{label(job)}"}} {int(state.get("status") == "RUNNING")}\n'
+                     f'foundation_dagster_sensor_tick_failed{{job="{label(job)}"}} '
+                     f'{int(bool(ticks) and ticks[0].get("status") == "FAILURE")}\n')
+        text += f'foundation_dagster_sensor_held{{job="{label(job)}"}} {int(bool(held(job)))}\n'
+    text += run_overdue(jobs, (data.get("runs") or {}).get("results") or [], now())
     return text
+
+
+def run_overdue(jobs: dict, runs: list, now: float) -> str:
+    """Per Dagster job with an unfinished run, how many seconds past its limit the oldest is (0 when none
+    is): a job's own run (`foundation_job__<id>`) at its scheduled start's limit, any other at
+    OTHER_RUN_LIMIT_SECONDS, both from the run's creation."""
+    limits = {}
+    for job in jobs.get("jobs", []):
+        try:
+            limits[job_specs.DAGSTER_JOB_PREFIX + job["id"]] = 60 * job_specs.scheduler_timeout_minutes(job)
+        except job_specs.JobListError:
+            continue
+    overdue = {}
+    for run in runs:
+        name = run.get("jobName") or ""
+        created = run.get("creationTime")
+        if not name or not isinstance(created, (int, float)):
+            continue
+        late = max(0.0, now - created - limits.get(name, OTHER_RUN_LIMIT_SECONDS))
+        overdue[name] = max(overdue.get(name, 0.0), late)
+    return "".join(f'foundation_dagster_run_overdue_seconds{{run_job="{label(name)}"}} {round(late)}\n'
+                   for name, late in sorted(overdue.items()))
 
 
 def dagster_post(url: str):
@@ -1047,9 +1111,13 @@ def main() -> int:
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
         print(f"asset_reconcile: could not list the failed units: {error}", file=sys.stderr)
     try:
-        dag_ids = {spec.job_id: spec.dag_id for spec in job_specs.load_specs(jobs, graph) if spec.dagster_stage == "shadow"}
+        specs = job_specs.load_specs(jobs, graph)
+        dag_ids = {spec.job_id: spec.dag_id for spec in specs if spec.dagster_stage == "shadow"}
+        decided = [spec.job_id for spec in specs if spec.dagster_stage == "dagster"]
         ui = jobs.get("observers", {}).get("dagster", {}).get("ui", "")
-        write_replacing(metrics_file.with_name(DAGSTER_METRICS_NAME), dagster_state(jobs, dag_ids, dagster_post(ui)))
+        write_replacing(metrics_file.with_name(DAGSTER_METRICS_NAME),
+                        dagster_state(jobs, dag_ids, dagster_post(ui), decided,
+                                      held=lambda job: job_units.deploy_holds([job])))
     except (OSError, ValueError, job_specs.JobListError) as error:
         print(f"asset_reconcile: could not ask Dagster: {error}", file=sys.stderr)
     # Each job held to the outcomes its definition expects (root ADR-0480): the ledger lines appended
