@@ -17,8 +17,10 @@ import {
   proposeFromReport,
   readLockfile,
   render,
+  renderWorkspace,
   trackedTrees,
   validateContract,
+  workspaceOverrides,
 } from "./security-overrides.mjs";
 import { execFileSync } from "node:child_process";
 
@@ -79,14 +81,19 @@ function fixture({ entries, trees, track = Object.keys(trees) }) {
   for (const [tree, spec] of Object.entries(trees)) {
     write(root, `${tree}/package.json`, spec.manifest ?? { name: tree.replaceAll("/", "-"), private: true });
     write(root, `${tree}/pnpm-lock.yaml`, lockfile(spec));
+    if (spec.workspace !== undefined) write(root, `${tree}/pnpm-workspace.yaml`, spec.workspace);
   }
-  git(root, "add", "--", CONTRACT_PATH, TECHNOLOGY_CONTRACT_PATH, ...track.flatMap((tree) => [`${tree}/package.json`, `${tree}/pnpm-lock.yaml`]));
+  const files = (tree) =>
+    [`${tree}/package.json`, `${tree}/pnpm-lock.yaml`].concat(trees[tree].workspace !== undefined ? [`${tree}/pnpm-workspace.yaml`] : []);
+  git(root, "add", "--", CONTRACT_PATH, TECHNOLOGY_CONTRACT_PATH, ...track.flatMap(files));
   return root;
 }
 
 const WS_RENDERED = { "ws@>=8.0.0 <9.0.0": "^8.21.0" };
 
-// A tree as the refresh leaves it: manifest rendered, lock generated with the same block.
+const workspaceOf = (root, tree) => readFileSync(join(root, `${tree}/pnpm-workspace.yaml`), "utf8");
+
+// A tree as the refresh leaves it: pnpm-workspace.yaml rendered, lock generated with the same block.
 function consistent(extra = {}) {
   return {
     entries: [SECURITY_WS],
@@ -94,7 +101,8 @@ function consistent(extra = {}) {
       "services/a": {
         packages: ["ws@8.21.3"],
         overrides: WS_RENDERED,
-        manifest: { name: "a", private: true, pnpm: { overrides: WS_RENDERED } },
+        manifest: { name: "a", private: true },
+        workspace: renderWorkspace("", WS_RENDERED),
       },
       ...extra,
     },
@@ -110,16 +118,22 @@ describe("check", () => {
     assert.deepEqual(check(fixture(consistent())).errors, []);
   });
 
-  test("a hand-edited override in package.json is refused", () => {
+  test("a hand-edited override in pnpm-workspace.yaml is refused", () => {
     const spec = consistent();
-    spec.trees["services/a"].manifest.pnpm.overrides = { ...WS_RENDERED, katex: "0.19.0" };
-    assert.match(errorsOf(fixture(spec)), /services\/a\/package\.json: pnpm\.overrides is not the rendering.*not from the contract: katex/);
+    spec.trees["services/a"].workspace = renderWorkspace("", { ...WS_RENDERED, katex: "0.19.0" });
+    assert.match(errorsOf(fixture(spec)), /services\/a\/pnpm-workspace\.yaml: overrides is not the rendering.*not from the contract: katex/);
   });
 
-  test("a package.json missing a contract override is refused", () => {
+  test("a tree missing a contract override is refused", () => {
     const spec = consistent();
-    delete spec.trees["services/a"].manifest.pnpm;
+    delete spec.trees["services/a"].workspace;
     assert.match(errorsOf(fixture(spec)), /missing or different: ws@>=8\.0\.0 <9\.0\.0/);
+  });
+
+  test("a package.json pnpm field, which pnpm 11 and later do not read, is refused", () => {
+    const spec = consistent();
+    spec.trees["services/a"].manifest.pnpm = { overrides: WS_RENDERED };
+    assert.match(errorsOf(fixture(spec)), /services\/a\/package\.json: has a "pnpm" field, which pnpm 11 and later do not read/);
   });
 
   test("a lockfile generated from other overrides is refused", () => {
@@ -138,7 +152,7 @@ describe("check", () => {
     const root = fixture({
       entries: [PIN_VITE],
       trees: {
-        web: { packages: ["vite@8.2.1"], overrides: { vite: "8.2.2" }, manifest: { name: "web", pnpm: { overrides: { vite: "8.2.2" } } } },
+        web: { packages: ["vite@8.2.1"], overrides: { vite: "8.2.2" }, workspace: renderWorkspace("", { vite: "8.2.2" }) },
       },
     });
     assert.match(errorsOf(root), /resolves vite@8\.2\.1, not the pinned 8\.2\.2/);
@@ -147,7 +161,7 @@ describe("check", () => {
   test("a technology pin follows the technology contract, not a restated value", () => {
     const root = fixture({ entries: [PIN_VITE], trees: { web: { packages: ["vite@8.2.2"] } } });
     render(root);
-    assert.deepEqual(JSON.parse(readFileSync(join(root, "web/package.json"), "utf8")).pnpm.overrides, { vite: "8.2.2" });
+    assert.deepEqual(workspaceOverrides(workspaceOf(root, "web")), { vite: "8.2.2" });
   });
 });
 
@@ -159,7 +173,7 @@ describe("trees are derived from git", () => {
     assert.deepEqual(check(root).errors, []);
     git(root, "add", "--", "services/b/package.json", "services/b/pnpm-lock.yaml");
     assert.deepEqual(trackedTrees(root), ["services/a", "services/b"]);
-    assert.match(errorsOf(root), /services\/b\/package\.json: pnpm\.overrides is not the rendering/);
+    assert.match(errorsOf(root), /services\/b\/pnpm-workspace\.yaml: overrides is not the rendering/);
   });
 
   test("a tree that does not resolve the package gets no override", () => {
@@ -182,21 +196,30 @@ describe("render", () => {
     });
     assert.deepEqual(render(root), ["web"]);
     const manifest = JSON.parse(readFileSync(join(root, "web/package.json"), "utf8"));
-    assert.deepEqual(Object.keys(manifest), ["name", "scripts", "pnpm"]);
-    assert.deepEqual(manifest.pnpm.overrides, { "katex@>=0.11.0 <0.20.0": "^0.19.0", "ws@>=8.0.0 <9.0.0": "^8.21.0" });
+    assert.deepEqual(Object.keys(manifest), ["name", "scripts"], "the manifest is not touched");
+    const overrides = workspaceOverrides(workspaceOf(root, "web"));
+    assert.deepEqual(overrides, { "katex@>=0.11.0 <0.20.0": "^0.19.0", "ws@>=8.0.0 <9.0.0": "^8.21.0" });
     // What the refresh produces: lifted versions, the same block. Rendering must not move.
-    write(root, "web/pnpm-lock.yaml", lockfile({ packages: ["ws@8.21.3", "katex@0.19.0"], overrides: manifest.pnpm.overrides }));
+    write(root, "web/pnpm-lock.yaml", lockfile({ packages: ["ws@8.21.3", "katex@0.19.0"], overrides }));
     assert.deepEqual(render(root), []);
     assert.deepEqual(check(root).errors, []);
   });
 
-  test("removes the overrides key when nothing applies and keeps other pnpm settings", () => {
+  test("removes the overrides key when nothing applies and keeps the other settings as they are", () => {
     const root = fixture({
       entries: [SECURITY_WS],
-      trees: { web: { packages: ["left-pad@1.3.0"], manifest: { name: "web", pnpm: { onlyBuiltDependencies: ["esbuild"], overrides: { ws: "8.0.0" } } } } },
+      trees: { web: { packages: ["left-pad@1.3.0"], workspace: '# kept\nallowBuilds:\n  esbuild: true\n\noverrides:\n  "ws": "8.0.0"\n' } },
     });
     render(root);
-    assert.deepEqual(JSON.parse(readFileSync(join(root, "web/package.json"), "utf8")).pnpm, { onlyBuiltDependencies: ["esbuild"] });
+    assert.equal(workspaceOf(root, "web"), "# kept\nallowBuilds:\n  esbuild: true\n");
+  });
+
+  test("replaces only the overrides block of a workspace file and reads back what it wrote", () => {
+    const text = 'packages:\n  - "apps/*"\n\noverrides:\n  "old": "1"\n\nallowBuilds:\n  sharp: true\n';
+    const rendered = renderWorkspace(text, { "a@>=1.0.0 <2.0.0": "^1.2.3" });
+    assert.equal(rendered, 'packages:\n  - "apps/*"\n\nallowBuilds:\n  sharp: true\n\noverrides:\n  "a@>=1.0.0 <2.0.0": "^1.2.3"\n');
+    assert.deepEqual(workspaceOverrides(rendered), { "a@>=1.0.0 <2.0.0": "^1.2.3" });
+    assert.equal(renderWorkspace(rendered, { "a@>=1.0.0 <2.0.0": "^1.2.3" }), rendered, "idempotent");
   });
 });
 

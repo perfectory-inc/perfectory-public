@@ -183,7 +183,7 @@ fn prepare_advisory_fix(root: &Path, report: &Path, out: &Path) -> Result<(), St
     )?;
     finish(format!(
         "Raises npm advisory floors in tools/npm/security-overrides.contract.json (root ADR-0158),\n\
-         re-renders every package.json and regenerates every pnpm-lock.yaml with the pinned toolchain.\n\n\
+         re-renders every pnpm-workspace.yaml and regenerates every pnpm-lock.yaml with the pinned toolchain.\n\n\
          {proposal_text}\n\nWith this change applied the repository {ratchet}.\n\n```\n{stat}```\n"
     ))
 }
@@ -342,12 +342,12 @@ fn run_origin_allowed(origin: &str, repository: &str) -> bool {
         .any(|event| origin == format!("{event} main {repository}"))
 }
 
-/// The paths of a `git apply --numstat` listing that are not the overrides contract, a package manifest or
+/// The paths of a `git apply --numstat` listing that are not the overrides contract, a package manifest, a pnpm-workspace.yaml or
 /// a lockfile.
 fn paths_outside(numstat: &str) -> Vec<String> {
     let allowed = |path: &str| {
         path == CONTRACT
-            || ["package.json", "pnpm-lock.yaml"]
+            || ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"]
                 .iter()
                 .any(|name| path == *name || path.ends_with(&format!("/{name}")))
     };
@@ -517,7 +517,8 @@ mod tests {
     fn a_patch_may_touch_only_the_contract_manifests_and_lockfiles() {
         let allowed =
             "1\t1\ttools/npm/security-overrides.contract.json\n1\t1\tproducts/app/package.json\n\
-                       1\t1\tproducts/app/pnpm-lock.yaml\n1\t1\tpackage.json\n";
+                       1\t1\tproducts/app/pnpm-lock.yaml\n1\t1\tproducts/app/pnpm-workspace.yaml\n\
+                       1\t1\tpackage.json\n";
         assert_eq!(paths_outside(allowed), Vec::<String>::new());
         assert_eq!(
             paths_outside("1\t1\tproducts/app/package.json\n1\t1\t.github/workflows/ci.yml\n"),

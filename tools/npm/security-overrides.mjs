@@ -3,7 +3,7 @@
 //
 // tools/npm/security-overrides.contract.json is the only hand-written list. The trees it
 // renders into are not listed anywhere: they are every directory holding a tracked
-// pnpm-lock.yaml, asked of git. Each tree's package.json `pnpm.overrides` is generated from
+// pnpm-lock.yaml, asked of git. Each tree's pnpm-workspace.yaml `overrides` is generated from
 // the contract (`render`) and `check` refuses a tree whose manifest, lockfile override block
 // or resolved versions disagree with it. `propose` turns an OSV-Scanner report into a
 // contract bump, which is how a new advisory becomes a change instead of a hand edit in
@@ -278,14 +278,46 @@ export function renderOverrides(entries, tree, lock) {
   return Object.fromEntries(applicable.map((entry) => [entry.selector, entry.value]));
 }
 
-function renderManifest(manifest, overrides) {
-  const pnpm = { ...(manifest.pnpm ?? {}) };
-  if (Object.keys(overrides).length > 0) pnpm.overrides = overrides;
-  else delete pnpm.overrides;
-  const next = { ...manifest };
-  if (Object.keys(pnpm).length > 0) next.pnpm = pnpm;
-  else delete next.pnpm;
-  return `${JSON.stringify(next, null, 2)}\n`;
+// Since pnpm 11 the settings live in pnpm-workspace.yaml and package.json#pnpm is not read (pnpm's
+// migration guide). The renderer owns the file's top-level `overrides:` mapping and keeps every
+// other line as it is; keys and values are written as JSON strings, which YAML reads unchanged.
+export function renderWorkspace(text, overrides) {
+  const kept = [];
+  let inOverrides = false;
+  for (const line of (text ?? "").replace(/\r\n/g, "\n").split("\n")) {
+    if (/^overrides:\s*(\{\})?\s*$/.test(line)) {
+      inOverrides = true;
+      continue;
+    }
+    if (inOverrides && (line === "" || /^\s/.test(line))) continue;
+    inOverrides = false;
+    kept.push(line);
+  }
+  while (kept.length > 0 && kept[kept.length - 1] === "") kept.pop();
+  const entries = Object.entries(overrides);
+  if (entries.length > 0) {
+    if (kept.length > 0) kept.push("");
+    kept.push("overrides:");
+    for (const [key, value] of entries) kept.push(`  ${JSON.stringify(key)}: ${JSON.stringify(value)}`);
+  }
+  return kept.length > 0 ? `${kept.join("\n")}\n` : "";
+}
+
+// The overrides a pnpm-workspace.yaml holds, as renderWorkspace wrote them (JSON-quoted).
+export function workspaceOverrides(text) {
+  const found = {};
+  let inOverrides = false;
+  for (const line of (text ?? "").replace(/\r\n/g, "\n").split("\n")) {
+    if (/^overrides:\s*$/.test(line)) {
+      inOverrides = true;
+      continue;
+    }
+    if (!inOverrides) continue;
+    if (line !== "" && !/^\s/.test(line)) break;
+    const match = line.match(/^ {2}("(?:[^"\\]|\\.)*"): ("(?:[^"\\]|\\.)*")\s*$/);
+    if (match) found[JSON.parse(match[1])] = JSON.parse(match[2]);
+  }
+  return found;
 }
 
 export function load(root) {
@@ -313,7 +345,17 @@ export function load(root) {
       throw new ContractError(`${tree}/pnpm-lock.yaml: ${error.message}`);
     }
     const overrides = renderOverrides(entries, tree, lock);
-    return { tree, manifestPath, manifestText, manifest, lock, overrides, rendered: renderManifest(manifest, overrides) };
+    const workspacePath = join(root, tree, "pnpm-workspace.yaml");
+    const workspaceText = existsSync(workspacePath) ? readFileSync(workspacePath, "utf8") : "";
+    return {
+      tree,
+      manifest,
+      workspacePath,
+      workspaceText,
+      lock,
+      overrides,
+      rendered: renderWorkspace(workspaceText, overrides),
+    };
   });
   return { trees, entries, states };
 }
@@ -321,8 +363,8 @@ export function load(root) {
 export function render(root) {
   const changed = [];
   for (const state of load(root).states) {
-    if (state.rendered === state.manifestText) continue;
-    writeFileSync(state.manifestPath, state.rendered);
+    if (state.rendered === state.workspaceText) continue;
+    writeFileSync(state.workspacePath, state.rendered);
     changed.push(state.tree);
   }
   return changed;
@@ -335,13 +377,19 @@ function sameMap(left, right) {
 export function check(root) {
   const { trees, entries, states } = load(root);
   const errors = [];
-  for (const { tree, lock, overrides, manifest, manifestText, rendered } of states) {
-    if (rendered !== manifestText) {
-      const current = manifest.pnpm?.overrides ?? {};
+  for (const { tree, lock, overrides, manifest, workspaceText, rendered } of states) {
+    if (manifest.pnpm !== undefined) {
+      errors.push(
+        `${tree}/package.json: has a "pnpm" field, which pnpm 11 and later do not read; its settings belong in ` +
+          `${tree}/pnpm-workspace.yaml (overrides are rendered there from ${CONTRACT_PATH})`,
+      );
+    }
+    if (rendered !== workspaceText) {
+      const current = workspaceOverrides(workspaceText);
       const missing = Object.keys(overrides).filter((key) => current[key] !== overrides[key]);
       const extra = Object.keys(current).filter((key) => !(key in overrides));
       errors.push(
-        `${tree}/package.json: pnpm.overrides is not the rendering of ${CONTRACT_PATH}` +
+        `${tree}/pnpm-workspace.yaml: overrides is not the rendering of ${CONTRACT_PATH}` +
           (missing.length ? `; missing or different: ${missing.join(", ")}` : "") +
           (extra.length ? `; not from the contract: ${extra.join(", ")}` : "") +
           " (run: node tools/npm/security-overrides.mjs render && cargo xtask npm refresh-locks)",
@@ -528,7 +576,7 @@ export function main(argv) {
     }
     case "render": {
       const changed = render(root);
-      console.log(changed.length ? `rendered: ${changed.join(", ")}` : "OK npm-security-overrides: every package.json already renders the contract");
+      console.log(changed.length ? `rendered: ${changed.join(", ")}` : "OK npm-security-overrides: every pnpm-workspace.yaml already renders the contract");
       return 0;
     }
     case "check": {

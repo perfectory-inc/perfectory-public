@@ -320,7 +320,7 @@ jobs:
         if: ${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}
         uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093  # v6.0.8 (SHA pin, ADR 0028)
         with:
-          version: 9.12.0
+          version: 12.21.0
 
       - name: Set up Node
         if: ${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}
