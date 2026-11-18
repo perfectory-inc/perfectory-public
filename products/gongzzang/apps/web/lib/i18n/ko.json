@@ -890,7 +890,13 @@
           "deliveries": "송달내역",
           "deliveryDate": "송달일",
           "deliveryText": "송달내역",
-          "deliveryResult": "송달결과"
+          "deliveryResult": "송달결과",
+          "tenantPart": "점유부분",
+          "tenantUsage": "용도",
+          "tenantDeposit": "보증(전세)금",
+          "tenantRent": "차임",
+          "tenantMoveIn": "전입일자",
+          "tenantFixed": "확정일자"
         }
       }
     },

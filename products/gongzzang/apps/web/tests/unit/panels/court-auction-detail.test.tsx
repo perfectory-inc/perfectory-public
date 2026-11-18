@@ -51,6 +51,17 @@ const round = {
       surveyed_raw: "2099년01월02일^^",
       lease_text: "임차인 ○○○ 점유",
       objects: [{ object_seq: 1, possession_text: "합성 점유", lease_count: 1 }],
+      tenants: [
+        {
+          object_seq: 1,
+          usage_raw: "사무실",
+          deposit_raw: "10,000,000원",
+          monthly_rent_raw: "500,000원",
+          move_in_raw: "2099.01.02",
+          fixed_date_raw: "미상",
+          leased_part_raw: "전부",
+        },
+      ],
     },
     appraisal: {
       round_seq: 1,
@@ -143,6 +154,13 @@ describe("court auction detail", () => {
     expect(screen.getByText("채권자 보정서 제출")).toBeTruthy();
     expect(screen.getByText("채권자대리인 보정명령등본 발송")).toBeTruthy();
     expect(screen.getByText("2099-01-30 도달")).toBeTruthy();
+  });
+
+  it("shows the 현황조사서's 임대차관계 without a name (root ADR-0575 §6)", () => {
+    renderCard({ rounds: [round], source_attribution: "x" } as CourtAuction);
+    expect(screen.getByText("보증(전세)금")).toBeTruthy();
+    expect(screen.getByText("10,000,000원")).toBeTruthy();
+    expect(screen.getByText("2099.01.02")).toBeTruthy();
   });
 
   it("shows an item whose 물건상세 is not read yet without a detail", () => {

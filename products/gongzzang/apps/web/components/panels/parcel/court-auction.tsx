@@ -366,7 +366,7 @@ function DatedList({
 type Survey = NonNullable<Detail["survey"]>;
 
 /** The case's newest 현황조사서 (root ADR-0540 §1): when it was surveyed, the possession and lease
- * narrative and each 목록's possession, names masked. */
+ * narrative, each 목록's possession and its 임대차관계 (root ADR-0575 §6), names masked or absent. */
 function SurveySection({ t, survey }: { t: Translate; survey: Survey }) {
   const surveyed = (survey.surveyed_raw ?? "")
     .split("^")
@@ -397,6 +397,33 @@ function SurveySection({ t, survey }: { t: Translate; survey: Survey }) {
             </li>
           ))}
         </ul>
+      )}
+      {(survey.tenants?.length ?? 0) > 0 && (
+        <table className="mt-1 w-full text-left tabular-nums">
+          <thead className="text-[var(--color-muted)]">
+            <tr>
+              <th className="font-normal">{t("detail.tenantPart")}</th>
+              <th className="font-normal">{t("detail.tenantUsage")}</th>
+              <th className="font-normal">{t("detail.tenantDeposit")}</th>
+              <th className="font-normal">{t("detail.tenantRent")}</th>
+              <th className="font-normal">{t("detail.tenantMoveIn")}</th>
+              <th className="font-normal">{t("detail.tenantFixed")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {survey.tenants?.map((r, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
+              <tr key={i}>
+                <td>{r.leased_part_raw ?? ""}</td>
+                <td>{r.usage_raw ?? ""}</td>
+                <td>{r.deposit_raw ?? ""}</td>
+                <td>{r.monthly_rent_raw ?? ""}</td>
+                <td>{r.move_in_raw ?? ""}</td>
+                <td>{r.fixed_date_raw ?? ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </Section>
   );

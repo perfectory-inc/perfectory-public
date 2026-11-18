@@ -36,6 +36,9 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
 - for a 감정평가서 object (root ADR-0540 §1): the reports it stored into
   `silver.court_auction_appraisal_report` (the media reconcile's index: only stored ones), then every
   request, CAPTCHA skips included, into `silver.court_auction_appraisal_report_read`;
+- for a 현황조사서 object (root ADR-0575 §6): a whole edition per (case, round) of its 임대차 list
+  (`silver.court_auction_survey_tenant`), never the lessee's name or resident number field; then
+  one read row per request;
 - for a 문건·송달 object (root ADR-0575 §4-§5): a whole edition per case of its filings and its
   deliveries (`silver.court_auction_case_filing`, `silver.court_auction_case_delivery`), each the
   date, the role before the masked name, the document kind after it and the action, never the
@@ -111,6 +114,7 @@ CASE_OBJECT_TABLE = "silver.court_auction_case_object"
 PARTY_TABLE = "silver.court_auction_case_party"
 SURVEY_TABLE = "silver.court_auction_survey"
 SURVEY_OBJECT_TABLE = "silver.court_auction_survey_object"
+TENANT_TABLE = "silver.court_auction_survey_tenant"
 APPRAISAL_TABLE = "silver.court_auction_appraisal"
 FILING_TABLE = "silver.court_auction_case_filing"
 DELIVERY_TABLE = "silver.court_auction_case_delivery"
@@ -121,10 +125,11 @@ CASE_DOCUMENT_TABLES = {
     "case_survey": (SURVEY_TABLE, SURVEY_OBJECT_TABLE, CASE_READ_TABLE),
     "case_appraisal": (APPRAISAL_TABLE, CASE_READ_TABLE),
     "case_filings": (FILING_TABLE, DELIVERY_TABLE, CASE_READ_TABLE),
+    "case_survey_report": (TENANT_TABLE, CASE_READ_TABLE),
 }
 CASE_LATEST_KEYS = {CASE_TABLE: CASE, SURVEY_TABLE: ROUND, APPRAISAL_TABLE: ROUND, CASE_READ_TABLE: CASE_READ_KEY}
 CASE_EDITION_PER = {RELATED_TABLE: CASE, CASE_OBJECT_TABLE: CASE, PARTY_TABLE: CASE, SURVEY_OBJECT_TABLE: ROUND,
-                    FILING_TABLE: CASE, DELIVERY_TABLE: CASE}
+                    FILING_TABLE: CASE, DELIVERY_TABLE: CASE, TENANT_TABLE: ROUND}
 CODE_TABLE = "silver.court_auction_code"
 CODE_KEY = ("system_code", "owner_code", "group_code", "code")
 
@@ -679,6 +684,19 @@ def case_answer_rows(role: str, data: Mapping[str, Any], case_key: Mapping[str, 
     if round_seq is None:
         return {}
     keyed = {**case_key, "round_seq": round_seq}
+    if role == "case_survey_report":
+        # The 임대차 list; the lessee's name (`intrpsNm`) and resident number field (`enrrno`) are not read.
+        return {TENANT_TABLE: [{
+            **keyed, "tenant_seq": n, "object_seq": whole(item.get("objctSeq")),
+            "party_kind_code": text_or_none(item.get("auctnIntrpsDvsCd")),
+            "person_kind_code": text_or_none(item.get("btprtPrsnlDvsCd")),
+            "usage_code": text_or_none(item.get("auctnLesUsgCd")), "usage_raw": text_or_none(item.get("lesUsgDts")),
+            "deposit_raw": text_or_none(item.get("lesDposDts")), "monthly_rent_raw": text_or_none(item.get("mmrntAmtDts")),
+            "move_in_raw": text_or_none(item.get("mvinDtlCtt")),
+            "fixed_date_raw": text_or_none(item.get("rgstryCrtcpCfmtnCtt")),
+            "leased_part_raw": masked_text(item.get("lesPartCtt")), "possession_text": masked_text(item.get("gdsPossCtt")),
+            "remarks": masked_text(item.get("lesDtsRmk")),
+        } for n, item in enumerate(_list(data.get("dlt_ordTsLserLtn")), start=1)]}
     if role == "case_survey":
         info = data.get("dma_ordTsCurstExmnMngInf") if isinstance(data.get("dma_ordTsCurstExmnMngInf"), Mapping) else {}
         survey = [{

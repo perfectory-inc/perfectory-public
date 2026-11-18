@@ -144,6 +144,19 @@
         "headers": {"SC-Pgmid": "PGJ15AF03"},
         "request_object": "dma_srchDlvrOfdocDts",
         "request_constants": {"srchFlag": "F"}
+      },
+      {
+        "$comment": "Root ADR-0575 §6 (the survey table's 현황조사서 row). The 현황조사서 page (PGJ15BP01): per 현황조사 round, its 임대차 list (dlt_ordTsLserLtn: 점유부분, 용도, 보증금, 차임, 전입일자, 확정일자, 비고), which the 현황조사 document (selectCurstExmnRletIndctLst) does not give (measured 2026-11-19: that answer holds no dlt_ordTsLserLtn; this one holds one lessee on the same case). The lessee's name (intrpsNm) and resident number field (enrrno) stay in Bronze; the Silver load reads neither. Asked as the other case documents are, every round its answer lists.",
+        "role": "case_survey_report",
+        "dataset_slug": "auction_case_survey_report",
+        "operation": "selectCurstExmndc",
+        "path": "/pgj/pgj15B/selectCurstExmndc.on",
+        "headers": {"SC-Pgmid": "PGJ15BP01"},
+        "request_object": "dma_srchCurstExmn",
+        "request_constants": {"auctnInfOriginDvsCd": "2"},
+        "round_field": "ordTsCnt",
+        "rounds_pointer": "/data/dlt_spotExmnOrdCntLst",
+        "answered_round_pointer": "/data/dma_curstExmnMngInf/ordTsCnt"
       }
     ]
   },
