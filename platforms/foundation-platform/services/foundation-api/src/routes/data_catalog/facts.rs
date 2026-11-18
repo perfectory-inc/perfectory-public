@@ -10,6 +10,12 @@
 //! one the scheduler did not give is asked for again only after `SCHEDULER_RETRY_AFTER`. The
 //! scheduler is asked which runs it holds queued or running only while some job is past its
 //! scheduled start's time limit, with one sign-in per read.
+//!
+//! A job Dagster decides (`dagster_stage: dagster`, root ADR-0565 §8) has no DAG: its failed run's
+//! log and its unfinished runs are read from Dagster's read-only webserver instead (`dagster.rs`),
+//! through the same classification and masks.
+
+mod dagster;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,7 +23,7 @@ use std::sync::{Arc, LazyLock, OnceLock};
 
 use chrono::{DateTime, Duration, Utc};
 use foundation_contracts::data_catalog::{
-    FailureCause, ScheduledJobRunOutcome, ScheduledJobStatus,
+    FailureCause, ScheduledJobRunOutcome, ScheduledJobScheduler, ScheduledJobStatus,
 };
 use futures_util::StreamExt;
 use lakehouse_infrastructure::{
@@ -198,8 +204,16 @@ async fn read(previous: Option<&Facts>, list: &JobList, dependencies: &[JobDepen
         )
         .is_some()
     });
-    if !ask.is_empty() || overdue {
-        ask_scheduler(previous, &mut scheduler, &ask, overdue, read_at).await;
+    let (dagster_asks, airflow_asks): (Vec<LogAsk>, Vec<LogAsk>) =
+        ask.into_iter().partition(|asked| asked.dagster);
+    if !airflow_asks.is_empty() || overdue {
+        ask_scheduler(previous, &mut scheduler, &airflow_asks, overdue, read_at).await;
+    }
+    let decides_some = statuses
+        .iter()
+        .any(|status| status.decided_by == ScheduledJobScheduler::Dagster);
+    if !dagster_asks.is_empty() || (overdue && decides_some) {
+        ask_dagster(&mut scheduler, &dagster_asks, overdue, &statuses, read_at).await;
     }
     let mut errors = scheduler.errors;
     errors.sort();
@@ -228,13 +242,23 @@ struct SchedulerFacts {
     errors: Vec<String>,
 }
 
+/// One failed or waiting latest run whose log is to be read, and from which orchestrator.
+struct LogAsk<'a> {
+    dag_id: &'a str,
+    job_id: &'a str,
+    run_urn: &'a str,
+    waited: bool,
+    /// Dagster decides the job: its log is its Dagster run's.
+    dagster: bool,
+}
+
 /// The logs of the latest runs that failed or ended waiting, already read or not to be asked for
-/// yet, and the (DAG id, run, ended waiting) triples to ask the scheduler for.
+/// yet, and the runs whose logs are to be asked for.
 fn known_logs<'a>(
     previous: Option<&Facts>,
     statuses: &'a [ScheduledJobStatus],
     read_at: DateTime<Utc>,
-) -> (SchedulerFacts, Vec<(&'a str, &'a str, bool)>) {
+) -> (SchedulerFacts, Vec<LogAsk<'a>>) {
     let no_failures = BTreeMap::new();
     let no_misses = BTreeMap::new();
     let (known, misses) = previous.map_or((&no_failures, &no_misses), |facts| {
@@ -269,7 +293,13 @@ fn known_logs<'a>(
                 facts.errors.push(miss.error.clone());
                 facts.log_misses.insert(dag_id.to_owned(), miss);
             }
-            LogRead::Ask => ask.push((dag_id, run.run_urn.as_str(), waited)),
+            LogRead::Ask => ask.push(LogAsk {
+                dag_id,
+                job_id: status.job_id.as_str(),
+                run_urn: run.run_urn.as_str(),
+                waited,
+                dagster: status.decided_by == ScheduledJobScheduler::Dagster,
+            }),
         }
     }
     (facts, ask)
@@ -280,7 +310,7 @@ fn known_logs<'a>(
 async fn ask_scheduler(
     previous: Option<&Facts>,
     facts: &mut SchedulerFacts,
-    ask: &[(&str, &str, bool)],
+    ask: &[LogAsk<'_>],
     overdue: bool,
     read_at: DateTime<Utc>,
 ) {
@@ -314,24 +344,11 @@ async fn ask_scheduler(
             return;
         }
     };
-    for (dag_id, run_urn, waited) in ask {
-        match scheduler.latest_log(&token, dag_id, run_urn, *waited).await {
-            Ok(log) => {
-                facts.failures.insert((*dag_id).to_owned(), log);
-            }
-            Err(error) => {
-                tracing::warn!(%dag_id, %error, "a failed run's log could not be read");
-                facts.errors.push(error.clone());
-                facts.log_misses.insert(
-                    (*dag_id).to_owned(),
-                    SchedulerMiss {
-                        run_urn: (*run_urn).to_owned(),
-                        error,
-                        retry_at: read_at + SCHEDULER_RETRY_AFTER,
-                    },
-                );
-            }
-        }
+    for asked in ask {
+        let answer = scheduler
+            .latest_log(&token, asked.dag_id, asked.run_urn, asked.waited)
+            .await;
+        keep_log(facts, asked, answer, read_at);
     }
     if overdue {
         match scheduler.in_progress(&token).await {
@@ -340,6 +357,73 @@ async fn ask_scheduler(
                 tracing::warn!(%error, "the scheduler's queued and running runs could not be read");
                 facts.errors.push(error);
                 facts.in_progress = kept_in_progress();
+            }
+        }
+    }
+}
+
+/// A log the read asked for: kept, or remembered as a miss to ask again after the retry wait.
+fn keep_log(
+    facts: &mut SchedulerFacts,
+    asked: &LogAsk<'_>,
+    answer: Result<FailedRunLog, String>,
+    read_at: DateTime<Utc>,
+) {
+    match answer {
+        Ok(log) => {
+            facts.failures.insert(asked.dag_id.to_owned(), log);
+        }
+        Err(error) => {
+            tracing::warn!(dag_id = %asked.dag_id, %error, "a failed run's log could not be read");
+            facts.errors.push(error.clone());
+            facts.log_misses.insert(
+                asked.dag_id.to_owned(),
+                SchedulerMiss {
+                    run_urn: asked.run_urn.to_owned(),
+                    error,
+                    retry_at: read_at + SCHEDULER_RETRY_AFTER,
+                },
+            );
+        }
+    }
+}
+
+/// Asks Dagster for each log in `ask`, and when `overdue` for the unfinished runs of the jobs it
+/// decides, which join the in-progress runs by DAG id (root ADR-0565 §8).
+async fn ask_dagster(
+    facts: &mut SchedulerFacts,
+    ask: &[LogAsk<'_>],
+    overdue: bool,
+    statuses: &[ScheduledJobStatus],
+    read_at: DateTime<Utc>,
+) {
+    let Some(dagster) = dagster::Dagster::from_env() else {
+        facts
+            .errors
+            .push("Dagster's read-only API is not configured".to_owned());
+        return;
+    };
+    for asked in ask {
+        let answer = dagster
+            .latest_log(asked.job_id, asked.run_urn, asked.waited)
+            .await;
+        keep_log(facts, asked, answer, read_at);
+    }
+    if overdue {
+        match dagster.in_progress().await {
+            Ok(runs) => {
+                for status in statuses {
+                    if status.decided_by != ScheduledJobScheduler::Dagster {
+                        continue;
+                    }
+                    if let Some(made) = runs.get(&status.job_id) {
+                        facts.in_progress.insert(status.dag_id.clone(), *made);
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "Dagster's unfinished runs could not be read");
+                facts.errors.push(error);
             }
         }
     }
@@ -897,6 +981,81 @@ Successfully emitted OpenLineage `FAIL` event";
         assert_eq!(
             waiting_reason(&lines("foundation-job-outcome waiting \n")),
             None
+        );
+    }
+
+    #[test]
+    fn a_failed_run_of_a_job_dagster_decides_is_asked_of_dagster_by_its_job_id() {
+        // Root ADR-0565 §8: such a job has no DAG, so Airflow has no log of it.
+        use foundation_contracts::data_catalog::{
+            ScheduledJobRun, ScheduledJobScheduler, ScheduledJobStart,
+        };
+        let now = DateTime::parse_from_rfc3339("2026-01-02T08:00:00Z")
+            .map(|at| at.with_timezone(&Utc))
+            .unwrap_or_default();
+        let status = |job: &str, decided_by, outcome| ScheduledJobStatus {
+            job_id: job.to_owned(),
+            dag_id: format!("synthetic_{job}"),
+            description: String::new(),
+            schedule: "0 7 * * *".to_owned(),
+            enabled: true,
+            disabled_reason: None,
+            next_run_at: None,
+            catalog_job_urn: None,
+            last_run: Some(ScheduledJobRun {
+                run_urn: format!("urn:li:dataProcessInstance:{job}"),
+                queued_at: None,
+                started_at: None,
+                finished_at: None,
+                outcome,
+                native_result: None,
+                rows_written: None,
+            }),
+            typical_duration_seconds: None,
+            typical_duration_runs: 0,
+            recent_runs: Vec::new(),
+            started_by: ScheduledJobStart::Schedule,
+            decided_by,
+            upstream_job_ids: Vec::new(),
+            pipeline_graph_edges: Vec::new(),
+            reads: Vec::new(),
+            writes: Vec::new(),
+            problems: Vec::new(),
+        };
+        let statuses = [
+            status(
+                "load",
+                ScheduledJobScheduler::Dagster,
+                ScheduledJobRunOutcome::Failed,
+            ),
+            status(
+                "wait",
+                ScheduledJobScheduler::Dagster,
+                ScheduledJobRunOutcome::Skipped,
+            ),
+            status(
+                "bake",
+                ScheduledJobScheduler::Airflow,
+                ScheduledJobRunOutcome::Failed,
+            ),
+            status(
+                "fine",
+                ScheduledJobScheduler::Dagster,
+                ScheduledJobRunOutcome::Succeeded,
+            ),
+        ];
+        let (_, ask) = known_logs(None, &statuses, now);
+        let asked: Vec<(&str, &str, bool, bool)> = ask
+            .iter()
+            .map(|asked| (asked.dag_id, asked.job_id, asked.waited, asked.dagster))
+            .collect();
+        assert_eq!(
+            asked,
+            vec![
+                ("synthetic_load", "load", false, true),
+                ("synthetic_wait", "wait", true, true),
+                ("synthetic_bake", "bake", false, false),
+            ]
         );
     }
 

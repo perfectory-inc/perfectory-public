@@ -186,3 +186,19 @@ Airflow 가 결정하는 동안은 `run` 과제의 재시도가 같은 유닛 ru
   깨므로 기각한다.
 - **메모리.** 코드 서버 1700m(프록시 약 100 MiB + 코드 프로세스 169 MiB × 2 + run 6 × 169 MiB, × 1.17), 데몬 1600m → 384m. 호스트 예산
   61.96g / 62g. 웹서버는 이제 코드를 싣지 않으므로 다음 측정에서 줄인다.
+
+## 개정 각주 — 2026-11-19, §8 의 조각: 운영 지도는 `dagster` 작업을 읽기 전용 웹서버에서 읽는다
+
+이 각주는 결정을 바꾸지 않는다. §8 을 구현한 모양과 잰 값을 적는다.
+
+- **누가 결정하나.** 작업 목록의 `dagster_stage` 를 `foundation-api` 도 읽고, 작업 상태에 `decided_by`(`airflow`|`dagster`)를 싣는다.
+  `dagster` 만 읽는 곳이 바뀐다. 그 앞의 단계는 모두 DAG 로 돈다.
+- **읽기.** `dagster` 작업의 실패(또는 waiting)한 최신 run 은 그 Dagster 작업(`foundation_job__<id>`)의 run 목록에서 찾고, 줄은 그 run 의
+  메시지 사건이다(op 이 강제 명령의 줄을 그대로 남긴다). 원인 분류(`classify`)와 가리기(`mask`)는 같은 함수다. 열린 run 은 끝나지 않은
+  Dagster run 의 만든 시각. `scheduler_run_id` 는 Dagster run id 가 된다.
+- **링크.** `OperationsLinks.dagster_url`(운영 웹서버의 루프백 주소, 비밀이 아니라 compose 에 적는다)에서 Dawneer 는 run 이면
+  `/runs/<id>`, 아니면 `/locations/foundation/jobs/foundation_job__<id>` 를 연다. 문구는 오케스트레이터 이름 없이 "실패 로그"·"실행 기록".
+- **읽기 전용 웹서버.** `dagster-webserver-read-only`(`--read-only`, 호스트 포트 없음, identity 망에서 `foundation-api` 만 닿는다).
+  코드를 싣지 않는다(위치는 코드 서버의 것). 182 MiB(2026-11-19, 노트북, gRPC 위치, `--read-only` 유무 같음) × 1.5 = 288m 이고, 그만큼
+  Trino 의 상한을 16g → 16096m 로 줄였다(힙 11.0GiB 는 질의 7GB + 여유 3GB 위, Trino 읽기들이 옮겨 가 비어 간다). 호스트 합계는 61.96g 그대로.
+  첫 배포 뒤 호스트에서 다시 잰다.

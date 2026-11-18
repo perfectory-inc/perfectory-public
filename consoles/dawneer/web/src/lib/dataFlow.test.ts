@@ -351,6 +351,19 @@ describe("problems (root ADR-0195)", () => {
     );
     expect(schedulerUrl(links, "synthetic_load_b")).toBe("https://scheduler.example/dags/synthetic_load_b");
     expect(schedulerUrl({}, "synthetic_load_b")).toBeNull();
+    // A job Dagster decides opens in Dagster (root ADR-0565 §8): its failed run, or its Dagster job.
+    const dagster = { ...links, dagster_url: "https://dagster.example/" };
+    const decided = { job_id: "load_b", decided_by: "dagster" as const };
+    expect(schedulerUrl(dagster, "synthetic_load_b", "7a1e2b3c-0000-4000-8000-000000000000", decided)).toBe(
+      "https://dagster.example/runs/7a1e2b3c-0000-4000-8000-000000000000",
+    );
+    expect(schedulerUrl(dagster, "synthetic_load_b", null, decided)).toBe(
+      "https://dagster.example/locations/foundation/jobs/foundation_job__load_b",
+    );
+    expect(schedulerUrl(links, "synthetic_load_b", null, decided)).toBeNull();
+    expect(schedulerUrl(dagster, "synthetic_load_b", null, { job_id: "load_b", decided_by: "airflow" })).toBe(
+      "https://scheduler.example/dags/synthetic_load_b",
+    );
     expect(catalogLineageUrl(links, "urn:li:dataset:x")).toBe("https://catalog.example/dataset/urn%3Ali%3Adataset%3Ax/Lineage");
     expect(catalogLineageUrl(links, "urn:li:dataJob:y")).toBe("https://catalog.example/tasks/urn%3Ali%3AdataJob%3Ay/Lineage");
     expect(catalogLineageUrl(links, null)).toBeNull();

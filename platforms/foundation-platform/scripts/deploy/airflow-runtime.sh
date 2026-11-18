@@ -73,7 +73,7 @@ sys.exit(0 if json.load(open(sys.argv[1])).get("observers", {}).get("dagster", {
 dagster_networks=(foundation-platform-compute_default foundation-platform-runtime_default)
 # Tagged by release admission from the signed release (OPTIONAL_COMPOSE_IMAGES), as compose names it.
 dagster_image=foundation-platform-dagster:local
-dagster_services=(dagster-code-server dagster-webserver dagster-daemon)
+dagster_services=(dagster-code-server dagster-webserver dagster-webserver-read-only dagster-daemon)
 # The release's Airflow (orchestration/airflow/Dockerfile, root ADR-0431 §5), tagged by release admission
 # like Dagster's. Unlike Dagster's, Airflow cannot stay off without it, and the host builds no image (root
 # ADR-0276 §13): a compose file that names it with no such image is refused before compose would build it.

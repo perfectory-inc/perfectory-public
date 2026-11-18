@@ -186,6 +186,8 @@ pub enum ScheduledJobProblem {
 pub struct OperationsLinks {
     /// The scheduler's (Airflow's) web address.
     pub scheduler_url: Option<String>,
+    /// Dagster's web address, where the runs of a job Dagster decides are opened (root ADR-0565 §8).
+    pub dagster_url: Option<String>,
     /// The data catalog's (`DataHub`'s) web address.
     pub catalog_url: Option<String>,
 }
@@ -330,6 +332,18 @@ pub enum ScheduledJobStart {
     Inputs,
 }
 
+/// Which orchestrator decides when a scheduled job runs (the job list's `dagster_stage`, root
+/// ADR-0565): where its runs and their logs are opened.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduledJobScheduler {
+    /// Airflow, through the job's DAG: every stage before `dagster`.
+    #[default]
+    Airflow,
+    /// Dagster, through the job's sensor and its Dagster job (`foundation_job__<id>`).
+    Dagster,
+}
+
 /// One dataset a scheduled job reads or writes: an endpoint of a pipeline-graph edge the job
 /// carries out.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
@@ -381,6 +395,8 @@ pub struct ScheduledJobStatus {
     pub recent_runs: Vec<ScheduledJobRun>,
     /// What starts it.
     pub started_by: ScheduledJobStart,
+    /// Which orchestrator decides it: where its runs and their logs are opened.
+    pub decided_by: ScheduledJobScheduler,
     /// The other jobs that write one of the datasets it reads, in job-list order: the jobs it waits
     /// on (root ADR-0171, ADR-0188).
     pub upstream_job_ids: Vec<String>,
