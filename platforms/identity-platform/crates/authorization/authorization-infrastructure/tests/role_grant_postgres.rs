@@ -11,7 +11,7 @@ use authorization_application::ports::{
 };
 use authorization_domain::RoleCode;
 use authorization_infrastructure::{PgExternalAccountLinkUnitOfWork, PgRoleGrantUnitOfWork};
-use chrono::{Duration, Utc};
+use chrono::{Duration, DurationRound, Utc};
 use identity_shared_kernel::StaffId;
 use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -276,7 +276,7 @@ async fn assert_external_account_contract(
 ) -> TestResult {
     let unit_of_work = PgExternalAccountLinkUnitOfWork::new(api_pool.clone());
     let account = ExternalAccount::parse("github", "583231")?;
-    let since = Utc::now() - Duration::days(1);
+    let since = (Utc::now() - Duration::days(1)).duration_trunc(Duration::microseconds(1))?;
     let (first, second) = tokio::join!(
         unit_of_work.link(target, &account, since, grantor),
         unit_of_work.link(grantor, &account, since, grantor),

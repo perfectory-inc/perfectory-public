@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use authorization_application::ports::{
     ExternalAccountLinkPersistenceError, ExternalAccountLinkUnitOfWork,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, DurationRound, TimeDelta, Utc};
 use identity_contracts::{IdentityEventV1, PrincipalId, StaffExternalAccountChangedV1};
 use identity_shared_kernel::StaffId;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -62,6 +62,7 @@ impl ExternalAccountLinkUnitOfWork for PgExternalAccountLinkUnitOfWork {
         valid_from: DateTime<Utc>,
         linked_by: StaffId,
     ) -> Result<ExternalAccountLink, ExternalAccountLinkPersistenceError> {
+        let valid_from = stored_precision(valid_from);
         let mut transaction = self.pool.begin().await.map_err(map_sqlx)?;
         let states = lock_and_read(&mut transaction, account).await?;
         if states
@@ -98,13 +99,18 @@ impl ExternalAccountLinkUnitOfWork for PgExternalAccountLinkUnitOfWork {
             staff_id,
             account: account.clone(),
             valid_from: holding.valid_from,
-            valid_to: Some(Utc::now().max(holding.valid_from)),
+            valid_to: Some(stored_precision(Utc::now()).max(holding.valid_from)),
             linked_by: unlinked_by,
         };
         append(&mut transaction, &record).await?;
         transaction.commit().await.map_err(map_sqlx)?;
         Ok(record)
     }
+}
+
+/// `timestamptz` keeps microseconds; the record answered is the record stored.
+fn stored_precision(at: DateTime<Utc>) -> DateTime<Utc> {
+    at.duration_trunc(TimeDelta::microseconds(1)).unwrap_or(at)
 }
 
 async fn lock_and_read(

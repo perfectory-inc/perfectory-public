@@ -42,6 +42,14 @@ pub trait ReadinessProbe: Send + Sync {
     }
 }
 
+/// The use cases that change what a staff member holds: roles and external-account links.
+pub struct StaffAdministration {
+    /// Grants a role to a staff member.
+    pub assign_staff_role: Arc<AssignStaffRole>,
+    /// Links or unlinks a source's account to a staff member.
+    pub link_external_account: Arc<LinkStaffExternalAccount>,
+}
+
 /// Immutable application composition shared by all Identity routes.
 pub struct AppState {
     pub(crate) verify_staff_session: Arc<VerifyStaffSession>,
@@ -61,8 +69,7 @@ impl AppState {
     pub fn new(
         verify_staff_session: Arc<VerifyStaffSession>,
         revoke_staff_session: Arc<RevokeStaffSession>,
-        assign_staff_role: Arc<AssignStaffRole>,
-        link_external_account: Arc<LinkStaffExternalAccount>,
+        staff_administration: StaffAdministration,
         evaluate_access: EvaluateAccess,
         service_credential_verifier: Arc<dyn ServiceCredentialVerifier>,
         authorize_service_call: Arc<AuthorizeServiceCall>,
@@ -71,8 +78,8 @@ impl AppState {
         Self {
             verify_staff_session,
             revoke_staff_session,
-            assign_staff_role,
-            link_external_account,
+            assign_staff_role: staff_administration.assign_staff_role,
+            link_external_account: staff_administration.link_external_account,
             evaluate_access,
             service_credential_verifier,
             authorize_service_call,
@@ -144,8 +151,10 @@ impl AppState {
         Ok(Self::new(
             verify_staff_session,
             revoke_staff_session,
-            assign_staff_role,
-            link_external_account,
+            StaffAdministration {
+                assign_staff_role,
+                link_external_account,
+            },
             EvaluateAccess::new(),
             service_credential_verifier,
             authorize_service_call,

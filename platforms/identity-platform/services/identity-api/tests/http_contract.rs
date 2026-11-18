@@ -15,7 +15,7 @@ use axum::http::{header, Method, Request, StatusCode};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use chrono::{Duration, TimeZone, Utc};
-use identity_api::state::{AppState, ReadinessProbe};
+use identity_api::state::{AppState, ReadinessProbe, StaffAdministration};
 use identity_api::{openapi_document, router};
 use identity_contracts::{
     PolicyDecisionResponse, PrincipalId, ResourceAction, StaffExternalAccountResponse,
@@ -567,6 +567,7 @@ fn openapi_declares_header_bearer_security_without_credential_request_fields(
             "/identity/v1/policy/decisions",
             "/identity/v1/staff/sessions/revoke",
             "/identity/v1/staff/sessions/verify",
+            "/identity/v1/staff/{staff_id}/external-accounts",
             "/identity/v1/staff/{staff_id}/roles",
             "/readyz",
         ]
@@ -633,8 +634,10 @@ fn test_harness_with_readiness(database_ready: bool, issuer_ready: bool) -> Harn
     let state = AppState::new(
         verify,
         revoke,
-        assign,
-        link,
+        StaffAdministration {
+            assign_staff_role: assign,
+            link_external_account: link,
+        },
         EvaluateAccess::new(),
         Arc::new(FakeServiceVerifier {
             events: events.clone(),
@@ -681,8 +684,10 @@ fn real_verifier_harness(issuer: &str) -> Harness {
     let state = AppState::new(
         verify,
         revoke,
-        assign,
-        link,
+        StaffAdministration {
+            assign_staff_role: assign,
+            link_external_account: link,
+        },
         EvaluateAccess::new(),
         service_verifier,
         authorize,
