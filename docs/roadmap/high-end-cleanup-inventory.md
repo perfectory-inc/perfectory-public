@@ -33,7 +33,7 @@ last_reviewed: 2026-11-04
 | E 땜질 가드 | 10 (PATCH) | 0 | 구현 2,520 · 자기 시험 1,118 | 줄기만 하는 기준선 6개, 가드를 지키는 가드 |
 | (참고) 남기는 가드 | 24 (KEEP-DOMAIN) | 24 | 구현 5,922 · 자기 시험 3,816 | 도메인 불변식 |
 
-A-3 가드 → 도구 규칙 진행(2026-11-11 실물 대조): 38개 중 끝남 22 · 절반 3 · 남음 13. 끝남·절반은 아래 A-3 표의 행 상태가 정본이다.
+A-3 가드 → 도구 규칙 진행(2026-11-11 실물 대조): 38개 중 끝남 23 · 절반 3 · 남음 12. 끝남·절반은 아래 A-3 표의 행 상태가 정본이다.
 
 가드 100개(구현 24,439 · 자기 시험 12,039) 중 사고를 날짜·번호로 적은 것은 44개다(ADR-0001 요구).
 11-04 표본 조사의 "가드 76개 중 약 40개 교체 가능"은 전수로 보면 R-OSS 38 + E-SSOT 24 = 62개다.
@@ -197,7 +197,7 @@ LOC는 테스트 파일(`*_tests.rs`, `tests.rs`, `/tests/`, `test_*`)을 제외
 
 | id | 가드(경로) | LOC(자기 시험) | 검사 | 사고 명시 | 대체 | 병렬 | 크기 |
 |---|---|---|---|---|---|---|---|
-| G001 | no-subdir-github<br>scripts/guard/no-subdir-github.sh | 12 (0) | 루트 밖에 중첩된 `.github/workflows`가 없는지 검사 | 예 2026-07-19 (전 영역 CI 먹통) | `**/.github` 디렉터리를 금지하는 ls-lint 규칙 | 예 | S |
+| G001 **끝남(W32d: Opengrep `no-subdir-github.yml`, generic — 워크플로의 `on:` 키를 영역 아래 .github/workflows 에서 읽음)** | no-subdir-github<br>scripts/guard/no-subdir-github.sh | 12 (0) | 루트 밖에 중첩된 `.github/workflows`가 없는지 검사 | 예 2026-07-19 (전 영역 CI 먹통) | `**/.github` 디렉터리를 금지하는 ls-lint 규칙 | 예 | S |
 | G007 **끝남(#1083)** | r2-reads-have-one-path<br>scripts/guard/r2-reads-have-one-path.sh | 85 (65) | tools/r2-read-paths.contract.json이 지정한 곳 밖에 S3/R2 클라이언트·재시도 설정이 없는지 검사 | 예 2026-10-14 #559, 10-15 #594 | 허용된 곳을 paths.exclude로 둔 Semgrep 규칙(py `import boto3\|s3fs`, rs `aws_sdk_s3::Client::from_conf`, ts) | 예 | S |
 | G009 | migration-naming<br>scripts/guard/migration-naming.sh | 25 (32) | 마이그레이션 파일명이 `YYYYMMDDHHMMSS_snake.sql` 형식이고 버전이 트리 전체에서 유일한지 검사 | 예 PR #636/#633 버전 중복 | ls-lint `.sql: regex:[0-9]{14}_[a-z0-9_]+`; 유일성은 이미 `numbering_collisions.py`에 | 예 | S |
 | G011 **끝남(#1060)** | health-route-conformance<br>scripts/guard/health-route-conformance.sh | 13 (0) | 라우트가 `/health...`가 아니라 `/healthz`,`/readyz`를 쓰는지 검사 | 약함 (4가지 스타일 관찰) | Semgrep rust `.route("/health"...)` pattern-regex | 예 | S |

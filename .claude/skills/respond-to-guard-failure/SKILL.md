@@ -12,8 +12,9 @@ before "fixing" anything.
 
 ## The seven guards
 
-### 1. no-subdir-github
+### 1. no-subdir-github (now the Opengrep rule `no-workflow-outside-the-root-github-directory`)
 
+- Runs inside `semgrep-rules` (`tools/semgrep/rules/no-subdir-github.yml`).
 - Failing means: a `.github/workflows/` exists inside `products/` or
   `platforms/`. GitHub never executes those — on 2026-07-19 all four areas'
   pipelines were silently dead this way.
