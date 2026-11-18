@@ -27,6 +27,8 @@
     { "action": "operator_action.promote_edition", "source": "dawneer" },
     { "action": "operator_action.approve_cutover", "source": "dawneer" },
     { "action": "operator_action.force_full", "source": "dawneer" },
+    { "action": "map_edit.upsert", "source": "dawneer" },
+    { "action": "map_edit.delete", "source": "dawneer" },
     { "action": "audit.exported", "source": "audit" },
     { "action": "audit.import_gap", "source": "audit" }
   ]

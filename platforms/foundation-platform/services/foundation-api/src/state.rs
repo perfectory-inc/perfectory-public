@@ -310,6 +310,56 @@ pub struct AppState {
     runtime_manifest_publication: RuntimeManifestPublicationCapability,
 }
 
+/// The audit chain route tests write to: appends are kept, reads answer nothing (root ADR-0569).
+#[cfg(test)]
+#[derive(Default)]
+pub struct MemoryAuditStore {
+    pub appended: std::sync::Mutex<Vec<catalog_application::ports::AuditAppend>>,
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl catalog_application::ports::AuditEventStore for MemoryAuditStore {
+    async fn page(
+        &self,
+        _filter: &catalog_application::ports::AuditEventFilter,
+    ) -> Result<
+        Vec<catalog_application::ports::AuditEvent>,
+        catalog_application::ports::AuditStoreError,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn append(
+        &self,
+        event: &catalog_application::ports::AuditAppend,
+    ) -> Result<Option<i64>, catalog_application::ports::AuditStoreError> {
+        let mut appended = self.appended.lock().map_err(|_| {
+            catalog_application::ports::AuditStoreError::Unavailable("poisoned".to_owned())
+        })?;
+        appended.push(event.clone());
+        Ok(i64::try_from(appended.len()).ok())
+    }
+
+    async fn import_status(
+        &self,
+    ) -> Result<
+        Vec<catalog_application::ports::AuditImportStatus>,
+        catalog_application::ports::AuditStoreError,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn latest_digest(
+        &self,
+    ) -> Result<
+        Option<catalog_application::ports::AuditDigestHead>,
+        catalog_application::ports::AuditStoreError,
+    > {
+        Ok(None)
+    }
+}
+
 #[cfg(test)]
 struct RejectingIdentityAuthorization;
 
@@ -589,7 +639,8 @@ impl AppState {
             pool,
             DatabaseBudgetConfig::default().max_connections,
             Arc::new(RejectingIdentityAuthorization),
-        ))
+        )
+        .with_audit_event_store(Arc::new(MemoryAuditStore::default())))
     }
 
     #[cfg(test)]
@@ -601,7 +652,8 @@ impl AppState {
             pool,
             DatabaseBudgetConfig::default().max_connections,
             identity_authorization,
-        ))
+        )
+        .with_audit_event_store(Arc::new(MemoryAuditStore::default())))
     }
 
     #[cfg(test)]
@@ -615,7 +667,8 @@ impl AppState {
             DatabaseBudgetConfig::default().max_connections,
             normalization_uow,
             identity_authorization,
-        ))
+        )
+        .with_audit_event_store(Arc::new(MemoryAuditStore::default())))
     }
 
     #[cfg(test)]
@@ -631,7 +684,8 @@ impl AppState {
             normalization_uow,
             lakehouse_uow,
             identity_authorization,
-        ))
+        )
+        .with_audit_event_store(Arc::new(MemoryAuditStore::default())))
     }
 
     async fn bootstrap_with_config(config: AppConfig) -> anyhow::Result<Self> {
