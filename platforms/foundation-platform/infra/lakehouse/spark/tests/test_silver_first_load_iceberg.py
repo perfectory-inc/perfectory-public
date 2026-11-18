@@ -47,6 +47,8 @@ JOBS = "platforms/foundation-platform/infra/lakehouse/spark/jobs/"
 # The call that makes a job's write one of the shared cases; the first that matches wins.
 SHARED_WRITERS = (("object", "append_source_object("), ("batch", "append_batch_once("),
                   ("batch", "append_and_read_back("))
+NOTICE_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
+                     "a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_no_row_is_recorded")
 # A table whose job writes it its own way: the test that loads its empty table, as module.Class.method.
 OWN_WRITERS = {
     "silver.administrative_boundaries": "test_silver_first_load_iceberg.AdministrativeBoundariesFirstLoadTest."
@@ -62,6 +64,9 @@ OWN_WRITERS = {
     # real Iceberg table of this contract, named as rust:<file under the platform>::<test function>.
     "silver.parcel_lineage": "rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
                              "duckdb_staged_rows_are_appended_with_their_record_and_read_back",
+    # The ILIS notice Silver load's two tables, appended by the publisher the same way (root ADR-0559).
+    "silver.industrial_complex_notice_detail": NOTICE_FIRST_LOAD,
+    "silver.industrial_complex_notice_attachment": NOTICE_FIRST_LOAD,
 }
 RUST_TEST = "rust:"
 

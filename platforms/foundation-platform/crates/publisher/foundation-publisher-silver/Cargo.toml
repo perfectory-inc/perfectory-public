@@ -14,7 +14,8 @@ workspace = true
 [features]
 default = ["bundled-duckdb"]
 # `parquet`: the stage writes its rows with DuckDB's own Parquet writer (`COPY … FIELD_IDS`, root ADR-0560 §2).
-bundled-duckdb = ["duckdb/bundled", "duckdb/parquet"]
+# `json`: the ILIS notice load reads its Bronze lines with DuckDB's JSON functions (root ADR-0559).
+bundled-duckdb = ["duckdb/bundled", "duckdb/parquet", "duckdb/json"]
 
 [dependencies]
 anyhow = { workspace = true }

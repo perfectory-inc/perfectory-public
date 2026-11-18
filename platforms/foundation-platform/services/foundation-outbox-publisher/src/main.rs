@@ -99,6 +99,7 @@ mod handoff_object_support;
 mod juso_electronic_map_base;
 mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
+mod industrial_complex_notice_silver_load;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
@@ -257,6 +258,7 @@ enum Command {
     ExportLineageStewardFold,
     AppendLineageStewardFold,
     DeriveParcelLineage,
+    LoadIndustrialComplexNoticeSilver,
     ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -572,6 +574,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportLineageStewardFold => Box::pin(lineage_steward_fold::export()),
         Command::AppendLineageStewardFold => Box::pin(lineage_steward_fold::append()),
         Command::DeriveParcelLineage => Box::pin(parcel_lineage_derive::run()),
+        Command::LoadIndustrialComplexNoticeSilver => {
+            Box::pin(industrial_complex_notice_silver_load::run())
+        }
         Command::ExportLegalDongStewardDecisions => {
             Box::pin(lineage_steward_fold::export_legal_dong())
         }
@@ -725,6 +730,9 @@ where
         Some("export-lineage-steward-fold") => Ok(Command::ExportLineageStewardFold),
         Some("append-lineage-steward-fold") => Ok(Command::AppendLineageStewardFold),
         Some("derive-parcel-lineage") => Ok(Command::DeriveParcelLineage),
+        Some("load-industrial-complex-notice-silver") => {
+            Ok(Command::LoadIndustrialComplexNoticeSilver)
+        }
         Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),

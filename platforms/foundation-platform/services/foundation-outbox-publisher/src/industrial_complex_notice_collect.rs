@@ -9,7 +9,7 @@
 //! shared content-addressed media store (`media_store::store_bytes_as`, root ADR-0298). The detail
 //! lands in Bronze with each attachment annotated by its hash, format, size, source URL and
 //! outcome, `commit_every` notices to a gzip JSON Lines object, so a stopped run loses at most one
-//! batch. The Silver load (`infra/lakehouse/spark/jobs/industryland_or_kr.py`) turns the lines into
+//! batch. The Silver load (`load-industrial-complex-notice-silver`) turns the lines into
 //! the read record and the attachment index.
 //!
 //! It reads nothing inside the files: text, OCR and extraction belong to the intelligence platform,

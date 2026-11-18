@@ -21,12 +21,10 @@ use std::{
 };
 
 use anyhow::{bail, Context};
-use foundation_outbox::object_storage::R2ObjectStorageConfig;
 use foundation_publisher_core::lakehouse_data_commit::{
     AppendOutcome, DataAppend, LakehouseDataCommitter, TableShape,
 };
 use foundation_publisher_silver::{
-    duckdb_extensions,
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
     parcel_lineage_schedule::{
         awaits_load, edition_pairs, is_held, sido_groups, sido_of_edition, superseded_since,
@@ -75,24 +73,6 @@ async fn current_snapshot(catalog: &IcebergRestCatalog, table: &str) -> anyhow::
         .first()
         .map(|snapshot| snapshot.snapshot_id)
         .with_context(|| format!("{table} holds no snapshot"))
-}
-
-fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
-    let catalog = LakehouseCatalogConfig::from_env()
-        .context("failed to configure the lakehouse catalog for the lineage derivation")?;
-    let storage = R2ObjectStorageConfig::from_env()
-        .context("failed to configure lakehouse R2 reads for the lineage derivation")?;
-    Ok(LakehouseRead {
-        extensions: duckdb_extensions::release_directory()?,
-        catalog_uri: catalog.catalog_uri,
-        warehouse: catalog.warehouse,
-        catalog_token: catalog
-            .catalog_token
-            .context("the lakehouse catalog token is required")?,
-        s3_endpoint: storage.endpoint,
-        s3_access_key_id: storage.access_key_id,
-        s3_secret_access_key: storage.secret_access_key,
-    })
 }
 
 fn group_json(from_sido: &[String], to_sido: &[String]) -> serde_json::Map<String, Value> {
@@ -254,7 +234,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .unwrap_or_else(|| Path::new("."));
     let stage = Mutex::new(DuckDbParquetStage::open_reading_lakehouse(
         work,
-        &lakehouse_read()?,
+        &LakehouseRead::from_env()?,
     )?);
     let run = Run {
         stage: &stage,
