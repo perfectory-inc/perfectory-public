@@ -14,6 +14,7 @@ use axum::{
     Json, Router,
 };
 use foundation_contracts::data_catalog::{
+    AuditDigestView, AuditEventPage, AuditEventView, AuditImportSource, AuditImportStatusPage,
     ByPnuCutoverApproval, ByPnuCutoverEvent, ByPnuCutovers, CiTimeTrend, CiWeek, DataCatalogEntity,
     DataCatalogEntityKind, DataCatalogField, DataCatalogNeighbourhood, DataCatalogSearchPage,
     DataContractQuality, DataQualityCheck, DataQualityDetail, DataQualityResult, DataQualityStatus,
@@ -34,6 +35,7 @@ use super::api_error::ApiError;
 use crate::state::AppState;
 
 mod alerts;
+mod audit;
 mod by_pnu_cutovers;
 mod facts;
 mod health;
@@ -67,7 +69,10 @@ const MAX_NEIGHBOURS: u32 = 200;
         snapshots::dataset_snapshots,
         service_checks::service_checks,
         parcel_editions::parcel_editions,
-        by_pnu_cutovers::by_pnu_cutovers
+        by_pnu_cutovers::by_pnu_cutovers,
+        audit::audit_events,
+        audit::export_audit_events,
+        audit::audit_import_status
     ),
     components(schemas(
         DataCatalogEntity,
@@ -84,6 +89,11 @@ const MAX_NEIGHBOURS: u32 = 200;
         ScheduledJobProblem,
         OperatorActionRequest,
         OperatorActionRecorded,
+        AuditEventPage,
+        AuditEventView,
+        AuditImportStatusPage,
+        AuditImportSource,
+        AuditDigestView,
         FailureCause,
         OperationsLinks,
         DatasetSnapshots,
@@ -184,6 +194,34 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                 state,
                 super::STAFF_JOBS_OPERATE,
                 Some("job_id"),
+            ),
+        )
+        // The audit chain (root ADR-0569 §7).
+        .route(
+            "/data-catalog/v1/audit/events",
+            super::protected_route(
+                get(audit::audit_events),
+                state,
+                super::STAFF_AUDIT_READ,
+                None,
+            ),
+        )
+        .route(
+            "/data-catalog/v1/audit/events/export",
+            super::protected_route(
+                get(audit::export_audit_events),
+                state,
+                super::STAFF_AUDIT_READ,
+                None,
+            ),
+        )
+        .route(
+            "/data-catalog/v1/audit/import-status",
+            super::protected_route(
+                get(audit::audit_import_status),
+                state,
+                super::STAFF_AUDIT_READ,
+                None,
             ),
         )
 }
