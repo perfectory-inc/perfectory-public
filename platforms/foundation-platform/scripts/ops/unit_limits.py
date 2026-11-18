@@ -119,6 +119,10 @@ def runs(lines) -> dict[str, list[Run]]:
             peak = event.get("MEMORY_PEAK")
             current.peak = int(peak) if peak and peak.isdigit() else None
             out.setdefault(unit, []).append(open_runs.pop(unit))
+    # A unit whose newest run died at its cap logged no resource line and has not started since: its
+    # failure ended that run. One still running has no end and is not counted.
+    for unit, current in open_runs.items():
+        out.setdefault(unit, []).append(current)
     return out
 
 
