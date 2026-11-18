@@ -13,6 +13,7 @@ ALTER TABLE catalog.lineage_review_item
     DROP CONSTRAINT lineage_review_item_unit_check,
     DROP CONSTRAINT lineage_review_item_subject_code_check,
     DROP CONSTRAINT lineage_review_item_status_check,
+    DROP CONSTRAINT lineage_review_item_candidates_json_check,
     ADD CONSTRAINT lineage_review_item_unit_check CHECK (unit IN ('parcel', 'legal_dong', 'place_reference')),
     ADD CONSTRAINT lineage_review_item_subject_code_check CHECK (
         (unit = 'parcel' AND subject_code ~ '^[0-9]{19}$')
@@ -21,7 +22,11 @@ ALTER TABLE catalog.lineage_review_item
     ADD CONSTRAINT lineage_review_item_status_check CHECK (
         (unit = 'parcel' AND status IN ('needs_review', 'pending', 'sample'))
         OR (unit = 'legal_dong' AND status IN ('steward', 'split', 'awaiting_data'))
-        OR (unit = 'place_reference' AND status IN ('steward', 'awaiting_data')));
+        OR (unit = 'place_reference' AND status IN ('steward', 'awaiting_data'))),
+    -- 필지·법정동 항목의 후보는 배열(20260930120000 그대로), 장소 참조 항목의 근거는 객체 하나다.
+    ADD CONSTRAINT lineage_review_item_candidates_json_check CHECK (
+        (unit IN ('parcel', 'legal_dong') AND jsonb_typeof(candidates_json::jsonb) = 'array')
+        OR (unit = 'place_reference' AND jsonb_typeof(candidates_json::jsonb) = 'object'));
 
 ALTER TABLE catalog.lineage_steward_decision
     DROP CONSTRAINT lineage_steward_decision_unit_check,
