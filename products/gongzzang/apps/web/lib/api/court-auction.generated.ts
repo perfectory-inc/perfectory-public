@@ -106,6 +106,21 @@ export const ParcelCourtAuctionByPnuSchema = z.object({
             media_format: z.enum(["pdf"]),
           }).nullish(),
         }).nullish(),
+        filings: z.array(z.object({
+          received_date: z.string().nullish(),
+          filer_role: z.string().nullish(),
+          document_kind: z.string().nullish(),
+          action: z.string().nullish(),
+          result: z.string().nullish(),
+        })).nullish(),
+        deliveries: z.array(z.object({
+          registered_date: z.string().nullish(),
+          reached_date: z.string().nullish(),
+          delivery_result: z.string().nullish(),
+          recipient_role: z.string().nullish(),
+          document_kind: z.string().nullish(),
+          action: z.string().nullish(),
+        })).nullish(),
       }).nullish(),
     })),
     sale_results: z.array(z.object({

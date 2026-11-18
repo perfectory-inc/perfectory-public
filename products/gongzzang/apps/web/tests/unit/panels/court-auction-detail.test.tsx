@@ -58,6 +58,25 @@ const round = {
       opinion: "합성 의견",
       report: { sha256: "a".repeat(64), media_format: "pdf", size_bytes: 1000 },
     },
+    filings: [
+      {
+        received_date: "2099-02-02",
+        filer_role: "채권자",
+        document_kind: "보정서",
+        action: "제출",
+        result: null,
+      },
+    ],
+    deliveries: [
+      {
+        registered_date: "2099-01-28",
+        reached_date: "2099-01-30",
+        delivery_result: "도달",
+        recipient_role: "채권자대리인",
+        document_kind: "보정명령등본",
+        action: "발송",
+      },
+    ],
   },
 };
 
@@ -116,6 +135,14 @@ describe("court auction detail", () => {
     expect(screen.getByText("합성 의견")).toBeTruthy();
     const report = screen.getByRole("link", { name: "감정평가서" });
     expect(report.getAttribute("href")).toContain(`sha256/${"a".repeat(64)}.pdf`);
+  });
+
+  it("shows the case's 문건·송달 as the role and kind, never a name (root ADR-0575 §5)", () => {
+    renderCard({ rounds: [round], source_attribution: "x" } as CourtAuction);
+    expect(screen.getByText("문건처리내역")).toBeTruthy();
+    expect(screen.getByText("채권자 보정서 제출")).toBeTruthy();
+    expect(screen.getByText("채권자대리인 보정명령등본 발송")).toBeTruthy();
+    expect(screen.getByText("2099-01-30 도달")).toBeTruthy();
   });
 
   it("shows an item whose 물건상세 is not read yet without a detail", () => {

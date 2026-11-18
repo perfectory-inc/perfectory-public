@@ -413,6 +413,12 @@ def full_document_frames(spark, round_row):
                                   "written_date": date(2099, 1, 12), "opinion": "합성"},
         job.REPORT_DOC: {"round_seq": 1, "appraisal_no": "합성-01", "written_date": date(2099, 1, 12),
                          "sha256": "a" * 64, "media_format": "pdf", "size_bytes": 1000},
+        # 문건·송달 (root ADR-0575 §5): the role and kind, never the masked name.
+        job.FILING_DOC: {"filing_seq": 1, "received_date": date(2099, 2, 2), "filer_role": "채권자", "document_kind": "보정서",
+                         "action": "제출", "result": "합성"},
+        job.DELIVERY_DOC: {"delivery_seq": 1, "registered_date": date(2099, 1, 28), "reached_date": date(2099, 1, 30),
+                           "delivery_result": "도달", "recipient_role": "채권자대리인", "document_kind": "보정명령등본",
+                           "action": "발송"},
     }
     from platform_contracts import load_lakehouse_contract, spark_sql_type
 

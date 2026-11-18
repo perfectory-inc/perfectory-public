@@ -92,8 +92,11 @@ APPRAISAL_ROUND_DOC = "silver.court_auction_appraisal"
 # A 감정평가 round's stored 감정평가서, in the shared content-addressed store the parcel edge serves.
 REPORT_DOC = "silver.court_auction_appraisal_report"
 REPORT_KEY = (*CASE, "round_seq", "appraisal_no", "written_date")
+# A case's 문건·송달 (root ADR-0575 §5): the role and kind around the name the site masks, never the name.
+FILING_DOC = "silver.court_auction_case_filing"
+DELIVERY_DOC = "silver.court_auction_case_delivery"
 CASE_DOCUMENT_SOURCES = (RELATED_DOC, CASE_OBJECT_DOC, PARTY_DOC, SURVEY_DOC, SURVEY_OBJECT_DOC, APPRAISAL_ROUND_DOC,
-                         REPORT_DOC)
+                         REPORT_DOC, FILING_DOC, DELIVERY_DOC)
 DOCUMENT_SOURCES = (CASE_DOC, SPEC_DOC, SCHEDULE_DOC, OBJECT_DOC, ANNEX_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
 CASE_DOCUMENTS = (CASE_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
 # The site's 공통코드 (root ADR-0540 §5): the name of each code a document carries.
@@ -301,9 +304,13 @@ def detail_parts(frames: dict[str, Any]) -> dict[str, Any]:
     appraisal = newest_round(current(APPRAISAL_ROUND_DOC)).join(reports, list(REPORT_KEY), "left").select(
         *CASE, F.struct("round_seq", "appraisal_no", "price_basis_date", "written_date", "opinion", "report")
         .alias("_appraisal"))
+    filings = _listed(current(FILING_DOC), CASE, ("filing_seq",), [
+        "received_date", "filer_role", "document_kind", "action", "result"], "_filings")
+    deliveries = _listed(current(DELIVERY_DOC), CASE, ("delivery_seq",), [
+        "registered_date", "reached_date", "delivery_result", "recipient_role", "document_kind", "action"], "_deliveries")
     return {"case": case, "spec": spec, "schedule": schedule, "objects": objects, "annexes": annexes,
             "appraisal_points": points, "related_cases": related, "parties": parties, "survey": survey,
-            "appraisal": appraisal}
+            "appraisal": appraisal, "filings": filings, "deliveries": deliveries}
 
 
 def newest_round(rows: Any) -> Any:
@@ -332,7 +339,7 @@ def with_detail(round_rows: Any, frames: dict[str, Any], spark: Any = None) -> A
     for name, part in parts.items():
         on = [c for c in part.columns if not c.startswith("_")]
         joined = joined.join(part, on, "left")
-    lists = ("schedule", "objects", "annexes", "appraisal_points", "related_cases", "parties")
+    lists = ("schedule", "objects", "annexes", "appraisal_points", "related_cases", "parties", "filings", "deliveries")
     typed = {name: parts[name].schema[f"_{name}"].dataType.simpleString() for name in lists}
     present = F.col("_case").isNotNull() | F.col("_spec").isNotNull()
     detail = F.struct(F.col("_case").alias("case"), F.col("_spec").alias("spec"), *[
