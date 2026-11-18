@@ -18,6 +18,10 @@ jobs:
     name: Cargo advisories
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Whether main has advisories, for the Renovate pulse (root ADR-0570): the check step's own outcome,
+    # not the job's (a failed setup is not an advisory).
+    outputs:
+      advisories: ${{ steps.workspaces.outcome }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -53,6 +57,7 @@ jobs:
       - name: The check refuses a planted advisory
         run: bash scripts/ci/cargo-advisories-self-test.sh
       - name: Every Cargo workspace on main
+        id: workspaces
         run: bash scripts/ci/cargo-advisories.sh check target/supply-chain/cargo-advisories.md
       - name: Upload supply-chain artifacts
         if: always()
@@ -62,8 +67,8 @@ jobs:
           path: target/supply-chain/
           if-no-files-found: error
           retention-days: 7
-  # The only job that writes: issues, nothing else, on main only, after the check that read the
-  # crates has finished in another job (root ADR-0271).
+  # The jobs that write (this and `repository` below): issues, nothing else, on main only, never in the
+  # job that reads the crates (root ADR-0271, ADR-0570).
   issue:
     name: Advisory issue
     needs: [check]
@@ -116,12 +121,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          ADVISORIES_RESULT: ${{ needs.check.result }}
+          ADVISORIES: ${{ needs.check.outputs.advisories }}
         run: |
           mkdir -p target/repository-drift
-          python3 scripts/ci/repository_drift.py check target/repository-drift/summary.md --advisories-result "$ADVISORIES_RESULT"
-      # The check always records success|failure|unreadable and exits 0; this step keeps the issue
-      # and then fails the run on drift, so the run is red as well.
+          python3 scripts/ci/repository_drift.py check target/repository-drift/summary.md --advisories "$ADVISORIES"
+      # The check records success|failure|unreadable and exits 0 (a crash leaves no record, and this
+      # step does not run); this step keeps the issue and then fails the run on findings.
       - name: Keep the one issue in step
         env:
           GH_TOKEN: ${{ github.token }}
