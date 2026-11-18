@@ -32,7 +32,11 @@ def square_wkb(lon, lat, side, order="<", srid=None):
     return out
 
 
-def edit(seq, n, op="upsert", lon=127.0, lat=37.0, side=0.0001):
+# The public repository's synthetic coordinate (scripts/guard/public-fixture-safety.py), not a place.
+X0, Y0 = 127.1231, 36.1231
+
+
+def edit(seq, n, op="upsert", lon=X0, lat=Y0, side=0.0001):
     row = {"change_seq": seq, "feature_id": pnu(n), "op": op, "geometry_srid": 4326,
            "geometry_wkb_hex": None, "geometry_checksum_sha256": None}
     if op == "upsert":
@@ -43,26 +47,26 @@ def edit(seq, n, op="upsert", lon=127.0, lat=37.0, side=0.0001):
 
 class WkbBoxTest(unittest.TestCase):
     def test_a_polygon_box_is_read_in_either_byte_order_and_with_an_srid(self):
-        expected = (127.0, 37.0, 127.001, 37.001)
-        for wkb in (square_wkb(127.0, 37.0, 0.001), square_wkb(127.0, 37.0, 0.001, ">"),
-                    square_wkb(127.0, 37.0, 0.001, srid=4326)):
+        expected = tuple(round(v, 9) for v in (X0, Y0, X0 + 0.001, Y0 + 0.001))
+        for wkb in (square_wkb(X0, Y0, 0.001), square_wkb(X0, Y0, 0.001, ">"),
+                    square_wkb(X0, Y0, 0.001, srid=4326)):
             self.assertEqual(tuple(round(v, 9) for v in fold.wkb_bbox(wkb)), expected)
 
     def test_a_multipolygon_box_covers_every_part(self):
-        parts = [square_wkb(127.0, 37.0, 0.001), square_wkb(127.01, 37.02, 0.001)]
+        parts = [square_wkb(X0, Y0, 0.001), square_wkb((X0 + 0.01), (Y0 + 0.02), 0.001)]
         wkb = struct.pack("<BII", 1, fold.WKB_MULTIPOLYGON, 2) + b"".join(parts)
-        self.assertEqual(tuple(round(v, 9) for v in fold.wkb_bbox(wkb)), (127.0, 37.0, 127.011, 37.021))
+        self.assertEqual(tuple(round(v, 9) for v in fold.wkb_bbox(wkb)), tuple(round(v, 9) for v in (X0, Y0, X0 + 0.011, Y0 + 0.021)))
 
     def test_a_truncated_or_padded_or_non_polygon_wkb_is_refused(self):
-        wkb = square_wkb(127.0, 37.0, 0.001)
-        for bad in (wkb[:-3], wkb + b"\x00", struct.pack("<BIdd", 1, 1, 127.0, 37.0)):
+        wkb = square_wkb(X0, Y0, 0.001)
+        for bad in (wkb[:-3], wkb + b"\x00", struct.pack("<BIdd", 1, 1, X0, Y0)):
             with self.assertRaises(ValueError):
                 fold.wkb_bbox(bad)
 
 
 class EditStatesTest(unittest.TestCase):
     def test_before_is_the_last_edit_up_to_the_served_sequence_and_after_the_last_of_all(self):
-        ledger = [edit(1, 1, lon=127.0), edit(2, 2), edit(3, 1, lon=127.5), edit(4, 3, op="delete")]
+        ledger = [edit(1, 1, lon=X0), edit(2, 2), edit(3, 1, lon=(X0 + 0.5)), edit(4, 3, op="delete")]
         before, after = fold.edit_states(ledger, through=2)
         self.assertEqual(sorted(after), [pnu(1), pnu(3)], "only PNUs edited after 2 change")
         self.assertEqual(before[pnu(1)]["change_seq"], 1)
@@ -76,17 +80,17 @@ class EditStatesTest(unittest.TestCase):
 class NeighbourhoodTest(unittest.TestCase):
     def test_a_box_meets_a_tiles_widened_rectangle_exactly_when_tile_range_names_the_tile(self):
         # The Silver predicate (rectangles) and the tile math (tile_range) agree box by box.
-        tiles = fold.neighbourhood_tiles([(127.0, 37.0, 127.0001, 37.0001)])
+        tiles = fold.neighbourhood_tiles([(X0, Y0, (X0 + 0.0001), (Y0 + 0.0001))])
         self.assertTrue(tiles)
         for dx in (-0.03, -0.0215, -0.02, 0.0, 0.02, 0.0215, 0.03):
             for dy in (-0.03, -0.017, 0.0, 0.017, 0.03):
-                box = (127.0 + dx, 37.0 + dy, 127.0001 + dx, 37.0001 + dy)
+                box = (X0 + dx, Y0 + dy, (X0 + 0.0001) + dx, (Y0 + 0.0001) + dy)
                 span = by_tile.tile_range(box, fold.NEIGHBOURHOOD_ZOOM, by_tile.MEMBERSHIP_BUFFER_PIXELS)
                 named = {(x, y) for x in range(span[0], span[2] + 1) for y in range(span[1], span[3] + 1)}
                 self.assertEqual(fold.touches_any(box, tiles), bool(named & set(tiles)), box)
 
     def test_the_predicate_is_one_rectangle_test_per_tile(self):
-        tiles = fold.neighbourhood_tiles([(127.0, 37.0, 127.0001, 37.0001)])
+        tiles = fold.neighbourhood_tiles([(X0, Y0, (X0 + 0.0001), (Y0 + 0.0001))])
         predicate = fold.silver_predicate(tiles)
         self.assertEqual(predicate.count(" OR ") + 1, len(tiles))
         self.assertEqual(fold.silver_predicate([]), "false")
@@ -103,8 +107,8 @@ class NeighbourhoodTest(unittest.TestCase):
 
 class PlanTest(unittest.TestCase):
     def test_the_neighbourhood_covers_the_old_and_the_new_box_of_a_moved_parcel(self):
-        silver = {pnu(1): (127.0, 37.0, 127.0001, 37.0001)}
-        ledger = [edit(1, 1, lon=127.2, lat=37.2)]
+        silver = {pnu(1): (X0, Y0, (X0 + 0.0001), (Y0 + 0.0001))}
+        ledger = [edit(1, 1, lon=(X0 + 0.2), lat=(Y0 + 0.2))]
         planned = fold.plan(ledger, 0, silver)
         old = fold.neighbourhood_tiles([silver[pnu(1)]])
         new = fold.neighbourhood_tiles([fold.edit_box(ledger[0])])
@@ -115,21 +119,21 @@ class PlanTest(unittest.TestCase):
     def test_an_earlier_edit_inside_the_neighbourhood_is_handed_from_its_edit(self):
         # PNU 2 was edited in an earlier fold to a place beside PNU 1's change: the served row of
         # PNU 2 is its edit, which the handoff must carry; its Silver row is not served.
-        ledger = [edit(1, 2, lon=127.00005), edit(2, 1, lon=127.0)]
-        planned = fold.plan(ledger, 1, {pnu(1): (127.0, 37.0, 127.0001, 37.0001)})
+        ledger = [edit(1, 2, lon=(X0 + 5e-05)), edit(2, 1, lon=X0)]
+        planned = fold.plan(ledger, 1, {pnu(1): (X0, Y0, (X0 + 0.0001), (Y0 + 0.0001))})
         self.assertEqual(planned["ledger_pnus"], [pnu(1), pnu(2)])
         self.assertEqual(planned["edited_in_neighbourhood"], [pnu(1), pnu(2)])
         self.assertEqual([line["feature_id"] for line in planned["changes"]], [pnu(1)])
 
     def test_a_deleted_parcel_dirties_its_old_box_and_is_not_handed(self):
         ledger = [edit(1, 1, op="delete")]
-        planned = fold.plan(ledger, 0, {pnu(1): (127.0, 37.0, 127.0001, 37.0001)})
+        planned = fold.plan(ledger, 0, {pnu(1): (X0, Y0, (X0 + 0.0001), (Y0 + 0.0001))})
         self.assertTrue(planned["tiles"])
         self.assertEqual(planned["edited_in_neighbourhood"], [])
         self.assertEqual(planned["changes"], [{"feature_id": pnu(1), "op": "delete"}])
 
     def test_a_fold_past_its_tile_bound_is_not_partial(self):
-        ledger = [edit(n, n, lon=124.0 + n * 0.05, lat=34.0 + (n % 40) * 0.05) for n in range(1, 600)]
+        ledger = [edit(n, n, lon=(X0 - 3) + n * 0.05, lat=(Y0 - 3) + (n % 40) * 0.05) for n in range(1, 600)]
         planned = fold.plan(ledger, 0, {})
         self.assertIn("full_reason", planned)
 
