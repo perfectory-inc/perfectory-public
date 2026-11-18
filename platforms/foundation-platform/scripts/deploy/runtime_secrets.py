@@ -128,6 +128,21 @@ def not_a_setting(name: str, tokens: Mapping[str, list[str]]) -> bool:
             or bool(SECRET_SHAPED.search(name)))
 
 
+def fill_findings(contract: Contract) -> list[str]:
+    """What is wrong with the groups' `fills` (root ADR-0565): each names a setting the host group holds."""
+    findings = []
+    for group in contract.groups.values():
+        if not group.fills:
+            continue
+        if group.release:
+            findings.append(f"group {group.name}: a release group fills nothing")
+        for name in sorted(group.fills - group.holds):
+            findings.append(f"group {group.name}: fills {name}, which it does not hold")
+        for name in sorted(fill for fill in group.fills if not_a_setting(fill, contract.tokens)):
+            findings.append(f"group {group.name}: fills {name}, which may carry a secret; credentials are set, never filled")
+    return findings
+
+
 def fill(area: Path = AREA, root: Path = Path("/")) -> list[str]:
     """Appends each name a group `fills` and its file lacks, with the value the other group files that
     hold it agree on (root ADR-0565). Lines of the files changed or left as they were; names only.
@@ -426,16 +441,7 @@ def check(area: Path = AREA) -> list[str]:
                 if host_file not in declared:
                     findings.append(f"{where}: {host_file} is not a group in {CONTRACT}; a host environment file "
                                     f"lives in the contract or not at all (root ADR-0247)")
-    # A group's `fills` (root ADR-0565): names it holds, settings only, in a file the host keeps.
-    for group in contract.groups.values():
-        if not group.fills:
-            continue
-        if group.release:
-            findings.append(f"group {group.name}: a release group fills nothing")
-        for name in sorted(group.fills - group.holds):
-            findings.append(f"group {group.name}: fills {name}, which it does not hold")
-        for name in sorted(fill for fill in group.fills if not_a_setting(fill, contract.tokens)):
-            findings.append(f"group {group.name}: fills {name}, which may carry a secret; credentials are set, never filled")
+    findings += fill_findings(contract)
     return findings
 
 

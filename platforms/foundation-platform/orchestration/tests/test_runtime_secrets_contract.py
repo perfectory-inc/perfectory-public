@@ -342,7 +342,7 @@ class TheHost(unittest.TestCase):
             with self.subTest(name):
                 reader["fills"] = [name]
                 (self.area / "config/runtime-secrets.contract.json").write_text(json.dumps(contract), encoding="utf-8")
-                found = [line for line in runtime_secrets.check(self.area) if "fills" in line]
+                found = runtime_secrets.fill_findings(runtime_secrets.load(self.area))
                 self.assertEqual(len(found), 1, found)
                 self.assertIn(said, found[0])
         self.assertTrue(runtime_secrets.not_a_setting("FOUNDATION_PLATFORM_SOME_DATABASE_URL", {}))
