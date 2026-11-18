@@ -7,6 +7,8 @@ use crate::RoleCode;
 const STAFF_ROLE_RESOURCE: &str = "identity.staff_role";
 const STAFF_ROLE_GRANT_ACTION: &str = "grant";
 const MASTER_ADMIN: &str = "MASTER_ADMIN";
+const STAFF_EXTERNAL_ACCOUNT_RESOURCE: &str = "identity.staff_external_account";
+const STAFF_EXTERNAL_ACCOUNT_LINK_ACTION: &str = "link";
 
 /// One resource action a staff role is granted. `MASTER_ADMIN` holds every action and is not listed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -71,6 +73,17 @@ impl PolicyInput {
     #[must_use]
     pub fn staff_role_grant(roles: Vec<RoleCode>) -> Self {
         Self::resource_action(roles, STAFF_ROLE_RESOURCE, STAFF_ROLE_GRANT_ACTION)
+    }
+
+    /// Builds input for evaluating whether the effective roles may link or unlink a source's
+    /// account to a staff member (root ADR-0569). No role is granted it: `MASTER_ADMIN` only.
+    #[must_use]
+    pub fn staff_external_account_link(roles: Vec<RoleCode>) -> Self {
+        Self::resource_action(
+            roles,
+            STAFF_EXTERNAL_ACCOUNT_RESOURCE,
+            STAFF_EXTERNAL_ACCOUNT_LINK_ACTION,
+        )
     }
 
     /// Builds input for evaluating a resource action.
