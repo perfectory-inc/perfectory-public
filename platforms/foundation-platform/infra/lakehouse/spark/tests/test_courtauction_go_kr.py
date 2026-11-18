@@ -420,6 +420,15 @@ SURVEY = {
     "dlt_ordTsCurstExmnRletLst": [{"objctSeq": 1, "dspslObjctSeq": 1, "auctnPossRltnCd": "09", "lesCnt": 1,
                                    "gdsPossCtt": "소유자 김가상 점유", "dspslStkCtt": "갑구 2번 홍길동 지분"}],
 }
+# 문건·송달 as the site gives it: the names masked with O (root ADR-0575 §5); made-up values.
+FILINGS = {"dlt_ofdocDtsLst": [{"ofdocRcptYmd": "20990202", "rcptDts": "채권자 소송대리인 법OOO OOOOOOO 보정서 제출", "rcptRslt": ""},
+                               {"ofdocRcptYmd": "20990211", "rcptDts": "감정인 (주)OOOOOOOOO 회보서 제출", "rcptRslt": ""},
+                               {"ofdocRcptYmd": "20990212", "rcptDts": "홍길동 열람신청 제출", "rcptRslt": ""}],
+           "dlt_dlvrDtsLst": [{"dlvrbkRegYmd": "20990128", "lastDlvrblRchYmd": "2099.01.30 도달",
+                               "dlvrDts": "채권자대리인  김OO 보정명령등본 발송"},
+                              {"dlvrbkRegYmd": "20990204", "lastDlvrblRchYmd": "2099.02.11 폐문부재",
+                               "dlvrDts": "채무자겸소유자 이OO 개시결정정본 발송"}]}
+
 APPRAISAL = {"dlt_aeeWevlOrdTsLst": [{"ordTsCnt": 1}],
              "dma_ordTsIndvdAeeWevlInf": {"ordTsCnt": "1", "aeeWevlNo": "합성-0001", "dspslPrcCrtrYmd": "20990110",
                                           "wrtYmd": "20990112", "aeeEvlExamrNm": "박감정", "fstmEvlDcsnOponCtt": "본건"}}
@@ -474,7 +483,7 @@ class CaseDocumentRowsTest(unittest.TestCase):
             self.rows("case_survey", [{**failed, "request": {}}])
 
     def test_every_case_table_row_names_only_its_columns_and_the_read_commits_last(self):
-        given = {"case_detail": CASE_DETAIL, "case_survey": SURVEY, "case_appraisal": APPRAISAL}
+        given = {"case_detail": CASE_DETAIL, "case_survey": SURVEY, "case_appraisal": APPRAISAL, "case_filings": FILINGS}
         for role, tables in job.CASE_DOCUMENT_TABLES.items():
             self.assertEqual(tables[-1], job.CASE_READ_TABLE)
             rows = self.rows(role, [case_line(role, given[role])])
@@ -483,6 +492,21 @@ class CaseDocumentRowsTest(unittest.TestCase):
                 self.assertTrue(rows[table], table)
                 self.assertLessEqual(set(rows[table][0]), names, table)
             self.assertEqual(job.search_roles(CONTRACT)[f"courtauctiongokr__{next(d for d in CONTRACT['case_documents']['documents'] if d['role'] == role)['dataset_slug']}"], role)
+
+    def test_filings_keep_the_role_and_the_kind_and_never_the_masked_name(self):
+        tables = self.rows("case_filings", [case_line("case_filings", FILINGS)])
+        filings = tables[job.FILING_TABLE]
+        self.assertEqual([(r["filer_role"], r["document_kind"], r["action"]) for r in filings],
+                         [("채권자 소송대리인", "보정서", "제출"), ("감정인", "회보서", "제출"), (None, None, "제출")])
+        self.assertEqual(filings[0]["received_date"], date(2099, 2, 2))
+        deliveries = tables[job.DELIVERY_TABLE]
+        self.assertEqual([(r["recipient_role"], r["document_kind"], r["reached_date"], r["delivery_result"])
+                          for r in deliveries],
+                         [("채권자대리인", "보정명령등본", date(2099, 1, 30), "도달"),
+                          ("채무자겸소유자", "개시결정정본", date(2099, 2, 11), "폐문부재")])
+        kept = json.dumps(tables[job.FILING_TABLE] + tables[job.DELIVERY_TABLE], ensure_ascii=False, default=str)
+        for name in ("OO", "홍길동", "김", "이OO"):
+            self.assertNotIn(name, kept)
 
 
 def report_line(case, outcome, sha=None):

@@ -511,7 +511,15 @@ mod tests {
             .iter()
             .map(|d| d.role.as_str())
             .collect();
-        assert_eq!(roles, ["case_detail", "case_survey", "case_appraisal"]);
+        assert_eq!(
+            roles,
+            [
+                "case_detail",
+                "case_survey",
+                "case_appraisal",
+                "case_filings"
+            ]
+        );
         assert!(contract.collection.pace.contains_key(&documents.pace_group));
         assert!(documents.per_run_limit >= 40_000);
         let key = vec!["B999999".to_owned(), "20990130000001".to_owned()];
@@ -530,6 +538,12 @@ mod tests {
                 ["dma_srchCurstExmndcRletIndctLst"]["ordTsCnt"],
             json!(""),
             "an empty round asks the newest"
+        );
+        // 문건·송달, as its screen (PGJ15AF03) sends it (root ADR-0575 §4).
+        assert_eq!(
+            request_body(documents, &documents.documents[3], &key, None),
+            json!({"dma_srchDlvrOfdocDts": {"cortOfcCd": "B999999", "csNo": "20990130000001",
+                   "srchFlag": "F"}})
         );
     }
 

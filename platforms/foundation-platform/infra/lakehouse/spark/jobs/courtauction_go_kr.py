@@ -36,6 +36,10 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
 - for a 감정평가서 object (root ADR-0540 §1): the reports it stored into
   `silver.court_auction_appraisal_report` (the media reconcile's index: only stored ones), then every
   request, CAPTCHA skips included, into `silver.court_auction_appraisal_report_read`;
+- for a 문건·송달 object (root ADR-0575 §4-§5): a whole edition per case of its filings and its
+  deliveries (`silver.court_auction_case_filing`, `silver.court_auction_case_delivery`), each the
+  date, the role before the masked name, the document kind after it and the action, never the
+  masked name; then one read row per request in `silver.court_auction_case_document_read`;
 - for a 매각물건명세서 object (root ADR-0575): every version asked, CAPTCHA skips included, into
   `silver.court_auction_sale_specification_read`, the record the collector's next frontier reads. The
   PDF stays under the collector's own prefix; no row names a person.
@@ -108,15 +112,19 @@ PARTY_TABLE = "silver.court_auction_case_party"
 SURVEY_TABLE = "silver.court_auction_survey"
 SURVEY_OBJECT_TABLE = "silver.court_auction_survey_object"
 APPRAISAL_TABLE = "silver.court_auction_appraisal"
+FILING_TABLE = "silver.court_auction_case_filing"
+DELIVERY_TABLE = "silver.court_auction_case_delivery"
 ROUND = (*CASE, "round_seq")
 # Each case document's tables, in commit order, the read record last (root ADR-0540 §3).
 CASE_DOCUMENT_TABLES = {
     "case_detail": (CASE_TABLE, RELATED_TABLE, CASE_OBJECT_TABLE, PARTY_TABLE, CASE_READ_TABLE),
     "case_survey": (SURVEY_TABLE, SURVEY_OBJECT_TABLE, CASE_READ_TABLE),
     "case_appraisal": (APPRAISAL_TABLE, CASE_READ_TABLE),
+    "case_filings": (FILING_TABLE, DELIVERY_TABLE, CASE_READ_TABLE),
 }
 CASE_LATEST_KEYS = {CASE_TABLE: CASE, SURVEY_TABLE: ROUND, APPRAISAL_TABLE: ROUND, CASE_READ_TABLE: CASE_READ_KEY}
-CASE_EDITION_PER = {RELATED_TABLE: CASE, CASE_OBJECT_TABLE: CASE, PARTY_TABLE: CASE, SURVEY_OBJECT_TABLE: ROUND}
+CASE_EDITION_PER = {RELATED_TABLE: CASE, CASE_OBJECT_TABLE: CASE, PARTY_TABLE: CASE, SURVEY_OBJECT_TABLE: ROUND,
+                    FILING_TABLE: CASE, DELIVERY_TABLE: CASE}
 CODE_TABLE = "silver.court_auction_code"
 CODE_KEY = ("system_code", "owner_code", "group_code", "code")
 
@@ -653,6 +661,21 @@ def case_answer_rows(role: str, data: Mapping[str, Any], case_key: Mapping[str, 
         return {CASE_TABLE: case_rows(case_key, data.get("dma_csBasInf"), data.get("dlt_dstrtDemnLstprdDts")),
                 RELATED_TABLE: [{**row, "related_seq": n} for n, row in enumerate(related, start=1)],
                 CASE_OBJECT_TABLE: objects, PARTY_TABLE: parties}
+    if role == "case_filings":
+        filings = []
+        for n, item in enumerate(_list(data.get("dlt_ofdocDtsLst")), start=1):
+            role_words, kind, action = filing_parts(item.get("rcptDts"))
+            filings.append({**case_key, "filing_seq": n, "received_date": ymd(item.get("ofdocRcptYmd")),
+                            "filer_role": role_words, "document_kind": kind, "action": action,
+                            "result": text_or_none(item.get("rcptRslt"))})
+        deliveries = []
+        for n, item in enumerate(_list(data.get("dlt_dlvrDtsLst")), start=1):
+            role_words, kind, action = filing_parts(item.get("dlvrDts"))
+            reached, outcome = reached_parts(item.get("lastDlvrblRchYmd"))
+            deliveries.append({**case_key, "delivery_seq": n, "registered_date": ymd(item.get("dlvrbkRegYmd")),
+                               "reached_date": reached, "delivery_result": outcome, "recipient_role": role_words,
+                               "document_kind": kind, "action": action})
+        return {FILING_TABLE: filings, DELIVERY_TABLE: deliveries}
     if round_seq is None:
         return {}
     keyed = {**case_key, "round_seq": round_seq}
@@ -695,6 +718,43 @@ def case_answer_rows(role: str, data: Mapping[str, Any], case_key: Mapping[str, 
         "court_name": text_or_none(info.get("cortOfcNm")), "user_case_no": text_or_none(info.get("userCsNo")),
         "lawsuit_kind_code": text_or_none(info.get("lwstDvsCd")),
     }]}
+
+
+# A word the site masked a name in ("김OO", "(주)OOOO", "OOOOOO"): it holds the Latin O the site masks with.
+MASKED_WORD = re.compile(r"O")
+# The 문건·송달 text's last word when it is what happened to the document.
+FILING_ACTIONS = ("제출", "발송", "접수", "송달", "교부")
+REACHED = re.compile(r"^\s*(\d{4})[.\-](\d{2})[.\-](\d{2})\s*(.*)$")
+
+
+def filing_parts(value: Any) -> tuple[str | None, str | None, str | None]:
+    """A 문건·송달 text's role, document kind and action (root ADR-0575 §5): the words before the
+    masked ones, the words after them less the action, and the action. The masked words are the name
+    and are never kept. A text with no masked word is kept as its action only: with nothing masked
+    there is no telling a name from a kind."""
+
+    words = (text_or_none(value) or "").split()
+    action = words.pop() if words and words[-1] in FILING_ACTIONS else None
+    masked = [n for n, word in enumerate(words) if MASKED_WORD.search(word)]
+    if not masked:
+        return None, None, action
+    role = " ".join(words[:masked[0]]) or None
+    kind = " ".join(words[masked[-1] + 1:]) or None
+    return role, kind, action
+
+
+def reached_parts(value: Any) -> tuple[date | None, str | None]:
+    """`lastDlvrblRchYmd` as the site gives it ("2026.01.30 도달"): the date and the result."""
+
+    found = REACHED.match(text_or_none(value) or "")
+    if not found:
+        return None, text_or_none(value)
+    year, month, day, rest = found.groups()
+    try:
+        reached = date(int(year), int(month), int(day))
+    except ValueError:
+        reached = None
+    return reached, rest.strip() or None
 
 
 def _list(value: Any) -> list[Mapping[str, Any]]:

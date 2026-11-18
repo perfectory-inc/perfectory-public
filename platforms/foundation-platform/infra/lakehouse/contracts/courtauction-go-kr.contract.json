@@ -134,6 +134,16 @@
         "round_field": "ordTsCnt",
         "rounds_pointer": "/data/dlt_aeeWevlOrdTsLst",
         "answered_round_pointer": "/data/dma_ordTsIndvdAeeWevlInf/ordTsCnt"
+      },
+      {
+        "$comment": "Root ADR-0575 §4-§5. 문건·송달 (PGJ15AF03): the case's received filings (dlt_ofdocDtsLst: date, text, result) and deliveries (dlt_dlvrDtsLst: registered date, reached date and result, text). The site masks the names in the text with O (measured 2026-11-19: 17 filings, 26 deliveries on one case); the Silver load keeps the words before the masked ones (the role) and after them (the document kind and the action), never the masked words. Asked as the other case documents are: when the case is due (its list changed: a new sale date, result or status; or around its sale date).",
+        "role": "case_filings",
+        "dataset_slug": "auction_case_filing",
+        "operation": "selectDlvrOfdocDtsDtl",
+        "path": "/pgj/pgj15A/selectDlvrOfdocDtsDtl.on",
+        "headers": {"SC-Pgmid": "PGJ15AF03"},
+        "request_object": "dma_srchDlvrOfdocDts",
+        "request_constants": {"srchFlag": "F"}
       }
     ]
   },
