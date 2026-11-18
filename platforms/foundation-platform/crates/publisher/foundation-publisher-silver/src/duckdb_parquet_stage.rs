@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use anyhow::{ensure, Context};
+use anyhow::{bail, ensure, Context};
 use duckdb::{Config, Connection};
 use foundation_publisher_core::lakehouse_data_commit::{StagedFile, TableShape};
 
@@ -180,15 +180,51 @@ impl DuckDbParquetStage {
     /// # Errors
     /// The query fails or a row cannot be rendered.
     pub fn json_rows(&self, query: &str) -> anyhow::Result<Vec<String>> {
+        let mut rows = Vec::new();
+        self.each_json_row(query, |row| {
+            rows.push(row);
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+
+    /// Each row `query` answers, as [`Self::json_rows`] renders it, handed to `each` as it is read:
+    /// the result streams a vector at a time (`stream_arrow`, `DuckDB`'s streaming execution), so a
+    /// load of millions of rows never holds them all. The first error `each` returns stops the read.
+    ///
+    /// # Errors
+    /// The query fails, a row cannot be rendered, or `each` refused one.
+    pub fn each_json_row(
+        &self,
+        query: &str,
+        mut each: impl FnMut(String) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        use duckdb::arrow::{array::Array as _, compute::cast, datatypes::DataType};
+
         let mut statement = self
             .connection
             .prepare(&format!("SELECT to_json(q)::VARCHAR FROM ({query}) AS q"))
             .context("DuckDB refused the query")?;
-        let rows = statement
-            .query_map([], |row| row.get::<_, String>(0))
+        let batches = statement
+            .stream_arrow([])
             .context("DuckDB failed to run the query")?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .context("DuckDB failed to read a row")
+        for batch in batches {
+            let batch = batch.context("DuckDB failed to read a row")?;
+            // VARCHAR arrives as a string or a string view, by DuckDB's settings: one form here.
+            let column = cast(batch.column(0), &DataType::Utf8)
+                .context("DuckDB answered a row that is not text")?;
+            let text = column
+                .as_any()
+                .downcast_ref::<duckdb::arrow::array::StringArray>()
+                .context("DuckDB answered a row that is not text")?;
+            for index in 0..text.len() {
+                if text.is_null(index) {
+                    bail!("DuckDB answered a row with no value");
+                }
+                each(text.value(index).to_owned())?;
+            }
+        }
+        Ok(())
     }
 
     /// Writes the rows of `query` as one Parquet file carrying the table's field ids.

@@ -79,6 +79,21 @@ impl LakehouseReader {
             .collect()
     }
 
+    /// Each row `sql` answers, as one `T`, handed to `each` as it streams; the first error stops it.
+    pub(crate) fn each_row<T: serde::de::DeserializeOwned>(
+        &self,
+        sql: &str,
+        mut each: impl FnMut(T) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        let stage = self
+            .stage
+            .lock()
+            .map_err(|_| anyhow::anyhow!("an earlier read panicked"))?;
+        stage.each_json_row(sql, |row| {
+            each(serde_json::from_str(&row).context("a lakehouse row is not the expected shape")?)
+        })
+    }
+
     /// The rows `sql` answers, each one `T`.
     pub(crate) fn rows<T: serde::de::DeserializeOwned>(&self, sql: &str) -> anyhow::Result<Vec<T>> {
         self.json_rows(sql)?

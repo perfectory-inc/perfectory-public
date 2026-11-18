@@ -151,7 +151,6 @@ use foundation_publisher_tiles::static_release_readdress;
 use foundation_publisher_tiles::static_release_toolchain;
 use foundation_publisher_tiles::tile_derivative_object_storage;
 mod real_estate_broker_lookup_load;
-mod trino_cli;
 mod unit_official_price_projection_load;
 use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
 use foundation_publisher_collection::vworld_dataset_collection_plan;
