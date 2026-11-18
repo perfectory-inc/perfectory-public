@@ -56,6 +56,29 @@
     "max_bytes_per_run": 6000000000,
     "run_time_budget_seconds": 3600
   },
+  "base": {
+    "$comment": "Root ADR-0494. The daily changes carry no full set (guide: 초기자료 구축 is the separate full data), so each kind's Silver starts from one base: the 월전체 (monthly full set) of the 주소정보 다운로드 item 도로명주소 전자지도 (item). Read 2026-11-11 from the provider's own download page API (business.juso.go.kr /api/jst/selectBabsRtlDtaDtlList, /api/jst/selectAttrbDBDwldList): item 26 offers only 전체분 (APLY_DTA_SE_CD 11) per month, by 시도 or 전국, history 201601 on, the latest month on 2026-11-11 being 202610 (202611 not yet made); RLS_YN N: downloading needs a login, an application and the approval of the agency holding the region, so no job can ask for it. It is asked once: the base month and every daily change from replay_from on make the current state, so no later month is needed. Measured 2026-11-11 on the 202610 전국 download as placed (W61c): 16 zips, one per 시도 (서울특별시.zip … 전북특별자치도.zip, 4,591,506,695 bytes), each holding one folder <시도코드>/ (11000 … 52000; 12000 is 전남광주통합특별시) with the .shp, .shx and .dbf of the 11 layers below, beside GRS80_UTMK.prj and a layout PDF at the top: 35 members, no .cpg (the DBF text is CP949, language driver 0). A zip is placed, as downloaded, under inbox/<YYYYMM>/. The collector's run lands it once, byte for byte, in the one Bronze source of the base (source; operation juso_electronic_map_base, period YYYY-MM, key named by its SHA-256): the provider's bytes are kept once, not once per kind. Before landing, the run reads the zip's directory and refuses a zip that does not hold every layer's layer_parts in one <시도코드>/ folder; the members each kind reads are written in the run's request_params (juso_base.members) and in the state marker, and measure-bronze-object-members records the whole directory beside the ledger (root ADR-0169 §1), so a kind's Silver opens only its own members of each zip, by ranged reads. A landed zip is recorded under the state directory's base/ so a later run opens only zips it has not landed; the inbox is never written or emptied. A file that is not a zip, a zip without the layers, or a folder that is not a month fails the run and stays where it is. Silver per kind: that kind's layer (layers) in the base month, then every daily change whose base_date is on or after replay_from, in base_date then created_date order, keyed by the kind's key; replay_from is the first day of the month replay_overlap_months before the base month (202610: 2026-09-01), so whatever day the provider cut the full set on, no change after it is missed, and the overlap is safe because a change is the whole row (or a removal by key), so replaying one the base already holds gives the same row. building_group has no layer: the base's TL_SPBD_EQB is the 건물군 outline (columns EQB_MAN_SN, SIG_CD, OPERT_DE), not the linkage's 상세주소 동 (TI_SGCO_RNADR_DONG); it stays in Bronze and is named in unmatched_layers. Each kind's legal_code follows views.changed_codes like the changes (root ADR-0329 §3).",
+    "source": "electronic_map_base",
+    "inbox": "/data/foundation-platform/juso-electronic-map-base",
+    "month_format": "%Y%m",
+    "replay_overlap_months": 1,
+    "page": "https://business.juso.go.kr/jst/jstAddressDownload",
+    "item": {"rtl_dta_dtl_sn": 26, "name_ko": "도로명주소 전자지도", "region": "전국", "format": "SHP"},
+    "layer_parts": [".shp", ".shx", ".dbf"],
+    "layers": {
+      "building": "TL_SPBD_BULD",
+      "building_entrance": "TL_SPBD_ENTRC",
+      "road_section": "TL_SPRD_MANAGE",
+      "base_interval": "TL_SPRD_INTRVL",
+      "road_width": "TL_SPRD_RW",
+      "basic_area": "TL_KODIS_BAS",
+      "legal_sido": "TL_SCCO_CTPRVN",
+      "legal_sigungu": "TL_SCCO_SIG",
+      "legal_emd": "TL_SCCO_EMD",
+      "legal_ri": "TL_SCCO_LI"
+    },
+    "unmatched_layers": ["TL_SPBD_EQB"]
+  },
   "request_codes": {
     "300001": {
       "document_code": "JUSURB",
