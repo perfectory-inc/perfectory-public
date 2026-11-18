@@ -62,7 +62,11 @@ class TheRepository(unittest.TestCase):
     def test_a_unit_that_reads_bronze_back_gets_the_reader_pair_alone(self):
         contract = runtime_secrets.load(AREA)
         reader = contract.groups["lakehouse-reader"]
-        self.assertEqual(reader.holds, {READER, READER_SECRET})
+        # The read-only pair is its only credential; the bucket and endpoint it fills are settings
+        # (root ADR-0565), so a unit that only reads never loads a file that holds a writer token.
+        self.assertEqual({name for name in reader.holds if runtime_secrets.not_a_setting(name, contract.tokens)},
+                         {READER, READER_SECRET})
+        self.assertEqual(reader.holds - {READER, READER_SECRET}, reader.fills)
         self.assertEqual(contract.tokens["foundation-platform-lakehouse-reader-prod"], [READER, READER_SECRET])
         self.assertEqual(reader.mode, 0o600)
         lines = runtime_secrets.rendered_lines(contract, contract.consumer(NUMBER_CHANGE))
@@ -269,7 +273,8 @@ class TheHost(unittest.TestCase):
 
     def test_rename_gives_an_old_name_its_derived_name_with_the_same_value_and_mode(self):
         derived = self.contract.tokens["foundation-platform-lakehouse-reader-prod"]
-        self.reader.write_text(f"{OLD[READER]}=planted-id\n{OLD[READER_SECRET]}=planted-secret-value", encoding="utf-8")
+        settings = "".join(f"{name}=planted-setting\n" for name in sorted(self.contract.groups["lakehouse-reader"].fills))
+        self.reader.write_text(f"{settings}{OLD[READER]}=planted-id\n{OLD[READER_SECRET]}=planted-secret-value", encoding="utf-8")
         self.reader.chmod(0o600)
         self.assertEqual(self.findings(), [f"/etc/foundation-platform/lakehouse-reader.env: does not hold {name}"
                                            for name in derived])
@@ -279,7 +284,7 @@ class TheHost(unittest.TestCase):
                                    f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER]} removed",
                                    f"/etc/foundation-platform/lakehouse-reader.env: {OLD[READER_SECRET]} removed"])
         self.assertNotIn("planted", "\n".join(changed))
-        lines = self.reader.read_text(encoding="utf-8").splitlines()
+        lines = [line for line in self.reader.read_text(encoding="utf-8").splitlines() if "planted-setting" not in line]
         self.assertEqual(lines, [f"{derived[0]}=planted-id", f"{derived[1]}=planted-secret-value"])
         self.assertEqual(self.reader.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.findings(), [])
@@ -332,12 +337,15 @@ class TheHost(unittest.TestCase):
     def test_a_group_never_fills_a_credential(self):
         contract = json.loads((self.area / "config/runtime-secrets.contract.json").read_text(encoding="utf-8"))
         reader = next(g for g in contract["groups"] if g["name"] == "lakehouse-reader")
-        for name in (READER, "FOUNDATION_PLATFORM_SOME_DATABASE_URL", "FOUNDATION_PLATFORM_NOT_HELD"):
+        for name, said in ((READER, "may carry a secret"), ("FOUNDATION_PLATFORM_SOME_DATABASE_URL", "does not hold"),
+                           ("FOUNDATION_PLATFORM_NOT_HELD", "does not hold")):
             with self.subTest(name):
                 reader["fills"] = [name]
                 (self.area / "config/runtime-secrets.contract.json").write_text(json.dumps(contract), encoding="utf-8")
-                with self.assertRaises(runtime_secrets.ContractError):
-                    runtime_secrets.load(self.area)
+                found = [line for line in runtime_secrets.check(self.area) if "fills" in line]
+                self.assertEqual(len(found), 1, found)
+                self.assertIn(said, found[0])
+        self.assertTrue(runtime_secrets.not_a_setting("FOUNDATION_PLATFORM_SOME_DATABASE_URL", {}))
 
     def test_an_old_line_goes_when_its_value_is_under_another_held_name(self):
         """The map's file held the reader token under the writer's old name (root ADR-0247 phase three)."""
