@@ -18,7 +18,8 @@ use parquet::arrow::ArrowWriter;
 
 use super::{
     iceberg_scan::{data_files, ColumnStatistics, ScannedDataFile},
-    scan_snapshot_rows_kept, KeptPrefix, LakehouseByteReader, ScannedRows,
+    scan_snapshot_rows_in_files, scan_snapshot_rows_kept, KeptPrefix, LakehouseByteReader,
+    ScannedRows,
 };
 
 const FIXTURE: LakehouseTableContract = LakehouseTableContract {
@@ -272,6 +273,41 @@ fn kept_pnus(scanned: &ScannedRows) -> Vec<&str> {
         .iter()
         .filter_map(|row| row.get("pnu").and_then(serde_json::Value::as_str))
         .collect()
+}
+
+/// The media reconciler's incremental read of an append-only index (root ADR-0387, 2026-11-18): the
+/// files a run read before are not opened again, every file the snapshot holds is named for the
+/// next run, and the skipped rows still account for the whole snapshot.
+#[tokio::test]
+async fn an_incremental_read_opens_only_the_files_not_read_before() -> anyhow::Result<()> {
+    let reader = reader(ORDERED, &[ORDERED[0].path, ORDERED[1].path])?;
+    let before = [ORDERED[0].path, ORDERED[1].path];
+
+    let (scanned, paths) = scan_snapshot_rows_in_files(
+        &FIXTURE,
+        &reader,
+        &snapshot(),
+        |_| true,
+        |path| !before.contains(&path),
+    )
+    .await?;
+
+    assert_eq!(
+        kept_pnus(&scanned),
+        vec![
+            "9999910900100010000",
+            "9999920100100010000",
+            "9999930100100010000"
+        ]
+    );
+    assert_eq!(
+        paths,
+        ORDERED.iter().map(|file| file.path).collect::<Vec<_>>()
+    );
+    assert_eq!(scanned.skipped_data_file_count, 2);
+    assert_eq!(scanned.skipped_record_count, 4);
+    scanned.ensure_complete()?;
+    Ok(())
 }
 
 #[tokio::test]
