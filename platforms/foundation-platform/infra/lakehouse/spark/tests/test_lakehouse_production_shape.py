@@ -35,6 +35,10 @@ def replay_pr469() -> dict:
             "fields": [[index, column, "string", True] for index, column in enumerate(live, start=1)],
             "columns": list(range(1, len(live) + 1)),
             "earlier": [],
+            # The write layout the ledger records for every table since #1404 (root ADR-0437): the
+            # one this table was written under then and still is, one partition per load.
+            "layout": {"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST",
+                       "partitions": ["source_snapshot_id"]},
         }},
     }
 
