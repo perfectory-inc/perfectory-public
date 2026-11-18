@@ -227,6 +227,32 @@ class Version(unittest.TestCase):
         with self.assertRaises(ValueError):
             code.settings({"code_version": {"scoped_contracts": {"x.json": {**rule, "row_neutral_fields": {"f": " "}}}}})
 
+    def test_a_field_only_some_code_reads_counts_once_the_producer_reaches_that_code(self):
+        # 2026-11-13 (#1385): `current_rows_sql` was added to every versioned table contract for the Rust
+        # and Dagster readers; gold.parcel_real_transaction, whose producer derives current rows from
+        # `current_row_latest`, was rebuilt whole for it on 11-16 and 11-17 (the second Spark OOM-killed).
+        tables = {"contracts": {"silver.a": {"x": 1}}}
+        rule = {"reason": "fixture", "entries": {"contracts": "tables"}}
+
+        def neutral(reader):
+            return {"lanes.json": {**rule, "row_neutral_fields": {
+                "current_rows_sql": {"reason": "rendered for other readers", "unless_reached": reader}}}}
+        tree = fixture_tree(self).write("jobs/helper.py", HELPER.replace('"rules.contract.json"', '"lanes.json"'))
+        tree.write("contracts/lanes.json", json.dumps(tables))
+        unread, read = tree.version(scoped=neutral("deep.unused")), tree.version(scoped=neutral("deep.g"))
+        rendered = {"contracts": {"silver.a": {"x": 1, "current_rows_sql": "SELECT 1"}}}
+        tree.write("contracts/lanes.json", json.dumps(rendered))
+        # deep.unused is not reached: the rendered text is not this producer's code.
+        self.assertTrue(code.same(unread, tree.version(scoped=neutral("deep.unused"))))
+        # deep.g is reached: the text is read, so it counts.
+        self.assertFalse(code.same(read, tree.version(scoped=neutral("deep.g"))))
+        declared = code.settings(rebuild.load_contract())["scoped"]["industrial_complex_lakehouse_contracts.json"]
+        self.assertEqual(declared["row_neutral_fields"]["current_rows_sql"]["unless_reached"],
+                         "platform_contracts.current_rows_sql")
+        with self.assertRaises(ValueError):
+            code.settings({"code_version": {"scoped_contracts": {"x.json": {**rule, "row_neutral_fields": {
+                "f": {"reason": "r", "unless_reached": "no_such_module.f"}}}}}})
+
     def test_the_contract_names_only_existing_plumbing_modules_and_known_selectors_with_reasons(self):
         declared = code.settings(rebuild.load_contract())
         self.assertIn("gold_rebuild", declared["plumbing"])
