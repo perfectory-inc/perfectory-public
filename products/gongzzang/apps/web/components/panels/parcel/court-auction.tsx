@@ -287,7 +287,79 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
           </ul>
         </Section>
       )}
+      <FilingSections t={t} detail={detail} />
     </div>
+  );
+}
+
+/** The case's 문건처리내역 and 송달내역 (root ADR-0575 §5). */
+function FilingSections({ t, detail }: { t: Translate; detail: Detail }) {
+  return (
+    <>
+      {(detail.filings?.length ?? 0) > 0 && (
+        <Section title={t("detail.filings")}>
+          <DatedList
+            t={t}
+            rows={(detail.filings ?? []).map((f) => [
+              f.received_date,
+              [f.filer_role, f.document_kind, f.action].filter(Boolean).join(" "),
+              f.result,
+            ])}
+            heads={["detail.filingDate", "detail.filingText", "detail.filingResult"]}
+          />
+        </Section>
+      )}
+      {(detail.deliveries?.length ?? 0) > 0 && (
+        <Section title={t("detail.deliveries")}>
+          <DatedList
+            t={t}
+            rows={(detail.deliveries ?? []).map((d) => [
+              d.registered_date,
+              [d.recipient_role, d.document_kind, d.action].filter(Boolean).join(" "),
+              [d.reached_date, d.delivery_result].filter(Boolean).join(" "),
+            ])}
+            heads={["detail.deliveryDate", "detail.deliveryText", "detail.deliveryResult"]}
+          />
+        </Section>
+      )}
+    </>
+  );
+}
+
+/** The case's 문건·송달 (root ADR-0575 §5) as the site's table: date, what, result. The site masks
+ * the names in the text; the document keeps only the role and kind around them. */
+function DatedList({
+  t,
+  rows,
+  heads,
+}: {
+  t: Translate;
+  rows: (string | null | undefined)[][];
+  heads: [Parameters<Translate>[0], Parameters<Translate>[0], Parameters<Translate>[0]];
+}) {
+  return (
+    <table className="mt-1 w-full text-left tabular-nums">
+      <thead className="text-[var(--color-muted)]">
+        <tr>
+          {heads.map((h) => (
+            <th key={h} className="font-normal">
+              {t(h)}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
+          <tr key={i}>
+            {row.map((cell, j) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a row's cells are its columns, in order.
+              <td key={j}>{cell ?? ""}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

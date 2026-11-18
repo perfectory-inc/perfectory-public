@@ -882,7 +882,15 @@
           "priceBasis": "가격시점",
           "written": "작성일",
           "opinion": "평가의견",
-          "appraisalReport": "감정평가서"
+          "appraisalReport": "감정평가서",
+          "filings": "문건처리내역",
+          "filingDate": "접수일",
+          "filingText": "접수내역",
+          "filingResult": "결과",
+          "deliveries": "송달내역",
+          "deliveryDate": "송달일",
+          "deliveryText": "송달내역",
+          "deliveryResult": "송달결과"
         }
       }
     },
