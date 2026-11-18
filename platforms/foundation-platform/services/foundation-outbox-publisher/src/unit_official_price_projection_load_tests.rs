@@ -39,7 +39,7 @@ fn invalid_identity_date_and_price_are_refused_before_copy() {
 fn config_with_snapshot(source_snapshot: &str) -> Config {
     Config {
         database_url: "postgres://ignored".to_owned(),
-        container: "ignored".to_owned(),
+        work: "ignored".to_owned(),
         iceberg_snapshot: 1,
         source_snapshot: source_snapshot.to_owned(),
     }
@@ -62,4 +62,12 @@ fn a_lineage_without_a_positive_price_snapshot_is_refused() {
     ] {
         assert!(config_with_snapshot(bad).price_snapshot().is_err(), "{bad}");
     }
+}
+
+#[test]
+fn the_projection_reads_its_pinned_snapshot_through_the_publishers_duckdb() {
+    assert_eq!(
+        config_with_snapshot("price:42").source_sql(),
+        "lakehouse.silver.unit_official_price AT (VERSION => 1)"
+    );
 }
