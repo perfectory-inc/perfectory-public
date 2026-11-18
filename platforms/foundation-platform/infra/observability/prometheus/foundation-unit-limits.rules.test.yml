@@ -1,4 +1,4 @@
-# promtool unit tests for the foundation-unit-limits rules (root ADR-0569): a unit whose newest runs
+# promtool unit tests for the foundation-unit-limits rules (root ADR-0574): a unit whose newest runs
 # keep reaching 80% of a limit is named before it fails, a container that sits at its cap for most of
 # a day pages, and a reconciler that stops measuring is reported. Run by the guard
 # prometheus-rules-pass-their-tests.
@@ -61,7 +61,7 @@ tests:
               runbook: docs/runbooks/asset-reconcile.md
 
   # foundation-api, 2026-11-10..18: at its 512m cap all day, killed and back within minutes (root
-  # ADR-0568). A Spark container near its cap for two hours of a load does not page.
+  # ADR-0573). A Spark container near its cap for two hours of a load does not page.
   - interval: 15m
     input_series:
       - series: 'container_memory_working_set_bytes{id="/system.slice/docker-api.scope"}'

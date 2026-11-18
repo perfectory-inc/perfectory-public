@@ -895,7 +895,7 @@ groups:
           summary: 실패한 유닛 목록을 30분 넘게 못 읽었어요 — 오래 실패한 유닛을 부를 수 없어요. journalctl -u foundation-asset-reconcile.service 를 보세요
           runbook: docs/runbooks/asset-reconcile.md
 
-  # Each unit's runs against its memory and time limits (root ADR-0569). 2026-11-13..18 a dozen
+  # Each unit's runs against its memory and time limits (root ADR-0574). 2026-11-13..18 a dozen
   # units failed at a limit (onbid-silver-load's Spark 32 times, parcel-number-change 6 times at its
   # 256M cap) and court-auction-collect ran at 98% of its 2 GiB with nothing said before it died. The
   # asset reconciler measures each unit's newest runs from systemd's journal every half hour
@@ -914,7 +914,7 @@ groups:
           runbook: docs/runbooks/host-resources.md
       - alert: FoundationContainerMemoryNearCapLong
         # 2026-11-04..18 foundation-api sat at its 512m cap and FoundationContainerMemoryNearCap, a
-        # ticket, fired for two weeks while the kernel killed it 69 times (root ADR-0568). Over half of
+        # ticket, fired for two weeks while the kernel killed it 69 times (root ADR-0573). Over half of
         # a day near its cap pages: by then the ticket was not read.
         # The share of a whole day's 96 quarter-hours, so a container younger than a day is not
         # 100% of its few samples.

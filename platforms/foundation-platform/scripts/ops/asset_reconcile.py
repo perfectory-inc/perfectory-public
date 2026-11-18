@@ -1116,7 +1116,7 @@ def main() -> int:
         write_replacing(state_dir / UNITS_STATE_FILE, json.dumps(tracked, sort_keys=True) + "\n")
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
         print(f"asset_reconcile: could not list the failed units: {error}", file=sys.stderr)
-    # Each unit's newest runs against its memory and time limits (root ADR-0569), from systemd's own
+    # Each unit's newest runs against its memory and time limits (root ADR-0574), from systemd's own
     # journal, at most every half hour; a read that fails leaves the textfile to go stale, which
     # FoundationUnitLimitsUnread reports.
     try:

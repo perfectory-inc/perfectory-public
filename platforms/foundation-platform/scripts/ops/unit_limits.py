@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every foundation unit's limits against what its runs measured, from systemd's own journal (root ADR-0569).
+"""Every foundation unit's limits against what its runs measured, from systemd's own journal (root ADR-0574).
 
 A limit is set from measurement and a unit near it says so before it fails. This reads, never
 writes: systemd's job-start, failure, out-of-memory and resource lines (`Consumed …, <n> memory
@@ -50,9 +50,9 @@ DEACTIVATED = "7ad2d189f7e94e70a38c781354912448"  # the unit stopped successfull
 MESSAGE_IDS = (STARTING, STARTED, FAILED, OUT_OF_MEMORY, RESOURCES, DEACTIVATED)
 PREFIX = "foundation-"
 SCOPE = "docker-"
-# A run at or above this share of a limit is near it (root ADR-0569 §1).
+# A run at or above this share of a limit is near it (root ADR-0574 §1).
 NEAR = 0.8
-# Consecutive newest runs near a limit before the rule raises it (root ADR-0569 §4).
+# Consecutive newest runs near a limit before the rule raises it (root ADR-0574 §4).
 NEAR_RUNS = 3
 DURATION = re.compile(r"([0-9]+(?:\.[0-9]+)?)(us|ms|min|s|h|d|w)?")
 JOURNAL_FIELDS = "UNIT,MESSAGE_ID,MESSAGE,MEMORY_PEAK,UNIT_RESULT,__REALTIME_TIMESTAMP"
@@ -272,7 +272,7 @@ def markdown(rows: list[dict]) -> str:
     return head + body
 
 
-TEXTFILE_HELP = """# HELP foundation_unit_runs_near_limit How many of a unit's newest runs, back from the last, reached 80% of its memory or time limit (root ADR-0569 §4).
+TEXTFILE_HELP = """# HELP foundation_unit_runs_near_limit How many of a unit's newest runs, back from the last, reached 80% of its memory or time limit (root ADR-0574 §4).
 # TYPE foundation_unit_runs_near_limit gauge
 # HELP foundation_unit_limit_share The newest finished run's measured peak memory or run time as a share of the unit's limit.
 # TYPE foundation_unit_limit_share gauge

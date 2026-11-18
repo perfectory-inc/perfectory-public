@@ -1,4 +1,4 @@
-# ADR 0569: 모든 한도는 측정으로 정하고, 한도 가까운 유닛은 죽기 전에 이름이 불린다
+# ADR 0574: 모든 한도는 측정으로 정하고, 한도 가까운 유닛은 죽기 전에 이름이 불린다
 
 - Status: Accepted
 - Date: 2026-11-19
@@ -7,7 +7,7 @@
   [ADR-0391](./0391-a-silver-refresh-run-starts-no-step-its-measured-time-cannot-finish-and-a-batch-reads-back-only-its-own-commit.md)(잰 단계 시간으로 마감),
   [ADR-0385](./0385-the-host-says-when-its-disk-memory-or-a-cap-runs-out-and-each-rule-is-tested-by-promtool.md)(promtool 로 시험한 경보),
   [ADR-0445](./0445-a-failed-host-unit-names-its-owner-and-runbook-and-a-unit-that-stays-failed-calls-its-owner.md)(실패한 유닛은 주인을 부른다),
-  ADR-0568(foundation-api 아레나, #1439)
+  ADR-0573(foundation-api 아레나, #1439)
 
 ## Context
 
@@ -26,7 +26,7 @@
 
 | 유닛·컨테이너 | 한도 | 잰 값 | OOM / timeout | 주인 |
 |---|---|---|---:|---|
-| foundation-api(컨테이너) | 512m | 512 MB(11-11..18 매일) | 69 / — | ADR-0568(#1439) |
+| foundation-api(컨테이너) | 512m | 512 MB(11-11..18 매일) | 69 / — | ADR-0573(#1439) |
 | onbid-silver-load | 1G + Spark 2.5G | Spark 2,561M | 14 / 2 | W83b #1413 |
 | rt-molit-silver-load | 512M | 460M(High 에 붙음) | 7 / 0 | W83c #1426 |
 | parcel-tile-bake@bake | 1G, 115분 | 954M, 115분 | 4 / 4 | W83c·W86 #1422·#1434 |
@@ -78,7 +78,7 @@ near 11 개: autodeploy 3,225M/3.5G·onbid-collect 2,489M/3G·industrial-complex
    - `FoundationUnitNearItsLimit`(ticket): 연달아 **3 번**. 한 번은 입력, 세 번은 그 유닛의 크기다. Alertmanager 는 유닛·한도마다
      한 알림, 하루 한 번 다시(`service = "unit-limits"`).
    - `FoundationContainerMemoryNearCapLong`(page): 컨테이너가 하루 96 개 15 분 중 절반 넘게 상한의 90% 위. 기존 ticket
-     (`FoundationContainerMemoryNearCap`)이 foundation-api 에 2 주 울리는 동안 69 번 죽었다(ADR-0568).
+     (`FoundationContainerMemoryNearCap`)이 foundation-api 에 2 주 울리는 동안 69 번 죽었다(ADR-0573).
    - `FoundationUnitLimitsUnread`(ticket): 측정 파일이 두 시간 없음.
    모든 규칙은 promtool 시험(`foundation-unit-limits.rules.test.yml`, 가드 `prometheus-rules-pass-their-tests`)을 통과한다.
 6. **한도에서 죽으면 그 이름으로 한 번 부른다.** 유닛 결과는 `oom-kill`·`timeout` 으로 보고된다(Spark 컨테이너의 OOM 도
