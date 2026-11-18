@@ -322,9 +322,13 @@ def write(directory: str, now: float, since: str = "-14d") -> None:
 
 
 def listed_units(systemctl: str = "systemctl") -> set[str]:
-    listed = subprocess.run([systemctl, "list-units", "--all", "--plain", "--no-legend", f"{PREFIX}*.service"],
+    """Every installed foundation-* service file, so a unit with no run in the window still shows its
+    declared limits. Its unit files, not whether it runs: that question is job_units.py's."""
+    listed = subprocess.run([systemctl, "list-unit-files", "--no-legend", f"{PREFIX}*.service"],
                             check=True, capture_output=True, text=True).stdout
-    return {line.split()[0] for line in listed.splitlines() if line.strip()}
+    # A template (foundation-x@.service) has no limits of its own until an instance runs; its
+    # instances come from the journal.
+    return {name for line in listed.splitlines() if line.strip() and "@." not in (name := line.split()[0])}
 
 
 def measure(now: float, since: str = "-14d") -> str:
