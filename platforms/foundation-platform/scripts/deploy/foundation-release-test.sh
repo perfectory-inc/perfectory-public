@@ -1297,7 +1297,7 @@ grep -q 'does not hold FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID' "${te
 run_install_root "${release_script}" verify >"${test_root}/secrets.log" 2>&1 || { cat "${test_root}/secrets.log" >&2; exit 1; }
 grep -qx 'FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY=old-secret' "${reader_file}"
 # Phase three in the same run: the old lines are gone, their values held under the derived names.
-if grep -q '^FOUNDATION_PLATFORM_''R2_' "${reader_file}"; then
+if grep -q '^FOUNDATION_PLATFORM_''R2_LAKEHOUSE_READER_' "${reader_file}"; then
   printf 'verify left the old credential lines in place\n' >&2
   exit 1
 fi

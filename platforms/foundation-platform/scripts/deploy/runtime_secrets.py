@@ -246,10 +246,6 @@ def load(area: Path = AREA) -> Contract:
             raise ContractError(f"group {name!r}: owner, group and mode are required")
         holds = _resolve_holds(area, entry.get("holds", []), tokens)
         fills = frozenset(entry.get("fills", []))
-        secret = sorted(fill for fill in fills if not_a_setting(fill, tokens))
-        if fills and (fills - holds or secret or release):
-            raise ContractError(f"group {name!r}: fills must be names the host group holds and no credential"
-                                f" ({sorted(fills - holds) or secret or 'a release group fills nothing'})")
         groups[name] = Group(
             name=name, path=entry["path"], holds=holds,
             owner=entry.get("owner"), group=entry.get("group"), mode=int(mode, 8) if mode else None,
@@ -430,6 +426,16 @@ def check(area: Path = AREA) -> list[str]:
                 if host_file not in declared:
                     findings.append(f"{where}: {host_file} is not a group in {CONTRACT}; a host environment file "
                                     f"lives in the contract or not at all (root ADR-0247)")
+    # A group's `fills` (root ADR-0565): names it holds, settings only, in a file the host keeps.
+    for group in contract.groups.values():
+        if not group.fills:
+            continue
+        if group.release:
+            findings.append(f"group {group.name}: a release group fills nothing")
+        for name in sorted(group.fills - group.holds):
+            findings.append(f"group {group.name}: fills {name}, which it does not hold")
+        for name in sorted(fill for fill in group.fills if not_a_setting(fill, contract.tokens)):
+            findings.append(f"group {group.name}: fills {name}, which may carry a secret; credentials are set, never filled")
     return findings
 
 
