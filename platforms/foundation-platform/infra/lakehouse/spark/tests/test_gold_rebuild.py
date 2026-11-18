@@ -375,14 +375,20 @@ class Contract(unittest.TestCase):
     def test_the_contract_names_each_producer_and_its_inputs_come_from_the_producer(self):
         contract = rebuild.load_contract()
         kinds = by_pnu_kinds.kinds()
+        # A kind whose producer left Spark (root ADR-0559) has no Spark rebuild (root ADR-0564).
         self.assertEqual(set(contract["tables"]), {"gold.parcel_panel", "gold.building_panel", "gold.unit_price",
-                                                   *(kind.gold_table for kind in kinds.values())})
+                                                   *(kind.gold_table for kind in kinds.values()
+                                                     if not rebuild.producer_left_spark(kind.producer))})
+        self.assertTrue(rebuild.producer_left_spark("parcel_nearby_silver_to_gold"))
+        self.assertFalse(rebuild.producer_left_spark("land_ownership_silver_to_gold"))
+        self.assertFalse(rebuild.producer_left_spark(None))
         required, optional, anchor = rebuild.producer_inputs(parcel)
         self.assertEqual(required, parcel.ALL_SOURCES)
         self.assertEqual(optional, {parcel.LINEAGE_SOURCE: "--no-carry-lineage"})
         self.assertEqual(anchor, parcel.PARCEL_SOURCE)
         # A kind reads the lineage at its host panel's pins, so it takes the panel's leave to go without.
         accepted = contract["tables"]["gold.parcel_panel"].get("absent_inputs_accepted", {})
+        kinds = {lane: kind for lane, kind in kinds.items() if not rebuild.producer_left_spark(kind.producer)}
         for kind in kinds.values():
             self.assertEqual(contract["tables"][kind.gold_table]["absent_inputs_accepted"], accepted)
         self.assertEqual(rebuild.producer_inputs(building), (building.ALL_SOURCES, {}, building.TITLE_SOURCE))

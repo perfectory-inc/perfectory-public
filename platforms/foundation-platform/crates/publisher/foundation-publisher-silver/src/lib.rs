@@ -123,6 +123,15 @@ pub mod parcel_lineage_schedule;
 
 /// Stages ILIS notice detail reads and their stored attachments as Silver rows (root ADR-0484).
 pub mod industrial_complex_notice_stage;
+/// The `DuckDB` the stages run in, for the caller that diffs and commits a stage's rows (root
+/// ADR-0564 §3): one build of it in the executable.
+pub use duckdb;
+
+/// The code change table's views a `DuckDB` stage reads (root ADR-0145, ADR-0329).
+pub mod legal_dong_code_change_stage;
+
+/// The parcel nearby kind's Gold in `DuckDB` (root ADR-0465, ADR-0564 §9).
+pub mod parcel_nearby_stage;
 
 /// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
 pub mod real_transaction_gold_stage;
