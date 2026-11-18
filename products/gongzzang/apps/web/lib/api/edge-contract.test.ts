@@ -11,8 +11,7 @@ import { PublicAuctionDocumentSchema } from "./public-auction";
 import { UnitPriceDocumentSchema } from "./unit-price-edge";
 
 // The web's copies of what the foundation publishes are checked against their sources: the
-// connection contract for the unit price and public auction lanes, the Rust constant for the
-// building document.
+// schema registry for the pack lanes, the Rust constant for the building document.
 const FOUNDATION = resolve(__dirname, "../../../../../../platforms/foundation-platform");
 const connections = JSON.parse(
   readFileSync(resolve(FOUNDATION, "config/r2-connections.contract.json"), "utf8"),
@@ -49,9 +48,7 @@ describe("the web reads what the foundation publishes", () => {
     expect(EdgeBuildingProfileSchema.shape.schema_version.options).toContain(buildingVersion);
   });
 
-  it("reads the unit price lane's document version, table and host from the contract", () => {
-    expect(UnitPriceDocumentSchema.shape.schema_version.value).toBe(lane.document_schema_version);
-    expect(UnitPriceDocumentSchema.shape.source.shape.table.value).toBe(lane.gold_table);
+  it("reads the unit price lane's host from the contract", () => {
     expect(new URL(env.NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL).host).toBe(lane.public_hostname);
   });
 
@@ -61,6 +58,7 @@ describe("the web reads what the foundation publishes", () => {
   it.each([
     ["parcel-public-auction", PublicAuctionDocumentSchema],
     ["parcel-court-auction", CourtAuctionDocumentSchema],
+    ["unit-price", UnitPriceDocumentSchema],
   ] as const)("accepts every %s document version the lane can serve", (name, schema) => {
     expect(lanes[name].document_schema_version).toBeUndefined();
     const entry = registry.subjects.find((subject) => subject.owner.lane === name);

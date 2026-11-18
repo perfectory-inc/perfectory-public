@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_price_by_pnu",
+  "description": "A parcel's newest official land price (개별공시지가, root ADR-0085): the source's integers unchanged.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_price_by_pnu.v1"
+      ]
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "price": {
+      "type": "object",
+      "properties": {
+        "price_per_m2": {
+          "type": "integer"
+        },
+        "base_year": {
+          "type": "integer"
+        },
+        "base_month": {
+          "type": "integer"
+        },
+        "announced_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "price_per_m2",
+        "base_year",
+        "base_month"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "price"
+  ]
+}

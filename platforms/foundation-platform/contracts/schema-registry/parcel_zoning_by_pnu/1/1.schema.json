@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_zoning_by_pnu",
+  "description": "A parcel's land-use zoning verdicts from the 토지이용계획 ledger (root ADR-0083): the LMIS zone code as stated, its name, the code-tree anchor it resolved to and whether it is 포함 or 저촉.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_zoning_by_pnu.v1"
+      ]
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "zonings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "zone_code": {
+            "type": "string"
+          },
+          "zone_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "anchor_code": {
+            "type": "string"
+          },
+          "inclusion_code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "zone_code",
+          "anchor_code",
+          "inclusion_code"
+        ]
+      }
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "zonings"
+  ]
+}
