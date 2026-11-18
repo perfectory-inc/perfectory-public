@@ -104,24 +104,18 @@ enum LaneTarget {
         package: &'static str,
         test: &'static str,
     },
-    Binary {
-        package: &'static str,
-        binary: &'static str,
-        filter: &'static str,
-    },
 }
 
 impl LaneTarget {
     const fn package(&self) -> &'static str {
         match self {
-            Self::Test { package, .. } | Self::Binary { package, .. } => package,
+            Self::Test { package, .. } => package,
         }
     }
 
     const fn selection(&self) -> (&'static str, &'static str) {
         match self {
             Self::Test { test, .. } => ("--test", test),
-            Self::Binary { binary, .. } => ("--bin", binary),
         }
     }
 }
@@ -190,9 +184,6 @@ fn lane_commands(lane: &LiveLane) -> Vec<Vec<String>> {
             );
             if lane.gating == LaneGating::Ignored {
                 command.push("--ignored".to_owned());
-            }
-            if let LaneTarget::Binary { filter, .. } = target {
-                command.extend(["--exact".to_owned(), (*filter).to_owned()]);
             }
             // Serial: these suites share one database and truncate it between
             // cases, so parallel targets would tear each other's fixtures down.
@@ -701,20 +692,7 @@ const AREAS: &[Area] = &[
                     },
                     LaneTarget::Test {
                         package: "foundation-outbox-publisher",
-                        test: "parcel_boundary_publication",
-                    },
-                    LaneTarget::Test {
-                        package: "foundation-outbox-publisher",
-                        test: "parcel_publication_source_evidence",
-                    },
-                    LaneTarget::Test {
-                        package: "foundation-outbox-publisher",
                         test: "unit_official_price_publication",
-                    },
-                    LaneTarget::Binary {
-                        package: "foundation-outbox-publisher",
-                        binary: "foundation-outbox-publisher",
-                        filter: "postgis_parcel_boundary_mirror_national_rebuild::tests::rebuild_records_one_provenance_pair_on_the_run_and_every_loaded_row",
                     },
                     LaneTarget::Test {
                         package: "lakehouse-infrastructure",

@@ -7,7 +7,7 @@ last_reviewed: 2026-08-14
 
 # ADR 0031: 필지 mirror run이 발행 scope와 limit을 봉인한다
 
-- Status: Accepted
+- Status: Superseded by [ADR-0571](./0571-the-postgis-parcel-boundary-copy-retires-once-parcels-fold-on-the-lakehouse-path-and-its-backup-holds-it.md)
 - Date: 2026-08-14
 - Extends: [ADR-0025](./0025-parcel-publication-names-one-sealed-iceberg-evidence.md)
 - Supersedes: [ADR-0029](./0029-parcel-publication-evidence-is-written-from-the-terminal-run.md) §2의 scope/limits 고정 결정만

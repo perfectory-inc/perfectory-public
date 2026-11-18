@@ -375,7 +375,10 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # engine-equality verdict ran those files over every object production holds), the source contract the
 # load reads its field names from (industryland-or-kr.contract.json), and its test compiles in the
 # synthetic object and the rows the Spark job built from it (fixtures/: four files).
-COMPILE_TIME_READ_BASELINE="${3:-193}"
+# 193 -> 191: the PostGIS parcel copy retired (W86, root ADR-0194 §5.5): its publisher commands and
+# their two suites (parcel_boundary_publication, parcel_publication_source_evidence) went, and with
+# them their compile-time reads.
+COMPILE_TIME_READ_BASELINE="${3:-191}"
 
 cd "$repo_root"
 

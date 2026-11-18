@@ -63,15 +63,6 @@
   ],
   "dependencies": [
     {
-      "from": "serving-parcel-boundary",
-      "to": "parcel-tiles",
-      "relation": "feeds",
-      "status": "implemented",
-      "via": [
-        "promote-parcel-boundary-runtime"
-      ]
-    },
-    {
       "from": "gold-parcel-boundary-served",
       "to": "parcel-tiles",
       "relation": "feeds",

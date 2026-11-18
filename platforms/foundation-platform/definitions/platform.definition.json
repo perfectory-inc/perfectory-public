@@ -468,8 +468,6 @@
             "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
             "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
             "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
-            "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_WRITER_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_WRITER_SECRET_ACCESS_KEY",
             "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL"
           ],
           "expected_values": {
@@ -1896,7 +1894,6 @@
       "silver-building-permit-demolition-loss-to-gold-parcel-demolitions",
       "reference-legal-dong-code-change-to-gold-parcel-demolitions",
       "silver-industrial-complexes-to-gold-complex-catalog",
-      "silver-parcel-boundaries-to-serving-parcel-boundary",
       "silver-building-register-apartment-price-to-silver-unit-official-price",
       "silver-building-register-exclusive-unit-to-silver-unit-official-price",
       "silver-unit-official-price-to-serving-unit-official-price",
@@ -1907,7 +1904,6 @@
       "gold-complex-catalog-to-industrial-complex-gold-pointer-publish",
       "industrial-complex-gold-pointer-publish-to-serving-industrial-complex-gold-pointer",
       "source-vworld-dataset-to-serving-admin-boundary",
-      "serving-parcel-boundary-to-parcel-tiles",
       "serving-admin-boundary-to-admin-tiles",
       "serving-complex-boundary-to-complex-tiles",
       "serving-industrial-complex-to-catalog-read-api-smoke",

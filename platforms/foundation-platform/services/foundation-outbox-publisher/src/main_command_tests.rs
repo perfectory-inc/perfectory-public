@@ -451,30 +451,6 @@ fn smoke_r2_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn seal_parcel_publication_evidence_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "seal-parcel-publication-evidence",
-        ])?,
-        Command::SealParcelPublicationEvidence
-    );
-    Ok(())
-}
-
-#[test]
-fn write_parcel_publication_evidence_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "write-parcel-publication-evidence",
-        ])?,
-        Command::WriteParcelPublicationEvidence
-    );
-    Ok(())
-}
-
-#[test]
 fn inventory_lakehouse_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "inventory-lakehouse"])?,
@@ -554,20 +530,12 @@ fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Resu
             Command::PublishIndustrialComplexBoundaryPostgis,
         ),
         (
-            "publish-parcel-boundary-postgis",
-            Command::PublishParcelBoundaryPostgis,
-        ),
-        (
             "promote-administrative-boundary-runtime",
             Command::PromoteAdministrativeBoundaryRuntime,
         ),
         (
             "promote-industrial-complex-boundary-runtime",
             Command::PromoteIndustrialComplexBoundaryRuntime,
-        ),
-        (
-            "rebuild-postgis-parcel-boundary-mirror",
-            Command::RebuildPostgisParcelBoundaryMirror,
         ),
         (
             "evaluate-lakehouse-quality-rules",
@@ -669,18 +637,6 @@ fn administrative_static_release_publish_command_is_explicit() -> anyhow::Result
             "publish-administrative-boundary-static-release",
         ])?,
         Command::PublishAdministrativeBoundaryStaticRelease
-    );
-    Ok(())
-}
-
-#[test]
-fn parcel_static_release_publish_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "publish-parcel-boundary-static-release",
-        ])?,
-        Command::PublishParcelBoundaryStaticRelease
     );
     Ok(())
 }
@@ -825,10 +781,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
             Command::PublishIndustrialComplexGoldPointer,
         ),
         ("publish-outbox-once", Command::PublishOutboxOnce),
-        (
-            "rebuild-postgis-parcel-boundary-mirror-national",
-            Command::RebuildPostgisParcelBoundaryMirrorNational,
-        ),
     ];
 
     for (command_name, expected) in cases {

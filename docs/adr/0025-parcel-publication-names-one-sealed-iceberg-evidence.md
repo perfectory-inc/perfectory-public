@@ -7,7 +7,7 @@ last_reviewed: 2026-08-11
 
 # ADR 0025: 필지 발행은 봉인된 Iceberg 증거 하나를 지명한다
 
-- Status: Accepted
+- Status: Superseded by [ADR-0571](./0571-the-postgis-parcel-boundary-copy-retires-once-parcels-fold-on-the-lakehouse-path-and-its-backup-holds-it.md)
 - Date: 2026-08-11
 - 관련: [ADR-0006 기준 데이터는 객체 저장소 우선](./0006-object-storage-first-serving.md), [ADR-0016 PostGIS 적재는 신원을 가진 하나의 사실이다](./0016-a-postgis-projection-load-is-a-fact-with-an-identity.md), [ADR-0020 도형은 사실의 근거가 아니다](./0020-geometry-is-not-evidence-for-a-fact.md), [ADR-0024 서빙 투영은 타일 계약이 지명한 것만 싣는다](./0024-the-serving-projection-carries-only-what-the-tile-contract-names.md)
 - 발단: 필지 PostGIS 발행 커맨드 `8b42e44480280ab5e9063d6cb53dea24d1426a53` 적대적 리뷰

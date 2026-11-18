@@ -650,40 +650,6 @@ fn every_live_lane_runs_as_one_serial_cargo_test_process() {
 /// A feature-gated lane needs the OPPOSITE flags of an `#[ignore]` lane, and
 /// getting it wrong is silent.
 ///
-#[test]
-fn postgres_lane_selects_the_recovery_sql_binary_test_exactly() {
-    let area = AREAS.iter().find(|area| area.slug == "foundation").unwrap();
-    let lane = area
-        .live_lanes
-        .iter()
-        .find(|lane| lane.name == "postgres")
-        .unwrap();
-    let commands = lane_commands(lane);
-    let binaries: Vec<_> = commands
-        .iter()
-        .filter(|args| args.iter().any(|arg| arg == "--bin"))
-        .collect();
-    assert_eq!(binaries.len(), 1);
-    assert_eq!(*binaries[0], vec![
-            "test", "--locked", "-p", "foundation-outbox-publisher", "--bin", "foundation-outbox-publisher",
-            "--", "--ignored", "--exact",
-            "postgis_parcel_boundary_mirror_national_rebuild::tests::rebuild_records_one_provenance_pair_on_the_run_and_every_loaded_row",
-            "--test-threads=1",
-        ]);
-    let target = lane
-        .targets
-        .iter()
-        .find(|target| matches!(target, LaneTarget::Binary { .. }))
-        .unwrap();
-    assert!(lane_target_verdict(
-        "foundation",
-        "postgres",
-        target,
-        "test result: ok. 0 passed; 0 failed; 0 ignored;"
-    )
-    .is_err());
-}
-
 /// gongzzang's 20 integration targets carry zero `#[ignore]`; they are
 /// compiled out by `#![cfg(feature = "integration")]`. Running them the
 /// `#[ignore]` way fails twice over: without `--features integration` the

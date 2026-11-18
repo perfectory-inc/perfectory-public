@@ -1,6 +1,6 @@
 # ADR 0082: 필지 미러의 전국 주장은 계약에서 온다
 
-- Status: Accepted
+- Status: Superseded by [ADR-0571](./0571-the-postgis-parcel-boundary-copy-retires-once-parcels-fold-on-the-lakehouse-path-and-its-backup-holds-it.md)
 - Date: 2026-09-05
 - Supersedes: [ADR-0030](./0030-parcel-publication-evidence-requires-two-distinct-approvals.md) §1의
   check-report 간접 참조를 **shapefile 레인에 한해** (승인 산출물 자체와 그 필드 계약은 유지)

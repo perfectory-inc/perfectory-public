@@ -7,7 +7,7 @@ last_reviewed: 2026-08-13
 
 # ADR 0029: 필지 발행 실행 증거는 terminal run에서 쓴다
 
-- Status: Accepted
+- Status: Superseded by [ADR-0571](./0571-the-postgis-parcel-boundary-copy-retires-once-parcels-fold-on-the-lakehouse-path-and-its-backup-holds-it.md)
 - Date: 2026-08-13
 - Implements: [ADR-0025](./0025-parcel-publication-names-one-sealed-iceberg-evidence.md), [ADR-0026](./0026-parcel-evidence-sealer-is-the-only-append-boundary.md)
 

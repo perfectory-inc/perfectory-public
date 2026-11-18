@@ -93,16 +93,6 @@ pub fn r2_reader_config_from_env_file(path: &Path) -> anyhow::Result<R2ObjectSto
     )
 }
 
-pub fn parcel_publication_evidence_writer_config_from_env_file(
-    path: &Path,
-) -> anyhow::Result<R2ObjectStorageConfig> {
-    r2_config_from_env_file_with_credentials(
-        path,
-        "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_WRITER_ACCESS_KEY_ID",
-        "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_WRITER_SECRET_ACCESS_KEY",
-    )
-}
-
 fn r2_config_from_env_file_with_credentials(
     path: &Path,
     access_key_env: &str,
@@ -136,15 +126,6 @@ fn r2_config_from_env_file_with_credentials(
         secret_access_key: required_value_from_dotenv_or_env(&values, secret_key_env)?,
         namespace: R2KeyNamespace::from_env()?,
     })
-}
-
-pub fn parcel_publication_evidence_database_url_from_env_file(
-    path: &Path,
-) -> anyhow::Result<String> {
-    if !path.is_file() {
-        bail!("Env file not found: {}", path.display());
-    }
-    required_value_from_dotenv_or_env(&read_dotenv(path)?, "DATABASE_URL")
 }
 
 pub fn lakehouse_catalog_config_from_env_file(

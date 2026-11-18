@@ -176,3 +176,7 @@ Airflow DAG와 systemd 유닛 가운데 두 표를 부르는 것은 없다. 나�
   - 끝난 뒤 컨테이너·복원 폴더·자격 증명 임시 파일을 지웠다.
   - 같은 날 추적 로그(`--log-level-file=trace --log-subprocess`)로 `info`·`archive-get`·`restore` 가 저장소에 보내는
     요청을 셌다: 모두 `GET` 이고 쓰기 요청은 0건이다. 복원에는 읽기 권한만 필요하다.
+- 2026-11-19 (§5·§6, 필지 경계 두 표): [ADR-0571](./0571-the-postgis-parcel-boundary-copy-retires-once-parcels-fold-on-the-lakehouse-path-and-its-backup-holds-it.md)
+  이 이행한다. §6 의 동등성 스크립트는 112 GB 재스캔이라 쓰지 않고, 최신 전체 백업과 매주 복원 드릴 결과를
+  증거로 삼는다. 이력 원장(`parcel_boundary_mirror_rebuild_run`, `parcel_publication_source_evidence`,
+  `spatial_projection_load`)은 §1 대로 남는다.

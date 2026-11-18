@@ -56,8 +56,8 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs�
 | 41 | `readdress-static-release` | 997 | `static_release_readdress` (413) | runbook=2 | 런북 parcel-tile-bake | b |
 | 42 | `export-map-edit-handoff` | 998 | `map_edit_handoff_export` (333) | config=2 doc=2 runbook=1 script=4 | map-edit-fold.sh | a |
 | 43 | `bake-lakehouse-tiles` | 999 | `lakehouse_tile_bake` (1316) | config=5 doc=6 job=1 runbook=2 script=4 | map-edit-fold / parcel-tile-bake / zoning-tile-bake | a |
-| 44 | `publish-parcel-boundary-postgis` | 1000 | `parcel_boundary_postgis_publish` (719) | config=2 doc=5 rust=2 test=1 | 필지 PostGIS 경로, parcel_tile_bake가 꺼져 있는 동안의 실제 필지 타일 경로; ADR-0194 s5.5가 이후 삭제 | b |
-| 45 | `publish-parcel-boundary-static-release` | 1001 | `parcel_boundary_static_release_publish` (23) | doc=1 runbook=1 | 위와 동일; 런북 first-slice | b |
+| 44 | `publish-parcel-boundary-postgis` | **지움(W86)** 1000 | `parcel_boundary_postgis_publish` (719) | config=2 doc=5 rust=2 test=1 | 필지 PostGIS 경로, parcel_tile_bake가 꺼져 있는 동안의 실제 필지 타일 경로; ADR-0194 s5.5가 이후 삭제 | b |
+| 45 | `publish-parcel-boundary-static-release` | **지움(W86)** 1001 | `parcel_boundary_static_release_publish` (23) | doc=1 runbook=1 | 위와 동일; 런북 first-slice | b |
 | 46 | `load-unit-official-price-projection` | 1004 | `unit_official_price_projection_load` (291) | config=2 doc=3 | 호출자 0(pipeline-graph 엣지뿐) | d |
 | 47 | `load-lineage-review-items` | 1005 | `lineage_review_items_load` (44) | config=2 doc=2 script=4 test=2 | lineage review queue Spark 체인 | a |
 | 48 | `measure-bronze-object-members` | 1006 | `bronze_object_members` (1603) | config=2 doc=1 other=1 rust=2 script=2 test=2 | bronze-object-members.sh ← source sweep; staging smoke | a |
@@ -65,11 +65,11 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs�
 | 50 | `export-lineage-steward-fold` | 1008 | `lineage_steward_fold` (100) | doc=1 rust=1 script=2 test=1 | lineage-stewardship-cycle.sh | a |
 | 51 | `export-legal-dong-steward-decisions` | 1009 | `lineage_steward_fold` (100) | config=2 doc=2 runbook=1 rust=1 script=2 test=2 | 법정동 코드 적재 체인 | a |
 | 52 | `record-lineage-steward-folds` | 1010 | `lineage_steward_fold` (100) | config=2 doc=2 runbook=1 rust=1 script=4 test=1 | lineage-stewardship-cycle | a |
-| 53 | `seal-parcel-publication-evidence` | 1011 | `parcel_publication_evidence_sealer` (334) | doc=3 test=1 | 필지 PostGIS 증명(ADR-0194 s5.5); 테스트+문서뿐 | c |
-| 54 | `write-parcel-publication-evidence` | 1012 | `parcel_publication_evidence_writer` (462) | doc=1 test=1 | 위와 동일 | c |
+| 53 | `seal-parcel-publication-evidence` | **지움(W86)** 1011 | `parcel_publication_evidence_sealer` (334) | doc=3 test=1 | 필지 PostGIS 증명(ADR-0194 s5.5); 테스트+문서뿐 | c |
+| 54 | `write-parcel-publication-evidence` | **지움(W86)** 1012 | `parcel_publication_evidence_writer` (462) | doc=1 test=1 | 위와 동일 | c |
 | 55 | `promote-administrative-boundary-runtime` | 1013 | `administrative_boundary_runtime_promote` (79) | config=2 doc=2 runbook=1 rust=1 script=1 test=1 | CI boundary-slice-proof.sh | a |
 | 56 | `promote-industrial-complex-boundary-runtime` | 1016 | `industrial_complex_boundary_runtime_promote` (106) | doc=2 other=1 runbook=1 rust=1 script=1 test=1 | CI boundary-slice-proof.sh | a |
-| 57 | `promote-parcel-boundary-runtime` | 1019 | `parcel_boundary_runtime_promote` (98) | config=2 doc=3 rust=1 | 필지 PostGIS 경로(ADR-0194 s5.5); script/unit 없음 | b |
+| 57 | `promote-parcel-boundary-runtime` | **지움(W86)** 1019 | `parcel_boundary_runtime_promote` (98) | config=2 doc=3 rust=1 | 필지 PostGIS 경로(ADR-0194 s5.5); script/unit 없음 | b |
 | 58 | `check-bounded-live-ingestion-gate` | 1020 | `bounded_live_ingestion_gate_check` (472) | none | 국가 API 게이트; 호출자 0 | c |
 | 59 | `check-r2-runtime-target` | 1021 | `bronze_object_storage` (663) | rust=1 test=1 | tools/xtask live.rs | b |
 | 60 | `check-postgis-anchor-pbf-regional-proof` | 1022 | `postgis_anchor_pbf_regional_proof_check` (823) | none | 증명용; 호출자 0 | c |
@@ -169,9 +169,9 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs�
 | 154 | `r2-billing-usage-metrics` | 1234 | `r2_billing_usage_metrics` (621) | runbook=1 rust=1 | 런북 r2-inventory-audit | b |
 | 155 | `rebuild-parcel-marker-anchors` | 1235 | `None` (0) | doc=2 | ADR-0194 s5.4가 이것과 HTTP 라우트를 삭제하기로 결정; 문서뿐 | c |
 | 156 | `rebuild-parcel-marker-anchors-streaming` | 1236 | `parcel_marker_anchor_streaming_rebuild` (816) | doc=2 | 문서뿐; ADR-0194 s5.3가 유지했지만 실제로 실행하는 곳은 없음 | d |
-| 157 | `rebuild-postgis-parcel-boundary-mirror` | 1239 | `postgis_parcel_boundary_mirror_rebuild` (930) | doc=1 | 필지 미러(ADR-0194 s5.5); 문서뿐 | c |
-| 158 | `rebuild-postgis-parcel-boundary-mirror-national` | 1242 | `postgis_parcel_boundary_mirror_national_rebuild` (1268) | none | 호출자 0 | c |
-| 159 | `rebuild-postgis-parcel-boundary-mirror-national-from-contract` | 1245 | `postgis_parcel_boundary_mirror_national_rebuild` (1268) | config=2 doc=2 | pipeline-graph 엣지 + ADR뿐 | c |
+| 157 | `rebuild-postgis-parcel-boundary-mirror` | **지움(W86)** 1239 | `postgis_parcel_boundary_mirror_rebuild` (930) | doc=1 | 필지 미러(ADR-0194 s5.5); 문서뿐 | c |
+| 158 | `rebuild-postgis-parcel-boundary-mirror-national` | **지움(W86)** 1242 | `postgis_parcel_boundary_mirror_national_rebuild` (1268) | none | 호출자 0 | c |
+| 159 | `rebuild-postgis-parcel-boundary-mirror-national-from-contract` | **지움(W86)** 1245 | `postgis_parcel_boundary_mirror_national_rebuild` (1268) | config=2 doc=2 | pipeline-graph 엣지 + ADR뿐 | c |
 | 160 | `abandon-ingestion-run` | 1248 | `ingestion_run_recovery` (179) | rust=1 | 호출자 0 | d |
 | 161 | `reconcile-building-register` | 1249 | `building_register_ingest` (2444) | none | API 건축물대장; 호출자 0 | c |
 | 162 | `record-lakehouse-bronze-run-evidence` | 1250 | `lakehouse_registry_control` (579) | runbook=1 rust=1 | 국가 API 증명; 런북 lakehouse-registry | c |

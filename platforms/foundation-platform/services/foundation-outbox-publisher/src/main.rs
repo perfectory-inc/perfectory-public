@@ -93,9 +93,6 @@ use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
 use foundation_publisher_by_pnu::by_pnu_serving_rebase;
 use foundation_publisher_by_pnu::by_pnu_serving_state;
 use foundation_publisher_core::by_pnu_gateway_contract;
-#[cfg(test)]
-#[cfg(test)]
-use foundation_publisher_core::test_support;
 mod handoff_object_support;
 mod juso_electronic_map_base;
 mod juso_electronic_map_collect;
@@ -104,21 +101,10 @@ mod industrial_complex_notice_silver_load;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
-mod parcel_lineage_derive;
-use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
-use foundation_publisher_collection::page_collector;
-mod parcel_boundary_handoff;
-mod parcel_boundary_postgis_publish;
-mod parcel_boundary_runtime_promote;
-mod parcel_boundary_static_release_publish;
+mod parcel_lineage_derive;
 use foundation_publisher_by_pnu::parcel_by_pnu_serving_export;
-mod parcel_projection_digest;
-mod parcel_publication_contract;
-mod parcel_publication_evidence_sealer;
-mod parcel_publication_evidence_writer;
-mod postgis_parcel_boundary_mirror_national_rebuild;
-mod postgis_parcel_boundary_mirror_rebuild;
+use foundation_publisher_collection::page_collector;
 use foundation_publisher_collection::provider_acquisition_import;
 use foundation_publisher_collection::provider_acquisition_plan;
 use foundation_publisher_collection::provider_request_spacing;
@@ -247,8 +233,6 @@ enum Command {
     PublishIndustrialComplexBoundaryPostgis,
     PublishIndustrialComplexBoundaryStaticRelease,
     ProveIndustrialComplexBoundaryStaticReleaseMutationGuards,
-    PublishParcelBoundaryPostgis,
-    PublishParcelBoundaryStaticRelease,
     ReaddressStaticRelease,
     ExportMapEditHandoff,
     BakeLakehouseTiles,
@@ -263,11 +247,8 @@ enum Command {
     LoadIndustrialComplexNoticeSilver,
     ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
-    SealParcelPublicationEvidence,
-    WriteParcelPublicationEvidence,
     PromoteAdministrativeBoundaryRuntime,
     PromoteIndustrialComplexBoundaryRuntime,
-    PromoteParcelBoundaryRuntime,
     ProviderRateController,
     CollectR2BillingExport,
     RunPublicDataBronzeCollectionLanes,
@@ -290,9 +271,6 @@ enum Command {
     VerifyParcelByPnuServingRebase,
     PublishOutboxOnce,
     R2BillingUsageMetrics,
-    RebuildPostgisParcelBoundaryMirror,
-    RebuildPostgisParcelBoundaryMirrorNational,
-    RebuildPostgisParcelBoundaryMirrorNationalFromContract,
     RegisterServingSourceLineage,
     RunPublisher,
     InventoryLakehouse,
@@ -560,13 +538,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ProveIndustrialComplexBoundaryStaticReleaseMutationGuards => Box::pin(
             industrial_complex_boundary_static_release_publish::run_local_mutation_guard_proof(),
         ),
-        Command::PublishParcelBoundaryPostgis => Box::pin(parcel_boundary_postgis_publish::run()),
         Command::ReaddressStaticRelease => Box::pin(static_release_readdress::run()),
         Command::ExportMapEditHandoff => Box::pin(map_edit_handoff_export::run()),
         Command::BakeLakehouseTiles => Box::pin(lakehouse_tile_bake::run()),
-        Command::PublishParcelBoundaryStaticRelease => {
-            Box::pin(parcel_boundary_static_release_publish::run())
-        }
         Command::LoadUnitOfficialPriceProjection => {
             Box::pin(unit_official_price_projection_load::run())
         }
@@ -584,19 +558,12 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(lineage_steward_fold::export_legal_dong())
         }
         Command::RecordLineageStewardFolds => Box::pin(lineage_steward_fold::record()),
-        Command::SealParcelPublicationEvidence => {
-            Box::pin(parcel_publication_evidence_sealer::run())
-        }
-        Command::WriteParcelPublicationEvidence => {
-            Box::pin(parcel_publication_evidence_writer::run())
-        }
         Command::PromoteAdministrativeBoundaryRuntime => {
             Box::pin(administrative_boundary_runtime_promote::run())
         }
         Command::PromoteIndustrialComplexBoundaryRuntime => {
             Box::pin(industrial_complex_boundary_runtime_promote::run())
         }
-        Command::PromoteParcelBoundaryRuntime => Box::pin(parcel_boundary_runtime_promote::run()),
         Command::CheckR2RuntimeTarget => {
             Box::pin(async { bronze_object_storage::live_write_target_preflight() })
         }
@@ -629,15 +596,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishLakehouseLineageEvent => Box::pin(publish_lakehouse_lineage_event::run()),
         Command::PublishOutboxOnce => Box::pin(run_publisher_once()),
         Command::R2BillingUsageMetrics => Box::pin(async { r2_billing_usage_metrics::run() }),
-        Command::RebuildPostgisParcelBoundaryMirror => {
-            Box::pin(async { postgis_parcel_boundary_mirror_rebuild::run() })
-        }
-        Command::RebuildPostgisParcelBoundaryMirrorNational => {
-            Box::pin(postgis_parcel_boundary_mirror_national_rebuild::run())
-        }
-        Command::RebuildPostgisParcelBoundaryMirrorNationalFromContract => {
-            Box::pin(postgis_parcel_boundary_mirror_national_rebuild::run_from_contract())
-        }
         Command::IngestVWorldDatasetFiles => Box::pin(vworld_dataset_file_ingest::run()),
         Command::InventoryVWorldDatasetFiles => Box::pin(vworld_dataset_file_inventory::run()),
         Command::RegisterServingSourceLineage => Box::pin(serving_source_lineage_register::run()),
@@ -721,10 +679,6 @@ where
         Some("readdress-static-release") => Ok(Command::ReaddressStaticRelease),
         Some("export-map-edit-handoff") => Ok(Command::ExportMapEditHandoff),
         Some("bake-lakehouse-tiles") => Ok(Command::BakeLakehouseTiles),
-        Some("publish-parcel-boundary-postgis") => Ok(Command::PublishParcelBoundaryPostgis),
-        Some("publish-parcel-boundary-static-release") => {
-            Ok(Command::PublishParcelBoundaryStaticRelease)
-        }
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
         Some("load-real-estate-broker-lookup") => Ok(Command::LoadRealEstateBrokerLookup),
         Some("load-lineage-review-items") => Ok(Command::LoadLineageReviewItems),
@@ -738,15 +692,12 @@ where
         }
         Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
-        Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
-        Some("write-parcel-publication-evidence") => Ok(Command::WriteParcelPublicationEvidence),
         Some("promote-administrative-boundary-runtime") => {
             Ok(Command::PromoteAdministrativeBoundaryRuntime)
         }
         Some("promote-industrial-complex-boundary-runtime") => {
             Ok(Command::PromoteIndustrialComplexBoundaryRuntime)
         }
-        Some("promote-parcel-boundary-runtime") => Ok(Command::PromoteParcelBoundaryRuntime),
         Some("check-r2-runtime-target") => Ok(Command::CheckR2RuntimeTarget),
         Some("provider-rate-controller") => Ok(Command::ProviderRateController),
         Some("collect-r2-billing-export") => Ok(Command::CollectR2BillingExport),
@@ -922,15 +873,6 @@ where
         Some("publish-lakehouse-lineage-event") => Ok(Command::PublishLakehouseLineageEvent),
         Some("publish-outbox-once") => Ok(Command::PublishOutboxOnce),
         Some("r2-billing-usage-metrics") => Ok(Command::R2BillingUsageMetrics),
-        Some("rebuild-postgis-parcel-boundary-mirror") => {
-            Ok(Command::RebuildPostgisParcelBoundaryMirror)
-        }
-        Some("rebuild-postgis-parcel-boundary-mirror-national") => {
-            Ok(Command::RebuildPostgisParcelBoundaryMirrorNational)
-        }
-        Some("rebuild-postgis-parcel-boundary-mirror-national-from-contract") => {
-            Ok(Command::RebuildPostgisParcelBoundaryMirrorNationalFromContract)
-        }
         Some("register-serving-source-lineage") => Ok(Command::RegisterServingSourceLineage),
         Some("inventory-lakehouse") => Ok(Command::InventoryLakehouse),
         Some("migrate-r2-bronze-keys") => Ok(Command::MigrateR2BronzeKeys),
