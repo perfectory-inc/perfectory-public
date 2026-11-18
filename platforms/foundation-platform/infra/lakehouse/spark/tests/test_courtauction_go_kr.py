@@ -570,6 +570,52 @@ class ReportRowsTest(unittest.TestCase):
         self.assertEqual(CONTRACT["appraisal_reports"]["reads_from"], job.REPORT_READ_TABLE)
 
 
+def notice_lines():
+    """A 매각공고 object as the collector writes it: the court list, one notice list and its detail,
+    with made-up values (root ADR-0575 §6)."""
+
+    listed = {"cortOfcCd": "B999999", "dspslDxdyYmd": "20991119", "jdbnCd": "1002", "cortAuctnJdbnNm": "경매2계",
+              "jdbnTelno": "000-0000", "bidDvsCd": "000331", "dspslPlcNm": "합성법정", "fstDspslHm": "1000",
+              "corCnt": 1, "canCnt": 1}
+    detail = {"result": {"dspslPbanc": {"csCnt": 2, "pbancInfo": {"lst": [
+        {"csNo": "2099타경1", "dspslSeq": "1", "usgNm": "대지", "aeeEvlAmt": "11,000,000",
+         "lwsDspslPrc": "<img src=\"/x.gif\" alt=\"첫번째\"> 8,800,000<br>입찰시간(10:00)<br>", "dspslRmk": "",
+         "st": "합성도 가나동 1 <br />[상세내역]<br /> 대 100㎡"}]}},
+        "crrctPbancLst": [{"csNo": "2099타경2", "dspslSeq": "1", "crrctCtt": "최저매각가격 7,000,000원으로 정정",
+                           "crrctPbancYmd": "20991118", "aeeEvlAmt": "9,000,000", "lwsDspslPrc": "7,000,000"}],
+        "rtrcnPbancLst": [{"csNo": "2099타경3</br>2099타경4</br>(중복)", "dspslSeq": "2", "crrctCtt": "변경 후 추후지정",
+                           "crrctPbancYmd": "20991118", "dspslGdsCsNo": "20990130000003", "rletPbancDvsCd": "2"}]}}
+    return [
+        {"operation": "selectCortOfcCdLst", "request": {}, "read_outcome": "read",
+         "body": json.dumps({"data": {"result": [{"cortOfcCd": "B999999"}]}})},
+        {"operation": "selectRletDspslPbanc", "request": {}, "read_outcome": "read",
+         "body": json.dumps({"data": {"dlt_rletDspslPbancLst": [listed]}}, ensure_ascii=False)},
+        {"operation": "selectRletDspslPbancDtl", "request": {"dma_srchGnrlPbanc": listed}, "read_outcome": "read",
+         "body": json.dumps({"data": detail}, ensure_ascii=False)},
+    ]
+
+
+class NoticeRowsTest(unittest.TestCase):
+    def test_a_notice_and_its_lists_with_the_change_text(self):
+        tables = job.notice_rows_of(notice_lines(), CONTRACT["sale_notices"], "notice-object", "20991113T030405Z",
+                                    datetime(2099, 11, 13, 3, 4, 5))
+        [notice] = tables[job.NOTICE_TABLE]
+        self.assertEqual((notice["sale_date"], notice["department_code"], notice["case_count"],
+                          notice["correction_count"]), (date(2099, 11, 19), "1002", 2, 1))
+        items = {row["list"]: row for row in tables[job.NOTICE_ITEM_TABLE]}
+        self.assertEqual((items["sale"]["minimum_bid_price_krw"], items["sale"]["appraisal_amount_krw"]),
+                         (8_800_000, 11_000_000))
+        self.assertEqual(items["sale"]["property_text"], "합성도 가나동 1" + chr(10) + "[상세내역]" + chr(10) + "대 100㎡")
+        self.assertEqual((items["correction"]["change_text"], items["correction"]["change_date"]),
+                         ("최저매각가격 7,000,000원으로 정정", date(2099, 11, 18)))
+        self.assertEqual((items["cancellation"]["user_case_no"], items["cancellation"]["sale_case_no"]),
+                         ("2099타경3", "20990130000003"))
+        for table in job.NOTICE_TABLES:
+            names = {c["name"] for c in load_lakehouse_contract(table)["columns"]}
+            self.assertLessEqual(set(tables[table][0]), names, table)
+        self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_sale_notice"], job.NOTICES_ROLE)
+
+
 def spec_line(document, outcome, sha=None):
     """A 매각물건명세서 line as the collector writes it, with made-up values (root ADR-0575)."""
 

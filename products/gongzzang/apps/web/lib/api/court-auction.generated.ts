@@ -130,6 +130,11 @@ export const ParcelCourtAuctionByPnuSchema = z.object({
           document_kind: z.string().nullish(),
           action: z.string().nullish(),
         })).nullish(),
+        notice_changes: z.array(z.object({
+          list: z.enum(["correction", "cancellation"]).nullish(),
+          change_date: z.string().nullish(),
+          change_text: z.string().nullish(),
+        })).nullish(),
       }).nullish(),
     })),
     sale_results: z.array(z.object({

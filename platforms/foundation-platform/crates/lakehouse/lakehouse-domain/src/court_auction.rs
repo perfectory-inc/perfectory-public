@@ -1083,3 +1083,103 @@ pub const SILVER_COURT_AUCTION_SURVEY_TENANT: LakehouseTableContract = Lakehouse
     ],
     load: OBJECT_LOAD,
 };
+
+const SALE_NOTICE_KEY: &[&str] = &[
+    "court_office_code",
+    "department_code",
+    "sale_date",
+    "bid_kind_code",
+];
+
+/// A court department's 매각공고 for one sale date and bid kind (매각공고 목록 and its detail's case
+/// count), newest per notice (root ADR-0575 §6).
+pub const SILVER_COURT_AUCTION_SALE_NOTICE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_sale_notice",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: SALE_NOTICE_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("department_code", "string", true),
+        column("sale_date", "date", true),
+        column("bid_kind_code", "string", true),
+        column("department_name", "string", false),
+        column("department_phone", "string", false),
+        column("sale_place", "string", false),
+        column("first_time_raw", "string", false),
+        column("second_time_raw", "string", false),
+        column("third_time_raw", "string", false),
+        column("fourth_time_raw", "string", false),
+        column("bid_start_date", "date", false),
+        column("bid_end_date", "date", false),
+        column("correction_count", "int", false),
+        column("cancellation_count", "int", false),
+        column("case_count", "int", false),
+    ),
+    partition_spec: &[],
+    sort_order: SALE_NOTICE_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, department_code, sale_date, bid_kind_code, source_snapshot_id) unique",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// A 매각공고's lists, one edition per notice read whose lists changed (root ADR-0575 §6).
+///
+/// Its properties (`sale`), its 정정공고 (`correction`) and its 취소·변경공고 (`cancellation`): the
+/// case and property, the use, the appraisal and minimum prices, the remarks, the property as the
+/// notice describes it and, for a change, its date and text. A notice names no person.
+pub const SILVER_COURT_AUCTION_SALE_NOTICE_ITEM: LakehouseTableContract =
+    LakehouseTableContract {
+        table_name: "silver.court_auction_sale_notice_item",
+        layer: LakehouseLayer::Silver,
+        physical_format: LakehousePhysicalFormat::Parquet,
+        serving_role: LakehouseServingRole::Canonical,
+        current_row_predicate: None,
+        row_versions: read_editions(SALE_NOTICE_KEY),
+        columns: with_load_columns!(
+            column("court_office_code", "string", true),
+            column("department_code", "string", true),
+            column("sale_date", "date", true),
+            column("bid_kind_code", "string", true),
+            // sale, correction or cancellation.
+            column("list", "string", true),
+            // The row's place in its list, from 1.
+            column("list_seq", "int", true),
+            column("user_case_no", "string", false),
+            column("sale_case_no", "string", false),
+            column("property_seq", "int", false),
+            column("usage_name", "string", false),
+            column("appraisal_amount_krw", "long", false),
+            column("minimum_bid_price_krw", "long", false),
+            column("remarks", "string", false),
+            column("property_text", "string", false),
+            column("change_text", "string", false),
+            column("change_date", "date", false),
+            column("notice_kind_code", "string", false),
+        ),
+        partition_spec: &[],
+        sort_order: &[
+            "court_office_code",
+            "department_code",
+            "sale_date",
+            "bid_kind_code",
+            "list",
+            "list_seq",
+        ],
+        write_distribution: LakehouseWriteDistribution::Hash,
+        quality_gates: &[
+            "append_only",
+            "(court_office_code, department_code, sale_date, bid_kind_code, list, list_seq, source_snapshot_id) unique",
+        ],
+        load: OBJECT_LOAD,
+    };

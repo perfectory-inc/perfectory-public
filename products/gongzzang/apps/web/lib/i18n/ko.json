@@ -896,7 +896,10 @@
           "tenantDeposit": "보증(전세)금",
           "tenantRent": "차임",
           "tenantMoveIn": "전입일자",
-          "tenantFixed": "확정일자"
+          "tenantFixed": "확정일자",
+          "noticeChanges": "매각공고 정정·취소",
+          "noticeCorrection": "정정공고",
+          "noticeCancellation": "취소·변경공고"
         }
       }
     },

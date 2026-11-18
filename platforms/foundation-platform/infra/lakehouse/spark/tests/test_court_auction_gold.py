@@ -417,6 +417,11 @@ def full_document_frames(spark, round_row):
         job.TENANT_DOC: {"round_seq": 1, "tenant_seq": 1, "object_seq": 1, "usage_raw": "사무실",
                          "deposit_raw": "10,000,000원", "monthly_rent_raw": "500,000원", "move_in_raw": "2099.01.02",
                          "fixed_date_raw": "미상", "leased_part_raw": "전부"},
+        # A 정정공고 naming the round's case and property (root ADR-0575 §6).
+        job.NOTICE_ITEM_DOC: {"department_code": "1002", "sale_date": date(2099, 1, 5), "bid_kind_code": "000331",
+                              "list": "correction", "list_seq": 1, "user_case_no": round_row["user_case_no"],
+                              "property_seq": round_row["property_seq"], "change_date": date(2099, 1, 4),
+                              "change_text": "최저매각가격 정정"},
         # 문건·송달 (root ADR-0575 §5): the role and kind, never the masked name.
         job.FILING_DOC: {"filing_seq": 1, "received_date": date(2099, 2, 2), "filer_role": "채권자", "document_kind": "보정서",
                          "action": "제출", "result": "합성"},
