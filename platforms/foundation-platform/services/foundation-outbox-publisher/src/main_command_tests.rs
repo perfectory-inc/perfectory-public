@@ -132,6 +132,15 @@ fn real_estate_broker_lookup_load_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn audit_import_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "import-audit-events"])?,
+        Command::ImportAuditEvents
+    );
+    Ok(())
+}
+
+#[test]
 fn lineage_review_load_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "load-lineage-review-items"])?,
