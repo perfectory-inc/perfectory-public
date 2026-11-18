@@ -59,7 +59,9 @@
         "silver-court-auction-appraisal-report-to-source-courtauction-go-kr",
         "silver-court-auction-appraisal-report-read-to-source-courtauction-go-kr",
         "source-courtauction-go-kr-to-silver-court-auction-sale-specification-read",
-        "silver-court-auction-sale-specification-read-to-source-courtauction-go-kr"
+        "silver-court-auction-sale-specification-read-to-source-courtauction-go-kr",
+        "source-courtauction-go-kr-to-silver-court-auction-case-filing",
+        "source-courtauction-go-kr-to-silver-court-auction-case-delivery"
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T13:30:00Z",
@@ -469,6 +471,44 @@
           "value": "silver.court_auction_sale_specification_read"
         }
       ]
+    },
+    {
+      "id": "silver-court-auction-case-filing",
+      "type": "silver_table",
+      "title": "법원경매 사건 접수 문건",
+      "description": "사건마다 접수 문건(문건·송달 화면) 목록을 판으로 싣는다: 접수일·제출자 자격(이름 앞 낱말)·문건 종류(이름 뒤 낱말)·처리·결과. 사이트가 O 로 가린 이름 낱말은 싣지 않고, 가림 없는 줄은 처리만 싣는다(루트 ADR-0575 §5).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_case_filing",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_case_filing"
+        }
+      ]
+    },
+    {
+      "id": "silver-court-auction-case-delivery",
+      "type": "silver_table",
+      "title": "법원경매 사건 송달",
+      "description": "사건마다 송달 목록을 판으로 싣는다: 등록일·도달일·송달 결과·받는 사람 자격·송달 문서 종류·처리. 가린 이름 낱말은 싣지 않는다(루트 ADR-0575 §5).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_case_delivery",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_case_delivery"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -731,6 +771,40 @@
         "courtauctiongokr__auction_case_detail"
       ],
       "description": "사건상세의 당사자 목록에서 구분(채권자·채무자·임차인 등)과 순서만 싣는다. 사람 이름은 Bronze 에만 둔다(루트 ADR-0540 §4)."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-case-filing",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_case_filing"
+      ],
+      "description": "사건마다 접수 문건(문건·송달 화면) 목록을 판으로 싣는다: 접수일·제출자 자격(이름 앞 낱말)·문건 종류(이름 뒤 낱말)·처리·결과. 사이트가 O 로 가린 이름 낱말은 싣지 않고, 가림 없는 줄은 처리만 싣는다(루트 ADR-0575 §5)."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-case-delivery",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_case_filing"
+      ],
+      "description": "사건마다 송달 목록을 판으로 싣는다: 등록일·도달일·송달 결과·받는 사람 자격·송달 문서 종류·처리. 가린 이름 낱말은 싣지 않는다(루트 ADR-0575 §5)."
     },
     {
       "from": "source-courtauction-go-kr",

@@ -93,6 +93,13 @@ last_reviewed: 2026-11-12
 연속 `captcha_stop_after` 번이면 그 실행은 멈춘다(다음 실행이 다시 묻는다). 실행 줄 `courtauction.go.kr appraisal reports:` 에
 요청·저장·캡차 수가 나온다. 캡차 기록은 `silver.court_auction_appraisal_report_read` 의 `outcome = 'captcha'`.
 
+## 문건·송달 (루트 ADR-0575 §4·§5)
+
+사건 문서(`case_documents`)의 네 번째 문서다: 때가 된 사건(목록이 바뀜 — 새 기일·결과·상태, 또는 기일 전후)마다 다른 사건 문서와
+함께 한 번 묻는다. Silver 는 `silver.court_auction_case_filing`(접수일·제출자 자격·문건 종류·처리·결과)과
+`silver.court_auction_case_delivery`(등록일·도달일·결과·받는 사람 자격·종류·처리), 사건마다 판. 사이트가 O 로 가린 이름 낱말은 싣지
+않고, 가림이 없는 줄은 처리만 싣는다(이름과 종류를 가를 수 없다). 원문은 Bronze 에만 있다.
+
 ## 매각물건명세서 PDF (루트 ADR-0575)
 
 물건상세 뒤, 사건 문서 앞에 같은 실행이 그 실행에 읽은 물건 가운데 사이트 화면이 명세서를 여는 것(실물, 기일입찰은 매각기일 7 일 전부터,

@@ -11686,6 +11686,211 @@
         "object_suffix_separator": null
       }
     },
+    "silver.court_auction_case_filing": {
+      "table_name": "silver.court_auction_case_filing",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "current_rows_sql": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "per": [
+          "court_office_code",
+          "case_no"
+        ],
+        "read": "newest"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "filing_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "received_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "filer_role",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "document_kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "action",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "result",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "filing_seq"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, filing_seq, source_snapshot_id) unique",
+        "no person's name, masked or not (root ADR-0575 §5)"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.court_auction_case_delivery": {
+      "table_name": "silver.court_auction_case_delivery",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "current_rows_sql": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "per": [
+          "court_office_code",
+          "case_no"
+        ],
+        "read": "newest"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "delivery_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "registered_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "reached_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "delivery_result",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "recipient_role",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "document_kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "action",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "delivery_seq"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, delivery_seq, source_snapshot_id) unique",
+        "no person's name, masked or not (root ADR-0575 §5)"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.court_auction_survey": {
       "table_name": "silver.court_auction_survey",
       "physical_format": "Parquet",

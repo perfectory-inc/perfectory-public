@@ -971,3 +971,72 @@ pub const SILVER_COURT_AUCTION_SALE_SPECIFICATION_READ: LakehouseTableContract =
         ],
         load: OBJECT_LOAD,
     };
+
+/// A case's received filings (문건, `dlt_ofdocDtsLst`), one edition per case read whose list changed
+/// (root ADR-0575 §5).
+///
+/// Each row is the date, the filer's role (the words before the name the site masks), the document
+/// kind (the words after it) and the action; the masked name is never kept.
+pub const SILVER_COURT_AUCTION_CASE_FILING: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_case_filing",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: read_editions(CASE_KEY),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        // The row's place in the site's list, from 1.
+        column("filing_seq", "int", true),
+        column("received_date", "date", false),
+        column("filer_role", "string", false),
+        column("document_kind", "string", false),
+        column("action", "string", false),
+        column("result", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: &["court_office_code", "case_no", "filing_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, filing_seq, source_snapshot_id) unique",
+        "no person's name, masked or not (root ADR-0575 §5)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// A case's deliveries (송달, `dlt_dlvrDtsLst`), one edition per case read whose list changed (root
+/// ADR-0575 §5).
+///
+/// Each row is the registered and reached dates, the delivery result, the recipient's role, the
+/// document kind and the action; the masked name is never kept.
+pub const SILVER_COURT_AUCTION_CASE_DELIVERY: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_case_delivery",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: read_editions(CASE_KEY),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        // The row's place in the site's list, from 1.
+        column("delivery_seq", "int", true),
+        column("registered_date", "date", false),
+        column("reached_date", "date", false),
+        column("delivery_result", "string", false),
+        column("recipient_role", "string", false),
+        column("document_kind", "string", false),
+        column("action", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: &["court_office_code", "case_no", "delivery_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, delivery_seq, source_snapshot_id) unique",
+        "no person's name, masked or not (root ADR-0575 §5)",
+    ],
+    load: OBJECT_LOAD,
+};
