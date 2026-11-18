@@ -90,6 +90,8 @@ SURVEY_DOC = "silver.court_auction_survey"
 SURVEY_OBJECT_DOC = "silver.court_auction_survey_object"
 # A 현황조사 round's 임대차관계, from the 현황조사서 page (root ADR-0575 §6), never a name.
 TENANT_DOC = "silver.court_auction_survey_tenant"
+# The court's 매각공고 lists (root ADR-0575 §6): a 정정공고 or 취소·변경공고 names its case and property.
+NOTICE_ITEM_DOC = "silver.court_auction_sale_notice_item"
 APPRAISAL_ROUND_DOC = "silver.court_auction_appraisal"
 # A 감정평가 round's stored 감정평가서, in the shared content-addressed store the parcel edge serves.
 REPORT_DOC = "silver.court_auction_appraisal_report"
@@ -98,7 +100,7 @@ REPORT_KEY = (*CASE, "round_seq", "appraisal_no", "written_date")
 FILING_DOC = "silver.court_auction_case_filing"
 DELIVERY_DOC = "silver.court_auction_case_delivery"
 CASE_DOCUMENT_SOURCES = (RELATED_DOC, CASE_OBJECT_DOC, PARTY_DOC, SURVEY_DOC, SURVEY_OBJECT_DOC, APPRAISAL_ROUND_DOC,
-                         REPORT_DOC, FILING_DOC, DELIVERY_DOC, TENANT_DOC)
+                         REPORT_DOC, FILING_DOC, DELIVERY_DOC, TENANT_DOC, NOTICE_ITEM_DOC)
 DOCUMENT_SOURCES = (CASE_DOC, SPEC_DOC, SCHEDULE_DOC, OBJECT_DOC, ANNEX_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
 CASE_DOCUMENTS = (CASE_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
 # The site's 공통코드 (root ADR-0540 §5): the name of each code a document carries.
@@ -318,9 +320,13 @@ def detail_parts(frames: dict[str, Any]) -> dict[str, Any]:
         "received_date", "filer_role", "document_kind", "action", "result"], "_filings")
     deliveries = _listed(current(DELIVERY_DOC), CASE, ("delivery_seq",), [
         "registered_date", "reached_date", "delivery_result", "recipient_role", "document_kind", "action"], "_deliveries")
+    changes = _listed(current(NOTICE_ITEM_DOC).where(F.col("list").isin("correction", "cancellation"))
+                      .where(F.col("user_case_no").isNotNull() & F.col("property_seq").isNotNull()),
+                      ("court_office_code", "user_case_no", "property_seq"), ("change_date", "list", "list_seq"),
+                      ["list", "change_date", "change_text"], "_notice_changes")
     return {"case": case, "spec": spec, "schedule": schedule, "objects": objects, "annexes": annexes,
             "appraisal_points": points, "related_cases": related, "parties": parties, "survey": survey,
-            "appraisal": appraisal, "filings": filings, "deliveries": deliveries}
+            "appraisal": appraisal, "filings": filings, "deliveries": deliveries, "notice_changes": changes}
 
 
 def newest_round(rows: Any) -> Any:
@@ -349,7 +355,8 @@ def with_detail(round_rows: Any, frames: dict[str, Any], spark: Any = None) -> A
     for name, part in parts.items():
         on = [c for c in part.columns if not c.startswith("_")]
         joined = joined.join(part, on, "left")
-    lists = ("schedule", "objects", "annexes", "appraisal_points", "related_cases", "parties", "filings", "deliveries")
+    lists = ("schedule", "objects", "annexes", "appraisal_points", "related_cases", "parties", "filings", "deliveries",
+             "notice_changes")
     typed = {name: parts[name].schema[f"_{name}"].dataType.simpleString() for name in lists}
     present = F.col("_case").isNotNull() | F.col("_spec").isNotNull()
     detail = F.struct(F.col("_case").alias("case"), F.col("_spec").alias("spec"), *[

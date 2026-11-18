@@ -69,6 +69,9 @@ const round = {
       opinion: "합성 의견",
       report: { sha256: "a".repeat(64), media_format: "pdf", size_bytes: 1000 },
     },
+    notice_changes: [
+      { list: "correction", change_date: "2099-01-04", change_text: "최저매각가격 정정" },
+    ],
     filings: [
       {
         received_date: "2099-02-02",
@@ -154,6 +157,12 @@ describe("court auction detail", () => {
     expect(screen.getByText("채권자 보정서 제출")).toBeTruthy();
     expect(screen.getByText("채권자대리인 보정명령등본 발송")).toBeTruthy();
     expect(screen.getByText("2099-01-30 도달")).toBeTruthy();
+  });
+
+  it("shows the 매각공고's 정정·취소 of the item (root ADR-0575 §6)", () => {
+    renderCard({ rounds: [round], source_attribution: "x" } as CourtAuction);
+    expect(screen.getByText("매각공고 정정·취소")).toBeTruthy();
+    expect(screen.getByText("최저매각가격 정정")).toBeTruthy();
   });
 
   it("shows the 현황조사서's 임대차관계 without a name (root ADR-0575 §6)", () => {

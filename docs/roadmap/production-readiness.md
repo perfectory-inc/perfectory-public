@@ -301,6 +301,8 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 법원경매 사건 사진 (`silver.court_auction_item_photo`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 기일내역 (`silver.court_auction_item_schedule`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 매각물건명세서 요약 (`silver.court_auction_item_spec`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 법원경매 매각공고 (`silver.court_auction_sale_notice`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 법원경매 매각공고 물건·정정·취소 (`silver.court_auction_sale_notice_item`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 매각결과 (`silver.court_auction_sale_result`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 현황조사 (`silver.court_auction_survey`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 현황조사 목록 (`silver.court_auction_survey_object`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |

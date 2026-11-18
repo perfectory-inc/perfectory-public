@@ -309,6 +309,26 @@ function FilingSections({ t, detail }: { t: Translate; detail: Detail }) {
           />
         </Section>
       )}
+      {(detail.notice_changes?.length ?? 0) > 0 && (
+        <Section title={t("detail.noticeChanges")}>
+          <ul className="mt-1 flex flex-col gap-1">
+            {detail.notice_changes?.map((c, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the notice's list order is the row's identity.
+              <li key={i}>
+                <span className="text-[var(--color-muted)]">
+                  {t(
+                    c.list === "correction"
+                      ? "detail.noticeCorrection"
+                      : "detail.noticeCancellation",
+                  )}{" "}
+                  {c.change_date ?? ""}
+                </span>{" "}
+                {c.change_text ?? ""}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
       {(detail.deliveries?.length ?? 0) > 0 && (
         <Section title={t("detail.deliveries")}>
           <DatedList

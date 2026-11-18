@@ -183,6 +183,7 @@ pub(crate) struct SourceContract {
     pub(crate) case_documents: cases::CaseDocuments,
     pub(crate) appraisal_reports: reports::AppraisalReports,
     pub(crate) sale_specifications: specs::SaleSpecifications,
+    pub(crate) sale_notices: notices::SaleNotices,
     pub(crate) collection: Collection,
 }
 
@@ -1126,6 +1127,37 @@ pub async fn run() -> anyhow::Result<()> {
             objects.push(entry);
         }
     }
+    // The 매각공고 are read whole and commit at once, as the lists are (root ADR-0575 §6).
+    let mut notices_report = json!({"asked": 0, "skipped": "the list pass did not end cleanly"});
+    if stop.is_none() {
+        let budget = Duration::from_secs(contract.sale_notices.run_time_budget_seconds);
+        let notices_deadline = (Instant::now() + budget).min(deadline);
+        let today = (Utc::now() + chrono::Duration::hours(KST_HOURS)).date_naive();
+        let (result, notices_stop) =
+            notices::collect_notices(&contract, &asking, notices_deadline, today, Utc::now).await?;
+        notices_report = json!(result);
+        println!("courtauction.go.kr sale notices: {notices_report}");
+        // The phase's own deadline ends only the phase; an operator's window that ended ends the run.
+        let complete = notices_stop.is_none();
+        if matches!(notices_stop, Some(Stop::WindowEnded)) {
+            stop = notices_stop;
+        }
+        if !result.lines.is_empty() {
+            let mut entry = persist(
+                &contract.sale_notices.as_search(),
+                &config.output_dir,
+                &result.lines,
+                started,
+                &lists_night,
+                live,
+            )
+            .await?;
+            entry["role"] = json!("sale_notices");
+            entry["complete"] = json!(complete);
+            entry["rows"] = json!(result.lines.len());
+            objects.push(entry);
+        }
+    }
     let mut details: Option<(detail::DetailResult, JsonValue)> = None;
     let mut case_wanted: Vec<cases::WantedCase> = Vec::new();
     // The 감정평가서 end the run, the case documents before them, the 매각물건명세서 before those and
@@ -1335,6 +1367,7 @@ pub async fn run() -> anyhow::Result<()> {
             "night": night,
             "objects": objects,
             "item_detail": detail_report,
+            "sale_notices": notices_report,
             "sale_specifications": specs_report,
             "case_documents": cases_report,
             "appraisal_reports": reports_report,
@@ -1372,6 +1405,7 @@ pub async fn run() -> anyhow::Result<()> {
 pub(crate) mod cases;
 pub(crate) mod codes;
 pub(crate) mod detail;
+pub(crate) mod notices;
 pub(crate) mod reports;
 pub(crate) mod specs;
 
