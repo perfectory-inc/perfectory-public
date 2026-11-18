@@ -1,5 +1,5 @@
 {
-  "$comment": "The vocabulary of the audit chain audit.event (root ADR-0569 §2, §3). writers is the table audit.source as data: the role that may write each source through audit.append, and whether that source verified the actor it names (an importer's actor_verified is true only for a source that verifies). The migration that creates audit.event spells the same lists as its CHECKs and audit.source rows; orchestration/tests/test_audit_events_contract.py refuses any difference, and every action the migrations emit must be listed here. A new source or action is a migration and a change here, in one PR.",
+  "$comment": "The vocabulary of the audit chain audit.event (root ADR-0569 §2, §3). writers is the table audit.source as data: the role that may write each source through audit.append, and whether that source verified the actor it names (an importer's actor_verified is true only for a source that verifies). The migration that creates audit.event spells the same lists as its CHECKs and audit.source rows; orchestration/tests/test_audit_events_contract.py refuses any difference, and every action the migrations emit must be listed here. A new source or action is a migration and a change here, in one PR. The importer (import-audit-events, root ADR-0569 §6) reads this file from the release it runs in: a host command whose action is not listed here is recorded as host_command.other, with no arguments.",
   "schema_version": "foundation.audit-events.v1",
   "writers": [
     { "source": "dawneer", "writer_role": "foundation_api", "verifies_actor": true },
@@ -28,6 +28,24 @@
     { "action": "operator_action.approve_cutover", "source": "dawneer" },
     { "action": "operator_action.force_full", "source": "dawneer" },
     { "action": "audit.exported", "source": "audit" },
-    { "action": "audit.import_gap", "source": "audit" }
+    { "action": "audit.import_gap", "source": "audit" },
+    { "action": "deploy.succeeded", "source": "deploy" },
+    { "action": "deploy.failed", "source": "deploy" },
+    { "action": "deploy.refused", "source": "deploy" },
+    { "action": "host_command.cutover", "source": "host_command" },
+    { "action": "host_command.bake", "source": "host_command" },
+    { "action": "host_command.equality", "source": "host_command" },
+    { "action": "host_command.latency", "source": "host_command" },
+    { "action": "host_command.publish", "source": "host_command" },
+    { "action": "host_command.monitor_sample", "source": "host_command" },
+    { "action": "host_command.rollback_rehearsal", "source": "host_command" },
+    { "action": "host_command.gold_rebuild", "source": "host_command" },
+    { "action": "host_command.kind_sizes", "source": "host_command" },
+    { "action": "host_command.rebuild", "source": "host_command" },
+    { "action": "host_command.rehearse", "source": "host_command" },
+    { "action": "host_command.build", "source": "host_command" },
+    { "action": "host_command.run", "source": "host_command" },
+    { "action": "host_command.migrate_versions", "source": "host_command" },
+    { "action": "host_command.other", "source": "host_command" }
   ]
 }

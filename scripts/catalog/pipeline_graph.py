@@ -131,13 +131,14 @@ def migration_tables(root: Path) -> set[str]:
     # Ignore comments, strings and function bodies: dynamic SQL is not a table declaration.
     ignored = re.compile(r"--[^\n]*|/\*.*?\*/|'(?:''|[^'])*'|\$(\w*)\$.*?\$\1\$", re.S)
     ident = r'"?([a-z_][a-z_0-9]*)"?'
-    qualified = rf'"?(catalog|serving_postgis)"?\s*\.\s*{ident}'
+    # `audit` holds the audit chain (root ADR-0569): its tables are datasets like the others.
+    qualified = rf'"?(catalog|serving_postgis|audit)"?\s*\.\s*{ident}'
     create = re.compile(rf"\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{qualified}", re.I)
     rename = re.compile(rf"\bALTER\s+TABLE\s+{qualified}\s+RENAME\s+TO\s+{ident}\s*;", re.I)
     drop = re.compile(rf"\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?{qualified}\s*;", re.I)
     # DROP TABLE and RENAME are handled by the ordered replay below; refuse only the
     # lifecycle changes this bounded scanner still cannot reconcile (DROP SCHEMA, SET SCHEMA).
-    lifecycle = re.compile(rf"\b(?:DROP\s+SCHEMA\s+(?:IF\s+EXISTS\s+)?\"?(?:catalog|serving_postgis)\b|ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?{qualified}[^;]*\bSET\s+SCHEMA\b)", re.I)
+    lifecycle = re.compile(rf"\b(?:DROP\s+SCHEMA\s+(?:IF\s+EXISTS\s+)?\"?(?:catalog|serving_postgis|audit)\b|ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?{qualified}[^;]*\bSET\s+SCHEMA\b)", re.I)
     for path in files:
         sql = ignored.sub(" ", path.read_text(encoding="utf-8-sig"))
         if lifecycle.search(drop.sub(" ", rename.sub(" ", sql))):

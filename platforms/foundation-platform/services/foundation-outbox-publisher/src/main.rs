@@ -149,6 +149,7 @@ mod staging_namespace;
 use foundation_publisher_tiles::static_release_readdress;
 use foundation_publisher_tiles::static_release_toolchain;
 use foundation_publisher_tiles::tile_derivative_object_storage;
+mod audit_import;
 mod real_estate_broker_lookup_load;
 mod trino_cli;
 mod unit_official_price_projection_load;
@@ -254,6 +255,7 @@ enum Command {
     BakeLakehouseTiles,
     LoadUnitOfficialPriceProjection,
     LoadRealEstateBrokerLookup,
+    ImportAuditEvents,
     LoadLineageReviewItems,
     MeasureBronzeObjectMembers,
     ClearStagingNamespace,
@@ -571,6 +573,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(unit_official_price_projection_load::run())
         }
         Command::LoadRealEstateBrokerLookup => Box::pin(real_estate_broker_lookup_load::run()),
+        Command::ImportAuditEvents => Box::pin(audit_import::run()),
         Command::LoadLineageReviewItems => Box::pin(lineage_review_items_load::run()),
         Command::MeasureBronzeObjectMembers => Box::pin(bronze_object_members::run()),
         Command::ClearStagingNamespace => Box::pin(staging_namespace::clear()),
@@ -727,6 +730,7 @@ where
         }
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
         Some("load-real-estate-broker-lookup") => Ok(Command::LoadRealEstateBrokerLookup),
+        Some("import-audit-events") => Ok(Command::ImportAuditEvents),
         Some("load-lineage-review-items") => Ok(Command::LoadLineageReviewItems),
         Some("measure-bronze-object-members") => Ok(Command::MeasureBronzeObjectMembers),
         Some("clear-staging-namespace") => Ok(Command::ClearStagingNamespace),
