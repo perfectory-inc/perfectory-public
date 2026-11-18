@@ -1431,6 +1431,11 @@
             "memory_max": "256M",
             "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as its 256M cap, set when it was written; it logged CPU only; systemd logs the peak of every run under this cap"
           },
+          "foundation-audit-digest.service": {
+            "class": "batch",
+            "memory_max": "256M",
+            "measured": "no run yet (new 2026-11-19, root ADR-0569 §4); sized as the publisher binary with one connection, then the pinned cosign signing one small file (its peak is that of a Go binary, tens of MB); systemd logs the peak of every run under this cap"
+          },
           "foundation-audit-import.service": {
             "class": "batch",
             "memory_max": "256M",
