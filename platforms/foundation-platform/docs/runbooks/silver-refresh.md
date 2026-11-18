@@ -43,6 +43,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `building-permit-temporary-building` | `silver.building_permit_temporary_building` | 가설건축물 `mart_kcy_08` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
 | `building-permit-site-location` | `silver.building_permit_site_location` | 건축인허가 대지위치 `mart_kcy_16` (루트 ADR-0402) | 부분을 load branch 에 쌓고 바뀐 대지 행만 main 에 (`compare`, 묶음 = 관리대지위치관리번호 앞 두 자리) |
 | `building-maintenance-regular-inspection-history` | `silver.building_maintenance_regular_inspection_history` | 건축물 정기점검이력 `mart_ll_02` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음; pnu 없음 — 표제부로 잇는다, 루트 ADR-0404) |
+| `housing-permit-basis-outline` | `silver.housing_permit_basis_outline` | 주택인허가 기본개요 `mart_jty_01` (루트 ADR-0511) | 부분을 load branch 에 쌓고 바뀐 승인 행만 main 에 (`compare`, 키 = 관리주택대장PK, 한 묶음) |
 | `building-permit-basis-outline` | `silver.building_permit_basis_outline` | 건축인허가 기본개요 `mart_kcy_01` (루트 ADR-0356) | 부분을 load branch 에 쌓고 바뀐 허가만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
 | `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 전부 | 같은 묶음을 load branch 에 올린 뒤 바뀐 키만 main 에 append(ADR-0275, ADR-0311) |
 | `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 전부 | 같음 |
@@ -51,6 +52,8 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `land-transfer-history` | `silver.land_transfer_history` | 토지이동이력 `AL_D157` 시도 전부 | 같음 |
 | `land-use-plan` | `silver.land_use_plan` | 토지이용계획 `AL_D155` 시도 전부 | load branch 에 첫 4 객체 overwrite, 나머지 4개씩 append; 비교는 시도마다 (`compare`, ADR-0318) |
 | `land-use-zone-code` | `silver.land_use_zone_code` | 용도지역 코드표 `LART_LMISZONE` 전국 1 | load branch 에 한 객체 overwrite, 바뀐 코드만 main 에 (`compare`) |
+| `real-estate-broker-office` | `silver.real_estate_broker_office` | 중개사무소 등록 `AL_D171` 전국 1, 매일 (루트 ADR-0511 §4) | load branch 에 한 객체 overwrite, 바뀐 사무소만 main 에 (`compare`, 키 = 시군구·등록번호, 묶음 = 시군구 앞 두 자리) |
+| `real-estate-broker-member` | `silver.real_estate_broker_member` | 중개사무소 소속 인원 `AL_D172` 전국 1, 매일 (루트 ADR-0511 §4) | load branch 에 한 객체 overwrite, 명단이 바뀐 사무소의 행 전부만 main 에 (`compare`, 키 = 시군구·등록번호, 묶음 = 시군구 앞 두 자리) |
 
 ## 1. 한 번의 실행
 

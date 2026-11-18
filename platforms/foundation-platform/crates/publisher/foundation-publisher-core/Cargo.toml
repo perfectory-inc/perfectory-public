@@ -31,6 +31,9 @@ foundation-normalization-domain = { workspace = true }
 foundation-normalization-infrastructure = { workspace = true }
 foundation-outbox = { workspace = true }
 foundation-shared-kernel = { workspace = true }
+iceberg = { workspace = true }
+iceberg-catalog-rest = { workspace = true }
+iceberg-storage-opendal = { workspace = true }
 lakehouse-application = { workspace = true }
 lakehouse-domain = { workspace = true }
 lakehouse-infrastructure = { workspace = true }
@@ -38,6 +41,7 @@ parquet = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres", "migrate"] }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }

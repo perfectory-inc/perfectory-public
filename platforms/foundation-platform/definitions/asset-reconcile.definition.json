@@ -44,7 +44,6 @@
         "by_pnu_public_auction_bake",
         "by_pnu_serving_bake",
         "by_pnu_parcel_building_permits_bake",
-        "by_pnu_parcel_nearby_bake",
         "by_pnu_parcel_ownership_bake",
         "by_pnu_parcel_sub_parcels_bake",
         "by_pnu_parcel_energy_bake",
@@ -55,7 +54,7 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-29T12:00:00Z",
-      "dagster_stage": "shadow",
+      "dagster_stage": "proxied",
       "requeues_refused_starts_in": [
         "spark"
       ],

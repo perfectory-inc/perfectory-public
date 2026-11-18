@@ -16,9 +16,11 @@ use crate::object_key::{ObjectKey, ObjectKeyError, ObjectKeyPrefix};
 
 /// A media format recognized from the leading bytes of a payload.
 ///
-/// Only the formats the providers actually serve for parcel sources are listed: KAMCO Onbid photos
-/// and appraisal attachments, and court-auction photos. A payload whose leading bytes match none of
-/// these is not stored as media.
+/// The photo formats ([`Self::sniff`]) are the ones the parcel sources serve: KAMCO Onbid photos and
+/// appraisal attachments, and court-auction photos; a photo payload matching none of them is not
+/// stored. The document formats ([`Self::sniff_document`], root ADR-0484) are what a notice may be
+/// attached as: every attachment is stored, [`Self::Binary`] when no signature names it. BMP and TIFF
+/// photos are read but never served (root ADR-0503): see [`Self::is_served`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaFormat {
@@ -34,6 +36,21 @@ pub enum MediaFormat {
     Webp,
     /// AVIF image (an ISO-BMFF `ftyp` box of brand `avif`/`avis`): our display renditions.
     Avif,
+    /// 한글(HWP) document: HWP 5 (an OLE compound file carrying the `HWP Document File` header) or
+    /// HWP 3 (that header at the start). A notice attachment (root ADR-0484).
+    Hwp,
+    /// HWPX document: a ZIP whose first entry is `mimetype` = `application/hwp+zip` (KS X 6101).
+    Hwpx,
+    /// Any other ZIP archive (`PK\x03\x04`).
+    Zip,
+    /// Windows bitmap (`BM` and a known DIB header size): 공매 photos uploaded as BMP, which the
+    /// provider serves as is even at its thumbnail URL (measured 2026-11-11, root ADR-0503).
+    Bmp,
+    /// TIFF image (`II*\0` / `MM\0*`): a scanner's raster.
+    Tiff,
+    /// Bytes no signature names. Only [`Self::sniff_document`] gives it: an attachment is kept
+    /// whatever it is, and a later reader decides what it holds.
+    Binary,
 }
 
 impl MediaFormat {
@@ -47,6 +64,12 @@ impl MediaFormat {
             Self::Pdf => "pdf",
             Self::Webp => "webp",
             Self::Avif => "avif",
+            Self::Hwp => "hwp",
+            Self::Hwpx => "hwpx",
+            Self::Zip => "zip",
+            Self::Binary => "bin",
+            Self::Bmp => "bmp",
+            Self::Tiff => "tif",
         }
     }
 
@@ -60,6 +83,12 @@ impl MediaFormat {
             Self::Pdf => "application/pdf",
             Self::Webp => "image/webp",
             Self::Avif => "image/avif",
+            Self::Hwp => "application/x-hwp",
+            Self::Hwpx => "application/hwp+zip",
+            Self::Zip => "application/zip",
+            Self::Binary => "application/octet-stream",
+            Self::Bmp => "image/bmp",
+            Self::Tiff => "image/tiff",
         }
     }
 
@@ -73,15 +102,33 @@ impl MediaFormat {
             Self::Pdf,
             Self::Webp,
             Self::Avif,
+            Self::Hwp,
+            Self::Hwpx,
+            Self::Zip,
+            Self::Binary,
+            Self::Bmp,
+            Self::Tiff,
         ]
         .into_iter()
         .find(|format| format.extension() == extension)
     }
 
-    /// Whether it is a picture a display ladder can be made from (root ADR-0427): not a PDF.
+    /// Whether it is a picture a display ladder can be made from (root ADR-0427): not a document.
     #[must_use]
     pub const fn is_image(self) -> bool {
-        !matches!(self, Self::Pdf)
+        matches!(
+            self,
+            Self::Jpeg | Self::Png | Self::Gif | Self::Webp | Self::Avif | Self::Bmp | Self::Tiff
+        )
+    }
+
+    /// Whether a photo of this format is stored as received in the served store (`<prefix>/sha256/`,
+    /// which the edge serves and every screen reads; root ADR-0503). A raster no screen reads (BMP,
+    /// TIFF) is kept as received under [`source_key`] and stands there as its lossless PNG display
+    /// master, so no reader downstream ever meets it.
+    #[must_use]
+    pub const fn is_served(self) -> bool {
+        !matches!(self, Self::Bmp | Self::Tiff)
     }
 
     /// Detects the format from the payload's leading bytes.
@@ -105,10 +152,63 @@ impl MediaFormat {
             && matches!(bytes.get(8..12), Some(b"avif" | b"avis"))
         {
             Some(Self::Avif)
+        } else if is_bmp(bytes) {
+            Some(Self::Bmp)
+        } else if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
+            Some(Self::Tiff)
         } else {
             None
         }
     }
+
+    /// Detects a notice attachment's format (root ADR-0484); never fails, [`Self::Binary`] when no
+    /// signature names it. [`Self::sniff`] is unchanged by it, so a photo source still stores only
+    /// what it can show.
+    #[must_use]
+    pub fn sniff_document(bytes: &[u8]) -> Self {
+        Self::sniff(bytes).unwrap_or_else(|| Self::sniff_non_photo(bytes))
+    }
+
+    /// The document formats [`Self::sniff`] does not name: HWP, HWPX, ZIP, else [`Self::Binary`].
+    fn sniff_non_photo(bytes: &[u8]) -> Self {
+        const CFB: &[u8] = &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        const HWP_HEADER: &[u8] = b"HWP Document File";
+        if bytes.starts_with(HWP_HEADER) || (bytes.starts_with(CFB) && contains(bytes, HWP_HEADER))
+        {
+            Self::Hwp
+        } else if bytes.starts_with(b"PK\x03\x04") {
+            // OCF packaging (as ODF and EPUB): a stored first entry `mimetype` holding the type.
+            if bytes.get(30..38) == Some(b"mimetype")
+                && bytes
+                    .get(38..)
+                    .is_some_and(|rest| rest.starts_with(b"application/hwp+zip"))
+            {
+                Self::Hwpx
+            } else {
+                Self::Zip
+            }
+        } else {
+            Self::Binary
+        }
+    }
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+/// `BM` alone is two common letters, so a bitmap is also its DIB header's size: one of the header
+/// versions Windows defines (`BITMAPCOREHEADER` 12 through `BITMAPV5HEADER` 124).
+fn is_bmp(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"BM")
+        && bytes
+            .get(14..18)
+            .and_then(|size| <[u8; 4]>::try_from(size).ok())
+            .is_some_and(|size| {
+                matches!(u32::from_le_bytes(size), 12 | 40 | 52 | 56 | 64 | 108 | 124)
+            })
 }
 
 /// A lowercase hex SHA-256 digest (exactly 64 characters, `0-9a-f`).
@@ -190,6 +290,27 @@ pub fn content_addressed_key(
     ))
 }
 
+/// The key of a received file no screen reads (root ADR-0503): `<prefix>/sources/sha256/<hash>.<ext>`.
+///
+/// Kept byte for byte and write-once like every stored file, but outside `<prefix>/sha256/`, the
+/// served store the edge reads and the media reconciler lists: what stands for it there is its
+/// display master.
+///
+/// # Errors
+/// Returns [`ObjectKeyError`] when the composed key is not a valid object key.
+pub fn source_key(
+    prefix: &ObjectKeyPrefix,
+    hash: &Sha256Hex,
+    format: MediaFormat,
+) -> Result<ObjectKey, ObjectKeyError> {
+    let prefix = prefix.as_str().trim_end_matches('/');
+    ObjectKey::parse(&format!(
+        "{prefix}/sources/sha256/{}.{}",
+        hash.as_str(),
+        format.extension()
+    ))
+}
+
 /// The key of one display rendition of a stored source (root ADR-0427).
 ///
 /// `<prefix>/renditions/<version>/<source sha256>/<width>.<ext>`: a rendition is named by its source
@@ -257,6 +378,60 @@ mod tests {
             Some(MediaFormat::Avif)
         );
         assert_eq!(MediaFormat::sniff(b"RIFF\x10\0\0\0WAVEfmt "), None);
+        // A Windows bitmap: `BM`, its file header, then a BITMAPINFOHEADER (40).
+        let mut bmp = b"BM\x36\0\0\0\0\0\0\0\x36\0\0\0".to_vec();
+        bmp.extend_from_slice(&40_u32.to_le_bytes());
+        assert_eq!(MediaFormat::sniff(&bmp), Some(MediaFormat::Bmp));
+        assert_eq!(
+            MediaFormat::sniff(b"II*\0\x08\0\0\0"),
+            Some(MediaFormat::Tiff)
+        );
+        assert_eq!(
+            MediaFormat::sniff(b"MM\0*\0\0\0\x08"),
+            Some(MediaFormat::Tiff)
+        );
+    }
+
+    #[test]
+    fn two_letters_bm_are_not_a_bitmap() {
+        assert_eq!(MediaFormat::sniff(b"BM"), None);
+        assert_eq!(
+            MediaFormat::sniff(b"BMW is a word, not a bitmap header"),
+            None
+        );
+    }
+
+    #[test]
+    fn only_bmp_and_tiff_are_kept_out_of_the_served_store() -> Result<(), Box<dyn std::error::Error>>
+    {
+        for format in [
+            MediaFormat::Jpeg,
+            MediaFormat::Png,
+            MediaFormat::Gif,
+            MediaFormat::Pdf,
+            MediaFormat::Webp,
+            MediaFormat::Avif,
+        ] {
+            assert!(format.is_served(), "{format:?}");
+        }
+        for format in [MediaFormat::Bmp, MediaFormat::Tiff] {
+            assert!(!format.is_served() && format.is_image(), "{format:?}");
+            assert_eq!(
+                MediaFormat::from_extension(format.extension()),
+                Some(format)
+            );
+        }
+        let hash = Sha256Hex::of(b"bitmap");
+        assert_eq!(
+            super::source_key(
+                &ObjectKeyPrefix::parse("onbid/media")?,
+                &hash,
+                MediaFormat::Bmp
+            )?
+            .as_str(),
+            format!("onbid/media/sources/sha256/{}.bmp", hash.as_str())
+        );
+        Ok(())
     }
 
     #[test]
@@ -285,6 +460,40 @@ mod tests {
         }
         assert!(!MediaFormat::Pdf.is_image());
         Ok(())
+    }
+
+    #[test]
+    fn sniffs_every_notice_attachment_and_keeps_photo_sniffing_as_it_was() {
+        let mut hwp_five = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        hwp_five.extend_from_slice(&[0; 600]);
+        hwp_five.extend_from_slice(b"HWP Document File\0\0");
+        let mut hwpx = b"PK\x03\x04".to_vec();
+        hwpx.extend_from_slice(&[0; 26]);
+        hwpx.extend_from_slice(b"mimetypeapplication/hwp+zipPK");
+        let mut xls = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        xls.extend_from_slice(b"Workbook");
+        let cases: [(&[u8], MediaFormat); 7] = [
+            (&hwp_five, MediaFormat::Hwp),
+            (b"HWP Document File V3.00 \x1a\x01\x02", MediaFormat::Hwp),
+            (&hwpx, MediaFormat::Hwpx),
+            (b"PK\x03\x04\x14\0\0\0word/document.xml", MediaFormat::Zip),
+            (b"%PDF-1.7", MediaFormat::Pdf),
+            (&xls, MediaFormat::Binary),
+            (b"", MediaFormat::Binary),
+        ];
+        for (bytes, expected) in cases {
+            assert_eq!(MediaFormat::sniff_document(bytes), expected);
+            // A photo source never stores a document it cannot show (the screens' schemas list
+            // jpg/png/gif/pdf only): the photo sniff does not see these formats.
+            if !matches!(expected, MediaFormat::Pdf) {
+                assert_eq!(MediaFormat::sniff(bytes), None);
+            }
+            assert_eq!(
+                MediaFormat::from_extension(expected.extension()),
+                Some(expected)
+            );
+            assert!(!expected.is_image());
+        }
     }
 
     #[test]

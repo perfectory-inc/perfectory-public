@@ -43,9 +43,9 @@ pub struct ProviderBlockedFileRow {
     pub listed_bytes: u64,
 }
 
-/// How much one run may take: the first `max_files` candidates, and refused whole when their
-/// listed bytes exceed `new_bytes_budget` (root ADR-0170; the regular VWorld lane has had no such
-/// budget since ADR-0172).
+/// How much one run may take: the first `max_files` candidates, newest provider update first, and
+/// refused whole when their listed bytes exceed `new_bytes_budget` (root ADR-0170; the regular
+/// VWorld lane has had no such budget since ADR-0172).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProviderAcquisitionPlanLimits {
     pub max_files: Option<usize>,
@@ -90,7 +90,13 @@ pub fn compile_provider_acquisition_plan_report(
     limits: ProviderAcquisitionPlanLimits,
 ) -> Result<ProviderAcquisitionPlanReport> {
     let candidate_count = rows.len();
-    let rows = &rows[..limits.max_files.unwrap_or(rows.len()).min(rows.len())];
+    // Newest provider update first (root ADR-0514 §2): a Silver lane loads the newest release that
+    // covers every 시도, so a run that drains a backlog oldest first would fill months nobody loads
+    // while the one missing 시도 of the newest kept the lane on 2026-06-09 (경기·경북 of AL_D155).
+    // ISO dates order as text; a file with no listed date goes last, ties keep the listing order.
+    let mut ordered = rows.to_vec();
+    ordered.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let rows = &ordered[..limits.max_files.unwrap_or(ordered.len()).min(ordered.len())];
     let blocked = rows
         .iter()
         .map(|row| ProviderBlockedVWorldFile {

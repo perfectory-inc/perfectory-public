@@ -33,8 +33,8 @@ pub use ids::{
     StaffId, VectorTileDataRevisionId, VectorTileReleaseId, VectorTileRuntimeManifestId,
 };
 pub use media::{
-    content_addressed_key, rendition_key, rendition_manifest_key, MediaFormat, Sha256Hex,
-    Sha256HexError,
+    content_addressed_key, rendition_key, rendition_manifest_key, source_key, MediaFormat,
+    Sha256Hex, Sha256HexError,
 };
 pub use object_key::{ObjectKey, ObjectKeyError, ObjectKeyPrefix};
 pub use object_url_template::{ObjectUrlTemplate, ObjectUrlTemplateError, OBJECT_KEY_PLACEHOLDER};

@@ -35,7 +35,7 @@
       },
       "pool": "spark",
       "pool_slots": 3,
-      "priority_weight": 2,
+      "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-industrial-complex-boundaries",

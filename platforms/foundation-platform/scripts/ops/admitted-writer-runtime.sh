@@ -94,6 +94,12 @@ if [[ "${admitted_writer_require_current}" == yes && -n "${RUNTIME_DIRECTORY:-}"
   printf '%s\n' "${RELEASE_ROOT}" >"${RUNTIME_DIRECTORY%%:*}/release" ||
     admitted_writer_refuse 'cannot record the run release in RUNTIME_DIRECTORY'
 fi
+# Every step this run starts is of the same run (root ADR-0441): a child script that sources this
+# file again is admitted on this release after a deploy moved `current` on, as an operator's run is.
+# 2026-11-11 04:31Z the source sweep's members step (bronze-object-members.sh, its own --current
+# check) was refused when the 04:2xZ deploy switched `current` mid-sweep, and the whole sweep failed.
+# Only a release whose build output was verified above is named; the name admits nothing else.
+export FOUNDATION_RUN_RELEASE="${RELEASE_ID}"
 # One Spark run of a job from this release's compose.lakehouse.yml: the write check
 # (lakehouse-target-init), then the job, each its own one-off `run --rm --no-deps` container that
 # Compose names <project>-<service>-run-<id>, so jobs started together share no container. The check
@@ -102,11 +108,36 @@ fi
 # tools/semgrep/rules/batch-containers.yml). The caller's FOUNDATION_PLATFORM_LAKEHOUSE_*
 # assignments before the call reach both containers.
 #   lakehouse_spark_run <compose project> [run options] <service> <command...>
+# A caller that keeps the run's output in a file makes the file first, with lakehouse_run_log: the
+# file is the job account's and its group's, no other account's. Spark's log is what the engine
+# chooses to print, and 2026-11-11 it printed the catalog writer token into a 0644 file under
+# directories every account could enter (orchestration/tests/test_spark_run_logs.py).
+#   lakehouse_run_log <file>
+# A file an earlier step of the run already made is closed to other accounts as it is.
+lakehouse_run_log() { [[ -e "$1" ]] || install -m 0640 /dev/null "$1"; [[ ! -f "$1" || ! -O "$1" ]] || chmod o-rwx "$1"; }
+# A container its memory limit killed exits 137 like any SIGKILL, and systemd, outside Docker's cgroup,
+# records a plain exit-code: 2026-10-24..11-13 onbid-silver-load ended 88 times and
+# rt-molit-silver-load 66 times so, each a kernel `Memory cgroup out of memory: Killed process (java)`.
+# The run watches Docker's `oom` events of its own project while it runs (Docker keeps only its last
+# 256 events, about 30 s on this host, so they cannot be asked for afterwards). A run that exits 137
+# after one says `oom-kill`, which the readiness report reads as systemd's word (readiness_report.result_of).
 lakehouse_spark_run() {
+  local project="$1" status=0 events watcher killed
   local compose=(docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml"
-    -p "$1" --profile lakehouse-batch run --rm --no-deps)
+    -p "${project}" --profile lakehouse-batch run --rm --no-deps)
   shift
-  "${compose[@]}" lakehouse-target-init && "${compose[@]}" "$@"
+  events="$(mktemp)"
+  docker events --filter type=container --filter event=oom --filter "label=com.docker.compose.project=${project}"     --format '{{index .Actor.Attributes "com.docker.compose.service"}}' >"${events}" 2>/dev/null &
+  watcher=$!
+  { "${compose[@]}" lakehouse-target-init && "${compose[@]}" "$@"; } || status=$?
+  kill "${watcher}" 2>/dev/null || true
+  wait "${watcher}" 2>/dev/null || true
+  killed="$(sort -u "${events}" | paste -sd' ')"
+  rm -f "${events}"
+  if ((status == 137)) && [[ -n "${killed}" ]]; then
+    echo "lakehouse-spark-run: oom-kill: the ${killed} container of ${project} ran out of its memory limit (Docker oom event); exit 137" >&2
+  fi
+  return "${status}"
 }
 readonly RELEASE_ROOT RELEASE_ID ARTIFACT_ROOT PUBLISHER_BIN RELEASE_JARS_DIR SPARK_RELEASE_JARS
 unset admitted_writer_base admitted_writer_require_current admitted_writer_manifest

@@ -1,0 +1,98 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-real-estate-broker-member",
+  "jobs": [
+    {
+      "id": "silver_refresh_real_estate_broker_member",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 중개사무소 소속 인원 lane `real-estate-broker-member` (root ADR-0169 ③, ADR-0511 §4): pick the newest daily national AL_D172 object, read from the ZIP members measured beside the Bronze ledger, and, unless silver.real_estate_broker_member already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows 시도 by 시도 and append to main only every row of an office whose roster changed and a removal marker per closed office (keyed by 시군구 and 등록번호; lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@real-estate-broker-member.service",
+      "check_service": "foundation-silver-refresh-plan@real-estate-broker-member.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 300,
+          "estimated_from": "computed, on the same template unit (root ADR-0386): silver_refresh_building_permit_demolition_loss 161 s for a 15 MB release and _parking 251 s for 59 MB; this lane's newest object is 3.8 MB (21.8 MB unzipped, 179,124 rows) in R2 (2026-11-11), and its compare splits into 17 시도 buckets"
+        }
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 40,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-real-estate-broker-member"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-12T03:00:00Z",
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 72,
+        "basis": "the provider publishes a new national file every day (expected_cadence daily, max_age_hours 72, in the endpoint catalog; one per day 2026-10-28..11-09 in the Bronze ledger) and people join and leave offices every day; this lane has not run yet, so its first change is its first load (root ADR-0457)."
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-real-estate-broker-member",
+      "type": "silver_table",
+      "title": "중개사무소 소속 인원",
+      "description": "중개사무소에 등록된 사람마다 한 행: 중개업자명·종별(공인중개사·중개보조원·중개인·법인)·자격증번호·자격증취득일·직위(대표·이사·감사·일반). 키는 사무소(시군구, 등록번호) — 사람은 제공자 키가 없어 사무소의 명단 전체가 한 판이다. 매일 오는 전국 파일에서 명단이 바뀐 사무소만 덧붙인다. 공짱 회원 가입의 중개사 확인(이름 + 자격증번호 또는 사무소 등록번호)이 이 표를 읽는다; 그 조회가 서기 전까지 contract_only 다(루트 ADR-0511 §4).",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/vworld-real-estate-broker-member-source-objects.json",
+        "docs/adr/0511-housing-permits-and-the-rest-of-the-collected-files-reach-silver-and-the-permit-panel-shows-housing-permits.md"
+      ],
+      "table_name": "silver.real_estate_broker_member",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.real_estate_broker_member"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-vworld-dataset",
+      "to": "silver-real-estate-broker-member",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "export-real-estate-broker-member-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "vworldkr__real_estate_broker"
+      ],
+      "description": "AL_D172 CSV 12칸을 연결한다. 같은 원천의 중개사무소 AL_D171 은 자기 레인, 위치 AL_D170 SHP 는 Bronze 에 남는다. 따옴표 안 쉼표는 RFC 4180 으로 한 칸이다."
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_real_estate_broker_member": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

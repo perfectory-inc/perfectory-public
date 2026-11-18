@@ -45,10 +45,71 @@ def contract_path() -> Path:
     return Path(os.environ.get(CONTRACT_ENV) or CONTRACT_PATH)
 
 
-def load(path: Path | None = None) -> dict[str, Any]:
+def load(path: Path | None = None, ledger: Path | None = None) -> dict[str, Any]:
+    """The contract with the host's promotions ledger laid over it (root ADR-0490 §5), checked.
+
+    `ledger` defaults to `host_ledger_path`: on the host and in its Spark containers the file the
+    readiness judgement appends a granted promotion to; elsewhere (CI, a laptop) none, and the
+    contract's own ledger is the whole ledger."""
+
     contract = json.loads((path or contract_path()).read_text(encoding="utf-8"))
+    found = ledger if ledger is not None else host_ledger_path(contract)
+    if found is not None and found.is_file():
+        contract = overlay(contract, read_ledger(found))
     validate(contract)
     return contract
+
+
+# The host's promotions ledger (root ADR-0490 §5): one promotion per line, appended by
+# `parcel_edition_readiness.py grant`, never rewritten. The variable names another file (the tests').
+LEDGER_ENV = "VWORLD_PARCEL_PROMOTIONS_LEDGER"
+
+
+def host_ledger_path(contract: Mapping[str, Any]) -> Path | None:
+    """The first of `$VWORLD_PARCEL_PROMOTIONS_LEDGER`, the contract's host path and its path inside the
+    Spark containers (compose.lakehouse.yml mounts it read-only) whose directory exists. A file not
+    made yet is no promotion yet; a directory that is absent is not the host."""
+
+    if os.environ.get(LEDGER_ENV):
+        return Path(os.environ[LEDGER_ENV])
+    declared = contract.get("host_promotions_ledger") or {}
+    for key in ("path", "container_path"):
+        if declared.get(key) and Path(declared[key]).parent.is_dir():
+            return Path(declared[key])
+    return None
+
+
+def read_ledger(path: Path) -> list[dict[str, Any]]:
+    entries = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise EditionError(f"{path}:{number} is not a promotion: {error}") from error
+        if not isinstance(entry, dict):
+            raise EditionError(f"{path}:{number} is not a promotion")
+        entries.append(entry)
+    return entries
+
+
+def overlay(contract: Mapping[str, Any], entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """The contract with the host ledger's promotions after its own, and `served_edition` the last.
+
+    A host promotion a reviewed change has since copied into the contract (same edition and instant) is
+    the contract's already and is not added twice. The rest must continue the contract's ledger;
+    `validate_promotions` refuses one that does not, so a host ledger and a contract that disagree stop
+    every reader instead of serving two editions."""
+
+    held = {(str(entry.get("edition")), str(entry.get("promoted_at_utc"))) for entry in contract.get("promotions") or []}
+    added = [dict(entry) for entry in entries if (str(entry.get("edition")), str(entry.get("promoted_at_utc"))) not in held]
+    if not added:
+        return dict(contract)
+    merged = json.loads(json.dumps(contract))
+    merged["promotions"] = list(merged.get("promotions") or []) + added
+    merged["served_edition"] = added[-1]["edition"]
+    return merged
 
 
 def _day(value: str, what: str) -> date:
@@ -147,7 +208,15 @@ def validate_promotions(contract: Mapping[str, Any]) -> None:
             if at <= str(previous["promoted_at_utc"]) or entry.get("from_edition") != previous["edition"]:
                 raise EditionError(f"promotion {index} ({name}) does not follow promotion {index - 1}: the ledger only grows")
         readiness = entry.get("readiness")
-        if readiness is None:
+        if entry.get("rollback_of") is not None:
+            # A rollback (root ADR-0490 §7) returns to the edition served before the promotion whose first
+            # publish failed; it carries why, not a readiness, since that edition was served already.
+            undone = previous or {}
+            if (index == 0 or entry.get("rollback_of") != undone.get("promoted_at_utc")
+                    or name != undone.get("from_edition") or not str(entry.get("cause") or "").strip()):
+                raise EditionError(f"promotion {index} ({name}) is no rollback of promotion {index - 1}: it returns to "
+                                   "the edition that promotion moved from, names it by promoted_at_utc, and says why")
+        elif readiness is None:
             if index != 0 or at[:10] >= READINESS_GATED_FROM:
                 raise EditionError(f"promotion {index} ({name}) carries no readiness; only the first, before "
                                    f"{READINESS_GATED_FROM}, may (root ADR-0291 §4)")
@@ -262,6 +331,46 @@ def edition_of_snapshot_id(contract: Mapping[str, Any], value: str) -> str:
         raise EditionError(f"{value!r} is not the snapshot id of an edition; they are "
                            f"{[snapshot_id(contract, n) for n in names(contract)]}")
     return name
+
+
+def snapshot_ids_through(contract: Mapping[str, Any], value: str) -> list[str]:
+    """The snapshot ids of the edition `value` names and of every edition before it, oldest first: what
+    a reader of an append-only table that registers editions in turn folds "as of" that edition
+    (`silver.parcel_registry`, root ADR-0490 §4a). Editions order as their YYYYMM names."""
+
+    name = edition_of_snapshot_id(contract, value)
+    return [snapshot_id(contract, n) for n in names(contract) if n <= name]
+
+
+def included_since(contract: Mapping[str, Any]) -> dict[str, str]:
+    """snapshot id -> the promotion (`promoted_at_utc`) since which the served edition's "as of" read
+    (`snapshot_ids_through`) holds that edition, for every edition it holds now. A row registered
+    before then reaches the served edition's readers only then (root ADR-0490 §4a): the place-id
+    release counts it as new from that instant. A rollback (ADR-0490 §7) drops a newer edition out of
+    the read, and a later promotion includes it again from its own instant."""
+
+    since: dict[str, str] = {}
+    previous = ""
+    for entry in contract["promotions"]:
+        name = str(entry["edition"])
+        for edition_name in names(contract):
+            if edition_name <= name and not (previous and edition_name <= previous):
+                since[snapshot_id(contract, edition_name)] = str(entry["promoted_at_utc"])
+            elif edition_name > name:
+                since.pop(snapshot_id(contract, edition_name), None)
+        previous = name
+    return since
+
+
+def candidate(contract: Mapping[str, Any], report: Mapping[str, Any] | None) -> str | None:
+    """The edition readiness names as the next to serve (root ADR-0490 §4): the newest edition newer than
+    the served one whose source and Silver passed and whose rehearsal has not (`first_failing_stage`
+    `rehearsal` in the readiness report). None without a report or such an edition."""
+
+    rows = (report or {}).get("editions") or []
+    waiting = [row["edition"] for row in rows if row.get("edition") in contract["editions"]
+               and row["edition"] > served(contract) and row.get("first_failing_stage") == "rehearsal"]
+    return max(waiting, default=None)
 
 
 def valid_from_utc(name: str) -> str:
@@ -504,7 +613,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("command", choices=("check", "editions", "served", "snapshot-id", "valid-from",
                                             "handoff-prefix", "handoff-suffix", "source-keys", "handoff-keys",
                                             "endpoint-catalog", "provider-edition", "held-reuploads", "select-inventory",
-                                            "propose"))
+                                            "propose", "candidate"))
     parser.add_argument("--edition", help="YYYYMM; required by every command naming one edition")
     parser.add_argument("--contract", help=f"defaults to ${CONTRACT_ENV}, then the contract beside this job")
     parser.add_argument("--inventory", help="provider-edition, select-inventory: the inventory report")
@@ -512,6 +621,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--summary-output", help="endpoint-catalog: the plan's inventory summary CSV")
     parser.add_argument("--measured", help="propose: JSON lines from vworld_parcel_edition_members.py")
     parser.add_argument("--output", help="endpoint-catalog, select-inventory, propose: where to write")
+    parser.add_argument("--report", help="candidate: the readiness report (parcel-edition-readiness.sh); absent = none")
     args = parser.parse_args(argv)
     try:
         contract = load(Path(args.contract) if args.contract else None)
@@ -541,6 +651,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             Path(args.output).write_text(json.dumps({args.edition: entry}, ensure_ascii=False, indent=2) + "\n",
                                          encoding="utf-8")
             print(f"edition={args.edition} {entry['granularity_counts']} extracted={entry['extracted_on']}")
+            return 0
+        if args.command == "candidate":
+            report = Path(args.report) if args.report else None
+            found = candidate(contract, json.loads(report.read_text(encoding="utf-8")) if report and report.is_file() else None)
+            print(found or "-")
             return 0
         if args.command == "check":
             print(f"ok editions={','.join(names(contract))} served={served(contract)}")

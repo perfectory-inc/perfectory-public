@@ -43,7 +43,7 @@ use release::Release;
 /// The publisher command every lane's contract names as its export. The executable owns the
 /// command parser, so it checks that each one is a command the release can start (root ADR-0200).
 pub fn export_commands() -> anyhow::Result<Vec<String>> {
-    Lane::ALL
+    Lane::all()
         .into_iter()
         .map(|lane| Ok(lane.contract()?.export))
         .collect()
@@ -104,31 +104,102 @@ pub(super) fn stop() -> anyhow::Result<()> {
     invocation_cleanup::run(Job::SilverRefresh)
 }
 
+/// The instance that runs every HUB family lane in one run (root ADR-0551 §2): one job holds the
+/// spark pool once for the family, not once per lane.
+pub(super) const FAMILY_INSTANCE: &str = "hub-lane-family";
+
 pub(super) async fn run() -> anyhow::Result<()> {
     let mut lookup = |name: &str| std::env::var(name).ok();
-    let lane = Lane::parse(&super::required_lookup(&mut lookup, LANE_ENV)?)?;
+    let instance = super::required_lookup(&mut lookup, LANE_ENV)?;
+    let plan = super::optional_bool_lookup(&mut lookup, PLAN_ENV)?.unwrap_or(false);
+    let started = chrono::Utc::now();
+    if instance == FAMILY_INSTANCE {
+        return run_family(&mut lookup, plan, started).await;
+    }
+    let line = run_lane(Lane::parse(&instance)?, &mut lookup, plan, started)
+        .await?
+        .0;
+    println!("{}", if plan { as_plan(&line) } else { line });
+    Ok(())
+}
+
+/// Every family lane in name order, each read from its own ledger and table record: one whose
+/// release the table holds ends in seconds; the first that runs out of the run's time ends the run,
+/// and the next run starts there again (its staged work is kept, root ADR-0318, ADR-0391). The
+/// run's line is `changed` when any lane changed.
+async fn run_family(
+    lookup: &mut impl FnMut(&str) -> Option<String>,
+    plan: bool,
+    started: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<()> {
+    let lanes = Lane::all()
+        .into_iter()
+        .filter(|lane| matches!(lane, Lane::Family(_)))
+        .collect::<Vec<_>>();
+    ensure!(!lanes.is_empty(), "the HUB lane family has no lanes");
+    let mut changed = Vec::new();
+    let mut resumes = None;
+    for lane in lanes {
+        let (line, decision) = run_lane(lane, lookup, plan, started).await?;
+        // A lane's line is not the run's: the script reads the last `silver-refresh-outcome`.
+        println!(
+            "{}",
+            family_lane_line(&if plan { as_plan(&line) } else { line })
+        );
+        match decision {
+            Decision::Unchanged(_) => {}
+            Decision::ExportAndLoad | Decision::LoadOnly => changed.push(lane.id()),
+            Decision::CompareInProgress | Decision::LoadInProgress => {
+                resumes = Some(lane.id());
+                break;
+            }
+        }
+    }
+    let outcome = if changed.is_empty() {
+        "unchanged"
+    } else {
+        "changed"
+    };
+    let line = format!(
+        "silver-refresh-outcome lane={FAMILY_INSTANCE} outcome={outcome} reason=family changed_lanes={} resumes={}",
+        if changed.is_empty() { "-".to_owned() } else { changed.join(",") },
+        resumes.unwrap_or("-")
+    );
+    println!("{}", if plan { as_plan(&line) } else { line });
+    Ok(())
+}
+
+/// A family lane's own outcome, renamed so only the family's line is the run's outcome.
+pub(super) fn family_lane_line(line: &str) -> String {
+    line.replacen("silver-refresh-outcome ", "silver-refresh-lane ", 1)
+        .replacen("silver-refresh-plan ", "silver-refresh-lane-plan ", 1)
+}
+
+/// One lane's refresh: its outcome line and its decision. `started` is when the run started: every
+/// lane of a family run shares the run's deadline.
+async fn run_lane(
+    lane: Lane,
+    lookup: &mut impl FnMut(&str) -> Option<String>,
+    plan: bool,
+    started: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<(String, Decision)> {
     let contract = lane.contract()?;
-    let runtime = runtime(lane, &mut lookup)?;
-    let pool = PgPool::connect(&super::required_lookup(&mut lookup, "DATABASE_URL")?)
+    let runtime = runtime(lane, lookup)?;
+    let pool = PgPool::connect(&super::required_lookup(lookup, "DATABASE_URL")?)
         .await
         .context("cannot connect to the Bronze ledger")?;
-    let plan = super::optional_bool_lookup(&mut lookup, PLAN_ENV)?.unwrap_or(false);
-    let deadline = chrono::Utc::now()
-        + chrono::Duration::seconds(last_step_start_seconds(contract.step_seconds_max));
+    let deadline =
+        started + chrono::Duration::seconds(last_step_start_seconds(contract.step_seconds_max));
     if let Some(rule) = &contract.land {
         let measured = land::read_measured(&pool, &rule.source).await;
         pool.close().await;
-        let line = refresh_land(&contract, rule, &measured?, &runtime, plan, deadline).await?;
-        println!("{}", if plan { as_plan(&line) } else { line });
-        return Ok(());
+        return refresh_land(&contract, rule, &measured?, &runtime, plan, deadline).await;
     }
     let ledger = release::read_ledger(&pool, &contract.roles).await;
     pool.close().await;
     let ledger = ledger?;
     if contract.releases_each_object {
-        let line = refresh_each_object(&contract, &ledger, &runtime, plan, deadline).await?;
-        println!("{}", if plan { as_plan(&line) } else { line });
-        return Ok(());
+        return refresh_each_object(&contract, &ledger, &runtime, plan, deadline).await;
     }
     let release = release::select(&contract.roles, &ledger)?;
     for month in &release.skipped_incomplete {
@@ -155,8 +226,7 @@ pub(super) async fn run() -> anyhow::Result<()> {
         .await?
     };
     let line = outcome_line(lane, &release.vintage(), &decision, &identity, rows);
-    println!("{}", if plan { as_plan(&line) } else { line });
-    Ok(())
+    Ok((line, decision))
 }
 
 fn lakehouse_catalog() -> anyhow::Result<IcebergRestCatalog> {
@@ -175,7 +245,7 @@ async fn refresh_land(
     runtime: &Runtime,
     plan: bool,
     deadline: chrono::DateTime<chrono::Utc>,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<(String, Decision)> {
     let lane = contract.lane.id();
     let export = crate::land_use_silver_export::export_command(&contract.export)
         .context("a land lane runs a land export")?;
@@ -212,13 +282,8 @@ async fn refresh_land(
     } else {
         None
     };
-    Ok(outcome_line(
-        contract.lane,
-        &release.vintage,
-        &decision,
-        &identity,
-        rows,
-    ))
+    let line = outcome_line(contract.lane, &release.vintage, &decision, &identity, rows);
+    Ok((line, decision))
 }
 
 /// A plan stages, exports and writes nothing, so its line must not read as a run's outcome.
@@ -566,7 +631,7 @@ async fn refresh_each_object(
     runtime: &Runtime,
     plan: bool,
     deadline: chrono::DateTime<chrono::Utc>,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<(String, Decision)> {
     let releases = release::select_each(&contract.roles, ledger)?;
     let catalog = lakehouse_catalog()?;
     let ingested = catalog
@@ -587,9 +652,9 @@ async fn refresh_each_object(
             rows,
         );
         if decision != Decision::Unchanged("already_loaded") {
-            return Ok(line);
+            return Ok((line, decision));
         }
-        last = Some(line);
+        last = Some((line, decision));
     }
     last.context("a lane whose objects are releases has at least one")
 }

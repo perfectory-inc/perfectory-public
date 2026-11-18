@@ -1,0 +1,10 @@
+[
+  {
+    "group": "global.adhoc",
+    "sessionProperties": {
+      "query_max_memory": "5GB",
+      "query_max_total_memory": "6GB",
+      "query_max_execution_time": "30m"
+    }
+  }
+]

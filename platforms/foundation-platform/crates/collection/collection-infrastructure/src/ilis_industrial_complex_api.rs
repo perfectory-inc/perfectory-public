@@ -84,6 +84,15 @@ pub struct IlisIndustrialComplexPage {
     pub payload: JsonValue,
 }
 
+/// What one file download came to.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum IlisFileDownload {
+    /// The file's bytes as served.
+    Bytes(Vec<u8>),
+    /// The provider answered with this 4xx status.
+    Gone(u16),
+}
+
 /// `reqwest` backed client for the ILIS industrial-complex JSON endpoints.
 #[derive(Clone, Debug)]
 pub struct IlisIndustrialComplexApiClient {
@@ -219,6 +228,76 @@ impl IlisIndustrialComplexApiClient {
         execute_retryable(&ctx, || self.fetch_once(&url, None))
             .await
             .map_err(crate::outbound_http_error::into_collection_error)
+    }
+
+    /// Downloads one stored file (a notice attachment, root ADR-0484): `GET <download_path>?<query>`,
+    /// the bytes as served. A 4xx answer is [`IlisFileDownload::Gone`]: the file is not there and
+    /// asking again will not bring it back.
+    ///
+    /// # Errors
+    /// Returns [`CollectionError`] when the path is invalid, the request fails, or the provider
+    /// answers with a non-success status other than 4xx.
+    pub async fn download_file(
+        &self,
+        download_path: &str,
+        query: &[(&str, &str)],
+    ) -> Result<IlisFileDownload, CollectionError> {
+        let mut url = self
+            .base_uri
+            .join(download_path.trim_start_matches('/'))
+            .map_err(|error| {
+                CollectionError::Infrastructure(format!("invalid {PROVIDER} endpoint: {error}"))
+            })?;
+        url.query_pairs_mut().extend_pairs(query);
+        let ctx = ResilienceCtx {
+            breaker: Some(&self.circuit_breaker),
+            policy: &self.resilience,
+            audit: &self.audit,
+        };
+        execute_retryable(&ctx, || self.download_once(&url))
+            .await
+            .map_err(crate::outbound_http_error::into_collection_error)
+    }
+
+    async fn download_once(&self, url: &reqwest::Url) -> Result<IlisFileDownload, AttemptError> {
+        let response = self
+            .http
+            .get(url.clone())
+            .header("user-agent", &self.user_agent)
+            .send()
+            .await
+            .map_err(|error| AttemptError::Retryable {
+                message: format!(
+                    "{PROVIDER} download failed: {}",
+                    redact_transport_error(&error)
+                ),
+                retry_after: None,
+            })?;
+        let status = response.status();
+        if status.is_client_error() {
+            return Ok(IlisFileDownload::Gone(status.as_u16()));
+        }
+        if !status.is_success() {
+            let message = format!("{PROVIDER} download returned HTTP {status}");
+            return Err(match classify_response(status, response.headers()) {
+                RetryDecision::Retryable { retry_after } => AttemptError::Retryable {
+                    message,
+                    retry_after,
+                },
+                RetryDecision::NotRetryable => AttemptError::Fatal(OutboundHttpError::new(message)),
+            });
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| AttemptError::Retryable {
+                message: format!(
+                    "{PROVIDER} download body read failed: {}",
+                    redact_transport_error(&error)
+                ),
+                retry_after: None,
+            })?;
+        Ok(IlisFileDownload::Bytes(bytes.to_vec()))
     }
 
     async fn fetch_page_once(

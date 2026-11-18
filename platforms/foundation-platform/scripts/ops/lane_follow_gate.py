@@ -53,7 +53,9 @@ def served_snapshot(state: dict) -> str | None:
 
 
 def verdict(lane: str, snapshot: str, followed_state: dict, table) -> str:
-    entry = gold_rebuild.load_contract()["tables"][by_pnu_kinds.lane_fields(lane)["gold_table"]]
+    # A lane that bakes its table of appended row versions (root ADR-0564 §6-1) has no Spark rebuild
+    # entry: its producer is the publisher, and it pins nothing to another Gold.
+    entry = gold_rebuild.load_contract()["tables"].get(by_pnu_kinds.lane_fields(lane)["gold_table"], {})
     follows = entry.get("pins_from")
     if not follows or follows["inputs"] == "all":
         return "ok"  # nothing is pinned to another Gold: the lanes place their rows independently

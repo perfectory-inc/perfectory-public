@@ -69,6 +69,7 @@ mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_load;
 mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
+mod industrial_complex_notice_collect;
 mod lakehouse_object_listing;
 mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
@@ -100,6 +101,7 @@ use foundation_publisher_tiles::lakehouse_tile_bake;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
+mod parcel_lineage_derive;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;
@@ -144,6 +146,8 @@ mod staging_namespace;
 use foundation_publisher_tiles::static_release_readdress;
 use foundation_publisher_tiles::static_release_toolchain;
 use foundation_publisher_tiles::tile_derivative_object_storage;
+mod real_estate_broker_lookup_load;
+mod trino_cli;
 mod unit_official_price_projection_load;
 use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
 use foundation_publisher_collection::vworld_dataset_collection_plan;
@@ -171,6 +175,7 @@ enum Command {
     ListLakehouseObjects,
     MediaLadderBacklog,
     CollectIndustrialComplexAddressSource,
+    CollectIndustrialComplexNoticeAttachments,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
     StageBuildingRegisterFloorInputs,
@@ -185,6 +190,7 @@ enum Command {
     ExportBuildingRegisterApartmentPriceSilverHandoff,
     ExportBuildingRegisterExclusiveUnitSilverHandoff,
     ExportBuildingPermitBasisOutlineSilverHandoff,
+    ExportHousingPermitBasisOutlineSilverHandoff,
     ExportBuildingRegisterMasterSilverHandoff,
     ExportBuildingPermitDemolitionLossSilverHandoff,
     ExportBuildingEnergyMonthlyElectricitySilverHandoff,
@@ -209,6 +215,8 @@ enum Command {
     ExportParcelByPnuServing,
     ExportBuildingByPnuServing,
     SectionPacks(building_by_pnu_serving_export::section_packs::PackCommand),
+    /// `export-<lane>-silver-handoff` of a HUB family lane (root ADR-0551), by its lane id.
+    ExportHubFamilySilverHandoff(&'static str),
     ExportVWorldCadastralShapefileSilverHandoff,
     ExportVWorldCadastralSilverHandoffShard,
     ExportLandUsePlanSilverHandoff,
@@ -220,6 +228,8 @@ enum Command {
     ExportLandTransferHistorySilverHandoff,
     ExportLandRightRegistrationSilverHandoff,
     ExportLandOwnershipSilverHandoff,
+    ExportRealEstateBrokerOfficeSilverHandoff,
+    ExportRealEstateBrokerMemberSilverHandoff,
     EvaluateLakehouseQualityRules,
     IngestBuildingHubBulkCollection,
     IngestBuildingHubBulkFile,
@@ -239,10 +249,13 @@ enum Command {
     ExportMapEditHandoff,
     BakeLakehouseTiles,
     LoadUnitOfficialPriceProjection,
+    LoadRealEstateBrokerLookup,
     LoadLineageReviewItems,
     MeasureBronzeObjectMembers,
     ClearStagingNamespace,
     ExportLineageStewardFold,
+    AppendLineageStewardFold,
+    DeriveParcelLineage,
     ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -282,6 +295,7 @@ enum Command {
     SeedLakehouseRegistry,
     SmokeR2,
     VerifyStaticReleaseToolchain,
+    VerifyLakehouseEngineExtensions,
     VerifyLakehouseRegistry,
     VerifyR2Cleanup,
     ValidateTileDerivativeR2,
@@ -357,6 +371,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CollectIndustrialComplexAddressSource => {
             Box::pin(industrial_complex_address_source_collect::run())
         }
+        Command::CollectIndustrialComplexNoticeAttachments => {
+            Box::pin(industrial_complex_notice_collect::run())
+        }
         Command::DeleteR2Candidates => Box::pin(r2_delete_candidates::run()),
         Command::ExportBuildingRegisterFloorSilverHandoff => {
             Box::pin(building_register_floor_silver_export::run())
@@ -403,6 +420,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportBuildingPermitBasisOutlineSilverHandoff => Box::pin(
             foundation_publisher_silver::building_permit_basis_outline_silver_export::run(),
         ),
+        Command::ExportHousingPermitBasisOutlineSilverHandoff => Box::pin(
+            foundation_publisher_silver::housing_permit_basis_outline_silver_export::run(),
+        ),
         Command::ExportBuildingRegisterMasterSilverHandoff => {
             Box::pin(foundation_publisher_silver::building_register_master_silver_export::run())
         }
@@ -439,6 +459,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportBuildingPermitTemporaryBuildingSilverHandoff => Box::pin(
             foundation_publisher_silver::building_permit_temporary_building_silver_export::run(),
         ),
+        Command::ExportHubFamilySilverHandoff(lane) => {
+            Box::pin(foundation_publisher_silver::hub_family_silver_export::run(lane))
+        }
         Command::ExportBuildingPermitSiteLocationSilverHandoff => Box::pin(
             foundation_publisher_silver::building_permit_site_location_silver_export::run(),
         ),
@@ -460,6 +483,12 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportLandOwnershipSilverHandoff => {
             Box::pin(land_use_silver_export::run_land_ownership())
+        }
+        Command::ExportRealEstateBrokerOfficeSilverHandoff => {
+            Box::pin(land_use_silver_export::run_real_estate_broker_office())
+        }
+        Command::ExportRealEstateBrokerMemberSilverHandoff => {
+            Box::pin(land_use_silver_export::run_real_estate_broker_member())
         }
         Command::ExportLandTransferHistorySilverHandoff => {
             Box::pin(land_use_silver_export::run_land_transfer_history())
@@ -535,10 +564,13 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadUnitOfficialPriceProjection => {
             Box::pin(unit_official_price_projection_load::run())
         }
+        Command::LoadRealEstateBrokerLookup => Box::pin(real_estate_broker_lookup_load::run()),
         Command::LoadLineageReviewItems => Box::pin(lineage_review_items_load::run()),
         Command::MeasureBronzeObjectMembers => Box::pin(bronze_object_members::run()),
         Command::ClearStagingNamespace => Box::pin(staging_namespace::clear()),
         Command::ExportLineageStewardFold => Box::pin(lineage_steward_fold::export()),
+        Command::AppendLineageStewardFold => Box::pin(lineage_steward_fold::append()),
+        Command::DeriveParcelLineage => Box::pin(parcel_lineage_derive::run()),
         Command::ExportLegalDongStewardDecisions => {
             Box::pin(lineage_steward_fold::export_legal_dong())
         }
@@ -617,6 +649,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
                 .await
                 .map(|_| ())
         }),
+        Command::VerifyLakehouseEngineExtensions => {
+            Box::pin(async { foundation_publisher_silver::duckdb_extensions::verify() })
+        }
         Command::VerifyLakehouseRegistry => Box::pin(lakehouse_registry_control::verify()),
         Command::VerifyR2Cleanup => Box::pin(async { r2_cleanup_verify::run() }),
         Command::ValidateTileDerivativeR2 => {
@@ -682,10 +717,13 @@ where
             Ok(Command::PublishParcelBoundaryStaticRelease)
         }
         Some("load-unit-official-price-projection") => Ok(Command::LoadUnitOfficialPriceProjection),
+        Some("load-real-estate-broker-lookup") => Ok(Command::LoadRealEstateBrokerLookup),
         Some("load-lineage-review-items") => Ok(Command::LoadLineageReviewItems),
         Some("measure-bronze-object-members") => Ok(Command::MeasureBronzeObjectMembers),
         Some("clear-staging-namespace") => Ok(Command::ClearStagingNamespace),
         Some("export-lineage-steward-fold") => Ok(Command::ExportLineageStewardFold),
+        Some("append-lineage-steward-fold") => Ok(Command::AppendLineageStewardFold),
+        Some("derive-parcel-lineage") => Ok(Command::DeriveParcelLineage),
         Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
@@ -727,6 +765,9 @@ where
         Some("media-ladder-backlog") => Ok(Command::MediaLadderBacklog),
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)
+        }
+        Some("collect-industrial-complex-notice-attachments") => {
+            Ok(Command::CollectIndustrialComplexNoticeAttachments)
         }
         Some("export-industrial-complex-boundary-silver-handoff") => {
             Ok(Command::ExportIndustrialComplexBoundarySilverHandoff)
@@ -772,6 +813,9 @@ where
         }
         Some("export-building-permit-basis-outline-silver-handoff") => {
             Ok(Command::ExportBuildingPermitBasisOutlineSilverHandoff)
+        }
+        Some("export-housing-permit-basis-outline-silver-handoff") => {
+            Ok(Command::ExportHousingPermitBasisOutlineSilverHandoff)
         }
         Some("export-building-register-master-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterMasterSilverHandoff)
@@ -830,6 +874,12 @@ where
         Some("export-land-ownership-silver-handoff") => {
             Ok(Command::ExportLandOwnershipSilverHandoff)
         }
+        Some("export-real-estate-broker-office-silver-handoff") => {
+            Ok(Command::ExportRealEstateBrokerOfficeSilverHandoff)
+        }
+        Some("export-real-estate-broker-member-silver-handoff") => {
+            Ok(Command::ExportRealEstateBrokerMemberSilverHandoff)
+        }
         Some("export-land-transfer-history-silver-handoff") => {
             Ok(Command::ExportLandTransferHistorySilverHandoff)
         }
@@ -878,12 +928,18 @@ where
         Some("seed-lakehouse-registry") => Ok(Command::SeedLakehouseRegistry),
         Some("smoke-r2") => Ok(Command::SmokeR2),
         Some("verify-static-release-toolchain") => Ok(Command::VerifyStaticReleaseToolchain),
+        Some("verify-lakehouse-engine-extensions") => Ok(Command::VerifyLakehouseEngineExtensions),
         Some("verify-lakehouse-registry") => Ok(Command::VerifyLakehouseRegistry),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
         Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),
-        Some(other) => building_by_pnu_serving_export::section_packs::PackCommand::parse(other)
-            .map(Command::SectionPacks)
-            .with_context(|| format!("unknown outbox-publisher command '{other}'")),
+        Some(other) => {
+            match foundation_publisher_silver::hub_family_silver_export::lane_id_of_export(other) {
+                Some(lane) => Ok(Command::ExportHubFamilySilverHandoff(lane)),
+                None => building_by_pnu_serving_export::section_packs::PackCommand::parse(other)
+                    .map(Command::SectionPacks)
+                    .with_context(|| format!("unknown outbox-publisher command '{other}'")),
+            }
+        }
     }
 }
 

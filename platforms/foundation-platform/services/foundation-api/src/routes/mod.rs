@@ -39,6 +39,7 @@ mod lakehouse_registry;
 mod lineage_review;
 mod normalization;
 pub mod pipeline_graph;
+mod real_estate_broker;
 mod source_cadence;
 
 use api_error::ApiError;
@@ -85,6 +86,7 @@ fn application_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(map_catalog_routes(state))
         .merge(internal_routes(state))
         .merge(normalization::routes(state))
+        .merge(real_estate_broker::routes(state))
         .merge(lineage_review::routes(state))
         .merge(data_catalog::routes(state))
 }
@@ -336,12 +338,18 @@ const SERVICE_NORMALIZATION_PROPOSE: IdentityRoutePolicy = IdentityRoutePolicy {
     resource: "foundation.normalization",
     action: "propose",
 };
+/// Checking one person against the 부동산중개업 roster at sign-up (root ADR-0550 §4).
+const SERVICE_REAL_ESTATE_BROKER_VERIFY: IdentityRoutePolicy = IdentityRoutePolicy {
+    required_principal_kind: RequiredPrincipalKind::Service,
+    resource: "foundation.real_estate_broker",
+    action: "verify",
+};
 
 /// Every Identity policy a Foundation route asks for. The same list, as data, is
 /// `config/identity-route-policies.contract.json` (checked by `routes::tests::route_policies`), and
 /// Identity checks its staff role matrix and workload policy against that file (root ADR-0214).
 #[cfg(test)]
-const ROUTE_POLICIES: [IdentityRoutePolicy; 11] = [
+const ROUTE_POLICIES: [IdentityRoutePolicy; 12] = [
     STAFF_CATALOG_WRITE,
     SERVICE_CATALOG_READ,
     STAFF_LAKEHOUSE_BATCH_AUDIT,
@@ -353,6 +361,7 @@ const ROUTE_POLICIES: [IdentityRoutePolicy; 11] = [
     STAFF_LINEAGE_ADJUDICATE,
     STAFF_JOBS_OPERATE,
     SERVICE_NORMALIZATION_PROPOSE,
+    SERVICE_REAL_ESTATE_BROKER_VERIFY,
 ];
 
 #[derive(Clone)]

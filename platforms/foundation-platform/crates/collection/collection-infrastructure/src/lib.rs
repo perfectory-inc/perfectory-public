@@ -18,8 +18,8 @@ pub use building_hub_bulk::{
 #[cfg(feature = "court-auction-browser")]
 pub use court_auction_browser::{BrowserSessionConfig, BrowserSessionPool};
 pub use ilis_industrial_complex_api::{
-    IlisIndustrialComplexApiClient, IlisIndustrialComplexApiConfig, IlisIndustrialComplexPage,
-    IlisRequestPolicy,
+    IlisFileDownload, IlisIndustrialComplexApiClient, IlisIndustrialComplexApiConfig,
+    IlisIndustrialComplexPage, IlisRequestPolicy,
 };
 pub use vworld_dataset_file::{
     parse_vworld_dataset_file_inventory_page, VWorldDatasetFile, VWorldDatasetFileClient,

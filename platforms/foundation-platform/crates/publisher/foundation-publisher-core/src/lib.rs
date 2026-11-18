@@ -32,6 +32,7 @@ pub mod by_pnu_gateway_contract;
 pub mod compose_labels;
 pub mod free_space;
 pub mod industrial_complex_gold_profile_store;
+pub mod lakehouse_data_commit;
 pub mod lakehouse_snapshot_scan;
 pub mod profile_gateway_contract;
 pub mod provider_outcome;

@@ -685,7 +685,7 @@ def _load(argv: Sequence[str]) -> int:
             items = [row for entry in objects if entry["role"] == "item_list"
                      for row in read_object(entry, source, now)["rows"]]
             # Root ADR-0482 §2: the address each item name gives, for what the code path leaves.
-            dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
+            dongs = address_pnu.lakehouse_legal_dong_index(spark, args.iceberg_catalog_name)
             prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
             jibun, titles = address_inputs(spark, args.iceberg_catalog_name, items, prefixes, dongs)
             wanted = place_identity_resolver.candidate_pnus([*(row["pnu"] for row in items), *jibun], remap, ambiguous)

@@ -6,7 +6,7 @@ import { ParcelBuildingPermitsByPnuSchema as Generated } from "./building-permit
 // A parcel's 건축인허가 기본개요 (one per permit) is its own by-PNU document on the parcel edge
 // (`parcel-building-permits` lane, root ADR-0451): each permit in the provider's words (건축구분명,
 // 주용도명, 대지·건축·연면적, 건축허가·착공예정·착공연기·실제착공·사용승인일), and one list per other
-// file of the permit family (ADR-0464). The document's shape is the schema registry's (ADR-0336).
+// file of the permit family (ADR-0464) and for the 주택인허가 기본개요 (ADR-0511). The document's shape is the schema registry's (ADR-0336).
 export const BuildingPermitsDocumentSchema = Generated.extend({ pnu: PnuSchema });
 
 export type BuildingPermits = z.infer<typeof BuildingPermitsDocumentSchema>["building_permits"] & {
@@ -43,6 +43,21 @@ export async function fetchBuildingPermits(
  * fields, `fields` its labelled ones, each in the provider's order; `dates` are YYYYMMDD.
  */
 export const PERMIT_DETAILS = [
+  {
+    // 주택인허가 기본개요 (root ADR-0511): a housing project's approval, start and use inspection.
+    key: "housing_permits",
+    head: ["purpose_name", "structure_name"],
+    fields: [
+      "total_household_count",
+      "main_building_count",
+      "total_floor_area_m2",
+      "approval_date",
+      "start_scheduled_date",
+      "start_actual_date",
+      "use_inspection_scheduled_date",
+      "use_inspection_date",
+    ],
+  },
   {
     key: "building_outlines",
     head: ["main_annex_name", "main_purpose_name", "structure_name", "roof_name"],
@@ -109,6 +124,11 @@ export const PERMIT_DETAILS = [
 }[];
 
 export const PERMIT_DETAIL_DATES: ReadonlySet<string> = new Set([
+  "approval_date",
+  "start_scheduled_date",
+  "start_actual_date",
+  "use_inspection_scheduled_date",
+  "use_inspection_date",
   "existence_expiry_date",
   "inspection_start_date",
   "processed_date",

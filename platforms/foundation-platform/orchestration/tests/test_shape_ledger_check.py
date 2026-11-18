@@ -1,5 +1,6 @@
 """The shape ledger check captures production and publishes it where CI reads it (root ADR-0259, ADR-0476)."""
 
+import contextlib
 import hashlib
 import importlib.util
 import tempfile
@@ -7,6 +8,7 @@ import unittest.mock
 import json
 import pathlib
 import unittest
+import urllib.error
 from datetime import datetime, timedelta, timezone
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
@@ -129,6 +131,14 @@ class Layout(unittest.TestCase):
         self.assertLess(check.region_read_share(self.ORDERED, 2), 0.3)
         self.assertEqual(check.layout_findings("gold.t", "pnu", self.ORDERED, None), ([], []))
 
+    def test_two_files_in_key_order_pass_and_two_country_wide_ones_fail(self):
+        # 2026-11-13 gold.parcel_real_transaction: range-written in pnu order, 2 files that meet in 시도 41.
+        ordered = [(key("11"), key("41")), (key("41"), key("52"))]
+        failures, _ = check.layout_findings("gold.t", "pnu", ordered, None)
+        self.assertEqual(failures, [])
+        failures, _ = check.layout_findings("gold.t", "pnu", self.COUNTRY_WIDE[:2], None)
+        self.assertEqual(len(failures), 1)
+
     def test_one_file_is_never_misplaced(self):
         self.assertEqual(check.region_read_share(self.COUNTRY_WIDE[:1], 2), 0.0)
 
@@ -247,6 +257,35 @@ class Publish(unittest.TestCase):
         self.assertFalse(written)
         self.assertEqual(head["ledgers"], first["ledgers"])
         self.assertEqual(head["checked_at"], "2026-11-13T12:30:00Z")
+
+    def test_a_shape_the_locked_bucket_already_keeps_is_not_written_again(self):
+        # 2026-11-11..13: R2 answers a conditional PUT on a key under a lock rule with 409, not 412,
+        # and every run after the first published nothing. The writer asks first.
+        sent = []
+
+        def answer(request, timeout):
+            sent.append(request.get_method())
+            if request.get_method() == "HEAD":
+                return contextlib.nullcontext()
+            raise AssertionError("an object the bucket keeps was written again")
+
+        with unittest.mock.patch.object(r2_object.urllib.request, "urlopen", side_effect=answer):
+            self.assertFalse(r2_object.put("https://a.r2.cloudflarestorage.com", "b", "shape-ledger/objects/x.json",
+                                           "k", "s", b"{}", only_new=True))
+        self.assertEqual(sent, ["HEAD"])
+
+        def absent(request, timeout):
+            sent.append(request.get_method())
+            if request.get_method() == "HEAD":
+                raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+            self.assertEqual(request.get_header("If-none-match"), "*")
+            return contextlib.nullcontext()
+
+        sent.clear()
+        with unittest.mock.patch.object(r2_object.urllib.request, "urlopen", side_effect=absent):
+            self.assertTrue(r2_object.put("https://a.r2.cloudflarestorage.com", "b", "shape-ledger/objects/y.json",
+                                          "k", "s", b"{}", only_new=True))
+        self.assertEqual(sent, ["HEAD", "PUT"])
 
     def test_a_failed_upload_is_said_and_does_not_fail_the_run_by_itself(self):
         r2 = unittest.mock.Mock()

@@ -1,7 +1,9 @@
 import { env } from "@/lib/env";
 import {
   COMPLEX_CLICK_YIELDS_TO_LAYER_IDS,
+  COMPLEX_CLICK_YIELDS_TO_UNITS,
   foundationVectorFillLayerId,
+  foundationVectorUnitLayerIds,
   registerFoundationVectorRuntimeUnit,
 } from "@/lib/map/foundation-vector-fill-layers";
 import { validateFoundationVectorManifest } from "@/lib/map/foundation-vector-layer-registry";
@@ -303,7 +305,12 @@ export function registerComplexClick(
       feature?.properties?.complex_id ?? (typeof feature?.id === "string" ? feature.id : undefined);
     if (typeof id === "string" && id.length > 0) onComplexClick(id);
   };
-  mb.on("click", foundationVectorFillLayerId("complex"), handler);
+  // The unit's own fill always, and the lower zoom bands' fills the map carries (root ADR-0489).
+  const fills = new Set([
+    foundationVectorFillLayerId("complex"),
+    ...foundationVectorUnitLayerIds(mb, "complex", "fill"),
+  ]);
+  for (const layerId of fills) mb.on("click", layerId, handler);
   // An edited complex is drawn from the edit overlay while its base polygon is hidden, so the same
   // click must work there too (root ADR-0112).
   if (mb.getLayer?.(mapEditOverlayFillLayerId("complex"))) {
@@ -353,7 +360,12 @@ function aMoreSpecificLayerOwnsTheClick(mb: MapboxGLLike, point: unknown): boole
   // No query API means no way to tell. Opening the panel is the failure that leaves the feature
   // working; staying silent is the one that looks like the layer is not clickable at all.
   if (typeof mb.queryRenderedFeatures !== "function" || point === undefined) return false;
-  const present = COMPLEX_CLICK_YIELDS_TO_LAYER_IDS.filter((layerId) => mb.getLayer?.(layerId));
+  const present = [
+    ...COMPLEX_CLICK_YIELDS_TO_UNITS.flatMap((unit) =>
+      foundationVectorUnitLayerIds(mb, unit, "fill"),
+    ),
+    ...COMPLEX_CLICK_YIELDS_TO_LAYER_IDS.filter((layerId) => mb.getLayer?.(layerId)),
+  ];
   if (present.length === 0) return false;
   try {
     return mb.queryRenderedFeatures(point, { layers: present }).length > 0;

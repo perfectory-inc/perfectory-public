@@ -293,6 +293,19 @@ class AirliftParityTest(unittest.TestCase):
 
 @unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
 class CodeLocationTest(unittest.TestCase):
+    def test_an_asset_a_job_writes_carries_that_jobs_code_version(self):
+        # Root ADR-0499: Dagster's own code_version, from the version the reconciler compares a failed run with.
+        import job_code_version
+        import observe_assets
+
+        jobs, graph = observe_assets.contracts()
+        (spec,) = [spec for spec in observe_assets.job_specs.load_specs(jobs, graph) if spec.job_id == "data_go_kr_file_data"]
+        job = next(job for job in jobs["jobs"] if job["id"] == "data_go_kr_file_data")
+        by_key = {asset.key: asset for asset in observe_assets.observed_assets(jobs, graph)}
+        written = [by_key[observe_assets.asset_key(dataset)] for dataset in spec.outputs]
+        self.assertTrue(written)
+        self.assertEqual({asset.code_version for asset in written}, {job_code_version.version(job)})
+
     def test_every_graph_node_is_one_asset_in_its_definitions_group(self):
         import observe_assets
 

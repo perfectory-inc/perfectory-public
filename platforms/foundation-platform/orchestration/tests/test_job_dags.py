@@ -6,6 +6,7 @@ classes do not take; whether Airflow itself accepts the result (the asset-or-tim
 assets, the serialized DAG) is `WithAirflow`, which runs where Airflow is installed.
 """
 
+import copy
 import dataclasses
 import importlib.util
 import json
@@ -146,6 +147,21 @@ def stand_ins():
     return modules, built
 
 
+def staged(stage_of):
+    """job_specs.load_specs with each job at the `dagster_stage` `stage_of(spec)` names, as its definition would say."""
+    real = job_specs.load_specs
+
+    def load(*args, **kwargs):
+        return [dataclasses.replace(spec, dagster_stage=stage_of(spec)) for spec in real(*args, **kwargs)]
+    return mock.patch.object(job_specs, "load_specs", load)
+
+
+def run_by_airflow():
+    """Every job as Airflow runs it, its `run` task the forced command: the form a job has until it is
+    `proxied`, whichever jobs the real list has moved (AProxiedJobsRunIsDagsters has the other form)."""
+    return staged(lambda spec: "shadow" if spec.dagster_stage == "proxied" else spec.dagster_stage)
+
+
 def load_dag_file(modules):
     spec = importlib.util.spec_from_file_location("foundation_jobs_under_test", DAGS / "foundation_jobs.py")
     module = importlib.util.module_from_spec(spec)
@@ -162,7 +178,8 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         modules, built = stand_ins()
-        cls.module = load_dag_file(modules)
+        with run_by_airflow():
+            cls.module = load_dag_file(modules)
         cls.dags = {dag.dag_id: dag for dag in built["dags"]}
         cls.specs = job_specs.load_specs()
 
@@ -281,7 +298,8 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         modules, built = stand_ins()
-        load_dag_file(modules)
+        with run_by_airflow():
+            load_dag_file(modules)
         cls.dags = {dag.dag_id: dag for dag in built["dags"]}
         [cls.spec] = [spec for spec in job_specs.load_specs() if spec.reconciles]
         cls.tasks = {task.task_id: task for task in cls.dags[cls.spec.dag_id].tasks}
@@ -293,7 +311,7 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
                          {"by_pnu_public_auction_bake", "gold_unit_price_rebuild", "by_pnu_unit_price_bake",
                           "by_pnu_serving_bake", "gold_panel_rebuild", "gold_kind_rebuild",
                           # Root ADR-0468: switched on with the first runs they read.
-                          "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake",
+                          "by_pnu_parcel_building_permits_bake",
                           # Root ADR-0468 (revised 2026-11-10): switched on behind the loaders that fill them.
                           "by_pnu_parcel_ownership_bake", "by_pnu_parcel_sub_parcels_bake", "by_pnu_parcel_energy_bake",
                           "by_pnu_parcel_demolitions_bake", "by_pnu_parcel_factories_bake",
@@ -345,6 +363,23 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
         runtime.RuntimeTaskInstance.get_dr_count.assert_any_call(
             dag_id="foundation_gold_unit_price_rebuild", states=["queued", "running"])
 
+    def test_select_leaves_an_owed_job_dagster_decides_to_that_jobs_sensor(self):
+        # Root ADR-0565 §4: such a job has no DAG to trigger; its sensor reads the same owed runs from the
+        # reconciler's Dagster run. Triggering a DAG that does not exist would fail `start` every tick.
+        self.assertEqual(self.tasks["select"].decided_by_dagster, frozenset(), "no job is at dagster yet")
+        select = copy.copy(self.tasks["select"])
+        select.decided_by_dagster = frozenset({"gold_unit_price_rebuild"})
+        ti = mock.Mock()
+        ti.xcom_pull.return_value = [["gold_unit_price_rebuild", "0123456789abcdef"],
+                                     ["by_pnu_public_auction_bake", "fedcba9876543210"]]
+        runtime = types.ModuleType("airflow.sdk.execution_time.task_runner")
+        runtime.RuntimeTaskInstance = mock.Mock()
+        runtime.RuntimeTaskInstance.get_dr_count.return_value = 0
+        with mock.patch.dict(sys.modules, {"airflow.sdk.execution_time.task_runner": runtime}):
+            starts = select.execute({"ti": ti})
+        self.assertEqual([start["trigger_dag_id"] for start in starts], ["foundation_by_pnu_public_auction_bake"])
+        runtime.RuntimeTaskInstance.get_dr_count.assert_called_once()
+
 
 class TheCheckBeforeThePool(unittest.TestCase):
     """Root ADR-0277: a job with a check_service asks it, in default_pool, before its run waits for a pool."""
@@ -352,7 +387,8 @@ class TheCheckBeforeThePool(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         modules, built = stand_ins()
-        load_dag_file(modules)
+        with run_by_airflow():
+            load_dag_file(modules)
         cls.dags = {dag.dag_id: dag for dag in built["dags"]}
         cls.specs = job_specs.load_specs()
 
@@ -399,13 +435,9 @@ class TheCheckBeforeThePool(unittest.TestCase):
 
 
 def proxied(spec_ids):
-    """job_specs.load_specs with the jobs `spec_ids` at `dagster_stage: proxied`, as their definitions would say."""
-    real = job_specs.load_specs
-
-    def load(*args, **kwargs):
-        return [dataclasses.replace(spec, dagster_stage="proxied") if spec.job_id in spec_ids else spec
-                for spec in real(*args, **kwargs)]
-    return mock.patch.object(job_specs, "load_specs", load)
+    """job_specs.load_specs with the jobs `spec_ids`, and no other, at `dagster_stage: proxied`."""
+    return staged(lambda spec: "proxied" if spec.job_id in spec_ids
+                  else "shadow" if spec.dagster_stage == "proxied" else spec.dagster_stage)
 
 
 class ADagsterJobHasNoDag(unittest.TestCase):
@@ -415,9 +447,8 @@ class ADagsterJobHasNoDag(unittest.TestCase):
         spec = next(spec for spec in job_specs.load_specs() if spec.enabled)
         real = job_specs.load_specs
         modules, built = stand_ins()
-        with mock.patch.object(job_specs, "load_specs", lambda *a, **k: [
-                dataclasses.replace(other, dagster_stage="dagster") if other.job_id == spec.job_id else other
-                for other in real(*a, **k)]):
+        with staged(lambda other: "dagster" if other.job_id == spec.job_id
+                    else "shadow" if other.dagster_stage == "proxied" else other.dagster_stage):
             load_dag_file(modules)
         dags = {dag.dag_id for dag in built["dags"]}
         self.assertNotIn(spec.dag_id, dags)

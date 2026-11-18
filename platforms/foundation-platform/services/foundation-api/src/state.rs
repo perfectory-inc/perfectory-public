@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use catalog_application::verify_real_estate_broker::{BrokerRegister, VerifyRealEstateBroker};
 use catalog_application::{
     ports::{JobSwitchBoard, MapEditStore, RuntimeManifestPublicationCapability},
     AppendMapEdit, ArchiveIndustrialComplex, PromoteVectorTileManifest, RecordOperatorAction,
@@ -11,7 +12,7 @@ use catalog_application::{
 };
 use catalog_infrastructure::{
     FileJobSwitchBoard, PgCatalogRepository, PgCatalogUnitOfWork, PgOperatorActionLedger,
-    UnconfiguredJobSwitchBoard,
+    PgRealEstateBrokerRoster, UnconfiguredJobSwitchBoard,
 };
 
 /// Where the host's operator switches live inside the container (root ADR-0282 §3).
@@ -38,6 +39,7 @@ use crate::identity_http_client::HttpIdentityClient;
 use crate::identity_token_verifier::IdentityTokenVerifier;
 use crate::map_edit_http_store::{HttpMapEditStore, MapEditStoreConfig, UnconfiguredMapEditStore};
 use crate::traffic::TrafficConfig;
+use crate::vworld_broker_register::VworldBrokerRegister;
 
 /// What the schema probe found, in the three states a probe can honestly report.
 ///
@@ -300,6 +302,8 @@ pub struct AppState {
     pub lineage_stewardship: Arc<dyn LineageStewardshipStore>,
     /// Operator switches of scheduled jobs, into the append-only ledger (root ADR-0282).
     pub record_operator_action: RecordOperatorAction,
+    /// One person against the 부동산중개업 roster, then the live register (root ADR-0550).
+    pub verify_real_estate_broker: VerifyRealEstateBroker,
     pub identity_authorization: Arc<dyn IdentityAuthorization>,
     runtime_manifest_publication: RuntimeManifestPublicationCapability,
 }
@@ -665,6 +669,11 @@ impl AppState {
             Some(store) => state.with_map_edit_store(Arc::new(HttpMapEditStore::new(store)?)),
             None => state,
         };
+        // Without a VWorld key a roster miss is a miss the live register did not confirm.
+        let state = match VworldBrokerRegister::from_env()? {
+            Some(live) => state.with_live_broker_register(Arc::new(live)),
+            None => state,
+        };
         Ok(state)
     }
 
@@ -698,6 +707,14 @@ impl AppState {
         switches: Arc<dyn JobSwitchBoard>,
     ) -> Self {
         self.record_operator_action = RecordOperatorAction::new(ledger, switches);
+        self
+    }
+
+    /// Asks this live register on a roster miss (root ADR-0550 §5).
+    #[must_use]
+    pub fn with_live_broker_register(mut self, live: Arc<dyn BrokerRegister>) -> Self {
+        let roster = Arc::new(PgRealEstateBrokerRoster::new(self.database_pool.clone()));
+        self.verify_real_estate_broker = VerifyRealEstateBroker::new(roster, Some(live));
         self
     }
 
@@ -784,6 +801,10 @@ impl AppState {
             Arc::new(PgOperatorActionLedger::new(pool.clone())),
             switches,
         );
+        let verify_real_estate_broker = VerifyRealEstateBroker::new(
+            Arc::new(PgRealEstateBrokerRoster::new(pool.clone())),
+            None,
+        );
 
         Self {
             database_pool: pool,
@@ -807,6 +828,7 @@ impl AppState {
             rollback_normalization_application,
             lineage_stewardship,
             record_operator_action,
+            verify_real_estate_broker,
             identity_authorization,
             // Fail closed. Only a deployment that says so turns publication on, so a test
             // harness or a forgotten variable can never publish.

@@ -149,6 +149,28 @@ class TheLedger(unittest.TestCase):
             handle.write('00, "outcome": "unchanged"}\n')
         self.assertEqual([r["at"] for r in job_units.outcomes_after(offset)[0]], [200])
 
+    def test_a_failed_run_carries_its_code_version_and_fold_keeps_the_newest_ended_run(self):
+        # Root ADR-0499: the reconciler compares a failed run's code version with the running release's.
+        version = lambda job_id: f"v-{job_id}"  # noqa: E731
+        job_units.record_outcome("fold", "foundation-job-outcome changed", 100, code_version=version)
+        job_units.record_outcome("fold", "foundation-job-outcome failed systemd result=exit-code", 200, code_version=version)
+        job_units.record_outcome("fold", "foundation-job-outcome waiting the spark pool is full", 300, code_version=version)
+        job_units.record_outcome("fold", "foundation-job-check would_change", 400, "check", code_version=version)
+        records, _ = job_units.outcomes_after(0)
+        self.assertEqual([r.get("code_version") for r in records], [None, "v-fold", None, None])
+        summary = outcomes.fold({}, records)
+        self.assertEqual(summary["ran"], {"fold": {"outcome": "failed", "at": 200, "code_version": "v-fold"}})
+        self.assertEqual(summary["jobs"]["fold"], {"changed": 100, "failed": 200, "waiting": 300, "checked": 400})
+        summary = outcomes.fold(summary, [{"job": "fold", "at": 500, "outcome": "unchanged", "via": "run"}])
+        self.assertEqual(summary["ran"]["fold"], {"outcome": "unchanged", "at": 500})
+
+    def test_a_failed_line_is_kept_though_no_version_can_be_made(self):
+        def broken(job_id):
+            return None
+
+        job_units.record_outcome("fold", "foundation-job-outcome failed", 100, code_version=broken)
+        self.assertNotIn("code_version", job_units.outcomes_after(0)[0][0])
+
     def test_what_is_not_an_outcome_is_refused(self):
         for line in ("loaded 3 rows", "foundation-job-outcome finished", ""):
             with self.subTest(line=line), self.assertRaises(ValueError):

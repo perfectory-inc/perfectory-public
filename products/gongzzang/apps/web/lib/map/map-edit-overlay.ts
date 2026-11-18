@@ -4,6 +4,7 @@ import {
   FOUNDATION_VECTOR_FILL_STYLES,
   foundationVectorFillLayerId,
   foundationVectorOutlineLayerId,
+  foundationVectorUnitLayerIds,
 } from "@/lib/map/foundation-vector-fill-layers";
 
 /**
@@ -181,11 +182,8 @@ export function mapEditTombstoneFilter(
 /** Hides the edited base polygons and draws the fresh ones. */
 export function applyMapEditOverlay(mb: MapEditOverlayBridge, overlay: MapEditOverlay): void {
   const filter = mapEditTombstoneFilter(overlay.feature_id_property, overlay.hidden_feature_ids);
-  for (const layerId of [
-    foundationVectorFillLayerId(overlay.unit),
-    foundationVectorOutlineLayerId(overlay.unit),
-  ]) {
-    if (mb.getLayer?.(layerId)) mb.setFilter?.(layerId, filter);
+  for (const layerId of foundationVectorUnitLayerIds(mb, overlay.unit)) {
+    mb.setFilter?.(layerId, filter);
   }
   const source = mb.getSource?.(mapEditOverlaySourceId(overlay.unit)) as
     | GeoJsonSourceLike

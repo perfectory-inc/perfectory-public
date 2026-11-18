@@ -3,8 +3,11 @@ import { MAP_LAYER_COLORS } from "@gongzzang/ui/tokens.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   FOUNDATION_VECTOR_FILL_STYLES,
+  FOUNDATION_VECTOR_ZOOM_BAND_LEVELS,
   foundationVectorFillLayerId,
   foundationVectorOutlineLayerId,
+  foundationVectorUnitLayerIds,
+  foundationVectorZoomBands,
   registerFoundationVectorRuntimeUnit,
 } from "@/lib/map/foundation-vector-fill-layers";
 import {
@@ -166,21 +169,36 @@ describe("Foundation vector fill layers", () => {
       "complex",
     );
 
-    expect(registered).toEqual(["complex-fill", "complex-outline"]);
-    // The source stops at the zoom Martin stops cutting at, so nothing ever requests a tile
-    // outside 6..16; the layers are drawn past it from the overzoomed z16 tile.
+    expect(registered).toEqual([
+      "complex-fill",
+      "complex-outline",
+      "complex@z6-fill",
+      "complex@z6-outline",
+      "complex@z8-fill",
+      "complex@z8-outline",
+      "complex@z11-fill",
+      "complex@z11-outline",
+    ]);
+    // The top band stops at the zoom Martin stops cutting at, so nothing ever requests a tile
+    // outside 6..16; its layers are drawn past it from the overzoomed z16 tile.
     expect(mb.sources.get("complex")).toEqual({
       type: "vector",
       tiles: [`${MARTIN_BASE}/complex/{z}/{x}/{y}`],
-      minzoom: 6,
+      minzoom: 14,
       maxzoom: 16,
       promoteId: "complex_id",
+    });
+    expect(mb.sources.get("complex@z6")).toMatchObject({ minzoom: 6, maxzoom: 7 });
+    expect(mb.layer("complex@z6-fill")).toMatchObject({
+      source: "complex@z6",
+      minzoom: 6,
+      maxzoom: 8,
     });
     expect(mb.layer("complex-fill")).toMatchObject({
       type: "fill",
       source: "complex",
       "source-layer": "complex",
-      minzoom: 6,
+      minzoom: 14,
       maxzoom: 22,
       promoteId: "complex_id",
       paint: {
@@ -270,6 +288,12 @@ describe("Foundation polygon layer setup", () => {
     expect(mb.layerIds()).toEqual([
       "complex-fill",
       "complex-outline",
+      "complex@z6-fill",
+      "complex@z6-outline",
+      "complex@z8-fill",
+      "complex@z8-outline",
+      "complex@z11-fill",
+      "complex@z11-outline",
       "complex-edits-fill",
       "complex-edits-outline",
       "parcels-fill",
@@ -290,10 +314,18 @@ describe("Foundation polygon layer setup", () => {
     expect(mb.layerIds()).toEqual([
       "complex-fill",
       "complex-outline",
+      "complex@z6-fill",
+      "complex@z6-outline",
+      "complex@z8-fill",
+      "complex@z8-outline",
+      "complex@z11-fill",
+      "complex@z11-outline",
       "complex-edits-fill",
       "complex-edits-outline",
       "zoning-fill",
       "zoning-outline",
+      "zoning@z10-fill",
+      "zoning@z10-outline",
       "parcels-fill",
     ]);
     const emptyFilter = ["in", ["get", "layer_code"], ["literal", []]];
@@ -301,13 +333,18 @@ describe("Foundation polygon layer setup", () => {
       type: "fill",
       source: "zoning",
       "source-layer": "zoning",
-      minzoom: 10,
+      minzoom: 12,
       maxzoom: 22,
       promoteId: "zone_id",
       filter: emptyFilter,
     });
     expect(mb.layer("zoning-outline")).toMatchObject({ type: "line", filter: emptyFilter });
-    expect(mb.sources.get("zoning")).toMatchObject({ minzoom: 10, maxzoom: 14 });
+    expect(mb.sources.get("zoning")).toMatchObject({ minzoom: 12, maxzoom: 14 });
+    expect(mb.layer("zoning@z10-outline")).toMatchObject({
+      minzoom: 10,
+      maxzoom: 12,
+      filter: emptyFilter,
+    });
   });
 
   it("refuses a zoning unit served from a dynamic source, which it has no Martin id for", () => {
@@ -522,5 +559,60 @@ describe("industrial-complex boundary click", () => {
     });
 
     expect(opened).toEqual([COMPLEX_ID]);
+  });
+});
+
+describe("zoom bands (root ADR-0489)", () => {
+  // W41, 2026-11-09: one z6..16 complex source drew a z8 tile at z15 while the z15 tiles loaded,
+  // edges 36 m (19 px) off. Mapbox takes a placeholder ancestor only down to its source's minzoom.
+  const windows = [
+    { tile_min_zoom: 6, tile_max_zoom: 16, render_min_zoom: 6, render_max_zoom: 22 },
+    { tile_min_zoom: 6, tile_max_zoom: 17, render_min_zoom: 6, render_max_zoom: 22 },
+    { tile_min_zoom: 14, tile_max_zoom: 17, render_min_zoom: 14, render_max_zoom: 22 },
+    { tile_min_zoom: 10, tile_max_zoom: 17, render_min_zoom: 10, render_max_zoom: 22 },
+    { tile_min_zoom: 5, tile_max_zoom: 16, render_min_zoom: 5, render_max_zoom: 16 },
+    { tile_min_zoom: 6, tile_max_zoom: 16, render_min_zoom: 9, render_max_zoom: 22 },
+  ];
+
+  it.each(windows)(
+    "draws every zoom of $tile_min_zoom..$tile_max_zoom from exactly one band",
+    (layer) => {
+      const bands = foundationVectorZoomBands(layer);
+      for (let zoom = layer.render_min_zoom; zoom < layer.render_max_zoom; zoom += 0.5) {
+        const drawing = bands.filter((b) => b.renderMinZoom <= zoom && zoom < b.renderMaxZoom);
+        expect(drawing).toHaveLength(1);
+        const [band] = drawing;
+        // The tile the band asks for at this zoom, and the coarsest ancestor it may stand in with.
+        const wanted = Math.min(Math.floor(zoom), band?.tileMaxZoom ?? 0);
+        expect(wanted - (band?.tileMinZoom ?? 0)).toBeLessThan(FOUNDATION_VECTOR_ZOOM_BAND_LEVELS);
+      }
+      expect(bands.at(-1)?.cell).toBeNull();
+      expect(bands.at(-1)?.tileMaxZoom).toBe(layer.tile_max_zoom);
+    },
+  );
+
+  it("keeps a three-zoom unit in one source", () => {
+    expect(
+      foundationVectorZoomBands({
+        tile_min_zoom: 14,
+        tile_max_zoom: 16,
+        render_min_zoom: 14,
+        render_max_zoom: 22,
+      }),
+    ).toEqual([
+      { cell: null, tileMinZoom: 14, tileMaxZoom: 16, renderMinZoom: 14, renderMaxZoom: 22 },
+    ]);
+  });
+
+  it("opens the complex panel from a click on any band", () => {
+    const mb = fakeMapbox();
+    registerFoundationVectorRuntimeUnit(mb, runtimeManifest({ complex: complexUnit() }), "complex");
+    const clicks: string[] = [];
+    registerComplexClick(
+      { ...mb, on: (_e: string, layerId: string) => clicks.push(layerId) },
+      () => undefined,
+    );
+    expect(clicks.sort()).toEqual(foundationVectorUnitLayerIds(mb, "complex", "fill").sort());
+    expect(clicks).toContain("complex@z8-fill");
   });
 });

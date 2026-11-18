@@ -21,7 +21,8 @@
         ".cargo/config.toml",
         "rust-toolchain.toml",
         "platforms/identity-platform/docs/openapi/identity.v1.json",
-        "platforms/identity-platform/config/workload-principal-policy.v1.json"
+        "platforms/identity-platform/config/workload-principal-policy.v1.json",
+        "platforms/foundation-platform/schemas/**"
       ]
     },
     "identity-ci.yml": {
@@ -45,7 +46,8 @@
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
         "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
-        ".github/workflows/gongzzang-*.yml"
+        ".github/workflows/gongzzang-*.yml",
+        "platforms/foundation-platform/crates/foundation-shared-kernel/src/media.rs"
       ]
     },
     "gongzzang-db-migrations.yml": {
@@ -60,7 +62,8 @@
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
         "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
-        ".github/workflows/gongzzang-*.yml"
+        ".github/workflows/gongzzang-*.yml",
+        "platforms/foundation-platform/crates/foundation-shared-kernel/src/media.rs"
       ]
     },
     "gongzzang-frontend.yml": {
@@ -111,7 +114,8 @@
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
         "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
         ".github/workflows/gongzzang-*.yml",
-        "tools/xtask/**"
+        "tools/xtask/**",
+        "platforms/foundation-platform/crates/foundation-shared-kernel/src/media.rs"
       ]
     },
     "gongzzang-walking-skeleton.yml": {
@@ -126,7 +130,8 @@
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
         "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
-        ".github/workflows/gongzzang-*.yml"
+        ".github/workflows/gongzzang-*.yml",
+        "platforms/foundation-platform/crates/foundation-shared-kernel/src/media.rs"
       ]
     },
     "foundation-ci.yml": {
@@ -172,7 +177,8 @@
         "tools/sigstore/**",
         "tools/biome/**",
         "scripts/catalog/declared_definitions.py",
-        "scripts/catalog/definition.v1.schema.json"
+        "scripts/catalog/definition.v1.schema.json",
+        "platforms/identity-platform/docs/openapi/identity.v1.json"
       ]
     },
     "foundation-release-build.yml": {
@@ -199,7 +205,8 @@
         "docs/architecture/administrative-boundary-versioning.md",
         "docs/architecture/single-source-spatial-publication.md",
         "scripts/catalog/declared_definitions.py",
-        "scripts/catalog/definition.v1.schema.json"
+        "scripts/catalog/definition.v1.schema.json",
+        "platforms/identity-platform/docs/openapi/identity.v1.json"
       ]
     }
   },
@@ -247,7 +254,14 @@
       ".config/**",
       "clippy.toml",
       "rustfmt.toml"
-    ]
+    ],
+    "reads": {
+      "$comment": "Member -> repository paths it reads that its quoted paths cannot show (Bazel `data`, Nx `inputs`): a directory it opens by names it reads at run time. A change under one selects the member as if it held the file. 2026-11-11: #1268 edited a unit file; foundation-jobs opens infra/systemd by the job list's names and quotes only two test units, so its check did not run and main failed (run 42959846237).",
+      "foundation-jobs": [
+        "platforms/foundation-platform/infra/systemd",
+        "platforms/foundation-platform/infra/tmpfiles"
+      ]
+    }
   },
   "guards": {
     "$comment": "The one ordered list of guards scripts/guard/monorepo-guard.sh runs (root ADR-0207). `paths`: what can change the guard's verdict; its own script and .py, every repository file its scripts name (followed through named scripts), and for <guard>-self-test the scripts of <guard>, reads, are inputs without being listed. `always`: the guard reads every change, and why, with `budget_seconds`: what it may take on a CI runner, at most 60 (root ADR-0313; the runner fails a CI sweep over it). A pull request and the merge queue run the guards whose inputs they touch; main, the daily run, a manual or local run, an unknown comparison, or a change to the runner, scripts/guard/lib, this file or a selector run every guard. Checked by scripts/ci/test_guard_scope.py.",
@@ -571,6 +585,12 @@
         "paths": [
           "scripts/ci/**",
           "rust-toolchain.toml"
+        ]
+      },
+      {
+        "name": "apt-install-self-test",
+        "paths": [
+          "scripts/ci/apt-install.sh"
         ]
       },
       {

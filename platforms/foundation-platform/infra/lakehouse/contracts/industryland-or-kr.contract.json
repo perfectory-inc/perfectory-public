@@ -1,0 +1,41 @@
+{
+  "$comment": "산업입지정보시스템(ILIS) 산업단지 고시와 그 첨부 수집의 계약(루트 ADR-0484). 수집기 collect-industrial-complex-notice-attachments(작업 industrial_complex_notice_collect)와 Silver 적재(industryland_or_kr.py, 작업 industrial_complex_notice_silver)가 이 파일 하나를 읽는다. 읽기·추출은 여기 없다: 그것은 intelligence platform 이 ai-server 의 로컬 모델로 나중에 한다(ADR-0484 §1).",
+  "base_url": "https://www.industryland.or.kr",
+  "request_spacing_ms": 2000,
+  "notice_list": {
+    "$comment": "고시 목록 전체를 한 번에(실측 2026-11-09: 18,793 건, 13.5 MB, 요청 하나). 무엇을 상세로 읽을지 고르는 데만 쓴다: 목록 행의 값은 모두 상세 응답에 다시 있고, 목록 자체의 Bronze 는 주소 해석 수집기(collect-industrial-complex-address-source)의 것이다.",
+    "operation": "danrefList",
+    "path": "il/danref/list.do",
+    "page_size": 20000,
+    "records_pointer": "/result/dataList",
+    "key_field": "ref_seq"
+  },
+  "notice_detail": {
+    "$comment": "고시 하나의 상세(GET <path>/<ref_seq>)가 첨부 목록(saveFiles)을 싣는다. 부분: Silver 읽은 기록(read_from)의 마지막 읽기가 끝난(settled) 고시는 다시 읽지 않는다 — 고시는 관보처럼 한 번 낸 뒤 고치지 않고, 바꿀 때는 새 고시(새 ref_seq)를 낸다. 새 것부터(ref_seq 큰 것부터) per_run_limit 건, run_time_budget_seconds 가 지나면 새 고시를 시작하지 않는다. 상한(계산): 고시 하나 = 상세 1 + 첨부 평균 1.05(실측 표본 60 건) 요청 × 2 초 간격 ≈ 4.1 초 + 받기 ≈ 4.5 초 → 1,800 초에 ~400 건; 첫 바퀴 18,793 건 ÷ 400 ≈ 47 run(매시 ~2 일). commit_every 건마다 Bronze 객체 하나를 커밋해, 멈춘 run 은 그 묶음만 잃는다.",
+    "dataset_slug": "industrial_complex_notice_detail",
+    "operation": "danrefDet",
+    "path": "il/danref/det.do",
+    "result_pointer": "/result",
+    "files_field": "saveFiles",
+    "per_run_limit": 400,
+    "commit_every": 50,
+    "run_time_budget_seconds": 1800,
+    "stop_after_consecutive_failures": 5,
+    "read_from": "silver.industrial_complex_notice_detail"
+  },
+  "attachments": {
+    "$comment": "첨부 하나 = GET <download_path>?real_file_name=..&file_path=.. 의 바이트(실측 2026-11-09: PDF 94 %·HWP 6 %, 평균 1.25 MB, 제공자 file_size 와 바이트 수 일치). 형식에 상관없이 전부, 공용 내용주소 저장소(object_prefix_from)에 sha256/<해시>.<확장자> 로 한 번만 담는다(MediaFormat::sniff_document: pdf·hwp·hwpx·zip·그림, 이름 없는 바이트는 bin). in_use_field 가 in_use_value 가 아닌 첨부는 제공자가 내린 것이라 받지 않는다. 4xx 는 사라진 파일(settled), 그 밖의 실패는 다음 run 이 다시 받는다. max_file_bytes 는 한 파일이 메모리를 넘지 않게 하는 안전밸브이고 넘는 파일은 세어 보고한다.",
+    "download_path": "cmm/file/download",
+    "path_field": "file_path",
+    "name_field": "real_file_name",
+    "in_use_field": "use_yn",
+    "in_use_value": "Y",
+    "object_prefix_from": "data-go-kr-onbid.contract.json#/media/object_prefix",
+    "max_file_bytes": 268435456
+  },
+  "silver_load": {
+    "$comment": "plan-silver-load-objects 가 읽은 기록 표가 아직 기록하지 않은 Bronze 객체를 오래된 것부터 max_objects 개 받는다. 객체 하나 = 고시 commit_every 건. window_days 보다 오래 안 실린 객체가 있으면 적재가 실패해 알린다.",
+    "window_days": 3,
+    "max_objects": 60
+  }
+}

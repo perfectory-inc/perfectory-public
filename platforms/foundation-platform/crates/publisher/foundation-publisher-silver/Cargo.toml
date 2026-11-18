@@ -13,7 +13,8 @@ workspace = true
 
 [features]
 default = ["bundled-duckdb"]
-bundled-duckdb = ["duckdb/bundled"]
+# `parquet`: the stage writes its rows with DuckDB's own Parquet writer (`COPY … FIELD_IDS`, root ADR-0560 §2).
+bundled-duckdb = ["duckdb/bundled", "duckdb/parquet"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -43,6 +44,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres"] }
+stewardship-domain = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
@@ -54,4 +56,7 @@ foundation-workspace-hack.workspace = true
 rustix = { workspace = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
+# The stage's test commits into a real Iceberg table on local files (root ADR-0560 §8).
+iceberg = { workspace = true }
 shapefile = { workspace = true }

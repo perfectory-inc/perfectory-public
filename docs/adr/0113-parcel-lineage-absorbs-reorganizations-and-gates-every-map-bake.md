@@ -168,3 +168,16 @@
     이어, 계보를 그 레코드를 따라 거슬러 오른다(<https://pro.arcgis.com/en/pro-app/latest/help/data/parcel-editing/viewparcellineage.htm>).
     §1 의 append-only 간선·`effective_date`·`evidence_ref` 가 같은 자리다. 다른 점: 미국은 모든 간선에 사건 레코드(문서
     번호)가 있지만, 여기서는 공식 짝이 없는 이동(관할이동·재지번)도 싣고 그 차이를 `grade` 로 드러낸다.
+
+- 2026-11-14: §4 의 속성 증거가 읽는 "기간 전 마지막 사실"의 순서를 고정한다(결정 본문은 고치지 않았다).
+  [ADR-0559](./0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md) §3 의 예외 ⓑ 기록이다.
+  - **무엇이 달랐나.** 사라진 필지의 면적·지목은 토지이동이력에서 기간 시작 전 가장 늦은 날의 것을 쓴다. 같은 날 이력이 여럿이면
+    Spark 작업(`parcel_lineage_to_silver.py`)은 순서 없는 읽기(`SELECT DISTINCT … collect()`)가 마지막에 건넨 것을 썼다. 같은
+    입력에서도 실행마다 달라질 수 있는 선택이었다.
+  - **지금의 규칙.** 그날의 이력 가운데 `transfer_history_seq` 가 가장 큰 것(그날의 마지막 기록)을 쓴다. 기간 안의 새 필지 쪽도 같다.
+    예약 도출이 발행기 안의 DuckDB 로 옮겨 오면서(`parcel_lineage_stage/derive.sql`) 정했다.
+  - **다른 행의 분류.** 운영 표의 계보 행 전부(판 쌍 202606 → 202609, 16 묶음, 6,530,065 행)를 그 run 이 고정했던 입력으로 다시 내어
+    대조했다. 2026-10-16·17 의 run 이 낸 13 묶음에서 마지막 날에 사실이 둘 이상인 필지는 82 필지였고, 순번 규칙으로 낸 행은 그 필지들을
+    포함해 운영 행과 전부 같았다(다른 행 0). 순번이 아닌 다른 고정 순서(면적이 큰 것)로 냈을 때는 2 행이 달랐다: 한 시도의 두 필지에서
+    그날의 마지막 순번 기록이 분할 뒤의 면적이었고, 그 면적이 옮겨 간 새 필지의 면적과 같았다. 즉 순번상 마지막 기록이 옳은 사실이다.
+  - **승인.** 사장, 2026-11-14(조정자 전달). 옮긴 PR: #1380.

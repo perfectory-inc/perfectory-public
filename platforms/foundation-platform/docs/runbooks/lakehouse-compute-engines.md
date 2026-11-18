@@ -53,10 +53,13 @@ image/cache 와 `target/lakehouse` smoke output 정도만 맡는다. Trino port 
 
 배포할 때 `foundation-release.sh prepare <sha> <archive>`로 소스를 인증·설치하고 같은 SHA의
 publisher·JAR을 빌드한다([ADR-0134](../../../../docs/adr/0134-production-installs-only-canonical-main-and-keeps-artifacts-outside-the-release.md)). 소스는 `releases/<sha>`(읽기 전용), 빌드 산출물은
-`/opt/foundation-platform/artifacts/<sha>/`(`foundation-outbox-publisher`, `jars/`, `build.json`)에
+`/opt/foundation-platform/artifacts/<sha>/`(`foundation-outbox-publisher`, `jars/`, `duckdb-extensions/`, `build.json`)에
 놓이고 `current`와 `previous`는 바뀌지 않는다. 호출자가 바이너리를 넘기는 명령은 없다.
 wrapper는 `scripts/ops/admitted-writer-runtime.sh --installed`로 자기 release id의 산출물을 찾고,
 `build.json`의 sha256과 다르면 실행하지 않는다.
+`duckdb-extensions/` 는 발행기 안의 DuckDB 가 경로로 `LOAD` 하는 확장 파일이다([ADR-0559](../../../../docs/adr/0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md) §6,
+`infra/lakehouse/contracts/duckdb-extensions.contract.json`). 실행 중에는 아무것도 내려받지 않는다. 설치된 릴리스가 그것을 네트워크 없이
+로드하는지는 `foundation-outbox-publisher verify-lakehouse-engine-extensions` 가 한 줄 JSON 으로 답한다(릴리스 빌드가 서명 전에 같은 명령을 돌린다).
 native image는 `build.json`의 `publisher_image`(같은 바이너리를 꺼낸 image ID)로 지정한다. 호스트와 image 내부
 바이너리 SHA-256을 비교하고 실제 명령이 실행되는지 검사한다. 예약 호출은 빌드하지 않는다.
 `FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK`에는 기존 DB bridge 이름,

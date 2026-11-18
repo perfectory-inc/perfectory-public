@@ -18,13 +18,13 @@ last_reviewed: 2026-11-05
 
 | 영역 | 소유자 | 규칙 |
 |---|---|---|
-| 매물 정본 상태 | Gongzzang | Gongzzang application command로 생성·수정·검토·공개 |
-| 교환 payload와 lineage | Gongzzang | 제품의 승인된 audit·보존 정책으로 수신/발행 payload 보존 |
-| provider mapping adapter | Gongzzang | 외부 계약을 매물 후보 또는 outbound 요청으로 번역 |
-| 필지·건물·PNU·주소 reference | Foundation Platform | 공개 계약만 소비하고 Foundation storage 직접 접근 금지 |
-| 직원·서비스 권한 | Identity Platform | 발급 identity와 공개 authorization 계약 사용 |
+| 매물 정본 상태 | 공짱 | 공짱 응용 계층의 명령으로 만들고·고치고·검토하고·공개한다 |
+| 교환 원문과 계보 | 공짱 | 제품이 승인한 감사·보존 정책대로 받은/보낸 원문을 보존한다 |
+| 제공기관별 변환 어댑터 | 공짱 | 외부 계약을 매물 후보나 바깥으로 보내는 요청으로 옮긴다 |
+| 필지·건물·PNU·주소 참조 | 파운데이션 | 공개 계약만 소비하고 파운데이션 저장소에 직접 닿지 않는다 |
+| 직원·서비스 권한 | 아이덴티티 | 발급된 신원과 공개 권한 계약을 쓴다 |
 
-## Canonical Flow
+## 정본 흐름
 
 ```text
 provider-neutral exchange payload
@@ -37,22 +37,22 @@ provider-neutral exchange payload
   -> outbound exchange request and delivery status
 ```
 
-교환 transport는 push 또는 pull일 수 있다. transport 선택은 소유권을 바꾸지 않으며 provider adapter가
-정본 table을 직접 쓰는 것을 허용하지 않는다.
+교환 전송은 밀어 넣기(push)일 수도, 끌어오기(pull)일 수도 있다. 전송 방식은 소유권을 바꾸지 않으며,
+제공기관 어댑터가 정본 표를 직접 쓰는 것을 허락하지도 않는다.
 
-## Invariants
+## 불변식
 
-- 외부 ID는 provider namespace identity로 남고 Gongzzang 매물 ID가 되지 않는다.
-- inbound replay와 outbound retry는 멱등적이다.
-- raw 교환 증거는 매물 정본 상태가 아니다.
-- 정본 쓰기는 Gongzzang application layer를 거친다.
-- 서비스 간 직접 DB 접근은 금지한다.
-- Foundation reference data는 enrichment·검증을 위해 공개 계약으로만 사용한다.
-- provider별 schema와 live binding은 private runtime 입력이다. 공개 계약에서 빠진 것은 의도적이다.
+- 외부 식별자는 제공기관 이름공간의 식별자로 남고 공짱 매물 식별자가 되지 않는다.
+- 들어오는 재전송과 나가는 재시도는 멱등이다.
+- 교환 원문 증거는 매물 정본 상태가 아니다.
+- 정본 쓰기는 공짱 응용 계층을 거친다.
+- 서비스끼리 DB 에 직접 닿는 것은 금지한다.
+- 파운데이션 참조 데이터는 보강·검증에만, 공개 계약으로만 쓴다.
+- 제공기관별 스키마와 실제 연결 정보는 비공개 실행 입력이다. 공개 계약에 없는 것은 일부러 뺀 것이다.
 
 ## 범위 밖
 
-- Gongzzang 매물 소유권을 Foundation Platform으로 옮기는 것
-- provider proprietary 연동 자료를 공개하는 것
-- Identity Platform 내부를 exchange adapter에 노출하는 것
-- 현재 partner rollout이나 운영 queue를 아키텍처로 취급하는 것
+- 공짱 매물 소유권을 파운데이션으로 옮기는 것
+- 제공기관 고유의 연동 자료를 공개하는 것
+- 아이덴티티 내부를 교환 어댑터에 드러내는 것
+- 지금의 협력사 출시나 운영 대기열을 아키텍처로 취급하는 것

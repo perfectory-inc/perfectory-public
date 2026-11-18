@@ -8,7 +8,10 @@ function fakeMapbox() {
   const filters = new Map<string, unknown>();
   return {
     filters,
-    getLayer: (id: string) => (id.startsWith("zoning-") ? { id } : undefined),
+    getLayer: (id: string) =>
+      ["zoning-fill", "zoning-outline", "zoning@z10-fill", "zoning@z10-outline"].includes(id)
+        ? { id }
+        : undefined,
     setFilter: (id: string, filter: unknown[] | null) => {
       filters.set(id, filter);
     },
@@ -46,6 +49,8 @@ describe("zoning layer toggle", () => {
     fireEvent.click(greenbelt);
     expect(greenbelt.getAttribute("aria-pressed")).toBe("true");
     expect(codes(mb, "zoning-fill")).toEqual(["D032"]);
+    // Root ADR-0489: the low-zoom band draws the same zones and follows the same toggle.
+    expect(codes(mb, "zoning@z10-outline")).toEqual(["D032"]);
 
     fireEvent.click(greenbelt);
     expect(greenbelt.getAttribute("aria-pressed")).toBe("false");
