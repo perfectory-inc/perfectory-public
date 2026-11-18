@@ -504,7 +504,15 @@ where
 /// more after the provider closed the body early (root ADR-0562). 2026-11-12 08:24..08:32Z four of
 /// eight RAON files, 경기·경북 용도지역지구 among them, ended `end of file before message length
 /// reached` after 2 s to 6 min, while the same session's other four landed in 1.5 to 2.5 min.
+///
+/// An attempt that resumed the staged body and added bytes to it does not count: a provider that
+/// serves ranges and closes long bodies every few minutes is followed to the end, as aria2 and rclone
+/// reset their retry count on progress. 2026-11-18 05:07..05:24Z 국토계획/관리지역 (20171128DS00118)
+/// ended early four times in 17 minutes and the sweep failed it again, the third run in a row.
+/// [`REPLAY_MAX_REQUESTS`] bounds the requests whatever the progress.
 const REPLAY_ATTEMPTS: u32 = 4;
+/// Every request one replay may make, resumed ones included.
+const REPLAY_MAX_REQUESTS: u32 = 32;
 const REPLAY_RETRY_BASE_SECONDS: u64 = 2;
 
 async fn fetch_and_stage_replay_response(
@@ -513,27 +521,48 @@ async fn fetch_and_stage_replay_response(
 ) -> Result<StagedLandingReplayReport> {
     validate_replay_request(request)?;
     let mut stage: Option<ReplayStage> = None;
+    // Attempts that ended early without adding to a resumed body, and every request made.
     let mut attempt = 1_u32;
+    let mut requests = 1_u32;
     let (replay_status, replay_content_type) = loop {
         let resume_from = stage
             .as_ref()
             .filter(|stage| stage.accepts_ranges && stage.size_bytes > 0)
             .map(|stage| stage.size_bytes);
+        // The staged file a resumed request appends to; a body asked again from the first byte is
+        // a new file.
+        let resumed = resume_from
+            .and(stage.as_ref())
+            .map(|stage| (stage.path.clone(), stage.size_bytes));
         match fetch_replay_into_stage(request, client, &mut stage, resume_from).await {
             Ok(done) => break done,
-            Err(ReplayFetchError::Interrupted(error)) if attempt < REPLAY_ATTEMPTS => {
+            Err(ReplayFetchError::Interrupted(error))
+                if attempt < REPLAY_ATTEMPTS && requests < REPLAY_MAX_REQUESTS =>
+            {
+                let progressed = resumed.is_some_and(|(path, before)| {
+                    stage
+                        .as_ref()
+                        .is_some_and(|stage| stage.path == path && stage.size_bytes > before)
+                });
                 tracing::warn!(
                     object_key = %request.landing_object_key,
                     attempt,
+                    requests,
+                    resumed_from = resume_from.unwrap_or(0),
+                    progressed,
                     received_bytes = stage.as_ref().map_or(0, |stage| stage.size_bytes),
+                    accepts_ranges = stage.as_ref().is_some_and(|stage| stage.accepts_ranges),
                     error = %format!("{error:#}"),
                     "provider acquisition replay body ended early; asking again"
                 );
-                tokio::time::sleep(std::time::Duration::from_secs(
-                    REPLAY_RETRY_BASE_SECONDS << (attempt - 1),
-                ))
-                .await;
-                attempt += 1;
+                if !progressed {
+                    tokio::time::sleep(std::time::Duration::from_secs(
+                        REPLAY_RETRY_BASE_SECONDS << (attempt - 1),
+                    ))
+                    .await;
+                    attempt += 1;
+                }
+                requests += 1;
             }
             Err(failure) => {
                 if let Some(stage) = stage.take() {
@@ -541,7 +570,8 @@ async fn fetch_and_stage_replay_response(
                 }
                 return Err(match failure {
                     ReplayFetchError::Interrupted(error) => error.context(format!(
-                        "provider acquisition replay for {} ended early on all {REPLAY_ATTEMPTS} attempts",
+                        "provider acquisition replay for {} ended early on all {attempt} attempts \
+                         ({requests} requests)",
                         request.landing_object_key
                     )),
                     ReplayFetchError::Fatal(error) => error,
