@@ -1006,9 +1006,50 @@ async fn a_body_cut_on_every_attempt_fails_and_lands_nothing() {
     .expect_err("four cut answers fail the replay");
 
     assert!(
-        format!("{error:#}").contains("ended early on all 4 attempts"),
+        format!("{error:#}").contains("ended early on all 4 attempts (4 requests)"),
         "{error:#}"
     );
     assert!(storage.streaming_writes().is_empty());
     assert_eq!(heads.lock().expect("heads").len(), 4);
+}
+
+#[tokio::test]
+async fn a_resumed_body_that_grows_on_every_request_is_followed_past_four_requests() {
+    // 2026-11-18 05:07..05:24Z: 국토계획/관리지역 ended early on four requests in a row and failed the
+    // sweep. A request that resumed and added bytes is progress, not a failed attempt.
+    let zip_bytes = large_zip();
+    let total = zip_bytes.len();
+    let cuts = [
+        0,
+        total / 6,
+        2 * total / 6,
+        3 * total / 6,
+        4 * total / 6,
+        5 * total / 6,
+        total,
+    ];
+    let mut responses = vec![(
+        format!("HTTP/1.1 200 OK\r\ncontent-type: application/zip\r\naccept-ranges: bytes\r\ncontent-length: {total}\r\nconnection: close\r\n\r\n"),
+        zip_bytes[..cuts[1]].to_vec(),
+    )];
+    for pair in cuts[1..].windows(2) {
+        let (from, to) = (pair[0], pair[1]);
+        responses.push((
+            format!("HTTP/1.1 206 Partial Content\r\ncontent-type: application/zip\r\ncontent-range: bytes {from}-{}/{total}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", total - 1, total - from),
+            zip_bytes[from..to].to_vec(),
+        ));
+    }
+    let (base, heads) = cutting_provider(responses).await;
+    let storage = RecordingObjectStorage::default();
+
+    stream_replay_request_to_landing(
+        &storage,
+        &cut_replay_request(&base, total),
+        &reqwest::Client::new(),
+    )
+    .await
+    .expect("six resumed requests land the body");
+
+    assert_eq!(storage.streaming_writes()[0].body, zip_bytes);
+    assert_eq!(heads.lock().expect("heads").len(), 6);
 }
