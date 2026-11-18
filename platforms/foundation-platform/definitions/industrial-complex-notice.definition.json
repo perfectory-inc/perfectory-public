@@ -73,7 +73,7 @@
         "measured_run_seconds": null,
         "first_run": {
           "estimate_seconds": 600,
-          "estimated_from": "computed from court_auction_silver, the same plan-then-container Spark load (measured 278 s for one run); one collector run leaves at most eight objects (400 notices, 50 to an object), so about twice it, 600 s, inside the 2,160 s share of the 40-minute limit"
+          "estimated_from": "measured 2026-11-18 on ai-server: the same DuckDB SQL took 2.0 s an object over the 884 production objects (R2 fetch included); one collector run leaves at most eight objects (400 notices, 50 to an object), about 16 s, and 600 s stays the bound until a production run is measured, inside the 2,160 s share of the 40-minute limit"
         }
       },
       "expected_outcome": {

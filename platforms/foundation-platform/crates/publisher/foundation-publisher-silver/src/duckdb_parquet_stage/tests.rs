@@ -526,13 +526,13 @@ async fn a_partitioned_file_is_one_partition_or_refused() -> anyhow::Result<()> 
 }
 
 /// One synthetic row of each ILIS notice table (notice `99…`, 2099 times), in contract order.
-const NOTICE_READ: &str = "SELECT 99001 AS notice_sequence, to_timestamp(4071006245) AS requested_at_utc, \
+const NOTICE_READ: &str = "SELECT CAST(99001 AS BIGINT) AS notice_sequence, to_timestamp(4071006245) AS requested_at_utc, \
      200 AS http_status, 'read' AS read_outcome, '999990' AS official_complex_code, \
-     'synthetic notice' AS notice_title, NULL AS notice_number, DATE '2099-01-01' AS notice_date, \
-     '2' AS notice_type_code, NULL AS notice_type_raw, '2' AS complex_kind_code, NULL AS complex_kind_raw, \
+     'synthetic notice' AS notice_title, NULL::VARCHAR AS notice_number, DATE '2099-01-01' AS notice_date, \
+     '2' AS notice_type_code, NULL::VARCHAR AS notice_type_raw, '2' AS complex_kind_code, NULL::VARCHAR AS complex_kind_raw, \
      1 AS file_count, 1 AS files_stored, 'bronze/source=synthetic/detail-20990102t030405z-000.gz' AS source_record_id, \
      1 AS source_line_number, '20990102T030405Z' AS source_snapshot_id, to_timestamp(4071006245) AS ingested_at_utc";
-const NOTICE_ATTACHMENT: &str = "SELECT 99001 AS notice_sequence, repeat('a', 64) AS sha256, 1 AS file_sequence, \
+const NOTICE_ATTACHMENT: &str = "SELECT CAST(99001 AS BIGINT) AS notice_sequence, repeat('a', 64) AS sha256, 1 AS file_sequence, \
      '999990' AS official_complex_code, 'synthetic file' AS file_title, '.pdf' AS file_extension_raw, \
      CAST(1234 AS BIGINT) AS provider_file_size, '/smUpload/209901' AS provider_file_path, 'f1' AS provider_file_id, \
      'https://example.invalid/f1' AS source_url, 'pdf' AS media_format, CAST(1234 AS BIGINT) AS size_bytes, \

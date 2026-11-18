@@ -492,7 +492,9 @@ class AProducerOutranksItsConsumers(unittest.TestCase):
         feeders = job_specs.producers(jobs, graph)
         by_id = {entry["id"]: entry for entry in jobs["jobs"]}
         weights = job_specs.queue_weights(jobs, feeders)
-        circles = [{"map_edit_fold_admin", "map_edit_fold_complex"}]  # they share one ledger
+        circles = [{"map_edit_fold_admin", "map_edit_fold_complex"},  # they share one ledger
+                   # The collector asks the read records which notices are settled; the Silver load reads what it wrote.
+                   {"industrial_complex_notice_collect", "industrial_complex_notice_silver"}]
         pairs = [(writer, reader) for reader, writers in feeders.items() for writer in writers
                  if by_id[writer]["pool"] == by_id[reader]["pool"] and {writer, reader} not in circles]
         self.assertGreater(len(pairs), 100)
