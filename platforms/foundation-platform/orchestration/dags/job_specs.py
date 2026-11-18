@@ -96,6 +96,9 @@ JOB_RUN_TAG = "foundation/run"
 RUN_KIND = re.compile(r"(?:triggered|requested [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?")
 POOL_TAG = "foundation/pool"
 PRIORITY_TAG = "dagster/priority"
+# Dagster's own run-monitoring tag (orchestration/dagster/dagster.yaml run_monitoring): past it a run still
+# open is failed. A job's run gets its scheduled start's limit: its wait, its run and its stop grace.
+MAX_RUNTIME_TAG = "dagster/max_runtime_seconds"
 # The line a job's unit prints last to say how its run ended (root ADR-0171 §3, ADR-0260):
 # `changed`, `unchanged`, `waiting <reason>` or `failed <reason>`. Only `changed` records the run's
 # output events; a run that does not say counts as changed, and the jobs it starts find nothing to
@@ -153,7 +156,7 @@ class JobSpec:
 
     def dagster_tags(self, run_kind=""):
         """The tags a Dagster run of this job carries: how it was started, and what the run queue reads."""
-        return run_tags(self.pool, self.priority, run_kind)
+        return run_tags(self.pool, self.priority, run_kind, 60 * self.timeout_minutes)
 
     @property
     def starting_inputs(self):
@@ -170,10 +173,14 @@ class JobListError(ValueError):
     pass
 
 
-def run_tags(pool, priority, run_kind=""):
+def run_tags(pool, priority, run_kind="", max_runtime_seconds=None):
     """The tags a Dagster run of a job carries, whoever launches it (Airflow's proxied task, the job's
-    sensor, the deploy or a run-now): how it was started, and what the run queue reads."""
-    return {RUN_KIND_TAG: run_kind, JOB_RUN_TAG: "job", POOL_TAG: pool, PRIORITY_TAG: str(priority)}
+    sensor, the deploy or a run-now): how it was started, what the run queue reads, and when run
+    monitoring fails a run whose process died (MAX_RUNTIME_TAG; the default launcher cannot tell)."""
+    tags = {RUN_KIND_TAG: run_kind, JOB_RUN_TAG: "job", POOL_TAG: pool, PRIORITY_TAG: str(priority)}
+    if max_runtime_seconds is not None:
+        tags[MAX_RUNTIME_TAG] = str(max_runtime_seconds)
+    return tags
 
 
 def asset_uri(dataset):
