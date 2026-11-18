@@ -21,7 +21,8 @@ JOBS="${RELEASE_ROOT}/infra/lakehouse/spark/jobs"
 OUT="${FOUNDATION_PARCEL_EDITION_READINESS_PATH:-/var/lib/foundation-platform/parcel-editions/readiness.json}"
 EDITION_STATE="${FOUNDATION_VWORLD_PARCEL_EDITION_STATE_ROOT:-/var/lib/foundation-platform/vworld-parcel-edition}"
 TILE_JOURNAL="${FOUNDATION_PARCEL_TILE_BAKE_STATE_ROOT:-/var/lib/foundation-parcel-tile-bake}/journal.log"
-ADMITTED_RUNTIME="$(dirname "$0")/admitted-writer-runtime.sh"
+# The admitted release's publisher; a test names a stand-in runtime (the unit never sets it).
+ADMITTED_RUNTIME="${FOUNDATION_PARCEL_EDITION_ADMITTED_RUNTIME:-$(dirname "$0")/admitted-writer-runtime.sh}"
 # The console's promotion requests (foundation-api writes them, root ADR-0381); this job only reads them,
 # and keeps its answers beside the report.
 REQUESTS="${FOUNDATION_PLATFORM_JOB_SWITCHES_DIR:-/var/lib/foundation-jobs/switches}/promote.d"
