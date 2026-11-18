@@ -939,8 +939,8 @@ groups:
           severity: ticket
           service: unit-limits
         annotations:
-          summary: 유닛 한도 측정(unit-limits.prom)을 두 시간 넘게 못 읽었어요 — 한도 가까운 유닛이 있어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
-          runbook: docs/runbooks/asset-reconcile.md
+          summary: 유닛 한도 측정(unit-limits.prom)을 두 시간 넘게 못 읽었어요 — 한도 가까운 유닛이 있어도 알림이 안 가요. journalctl -u foundation-unit-limits.service 를 보세요
+          runbook: docs/runbooks/host-resources.md
 
   # Dagster, observing Airflow and deciding beside it (root ADR-0431, ADR-0458). From 2026-11-06 21:16Z
   # to 11-09 its code location failed every load (6,222 times in the daemon's log): no dual-run check

@@ -1409,6 +1409,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     systemctl enable --now foundation-service-checks.timer
     # The daily readiness report (root ADR-0442): a host check too.
     systemctl enable --now foundation-readiness-report.timer
+    # Every unit measured against its limits every half hour (root ADR-0574): a host check too.
+    systemctl enable --now foundation-unit-limits.timer
     # An operator's run-now request is started when foundation-api writes it (root ADR-0282 §4).
     systemctl enable --now foundation-run-now.path
     # A by-PNU lane whose Gold is ready publishes itself (root ADR-0435): a host controller, not a data job.

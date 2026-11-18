@@ -5,8 +5,8 @@ A limit is set from measurement and a unit near it says so before it fails. This
 writes: systemd's job-start, failure, out-of-memory and resource lines (`Consumed …, <n> memory
 peak`, the cgroup v2 `memory.peak` systemd logs when a unit stops) and the limits the units declare
 (`systemctl show`). It prints the table the decision is reviewed against (`--table`, Markdown;
-`--json`), and the asset reconciler writes its textfile (`textfile()`, every five minutes) for the
-FoundationUnitNearItsLimit rule.
+`--json`), and `--write DIR` writes its textfile (`textfile()`) for the FoundationUnitNearItsLimit
+rule: foundation-unit-limits.timer runs that every half hour.
 
   python3 scripts/ops/unit_limits.py [--since -14d] [--table | --json]   # on the host
 
@@ -37,6 +37,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
@@ -305,17 +306,15 @@ def textfile(rows: list[dict], by_unit_runs: dict[str, list[Run]], now: float) -
 
 
 METRICS_NAME = "unit-limits.prom"
-# The reconciler measures at most this often: 14 days of systemd's lines take seconds to read and
-# the reconciler's own unit has a three-minute limit.
-EVERY_SECONDS = 1800
 
 
-def due(path, now: float) -> bool:
-    """Whether the textfile at `path` is missing or older than EVERY_SECONDS."""
-    try:
-        return now - os.stat(path).st_mtime >= EVERY_SECONDS
-    except FileNotFoundError:
-        return True
+def write(directory: str, now: float, since: str = "-14d") -> None:
+    """Replace DIR/unit-limits.prom whole, so node-exporter never reads half of it."""
+    path = os.path.join(directory, METRICS_NAME)
+    text = measure(now, since)
+    with open(path + ".tmp", "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+    os.replace(path + ".tmp", path)
 
 
 def listed_units(systemctl: str = "systemctl") -> set[str]:
@@ -406,7 +405,11 @@ def main(argv=None) -> int:
     form = parser.add_mutually_exclusive_group()
     form.add_argument("--table", action="store_true", help="Markdown table (default)")
     form.add_argument("--json", action="store_true", help="one JSON object per unit or container")
+    form.add_argument("--write", metavar="DIR", help="write the textfile DIR/unit-limits.prom (the timer)")
     args = parser.parse_args(argv)
+    if args.write:
+        write(args.write, time.time(), args.since)
+        return 0
     if args.journal == "-":
         lines = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace").readlines()
     elif args.journal:

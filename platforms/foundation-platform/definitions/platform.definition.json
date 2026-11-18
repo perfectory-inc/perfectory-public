@@ -1511,6 +1511,11 @@
             "memory_max": "256M",
             "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as a shell script that sends one alert; runs logged CPU only; systemd logs the peak of every run under this cap"
           },
+          "foundation-unit-limits.service": {
+            "class": "control",
+            "memory_max": "512M",
+            "measured": "new unit (root ADR-0574); its 14-day journal read measured on the host 2026-11-19: journalctl 129 MB resident, 15.4 s, 323,991 lines; the Python parse of those lines is not measured yet; systemd logs the peak of every run under this cap"
+          },
           "foundation-unit-price-versions-migrate.service": {
             "class": "batch",
             "memory_max": "512M",

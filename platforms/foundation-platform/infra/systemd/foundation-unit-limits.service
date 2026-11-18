@@ -1,0 +1,28 @@
+[Unit]
+Description=Foundation Platform unit limits: every foundation unit's and container's runs over 14 days measured against its memory and time limits (root ADR-0574)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/host-resources.md
+X-Foundation-Owner=platform
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+# Read-only toward everything it asks: systemd's own journal lines and `systemctl show` for the
+# units. It writes the one textfile node-exporter reads. Its own unit, not a step of the asset
+# reconciler: the 14-day journal read took 15.4 s on 2026-11-19 and the reconciler, held to 3m, had
+# already timed out seven times in the window.
+ExecStart=/opt/foundation-platform/current/scripts/ops/unit_limits.py --write /var/lib/foundation-jobs/metrics
+TimeoutStartSec=5m
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
+MemoryHigh=460M
+MemoryMax=512M
+OOMScoreAdjust=0
+MemorySwapMax=0
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-jobs/metrics

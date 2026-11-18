@@ -1,6 +1,6 @@
 # promtool unit tests for the foundation-unit-limits rules (root ADR-0574): a unit whose newest runs
 # keep reaching 80% of a limit is named before it fails, a container that sits at its cap for most of
-# a day pages, and a reconciler that stops measuring is reported. Run by the guard
+# a day pages, and a measurement that stops is reported. Run by the guard
 # prometheus-rules-pass-their-tests.
 rule_files:
   - foundation-api.rules.yml
@@ -38,7 +38,7 @@ tests:
         alertname: FoundationUnitLimitsUnread
         exp_alerts: []
 
-  # The reconciler stopped writing: two hours later the measurement is reported missing.
+  # foundation-unit-limits stopped writing: two hours later the measurement is reported missing.
   - interval: 1m
     input_series:
       - series: 'foundation_unit_limits_measured_seconds'
@@ -57,8 +57,8 @@ tests:
               service: unit-limits
               file: /textfile-jobs/unit-limits.prom
             exp_annotations:
-              summary: 유닛 한도 측정(unit-limits.prom)을 두 시간 넘게 못 읽었어요 — 한도 가까운 유닛이 있어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
-              runbook: docs/runbooks/asset-reconcile.md
+              summary: 유닛 한도 측정(unit-limits.prom)을 두 시간 넘게 못 읽었어요 — 한도 가까운 유닛이 있어도 알림이 안 가요. journalctl -u foundation-unit-limits.service 를 보세요
+              runbook: docs/runbooks/host-resources.md
 
   # foundation-api, 2026-11-10..18: at its 512m cap all day, killed and back within minutes (root
   # ADR-0573). A Spark container near its cap for two hours of a load does not page.
