@@ -1,9 +1,9 @@
 //! The Gold profile document one industrial complex publishes to object storage.
 //!
-//! The document is a pure function of the Gold snapshot it was read from and the row it carries.
-//! No wall clock, no run id, no address: a re-export of the same snapshot produces byte-identical
-//! objects at the same key, so a create-only collision is an idempotent re-run rather than a
-//! conflict, and moving the bucket does not invalidate the artifact.
+//! The document is a pure function of the Gold snapshot it was read from, the row it carries and the
+//! complex's admitted facts. No wall clock, no address: a re-export of the same inputs produces
+//! byte-identical objects at the same key (its id names its content), so a create-only collision is
+//! an idempotent re-run rather than a conflict, and moving the bucket does not invalidate the artifact.
 
 use anyhow::Context;
 use serde::Serialize;
@@ -89,25 +89,34 @@ pub(super) fn build_with_facts(
         .and_then(JsonValue::as_str)
         .context("Gold catalog row is missing complex_id")?;
     let (schema_version, schema_revision) = profile_schema()?;
+    let serialize = |artifact_id: Uuid| -> anyhow::Result<Vec<u8>> {
+        let mut body = serde_json::to_vec_pretty(&ProfileDocument {
+            schema_version: &schema_version,
+            schema_revision,
+            artifact_id,
+            complex_id,
+            source: provenance,
+            attributes,
+            document_facts,
+        })
+        .context("failed to serialize the industrial-complex Gold profile document")?;
+        body.push(b'\n');
+        Ok(body)
+    };
+    // The address is a function of every byte the document holds but its own id: the document with
+    // a nil id is hashed, and the id named from that hash. 2026-11-18 the edge export failed every
+    // run on `profile object .../cb17917a-....json already exists with different exact bytes`: the
+    // id named only the snapshot, the complex and the facts' fold run, and the body changed under
+    // them (its schema revision, the facts a run admits).
+    let content = format!("{:x}", Sha256::digest(serialize(Uuid::nil())?));
     let artifact_id = artifact_id(
         &schema_version,
         provenance.iceberg_snapshot_id.as_str(),
         complex_id,
-        document_facts.map(|facts| facts.run_id.as_str()),
+        &content,
     );
     let object_key = industrial_complex_gold_profile_key(&artifact_id.to_string())?;
-
-    let mut body = serde_json::to_vec_pretty(&ProfileDocument {
-        schema_version: &schema_version,
-        schema_revision,
-        artifact_id,
-        complex_id,
-        source: provenance,
-        attributes,
-        document_facts,
-    })
-    .context("failed to serialize the industrial-complex Gold profile document")?;
-    body.push(b'\n');
+    let body = serialize(artifact_id)?;
 
     Ok(ProfileArtifact {
         complex_id: complex_id.to_owned(),
@@ -118,25 +127,24 @@ pub(super) fn build_with_facts(
     })
 }
 
-/// Derives the artifact identity from the snapshot and complex it describes.
+/// Derives the artifact identity from the snapshot and complex it describes and the digest of its
+/// content.
 ///
 /// A UUIDv5 keeps `gold/industrial-complex/profiles/{artifact_id}.json` (FP-ADR-0005) while
-/// making the address a function of its inputs, which is what lets a re-run be idempotent. The
-/// facts' fold run is one of those inputs: the facts change apart from the catalog snapshot, and a
-/// create-only key must not be asked to hold two bodies. A profile without facts keeps the name it
-/// always had.
+/// making the address a function of what the object holds: a re-run of the same inputs is the same
+/// key and bytes (idempotent), and any other body is another key, so a create-only key is never
+/// asked to hold two bodies.
 fn artifact_id(
     schema_version: &str,
     iceberg_snapshot_id: &str,
     complex_id: &str,
-    facts_run_id: Option<&str>,
+    content_sha256: &str,
 ) -> Uuid {
     let namespace = Uuid::new_v5(&Uuid::NAMESPACE_URL, schema_version.as_bytes());
-    let name = match facts_run_id {
-        Some(run_id) => format!("{iceberg_snapshot_id}:{complex_id}:{run_id}"),
-        None => format!("{iceberg_snapshot_id}:{complex_id}"),
-    };
-    Uuid::new_v5(&namespace, name.as_bytes())
+    Uuid::new_v5(
+        &namespace,
+        format!("{iceberg_snapshot_id}:{complex_id}:{content_sha256}").as_bytes(),
+    )
 }
 
 #[cfg(test)]
@@ -206,6 +214,22 @@ mod tests {
 
         assert_ne!(first.artifact_id, second.artifact_id);
         assert_ne!(first.object_key, second.object_key);
+        Ok(())
+    }
+
+    #[test]
+    fn a_different_body_of_the_same_snapshot_and_complex_is_another_key() -> anyhow::Result<()> {
+        // 2026-11-18: the same snapshot and complex with another body hit `already exists with
+        // different exact bytes` at every run.
+        let first = build(&provenance(), &attributes())?;
+        let mut changed = attributes();
+        changed.insert(
+            "name".to_owned(),
+            JsonValue::from("fixture complex renamed"),
+        );
+        let second = build(&provenance(), &changed)?;
+        assert_ne!(first.object_key, second.object_key);
+        assert_eq!(build(&provenance(), &changed)?, second);
         Ok(())
     }
 
