@@ -26,7 +26,7 @@ use crate::lakehouse::{
 };
 
 /// The family files, by name. A new lane is an entry in one of them; a new file is a new program.
-const FAMILY_FILES: [(&str, &str); 2] = [
+const FAMILY_FILES: [(&str, &str); 3] = [
     (
         "hub-lane-family-housing-permit.v1.json",
         include_str!(
@@ -37,6 +37,12 @@ const FAMILY_FILES: [(&str, &str); 2] = [
         "hub-lane-family-building-permit.v1.json",
         include_str!(
             "../../../../infra/lakehouse/contracts/hub-lane-family-building-permit.v1.json"
+        ),
+    ),
+    (
+        "hub-lane-family-building-register.v1.json",
+        include_str!(
+            "../../../../infra/lakehouse/contracts/hub-lane-family-building-register.v1.json"
         ),
     ),
 ];

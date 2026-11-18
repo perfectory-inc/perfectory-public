@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "$comment": "건축HUB 건축물대장 대용량 파일의 계열 레인(루트 ADR-0551, ADR-0496). 항목 하나가 Silver 레인 하나다: id 가 레인·systemd 인스턴스, hubgokr__<id> 가 Bronze 원천, silver.<id> 가 표, export-<id>-silver-handoff 가 내보내기다. 표 계약·원천 계약은 lakehouse-domain hub_lane_family 가, 작업·그래프는 scripts/catalog/declared_definitions.py 가 이 파일에서 짓는다. 손으로 쓴 건축물대장 레인(표제부·전유부·층별 등)은 그대로다.",
+  "decision": "docs/adr/0496-the-sewage-facility-register-lands-in-silver-as-the-parcels-sewer-signal.md",
+  "field_layout_authority": "공공데이터포털 국토교통부_건축HUB_건축물대장정보 서비스 getBrWclfInfo(오수정화시설) 응답 항목(관리건축물대장PK·대장구분코드·명·대장종류코드·명·대지위치·도로명대지위치·건물명·시군구코드·법정동코드·대지구분코드·번·지·특수지명·블록·로트·새주소도로코드·새주소법정동코드·새주소지상지하코드·새주소본번·새주소부번·오수정화방식코드·명·기타방식·단위구분코드·명·용량(인용)·용량(루베)·생성일자, 29개)과 2026-10 판 실측의 교차 확인. 대량 파일은 같은 순서로 관리건축물대장PK 가 칸 0 이다.",
+  "measured_at_utc": "2026-11-11",
+  "defaults": {
+    "rows_per_part": 1000000,
+    "max_row_bytes": 1048576,
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "job": {
+      "schedule": "0 7 * * *",
+      "stop_grace_minutes": 10,
+      "time_limit_minutes": 150,
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "enabled_since": "2026-11-13T03:00:00Z",
+      "first_run_cap_seconds": 8100,
+      "first_run_basis": "computed, about 2.5x the measured neighbours on the same template unit (root ADR-0386): silver_refresh_building_permit_basis_outline 357 s for a 438 MB release, _parking 251 s for 59 MB, _demolition_loss 161 s for 15 MB, interpolated by release size, at least 600 s",
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "building HUB files are released monthly (expected_cadence monthly, 1080 h, in the endpoint catalog) plus one daily fallback; this lane has not run yet, so its first change is its first load (root ADR-0551)."
+      },
+      "pnu_resolution": "pnu composed at Silver by the Rust hub export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; parcels since merged, split or recoded are followed by the consumer through the place-identity resolver (root ADR-0288) and views.changed_codes (ADR-0329 §3), not resolved once at load"
+    }
+  },
+  "lanes": {
+    "building-register-sewage-facility": {
+      "title": "건축물대장 오수정화시설",
+      "description": "건축물대장 오수정화시설: 원문 29칸을 행 글자의 SHA-256마다 바뀐 행만 쌓는다(한 건물에 시설 여럿이라 관리건축물대장PK 는 building_mgmt_key 로 남긴다). 오수정화방식 300·400 은 공공하수도 연결, 그 밖의 방식은 개인하수처리시설의 대장 기재다. 대지위치·건물명·특수지명·새주소 칸은 raw_columns 의 원래 index 로만 남긴다. PNU 는 엔진이 짓고 코드 변경은 소비자가 views.changed_codes 로 따라간다(루트 ADR-0496, ADR-0551).",
+      "inner_file": "mart_djy_07.txt",
+      "column_count": 29,
+      "key": "sha256_of_row",
+      "bucket_prefix_length": 1,
+      "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 342,373,235 바이트, 멤버 mart_djy_07.txt 1,602,995,282 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 6,616,909 행, 모든 행 29칸. 칸 0(관리건축물대장PK)은 모든 행이 채워졌지만 서로 다른 값이 6,567,455 개뿐이다(한 건물에 시설 여럿). 서로 다른 행 6,599,955 개(같은 행 최대 35번 되풀이). PNU 입력(시군구 5·법정동 5·대지구분 0–2·번 4·지 4 자리) 유효 6,616,891 행(99.9997%), 서로 다른 지번 5,439,288. 대장종류: 일반건축물 5,831,817·표제부 417,793·총괄표제부 367,299. 오수정화방식코드: 빈칸 3,404,526·201 부패탱크방법 1,098,123·300 하수종말처리장연결 819,545·199 기타오수처리시설 448,640·117 접촉폭기방법 229,467·400 마을하수처리장연결 34,255. 방식이 채워진 지번 2,826,917 중 하수처리장연결(300·400) 756,006, 그 밖의 방식 2,085,118, 둘 다 14,337. 방식이 채워진 지번 표본 2,000 의 1,778(88.9%)이 서빙 필지판(gold.parcel_characteristics)에 있다. 2026-09 판(6,605,880 행, 서로 다른 행 6,589,079)과 비교해 이 판에만 있는 행 22,165 개, 앞 판에만 있는 행 11,289 개. 칸 배치는 OpenAPI getBrWclfInfo 의 응답 29항목 순서와 같고, 칸마다 실측 모양(시군구·법정동 5자리, 대지구분 1자리, 번·지 4자리, 생성일자 8자리)과 맞췄다.",
+      "first_run": {
+        "estimate_seconds": 1200,
+        "release": "this lane's newest release is 342.4 MB in the Bronze ledger (2026-11-11); computed from the measured 기본개요 lane (6.53M rows, 357 s) at about 3x"
+      },
+      "columns": {
+        "building_mgmt_key": [
+          0,
+          "관리건축물대장PK 원문: 표제부(silver.building_register_titles)의 관리건축물대장PK 와 같은 건물 키. 한 건물에 시설이 여럿이면 되풀이되어 행을 가르지 못한다"
+        ],
+        "register_kind_code": [
+          3,
+          "대장종류코드(1 총괄표제부·2 일반건축물·3 표제부)"
+        ],
+        "register_kind_name": [
+          4,
+          "대장종류코드명 원문"
+        ],
+        "sigungu_cd": [
+          8,
+          "시군구코드"
+        ],
+        "bjdong_cd": [
+          9,
+          "법정동코드"
+        ],
+        "san_gubun": [
+          10,
+          "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+        ],
+        "bonbeon": [
+          11,
+          "번 원문"
+        ],
+        "bubeon": [
+          12,
+          "지 원문"
+        ],
+        "treatment_method_code": [
+          21,
+          "오수정화방식코드 원문: 1xx 오수처리시설, 2xx 단독정화조, 300 하수종말처리장연결, 400 마을하수처리장연결(2026-10 판 실측 코드명)"
+        ],
+        "treatment_method_name": [
+          22,
+          "오수정화방식코드명 원문(부패탱크방법·하수종말처리장연결·접촉폭기방법 등)"
+        ],
+        "other_method": [
+          23,
+          "기타방식 원문"
+        ],
+        "capacity_unit_name": [
+          25,
+          "단위구분코드명 원문(인용·루베)"
+        ],
+        "capacity_persons": [
+          26,
+          "용량(인용) 원문"
+        ],
+        "capacity_cubic_m": [
+          27,
+          "용량(루베) 원문"
+        ],
+        "created_date": [
+          28,
+          "생성일자 YYYYMMDD 원문"
+        ]
+      }
+    }
+  }
+}
