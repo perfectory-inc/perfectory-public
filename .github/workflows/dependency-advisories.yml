@@ -91,3 +91,40 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           CHECK_RESULT: ${{ needs.check.result }}
         run: bash scripts/ci/cargo-advisories.sh issue "$CHECK_RESULT" target/supply-chain/cargo-advisories.md
+  # Root ADR-0570: the repository against tools/github (the part the workflow token can read) and
+  # Renovate's pulse while main has advisories. One issue, opened on drift or silence, closed when
+  # clear; a run that cannot read GitHub leaves it as it is. Reads GitHub only, no crates.
+  repository:
+    name: Repository drift and Renovate pulse
+    needs: [check]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/repository_drift.py
+            scripts/github/github-policy-json.py
+            tools/github
+          sparse-checkout-cone-mode: false
+      - name: Compare with tools/github and read Renovate's pulse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ADVISORIES_RESULT: ${{ needs.check.result }}
+        run: |
+          mkdir -p target/repository-drift
+          python3 scripts/ci/repository_drift.py check target/repository-drift/summary.md --advisories-result "$ADVISORIES_RESULT"
+      # The check always records success|failure|unreadable and exits 0; this step keeps the issue
+      # and then fails the run on drift, so the run is red as well.
+      - name: Keep the one issue in step
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/repository_drift.py issue target/repository-drift/summary.md

@@ -113,6 +113,9 @@ jobs:
       # Which failed runs the scheduled rerun-runner-failures workflow re-runs (root ADR-0421).
       - name: Main health tests
         run: python3 scripts/ci/test_main_health.py -v
+      # The daily repository drift and Renovate pulse check of dependency-advisories (root ADR-0570).
+      - name: Repository drift tests
+        run: python3 scripts/ci/test_repository_drift.py -v
       - name: Runner-failure re-run tests
         run: python3 scripts/ci/test_rerun_runner_failures.py -v
       - name: Dropped queue run and queue front lane tests
