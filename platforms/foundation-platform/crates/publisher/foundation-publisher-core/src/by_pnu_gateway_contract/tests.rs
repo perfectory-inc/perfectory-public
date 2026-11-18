@@ -86,7 +86,6 @@ fn a_lane_with_a_host_is_its_hosts_block_with_the_kind_in_its_paths() -> anyhow:
             ("/request_path/capabilities", "capabilities"),
             ("/object_key/manifest_object", "manifest_object"),
             ("/section_packs/root", "pack_root"),
-            ("/document_schema_version", "document_schema_version"),
             (
                 "/section_packs/scheduled_bake/capability",
                 "scheduled_bake_capability",
@@ -163,66 +162,35 @@ fn a_lane_with_a_host_that_writes_a_derived_field_or_names_no_host_block_is_refu
     );
     shadow["gold_table"] = json!("gold.parcel_price_versions");
     assert!(resolve_lane_entry("parcel-zoning", &shadow, &contract).is_err());
-    // A stated document version is a later version of the lane's own name, with its reason.
-    let reason = json!("a field was added");
-    for (version, reason) in [
-        ("foundation-platform.parcel_zoning_by_pnu.v2", None),
-        ("foundation-platform.parcel_zoning_by_pnu.v1", Some(&reason)),
-        ("foundation-platform.parcel_price_by_pnu.v2", Some(&reason)),
-        (
-            "foundation-platform.parcel_zoning_by_pnu.v2x",
-            Some(&reason),
-        ),
+    // A kind's document schema is the registry's (root ADR-0336): its line states none.
+    for field in [
+        "document_schema_version",
+        "document_schema_version_reason",
+        "document_schema_expands",
     ] {
         let mut entry = lane.clone();
-        entry["document_schema_version"] = json!(version);
-        if let Some(reason) = reason {
-            entry["document_schema_version_reason"] = reason.clone();
-        }
+        entry[field] = json!("a version");
         assert!(
             resolve_lane_entry("parcel-zoning", &entry, &contract).is_err(),
-            "{version}"
+            "{field}"
         );
     }
-    let mut bumped = lane.clone();
-    bumped["document_schema_version"] = json!("foundation-platform.parcel_zoning_by_pnu.v2");
-    bumped["document_schema_version_reason"] = reason;
-    // What a version expands is a list of its own earlier versions (root ADR-0320).
-    for expands in [
-        json!([]),
-        json!("foundation-platform.parcel_zoning_by_pnu.v1"),
-        json!(["foundation-platform.parcel_zoning_by_pnu.v2"]),
-        json!(["foundation-platform.parcel_price_by_pnu.v1"]),
-        json!([
-            "foundation-platform.parcel_zoning_by_pnu.v1",
-            "foundation-platform.parcel_zoning_by_pnu.v1"
-        ]),
-    ] {
-        let mut entry = bumped.clone();
-        entry["document_schema_expands"] = expands.clone();
-        assert!(
-            resolve_lane_entry("parcel-zoning", &entry, &contract).is_err(),
-            "{expands}"
-        );
-    }
-    let mut expanding = bumped.clone();
-    expanding["document_schema_expands"] = json!(["foundation-platform.parcel_zoning_by_pnu.v1"]);
-    assert_eq!(
-        resolve_lane_entry("parcel-zoning", &expanding, &contract).map_err(anyhow::Error::msg)?
-            ["document_schema_expands"],
-        json!(["foundation-platform.parcel_zoning_by_pnu.v1"])
-    );
-    assert_eq!(
-        resolve_lane_entry("parcel-zoning", &bumped, &contract).map_err(anyhow::Error::msg)?
-            ["document_schema_version"],
-        json!("foundation-platform.parcel_zoning_by_pnu.v2")
-    );
-    // A lane written whole (root ADR-0190) is read as it is written.
+    // A lane written whole (root ADR-0190) is read as it is written, its document schema
+    // added from its subject; a schema stated on it is refused like a kind line's.
     let whole = json!({"pack_only": true, "worker_name": "w"});
+    let resolved = resolve_lane_entry("unit-price", &whole, &contract)
+        .map_err(|error| anyhow::anyhow!(error))?;
+    assert_eq!(resolved["worker_name"], "w");
+    let prices = crate::schema_registry::subject_of_lane("unit-price")?
+        .context("the registry lists the unit price subject")?;
     assert_eq!(
-        resolve_lane_entry("unit-price", &whole, &contract),
-        Ok(whole)
+        resolved["document_schema_version"],
+        json!(prices.current().schema_version)
     );
+    assert_eq!(resolved["document_schema_expands"], json!([]));
+    let mut stated = whole.clone();
+    stated["document_schema_version"] = json!(prices.current().schema_version);
+    assert!(resolve_lane_entry("unit-price", &stated, &contract).is_err());
     Ok(())
 }
 
@@ -238,24 +206,29 @@ fn the_zoning_lane_is_served_by_the_parcel_worker_under_its_own_paths() -> anyho
     assert_eq!(policy.request_path.prefix, "/parcels/zoning/by-pnu/");
     assert_eq!(lane.section_packs()?.root, "serving/parcels/zoning/packs");
     assert_eq!(pack.gold.table_name, "gold.parcel_zoning");
+    let zoning = crate::schema_registry::subject_of_lane("parcel-zoning")?
+        .context("the registry lists the zoning subject")?;
     assert_eq!(
         pack.document_schema_version,
-        "foundation-platform.parcel_zoning_by_pnu.v1"
+        format!("{}.v1", zoning.subject)
     );
-    // The forest ledger gained ownership_kind_name (#746): its line states v2.
+    assert!(pack.document_schema_expands.is_empty());
+    // The forest ledger gained ownership_kind_name (#746) under the legacy string `.v2`, which
+    // only added an optional field: a served `.v1` base takes its patches (root ADR-0320).
     let forest = ByPnuLane::named("parcel-forest-ledger")?
         .and_then(ByPnuLane::pack_lane)
         .context("the contract names the forest ledger lane")?;
+    let ledger = crate::schema_registry::subject_of_lane("parcel-forest-ledger")?
+        .context("the registry lists the forest ledger subject")?;
     assert_eq!(
         forest.document_schema_version,
-        "foundation-platform.parcel_forest_ledger_by_pnu.v2"
+        format!("{}.v2", ledger.subject)
     );
-    // v2 only added an optional field, so a served v1 base takes v2 patches (root ADR-0320).
     assert_eq!(
         forest.document_schema_expands,
-        ["foundation-platform.parcel_forest_ledger_by_pnu.v1"]
+        [format!("{}.v1", ledger.subject)]
     );
-    assert!(pack.document_schema_expands.is_empty());
+    assert_eq!(forest.document_schema_revision, None);
     assert_eq!(lane.unit(), "parcel-zoning-by-pnu");
     Ok(())
 }
@@ -291,9 +264,8 @@ fn a_registered_lane_takes_its_document_schema_from_the_registry_alone() -> anyh
         assert!(line.get(field).is_none(), "{field}");
         let mut stated = line.clone();
         stated[field] = json!(subject.current().schema_version);
-        let refused = resolve_lane_entry("parcel-public-auction", &stated, &contract)
+        resolve_lane_entry("parcel-public-auction", &stated, &contract)
             .expect_err("a registered lane may not state its version");
-        assert!(refused.contains("schema registry"), "{refused}");
     }
     Ok(())
 }

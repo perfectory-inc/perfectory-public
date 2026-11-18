@@ -79,6 +79,30 @@ class PlaceIdentityChecksTest(unittest.TestCase):
                           pager=lambda table, found: self.fail("a passing check does not page"))
         self.assertTrue(steady.passed)
 
+    def test_an_evaluation_reads_the_last_one_past_its_own_planned_record(self):
+        # 2026-11-18 14 evaluations failed: during an evaluation its own planned record is the newest, and
+        # asking a planned record for its evaluation raises (dagster 1.13.27 CheckError).
+        import place_identity_checks as c
+        from dagster import (AssetCheckKey, AssetCheckResult, AssetKey, DagsterInstance, asset, asset_check,
+                             materialize)
+
+        seen = []
+
+        @asset(key=AssetKey(["synthetic", "parcels"]))
+        def parcels():
+            return None
+
+        @asset_check(asset=parcels, name="parcel_source_resolution")
+        def resolution(context):
+            seen.append(c.previous_counts(context.instance, AssetCheckKey(AssetKey(["synthetic", "parcels"]),
+                                                                          "parcel_source_resolution")))
+            return AssetCheckResult(passed=True, metadata={"rows": 100 + len(seen), "resolved": 90})
+
+        with DagsterInstance.ephemeral() as instance:
+            for _ in range(2):
+                self.assertTrue(materialize([parcels, resolution], instance=instance).success)
+        self.assertEqual(seen, [None, (101, 90)])
+
     def test_the_reasons_are_read_only_where_the_contract_has_them(self):
         import place_identity_checks as c
 

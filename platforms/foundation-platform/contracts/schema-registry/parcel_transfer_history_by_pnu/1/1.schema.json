@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_transfer_history_by_pnu",
+  "description": "A parcel's land transfer events (토지이동이력, root ADR-0090), each named by its history_seq, parcel_history_seq and closure_seq.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_transfer_history_by_pnu.v1"
+      ]
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "transfer_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "moved_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "erased_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "land_category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "area_m2": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "history_seq": {
+            "type": "integer"
+          },
+          "parcel_history_seq": {
+            "type": "string"
+          },
+          "closure_seq": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "history_seq",
+          "parcel_history_seq"
+        ]
+      }
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "transfer_history"
+  ]
+}

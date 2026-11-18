@@ -38,7 +38,12 @@ The rebuild contract's `code_version` (contracts/gold-panel-rebuild.contract.jso
   entries its selector picks: `tables` (the Gold table and its inputs) or `lanes` (the by-PNU lanes
   whose Gold is the table, or whose host panel is and which have no producer of their own). An edit to another table's entry is not this table's code.
   `row_neutral_fields` names fields of those entries that cannot change a row, each with its reason
-  (a kind line's `versions_table`, root ADR-0564 §6-1): they are left out of the hash.
+  (a kind line's `versions_table`, root ADR-0564 §6-1): they are left out of the hash. A field only
+  some code reads is `{"reason": ..., "unless_reached": "<module>.<symbol>"}`: left out while the
+  producer's call graph does not reach that symbol, hashed once it does (a table contract's rendered
+  `current_rows_sql`, read by `platform_contracts.current_rows_sql` and the Rust and Dagster readers;
+  2026-11-13 #1385 added it to every versioned entry and on 11-16/17 gold.parcel_real_transaction was
+  rebuilt whole for it, though its producer derives current rows from `current_row_latest`).
 
 The value is JSON `{"sha256": <of the whole>, "parts": {<path>[::<symbol>]: <sha256 prefix>}}`: the
 planner names the symbols and contracts that changed.
@@ -194,9 +199,18 @@ def settings(contract: dict[str, Any], jobs: Path = JOBS) -> dict[str, Any]:
             raise ValueError(f"code_version.scoped_contracts.{name} needs `entries` (path -> one of {SELECTORS}), "
                              "an optional `keep` list and its reason")
         left_out = rule.get("row_neutral_fields", {})
-        if not (isinstance(left_out, dict) and all(isinstance(w, str) and w.strip() for w in left_out.values())):
+
+        def declared(why: Any) -> bool:
+            if isinstance(why, str):
+                return bool(why.strip())
+            return (isinstance(why, dict) and set(why) == {"reason", "unless_reached"}
+                    and str(why["reason"]).strip() != ""
+                    and isinstance(why["unless_reached"], str) and why["unless_reached"].count(".") == 1
+                    and (jobs / f"{why['unless_reached'].split('.')[0]}.py").is_file())
+        if not (isinstance(left_out, dict) and all(declared(w) for w in left_out.values())):
             raise ValueError(f"code_version.scoped_contracts.{name}.row_neutral_fields must map each entry field "
-                             "to why it cannot change a row")
+                             "to why it cannot change a row (or {reason, unless_reached: <module>.<symbol>} "
+                             "of a module that exists)")
     return {"plumbing": plumbing, "plumbing_symbols": symbols, "scoped": scoped}
 
 
@@ -218,11 +232,13 @@ def _picks(selector: str, key: str, entry: Any, table: str, tables: set[str]) ->
     return table in {entry.get("gold_table"), "gold." + key.replace("-", "_"), host_panel}
 
 
-def _scoped(document: Any, rule: dict[str, Any], table: str, tables: set[str]) -> dict[str, Any]:
+def _scoped(document: Any, rule: dict[str, Any], table: str, tables: set[str],
+            reached: set[str] = frozenset()) -> dict[str, Any]:
     kept = {path: _at(document, path) for path in rule.get("keep", [])}
     for path, selector in rule["entries"].items():
         found = _at(document, path) or {}
-        neutral = rule.get("row_neutral_fields", {})
+        neutral = {field for field, why in rule.get("row_neutral_fields", {}).items()
+                   if not (isinstance(why, dict) and why["unless_reached"] in reached)}
         kept[path] = {k: {f: x for f, x in v.items() if f not in neutral} if neutral and isinstance(v, dict) else v
                       for k, v in sorted(found.items()) if _picks(selector, k, v, table, tables)}
     return kept
@@ -295,7 +311,9 @@ def parts(producer: str, config: dict[str, Any], table: str, inputs: Iterable[st
             if path.is_file():
                 document = json.loads(path.read_text(encoding="utf-8"))
                 if name in scoped:
-                    document = _scoped(document, scoped[name], table, {table, *inputs})
+                    reached = {f"{part.rsplit('/', 1)[-1].split('.py::')[0]}.{part.split('::', 1)[1]}"
+                               for part in found if "::" in part}
+                    document = _scoped(document, scoped[name], table, {table, *inputs}, reached)
                 canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
                 found[path.relative_to(root).as_posix()] = hashlib.sha256(canonical.encode()).hexdigest()
     return found

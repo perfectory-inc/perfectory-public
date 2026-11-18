@@ -22,7 +22,7 @@ import datetime
 import json
 import math
 
-from dagster import AssetCheckKey, AssetCheckResult, MetadataValue
+from dagster import AssetCheckKey, AssetCheckResult, DagsterEventType, MetadataValue
 
 import dual_run
 import publish_checks
@@ -83,10 +83,14 @@ def judge(now, previous):
 
 def previous_counts(instance, key):
     """(rows, resolved) the last evaluation of this check recorded, or None. The newest record can be this
-    execution, planned and not yet evaluated: records without an evaluation are passed over."""
+    execution, planned and not yet evaluated: records without an evaluation are passed over, before their
+    evaluation is asked for. A planned record raises when asked (1.13.27 `CheckError`, "only callable when
+    event_type is ASSET_CHECK_EVALUATION"): on 2026-11-18 14 of the day's evaluations failed on it."""
     for record in instance.event_log_storage.get_asset_check_execution_history(key, limit=5):
-        evaluation = record.event.dagster_event.asset_check_evaluation_data if record.event else None
-        metadata = evaluation.metadata if evaluation else {}
+        event = record.event.dagster_event if record.event else None
+        if event is None or event.event_type != DagsterEventType.ASSET_CHECK_EVALUATION:
+            continue
+        metadata = event.asset_check_evaluation_data.metadata
         if "rows" in metadata and "resolved" in metadata:
             return int(metadata["rows"].value), int(metadata["resolved"].value)
     return None

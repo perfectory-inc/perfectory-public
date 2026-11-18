@@ -177,7 +177,7 @@ pub const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gat
 /// built from its own Silver names its Spark `producer` (root ADR-0287); the bake serves it alike.
 /// A lane whose first cut-over waits for a recent history names it (root ADR-0479): the cut-over
 /// reads it (by-pnu-lane-cutover.sh, serving_history_readiness.py), the bake does not.
-const DERIVED_LANE_HAND_FIELDS: [&str; 18] = [
+const DERIVED_LANE_HAND_FIELDS: [&str; 15] = [
     "decision",
     "host",
     "kind",
@@ -187,9 +187,6 @@ const DERIVED_LANE_HAND_FIELDS: [&str; 18] = [
     "document_key_suffix",
     "documents_follow_lane",
     "documents_follow_lane_reason",
-    "document_schema_version",
-    "document_schema_version_reason",
-    "document_schema_expands",
     "spark_held_test",
     "first_publish_waits_for_history",
     "first_publish_waits_for_history_reason",
@@ -260,7 +257,23 @@ pub fn resolve_lane_entry(
         return Err(format!("by_pnu_lanes.{name} is not an object"));
     };
     let Some(host) = fields.get("host") else {
-        return Ok(entry.clone());
+        // A lane written whole (root ADR-0190) states its own gateway block, but not its document
+        // schema: that is its subject in the schema registry, as a kind line's is.
+        let mut whole = entry.clone();
+        let whole_fields = whole
+            .as_object_mut()
+            .ok_or_else(|| format!("by_pnu_lanes.{name} is not an object"))?;
+        if let Some(field) = REGISTRY_SCHEMA_FIELDS
+            .iter()
+            .find(|field| whole_fields.contains_key(**field))
+        {
+            return Err(format!(
+                "by_pnu_lanes.{name}.{field}: a lane's document schema is its subject in the schema \
+                 registry, declared in the lane's definition (published_schemas, root ADR-0336)"
+            ));
+        }
+        insert_registry_schema(name, whole_fields)?;
+        return Ok(whole);
     };
     if let Some(field) = fields
         .keys()
@@ -284,7 +297,6 @@ pub fn resolve_lane_entry(
         .get(host)
         .cloned()
         .ok_or_else(|| format!("the contract has no {host}"))?;
-    let snake = name.replace('-', "_");
     let host_lane = host.trim_end_matches("_by_pnu_gateway");
     let rule = contract
         .get("by_pnu_lane_rule")
@@ -312,94 +324,7 @@ pub fn resolve_lane_entry(
         .as_object_mut()
         .ok_or_else(|| format!("{host} is not an object"))?;
     derived.insert("pack_only".to_owned(), json!(true));
-    // A kind whose subject the schema registry lists (root ADR-0336) takes its document schema from
-    // there and never states one: the version it bakes is the current revision's string, and every
-    // other string of the same major is one it expands (FULL compatible by the registry's check).
-    let subject =
-        crate::schema_registry::subject_of_lane(name).map_err(|error| error.to_string())?;
-    if let Some(subject) = subject {
-        if let Some(field) = [
-            "document_schema_version",
-            "document_schema_version_reason",
-            "document_schema_expands",
-        ]
-        .into_iter()
-        .find(|field| fields.contains_key(*field))
-        {
-            return Err(format!(
-                "by_pnu_lanes.{name}.{field}: the lane's subject {} is in the schema registry \
-                 (contracts/schema-registry, root ADR-0336), which alone names its versions",
-                subject.subject
-            ));
-        }
-        let current = &subject.current().schema_version;
-        let expands = subject
-            .wire_versions(subject.major)
-            .into_iter()
-            .filter(|version| version != current)
-            .collect::<Vec<_>>();
-        derived.insert("document_schema_expands".to_owned(), json!(expands));
-        if let Some(revision) = subject.written_revision() {
-            derived.insert("document_schema_revision".to_owned(), json!(revision));
-        }
-    }
-    // A kind's document is `.v1` until it gains, loses or renames a field; its line then states the
-    // later version of the same name and why (contracts/by-pnu-documents holds every version).
-    let document = format!("foundation-platform.{snake}_by_pnu.v");
-    let version = match fields.get("document_schema_version") {
-        None => subject.map_or_else(
-            || format!("{document}1"),
-            |subject| subject.current().schema_version.clone(),
-        ),
-        Some(stated) => stated
-            .as_str()
-            .filter(|stated| {
-                stated
-                    .strip_prefix(document.as_str())
-                    .and_then(|number| number.parse::<u32>().ok())
-                    .is_some_and(|number| number > 1)
-                    && fields
-                        .get("document_schema_version_reason")
-                        .and_then(Value::as_str)
-                        .is_some_and(|reason| !reason.trim().is_empty())
-            })
-            .ok_or_else(|| {
-                format!(
-                    "by_pnu_lanes.{name}.document_schema_version must be {document}<n> with n > 1, \
-                     beside a document_schema_version_reason"
-                )
-            })?
-            .to_owned(),
-    };
-    // The earlier versions the stated one only adds optional fields to (root ADR-0320): a served
-    // base of one of them takes a patch of the new version instead of a whole new generation. The
-    // records hold the claim (`by_pnu_document_records`); here only its form.
-    if let Some(expands) = fields.get("document_schema_expands") {
-        let current = version
-            .strip_prefix(document.as_str())
-            .and_then(|number| number.parse::<u32>().ok())
-            .unwrap_or(1);
-        let mut seen = std::collections::BTreeSet::new();
-        let valid = expands.as_array().is_some_and(|expands| {
-            !expands.is_empty()
-                && expands.iter().all(|earlier| {
-                    earlier
-                        .as_str()
-                        .and_then(|earlier| earlier.strip_prefix(document.as_str()))
-                        .and_then(|number| number.parse::<u32>().ok())
-                        .is_some_and(|number| {
-                            number >= 1 && number < current && seen.insert(number)
-                        })
-                })
-        });
-        if !valid {
-            return Err(format!(
-                "by_pnu_lanes.{name}.document_schema_expands must list distinct earlier versions \
-                 {document}<n> of the stated {version}"
-            ));
-        }
-    }
-    derived.insert("document_schema_version".to_owned(), json!(version));
+    insert_registry_schema(name, derived)?;
     derived.insert(
         "gold_table".to_owned(),
         json!(kind_lane_gold_table(name, fields)?),
@@ -432,6 +357,42 @@ pub fn resolve_lane_entry(
     Ok(block)
 }
 
+/// The fields a lane's document schema resolves to, which no lane line states.
+const REGISTRY_SCHEMA_FIELDS: [&str; 4] = [
+    "document_schema_version",
+    "document_schema_version_reason",
+    "document_schema_expands",
+    "document_schema_revision",
+];
+
+/// A pack lane's document schema is its subject in the schema registry (root ADR-0336), declared in
+/// the lane's definition: the version it bakes is the current revision's string, and every other
+/// string of the same major is one it expands (FULL compatible by the registry's check). A lane the
+/// registry does not list resolves without one, which `PackLane` refuses.
+fn insert_registry_schema(
+    name: &str,
+    fields: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    use serde_json::json;
+    let Some(subject) =
+        crate::schema_registry::subject_of_lane(name).map_err(|error| error.to_string())?
+    else {
+        return Ok(());
+    };
+    let current = &subject.current().schema_version;
+    let expands = subject
+        .wire_versions(subject.major)
+        .into_iter()
+        .filter(|version| version != current)
+        .collect::<Vec<_>>();
+    fields.insert("document_schema_version".to_owned(), json!(current));
+    fields.insert("document_schema_expands".to_owned(), json!(expands));
+    if let Some(revision) = subject.written_revision() {
+        fields.insert("document_schema_revision".to_owned(), json!(revision));
+    }
+    Ok(())
+}
+
 /// `path` with `{kind}/` inserted before its last `segment` segment.
 fn with_kind(path: &str, segment: &str, kind: &str) -> Option<String> {
     let mut segments = path.split('/').collect::<Vec<_>>();
@@ -460,6 +421,8 @@ struct PackLaneEntry {
     /// cut-over gate.
     pack_only: bool,
     gold_table: String,
+    /// From the lane's subject in the schema registry, never from the line.
+    #[serde(default)]
     document_schema_version: String,
     /// The earlier document versions `document_schema_version` only adds optional fields to (root
     /// ADR-0320); empty when a bump is a whole new generation.
@@ -610,7 +573,9 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
     }
     if entry.document_schema_version.trim().is_empty() || entry.gateway.section_packs.is_none() {
         return Err(format!(
-            "by_pnu_lanes.{name} names no document schema or no section packs"
+            "by_pnu_lanes.{name} names no document schema or no section packs: a pack lane's \
+             document schema is its subject in the schema registry, declared in the lane's \
+             definition (published_schemas, root ADR-0336)"
         ));
     }
     let key_suffix = match entry.document_key_suffix {

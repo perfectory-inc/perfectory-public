@@ -103,7 +103,8 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // 158th is the courtauction.go.kr 물건상세, asked after the list searches in the same run (root ADR-0384);
     // the 159th is the ILIS 산업단지 고시 상세, whose attachments are collected whole (root ADR-0484);
     // the 160th is the courtauction.go.kr 공통코드, asked once a run for the codes' names (root ADR-0540 §5).
-    assert_eq!(checked, 160, "expected 160 in-scope catalog entries");
+    // the 161st is the juso.go.kr 도로명주소 전자지도 base, one 월전체 landed once per 시도 zip (root ADR-0494).
+    assert_eq!(checked, 161, "expected 161 in-scope catalog entries");
     assert_eq!(
         skipped, 0,
         "expected no skipped mixed_public_source entries"

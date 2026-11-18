@@ -43,6 +43,31 @@ pub struct LakehouseRead {
     pub s3_secret_access_key: String,
 }
 
+impl LakehouseRead {
+    /// The publisher's own lakehouse settings: the catalog and token `LakehouseCatalogConfig`
+    /// reads, and the key pair `R2ObjectStorageConfig` reads, with this release's extensions.
+    ///
+    /// # Errors
+    /// Returns an error when a setting is missing; the error never carries a credential.
+    pub fn from_env() -> anyhow::Result<Self> {
+        let catalog = lakehouse_infrastructure::LakehouseCatalogConfig::from_env()
+            .context("failed to configure the lakehouse catalog for a DuckDB read")?;
+        let storage = foundation_outbox::object_storage::R2ObjectStorageConfig::from_env()
+            .context("failed to configure lakehouse R2 reads for a DuckDB read")?;
+        Ok(Self {
+            extensions: crate::duckdb_extensions::release_directory()?,
+            catalog_uri: catalog.catalog_uri,
+            warehouse: catalog.warehouse,
+            catalog_token: catalog
+                .catalog_token
+                .context("the lakehouse catalog token is required")?,
+            s3_endpoint: storage.endpoint,
+            s3_access_key_id: storage.access_key_id,
+            s3_secret_access_key: storage.secret_access_key,
+        })
+    }
+}
+
 /// One transform's `DuckDB` and the directory its staged files and spill live in.
 ///
 /// Dropping it removes the directory, so a staged file is committed (uploaded) before that.

@@ -107,6 +107,8 @@ async fn catalog_partitioned(
         let kind = Type::Primitive(match column.logical_type {
             "string" => PrimitiveType::String,
             "long" => PrimitiveType::Long,
+            "int" => PrimitiveType::Int,
+            "date" => PrimitiveType::Date,
             "timestamp" => PrimitiveType::Timestamptz,
             other => anyhow::bail!("this test has no Iceberg type for {other}"),
         });
@@ -520,5 +522,124 @@ async fn a_partitioned_file_is_one_partition_or_refused() -> anyhow::Result<()> 
     let scanned = scan_snapshot_rows(contract, &LocalFiles, &snapshot).await?;
     scanned.ensure_complete()?;
     assert_eq!((scanned.rows.len(), scanned.data_file_count), (1500, 2));
+    Ok(())
+}
+
+/// One synthetic row of each ILIS notice table (notice `99…`, 2099 times), in contract order.
+const NOTICE_READ: &str = "SELECT CAST(99001 AS BIGINT) AS notice_sequence, to_timestamp(4071006245) AS requested_at_utc, \
+     200 AS http_status, 'read' AS read_outcome, '999990' AS official_complex_code, \
+     'synthetic notice' AS notice_title, NULL::VARCHAR AS notice_number, DATE '2099-01-01' AS notice_date, \
+     '2' AS notice_type_code, NULL::VARCHAR AS notice_type_raw, '2' AS complex_kind_code, NULL::VARCHAR AS complex_kind_raw, \
+     1 AS file_count, 1 AS files_stored, 'bronze/source=synthetic/detail-20990102t030405z-000.gz' AS source_record_id, \
+     1 AS source_line_number, '20990102T030405Z' AS source_snapshot_id, to_timestamp(4071006245) AS ingested_at_utc";
+const NOTICE_ATTACHMENT: &str = "SELECT CAST(99001 AS BIGINT) AS notice_sequence, repeat('a', 64) AS sha256, 1 AS file_sequence, \
+     '999990' AS official_complex_code, 'synthetic file' AS file_title, '.pdf' AS file_extension_raw, \
+     CAST(1234 AS BIGINT) AS provider_file_size, '/smUpload/209901' AS provider_file_path, 'f1' AS provider_file_id, \
+     'https://example.invalid/f1' AS source_url, 'pdf' AS media_format, CAST(1234 AS BIGINT) AS size_bytes, \
+     to_timestamp(4071006246) AS fetched_at_utc, 'bronze/source=synthetic/detail-20990102t030405z-000.gz' AS source_record_id, \
+     1 AS source_line_number, '20990102T030405Z' AS source_snapshot_id, to_timestamp(4071006245) AS ingested_at_utc";
+
+/// The ILIS notice Silver load's first object into each of its empty tables (root ADR-0389), as
+/// `load-industrial-complex-notice-silver` appends it: a commit that records the object, pinned
+/// on the head the rows were computed against (none yet). An object with no row of a table is
+/// recorded too (an empty commit), and an object `main` records is not appended again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_no_row_is_recorded(
+) -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    for (table, rows) in [
+        (
+            contract("silver.industrial_complex_notice_detail")?,
+            NOTICE_READ,
+        ),
+        (
+            contract("silver.industrial_complex_notice_attachment")?,
+            NOTICE_ATTACHMENT,
+        ),
+    ] {
+        let short = table
+            .table_name
+            .split_once('.')
+            .context("namespace.table")?
+            .1;
+        let catalog = catalog_with(&root.path().join(short), table).await?;
+        let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+        let shape = committer.table_shape(table.table_name).await?;
+        let file = stage.write(&shape, rows, &format!("{short}-first"))?;
+        let first = "bronze/source=synthetic/detail-20990102t030405z-000.gz".to_owned();
+        let (snapshot, parent, added) = appended(
+            committer
+                .append_at_head(
+                    DataAppend {
+                        table_name: table.table_name,
+                        contract: table,
+                        files: std::slice::from_ref(&file),
+                        batch: std::slice::from_ref(&first),
+                        already_ingested: &BTreeSet::new(),
+                        summary: BTreeMap::new(),
+                    },
+                    None,
+                )
+                .await?,
+        )?;
+        assert_eq!((parent, added), (None, 1), "{short}");
+        let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
+        scanned.ensure_complete()?;
+        assert_eq!(scanned.rows.len(), 1, "{short}");
+        assert_eq!(scanned.rows[0]["notice_sequence"], 99001, "{short}");
+
+        // The next object holds no row of this table: its commit only records it.
+        let second = "bronze/source=synthetic/detail-20990102t030405z-001.gz".to_owned();
+        let held = BTreeSet::from([first.clone()]);
+        let (empty, parent, added) = appended(
+            committer
+                .append_at_head(
+                    DataAppend {
+                        table_name: table.table_name,
+                        contract: table,
+                        files: &[],
+                        batch: std::slice::from_ref(&second),
+                        already_ingested: &held,
+                        summary: BTreeMap::new(),
+                    },
+                    Some(snapshot.snapshot_id),
+                )
+                .await?,
+        )?;
+        assert_eq!((parent, added), (Some(snapshot.snapshot_id), 0), "{short}");
+        let loaded = catalog
+            .load_table(&TableIdent::from_strs(["silver", short])?)
+            .await?;
+        let recorded = &loaded
+            .metadata()
+            .current_snapshot()
+            .context("a current snapshot")?
+            .summary()
+            .additional_properties;
+        assert_eq!(
+            recorded["foundation.ingest-batch-objects"], second,
+            "{short}"
+        );
+        let still = scan_snapshot_rows(table, &LocalFiles, &empty).await?;
+        assert_eq!(still.rows.len(), 1, "{short}: the empty commit adds no row");
+
+        // Recorded objects are not appended again.
+        let both = BTreeSet::from([first.clone(), second.clone()]);
+        let again = committer
+            .append_at_head(
+                DataAppend {
+                    table_name: table.table_name,
+                    contract: table,
+                    files: &[],
+                    batch: std::slice::from_ref(&second),
+                    already_ingested: &both,
+                    summary: BTreeMap::new(),
+                },
+                Some(empty.snapshot_id),
+            )
+            .await?;
+        assert_eq!(again, AppendOutcome::AlreadyIngested, "{short}");
+    }
     Ok(())
 }
