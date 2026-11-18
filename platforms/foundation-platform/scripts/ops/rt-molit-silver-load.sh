@@ -71,6 +71,9 @@ chmod -R a+rX "${work}" # Spark 컨테이너는 uid 185 로 읽는다.
 # 디스크에 둔다. 2g 힙은 2026-11-08 7 번 연속 137, 1500m 도 11-10 21:16Z·21:19Z·11-11 09:58Z 137(java 2.33~2.42 GB)
 # 이었다. 잰 값(2026-11-11, 실제 13~16 MB 내보내기 4개를 한 실행 8 객체로, 같은 2560m 컨테이너): 예전 경로 1500m 는
 # 익명 메모리 2.67 GB 에서 죽고, 새 경로는 1500m 2.39 GB, 1000m 1.76 GB(java 1,417 MB·파이썬 296 MB, 상한까지 31%).
+# 2026-11-12..17 한 실행 9 객체에서 17 번 137: 매번 java 2.26~2.41 GB(힙 1000m 바깥이 1.3~1.4 GB). 한 실행은 6 객체
+# (계약 silver_load.max_objects), JVM 은 끝날 때 범주별 네이티브 메모리를 run.log 에 남긴다(PrintNMTStatistics) —
+# 객체마다 무엇이 자라는지 다음 실행부터 잰다.
 
 lakehouse_run_log "${run_log}"
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
@@ -79,6 +82,7 @@ lakehouse_spark_run foundation-platform-compute \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
   spark-small spark-submit --master 'local[2,8]' --driver-memory 1000m \
+  --conf 'spark.driver.extraJavaOptions=-XX:NativeMemoryTracking=summary -XX:+UnlockDiagnosticVMOptions -XX:+PrintNMTStatistics' \
   --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/rt_molit_real_transaction.py load \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/plans/real_transaction" \
