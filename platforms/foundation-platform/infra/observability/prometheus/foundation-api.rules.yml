@@ -895,6 +895,53 @@ groups:
           summary: 실패한 유닛 목록을 30분 넘게 못 읽었어요 — 오래 실패한 유닛을 부를 수 없어요. journalctl -u foundation-asset-reconcile.service 를 보세요
           runbook: docs/runbooks/asset-reconcile.md
 
+  # Each unit's runs against its memory and time limits (root ADR-0569). 2026-11-13..18 a dozen
+  # units failed at a limit (onbid-silver-load's Spark 32 times, parcel-number-change 6 times at its
+  # 256M cap) and court-auction-collect ran at 98% of its 2 GiB with nothing said before it died. The
+  # asset reconciler measures each unit's newest runs from systemd's journal every half hour
+  # (scripts/ops/unit_limits.py, unit-limits.prom): how many in a row reached 80% of a limit.
+  - name: foundation-unit-limits
+    rules:
+      - alert: FoundationUnitNearItsLimit
+        # Three runs in a row: one heavy run is an input, three are the unit's size. A run that fails
+        # at its limit is FoundationUnitFailedLong's and the unit-failed notice's (root ADR-0445).
+        expr: foundation_unit_runs_near_limit >= 3
+        labels:
+          severity: ticket
+          service: unit-limits
+        annotations:
+          summary: '{{ $labels.unit }} 의 최근 run {{ $value | printf "%.0f" }}번이 연달아 {{ $labels.limit }} 한도의 80% 를 넘었어요 — 다음 입력이 조금만 커져도 죽어요. python3 scripts/ops/unit_limits.py 로 잰 값을 보고, 입력이 자란 것이면 흘려 처리로 고치고, 잰 최고점의 1.5배가 한도보다 크면 호스트 예산 계약과 함께 한도를 고치세요'
+          runbook: docs/runbooks/host-resources.md
+      - alert: FoundationContainerMemoryNearCapLong
+        # 2026-11-04..18 foundation-api sat at its 512m cap and FoundationContainerMemoryNearCap, a
+        # ticket, fired for two weeks while the kernel killed it 69 times (root ADR-0568). Over half of
+        # a day near its cap pages: by then the ticket was not read.
+        # The share of a whole day's 96 quarter-hours, so a container younger than a day is not
+        # 100% of its few samples.
+        expr: >-
+          sum_over_time((
+            container_memory_working_set_bytes{id=~"/system.slice/.+"}
+            / (container_spec_memory_limit_bytes{id=~"/system.slice/.+"} > 0) > bool 0.9
+          )[24h:15m]) / 96 > 0.5
+        labels:
+          severity: page
+          service: host
+        annotations:
+          summary: '<!channel> {{ with printf "foundation_docker_container_info{id=%q}" $labels.id | query }}{{ . | first | label "name" }}{{ else }}{{ $labels.id }}{{ end }} 가 지난 하루의 {{ $value | humanizePercentage }} 동안 메모리 상한의 90% 위에 있었어요 — 상한에서 죽고 있을 거예요. journalctl -k --since -1d | grep oom_memcg 로 죽은 횟수를 보고 무엇이 자랐는지 찾으세요'
+          runbook: docs/runbooks/host-resources.md
+      - alert: FoundationUnitLimitsUnread
+        # Written every half hour; two hours without it is no measurement at all.
+        expr: >-
+          time() - node_textfile_mtime_seconds{file=~".*/unit-limits.prom"} > 7200
+          or absent(foundation_unit_limits_measured_seconds)
+        for: 10m
+        labels:
+          severity: ticket
+          service: unit-limits
+        annotations:
+          summary: 유닛 한도 측정(unit-limits.prom)을 두 시간 넘게 못 읽었어요 — 한도 가까운 유닛이 있어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
+          runbook: docs/runbooks/asset-reconcile.md
+
   # Dagster, observing Airflow and deciding beside it (root ADR-0431, ADR-0458). From 2026-11-06 21:16Z
   # to 11-09 its code location failed every load (6,222 times in the daemon's log): no dual-run check
   # ran, the evidence ledger got no line, the UI answered and the deploy said "observing", and the

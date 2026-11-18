@@ -1,0 +1,143 @@
+"""Each unit's runs measured against its limits from systemd's journal (root ADR-0569).
+
+What real incident does failing this prevent? 2026-11-13..18 onbid-silver-load's Spark died at its
+cap 32 times, parcel-number-change was killed at its 256M cap 6 times and court-auction-collect ran
+at 98% of its 2 GiB, and nothing said a unit was near its limit before it failed: a wrong run
+boundary (a unit killed at its cap writes no resource line) hid every one of those kills.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+import sys
+import tempfile
+import time
+import unittest
+
+ORCHESTRATION = pathlib.Path(__file__).resolve().parents[1]
+PLATFORM = ORCHESTRATION.parent
+sys.path.insert(0, str(PLATFORM / "scripts/ops"))
+
+import unit_limits  # noqa: E402
+
+MIB = 1 << 20
+UNIT = "foundation-example.service"
+
+
+def event(at, kind, unit=UNIT, message="", **fields):
+    line = {"__REALTIME_TIMESTAMP": str(int(at * 1e6)), "MESSAGE_ID": kind, "UNIT": unit, "MESSAGE": message}
+    line.update(fields)
+    return json.dumps(line)
+
+
+def ok_run(start, seconds, peak_mib, unit=UNIT):
+    return [event(start, unit_limits.STARTING, unit),
+            event(start + seconds, unit_limits.DEACTIVATED, unit),
+            event(start + seconds, unit_limits.RESOURCES, unit, MEMORY_PEAK=str(peak_mib * MIB))]
+
+
+def oom_run(start, seconds, unit=UNIT):
+    """A unit killed at its cap: systemd writes the OOM and failure lines and no resource line."""
+    return [event(start, unit_limits.STARTING, unit),
+            event(start + seconds, unit_limits.OUT_OF_MEMORY, unit),
+            event(start + seconds, unit_limits.FAILED, unit, "Failed with result 'oom-kill'.", UNIT_RESULT="oom-kill")]
+
+
+DECLARED = {UNIT: {"Id": UNIT, "MemoryMax": str(512 * MIB), "MemoryHigh": str(460 * MIB),
+                   "TimeoutStartUSec": "40min", "RuntimeMaxUSec": "infinity", "Type": "oneshot"}}
+
+
+class RunsAreReadFromSystemdsLines(unittest.TestCase):
+    def test_a_run_killed_at_its_cap_counts_though_it_wrote_no_resource_line(self):
+        lines = ok_run(0, 60, 300) + oom_run(100, 30) + ok_run(200, 60, 310)
+        line = unit_limits.row(UNIT, unit_limits.attribute_scopes(unit_limits.runs(lines))[UNIT], DECLARED[UNIT])
+        self.assertEqual((line["runs"], line["oom"], line["state"]), (3, 1, "failing"))
+
+    def test_a_timeout_is_a_failure_at_the_time_limit(self):
+        lines = [event(0, unit_limits.STARTING), event(2400, unit_limits.FAILED, UNIT_RESULT="timeout"),
+                 event(2400, unit_limits.RESOURCES, MEMORY_PEAK=str(200 * MIB))]
+        line = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT])
+        self.assertEqual((line["timeout"], line["time_share"], line["state"]), (1, 1.0, "failing"))
+
+    def test_a_container_held_by_one_run_counts_against_that_unit(self):
+        scope = "docker-" + "a" * 64 + ".scope"
+        lines = (ok_run(0, 600, 300)[:1]
+                 + [event(10, unit_limits.STARTED, scope), event(500, unit_limits.OUT_OF_MEMORY, scope),
+                    event(500, unit_limits.RESOURCES, scope, MEMORY_PEAK=str(2560 * MIB))]
+                 + ok_run(0, 600, 300)[1:])
+        line = unit_limits.row(UNIT, unit_limits.attribute_scopes(unit_limits.runs(lines))[UNIT], DECLARED[UNIT])
+        self.assertEqual((line["container_peak_max"], line["oom"]), (2560 * MIB, 1))
+
+    def test_a_container_two_runs_hold_is_left_out(self):
+        other = "foundation-other.service"
+        scope = "docker-" + "b" * 64 + ".scope"
+        lines = (ok_run(0, 600, 300)[:1] + ok_run(0, 600, 300, other)[:1]
+                 + [event(10, unit_limits.STARTED, scope), event(500, unit_limits.OUT_OF_MEMORY, scope),
+                    event(500, unit_limits.RESOURCES, scope, MEMORY_PEAK=str(MIB))]
+                 + ok_run(0, 600, 300)[1:] + ok_run(0, 600, 300, other)[1:])
+        units = unit_limits.attribute_scopes(unit_limits.runs(lines))
+        self.assertEqual([run.containers for run in units[UNIT] + units[other]], [[], []])
+
+
+class NearIsMeasured(unittest.TestCase):
+    def test_three_newest_runs_at_eighty_percent_are_a_streak_an_older_low_one_is_not(self):
+        lines = ok_run(0, 60, 100) + ok_run(100, 60, 420) + ok_run(200, 60, 430) + ok_run(300, 60, 440)
+        line = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT])
+        self.assertEqual((line["near_memory_runs"], line["state"]), (3, "near"))
+
+    def test_a_low_newest_run_ends_the_streak(self):
+        lines = ok_run(0, 60, 420) + ok_run(100, 60, 430) + ok_run(200, 60, 100)
+        line = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT])
+        self.assertEqual(line["near_memory_runs"], 0)
+
+    def test_the_textfile_names_each_limit_with_its_streak_and_newest_share(self):
+        by_unit = unit_limits.runs(ok_run(0, 1200, 420) + ok_run(2000, 1200, 430) + ok_run(4000, 2100, 440))
+        rows = [unit_limits.row(UNIT, by_unit[UNIT], DECLARED[UNIT])]
+        text = unit_limits.textfile(rows, by_unit, 5000)
+        self.assertIn(f'foundation_unit_runs_near_limit{{unit="{UNIT}",limit="memory"}} 3\n', text)
+        self.assertIn(f'foundation_unit_runs_near_limit{{unit="{UNIT}",limit="time"}} 1\n', text)
+        self.assertIn(f'foundation_unit_limit_share{{unit="{UNIT}",limit="memory"}} 0.8594\n', text)
+        self.assertIn("foundation_unit_limits_measured_seconds 5000\n", text)
+
+
+class LimitsAreReadAsSystemdPrintsThem(unittest.TestCase):
+    def test_durations_and_infinity(self):
+        self.assertEqual(unit_limits.limit_seconds("1h 55min"), 6900)
+        self.assertEqual(unit_limits.limit_seconds("2min 30s"), 150)
+        self.assertIsNone(unit_limits.limit_seconds("infinity"))
+        self.assertIsNone(unit_limits.limit_bytes("infinity"))
+
+    def test_a_service_unit_is_held_to_its_runtime_maximum(self):
+        self.assertEqual(unit_limits.time_limit({"Type": "simple", "TimeoutStartUSec": "1min30s",
+                                                 "RuntimeMaxUSec": "10min"}), 600)
+
+    def test_show_output_parses_by_unit(self):
+        shown = unit_limits.declared(f"Id={UNIT}\nMemoryMax=536870912\n\nId=foundation-b.service\nMemoryMax=infinity\n")
+        self.assertEqual(sorted(shown), ["foundation-b.service", UNIT])
+
+
+class ContainersAreMeasuredToo(unittest.TestCase):
+    def test_a_standing_container_killed_at_its_cap_is_failing(self):
+        """2026-11-14..18: foundation-api, 512m, killed 69 times (root ADR-0568)."""
+        identifier = "c" * 64
+        kernel = [f"oom-kill:constraint=CONSTRAINT_MEMCG,oom_memcg=/system.slice/docker-{identifier}.scope,task=foundation-api"] * 2
+        rows = unit_limits.container_rows({identifier: "foundation-api-1"}, {identifier: 511 * MIB},
+                                          {identifier: 512 * MIB}, unit_limits.container_kills(kernel))
+        self.assertEqual((rows[0]["oom"], rows[0]["state"]), (2, "failing"))
+
+
+class TheReconcilerMeasuresAtMostEveryHalfHour(unittest.TestCase):
+    def test_due(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / unit_limits.METRICS_NAME
+            self.assertTrue(unit_limits.due(path, time.time()))
+            path.write_text("x", encoding="utf-8")
+            self.assertFalse(unit_limits.due(path, time.time()))
+            os.utime(path, (time.time() - unit_limits.EVERY_SECONDS - 1,) * 2)
+            self.assertTrue(unit_limits.due(path, time.time()))
+
+
+if __name__ == "__main__":
+    unittest.main()

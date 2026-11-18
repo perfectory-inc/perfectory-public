@@ -75,6 +75,7 @@ import job_code_version  # noqa: E402
 import job_outcomes  # noqa: E402
 import job_units  # noqa: E402
 import lane_follow_gate  # noqa: E402
+import unit_limits  # noqa: E402
 
 RECONCILER = "asset_reconcile"
 STATE_FILE = "idle.json"
@@ -1115,6 +1116,15 @@ def main() -> int:
         write_replacing(state_dir / UNITS_STATE_FILE, json.dumps(tracked, sort_keys=True) + "\n")
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
         print(f"asset_reconcile: could not list the failed units: {error}", file=sys.stderr)
+    # Each unit's newest runs against its memory and time limits (root ADR-0569), from systemd's own
+    # journal, at most every half hour; a read that fails leaves the textfile to go stale, which
+    # FoundationUnitLimitsUnread reports.
+    try:
+        limits_file = metrics_file.with_name(unit_limits.METRICS_NAME)
+        if unit_limits.due(limits_file, now):
+            write_replacing(limits_file, unit_limits.measure(now))
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
+        print(f"asset_reconcile: could not measure the units against their limits: {error}", file=sys.stderr)
     try:
         specs = job_specs.load_specs(jobs, graph)
         dag_ids = {spec.job_id: spec.dag_id for spec in specs if spec.dagster_stage == "shadow"}
