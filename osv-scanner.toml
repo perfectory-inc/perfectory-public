@@ -32,3 +32,13 @@ reason = "paste: 취약점이 아니라 '관리 중단' 권고다. 사진 사다
 id = "RUSTSEC-2026-0459"
 ignoreUntil = 2027-02-02
 reason = "libsqlite3-sys(번들 C SQLite CVE-2026-119375): 네 Rust lockfile 의 0.30.1 은 sqlx 0.8.6 의 sqlx-macros-core 가 sqlite 기능 없이도 lockfile 에만 풀어 넣는 sqlx-sqlite 의 것이다(sqlx 의 알려진 동작). 2026-11-09 네 워크스페이스 모두 `cargo tree --workspace --all-features --target all -e normal,build,dev -i libsqlite3-sys` 가 비었다 — 어느 빌드도 컴파일하지 않고 SQLite 를 열지 않는다. 수정판 0.39 는 sqlx 0.9 가 끌어오므로 sqlx 승급 때 닫는다."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+ignoreUntil = 2027-02-16
+reason = "chrono: 취약점이 아니라 '관리 중단' 권고이고 모든 판이 해당한다 — 올릴 수정판이 없다(2026-11-18 crates.io 최신 0.4.45). 네 Rust lockfile(foundation·identity·intelligence·gongzzang)의 직접 의존 63개 Cargo.toml 에 더해 sqlx-core·arrow·parquet·iceberg·calamine·croner·serde_with 가 끌어오므로 우리 쪽만 jiff/time 으로 옮겨서는 lockfile 에서 빠지지 않는다. 부모들이 옮기는 동안 열어 두고, 우리 직접 의존의 이전은 별도 작업으로 다룬다. 각 deny.toml 의 ignore 도 같은 이유다."
+
+[[IgnoredVulns]]
+id = "GHSA-fc5q-39xc-vjpf"
+ignoreUntil = 2026-12-18
+reason = "picomatch(CVE-2026-112366, 단일 가지 반복 extglob ReDoS): 권고가 'through 4.0.7'(last_affected) 이고 2026-11-18 npm 최신이 4.0.7 이라 올릴 수정판이 없다. 일곱 pnpm 트리 모두 vite·vitest·tinyglobby·fdir(빌드·시험 도구)와 gongzzang 의 micromatch(fast-glob·markdownlint-cli2)·@parcel/watcher(next-intl 메시지 추출) 가 끌어오고, 패턴은 우리 설정·소스의 고정 glob 뿐이다 — 요청 입력이 glob 이 되는 실행 경로가 없다. 수정판이 나오면 security-overrides 계약으로 올리고 닫는다(30일 뒤 다시 본다)."
