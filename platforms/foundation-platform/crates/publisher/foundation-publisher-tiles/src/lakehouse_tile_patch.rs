@@ -21,7 +21,8 @@
 //! index under the same bake inputs, or the patch would hold more than the contract's share of the
 //! base's tiles.
 
-use std::collections::{BTreeSet, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeSet, BinaryHeap, HashSet};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, Write as _};
 use std::path::{Path, PathBuf};
@@ -41,6 +42,12 @@ use super::{
 const CONTRACT_JSON: &str = include_str!("../../../../config/r2-connections.contract.json");
 const INDEX_MAGIC: &[u8; 8] = b"FPTIDX01";
 const RECORD_BYTES: usize = 40;
+/// Records one sorted run of the feature index holds before it goes to disk: 4 Mi records, 160 MiB.
+/// The national parcel snapshot is 39,876,546 features (2026-11-13), 1.6 GB of records: held whole,
+/// with the bake unit's 1 GiB cap, the index build swapped at its memory limit until the unit's
+/// 115-minute limit, every run from 2026-11-13 to 11-18. An external merge sort keeps one run in
+/// memory, whatever the snapshot's size (the way `sort(1)`, Spark's sort spill and DuckDB's sort do).
+pub const INDEX_SORT_RUN_RECORDS: usize = 4 << 20;
 /// tippecanoe's default buffer is 5 of a tile's 256 pixels (the bake does not set `-b`); one more
 /// pixel covers the rounding between a box and the rendered geometry.
 pub const BUFFER_PIXELS: f64 = 6.0;
@@ -244,14 +251,24 @@ fn hex(text: &str) -> anyhow::Result<Vec<u8>> {
         .collect()
 }
 
-/// Streams the handoff into the feature index of its snapshot, sorted by id hash, and names the tile
-/// properties (the id first, then the first row's properties, as `prepare_handoff` does). A
-/// repeated id is refused here without naming it; `prepare_handoff` names it on a full bake.
-pub fn build_index(
+/// Streams the handoff into the feature index file of its snapshot at `path`, sorted by id hash,
+/// and names the tile properties (the id first, then the first row's properties, as
+/// `prepare_handoff` does). A repeated id is refused here without naming it; `prepare_handoff`
+/// names it on a full bake.
+///
+/// At most `run_records` records are held at once: each full run is sorted and written beside
+/// `path`, and the runs are merged into the index (the sorted runs are removed). A handoff of one
+/// run is sorted in memory and written directly.
+pub fn build_index_file(
     summary: &ServedSummary,
     handoff: &Path,
-) -> anyhow::Result<(Vec<Record>, Vec<String>)> {
-    let mut records = Vec::with_capacity(summary.served_row_count);
+    path: &Path,
+    run_records: usize,
+) -> anyhow::Result<Vec<String>> {
+    ensure!(run_records > 0, "a sorted run holds at least one record");
+    let mut run = Vec::with_capacity(run_records.min(summary.served_row_count));
+    let mut runs = Vec::new();
+    let mut count = 0_u64;
     let mut columns = Vec::new();
     for_each_handoff_line(summary, handoff, |line, location| {
         let row: ServedRow = serde_json::from_str(line)
@@ -262,19 +279,129 @@ pub fn build_index(
         }
         let bbox = wkb_bbox(&hex(&row.geometry_wkb_hex)?)
             .with_context(|| format!("served row {} has no readable polygon", row.feature_id))?;
-        records.push(Record {
+        run.push(Record {
             id: id_hash(&row.feature_id),
             content: content_hash(&row),
             bbox,
         });
+        count += 1;
+        if run.len() == run_records {
+            runs.push(write_run(path, runs.len(), &mut run)?);
+        }
         Ok(())
     })?;
-    records.sort_unstable_by_key(|record| record.id);
+    if runs.is_empty() {
+        run.sort_unstable_by_key(|record| record.id);
+        ensure!(
+            run.windows(2).all(|pair| pair[0].id != pair[1].id),
+            "the served snapshot holds a feature id twice"
+        );
+        write_index(path, &run)?;
+        return Ok(columns);
+    }
+    if !run.is_empty() {
+        runs.push(write_run(path, runs.len(), &mut run)?);
+    }
+    drop(run);
+    let merged = merge_runs(path, &runs, count);
+    for run in &runs {
+        let _ = std::fs::remove_file(run);
+    }
+    merged?;
+    Ok(columns)
+}
+
+/// [`build_index_file`] into a scratch file, read back: the records of a small handoff.
+#[cfg(test)]
+pub fn build_index(
+    summary: &ServedSummary,
+    handoff: &Path,
+) -> anyhow::Result<(Vec<Record>, Vec<String>)> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("index.idx");
+    let columns = build_index_file(summary, handoff, &path, INDEX_SORT_RUN_RECORDS)?;
+    Ok((read_index(&path)?, columns))
+}
+
+fn encode(record: &Record) -> [u8; RECORD_BYTES] {
+    let mut raw = [0_u8; RECORD_BYTES];
+    raw[..16].copy_from_slice(&record.id.to_be_bytes());
+    raw[16..24].copy_from_slice(&record.content.to_be_bytes());
+    for (at, value) in record.bbox.iter().enumerate() {
+        raw[24 + 4 * at..28 + 4 * at].copy_from_slice(&value.to_le_bytes());
+    }
+    raw
+}
+
+fn decode(raw: &[u8; RECORD_BYTES]) -> anyhow::Result<Record> {
+    let float = |at: usize| f32::from_le_bytes([raw[at], raw[at + 1], raw[at + 2], raw[at + 3]]);
+    Ok(Record {
+        id: u128::from_be_bytes(raw[..16].try_into()?),
+        content: u64::from_be_bytes(raw[16..24].try_into()?),
+        bbox: [float(24), float(28), float(32), float(36)],
+    })
+}
+
+/// Sorts one run and writes its records, headerless, beside the index; empties `run`.
+fn write_run(index: &Path, number: usize, run: &mut Vec<Record>) -> anyhow::Result<PathBuf> {
+    run.sort_unstable_by_key(|record| record.id);
+    let mut name = index.as_os_str().to_owned();
+    name.push(format!(".run-{number}"));
+    let path = PathBuf::from(name);
+    let mut out = BufWriter::with_capacity(1 << 20, File::create(&path)?);
+    for record in run.iter() {
+        out.write_all(&encode(record))?;
+    }
+    out.into_inner().map_err(|error| error.into_error())?;
+    run.clear();
+    Ok(path)
+}
+
+/// Merges the sorted runs into the index at `path`, refusing an id the snapshot holds twice.
+fn merge_runs(path: &Path, runs: &[PathBuf], count: u64) -> anyhow::Result<()> {
+    let mut inputs = runs
+        .iter()
+        .map(|run| Ok(BufReader::with_capacity(1 << 20, File::open(run)?)))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let next = |input: &mut BufReader<File>| -> anyhow::Result<Option<Record>> {
+        let mut raw = [0_u8; RECORD_BYTES];
+        match input.read_exact(&mut raw) {
+            Ok(()) => decode(&raw).map(Some),
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    };
+    let mut heads = BinaryHeap::new();
+    for (at, input) in inputs.iter_mut().enumerate() {
+        if let Some(record) = next(input)? {
+            heads.push(Reverse((record.id, at, encode(&record))));
+        }
+    }
+    let mut out = BufWriter::with_capacity(1 << 20, File::create(path)?);
+    out.write_all(INDEX_MAGIC)?;
+    out.write_all(&count.to_le_bytes())?;
+    let mut written = 0_u64;
+    let mut last = None;
+    while let Some(Reverse((id, at, raw))) = heads.pop() {
+        ensure!(
+            last != Some(id),
+            "the served snapshot holds a feature id twice"
+        );
+        last = Some(id);
+        out.write_all(&raw)?;
+        written += 1;
+        if let Some(record) = next(&mut inputs[at])? {
+            heads.push(Reverse((record.id, at, encode(&record))));
+        }
+    }
     ensure!(
-        records.windows(2).all(|pair| pair[0].id != pair[1].id),
-        "the served snapshot holds a feature id twice"
+        written == count,
+        "the sorted runs hold {written} records, the handoff {count}"
     );
-    Ok((records, columns))
+    out.into_inner()
+        .map_err(|error| error.into_error())?
+        .sync_all()?;
+    Ok(())
 }
 
 /// Where a served snapshot's index lives: named by the snapshot and the bake inputs, so an index
@@ -303,11 +430,7 @@ pub fn write_index(path: &Path, records: &[Record]) -> anyhow::Result<()> {
     out.write_all(INDEX_MAGIC)?;
     out.write_all(&(records.len() as u64).to_le_bytes())?;
     for record in records {
-        out.write_all(&record.id.to_be_bytes())?;
-        out.write_all(&record.content.to_be_bytes())?;
-        for value in record.bbox {
-            out.write_all(&value.to_le_bytes())?;
-        }
+        out.write_all(&encode(record))?;
     }
     out.into_inner()
         .map_err(|error| error.into_error())?
@@ -338,13 +461,7 @@ pub fn read_index(path: &Path) -> anyhow::Result<Vec<Record>> {
     let mut raw = [0_u8; RECORD_BYTES];
     for _ in 0..count {
         input.read_exact(&mut raw)?;
-        let float =
-            |at: usize| f32::from_le_bytes([raw[at], raw[at + 1], raw[at + 2], raw[at + 3]]);
-        records.push(Record {
-            id: u128::from_be_bytes(raw[..16].try_into()?),
-            content: u64::from_be_bytes(raw[16..24].try_into()?),
-            bbox: [float(24), float(28), float(32), float(36)],
-        });
+        records.push(decode(&raw)?);
     }
     ensure!(
         records.windows(2).all(|pair| pair[0].id < pair[1].id),

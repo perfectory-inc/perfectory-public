@@ -1376,7 +1376,7 @@
           "foundation-parcel-tile-bake@.service": {
             "class": "batch",
             "memory_max": "1G",
-            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as GDAL and tippecanoe run in their own capped containers (config/tile-bake-containers.contract.json); this holds the script; systemd logs the peak of every run under this cap"
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as GDAL and tippecanoe run in their own capped containers (config/tile-bake-containers.contract.json); this holds the script and the publisher. 2026-11-13..18 every bake peaked at 939-954M (MemoryHigh 921M) with up to 947M of swap: the publisher held the feature index of 39,876,546 parcels, 40 bytes each (1.6 GB), and eight runs reached the 115-minute limit inside the index build; the index is now built in sorted runs of 4 Mi records (160 MiB) merged from disk (lakehouse_tile_patch.rs INDEX_SORT_RUN_RECORDS)"
           },
           "foundation-postgres-backup-freshness.service": {
             "class": "control",
