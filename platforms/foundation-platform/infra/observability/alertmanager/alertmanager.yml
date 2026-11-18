@@ -44,6 +44,17 @@ route:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 12h
+    # A unit whose newest runs keep reaching 80% of a limit (root ADR-0569): one notice per unit and
+    # limit, a reminder a day while it stays near; its failure, if it comes, is unit-failure's.
+    - matchers:
+        - service = "unit-limits"
+      group_by:
+        - alertname
+        - unit
+        - limit
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 24h
     # A job whose unit succeeds and that produces nothing it is expected to (root ADR-0480): one notice
     # per job and expectation, a reminder every twelve hours until it meets it, as a unit that stays
     # failed is called (unit-state). 2026-11-06..09 a check waited for a chain never provisioned and ten
