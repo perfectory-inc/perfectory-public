@@ -83,6 +83,7 @@ use foundation_publisher_core::lakehouse_snapshot_scan;
 use foundation_publisher_silver::land_use_silver_export;
 #[cfg(test)]
 mod main_tests;
+mod media_index_delta;
 mod media_ladder_backlog;
 mod media_renditions;
 mod media_store;
@@ -175,6 +176,7 @@ enum Command {
     CollectJusoElectronicMap,
     PlanSilverLoadObjects,
     ListLakehouseObjects,
+    MediaIndexDelta,
     MediaLadderBacklog,
     CollectIndustrialComplexAddressSource,
     CollectIndustrialComplexNoticeAttachments,
@@ -370,6 +372,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CollectJusoElectronicMap => Box::pin(juso_electronic_map_collect::run()),
         Command::PlanSilverLoadObjects => Box::pin(silver_load_objects::run()),
         Command::ListLakehouseObjects => Box::pin(lakehouse_object_listing::run()),
+        Command::MediaIndexDelta => Box::pin(media_index_delta::run()),
         Command::MediaLadderBacklog => Box::pin(media_ladder_backlog::run()),
         Command::CollectIndustrialComplexAddressSource => {
             Box::pin(industrial_complex_address_source_collect::run())
@@ -771,6 +774,7 @@ where
         Some("collect-juso-electronic-map") => Ok(Command::CollectJusoElectronicMap),
         Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),
         Some("list-lakehouse-objects") => Ok(Command::ListLakehouseObjects),
+        Some("media-index-delta") => Ok(Command::MediaIndexDelta),
         Some("media-ladder-backlog") => Ok(Command::MediaLadderBacklog),
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)

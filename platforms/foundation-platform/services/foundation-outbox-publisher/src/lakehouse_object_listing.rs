@@ -2,9 +2,13 @@
 //! JSON for the media reconciler (scripts/ops/media_reconcile.py, root ADR-0387).
 //!
 //! It lists with the lakehouse reader key (`FOUNDATION_PLATFORM_LAKEHOUSE_READER_*`, the key the Silver
-//! load plan lists Bronze with) and writes `{prefix, list_request_count, objects: [{key, size_bytes,
-//! last_modified}]}` to `FOUNDATION_PLATFORM_LAKEHOUSE_OBJECT_LISTING_OUTPUT`. It writes nothing to R2.
+//! load plan lists Bronze with) and writes JSON Lines to `FOUNDATION_PLATFORM_LAKEHOUSE_OBJECT_LISTING_OUTPUT`:
+//! a first line `{prefix, list_request_count, object_count}`, then one `{key, size_bytes, last_modified}`
+//! per object. Lines, not one document, so the reconciler compares as it reads and holds only its own
+//! key set: one JSON document of 188,000 objects held as Python dicts took the run to its 512 MB cap
+//! on 2026-11-16 and every run since timed out (root ADR-0387). It writes nothing to R2.
 
+use std::io::{BufWriter, Write as _};
 use std::path::PathBuf;
 
 use anyhow::{ensure, Context};
@@ -12,7 +16,7 @@ use foundation_outbox::object_storage::{R2InventoryRequest, R2ObjectStorageConfi
 use foundation_outbox::R2ObjectStorage;
 use serde_json::json;
 
-use crate::public_data_control_support::{required_env_value, write_json_file};
+use crate::public_data_control_support::required_env_value;
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_OBJECT_LISTING";
 const LIST_PAGE: i32 = 1000;
@@ -37,25 +41,36 @@ pub async fn run() -> anyhow::Result<()> {
         .inventory_audit(R2InventoryRequest::new(Some(&prefix), Some(LIST_PAGE))?)
         .await
         .with_context(|| format!("failed to list {prefix}"))?;
-    let objects: Vec<_> = report
-        .objects()
-        .iter()
-        .map(|object| {
-            json!({
-                "key": object.key,
-                "size_bytes": object.size_bytes,
-                "last_modified": object.last_modified,
-            })
-        })
-        .collect();
-    write_json_file(
-        &output,
+    let objects = report.objects();
+    let mut lines = BufWriter::new(
+        std::fs::File::create(&output)
+            .with_context(|| format!("failed to create {}", output.display()))?,
+    );
+    serde_json::to_writer(
+        &mut lines,
         &json!({
             "prefix": prefix,
             "list_request_count": report.list_request_count(),
-            "objects": objects,
+            "object_count": objects.len(),
         }),
     )?;
+    lines.write_all(b"\n")?;
+    for object in objects {
+        serde_json::to_writer(
+            &mut lines,
+            &json!({
+                "key": object.key,
+                "size_bytes": object.size_bytes,
+                "last_modified": object.last_modified,
+            }),
+        )?;
+        lines.write_all(b"\n")?;
+    }
+    lines
+        .into_inner()
+        .map_err(std::io::IntoInnerError::into_error)
+        .and_then(|file| file.sync_all())
+        .with_context(|| format!("failed to write {}", output.display()))?;
     println!(
         "lakehouse-object-listing prefix={prefix} objects={} list_requests={}",
         objects.len(),

@@ -1047,6 +1047,16 @@ fn list_lakehouse_objects_command_is_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The media reconciler's index read from the lakehouse, not Trino (root ADR-0387).
+#[test]
+fn media_index_delta_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "media-index-delta"])?,
+        Command::MediaIndexDelta
+    );
+    Ok(())
+}
+
 /// The court auction list collector (root ADR-0280, ADR-0281).
 #[test]
 fn courtauction_go_kr_collect_command_is_explicit() -> anyhow::Result<()> {

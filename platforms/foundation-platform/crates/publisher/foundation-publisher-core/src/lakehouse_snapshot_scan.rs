@@ -317,6 +317,53 @@ pub async fn scan_snapshot_rows_kept(
     max_kept: Option<usize>,
     prefix: Option<KeptPrefix<'_>>,
 ) -> anyhow::Result<ScannedRows> {
+    Ok(scan_rows(
+        contract,
+        lakehouse,
+        snapshot,
+        keep,
+        max_kept,
+        prefix,
+        |_| true,
+    )
+    .await?
+    .0)
+}
+
+/// Decodes the live rows of the snapshot's data files `read_file` accepts, retaining only rows
+/// `keep` accepts, and returns them with the path of every data file the snapshot holds.
+///
+/// The incremental read of an append-only table (Iceberg's own `IncrementalAppendScan`, Spark's
+/// `start-snapshot-id`): a reader that keeps the paths it has read passes `read_file` as "not read
+/// before" and decodes only the files committed since, without a column filter that depends on
+/// manifest statistics. A file it skips is counted as skipped, so [`ScannedRows::ensure_complete`]
+/// still accounts for every row of the snapshot. A compaction that rewrites old rows into a new
+/// file makes that file new: its rows are read again, never lost.
+///
+/// # Errors
+/// Returns an error when a manifest or a data file cannot be read or decoded.
+pub async fn scan_snapshot_rows_in_files(
+    contract: &LakehouseTableContract,
+    lakehouse: &impl LakehouseByteReader,
+    snapshot: &IcebergSnapshotManifestList,
+    keep: impl Fn(&JsonMap<String, JsonValue>) -> bool,
+    read_file: impl Fn(&str) -> bool,
+) -> anyhow::Result<(ScannedRows, Vec<String>)> {
+    scan_rows(contract, lakehouse, snapshot, keep, None, None, |file| {
+        read_file(file.file_path.as_str())
+    })
+    .await
+}
+
+async fn scan_rows(
+    contract: &LakehouseTableContract,
+    lakehouse: &impl LakehouseByteReader,
+    snapshot: &IcebergSnapshotManifestList,
+    keep: impl Fn(&JsonMap<String, JsonValue>) -> bool,
+    max_kept: Option<usize>,
+    prefix: Option<KeptPrefix<'_>>,
+    read_file: impl Fn(&iceberg_scan::ScannedDataFile) -> bool,
+) -> anyhow::Result<(ScannedRows, Vec<String>)> {
     if let Some(prefix) = prefix {
         ensure!(
             contract
@@ -344,13 +391,19 @@ pub async fn scan_snapshot_rows_kept(
         range_requests: 0,
         keep_limit_exceeded: false,
     };
+    let paths = data_files
+        .iter()
+        .map(|file| file.file_path.clone())
+        .collect::<Vec<_>>();
     let mut read = Vec::with_capacity(data_files.len());
     for data_file in &data_files {
         scanned.manifest_record_count = scanned
             .manifest_record_count
             .checked_add(data_file.record_count)
             .context("manifest record count overflow")?;
-        if prefix.is_some_and(|prefix| data_file.excludes_prefix(prefix.column, prefix.prefix)) {
+        if prefix.is_some_and(|prefix| data_file.excludes_prefix(prefix.column, prefix.prefix))
+            || !read_file(data_file)
+        {
             scanned.skipped_data_file_count += 1;
             scanned.skipped_record_count = scanned
                 .skipped_record_count
@@ -418,7 +471,7 @@ pub async fn scan_snapshot_rows_kept(
             .context("range request count overflow")?;
         if past_limit {
             scanned.keep_limit_exceeded = true;
-            return Ok(scanned);
+            return Ok((scanned, paths));
         }
     }
     tracing::info!(
@@ -429,7 +482,7 @@ pub async fn scan_snapshot_rows_kept(
         range_requests = scanned.range_requests,
         "read the data files by byte range"
     );
-    Ok(scanned)
+    Ok((scanned, paths))
 }
 
 /// Appends `row` when `keep` accepts it and `rows` holds fewer than `max_kept`; a row `keep`
