@@ -1,4 +1,4 @@
-"""Each unit's runs measured against its limits from systemd's journal (root ADR-0569).
+"""Each unit's runs measured against its limits from systemd's journal (root ADR-0574).
 
 What real incident does failing this prevent? 2026-11-13..18 onbid-silver-load's Spark died at its
 cap 32 times, parcel-number-change was killed at its 256M cap 6 times and court-auction-collect ran
@@ -120,7 +120,7 @@ class LimitsAreReadAsSystemdPrintsThem(unittest.TestCase):
 
 class ContainersAreMeasuredToo(unittest.TestCase):
     def test_a_standing_container_killed_at_its_cap_is_failing(self):
-        """2026-11-14..18: foundation-api, 512m, killed 69 times (root ADR-0568)."""
+        """2026-11-14..18: foundation-api, 512m, killed 69 times (root ADR-0573)."""
         identifier = "c" * 64
         kernel = [f"oom-kill:constraint=CONSTRAINT_MEMCG,oom_memcg=/system.slice/docker-{identifier}.scope,task=foundation-api"] * 2
         rows = unit_limits.container_rows({identifier: "foundation-api-1"}, {identifier: 511 * MIB},

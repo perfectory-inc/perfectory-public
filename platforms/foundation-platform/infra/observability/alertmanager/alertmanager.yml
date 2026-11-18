@@ -44,7 +44,7 @@ route:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 12h
-    # A unit whose newest runs keep reaching 80% of a limit (root ADR-0569): one notice per unit and
+    # A unit whose newest runs keep reaching 80% of a limit (root ADR-0574): one notice per unit and
     # limit, a reminder a day while it stays near; its failure, if it comes, is unit-failure's.
     - matchers:
         - service = "unit-limits"
