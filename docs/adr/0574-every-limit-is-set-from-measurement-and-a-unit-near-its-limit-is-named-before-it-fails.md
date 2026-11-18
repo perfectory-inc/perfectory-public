@@ -89,6 +89,12 @@ near 11 개: autodeploy 3,225M/3.5G·onbid-collect 2,489M/3G·industrial-complex
 7. **주인 없는 failing 유닛은 잰 값과 함께 넘긴다.** intelligence-document-text/-fact(OCR 컨테이너 OOM 24 번·timeout 26 번),
    parcel-number-change(256M 에서 OOM 6 번, 10 월 측정 11M — 성장), registered-factory(256M 에서 OOM 2 번), asset-reconcile
    (180 초 timeout 7 번)은 이 결정의 표로 W87 보고에 실려 코디네이터가 주인을 정한다. 한도를 먼저 올리지 않는다(§4).
+8. **더니어는 한도와 잰 값을 읽어 보이고, 쓰지 않는다.** 측정 유닛이 같은 읽기로 `unit-limits.json` 도 쓰고, foundation-api 가
+   그 파일을 그대로 낸다(`GET /data-catalog/v1/unit-limits`, 「서비스 점검」·「지적 판」과 같은 길: 호스트 파일 → API → 중계 허용 목록 →
+   화면, 새 저장소 없음). 더니어 「자원 한도」 탭은 유닛·컨테이너마다 선언 한도, 잰 최고점·run 시간 p95, 한도 대비, 상태, 마지막
+   OOM/timeout, 지금 도는 컨테이너 상한 합과 서버 메모리를 보인다. 계약의 예산 합은 CI 가드의 몫이라 화면에 숫자로 베끼지 않는다.
+   중계는 GET 하나만 열고, 「변경 제안」은 그 유닛의 선언(definitions)을 찾아 PR 을 여는 링크다. 직원 대신 draft PR 을 여는 양식은
+   감사·제안 결정(#1437, W88 §8 — 「첫째는 자원 한도」)이 만들고, 그것이 들어오면 이 링크가 그 양식으로 바뀐다.
 
 ## Consequences
 
@@ -98,5 +104,4 @@ near 11 개: autodeploy 3,225M/3.5G·onbid-collect 2,489M/3G·industrial-complex
   파이썬 해석의 최고점은 아직 재지 않았고, 512M 상한 아래 첫 run 의 `memory peak` 로 계약을 고친다). 비용 0.
 - 계약의 `measured_peak`(ADR-0455)는 10 월 측정으로 남아 있다. 그것을 이 스크립트로 다시 쓰는 것은 한도를 고치는 PR 마다의
   몫이다(가드가 1.5 배를 검사하므로 새 측정이 상한을 끌어올리거나, §4 에 따라 성장을 고치게 한다).
-- 더니어(통합 콘솔)는 이 측정을 읽어 유닛마다 한도·잰 값·비율·상태·마지막 OOM/timeout·예산 합을 보여 줄 수 있다; 한도 변경은
-  화면에서 직접 쓰지 않고 이 계약을 바꾸는 PR 로 간다(후속).
+- 더니어 「자원 한도」 탭이 같은 측정을 보인다(§8). 화면에서 쓰는 길은 없다: 한도 변경은 선언을 고치는 PR 이다.

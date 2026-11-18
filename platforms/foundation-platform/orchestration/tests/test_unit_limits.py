@@ -145,19 +145,41 @@ class ItsOwnTimerWritesTheTextfile(unittest.TestCase):
         self.assertIn("systemctl enable --now foundation-unit-limits.timer\n", release)
         self.assertNotIn("unit_limits", (PLATFORM / "scripts/ops/asset_reconcile.py").read_text(encoding="utf-8"))
 
-    def test_write_replaces_the_textfile_whole(self):
-        lines = ok_run(0, 60, 420)
+    def test_write_replaces_the_textfile_and_the_view_whole(self):
+        by_unit = unit_limits.runs(ok_run(0, 60, 420) + oom_run(100, 30) + ok_run(200, 60, 100))
+        rows = [unit_limits.row(UNIT, by_unit[UNIT], DECLARED[UNIT])]
         with tempfile.TemporaryDirectory() as directory:
-            original = unit_limits.measure
-            unit_limits.measure = lambda now, since: unit_limits.textfile(
-                [unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT])], unit_limits.runs(lines), now)
+            original = unit_limits.measured
+            unit_limits.measured = lambda since: (rows, by_unit)
             try:
-                unit_limits.write(directory, 5000)
+                unit_limits.write(directory, 5000, prometheus=None)
             finally:
-                unit_limits.measure = original
-            self.assertEqual(os.listdir(directory), [unit_limits.METRICS_NAME])
+                unit_limits.measured = original
+            self.assertEqual(sorted(os.listdir(directory)), [unit_limits.VIEW_NAME, unit_limits.METRICS_NAME])
             text = (pathlib.Path(directory) / unit_limits.METRICS_NAME).read_text(encoding="utf-8")
             self.assertTrue(text.endswith("foundation_unit_limits_measured_seconds 5000\n"))
+            shown = json.loads((pathlib.Path(directory) / unit_limits.VIEW_NAME).read_text(encoding="utf-8"))
+        self.assertEqual((shown["units"][0]["state"], shown["units"][0]["last_oom_at"]),
+                         ("failing", "1970-01-01T00:02:10+00:00"))
+
+
+class DawneerReadsTheView(unittest.TestCase):
+    """foundation-api serves unit-limits.json as is (root ADR-0574 §8); the example both sides test
+    with is the shape this writes."""
+
+    def test_the_view_has_the_examples_shape(self):
+        by_unit = unit_limits.runs(ok_run(0, 60, 420) + oom_run(100, 30) + ok_run(200, 60, 100))
+        rows = [unit_limits.row(UNIT, by_unit[UNIT], DECLARED[UNIT])]
+        identifier = "d" * 64
+        boxes = unit_limits.container_rows({identifier: "example-api-1"}, {identifier: 511 * MIB},
+                                           {identifier: 512 * MIB}, {identifier: 2})
+        shown = json.loads(json.dumps(unit_limits.view(rows, boxes, 5000, "-14d", None, 64 << 30)))
+        example = json.loads((PLATFORM / "services/foundation-api/src/routes/data_catalog/unit-limits.example.json")
+                             .read_text(encoding="utf-8"))
+        self.assertEqual(sorted(shown), sorted(example))
+        self.assertEqual(sorted(shown["units"][0]), sorted(example["units"][0]))
+        self.assertEqual(sorted(shown["containers"][0]), sorted(example["containers"][0]))
+        self.assertEqual((shown["window_days"], shown["container_caps_bytes"]), (14, 512 * MIB))
 
 
 if __name__ == "__main__":

@@ -42,6 +42,9 @@ export type DataQualityStatus = DataCatalogSchemas["DataQualityStatus"];
 export type DataContractQuality = DataCatalogSchemas["DataContractQuality"];
 export type DataQualityResult = DataCatalogSchemas["DataQualityResult"];
 export type ServiceChecks = DataCatalogSchemas["ServiceChecks"];
+export type UnitLimits = DataCatalogSchemas["UnitLimits"];
+export type UnitLimit = DataCatalogSchemas["UnitLimit"];
+export type ContainerLimit = DataCatalogSchemas["ContainerLimit"];
 export type ParcelEditions = DataCatalogSchemas["ParcelEditions"];
 export type ByPnuCutovers = DataCatalogSchemas["ByPnuCutovers"];
 export type ByPnuCutoverApproval = DataCatalogSchemas["ByPnuCutoverApproval"];
@@ -261,6 +264,11 @@ export class DawneerClient {
   /** How Korea reaches the live hostnames and the weekly pull request CI time (root ADR-0209). */
   serviceChecks(): Promise<ServiceChecks> {
     return this.call("service-checks", {}, "data-catalog");
+  }
+
+  /** Every host unit and container against its memory and time limits (root ADR-0574). Read-only. */
+  unitLimits(): Promise<UnitLimits> {
+    return this.call("unit-limits", {}, "data-catalog");
   }
 
   /** Every cadastral edition's readiness and the promotions ledger (root ADR-0379). */

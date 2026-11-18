@@ -7,16 +7,19 @@
 # uncommitted operations-map.env (config/runtime-secrets.contract.json); without it the map still
 # answers, saying which store it could not read. The host's service checks (root ADR-0209,
 # infra/systemd/foundation-service-checks.service) write one file that foundation-api serves as is,
-# and so does the cadastral edition readiness check (scripts/ops/parcel-edition-readiness.sh, root ADR-0379).
+# and so does the cadastral edition readiness check (scripts/ops/parcel-edition-readiness.sh, root ADR-0379)
+# and the unit limits measurement (infra/systemd/foundation-unit-limits.service, root ADR-0574).
 services:
   foundation-api:
     environment:
       FOUNDATION_PLATFORM_AIRFLOW_API_URL: "http://airflow-apiserver:8080"
       FOUNDATION_PLATFORM_SERVICE_CHECKS_PATH: /run/foundation-service-checks/service-checks.json
       FOUNDATION_PLATFORM_PARCEL_EDITIONS_PATH: /run/foundation-parcel-editions/readiness.json
+      FOUNDATION_PLATFORM_UNIT_LIMITS_PATH: /run/foundation-unit-limits/unit-limits.json
     volumes:
       - /var/lib/foundation-platform/service-checks:/run/foundation-service-checks:ro
       - /var/lib/foundation-platform/parcel-editions:/run/foundation-parcel-editions:ro
+      - /var/lib/foundation-jobs/metrics:/run/foundation-unit-limits:ro
     env_file:
       - path: ${FOUNDATION_PLATFORM_OPERATIONS_MAP_ENV_FILE:-./operations-map.env}
         required: false

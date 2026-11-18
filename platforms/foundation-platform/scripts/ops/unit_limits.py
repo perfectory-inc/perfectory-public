@@ -41,6 +41,7 @@ import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 STARTING = "7d4958e842da4a758f6c1cdc7b36dcc5"  # a unit's start job began
 STARTED = "39f53479d3a045ac8e11786248231fbf"  # a unit's start job ended (a scope's run begins here)
@@ -232,6 +233,8 @@ def row(name: str, unit_runs: list[Run], unit: dict) -> dict:
         "near_memory_runs": near_streak(memory_ratios),
         "near_time_runs": near_streak(time_ratios),
         "last_run": finished[-1].end if finished else None,
+        "last_oom": max((run.end for run in finished if run.outcome == "oom-kill"), default=None),
+        "last_timeout": max((run.end for run in finished if run.outcome == "timeout"), default=None),
     }
     line["memory_share"] = line["peak_max"] / memory_max if memory_max and line["peak_max"] else None
     line["time_share"] = line["seconds_max"] / seconds_limit if seconds_limit and line["seconds_max"] else None
@@ -312,13 +315,75 @@ def textfile(rows: list[dict], by_unit_runs: dict[str, list[Run]], now: float) -
 METRICS_NAME = "unit-limits.prom"
 
 
-def write(directory: str, now: float, since: str = "-14d") -> None:
-    """Replace DIR/unit-limits.prom whole, so node-exporter never reads half of it."""
-    path = os.path.join(directory, METRICS_NAME)
-    text = measure(now, since)
+VIEW_NAME = "unit-limits.json"
+# The host's Prometheus, for the containers' working set and caps (cAdvisor).
+PROMETHEUS = "http://127.0.0.1:19090"
+
+
+def when(seconds: float | None) -> str | None:
+    return None if seconds is None else datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="seconds")
+
+
+def whole(value) -> int | None:
+    return None if value is None else int(value)
+
+
+def host_memory(meminfo: str = "/proc/meminfo") -> int | None:
+    try:
+        with open(meminfo, encoding="ascii") as handle:
+            for line in handle:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) * 1024
+    except OSError:
+        return None
+    return None
+
+
+def view(rows: list[dict], boxes: list[dict], now: float, since: str, containers_error: str | None,
+         memory: int | None) -> dict:
+    """What Dawneer shows (root ADR-0574 §8): every unit's and container's declared limits against
+    what it measured, and the caps the running containers hold now against the host's memory. The
+    budget contract's own sum is CI's guard (every-container-has-a-memory-cap.sh), not this."""
+    units = [{
+        "unit": r["unit"], "state": r["state"], "runs": r["runs"],
+        "memory_max": r["memory_max"], "memory_high": r["memory_high"],
+        "time_limit_seconds": whole(r["time_limit_seconds"]),
+        "peak_p95": whole(r["peak_p95"]), "peak_max": whole(r["peak_max"]),
+        "container_peak_max": whole(r["container_peak_max"]), "memory_share": r["memory_share"],
+        "seconds_p50": r["seconds_p50"], "seconds_p95": r["seconds_p95"], "seconds_max": r["seconds_max"],
+        "time_share": r["time_share"], "oom": r["oom"], "timeout": r["timeout"], "failed_other": r["failed_other"],
+        "near_memory_runs": r["near_memory_runs"], "near_time_runs": r["near_time_runs"],
+        "last_run_at": when(r["last_run"]), "last_oom_at": when(r["last_oom"]),
+        "last_timeout_at": when(r["last_timeout"]),
+    } for r in rows]
+    held = [{"container": b["container"], "state": b["state"], "memory_max": whole(b["memory_max"]),
+             "peak_max": whole(b["peak_max"]), "memory_share": b["memory_share"], "oom": b["oom"]} for b in boxes]
+    return {
+        "schema_version": 1, "measured_at": when(now), "window_days": int(since.lstrip("-").rstrip("d") or 0),
+        "near_share": NEAR, "near_runs": NEAR_RUNS, "host_memory_bytes": memory,
+        "container_caps_bytes": sum(b["memory_max"] or 0 for b in held) if held else None,
+        "units": units, "containers": held, "containers_error": containers_error,
+    }
+
+
+def replace(path: str, text: str) -> None:
+    """Replace the file whole, so its reader (node-exporter, foundation-api) never reads half of it."""
     with open(path + ".tmp", "w", encoding="utf-8", newline="\n") as handle:
         handle.write(text)
     os.replace(path + ".tmp", path)
+
+
+def write(directory: str, now: float, since: str = "-14d", prometheus: str | None = PROMETHEUS) -> None:
+    """DIR/unit-limits.prom for the alerts and DIR/unit-limits.json for Dawneer, from one reading."""
+    rows, by_unit = measured(since)
+    replace(os.path.join(directory, METRICS_NAME), textfile(rows, by_unit, now))
+    boxes, error = [], None
+    try:
+        boxes = containers(prometheus, since) if prometheus else []
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as failure:
+        error = f"{type(failure).__name__}: {failure}"
+    replace(os.path.join(directory, VIEW_NAME),
+            json.dumps(view(rows, boxes, now, since, error, host_memory()), sort_keys=True) + "\n")
 
 
 def listed_units(systemctl: str = "systemctl") -> set[str]:
@@ -331,13 +396,12 @@ def listed_units(systemctl: str = "systemctl") -> set[str]:
     return {name for line in listed.splitlines() if line.strip() and "@." not in (name := line.split()[0])}
 
 
-def measure(now: float, since: str = "-14d") -> str:
-    """The textfile, from the host's journal and systemd, read-only."""
+def measured(since: str = "-14d") -> tuple[list[dict], dict[str, list[Run]]]:
+    """Every unit's line and runs, from the host's journal and systemd, read-only."""
     by_unit = attribute_scopes(runs(journal(since)))
     shown = show(sorted(listed_units() | set(by_unit)))
     names = sorted(set(by_unit) | {name for name in shown if name.endswith(".service")})
-    rows = [row(name, by_unit.get(name, []), shown.get(name, {})) for name in names]
-    return textfile(rows, by_unit, now)
+    return [row(name, by_unit.get(name, []), shown.get(name, {})) for name in names], by_unit
 
 
 def journal(since: str = "-14d", journalctl: str = "journalctl") -> list[str]:

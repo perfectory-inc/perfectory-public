@@ -78,6 +78,9 @@ const DATA_CATALOG_ROUTES: &[(Method, &[Segment])] = &[
     (Method::GET, &[Literal("dataset-snapshots")]),
     // How Korea reaches the live hostnames and how long pull request CI takes (root ADR-0209).
     (Method::GET, &[Literal("service-checks")]),
+    // Every host unit and container against its memory and time limits (root ADR-0574). Read-only:
+    // a limit changes in code, through the host budget contract and its guard.
+    (Method::GET, &[Literal("unit-limits")]),
     // Every cadastral edition's readiness and who served which (root ADR-0379).
     (Method::GET, &[Literal("parcel-editions")]),
     // Pause, resume, run once now or stop one scheduled job (root ADR-0282).
@@ -234,6 +237,13 @@ mod tests {
             !data_catalog_allowed(&Method::POST, "service-checks"),
             "the checks run on the host, never from a screen"
         );
+        assert!(data_catalog_allowed(&Method::GET, "unit-limits"));
+        for method in [Method::POST, Method::PUT, Method::PATCH, Method::DELETE] {
+            assert!(
+                !data_catalog_allowed(&method, "unit-limits"),
+                "a limit changes in code, through a pull request and the host budget guard"
+            );
+        }
         assert!(
             !data_catalog_allowed(&Method::GET, "dataset-snapshots/x"),
             "one segment only"

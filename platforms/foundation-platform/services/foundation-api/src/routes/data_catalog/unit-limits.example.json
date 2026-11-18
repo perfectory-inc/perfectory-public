@@ -1,0 +1,78 @@
+{
+  "container_caps_bytes": 2684354560,
+  "containers": [
+    {
+      "container": "example-api-1",
+      "memory_max": 536870912,
+      "memory_share": 0.998046875,
+      "oom": 2,
+      "peak_max": 535822336,
+      "state": "failing"
+    },
+    {
+      "container": "example-search-1",
+      "memory_max": 2147483648,
+      "memory_share": 0.439453125,
+      "oom": 0,
+      "peak_max": 943718400,
+      "state": "fits"
+    }
+  ],
+  "containers_error": null,
+  "host_memory_bytes": 68719476736,
+  "measured_at": "2025-11-20T00:53:20+00:00",
+  "near_runs": 3,
+  "near_share": 0.8,
+  "schema_version": 1,
+  "units": [
+    {
+      "container_peak_max": null,
+      "failed_other": 0,
+      "last_oom_at": null,
+      "last_run_at": "2025-11-19T02:10:00+00:00",
+      "last_timeout_at": null,
+      "memory_high": 482344960,
+      "memory_max": 536870912,
+      "memory_share": 0.234375,
+      "near_memory_runs": 0,
+      "near_time_runs": 0,
+      "oom": 0,
+      "peak_max": 125829120,
+      "peak_p95": 125829120,
+      "runs": 1,
+      "seconds_max": 600,
+      "seconds_p50": 600,
+      "seconds_p95": 600,
+      "state": "fits",
+      "time_limit_seconds": 2400,
+      "time_share": 0.25,
+      "timeout": 0,
+      "unit": "foundation-example-fits.service"
+    },
+    {
+      "container_peak_max": null,
+      "failed_other": 0,
+      "last_oom_at": null,
+      "last_run_at": "2025-11-19T00:15:00+00:00",
+      "last_timeout_at": null,
+      "memory_high": 482344960,
+      "memory_max": 536870912,
+      "memory_share": 0.8203125,
+      "near_memory_runs": 1,
+      "near_time_runs": 0,
+      "oom": 0,
+      "peak_max": 440401920,
+      "peak_p95": 440401920,
+      "runs": 1,
+      "seconds_max": 900,
+      "seconds_p50": 900,
+      "seconds_p95": 900,
+      "state": "near",
+      "time_limit_seconds": 2400,
+      "time_share": 0.375,
+      "timeout": 0,
+      "unit": "foundation-example.service"
+    }
+  ],
+  "window_days": 14
+}
