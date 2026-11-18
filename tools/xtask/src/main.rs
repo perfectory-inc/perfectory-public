@@ -869,7 +869,15 @@ const AREAS: &[Area] = &[
             PythonTests {
                 dir: "jobs/document_text",
                 python_path: Some("."),
-                args: &["-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
+                args: &[
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "tests",
+                    "-p",
+                    "test_*.py",
+                ],
                 covers: &["jobs/document_text/tests"],
             },
             // The model runtime's weight fetcher and evaluation (root ADR-0478): standard library only.
