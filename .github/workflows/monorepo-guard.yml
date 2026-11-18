@@ -144,6 +144,10 @@ jobs:
         run: bash scripts/ci/reuse-lint.sh
       # Every tracked Cargo.lock and pnpm-lock.yaml in the repository, so the
       # ratchet belongs to the repository context rather than to one area's CI.
+      # pnpm 12 writes a two-document pnpm-lock.yaml; a scanner that reads only the first document
+      # passes every npm tree (OSV-Scanner 2.5.0 did, measured 2026-11-18).
+      - name: The OSV scanner reads every lockfile document
+        run: python3 scripts/ci/test_osv_reads_every_lockfile_document.py
       - name: Repository OSV vulnerability ratchet
         run: cargo xtask ci osv-gate --report-path target/supply-chain/osv-report.json
       # When the ratchet (or anything before it) fails, raise the npm floors the

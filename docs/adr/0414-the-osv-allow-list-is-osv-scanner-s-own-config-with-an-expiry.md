@@ -41,3 +41,5 @@ ADR-0028 의 OSV 게이트는 OSV-Scanner 보고서를 우리 TSV 기준선(`too
 - 같은 권고가 새 lockfile 에 하나 더 생겨도 목록의 ID 가 덮으므로 실패하지 않는다. 받아들인 권고가 더 넓게
   퍼지는 것은 만료 때 검토에서 본다.
 - 처음 옮긴 다섯 항목은 2027-02-02(90일 뒤) 만료다. minimatch 만 원래 적힌 재확인일 2026-11-30 이다.
+
+개정 각주(2026-11-18): 고정 스캐너를 2.5.0 에서 2.7.1 로 올렸다. pnpm 12 는 `packageManager` 를 적은 트리의 `pnpm-lock.yaml` 을 두 YAML 문서(부트 문서, 그다음 프로젝트 그래프)로 쓰는데, 2.5.0 은 첫 문서만 읽어 그 트리의 의존성을 하나도 보지 못했다(타일 게이트웨이 162 → 16 패키지, 심은 `lodash@4.17.20` 을 놓침). 2.7.1 은 둘 다 읽고, 오늘의 lockfile 열둘에서는 2.5.0 과 같은 3,644 패키지를 본다. `scripts/ci/test_osv_reads_every_lockfile_document.py` 가 `required/repository` 에서 래칫 앞에 매번 두 문서 lockfile(`tools/osv-gate/planted-two-document-pnpm-lock.yaml.fixture`)로 이를 확인한다.
