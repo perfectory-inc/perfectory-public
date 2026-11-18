@@ -337,14 +337,17 @@ class TheHost(unittest.TestCase):
     def test_a_group_never_fills_a_credential(self):
         contract = json.loads((self.area / "config/runtime-secrets.contract.json").read_text(encoding="utf-8"))
         reader = next(g for g in contract["groups"] if g["name"] == "lakehouse-reader")
-        for name, said in ((READER, "may carry a secret"), ("FOUNDATION_PLATFORM_SOME_DATABASE_URL", "does not hold"),
-                           ("FOUNDATION_PLATFORM_NOT_HELD", "does not hold")):
+        # A URL may carry a password, so one not held is refused twice: not held, and secret-shaped.
+        for name, said in ((READER, ["may carry a secret"]),
+                           ("FOUNDATION_PLATFORM_SOME_DATABASE_URL", ["does not hold", "may carry a secret"]),
+                           ("FOUNDATION_PLATFORM_NOT_HELD", ["does not hold"])):
             with self.subTest(name):
                 reader["fills"] = [name]
                 (self.area / "config/runtime-secrets.contract.json").write_text(json.dumps(contract), encoding="utf-8")
                 found = runtime_secrets.fill_findings(runtime_secrets.load(self.area))
-                self.assertEqual(len(found), 1, found)
-                self.assertIn(said, found[0])
+                self.assertEqual(len(found), len(said), found)
+                for finding, words in zip(found, said):
+                    self.assertIn(words, finding)
         self.assertTrue(runtime_secrets.not_a_setting("FOUNDATION_PLATFORM_SOME_DATABASE_URL", {}))
 
     def test_an_old_line_goes_when_its_value_is_under_another_held_name(self):
