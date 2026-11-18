@@ -7,7 +7,9 @@
 # through Airflow like a scheduled one, so what it changes starts what reads it (root ADR-0171), and
 # the gate checks and consumes the request when the run starts (stage c). A request is triggered at
 # most once (a mark here, never in the switch directory, which only foundation-api writes) and never
-# after it expired. A disabled job (its DAG paused) starts through the gate directly. It also starts
+# after it expired. A job Dagster decides has no DAG (`dagster_stage: dagster`, root ADR-0565): its Dagster
+# job is launched with the same request (scripts/deploy/job_orchestrator.py), and the run reaches the
+# same gate with `requested <id>`. A disabled job (its DAG paused) starts through the gate directly. It also starts
 # an approved by-PNU cut-over (root ADR-0433, ADR-0435) and ends a run an operator stopped (below).
 set -euo pipefail
 
@@ -46,7 +48,22 @@ for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
         print("yes" if job["enabled"] else "no")
 PY
 )"
+  # Which jobs Dagster decides is job_orchestrator.py's answer (root ADR-0565).
+  orchestrator="${release_root}/current/scripts/deploy/job_orchestrator.py"
+  if [[ "${enabled}" == yes && -f "${orchestrator}" ]] \
+    && grep -qx "${job}" < <(python3 -I -B "${orchestrator}" decided "${jobs_file}"); then
+    enabled=dagster
+  fi
   case "${enabled}" in
+    dagster)
+      if python3 -I -B "${release_root}/current/scripts/deploy/job_orchestrator.py" start "${jobs_file}" \
+        "${job}" requested "${id}" >/dev/null; then
+        : >"${marks}/triggered/${id}"
+        log "${id}: started ${job} in Dagster"
+      else
+        log "${id}: ${job} could not be started in Dagster; tried again on the next change"
+      fi
+      ;;
     yes)
       conf="{\"operator_request\": \"${id}\"}"
       if sudo -u "${deployer}" -H bash "${release_root}/current/scripts/deploy/airflow-runtime.sh" \

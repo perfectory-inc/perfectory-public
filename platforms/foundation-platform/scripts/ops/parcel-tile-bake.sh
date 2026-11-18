@@ -24,7 +24,9 @@
 #    `parcels` edit applied, committed to gold.parcel_boundary_served, and the v2 handoff parts.
 #    The run directory is recorded as ready; the last line is `changed`, which starts the bake.
 # bake:
-# 4. bake-lakehouse-tiles over the ready run: GDAL and tippecanoe in their capped containers, the
+# 4. bake-lakehouse-tiles over the ready run. Each 시도 is baked into the partition cache first; a
+#    run that reaches the contract's partition_run_budget_seconds ends `waiting` with the Gold still
+#    ready, and the next start continues (root ADR-0493). Then GDAL and tippecanoe in their capped containers, the
 #    archive gates, the first-release equivalence gate against the active release (ADR-0133 §4,
 #    ADR-0135, ADR-0251), the create-only upload and the promotion. A failure before the promotion
 #    changes nothing served. The edition is then recorded as baked.
@@ -169,6 +171,7 @@ on_error() {
 trap 'on_error ${LINENO}' ERR
 
 spark() {
+  lakehouse_run_log "${run_log}"
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${lakehouse_root}" \
   FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
   lakehouse_spark_run "foundation-parcel-tile-bake-${INVOCATION_ID}" -v "${scratch}:/scratch" \
@@ -290,6 +293,17 @@ if [[ "${ready_snapshot}" != "${snapshot}" ]]; then
   job_journal "${journal}" "nothing to do: the waiting Gold is ${ready_snapshot}, the contract's edition ${snapshot}"
   echo "foundation-job-outcome unchanged"; exit 0
 fi
+# Root ADR-0490 §6: the tiles of a promoted edition are released only once every Gold of the lockstep
+# barrier is built on it (scripts/ops/edition_lockstep_gate.py tiles), so the map and the by-PNU panels
+# move together. The Gold stays ready; the next start asks again. On a day without a promotion it is `ok`.
+if [[ "${MODE}" == bake ]]; then
+  lockstep="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/edition_lockstep_gate.py" tiles)" \
+    || { job_journal "${journal}" "refused: cannot tell whether every served-universe Gold is on ${snapshot}"; exit 65; }
+  if [[ "${lockstep}" == waiting* ]]; then
+    job_journal "${journal}" "${lockstep}"
+    echo "foundation-job-outcome ${lockstep}"; exit 0
+  fi
+fi
 run_log="${work}/bake.log"
 run_id="$(basename "${work}")"
 step=${SECONDS}
@@ -308,6 +322,13 @@ FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_CONTAINER_PROJECT="foundation-parcel-til
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_BUILD_IDEMPOTENCY_KEY="parcel-tile-bake-${run_id}-build" \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_PROMOTE_IDEMPOTENCY_KEY="parcel-tile-bake-${run_id}-promote" \
   "${PUBLISHER_BIN}" bake-lakehouse-tiles >>"${run_log}" 2>&1
+# Root ADR-0493: the run reached its partition budget before any Catalog or R2 write. The baked
+# partitions are in the cache; the Gold stays ready and the next start continues.
+deferred="$(tail -n 5 "${run_log}" | grep -oE 'lakehouse-tile-bake-deferred .*' | tail -1 || true)"
+if [[ -n "${deferred}" ]]; then
+  job_journal "${journal}" "deferred ${snapshot} after $((SECONDS - step))s: ${deferred}"
+  echo "foundation-job-outcome waiting ${deferred#lakehouse-tile-bake-deferred }"; exit 0
+fi
 result="$(grep -oE 'lakehouse-tile-bake-(ok|rehearsal).*' "${run_log}" | tail -1)"
 rm -f "${ready_file}"
 if ((rehearsal)); then

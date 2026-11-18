@@ -123,6 +123,7 @@ FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_OUTPUT="${work}/edits.jsonl" \
 
 container_work="/workspace/target/lakehouse/map-edit-fold/${UNIT}/${run_id}"
 # 한 번 쓰고 끝나는 초기화 컨테이너가 이름을 붙잡고 있으면 compose run 이 이름 충돌로 죽는다.
+lakehouse_run_log "${run_log}"
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
 lakehouse_spark_run foundation-platform-compute \

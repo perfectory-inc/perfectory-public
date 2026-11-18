@@ -186,6 +186,13 @@ def s3a_read_settings() -> dict[str, str]:
     }
 
 
+def _named_in_environment(reader: _EnvReader, name: str) -> str:
+    """`env:<name>`, once the variable is known to be set: the setting says where the secret is,
+    and the secret itself never enters the Spark configuration, its job properties or its logs."""
+    reader.require(name)
+    return f"env:{name}"
+
+
 def _assemble_catalog_settings(catalog: str, reader: _EnvReader) -> dict[str, str]:
     """The one place the settings are spelled. Everything else asks this."""
     catalog_uri = reader.require(CATALOG_URI_ENV)
@@ -196,7 +203,14 @@ def _assemble_catalog_settings(catalog: str, reader: _EnvReader) -> dict[str, st
         f"spark.sql.catalog.{catalog}.type": "rest",
         f"spark.sql.catalog.{catalog}.uri": catalog_uri,
         f"spark.sql.catalog.{catalog}.warehouse": reader.require(CATALOG_WAREHOUSE_ENV),
-        f"spark.sql.catalog.{catalog}.token": reader.require(CATALOG_TOKEN_ENV),
+        # The token is named, never carried: Iceberg's REST catalog resolves an `env:` value from
+        # the JVM's environment when it initializes (RESTSessionCatalog.initialize,
+        # EnvironmentUtil.resolveAll). Spark copies every `spark.*` SQL setting into each job's
+        # properties (SQLExecution.withSQLConfPropagated) and prints them unredacted when a
+        # listener takes over a second on a job start (ListenerBus redacts only the environment
+        # update): 2026-11-11 23:34Z..23:38Z the 실거래 Gold's run log held the writer token seven
+        # times, in a file every account on the host could read.
+        f"spark.sql.catalog.{catalog}.token": _named_in_environment(reader, CATALOG_TOKEN_ENV),
         # 자격증명을 카탈로그가 발급해 준다. 이것이 없으면 표는 열리는데 파일을 못 읽는다.
         f"spark.sql.catalog.{catalog}.header.X-Iceberg-Access-Delegation": "vended-credentials",
         f"spark.sql.catalog.{catalog}.s3.remote-signing-enabled": "false",
@@ -285,6 +299,17 @@ SHUFFLE_SETTINGS = {
     "spark.sql.adaptive.enabled": "true",
     "spark.sql.adaptive.coalescePartitions.enabled": "true",
     "spark.sql.shuffle.partitions": "400",
+}
+
+
+# No join is broadcast unless a job hints it. A broadcast hash relation is built outside Spark's
+# memory accounting and takes at least one page (spark.buffer.pageSize, 64 MiB at a 16g driver)
+# however few its rows, and a plan holds every relation of its stages at once. 2026-11-11 the
+# 실거래 Gold's first 시도 shard broadcast 341 such relations in 17 minutes (152 in one minute, 9.7
+# GiB) and died of heap with 422 page allocations refused; a sort-merge join spills instead.
+NO_AUTO_BROADCAST = {
+    "spark.sql.autoBroadcastJoinThreshold": "-1",
+    "spark.sql.adaptive.autoBroadcastJoinThreshold": "-1",
 }
 
 

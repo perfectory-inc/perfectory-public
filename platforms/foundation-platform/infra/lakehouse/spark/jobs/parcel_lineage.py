@@ -1,8 +1,11 @@
 """Parcel lineage kernels (root ADR-0113): which old parcel became which new parcel, and on what evidence.
 
 Everything here is pure Python over plain values so the lane that runs `infra/lakehouse/spark/tests`
-(no PySpark) exercises every rule; `parcel_lineage_to_silver.py` only feeds these functions from
-Silver and writes what they return.
+(no PySpark) exercises every rule. The scheduled derivation runs in DuckDB inside the publisher
+(`foundation-publisher-silver/src/parcel_lineage_stage/derive.sql`, root ADR-0559): the rules it applies
+(the 동 pairs, lots carried under a paired 동, the history texts, area and category) are written there, and
+`tests/test_parcel_lineage_duckdb_fixture.py` holds these kernels and that SQL to one fixture. The
+building-register, ownership and lot-order rules are only here: no scheduled run has fed them.
 
 Evidence is codes and official records only. Polygon overlap or containment is never evidence
 (ADR-0113 §4): a pair that only the geometry would suggest stays `pending`.
@@ -15,7 +18,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 
 import legal_dong_code_change_views as views
 
@@ -584,3 +587,132 @@ def cardinality(links: Sequence[Link]) -> dict[tuple[str, str], str]:
 
 def valid_pnu(pnu: str) -> bool:
     return bool(PNU_PATTERN.fullmatch(pnu))
+
+
+# --- what the readers of the lineage share ----------------------------------------------------
+
+IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SNAPSHOT_ID = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
+PREFIX = re.compile(r"^[0-9]{2}$")
+DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+
+
+def sql_prefixes(csv: str) -> str:
+    return ", ".join(f"'{p}'" for p in csv.split(","))
+
+
+# --- one derivation ---------------------------------------------------------------------------
+
+
+class UnrecordedDongCodes(ValueError):
+    """동 codes that held parcels before and none after, which the code change table does not pair
+    in the window: the derivation refuses (ADR-0145 §2). `codes` names them all, for the alert."""
+
+    def __init__(self, message: str, codes: list[str]):
+        super().__init__(message)
+        self.codes = codes
+
+
+def derive(
+    before_raw: set[str],
+    after_raw: set[str],
+    changes: list[dict[str, object]],
+    events: set[MovementEvent],
+    from_date: str,
+    to_date: str,
+    facts_before: Callable[[set[str]], Iterable[MovementEvent]],
+    buildings_before: dict[str, str],
+    buildings_after: dict[str, str],
+    ownership_old: dict[str, dict[str, object]],
+    facts_new: dict[str, dict[str, object]],
+) -> tuple[list[Link], dict[str, object]]:
+    """Every rule of ADR-0113 §4·§5 in order; returns the links and the summary facts.
+
+    `events` are the window's events the rules read (merge, split, conversion text and jurisdiction
+    transfers); `facts_before(pnus)` returns the latest pre-window events of the parcels the attribute
+    rule needs, so the whole history never has to be held at once.
+    """
+
+    before, bad_before = partition_valid(before_raw)
+    after, bad_after = partition_valid(after_raw)
+    lots_before, lots_after = lots_by_dong(before), lots_by_dong(after)
+    pairing = dong_pairing_from_changes(changes, lots_before, lots_after, from_date, to_date)
+    if pairing.unrecorded:
+        # Writing on would carry none of their lots by code and still report a run (ADR-0145 §2).
+        raise UnrecordedDongCodes(
+            f"{len(pairing.unrecorded)} legal dong codes held parcels at {from_date} and none at {to_date}, and the "
+            f"code change table records no pair for them effective in that window: {pairing.unrecorded[:10]}. "
+            "Record the change (legal_dong_code_change_pairs.py) before deriving the lineage.",
+            sorted(pairing.unrecorded),
+        )
+    code_links, vanished, appeared = carry_over(before, after, pairing)
+    history = history_links(events, from_date, to_date, pairing)
+    moved_in = transferred_in(events, from_date, to_date) & appeared
+    building = building_links(
+        {k: pairing.to_old(p) for k, p in buildings_before.items()},
+        {k: pairing.to_new(p) for k, p in buildings_after.items()},
+        vanished,
+        appeared,
+    )
+    pool = unexplained(vanished, history + building)
+    latest: dict[str, MovementEvent] = {}
+    for e in facts_before(pool):
+        q = pairing.to_old(e.pnu)
+        if q in pool and e.moved_at < from_date and (q not in latest or e.moved_at >= latest[q].moved_at):
+            latest[q] = e
+    old_facts = {
+        p: ParcelFacts(
+            str(e.area_m2),
+            e.land_category_code,
+            (ownership_old.get(p) or {}).get("owner_kind"),
+            (ownership_old.get(p) or {}).get("co_owner_count"),
+        )
+        for p, e in latest.items()
+    }
+    new_latest: dict[str, MovementEvent] = {}
+    for e in events:
+        if e.pnu in moved_in and (e.pnu not in new_latest or e.moved_at >= new_latest[e.pnu].moved_at):
+            new_latest[e.pnu] = e
+    new_facts = {}
+    for p in moved_in:
+        f = facts_new.get(p) or {}
+        e = new_latest.get(p)
+        new_facts[p] = ParcelFacts(
+            str(f.get("area_m2", e.area_m2 if e else "")),
+            str(f.get("land_category_code", e.land_category_code if e else "")),
+            f.get("owner_kind"),
+            f.get("co_owner_count"),
+        )
+    already = {link.successor_pnu for link in building}
+    attribute = attribute_links(old_facts, {p: v for p, v in new_facts.items() if p not in already}, "jurisdiction_transfer")
+    anchors = {
+        link.successor_pnu: link.predecessor_pnu
+        for link in building + attribute
+        if link.predecessor_pnu and link.grade in ("code_derived", "evidence_strong")
+    }
+    ordered = lot_order_links(
+        anchors,
+        [p for p in moved_in if p not in anchors],
+        [p for p in old_facts if p not in set(anchors.values())],
+        new_facts,
+        old_facts,
+        "jurisdiction_transfer",
+    )
+    links = code_links + history + building + attribute + ordered
+    best, conflicts = effective_links(links)
+    rec = reconcile(before, after, vanished, appeared, links)
+    summary = {
+        "reconciliation": rec.as_dict(),
+        "malformed_source_pnus": {"before": sorted(bad_before)[:20], "after": sorted(bad_after)[:20], "count": len(bad_before) + len(bad_after)},
+        "dongs": {"paired": len(pairing.pairs), "how": dict(collections.Counter(pairing.how.values())), "unpaired": pairing.unpaired},
+        "split_signals": {c: round(pairing.lot_overlap[c], 4) for c in pairing.split_signals()},
+        "links_by_relation": dict(collections.Counter(link.relation for link in links)),
+        "links_by_grade": dict(collections.Counter(link.grade for link in links)),
+        "transferred_in": len(moved_in),
+        "effective_grade_of_transferred_in": dict(collections.Counter(best[p].grade if p in best else "none" for p in moved_in)),
+        "identity_conflicts": [
+            {"successor": a.successor_pnu, "kept": [a.predecessor_pnu, a.grade], "other": [b.predecessor_pnu, b.grade]} for a, b in conflicts[:50]
+        ],
+        "identity_conflict_count": len(conflicts),
+    }
+    return links, summary

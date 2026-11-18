@@ -55,31 +55,21 @@ def _sql_name(column):
 def current_rows_sql(table, columns):
     """SELECT of `columns` from `table`'s current rows, as its lakehouse contract defines them.
 
-    The rule platform_contracts.current_rows applies in Spark, in Trino SQL: the newest row per
-    `current_row_latest.key` by `newest_first` (nulls last), every tied row kept (a check counts ties;
-    it does not refuse them as a reader does), then rows whose removal column says REMOVED dropped.
-    A table whose contract selects by a predicate or by edition has no translation here yet: refused,
-    never guessed.
+    The rule platform_contracts.current_rows applies in Spark, as the contract artifact renders it
+    once for every SQL reader (platform_contracts.current_rows_sql, root ADR-0564 §4): the contract's
+    predicate, the newest row per `current_row_latest.key` by `newest_first` (nulls last), every tied
+    row kept (a check counts ties; it does not refuse them as a reader does), then rows whose removal
+    column says REMOVED dropped. A table read by edition has no translation yet: refused, never guessed.
     """
     contract = platform_contracts.load_lakehouse_contract(table)
-    if platform_contracts.current_row_predicate(contract) is not None:
-        raise ValueError(f"{table}: a current-row predicate has no Trino translation yet")
     if platform_contracts.row_versions(contract)["kind"] == "editions":
         raise ValueError(f"{table}: an edition table has no Trino translation yet")
-    latest = platform_contracts.current_row_latest(contract)
-    selected = ", ".join(_sql_name(column) for column in columns)
-    if latest is None:
-        return f"SELECT {selected} FROM {_qualified(table)}"
-    key = ", ".join(_sql_name(column) for column in latest.key)
-    order = ", ".join(f"{_sql_name(column)} DESC NULLS LAST" for column in latest.newest_first)
-    removal = latest.removal_column
-    inner = list(dict.fromkeys([*columns, *([removal] if removal else [])]))
-    sql = (f"SELECT {selected} FROM (SELECT {', '.join(_sql_name(c) for c in inner)}, "
-           f"rank() OVER (PARTITION BY {key} ORDER BY {order}) AS current_rank FROM {_qualified(table)}) "
-           "WHERE current_rank = 1")
-    if removal:
-        sql += f" AND ({_sql_name(removal)} IS NULL OR {_sql_name(removal)} <> '{platform_contracts.REMOVED}')"
-    return sql
+    selected = [_sql_name(column) for column in columns]
+    if platform_contracts.current_row_latest(contract) is None:
+        if platform_contracts.current_row_predicate(contract) is not None:
+            raise ValueError(f"{table}: a current-row predicate alone has no Trino translation yet")
+        return f"SELECT {', '.join(selected)} FROM {_qualified(table)}"
+    return platform_contracts.current_rows_sql(contract, _qualified(table), selected)
 
 
 def key_unique_sql(table):

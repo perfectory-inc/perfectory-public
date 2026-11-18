@@ -162,9 +162,10 @@ class Reconciler(unittest.TestCase):
             self.assertFalse(published("parcel-nearby"))
 
     def test_the_assets_are_those_the_reconciler_names_each_one_asset(self):
-        # The court auction Gold and its bake join when they are switched on (root ADR-0353, ADR-0386 §3).
+        # The court auction Gold and its bake join when they are switched on (root ADR-0353, ADR-0386 §3),
+        # and the parcel-nearby bake again when its DuckDB-born Gold switches it back on (W83b).
         self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake",
-                                            "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake",
+                                            "by_pnu_parcel_building_permits_bake",
                                             *(f"by_pnu_parcel_{kind}_bake" for kind in (
                                                 "ownership", "sub_parcels", "energy", "demolitions", "factories",
                                                 "register_masters", "real_transaction"))})
@@ -452,7 +453,7 @@ class Reconciler(unittest.TestCase):
         self.assertNotEqual(forward, owed)
 
     def behind(self, metrics, lane):
-        found = [line for line in metrics if line.startswith(f'foundation_by_pnu_lane_behind_seconds{{lane="{lane}"}} ')]
+        found = [line for line in metrics if line.startswith(f'foundation_by_pnu_lane_behind_seconds{{lane="{lane}",')]
         return float(found[0].split()[-1]) if found else None
 
     def test_2026_11_07_a_lane_serving_its_newest_inputs_is_not_behind_however_old_its_manifest(self):
@@ -730,6 +731,47 @@ class QueuedStarts(unittest.TestCase):
             self.assertIsInstance(entry.get("queue_wait_budget_minutes"), int, name)
 
 
+class CapacityClaims(unittest.TestCase):
+    """Root ADR-0462: a claim holds its pool only for a Spark step. The reconciler counts, under each
+    live claim, the units it holds the pool for (the pool's jobs it waits for and its own Spark steps'
+    units, `work_units`), and FoundationCapacityClaimHeldWithoutSpark fires on a claim none of them runs (root ADR-0521)
+    under (2026-11-09 06:13Z..07:10Z a cut-over's claim held through a latency step)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+
+    def claim(self):
+        return {"claimant": "by_pnu_lane_cutover", "unit": "foundation-by-pnu-lane-cutover-g1.service",
+                "since": T0 - 1800, "pool": "spark", "slots": 3, "priority": 500, "priority_class": "first_publish"}
+
+    def test_a_claim_counts_its_gold_step_and_the_pool_jobs_it_waits_for(self):
+        asked = []
+
+        def running(patterns):
+            asked.append(patterns)
+            return {"foundation-gold-panel-rebuild-unconditional.service": "activating"}
+
+        metrics = asset_reconcile.claim_metrics(T0, self.jobs, [self.claim()], running)
+        labels = 'claimant="by_pnu_lane_cutover",pool="spark",priority_class="first_publish"'
+        self.assertIn(f"foundation_capacity_claim_age_seconds{{{labels}}} 1800", metrics)
+        self.assertIn(f"foundation_capacity_claim_work_units{{{labels}}} 1", metrics)
+        (patterns,) = asked
+        self.assertIn("foundation-gold-panel-rebuild-unconditional.service", patterns)
+        self.assertIn("foundation-*-pack-bake-g*.service", patterns)
+        self.assertIn("foundation-zoning-tile-bake.service", patterns, "a spark-pool job it waits for")
+        self.assertIn("foundation-silver-refresh@*.service", patterns)
+
+    def test_a_claim_with_no_work_running_reads_zero_and_alerts(self):
+        metrics = asset_reconcile.claim_metrics(T0, self.jobs, [self.claim()], lambda patterns: {})
+        self.assertIn('foundation_capacity_claim_work_units{claimant="by_pnu_lane_cutover",pool="spark",'
+                      'priority_class="first_publish"} 0', metrics)
+        self.assertEqual(asset_reconcile.claim_metrics(T0, self.jobs, [], lambda patterns: {}), [])
+        rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
+        self.assertIn("alert: FoundationCapacityClaimHeldWithoutSpark", rules)
+        self.assertIn("expr: foundation_capacity_claim_work_units == 0", rules)
+
+
 class MissedStarts(unittest.TestCase):
     """Root ADR-0467, the 2026-11-09 11:40Z replay: data_go_kr_file_data's first run was refused by the
     spark pool before the start queue was deployed (14:42Z), nothing held the refusal, and its next try
@@ -792,6 +834,56 @@ class MissedStarts(unittest.TestCase):
         self.assertFalse({line.split()[1] for line in owed} & set(turns))
 
 
+class CodeChangedStarts(unittest.TestCase):
+    """Root ADR-0499, the 2026-11-10 replay: data_go_kr_file_data failed at 11:42Z on a CSV escape, the
+    fix (#1230) deployed at 13:42Z, and the job waited for 11-11 11:40Z. A failed run whose code version
+    the running release no longer has is owed one start; the same failure under the same version, never
+    again."""
+
+    JOB = "data_go_kr_file_data"
+    FAILED_AT = 1794310932  # 2026-11-10T11:42:12Z
+    OLD, NEW = "a" * 64, "b" * 64
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+        cls.reconciler = next(job for job in cls.jobs["jobs"] if job["id"] == asset_reconcile.RECONCILER)
+
+    def owed(self, ran, version=NEW, queued=(), paused=(), running=False):
+        owed = asset_reconcile.code_changed_starts(self.jobs, self.reconciler, {self.JOB: ran}, lambda job: version,
+                                                   dict.fromkeys(queued, {}), lambda job: job in paused,
+                                                   lambda service: running)
+        return [line for line in owed if line.split()[1] == self.JOB]
+
+    def failed(self, version=OLD):
+        return {"outcome": "failed", "at": self.FAILED_AT, "code_version": version}
+
+    def test_a_failure_under_code_the_release_changed_is_started_once(self):
+        (line,) = self.owed(self.failed())
+        self.assertEqual(job_specs.owed_runs(line, (self.JOB,)), [(self.JOB, line.split()[2])])
+        self.assertEqual(self.owed(self.failed()), [line], "every tick keys it the same: the DAG starts it once")
+        self.assertNotEqual(self.owed(self.failed(), version="c" * 64), [line], "a further fix is a new start")
+
+    def test_the_same_code_a_success_or_a_line_without_a_version_owes_nothing(self):
+        self.assertEqual(self.owed(self.failed(self.NEW)), [], "it failed under this very code: no loop")
+        self.assertEqual(self.owed({"outcome": "changed", "at": self.FAILED_AT}), [])
+        self.assertEqual(self.owed({"outcome": "failed", "at": self.FAILED_AT}), [], "a line from before versions")
+        self.assertEqual(self.owed({}), [])
+
+    def test_what_another_rule_owns_or_that_runs_is_left_alone(self):
+        for case in ({"queued": [self.JOB]}, {"paused": [self.JOB]}, {"running": True}):
+            with self.subTest(**{key: str(value) for key, value in case.items()}):
+                self.assertEqual(self.owed(self.failed(), **case), [])
+
+    def test_only_the_jobs_the_reconciler_starts_again_and_never_a_takes_turns_one(self):
+        ran = {job["id"]: self.failed() for job in self.jobs["jobs"]}
+        owed = asset_reconcile.code_changed_starts(self.jobs, self.reconciler, ran, lambda job: self.NEW, {},
+                                                   lambda job: False, lambda service: False)
+        named = {line.split()[1] for line in owed}
+        self.assertEqual(named, set(job_specs.requeued(self.jobs, self.reconciler))
+                         - {job["id"] for job in self.jobs["jobs"] if job.get("takes_turns")})
+
+
 class FollowGate(unittest.TestCase):
     """scripts/ops/lane_follow_gate.py: the unit price lane bakes only a Gold built from the registers
     the building Gold the building lane serves was built from (root ADR-0190, ADR-0333)."""
@@ -831,3 +923,80 @@ class FollowGate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ServedSurfaces(unittest.TestCase):
+    """Root ADR-0522. 2026-11-11 parcel-nearby and parcel-real-transaction were registered lanes with
+    enabled bakes and no serving monitor, so no series named them; and no tile layer had a freshness
+    series: the parcels unit served a 2026-09-28 release while its Gold had changed since 10-15."""
+
+    INDEX = {
+        "lanes": [
+            {"lane": "parcel-nearby", "bake_jobs": [{"id": "nearby_bake"}]},
+            {"lane": "parcel-court-auction", "bake_jobs": [{"id": "court_bake"}]},
+        ],
+        "tile_units": [
+            {"unit": "parcels", "snapshot_table": "gold.parcels"},
+            {"unit": "admin", "snapshot_table": "gold.admin"},
+            {"unit": "complex", "snapshot_table": "gold.complex"},
+            {"unit": "zoning", "snapshot_table": "silver.zoning"},
+        ],
+    }
+    JOBS = {"jobs": [
+        {"id": "nearby_bake", "enabled": True, "enabled_since": "2026-11-09T18:00:00Z"},
+        {"id": "court_bake", "enabled": False},
+    ]}
+    TABLES = {
+        # Served 1, then a row change at minute 10 and a compaction at 20.
+        "gold.parcels": table(snap("1", None, 0), snap("2", "1", 10), snap("3", "2", 20, operation="replace", added=0)),
+        # Served its head.
+        "gold.admin": table(snap("7", None, 0)),
+        # The served snapshot expired: the oldest kept change (minute 30) is a lower bound.
+        "gold.complex": table(snap("9", "8", 30), snap("10", "9", 40)),
+    }
+
+    def lines(self, units, now=T0 + 3600):
+        def read(name):
+            if name not in self.TABLES:
+                raise OSError(f"no {name}")
+            return self.TABLES[name]
+        return asset_reconcile.served_surfaces(now, self.INDEX, self.JOBS, 48, read, units)
+
+    def manifest(self, **served):
+        return lambda: {"publication_units": {key: {"canonical_iceberg_snapshot_id": value} for key, value in served.items()}}
+
+    def test_every_lane_says_since_when_it_is_meant_to_be_served(self):
+        lines = self.lines(self.manifest())
+        self.assertIn("foundation_serving_freshness_budget_seconds 172800", lines)
+        self.assertIn('foundation_by_pnu_lane_registered_since_timestamp_seconds{lane="parcel-nearby"} 1794247200', lines)
+        # No enabled bake: an unmeasured lane is said at once.
+        self.assertIn('foundation_by_pnu_lane_registered_since_timestamp_seconds{lane="parcel-court-auction"} 0', lines)
+
+    def test_a_tile_unit_is_behind_since_the_oldest_change_its_release_does_not_serve(self):
+        lines = self.lines(self.manifest(parcels="1", admin="7", complex="5", zoning="1"))
+        self.assertIn('foundation_tile_unit_behind_seconds{unit="parcels"} 3000', lines)
+        self.assertIn('foundation_tile_unit_behind_seconds{unit="admin"} 0', lines)
+        self.assertIn('foundation_tile_unit_behind_seconds{unit="complex"} 1800', lines)
+        # Its snapshot table unreadable: served, but no data time.
+        self.assertIn('foundation_tile_unit_served{unit="zoning"} 1', lines)
+        self.assertFalse(any(line.startswith('foundation_tile_unit_behind_seconds{unit="zoning"}') for line in lines))
+
+    def test_a_unit_the_runtime_manifest_lacks_is_not_served(self):
+        lines = self.lines(self.manifest(admin="7"))
+        self.assertIn('foundation_tile_unit_served{unit="parcels"} 0', lines)
+        self.assertIn('foundation_tile_unit_served{unit="admin"} 1', lines)
+
+    def test_an_unreadable_runtime_manifest_measures_no_unit_and_keeps_the_lanes(self):
+        def broken():
+            raise OSError("connection refused")
+        lines = self.lines(broken)
+        self.assertFalse(any(line.startswith("foundation_tile_unit_") for line in lines))
+        self.assertTrue(any(line.startswith("foundation_by_pnu_lane_registered_since") for line in lines))
+
+    def test_the_real_index_names_every_tiles_surface_and_its_route_resolves(self):
+        index = json.loads(asset_reconcile.LANE_INDEX.read_text(encoding="utf-8"))
+        graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+        tiles = {node["id"] for node in graph["nodes"] if node.get("surface_kind") == "tiles"}
+        self.assertEqual({unit["serving_node"] for unit in index["tile_units"]}, tiles)
+        self.assertEqual(len({unit["unit"] for unit in index["tile_units"]}), len(tiles))
+        self.assertTrue(callable(asset_reconcile.runtime_manifest_reader()))

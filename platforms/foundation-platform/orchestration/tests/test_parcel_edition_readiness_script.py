@@ -54,6 +54,7 @@ class ReadinessScriptTest(unittest.TestCase):
                 "FOUNDATION_VWORLD_PARCEL_EDITION_STATE_ROOT": str(root / "absent"),
                 "FOUNDATION_PARCEL_TILE_BAKE_STATE_ROOT": str(root / "absent"),
                 "FOUNDATION_PLATFORM_JOB_SWITCHES_DIR": str(root / "switches"),
+                "VWORLD_PARCEL_PROMOTIONS_LEDGER": str(root / "editions" / "served-ledger.jsonl"),
             }
             done = subprocess.run([shutil.which("bash"), SCRIPT.as_posix()], env=env, capture_output=True, text=True, timeout=120)
             report = json.loads(out.read_text(encoding="utf-8")) if out.is_file() else {}

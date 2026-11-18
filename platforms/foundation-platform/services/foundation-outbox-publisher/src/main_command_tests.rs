@@ -120,6 +120,18 @@ fn unit_official_price_projection_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn real_estate_broker_lookup_load_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-real-estate-broker-lookup"
+        ])?,
+        Command::LoadRealEstateBrokerLookup
+    );
+    Ok(())
+}
+
+#[test]
 fn lineage_review_load_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "load-lineage-review-items"])?,
@@ -150,10 +162,23 @@ fn staging_namespace_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "derive-parcel-lineage"])?,
+        Command::DeriveParcelLineage
+    );
+    Ok(())
+}
+
+#[test]
 fn lineage_steward_fold_commands_are_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "export-lineage-steward-fold"])?,
         Command::ExportLineageStewardFold
+    );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "append-lineage-steward-fold"])?,
+        Command::AppendLineageStewardFold
     );
     assert_eq!(
         parse_command([
@@ -192,6 +217,18 @@ fn permit_basis_streaming_export_command_is_explicit() -> anyhow::Result<()> {
             "export-building-permit-basis-outline-silver-handoff"
         ])?,
         Command::ExportBuildingPermitBasisOutlineSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
+fn housing_permit_basis_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-housing-permit-basis-outline-silver-handoff"
+        ])?,
+        Command::ExportHousingPermitBasisOutlineSilverHandoff
     );
     Ok(())
 }
@@ -554,6 +591,18 @@ fn write_r2_bronze_key_cleanup_candidates_command_is_explicit() -> anyhow::Resul
             "write-r2-bronze-key-cleanup-candidates"
         ])?,
         Command::WriteR2BronzeKeyCleanupCandidates
+    );
+    Ok(())
+}
+
+#[test]
+fn verify_lakehouse_engine_extensions_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "verify-lakehouse-engine-extensions"
+        ])?,
+        Command::VerifyLakehouseEngineExtensions
     );
     Ok(())
 }
@@ -1057,6 +1106,30 @@ fn media_ladder_backlog_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "media-ladder-backlog"])?,
         Command::MediaLadderBacklog
+    );
+    Ok(())
+}
+
+#[test]
+fn real_estate_broker_office_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-real-estate-broker-office-silver-handoff"
+        ])?,
+        Command::ExportRealEstateBrokerOfficeSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
+fn real_estate_broker_member_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-real-estate-broker-member-silver-handoff"
+        ])?,
+        Command::ExportRealEstateBrokerMemberSilverHandoff
     );
     Ok(())
 }

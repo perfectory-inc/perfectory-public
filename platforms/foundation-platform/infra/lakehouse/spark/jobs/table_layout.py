@@ -24,3 +24,15 @@ def region_read_share(bounds: list[tuple[str, str]], digits: int) -> float:
     if len(spans) < 2 or not regions:
         return 0.0
     return sum(sum(low <= region <= high for low, high in spans) for region in regions) / (len(regions) * len(spans))
+
+
+def read_share_limit(files: int) -> float:
+    """The share past which `files` data files are out of order: REGION_READ_SHARE_LIMIT, or what a
+    table in perfect key order reaches with that many files, whichever is higher.
+
+    Files in key order meet where one region ends and the next begins, and a region a split falls in
+    is read from both files: n ordered files name n + 1 regions, and n - 1 of them open two files, so
+    the measure is 2 / (n + 1). 2026-11-13 gold.parcel_real_transaction, range-written and compacted in
+    pnu order into 2 files, measured 67% and the shape-ledger check failed it at every run; maintenance
+    could not do better. Files that each span the country still measure 100%."""
+    return max(REGION_READ_SHARE_LIMIT, 2 / (files + 1)) if files > 1 else 1.0

@@ -19,8 +19,10 @@ not. A stage the evidence says nothing about fails: unmeasured is not ready.
 changes, and otherwise moves `served_edition` and appends the promotion — who, why, when, and the
 readiness it rested on — to the contract's `promotions` ledger, which is never rewritten
 (`vworld_parcel_editions.validate` refuses a served edition the ledger's last entry does not name).
-The contract change still lands through a reviewed pull request, so the gate holds from the moment
-it merges, not one deploy later.
+`grant` answers the console's requests and the judgement's own (root ADR-0490 §5). A granted promotion
+takes effect when it is appended to the host promotions ledger (`host_promotions_ledger`), which every
+reader lays over the contract; nobody writes a pull request for it. A reviewed change may still copy it
+into the contract's own ledger.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -395,24 +398,55 @@ def controller_request(contract: Mapping[str, Any], report: Mapping[str, Any], n
             "job": PROMOTION_JOB, "expires_at": _iso(now + timedelta(hours=1)), "edition": name}
 
 
+def append_promotion(ledger: Path, promoted: Mapping[str, Any]) -> None:
+    """Adds `promoted`'s last promotion to the host ledger (root ADR-0490 §5). The whole file is written
+    beside it and renamed over it, so a reader sees the ledger before or after, never half a line. It is
+    world-readable: the Spark containers read it as their own user through a read-only mount."""
+
+    held = ledger.read_text(encoding="utf-8") if ledger.is_file() else ""
+    if held and not held.endswith("\n"):
+        held += "\n"
+    temporary = ledger.with_name(f".{ledger.name}.partial")
+    with temporary.open("w", encoding="utf-8", newline="\n") as out:
+        out.write(held + json.dumps(promoted["promotions"][-1], ensure_ascii=False, sort_keys=True) + "\n")
+        out.flush()
+        os.fsync(out.fileno())
+    temporary.chmod(0o644)
+    temporary.replace(ledger)
+
+
 def grant(contract: Mapping[str, Any], report_path: Path, requests: Path, answers: Path,
-          controller: bool = False) -> list[str]:
+          controller: bool = False, ledger: Path | None = None) -> list[str]:
     """Answers every request in `requests` that `answers` does not hold yet, each once, and lists every
     answer in the report under `promotion_requests`. With `controller`, the judgement's own request for
-    the newest ready edition is answered the same way, once. Returns the ids answered now."""
+    the newest ready edition is answered the same way, once. Returns the ids answered now.
+
+    With `ledger`, a granted promotion takes effect: it is appended to the host ledger every reader lays
+    over the contract (root ADR-0490 §5). The requests after it in the same run are judged against the
+    promoted contract, so the report, made from the one before, is refused as made from another: one
+    promotion a run. Without `ledger` the granted contract waits under `answers` for a reviewed change."""
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     answers.mkdir(parents=True, exist_ok=True)
     answered = []
-    own = controller_request(contract, report) if controller else None
-    if own is not None and not (answers / f"{own['request']}.json").exists():
-        record, promoted = answer(contract, report, own)
+
+    def take(name: str, record: dict[str, Any], promoted: dict[str, Any] | None) -> None:
+        nonlocal contract
         if promoted is not None:
-            target = answers / f"{own['request']}.contract.json"
+            target = answers / f"{name}.contract.json"
             target.write_text(json.dumps(promoted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             record["contract"] = str(target)
-        (answers / f"{own['request']}.json").write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
-        answered.append(own["request"])
+            if ledger is not None:
+                append_promotion(ledger, promoted)
+                record["served_from"] = str(ledger)
+                contract = promoted
+        # The answer is written last and once: a run that dies before it answers again, never twice.
+        (answers / f"{name}.json").write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+        answered.append(name)
+
+    own = controller_request(contract, report) if controller else None
+    if own is not None and not (answers / f"{own['request']}.json").exists():
+        take(own["request"], *answer(contract, report, own))
     for path in sorted(requests.glob("*")) if requests.is_dir() else []:
         if not path.is_file() or path.name.endswith(".partial") or (answers / f"{path.name}.json").exists():
             continue
@@ -422,13 +456,7 @@ def grant(contract: Mapping[str, Any], report_path: Path, requests: Path, answer
             record, promoted = {"request": path.name, "outcome": f"refused: {error}", "answered_at": _iso(_now())}, None
         else:
             record, promoted = answer(contract, report, request)
-        if promoted is not None:
-            target = answers / f"{path.name}.contract.json"
-            target.write_text(json.dumps(promoted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            record["contract"] = str(target)
-        # The answer is written last and once: a run that dies before it answers again, never twice.
-        (answers / f"{path.name}.json").write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
-        answered.append(path.name)
+        take(path.name, record, promoted)
     report["promotion_requests"] = sorted(
         (json.loads(path.read_text(encoding="utf-8")) for path in answers.glob("*.json")
          if not path.name.endswith(".contract.json")),
@@ -457,6 +485,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--journal", help="evidence: the parcel tile bake's journal")
     parser.add_argument("--requests", help="grant: the console's promotion requests (switches/promote.d)")
     parser.add_argument("--answers", help="grant: where each answer and granted contract is kept")
+    parser.add_argument("--ledger", help="grant: the host promotions ledger a granted promotion is appended to, "
+                                         "which serves it (root ADR-0490 §5); without it the granted contract waits for a pull request")
     parser.add_argument("--controller", action="store_true",
                         help="grant: also promote the newest ready edition on the judgement's own request (ADR-0490 §5)")
     parser.add_argument("--previous", help="readiness: the report the last run wrote, if any")
@@ -509,7 +539,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "grant":
             if not args.requests or not args.answers:
                 raise editions.EditionError("grant needs --requests and --answers")
-            answered = grant(contract, Path(args.report), Path(args.requests), Path(args.answers), args.controller)
+            answered = grant(contract, Path(args.report), Path(args.requests), Path(args.answers), args.controller,
+                             Path(args.ledger) if args.ledger else None)
             print(",".join(answered))
             return 0
         report = json.loads(Path(args.report).read_text(encoding="utf-8"))

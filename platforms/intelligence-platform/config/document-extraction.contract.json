@@ -48,7 +48,8 @@
         "hand_checked_sample_min": 30,
         "min_precision": 0.98,
         "measured": [
-          {"fact_kind": "land_use_area", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 30, "measured_on": "2026-11-11"},
+          {"fact_kind": "land_use_area", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 21, "measured_on": "2026-11-13",
+           "note": "운영 표에서 새로 뽑은 표본(사실 141 개·문서 11 건 중 30 개, 2026-11-13 run). 값을 쪽 텍스트의 표와 대조했다(쪽 그림 대조가 아니다). 틀린 9 개는 문서 2 건에 몰려 있다: (1) 단계별 토지이용계획 표(합계·1단계·2단계 열)에서 단지 전체가 아니라 단계 열을 읽었고 기정 표의 값도 섞였다, (2) 공원 세부시설 조서(시설명·부호·부지면적)를 토지이용계획 표로 읽었다. 두 표 모두 자기 합계로는 닫혀서 table_total 검산을 지난다. 그 두 문서의 사실은 전체 141 개 중 36 개다. 2026-11-11 의 30/30 은 표본 97 문서(노트북)에서 잰 값이었다. 규칙을 고친 뒤 새 표본으로 다시 잰다."},
           {"fact_kind": "invited_industry", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 30, "measured_on": "2026-11-11"},
           {"fact_kind": "parcel_lot", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 30, "measured_on": "2026-11-11"}
         ]
@@ -86,5 +87,22 @@
     "ocr_timeout_seconds_per_page": 60,
     "per_run_limit": 400,
     "run_time_budget_seconds": 3300
+  },
+  "containers_means": "The containers the host's document jobs start themselves (root ADR-0477 §6, ADR-0455): their image, their cap and why. foundation's memory budget reads memory_limit from here (definitions/intelligence-documents.definition.json host_memory, the guard every-container-has-a-memory-cap.sh); the job scripts read the rest. One at a time, after the Spark plan step and before the Spark append.",
+  "containers": {
+    "document_text": {
+      "image": "intelligence-document-text:local",
+      "image_from": "the release's own build of jobs/document_text/Dockerfile (compose.document-jobs.yml), tagged by the release admission like every compose image (root ADR-0276 §13)",
+      "memory_limit": "2g",
+      "memory_reason": "1.5 x the measured peak, rounded up (root ADR-0455 §3): the run process 486 MiB plus its largest tool process 777 MiB (LibreOffice or ocrmypdf), 97 attachments on 2026-11-11 (root ADR-0477, Consequences). Raising ocr_jobs means measuring again.",
+      "cpus": 4,
+      "cpus_reason": "ocr_jobs Tesseract processes; the text-layer pages need one."
+    },
+    "media_fetch": {
+      "image": "amazon/aws-cli:2.17.0",
+      "image_digest_from": "tools/technology-versions.contract.json",
+      "memory_limit": "512m",
+      "memory_reason": "Measured on ai-server 2026-10-18 (cgroup v2, the parcel-number-change collector's same image): anonymous memory peaked at 133 MiB over s3 cp of 1 GiB; the rest is reclaimable page cache."
+    }
   }
 }

@@ -163,3 +163,46 @@ fn refuses_a_source_over_the_pixel_cap_and_bytes_that_are_not_an_image() {
     ));
     assert_eq!(dimensions(b"<html>gone</html>"), None);
 }
+
+fn encoded(format: image::ImageFormat, width: u32, height: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(width, height, |x, y| {
+        image::Rgb([
+            u8::try_from(x % 256).unwrap_or(0),
+            u8::try_from(y % 256).unwrap_or(0),
+            40,
+        ])
+    });
+    let mut out = Vec::new();
+    DynamicImage::ImageRgb8(image)
+        .write_to(&mut Cursor::new(&mut out), format)
+        .unwrap_or_default();
+    out
+}
+
+#[test]
+fn a_bitmap_and_a_tiff_give_a_ladder_and_a_lossless_png_master() -> Result<(), RenderError> {
+    for format in [image::ImageFormat::Bmp, image::ImageFormat::Tiff] {
+        let source = encoded(format, 90, 60);
+        assert_eq!(dimensions(&source), Some((90, 60)), "{format:?}");
+        let rendered = render(&source, &spec(&[40]))?;
+        assert_eq!((rendered.source_width, rendered.source_height), (90, 60));
+        assert_eq!(rendered.renditions.len(), 2);
+        let master = display_master(&source, 10_000)?;
+        assert_eq!(MediaFormat::sniff(&master), Some(MediaFormat::Png));
+        // Lossless: the master's pixels are the source's.
+        let pixels = |bytes: &[u8]| image::load_from_memory(bytes).map(|image| image.to_rgb8());
+        assert_eq!(pixels(&master)?, pixels(&source)?, "{format:?}");
+        // The same pixels give the same bytes, so a re-seen source is a dedup.
+        assert_eq!(display_master(&source, 10_000)?, master);
+    }
+    Ok(())
+}
+
+#[test]
+fn a_master_over_the_pixel_cap_is_refused() {
+    let source = encoded(image::ImageFormat::Bmp, 200, 200);
+    assert!(matches!(
+        display_master(&source, 10_000),
+        Err(RenderError::TooLarge { .. })
+    ));
+}

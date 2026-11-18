@@ -29,6 +29,8 @@ class Port:
     api_key: str | None
     reasoning_effort: str | None
     timeout: int
+    # When the run's budget ends (time.monotonic()); no call starts after it and none outlasts it.
+    deadline: float | None = None
 
     @classmethod
     def from_env(cls, timeout: int, env: dict | None = None) -> "Port | None":
@@ -62,7 +64,13 @@ class Port:
             headers["authorization"] = f"Bearer {self.api_key}"
         request = urllib.request.Request(self.base_url + self.chat_path, data=json.dumps(body).encode(), headers=headers)
         started = time.monotonic()
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        timeout = self.timeout
+        if self.deadline is not None:
+            left = self.deadline - started
+            if left <= 0:
+                raise TimeoutError("the run's time budget is spent")
+            timeout = min(timeout, left)
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             answer = json.loads(response.read())
         return answer["choices"][0]["message"].get("content") or "", time.monotonic() - started
 

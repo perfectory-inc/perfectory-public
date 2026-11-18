@@ -60,7 +60,12 @@ conditional_steps := {
 	["Save sqlx-cli", main_only_if],
 	["Fill pinned release binaries", cache_writer_if],
 	["Save pinned release binaries", cache_writer_if],
+	["Restore apt package cache", foundation_gate_if],
+	["Save apt package cache", apt_cache_save_if],
 }
+
+# scripts/ci/apt-install.sh asks for a save only when it downloaded a set the restored cache lacked.
+apt_cache_save_if := sprintf("${{ always() && env.PERFECTORY_APT_CACHE_SAVE != '' && (%s) }}", [cache_writer_if])
 
 # --- the parsed workflows -----------------------------------------------------------------------
 
@@ -97,7 +102,7 @@ release_trigger(document) if {
 }
 
 extra_writes(path, document) := {"issues"} if {
-	file_name(path) == "dependency-advisories.yml"
+	file_name(path) in {"dependency-advisories.yml", "main-health.yml"}
 	schedule_only(document)
 } else := {"id-token", "attestations", "packages"} if {
 	file_name(path) == "foundation-release-build.yml"
@@ -189,6 +194,43 @@ deny contains msg if {
 	some fallback in fake_pass_fallbacks
 	contains(line, fallback)
 	msg := sprintf("%s: a run hides its own failure with `%s` (%v)", [path, fallback, location])
+}
+
+# Debian packages come through scripts/ci/apt-install.sh, which skips what the runner has, installs
+# from the package cache, probes mirrors and retries. On 2026-11-11 the runners could not resolve any
+# ubuntu.com mirror and every bare `apt-get` in CI ran past 20 minutes and failed (#1267, #1313,
+# #1323, #1329).
+deny contains msg if {
+	some [path, document] in workflows
+	walk(document, [location, value])
+	count(location) > 0
+	location[count(location) - 1] == "run"
+	is_string(value)
+	some line in split(value, "\n")
+	not startswith(trim_space(line), "#")
+	regex.match(`(^|[^A-Za-z0-9_./-])apt(-get|-fast)?[ \t]`, line)
+	msg := sprintf("%s: install Debian packages with bash \"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh\", not apt (%v)", [path, location])
+}
+
+# Playwright's `--with-deps` and `install-deps` run their own `apt-get update`; its `--dry-run` only
+# names the packages, for apt-install.sh to install.
+deny contains msg if {
+	some [path, document] in workflows
+	walk(document, [location, value])
+	count(location) > 0
+	location[count(location) - 1] == "run"
+	is_string(value)
+	some line in split(value, "\n")
+	not startswith(trim_space(line), "#")
+	playwright_runs_apt(line)
+	msg := sprintf("%s: Playwright installs no system packages itself; pass `install-deps --dry-run`'s list to scripts/ci/apt-install.sh (%v)", [path, location])
+}
+
+playwright_runs_apt(line) if contains(line, "--with-deps")
+
+playwright_runs_apt(line) if {
+	contains(line, "install-deps")
+	not contains(line, "--dry-run")
 }
 
 deny contains msg if {

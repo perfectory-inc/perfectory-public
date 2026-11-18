@@ -33,8 +33,16 @@ ORIGINS = {door["gateway"]: door["origin_hostname"] for door in json.loads(
     (PLATFORM / "config/cdn-front-door.contract.json").read_text(encoding="utf-8"))["doors"].values() if "gateway" in door}
 
 
+def block(gateway):
+    """A top-level gateway block, or a dotted path into one (`by_pnu_lanes.<lane>`, root ADR-0190)."""
+    found = GATEWAYS
+    for part in gateway.split("."):
+        found = found[part]
+    return found
+
+
 def production_hostname(gateway):
-    return ORIGINS.get(gateway) or GATEWAYS[gateway]["public_hostname"]
+    return ORIGINS.get(gateway) or block(gateway)["public_hostname"]
 COMMIT = "a" * 40
 UNLISTED = "someone-elses-script"
 OLD = "00000000-0000-4000-8000-{:012d}"
@@ -371,7 +379,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         reads = "\n".join((self.root / name).read_text() for name in ("curl.log", "monitor.log", "probe.log"))
         for gateway, origin in ORIGINS.items():
             self.assertIn(f"https://{origin}", reads)
-            self.assertNotIn(f"https://{GATEWAYS[gateway]['public_hostname']}", reads)
+            self.assertNotIn(f"https://{block(gateway)['public_hostname']}", reads)
 
     def set_capabilities(self, hostname, answer):
         hosts = json.loads((self.root / "hosts.json").read_text())
@@ -556,7 +564,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
     def test_a_slow_live_hostname_the_version_did_not_slow_does_not_block_it(self):
         # 2026-10-12: the zone's Korean traffic moved edge; the unchanged production read as slowly.
         preview, production = self.names["building-gateway"]
-        live = GATEWAYS["building_by_pnu_gateway"]["public_hostname"]
+        live = production_hostname("building_by_pnu_gateway")
         self.assertEqual(self.tick(FIXTURE_P95=json.dumps(
             {"buildings-preview.perfectory.io": [9559, 4500], live: [4000]})), 0)
         self.assertEqual(self.monitor_reads(" building"),
@@ -566,7 +574,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
 
     def test_a_version_slower_than_the_one_serving_is_blocked(self):
         preview, production = self.names["building-gateway"]
-        live = GATEWAYS["building_by_pnu_gateway"]["public_hostname"]
+        live = production_hostname("building_by_pnu_gateway")
         self.assertEqual(self.tick(FIXTURE_P95=json.dumps(
             {"buildings-preview.perfectory.io": [9000, 7000], live: [4000]})), 1)
         self.assertNotIn(production, self.acted_on("versions upload"))

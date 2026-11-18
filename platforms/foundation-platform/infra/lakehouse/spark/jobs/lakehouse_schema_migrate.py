@@ -222,6 +222,50 @@ def production_shape_refusals(contracts: dict[str, dict], shapes: dict[str, dict
     return refusals
 
 
+def ledger_plan(shapes: dict[str, dict]) -> dict[str, str]:
+    """What `--mode plan` would do to each contract table as production holds it, read from the host's
+    shape ledger (scripts/ops/lakehouse-production-shape.py) instead of the catalog: {table: what}, the
+    tables it would leave alone omitted. The deploy holds the writers of these tables only (W83b, the
+    narrowing of root ADR-0308 / ADR-0437): 2026-11-13 a change to lakehouse-engine.contract.json held
+    every table (140), paused 92 DAGs and stopped three running jobs for a migration that changed none.
+
+    The same `plan_table` the deploy runs. A table the ledger lacks is one production does not hold,
+    which the migration leaves to its load. Named whatever its plan: a table the ledger records no
+    layout for, one the plan refuses, and one with a registered backfill and rows, whose last backfill
+    only a data scan can show finished."""
+    contracts = load_lakehouse_artifact()["contracts"]
+    planned: dict[str, str] = {}
+    for table_name, contract in sorted(contracts.items()):
+        shape = shapes.get(table_name)
+        if shape is None:
+            continue
+        layout = shape.get("layout")
+        if layout is None:
+            planned[table_name] = "the ledger records no layout"
+            continue
+        fields = {field[0]: field for field in shape["fields"]}
+        live = [fields[field_id] for field_id in shape["columns"]]
+        names = tuple(name for _, name, _, _ in live)
+        if shape["has_rows"] and any((table_name, name) in BACKFILLS for name in names):
+            planned[table_name] = "a registered backfill"
+            continue
+        try:
+            plan = plan_table(
+                contract, names, shape["has_rows"], table_name,
+                actual_types={name: live_spark_type(kind) for _, name, kind, _ in live},
+                actual_nullability={name: nullable for _, name, _, nullable in live},
+                actual_properties={key: value for key, value in layout.items() if key != "partitions"},
+                actual_partitions=tuple(layout.get("partitions", ())),
+            )
+        except MigrationBlocked as error:
+            planned[table_name] = f"refused: {error}"
+            continue
+        what = [step for step in ("add", "backfill", "reorder", "write_order") if plan[step]]
+        if what:
+            planned[table_name] = ", ".join(what)
+    return planned
+
+
 def shape_ledger_drift(table_name: str, shape: dict | None, live: tuple[str, ...] | None) -> list[str]:
     """How the table the deploy found differs from the ledger CI gated it on (None: absent)."""
     if shape is None:

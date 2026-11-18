@@ -13,7 +13,11 @@ mod energy_monthly_tests;
 #[cfg(test)]
 mod exclusive_unit_tests;
 #[cfg(test)]
+mod family_tests;
+#[cfg(test)]
 mod floor_overview_tests;
+#[cfg(test)]
+mod housing_permit_basis_tests;
 mod layout;
 #[cfg(test)]
 mod maintenance_regular_inspection_tests;
@@ -131,6 +135,10 @@ struct Report {
     rows_read: u64,
     rows_emitted: u64,
     rejected_rows: u64,
+    /// Lines joined to the row before them because a value's line break cut it
+    /// (`Layout::joins_broken_lines`); `rows_read` counts the joined row once.
+    #[serde(skip_serializing_if = "is_zero")]
+    joined_lines: u64,
     pnu_ok: u64,
     pnu_bad: u64,
     /// Rows each extra PNU column (`Layout::extra_pnus`) got a PNU for; the rest are null.
@@ -155,6 +163,7 @@ impl Report {
             rows_read: 0,
             rows_emitted: 0,
             rejected_rows: 0,
+            joined_lines: 0,
             pnu_ok: 0,
             pnu_bad: 0,
             extra_pnu_ok: layout
@@ -189,6 +198,12 @@ impl Report {
         }
         Ok(self)
     }
+}
+
+// serde's `skip_serializing_if` passes the field by reference.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 /// Exports one national ZIP of the layout's source with bounded input/output memory.
@@ -406,6 +421,8 @@ struct ChunkReader<D> {
     reader: BufReader<D>,
     crc: Crc,
     line: Vec<u8>,
+    /// Physical lines read: a row's line number is its first line's.
+    lines_read: u64,
     rows_per_part: usize,
     next_part: usize,
 }
@@ -416,6 +433,7 @@ impl<D: Read> ChunkReader<D> {
             reader: BufReader::with_capacity(64 * 1024, decoder),
             crc: Crc::new(),
             line: Vec::new(),
+            lines_read: 0,
             rows_per_part: usize::try_from(layout.rows_per_part)?,
             next_part: 1,
         })
@@ -433,36 +451,41 @@ impl<D: Read> ChunkReader<D> {
             bytes: Vec::new(),
             rows: Vec::new(),
         };
+        let mut line = std::mem::take(&mut self.line);
+        let mut next = Vec::new();
         while chunk.rows.len() < self.rows_per_part {
-            let line = &mut self.line;
             line.clear();
-            let read = (&mut self.reader)
-                .take(layout.max_row_bytes + 1)
-                .read_until(b'\n', line)?;
-            if read == 0 {
+            if !self.read_line(&mut line, layout)? {
                 break;
             }
-            ensure!(
-                u64::try_from(read)? <= layout.max_row_bytes,
-                "HUB row exceeds max_row_bytes"
-            );
-            self.crc.update(line);
+            let first_line = self.lines_read;
             report.rows_read += 1;
-            if line.last() == Some(&b'\n') {
-                line.pop();
+            let mut width = line.split(|&byte| byte == b'|').count();
+            // A value's line break cut the row: the lines after it complete it. A join that
+            // passes the width is no row, and is rejected with every line it took.
+            while layout.joins_broken_lines && width < layout.column_count {
+                next.clear();
+                if !self.read_line(&mut next, layout)? {
+                    break;
+                }
+                line.push(b'\n');
+                line.extend_from_slice(&next);
+                ensure!(
+                    u64::try_from(line.len())? <= layout.max_row_bytes,
+                    "joined HUB row exceeds max_row_bytes"
+                );
+                report.joined_lines += 1;
+                width = line.split(|&byte| byte == b'|').count();
             }
-            if line.last() == Some(&b'\r') {
-                line.pop();
-            }
-            let width = line.split(|&byte| byte == b'|').count();
             if width != layout.column_count {
-                let text = std::str::from_utf8(line).context("HUB row is not UTF-8")?;
+                let text = std::str::from_utf8(&line).context("HUB row is not UTF-8")?;
                 valid_width(layout, width, report, text)?;
                 continue;
             }
-            chunk.bytes.extend_from_slice(line);
-            chunk.rows.push((report.rows_read, chunk.bytes.len()));
+            chunk.bytes.extend_from_slice(&line);
+            chunk.rows.push((first_line, chunk.bytes.len()));
         }
+        self.line = line;
         if chunk.rows.is_empty() {
             return Ok(None);
         }
@@ -470,6 +493,30 @@ impl<D: Read> ChunkReader<D> {
         chunk.rows.shrink_to_fit();
         self.next_part += 1;
         Ok(Some(chunk))
+    }
+
+    /// Reads the next physical line into `line` without its line ending and counts it into the
+    /// CRC; `false` after the member's last line.
+    fn read_line(&mut self, line: &mut Vec<u8>, layout: &Layout) -> anyhow::Result<bool> {
+        let read = (&mut self.reader)
+            .take(layout.max_row_bytes + 1)
+            .read_until(b'\n', line)?;
+        if read == 0 {
+            return Ok(false);
+        }
+        ensure!(
+            u64::try_from(read)? <= layout.max_row_bytes,
+            "HUB row exceeds max_row_bytes"
+        );
+        self.crc.update(line);
+        self.lines_read += 1;
+        if line.last() == Some(&b'\n') {
+            line.pop();
+        }
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        Ok(true)
     }
 
     /// The decoder, for the size checks, and the CRC of every line read.

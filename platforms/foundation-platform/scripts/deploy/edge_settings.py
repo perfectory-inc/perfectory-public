@@ -390,7 +390,14 @@ def front_door_hostnames(tree: pathlib.Path) -> dict[str, str]:
 
     doors = json.loads((tree / FRONT_DOOR_CONTRACT).read_text(encoding="utf-8"))["doors"]
     r2 = json.loads((tree / PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
-    return {name: door.get("public_hostname") or r2[door["gateway"]]["public_hostname"]
+    def block(gateway: str) -> dict:
+        # A top-level gateway block, or a dotted path into one (`by_pnu_lanes.<lane>`, root ADR-0190).
+        found = r2
+        for part in gateway.split("."):
+            found = found[part]
+        return found
+
+    return {name: door.get("public_hostname") or block(door["gateway"])["public_hostname"]
             for name, door in doors.items()}
 
 
