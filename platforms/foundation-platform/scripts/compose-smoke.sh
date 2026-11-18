@@ -111,7 +111,24 @@ postcondition() {
           AND has_table_privilege('foundation_api', 'catalog.industrial_complex', 'SELECT')
           AND has_table_privilege('foundation_api', 'catalog.industrial_complex', 'INSERT')
           AND has_table_privilege('foundation_api', 'catalog.industrial_complex', 'UPDATE')
-          AND has_table_privilege('foundation_api', 'catalog.industrial_complex', 'DELETE');"
+          AND has_table_privilege('foundation_api', 'catalog.industrial_complex', 'DELETE')
+          AND has_table_privilege('foundation_api', 'catalog.operator_action', 'INSERT')
+          AND NOT has_table_privilege('foundation_api', 'catalog.operator_action', 'UPDATE')
+          AND NOT has_table_privilege('foundation_api', 'catalog.operator_action', 'DELETE')
+          AND NOT has_table_privilege('foundation_api', 'catalog.operator_action', 'TRUNCATE')
+          AND has_table_privilege('foundation_api', 'audit.event', 'SELECT')
+          AND has_function_privilege('foundation_api', 'audit.advance_cursor(text, text, text)', 'EXECUTE')
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_tables AS t,
+                 unnest(ARRAY['foundation_api', 'foundation_audit_importer']) AS r(role),
+                 unnest(ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) AS p(privilege)
+            WHERE t.schemaname = 'audit'
+              AND has_table_privilege(r.role, format('%I.%I', t.schemaname, t.tablename), p.privilege))
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_proc AS f
+            WHERE f.pronamespace = 'audit'::regnamespace AND f.proname = 'chain'
+              AND (has_function_privilege('foundation_api', f.oid, 'EXECUTE')
+                OR has_function_privilege('foundation_audit_importer', f.oid, 'EXECUTE')));"
       ;;
     foundation-finalize)
       database_bool "
