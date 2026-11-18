@@ -208,31 +208,45 @@ services:
       airflow-apiserver:
         condition: service_healthy
 
-  dagster-daemon:
+  # The code location's own server (root ADR-0565 §9; Dagster's documented Docker deployment runs the
+  # code location as a gRPC server of its own). `dagster code-server start` loads the definitions in a
+  # subprocess, so a release reloads them (airflow-runtime.sh: reloadRepositoryLocation) and this
+  # container keeps running: a run is a process of this container (the default run launcher), and a run
+  # launched before the reload finishes on its own code (measured on dagster 1.13.27, 2026-11-18: a
+  # 40-second run started, the location reloaded mid-run, the run ended SUCCESS with the old code).
+  # Before, every deploy restarted the daemon and killed every run in it; one asset-check run stayed
+  # STARTED from 2026-11-14 03:12Z for four days. A change of this service's image or settings still
+  # recreates it; run monitoring then fails the runs it held at their max runtime (dagster.yaml).
+  # Its memory is every run's: a proxy (about 100 MiB), the code process (169 MiB measured 2026-11-09,
+  # VmHWM; two while a reload swaps them) and up to dagster.yaml's 6 runs, each counted at the code
+  # process's size: 100 + 2 x 169 + 6 x 169 = 1,452 MiB, x1.17 as before.
+  dagster-code-server:
     logging: *log-cap
     image: foundation-platform-dagster:local
     pull_policy: never
     profiles: ["dagster-observe"]
-    # Every run is a process of this container (the default run launcher): the daemon, the code server
-    # (two while a release reloads it) and up to dagster.yaml's 5 runs, each loading the code location.
-    # Measured 2026-11-09 on the host (VmHWM, 64 jobs in the dual run): daemon 190 MiB, code server
-    # 169 MiB, so 190 + 2 x 169 + 5 x 169 = 1,373 MiB of anonymous memory with every run open, a run
-    # counted at the code server's size; x1.17 as before. The 480m cap was reached 1,240 times in the
-    # 20 minutes after its 04:31Z start that day (memory.events max), with no job run at all.
-    mem_limit: 1600m
+    mem_limit: 1700m
     restart: unless-stopped
-    command: ["dagster-daemon", "run", "-w", "/opt/dagster/home/workspace.yaml"]
+    command: ["dagster", "code-server", "start", "-h", "0.0.0.0", "-p", "4000",
+              "-f", "/opt/foundation-platform/current/orchestration/dagster/definitions.py",
+              "-d", "/opt/foundation-platform/current/orchestration/dagster", "--location-name", "foundation"]
     environment:
       <<: *dagster-environment
       # A proxied job's run reaches the host as Airflow's `run` task did (run_jobs.py, root ADR-0417): the
       # scheduler's connection from runtime.env, whose key can only run the forced command, and only from
-      # this project's network.
+      # this project's network. Only this container holds it: runs are its processes.
       FOUNDATION_HOST_CONNECTION: "${AIRFLOW_CONN_FOUNDATION_HOST:?run airflow-runtime.sh init-secrets}"
     extra_hosts:
       - "foundation-host:host-gateway"
     volumes:
       - /opt/foundation-platform:/opt/foundation-platform:ro
       - dagster-state:/var/lib/dagster
+    healthcheck:
+      test: ["CMD", "dagster", "api", "grpc-health-check", "-p", "4000"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 1m0s
     # The asset checks' runs read the lakehouse through Trino, on the compute project's network, and
     # the dual run pages through Alertmanager, on the runtime project's. The host sees a job run come
     # from this project's network (`default`, the gateway every other route loses to): the scheduler's
@@ -244,6 +258,28 @@ services:
       foundation-runtime: {}
     depends_on:
       airflow-apiserver:
+        condition: service_healthy
+
+  dagster-daemon:
+    logging: *log-cap
+    image: foundation-platform-dagster:local
+    pull_policy: never
+    profiles: ["dagster-observe"]
+    # The daemon alone: it reads the code location from dagster-code-server and launches runs there,
+    # so neither the code nor any run is its process any more. 190 MiB measured 2026-11-09 (VmHWM, the
+    # daemon process of the container that then also held the code and the runs), x2 for the sensors
+    # of the jobs Dagster decides (decide.py) as they grow.
+    mem_limit: 384m
+    restart: unless-stopped
+    command: ["dagster-daemon", "run", "-w", "/opt/dagster/home/workspace.yaml"]
+    environment:
+      <<: *dagster-environment
+    volumes:
+      - dagster-state:/var/lib/dagster
+    networks:
+      default: {}
+    depends_on:
+      dagster-code-server:
         condition: service_healthy
 
 volumes:

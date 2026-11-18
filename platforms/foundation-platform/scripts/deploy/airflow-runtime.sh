@@ -73,7 +73,7 @@ sys.exit(0 if json.load(open(sys.argv[1])).get("observers", {}).get("dagster", {
 dagster_networks=(foundation-platform-compute_default foundation-platform-runtime_default)
 # Tagged by release admission from the signed release (OPTIONAL_COMPOSE_IMAGES), as compose names it.
 dagster_image=foundation-platform-dagster:local
-dagster_services=(dagster-webserver dagster-daemon)
+dagster_services=(dagster-code-server dagster-webserver dagster-daemon)
 # The release's Airflow (orchestration/airflow/Dockerfile, root ADR-0431 §5), tagged by release admission
 # like Dagster's. Unlike Dagster's, Airflow cannot stay off without it, and the host builds no image (root
 # ADR-0276 §13): a compose file that names it with no such image is refused before compose would build it.
@@ -224,7 +224,7 @@ env_value() { sed -n "s/^$1=//p" "${env_file}" | tail -1; }
 # Dagster follows orchestration/jobs.v1.json `observers.dagster` (root ADR-0333 stage 0). It runs
 # no job, so it never fails the deploy: what goes wrong is said on stderr and Airflow goes on.
 sync_dagster() {
-  local code load_error
+  local code load_error reloaded
   if [[ "${COMPOSE_PROFILES:-}" != dagster-observe ]]; then
     # Off: its containers go; its database and history stay.
     compose --profile dagster-observe rm --stop --force "${dagster_services[@]}" >/dev/null 2>&1 || true
@@ -254,13 +254,22 @@ sync_dagster() {
     airflow_cli users add-role --username foundation-dagster-observe --role foundation-dagster-observe; } </dev/null >/dev/null; then
     printf 'airflow-runtime: WARN dagster: its account cannot read the audit log; the dual run checks will fail\n' >&2
   fi
-  # A restart loads the release's code location (it is read when the process starts).
-  compose up -d "${dagster_services[@]}" >/dev/null && compose restart "${dagster_services[@]}" >/dev/null
+  # Up recreates a container only when its image or settings changed; the release's code location is
+  # then reloaded in the code server, never by a restart: a run is a process of that server and a
+  # restart killed every run in progress (root ADR-0565 §9; 2026-11-14 03:12Z a check run stayed
+  # STARTED four days).
+  compose up -d "${dagster_services[@]}" >/dev/null
   for _ in $(seq 1 30); do
     code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:19085/server_info || true)"
     [[ "${code}" == 200 ]] && break
     sleep 10
   done
+  if [[ "${code}" == 200 ]]; then
+    reloaded="$(curl -s -X POST -H 'Content-Type: application/json' http://127.0.0.1:19085/graphql       --data '{"query":"mutation { reloadRepositoryLocation(repositoryLocationName: \"foundation\") { __typename } }"}' || true)"
+    grep -q '"WorkspaceLocationEntry"' <<<"${reloaded}" ||
+      printf 'airflow-runtime: WARN dagster: the code location did not reload; it serves the release it loaded last
+' >&2
+  fi
   if [[ "${code}" == 200 ]]; then
     # The UI answers while the code location fails to load: from 2026-11-06 21:16Z to 11-09 every load
     # failed and this said "observing", and the dual run recorded no comparison (root ADR-0431).
