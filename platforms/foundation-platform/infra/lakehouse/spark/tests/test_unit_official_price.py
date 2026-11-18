@@ -10,7 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 from unit_official_price import (DICTIONARY_SQL, CONFLICTING_SQL, PRICES_SQL, JOIN_SQL, refuse_conflicting, parse_args,
-                                 newest_shared_vintage, batch_source_snapshot_id, batch_vintage, newest_batch)
+                                 newest_shared_vintage, batch_source_snapshot_id, batch_vintage, newest_batch,
+                                 order_batches)
 
 
 class UnitOfficialPriceTest(unittest.TestCase):
@@ -107,6 +108,32 @@ class UnitOfficialPriceTest(unittest.TestCase):
         # Without the order it is refused, not guessed.
         with self.assertRaisesRegex(ValueError, "2 batches of vintage 209908 and their order is unknown"):
             newest_batch([newer, rejoined])
+
+    def test_an_expired_or_tagged_append_still_orders_the_vintage(self):
+        # 2026-11-17 (shape of silver.unit_official_price, ids synthetic): four batches of one vintage.
+        # Two were appended in snapshots expiry has removed, one in a snapshot a tag keeps off main's
+        # chain, one on main's chain. Only main's chain was read, so the vintage was refused.
+        expired_a, expired_b = batch_source_snapshot_id(1, 9, "209909"), batch_source_snapshot_id(2, 9, "209909")
+        tagged, on_main = batch_source_snapshot_id(3, 9, "209909"), batch_source_snapshot_id(3, 8, "209909")
+        load = "unit-official-price/base-date-v2/{}/{}".format
+        ingested = {load("11", expired_a): 71, load("11", expired_b): 72, load("11", tagged): 81,
+                    load("26", tagged): 81, load("11", on_main): 91, load("26", on_main): 91}
+        # 90 (expired parent) <- 91 <- 92 = main; 81 is held by a tag and older than 91.
+        snapshots = {81: (80, 1_000), 91: (90, 2_000), 92: (91, 3_000)}
+        order = order_batches(ingested, 92, snapshots)
+        self.assertEqual(list(order), [tagged, on_main])
+        self.assertEqual(order.before_retained, {expired_a, expired_b})
+        self.assertEqual(newest_batch([expired_a, expired_b, tagged, on_main], order), on_main)
+        # Only expired batches: nothing says which is newest, so it is refused, not guessed.
+        with self.assertRaisesRegex(ValueError, "2 batches of vintage 209909 and their order is unknown"):
+            newest_batch([expired_a, expired_b], order)
+        # A batch the registry does not record at all is still refused.
+        unrecorded = batch_source_snapshot_id(4, 9, "209909")
+        with self.assertRaisesRegex(ValueError, "order is unknown"):
+            newest_batch([on_main, unrecorded], order)
+        # Equal instants: the place in main's chain decides.
+        self.assertEqual(list(order_batches({load("11", tagged): 91, load("11", on_main): 92}, 92,
+                                            {91: (90, 5), 92: (91, 5)})), [tagged, on_main])
 
 
 if __name__ == "__main__":

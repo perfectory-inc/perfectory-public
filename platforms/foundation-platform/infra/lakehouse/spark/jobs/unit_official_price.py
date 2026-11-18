@@ -83,6 +83,19 @@ def vintage_column() -> Any:
     return F.regexp_extract(F.col("source_snapshot_id"), BATCH.pattern, 1)
 
 
+class CommitOrder(list):
+    """Batches in the order the table's commit log appended them (`batch_commit_order`).
+
+    `before_retained` holds the batches whose appending snapshot has expired: snapshot expiry removes
+    only snapshots older than every one it keeps, so each was appended before every batch in the
+    list, in an order the table no longer records.
+    """
+
+    def __init__(self, ordered=(), before_retained=()):
+        super().__init__(ordered)
+        self.before_retained = frozenset(before_retained)
+
+
 def newest_batch(source_snapshot_ids, commit_order=()) -> str | None:
     """The batch of the newest vintage among `source_snapshot_ids` (root ADR-0182).
 
@@ -100,36 +113,60 @@ def newest_batch(source_snapshot_ids, commit_order=()) -> str | None:
     if len(batches) == 1:
         return next(iter(batches))
     ordered = [batch for batch in commit_order if batch in batches]
-    if set(ordered) != batches:
+    earlier = batches & getattr(commit_order, "before_retained", frozenset())
+    # The batches whose snapshot expired precede every ordered one; only their order among
+    # themselves is lost, which matters only when no batch of the vintage is ordered.
+    if not ordered or set(ordered) | earlier != batches:
         raise ValueError(f"{CONTRACT} holds {len(batches)} batches of vintage {newest} "
                          f"and their order is unknown: {sorted(batches)}")
     return ordered[-1]
 
 
-def batch_commit_order(spark, qualified_table: str) -> list[str]:
-    """The batches main records, in the order they were appended (the ingest registry, ADR-0069).
+def order_batches(ingested: dict[str, int], main_head: int | None, snapshots: dict[int, tuple[int | None, int]]
+                  ) -> CommitOrder:
+    """The batches the ingest registry records, in append order (`batch_commit_order`).
 
-    Each batch's load identities are `unit-official-price/base-date-v2/<sido>/<batch>`.
+    `ingested` maps each load identity (`unit-official-price/base-date-v2/<sido>/<batch>`) to the
+    snapshot that appended it; `snapshots` maps every snapshot the table holds to `(parent, commit
+    instant in ms)`. A snapshot the table holds is ordered by its commit instant, ties by its place
+    in main's parent chain; that covers one kept by a tag off main's chain (a load published from a
+    branch, root ADR-0183). A snapshot the table no longer holds has expired, so it was appended
+    before every snapshot it holds (`CommitOrder.before_retained`). 2026-11-17: four batches of
+    vintage 202609, two in expired snapshots and one in a tagged one; only main's chain was read,
+    three fell out, and the versions migration refused the vintage.
     """
+    chain, current = [], main_head
+    while current is not None and current in snapshots and current not in chain:
+        chain.append(current)
+        current = snapshots[current][0]
+    position = {snapshot: index for index, snapshot in enumerate(reversed(chain))}
+    last: dict[str, tuple[int, int]] = {}
+    expired: set[str] = set()
+    for record, snapshot in ingested.items():
+        parts = record.split("/", 3)
+        if len(parts) != 4 or batch_vintage(parts[3]) is None:
+            continue
+        if snapshot in snapshots:
+            key = (snapshots[snapshot][1], position.get(snapshot, -1))
+            last[parts[3]] = max(last.get(parts[3], key), key)
+        else:
+            expired.add(parts[3])
+    # A batch with a load in a held snapshot is ordered by its last load.
+    return CommitOrder(sorted(last, key=last.__getitem__), expired - last.keys())
+
+
+def batch_commit_order(spark, qualified_table: str) -> CommitOrder:
+    """The batches the table records, in the order they were appended (the ingest registry,
+    ADR-0069, ordered by `order_batches`)."""
     from lakehouse_ingest import read_ingested_objects, unquoted_table_name
 
     ingested = read_ingested_objects(spark, qualified_table, unquoted_table_name(qualified_table))
-    # Position in main's lineage, oldest first: the parent chain orders commits exactly, where
-    # commit times can tie.
     heads = spark.sql(f"SELECT snapshot_id FROM {qualified_table}.refs WHERE name = 'main'").collect()
-    parents = {int(row.snapshot_id): (None if row.parent_id is None else int(row.parent_id))
-               for row in spark.sql(f"SELECT snapshot_id, parent_id FROM {qualified_table}.snapshots").collect()}
-    chain, current = [], int(heads[0].snapshot_id) if heads else None
-    while current is not None and current in parents and current not in chain:
-        chain.append(current)
-        current = parents[current]
-    position = {snapshot: index for index, snapshot in enumerate(reversed(chain))}
-    last: dict[str, int] = {}
-    for record, snapshot in ingested.items():
-        parts = record.split("/", 3)
-        if len(parts) == 4 and batch_vintage(parts[3]) is not None and snapshot in position:
-            last[parts[3]] = max(last.get(parts[3], -1), position[snapshot])
-    return sorted(last, key=last.__getitem__)
+    snapshots = {int(row.snapshot_id): (None if row.parent_id is None else int(row.parent_id),
+                                        int(row.committed_at.timestamp() * 1000))
+                 for row in spark.sql(
+                     f"SELECT snapshot_id, parent_id, committed_at FROM {qualified_table}.snapshots").collect()}
+    return order_batches(ingested, int(heads[0].snapshot_id) if heads else None, snapshots)
 
 
 def refuse_conflicting(conflicting: int) -> None:
