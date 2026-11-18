@@ -6,7 +6,14 @@
 //! - `osv-gate [--report-path <path>] [repository]` scans every tracked `Cargo.lock` and `pnpm-lock.yaml`
 //!   with the pinned OSV-Scanner under the one allow list `osv-scanner.toml` (root ADR-0414): an advisory
 //!   it does not list, or one whose `ignoreUntil` has passed, fails. Threat model: honest-mistake
-//!   detection, not unpublished flaws or a compromised OSV.
+//!   detection, not unpublished flaws or a compromised OSV. In a pull request or a merge group
+//!   (`CHANGE_SCOPE_EVENT`/`CHANGE_SCOPE_BASE`), the findings are judged by what the change did
+//!   (`scripts/ci/osv_change_verdict.py`, root ADR-0568): one in a lockfile the change leaves as it is
+//!   is a warning while an open `security` pull request names it and is inside its grace.
+//! - `cargo-deny <workspace> [--locked] [check flags]` runs `cargo-deny check` in that workspace. In a
+//!   pull request or a merge group that leaves the workspace's `Cargo.lock` and `deny.toml` as they are,
+//!   it checks bans, licenses and sources only: the advisories of a lockfile the change did not touch
+//!   are the OSV gate's above and the daily check's on main (root ADR-0271, ADR-0568).
 //! - `postgres-production-shape <database url> <base commit>` (root ADR-0259 §8): when the change touches
 //!   Foundation's migrations or this gate, a self-test (a planted nullable column applies onto seeded
 //!   rows, a planted required one fails), then the change's new migrations onto main's schema holding
@@ -18,7 +25,7 @@ use std::process::Command;
 
 const USAGE: &str =
     "usage: cargo xtask ci <install-cargo-deny | osv-gate [--report-path <path>] [repository] | \
-postgres-production-shape <database url> <base commit>>";
+cargo-deny <workspace> [--locked] [check flags] | postgres-production-shape <database url> <base commit>>";
 
 pub(crate) fn run(root: &Path, args: &[String]) -> Result<(), String> {
     match (args.first().map(String::as_str), &args[args.len().min(1)..]) {
@@ -39,9 +46,10 @@ pub(crate) fn run(root: &Path, args: &[String]) -> Result<(), String> {
             if osv_gate(root, &target, report.as_deref())? {
                 Ok(())
             } else {
-                Err("the OSV findings are not the baseline's (see above)".to_owned())
+                Err("OSV findings that osv-scanner.toml does not allow (see above)".to_owned())
             }
         }
+        (Some("cargo-deny"), [workspace, rest @ ..]) => cargo_deny(root, workspace, rest),
         (Some("postgres-production-shape"), [url, base]) => {
             postgres_production_shape(root, url, base)
         }
@@ -186,6 +194,20 @@ fn scan_and_check(
     if status.code() == Some(0) {
         return Ok(true);
     }
+    // A pull request or a merge group: judged by what the change did (root ADR-0568). The verdict
+    // writes its own annotations; main's runs below keep the `advisory` ones the host reads.
+    if let Some(base) = change_base() {
+        let verdict = Command::new("python3")
+            .arg(root.join("scripts/ci/osv_change_verdict.py"))
+            .arg(&report)
+            .arg("--root")
+            .arg(target)
+            .arg("--base")
+            .arg(&base)
+            .status()
+            .map_err(|error| format!("cannot run the OSV change verdict: {error}"))?;
+        return Ok(verdict.success());
+    }
     // One `advisory` annotation per finding: the host's service checks read them from the daily
     // run on main and page #alerts (root ADR-0278). The report holds only what the allow list does not.
     if std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true") {
@@ -205,6 +227,83 @@ for ids, package in seen:
     print(f'::error title=advisory::{ids} {package}')
 ";
 
+/// The base commit of a pull request or a merge group (`""` when the workflow gave none), or None
+/// for a run that speaks for main itself (push, schedule, manual), which judges everything.
+fn change_base() -> Option<String> {
+    let event = std::env::var("CHANGE_SCOPE_EVENT").unwrap_or_default();
+    matches!(event.as_str(), "pull_request" | "merge_group")
+        .then(|| std::env::var("CHANGE_SCOPE_BASE").unwrap_or_default())
+}
+
+/// The paths among `pathspecs` that differ between `base` and HEAD; fetches the base when a shallow
+/// checkout lacks it. An empty or all-zero base cannot be told apart and is an error.
+fn changed_paths(root: &Path, base: &str, pathspecs: &[&str]) -> Result<String, String> {
+    if base.is_empty() || base.bytes().all(|b| b == b'0') {
+        return Err("no base commit".to_owned());
+    }
+    let present = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["cat-file", "-e", &format!("{base}^{{commit}}")])
+        .status();
+    if !present.map(|status| status.success()).unwrap_or(false) {
+        succeed(
+            Command::new("git").arg("-C").arg(root).args([
+                "fetch",
+                "-q",
+                "--no-tags",
+                "--depth=1",
+                "origin",
+                base,
+            ]),
+            "git fetch (base)",
+        )?;
+    }
+    stdout(
+        Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(["diff", "--name-only", base, "HEAD", "--"])
+            .args(pathspecs),
+    )
+}
+
+/// What `cargo-deny check` judges of a change that leaves the lockfile and its config as they are.
+const ONLY_WHAT_A_CHANGE_BRINGS: [&str; 3] = ["bans", "licenses", "sources"];
+
+fn cargo_deny(root: &Path, workspace: &str, rest: &[String]) -> Result<(), String> {
+    let (global, flags): (Vec<&String>, Vec<&String>) =
+        rest.iter().partition(|arg| arg.as_str() == "--locked");
+    let lock = format!("{workspace}/Cargo.lock");
+    let config = format!("{workspace}/deny.toml");
+    let sections: &[&str] = match change_base() {
+        None => &[],
+        Some(base) => match changed_paths(root, &base, &[lock.as_str(), config.as_str()]) {
+            Ok(changed) if !changed.trim().is_empty() => &[],
+            Ok(_) => {
+                println!(
+                    "cargo-deny: this change leaves {lock} and {config} as they are, so bans, licenses and \
+sources only; their advisories are the repository OSV gate's and the daily check's on main (root ADR-0568)"
+                );
+                &ONLY_WHAT_A_CHANGE_BRINGS
+            }
+            Err(error) => {
+                println!("cargo-deny: {error}; the change cannot be told apart, every check runs");
+                &[]
+            }
+        },
+    };
+    succeed(
+        Command::new("cargo-deny")
+            .current_dir(root.join(workspace))
+            .args(global)
+            .arg("check")
+            .args(flags)
+            .args(sections),
+        "cargo-deny check",
+    )
+}
+
 fn postgres_production_shape(root: &Path, url: &str, base: &str) -> Result<(), String> {
     let gate = root.join("scripts/ci/foundation_postgres_production_shape.py");
     succeed(
@@ -216,31 +315,7 @@ fn postgres_production_shape(root: &Path, url: &str, base: &str) -> Result<(), S
         println!("postgres-production-shape: no base commit (a manual run); the change cannot be told apart");
         "all".to_owned()
     } else {
-        let present = Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args(["cat-file", "-e", &format!("{base}^{{commit}}")])
-            .status();
-        if !present.map(|status| status.success()).unwrap_or(false) {
-            succeed(
-                Command::new("git").arg("-C").arg(root).args([
-                    "fetch",
-                    "-q",
-                    "--no-tags",
-                    "--depth=1",
-                    "origin",
-                    base,
-                ]),
-                "git fetch (base)",
-            )?;
-        }
-        stdout(
-            Command::new("git")
-                .arg("-C")
-                .arg(root)
-                .args(["diff", "--name-only", base, "HEAD", "--"])
-                .args(SHAPE_INPUTS),
-        )?
+        changed_paths(root, base, SHAPE_INPUTS)?
     };
     let base = if touched == "all" { "HEAD" } else { base };
     if touched.trim().is_empty() {
@@ -561,6 +636,13 @@ mod tests {
     }
 
     #[test]
+    fn a_change_that_leaves_the_lockfile_skips_only_the_advisories() {
+        assert_eq!(ONLY_WHAT_A_CHANGE_BRINGS, ["bans", "licenses", "sources"]);
+        assert!(changed_paths(Path::new("."), "", &["Cargo.lock"]).is_err());
+        assert!(changed_paths(Path::new("."), "0000000000", &["Cargo.lock"]).is_err());
+    }
+
+    #[test]
     fn the_shape_step_reruns_when_its_own_code_changes() {
         assert!(SHAPE_INPUTS.contains(&"tools/xtask/src/ci.rs"));
         assert!(SHAPE_INPUTS.contains(&"platforms/foundation-platform/migrations"));
@@ -579,5 +661,6 @@ mod tests {
         assert_eq!(run(&["osv-gate", "--report-path"]), Err(USAGE.to_owned()));
         assert_eq!(run(&["osv-gate", "a", "b"]), Err(USAGE.to_owned()));
         assert_eq!(run(&["postgres-production-shape"]), Err(USAGE.to_owned()));
+        assert_eq!(run(&["cargo-deny"]), Err(USAGE.to_owned()));
     }
 }

@@ -80,3 +80,5 @@
   허용 목록에 박힌 서드파티 액션.
 - 공개 저장소에 이슈가 켜진다. 외부인도 이슈를 열 수 있다는 대가를 이슈 하나의 가시성과 바꾼다.
 - 예약 실행은 하루에 Rust 설치 + `cargo metadata` 6번 + 심은 권고 2개를 쓴다(표준 러너, 무료).
+
+개정 각주(2026-11-18): 4항의 "의존성 대시보드 이슈는 만들지 않는다" 는 [ADR-0568](./0568-a-new-advisory-on-a-lockfile-a-change-leaves-as-it-is-warns-while-its-fix-is-open-and-blocks-again-when-the-grace-ends.md) 8항이 바꿨다(`has_issues` 가 켜져 대시보드를 켠다). 같은 ADR 7항이 보안 PR 동시 상한 3 을 더했다. "소유자가 할 일" 2항은 2026-11-18 적용됐다(방화벽 우회 행위자, `has_issues`).

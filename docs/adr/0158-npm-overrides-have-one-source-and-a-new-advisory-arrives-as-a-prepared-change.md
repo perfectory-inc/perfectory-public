@@ -123,3 +123,5 @@ C 로 옮길 때 소유자가 할 일(코드는 별도 PR — 정책 가드가 �
 개정 각주(2026-10-28, 경로 이동): 본문이 가리키는 경로 중 지금 없는 것과 그 행방.
 
 - `scripts/ci/osv-vulnerability-gate.sh` → `cargo xtask ci osv-gate`(`tools/xtask/src/ci.rs`, #798)
+
+개정 각주(2026-11-18): "무관한 PR 을 막지 않기" 의 차등 판정은 [ADR-0568](./0568-a-new-advisory-on-a-lockfile-a-change-leaves-as-it-is-warns-while-its-fix-is-open-and-blocks-again-when-the-grace-ends.md) 이 정했다(건드리지 않은 lockfile + 열린 고침 PR + 심각도별 유예).
