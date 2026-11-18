@@ -88,6 +88,8 @@ CASE_OBJECT_DOC = "silver.court_auction_case_object"
 PARTY_DOC = "silver.court_auction_case_party"
 SURVEY_DOC = "silver.court_auction_survey"
 SURVEY_OBJECT_DOC = "silver.court_auction_survey_object"
+# A 현황조사 round's 임대차관계, from the 현황조사서 page (root ADR-0575 §6), never a name.
+TENANT_DOC = "silver.court_auction_survey_tenant"
 APPRAISAL_ROUND_DOC = "silver.court_auction_appraisal"
 # A 감정평가 round's stored 감정평가서, in the shared content-addressed store the parcel edge serves.
 REPORT_DOC = "silver.court_auction_appraisal_report"
@@ -96,7 +98,7 @@ REPORT_KEY = (*CASE, "round_seq", "appraisal_no", "written_date")
 FILING_DOC = "silver.court_auction_case_filing"
 DELIVERY_DOC = "silver.court_auction_case_delivery"
 CASE_DOCUMENT_SOURCES = (RELATED_DOC, CASE_OBJECT_DOC, PARTY_DOC, SURVEY_DOC, SURVEY_OBJECT_DOC, APPRAISAL_ROUND_DOC,
-                         REPORT_DOC, FILING_DOC, DELIVERY_DOC)
+                         REPORT_DOC, FILING_DOC, DELIVERY_DOC, TENANT_DOC)
 DOCUMENT_SOURCES = (CASE_DOC, SPEC_DOC, SCHEDULE_DOC, OBJECT_DOC, ANNEX_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
 CASE_DOCUMENTS = (CASE_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
 # The site's 공통코드 (root ADR-0540 §5): the name of each code a document carries.
@@ -294,11 +296,19 @@ def detail_parts(frames: dict[str, Any]) -> dict[str, Any]:
     survey = newest_round(current(SURVEY_DOC)).join(
         _listed(current(SURVEY_OBJECT_DOC), (*CASE, "round_seq"), ("object_seq",), [
             "object_seq", "possession_text", "lease_count", "remarks"], "_survey_objects"),
+        [*CASE, "round_seq"], "left").join(
+        _listed(current(TENANT_DOC), (*CASE, "round_seq"), ("tenant_seq",), [
+            "object_seq", "usage_raw", "deposit_raw", "monthly_rent_raw", "move_in_raw", "fixed_date_raw",
+            "leased_part_raw"], "_survey_tenants"),
         [*CASE, "round_seq"], "left").select(*CASE, F.struct(
             "round_seq", "surveyed_raw", "possession_summary", "lease_text",
             F.coalesce(F.col("_survey_objects"), F.expr(
                 "CAST(array() AS array<struct<object_seq:int,possession_text:string,lease_count:int,remarks:string>>)"))
-            .alias("objects")).alias("_survey"))
+            .alias("objects"),
+            F.coalesce(F.col("_survey_tenants"), F.expr(
+                "CAST(array() AS array<struct<object_seq:int,usage_raw:string,deposit_raw:string,"
+                "monthly_rent_raw:string,move_in_raw:string,fixed_date_raw:string,leased_part_raw:string>>)"))
+            .alias("tenants")).alias("_survey"))
     reports = current(REPORT_DOC).select(*REPORT_KEY, F.struct(
         "sha256", "media_format", F.col("size_bytes").cast("bigint").alias("size_bytes")).alias("report"))
     appraisal = newest_round(current(APPRAISAL_ROUND_DOC)).join(reports, list(REPORT_KEY), "left").select(

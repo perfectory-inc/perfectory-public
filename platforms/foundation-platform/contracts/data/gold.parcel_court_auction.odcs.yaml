@@ -98,3 +98,4 @@ customProperties:
       - "silver.court_auction_sale_result"
       - "silver.court_auction_survey"
       - "silver.court_auction_survey_object"
+      - "silver.court_auction_survey_tenant"

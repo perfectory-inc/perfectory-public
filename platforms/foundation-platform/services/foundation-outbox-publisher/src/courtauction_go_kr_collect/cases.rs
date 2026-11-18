@@ -517,7 +517,8 @@ mod tests {
                 "case_detail",
                 "case_survey",
                 "case_appraisal",
-                "case_filings"
+                "case_filings",
+                "case_survey_report"
             ]
         );
         assert!(contract.collection.pace.contains_key(&documents.pace_group));

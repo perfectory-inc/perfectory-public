@@ -62,7 +62,8 @@
         "source-courtauction-go-kr-to-silver-court-auction-appraisal-report-read",
         "source-courtauction-go-kr-to-silver-court-auction-sale-specification-read",
         "source-courtauction-go-kr-to-silver-court-auction-case-filing",
-        "source-courtauction-go-kr-to-silver-court-auction-case-delivery"
+        "source-courtauction-go-kr-to-silver-court-auction-case-delivery",
+        "source-courtauction-go-kr-to-silver-court-auction-survey-tenant"
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T13:30:00Z",

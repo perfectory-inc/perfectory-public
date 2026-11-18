@@ -96,6 +96,15 @@ export const ParcelCourtAuctionByPnuSchema = z.object({
             possession_text: z.string().nullish(),
             lease_count: z.number().int().nullish(),
           })),
+          tenants: z.array(z.object({
+            object_seq: z.number().int().nullish(),
+            usage_raw: z.string().nullish(),
+            deposit_raw: z.string().nullish(),
+            monthly_rent_raw: z.string().nullish(),
+            move_in_raw: z.string().nullish(),
+            fixed_date_raw: z.string().nullish(),
+            leased_part_raw: z.string().nullish(),
+          })).nullish(),
         }).nullish(),
         appraisal: z.object({
           price_basis_date: z.string().nullish(),

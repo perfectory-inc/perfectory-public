@@ -100,6 +100,12 @@ last_reviewed: 2026-11-12
 `silver.court_auction_case_delivery`(등록일·도달일·결과·받는 사람 자격·종류·처리), 사건마다 판. 사이트가 O 로 가린 이름 낱말은 싣지
 않고, 가림이 없는 줄은 처리만 싣는다(이름과 종류를 가를 수 없다). 원문은 Bronze 에만 있다.
 
+## 현황조사서 임대차관계 (루트 ADR-0575 §6)
+
+사건 문서의 다섯 번째 문서(`case_survey_report`, PGJ15BP01 `selectCurstExmndc`)다. 현황조사 문서(`selectCurstExmnRletIndctLst`)가
+주지 않는 임대차 목록(점유부분·용도·보증금·차임·전입일자·확정일자·비고)을 회차마다 받아 `silver.court_auction_survey_tenant` 에 판으로
+싣는다. 임차인 이름(`intrpsNm`)과 주민번호 칸(`enrrno`)은 Silver 에 없고 Bronze 에만 있다. 화면은 현황조사서 칸의 임대차관계 표.
+
 ## 매각물건명세서 PDF (루트 ADR-0575)
 
 물건상세 뒤, 사건 문서 앞에 같은 실행이 그 실행에 읽은 물건 가운데 사이트 화면이 명세서를 여는 것(실물, 기일입찰은 매각기일 7 일 전부터,

@@ -25,7 +25,7 @@ last_reviewed: 2026-07-30
 - 엔드포인트 정의: **167개**
 - 고유 dataset slug: **145개**
 - 고유 Bronze source slug: **166개**
-- 국가 수집 허용 endpoint: **129개**
+- 국가 수집 허용 endpoint: **130개**
 - 기본 실행 레인에 포함되는 endpoint: **82개**
 
 ## 제공기관별 정리
@@ -33,11 +33,11 @@ last_reviewed: 2026-07-30
 | 제공기관 | endpoint 수 | 국가 수집 허용 | 기본 실행 | 주요 상태 |
 |---|---:|---:|---:|---|
 | code.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
-| courtauction.go.kr | 10 | 10 | 0 | 전용 커맨드 10 |
+| courtauction.go.kr | 11 | 11 | 0 | 전용 커맨드 11 |
 | data.go.kr | 43 | 20 | 0 | API 예정 8, 전용 커맨드 13, 중복 API 비활성 22 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
 | industryland.or.kr | 4 | 3 | 0 | 전용 커맨드 4 |
-| juso.go.kr | 12 | 0 | 0 | 수동 승인 12 |
+| juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
 | rt.molit.go.kr | 12 | 12 | 0 | 전용 커맨드 12 |
 | vworld.kr | 26 | 26 | 25 | API 예정 1, 기본 실행 25 |
 
@@ -55,10 +55,10 @@ last_reviewed: 2026-07-30
 | `building_hub_bulk` | 59 | hub.go.kr 건축물·허가·에너지·점검 벌크 파일 |
 | `building_register_open_api` | 10 | data.go.kr 건축물대장 API 중복 경로 |
 | `code_go_kr` | 1 | code.go.kr 법정동 전체 표 (법정동 코드 변경 출처, root ADR-0143) |
-| `court_auction` | 10 | courtauction.go.kr 법원경매 물건·매각결과 목록 (root ADR-0280, ADR-0281) |
+| `court_auction` | 11 | courtauction.go.kr 법원경매 물건·매각결과 목록 (root ADR-0280, ADR-0281) |
 | `data_go_kr_file_data` | 13 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
 | `ilis` | 4 | industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처) |
-| `juso_electronic_map_bulk` | 12 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
+| `juso_electronic_map_bulk` | 11 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
 | `onbid_open_api` | 7 | data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280) |
 | `real_transaction_bulk` | 12 | rt.molit.go.kr 실거래가 조건별 자료제공 전국 월 CSV (root ADR-0348) |
@@ -98,6 +98,7 @@ last_reviewed: 2026-07-30
 | courtauction.go.kr | 법원경매 | 법원경매 사건상세 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | courtauction.go.kr | 법원경매 | 법원경매 문건·송달 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | courtauction.go.kr | 법원경매 | 법원경매 현황조사 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| courtauction.go.kr | 법원경매 | 법원경매 현황조사서(임대차관계) | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | courtauction.go.kr | 법원경매 | 법원경매 공통코드 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | courtauction.go.kr | 법원경매 | 법원경매 물건 검색 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | courtauction.go.kr | 법원경매 | 법원경매 물건상세 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
@@ -214,7 +215,6 @@ last_reviewed: 2026-07-30
 | juso.go.kr | 주소정보 전자지도 | JUSO 건물 도형 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 건물 출입구 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 건물군 | 벌크(수동 승인) | false | 수동 승인 |
-| juso.go.kr | 주소정보 전자지도 | JUSO 도로명주소 전자지도 기초 전체본(월전체, 시도 zip) | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 법정구역 읍면동 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 법정구역 리 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 법정구역 시도 | 벌크(수동 승인) | false | 수동 승인 |

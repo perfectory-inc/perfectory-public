@@ -1040,3 +1040,46 @@ pub const SILVER_COURT_AUCTION_CASE_DELIVERY: LakehouseTableContract = Lakehouse
     ],
     load: OBJECT_LOAD,
 };
+
+/// A 현황조사 round's 임대차 list (현황조사서 `dlt_ordTsLserLtn`), one edition per (case, round) read
+/// whose list changed (root ADR-0575 §6).
+///
+/// Each row is the lessee's place in the list, the 목록 it occupies, the use, the deposit, the rent,
+/// the move-in and fixed dates as the site writes them and the remarks, names masked; never the
+/// lessee's name or resident number field, which stay in Bronze.
+pub const SILVER_COURT_AUCTION_SURVEY_TENANT: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_survey_tenant",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: read_editions(PER_CASE_ROUND),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("round_seq", "int", true),
+        // The row's place in the site's list, from 1.
+        column("tenant_seq", "int", true),
+        column("object_seq", "int", false),
+        column("party_kind_code", "string", false),
+        column("person_kind_code", "string", false),
+        column("usage_code", "string", false),
+        column("usage_raw", "string", false),
+        column("deposit_raw", "string", false),
+        column("monthly_rent_raw", "string", false),
+        column("move_in_raw", "string", false),
+        column("fixed_date_raw", "string", false),
+        column("leased_part_raw", "string", false),
+        column("possession_text", "string", false),
+        column("remarks", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: &["court_office_code", "case_no", "round_seq", "tenant_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, round_seq, tenant_seq, source_snapshot_id) unique",
+        "no person's name or resident number (root ADR-0575 §6)",
+    ],
+    load: OBJECT_LOAD,
+};

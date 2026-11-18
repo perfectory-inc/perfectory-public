@@ -354,6 +354,16 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "진행 물건 회차의 detail.deliveries 로 사건의 송달(등록일·도달일·결과·받는 사람 자격·종류·처리)을 싣는다. 사이트가 가린 이름은 싣지 않는다. 레지스트리 개정 1.8, 바뀐 사건의 PNU 만(루트 ADR-0575 §5)."
+    },
+    {
+      "from": "silver-court-auction-survey-tenant",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "진행 물건 회차의 detail.survey.tenants 로 최신 현황조사 회차의 임대차관계(점유 목록·용도·보증금·차임·전입일자·확정일자)를 싣는다. 이름은 싣지 않는다. 레지스트리 개정 1.9, 바뀐 사건의 PNU 만(루트 ADR-0575 §6)."
     }
   ],
   "by_pnu_lanes": {
@@ -455,13 +465,20 @@
           "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
           "decision": "docs/adr/0575-court-auction-also-collects-the-sale-specification-pdf-per-version-and-the-filings-and-deliveries-per-changed-case.md",
           "reason": "each round's detail gains its case's 문건·송달 (detail.filings and detail.deliveries: dates, the role and the document kind around the name the site masks, the action and the result; never a name), optional lists"
+        },
+        {
+          "major": 1,
+          "revision": 9,
+          "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
+          "decision": "docs/adr/0575-court-auction-also-collects-the-sale-specification-pdf-per-version-and-the-filings-and-deliveries-per-changed-case.md",
+          "reason": "the newest 현황조사 round gains its 임대차 list (detail.survey.tenants: the 목록, use, deposit, rent, move-in and fixed dates as the site writes them; never a name), an optional list"
         }
       ],
       "consumers": [
         {
           "name": "web",
           "at": "products/gongzzang/apps/web/lib/api/court-auction.generated.ts",
-          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas); each item's 물건상세 (root ADR-0540): 사건·매각물건명세서·기일내역·목록내역·제시외건물·감정평가요항표; the names the site gives their codes (기일결과 매각·유찰, 기일종류, 목록구분, 물건종류, 입찰구분, 감정요항표 항목; root ADR-0540 §5); the case's 관련사건·당사자·목록별 종국결과·현황조사서·감정평가 (root ADR-0540 §1); the 감정평가서 PDF (root ADR-0540 §1); the case's 문건·송달, never a name (root ADR-0575 §5)",
+          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas); each item's 물건상세 (root ADR-0540): 사건·매각물건명세서·기일내역·목록내역·제시외건물·감정평가요항표; the names the site gives their codes (기일결과 매각·유찰, 기일종류, 목록구분, 물건종류, 입찰구분, 감정요항표 항목; root ADR-0540 §5); the case's 관련사건·당사자·목록별 종국결과·현황조사서·감정평가 (root ADR-0540 §1); the 감정평가서 PDF (root ADR-0540 §1); the case's 문건·송달, never a name (root ADR-0575 §5); the newest 현황조사 round's 임대차관계, never a name (root ADR-0575 §6)",
           "reads": [
             {
               "path": "schema_version",
@@ -909,6 +926,38 @@
             },
             {
               "path": "court_auction.rounds[].detail.deliveries[].action",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.tenants",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.tenants[].object_seq",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.tenants[].usage_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.tenants[].deposit_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.tenants[].monthly_rent_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.tenants[].move_in_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.tenants[].fixed_date_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.tenants[].leased_part_raw",
               "required": false
             }
           ]

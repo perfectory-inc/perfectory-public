@@ -413,6 +413,10 @@ def full_document_frames(spark, round_row):
                                   "written_date": date(2099, 1, 12), "opinion": "합성"},
         job.REPORT_DOC: {"round_seq": 1, "appraisal_no": "합성-01", "written_date": date(2099, 1, 12),
                          "sha256": "a" * 64, "media_format": "pdf", "size_bytes": 1000},
+        # 현황조사서's 임대차관계 (root ADR-0575 §6), never a name.
+        job.TENANT_DOC: {"round_seq": 1, "tenant_seq": 1, "object_seq": 1, "usage_raw": "사무실",
+                         "deposit_raw": "10,000,000원", "monthly_rent_raw": "500,000원", "move_in_raw": "2099.01.02",
+                         "fixed_date_raw": "미상", "leased_part_raw": "전부"},
         # 문건·송달 (root ADR-0575 §5): the role and kind, never the masked name.
         job.FILING_DOC: {"filing_seq": 1, "received_date": date(2099, 2, 2), "filer_role": "채권자", "document_kind": "보정서",
                          "action": "제출", "result": "합성"},

@@ -429,6 +429,15 @@ FILINGS = {"dlt_ofdocDtsLst": [{"ofdocRcptYmd": "20990202", "rcptDts": "채권�
                               {"dlvrbkRegYmd": "20990204", "lastDlvrblRchYmd": "2099.02.11 폐문부재",
                                "dlvrDts": "채무자겸소유자 이OO 개시결정정본 발송"}]}
 
+# 현황조사서 as the site gives it: the lessee's name and resident number field are never read (root ADR-0575 §6).
+SURVEY_REPORT = {"dlt_spotExmnOrdCntLst": [{"ordTsCnt": 1}],
+                 "dma_curstExmnMngInf": {"ordTsCnt": 1},
+                 "dlt_ordTsLserLtn": [{"objctSeq": 1, "btprtPrsnlDvsCd": "01", "auctnIntrpsDvsCd": "0001562",
+                                       "auctnLesUsgCd": "09", "lesUsgDts": "사무실", "lesDposDts": "10,000,000원",
+                                       "mmrntAmtDts": "500,000원", "mvinDtlCtt": "2099.01.02", "rgstryCrtcpCfmtnCtt": "미상",
+                                       "lesPartCtt": "전부", "lesDtsRmk": "임차인 홍길동 진술", "intrpsNm": "홍길동",
+                                       "enrrno": "합성암호값"}]}
+
 APPRAISAL = {"dlt_aeeWevlOrdTsLst": [{"ordTsCnt": 1}],
              "dma_ordTsIndvdAeeWevlInf": {"ordTsCnt": "1", "aeeWevlNo": "합성-0001", "dspslPrcCrtrYmd": "20990110",
                                           "wrtYmd": "20990112", "aeeEvlExamrNm": "박감정", "fstmEvlDcsnOponCtt": "본건"}}
@@ -483,7 +492,8 @@ class CaseDocumentRowsTest(unittest.TestCase):
             self.rows("case_survey", [{**failed, "request": {}}])
 
     def test_every_case_table_row_names_only_its_columns_and_the_read_commits_last(self):
-        given = {"case_detail": CASE_DETAIL, "case_survey": SURVEY, "case_appraisal": APPRAISAL, "case_filings": FILINGS}
+        given = {"case_detail": CASE_DETAIL, "case_survey": SURVEY, "case_appraisal": APPRAISAL, "case_filings": FILINGS,
+                 "case_survey_report": SURVEY_REPORT}
         for role, tables in job.CASE_DOCUMENT_TABLES.items():
             self.assertEqual(tables[-1], job.CASE_READ_TABLE)
             rows = self.rows(role, [case_line(role, given[role])])
@@ -492,6 +502,16 @@ class CaseDocumentRowsTest(unittest.TestCase):
                 self.assertTrue(rows[table], table)
                 self.assertLessEqual(set(rows[table][0]), names, table)
             self.assertEqual(job.search_roles(CONTRACT)[f"courtauctiongokr__{next(d for d in CONTRACT['case_documents']['documents'] if d['role'] == role)['dataset_slug']}"], role)
+
+    def test_a_survey_reports_lessees_keep_no_name_and_no_resident_number(self):
+        tables = self.rows("case_survey_report", [case_line("case_survey_report", SURVEY_REPORT)])
+        [tenant] = tables[job.TENANT_TABLE]
+        self.assertEqual((tenant["round_seq"], tenant["tenant_seq"], tenant["usage_raw"], tenant["deposit_raw"],
+                          tenant["monthly_rent_raw"], tenant["move_in_raw"]),
+                         (1, 1, "사무실", "10,000,000원", "500,000원", "2099.01.02"))
+        kept = json.dumps(tenant, ensure_ascii=False, default=str)
+        self.assertNotIn("홍길동", kept)
+        self.assertNotIn("합성암호값", kept)
 
     def test_filings_keep_the_role_and_the_kind_and_never_the_masked_name(self):
         tables = self.rows("case_filings", [case_line("case_filings", FILINGS)])

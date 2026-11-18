@@ -304,6 +304,7 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 법원경매 매각결과 (`silver.court_auction_sale_result`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 현황조사 (`silver.court_auction_survey`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 현황조사 목록 (`silver.court_auction_survey_object`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 법원경매 현황조사서 임대차관계 (`silver.court_auction_survey_tenant`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 감정평가서 읽은 기록 (`silver.court_auction_appraisal_report_read`) | — | — | 없음 |
 | 거래·공매·경매 | 법원경매 사건 문서 읽은 기록 (`silver.court_auction_case_document_read`) | — | — | 없음 |
 | 거래·공매·경매 | 법원경매 물건상세 읽은 기록 (`silver.court_auction_item_detail`) | — | — | 없음 |
