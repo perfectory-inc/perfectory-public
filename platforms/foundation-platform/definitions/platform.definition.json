@@ -868,6 +868,11 @@
               "canonical_code": "string",
               "display_name": "string"
             }
+          },
+          "parcels": {
+            "feature_id_property": "pnu",
+            "feature_id_pattern": "[0-9]{19}",
+            "properties": {}
           }
         },
         "geometry": {

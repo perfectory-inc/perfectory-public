@@ -15,6 +15,7 @@ import {
   applyMapEditOverlay,
   fetchMapEditOverlay,
   type MapEditOverlay,
+  MAP_EDIT_OVERLAY_UNITS,
   mapEditOverlayFillLayerId,
   registerMapEditOverlayLayers,
 } from "@/lib/map/map-edit-overlay";
@@ -80,7 +81,7 @@ export async function setupMapboxRuntime(
   setupPolygonLayers(mb, onParcelClick, runtimeManifest, onComplexClick);
   await setupListingMarkerTileLayers(mb, onListingClick);
   if (isCancelled()) return;
-  for (const unit of ["complex", "admin"]) {
+  for (const unit of MAP_EDIT_OVERLAY_UNITS) {
     const stopMapEditOverlay = startMapEditOverlay(mb, unit);
     if (stopMapEditOverlay) cleanups.push(stopMapEditOverlay);
   }
@@ -208,7 +209,10 @@ function setupParcelLayers(
       return;
     }
     const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "parcels");
-    if (registered.length > 0) registerRuntimeParcelClick(mb, onParcelClick);
+    if (registered.length > 0) {
+      registerMapEditOverlayLayers(mb, "parcels");
+      registerRuntimeParcelClick(mb, onParcelClick);
+    }
   } catch (err) {
     logMapLayerFailure("parcels-fill", err, { kind: "core", source: "parcels" });
   }
@@ -216,11 +220,17 @@ function setupParcelLayers(
 
 function registerRuntimeParcelClick(mb: MapboxGLLike, onParcelClick: (pnu: string) => void): void {
   if (typeof mb.on !== "function") return;
-  mb.on("click", "parcels-fill", (e: unknown) => {
+  const handler = (e: unknown) => {
     const evt = e as { features?: Array<{ properties?: { pnu?: string } }> };
     const pnu = evt.features?.[0]?.properties?.pnu;
     if (typeof pnu === "string" && pnu.length > 0) onParcelClick(pnu);
-  });
+  };
+  mb.on("click", "parcels-fill", handler);
+  // An edited parcel is drawn from the edit overlay while its base polygon is hidden, so the same
+  // click must work there too (root ADR-0112).
+  if (mb.getLayer?.(mapEditOverlayFillLayerId("parcels"))) {
+    mb.on("click", mapEditOverlayFillLayerId("parcels"), handler);
+  }
 }
 
 function setupAdminLayers(mb: MapboxLayerApi, runtimeManifest: VectorTileRuntimeManifest): void {

@@ -50,6 +50,12 @@ const MapEditOverlaySchema = z
 
 export type MapEditOverlay = z.infer<typeof MapEditOverlaySchema>;
 
+/**
+ * The polygon units staff can edit: `map_edit_gateway.units` of the foundation connection contract,
+ * which `edge-contract.test.ts` holds this list to (root ADR-0112).
+ */
+export const MAP_EDIT_OVERLAY_UNITS = ["complex", "admin", "parcels"] as const;
+
 /** Parses one overlay response and checks it belongs to `unit` and hides every feature it draws. */
 export function parseMapEditOverlay(value: unknown, unit: string): MapEditOverlay {
   const overlay = MapEditOverlaySchema.parse(value);

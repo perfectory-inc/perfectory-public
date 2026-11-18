@@ -22,10 +22,6 @@ STATE_ROOT="${FOUNDATION_MAP_EDIT_FOLD_STATE_ROOT:-/var/lib/foundation-platform/
 # 그 소유를 바꾸면 다른 적재 작업이 깨진다(2026-09-29 첫 설치에서 실제로 그랬다).
 source "$(dirname "${BASH_SOURCE[0]}")/job-state-root.sh"
 LAKEHOUSE_STATE_ROOT="${FOUNDATION_MAP_EDIT_FOLD_LAKEHOUSE_STATE_ROOT:-$(job_state_root "map_edit_fold_${UNIT}")/lakehouse}"
-SLACK_TOKEN_FILE="${FOUNDATION_MAP_EDIT_FOLD_SLACK_TOKEN_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-bot-token}"
-SLACK_CHANNEL="${FOUNDATION_MAP_EDIT_FOLD_SLACK_CHANNEL:-#alerts}"
-# 이보다 오래 접히지 않은 편집은 매시간 접기가 돌지 않았다는 뜻이다.
-MAX_PENDING_AGE_HOURS="${FOUNDATION_MAP_EDIT_FOLD_MAX_PENDING_AGE_HOURS:-6}"
 
 # 유닛마다 Silver 좌표계와 서빙본을 만드는 Spark 작업이 다르다. 좌표계의 정본은 각 서빙본
 # 계약의 geometry_srid 관문이다 — 여기 값이 어긋나면 Spark 작업이 편집 내보내기를 거부한다.
@@ -37,6 +33,11 @@ case "${UNIT}" in
   admin)
     HANDOFF_SRID=4326
     SERVED_JOB=administrative_boundary_served_gold.py
+    ;;
+  parcels)
+    # 필지는 전국 4천만 행이라 굽기 유닛의 상태·잠금·작업 디스크에서 접는다(parcel-tile-bake.sh fold).
+    echo "map-edit-fold: parcels 는 foundation-parcel-tile-bake@fold 가 접는다" >&2
+    exit 64
     ;;
   *)
     echo "map-edit-fold: 모르는 유닛 ${UNIT}" >&2
@@ -58,19 +59,6 @@ journal="${STATE_ROOT}/journal.log"
 run_log="${STATE_ROOT}/last-run.log"
 : > "${run_log}"
 
-notify_slack() {
-  local token payload
-  token="$(tr -d '\r\n' < "${SLACK_TOKEN_FILE}")" || return 0
-  payload="$(python3 - "${SLACK_CHANNEL}" "$1" <<'PY'
-import json, sys
-print(json.dumps({"channel": sys.argv[1], "text": sys.argv[2]}, ensure_ascii=False))
-PY
-)"
-  curl -sS --max-time 30 -H "Authorization: Bearer ${token}" \
-    -H "Content-Type: application/json; charset=utf-8" \
-    -d "${payload}" https://slack.com/api/chat.postMessage >/dev/null 2>&1 || true
-}
-
 on_error() {
   local line="$1"
   job_journal "${journal}" "fold unit=${UNIT} FAILED at line ${line}" >&2
@@ -80,30 +68,9 @@ on_error() {
 }
 trap 'on_error ${LINENO}' ERR
 
-base="${FOUNDATION_PLATFORM_MAP_EDIT_GATEWAY_BASE_URL%/}"
-
-# 1. 손님이 읽는 오버레이가 살아 있는가. 죽어 있으면 편집은 저장돼도 아무도 못 본다.
-overlay_status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "${base}/overlay/${UNIT}" || true)"
-if [ "${overlay_status}" != "200" ]; then
-  notify_slack "🔴 지도 편집 오버레이(${UNIT})가 ${overlay_status:-응답없음} — 손님이 편집을 못 본다"
-fi
-
-# 2. 접히지 않은 편집이 몇 건이고 가장 오래된 것이 언제인가.
-pending_json="$(curl -sS --fail --max-time 30 \
-  -H "Authorization: Bearer ${FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN}" \
-  "${base}/edits/${UNIT}?after=0&limit=1000")"
-read -r pending oldest_age_hours <<<"$(python3 - "${pending_json}" <<'PY'
-import json, sys
-from datetime import datetime, timezone
-edits = json.loads(sys.argv[1])["edits"]
-oldest = min((datetime.fromisoformat(e["edited_at"].replace("Z", "+00:00")) for e in edits), default=None)
-age = 0 if oldest is None else int((datetime.now(timezone.utc) - oldest).total_seconds() // 3600)
-print(len(edits), age)
-PY
-)"
-if [ "${oldest_age_hours}" -ge "${MAX_PENDING_AGE_HOURS}" ]; then
-  notify_slack "🟠 지도 편집 ${pending}건이 ${oldest_age_hours}시간째 타일에 접히지 않음(${UNIT}) — 접기가 돌지 않는다"
-fi
+# 1·2. 오버레이가 살아 있는가, 접히지 않은 편집이 몇 건이고 얼마나 오래됐는가(알림 포함).
+source "$(dirname "${BASH_SOURCE[0]}")/map-edit-pending.sh"
+map_edit_pending "${UNIT}"
 if [ "${pending}" = "0" ] && [ "${FOUNDATION_MAP_EDIT_FOLD_FORCE:-0}" != "1" ]; then
   job_journal "${journal}" "fold unit=${UNIT} pending=0 overlay=${overlay_status} skipped"
   printf 'foundation-job-outcome unchanged\n'
