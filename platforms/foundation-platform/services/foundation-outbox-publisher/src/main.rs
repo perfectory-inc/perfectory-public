@@ -96,6 +96,7 @@ use foundation_publisher_core::by_pnu_gateway_contract;
 #[cfg(test)]
 use foundation_publisher_core::test_support;
 mod handoff_object_support;
+mod juso_electronic_map_base;
 mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
 mod lineage_review_items_load;
