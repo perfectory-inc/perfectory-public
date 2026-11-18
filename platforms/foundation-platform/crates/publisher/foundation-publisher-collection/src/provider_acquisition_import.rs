@@ -507,7 +507,7 @@ where
 ///
 /// An attempt that resumed the staged body and added bytes to it does not count: a provider that
 /// serves ranges and closes long bodies every few minutes is followed to the end, as aria2 and rclone
-/// reset their retry count on progress. 2026-11-18 05:07..05:24Z 국토계획/관리지역 (20171128DS00118)
+/// reset their retry count on progress. 2026-11-18 05:07..05:24Z the 국토계획/관리지역 file
 /// ended early four times in 17 minutes and the sweep failed it again, the third run in a row.
 /// [`REPLAY_MAX_REQUESTS`] bounds the requests whatever the progress.
 const REPLAY_ATTEMPTS: u32 = 4;

@@ -202,7 +202,7 @@ if [ "${plan_rc}" -eq 0 ] && [ "${mode}" = run ] && [ "${job_count}" -gt 0 ]; th
     # natively in the sweep (every FOUNDATION_PLATFORM_* name), the database and the VWorld login.
     forwarded="${run_dir}/forwarded-env.names"
     # RUST_LOG too: without it the publisher logs errors only, and the replay's retries (bytes
-    # received, resumed or not) were nowhere when 20171128DS00118 failed on 2026-11-18.
+    # received, resumed or not) were nowhere when the 국토계획/관리지역 file failed on 2026-11-18.
     export RUST_LOG="${RUST_LOG:-warn}"
     {
       echo DATABASE_URL
