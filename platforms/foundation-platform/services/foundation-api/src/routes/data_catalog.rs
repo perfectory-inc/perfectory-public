@@ -14,15 +14,16 @@ use axum::{
     Json, Router,
 };
 use foundation_contracts::data_catalog::{
-    ByPnuCutoverApproval, ByPnuCutoverEvent, ByPnuCutovers, CiTimeTrend, CiWeek, DataCatalogEntity,
-    DataCatalogEntityKind, DataCatalogField, DataCatalogNeighbourhood, DataCatalogSearchPage,
-    DataContractQuality, DataQualityCheck, DataQualityDetail, DataQualityResult, DataQualityStatus,
-    DatasetSnapshot, DatasetSnapshotLink, DatasetSnapshots, EdgeCheck, EdgeHostCheck, FailureCause,
-    OperationsLinks, OperatorActionRecorded, OperatorActionRequest, ParcelEditionPromotion,
-    ParcelEditionPromotionReadiness, ParcelEditionPromotionRequest, ParcelEditionReadiness,
-    ParcelEditionStage, ParcelEditionStages, ParcelEditions, ScheduledJobDataset,
-    ScheduledJobProblem, ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobStart,
-    ScheduledJobStatus, ScheduledJobsStatus, ServiceChecks,
+    ByPnuCutoverApproval, ByPnuCutoverEvent, ByPnuCutovers, CiTimeTrend, CiWeek, ContainerLimit,
+    DataCatalogEntity, DataCatalogEntityKind, DataCatalogField, DataCatalogNeighbourhood,
+    DataCatalogSearchPage, DataContractQuality, DataQualityCheck, DataQualityDetail,
+    DataQualityResult, DataQualityStatus, DatasetSnapshot, DatasetSnapshotLink, DatasetSnapshots,
+    EdgeCheck, EdgeHostCheck, FailureCause, OperationsLinks, OperatorActionRecorded,
+    OperatorActionRequest, ParcelEditionPromotion, ParcelEditionPromotionReadiness,
+    ParcelEditionPromotionRequest, ParcelEditionReadiness, ParcelEditionStage, ParcelEditionStages,
+    ParcelEditions, ScheduledJobDataset, ScheduledJobProblem, ScheduledJobRun,
+    ScheduledJobRunOutcome, ScheduledJobStart, ScheduledJobStatus, ScheduledJobsStatus,
+    ServiceChecks, UnitLimit, UnitLimits,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
@@ -43,6 +44,7 @@ mod parcel_editions;
 mod security_alerts;
 mod service_checks;
 mod snapshots;
+mod unit_limits;
 
 pub(super) use alerts::problem_metrics as scheduled_job_problem_metrics;
 pub(super) use security_alerts::advisory_metrics as security_advisory_metrics;
@@ -66,6 +68,7 @@ const MAX_NEIGHBOURS: u32 = 200;
         operator_actions::record_operator_action,
         snapshots::dataset_snapshots,
         service_checks::service_checks,
+        unit_limits::unit_limits,
         parcel_editions::parcel_editions,
         by_pnu_cutovers::by_pnu_cutovers
     ),
@@ -95,6 +98,9 @@ const MAX_NEIGHBOURS: u32 = 200;
         DataQualityResult,
         DataQualityDetail,
         ServiceChecks,
+        UnitLimits,
+        UnitLimit,
+        ContainerLimit,
         EdgeCheck,
         EdgeHostCheck,
         CiTimeTrend,
@@ -168,6 +174,10 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/data-catalog/v1/service-checks",
             super::protected_route(get(service_checks::service_checks), state, read, None),
+        )
+        .route(
+            "/data-catalog/v1/unit-limits",
+            super::protected_route(get(unit_limits::unit_limits), state, read, None),
         )
         .route(
             "/data-catalog/v1/parcel-editions",

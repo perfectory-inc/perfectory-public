@@ -32,7 +32,8 @@ OOM 의 `limit` 이 `2621440kB`(2.5GiB) 면 공매 Silver 적재(`foundation-onb
 
 [루트 ADR-0574](../../../../docs/adr/0574-every-limit-is-set-from-measurement-and-a-unit-near-its-limit-is-named-before-it-fails.md).
 규칙은 `foundation-unit-limits` 무리, 시험은 `foundation-unit-limits.rules.test.yml`. `foundation-unit-limits.timer` 가 30분마다
-`scripts/ops/unit_limits.py --write` 로 systemd 저널의 run 을 재어 `unit-limits.prom` 을 쓴다.
+`scripts/ops/unit_limits.py --write` 로 systemd 저널의 run 을 재어 `unit-limits.prom`(경보)과 `unit-limits.json`(더니어
+「자원 한도」 탭, `GET /data-catalog/v1/unit-limits`)을 쓴다. 화면은 읽기만 한다; 한도는 선언을 고치는 PR 로 바꾼다.
 
 | 경보 | 뜻 | 먼저 볼 것 |
 |---|---|---|
@@ -40,7 +41,7 @@ OOM 의 `limit` 이 `2621440kB`(2.5GiB) 면 공매 Silver 적재(`foundation-onb
 | `FoundationContainerMemoryNearCapLong` | 컨테이너가 하루의 절반 넘게 상한의 90% 위(page) | `journalctl -k --since -1d \| grep oom_memcg` 로 죽은 횟수; 상주 서비스면 무엇이 자랐는지(ADR-0573 의 아레나처럼) |
 | `FoundationUnitLimitsUnread` | 측정 파일이 두 시간째 없음 | `journalctl -u foundation-unit-limits.service` |
 
-표를 다시 만든다(호스트에서, 읽기만; 14일 저널 몇 초):
+표를 다시 만든다(호스트에서, 읽기만; 14일 저널 약 15초):
 
 ```sh
 python3 /opt/foundation-platform/current/scripts/ops/unit_limits.py --since -14d --table --prometheus http://127.0.0.1:19090

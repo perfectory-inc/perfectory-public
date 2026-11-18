@@ -2,7 +2,7 @@
 status: current
 owner: dawneer
 doc_type: README
-last_reviewed: 2026-09-30
+last_reviewed: 2026-11-19
 ---
 
 # 더니어 (Dawneer) — 직원 통합 콘솔
@@ -31,6 +31,8 @@ consoles/dawneer/
 
 데이터 흐름 화면의 「서비스 점검」 탭은 서버가 매시 잰 한국→서비스 주소 경로(colo·p50·p95)와 주별 PR CI 시간을
 보인다([ADR-0209](../../docs/adr/0209-the-data-flow-map-shows-the-edge-path-from-korea-and-the-ci-time-trend.md)).
+「자원 한도」 탭은 서버가 30분마다 잰 유닛·컨테이너의 한도 대비 최고점·run 시간·상태·마지막 OOM/timeout 을 읽기로만
+보이고, 「변경 제안」은 그 유닛의 선언을 고치는 PR 로 간다([ADR-0574](../../docs/adr/0574-every-limit-is-set-from-measurement-and-a-unit-near-its-limit-is-named-before-it-fails.md) §8).
 
 ## 어디서 도나
 

@@ -156,6 +156,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/data-catalog/v1/unit-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Each unit's and container's declared limits, measured peak and run time, failures and state. */
+        get: operations["readUnitLimits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -282,6 +299,33 @@ export interface components {
              * @description That workflow's median, minutes.
              */
             worst_workflow_p50?: number | null;
+        };
+        /** @description One running Docker container's cap against its measured working set (root ADR-0574). */
+        ContainerLimit: {
+            /** @description The container's name. */
+            container: string;
+            /**
+             * Format: int64
+             * @description Its memory cap, bytes.
+             */
+            memory_max?: number | null;
+            /**
+             * Format: double
+             * @description `peak_max` over `memory_max`.
+             */
+            memory_share?: number | null;
+            /**
+             * Format: int32
+             * @description The kernel's OOM kills inside it in the window.
+             */
+            oom: number;
+            /**
+             * Format: int64
+             * @description The most cAdvisor's working set reached in the window, bytes.
+             */
+            peak_max?: number | null;
+            /** @description `failing`, `near`, `fits` or `unmeasured`, as for a unit. */
+            state: string;
         };
         /** @description One entity as a list, a search result or a graph node shows it. */
         DataCatalogEntity: {
@@ -913,6 +957,161 @@ export interface components {
             /** @description Why the checks' file could not be read, when it could not. */
             error?: string | null;
         };
+        /** @description One host unit's declared limits against what its runs measured (root ADR-0574). */
+        UnitLimit: {
+            /**
+             * Format: int64
+             * @description The highest a Docker container one of its runs held reached, bytes.
+             */
+            container_peak_max?: number | null;
+            /**
+             * Format: int32
+             * @description Runs that failed otherwise.
+             */
+            failed_other: number;
+            /**
+             * Format: date-time
+             * @description When its newest run killed at the memory cap ended.
+             */
+            last_oom_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When its newest finished run ended.
+             */
+            last_run_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When its newest run stopped at the time limit ended.
+             */
+            last_timeout_at?: string | null;
+            /**
+             * Format: int64
+             * @description `MemoryHigh=`, bytes.
+             */
+            memory_high?: number | null;
+            /**
+             * Format: int64
+             * @description `MemoryMax=`, bytes; none when the unit declares none.
+             */
+            memory_max?: number | null;
+            /**
+             * Format: double
+             * @description `peak_max` over `memory_max`.
+             */
+            memory_share?: number | null;
+            /**
+             * Format: int32
+             * @description The newest runs, back from the last, that reached 80% of the memory limit in a row.
+             */
+            near_memory_runs: number;
+            /**
+             * Format: int32
+             * @description The same for the time limit.
+             */
+            near_time_runs: number;
+            /**
+             * Format: int32
+             * @description Runs killed at the memory cap (the unit's or a container's).
+             */
+            oom: number;
+            /**
+             * Format: int64
+             * @description The highest of them.
+             */
+            peak_max?: number | null;
+            /**
+             * Format: int64
+             * @description systemd's `memory peak` of the runs (cgroup `memory.peak`, page cache included), bytes.
+             */
+            peak_p95?: number | null;
+            /**
+             * Format: int32
+             * @description Finished runs in the window.
+             */
+            runs: number;
+            /**
+             * Format: int64
+             * @description Run time, seconds.
+             */
+            seconds_max?: number | null;
+            /**
+             * Format: int64
+             * @description Run time, seconds.
+             */
+            seconds_p50?: number | null;
+            /**
+             * Format: int64
+             * @description Run time, seconds.
+             */
+            seconds_p95?: number | null;
+            /**
+             * @description `failing` (a run died at a limit in the window), `near` (a run reached 80% of one),
+             *     `fits`, or `unmeasured` (no run in the window).
+             */
+            state: string;
+            /**
+             * Format: int64
+             * @description The time limit, seconds: `TimeoutStartSec=` for a oneshot, else `RuntimeMaxSec=`.
+             */
+            time_limit_seconds?: number | null;
+            /**
+             * Format: double
+             * @description `seconds_max` over `time_limit_seconds`.
+             */
+            time_share?: number | null;
+            /**
+             * Format: int32
+             * @description Runs stopped at the time limit.
+             */
+            timeout: number;
+            /** @description The systemd unit, `foundation-<name>.service`. */
+            unit: string;
+        };
+        /**
+         * @description Every host unit and container measured against its limits, as `foundation-unit-limits.service`
+         *     last wrote it (root ADR-0574). Read-only: a limit changes only in code, through the host budget
+         *     contract and its guard.
+         */
+        UnitLimits: {
+            /**
+             * Format: int64
+             * @description The caps of the containers running when it measured, summed, bytes.
+             */
+            container_caps_bytes?: number | null;
+            /** @description By container name. */
+            containers?: components["schemas"]["ContainerLimit"][];
+            /** @description Why the containers could not be measured, when they could not. */
+            containers_error?: string | null;
+            /** @description Why the file could not be read, when it could not. */
+            error?: string | null;
+            /**
+             * Format: int64
+             * @description The host's physical memory, bytes.
+             */
+            host_memory_bytes?: number | null;
+            /**
+             * Format: date-time
+             * @description When the host last measured.
+             */
+            measured_at?: string | null;
+            /**
+             * Format: int32
+             * @description How many runs near in a row raise the alert.
+             */
+            near_runs?: number | null;
+            /**
+             * Format: double
+             * @description The share of a limit that is near (0.8).
+             */
+            near_share?: number | null;
+            /** @description By unit name. */
+            units?: components["schemas"]["UnitLimit"][];
+            /**
+             * Format: int32
+             * @description The window, days.
+             */
+            window_days?: number | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -1312,6 +1511,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServiceChecks"];
+                };
+            };
+            /** @description No staff identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not read the data catalog */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    readUnitLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitLimits"];
                 };
             };
             /** @description No staff identity */

@@ -319,6 +319,104 @@ pub struct ServiceChecks {
     pub error: Option<String>,
 }
 
+/// One host unit's declared limits against what its runs measured (root ADR-0574).
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct UnitLimit {
+    /// The systemd unit, `foundation-<name>.service`.
+    pub unit: String,
+    /// `failing` (a run died at a limit in the window), `near` (a run reached 80% of one),
+    /// `fits`, or `unmeasured` (no run in the window).
+    pub state: String,
+    /// Finished runs in the window.
+    pub runs: u32,
+    /// `MemoryMax=`, bytes; none when the unit declares none.
+    pub memory_max: Option<u64>,
+    /// `MemoryHigh=`, bytes.
+    pub memory_high: Option<u64>,
+    /// The time limit, seconds: `TimeoutStartSec=` for a oneshot, else `RuntimeMaxSec=`.
+    pub time_limit_seconds: Option<u64>,
+    /// systemd's `memory peak` of the runs (cgroup `memory.peak`, page cache included), bytes.
+    pub peak_p95: Option<u64>,
+    /// The highest of them.
+    pub peak_max: Option<u64>,
+    /// The highest a Docker container one of its runs held reached, bytes.
+    pub container_peak_max: Option<u64>,
+    /// `peak_max` over `memory_max`.
+    pub memory_share: Option<f64>,
+    /// Run time, seconds.
+    pub seconds_p50: Option<u64>,
+    /// Run time, seconds.
+    pub seconds_p95: Option<u64>,
+    /// Run time, seconds.
+    pub seconds_max: Option<u64>,
+    /// `seconds_max` over `time_limit_seconds`.
+    pub time_share: Option<f64>,
+    /// Runs killed at the memory cap (the unit's or a container's).
+    pub oom: u32,
+    /// Runs stopped at the time limit.
+    pub timeout: u32,
+    /// Runs that failed otherwise.
+    pub failed_other: u32,
+    /// The newest runs, back from the last, that reached 80% of the memory limit in a row.
+    pub near_memory_runs: u32,
+    /// The same for the time limit.
+    pub near_time_runs: u32,
+    /// When its newest finished run ended.
+    pub last_run_at: Option<DateTime<Utc>>,
+    /// When its newest run killed at the memory cap ended.
+    pub last_oom_at: Option<DateTime<Utc>>,
+    /// When its newest run stopped at the time limit ended.
+    pub last_timeout_at: Option<DateTime<Utc>>,
+}
+
+/// One running Docker container's cap against its measured working set (root ADR-0574).
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct ContainerLimit {
+    /// The container's name.
+    pub container: String,
+    /// `failing`, `near`, `fits` or `unmeasured`, as for a unit.
+    pub state: String,
+    /// Its memory cap, bytes.
+    pub memory_max: Option<u64>,
+    /// The most cAdvisor's working set reached in the window, bytes.
+    pub peak_max: Option<u64>,
+    /// `peak_max` over `memory_max`.
+    pub memory_share: Option<f64>,
+    /// The kernel's OOM kills inside it in the window.
+    pub oom: u32,
+}
+
+/// Every host unit and container measured against its limits, as `foundation-unit-limits.service`
+/// last wrote it (root ADR-0574). Read-only: a limit changes only in code, through the host budget
+/// contract and its guard.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct UnitLimits {
+    /// When the host last measured.
+    pub measured_at: Option<DateTime<Utc>>,
+    /// The window, days.
+    pub window_days: Option<u32>,
+    /// The share of a limit that is near (0.8).
+    pub near_share: Option<f64>,
+    /// How many runs near in a row raise the alert.
+    pub near_runs: Option<u32>,
+    /// The host's physical memory, bytes.
+    pub host_memory_bytes: Option<u64>,
+    /// The caps of the containers running when it measured, summed, bytes.
+    pub container_caps_bytes: Option<u64>,
+    /// By unit name.
+    #[serde(default)]
+    pub units: Vec<UnitLimit>,
+    /// By container name.
+    #[serde(default)]
+    pub containers: Vec<ContainerLimit>,
+    /// Why the containers could not be measured, when they could not.
+    #[serde(default)]
+    pub containers_error: Option<String>,
+    /// Why the file could not be read, when it could not.
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
 /// What starts a scheduled job (the job list's `started_by`, root ADR-0171).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
