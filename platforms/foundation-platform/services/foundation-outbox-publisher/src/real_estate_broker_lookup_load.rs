@@ -17,22 +17,16 @@
 use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::path::Path;
-use std::sync::Mutex;
 
 use anyhow::{bail, Context};
 use catalog_domain::real_estate_broker::{name_key, number_key};
-use foundation_outbox::object_storage::R2ObjectStorageConfig;
-use foundation_publisher_silver::{
-    duckdb_extensions,
-    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
-};
 use lakehouse_domain::lakehouse::LakehouseTableContract;
 use lakehouse_domain::{SILVER_REAL_ESTATE_BROKER_MEMBER, SILVER_REAL_ESTATE_BROKER_OFFICE};
-use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde::Deserialize;
 use sqlx::{Connection, PgConnection, Row};
 
 use crate::handoff_object_support::copy_text_escape;
+use crate::lakehouse_reader::{self, LakehouseReader};
 use crate::public_data_control_support::required_env_value;
 
 /// Where the `DuckDB` the load reads with keeps its database and spill (the job's state root).
@@ -109,59 +103,7 @@ struct Pinned {
 
 impl Pinned {
     fn source(&self) -> String {
-        format!(
-            "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {})",
-            self.contract.table_name, self.snapshot_id
-        )
-    }
-}
-
-/// The catalog and the `DuckDB` the load reads Silver with. The connection is not shared between
-/// threads, so it sits behind a lock taken for each query and never held across an await.
-struct Reader {
-    catalog: IcebergRestCatalog,
-    stage: Mutex<DuckDbParquetStage>,
-}
-
-impl Reader {
-    fn open() -> anyhow::Result<Self> {
-        let catalog = LakehouseCatalogConfig::reader_from_env()
-            .context("failed to configure the lakehouse catalog with its read-only token")?;
-        let storage = R2ObjectStorageConfig::lakehouse_reader_from_env()
-            .context("failed to configure lakehouse reads with the read-only key pair")?;
-        let read = LakehouseRead {
-            extensions: duckdb_extensions::release_directory()?,
-            catalog_uri: catalog.catalog_uri.clone(),
-            warehouse: catalog.warehouse.clone(),
-            catalog_token: catalog
-                .catalog_token
-                .clone()
-                .context("the lakehouse catalog's read-only token is required")?,
-            s3_endpoint: storage.endpoint,
-            s3_access_key_id: storage.access_key_id,
-            s3_secret_access_key: storage.secret_access_key,
-        };
-        let work = required_env_value(WORK_ENV)?;
-        let stage = DuckDbParquetStage::open_reading_lakehouse(Path::new(&work), &read)?;
-        stage.limit_memory(DUCKDB_MEMORY_MIB)?;
-        Ok(Self {
-            catalog: IcebergRestCatalog::new(catalog)
-                .context("failed to build the Iceberg catalog client")?,
-            stage: Mutex::new(stage),
-        })
-    }
-
-    /// The rows `sql` answers, each one `T`.
-    fn rows<T: serde::de::DeserializeOwned>(&self, sql: &str) -> anyhow::Result<Vec<T>> {
-        let stage = self
-            .stage
-            .lock()
-            .map_err(|_| anyhow::anyhow!("an earlier read of the load panicked"))?;
-        stage
-            .json_rows(sql)?
-            .iter()
-            .map(|row| serde_json::from_str(row).context("a Silver row is not the expected shape"))
-            .collect()
+        lakehouse_reader::source(self.contract.table_name, Some(self.snapshot_id))
     }
 }
 
@@ -197,15 +139,14 @@ fn watermark_micros(watermark: &str) -> anyhow::Result<i64> {
 }
 
 /// `main`'s head of the contract's table, from the catalog's own history (no engine).
-async fn pin(reader: &Reader, contract: &'static LakehouseTableContract) -> anyhow::Result<Pinned> {
+async fn pin(
+    reader: &LakehouseReader,
+    contract: &'static LakehouseTableContract,
+) -> anyhow::Result<Pinned> {
     let snapshot_id = reader
-        .catalog
-        .load_main_snapshot_history(contract.table_name)
+        .main_snapshot(contract.table_name)
         .await?
         .with_context(|| format!("{} does not exist", contract.table_name))?
-        .first()
-        .map(|snapshot| snapshot.snapshot_id)
-        .filter(|snapshot| *snapshot > 0)
         .with_context(|| format!("{} has no current snapshot yet", contract.table_name))?;
     Ok(Pinned {
         contract,
@@ -216,7 +157,7 @@ async fn pin(reader: &Reader, contract: &'static LakehouseTableContract) -> anyh
 /// The offices with a row at or after `watermark` (every office when there is none), and the
 /// newest `ingested_at_utc` among those rows, in the form the load keeps.
 fn changed_offices(
-    reader: &Reader,
+    reader: &LakehouseReader,
     pinned: &Pinned,
     watermark: Option<&str>,
 ) -> anyhow::Result<(BTreeSet<OfficeKey>, Option<String>)> {
@@ -257,7 +198,7 @@ fn changed_offices(
 
 /// The current rows of `keys`, a chunk of keys per query; every office when `all`.
 fn current_rows<T: serde::de::DeserializeOwned>(
-    reader: &Reader,
+    reader: &LakehouseReader,
     pinned: &Pinned,
     columns: &[&str],
     keys: &BTreeSet<OfficeKey>,
@@ -335,7 +276,8 @@ async fn copy_rows(conn: &mut PgConnection, sql: &str, lines: &[String]) -> anyh
 /// Refuses missing configuration, a Silver table without a snapshot, failed reads, and a failed
 /// write; a failed run writes nothing and the next one reads from the same watermark.
 pub async fn run() -> anyhow::Result<()> {
-    let reader = Reader::open()?;
+    let reader =
+        LakehouseReader::open(Path::new(&required_env_value(WORK_ENV)?), DUCKDB_MEMORY_MIB)?;
     let mut conn = PgConnection::connect(&required_env_value("DATABASE_URL")?).await?;
     let completed = sqlx::query(
         "SELECT id, office_watermark, member_watermark FROM catalog.real_estate_broker_lookup_load

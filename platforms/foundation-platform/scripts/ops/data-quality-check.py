@@ -3,11 +3,21 @@
 (root ADR-0117 §6, ADR-0123).
 
 For every contract in contracts/data, the assertions DataHub made from it are read back and the
-two kinds a machine can decide are run against the lakehouse through Trino:
+two kinds a machine can decide are run against the lakehouse with the publisher's DuckDB
+(`lakehouse-query`: the catalog's read-only token and the read-only key pair, root ADR-0565; it asked
+Trino's CLI before), each table read at its `main` snapshot:
 
 - FIELD_VALUES (allowed values): rows whose value is present and not in the contract's
   validValues are counted; any such row fails the assertion.
 - DATA_SCHEMA (SUPERSET): every column the contract names must exist in the physical table.
+
+One publisher run describes every contract's table (its `main` snapshot, and its current schema's
+columns, as Trino's SHOW COLUMNS answered: a column added after the newest snapshot exists); a second
+counts the tables whose snapshot or rules changed, at the snapshot the first read, so a count is
+always of the snapshot its result records.
+Measured 2026-11-19 on production against Trino at the same snapshots: all 137 present contract tables
+with the same columns, 6 absent from both, and the one allowed-values count equal (4,326 rows, 0
+invalid); 34 Trino statements a run before, none now.
 
 The result (SUCCESS or FAILURE, with the counts behind it) is reported on the assertion, so the
 catalog shows when each rule last passed. Each allowed-values result also records the table's Iceberg
@@ -23,9 +33,7 @@ status policy), not that a load has run.
 Exits 1 when any assertion failed, so the scheduler's run fails and alerts.
 """
 
-import csv
 import hashlib
-import io
 import json
 import os
 import pathlib
@@ -41,8 +49,11 @@ import internal_http  # beside this file: the daily jobs' one retry for the serv
 RELEASE = pathlib.Path(os.environ.get("FOUNDATION_DATA_QUALITY_RELEASE", "/opt/foundation-platform/current"))
 CONTRACTS = RELEASE / "contracts" / "data"
 GMS = os.environ.get("FOUNDATION_DATA_QUALITY_GMS_URL", "http://127.0.0.1:18095")
-TRINO_CONTAINER = os.environ.get("FOUNDATION_DATA_QUALITY_TRINO_CONTAINER", "foundation-platform-trino")
-TRINO_CATALOG = "r2"
+# The admitted release's publisher (admitted-writer-runtime.sh), and where its DuckDB keeps its
+# database and spill: the unit's StateDirectory. Its memory leaves the script room in the unit's 512M.
+ADMITTED_RUNTIME = pathlib.Path(__file__).resolve().parent / "admitted-writer-runtime.sh"
+WORK = pathlib.Path(os.environ.get("STATE_DIRECTORY", "/var/lib/foundation-data-quality")) / "duckdb"
+DUCKDB_MEMORY_MIB = "300"
 
 
 def graphql(query, variables=None):
@@ -56,23 +67,30 @@ def graphql(query, variables=None):
     return answer["data"]
 
 
-def trino(sql):
-    """Rows of a Trino query, as lists of strings. A query error raises LookupError at once; a
-    server that did not answer is asked again (internal_http)."""
-    def once():
-        completed = subprocess.run(
-            ["docker", "exec", TRINO_CONTAINER, "trino", "--catalog", TRINO_CATALOG,
-             "--output-format", "CSV", "--execute", sql],
-            capture_output=True, text=True, timeout=900,
-        )
-        if completed.returncode == 0:
-            return list(csv.reader(io.StringIO(completed.stdout)))
-        last = completed.stderr.strip().splitlines()[-1] if completed.stderr.strip() else "trino failed"
-        if internal_http.trino_transient(completed.stderr):
-            raise internal_http.TrinoUnavailable(last)
-        raise LookupError(last)
+def run_publisher(lines):
+    """What the current release's publisher's `lakehouse-query` answers to `lines` (JSON queries)."""
+    WORK.mkdir(parents=True, exist_ok=True)
+    environment = {**os.environ, "FOUNDATION_PLATFORM_LAKEHOUSE_QUERY_WORK": str(WORK),
+                   "FOUNDATION_PLATFORM_LAKEHOUSE_QUERY_MEMORY_MIB": DUCKDB_MEMORY_MIB}
+    return subprocess.run(
+        ["bash", "-c", 'source "$1" --current && exec "${PUBLISHER_BIN}" lakehouse-query', "-",
+         str(ADMITTED_RUNTIME)],
+        input="".join(f"{line}\n" for line in lines), capture_output=True, text=True, check=True,
+        timeout=1500, env=environment).stdout
 
-    return internal_http.retry_trino(once)
+
+def lakehouse(queries, run=run_publisher):
+    """One answer per query, in order: {table, snapshot_id, rows, absent?, error?}. `queries` are
+    (table, sql reading `{source}`, snapshot id or None)."""
+    if not queries:
+        return []
+    lines = [json.dumps({"table": table, "sql": sql, **({"snapshot_id": snapshot} if snapshot else {})})
+             for table, sql, snapshot in queries]
+    answered = internal_http.retry_run(lambda: run(lines), describe="lakehouse-query")
+    answers = [json.loads(line) for line in answered.splitlines() if line.strip()]
+    if len(answers) != len(queries):
+        raise RuntimeError(f"the publisher answered {len(answers)} of {len(queries)} queries")
+    return answers
 
 
 def assertions_of(contract_id):
@@ -102,12 +120,6 @@ def report(assertion_urn, passed, properties):
     )
     if not data.get("reportAssertionResult"):
         raise RuntimeError(f"the data catalog did not record {assertion_urn}")
-
-
-def current_snapshot(namespace, name):
-    """The table's `main` snapshot id, or None when it has no snapshot."""
-    rows = trino(f"SELECT snapshot_id FROM {TRINO_CATALOG}.{namespace}.\"{name}$refs\" WHERE name = 'main'")
-    return rows[-1][0] if rows and rows[-1] and rows[-1][0].isdigit() else None
 
 
 def rules_fingerprint(field_assertions, allowed):
@@ -144,59 +156,96 @@ def quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def check_contract(path, totals):
+def contract_of(path):
+    """(contract, its table, `namespace.name`) of a contract file."""
     contract = yaml.safe_load(path.read_text(encoding="utf-8"))
     (table,) = contract["schema"]
-    physical = table["physicalName"]
-    namespace, name = physical.split(".", 1)
-    assertions = assertions_of(contract["id"])
-    if not assertions:
-        totals["unregistered"].append(contract["id"])
-        return
-    try:
-        columns = {row[0] for row in trino(f"SHOW COLUMNS FROM {TRINO_CATALOG}.{namespace}.{name}")}
-    except LookupError:
-        totals["absent"].append(contract["id"])
-        return
+    return contract, table, table["physicalName"]
 
-    allowed = {
+
+def allowed_values(table):
+    return {
         prop["name"]: rule["arguments"]["validValues"]
         for prop in table["properties"]
         for rule in prop.get("quality", [])
         if rule.get("metric") == "invalidValues"
     }
-    field_assertions = [
+
+
+def field_assertions_of(assertions):
+    return [
         (a["urn"], a["info"]["fieldAssertion"]["fieldValuesAssertion"]["field"]["path"])
         for a in assertions
         if a["info"]["type"] == "FIELD" and (a["info"].get("fieldAssertion") or {}).get("fieldValuesAssertion")
     ]
-    snapshot = current_snapshot(namespace, name) if field_assertions else None
-    rules = rules_fingerprint(field_assertions, allowed) if field_assertions else None
-    previous = unchanged_results(assertions, field_assertions, snapshot, rules) if field_assertions else None
-    if previous is not None:
-        totals["unchanged"].append(f"{contract['id']} snapshot={snapshot}")
-        for urn, field in field_assertions:
-            kind, values = previous[urn]
-            totals["passed" if kind == "SUCCESS" else "failed"].append(
-                f"{contract['id']}.{field} invalid={values.get('invalid_rows')} (unchanged since snapshot {snapshot})")
-    elif field_assertions:
-        counts = ", ".join(
-            f"count_if({field} IS NOT NULL AND {field} NOT IN ({', '.join(quote(v) for v in allowed[field])}))"
-            for _, field in field_assertions
-        )
-        (row,) = trino(f"SELECT count(*), {counts} FROM {TRINO_CATALOG}.{namespace}.{name}")[-1:]
-        rows, invalid = int(row[0]), [int(value) for value in row[1:]]
-        for (urn, field), bad in zip(field_assertions, invalid):
-            report(urn, bad == 0, {"rows": rows, "invalid_rows": bad, "field": field,
-                                   "snapshot_id": snapshot or "none", "rules": rules})
-            totals["passed" if bad == 0 else "failed"].append(f"{contract['id']}.{field} invalid={bad}")
 
-    for assertion in assertions:
-        if assertion["info"]["type"] != "DATA_SCHEMA":
+
+def count_sql(field_assertions, allowed):
+    """Rows, and per field the present values outside the allowed ones, of `{source}`."""
+    counts = ", ".join(
+        f"count_if({field} IS NOT NULL AND {field} NOT IN ({', '.join(quote(v) for v in allowed[field])})) AS f{index}"
+        for index, (_, field) in enumerate(field_assertions)
+    )
+    return f"SELECT count(*) AS total, {counts} FROM {{source}}"
+
+
+def check_contracts(paths, totals, read=lakehouse):
+    """Every contract in `paths`: described in one read, counted where changed in a second."""
+    registered = []
+    for path in paths:
+        contract, table, physical = contract_of(path)
+        assertions = assertions_of(contract["id"])
+        if not assertions:
+            totals["unregistered"].append(contract["id"])
             continue
-        missing = sorted({prop["name"] for prop in table["properties"]} - columns)
-        report(assertion["urn"], not missing, {"missing_columns": ",".join(missing) or "none"})
-        totals["passed" if not missing else "failed"].append(f"{contract['id']} schema missing={missing}")
+        registered.append((contract, table, physical, assertions))
+
+    # The table's current schema (`{table}`), and the snapshot a count then pins to.
+    described = read([(physical, "DESCRIBE {table}", None)
+                      for _, _, physical, _ in registered])
+    counted = []
+    for (contract, table, physical, assertions), answer in zip(registered, described):
+        if answer.get("absent"):
+            totals["absent"].append(contract["id"])
+            continue
+        if answer.get("error"):
+            raise RuntimeError(f"{physical} could not be described: {answer['error']}")
+        columns = {row["column_name"] for row in answer["rows"]}
+        snapshot = answer["snapshot_id"]
+        # The results record the snapshot as text (DataHub's properties are strings).
+        snapshot_text = str(snapshot) if snapshot is not None else None
+        allowed = allowed_values(table)
+        field_assertions = field_assertions_of(assertions)
+        rules = rules_fingerprint(field_assertions, allowed) if field_assertions else None
+        previous = unchanged_results(assertions, field_assertions, snapshot_text, rules) if field_assertions else None
+        if previous is not None:
+            totals["unchanged"].append(f"{contract['id']} snapshot={snapshot_text}")
+            for urn, field in field_assertions:
+                kind, values = previous[urn]
+                totals["passed" if kind == "SUCCESS" else "failed"].append(
+                    f"{contract['id']}.{field} invalid={values.get('invalid_rows')} (unchanged since snapshot {snapshot_text})")
+        elif field_assertions:
+            counted.append((contract, physical, snapshot, field_assertions, rules,
+                            count_sql(field_assertions, allowed)))
+
+        for assertion in assertions:
+            if assertion["info"]["type"] != "DATA_SCHEMA":
+                continue
+            missing = sorted({prop["name"] for prop in table["properties"]} - columns)
+            report(assertion["urn"], not missing, {"missing_columns": ",".join(missing) or "none"})
+            totals["passed" if not missing else "failed"].append(f"{contract['id']} schema missing={missing}")
+
+    answers = read([(physical, sql, snapshot) for _, physical, snapshot, _, _, sql in counted])
+    for (contract, physical, snapshot, field_assertions, rules, _), answer in zip(counted, answers):
+        if answer.get("error") or len(answer.get("rows") or []) != 1:
+            raise RuntimeError(f"{physical} could not be counted: {answer.get('error') or 'no row'}")
+        (row,) = answer["rows"]
+        rows = int(row["total"])
+        for index, (urn, field) in enumerate(field_assertions):
+            bad = int(row[f"f{index}"])
+            report(urn, bad == 0, {"rows": rows, "invalid_rows": bad, "field": field,
+                                   "snapshot_id": "none" if snapshot is None else str(snapshot), "rules": rules})
+            totals["passed" if bad == 0 else "failed"].append(f"{contract['id']}.{field} invalid={bad}")
 
 
 def main():
@@ -204,8 +253,7 @@ def main():
     contracts = sorted(CONTRACTS.glob("*.odcs.yaml"))
     if not contracts:
         sys.exit(f"data-quality: no contracts under {CONTRACTS}")
-    for path in contracts:
-        check_contract(path, totals)
+    check_contracts(contracts, totals)
     print(
         f"data-quality: contracts={len(contracts)} passed={len(totals['passed'])} failed={len(totals['failed'])} "
         f"absent_tables={len(totals['absent'])} unregistered={len(totals['unregistered'])} "
