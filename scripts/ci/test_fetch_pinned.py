@@ -184,6 +184,58 @@ class ExtractMemberTest(unittest.TestCase):
             self.assertFalse((root / "out" / "other").exists())
 
 
+class PinnedFileTest(unittest.TestCase):
+    """A download that unpacks to one file (a DuckDB extension, root ADR-0559 §6) is held to that
+    file's own pin: the published .gz and the file the publisher loads are both named."""
+
+    def setUp(self) -> None:
+        import gzip
+
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = pathlib.Path(temporary.name)
+        self.archive = self.root / "engine.duckdb_extension.gz"
+        self.archive.write_bytes(gzip.compress(PAYLOAD))
+        self.file = {"name": "engine.duckdb_extension", "compression": "gzip", "sha256": PAYLOAD_SHA,
+                     "size": len(PAYLOAD)}
+
+    def test_the_unpacked_file_is_written_when_it_is_the_pinned_one(self) -> None:
+        output = self.root / "out" / "engine.duckdb_extension"
+        fetch_pinned.unpack_pinned_file(self.archive, self.file, output)
+        self.assertEqual(output.read_bytes(), PAYLOAD)
+
+    def test_another_file_or_another_size_is_refused_and_nothing_is_left(self) -> None:
+        output = self.root / "out" / "engine.duckdb_extension"
+        for wrong in ({"sha256": "0" * 64}, {"size": len(PAYLOAD) + 1}, {"compression": "zstd"}):
+            with self.subTest(wrong=wrong), self.assertRaises(fetch_pinned.FetchError):
+                fetch_pinned.unpack_pinned_file(self.archive, {**self.file, **wrong}, output)
+            self.assertEqual(list(output.parent.glob("*")) if output.parent.exists() else [], [])
+
+    def test_a_download_that_is_not_gzip_is_refused(self) -> None:
+        self.archive.write_bytes(PAYLOAD)
+        with self.assertRaisesRegex(fetch_pinned.FetchError, "does not unpack"):
+            fetch_pinned.unpack_pinned_file(self.archive, self.file, self.root / "out" / "x")
+
+    def test_every_registered_contract_distribution_resolves_by_name(self) -> None:
+        registry = fetch_pinned.load_registry()
+        resolved = 0
+        for relative in registry["contracts"]:
+            contract = fetch_pinned.ROOT / relative
+            for name, distribution in fetch_pinned.json.loads(contract.read_text(encoding="utf-8"))["distributions"].items():
+                for key in distribution["platforms"]:
+                    system, machine = key.split("-", 1)
+                    url, sha256, file = fetch_pinned.distribution_pin(contract, name, system, machine)
+                    self.assertTrue(url.startswith("https://"), url)
+                    self.assertEqual(len(sha256), 64)
+                    if file is not None:
+                        self.assertEqual(len(file["sha256"]), 64)
+                        self.assertGreater(file["size"], 0)
+                    resolved += 1
+        self.assertGreater(resolved, 0)
+        with self.assertRaisesRegex(fetch_pinned.FetchError, "pins no distribution"):
+            fetch_pinned.distribution_pin(fetch_pinned.ROOT / registry["contracts"][0], "absent", "linux", "x86_64")
+
+
 class RegistryTest(unittest.TestCase):
     """Every registered tool resolves on every platform it declares, from the real pin files."""
 
@@ -207,6 +259,22 @@ class RegistryTest(unittest.TestCase):
         ci_tools = {name for name, spec in registry["tools"].items() if spec.get("ci", True) is not False}
         self.assertTrue(ci_tools <= names)
         self.assertGreater(len(names), len(ci_tools))
+
+    def test_the_saved_cache_key_names_every_file_that_pins_a_download(self) -> None:
+        # The cache main fills is saved under a key hashed from the pin files (root ADR-0197). A
+        # contract the key does not hash keeps the old key when its pins change: the save is skipped
+        # (the key exists) and every job downloads the new files itself, the 2026-10-12 failure again.
+        registry = fetch_pinned.load_registry()
+        saves = [
+            (workflow.name, line)
+            for workflow in sorted((fetch_pinned.ROOT / ".github" / "workflows").glob("*.yml"))
+            for line in workflow.read_text(encoding="utf-8").splitlines()
+            if "pinned-release-binaries-v1-" in line and "hashFiles(" in line
+        ]
+        self.assertTrue(saves)
+        for name, line in saves:
+            for hashed in ("tools/pinned-artifacts.json", "tools/*.env", *registry["contracts"]):
+                self.assertIn(f"'{hashed}'", line, f"{name} saves the pinned cache without hashing {hashed}")
 
     def test_a_server_only_tool_stays_out_of_the_ci_cache(self) -> None:
         # cosign is fetched by the server's release admission only (root ADR-0276 §3); prefetching it

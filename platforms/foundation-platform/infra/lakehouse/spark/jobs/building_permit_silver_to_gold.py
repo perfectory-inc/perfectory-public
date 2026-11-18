@@ -15,7 +15,8 @@ What a PNU's document holds (`building_permits`), from the parcel's current rows
   root ADR-0402, ADR-0452; null when the parking file has no row for it). 건물명 and 대지위치 are not
   carried (ADR-0356).
 - one list per other file of the permit family (`DETAILS`, root ADR-0402, ADR-0464): 동별개요, 층별개요,
-  대지위치, 대수선, 가설건축물, 부설주차장, 공작물관리대장, each row on the parcel its own PNU names, and
+  대지위치, 대수선, 가설건축물, 부설주차장, 공작물관리대장, and the 주택인허가 기본개요 (root ADR-0511),
+  each row on the parcel its own PNU names, and
   the 건축물 정기점검이력, whose rows have no PNU and reach the parcel through the 표제부 at read (the
   ADR-0404 rule, `inspection_pnus`). Each is `{total, records}` in the provider's words, at most
   RECORD_BOUND records, null when the parcel has none. A parcel with any of them has a document.
@@ -76,6 +77,12 @@ DETAILS = {
     "silver.building_permit_structure_ledger": ("structures", (
         "facility_kind_name", "structure_name", "length", "height", "area_m2", "building_coverage_ratio",
         "zone_name", "district_name", "precinct_name"), None),
+    # 주택인허가 기본개요 (root ADR-0511 §2): a housing project's approval on the parcel its own PNU names,
+    # newest approval first. Not carried: 건물명·대지위치 (ADR-0356).
+    "silver.housing_permit_basis_outline": ("housing_permits", (
+        "purpose_name", "structure_name", "main_building_count", "total_floor_area_m2", "total_household_count",
+        "approval_date", "start_scheduled_date", "start_actual_date", "use_inspection_scheduled_date",
+        "use_inspection_date"), "approval_date"),
     INSPECTION_SOURCE: ("regular_inspections", ("inspection_agency_name", "inspection_start_date", "processed_date"),
                         "inspection_start_date"),
 }

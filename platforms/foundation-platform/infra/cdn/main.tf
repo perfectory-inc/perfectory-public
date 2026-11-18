@@ -85,7 +85,8 @@ locals {
   r2       = jsondecode(file("${path.module}/../../config/r2-connections.contract.json"))
   doors = {
     for name, door in local.contract.doors : name => {
-      public_hostname = try(door.public_hostname, local.r2[door.gateway].public_hostname)
+      # A top-level gateway block, or a dotted path one level into one (`by_pnu_lanes.<lane>`, root ADR-0190).
+      public_hostname = try(door.public_hostname, local.r2[door.gateway].public_hostname, local.r2[split(".", door.gateway)[0]][split(".", door.gateway)[1]].public_hostname)
       origin_hostname = try(door.origin_hostname, "${door.workers_dev_worker}.${var.workers_subdomain}.workers.dev")
       answered_by     = door.answered_by
       caching         = door.caching

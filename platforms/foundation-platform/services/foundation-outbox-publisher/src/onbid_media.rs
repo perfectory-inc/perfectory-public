@@ -215,6 +215,10 @@ pub(crate) struct MediaReport {
     /// (root ADR-0427 §4). Those are not recorded as originals, so the screen keeps the thumbnail.
     pub(crate) originals_attempted: usize,
     pub(crate) originals_rule_mismatched: usize,
+    /// Of the originals that were none, those whose thumbnail did not land either: the provider has
+    /// no file for that photo (an HTML page at both URLs, measured 2026-11-11), which no rule
+    /// reaches, so they are not counted as the rule's miss (root ADR-0503).
+    pub(crate) originals_provider_missing: usize,
     /// Photo sources (the original, else the thumbnail) whose rendition ladder was already there,
     /// written now (and its bytes), not renderable (bytes that do not decode), failed in the store,
     /// or left for a later run by the ladder budget (root ADR-0427 §2).
@@ -233,6 +237,7 @@ impl StoredMedia {
             media_format: self.media_format.clone(),
             size_bytes: self.size_bytes,
             cltr_mng_no: cltr_mng_no.to_owned(),
+            source: self.source.clone(),
         }
     }
 }
@@ -244,6 +249,7 @@ impl From<&MediaRef> for StoredMedia {
             media_format: known.media_format.clone(),
             size_bytes: known.size_bytes,
             longest_px: None,
+            source: known.source.clone(),
         }
     }
 }
@@ -352,6 +358,8 @@ pub(crate) async fn mirror_detail_lines(
     // The content facts of each resolved URL, so the detail Bronze lines can be rewritten to point at
     // the stored blob by hash (root ADR-0290 §7). A URL seen in several lines is downloaded once.
     let mut resolved: HashMap<String, StoredMedia> = HashMap::new();
+    // Each original URL's thumbnail URL, to tell a rule that misses from a photo the provider lacks.
+    let mut thumbnail_of: HashMap<String, String> = HashMap::new();
     let responses = detail_lines
         .iter()
         .map(|line| line_response(line))
@@ -375,6 +383,13 @@ pub(crate) async fn mirror_detail_lines(
                 .trim()
                 .to_owned();
             let fresh = revalidate.get(index).copied().unwrap_or(false);
+            if let Pass::Original(field, rule) = pass {
+                for url in candidate_urls(response, field, settings.url_host) {
+                    if let Some(original) = original_url(&url, rule) {
+                        thumbnail_of.entry(original).or_insert(url);
+                    }
+                }
+            }
             let mut wanted = Vec::new();
             for url in pass.urls(response, settings.url_host) {
                 if resolved.contains_key(&url) {
@@ -420,7 +435,14 @@ pub(crate) async fn mirror_detail_lines(
                     report.originals_attempted += 1;
                     if !reaches_original(&stored, rule) {
                         // Not memoized either: a later visit asks the rule again.
-                        report.originals_rule_mismatched += 1;
+                        if thumbnail_of
+                            .get(&url)
+                            .is_some_and(|thumbnail| resolved.contains_key(thumbnail))
+                        {
+                            report.originals_rule_mismatched += 1;
+                        } else {
+                            report.originals_provider_missing += 1;
+                        }
                         match stored {
                             Ok(Stored::New(media)) => {
                                 report.downloaded += 1;
@@ -709,12 +731,15 @@ fn rewrite_item(
             .enumerate()
             .filter_map(|(sequence, url)| {
                 resolved.get(url).map(|media| {
-                    serde_json::json!({
-                        "sequence": sequence,
-                        "sha256": media.sha256,
-                        "media_format": media.media_format,
-                        "size_bytes": media.size_bytes,
-                    })
+                    with_source(
+                        serde_json::json!({
+                            "sequence": sequence,
+                            "sha256": media.sha256,
+                            "media_format": media.media_format,
+                            "size_bytes": media.size_bytes,
+                        }),
+                        media,
+                    )
                 })
             })
             .collect::<Vec<_>>();
@@ -739,12 +764,15 @@ fn rewrite_item(
                         {
                             return None;
                         }
-                        Some(serde_json::json!({
-                            "sequence": sequence,
-                            "sha256": original.sha256,
-                            "media_format": original.media_format,
-                            "size_bytes": original.size_bytes,
-                        }))
+                        Some(with_source(
+                            serde_json::json!({
+                                "sequence": sequence,
+                                "sha256": original.sha256,
+                                "media_format": original.media_format,
+                                "size_bytes": original.size_bytes,
+                            }),
+                            original,
+                        ))
                     })
                     .collect::<Vec<_>>()
             })
@@ -791,10 +819,33 @@ fn rewrite_item(
                 "urlAdr".to_owned(),
                 JsonValue::String(format!("sha256:{}", media.sha256)),
             );
+            insert_source(object, media);
             changed = true;
         }
     }
     changed
+}
+
+/// `entry` with the received file its stored file is the display master of, if any (root ADR-0503).
+fn with_source(mut entry: JsonValue, media: &StoredMedia) -> JsonValue {
+    if let Some(object) = entry.as_object_mut() {
+        insert_source(object, media);
+    }
+    entry
+}
+
+/// Names the received file a display master stands for beside its stored file's facts (root
+/// ADR-0503): `source_sha256` (kept at `<prefix>/sources/sha256/<hash>.<source_media_format>`),
+/// `source_media_format` and `source_size_bytes`. Nothing when the stored file is what was received.
+fn insert_source(object: &mut serde_json::Map<String, JsonValue>, media: &StoredMedia) {
+    if let Some(source) = &media.source {
+        object.insert("source_sha256".to_owned(), source.sha256.clone().into());
+        object.insert(
+            "source_media_format".to_owned(),
+            source.media_format.clone().into(),
+        );
+        object.insert("source_size_bytes".to_owned(), source.size_bytes.into());
+    }
 }
 
 async fn download_and_store(

@@ -16,7 +16,7 @@ last_reviewed: 2026-11-11
 
 | 런타임 | 유닛 | 포트 | 상한 | 언제 도나 |
 |---|---|---|---|---|
-| Ollama + Qwen3.6-35B-A3B Q4 | `intelligence-model-runtime-ollama.service` | 127.0.0.1:11434 | 24G, batch(OOM 먼저) | 그것을 `Requires=` 하는 spark 풀 작업이 도는 동안만(`StopWhenUnneeded=yes`, `[Install]` 없음) |
+| Ollama + Qwen3.6-35B-A3B Q4 | `intelligence-model-runtime-ollama.service` | 127.0.0.1:11434 | 24G, batch(OOM 먼저) | 그것을 `Requires=` 하고 `memory_claim` 으로 이름 대는 작업이 도는 동안만(`StopWhenUnneeded=yes`, `[Install]` 없음) |
 | Strata + Qwen3.8-Flash-Next Q2_0 | (하드웨어 증설 뒤 첫날 PR) | 127.0.0.1:11437 | 증설 뒤 계산 | 같은 방식 |
 
 손으로 깔았던 `ollama.service`(0.0.0.0:11434, 상한 없음)는 배포의 `timers` 단계가 모델을 쥐고 있지 않을 때 끈다.
@@ -25,8 +25,9 @@ last_reviewed: 2026-11-11
 ## 부르는 작업이 지켜야 할 것
 
 - 작업 유닛에 `Requires=intelligence-model-runtime-ollama.service` 와 `After=` 같은 이름.
-- 작업은 `jobs.v1.json` 에서 spark 풀의 슬롯 전부(3)를 잡는다 — 모델이 Spark 옆에서 메모리를 쥐지 않는다.
-  그 작업의 `scheduled_jobs.memory` 에 런타임 상한이 들어가야 풀 합계가 맞는다.
+- 작업은 `jobs.v1.json` 에서 `memory_claim.units` 에 런타임 유닛을 적고, 칸이 하나인 풀(`documents`)에서 돈다(루트 ADR-0563).
+  시작할 때 호스트의 남는 메모리(`MemAvailable`)가 유닛의 `MemoryMax` 와 `memory_claims.keep_available` 을 담을 때만 승인된다.
+  spark 풀의 칸은 잡지 않는다. claim 의 실측 근거는 `tools/host-memory-budget.contract.json` 의 `scheduled_jobs.memory_claims` 다.
 - 문서 하나가 끝날 때마다 `job_units.py preempted` 를 물어 더 높은 claim 이 기다리면 멈춘다(문서 단위가 step 경계).
 - 텍스트의 NUL 등 제어 문자는 모델에 보내기 전에 지운다: llama.cpp 계열은 첫 NUL 에서 프롬프트를 끊는다
   (2026-11-11 ILIS 고시 20117: 9,060 토큰 중 255 토큰만 읽혔다).

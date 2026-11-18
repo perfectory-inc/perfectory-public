@@ -6,7 +6,8 @@
     job_units.py deferred-dir                  where the runner records a job a release build deferred
     job_units.py deferred                      the job ids recorded there, one per line
     job_units.py pool-full <jobs.v1.json> <job id|service>
-                                               why the job's pool has no room for it now, or nothing
+                                               why the job's pool has no room for it now, or the host no
+                                               memory for what it claims (root ADR-0563), or nothing
     job_units.py claim <jobs.v1.json> <claimant> <its unit>
                                                queue the claimant's claim on its pool's slots, which counts
                                                while that unit runs (root ADR-0435)
@@ -40,6 +41,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -84,6 +86,43 @@ STARTS_SEEDED = ".seeded"
 OUTCOMES = "outcomes.jsonl"
 # The outcome words of root ADR-0260 §1, and `skipped` (paused, or an operator's run-now not used).
 OUTCOME_WORDS = ("changed", "unchanged", "waiting", "failed", "skipped")
+# Where the kernel says how much memory a new workload can take without swapping (MemAvailable): what
+# a job's memory claim is admitted against (root ADR-0563).
+MEMINFO = "/proc/meminfo"
+SIZE = re.compile(r"(\d+)([kmg])")
+
+
+# What a running deploy holds (foundation-deploy.sh `deploy_hold`): its pid, then `*` from its step 0
+# until its build is done, then the jobs its release changes the tables of until the release is live.
+DEPLOY_HOLD = "/run/foundation-deploy-hold"
+
+
+def deploy_hold_path() -> str:
+    return os.environ.get("FOUNDATION_DEPLOY_HOLD") or DEPLOY_HOLD
+
+
+def deploy_holds(job_ids, path=None, alive=lambda pid: os.path.isdir(f"/proc/{pid}")) -> str:
+    """Why a running deploy holds one of `job_ids` (root ADR-0270 deploy D5, root ADR-0565 §5), or "".
+
+    A hold left by a deploy that is gone holds nothing. Liveness is the deploy's /proc entry, not a
+    signal: the scheduler's account may not signal root's process, and `kill -0` answers "gone" for
+    a deploy that is running. Every start reads this here: the host's forced command, whoever asked it
+    (Airflow, Dagster's sensor or retry, a run-now), and the operator's by-PNU script.
+    """
+    try:
+        lines = pathlib.Path(path or deploy_hold_path()).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return ""
+    pid = next((line[len("pid "):] for line in lines if line.startswith("pid ")), "")
+    if not pid.isdigit() or not alive(int(pid)):
+        return ""
+    held = {line.strip() for line in lines if line.strip() and not line.startswith("pid ")}
+    if "*" in held:
+        return "a deploy is building its release; every job waits until the build is done (ask again)"
+    for job_id in job_ids:
+        if job_id in held:
+            return f"the deploy holds {job_id} until its release is live: the release changes what {job_id} writes"
+    return ""
 
 
 def deferred_dir() -> str:
@@ -309,9 +348,27 @@ def outcomes_path() -> str:
     return os.path.join(queue_dir(), OUTCOMES)
 
 
-def record_outcome(job_id, line, now, via="run", invocation="") -> dict:
+def failed_code_version(job_id: str) -> str | None:
+    """The code version of `job_id` in this file's own release (orchestration/dags/job_code_version.py,
+    root ADR-0499): the runner runs the job from the tree it runs from. None when it cannot be made."""
+    dags = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "orchestration", "dags")
+    if dags not in sys.path:
+        sys.path.insert(0, dags)
+    try:
+        import job_code_version  # noqa: PLC0415 - only for a failed run's line
+
+        return job_code_version.version(job_code_version.job_of(job_id))
+    except (ImportError, OSError, ValueError, KeyError) as error:
+        print(f"job_units: no code version for {job_id}: {error}", file=sys.stderr)
+        return None
+
+
+def record_outcome(job_id, line, now, via="run", invocation="", code_version=failed_code_version) -> dict:
     """Appends what a run of `job_id` said, its `foundation-job-outcome <word> [reason]` line, or a
-    check's `foundation-job-check <answer>` (via `check`). One line, never rewritten (append-only)."""
+    check's `foundation-job-check <answer>` (via `check`). One line, never rewritten (append-only).
+
+    A run that failed carries its job's code version (root ADR-0499): the asset reconciler starts it
+    once more when a later release changes that version, where it would wait for its next slot."""
     if not JOB_ID.fullmatch(job_id):
         raise KeyError(f"{job_id} is not a job id")
     words = str(line).strip().split(" ", 2)
@@ -328,6 +385,8 @@ def record_outcome(job_id, line, now, via="run", invocation="") -> dict:
               "reason": (words[2] if len(words) > 2 else "")[:300]}
     if invocation:
         record["invocation"] = str(invocation)
+    if via == "run" and outcome == "failed" and (version := code_version(job_id)):
+        record["code_version"] = version
     os.makedirs(queue_dir(), mode=0o755, exist_ok=True)
     new = not os.path.exists(outcomes_path())
     with open(outcomes_path(), "a", encoding="utf-8") as handle:
@@ -447,6 +506,88 @@ def _waiting_claims(listing, pool, rank, running_units, *, equal, since=None, no
                                           and (since is None or (found.get("since") or 0) <= since))]
 
 
+def meminfo_path() -> str:
+    return os.environ.get("FOUNDATION_HOST_MEMINFO") or MEMINFO
+
+
+def size_bytes(text: str) -> int:
+    """`6g`, `512m` or `64k` (the units the memory contracts use) as bytes."""
+    match = SIZE.fullmatch(str(text).strip().lower())
+    if match is None:
+        raise ValueError(f"{text!r} is not a size like 6g")
+    return int(match.group(1)) << {"k": 10, "m": 20, "g": 30}[match.group(2)]
+
+
+def available_memory() -> int:
+    """The host's MemAvailable, bytes: the kernel's own estimate of what a new workload can take."""
+    with open(meminfo_path(), encoding="ascii") as handle:
+        for line in handle:
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) << 10
+    raise ValueError(f"{meminfo_path()} states no MemAvailable")
+
+
+def unit_memory(units, systemctl: str = "systemctl") -> dict[str, tuple[int, int]]:
+    """{unit: (its MemoryMax, what it holds now)} in bytes; a unit with no cap, or one systemd does not
+    know, is a ValueError: a claim on memory nobody bounded cannot be sized."""
+    output = subprocess.run([systemctl, "show", "-p", "Id", "-p", "MemoryMax", "-p", "MemoryCurrent", "--", *units],
+                            check=True, capture_output=True, text=True).stdout
+    shown = {}
+    for block in output.strip().split("\n\n"):
+        unit = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        if unit.get("Id"):
+            shown[unit["Id"]] = unit
+    sized = {}
+    for name in units:
+        cap = shown.get(name, {}).get("MemoryMax", "")
+        if not cap.isdigit():
+            raise ValueError(f"{name} states no MemoryMax a memory claim can be sized by ({cap or 'not loaded'})")
+        held = shown[name].get("MemoryCurrent", "")
+        sized[name] = (int(cap), int(held) if held.isdigit() else 0)
+    return sized
+
+
+def memory_short(listing, job, named, unit_sizes=unit_memory, available=available_memory) -> str:
+    """Why the host has no memory now for what `job` claims (`memory_claim`, root ADR-0563), or "".
+
+    The claim is the MemoryMax of the units the job names: memory its run takes that no pool slot
+    stands for (the local model's weights, held by the model runtime unit while the job runs). It is
+    admitted against what the host has now, not against the caps of what could run: what a claimed
+    unit already holds is counted as taken, and `memory_claims.keep_available` stays free after it. A
+    start this refuses is queued and aged like one its pool refused (root ADR-0462). 2026-11-13: the
+    fact job claimed every spark slot to keep the 24G model off Spark, the pool was never empty, and
+    it waited 24,600 s with 30 GiB or more available for 95% of the week."""
+    claim = job.get("memory_claim")
+    if not claim:
+        return ""
+    gib = 1 << 30
+    try:
+        keep = size_bytes((listing.get("memory_claims") or {})["keep_available"])
+        sizes = unit_sizes(claim["units"])
+        free = available()
+    except (KeyError, ValueError) as error:
+        return f"the memory claim of {named} cannot be sized: {error.args[0] if isinstance(error, KeyError) else error}"
+    need = sum(max(cap - held, 0) for cap, held in sizes.values())
+    if free - need >= keep:
+        return ""
+    return (f"the host has no memory for {named}'s claim: {', '.join(sorted(sizes))} may take {need / gib:.1f} GiB more,"
+            f" {free / gib:.1f} GiB is available and {keep / gib:.1f} GiB stays free")
+
+
+def pool_patterns(listing, pool) -> list[str]:
+    """The service names and templates (`name@*.service`) of every job of `pool`: what holds its slots."""
+    members = [job for job in listing["jobs"] if job["pool"] == pool]
+    return sorted({job["systemd_service"] for job in members}
+                  | {f"{template(job['systemd_service'])}*.service" for job in members if template(job["systemd_service"])})
+
+
+def claim_work(listing, claimant) -> list[str]:
+    """The units whose run is the work a claim of `claimant` holds its pool for: every job of the pool
+    (what the claim waits for) and the claimant's own `work_units` (its Spark steps' units)."""
+    declared = (listing.get("capacity_claimants") or {})[claimant]
+    return sorted(set(pool_patterns(listing, declared["pool"])) | set(declared.get("work_units") or []))
+
+
 def pool_full(jobs_file, unit, running_units=running) -> str:
     """Why `unit` (a job id, its service, or another instance of a templated job's service) does not
     fit in its pool beside what runs now, or "".
@@ -457,6 +598,9 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
     counts too; an operator starts those. An instance of a templated job that is not a job itself (a
     parcel tile rehearsal) holds as many slots as the most any of that template's jobs takes. A pool
     the job list gives no slots is not bounded here.
+
+    A job that fits its pool and states a `memory_claim` must also find the host's memory for it
+    (`memory_short`, root ADR-0563): the same answer, so the same queue.
     """
     with open(jobs_file, encoding="utf-8") as handle:
         listing = json.load(handle)
@@ -473,11 +617,8 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
         raise KeyError(f"{unit} is not a job, or an instance of one, in {jobs_file}")
     pool = listing.get("pools", {}).get(mine["pool"])
     if pool is None:
-        return ""
-    members = [job for job in jobs if job["pool"] == mine["pool"]]
-    patterns = sorted({job["systemd_service"] for job in members}
-                      | {f"{template(job['systemd_service'])}*.service" for job in members if template(job["systemd_service"])})
-    held = sorted(service for service in running_units(patterns) if service != named)
+        return memory_short(listing, mine, named)
+    held = sorted(service for service in running_units(pool_patterns(listing, mine["pool"])) if service != named)
     taken = {service: slots_of(service).get("pool_slots", 1) for service in held}
     need = mine.get("pool_slots", 1)
     # A claim waiting for this pool keeps its slots free of any start of a lower class, and of a
@@ -491,7 +632,7 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
                             since=since, now=now)
     reserved = sum(found["slots"] for found in above)
     if sum(taken.values()) + need + reserved <= pool["slots"]:
-        return ""
+        return memory_short(listing, mine, named)
     if sum(taken.values()) + need <= pool["slots"]:
         waiting = ", ".join(f"{found['claimant']} ({found['priority_class']}, {found['slots']} slots, waiting since"
                             f" {found.get('since')})" for found in above)
@@ -519,11 +660,8 @@ def preempted(jobs_file, job_id, running_units=running) -> str:
     if not above:
         return ""
     members = [entry for entry in listing["jobs"] if entry["pool"] == job["pool"]]
-    patterns = sorted({entry["systemd_service"] for entry in members}
-                      | {f"{template(entry['systemd_service'])}*.service" for entry in members
-                         if template(entry["systemd_service"])})
     held = sum(next((entry.get("pool_slots", 1) for entry in members if entry["systemd_service"] == service), 1)
-               for service in running_units(patterns))
+               for service in running_units(pool_patterns(listing, job["pool"])))
     if held + sum(found["slots"] for found in above) <= pool["slots"]:
         return ""
     names = ", ".join(f"{found['claimant']} ({found['priority_class']})" for found in above)
@@ -531,6 +669,12 @@ def preempted(jobs_file, job_id, running_units=running) -> str:
 
 
 def main(argv) -> int:
+    if len(argv) >= 2 and argv[0] == "deploy-holds":
+        # Prints why a running deploy holds one of the jobs, or nothing (exit 0 either way).
+        reason = deploy_holds(argv[1:])
+        if reason:
+            print(reason)
+        return 0
     if len(argv) == 2 and argv[0] == "services":
         print("\n".join(registered_services(argv[1])))
         return 0

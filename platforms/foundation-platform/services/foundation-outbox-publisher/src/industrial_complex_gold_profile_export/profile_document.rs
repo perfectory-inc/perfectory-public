@@ -11,6 +11,7 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use super::document_facts::DocumentFacts;
 use crate::r2_layout::industrial_complex_gold_profile_key;
 
 /// The profile's subject in the schema registry (root ADR-0336, ADR-0456): its owner is the
@@ -63,12 +64,25 @@ struct ProfileDocument<'a> {
     complex_id: &'a str,
     source: &'a GoldSnapshotProvenance,
     attributes: &'a JsonMap<String, JsonValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    document_facts: Option<&'a DocumentFacts>,
 }
 
 /// Builds the immutable profile artifact for one Gold catalog row.
+#[cfg(test)]
 pub(super) fn build(
     provenance: &GoldSnapshotProvenance,
     attributes: &JsonMap<String, JsonValue>,
+) -> anyhow::Result<ProfileArtifact> {
+    build_with_facts(provenance, attributes, None)
+}
+
+/// Builds the immutable profile artifact for one Gold catalog row and the complex's admitted
+/// document facts, when it has any (schema revision 2, root ADR-0477).
+pub(super) fn build_with_facts(
+    provenance: &GoldSnapshotProvenance,
+    attributes: &JsonMap<String, JsonValue>,
+    document_facts: Option<&DocumentFacts>,
 ) -> anyhow::Result<ProfileArtifact> {
     let complex_id = attributes
         .get("complex_id")
@@ -79,6 +93,7 @@ pub(super) fn build(
         &schema_version,
         provenance.iceberg_snapshot_id.as_str(),
         complex_id,
+        document_facts.map(|facts| facts.run_id.as_str()),
     );
     let object_key = industrial_complex_gold_profile_key(&artifact_id.to_string())?;
 
@@ -89,6 +104,7 @@ pub(super) fn build(
         complex_id,
         source: provenance,
         attributes,
+        document_facts,
     })
     .context("failed to serialize the industrial-complex Gold profile document")?;
     body.push(b'\n');
@@ -105,20 +121,29 @@ pub(super) fn build(
 /// Derives the artifact identity from the snapshot and complex it describes.
 ///
 /// A UUIDv5 keeps `gold/industrial-complex/profiles/{artifact_id}.json` (FP-ADR-0005) while
-/// making the address a function of its inputs, which is what lets a re-run be idempotent.
-fn artifact_id(schema_version: &str, iceberg_snapshot_id: &str, complex_id: &str) -> Uuid {
+/// making the address a function of its inputs, which is what lets a re-run be idempotent. The
+/// facts' fold run is one of those inputs: the facts change apart from the catalog snapshot, and a
+/// create-only key must not be asked to hold two bodies. A profile without facts keeps the name it
+/// always had.
+fn artifact_id(
+    schema_version: &str,
+    iceberg_snapshot_id: &str,
+    complex_id: &str,
+    facts_run_id: Option<&str>,
+) -> Uuid {
     let namespace = Uuid::new_v5(&Uuid::NAMESPACE_URL, schema_version.as_bytes());
-    Uuid::new_v5(
-        &namespace,
-        format!("{iceberg_snapshot_id}:{complex_id}").as_bytes(),
-    )
+    let name = match facts_run_id {
+        Some(run_id) => format!("{iceberg_snapshot_id}:{complex_id}:{run_id}"),
+        None => format!("{iceberg_snapshot_id}:{complex_id}"),
+    };
+    Uuid::new_v5(&namespace, name.as_bytes())
 }
 
 #[cfg(test)]
 mod tests {
     use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
-    use super::{build, GoldSnapshotProvenance};
+    use super::{build, build_with_facts, DocumentFacts, GoldSnapshotProvenance};
 
     // Snapshot ids here sit in the repository-reserved synthetic namespace
     // (`scripts/guard/public-fixture-safety.py`), not the production values: a real Iceberg
@@ -190,7 +215,8 @@ mod tests {
         let document: JsonValue = serde_json::from_slice(&artifact.body)?;
 
         assert_eq!(document["schema_version"], super::profile_schema()?.0);
-        assert_eq!(document["schema_revision"], 1);
+        assert_eq!(document["schema_revision"], 2);
+        assert!(document.get("document_facts").is_none());
         assert_eq!(document["source"]["table"], "gold.complex_catalog");
         // parcel_count 0 and calculated_area_sqm null are the values the Gold table holds today.
         // They are carried, not corrected: see root ADR-0036.
@@ -200,6 +226,44 @@ mod tests {
             JsonValue::Null
         );
         assert_eq!(document["attributes"]["official_area_sqm"], "1234.56");
+        Ok(())
+    }
+
+    #[test]
+    fn a_complex_with_facts_carries_them_under_a_name_of_their_own_fold() -> anyhow::Result<()> {
+        let JsonValue::Object(kinds) =
+            json!({"land_use_area": {"source": {"notice_sequence": 99001}, "facts": []}})
+        else {
+            unreachable!()
+        };
+        let facts = |run_id: &str| DocumentFacts {
+            table: "gold.complex_document_facts".to_owned(),
+            iceberg_snapshot_id: "999990000000000002".to_owned(),
+            run_id: run_id.to_owned(),
+            kinds: kinds.clone(),
+        };
+        let without = build(&provenance(), &attributes())?;
+        let first = build_with_facts(
+            &provenance(),
+            &attributes(),
+            Some(&facts("20990101T000000Z")),
+        )?;
+        let refold = build_with_facts(
+            &provenance(),
+            &attributes(),
+            Some(&facts("20991231T000000Z")),
+        )?;
+        let document: JsonValue = serde_json::from_slice(&first.body)?;
+
+        assert_eq!(
+            document["document_facts"]["kinds"]["land_use_area"]["source"]["notice_sequence"],
+            99001
+        );
+        assert_eq!(document["document_facts"]["run_id"], "20990101T000000Z");
+        assert_eq!(document["attributes"], serde_json::to_value(attributes())?);
+        // The catalog snapshot is the same: only the fold run tells the three keys apart.
+        assert_ne!(first.object_key, without.object_key);
+        assert_ne!(first.object_key, refold.object_key);
         Ok(())
     }
 }

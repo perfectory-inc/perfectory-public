@@ -12,6 +12,9 @@ pub enum LakehouseLayer {
     Gold,
     /// Externally issued registry or crosswalk table that other layers join against.
     Reference,
+    /// Written only by the intelligence platform from the documents foundation hands it, and only
+    /// read by foundation (root ADR-0477 §1): one writer per table across the two platforms.
+    Intelligence,
 }
 
 /// Physical file format used by the lakehouse table.
@@ -54,6 +57,10 @@ pub struct LakehouseCurrentRowLatest {
     /// current, none is picked. For a source that repeats a key within one release (root ADR-0275).
     pub keep_ties: bool,
 }
+
+/// The value of a [`LakehouseCurrentRowLatest::removal_column`] that marks a key as gone; the
+/// Rust twin of `platform_contracts.REMOVED`.
+pub const REMOVED_MARKER: &str = "removed";
 
 /// How a table's rows pile up, and so which rows a reader takes as current (root ADR-0286).
 ///
@@ -144,8 +151,9 @@ pub struct LakehouseTableContract {
     /// Machine-readable predicate selecting the current logical row, when the table is versioned.
     pub current_row_predicate: Option<&'static str>,
     /// How the rows pile up and which are current (root ADR-0286). Applied after
-    /// `current_row_predicate`; readers take both through one helper
-    /// (`platform_contracts.current_rows`), never by hand (root ADR-0267).
+    /// `current_row_predicate`; readers take both through one helper, never by hand (root
+    /// ADR-0267): `platform_contracts.current_rows` in Spark, and this crate's `current_rows` and
+    /// `current_rows_sql_template` (root ADR-0564 §4).
     pub row_versions: LakehouseRowVersions,
     /// Stable column contract.
     pub columns: &'static [LakehouseColumn],
@@ -367,11 +375,15 @@ impl LakehouseWriteDistribution {
 mod building_and_gold_columns;
 mod core_contracts;
 mod core_silver_columns;
+mod current_rows;
 mod legal_dong_and_place_id;
 mod map_edit_and_boundaries;
 
 pub use core_contracts::*;
 pub use core_silver_columns::*;
+pub use current_rows::{
+    CurrentRowsError, CURRENT_ROWS_COLUMNS, CURRENT_ROWS_FILTER, CURRENT_ROWS_SOURCE,
+};
 pub use legal_dong_and_place_id::*;
 pub use map_edit_and_boundaries::*;
 
@@ -379,6 +391,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
     crate::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
     crate::SILVER_BUILDING_PERMIT_BASIS_OUTLINE,
+    crate::SILVER_HOUSING_PERMIT_BASIS_OUTLINE,
     crate::SILVER_BUILDING_REGISTER_MASTER,
     crate::SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY,
     crate::SILVER_BUILDING_ENERGY_MONTHLY_GAS,
@@ -420,6 +433,8 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_LAND_TRANSFER_HISTORY,
     SILVER_LAND_RIGHT_REGISTRATION,
     SILVER_LAND_OWNERSHIP,
+    crate::SILVER_REAL_ESTATE_BROKER_OFFICE,
+    crate::SILVER_REAL_ESTATE_BROKER_MEMBER,
     SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES,
     SILVER_BUILDING_REGISTER_UNITS,
@@ -453,6 +468,13 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_COURT_AUCTION_SALE_RESULT,
     SILVER_COURT_AUCTION_ITEM_DETAIL,
     SILVER_COURT_AUCTION_ITEM_PHOTO,
+    SILVER_COURT_AUCTION_CASE,
+    SILVER_COURT_AUCTION_ITEM_SPEC,
+    SILVER_COURT_AUCTION_ITEM_SCHEDULE,
+    SILVER_COURT_AUCTION_ITEM_OBJECT,
+    SILVER_COURT_AUCTION_ITEM_ANNEX,
+    SILVER_COURT_AUCTION_APPRAISAL_POINT,
+    SILVER_COURT_AUCTION_CODE,
     SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL,
     SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT,
     SILVER_PARCEL_LINEAGE,
@@ -462,17 +484,28 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_PLACE_ID_CHANGELOG,
     GOLD_LINEAGE_REVIEW_QUEUE,
     GOLD_LAND_USE_ZONE_AREA_BY_TILE,
+    crate::INTELLIGENCE_DOCUMENT_TEXT_OUTCOME,
+    crate::INTELLIGENCE_DOCUMENT_TEXT_PAGE,
+    crate::INTELLIGENCE_DOCUMENT_FACT,
+    crate::INTELLIGENCE_DOCUMENT_FACT_OUTCOME,
+    crate::GOLD_COMPLEX_DOCUMENT_FACTS,
 ];
 
-/// Returns the industrial complex lakehouse `PoC` table contracts in publish order, then the Gold
-/// table of every by-PNU data kind the R2 connection contract names (root ADR-0193).
+/// Returns every lakehouse table contract.
+///
+/// The industrial complex `PoC` contracts come in publish order, then the Silver table of every HUB
+/// family lane (root ADR-0551) and the Gold table of every by-PNU data kind the R2 connection
+/// contract names (root ADR-0193), a kind's versions table beside it, and the versions tables of
+/// the Golds outside the lanes (root ADR-0564 §1).
 #[must_use]
 pub fn industrial_complex_lakehouse_contracts() -> &'static [LakehouseTableContract] {
     static ALL: std::sync::OnceLock<Vec<LakehouseTableContract>> = std::sync::OnceLock::new();
     ALL.get_or_init(|| {
         [
             INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS,
+            &crate::hub_lane_family::hub_family_tables(),
             crate::by_pnu_kind_tables(),
+            crate::gold_versions_table::gold_versions_tables_outside_the_lanes(),
         ]
         .concat()
     })

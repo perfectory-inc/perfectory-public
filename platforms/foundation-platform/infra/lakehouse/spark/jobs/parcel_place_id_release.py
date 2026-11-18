@@ -31,7 +31,9 @@ from typing import Any, Mapping
 
 UNIT = "parcel"
 PAIR_SOURCE = "legal-dong-code-change"  # the admin release's word for a pair-recovered bridge row
-REGISTRY_TABLE = "silver.parcel_registry"
+# The registry is read as of the served edition by its canonical reader (root ADR-0490 §4a); the
+# release job hands these functions its rows.
+from parcel_registry_frames import REGISTRY_TABLE  # noqa: E402,F401
 
 
 def with_scope(rows: Any) -> Any:
@@ -139,13 +141,15 @@ def stale_scopes(registry_rows: Any, published: Any, code_moved: set[str]) -> li
     never released, a registry row recorded after it, or a code change under its PNUs since
     (``code_moved``, `code_moved_scopes`).
 
-    ``registry_rows``: the registry with `scope` (`with_scope`). ``published``: the parcel unit's
+    ``registry_rows``: the registry with `scope` (`with_scope`) and `visible_at_utc`. ``published``: the parcel unit's
     published registry rows (`scope`, `published_at_utc`)."""
 
     from pyspark.sql import functions as F  # noqa: PLC0415
 
+    # A row counts from when it reached the served read (`visible_at_utc`): a candidate's step recorded
+    # before its promotion moves its regions at the promotion (root ADR-0490 §4a).
     inputs = registry_rows.groupBy("scope").agg(F.countDistinct("parcel_id").alias("ids"),
-                                               F.max("recorded_at_utc").alias("_recorded"))
+                                               F.max("visible_at_utc").alias("_recorded"))
     last = published.groupBy("scope").agg(F.max("published_at_utc").alias("_published"))
     moved = (F.col("_published").isNull() | (F.col("_recorded") > F.col("_published"))
              | F.col("scope").isin(sorted(code_moved) or [""]))

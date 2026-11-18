@@ -1,6 +1,6 @@
 //! A photo's rendition ladder, made from its stored original (root ADR-0427, ADR-0297 §2·§3).
 //!
-//! [`render`] decodes the source bytes (JPEG, PNG, GIF, WebP), turns the pixels upright by the
+//! [`render`] decodes the source bytes (JPEG, PNG, GIF, WebP, BMP, TIFF), turns the pixels upright by the
 //! EXIF orientation, and for each rung of the [`Spec`] scales the longest side down to the rung
 //! (never up) and encodes every format of the spec. The output is built from decoded pixels only,
 //! so no EXIF, GPS or other metadata of the source reaches a rendition. The codecs are the `image`
@@ -158,6 +158,23 @@ pub fn render(source: &[u8], spec: &Spec) -> Result<Rendered, RenderError> {
         source_height,
         renditions,
     })
+}
+
+/// The lossless PNG that stands in the served store for a raster no screen reads (root ADR-0503).
+///
+/// The source's pixels (BMP, TIFF) turned upright, nothing else, so its ladder and every screen see
+/// the same picture the provider gave. Encoded by the `image` crate's PNG encoder at its defaults,
+/// so the same pixels give the same bytes and a re-seen source is a dedup.
+///
+/// # Errors
+/// [`RenderError`] when the source does not decode, is over `max_source_pixels`, or the encoder fails.
+pub fn display_master(source: &[u8], max_source_pixels: u64) -> Result<Vec<u8>, RenderError> {
+    let image = decode_upright(source, max_source_pixels)?;
+    let mut out = Vec::new();
+    image
+        .write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
+        .map_err(|error| RenderError::Encode("png", error.to_string()))?;
+    Ok(out)
 }
 
 fn decode_upright(source: &[u8], max_pixels: u64) -> Result<DynamicImage, RenderError> {

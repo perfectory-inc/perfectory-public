@@ -156,6 +156,23 @@ pub(super) fn compared_with(active: &ActiveStatic) -> Option<&str> {
         .then_some(active.pmtiles_object_key.as_str())
 }
 
+/// Refuses, before anything is baked, a bake whose first-release equivalence gate could not read
+/// its own archive: the gate matches features by id at the zooms both archives carry, and a unit
+/// with a `low_zoom_generalization` keeps its id only at its maxzoom. 2026-11-12 00:08Z..01:15Z the
+/// zoning bake held the whole spark pool for 67 minutes, baked all 15 partitions and then stopped at
+/// "a sampled feature has no zone_id".
+pub(super) fn ensure_comparable(
+    unit: &str,
+    compare_with: Option<&str>,
+    generalization: Option<&LowZoomGeneralization>,
+) -> anyhow::Result<()> {
+    ensure!(
+        compare_with.is_none() || generalization.is_none(),
+        "the active {unit} release was not baked from the lakehouse, so the first-release          equivalence gate would compare it, but {unit}'s low_zoom_generalization keeps no feature          id below its maxzoom for the gate to match; nothing was baked"
+    );
+    Ok(())
+}
+
 /// What one upload is: its preallocated identities, the evidence kind and the build it belongs to
 /// (none for a unit's birth, root ADR-0374), and what its archive is gated against.
 pub(super) struct Upload<'a> {

@@ -29,6 +29,10 @@ REQUESTS="${FOUNDATION_PLATFORM_JOB_SWITCHES_DIR:-/var/lib/foundation-jobs/switc
 METRICS_DIR="${FOUNDATION_PARCEL_EDITION_METRICS_DIR:-/var/lib/foundation-jobs/metrics}"
 ANSWERS="$(dirname "${OUT}")/promotions"
 PY=(python3 -E -s)
+# The host promotions ledger, where the contract names it (`host_promotions_ledger`, root ADR-0490 §5).
+LEDGER="${VWORLD_PARCEL_PROMOTIONS_LEDGER:-$("${PY[@]}" -c 'import json, sys
+print(json.load(open(sys.argv[1], encoding="utf-8"))["host_promotions_ledger"]["path"])' \
+  "${RELEASE_ROOT}/infra/lakehouse/contracts/vworld-parcel-source-objects.json")}"
 
 work="$(mktemp -d)"
 trap 'rm -rf -- "${work}"' EXIT
@@ -61,10 +65,11 @@ mkdir -p "$(dirname "${OUT}")"
 if [ -f "${OUT}.inputs.json" ]; then cp -- "${OUT}.inputs.json" "${work}/inputs.json"; fi
 "${PY[@]}" "${JOBS}/parcel_edition_readiness.py" readiness --evidence "${work}/evidence.json"   --previous "${OUT}" --inputs "${work}/inputs.json" --output "${work}/readiness.json" > "${work}/judged"
 # The judgement asks for the newest ready edition itself (--controller, root ADR-0490 §5), once per edition and
-# contract. Each request asked in the console is answered once: a ready edition's is granted as the promoted contract
-# under ${ANSWERS}, for the reviewed change that serves it; the rest are refused with the reason.
+# contract. Each request asked in the console is answered once: a ready edition's is granted and appended to the
+# host promotions ledger, which serves it (root ADR-0490 §5), and the promoted contract is kept under ${ANSWERS};
+# the rest are refused with the reason.
 "${PY[@]}" "${JOBS}/parcel_edition_readiness.py" grant --report "${work}/readiness.json" \
-  --requests "${REQUESTS}" --answers "${ANSWERS}" --controller > "${work}/answered"
+  --requests "${REQUESTS}" --answers "${ANSWERS}" --controller --ledger "${LEDGER}" > "${work}/answered"
 answered="$(cat "${work}/answered")"
 [ -z "${answered}" ] || echo "parcel-edition-readiness: answered promotion requests ${answered} (${ANSWERS})" >&2
 "${PY[@]}" -c 'import json, sys

@@ -39,7 +39,7 @@
       },
       "pool": "spark",
       "pool_slots": 1,
-      "priority_weight": 10,
+      "priority_weight": 100,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-rt-molit-bulk-to-silver-real-transaction",

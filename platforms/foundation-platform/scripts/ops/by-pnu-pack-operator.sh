@@ -179,6 +179,32 @@ fi
 RELEASE="$(readlink -e "${RELEASE}")" || refuse "no current release at ${RELEASE}" 65
 PIN=()
 [[ "${RELEASE##*/}" =~ ^[0-9a-f]{40}$ ]] && PIN=(-E "FOUNDATION_RUN_RELEASE=${RELEASE##*/}")
+# Root ADR-0441 (amended by root ADR-0521): every unit a pack-only lane's run starts declares the jobs
+# whose assets it writes, FOUNDATION_RUN_WRITES: the jobs whose asset is the lane's Gold or is made from
+# it, by the same reading of the pipeline graph the deploy's hold set is (release_changes.writers). A
+# deploy waits for the unit only when that set meets what its release holds (2026-11-11: a cut-over
+# whose Gold step ran for hours held every release that changed any table). A unit that declares
+# nothing (a panel lane's, or a lane the graph cannot place) is waited for, as before.
+if [[ "${LANE}" == lanes || "${LANE}" == *,* ]] || is_pack_lane "${LANE}"; then
+  RUN_WRITES="$(python3 -I -B - "${RELEASE}" "${LANE}" <<'PY' 2>/dev/null
+import pathlib, sys
+release, target = pathlib.Path(sys.argv[1]), sys.argv[2]
+sys.dont_write_bytecode = True
+sys.path[:0] = [str(release / "scripts/deploy"), str(release / "infra/lakehouse/spark/jobs")]
+import by_pnu_kinds, release_changes  # noqa: E402
+import json  # noqa: E402
+lanes = json.load(open(release / "config/r2-connections.contract.json", encoding="utf-8"))["by_pnu_lanes"]
+written = set()
+for lane in (list(lanes) if target == "lanes" else target.split(",")):
+    writers, _ = release_changes.writers(release, [by_pnu_kinds.lane_fields(lane)["gold_table"]], every_table=False)
+    if not writers:
+        sys.exit(1)  # the graph cannot place it: declare nothing, so the deploy waits
+    written.update(writers)
+print(",".join(sorted(written)))
+PY
+  )" || RUN_WRITES=""
+  [[ ! "${RUN_WRITES}" =~ ^[a-z][a-z0-9_]*(,[a-z][a-z0-9_]*)*$ ]] || PIN+=(-E "FOUNDATION_RUN_WRITES=${RUN_WRITES}")
+fi
 SYSTEMD_RUN="${FOUNDATION_OPERATOR_SYSTEMD_RUN:-systemd-run}"
 BAKE_ROOT="${FOUNDATION_OPERATOR_BAKE_ROOT:-/data/foundation-platform/by-pnu-bake}"
 ETC="${FOUNDATION_OPERATOR_ETC:-/etc/foundation-platform}"
@@ -344,17 +370,11 @@ refuse_while_pool_full() {
 # left by a deploy that is gone holds nothing.
 DEPLOY_HOLD="${FOUNDATION_OPERATOR_DEPLOY_HOLD:-/run/foundation-deploy-hold}"
 refuse_while_the_deploy_holds() {
-  local pid held job
-  [[ -r "${DEPLOY_HOLD}" ]] || return 0
-  pid="$(sed -n 's/^pid \([0-9][0-9]*\)$/\1/p' "${DEPLOY_HOLD}" | sed -n 1p)"
-  [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null || return 0
-  held="$(grep -v '^pid ' "${DEPLOY_HOLD}" || true)"
-  ! grep -qxF '*' <<<"${held}" \
-    || refuse "a deploy is building its release; every job waits until the build is done (ask again)" 75
-  for job in "$@"; do
-    ! grep -qxF -- "${job}" <<<"${held}" \
-      || refuse "the deploy holds ${job} until its release is live: the release changes what ${job} writes" 75
-  done
+  local why
+  # The one reader of the hold, which the host's forced command asks too (job_units.py deploy_holds).
+  why="$(FOUNDATION_DEPLOY_HOLD="${DEPLOY_HOLD}" python3 -I -B "${RELEASE}/scripts/deploy/job_units.py" deploy-holds "$@")" \
+    || refuse "cannot read what the deploy holds (${DEPLOY_HOLD})" 75
+  [[ -z "${why}" ]] || refuse "${why}" 75
 }
 # Refuses (75) while a by-PNU bake runs: the scheduled one, a pack generation bake, or anything else
 # holding a lane lock (a hand-run publish takes it too). The lock is only tested, never created.

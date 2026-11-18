@@ -5,7 +5,7 @@
       "service_slug": "gongzzang-api",
       "principal_id": "018f7c6a-0000-7000-8000-000000000101",
       "display_name": "Gongzzang API",
-      "capabilities": ["foundation.catalog:read"]
+      "capabilities": ["foundation.catalog:read", "foundation.real_estate_broker:verify"]
     },
     {
       "service_slug": "gongzzang-outbox-publisher",

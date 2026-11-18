@@ -110,6 +110,21 @@ export const ParcelBuildingPermitsByPnuSchema = z.object({
         processed_date: z.string().nullish(),
       })),
     }).nullish(),
+    housing_permits: z.object({
+      total: z.number().int(),
+      records: z.array(z.object({
+        purpose_name: z.string().nullish(),
+        structure_name: z.string().nullish(),
+        main_building_count: z.string().nullish(),
+        total_floor_area_m2: z.string().nullish(),
+        total_household_count: z.string().nullish(),
+        approval_date: z.string().nullish(),
+        start_scheduled_date: z.string().nullish(),
+        start_actual_date: z.string().nullish(),
+        use_inspection_scheduled_date: z.string().nullish(),
+        use_inspection_date: z.string().nullish(),
+      })),
+    }).nullish(),
   }),
   building_permit_total: z.number().int().nullish(),
 });

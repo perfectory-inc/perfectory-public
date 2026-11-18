@@ -73,6 +73,16 @@ class RowsTest(unittest.TestCase):
                 if column["required"]:
                     self.assertIsNotNone(sample[column["name"]], f"{table}.{column['name']}")
 
+    def test_a_line_stamped_to_the_nanosecond_is_read(self):
+        # The collector's chrono to_rfc3339 writes up to nine digits; 2026-11-12 the load read 1 of 363.
+        stamped = line(99003, files=[file("f1", "stored", sha256=SHA, media_format="pdf",
+                                          fetched_at_utc="2099-01-02T03:04:06.123456789+00:00")])
+        stamped["requested_at_utc"] = "2099-01-02T03:04:05.066475637+00:00"
+        rows = job.rows_of([stamped], CONTRACT, KEY, "20990102T030405Z", NOW)
+        self.assertEqual([r["notice_sequence"] for r in rows["rows"]], [99003])
+        self.assertEqual(rows["rows"][0]["requested_at_utc"], datetime(2099, 1, 2, 3, 4, 5, 66475))
+        self.assertEqual(rows["attachment_rows"][0]["fetched_at_utc"], datetime(2099, 1, 2, 3, 4, 6, 123456))
+
     def test_plans_name_the_run_and_refuse_what_is_not_theirs(self):
         with tempfile.TemporaryDirectory() as tmp:
             plan_dir = Path(tmp)

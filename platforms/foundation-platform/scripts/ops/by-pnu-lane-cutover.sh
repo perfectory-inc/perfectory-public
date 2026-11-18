@@ -120,9 +120,9 @@ STEPS=(history inputs preview gold parity bake equality latency publish monitor-
 # bounded by (60 when timed, else its unit's limit; shown by the dry run), and the lane whose Worker
 # serves it with that Worker's production hostname (the verify step's). Then the spark-pool units'
 # run limits and a last line naming those units.
-mapfile -t PLAN < <(python3 -I - "${PLATFORM_ROOT}" "${TARGET}" "${ETC}" <<'PY'
+mapfile -t PLAN < <(python3 -I - "${PLATFORM_ROOT}" "${TARGET}" "${ETC}" "${PENDING:-}" <<'PY'
 import json, os, sys
-root, target, etc = sys.argv[1], sys.argv[2], sys.argv[3]
+root, target, etc, pending = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] == "1"
 def load(path):
     with open(os.path.join(root, path), encoding="utf-8") as handle:
         return json.load(handle)
@@ -133,7 +133,8 @@ sys.path.insert(0, os.path.join(root, "infra/lakehouse/spark/jobs"))
 import by_pnu_kinds, gold_rebuild  # noqa: E402
 rebuild = gold_rebuild.load_contract()["tables"]
 groups = {group["name"]: group["path"] for group in load("config/runtime-secrets.contract.json")["groups"]}
-jobs = load("orchestration/jobs.v1.json")["jobs"]
+listing = load("orchestration/jobs.v1.json")
+jobs = listing["jobs"]
 lanes = r2.get("by_pnu_lanes", {})
 
 def block(lane):
@@ -171,6 +172,13 @@ for lane in chosen:
     table = rebuild.get(entry["gold_table"])
     if table is None:
         sys.exit(f"{lane}: its Gold {entry['gold_table']} is not a table of gold-panel-rebuild.contract.json")
+    # The pending list (the auto-promotion's) leaves out a lane whose own Gold job is off (its
+    # disabled_reason says why): its gold step would build that Gold anyway, under the one rebuild lock
+    # (2026-11-12..13 parcel-nearby's Spark build ran out its 160 minutes four times and held the owed
+    # panel rebuild back each time). An operator's run that names lanes still plans them.
+    own_gold = by_service.get(f"foundation-gold-lane-rebuild@{table['unit']}.service")
+    if pending and own_gold is not None and not own_gold.get("enabled", True):
+        continue
     own, capabilities = block(lane)
     base, base_capabilities = block(entry["latency_baseline_lane"])
     parity = (table.get("pins_from") or {}).get("parity_argument") or "-"
@@ -184,7 +192,10 @@ for lane in chosen:
           ",".join(lanes.get(lane, {}).get("first_publish_waits_for_history") or []) or "-",
           60 if timed else panel_limit, worker, own["public_hostname"])
 
-units = sorted({job["systemd_service"] for job in jobs if job.get("pool") == "spark"})
+# Every spark-pool job and the units this runner's own Spark steps run in (the claimant's work_units,
+# root ADR-0462: the reconciler alerts on a claim none of them runs under).
+units = sorted({job["systemd_service"] for job in jobs if job.get("pool") == "spark"}
+               | set(listing["capacity_claimants"]["by_pnu_lane_cutover"]["work_units"]))
 # Each spark-pool unit's run limit, for the Spark wait's bound; the operator's own Gold and pack bake
 # units are bounded like the longest job.
 limits = {job["systemd_service"]: job["time_limit_minutes"] + job["stop_grace_minutes"]
@@ -199,7 +210,7 @@ unset 'PLAN[-1]'
 read -r _ LONGEST_LIMIT UNIT_LIMITS <<<"${PLAN[-1]}"
 unset 'PLAN[-1]'
 # Units that run Spark: every spark-pool job, the operator's Gold rebuild and the pack bakes.
-read -ra SPARK_UNITS <<<"${SPARK_UNITS} foundation-gold-panel-rebuild-unconditional.service foundation-*-pack-bake-g*.service"
+read -ra SPARK_UNITS <<<"${SPARK_UNITS}"
 spark_running() {
   python3 -I -B "${PLATFORM_ROOT}/scripts/deploy/job_units.py" running "${SPARK_UNITS[@]}" \
     || refuse "systemd cannot tell whether a Spark job runs" 70

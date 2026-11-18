@@ -154,7 +154,7 @@ services:
       context: .
       dockerfile: services/foundation-api/Dockerfile
     environment: &foundation-api-environment
-      DATABASE_URL: postgres://foundation_api:${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}@postgres:5432/foundation
+      DATABASE_URL: postgres://foundation_api:${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}@postgres:5432/foundation?application_name=foundation-api
       FOUNDATION_PLATFORM_API_BIND_ADDR: 0.0.0.0:8080
       IDENTITY_API_BASE_URL: ${IDENTITY_API_BASE_URL:-https://identity.example.test}
       ZITADEL_ISSUER_URL: ${ZITADEL_ISSUER_URL:-https://identity.example.test}
@@ -174,6 +174,10 @@ services:
     # 거부되고 저장되지 않는다.
     env_file:
       - path: ${FOUNDATION_PLATFORM_MAP_EDIT_ENV_FILE:-./map-edit.env}
+        required: false
+      # 중개사 가입 확인의 실시간 VWorld 확인 키(루트 ADR-0550 §5). 없으면 명부에 없는 사람을
+      # VWorld 에 묻지 않고, 답의 checked 에 vworld_live 가 없다.
+      - path: ${FOUNDATION_PLATFORM_VWORLD_LIVE_ENV_FILE:-./vworld-live.env}
         required: false
     ports:
       - "127.0.0.1:${FOUNDATION_API_PORT:-18080}:8080"

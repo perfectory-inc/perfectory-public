@@ -255,7 +255,9 @@ class RaonLargeFiles(unittest.TestCase):
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         self.assertEqual(int(plan_call["NEW_BYTES_BUDGET"]),
                          catalog["daily_collections"]["source_sweep"]["selection_archive_new_bytes_budget"])
-        self.assertFalse(plan_call["MAX_FILES"], "a daily run takes every file its budget allows")
+        # Root ADR-0514: a daily run takes the catalog's per-run count, newest first; the rest wait a day.
+        self.assertEqual(int(plan_call["MAX_FILES"]),
+                         catalog["daily_collections"]["source_sweep"]["selection_archive_max_files_per_run"])
         self.assertNotIn("budget_override", (self.work / "journal.log").read_text(encoding="utf-8"))
 
     def test_a_run_builds_its_image_once_from_the_checked_package_and_lands_the_plan(self):

@@ -151,10 +151,17 @@ deferred="$(python3 -I -B "${job_units}" deferred-dir)" || refuse "cannot read w
 # A start still blocked at its limit runs nothing and says why; one blocked by a build is recorded
 # for the deploy to start once the schedule is back (deploy-start-once.sh), as before. A check
 # never waits: it only decides whether the run has work.
+#
+# A job a running deploy holds starts nothing until the release is live (root ADR-0565 §5): pausing a
+# DAG or stopping a sensor stops new decisions only, not a retry, a queued run or a run-now, and every
+# one of them comes through here. It waits like a build and is owed the same way.
 waited=0
 while :; do
   build=0
   "${admission}" release-build-running || build=$?
+  held="$(python3 -I -B "${job_units}" deploy-holds "${job}")" || refuse "cannot read what the deploy holds"
+  # A hold is a build's kind of wait: owed at the limit, started by the deploy (below).
+  [[ -z "${held}" ]] || build=75
   full=""
   if ((build != 75)) && [[ "${checking}" == false ]]; then
     full="$(python3 -I -B "${job_units}" pool-full "${jobs_file}" "${job}")" \
@@ -164,15 +171,20 @@ while :; do
   if [[ "${checking}" == true ]]; then
     # The check's own ExecStartPre would refuse and alert. No answer lets the run start, and the run
     # is the one deferred and recorded.
-    printf 'start-scheduled-job: %s check not started: a release build is running\n' "${job}"
+    printf 'start-scheduled-job: %s check not started: %s\n' "${job}" "${held:-a release build is running}"
     exit 0
   fi
   if ((waited >= wait_limit * 60)); then
     if ((build == 75)); then
       mkdir -p "${deferred}" && date +%s >"${deferred}/${job}" ||
         printf 'start-scheduled-job: cannot record the deferral of %s under %s\n' "${job}" "${deferred}" >&2
-      printf 'start-scheduled-job: %s deferred: a release build is running\n' "${job}"
-      say 'foundation-job-outcome waiting a release build is running; this job starts after it finishes'
+      if [[ -n "${held}" ]]; then
+        printf 'start-scheduled-job: %s deferred: %s\n' "${job}" "${held}"
+        say 'foundation-job-outcome waiting held by the deploy; this job starts when its release is live'
+      else
+        printf 'start-scheduled-job: %s deferred: a release build is running\n' "${job}"
+        say 'foundation-job-outcome waiting a release build is running; this job starts after it finishes'
+      fi
     else
       printf 'start-scheduled-job: %s not started: %s\n' "${job}" "${full}"
       # The refusal is queued, not dropped (root ADR-0462): the asset reconciler starts the job again
@@ -188,7 +200,7 @@ while :; do
     exit 0
   fi
   ((waited > 0)) || printf 'start-scheduled-job: %s waits up to %s minutes: %s\n' "${job}" "${wait_limit}" \
-    "$( ((build == 75)) && echo "a release build is running" || echo "${full}")"
+    "$( ((build == 75)) && echo "${held:-a release build is running}" || echo "${full}")"
   sleep 30
   waited=$((waited + 30))
 done

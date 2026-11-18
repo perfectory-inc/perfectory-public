@@ -5,9 +5,10 @@
 # 파일들을 받지 않고, 원장이 갖지 않은 것만 증거의 selection_archives 에 deferred_selection_archive 로
 # 남긴다. 이 스크립트가 그 증거를 받아:
 #
-#   1. 계획   plan-provider-acquisition-jobs 가 증거와 그 증거가 읽은 목록으로 작업을 만든다. 한 실행이 받을
-#             바이트 상한(카탈로그 daily_collections.source_sweep.selection_archive_new_bytes_budget)을 넘으면
-#             하나도 받지 않고 실패한다 — 밀린 것은 운영자가 상한을 올려 일부러 받는다(런북).
+#   1. 계획   plan-provider-acquisition-jobs 가 증거와 그 증거가 읽은 목록으로 작업을 만든다. 공급자 갱신일이
+#             새것부터 한 실행 상한(카탈로그 daily_collections.source_sweep.selection_archive_max_files_per_run)
+#             개만 받고, 남은 것은 다음 날 실행이 잇는다(루트 ADR-0514). 그 파일들의 바이트가 상한(같은 곳의
+#             selection_archive_new_bytes_budget)을 넘으면 하나도 받지 않고 실패한다.
 #   2. 이미지 작업자 소스로 빌드 맥락을 만들고, 맥락의 내용과 RAON 에이전트 패키지 고정값(제조사 주소와 sha256,
 #             config/provider-agent-packages.contract.json)의 해시를 이름에 단 이미지를 없을 때만 빌드한다.
 #             빌드는 그 주소에서 받은 바이트를 sha256 으로 확인한 뒤 설치한다.
@@ -20,7 +21,7 @@
 #   raon-large-files.sh run <evidence>     전제 확인 + 계획 + 이미지 + 수집
 #
 # 운영자 설정(그 실행 하나): FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET(상한 바이트),
-# FOUNDATION_RAON_LARGE_FILES_MAX_FILES(앞에서 N 개만). 전제(환경, VWorld 로그인, 패키지 고정값, 도커와 그
+# FOUNDATION_RAON_LARGE_FILES_MAX_FILES(새것부터 N 개만). 전제(환경, VWorld 로그인, 패키지 고정값, 도커와 그
 # 데몬, 증거)가 없으면 무엇도 쓰기 전에 78 로 끝난다 — 조용히 건너뛰지 않는다. 이미지 빌드가 실패하면(주소가
 # 답하지 않거나 바이트가 고정값과 다르면) 받기 전에 실패한다.
 set -euo pipefail
@@ -108,7 +109,13 @@ print(json.load(open(sys.argv[1], encoding="utf-8"))["daily_collections"]["sourc
 PY
 )}"
 [[ "${budget}" =~ ^[0-9]+$ ]] || refuse "the large-file budget must be a whole number of bytes, not ${budget}"
-max_files="${FOUNDATION_RAON_LARGE_FILES_MAX_FILES:-}"
+# The run's file count: the catalog's per-run cap (root ADR-0514), or the operator's for this run.
+max_files="${FOUNDATION_RAON_LARGE_FILES_MAX_FILES:-$(python3 -I - "${CATALOG}" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1], encoding="utf-8"))["daily_collections"]["source_sweep"].get(
+    "selection_archive_max_files_per_run") or "")
+PY
+)}"
 [[ -z "${max_files}" || "${max_files}" =~ ^[1-9][0-9]*$ ]] || refuse "FOUNDATION_RAON_LARGE_FILES_MAX_FILES must be a positive whole number"
 
 # recovery.env 는 DATABASE_URL 을 들고 있지 않다 — 매일 훑기와 같은 재료로 조립한다.

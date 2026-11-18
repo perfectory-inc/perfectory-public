@@ -53,15 +53,23 @@ expect() {
   fi
 }
 
-expect pass intact "$(fixture intact)"
+# The five runs are independent fixtures and each takes the checker's whole time (promtool over
+# every rules test: 120 to 180 s on a CI runner), so they run side by side. One after another they
+# took 493 to 741 s, and a sweep of every guard no longer fit the repository job's 20 minutes
+# (2026-11-12: runs 43132406511, 43138069455 and 43142291319 were cancelled there).
+pids=()
+expect pass intact "$(fixture intact)" &
+pids+=("$!")
 
 root="$(fixture oom-threshold-typo)"
 replace "$root/$rules/foundation-api.rules.yml" "increase(node_vmstat_oom_kill[1h]) > 0" "increase(node_vmstat_oom_kill[1h]) > 5"
-expect fail oom-threshold-typo "$root"
+expect fail oom-threshold-typo "$root" &
+pids+=("$!")
 
 root="$(fixture renamed-metric)"
 replace "$root/$rules/foundation-api.rules.yml" "expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes" "expr: node_memory_MemFree_bytes / node_memory_MemTotal_bytes"
-expect fail renamed-metric "$root"
+expect fail renamed-metric "$root" &
+pids+=("$!")
 
 root="$(fixture untested-alert)"
 replace "$root/$rules/foundation-api.rules.yml" "      - alert: FoundationHostMetricsUnread" "      - alert: FoundationHostSwapFull
@@ -72,10 +80,18 @@ replace "$root/$rules/foundation-api.rules.yml" "      - alert: FoundationHostMe
         annotations:
           summary: swap
       - alert: FoundationHostMetricsUnread"
-expect fail untested-alert "$root"
+expect fail untested-alert "$root" &
+pids+=("$!")
 
 root="$(fixture promtool-drift)"
 replace "$root/tools/promtool.env" "PROMTOOL_VERSION=" "PROMTOOL_VERSION=0."
-expect fail promtool-drift "$root"
+expect fail promtool-drift "$root" &
+pids+=("$!")
+
+failed=0
+for pid in "${pids[@]}"; do
+  wait "$pid" || failed=1
+done
+[ "$failed" -eq 0 ] || exit 1
 
 echo "OK ${name}: 4 rejected, intact passes"

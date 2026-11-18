@@ -343,9 +343,36 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # collector does (root ADR-0475).
 # 167 -> 168: the ILIS notice collector embeds its source contract once
 # (industryland-or-kr.contract.json), as the court auction collector does (root ADR-0484).
-# 168 -> 169: the 주소DB collector embeds its source contract once, as the 전자지도 collector does
+# 168 -> 169: the 주택인허가 기본개요 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0511).
+# 169 -> 170: the Silver refresh's 중개사무소 lane compiles in its source contract
+# (vworld-real-estate-broker-office-source-objects.json, root ADR-0511), as each land lane does.
+# 170 -> 171: its 소속 인원 lane does the same (vworld-real-estate-broker-member-source-objects.json).
+# 171 -> 172: foundation-api's live VWorld broker register reads its credential names from the
+# naming contract (environment-variable-naming.contract.json), as the collection adapter does
+# (root ADR-0550 §5).
+# 172 -> 174: lakehouse-domain compiles in the two HUB family files (hub-lane-family-*.v1.json, root
+# ADR-0551) once each; every lane they hold is an entry, so a new HUB lane no longer adds a read here.
+# 174 -> 178: the steward fold left Spark (root ADR-0560). foundation-publisher-silver compiles in
+# the two SQL files DuckDB runs for it (lineage_steward_fold_stage/refusals.sql, rows.sql: the SQL is
+# reviewed and compared as SQL, and the engine-equality verdict ran those files), and its test
+# compiles in the handoff fixture and the rows the Spark job built from it (fixtures/).
+# 178 -> 179: the publisher compiles in infra/lakehouse/contracts/duckdb-extensions.contract.json
+# (duckdb_extensions.rs, root ADR-0559 §6): the extension names and builds a publisher expects are the
+# ones it was built with. The directory is already an input of the publisher image
+# (Dockerfile.lakehouse-control copies infra/lakehouse/contracts).
+# 179 -> 185: the scheduled parcel lineage derivation left Spark (root ADR-0559). foundation-publisher-silver
+# compiles in the two SQL files DuckDB runs for it (parcel_lineage_stage/inputs.sql, derive.sql: the SQL
+# is reviewed and compared as SQL, and the engine-equality verdict ran derive.sql against production's
+# rows), the parcel source contract its edition pairs come from (parcel_lineage_schedule.rs), and its test
+# compiles in the synthetic group and the rows and counts the Python kernels derive from it (fixtures/).
+# 185 -> 186: the 실거래 region statistics left Spark's compute (root ADR-0559 §3, ADR-0564 §9).
+# foundation-publisher-silver compiles in the SQL file DuckDB runs for it
+# (real_transaction_gold_stage/region_stats.sql: reviewed and compared as SQL; the national
+# engine-equality verdict ran that file's rules).
+# 186 -> 187: the 주소DB collector embeds its source contract once, as the 전자지도 collector does
 # (root ADR-0495).
-COMPILE_TIME_READ_BASELINE="${3:-169}"
+COMPILE_TIME_READ_BASELINE="${3:-187}"
 
 cd "$repo_root"
 

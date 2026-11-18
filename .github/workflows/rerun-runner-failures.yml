@@ -2,9 +2,12 @@ name: rerun-runner-failures
 # Re-runs, once, a workflow run whose failed jobs reached no failed step: the runner died, lost its
 # log blob or ran out of disk before any step could report (root ADR-0421). A run with a failed
 # step, a run already re-run, and merge-queue runs are left alone. It gates no pull request.
+# It also cancels a merge-queue run whose commit the queue dropped (root ADR-0553): such a run can no
+# longer merge anything and kept its runners until it finished. Every 5 minutes, because a queue run
+# takes about 22 and a later look saves little of it.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 permissions:
   contents: read
@@ -18,7 +21,8 @@ jobs:
     name: Re-run runner-only failures
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    # The one job that may re-run other runs (root ADR-0421). Schedule and manual dispatch only.
+    # The one job that may re-run or cancel other runs (root ADR-0421, ADR-0553). Schedule and manual
+    # dispatch only.
     permissions:
       contents: read
       actions: write
@@ -33,3 +37,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/rerun_runner_failures.py --since-minutes 120
+      - name: Cancel queue runs the merge queue dropped
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/cancel_superseded_queue_runs.py

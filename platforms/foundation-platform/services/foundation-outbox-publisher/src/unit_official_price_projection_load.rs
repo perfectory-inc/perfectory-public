@@ -1,18 +1,15 @@
 //! Append and publish a completed Silver price snapshot without losing history (ADR-0101).
 
-use std::process::Stdio;
-
 use anyhow::{bail, Context};
 use foundation_shared_kernel::pnu::Pnu;
 use serde::Deserialize;
 use sqlx::{Connection, PgConnection};
-use tokio::io::{AsyncBufReadExt, BufReader, Lines};
-use tokio::process::{Child, ChildStdout, Command};
 
 use crate::handoff_object_support::copy_text_escape;
 use crate::public_data_control_support::{
     optional_bool_env, optional_env_value, required_env_value,
 };
+use crate::trino_cli::TrinoRows;
 
 #[path = "unit_official_price_publication.rs"]
 mod publication;
@@ -73,61 +70,6 @@ impl Config {
             .and_then(|value| value.parse::<i64>().ok())
             .filter(|snapshot| *snapshot > 0)
             .context("source_snapshot_id does not name a positive price snapshot")
-    }
-}
-
-/// Trino's supported CLI owns protocol pagination, retries and cancellation.
-struct TrinoRows {
-    child: Child,
-    lines: Lines<BufReader<ChildStdout>>,
-}
-
-impl TrinoRows {
-    fn start(container: &str, sql: &str) -> anyhow::Result<Self> {
-        let mut child = Command::new("docker")
-            .args([
-                "exec",
-                "-i",
-                container,
-                "trino",
-                "--output-format",
-                "JSON",
-                "--execute",
-                sql,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()
-            .context("failed to start the Trino CLI")?;
-        let stdout = child.stdout.take().context("Trino stdout is absent")?;
-        Ok(Self {
-            child,
-            lines: BufReader::new(stdout).lines(),
-        })
-    }
-
-    async fn next<T: serde::de::DeserializeOwned>(&mut self) -> anyhow::Result<Option<T>> {
-        if let Some(line) = self
-            .lines
-            .next_line()
-            .await
-            .context("failed to read Trino output")?
-        {
-            return serde_json::from_str(&line)
-                .context("Trino output is not the expected JSON row")
-                .map(Some);
-        }
-        let status = self
-            .child
-            .wait()
-            .await
-            .context("failed to wait for Trino")?;
-        if !status.success() {
-            bail!("Trino failed with {status}; staged rows will not be promoted");
-        }
-        Ok(None)
     }
 }
 

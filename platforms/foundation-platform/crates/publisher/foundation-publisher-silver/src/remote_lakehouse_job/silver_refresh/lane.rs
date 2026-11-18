@@ -1,7 +1,8 @@
 //! The lanes a Silver refresh knows, and what each lane's contract says about running it.
 //!
-//! The list of lanes is this enum: each needs its export's environment, which is code. Everything
-//! else a lane runs with (its Silver table, the Bronze sources that make one release, the export
+//! The list of lanes is this enum and the HUB family files: a hand lane needs its export's
+//! environment, which is code; a family lane is an entry of a family file, with nothing in code
+//! (root ADR-0551). Everything else a lane runs with (its Silver table, the Bronze sources that make one release, the export
 //! command, the Spark size and write mode) is the `silver_refresh` block of the lane's source
 //! contract, compiled in from the same release (root ADR-0169 §2–3). A VWorld land lane's block
 //! also holds the rule that reads its region and vintage from a ZIP member name and how many
@@ -17,6 +18,8 @@ use super::land::{Completeness, LandRule};
 /// VWorld land datasets.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::remote_lakehouse_job) enum Lane {
+    /// A HUB family lane: one entry of a family file (root ADR-0551).
+    Family(FamilyLane),
     Titles,
     Units,
     UnitAreas,
@@ -36,6 +39,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     PermitFloorOverview,
     PermitTemporaryBuilding,
     PermitSiteLocation,
+    HousingPermitBasisOutline,
     MaintenanceRegularInspection,
     LandCharacteristic,
     LandForestLedger,
@@ -46,10 +50,26 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     LandUsePlan,
     LandUseZoneArea,
     LandUseZoneCode,
+    RealEstateBrokerOffice,
+    RealEstateBrokerMember,
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 29] = [
+    /// Every lane: the hand lanes, then the family's.
+    pub(in crate::remote_lakehouse_job) fn all() -> Vec<Self> {
+        Self::HAND
+            .iter()
+            .copied()
+            .chain(
+                lakehouse_domain::hub_family_lanes()
+                    .iter()
+                    .map(|lane| Self::Family(FamilyLane(lane))),
+            )
+            .collect()
+    }
+
+    /// The lanes written as code. A slice, so a new one is a line and not a count.
+    const HAND: &'static [Self] = &[
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -69,6 +89,7 @@ impl Lane {
         Self::PermitFloorOverview,
         Self::PermitTemporaryBuilding,
         Self::PermitSiteLocation,
+        Self::HousingPermitBasisOutline,
         Self::MaintenanceRegularInspection,
         Self::LandCharacteristic,
         Self::LandForestLedger,
@@ -79,12 +100,15 @@ impl Lane {
         Self::LandUsePlan,
         Self::LandUseZoneArea,
         Self::LandUseZoneCode,
+        Self::RealEstateBrokerOffice,
+        Self::RealEstateBrokerMember,
     ];
 
     /// The systemd instance name (`foundation-silver-refresh@<id>.service`): hyphens, because
     /// the job list and the release admission accept no other instance spelling.
     pub(in crate::remote_lakehouse_job) const fn id(self) -> &'static str {
         match self {
+            Self::Family(lane) => lane.0.id,
             Self::Titles => "building-register-titles",
             Self::Units => "building-register-units",
             Self::UnitAreas => "building-register-unit-areas",
@@ -104,6 +128,7 @@ impl Lane {
             Self::PermitFloorOverview => "building-permit-floor-overview",
             Self::PermitTemporaryBuilding => "building-permit-temporary-building",
             Self::PermitSiteLocation => "building-permit-site-location",
+            Self::HousingPermitBasisOutline => "housing-permit-basis-outline",
             Self::MaintenanceRegularInspection => "building-maintenance-regular-inspection-history",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
@@ -114,17 +139,23 @@ impl Lane {
             Self::LandUsePlan => "land-use-plan",
             Self::LandUseZoneArea => "land-use-zone-area",
             Self::LandUseZoneCode => "land-use-zone-code",
+            Self::RealEstateBrokerOffice => "real-estate-broker-office",
+            Self::RealEstateBrokerMember => "real-estate-broker-member",
         }
     }
 
     pub(in crate::remote_lakehouse_job) fn parse(raw: &str) -> anyhow::Result<Self> {
-        Self::ALL
-            .into_iter()
+        let all = Self::all();
+        all.iter()
+            .copied()
             .find(|lane| lane.id() == raw)
             .with_context(|| {
                 format!(
                     "unknown Silver refresh lane {raw:?}; the lanes are {}",
-                    Self::ALL.map(Self::id).join(", ")
+                    all.iter()
+                        .map(|lane| lane.id())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             })
     }
@@ -138,6 +169,7 @@ impl Lane {
         self,
     ) -> (&'static str, &'static str) {
         match self {
+            Self::Family(lane) => (lane.0.family_file, lane.0.source_document),
             Self::Titles => (
                 "hub-building-register-title-source-objects.json",
                 include_str!("../../../../../../infra/lakehouse/contracts/hub-building-register-title-source-objects.json"),
@@ -214,6 +246,10 @@ impl Lane {
                 "hub-building-permit-site-location-source-objects.json",
                 crate::building_permit_site_location_silver_export::CONTRACT_JSON,
             ),
+            Self::HousingPermitBasisOutline => (
+                "hub-housing-permit-basis-outline-source-objects.json",
+                crate::housing_permit_basis_outline_silver_export::CONTRACT_JSON,
+            ),
             Self::MaintenanceRegularInspection => (
                 "hub-building-maintenance-regular-inspection-history-source-objects.json",
                 crate::building_maintenance_regular_inspection_history_silver_export::CONTRACT_JSON,
@@ -254,6 +290,14 @@ impl Lane {
                 "vworld-land-use-zone-code-source-objects.json",
                 include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-use-zone-code-source-objects.json"),
             ),
+            Self::RealEstateBrokerOffice => (
+                "vworld-real-estate-broker-office-source-objects.json",
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-real-estate-broker-office-source-objects.json"),
+            ),
+            Self::RealEstateBrokerMember => (
+                "vworld-real-estate-broker-member-source-objects.json",
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-real-estate-broker-member-source-objects.json"),
+            ),
         }
     }
 
@@ -264,6 +308,18 @@ impl Lane {
         })
     }
 }
+
+/// A family lane, compared by its id: the family is derived once, so one id is one lane.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::remote_lakehouse_job) struct FamilyLane(&'static lakehouse_domain::HubFamilyLane);
+
+impl PartialEq for FamilyLane {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.id == other.0.id
+    }
+}
+
+impl Eq for FamilyLane {}
 
 /// How the lane's export hands rows to Spark, which decides the load identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -284,6 +340,11 @@ pub(in crate::remote_lakehouse_job) enum ExportKind {
 
 impl ExportKind {
     fn parse(command: &str) -> anyhow::Result<Self> {
+        if let Some(lane) = lakehouse_domain::hub_family_lane_by_export(command) {
+            return Ok(Self::HubParts {
+                env_prefix: lane.env_prefix,
+            });
+        }
         Ok(match command {
             "export-building-register-title-silver-handoff" => Self::Title,
             "export-building-register-unit-silver-handoff" => Self::Unit,
@@ -323,6 +384,9 @@ impl ExportKind {
             },
             "export-building-permit-major-repair-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_MAJOR_REPAIR",
+            },
+            "export-housing-permit-basis-outline-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_HOUSING_PERMIT_BASIS_OUTLINE",
             },
             "export-building-permit-structure-ledger-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_STRUCTURE_LEDGER",

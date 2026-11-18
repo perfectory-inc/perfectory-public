@@ -12,11 +12,15 @@ written. A document's facts and its outcome are written together, once: a docume
 the model (MODEL_RUNTIME_*, model_port.py) when the model is not there, errs, or this run's
 model budget is spent is not written at all, so the next run reads it again whole (its rules
 take milliseconds) and no fact is appended twice.
+
+The run reads every planned document by rule before it asks the model anything, so a slow model
+holds back only the documents that need it.
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import sys
 import time
@@ -154,23 +158,27 @@ def main(argv: list[str] | None = None) -> int:
                 pages[row["sha256"]].append(Page(row["page_number"], row["char_start"], row["char_end"], row["method"], row["text"]))
     planned = sorted(formats)[: settings["per_run_limit"]]
     port = Port.from_env(settings["model_timeout_seconds"])
+    started = time.monotonic()
+    if port is not None:
+        # A model call is bounded by the run's budget, not only by the document it is in:
+        # 2026-11-13 22:43Z a run's last documents asked the model page after page past
+        # run_time_budget_seconds and the unit was killed at its 80-minute limit before the fold.
+        # A document whose call the deadline cuts is not written; the next run reads it again.
+        port = dataclasses.replace(port, deadline=started + settings["run_time_budget_seconds"])
     ksic = load_ksic()
     budget = {"model_pages": settings["model_pages_per_run"]}
 
     args.out.mkdir(parents=True, exist_ok=True)
     totals: Counter = Counter()
     dropped: Counter = Counter()
-    started = time.monotonic()
     with (args.out / "document_fact.jsonl").open("w", encoding="utf-8") as fact_file, (args.out / "document_fact_outcome.jsonl").open("w", encoding="utf-8") as outcome_file:
-        for sha in planned:
-            if time.monotonic() - started >= settings["run_time_budget_seconds"]:
-                break  # unread documents have no outcome, so the next run plans them
+        def read(sha: str, model: Port | None) -> bool:
+            """Reads one document and writes it if it is complete; False when it has to wait."""
             doc_pages = sorted(pages[sha], key=lambda p: p.page_number)
             t0 = time.monotonic()
-            facts, stats = read_document(contract, sha, formats[sha], doc_pages, ksic, port, args.media, budget)
+            facts, stats = read_document(contract, sha, formats[sha], doc_pages, ksic, model, args.media, budget)
             if not stats["complete"]:
-                totals["deferred"] += 1
-                continue
+                return False
             at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             for row in fact_rows(contract, sha, facts, at):
                 fact_file.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -184,6 +192,25 @@ def main(argv: list[str] | None = None) -> int:
             totals["model_tables_closed"] += stats.get("model_tables_closed", 0)
             totals["model_tables_rejected"] += stats.get("model_tables_rejected", 0)
             totals["model_errors"] += stats.get("model_errors", 0)
+            return True
+
+        # Rules first, over every planned document, without the model: milliseconds a document. Only
+        # then the documents the rules could not finish go to the model, one after another, until the
+        # run's time or model budget is spent. 2026-11-13: one loop did both, 19 model pages took the
+        # whole 3,815 s, and 27 of 2,000 planned documents were read; the rest never met a rule.
+        waiting = []
+        for sha in planned:
+            if time.monotonic() - started >= settings["run_time_budget_seconds"]:
+                break  # unread documents have no outcome, so the next run plans them
+            if not read(sha, None):
+                waiting.append(sha)
+        totals["closed_by_rules"] = totals["documents"]
+        for position, sha in enumerate(waiting):
+            if port is None or time.monotonic() - started >= settings["run_time_budget_seconds"]:
+                totals["deferred"] += len(waiting) - position
+                break
+            if not read(sha, port):
+                totals["deferred"] += 1
 
     summary = {
         "extractor_version": settings["extractor_version"],

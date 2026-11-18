@@ -11,6 +11,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -335,6 +336,33 @@ def change_record_versions(table: str) -> dict[str, Any]:
     return {"kind": "events", "canonical_reader": None}
 
 
+_RFC3339 = re.compile(r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|z|[+-]\d{2}:\d{2})?")
+
+
+def rfc3339_utc(value: Any) -> datetime | None:
+    """An RFC 3339 time as a naive UTC datetime (the tables' timestamp form); None when it is not one.
+
+    The Rust collectors write chrono's `to_rfc3339`, whose fraction has as many digits as it needs
+    (up to nine). The Spark image's Python 3.10 `datetime.fromisoformat` reads only three or six
+    digits and no `Z`, so the fraction is cut or padded to microseconds first. Without it the
+    ILIS notice Silver load (2026-11-12 03:21Z) read 1 of 363 notice lines and dropped the rest.
+    """
+
+    if not value:
+        return None
+    match = _RFC3339.fullmatch(str(value).strip())
+    if match is None:
+        return None
+    seconds, fraction, offset = match.groups()
+    micros = (fraction or "")[:6].ljust(6, "0")
+    zone = "+00:00" if offset in (None, "Z", "z") else offset
+    try:
+        parsed = datetime.fromisoformat(f"{seconds.replace(' ', 'T')}.{micros}{zone}")
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def admit_write(contract_table: str, intent: str, *, target: str | None = None, branch: str | None = None) -> None:
     """Refuse a write the table's `row_versions` does not allow, before anything is written.
 
@@ -399,6 +427,36 @@ def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
         raise ValueError(f"lakehouse contract {table} current_row_latest.keep_ties must be true or false")
     return CurrentRowLatest(key=parts["key"], newest_first=parts["newest_first"], removal_column=removal,
                             keep_ties=keep_ties)
+
+
+# The slots of a contract's `current_rows_sql` (lakehouse-domain `CURRENT_ROWS_*`).
+CURRENT_ROWS_SLOTS = ("{columns}", "{source}", "{filter}")
+_SQL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def current_rows_sql(contract: dict[str, Any], source: str, columns: list[str] | tuple[str, ...],
+                     row_filter: str = "TRUE") -> str:
+    """The query of ``contract``'s current rows of ``source``, projecting ``columns``.
+
+    The text is the contract artifact's ``current_rows_sql``, rendered once by the Rust contract
+    (root ADR-0564 §4): standard SQL that Trino, DuckDB and Spark SQL run alike, the SQL twin of
+    ``current_rows``. Nothing is rendered here; a reader that built its own rank query read a second
+    copy of the rule (2026-10-16: ``silver.industrial_complexes`` read three times over without one).
+    ``source`` is the caller's table reference, pinned by the caller. ``row_filter`` restricts which
+    keys are read, never which versions of a key. The query keeps every row tied as newest: SQL
+    cannot refuse a tie, so a reader that needs one row per key counts them.
+    """
+
+    table = contract.get("table_name")
+    if current_row_latest(contract) is None:
+        raise ValueError(f"lakehouse contract {table} keeps no versions per key: it has no current_rows_sql")
+    text = contract.get("current_rows_sql")
+    if not isinstance(text, str) or any(text.count(slot) != 1 for slot in CURRENT_ROWS_SLOTS):
+        raise ValueError(f"lakehouse contract {table} carries no current_rows_sql with its three slots")
+    if not columns or any(not _SQL_NAME.fullmatch(column) for column in columns):
+        raise ValueError(f"not contract column names: {list(columns)!r}")
+    return (text.replace("{columns}", ", ".join(columns)).replace("{source}", source)
+            .replace("{filter}", row_filter))
 
 
 def with_contract_columns(frame: Any, contract: dict[str, Any]) -> Any:

@@ -49,11 +49,16 @@ class PublishChecksTest(unittest.TestCase):
 
         for contract in contracts():
             latest = platform_contracts.current_row_latest(contract)
-            if latest is None or platform_contracts.current_row_predicate(contract) is not None:
+            if latest is None:
                 continue
             if platform_contracts.row_versions(contract)["kind"] == "editions":
                 continue
             sql = publish_checks.current_rows_sql(contract["table_name"], list(latest.key))
+            # The characters are the contract artifact's, not this module's (root ADR-0564 §4).
+            self.assertEqual(sql, platform_contracts.current_rows_sql(
+                contract, publish_checks._qualified(contract["table_name"]), list(latest.key)))
+            predicate = platform_contracts.current_row_predicate(contract)
+            self.assertEqual(f"AND ({predicate})" in sql, predicate is not None, contract["table_name"])
             self.assertIn(f"PARTITION BY {', '.join(latest.key)} ORDER BY "
                           + ", ".join(f"{c} DESC NULLS LAST" for c in latest.newest_first), sql)
             self.assertEqual(f"<> '{platform_contracts.REMOVED}'" in sql, latest.removal_column is not None,
@@ -63,9 +68,9 @@ class PublishChecksTest(unittest.TestCase):
         import publish_checks  # puts the Spark jobs directory on the path
         import platform_contracts
 
-        predicate = next(c for c in contracts() if platform_contracts.current_row_predicate(c) is not None)
-        with self.assertRaisesRegex(ValueError, "predicate"):
-            publish_checks.current_rows_sql(predicate["table_name"], ["pnu"])
+        edition = next(c for c in contracts() if platform_contracts.row_versions(c)["kind"] == "editions")
+        with self.assertRaisesRegex(ValueError, "edition"):
+            publish_checks.current_rows_sql(edition["table_name"], ["pnu"])
         with self.assertRaisesRegex(ValueError, "column"):
             publish_checks.current_rows_sql("silver.land_use_zone_area", ["layer_code; DROP"])
 

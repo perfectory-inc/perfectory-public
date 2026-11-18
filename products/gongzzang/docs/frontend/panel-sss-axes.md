@@ -7,74 +7,74 @@ last_reviewed: 2026-11-05
 
 # SSS 수준 패널 시스템 축
 
-> AGENTS.md §10에서 이관 (2026-07-20, docs 대개편 Phase B2). 규범 본문은 원문 그대로이며,
-> §10.x 번호 체계는 기존 인용([sss-charter.md](../sss-charter.md), [ADR 0047](../adr/0047-collection-event-fabric.md) 등)과의
-> 호환을 위해 유지한다.
+> AGENTS.md §10에서 옮겼다 (2026-07-20, 문서 대개편 B2 단계). 규범의 내용은 옮길 때 그대로이며 2026-11-11 에
+> 한국어로만 바꿔 적었다(ADR-0009). §10.x 번호 체계는 기존 인용([sss-charter.md](../sss-charter.md),
+> [ADR 0047](../adr/0047-collection-event-fabric.md) 등)과 맞추려고 그대로 둔다.
 
-패널 시스템은 URL-driven enterprise interaction surface다. 모든 panel 변경은 아래 축을 만족해야 한다. (Claude + Codex 합의, 2026-05-08)
+패널 시스템은 주소(URL)가 이끄는 기업 수준의 상호작용 화면이다. 모든 패널 변경은 아래 축을 만족해야 한다. (Claude + Codex 합의, 2026-05-08)
 
 ## 10.1 첫날 차단 조건(없으면 SSS 자격 박탈)
 
-1. **정합성(Correctness)**
-   - URL serialize/deserialize roundtrip 100%
-   - reload / back / forward / mobile back 동작 100%
-   - hydration mismatch, race leak, memory leak 0
+1. **정합성**
+   - 주소 직렬화·역직렬화 왕복 100%
+   - 새로고침·뒤로·앞으로·모바일 뒤로 동작 100%
+   - 수화(hydration) 불일치, 경쟁 상태 누수, 메모리 누수 0
 
-2. **접근성(Accessibility)**
+2. **접근성**
    - WCAG 2.2 AA 기준
-   - keyboard-only 주요 flow 100%
-   - dialog / focus / ESC / breadcrumb은 ARIA APG 패턴 준수
-   - axe violation 0 in CI
+   - 키보드만으로 주요 흐름 100%
+   - 대화상자·초점·ESC·이동 경로 표시는 ARIA APG 패턴을 따른다
+   - CI 에서 axe 위반 0
 
-3. **타입 안전성(Type Safety)**
-   - TS strict + discriminated union
-   - panel kind / view exhaustiveness compile-time enforced
-   - API 계약은 Rust → utoipa → OpenAPI → generated TS only
+3. **타입 안전성**
+   - TS 엄격 모드 + 구별된 합집합 타입
+   - 패널 종류·보기의 빠짐없음을 컴파일 때 강제
+   - API 계약은 Rust → utoipa → OpenAPI → 생성된 TS 로만
 
-4. **SSOT(단일 정본)**
-   - URL = panel state SSOT
-   - registry = kind / view / component / fetch / i18n / telemetry SSOT
-   - panel framework는 kind implementation을 import 금지
-   - ad-hoc URL parsing 금지 — codec만 허용
+4. **단일 정본**
+   - 주소 = 패널 상태의 정본
+   - 등록부 = 종류·보기·컴포넌트·가져오기·문구·원격 측정의 정본
+   - 패널 틀은 종류별 구현을 가져오지 못한다
+   - 즉석 주소 해석 금지 — 코덱만 허용
 
-5. **보안·개인정보(Security & Privacy)**
-   - user-facing string은 typed i18n only
-   - PII log / span / event 금지
-   - CSP / XSS / CSRF / rate-limit baseline 유지
-   - audit-relevant panel/API actions는 correlation_id로 추적 가능해야 함
+5. **보안·개인정보**
+   - 사용자에게 보이는 문자열은 타입이 있는 문구 자원으로만
+   - 개인정보를 로그·추적 구간·이벤트에 남기지 않는다
+   - CSP·XSS·CSRF·요청 속도 제한의 기본선을 지킨다
+   - 감사와 관련된 패널·API 동작은 `correlation_id` 로 추적할 수 있어야 한다
 
-6. **마이그레이션·버전 관리(Migration / Versioning)**
-   - 한 번 배포된 URL codec은 영구 backward-compatible
-   - invalid / unknown URL은 safe recovery + telemetry
-   - codec 변경은 ADR + compatibility corpus test 필수
+6. **이전·버전 관리**
+   - 한 번 배포된 주소 코덱은 영구히 하위 호환
+   - 잘못되었거나 모르는 주소는 안전하게 복구하고 원격 측정을 남긴다
+   - 코덱 변경에는 ADR 과 호환성 말뭉치 시험이 반드시 필요하다
 
 ## 10.2 첫날 필수
 
-7. **복원력(Resilience)** — panel별 error boundary, AbortController/query cancellation, loading/error/empty/auth-required/ok 상태 강제
-8. **관측성(Observability)** — `panel.opened`·`panel.url_decode_failed`·fetch latency span 필수. telemetry schema test 100%와 panel open latency SLO 측정 필요
-9. **성능(Performance)** — LCP < 2.5s p75, INP < 200ms p75, CLS < 0.1 p75, bundle budget CI gate
-10. **거버넌스(Governance)** — panel architecture 변경은 ADR이 필요하며 lefthook+CI가 URL SSOT·codec·import 경계를 강제
+7. **복원력** — 패널별 오류 경계, `AbortController`·질의 취소, 로딩·오류·빈 상태·인증 필요·정상 상태를 강제
+8. **관측성** — `panel.opened`·`panel.url_decode_failed`·가져오기 지연 추적 구간 필수. 원격 측정 스키마 시험 100%와 패널 열기 지연 SLO 측정이 필요하다
+9. **성능** — LCP < 2.5초(p75), INP < 200ms(p75), CLS < 0.1(p75), CI 의 번들 크기 관문
+10. **거버넌스** — 패널 아키텍처 변경에는 ADR 이 필요하며, 훅과 CI 가 주소 정본·코덱·가져오기 경계를 강제한다
 
-## 10.3 2단계 강화(Phase-2 Hardening)
+## 10.3 2단계 강화
 
-11. **계약 테스트(Contract Testing)** — OpenAPI breaking change diff, generated client compile gate, backing endpoint no-mock integration test
-12. **공급망 무결성(Supply Chain Integrity)** — CycloneDX SBOM, cargo-deny/pnpm audit/gitleaks, signed artifact
-13. **운영(Operations)** — readiness/health check, feature flag와 rollback 경로, SLO dashboard+runbook+alert policy
-14. **데이터 계보(Data Lineage)** — Catalog source lineage는 Foundation Platform에 둔다. Gongzzang 소유 원천은 source/fetched_at/SRID/license 추적성과 schema evolution 정책이 필요하다.
-15. **디자인 시스템·문서화** — Spec→ADR→Code 추적성, Storybook+visual regression(중요 상태만), C4는 권장하되 CI gate로 강제하지 않는다.
+11. **계약 시험** — OpenAPI 깨지는 변경 비교, 생성된 클라이언트 컴파일 관문, 실제 백엔드 호출 주소에 대한 모의 없는 통합 시험
+12. **공급망 무결성** — CycloneDX SBOM, cargo-deny·pnpm audit·gitleaks, 서명된 산출물
+13. **운영** — 준비·상태 점검, 기능 깃발과 되돌리기 경로, SLO 대시보드·런북·알림 정책
+14. **데이터 계보** — 카탈로그 원천 계보는 파운데이션에 둔다. 공짱이 소유한 원천은 출처·가져온 시각·SRID·이용 허락의 추적성과 스키마 변화 정책이 필요하다.
+15. **디자인 시스템·문서화** — 명세→ADR→코드 추적성, Storybook + 시각 회귀(중요한 상태만), C4 는 권장하되 CI 관문으로 강제하지 않는다.
 
-## 10.4 명시적 비포함 (SSS 라벨에 본질 아님)
+## 10.4 명시적으로 넣지 않는 것 (SSS 라벨의 본질이 아님)
 
-- 모든 페이지 visual regression — critical states (panel shell / mobile fullscreen / side-by-side / 4-state) 만
-- Unit 100% branch coverage — 핵심 순수 로직(codec / URL parser / permission / calculation)만 100%, UI는 risk-based
-- Mutation testing 전체 적용 — 핵심 순수 로직에만 selective
-- Property-based testing 전체 — codec / SRID / idPattern 등 selective
-- Offline support — 산업용 부동산 조회에는 read-through cache로 충분
-- Chaos engineering Day-1 — Phase-2 hardening에서 검토
-- C4 diagram CI blocker — 문서 형식주의 위험
+- 모든 페이지의 시각 회귀 — 중요한 상태(패널 껍데기·모바일 전체 화면·나란히 보기·네 가지 상태)만
+- 단위 시험 분기 100% — 핵심 순수 논리(코덱·주소 해석기·권한·계산)만 100%, 화면은 위험 기반
+- 변이 시험 전체 적용 — 핵심 순수 논리에만 골라서
+- 속성 기반 시험 전체 — 코덱·SRID·식별자 패턴 등 골라서
+- 오프라인 지원 — 산업용 부동산 조회에는 읽기 통과 캐시로 충분
+- 첫날 카오스 공학 — 2단계 강화에서 검토
+- C4 다이어그램 CI 차단 — 문서 형식주의 위험
 
 ## 10.5 적용 범위
 
-본 §10은 *패널 시스템* 한정 SSS 정의이며, 다른 도메인(auth, infra, listings backend 등)은 자체 SSS axis가 필요할 수 있다. §10의 BLOCKER 항목 중 *Type Safety / SSOT / Security & Privacy / Migration* 은 도메인 무관 일반 룰이므로 다른 영역에도 동일하게 적용한다.
+이 §10은 *패널 시스템* 에만 해당하는 SSS 정의이며, 다른 도메인(인증, 인프라, 매물 백엔드 등)은 자기 SSS 축이 필요할 수 있다. §10의 차단 항목 중 *타입 안전성·단일 정본·보안과 개인정보·이전* 은 도메인과 무관한 일반 규칙이므로 다른 영역에도 똑같이 적용한다.
 
-참조 표준: W3C WCAG 2.2 AA, W3C ARIA APG, Google Core Web Vitals, OWASP ASVS, NIST SSDF SP 800-218, OpenTelemetry Semantic Conventions, CycloneDX SBOM, PIPC / 개인정보보호법.
+참조 표준: W3C WCAG 2.2 AA, W3C ARIA APG, Google Core Web Vitals, OWASP ASVS, NIST SSDF SP 800-218, OpenTelemetry 의미 규약, CycloneDX SBOM, 개인정보보호위원회·개인정보 보호법.

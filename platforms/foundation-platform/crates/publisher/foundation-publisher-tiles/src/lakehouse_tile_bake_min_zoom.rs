@@ -173,3 +173,25 @@ pub fn feature_filter(
     );
     (all.len() > 1).then(|| serde_json::json!({ layer.source_layer.as_str(): all }).to_string())
 }
+
+/// The deepest zoom a unit may be cut to: the render zooms Catalog accepts end at 22.
+const MAX_TILE_ZOOM: u8 = 22;
+
+/// Root ADR-0492: a contract maxzoom is a zoom Catalog serves, and a born unit's agrees with its
+/// birth layer.
+pub(super) fn validate_tile_max_zoom(contract: &super::BakeContract) -> anyhow::Result<()> {
+    for (unit, zoom) in &contract.tile_max_zoom {
+        anyhow::ensure!(
+            (1..=MAX_TILE_ZOOM).contains(zoom),
+            "{unit}'s tile_max_zoom {zoom} is not between 1 and {MAX_TILE_ZOOM}"
+        );
+        if let Some(newborn) = contract.units_born_from_a_lakehouse_bake.get(unit) {
+            let born = newborn.served_layer().tile_max_zoom;
+            anyhow::ensure!(
+                born == *zoom,
+                "{unit} is born at z{born} but its tile_max_zoom is {zoom}"
+            );
+        }
+    }
+    Ok(())
+}

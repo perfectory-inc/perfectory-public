@@ -393,6 +393,15 @@ class Lane:
     # (a 시도), each staged as it finishes (`build_in_shards`, root ADR-0440): a whole build longer than
     # its unit's time bound resumes from the shards it finished instead of starting again.
     full_shard_keys: Callable[[dict[str, Any]], Any] | None = None
+    # `build` with its own stages: `staged_build(inputs, stage)` hands the frames it reads several
+    # times over to `stage(name, frame)`, which writes each to the plan's `Stages` and reads it back,
+    # so a shard or a merge is a few small plans rather than one plan of every copy. 2026-11-12 the
+    # 실거래 Gold's first 시도 shard died of heap twice, the second time in the driver writing that
+    # one plan's text (AdaptiveSparkPlanExec.onUpdatePlan, QueryExecution.explainString).
+    staged_build: Callable[[dict[str, Any], Callable[[str, Any], Any]], Any] | None = None
+
+    def build_staged(self, inputs: dict[str, Any], stage: Callable[[str, Any], Any]) -> Any:
+        return self.build(inputs) if self.staged_build is None else self.staged_build(inputs, stage)
 
 
 @dataclass
@@ -654,7 +663,8 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
             started = time.monotonic()
             appended = appended_inputs(spark, lane.append_inputs, previous, pins, changed)
             affected = lane.affected(changed, appended) if changed else current.select(KEY).limit(0)
-            plan = plan_merge(spark, build=lane.build, restrict=lane.restrict, new=frames, affected=affected,
+            plan = plan_merge(spark, build=lane.build, staged_build=lane.staged_build, restrict=lane.restrict,
+                              new=frames, affected=affected,
                               current_gold=current, gold_rows=gold_rows, content_columns=lane.content_columns,
                               max_fraction=args.max_changed_key_fraction, sample_keys=args.parity_sample_keys,
                               seed=pins_seed(pins), started=started, row_key=lane.row_key,
@@ -725,8 +735,9 @@ def build_in_shards(stages: Stages, lane: Lane, frames: dict[str, Any], digits: 
     parts = []
     for prefix in prefixes:
         shard = keys.where(F.col(KEY).startswith(prefix))
-        parts.append(stages.materialize(f"full-{prefix}",
-                                        lane.build(lane.restrict(frames, shard)).join(shard, KEY, "left_semi")))
+        stage = lambda name, frame, prefix=prefix: stages.materialize(f"full-{prefix}-{name}", frame)  # noqa: E731
+        parts.append(stages.materialize(f"full-{prefix}", lane.build_staged(lane.restrict(frames, shard), stage)
+                                        .join(shard, KEY, "left_semi")))
         started = phase_done(f"full-shard-{prefix}", started)
     if not parts:
         return lane.build(frames)
@@ -868,7 +879,8 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
                affected: Any, current_gold: Any, gold_rows: int, content_columns: tuple[str, ...],
                max_fraction: float, sample_keys: int, seed: str,
                started: float | None = None, row_key: tuple[str, ...] = (KEY,),
-               resume_key: str | None = None) -> dict[str, Any]:
+               resume_key: str | None = None,
+               staged_build: Callable[[dict[str, Any], Callable[[str, Any], Any]], Any] | None = None) -> dict[str, Any]:
     """Recompute the affected PNUs and a parity sample; return the merge source and its counts.
 
     Raises IncrementalRefusal when the change set is too large or the parity sample disagrees.
@@ -894,7 +906,8 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
                              current_gold=current_gold, gold_rows=gold_rows,
                              content_columns=content_columns, max_fraction=max_fraction,
                              sample_keys=sample_keys, seed=seed, F=F,
-                             started=time.monotonic() if started is None else started, row_key=row_key)
+                             started=time.monotonic() if started is None else started, row_key=row_key,
+                             staged_build=staged_build)
     except IncrementalRefusal as refusal:
         stages.refuse(str(refusal))
         raise
@@ -909,7 +922,8 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
                   restrict: Callable[[dict[str, Any], Any], dict[str, Any]], new: dict[str, Any],
                   affected: Any, current_gold: Any, gold_rows: int, content_columns: tuple[str, ...],
                   max_fraction: float, sample_keys: int, seed: str, F: Any, started: float,
-                  row_key: tuple[str, ...] = (KEY,)) -> dict[str, Any]:
+                  row_key: tuple[str, ...] = (KEY,),
+                  staged_build: Callable[[dict[str, Any], Callable[[str, Any], Any]], Any] | None = None) -> dict[str, Any]:
     if row_key[0] != KEY:
         raise ValueError(f"a Gold row key starts with {KEY}, got {row_key}")
     affected = stages.materialize("affected", affected.select(KEY).distinct())
@@ -928,7 +942,9 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
     restricted = {name: stages.materialize(f"input-{index}", frame)
                   for index, (name, frame) in enumerate(restrict(new, keys).items())}
     started = phase_done("restrict", started)
-    built = stages.materialize("built", build(restricted).join(keys, KEY, "left_semi"))
+    rows = build(restricted) if staged_build is None else staged_build(
+        restricted, lambda name, frame: stages.materialize(f"build-{name}", frame))
+    built = stages.materialize("built", rows.join(keys, KEY, "left_semi"))
     started = phase_done("build", started)
 
     compared = list(dict.fromkeys([KEY, *content_columns, "row_digest"]))

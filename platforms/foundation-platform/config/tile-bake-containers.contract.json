@@ -29,6 +29,10 @@
     "zoning": 17
   },
   "tile_max_zoom_reason": "Root ADR-0492. The zoom a unit listed here is cut to, in place of the active release's; the release the bake promotes carries it (catalog.vector_tile_build_job.tile_max_zoom). mapbox-gl re-quantises every tile to its own 8192-unit extent, so a z16 tile drawn at render_max_zoom 22 is two pixels per unit there and its edges step by up to a pixel, however fine the archive's own detail (W41, 2026-11-09). Cut to z17 at maxzoom_detail 13 (extent 8192), the archive's unit is the renderer's unit: nothing is rounded twice, a unit is one pixel at z22, and the ground precision is what z16 at detail 14 (parcels, complex) and z14 at detail 16 (zoning) gave, about 3 cm in Korea. A unit not listed keeps its active release's maxzoom.",
+  "partition_run_budget_seconds": {
+    "parcels": 4200
+  },
+  "partition_run_budget_seconds_reason": "Root ADR-0493. A partitioned unit listed here starts no partition this many seconds after the run started (job per_run_cap.deadline points here). The national parcel bake measured 2026-10-13 was GDAL 60 minutes and tippecanoe 109 minutes, past the job's 115-minute limit, so its first base never fitted one run and the job stayed off. Each partition's archive lands in the create-only cache as it completes, before any Catalog or R2 write; a run at its budget prints lakehouse-tile-bake-deferred and the job's next start (twice a day) continues, and the run that finds every partition cached joins, gates, uploads and promotes. 4,200 s + the largest partition (about 1,600 s at z17) + 120 s for the stop stays under 90% of the 6,900 s limit.",
   "partition_by_feature_id_prefix": {
     "parcels": 2,
     "zoning": 4

@@ -5,6 +5,7 @@
     { "principal_kind": "service", "resource": "foundation.catalog", "action": "read" },
     { "principal_kind": "service", "resource": "foundation.lakehouse", "action": "write" },
     { "principal_kind": "service", "resource": "foundation.normalization", "action": "propose" },
+    { "principal_kind": "service", "resource": "foundation.real_estate_broker", "action": "verify" },
     { "principal_kind": "staff", "resource": "foundation.catalog", "action": "write" },
     { "principal_kind": "staff", "resource": "foundation.lakehouse", "action": "batch_audit" },
     { "principal_kind": "staff", "resource": "foundation.lineage", "action": "adjudicate" },

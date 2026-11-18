@@ -41,8 +41,27 @@ sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/b
 드라이버로 모으는 구조를 다시 연다. 모든 시도가 끝나면 다음 실행은 `unchanged reason=all_registered` 다. 그 뒤
 `enabled: true` PR 을 낸다(ADR-0122 §4).
 
+## 후보 판의 한 걸음 (root ADR-0490 §4a)
+
+등록부는 판마다 쌓는다. 행마다 `to_snapshot_id`(그 행을 등록한 판)가 있고, 읽는 쪽은 모두 "판 X 까지"로 접는다
+(`parcel_registry_frames.registry_through`; 표 계약의 `row_versions.canonical_reader` 라 다른 방식으로 접는 잡은 시험이 거부한다).
+
+- 매 실행 2b 단계가 판정 보고서(`/var/lib/foundation-platform/parcel-editions/readiness.json`)에서 후보 판을 읽는다
+  (`vworld_parcel_editions.py candidate`: 서빙판보다 새로, source·silver 를 통과하고 rehearsal 만 남은 가장 새 판).
+- `--probe-advance` 가 후보의 행이 아직 없는 지역을 고른다. 지역마다 그곳에 등록된 가장 새 판에서 계보 쌍을 따라
+  advance 한다. 계보가 잇는 시도(2026-07-01 29·46 → 12)는 한 지역이다. 그 쌍의 계보가 없으면 기다린다.
+- advance 는 조인으로 돈다. 두 판이 같이 가진 필지는 행을 쓰지 않고 드라이버에도 오지 않는다.
+- 서빙판을 읽는 place-id 발행은 서빙판까지 접으므로 승격 전에는 그대로다. 승격되면 그 판의 행이 승격 시각부터 보이는
+  것으로 세어(`visible_at_utc`) 바뀐 지역만 다시 발행한다.
+- 후보의 대조 관문(`parcel_matching_gate.py --snapshot-id <후보>`)은 후보까지 접어 (b) 를 본다.
+
+확인: `journal.log` 의 `parcel registry advance edition=… region=… from=… parcels=… seconds=…` 줄, 그리고
+
+```sql
+SELECT to_snapshot_id, status, count(*) FROM silver.parcel_registry GROUP BY 1, 2;
+```
+
 ## 이 작업이 하지 않는 것
 
-- 판이 바뀐 뒤 id 를 잇는 advance 는 `silver.parcel_lineage` 를 읽는다. 그 표는 2026-10-14 부터 `lineage_stewardship` 의
-  0b 단계가 판 쌍마다 만든다(#542). advance 를 이 작업에 붙이는 것은 그 표가 운영에 쌓인 뒤의 별도 변경이다.
-- 필지 단위 발행 ID(`place_id_release_to_gold.py --unit parcel`)는 두 판의 날짜가 필요하다. advance 와 함께 온다.
+- 계보(`silver.parcel_lineage`)는 `lineage_stewardship` 의 0b 단계가 판 쌍마다 만든다(#542). 이 작업은 읽기만 한다.
+- 승격은 판정 작업이 한다(ADR-0490 §5). 이 작업은 후보의 등록부 한 걸음만 덧붙인다.

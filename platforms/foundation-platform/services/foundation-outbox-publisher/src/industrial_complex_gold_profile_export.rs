@@ -17,6 +17,7 @@
 //! failures, and were separated so a half-run cannot leave a pointer aimed at nothing.
 
 mod complex_index;
+mod document_facts;
 mod profile_document;
 
 use std::{
@@ -29,7 +30,7 @@ use anyhow::{bail, ensure, Context};
 use chrono::{SecondsFormat, Utc};
 use foundation_shared_kernel::{ObjectKey, ObjectUrlTemplate};
 use futures_util::{stream, StreamExt as _, TryStreamExt as _};
-use lakehouse_domain::GOLD_COMPLEX_CATALOG;
+use lakehouse_domain::{GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_DOCUMENT_FACTS};
 use lakehouse_infrastructure::{
     IcebergRestCatalog, IcebergSnapshotManifestList, LakehouseCatalogConfig,
 };
@@ -42,6 +43,7 @@ use crate::industrial_complex_gold_profile_store::{
 };
 use crate::lakehouse_snapshot_scan::{scan_snapshot_rows, LakehouseObjectReader};
 use complex_index::{IndexDocument, IndexEntry, IndexSource};
+use document_facts::DocumentFacts;
 use profile_document::{GoldSnapshotProvenance, ProfileArtifact};
 
 const SUMMARY_SCHEMA_VERSION: &str =
@@ -78,9 +80,19 @@ pub async fn run() -> anyhow::Result<()> {
             )
         })?;
 
+    // Absent until the fact job's first fold: then no profile carries document facts.
+    let facts_snapshot = catalog
+        .load_current_snapshot_manifest_list(GOLD_COMPLEX_DOCUMENT_FACTS.table_name)
+        .await
+        .context("failed to resolve the complex document facts snapshot")?;
+
     let lakehouse = LakehouseObjectReader::from_env()?;
+    let facts = match &facts_snapshot {
+        Some(facts_snapshot) => document_facts::current(&lakehouse, facts_snapshot).await?,
+        None => HashMap::new(),
+    };
     let output = ProfileOutput::open(&config.output)?;
-    let summary = export(&config, &lakehouse, &output, &snapshot).await?;
+    let summary = export(&config, &lakehouse, &output, &snapshot, &facts).await?;
 
     if let Some(summary_path) = &config.summary_path {
         write_summary(summary_path, &summary)?;
@@ -143,6 +155,8 @@ struct ProfileExportSummary {
     unchanged_profile_count: u64,
     /// The index generation this run published, or `None` when every entry was unchanged.
     index_generation: Option<u64>,
+    /// Complexes whose profile carries admitted document facts (root ADR-0477).
+    document_facts_complex_count: u64,
     /// Profiles this run wrote (created, or found byte-identical), not the unchanged ones.
     artifacts: Vec<ProfileExportEntry>,
 }
@@ -222,6 +236,7 @@ async fn export(
     lakehouse: &LakehouseObjectReader,
     output: &ProfileOutput,
     snapshot: &IcebergSnapshotManifestList,
+    facts: &HashMap<String, DocumentFacts>,
 ) -> anyhow::Result<ProfileExportSummary> {
     let provenance = GoldSnapshotProvenance {
         table: snapshot.table_name.clone(),
@@ -272,8 +287,12 @@ async fn export(
         .collect();
     let mut index_entries = Vec::with_capacity(rows.rows.len());
     let mut changed = Vec::new();
+    let mut document_facts_complex_count = 0_u64;
     for row in &rows.rows {
-        let content = complex_index::content_sha256(row)?;
+        let complex_facts = facts_of(facts, row);
+        document_facts_complex_count += u64::from(complex_facts.is_some());
+        let content =
+            complex_index::content_sha256(&document_facts::content_row(row, complex_facts))?;
         let complex_id = required_row_string(row, "complex_id")?;
         match served.get(complex_id.as_str()) {
             Some(entry) if entry.content_sha256 == content => {
@@ -292,7 +311,7 @@ async fn export(
         .iter()
         .map(|(row, _)| (*row).clone())
         .collect::<Vec<_>>();
-    let entries = write_artifacts(config, output, &provenance, &changed_rows).await?;
+    let entries = write_artifacts(config, output, &provenance, &changed_rows, facts).await?;
     for ((row, content), written) in changed.into_iter().zip(&entries) {
         index_entries.push(complex_index::entry(
             row,
@@ -347,6 +366,7 @@ async fn export(
         })?,
         unchanged_profile_count,
         index_generation,
+        document_facts_complex_count,
         artifacts: entries,
     })
 }
@@ -356,12 +376,20 @@ async fn write_artifacts(
     output: &ProfileOutput,
     provenance: &GoldSnapshotProvenance,
     rows: &[JsonMap<String, JsonValue>],
+    facts: &HashMap<String, DocumentFacts>,
 ) -> anyhow::Result<Vec<ProfileExportEntry>> {
     // Built eagerly rather than through a closure: a closure returning a future that borrows its
     // argument needs a higher-ranked bound the compiler cannot infer here.
     let mut writes = Vec::with_capacity(rows.len());
     for (index, row) in rows.iter().enumerate() {
-        writes.push(write_artifact(config, output, provenance, row, index));
+        writes.push(write_artifact(
+            config,
+            output,
+            provenance,
+            row,
+            facts_of(facts, row),
+            index,
+        ));
     }
     let mut indexed = stream::iter(writes)
         .buffer_unordered(config.max_concurrency)
@@ -377,9 +405,10 @@ async fn write_artifact(
     output: &ProfileOutput,
     provenance: &GoldSnapshotProvenance,
     row: &JsonMap<String, JsonValue>,
+    facts: Option<&DocumentFacts>,
     index: usize,
 ) -> anyhow::Result<(usize, ProfileExportEntry)> {
-    let artifact = profile_document::build(provenance, row)?;
+    let artifact = profile_document::build_with_facts(provenance, row, facts)?;
     let created = write_artifact_create_only(output, &artifact).await?;
     let entry = export_entry(config, provenance, row, &artifact, created)?;
     Ok((index, entry))
@@ -419,6 +448,16 @@ fn export_entry(
         published_at_utc: required_row_string(row, "published_at_utc")?,
         created,
     })
+}
+
+/// The admitted document facts of the complex a catalog row describes, by its official code.
+fn facts_of<'a>(
+    facts: &'a HashMap<String, DocumentFacts>,
+    row: &JsonMap<String, JsonValue>,
+) -> Option<&'a DocumentFacts> {
+    row.get("official_complex_code")
+        .and_then(JsonValue::as_str)
+        .and_then(|code| facts.get(code))
 }
 
 fn required_row_string(row: &JsonMap<String, JsonValue>, name: &str) -> anyhow::Result<String> {

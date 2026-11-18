@@ -45,6 +45,9 @@ pub mod notice;
 /// Parcel aggregate.
 pub mod parcel;
 
+/// Checking one person against the 부동산중개업 roster (root ADR-0550).
+pub mod real_estate_broker;
+
 /// Reference-date official prices for registered units.
 pub mod unit_official_price;
 

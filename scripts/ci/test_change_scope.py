@@ -347,6 +347,29 @@ class ReadScanTest(unittest.TestCase):
         self.assertTrue(any("reads `platforms/other/contract.json`" in e for e in errors), errors)
         self.assertFalse(any("unread.json" in e or "reads `platforms/other`" in e for e in errors), errors)
 
+    def test_a_path_from_the_package_directory_joined_at_run_time_is_refused(self) -> None:
+        # 2026-11-11: gongzzang's media_mirrors_foundation.rs, the read #1302 broke without running it.
+        errors = self.scan(
+            "platforms/example/crates/kernel/tests/mirror.rs",
+            'fn other(path: &str) -> String {\n'
+            '    std::fs::read_to_string(PathBuf::from("../../../other").join(path)).unwrap()\n'
+            "}\n"
+            'fn t() { other("crates/kernel/src/media.rs"); }\n',
+            {
+                "platforms/example/crates/kernel/Cargo.toml": "[package]\n",
+                "platforms/other/crates/kernel/src/media.rs": "",
+                "platforms/other/crates/kernel/src/unread.rs": "",
+            },
+        )
+        self.assertTrue(any("reads `platforms/other/crates/kernel/src/media.rs`" in e for e in errors), errors)
+        self.assertFalse(any("unread.rs" in e for e in errors), errors)
+
+    def test_the_package_directory_is_the_nearest_manifest_above_the_source(self) -> None:
+        tracked = {"a/Cargo.toml", "a/b/package.json", "a/b/src/x.ts", "a/c/src/y.rs", "z/q.py"}
+        self.assertEqual(cs.package_dir("a/b/src/x.ts", tracked), "a/b")
+        self.assertEqual(cs.package_dir("a/c/src/y.rs", tracked), "a")
+        self.assertIsNone(cs.package_dir("z/q.py", tracked))
+
     def test_comment_is_not_a_read(self) -> None:
         self.assertEqual(self.scan("platforms/example/src/a.rs", '// see "docs/guide.md"\n'), [])
 
@@ -574,6 +597,9 @@ class SuiteModulesTest(unittest.TestCase):
         "platforms/ws/services/gw/package.json": "{}\n",
         "platforms/ws/services/gw/src/index.ts": 'readFileSync("platforms/ws/config/routes.json")\n',
         "platforms/ws/data/orphan.csv": "a,b\n",
+        "platforms/ws/jobs/listed.py": "Y = 3\n",
+        "platforms/ws/tests/test_listed_by_name.py": 'MODULES = ("listed",)\nimportlib.import_module(MODULES[0])\n',
+        "platforms/ws/tests/test_quotes_a_word.py": 'LABEL = "listed"\n',
     }
 
     def select(self, changed: set[str]):
@@ -591,6 +617,12 @@ class SuiteModulesTest(unittest.TestCase):
         self.assertIn("platforms/ws/tests/test_bake.py", tests, "test_bake starts bake.sh, which runs gold")
         self.assertNotIn("platforms/ws/tests/test_other.py", tests)
         self.assertEqual(nodes, set())
+
+    def test_a_module_loaded_by_its_quoted_name_selects_the_test_that_loads_it(self) -> None:
+        # 2026-11-11: #1330 and test_deferred_pyspark_names_resolve.py.
+        tests, _, _ = self.select({"platforms/ws/jobs/listed.py"})
+        self.assertIn("platforms/ws/tests/test_listed_by_name.py", tests)
+        self.assertNotIn("platforms/ws/tests/test_quotes_a_word.py", tests, "a quoted word alone imports nothing")
 
     def test_a_file_selects_the_tests_and_packages_that_name_it(self) -> None:
         tests, nodes, _ = self.select({"platforms/ws/config/routes.json"})

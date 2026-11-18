@@ -102,8 +102,13 @@ def object_store_settings(lookup: Any = os.getenv) -> dict[str, str]:
     return {
         "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
         "spark.hadoop.fs.s3a.endpoint": values[ENDPOINT_ENV],
-        "spark.hadoop.fs.s3a.access.key": values[ACCESS_KEY_ENV],
-        "spark.hadoop.fs.s3a.secret.key": values[SECRET_KEY_ENV],
+        # The key pair is named, never carried: Hadoop's Configuration resolves `${env.NAME}` from
+        # the JVM's environment when s3a asks for the value (Configuration.substituteVars, read by
+        # S3AUtils.lookupPassword). A value set here is a Spark setting, and Spark copies its
+        # settings into each job's properties, which it prints unredacted when a listener is slow
+        # (the catalog token, 2026-11-11: lakehouse_engine._named_in_environment).
+        "spark.hadoop.fs.s3a.access.key": f"${{env.{ACCESS_KEY_ENV}}}",
+        "spark.hadoop.fs.s3a.secret.key": f"${{env.{SECRET_KEY_ENV}}}",
         # R2 addresses buckets by path, not by subdomain. Left at the S3 default, every
         # request goes to a host that does not exist and the error is a DNS failure.
         "spark.hadoop.fs.s3a.path.style.access": "true",

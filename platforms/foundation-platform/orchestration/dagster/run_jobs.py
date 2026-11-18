@@ -17,6 +17,12 @@ failed or not, so the `run` task pushes the same XComs `publish_outputs` and the
 read today. How it was started (a clock start, `triggered`, `requested <id>`) comes in as RUN_KIND_TAG;
 a run launched without it (from Dagster's UI) is an operator's, so `triggered`.
 
+A job at `dagster` has no Airflow task around its run, so its op keeps what those tasks did (root ADR-0565):
+the job's check runs first and a run with nothing to do ends `unchanged` before its unit starts (Airflow's
+`check` task, root ADR-0277), and a failed run is tried again after the same delay, as many times as the
+job's `retries` (the next try joins a unit still running, start-scheduled-job.sh). A proxied job's `check`
+and retries are still Airflow's.
+
 The host connection is the scheduler's (FOUNDATION_HOST_CONNECTION, the same runtime.env entry Airflow's
 AIRFLOW_CONN_FOUNDATION_HOST is, compose.orchestration.yml): its key can do nothing but the forced
 command, and only from the orchestration project's network (foundation-release.sh `timers`); the daemon
@@ -105,12 +111,28 @@ class ForcedCommand:
 def run_job(spec, transport=None):
     """The Dagster job of one job: one op, the unit through the forced command (`transport`, or the
     host's from the environment)."""
-    from dagster import Failure, OpExecutionContext, job, op
+    from dagster import Failure, OpExecutionContext, RetryPolicy, job, op
 
     keys = [observe_assets.asset_key(dataset) for dataset in spec.outputs]
+    decided_here = spec.dagster_stage == "dagster"
+    # Airflow retries a proxied job's `run` task itself; a job Dagster decides is retried here.
+    retry = RetryPolicy(max_retries=spec.retries, delay=60 * job_specs.RETRY_DELAY_MINUTES) if decided_here else None
 
-    @op(name="run", description=f"Runs systemd service {spec.systemd_service} through the host's forced command.")
+    # The definition's name is the job's: one repository holds every job's op, and Dagster refuses two
+    # definitions of one name (2026-11-13 22:40Z, five jobs proxied at once: the code location stopped
+    # loading and every proxied run, the dual run and the observer stopped with it). The node is `run`
+    # in each job (the alias below), so a step and its logs are named as before.
+    @op(name=f"run__{spec.job_id}",
+        description=f"Runs systemd service {spec.systemd_service} through the host's forced command.",
+        retry_policy=retry)
     def run(context: OpExecutionContext):
+        if decided_here and spec.check_service:
+            checker = systemd_pipes.SystemdUnitPipesClient(
+                transport=transport or ForcedCommand.from_environment(60 * job_specs.CHECK_TIMEOUT_MINUTES))
+            if checker.check(context=context, job_id=spec.job_id):
+                context.log.info(f"the check of {spec.job_id} found nothing to do: its unit is not started")
+                context.instance.add_run_tags(context.run_id, {job_specs.OUTCOME_TAG: "unchanged"})
+                return
         client = systemd_pipes.SystemdUnitPipesClient(
             transport=transport or ForcedCommand.from_environment(spec.timeout_minutes * 60))
         kind = context.run.tags.get(job_specs.RUN_KIND_TAG, "triggered")
@@ -127,7 +149,7 @@ def run_job(spec, transport=None):
             context.log_event(materialization)
 
     def runs_the_unit():
-        run()
+        run.alias("run")()
 
     # A run launched from Dagster's UI queues like Airflow's: the same pool, priority and job count.
     return job(name=spec.dagster_job, tags={key: value for key, value in spec.dagster_tags().items()

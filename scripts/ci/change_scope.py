@@ -30,9 +30,12 @@ WORKFLOWS = ".github/workflows"
 # A change to how scope is decided can change every decision.
 RUN_ALL = frozenset({CONTRACT, SELECTOR})
 # A manual run and the nightly schedule run everything: the safety net under every narrowed run. The
-# merge queue narrows like a pull request, against its base, the main tip it builds on (root
-# ADR-0313): its head is that base plus every queued change ahead of it and this one, so the
-# comparison holds every change not yet on main.
+# merge queue narrows like a pull request, against its base (root ADR-0313). That base
+# (`merge_group.base_sha`) is the queue entry ahead of it, and main's tip only for the first entry
+# (measured 2026-11-12: #1332's run compared against #1331's queue commit while main was still one
+# behind). So a queue run verifies its own pull request's change and nothing ahead of it, which is
+# sound only because the queue merges a pull request whose own run is green (ALLGREEN, root
+# ADR-0552; scripts/guard/public-github-policy.sh refuses any other strategy).
 ALWAYS_RUN_EVENTS = frozenset({"workflow_dispatch", "schedule"})
 # The events that narrow; a scoped workflow that takes one also keeps a schedule (checked).
 NARROWED_EVENTS = frozenset({"pull_request", "merge_group"})
@@ -387,8 +390,28 @@ def source_reads(
     return reads
 
 
+# The directory a test or script runs from is its package's: `cargo test` starts each test there, and
+# an npm script starts in the directory of its package.json.
+PACKAGE_MANIFESTS = ("Cargo.toml", "package.json", "pyproject.toml")
+
+
+def package_dir(source: str, tracked: set[str]) -> str | None:
+    """The nearest directory above `source` that holds a package manifest."""
+    for parent in PurePosixPath(source).parents:
+        if str(parent) != "." and any(f"{parent}/{manifest}" in tracked for manifest in PACKAGE_MANIFESTS):
+            return str(parent)
+    return None
+
+
 def unlisted_reads(root: Path, workflow: str, globs: list[str], tracked: list[str]) -> list[str]:
-    """Every repository path an area's sources read must be one of the workflow's inputs."""
+    """Every repository path an area's sources read must be one of the workflow's inputs.
+
+    A quoted path is also resolved from the source's package directory. 2026-11-11: a gongzzang test
+    opened `../../../../platforms/foundation-platform` (from its crate) joined with
+    `crates/foundation-shared-kernel/src/media.rs`; resolved from the source's own directory that
+    named nothing, the file was no input of gongzzang-ci.yml, #1302 changed it without running that
+    test, and every later queue entry that ran it failed (8 != 6) until #1342.
+    """
     inputs = workflow_inputs(root, workflow, globs)
     tracked_set = set(tracked)
     tracked_dirs = {p for t in tracked for p in map(str, PurePosixPath(t).parents) if p != "."}
@@ -405,7 +428,7 @@ def unlisted_reads(root: Path, workflow: str, globs: list[str], tracked: list[st
             text = (root / source).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        for path in source_reads(source, text, tracked_set, tracked_dirs):
+        for path in source_reads(source, text, tracked_set, tracked_dirs, package_dir(source, tracked_set)):
             probe = path if path in tracked_set else f"{path}/x"
             if not matches(probe, inputs):
                 errors.add(f"{workflow}: {source} reads `{path}`, which is not an input; add it to `paths`")
@@ -632,6 +655,13 @@ def decide_suites(
 # A Python module a source imports: `import a.b`, `from a.b import c, d`.
 PY_IMPORT = re.compile(r"^\s*(?:from\s+([\w.]+)\s+import\s+([\w, ()]+)|import\s+([\w., ]+))", re.M)
 TEST_FILE = re.compile(r"(^|/)test_[^/]*\.py$")
+# A Python source that imports modules by name at run time (`importlib.import_module(name)` over a
+# quoted list) imports every tracked module one of its quoted bare words names. 2026-11-11: #1330
+# changed jobs/courtauction_go_kr.py; test_deferred_pyspark_names_resolve.py lists that module as
+# "courtauction_go_kr" and loads it with importlib, so the selection never reached the test, the
+# queue passed without it, and main failed on it for every later run that ran everything.
+PY_DYNAMIC_IMPORT = re.compile(r"\bimport_module\(|\b__import__\(")
+QUOTED_MODULE = re.compile(r"""["']([A-Za-z_][\w]*)["']""")
 # Sources whose quoted names are dependencies; only Python also has imports.
 GRAPH_SUFFIXES = (".py", ".sh", ".ts", ".tsx", ".js", ".mjs", ".cjs")
 
@@ -666,8 +696,11 @@ def dependency_graph(
             for module, names, plain in PY_IMPORT.findall(code):
                 for word in filter(None, re.split(r"[\s,().]+", f"{module} {names} {plain}".strip())):
                     imported |= by_name.get(word, set())
+            if PY_DYNAMIC_IMPORT.search(code):
+                for word in QUOTED_MODULE.findall(code):
+                    imported |= by_name.get(word, set())
         quoted: set[str] = set()
-        for path in source_reads(source, text, tracked_set, tracked_dirs):
+        for path in source_reads(source, text, tracked_set, tracked_dirs, package_dir(source, tracked_set)):
             quoted |= {t for t in tracked_set if t == path or t.startswith(path + "/")}
         for name in QUOTED_NAME.findall(code):
             quoted |= by_basename.get(name, set())

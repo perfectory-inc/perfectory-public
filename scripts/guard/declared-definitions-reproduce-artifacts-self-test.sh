@@ -41,6 +41,9 @@ fixture() {
   done
   mkdir -p "$root/$definitions" "$root/platforms/foundation-platform/contracts/data"
   cp "$definitions"/*.json "$root/$definitions/"
+  # The HUB family files hold definitions of their own (root ADR-0551).
+  mkdir -p "$root/platforms/foundation-platform/infra/lakehouse/contracts"
+  cp platforms/foundation-platform/infra/lakehouse/contracts/hub-lane-family-*.v1.json     "$root/platforms/foundation-platform/infra/lakehouse/contracts/"
   # job_specs.py reads the data contracts for a job that checks them (reads_data_contracts).
   cp platforms/foundation-platform/contracts/data/*.odcs.yaml "$root/platforms/foundation-platform/contracts/data/"
   git -C "$root" init -q

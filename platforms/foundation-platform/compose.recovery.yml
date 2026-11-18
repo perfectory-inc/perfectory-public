@@ -37,6 +37,20 @@ services:
       - archive_command=pgbackrest --stanza=foundation archive-push %p
       - -c
       - archive_timeout=60s
+      # Who a backend served, in every line it logs and in the connection line that names its pid:
+      # 2026-11-13 23:28:36Z `server process (PID 1875278) was terminated by signal 13: Broken pipe`
+      # restarted every process and nothing said which client it was (prefix `%m [%p]`, no
+      # connection log). Clients name themselves: PGAPPNAME in every job unit
+      # (foundation-release-admission.conf), application_name in foundation-api's URL.
+      - -c
+      - "log_line_prefix=%m [%p] %q%a %u@%d %r "
+      - -c
+      - log_connections=on
+      # Crash recovery syncs the data directory and its tablespaces before it replays: file by file
+      # (`fsync`) that took 24 minutes on 2026-11-13 (23:28:37Z..23:52:57Z) over the 112 GB parcel_bulk
+      # tablespace on the spinning /data disk. `syncfs` asks each file system once (PostgreSQL 14+, Linux).
+      - -c
+      - recovery_init_sync_method=syncfs
     environment:
       <<: *foundation-recovery-writer-environment
     volumes:

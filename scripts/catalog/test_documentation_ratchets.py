@@ -92,6 +92,13 @@ class RatchetTests(unittest.TestCase):
         errors, _ = self.fx.check()
         self.assertEqual(errors, ["proposed-adr-cited-by-code: docs/adr/0002-b.md"])
 
+    def test_a_citation_after_a_multibyte_character_is_still_read(self) -> None:
+        # W67b, 2026-11-11: "ADR-0143·ADR-0400" in a JSON killed the pre-push hook (git grep cut the "·").
+        self.fx.write("docs/adr/0002-b.md", "# ADR 0002: b\n\n- Status: Proposed\n")
+        self.fx.write("src/a.json", '{"reason_ko": "루트 ADR-0001·ADR-0002"}\n')
+        errors, _ = self.fx.check()
+        self.assertEqual(errors, ["proposed-adr-cited-by-code: docs/adr/0002-b.md"])
+
     def test_supersession_must_be_recorded_on_the_older_adr(self) -> None:
         self.fx.write("docs/adr/0002-b.md", "# ADR 0002: b\n\n- Status: Accepted\n- Supersedes: ADR-0001\n")
         errors, _ = self.fx.check()

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Proves tracked-paths-are-portable refuses the names that leaked in with PR #478
-# and the other names Windows cannot check out, and accepts ordinary ones.
+# and PR #1252, the other names Windows cannot check out, and accepts ordinary ones.
 set -euo pipefail
 . "$(dirname "$0")/lib/fixture-repo.sh"
 
@@ -22,6 +22,8 @@ unstage() { fixture_git "$repo" update-index --force-remove -- "$1"; }
 
 stage "area/docs/readme.md"
 stage "area/.github-like/config.v1.json"
+stage "area/tests/mock_server.py"
+stage "area/docs/mock.md"
 if ! bash "$guard" "$repo" >"$test_root/clean.out" 2>&1; then
   cat "$test_root/clean.out" >&2
   echo "FAIL tracked-paths-are-portable-self-test: refused ordinary paths" >&2

@@ -120,6 +120,23 @@ class InputsTest(unittest.TestCase):
         self.assertIn((OLD_NAME, OLD, OLD), job.address_codes(SNAPSHOT, [])[0])
 
 
+class ShardedFullBuildTest(unittest.TestCase):
+    """2026-11-10/11: the first national build ran past its 150 min unit four times and kept nothing."""
+
+    def test_a_dongs_restriction_keeps_every_form_of_its_code(self):
+        # Synthetic: 99999 old dong carried to 99998 (a 시도 merge, as 46…→12… on 2026-07-01).
+        rows = [{"kind": "pair", "old_code": "9999911010", "new_code": "9999812010", "source": "t",
+                 "effective_date": "20990701", "level": "eupmyeondong", "rule_verdict": "", "change_key": "k"}]
+        pairs = job.code_form_pairs(rows)
+        self.assertIn(("9999911010", "9999812010"), pairs, "a served old-code shard reads the deals of the current code")
+        self.assertIn(("9999812010", "9999911010"), pairs, "a current-code shard reads the files still on the old one")
+        self.assertEqual(job.code_form_pairs([]), [])
+
+    def test_the_full_build_is_staged_one_shard_at_a_time(self):
+        source = (Path(__file__).resolve().parents[1] / "jobs/real_transaction_silver_to_gold.py").read_text(encoding="utf-8")
+        self.assertIn("full_shard_keys=lambda inputs: inputs[PARCEL_SOURCE]", source)
+
+
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
 class DocumentSparkTest(unittest.TestCase):
     @classmethod
@@ -252,6 +269,30 @@ class DocumentSparkTest(unittest.TestCase):
                          (None, pick[:15], 2))
         (industrial,) = [d for d in other_doc["region"]["datasets"] if d["dataset_slug"] == job.INDUSTRIAL]
         self.assertEqual(industrial["deal_count"], 1)
+
+    def test_a_staged_build_writes_the_same_documents(self):
+        # 2026-11-12 the first 시도 shard's one plan ran the driver out of heap writing its text; the
+        # sharded build stages what the build reads several times over, and that changes no row.
+        import tempfile
+
+        factory, house = pnu(OTHER, 5), pnu(OTHER, 7)
+        deals = [self.deal("m-1", OTHER_NAME, "3**", date(2098, 4, 2)),
+                 self.deal("o-1", OTHER_NAME, "5", date(2098, 2, 1), land=800.0, building=400.0),
+                 self.deal("h-1", OTHER_NAME, "7", date(2098, 3, 1), dataset="real_transaction_detached_house_trade")]
+        frames = self.frames(deals, [], [factory, house], [(factory, "공장용지", 800.0, "계획관리지역"),
+                                                            (house, "대", 300.0, "계획관리지역")])
+        staged, root = [], Path(tempfile.mkdtemp())
+
+        def stage(name, frame):
+            staged.append(name)
+            frame.write.parquet(str(root / name))
+            return self.spark.read.parquet(str(root / name))
+
+        args = (frames, INFERENCE, date(2098, 5, 3), "snap-1", "2098-05-03T00:00:00Z", GOLD_COLUMNS)
+        plain = job.gold_rows(*args, coverage=COVERAGE)
+        cut = job.gold_rows(*args, coverage=COVERAGE, stage=stage)
+        self.assertEqual(sorted(cut.collect()), sorted(plain.collect()))
+        self.assertEqual(staged, ["sales", "placed"])
 
     def test_a_document_carries_exactly_the_registry_s_fields(self):
         import by_pnu_kinds

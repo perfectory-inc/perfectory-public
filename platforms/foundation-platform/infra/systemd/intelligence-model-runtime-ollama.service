@@ -1,11 +1,11 @@
 [Unit]
-Description=Intelligence Platform: the local model runtime (Ollama, Qwen3.6-35B-A3B) while a spark-pool job needs it (root ADR-0478)
+Description=Intelligence Platform: the local model runtime (Ollama, Qwen3.6-35B-A3B) while a job that claims its memory needs it (root ADR-0478, ADR-0563)
 Documentation=file:///opt/foundation-platform/current/docs/runbooks/model-runtime.md
 X-Foundation-Owner=intelligence
 OnFailure=foundation-unit-failed@%n.service
 # Never started on its own: a job that calls the model names it in Requires= and After=, and the
-# runtime stops with the last job that needs it. The job holds the spark pool (all its slots), so
-# the model never holds memory beside Spark (root ADR-0455, ADR-0138). No [Install]: nothing boots it.
+# runtime stops with the last job that needs it. The job names this unit in its memory_claim and is
+# started only while the host has this unit's MemoryMax available (root ADR-0563). No [Install]: nothing boots it.
 StopWhenUnneeded=yes
 
 [Service]

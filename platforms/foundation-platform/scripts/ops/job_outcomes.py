@@ -28,6 +28,8 @@ import re
 
 # Outcomes that end a run's work (root ADR-0260 §1): it did what it had to, writing or not.
 DONE = ("changed", "unchanged")
+# The outcomes that end a run, kept with the code version a failed one carries (`ran`, root ADR-0499).
+ENDED = ("changed", "unchanged", "failed")
 # Not a run's outcome: the asset reconciler's verdict that a job it reconciles owes nothing (fold_current).
 CURRENT = "current"
 # A scheduler's lag on top of a job's own limits: Airflow's queue, a deploy's paused DAGs.
@@ -77,8 +79,10 @@ def done_budget_seconds(job: dict) -> int:
 
 def fold(summary: dict, records: list[dict]) -> dict:
     """`summary` ({"first_at": .., "last_at": .., "lines": .., "jobs": {job: {outcome: last at}}}) with
-    `records` (job_units.outcomes_after) folded in. Only the newest time of each outcome is kept."""
-    jobs = summary.setdefault("jobs", {})
+    `records` (job_units.outcomes_after) folded in. Only the newest time of each outcome is kept, and
+    in `ran` ({job: {"outcome": .., "at": .., "code_version": ..}}) each job's newest run that ended
+    (ENDED), with the code version a failed one carried."""
+    jobs, ran = summary.setdefault("jobs", {}), summary.setdefault("ran", {})
     for record in records:
         at, outcome = int(record.get("at", 0)), str(record.get("outcome", ""))
         if not at or not outcome:
@@ -88,6 +92,9 @@ def fold(summary: dict, records: list[dict]) -> dict:
         summary["lines"] = int(summary.get("lines", 0)) + 1
         kept = jobs.setdefault(record["job"], {})
         kept[outcome] = max(int(kept.get(outcome, 0)), at)
+        if record.get("via", "run") == "run" and outcome in ENDED and at >= int(ran.get(record["job"], {}).get("at", 0)):
+            ran[record["job"]] = {"outcome": outcome, "at": at,
+                                  **({"code_version": record["code_version"]} if record.get("code_version") else {})}
     return summary
 
 
