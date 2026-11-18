@@ -13,7 +13,6 @@ import os
 import pathlib
 import sys
 import tempfile
-import time
 import unittest
 
 ORCHESTRATION = pathlib.Path(__file__).resolve().parents[1]
@@ -128,15 +127,31 @@ class ContainersAreMeasuredToo(unittest.TestCase):
         self.assertEqual((rows[0]["oom"], rows[0]["state"]), (2, "failing"))
 
 
-class TheReconcilerMeasuresAtMostEveryHalfHour(unittest.TestCase):
-    def test_due(self):
+class ItsOwnTimerWritesTheTextfile(unittest.TestCase):
+    """The 14-day journal read takes seconds, so it runs in its own unit, not in the asset
+    reconciler, which already timed out at its three minutes seven times in the window."""
+
+    def test_the_unit_writes_where_node_exporter_reads_and_the_release_enables_its_timer(self):
+        unit = (PLATFORM / "infra/systemd/foundation-unit-limits.service").read_text(encoding="utf-8")
+        release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
+        self.assertIn("scripts/ops/unit_limits.py --write /var/lib/foundation-jobs/metrics\n", unit)
+        self.assertIn("ReadWritePaths=/var/lib/foundation-jobs/metrics\n", unit)
+        self.assertIn("systemctl enable --now foundation-unit-limits.timer\n", release)
+        self.assertNotIn("unit_limits", (PLATFORM / "scripts/ops/asset_reconcile.py").read_text(encoding="utf-8"))
+
+    def test_write_replaces_the_textfile_whole(self):
+        lines = ok_run(0, 60, 420)
         with tempfile.TemporaryDirectory() as directory:
-            path = pathlib.Path(directory) / unit_limits.METRICS_NAME
-            self.assertTrue(unit_limits.due(path, time.time()))
-            path.write_text("x", encoding="utf-8")
-            self.assertFalse(unit_limits.due(path, time.time()))
-            os.utime(path, (time.time() - unit_limits.EVERY_SECONDS - 1,) * 2)
-            self.assertTrue(unit_limits.due(path, time.time()))
+            original = unit_limits.measure
+            unit_limits.measure = lambda now, since: unit_limits.textfile(
+                [unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT])], unit_limits.runs(lines), now)
+            try:
+                unit_limits.write(directory, 5000)
+            finally:
+                unit_limits.measure = original
+            self.assertEqual(os.listdir(directory), [unit_limits.METRICS_NAME])
+            text = (pathlib.Path(directory) / unit_limits.METRICS_NAME).read_text(encoding="utf-8")
+            self.assertTrue(text.endswith("foundation_unit_limits_measured_seconds 5000\n"))
 
 
 if __name__ == "__main__":

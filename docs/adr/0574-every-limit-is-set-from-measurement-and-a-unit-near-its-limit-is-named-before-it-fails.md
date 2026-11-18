@@ -73,7 +73,9 @@ near 11 개: autodeploy 3,225M/3.5G·onbid-collect 2,489M/3G·industrial-complex
    측정이 그 크기가 작업의 고정된 몫임을 보일 때만이고, 그 PR 은 `tools/host-memory-budget.contract.json` 의 가드
    (`every-container-has-a-memory-cap.sh`: 상주 합 + 가장 큰 일회성/풀 조합 + host_reserved ≤ 62g)를 통과한다. 예산 계약이
    합의 정본이고 다른 곳에서 한도를 바꾸지 않는다.
-5. **근접은 죽기 전에 이름이 불린다.** 자산 조정기가 30 분마다 `unit_limits.measure` 로 `unit-limits.prom` 을 쓴다:
+5. **근접은 죽기 전에 이름이 불린다.** 자기 유닛 `foundation-unit-limits.service`(타이머 30 분, control, 512M)가
+   `unit_limits.py --write` 로 `unit-limits.prom` 을 쓴다. 자산 조정기의 한 단계로 두지 않는다: 14 일 저널 읽기가 15 초이고,
+   조정기는 3 분 한도에서 이미 7 번 timeout 났다:
    유닛·한도(`memory`, `time`)마다 최근 run 이 연달아 80% 를 넘은 수(`foundation_unit_runs_near_limit`)와 마지막 run 의 비율.
    - `FoundationUnitNearItsLimit`(ticket): 연달아 **3 번**. 한 번은 입력, 세 번은 그 유닛의 크기다. Alertmanager 는 유닛·한도마다
      한 알림, 하루 한 번 다시(`service = "unit-limits"`).
@@ -92,7 +94,8 @@ near 11 개: autodeploy 3,225M/3.5G·onbid-collect 2,489M/3G·industrial-complex
 
 - 한도가 잰 값과 멀어지면 30 분 안에 보인다: 처음 켜질 때 near 11 개와 failing 의 대부분이 ticket 을 받는다 — 그것이 지금의
   실제 상태다.
-- 측정은 호스트의 읽기뿐이고 30 분에 한 번 몇 초(14 일 저널 72k 줄 2.7 초)다. 비용 0.
+- 측정은 호스트의 읽기뿐이고 30 분에 한 번 십몇 초다(2026-11-19 실측: 14 일 저널 323,991 줄, journalctl 15.4 초·129 MB;
+  파이썬 해석의 최고점은 아직 재지 않았고, 512M 상한 아래 첫 run 의 `memory peak` 로 계약을 고친다). 비용 0.
 - 계약의 `measured_peak`(ADR-0455)는 10 월 측정으로 남아 있다. 그것을 이 스크립트로 다시 쓰는 것은 한도를 고치는 PR 마다의
   몫이다(가드가 1.5 배를 검사하므로 새 측정이 상한을 끌어올리거나, §4 에 따라 성장을 고치게 한다).
 - 더니어(통합 콘솔)는 이 측정을 읽어 유닛마다 한도·잰 값·비율·상태·마지막 OOM/timeout·예산 합을 보여 줄 수 있다; 한도 변경은

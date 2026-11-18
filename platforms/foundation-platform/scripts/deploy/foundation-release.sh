@@ -1398,6 +1398,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     systemctl enable --now foundation-service-checks.timer
     # The daily readiness report (root ADR-0442): a host check too.
     systemctl enable --now foundation-readiness-report.timer
+    # Every unit measured against its limits every half hour (root ADR-0574): a host check too.
+    systemctl enable --now foundation-unit-limits.timer
     # The model runtime is the release's capped unit, started only under a spark-pool job (root ADR-0478 §2).
     retire_hand_installed_ollama
     # An operator's run-now request is started when foundation-api writes it (root ADR-0282 §4).
