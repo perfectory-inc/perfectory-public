@@ -31,9 +31,13 @@ const MAX_SKIPPED_GENERATIONS: u64 = 1000;
 
 /// The new snapshot's feature index: written beside the work directory's other files, kept under
 /// the work root only once the snapshot is served.
+///
+/// The records are read from the file only by a patch that gets past its cheap checks; a full bake
+/// keeps only the file (2026-11-13..18: the national parcel index, 1.6 GB of records, was held from
+/// the build on, in a 1 GiB unit, while the base's zooms already sent the bake to a full one).
 pub struct Indexed {
     pending: PathBuf,
-    records: Arc<Vec<Record>>,
+    records: std::sync::OnceLock<Arc<Vec<Record>>>,
     pub columns: Vec<String>,
 }
 
@@ -47,14 +51,23 @@ impl Indexed {
     /// Root ADR-0375 §2: a partial handoff's index becomes the merged one, file and records.
     fn replace_records(&mut self, records: Vec<Record>) -> anyhow::Result<()> {
         patch::write_index(&self.pending, &records)?;
-        self.records = Arc::new(records);
+        self.records = std::sync::OnceLock::from(Arc::new(records));
         Ok(())
+    }
+
+    /// The records, read from the index file the first time they are asked for.
+    fn records(&self) -> anyhow::Result<Arc<Vec<Record>>> {
+        if let Some(records) = self.records.get() {
+            return Ok(records.clone());
+        }
+        let records = Arc::new(patch::read_index(&self.pending)?);
+        Ok(self.records.get_or_init(|| records).clone())
     }
 
     /// Frees the records; a full bake keeps only the file.
     pub fn without_records(self) -> Self {
         Self {
-            records: Arc::new(Vec::new()),
+            records: std::sync::OnceLock::new(),
             ..self
         }
     }
@@ -71,11 +84,11 @@ pub async fn index_handoff(
         work.join("feature-index.idx"),
     );
     tokio::task::spawn_blocking(move || {
-        let (records, columns) = patch::build_index(&summary, &handoff)?;
-        patch::write_index(&pending, &records)?;
+        let columns =
+            patch::build_index_file(&summary, &handoff, &pending, patch::INDEX_SORT_RUN_RECORDS)?;
         Ok(Indexed {
             pending,
-            records: Arc::new(records),
+            records: std::sync::OnceLock::new(),
             columns,
         })
     })
@@ -208,11 +221,15 @@ pub async fn try_patch(
             ),
         );
     }
-    let (records, partial, handoff) = (
-        indexed.records.clone(),
-        summary.partial.clone(),
-        config.served_handoff.clone(),
-    );
+    let records = {
+        let pending = indexed.pending.clone();
+        tokio::task::spawn_blocking(move || patch::read_index(&pending))
+            .await
+            .context("the feature index read stopped")??
+    };
+    let records = Arc::new(records);
+    let _ = indexed.records.set(records.clone());
+    let (partial, handoff) = (summary.partial.clone(), config.served_handoff.clone());
     let (changes, merged) = tokio::task::spawn_blocking(move || {
         let old = patch::read_index(&old_path)?;
         let Some(partial) = partial else {
@@ -332,7 +349,7 @@ async fn build_patch(
         publish.summary.clone(),
         config.served_handoff.clone(),
         dir.join("served.csv"),
-        indexed.records.clone(),
+        indexed.records()?,
         layer.tile_min_zoom,
     );
     let (columns, handed_ids, kept) = tokio::task::spawn_blocking(move || {
@@ -368,7 +385,7 @@ async fn build_patch(
     // Root ADR-0375 §2: a partial handoff hands only the neighbourhood; the snapshot serves every
     // id of the merged index.
     let ids = if publish.summary.partial.is_some() {
-        ServedIds::from_hashes(indexed.records.iter().map(|record| record.id).collect())
+        ServedIds::from_hashes(indexed.records()?.iter().map(|record| record.id).collect())
             .map_err(|_| anyhow::anyhow!("the merged feature index holds an id twice"))?
     } else {
         handed_ids
