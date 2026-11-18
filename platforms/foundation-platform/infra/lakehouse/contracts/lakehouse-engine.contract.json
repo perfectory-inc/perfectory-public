@@ -150,7 +150,11 @@
         "wave": 3
       },
       "industryland_or_kr": {
-        "wave": 4
+        "moved": {
+          "pull_request": 0,
+          "rows": 82428,
+          "fingerprint": null
+        }
       },
       "intelligence_documents": {
         "wave": 4

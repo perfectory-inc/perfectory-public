@@ -162,6 +162,18 @@ fn staging_namespace_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn load_industrial_complex_notice_silver_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-industrial-complex-notice-silver"
+        ])?,
+        Command::LoadIndustrialComplexNoticeSilver
+    );
+    Ok(())
+}
+
+#[test]
 fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "derive-parcel-lineage"])?,

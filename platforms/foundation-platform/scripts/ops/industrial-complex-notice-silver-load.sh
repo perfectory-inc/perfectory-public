@@ -4,9 +4,11 @@
 #
 # 쌓을 것은 R2 만 보고 정한다. plan-silver-load-objects 가 고시 상세 원천의 Bronze 접두어를 나열하고, 읽은 기록
 # 표(silver.industrial_complex_notice_detail)의 커밋 요약이 이미 기록한 객체를 빼고, 남은 것을 오래된 것부터 계약의
-# 범위(industryland-or-kr.contract.json silver_load) 안에서 이 실행의 폴더로 받는다. industryland_or_kr.py load 가
-# 객체마다 커밋 하나로, 먼저 저장소에 담긴 첨부를 silver.industrial_complex_notice_attachment 에, 그다음 읽은 기록을
-# silver.industrial_complex_notice_detail 에 쌓는다. 쌓을 것이 없으면 Spark 를 띄우지 않는다.
+# 범위(industryland-or-kr.contract.json silver_load) 안에서 이 실행의 폴더로 받는다. 발행기의
+# load-industrial-complex-notice-silver 가 객체마다(발행기 안의 DuckDB 가 행을 만들고 발행기가 Iceberg 추가 커밋으로
+# 붙인다, root ADR-0559·ADR-0560) 먼저 저장소에 담긴 첨부 가운데 새것·바뀐 것을 silver.industrial_complex_notice_attachment
+# 에, 그다음 읽은 기록을 silver.industrial_complex_notice_detail 에 쌓는다. 행이 없는 객체도 기록한다. 쌓을 것이 없으면
+# 아무것도 띄우지 않는다.
 #
 # 실패하면 커밋하지 못한 객체는 표에 기록이 없어 다음 실행이 다시 받는다. 받은 사본은 성공하든 실패하든 지운다.
 set -Eeuo pipefail
@@ -44,19 +46,9 @@ if [ "${owed}" = 0 ]; then
   printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
-chmod -R a+rX "${work}" # Spark 컨테이너는 uid 185 로 읽는다.
-
 lakehouse_run_log "${run_log}"
-FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
-FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-lakehouse_spark_run foundation-platform-compute \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark-small spark-submit --master 'local[2,8]' --driver-memory 1g \
-  --jars "${SPARK_RELEASE_JARS}" \
-  /workspace/infra/lakehouse/spark/jobs/industryland_or_kr.py load \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/details" \
-  --allow-non-smoke-write >> "${run_log}" 2>&1
+FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_NOTICE_PLAN_DIR="${work}/details" \
+  "${PUBLISHER_BIN}" load-industrial-complex-notice-silver >> "${run_log}" 2>&1
 
 summary="$(grep '^industrial-complex-notice-summary-json ' "${run_log}" | tail -1)"
 # An object no load recorded for longer than the window means loads have been failing: it is loaded

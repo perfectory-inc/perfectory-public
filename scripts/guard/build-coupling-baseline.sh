@@ -370,7 +370,12 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # foundation-publisher-silver compiles in the SQL file DuckDB runs for it
 # (real_transaction_gold_stage/region_stats.sql: reviewed and compared as SQL; the national
 # engine-equality verdict ran that file's rules).
-COMPILE_TIME_READ_BASELINE="${3:-186}"
+# 186 -> 193: the ILIS notice Silver load left Spark (root ADR-0559). foundation-publisher-silver compiles
+# in the two SQL files DuckDB runs for it (industrial_complex_notice_stage/rows.sql, changed.sql: the
+# engine-equality verdict ran those files over every object production holds), the source contract the
+# load reads its field names from (industryland-or-kr.contract.json), and its test compiles in the
+# synthetic object and the rows the Spark job built from it (fixtures/: four files).
+COMPILE_TIME_READ_BASELINE="${3:-193}"
 
 cd "$repo_root"
 

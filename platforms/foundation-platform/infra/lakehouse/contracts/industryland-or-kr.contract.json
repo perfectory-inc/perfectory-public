@@ -1,5 +1,5 @@
 {
-  "$comment": "산업입지정보시스템(ILIS) 산업단지 고시와 그 첨부 수집의 계약(루트 ADR-0484). 수집기 collect-industrial-complex-notice-attachments(작업 industrial_complex_notice_collect)와 Silver 적재(industryland_or_kr.py, 작업 industrial_complex_notice_silver)가 이 파일 하나를 읽는다. 읽기·추출은 여기 없다: 그것은 intelligence platform 이 ai-server 의 로컬 모델로 나중에 한다(ADR-0484 §1).",
+  "$comment": "산업입지정보시스템(ILIS) 산업단지 고시와 그 첨부 수집의 계약(루트 ADR-0484). 수집기 collect-industrial-complex-notice-attachments(작업 industrial_complex_notice_collect)와 Silver 적재(발행기의 load-industrial-complex-notice-silver, 작업 industrial_complex_notice_silver)가 이 파일 하나를 읽는다. 읽기·추출은 여기 없다: 그것은 intelligence platform 이 ai-server 의 로컬 모델로 나중에 한다(ADR-0484 §1).",
   "base_url": "https://www.industryland.or.kr",
   "request_spacing_ms": 2000,
   "notice_list": {

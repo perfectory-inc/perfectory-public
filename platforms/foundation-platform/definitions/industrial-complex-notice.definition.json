@@ -53,7 +53,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver load of the ILIS notice reads and attachments (root ADR-0484; infra/lakehouse/spark/jobs/industryland_or_kr.py): the notice detail objects no commit of silver.industrial_complex_notice_detail records (plan-silver-load-objects, R2 alone), oldest first, each committed on its own: first its attachments in the store to silver.industrial_complex_notice_attachment (new or changed (notice, hash) only), then one read row per notice to silver.industrial_complex_notice_detail. `unchanged` without Spark when nothing is owed.",
+      "description": "Silver load of the ILIS notice reads and attachments (root ADR-0484; the publisher's load-industrial-complex-notice-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559): the notice detail objects no commit of silver.industrial_complex_notice_detail records (plan-silver-load-objects, R2 alone), oldest first, each committed on its own: first its attachments in the store to silver.industrial_complex_notice_attachment (new or changed (notice, hash) only), then one read row per notice to silver.industrial_complex_notice_detail. `unchanged` without starting the load when nothing is owed; no Spark.",
       "systemd_service": "foundation-industrial-complex-notice-silver-load.service",
       "systemd_timer": null,
       "state_paths": [
@@ -80,7 +80,7 @@
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its collector wrote a notice object; that it is not behind its inputs is the asset reconciler's lag (root ADR-0333)."
       },
-      "pool": "spark",
+      "pool": "default_pool",
       "pool_slots": 1,
       "priority_weight": 100,
       "retries": 0,
@@ -95,14 +95,6 @@
       "disabled_reason": null
     }
   ],
-  "host_memory": {
-    "industrial_complex_notice_silver": [
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
-      }
-    ]
-  },
   "assets": [
     {
       "id": "silver-industrial-complex-notice-detail",
@@ -153,7 +145,7 @@
         "collect-industrial-complex-notice-attachments",
         "platforms/foundation-platform/scripts/ops/industrial-complex-notice-collect.sh",
         "platforms/foundation-platform/scripts/ops/industrial-complex-notice-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industryland_or_kr.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_notice_stage.rs"
       ],
       "source_slugs": [
         "industrylandorkr__industrial_complex_notice_detail"
@@ -169,7 +161,7 @@
         "collect-industrial-complex-notice-attachments",
         "platforms/foundation-platform/scripts/ops/industrial-complex-notice-collect.sh",
         "platforms/foundation-platform/scripts/ops/industrial-complex-notice-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industryland_or_kr.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_notice_stage.rs"
       ],
       "source_slugs": [
         "industrylandorkr__industrial_complex_notice_detail"
