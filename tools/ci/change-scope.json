@@ -690,7 +690,8 @@
           "tools/npm/**",
           "tools/technology-versions.contract.json",
           "**/package.json",
-          "**/pnpm-lock.yaml"
+          "**/pnpm-lock.yaml",
+          "**/pnpm-workspace.yaml"
         ]
       },
       {

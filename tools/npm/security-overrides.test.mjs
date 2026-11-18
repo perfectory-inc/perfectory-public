@@ -136,6 +136,13 @@ describe("check", () => {
     assert.match(errorsOf(fixture(spec)), /services\/a\/package\.json: has a "pnpm" field, which pnpm 11 and later do not read/);
   });
 
+  test("a workspace member's pnpm field is refused too", () => {
+    const root = fixture(consistent());
+    write(root, "services/a/packages/m/package.json", { name: "m", pnpm: { onlyBuiltDependencies: ["esbuild"] } });
+    git(root, "add", "--", "services/a/packages/m/package.json");
+    assert.match(errorsOf(root), /services\/a\/packages\/m\/package\.json: has a "pnpm" field.*services\/a\/pnpm-workspace\.yaml/);
+  });
+
   test("a lockfile generated from other overrides is refused", () => {
     const spec = consistent();
     spec.trees["services/a"].overrides = { ws: "8.21.0" };
@@ -214,6 +221,25 @@ describe("render", () => {
     assert.equal(workspaceOf(root, "web"), "# kept\nallowBuilds:\n  esbuild: true\n");
   });
 
+  test("refuses a workspace file it cannot own exactly", () => {
+    const refused = (text, pattern) =>
+      assert.throws(() => renderWorkspace(text, WS_RENDERED), (error) => error instanceof ContractError && pattern.test(error.message));
+    refused('﻿packages: []\n', /byte order mark/);
+    refused("overrides: # hand\n", /not the rendered form/);
+    refused('overrides: {"ws": "8.0.0"}\n', /not the rendered form/);
+    refused('"overrides":\n  "ws": "1"\n', /not the rendered form/);
+    refused('overrides:\n  "a": "1"\nallowBuilds: {}\noverrides:\n  "b": "2"\n', /more than one overrides block/);
+    refused('overrides:\n  "a": "1"\n# a comment\n  "b": "2"\n', /comment at column 0 inside the overrides block/);
+    assert.equal(renderWorkspace('allowBuilds:\r\n  esbuild: true\r\n', {}), "allowBuilds:\n  esbuild: true\n", "CRLF is read");
+  });
+
+  test("a two-document lockfile is read for its project document only", () => {
+    const boot = "---\nlockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    packageManagerDependencies:\n      pnpm:\n        specifier: 12.21.0\n        version: 12.21.0\n\npackages:\n\n  pnpm@12.21.0:\n    resolution: {integrity: x}\n\n";
+    const read = readLockfile(`${boot}---\n${lockfile({ packages: ["ws@8.21.3"], overrides: WS_RENDERED })}`);
+    assert.deepEqual([...read.packages.keys()], ["ws"]);
+    assert.deepEqual(Object.fromEntries(read.overrides), WS_RENDERED);
+  });
+
   test("replaces only the overrides block of a workspace file and reads back what it wrote", () => {
     const text = 'packages:\n  - "apps/*"\n\noverrides:\n  "old": "1"\n\nallowBuilds:\n  sharp: true\n';
     const rendered = renderWorkspace(text, { "a@>=1.0.0 <2.0.0": "^1.2.3" });
@@ -276,6 +302,13 @@ describe("propose", () => {
     assert.equal(changes.length, 1);
     assert.deepEqual(next.overrides[0], { ...contract.overrides[0], version: "0.35.5", advisories: ["GHSA-96hv-2xvq-fx4p", "GHSA-wq5f-xc86-pv6w"], date: "2026-10-07" });
     assert.equal(contract.overrides[0].version, "0.35.4", "the input contract is not mutated");
+  });
+
+  test("pnpm itself is the toolchain pin, never an override", () => {
+    const vuln = { id: "GHSA-2phv-j68v-wwqx", aliases: [], affected: [{ package: { ecosystem: "npm", name: "pnpm" }, ranges: [{ type: "SEMVER", events: [{ introduced: "0" }, { fixed: "10.27.0" }] }] }] };
+    const { changes, unfixable } = proposeFromReport(contract, report("pnpm", "9.12.0", [vuln]), "2026-11-18");
+    assert.equal(changes.length, 0);
+    assert.match(unfixable.join("\n"), /pnpm@9\.12\.0 GHSA-2phv-j68v-wwqx \(the pnpm toolchain pin\)/);
   });
 
   test("adds a new floor on the affected line", () => {

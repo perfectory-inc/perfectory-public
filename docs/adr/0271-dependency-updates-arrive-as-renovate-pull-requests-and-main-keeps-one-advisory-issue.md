@@ -80,3 +80,5 @@
   허용 목록에 박힌 서드파티 액션.
 - 공개 저장소에 이슈가 켜진다. 외부인도 이슈를 열 수 있다는 대가를 이슈 하나의 가시성과 바꾼다.
 - 예약 실행은 하루에 Rust 설치 + `cargo metadata` 6번 + 심은 권고 2개를 쓴다(표준 러너, 무료).
+
+개정 각주(2026-11-18): 3항의 "`pnpm.overrides` 는 … 렌더라 끈다" 는 [ADR-0572](./0572-pnpm-12-and-every-tree-s-pnpm-settings-live-in-its-pnpm-workspace-yaml-where-the-overrides-contract-renders.md) 뒤 트리의 `pnpm-workspace.yaml` `overrides` 다. `.github/renovate.json` 은 그 파일을 고치지 않는다(`matchFileNames`).

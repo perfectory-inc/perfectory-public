@@ -7,7 +7,7 @@
 // the contract (`render`) and `check` refuses a tree whose manifest, lockfile override block
 // or resolved versions disagree with it. `propose` turns an OSV-Scanner report into a
 // contract bump, which is how a new advisory becomes a change instead of a hand edit in
-// seven manifests.
+// every tree.
 //
 // Zero dependencies on purpose: it runs under any Node the trees' engines admit, in CI and
 // beside the pinned toolchain container that regenerates the lockfiles (`cargo xtask npm refresh-locks`).
@@ -216,7 +216,11 @@ function splitMapping(line) {
 
 // Reads the two things a pnpm v9 lockfile states that matter here: the overrides block it was
 // generated with, and every resolved package version.
-export function readLockfile(text) {
+export function readLockfile(whole) {
+  // Since pnpm 12 a lockfile may hold a boot document (pnpm's own version and binaries) before the
+  // project's; only the last document is the project's graph and holds its overrides.
+  const documents = whole.replace(/\r\n/g, "\n").split(/^---$/m).filter((part) => part.trim() !== "");
+  const text = documents.length > 0 ? documents[documents.length - 1] : whole;
   if (!/^lockfileVersion: '9\.\d+'$/m.test(text)) throw new ContractError("only pnpm lockfile v9 is understood");
   const overrides = new Map();
   const packages = new Map();
@@ -279,17 +283,30 @@ export function renderOverrides(entries, tree, lock) {
 }
 
 // Since pnpm 11 the settings live in pnpm-workspace.yaml and package.json#pnpm is not read (pnpm's
-// migration guide). The renderer owns the file's top-level `overrides:` mapping and keeps every
-// other line as it is; keys and values are written as JSON strings, which YAML reads unchanged.
+// migration guide). The renderer owns the file's top-level `overrides:` mapping: it drops that block
+// wherever it is and writes it last; every other line stays. Keys and values are written as JSON
+// strings, which YAML reads unchanged. A file it cannot own exactly (another spelling of the key, a
+// second block, a comment inside it, a byte order mark) is refused rather than half-rewritten.
 export function renderWorkspace(text, overrides) {
+  const source = text ?? "";
+  if (source.startsWith("﻿")) throw new ContractError("pnpm-workspace.yaml starts with a byte order mark");
   const kept = [];
   let inOverrides = false;
-  for (const line of (text ?? "").replace(/\r\n/g, "\n").split("\n")) {
-    if (/^overrides:\s*(\{\})?\s*$/.test(line)) {
+  let blocks = 0;
+  for (const line of source.replace(/\r\n/g, "\n").split("\n")) {
+    if (/^overrides:\s*$/.test(line)) {
+      blocks += 1;
+      if (blocks > 1) throw new ContractError("pnpm-workspace.yaml has more than one overrides block");
       inOverrides = true;
       continue;
     }
+    if (/^\s*["']?overrides["']?\s*:/.test(line) && !/^\s/.test(line)) {
+      throw new ContractError(`pnpm-workspace.yaml: "${line}" is not the rendered form "overrides:" (render owns this key)`);
+    }
     if (inOverrides && (line === "" || /^\s/.test(line))) continue;
+    if (inOverrides && line.startsWith("#")) {
+      throw new ContractError("pnpm-workspace.yaml: a comment at column 0 inside the overrides block (render owns the block)");
+    }
     inOverrides = false;
     kept.push(line);
   }
@@ -377,13 +394,27 @@ function sameMap(left, right) {
 export function check(root) {
   const { trees, entries, states } = load(root);
   const errors = [];
-  for (const { tree, lock, overrides, manifest, workspaceText, rendered } of states) {
-    if (manifest.pnpm !== undefined) {
+  // Any tracked package.json, a tree's root or a workspace member: pnpm 11 and later read none of
+  // their "pnpm" fields, so one that is there only looks like a setting.
+  const manifests = execFileSync("git", ["-C", root, "ls-files", "-z", "--", "*package.json"], { encoding: "utf8" })
+    .split("\0")
+    .filter((path) => /(^|\/)package\.json$/.test(path));
+  for (const path of manifests) {
+    let manifest;
+    try {
+      manifest = JSON.parse(readFileSync(join(root, path), "utf8"));
+    } catch {
+      continue;
+    }
+    if (manifest && typeof manifest === "object" && manifest.pnpm !== undefined) {
+      const tree = trees.find((candidate) => candidate === "." || path === `${candidate}/package.json` || path.startsWith(`${candidate}/`));
       errors.push(
-        `${tree}/package.json: has a "pnpm" field, which pnpm 11 and later do not read; its settings belong in ` +
-          `${tree}/pnpm-workspace.yaml (overrides are rendered there from ${CONTRACT_PATH})`,
+        `${path}: has a "pnpm" field, which pnpm 11 and later do not read; its settings belong in ` +
+          `${tree ?? "the tree"}/pnpm-workspace.yaml (overrides are rendered there from ${CONTRACT_PATH})`,
       );
     }
+  }
+  for (const { tree, lock, overrides, workspaceText, rendered } of states) {
     if (rendered !== workspaceText) {
       const current = workspaceOverrides(workspaceText);
       const missing = Object.keys(overrides).filter((key) => current[key] !== overrides[key]);
@@ -457,6 +488,12 @@ export function proposeFromReport(contract, report, today) {
     for (const finding of result.packages ?? []) {
       const { name, version, ecosystem } = finding.package ?? {};
       if (ecosystem !== "npm" || !parseVersion(version ?? "")) continue;
+      // pnpm itself (the lockfile's boot document since pnpm 12) is a toolchain pin, not an override:
+      // it moves with manifest_exact_pins.pnpm (root ADR-0097, ADR-0572).
+      if (name === "pnpm" || name.startsWith("@pnpm/")) {
+        for (const group of finding.groups ?? []) unfixable.push(`${name}@${version} ${[...new Set(group.ids ?? [])].sort().join(",")} (the pnpm toolchain pin)`);
+        continue;
+      }
       for (const group of finding.groups ?? []) {
         const ids = [...new Set(group.ids ?? [])].sort();
         let fixed = null;

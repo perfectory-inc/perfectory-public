@@ -27,7 +27,7 @@ COPY platforms/foundation-platform/services/foundation-profile-gateway/package.j
 COPY platforms/foundation-platform/services/foundation-profile-gateway/pnpm-lock.yaml ./pnpm-lock.yaml
 # The overrides and allowBuilds (esbuild, workerd) the install needs; pnpm 11+ reads them only here.
 COPY platforms/foundation-platform/services/foundation-profile-gateway/pnpm-workspace.yaml ./pnpm-workspace.yaml
-# `pnpm fetch` omits platform-specific optional packages in pnpm 9 even when the
+# `pnpm fetch` omitted platform-specific optional packages (pnpm 9) even when the
 # lockfile contains them.  workerd and esbuild resolve their Linux binaries
 # through optionalDependencies, so perform the exact Linux install while the
 # image still has network access and retain its content-addressed store only.
