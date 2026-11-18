@@ -35,7 +35,10 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
   computed from. A person's name is never read; free text is masked as the 물건상세's is;
 - for a 감정평가서 object (root ADR-0540 §1): the reports it stored into
   `silver.court_auction_appraisal_report` (the media reconcile's index: only stored ones), then every
-  request, CAPTCHA skips included, into `silver.court_auction_appraisal_report_read`.
+  request, CAPTCHA skips included, into `silver.court_auction_appraisal_report_read`;
+- for a 매각물건명세서 object (root ADR-0575): every version asked, CAPTCHA skips included, into
+  `silver.court_auction_sale_specification_read`, the record the collector's next frontier reads. The
+  PDF stays under the collector's own prefix; no row names a person.
 
 `parse` reads the plan directories without Spark. The last stdout line is `court-auction-summary-json {json}`.
 """
@@ -94,6 +97,9 @@ REPORT_READ_TABLE = "silver.court_auction_appraisal_report_read"
 REPORT_KEY = ("court_office_code", "case_no", "round_seq", "appraisal_no", "written_date")
 # A report object's tables, in commit order, the read record last.
 REPORT_TABLES = (REPORT_TABLE, REPORT_READ_TABLE)
+SPECS_ROLE = "sale_specifications"
+SPEC_READ_TABLE = "silver.court_auction_sale_specification_read"
+SPEC_TABLES = (SPEC_READ_TABLE,)
 CASE_READ_TABLE = "silver.court_auction_case_document_read"
 CASE_READ_KEY = ("court_office_code", "case_no", "document", "asked_round")
 RELATED_TABLE = "silver.court_auction_case_related"
@@ -326,7 +332,7 @@ def search_roles(contract: Mapping[str, Any]) -> dict[str, str]:
     """Source slug → the search its objects hold (root ADR-0014 `{provider}__{dataset}`)."""
 
     roles = {f"courtauctiongokr__{contract[role]['dataset_slug']}": role
-             for role in (*ROLE_TABLE, DETAIL_ROLE, CODES_ROLE, REPORTS_ROLE)}
+             for role in (*ROLE_TABLE, DETAIL_ROLE, CODES_ROLE, REPORTS_ROLE, SPECS_ROLE)}
     for document in contract["case_documents"]["documents"]:
         roles[f"courtauctiongokr__{document['dataset_slug']}"] = document["role"]
     return roles
@@ -379,6 +385,11 @@ def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], prefixes:
     if entry["role"] == REPORTS_ROLE:
         tables = report_rows_of(lines, entry["object_key"], entry["source_snapshot_id"], ingested_at)
         return {"object_key": entry["object_key"], "complete": True, "rows": tables[REPORT_READ_TABLE],
+                "tables": tables}
+    if entry["role"] == SPECS_ROLE:
+        tables = {SPEC_READ_TABLE: spec_read_rows_of(lines, entry["object_key"], entry["source_snapshot_id"],
+                                                     ingested_at)}
+        return {"object_key": entry["object_key"], "complete": True, "rows": tables[SPEC_READ_TABLE],
                 "tables": tables}
     if entry["role"] in CASE_ROLES:
         tables = case_document_rows(lines, contract["case_documents"], entry["role"], entry["object_key"],
@@ -564,6 +575,36 @@ def report_rows_of(lines: Sequence[Mapping[str, Any]], object_key: str, snapshot
                 **key, "sha256": sha256, "media_format": line["media_format"],
                 "size_bytes": whole(line.get("size_bytes")), "requested_at_utc": requested, **load}
     return {table: list(rows.values()) for table, rows in tables.items()}
+
+
+def spec_read_rows_of(lines: Sequence[Mapping[str, Any]], object_key: str, snapshot_id: str,
+                      ingested_at: datetime) -> list[dict[str, Any]]:
+    """A 매각물건명세서 object's rows: one per version asked, the last naming a version winning. The
+    line carries no name; the row keeps the document's name and written date, never a person's."""
+
+    rows: dict[tuple, dict[str, Any]] = {}
+    for number, line in enumerate(lines, start=1):
+        asked = line.get("request") or {}
+        key = {"court_office_code": text_or_none(asked.get("court_office_code")),
+               "case_no": text_or_none(asked.get("case_no")), "item_seq": text_or_none(asked.get("item_seq")),
+               "document_id": text_or_none(asked.get("document_id"))}
+        if any(value is None for value in key.values()):
+            raise ValueError(f"{object_key} line {number}: a specification read without its key")
+        facts = line.get("facts") or {}
+        rows[tuple(key.values())] = {
+            **key, "spec_written_date": ymd(asked.get("written_date")),
+            "document_name": text_or_none(facts.get("document_name")),
+            "document_written_date": ymd(facts.get("document_written_ymd")),
+            "outcome": text_or_none(line.get("outcome")) or "failed",
+            "log_http_status": whole(facts.get("log_http_status")),
+            "info_http_status": whole(facts.get("info_http_status")),
+            "file_http_status": whole(facts.get("file_http_status")),
+            "sha256": text_or_none(line.get("sha256")), "media_format": text_or_none(line.get("media_format")),
+            "size_bytes": whole(line.get("size_bytes")),
+            "requested_at_utc": _utc(line.get("requested_at_utc")) or ingested_at,
+            "source_record_id": object_key, "source_line_number": number, "source_snapshot_id": snapshot_id,
+            "ingested_at_utc": ingested_at}
+    return list(rows.values())
 
 
 def case_answer_rows(role: str, data: Mapping[str, Any], case_key: Mapping[str, Any],
@@ -970,7 +1011,8 @@ def load_case_document_object(spark: Any, args: argparse.Namespace, entry: Mappi
 
     role = entry["role"]
     counts: dict[str, Any] = {"object": entry["object_key"], "role": role, "rows": len(search["rows"])}
-    for name in REPORT_TABLES if role == REPORTS_ROLE else CASE_DOCUMENT_TABLES[role]:
+    tables = {REPORTS_ROLE: REPORT_TABLES, SPECS_ROLE: SPEC_TABLES}.get(role) or CASE_DOCUMENT_TABLES[role]
+    for name in tables:
         contract = load_lakehouse_contract(name)
         table = f"`{args.iceberg_catalog_name}`.`silver`.`{name.split('.', 1)[1]}{args.table_suffix}`"
         ensure_contract_table(spark, table, contract)
@@ -984,7 +1026,7 @@ def load_case_document_object(spark: Any, args: argparse.Namespace, entry: Mappi
         elif name == REPORT_TABLE:
             content = [c for c in columns if c not in (*REPORT_KEY, *LOAD_COLUMNS)]
             staged = changed_only(staged, current_rows(spark.table(table), contract), REPORT_KEY, content)
-        elif name not in (CASE_READ_TABLE, REPORT_READ_TABLE):
+        elif name not in (CASE_READ_TABLE, REPORT_READ_TABLE, SPEC_READ_TABLE):
             key = CASE_LATEST_KEYS[name]
             content = [c for c in columns if c not in (*key, *LOAD_COLUMNS)]
             staged = changed_only(staged, current_rows(spark.table(table), contract), key, content)
@@ -1120,7 +1162,7 @@ def _load(argv: Sequence[str]) -> int:
             if role == CODES_ROLE:
                 summary["objects"].append(load_code_object(spark, args, entry, search))
                 continue
-            if role in (*CASE_ROLES, REPORTS_ROLE):
+            if role in (*CASE_ROLES, REPORTS_ROLE, SPECS_ROLE):
                 summary["objects"].append(load_case_document_object(spark, args, entry, search))
                 continue
             contract_table = ROLE_TABLE[role]

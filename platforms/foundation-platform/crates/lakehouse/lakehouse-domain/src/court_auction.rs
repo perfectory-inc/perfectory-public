@@ -919,3 +919,55 @@ pub const SILVER_COURT_AUCTION_APPRAISAL_REPORT_READ: LakehouseTableContract =
         ],
         load: OBJECT_LOAD,
     };
+
+const SALE_SPECIFICATION_KEY: &[&str] =
+    &["court_office_code", "case_no", "item_seq", "document_id"];
+
+/// One row per 매각물건명세서 version asked, CAPTCHA skips and failures included (root ADR-0575).
+///
+/// A version is the specification's document id: the record the next run's frontier reads (a
+/// version stored or gone is not asked again, so the court's view log is written once per version).
+/// The PDF names people and lies under the collector's own prefix; no row carries a name. The
+/// newest row per version is current.
+pub const SILVER_COURT_AUCTION_SALE_SPECIFICATION_READ: LakehouseTableContract =
+    LakehouseTableContract {
+        table_name: "silver.court_auction_sale_specification_read",
+        layer: LakehouseLayer::Silver,
+        physical_format: LakehousePhysicalFormat::Parquet,
+        serving_role: LakehouseServingRole::Canonical,
+        current_row_predicate: None,
+        row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+            key: SALE_SPECIFICATION_KEY,
+            newest_first: LATEST,
+            removal_column: None,
+            keep_ties: false,
+        }),
+        columns: with_load_columns!(
+            column("court_office_code", "string", true),
+            column("case_no", "string", true),
+            column("item_seq", "string", true),
+            column("document_id", "string", true),
+            column("spec_written_date", "date", false),
+            column("document_name", "string", false),
+            column("document_written_date", "date", false),
+            // stored, captcha, no_document, gone, not_stored or failed.
+            column("outcome", "string", true),
+            column("log_http_status", "int", false),
+            column("info_http_status", "int", false),
+            column("file_http_status", "int", false),
+            column("sha256", "string", false),
+            column("media_format", "string", false),
+            column("size_bytes", "long", false),
+            column("requested_at_utc", "timestamp", true),
+        ),
+        partition_spec: &[],
+        sort_order: SALE_SPECIFICATION_KEY,
+        write_distribution: LakehouseWriteDistribution::Hash,
+        quality_gates: &[
+            "append_only",
+            "(court_office_code, case_no, item_seq, document_id, source_snapshot_id) unique",
+            "a CAPTCHA is recorded, never solved",
+            "no column names a person",
+        ],
+        load: OBJECT_LOAD,
+    };
