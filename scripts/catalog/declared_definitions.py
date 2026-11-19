@@ -550,6 +550,28 @@ def _git(root, *args):
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True).stdout
 
 
+def _files(root, rev, directory, pattern="*"):
+    """{name: bytes} of the files directly in `directory` at `rev`, read by one `git cat-file --batch`:
+    a `git show` per file made the schema-registry guard 22 s on CI (budget 15 s)."""
+    listed = subprocess.run(["git", "-C", str(root), "ls-tree", f"{rev}:{directory}"], capture_output=True, check=False)
+    blobs = [(fields.split()[2], name) for fields, name in
+             (line.split("\t", 1) for line in listed.stdout.decode().splitlines()) if fields.split()[1] == "blob" and pathlib.PurePosixPath(name).match(pattern)]
+    if not blobs:
+        return {}
+    out = _git_input(root, "".join(f"{oid}\n" for oid, _ in blobs).encode(), "cat-file", "--batch")
+    files, at = {}, 0
+    for oid, name in blobs:
+        header_end = out.index(b"\n", at)
+        size = int(out[at:header_end].split()[2])
+        files[name] = out[header_end + 1:header_end + 1 + size]
+        at = header_end + 1 + size + 1
+    return files
+
+
+def _git_input(root, data, *args):
+    return subprocess.run(["git", "-C", str(root), *args], input=data, capture_output=True, check=True).stdout
+
+
 def show(root, rev, path):
     """The text of generated artifact `path` at commit `rev`: generated from that commit's definitions,
     or that commit's file before the definitions existed. Derived artifacts use this tree's renderers."""
@@ -561,14 +583,12 @@ def show(root, rev, path):
         tree = pathlib.Path(scratch)
         directory = tree / DEFINITIONS
         directory.mkdir(parents=True)
-        for name in _git(root, "ls-tree", "--name-only", f"{rev}:{DEFINITIONS}").decode().split():
-            (directory / name).write_bytes(_git(root, "show", f"{rev}:{DEFINITIONS}/{name}"))
+        for name, data in _files(root, rev, DEFINITIONS).items():
+            (directory / name).write_bytes(data)
         family = tree / FAMILY_CONTRACTS
         family.mkdir(parents=True)
-        listed = subprocess.run(["git", "-C", str(root), "ls-tree", "--name-only", f"{rev}:{FAMILY_CONTRACTS}"],
-                                capture_output=True, text=True).stdout.split()
-        for name in (n for n in listed if pathlib.PurePosixPath(n).match(FAMILY_GLOB)):
-            (family / name).write_bytes(_git(root, "show", f"{rev}:{FAMILY_CONTRACTS}/{name}"))
+        for name, data in _files(root, rev, FAMILY_CONTRACTS, FAMILY_GLOB).items():
+            (family / name).write_bytes(data)
         documents = generate(*read_definitions(directory))
         if path in documents:
             return dump(documents[path])
