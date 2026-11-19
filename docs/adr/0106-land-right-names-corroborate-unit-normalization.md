@@ -1,6 +1,6 @@
 # ADR 0106: foundation-platform — 등기 대지권 이름이 호 정규화를 교차확증한다
 
-- Status: Accepted
+- Status: Accepted — dbt 조항(후보 모델·매크로 SSOT)은 [ADR-0588](./0588-the-dbt-project-nobody-runs-is-deleted-and-transforms-stay-on-dagster-partitions-with-code-versions.md)이 대체(Superseded in part by ADR-0588)
 - Date: 2026-09-25
 
 ## Context

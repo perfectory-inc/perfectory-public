@@ -79,7 +79,6 @@ last_reviewed: 2026-11-04
 | 2026-07-29 | current | runbook | 214 | platforms/foundation-platform/docs/runbooks/remote-lakehouse-job-runner.md |
 | 2026-07-29 | current | runbook | 112 | platforms/foundation-platform/docs/runbooks/runtime-environment-separation.md |
 | 2026-07-29 | current | runbook | 712 | platforms/foundation-platform/docs/runbooks/tiles-object-storage-first-slice.md |
-| 2026-07-29 | current | README | 100 | platforms/foundation-platform/infra/lakehouse/dbt/README.md |
 | 2026-07-29 | current | README | 16 | platforms/foundation-platform/services/foundation-api/README.md |
 | 2026-07-29 | current | README | 15 | platforms/foundation-platform/services/foundation-provider-acquisition-worker/README.md |
 | 2026-07-29 | current | README | 14 | platforms/identity-platform/crates/authorization/README.md |
@@ -250,7 +249,6 @@ last_reviewed: 2026-11-04
 - platforms/foundation-platform/crates/stewardship/README.md (50줄)
 - platforms/foundation-platform/crates/technical/README.md (14줄)
 - platforms/foundation-platform/docs/canonical-property-data-platform-northstar.md (141줄)
-- platforms/foundation-platform/infra/lakehouse/dbt/README.md (100줄)
 - platforms/foundation-platform/scripts/tiles/admin-boundary/README.md (66줄)
 - platforms/foundation-platform/services/foundation-api/README.md (16줄)
 - platforms/foundation-platform/services/foundation-by-pnu-gateway/README.md (164줄)

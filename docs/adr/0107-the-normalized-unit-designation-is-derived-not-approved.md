@@ -1,6 +1,6 @@
 # ADR 0107: foundation-platform — 정규형 호 지정자는 승인이 아니라 파생으로 얻는다
 
-- Status: Accepted
+- Status: Accepted — §2 의 dbt 조항(seed·dbt 시험)은 [ADR-0588](./0588-the-dbt-project-nobody-runs-is-deleted-and-transforms-stay-on-dagster-partitions-with-code-versions.md)이 대체(Superseded in part by ADR-0588)
 - Date: 2026-09-26
 
 ## Context
