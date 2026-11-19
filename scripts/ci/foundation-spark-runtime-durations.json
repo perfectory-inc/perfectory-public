@@ -10,7 +10,6 @@
     "test_collect_sorted_unique_spark.py": 8,
     "test_courtauction_go_kr.py": 13,
     "test_current_rows_spark.py": 9,
-    "test_data_go_kr_onbid.py": 5,
     "test_gold_code_change_publish_iceberg.py": 21,
     "test_gold_fingerprint_iceberg.py": 45,
     "test_gold_incremental_iceberg.IncrementalGoldIcebergTest.test_an_appended_price_batch_is_its_own_change_set": 88,
