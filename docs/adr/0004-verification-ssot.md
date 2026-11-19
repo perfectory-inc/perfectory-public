@@ -47,6 +47,8 @@ clippy 플래그 차이, rdkafka용 cmake 누락, 서로 다른 테스트 범위
   - 영역별 네이티브 의존성도 xtask가 선언한다. 현재 `intelligence`만 rdkafka용
     cmake+libsasl2가 필요하며, Debian 계열에서는 apt로 설치하고 root가 아니면 sudo를
     사용한다.
+    (개정 각주 2026-11-19: Intelligence 의 rdkafka 는 루트 ADR-0587 로 빠졌다. 이제 rdkafka 용 헤더는
+    foundation 이 선언한다.)
 - **가드:** `scripts/guard/no-adhoc-cargo-lint.sh`는 `cargo xtask` 밖에서 raw
   `cargo clippy` 또는 `cargo fmt`를 포함한 workflow를 실패시킨다. 드리프트가 다시
   들어올 수 없다.

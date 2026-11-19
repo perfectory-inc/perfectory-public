@@ -52,6 +52,9 @@ deny = [
     { crate = "openssl", use-instead = "rustls" },
     { crate = "openssl-sys", use-instead = "rustls" },
     { crate = "native-tls", use-instead = "rustls" },
+    # Root ADR-0587 Decision 5: Kafka comes back only with a producer, in the PR that brings the producer and lifts
+    # this line. Prevents: a consumer re-added for a topic no one writes, as the deleted backbone was.
+    { crate = "rdkafka", reason = "root ADR-0587: Kafka returns only with a producer (Decision 5)" },
     # Vector index / embedding provider crates (Intelligence ADR-0002). Prevents: the honest mistake of
     # pinning an unapproved embedding provider or vector index without the engine ADR that ADR-0002
     # makes its approval condition. Matches the resolved graph (direct, dev, build, transitive and

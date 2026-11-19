@@ -2,7 +2,7 @@
 status: current
 owner: intelligence-platform
 doc_type: README
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-19
 ---
 
 # schemas/
@@ -37,10 +37,10 @@ last_reviewed: 2026-11-05
 
 ## 스키마 레지스트리(Karapace)
 
-**`TopicNameStrategy`**로 **Karapace**(Confluent 호환 스키마 레지스트리)에 등록한다. 등록 주제
+발행자가 생기면(루트 ADR-0587 결정 5항) **`TopicNameStrategy`**로 Confluent 호환 스키마 레지스트리에 등록한다. 등록 주제
 이름은 `<topic>-value`다(예: `intelligence.normalization-proposal.submission-requested.v1-value`).
 
-생산자는 Avro 본문 앞에 5바이트 Confluent 전송 형식 접두사
+생산자는 그때 Avro 본문 앞에 5바이트 Confluent 전송 형식 접두사
 (`\x00 + schema_id_int32_big_endian`)를 직렬화한다. 소비자는 같은 레지스트리로 읽을 때 스키마 ID 를
 해석한다.
 
