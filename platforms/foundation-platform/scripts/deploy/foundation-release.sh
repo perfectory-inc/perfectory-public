@@ -1138,6 +1138,28 @@ redact_logged_credentials() {
   fi
 }
 
+# one-off: scripts/ops/retire-hand-started-martin.sh says when it ends; this goes with it. The two Martin
+# containers an operator started by hand in September 2026 (root ADR-0112 §10, ADR-0343 §5) are removed
+# while they are still those: no Compose label, the Martin image, no connection on their port; then
+# martin-static's hand-made config with the plain-text R2 key. Recorded only when nothing was kept, so a
+# deploy that kept one asks again; it never stops a deploy.
+retire_hand_started_martin() {
+  local steps="${release_root}/current/scripts/deploy/deploy_steps.py" gate=0 report
+  local script="${release_root}/current/scripts/ops/retire-hand-started-martin.sh"
+  [[ -f "${script}" && -f "${steps}" ]] || return 0
+  prepare_deploy_steps_state
+  python3 -I -B "${steps}" should-run "${release_root}/current" retire-hand-started-martin || gate=$?
+  [[ "${gate}" != 3 ]] || return 0
+  if report="$(bash "${script}")"; then
+    printf '%s\n' "${report}" >&2
+    if ! grep -q ': kept' <<<"${report}"; then
+      python3 -I -B "${steps}" ran "${release_root}/current" retire-hand-started-martin || true
+    fi
+  else
+    printf 'retire-hand-started-martin failed; the next deploy runs it again\n' >&2
+  fi
+}
+
 # The data catalog's containers follow the release (root ADR-0117 §7): DataHub is its own Compose
 # project, run by datahub-runtime.sh from secrets only root reads, so a merged change to
 # infra/datahub/compose.yml used to wait for someone with sudo (2026-10-16, #628). This recreates
@@ -1366,6 +1388,7 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     prepare_spark_tmp
     install_host_retention
     redact_logged_credentials
+    retire_hand_started_martin
     # The service checks' file, served read-only by foundation-api (compose.orchestration-bridge.yml),
     # and their kept CI runs (root ADR-0209). Its unit names the path in ReadWritePaths.
     install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/service-checks

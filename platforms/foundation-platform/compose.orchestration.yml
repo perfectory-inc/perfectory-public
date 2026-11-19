@@ -311,10 +311,12 @@ services:
     pull_policy: never
     profiles: ["dagster-observe"]
     # The daemon alone: it reads the code location from dagster-code-server and launches runs there,
-    # so neither the code nor any run is its process any more. 190 MiB measured 2026-11-09 (VmHWM, the
-    # daemon process of the container that then also held the code and the runs), x2 for the sensors
-    # of the jobs Dagster decides (decide.py) as they grow.
-    mem_limit: 384m
+    # so neither the code nor any run is its process any more. Root ADR-0574 rule, measured max x 1.5:
+    # 2026-11-19, the container of this shape (since 02:11Z) reached 379 MiB working set of its 384m cap
+    # (cAdvisor max_over_time; memory.peak = the cap, memory.events max 329, oom_kill 0; anon 235 MiB,
+    # page cache 56 MiB). The peak is held down by the cap, so 1.5 x 384m is the floor, not a guess
+    # upward: 576m. Measured again before each group moves to Dagster (root ADR-0583 §8).
+    mem_limit: 576m
     restart: unless-stopped
     command: ["dagster-daemon", "run", "-w", "/opt/dagster/home/workspace.yaml"]
     environment:
