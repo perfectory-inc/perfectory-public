@@ -28,8 +28,10 @@ const CONSOLE_URL_ENV: &str = "FOUNDATION_PLATFORM_DAWNEER_UI_URL";
 /// is already masked.
 const SUMMARY_CHARS: usize = 240;
 
-/// How long a scrape waits for the map's read; Prometheus gives a scrape 10 seconds.
-const READ_BUDGET: Duration = Duration::from_secs(4);
+/// How long a scrape waits for the map's read: well inside the API's request timeout (3 s,
+/// `traffic-auth-policy-registry.v1.json`), so a slow first read answers `readable 0` and never
+/// turns the whole `/metrics` into a 408. It was 4 s, past that timeout (2026-11-19).
+const READ_BUDGET: Duration = Duration::from_secs(1);
 
 const HELP: &str = concat!(
     "# HELP foundation_scheduled_jobs_readable Whether the operations map could read the scheduled jobs' runs (root ADR-0195).\n",
@@ -215,6 +217,14 @@ mod tests {
     use foundation_contracts::data_catalog::{
         OperationsLinks, ScheduledJobDataset, ScheduledJobStart,
     };
+
+    #[test]
+    fn a_scrape_gives_up_on_the_map_before_the_request_times_out() {
+        // Past the request timeout, a slow map read turned every /metrics into a 408 (2026-11-19).
+        let request_timeout =
+            Duration::from_millis(crate::traffic::TrafficConfig::default().request_timeout_ms);
+        assert!(READ_BUDGET * 2 <= request_timeout);
+    }
 
     fn at(iso: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(iso)
