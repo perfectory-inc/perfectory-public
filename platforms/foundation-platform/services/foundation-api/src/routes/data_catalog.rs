@@ -441,8 +441,17 @@ mod tests {
     fn graphql_documents() -> std::io::Result<Vec<(String, String)>> {
         let routes = std::path::Path::new("src/routes");
         let mut files = vec![routes.join("data_catalog.rs")];
-        for entry in std::fs::read_dir(routes.join("data_catalog"))? {
-            files.push(entry?.path());
+        // A module's own folder (`operations/`, `facts/`) holds documents too.
+        let mut folders = vec![routes.join("data_catalog")];
+        while let Some(folder) = folders.pop() {
+            for entry in std::fs::read_dir(folder)? {
+                let path = entry?.path();
+                if path.is_dir() {
+                    folders.push(path);
+                } else {
+                    files.push(path);
+                }
+            }
         }
         let mut found = Vec::new();
         for file in files {
