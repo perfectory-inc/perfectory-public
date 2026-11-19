@@ -504,8 +504,7 @@ fn took(urn: &str, minutes: i64, result: &str) -> JsonValue {
 }
 
 fn typical_of(runs: &[JsonValue]) -> Option<(u64, u32)> {
-    let parsed: Vec<ScheduledJobRun> =
-        runs.iter().filter_map(run_from).map(|(r, _)| r).collect();
+    let parsed: Vec<ScheduledJobRun> = runs.iter().filter_map(run_from).map(|(r, _)| r).collect();
     typical_duration(parsed.iter())
 }
 
