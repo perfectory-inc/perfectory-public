@@ -99,8 +99,8 @@ use gate::classify_missing;
 pub use gate::{check_pmtiles_header, gate_archive, IdGate, Missing, ServedLayer};
 pub use min_zoom::{FeatureMinZoom, LowZoomGeneralization};
 pub use partitions::{
-    bake_partitions, partition_archive, tile_join_args, warm_partitions, CsvOut, CsvPart,
-    PartitionedCsv, Warmed,
+    bake_partitions, joined_archive, partition_archive, tile_join_args, warm_partitions, CsvOut,
+    CsvPart, JoinNext, PartitionedCsv, Warmed,
 };
 use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
 use upload::{bake_and_upload, compared_with, ensure_comparable, rehearse, Upload};
@@ -1025,13 +1025,6 @@ async fn build_archive(
     })
     .await?;
     std::fs::remove_dir_all(work_partition_csvs(&work.join("served.csv")))?;
-    let join = work.join("join");
-    std::fs::create_dir_all(&join)?;
-    let mut prefixes = Vec::with_capacity(archives.len());
-    for (prefix, archive, _) in &archives {
-        std::fs::hard_link(archive, join.join(format!("{prefix}.pmtiles")))?;
-        prefixes.push(prefix.clone());
-    }
     let baked: Vec<&str> = archives
         .iter()
         .filter(|(_, _, baked)| *baked)
@@ -1044,20 +1037,11 @@ async fn build_archive(
         baked.join(","),
         archives.len() - baked.len()
     );
-    let mut tile_join = run_args(
-        work,
-        &images.tippecanoe,
-        config.container_project.as_deref(),
-    );
-    // The image's entrypoint is tippecanoe; tile-join is installed beside it from the same commit.
-    let image = tile_join
-        .pop()
-        .context("docker run arguments end with the image")?;
-    tile_join.extend(["--entrypoint".into(), "tile-join".into(), image]);
-    tile_join.extend(tile_join_args(&prefixes));
-    docker(tile_join, config.tool_timeout, "tile-join").await?;
-    std::fs::remove_dir_all(&join)?;
-    Ok(work.join("unit.pmtiles"))
+    let archives: Vec<(String, PathBuf)> = archives
+        .into_iter()
+        .map(|(prefix, archive, _)| (prefix, archive))
+        .collect();
+    partitions::join_partitions(config, images, work, &archives).await
 }
 
 /// Everything besides the rows that decides a baked tile's bytes. ADR-0316: the tippecanoe
@@ -1298,6 +1282,13 @@ async fn bake_in(
     };
     // Root ADR-0323: a patched unit first tries to publish only the tiles its changes touch. A
     // newborn unit has no base to patch, but its index lets the next bake patch it.
+    // Root ADR-0576: the join the last run left waiting runs alone, before the handoff is read.
+    if newborn.is_none()
+        && summary.partial.is_none()
+        && partitions::join_ahead(config, &contract.images, &summary, work).await?
+    {
+        return Ok(());
+    }
     let policy = patch::PatchPolicy::load()?;
     if summary.partial.is_some() {
         // Root ADR-0375 §2: a partial handoff patches or declines; it never becomes a base.

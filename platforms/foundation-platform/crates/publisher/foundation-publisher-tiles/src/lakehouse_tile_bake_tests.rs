@@ -1347,3 +1347,31 @@ async fn a_run_past_its_budget_defers_the_partitions_left_and_the_next_run_bakes
     assert!(baked.is_empty(), "{baked:?}");
     Ok(())
 }
+
+#[test]
+fn the_joined_archive_is_named_by_the_partition_archives_it_joins_in_any_order() {
+    // Root ADR-0576: a run finds the join an earlier run left for the same partitions, and a
+    // partition baked anew (another archive name) gives another joined archive.
+    let root = Path::new("/w/parcels-partitions");
+    let one = ("11".to_owned(), root.join("11").join("aa.pmtiles"));
+    let two = ("26".to_owned(), root.join("26").join("bb.pmtiles"));
+    let joined = joined_archive(root, &[one.clone(), two.clone()]);
+    assert_eq!(joined.parent(), Some(root.join("joined").as_path()));
+    assert_eq!(joined, joined_archive(root, &[two.clone(), one.clone()]));
+    let rebaked = ("26".to_owned(), root.join("26").join("cc.pmtiles"));
+    assert_ne!(joined, joined_archive(root, &[one, rebaked]));
+}
+
+#[test]
+fn the_join_left_for_the_next_run_reads_back_as_written() -> anyhow::Result<()> {
+    let work = tempfile::tempdir()?;
+    let root = work.path().join("parcels-partitions");
+    assert_eq!(JoinNext::read(&root)?, None);
+    let next = JoinNext {
+        gold_snapshot: "99999".to_owned(),
+        archives: vec![("11".to_owned(), root.join("11").join("aa.pmtiles"))],
+    };
+    next.write(&root)?;
+    assert_eq!(JoinNext::read(&root)?, Some(next));
+    Ok(())
+}
