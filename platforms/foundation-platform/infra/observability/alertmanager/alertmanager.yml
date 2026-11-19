@@ -10,9 +10,9 @@ route:
   routes:
     # Every `severity: ticket` alert but the security advisories (root ADR-0591): one message per rule,
     # naming each of its alerts, at most once an hour while the set changes and once a day while it
-    # stays, and none when it resolves. 2026-11-18/19 #alerts got about 480 messages a day; one ticket
-    # rule (FoundationScheduledJobProblem) was 60% of them, sent per job, 38 of them "blocked" behind
-    # the same failed source_sweep. A ticket is read in a batch; a page (below) is read when it comes.
+    # stays, and none when it resolves. 2026-11-14..19 #alerts got about 480 messages a day, about two
+    # thirds of them tickets sent one per item and again on resolve, so no line meant anything. A
+    # ticket is read in a batch; a page (below) is read when it comes.
     # The operations map's problems (root ADR-0195), which had their own per-job route, are all
     # tickets and come here.
     - matchers:

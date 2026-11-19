@@ -18,16 +18,15 @@
 | Slack 으로 보낸 수 | `alertmanager_notifications_total{integration="slack"}` 2,405 / 컨테이너 5일, 실패 0. 하루 약 480통 |
 | 지금 떠 있는 알림 | 37개 |
 | 측정 창 | 11-18 21:23Z..11-19 15:23Z (Prometheus 재시작 뒤 18시간). `ALERTS` 를 60초 간격으로 다시 그려 규칙마다 일화(episode)를 셌다 |
-| 가장 많은 규칙 | `FoundationScheduledJobProblem`(ticket): 시계열 123, 일화 160, 모형 추정 메시지 290 / 18h, 전체의 약 60% |
-| 그 안 | `blocked` 85, `volume` 23, `failed` 9, `slow` 6. `blocked` 중 38은 같은 문장 "앞 단계가 실패해서 멈춰 있어요 (source_sweep)" |
-| 억제가 안 먹은 까닭 | 기존 억제는 `kind="failed"` 인 같은 규칙만 원인으로 본다. source_sweep 의 실패는 `FoundationUnitFailedLong` 이었다 |
+| 규칙별 (억제된 `blocked` 를 뺀 모형 추정 / 18h) | `FoundationScheduledJobProblem`(ticket) 65 (시계열 38, 일화 47), `FoundationJobOutcomeMissing`(ticket) 52, `FoundationUnitFailedLong`(page) 40, `FoundationReleaseMissing`(ticket) 18, `FoundationHostBehindMain`(ticket) 16, `FoundationJobOutcomeMissingLong`(page) 15, 나머지 규칙 각 15 이하 |
+| `blocked` | 85 시계열(38 은 "앞 단계가 실패해서 멈춰 있어요 (source_sweep)"). source_sweep 의 `kind="failed"` 가 같은 시간(18T21:37..19T03:17) 떠 있어 기존 억제가 막았다. Prometheus 의 `ALERTS` 는 억제를 보이지 않으므로 세지 않는다 |
 | 레이블이 바뀌어 새로 생긴 알림 | `summary`·`link` 가 레이블이라 문장이 바뀌면 새 알림이다. 123 중 31(예: court_auction_silver 14개, "보통 104133행인데 이번엔 30434행") |
 | `FoundationJobMissedStartNotTaken` | 16개 모두 `pool="spark"`, 4.6..10.8시간 늦음. 원인 하나(W82b 가 11-19 15:30Z 부터 맡음) |
 | 페이지의 재알림 | serving-freshness 4시간마다. 11-14 부터 떠 있는 bake 셋이 하루 18통 |
 
-모형 추정 합계는 551 / 18h 로 실제 계수(약 360 / 18h)보다 크다. 그래서 순위로만 쓴다. Alertmanager 에는 규칙별 발송 계수가 없다.
+모형 추정 합계(억제된 blocked 제외)는 약 326 / 18h 다. 5일 평균 실제 계수는 약 360 / 18h 이고, 11-19 15:23..15:37Z 의 실제는 14분에 2통(하루 약 200통 속도)이다. 그래서 순위로만 쓴다. Alertmanager 에는 규칙별 발송 계수가 없다.
 
-결론: 새 줄이 뜻을 갖지 못한다. 티켓 규칙 하나가 작업마다 한 통씩, 해소마다 또 한 통씩 보낸다. 페이지도 오래 열린 항목이 4시간마다 반복된다.
+결론: 새 줄이 뜻을 갖지 못한다. 한 규칙이 아니라 여러 티켓 규칙이 항목마다 한 통씩, 해소마다 또 한 통씩 보낸다(티켓이 추정의 약 3분의 2). 페이지도 오래 열린 항목이 4시간마다 반복된다.
 
 Alertmanager 0.28.1 문서(`docs/configuration.md` @v0.28.1)에서 확인한 것:
 - `group_by` 는 알림을 묶는 레이블이다.
@@ -50,7 +49,7 @@ Alertmanager 0.28.1 문서(`docs/configuration.md` @v0.28.1)에서 확인한 것
 4. **원인이 이미 알리는 증상은 억제한다. 원인과 증상을 잇는 레이블이 있을 때만이다.**
    - `FoundationJobOutcomeMissingLong` 이 떠 있으면 같은 `job_id`·`expectation` 의 `FoundationJobOutcomeMissing` 을 억제한다.
    - `FoundationPlatformApiScrapeDown` 이 떠 있으면 `FoundationSecurityAdvisoriesUnreadable` 을 억제한다. foundation-api 가 그 계열의 유일한 내보내는 곳이고 수집 대상도 하나라, 이을 레이블이 필요 없다.
-   - `FoundationUnitFailedLong` → `blocked` 는 **넣지 않는다**. 지금 `blocked` 시계열에는 막은 단계의 레이블이 없다. 빈 `equal` 은 어느 유닛이든 실패하면 모든 `blocked` 를 억제한다. 그 레이블은 후속(아래)으로 넣는다. 그때까지 `blocked` 는 결정 1 의 묶음만으로 줄인다.
+   - `blocked` 는 더 억제하지 않는다. 앞 작업의 `kind="failed"` 가 떠 있으면 기존 억제가 이미 막는다(11-18/19 의 source_sweep 뒤 76개). `FoundationUnitFailedLong` → `blocked` 는 넣지 않는다. 빈 `equal` 은 어느 유닛이든 실패하면 모든 `blocked` 를 억제한다. 남는 `blocked`(앞 작업의 실패 알림이 없는 것)는 결정 1 의 묶음으로 준다.
 5. **사일런스는 이름 있는 열린 PR 이 맡은 항목에만 건다.** 만료는 72시간 이하, 주석은 그 PR 번호다. 아무도 맡지 않은 것에는 걸지 않는다. 이 ADR 은 사일런스를 하나도 걸지 않는다(11-19 기준 그 조건을 채운 항목이 없다).
 6. **경로는 CI 에서 증명한다.**
    - 가드 `alertmanager-routes-pass-their-tests` 가 고정된 Alertmanager 릴리스의 `amtool` 로 두 가지를 돌린다. `check-config`, 그리고 `alertmanager.routes.test` 의 사례마다 `config routes test --verify.receivers`.
@@ -70,10 +69,10 @@ Alertmanager 0.28.1 문서(`docs/configuration.md` @v0.28.1)에서 확인한 것
 
 ## Consequences
 
-- 예상: 티켓은 규칙마다 한 시간에 많아야 한 통이고 해소 통은 없다. 증상 둘은 억제된다. 페이지는 약 95통에서 약 60통 / 18h 다. 합치면 하루 약 480통이 100~130통으로 준다.
+- 예상: 티켓은 규칙마다 한 시간에 많아야 한 통이고 해소 통은 없다(추정 약 215 → 많아야 약 60 / 18h). 증상 둘은 억제된다. 페이지는 serving-freshness 12h 로 약 110 → 약 80 / 18h. 합치면 하루 약 435통(추정)이 약 180통 이하로 준다. 배포 뒤 `alertmanager_notifications_total` 의 하루 증가로 잰다.
   - 아직도 "새 줄이 뜻을 갖는" 수준은 아니다. 남는 것은 열린 페이지 자체다(UnitFailedLong 넷, 서빙 지연). 그것들은 고쳐야 줄어든다.
 - 티켓은 늦게 온다. 첫 통은 5분 뒤, 묶음이 바뀌면 한 시간 뒤다. 바로 읽어야 할 것은 페이지여야 한다. 티켓인데 바로 읽어야 하는 규칙은 `severity: page` 로 올린다.
 - 운영 지도 런북(`operations-map.md`)의 Slack 표를 이 경로에 맞게 고쳤다.
 - 후속:
   - `foundation_scheduled_job_problem` 의 `summary`·`link` 를 레이블에서 빼어, 문장이 바뀌어도 같은 알림이게 한다.
-  - `blocked` 시계열에 막은 단계(`blocked_by`) 레이블을 더한다. 그때 결정 4 의 억제를 그 레이블로 건다.
+  - 페이지 자체를 고친다(UnitFailedLong·서빙 지연). 그것이 남는 몫의 대부분이다.
