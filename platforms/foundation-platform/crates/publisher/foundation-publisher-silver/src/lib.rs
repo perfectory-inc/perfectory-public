@@ -148,6 +148,9 @@ pub mod place_identity_stage;
 /// The place-identity rules every placing producer shares (root ADR-0288, ADR-0482).
 pub mod place_identity;
 
+/// The parcel lineage's carry walk every placing producer shares (root ADR-0113 §6).
+pub mod lineage_carry;
+
 /// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
 pub mod real_transaction_gold_stage;
 pub mod registered_factory_stage;

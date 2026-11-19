@@ -1,5 +1,6 @@
-//! The place-identity rules every placing producer shares (root ADR-0288, ADR-0482), ported once from
-//! `infra/lakehouse/spark/jobs/place_identity_resolver.py` (W81c): the legal-dong code crosswalk and the
+//! The place-identity rules every placing producer shares (root ADR-0288, ADR-0482).
+//!
+//! Ported once from `infra/lakehouse/spark/jobs/place_identity_resolver.py` (W81c): the legal-dong code crosswalk and the
 //! earlier forms of a code a served parcel may still carry.
 //!
 //! The crosswalk is read from the code change table's pairs in force (`legal_dong_code_change_stage`'s
