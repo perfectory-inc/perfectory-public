@@ -712,7 +712,7 @@ pub struct ByPnuCutovers {
 
 /// One change in the audit chain (root ADR-0569 §2). Names and mail are not here: the console adds
 /// them from the identity API when it shows a row.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct AuditEventView {
     /// Its place in the chain, from 1 without a gap.
     pub seq: i64,
@@ -772,7 +772,7 @@ pub struct AuditEventView {
 }
 
 /// One page of the audit chain, newest first.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct AuditEventPage {
     /// Newest first, by `seq`.
     pub events: Vec<AuditEventView>,
