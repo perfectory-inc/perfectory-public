@@ -56,6 +56,7 @@ num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
 quick-xml = { version = "0.42", features = ["encoding", "serialize"] }
+rand = { version = "0.9" }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-lite = { version = "0.1" }
@@ -151,7 +152,7 @@ getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-f
 linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "ioctl", "no_std", "prctl"] }
 rustix = { version = "1", features = ["fs", "process"] }
 simdutf8 = { version = "0.1", default-features = false, features = ["aarch64_neon", "public_imp"] }
-tower-http = { version = "0.6", features = ["cors", "follow-redirect", "timeout", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "follow-redirect", "request-id", "timeout", "trace"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
@@ -163,12 +164,14 @@ rustix = { version = "1", features = ["fs", "process"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std"] }
 simdutf8 = { version = "0.1", default-features = false, features = ["aarch64_neon", "public_imp"] }
-tower-http = { version = "0.6", features = ["cors", "follow-redirect", "timeout", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "follow-redirect", "request-id", "timeout", "trace"] }
+winapi = { version = "0.3", default-features = false, features = ["errhandlingapi", "fileapi", "handleapi", "minwinbase", "minwindef", "processthreadsapi", "profileapi", "synchapi", "winbase", "winerror", "winnt"] }
 windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
 
 [target.x86_64-pc-windows-msvc.build-dependencies]
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std"] }
+winapi = { version = "0.3", default-features = false, features = ["errhandlingapi", "fileapi", "handleapi", "minwinbase", "minwindef", "processthreadsapi", "profileapi", "synchapi", "winbase", "winerror", "winnt"] }
 windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
 
 ### END HAKARI SECTION

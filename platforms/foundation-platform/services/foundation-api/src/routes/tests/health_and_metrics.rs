@@ -416,31 +416,16 @@ fn slo_policy_only_targets_exported_catalog_outbox_scope() -> Result<(), Box<dyn
 }
 
 #[test]
-fn metrics_body_renders_http_request_metrics() {
-    let metrics = vec![
-        ApiHttpRequestMetric {
-            method: "GET".to_owned(),
-            route: "/catalog/v1/pipeline-graph".to_owned(),
-            status: 200,
-            count: 7,
-        },
-        ApiHttpRequestMetric {
-            method: "GET".to_owned(),
-            route: "/catalog/v1/pipeline-graph".to_owned(),
-            status: 408,
-            count: 2,
-        },
-    ];
+fn http_metrics_render_requests_and_timeouts_by_route() -> Result<(), Box<dyn Error>> {
+    let state = AppState::bootstrap_for_test()?;
+    for _ in 0..7 {
+        state.record_http_request("GET", "/catalog/v1/pipeline-graph", 200, 0.01);
+    }
+    for _ in 0..2 {
+        state.record_http_request("GET", "/catalog/v1/pipeline-graph", 408, 30.0);
+    }
 
-    let payload = super::metrics_body(
-        true,
-        true,
-        &db_pool_metric(),
-        super::MetricsBodyInput {
-            http_requests: &metrics,
-            ..empty_metrics_body_input()
-        },
-    );
+    let payload = state.http_metrics_text();
 
     assert!(payload.contains("# HELP foundation_api_http_requests_total"));
     assert!(payload.contains("# TYPE foundation_api_http_requests_total counter"));
@@ -452,6 +437,7 @@ fn metrics_body_renders_http_request_metrics() {
     assert!(payload.contains(
         "foundation_api_http_request_timeout_total{route=\"/catalog/v1/pipeline-graph\"} 2"
     ));
+    Ok(())
 }
 
 #[test]
@@ -474,28 +460,48 @@ fn metrics_body_renders_database_pool_metrics() {
 }
 
 #[test]
-fn metrics_body_renders_http_duration_histogram_metrics() {
-    let durations = vec![ApiHttpDurationMetric {
-        method: "GET".to_owned(),
-        route: "/healthz".to_owned(),
-        status: 200,
-        le: "0.1".to_owned(),
-        count: 3,
-    }];
+fn http_duration_histogram_carries_its_sum_and_count() -> Result<(), Box<dyn Error>> {
+    // Before 2026-11-19 the hand-written histogram had only `_bucket` lines: no `_sum`, no `_count`.
+    let state = AppState::bootstrap_for_test()?;
+    for _ in 0..3 {
+        state.record_http_request("GET", "/healthz", 200, 0.07);
+    }
 
-    let payload = super::metrics_body(
-        true,
-        true,
-        &db_pool_metric(),
-        super::MetricsBodyInput {
-            http_durations: &durations,
-            ..empty_metrics_body_input()
-        },
-    );
+    let payload = state.http_metrics_text();
+    let labels = "method=\"GET\",route=\"/healthz\",status=\"200\"";
 
     assert!(payload.contains("# HELP foundation_api_http_request_duration_seconds"));
     assert!(payload.contains("# TYPE foundation_api_http_request_duration_seconds histogram"));
-    assert!(payload.contains(
-        "foundation_api_http_request_duration_seconds_bucket{method=\"GET\",route=\"/healthz\",status=\"200\",le=\"0.1\"} 3"
-    ));
+    for (le, count) in [("0.05", 0), ("0.1", 3), ("10", 3), ("+Inf", 3)] {
+        let line = format!(
+            "foundation_api_http_request_duration_seconds_bucket{{{labels},le=\"{le}\"}} {count}"
+        );
+        assert!(payload.contains(&line), "missing {line} in {payload}");
+    }
+    assert!(payload.contains(&format!(
+        "foundation_api_http_request_duration_seconds_count{{{labels}}} 3"
+    )));
+    let sum_prefix = format!("foundation_api_http_request_duration_seconds_sum{{{labels}}} ");
+    let sum: f64 = payload
+        .lines()
+        .find_map(|line| line.strip_prefix(&sum_prefix))
+        .ok_or("no _sum line")?
+        .parse()?;
+    assert!((sum - 0.21).abs() < 1e-9, "sum {sum}");
+    Ok(())
+}
+
+#[test]
+fn each_state_counts_only_its_own_requests() -> Result<(), Box<dyn Error>> {
+    let first = AppState::bootstrap_for_test()?;
+    let second = AppState::bootstrap_for_test()?;
+    first.record_http_request("GET", "/healthz", 200, 0.01);
+
+    assert!(first
+        .http_metrics_text()
+        .contains("foundation_api_http_requests_total"));
+    assert!(!second
+        .http_metrics_text()
+        .contains("foundation_api_http_requests_total"));
+    Ok(())
 }

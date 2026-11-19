@@ -7,8 +7,7 @@ use crate::identity_authorization::{
     AuthorizedPrincipal, IdentityAuthorization, IdentityAuthorizationError, RequiredPrincipalKind,
 };
 use crate::state::{
-    ApiDatabasePoolMetric, ApiHttpDurationMetric, ApiHttpRequestMetric, AppState,
-    IngestionRunMetric, LakehouseBatchRunMetric, OutboxQueueMetric,
+    ApiDatabasePoolMetric, AppState, IngestionRunMetric, LakehouseBatchRunMetric, OutboxQueueMetric,
 };
 use crate::traffic::{TrafficConfig, TrafficRuntime};
 use async_trait::async_trait;
@@ -97,9 +96,6 @@ fn db_pool_metric() -> ApiDatabasePoolMetric {
 
 fn empty_metrics_body_input<'a>() -> super::MetricsBodyInput<'a> {
     super::MetricsBodyInput {
-        http_requests: &[],
-        http_durations: &[],
-        overload_rejections: &[],
         lakehouse_batch_runs: &[],
         ingestion_runs: &[],
         outbox_queues: &[],

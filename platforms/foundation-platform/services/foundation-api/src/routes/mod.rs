@@ -16,13 +16,17 @@ use axum::routing::{get, patch, post, put, MethodRouter};
 use axum::{Json, Router};
 use serde::Serialize;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::request_id::{
+    MakeRequestUuid, PropagateRequestIdLayer, RequestId, SetRequestIdLayer,
+};
 use tower_http::timeout::TimeoutLayer;
+use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tracing::warn;
 
 use crate::identity_authorization::{IdentityAuthorizationError, RequiredPrincipalKind};
 use crate::state::{
-    ApiDatabasePoolMetric, ApiHttpDurationMetric, ApiHttpRequestMetric, ApiOverloadRejectionMetric,
-    AppState, IngestionRunMetric, LakehouseBatchRunMetric, OutboxQueueMetric, SchemaReadiness,
+    ApiDatabasePoolMetric, AppState, IngestionRunMetric, LakehouseBatchRunMetric,
+    OutboxQueueMetric, SchemaReadiness,
 };
 use crate::traffic::{TrafficConfig, TrafficRuntime};
 
@@ -75,6 +79,32 @@ pub fn router_with_traffic(state: Arc<AppState>, traffic: TrafficConfig) -> Rout
             metrics_state,
             record_http_metrics,
         ))
+        // One log line per request with its id (tower-http 0.6 `trace` and `request-id`). The id is
+        // the caller's `x-request-id` when it sent one, a v4 UUID otherwise, and goes back on the
+        // response. Outermost first, as tower-http's request_id module orders them: set, trace,
+        // propagate.
+        .layer(PropagateRequestIdLayer::x_request_id())
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(request_span)
+                .on_response(DefaultOnResponse::new().level(tracing::Level::INFO)),
+        )
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+}
+
+/// The request's span: its method, canonical route (not the path, which carries PNUs and ids) and id.
+fn request_span(request: &Request<Body>) -> tracing::Span {
+    let request_id = request
+        .extensions()
+        .get::<RequestId>()
+        .and_then(|id| id.header_value().to_str().ok())
+        .unwrap_or("-");
+    tracing::info_span!(
+        "request",
+        method = %request.method(),
+        route = %canonical_route_label(request.uri().path()),
+        request_id = %request_id,
+    )
 }
 
 fn application_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
@@ -591,22 +621,18 @@ async fn metrics(State(state): State<Arc<AppState>>) -> ([(HeaderName, &'static 
     } else {
         Vec::new()
     };
-    let http_requests = state.http_request_metrics();
-    let http_durations = state.http_duration_metrics();
-    let overload_rejections = state.overload_rejection_metrics();
     let mut body = metrics_body(
         database_ready,
         schema_ready,
         &database_pool,
         MetricsBodyInput {
-            http_requests: &http_requests,
-            http_durations: &http_durations,
-            overload_rejections: &overload_rejections,
             lakehouse_batch_runs: &lakehouse_batch_runs,
             ingestion_runs: &ingestion_runs,
             outbox_queues: &outbox_queues,
         },
     );
+    // The API's own HTTP metrics, from its recorder (state.rs ApiHttpMetrics).
+    body.push_str(&state.http_metrics_text());
     // The operations map's problems, for Alertmanager to tell Slack (root ADR-0195).
     body.push_str(&data_catalog::scheduled_job_problem_metrics().await);
     // The repository's open security advisories, for the same Alertmanager (root ADR-0278).
@@ -618,9 +644,6 @@ async fn metrics(State(state): State<Arc<AppState>>) -> ([(HeaderName, &'static 
 
 #[derive(Clone, Copy)]
 struct MetricsBodyInput<'a> {
-    http_requests: &'a [ApiHttpRequestMetric],
-    http_durations: &'a [ApiHttpDurationMetric],
-    overload_rejections: &'a [ApiOverloadRejectionMetric],
     lakehouse_batch_runs: &'a [LakehouseBatchRunMetric],
     ingestion_runs: &'a [IngestionRunMetric],
     outbox_queues: &'a [OutboxQueueMetric],
@@ -654,14 +677,6 @@ fn metrics_body(
             "# HELP foundation_api_db_pool_max_connections Configured maximum SQLx PostgreSQL pool connections.\n",
             "# TYPE foundation_api_db_pool_max_connections gauge\n",
             "foundation_api_db_pool_max_connections {}\n",
-            "# HELP foundation_api_http_requests_total HTTP requests handled by method, canonical route, and status.\n",
-            "# TYPE foundation_api_http_requests_total counter\n",
-            "# HELP foundation_api_http_request_duration_seconds HTTP request duration by method, canonical route, status, and latency bucket.\n",
-            "# TYPE foundation_api_http_request_duration_seconds histogram\n",
-            "# HELP foundation_api_http_request_timeout_total HTTP requests timed out by canonical route.\n",
-            "# TYPE foundation_api_http_request_timeout_total counter\n",
-            "# HELP foundation_api_http_overload_rejected_total HTTP requests rejected before route handling by reason.\n",
-            "# TYPE foundation_api_http_overload_rejected_total counter\n",
             "# HELP foundation_platform_lakehouse_batch_last_success_created_at_seconds Latest successful lakehouse batch run creation time by contract.\n",
             "# TYPE foundation_platform_lakehouse_batch_last_success_created_at_seconds gauge\n",
             "# HELP foundation_platform_lakehouse_batch_last_success_recorded_at_seconds Latest successful lakehouse batch run audit record time by contract.\n",
@@ -696,71 +711,11 @@ fn metrics_body(
         env!("CARGO_PKG_VERSION")
     );
 
-    append_http_request_metrics(&mut body, metrics.http_requests);
-    append_http_duration_metrics(&mut body, metrics.http_durations);
-    append_http_timeout_metrics(&mut body, metrics.http_requests);
-    append_overload_rejection_metrics(&mut body, metrics.overload_rejections);
     append_lakehouse_batch_run_metrics(&mut body, metrics.lakehouse_batch_runs);
     append_ingestion_run_metrics(&mut body, metrics.ingestion_runs);
     append_outbox_queue_metrics(&mut body, metrics.outbox_queues);
 
     body
-}
-
-fn append_http_duration_metrics(body: &mut String, metrics: &[ApiHttpDurationMetric]) {
-    for metric in metrics {
-        let method = prometheus_label_value(&metric.method);
-        let route = prometheus_label_value(&metric.route);
-        let le = prometheus_label_value(&metric.le);
-        let status = metric.status;
-        let count = metric.count;
-        let _ = writeln!(
-            body,
-            "foundation_api_http_request_duration_seconds_bucket{{method=\"{method}\",route=\"{route}\",status=\"{status}\",le=\"{le}\"}} {count}"
-        );
-    }
-}
-
-fn append_overload_rejection_metrics(body: &mut String, metrics: &[ApiOverloadRejectionMetric]) {
-    for metric in metrics {
-        let reason = prometheus_label_value(&metric.reason);
-        let count = metric.count;
-        let _ = writeln!(
-            body,
-            "foundation_api_http_overload_rejected_total{{reason=\"{reason}\"}} {count}"
-        );
-    }
-}
-
-fn append_http_timeout_metrics(body: &mut String, metrics: &[ApiHttpRequestMetric]) {
-    let mut timeouts = BTreeMap::<String, u64>::new();
-    let timeout_status = StatusCode::REQUEST_TIMEOUT.as_u16();
-    for metric in metrics {
-        if metric.status != timeout_status {
-            continue;
-        }
-        let count = timeouts.entry(metric.route.clone()).or_insert(0);
-        *count = count.saturating_add(metric.count);
-    }
-    for (route, count) in timeouts {
-        let route = prometheus_label_value(&route);
-        let _ = writeln!(
-            body,
-            "foundation_api_http_request_timeout_total{{route=\"{route}\"}} {count}"
-        );
-    }
-}
-
-fn append_http_request_metrics(body: &mut String, metrics: &[ApiHttpRequestMetric]) {
-    for metric in metrics {
-        let method = prometheus_label_value(&metric.method);
-        let route = prometheus_label_value(&metric.route);
-        let _ = writeln!(
-            body,
-            "foundation_api_http_requests_total{{method=\"{}\",route=\"{}\",status=\"{}\"}} {}",
-            method, route, metric.status, metric.count
-        );
-    }
 }
 
 fn append_lakehouse_batch_run_metrics(body: &mut String, metrics: &[LakehouseBatchRunMetric]) {
