@@ -3,7 +3,9 @@
 //! `fixtures/` holds synthetic objects (item numbers `99…`, PNUs under the synthetic 99999 code,
 //! 2099 dates) with the cases the job's own tests held and the values a provider may send, and
 //! `spark_<role>.txt`: what `data_go_kr_onbid.rows_of` / `photo_rows_of` built from them before the
-//! job was removed, one row per line, its columns joined by `|`, sorted. The engine-equality verdict
+//! job was removed, one row per line, its columns joined by `|`, sorted, with one correction: a
+//! provider time is read as its fixed 12 or 14 digits (`onbid_kst`), not as the job's `strptime`
+//! misread a 12-digit minute (09:30 as 09:03:00). The engine-equality verdict
 //! the move was made on ran the same SQL over the production objects; this keeps the binary on the
 //! job's rows. `fixtures/rows_<role>.sql` is the row SQL the verdict ran: the binary renders the same
 //! text.
