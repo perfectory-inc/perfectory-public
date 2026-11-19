@@ -455,7 +455,9 @@ jobs:
             --destination $toolDirectory --platform windows-x86_64 --timeout-seconds 30
           $env:PATH = "$toolDirectory$([IO.Path]::PathSeparator)$env:PATH"
           Set-Location platforms/foundation-platform
-          cargo run --locked -p foundation-outbox-publisher -- verify-static-release-toolchain
+          # Root ADR-0581: the verifier's own crate, not the whole publisher. Building the publisher
+          # cold on Windows (DuckDB and rdkafka included) was 783-840 s of this job's 823-898 s.
+          cargo run --locked -p foundation-publisher-tiles --bin verify-static-release-toolchain
 
   supply-chain:
     needs: [scope]
