@@ -110,3 +110,7 @@
 - 경보의 한계: `off`·`main_unreadable` 틱은 main 의 커밋 목록을 읽기 전에 끝나므로 뒤처짐 시계를 남기지 않는다.
   미러를 못 읽는 틱도 목록이 없다. 그때는 틱의 `reason` 만 보인다. 새 스크립트와 규칙은 다음 배포로 호스트에
   간다 — 지금처럼 배포가 막힌 동안에는 이 경보도 배포되지 않는다(#961 이 먼저다).
+
+---
+
+2026-11-19 개정 주: PR 은 릴리스 빌드 시험을 머지 큐에 맡긴다(큐만 돈다): [ADR-0580](./0580-a-runner-is-taken-only-by-a-job-whose-work-outweighs-its-setup-and-the-release-dry-run-runs-once-in-the-merge-queue.md).
