@@ -22,11 +22,11 @@ async fn main() -> anyhow::Result<()> {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .context("cannot build the HTTP client")?;
-    let discovery = oidc::discover(&http, &config)
+    let provider = oidc::Provider::discover(&http, &config)
         .await
         .context("cannot read the issuer's discovery document; is the tunnel open?")?;
     let bind = config.bind;
-    let app = router(Arc::new(AppState::new(config, discovery, http)));
+    let app = router(Arc::new(AppState::new(config, provider, http)));
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("cannot listen on {bind}"))?;

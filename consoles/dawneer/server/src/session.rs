@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
-use crate::oidc::Identity;
+use crate::oidc::{Identity, Tokens};
 
 /// A sign-in that has left for the issuer and not come back yet.
 const PENDING_TTL: Duration = Duration::from_mins(10);
@@ -21,6 +21,8 @@ const SESSION_TTL: Duration = Duration::from_hours(12);
 pub struct PendingLogin {
     /// PKCE verifier.
     pub verifier: String,
+    /// The nonce the ID token must carry.
+    pub nonce: String,
     created: Instant,
 }
 
@@ -43,23 +45,22 @@ pub struct Session {
 }
 
 impl Session {
-    /// A new session created now.
+    /// A new session created now from a verified sign-in; an access token whose lifetime the
+    /// issuer did not say is taken to live `default_lifetime`.
     #[must_use]
     pub fn new(
         identity: Identity,
-        access_token: String,
-        refresh_token: Option<String>,
-        expires_in: Duration,
-        id_token: Option<String>,
+        tokens: Tokens,
         csrf: String,
+        default_lifetime: Duration,
     ) -> Self {
         let now = Instant::now();
         Self {
             identity,
-            access_token,
-            refresh_token,
-            access_expires: now + expires_in,
-            id_token,
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            access_expires: now + tokens.expires_in.unwrap_or(default_lifetime),
+            id_token: tokens.id_token,
             csrf,
             created: now,
         }
@@ -75,13 +76,14 @@ pub struct SessionStore {
 
 impl SessionStore {
     /// Remembers a sign-in that is leaving for the issuer.
-    pub async fn begin(&self, state: String, verifier: String) {
+    pub async fn begin(&self, state: String, verifier: String, nonce: String) {
         let mut pending = self.pending.lock().await;
         pending.retain(|_, p| p.created.elapsed() < PENDING_TTL);
         pending.insert(
             state,
             PendingLogin {
                 verifier,
+                nonce,
                 created: Instant::now(),
             },
         );

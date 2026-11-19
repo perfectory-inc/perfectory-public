@@ -13,8 +13,11 @@ workspace = true
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+axum-extra = { workspace = true }
 base64 = { workspace = true }
+cookie = { workspace = true }
 getrandom = { workspace = true }
+openidconnect = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -27,4 +30,7 @@ tracing-subscriber = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+chrono = { workspace = true }
+rand = { workspace = true }
+rsa = { workspace = true }
 tower = { workspace = true }

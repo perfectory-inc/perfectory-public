@@ -1,7 +1,7 @@
 //! The whole sign-in → relay → sign-out path against a fake issuer and a fake Foundation.
 
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::body::{to_bytes, Body};
 use axum::extract::{Form, Path, State};
@@ -10,7 +10,16 @@ use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use dawneer_server::app::{router, AppState, CSRF_HEADER, SESSION_COOKIE};
 use dawneer_server::config::Config;
-use dawneer_server::oidc::{self, pkce_challenge};
+use dawneer_server::oidc::Provider;
+use openidconnect::core::{
+    CoreIdToken, CoreIdTokenClaims, CoreJsonWebKeySet, CoreJwsSigningAlgorithm,
+    CoreRsaPrivateSigningKey,
+};
+use openidconnect::{
+    AccessToken, Audience, EmptyAdditionalClaims, IssuerUrl, JsonWebKeyId, Nonce,
+    PrivateSigningKey as _, StandardClaims, SubjectIdentifier,
+};
+use rsa::pkcs1::{EncodeRsaPrivateKey as _, LineEnding};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tower::ServiceExt;
@@ -22,12 +31,120 @@ const CLIENT_ID: &str = "dawneer-test-client";
 const CLIENT_SECRET: &str = "dawneer-test-secret";
 const PROJECT: &str = "999990000000000001";
 const ITEM: &str = "00000000-0000-5000-8000-000000000001";
+const SUBJECT: &str = "999990000000000042";
 
-/// What the fake issuer expects the verifier to hash to.
+/// The PKCE S256 challenge of a verifier (RFC 7636 §4.2), as the issuer computes it.
+fn pkce_challenge(verifier: &str) -> String {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(verifier))
+}
+
+/// An RSA key made once per test binary, as PKCS#1 PEM: no private key is committed.
+fn rsa_pem(slot: &'static OnceLock<String>) -> &'static str {
+    slot.get_or_init(|| {
+        let key = rsa::RsaPrivateKey::new(&mut rand::rngs::OsRng, 2048)
+            .unwrap_or_else(|error| unreachable!("an RSA key could not be made: {error}"));
+        key.to_pkcs1_pem(LineEnding::LF)
+            .unwrap_or_else(|error| unreachable!("the RSA key could not be encoded: {error}"))
+            .to_string()
+    })
+}
+
+fn issuer_key() -> Result<CoreRsaPrivateSigningKey, String> {
+    static PEM: OnceLock<String> = OnceLock::new();
+    CoreRsaPrivateSigningKey::from_pem(
+        rsa_pem(&PEM),
+        Some(JsonWebKeyId::new("issuer-key".to_owned())),
+    )
+}
+
+/// A key the issuer never published, with the issuer's key id.
+fn stranger_key() -> Result<CoreRsaPrivateSigningKey, String> {
+    static PEM: OnceLock<String> = OnceLock::new();
+    CoreRsaPrivateSigningKey::from_pem(
+        rsa_pem(&PEM),
+        Some(JsonWebKeyId::new("issuer-key".to_owned())),
+    )
+}
+
+/// How the fake issuer's next ID token is made.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum IdTokenKind {
+    /// Signed with the published key, for this client and project, with the sign-in's nonce.
+    #[default]
+    Genuine,
+    /// Carries another nonce: a token issued for some other sign-in.
+    OtherNonce,
+    /// Signed with a key the issuer never published.
+    StrangerKey,
+    /// Also names an audience the console does not trust.
+    ForeignAudience,
+    /// Already expired.
+    Expired,
+    /// The token response carries no ID token.
+    Missing,
+}
+
+/// What the fake issuer expects the verifier to hash to, the nonce the sign-in sent, and how its
+/// next ID token is made.
 #[derive(Default)]
 struct Issuer {
     base: Mutex<String>,
     challenge: Mutex<String>,
+    nonce: Mutex<String>,
+    kind: Mutex<IdTokenKind>,
+}
+
+impl Issuer {
+    async fn id_token(&self, access_token: &str) -> Result<Option<String>, String> {
+        let kind = *self.kind.lock().await;
+        if kind == IdTokenKind::Missing {
+            return Ok(None);
+        }
+        let base = self.base.lock().await.clone();
+        let mut audiences = vec![
+            Audience::new(CLIENT_ID.to_owned()),
+            Audience::new(PROJECT.to_owned()),
+        ];
+        if kind == IdTokenKind::ForeignAudience {
+            audiences.push(Audience::new("another-application".to_owned()));
+        }
+        let now = chrono::Utc::now();
+        let expiration = if kind == IdTokenKind::Expired {
+            now - chrono::Duration::minutes(5)
+        } else {
+            now + chrono::Duration::hours(1)
+        };
+        let nonce = if kind == IdTokenKind::OtherNonce {
+            "another-sign-in".to_owned()
+        } else {
+            self.nonce.lock().await.clone()
+        };
+        let claims = CoreIdTokenClaims::new(
+            IssuerUrl::new(base).map_err(|error| error.to_string())?,
+            audiences,
+            expiration,
+            now,
+            StandardClaims::new(SubjectIdentifier::new(SUBJECT.to_owned())),
+            EmptyAdditionalClaims {},
+        )
+        .set_nonce(Some(Nonce::new(nonce)));
+        let key = if kind == IdTokenKind::StrangerKey {
+            stranger_key()?
+        } else {
+            issuer_key()?
+        };
+        let token = CoreIdToken::new(
+            claims,
+            &key,
+            CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
+            Some(&AccessToken::new(access_token.to_owned())),
+            None,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(Some(token.to_string()))
+    }
 }
 
 async fn discovery(State(issuer): State<Arc<Issuer>>) -> Json<Value> {
@@ -38,7 +155,27 @@ async fn discovery(State(issuer): State<Arc<Issuer>>) -> Json<Value> {
         "token_endpoint": format!("{base}/oauth/v2/token"),
         "userinfo_endpoint": format!("{base}/oidc/v1/userinfo"),
         "end_session_endpoint": format!("{base}/oidc/v1/end_session"),
+        "jwks_uri": format!("{base}/oauth/v2/keys"),
+        "response_types_supported": ["code"],
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["RS256"],
     }))
+}
+
+/// The issuer's published key; never the stranger's.
+async fn keys() -> (StatusCode, Json<Value>) {
+    match issuer_key() {
+        Ok(key) => (
+            StatusCode::OK,
+            Json(json!(CoreJsonWebKeySet::new(vec![
+                key.as_verification_key()
+            ]))),
+        ),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": error })),
+        ),
+    }
 }
 
 async fn token(
@@ -70,12 +207,23 @@ async fn token(
             Json(json!({"error": "invalid_grant"})),
         );
     }
-    (
-        StatusCode::OK,
-        Json(
-            json!({"access_token": "access-1", "refresh_token": "refresh-1", "expires_in": 3600, "id_token": "id-1"}),
-        ),
-    )
+    let mut body = json!({
+        "access_token": "access-1",
+        "token_type": "Bearer",
+        "refresh_token": "refresh-1",
+        "expires_in": 3600,
+    });
+    match issuer.id_token("access-1").await {
+        Ok(Some(id_token)) => body["id_token"] = json!(id_token),
+        Ok(None) => {}
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": error })),
+            )
+        }
+    }
+    (StatusCode::OK, Json(body))
 }
 
 async fn userinfo(headers: HeaderMap) -> (StatusCode, Json<Value>) {
@@ -87,7 +235,7 @@ async fn userinfo(headers: HeaderMap) -> (StatusCode, Json<Value>) {
         (
             StatusCode::OK,
             Json(
-                json!({"sub": "999990000000000042", "name": "Synthetic Steward", "email": "steward@example.test"}),
+                json!({"sub": SUBJECT, "name": "Synthetic Steward", "email": "steward@example.test"}),
             ),
         )
     } else {
@@ -163,6 +311,7 @@ async fn harness() -> Result<Harness, Box<dyn std::error::Error + Send + Sync>> 
         Router::new()
             .route("/.well-known/openid-configuration", get(discovery))
             .route("/oauth/v2/token", post(token))
+            .route("/oauth/v2/keys", get(keys))
             .route("/oidc/v1/userinfo", get(userinfo))
             .route("/ui/login/{*rest}", any(login_page))
             .with_state(issuer.clone()),
@@ -188,9 +337,9 @@ async fn harness() -> Result<Harness, Box<dyn std::error::Error + Send + Sync>> 
         web_dir,
     };
     let http = reqwest::Client::new();
-    let discovery = oidc::discover(&http, &config).await?;
+    let provider = Provider::discover(&http, &config).await?;
     Ok(Harness {
-        app: router(Arc::new(AppState::new(config, discovery, http))),
+        app: router(Arc::new(AppState::new(config, provider, http))),
         issuer,
     })
 }
@@ -203,10 +352,10 @@ async fn body_json(
     )?)
 }
 
-/// Signs in and returns the session cookie and CSRF value.
-async fn sign_in(
+/// Leaves for the issuer and comes back with its code; returns the callback's response.
+async fn sign_in_callback(
     h: &Harness,
-) -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<axum::response::Response, Box<dyn std::error::Error + Send + Sync>> {
     let login = h
         .app
         .clone()
@@ -238,15 +387,27 @@ async fn sign_in(
         "the project audience scope is what makes Foundation accept the token"
     );
     *h.issuer.challenge.lock().await = query.get("code_challenge").cloned().unwrap_or_default();
+    let nonce = query.get("nonce").ok_or("the sign-in sends no nonce")?;
+    assert!(
+        nonce.len() >= 22,
+        "the nonce is a fresh random value: {nonce}"
+    );
+    *h.issuer.nonce.lock().await = nonce.clone();
     let state = query.get("state").ok_or("no state")?;
-    let callback = h
-        .app
+    Ok(h.app
         .clone()
         .oneshot(
             Request::get(format!("/auth/callback?code=code-ok&state={state}"))
                 .body(Body::empty())?,
         )
-        .await?;
+        .await?)
+}
+
+/// Signs in and returns the session cookie and CSRF value.
+async fn sign_in(
+    h: &Harness,
+) -> Result<(String, String), Box<dyn std::error::Error + Send + Sync>> {
+    let callback = sign_in_callback(h).await?;
     assert_eq!(callback.status(), StatusCode::SEE_OTHER);
     let cookie = callback
         .headers()
@@ -486,5 +647,26 @@ async fn sign_in_pages_are_relayed_on_the_console_origin_without_the_console_ses
         body.starts_with(b"<!doctype html><title>Dawneer"),
         "Zitadel's own console is not relayed; the path falls to the screens"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_id_token_that_does_not_verify_signs_nobody_in() -> TestResult {
+    for kind in [
+        IdTokenKind::OtherNonce,
+        IdTokenKind::StrangerKey,
+        IdTokenKind::ForeignAudience,
+        IdTokenKind::Expired,
+        IdTokenKind::Missing,
+    ] {
+        let h = harness().await?;
+        *h.issuer.kind.lock().await = kind;
+        let callback = sign_in_callback(&h).await?;
+        assert_eq!(callback.status(), StatusCode::BAD_GATEWAY, "{kind:?}");
+        assert!(
+            callback.headers().get(header::SET_COOKIE).is_none(),
+            "{kind:?}: no session cookie"
+        );
+    }
     Ok(())
 }

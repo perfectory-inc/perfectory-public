@@ -14,12 +14,13 @@ use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
+use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use serde::Deserialize;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::config::Config;
-use crate::oidc::{self, Discovery};
+use crate::oidc::{self, Provider};
 use crate::relay;
 use crate::session::{Session, SessionStore};
 
@@ -29,24 +30,28 @@ pub const SESSION_COOKIE: &str = "dawneer_session";
 pub const CSRF_HEADER: &str = "x-dawneer-csrf";
 /// Refresh the access token when it has less than this left.
 const REFRESH_MARGIN: Duration = Duration::from_mins(1);
+/// How long an access token is taken to live when the issuer does not say.
+const DEFAULT_ACCESS_LIFETIME: Duration = Duration::from_mins(5);
+/// How long the session cookie is kept (the session store ends the session itself).
+const SESSION_COOKIE_LIFETIME: cookie::time::Duration = cookie::time::Duration::hours(12);
 /// Largest request body relayed (a decision is a few hundred bytes).
 const BODY_LIMIT: usize = 64 * 1024;
 
 /// Everything a request handler needs.
 pub struct AppState {
     config: Config,
-    discovery: Discovery,
+    provider: Provider,
     http: reqwest::Client,
     sessions: SessionStore,
 }
 
 impl AppState {
-    /// Builds the state from settings and the issuer's discovery document.
+    /// Builds the state from settings and the discovered issuer.
     #[must_use]
-    pub fn new(config: Config, discovery: Discovery, http: reqwest::Client) -> Self {
+    pub fn new(config: Config, provider: Provider, http: reqwest::Client) -> Self {
         Self {
             config,
-            discovery,
+            provider,
             http,
             sessions: SessionStore::default(),
         }
@@ -232,40 +237,27 @@ fn plain(status: StatusCode, message: &'static str) -> Response {
     (status, [(header::CACHE_CONTROL, "no-store")], message).into_response()
 }
 
-fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(';'))
-        .find_map(|pair| {
-            let (key, value) = pair.trim().split_once('=')?;
-            (key == name).then(|| value.to_owned())
-        })
-}
-
-fn session_cookie(state: &AppState, value: &str, max_age: u64) -> String {
-    let secure = if state.config.secure_cookies() {
-        "; Secure"
-    } else {
-        ""
-    };
-    format!("{SESSION_COOKIE}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}")
+/// The session cookie: a random id, `HttpOnly`, `SameSite=Lax`, `Secure` on https, `Path=/`.
+fn session_cookie(state: &AppState, value: String) -> Cookie<'static> {
+    Cookie::build((SESSION_COOKIE, value))
+        .path("/")
+        .http_only(true)
+        .same_site(SameSite::Lax)
+        .secure(state.config.secure_cookies())
+        .build()
 }
 
 async fn login(State(state): State<Arc<AppState>>) -> Response {
-    let (Ok(login_state), Ok(verifier)) = (oidc::random_token(32), oidc::random_token(48)) else {
-        return plain(StatusCode::SERVICE_UNAVAILABLE, "no randomness available");
-    };
-    let Ok(url) = oidc::authorize_url(&state.discovery, &state.config, &login_state, &verifier)
-    else {
-        return plain(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "redirect URI is misconfigured",
-        );
-    };
-    state.sessions.begin(login_state, verifier).await;
-    Redirect::to(url.as_str()).into_response()
+    let authorization = state.provider.authorize();
+    state
+        .sessions
+        .begin(
+            authorization.state,
+            authorization.verifier,
+            authorization.nonce,
+        )
+        .await;
+    Redirect::to(authorization.url.as_str()).into_response()
 }
 
 #[derive(Deserialize)]
@@ -292,28 +284,14 @@ async fn callback(
             "unknown or expired sign-in; start again",
         );
     };
-    let tokens = match oidc::exchange_code(
-        &state.http,
-        &state.discovery,
-        &state.config,
-        &code,
-        &pending.verifier,
-    )
-    .await
+    let (identity, tokens) = match state
+        .provider
+        .finish(&state.http, code, pending.verifier, pending.nonce)
+        .await
     {
-        Ok(tokens) => tokens,
+        Ok(signed_in) => signed_in,
         Err(error) => {
-            tracing::warn!(%error, "code exchange failed");
-            return plain(
-                StatusCode::BAD_GATEWAY,
-                "the sign-in could not be completed",
-            );
-        }
-    };
-    let identity = match oidc::userinfo(&state.http, &state.discovery, &tokens.access_token).await {
-        Ok(identity) => identity,
-        Err(error) => {
-            tracing::warn!(%error, "userinfo failed");
+            tracing::warn!(%error, "sign-in refused");
             return plain(
                 StatusCode::BAD_GATEWAY,
                 "the sign-in could not be completed",
@@ -324,20 +302,12 @@ async fn callback(
         return plain(StatusCode::SERVICE_UNAVAILABLE, "no randomness available");
     };
     tracing::info!(sub = %identity.sub, "staff signed in");
-    let session = Session::new(
-        identity,
-        tokens.access_token,
-        tokens.refresh_token,
-        Duration::from_secs(tokens.expires_in.unwrap_or(300)),
-        tokens.id_token,
-        csrf,
-    );
+    let session = Session::new(identity, tokens, csrf, DEFAULT_ACCESS_LIFETIME);
     state.sessions.insert(id.clone(), session).await;
-    let mut response = Redirect::to("/").into_response();
-    if let Ok(value) = HeaderValue::from_str(&session_cookie(&state, &id, 12 * 3600)) {
-        response.headers_mut().insert(header::SET_COOKIE, value);
-    }
-    response
+    let mut cookie = session_cookie(&state, id);
+    cookie.set_max_age(SESSION_COOKIE_LIFETIME);
+    let jar = CookieJar::new().add(cookie);
+    (jar, Redirect::to("/")).into_response()
 }
 
 /// A state-changing request must come from this origin and echo the session's CSRF value.
@@ -353,7 +323,10 @@ fn csrf_ok(state: &AppState, headers: &HeaderMap, session: &Session) -> bool {
 }
 
 async fn current(state: &AppState, headers: &HeaderMap) -> Option<(String, Session)> {
-    let id = cookie_value(headers, SESSION_COOKIE)?;
+    let id = CookieJar::from_headers(headers)
+        .get(SESSION_COOKIE)?
+        .value()
+        .to_owned();
     let session = state.sessions.get(&id).await?;
     Some((id, session))
 }
@@ -366,9 +339,9 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
         return plain(StatusCode::FORBIDDEN, "missing or wrong CSRF token");
     }
     state.sessions.remove(&id).await;
-    let end_session = state.discovery.end_session_endpoint.clone().map(|mut url| {
+    let end_session = state.provider.end_session_endpoint.clone().map(|mut url| {
         let mut pairs = url.query_pairs_mut();
-        pairs.append_pair("client_id", &state.config.client_id);
+        pairs.append_pair("client_id", state.provider.client_id());
         pairs.append_pair(
             "post_logout_redirect_uri",
             state.config.public_base.as_str(),
@@ -379,15 +352,14 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
         drop(pairs);
         url.to_string()
     });
-    let mut response = (
+    // A removal cookie is sent only for a cookie the request brought (cookie 0.18 `CookieJar::remove`).
+    let jar = CookieJar::from_headers(&headers).remove(session_cookie(&state, String::new()));
+    (
+        jar,
         [(header::CACHE_CONTROL, "no-store")],
         Json(serde_json::json!({ "end_session_url": end_session })),
     )
-        .into_response();
-    if let Ok(value) = HeaderValue::from_str(&session_cookie(&state, "", 0)) {
-        response.headers_mut().insert(header::SET_COOKIE, value);
-    }
-    response
+        .into_response()
 }
 
 async fn session(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
@@ -416,7 +388,7 @@ async fn access_token(state: &AppState, id: &str, session: &Session) -> Option<S
         return Some(session.access_token.clone());
     }
     let refresh_token = session.refresh_token.as_deref()?;
-    match oidc::refresh(&state.http, &state.discovery, &state.config, refresh_token).await {
+    match state.provider.refresh(&state.http, refresh_token).await {
         Ok(tokens) => {
             let token = tokens.access_token.clone();
             state
@@ -425,7 +397,7 @@ async fn access_token(state: &AppState, id: &str, session: &Session) -> Option<S
                     id,
                     tokens.access_token,
                     tokens.refresh_token,
-                    Duration::from_secs(tokens.expires_in.unwrap_or(300)),
+                    tokens.expires_in.unwrap_or(DEFAULT_ACCESS_LIFETIME),
                 )
                 .await;
             Some(token)
