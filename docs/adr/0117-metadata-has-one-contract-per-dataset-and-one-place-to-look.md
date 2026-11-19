@@ -106,3 +106,5 @@
 2026-10-01 각주: §3·§4 의 "사람이 보는 곳" 은 [ADR-0119](./0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md) 가 더니어로 구체화했다(DataHub 화면은 관리자 전용).
 
 2026-10-01 각주: §2 의 정본 방향은 [ADR-0123](./0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md) 이 바꿨다 — ODCS 계약은 Rust 레이크하우스 계약과 데이터 지도에서 생성한다.
+
+2026-11-19 각주(§6): 품질 작업은 규칙을 DataHub 의 assertion 대신 계약 파일에서 읽는다(ADR-0123 이 정본으로 정한 파일). DataHub 가 143개 중 35개만 알아서 110개는 한 번도 검사되지 않았다. 결과는 DataHub 가 그 규칙의 assertion 을 가진 곳에 그대로 쓰고, 없으면 출력에만 남긴다. 처음 검사되는 계약은 7일 동안 보고만 한다(`warned`, run 을 실패시키지 않음); DataHub 에 결과가 있던 계약은 바로 강제한다. 요약은 기계 규칙이 있는 계약·검사한 계약(표가 있음)·실행한 검사 수로 센다.

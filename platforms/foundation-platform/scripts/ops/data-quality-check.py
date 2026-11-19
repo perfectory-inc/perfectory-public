@@ -2,14 +2,26 @@
 """Runs the data contracts' executable checks and reports each result to the data catalog
 (root ADR-0117 §6, ADR-0123).
 
-For every contract in contracts/data, the assertions DataHub made from it are read back and the
-two kinds a machine can decide are run against the lakehouse with the publisher's DuckDB
-(`lakehouse-query`: the catalog's read-only token and the read-only key pair, root ADR-0565; it asked
-Trino's CLI before), each table read at its `main` snapshot:
+For every contract in contracts/data, its machine rules are read from the contract file itself and
+run against the lakehouse with the publisher's DuckDB (`lakehouse-query`: the catalog's read-only token
+and the read-only key pair, root ADR-0565; it asked Trino's CLI before), each table read at its `main`
+snapshot:
 
-- FIELD_VALUES (allowed values): rows whose value is present and not in the contract's
-  validValues are counted; any such row fails the assertion.
-- DATA_SCHEMA (SUPERSET): every column the contract names must exist in the physical table.
+- allowed values (`invalidValues` with validValues): rows whose value is present and not in the
+  contract's validValues are counted; any such row fails the rule.
+- schema (superset): every column the contract names must exist in the physical table. Every contract
+  that names a column has this rule, whether or not DataHub holds an assertion for it.
+
+The rules were read from DataHub's assertions until 2026-11-19, and DataHub held 35 of 143 contracts, so
+110 were never checked (docs/designs/data-catalog-datahub-vs-dagster.md). The files are the rules'
+source (root ADR-0123); DataHub stays where a result is written, on the assertion it made from the same
+rule, as long as it keeps the run history (coordinator decision 2026-11-19, option C). A rule DataHub
+holds no assertion for is still run and counted; its result is printed, not written there.
+
+A contract checked for the first time is report-only for REPORT_ONLY_DAYS: its failures are printed as
+`warned` and do not fail the run, so a rule nobody ran before does not page on its first day. A contract
+with any result in DataHub was checked before and is enforced at once. The first check's time is kept
+in the unit's state directory (first-checked.json).
 
 One publisher run describes every contract's table (its `main` snapshot, and its current schema's
 columns, as Trino's SHOW COLUMNS answered: a column added after the newest snapshot exists); a second
@@ -30,7 +42,8 @@ nothing pretends to have checked them. A table the lakehouse does not hold yet i
 named, not failed: a declared status of "implemented" means the code path exists (pipeline graph
 status policy), not that a load has run.
 
-Exits 1 when any assertion failed, so the scheduler's run fails and alerts.
+Exits 1 when any enforced rule failed, so the scheduler's run fails and alerts. The summary counts
+contracts with machine rules, contracts checked (their table present) and checks run.
 """
 
 import hashlib
@@ -52,7 +65,10 @@ GMS = os.environ.get("FOUNDATION_DATA_QUALITY_GMS_URL", "http://127.0.0.1:18095"
 # The admitted release's publisher (admitted-writer-runtime.sh), and where its DuckDB keeps its
 # database and spill: the unit's StateDirectory. Its memory leaves the script room in the unit's 512M.
 ADMITTED_RUNTIME = pathlib.Path(__file__).resolve().parent / "admitted-writer-runtime.sh"
-WORK = pathlib.Path(os.environ.get("STATE_DIRECTORY", "/var/lib/foundation-data-quality")) / "duckdb"
+STATE = pathlib.Path(os.environ.get("STATE_DIRECTORY", "/var/lib/foundation-data-quality"))
+WORK = STATE / "duckdb"
+FIRST_CHECKED = STATE / "first-checked.json"
+REPORT_ONLY_DAYS = 7
 DUCKDB_MEMORY_MIB = "300"
 
 
@@ -189,81 +205,130 @@ def count_sql(field_assertions, allowed):
     return f"SELECT count(*) AS total, {counts} FROM {{source}}"
 
 
-def check_contracts(paths, totals, read=lakehouse):
-    """Every contract in `paths`: described in one read, counted where changed in a second."""
-    registered = []
+def new_totals():
+    return {"passed": [], "failed": [], "warned": [], "absent": [], "unregistered": [], "unchanged": [],
+            "with_rules": [], "checked": [], "checks": []}
+
+
+def enforced(contract_id, assertions, first_checked, now):
+    """Whether a failure of this contract fails the run: it was checked before (a result in DataHub),
+    or its first check here is REPORT_ONLY_DAYS old. Records the first check of one never checked."""
+    if any(last_result(assertion) for assertion in assertions):
+        return True
+    first = first_checked.setdefault(contract_id, int(now))
+    return now - first >= REPORT_ONLY_DAYS * 86400
+
+
+def outcome(totals, passed, enforce, text):
+    totals["checks"].append(text)
+    totals["passed" if passed else ("failed" if enforce else "warned")].append(text)
+
+
+def check_contracts(paths, totals, read=lakehouse, first_checked=None, now=None):
+    """Every contract in `paths` with a machine rule in its file: described in one read, its changed
+    allowed-values rules counted in a second."""
+    first_checked = {} if first_checked is None else first_checked
+    now = time.time() if now is None else now
+    ruled = []
     for path in paths:
         contract, table, physical = contract_of(path)
+        columns = {prop["name"] for prop in table.get("properties") or []}
+        allowed = allowed_values(table)
+        if not columns and not allowed:
+            continue
+        totals["with_rules"].append(contract["id"])
         assertions = assertions_of(contract["id"])
         if not assertions:
             totals["unregistered"].append(contract["id"])
-            continue
-        registered.append((contract, table, physical, assertions))
+        ruled.append((contract, physical, columns, allowed, assertions))
 
     # The table's current schema (`{table}`), and the snapshot a count then pins to.
-    described = read([(physical, "DESCRIBE {table}", None)
-                      for _, _, physical, _ in registered])
+    described = read([(physical, "DESCRIBE {table}", None) for _, physical, _, _, _ in ruled])
     counted = []
-    for (contract, table, physical, assertions), answer in zip(registered, described):
+    for (contract, physical, columns, allowed, assertions), answer in zip(ruled, described):
         if answer.get("absent"):
             totals["absent"].append(contract["id"])
             continue
         if answer.get("error"):
             raise RuntimeError(f"{physical} could not be described: {answer['error']}")
-        columns = {row["column_name"] for row in answer["rows"]}
+        totals["checked"].append(contract["id"])
+        enforce = enforced(contract["id"], assertions, first_checked, now)
+        present = {row["column_name"] for row in answer["rows"]}
         snapshot = answer["snapshot_id"]
         # The results record the snapshot as text (DataHub's properties are strings).
         snapshot_text = str(snapshot) if snapshot is not None else None
-        allowed = allowed_values(table)
-        field_assertions = field_assertions_of(assertions)
-        rules = rules_fingerprint(field_assertions, allowed) if field_assertions else None
-        previous = unchanged_results(assertions, field_assertions, snapshot_text, rules) if field_assertions else None
+        # Each allowed-values rule of the file, with DataHub's assertion for it when it holds one.
+        urns = {field: urn for urn, field in field_assertions_of(assertions)}
+        fields = [(urns.get(field), field) for field in sorted(allowed)]
+        rules = rules_fingerprint(fields, allowed) if fields else None
+        previous = None
+        if fields and all(urn for urn, _ in fields):
+            previous = unchanged_results(assertions, fields, snapshot_text, rules)
         if previous is not None:
             totals["unchanged"].append(f"{contract['id']} snapshot={snapshot_text}")
-            for urn, field in field_assertions:
+            for urn, field in fields:
                 kind, values = previous[urn]
-                totals["passed" if kind == "SUCCESS" else "failed"].append(
-                    f"{contract['id']}.{field} invalid={values.get('invalid_rows')} (unchanged since snapshot {snapshot_text})")
-        elif field_assertions:
-            counted.append((contract, physical, snapshot, field_assertions, rules,
-                            count_sql(field_assertions, allowed)))
+                outcome(totals, kind == "SUCCESS", enforce,
+                        f"{contract['id']}.{field} invalid={values.get('invalid_rows')} (unchanged since snapshot {snapshot_text})")
+        elif fields:
+            counted.append((contract, physical, snapshot, fields, rules, enforce, count_sql(fields, allowed)))
 
-        for assertion in assertions:
-            if assertion["info"]["type"] != "DATA_SCHEMA":
-                continue
-            missing = sorted({prop["name"] for prop in table["properties"]} - columns)
-            report(assertion["urn"], not missing, {"missing_columns": ",".join(missing) or "none"})
-            totals["passed" if not missing else "failed"].append(f"{contract['id']} schema missing={missing}")
+        if columns:
+            missing = sorted(columns - present)
+            for assertion in assertions:
+                if assertion["info"]["type"] == "DATA_SCHEMA":
+                    report(assertion["urn"], not missing, {"missing_columns": ",".join(missing) or "none"})
+            outcome(totals, not missing, enforce, f"{contract['id']} schema missing={missing}")
 
-    answers = read([(physical, sql, snapshot) for _, physical, snapshot, _, _, sql in counted])
-    for (contract, physical, snapshot, field_assertions, rules, _), answer in zip(counted, answers):
+    answers = read([(physical, sql, snapshot) for _, physical, snapshot, _, _, _, sql in counted])
+    for (contract, physical, snapshot, fields, rules, enforce, _), answer in zip(counted, answers):
         if answer.get("error") or len(answer.get("rows") or []) != 1:
             raise RuntimeError(f"{physical} could not be counted: {answer.get('error') or 'no row'}")
         (row,) = answer["rows"]
         rows = int(row["total"])
-        for index, (urn, field) in enumerate(field_assertions):
+        for index, (urn, field) in enumerate(fields):
             bad = int(row[f"f{index}"])
-            report(urn, bad == 0, {"rows": rows, "invalid_rows": bad, "field": field,
-                                   "snapshot_id": "none" if snapshot is None else str(snapshot), "rules": rules})
-            totals["passed" if bad == 0 else "failed"].append(f"{contract['id']}.{field} invalid={bad}")
+            if urn is not None:
+                report(urn, bad == 0, {"rows": rows, "invalid_rows": bad, "field": field,
+                                       "snapshot_id": "none" if snapshot is None else str(snapshot), "rules": rules})
+            outcome(totals, bad == 0, enforce, f"{contract['id']}.{field} invalid={bad}")
+
+
+def read_first_checked():
+    """Contract id -> when it was first checked here (epoch seconds)."""
+    try:
+        return {str(key): int(value) for key, value in json.loads(FIRST_CHECKED.read_text(encoding="utf-8")).items()}
+    except FileNotFoundError:
+        return {}
+
+
+def write_first_checked(first_checked):
+    """Replaced whole by a rename, so a run that stops halfway leaves the previous file."""
+    FIRST_CHECKED.parent.mkdir(parents=True, exist_ok=True)
+    temporary = FIRST_CHECKED.with_name(FIRST_CHECKED.name + ".next")
+    temporary.write_text(json.dumps(first_checked, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.replace(FIRST_CHECKED)
 
 
 def main():
-    totals = {"passed": [], "failed": [], "absent": [], "unregistered": [], "unchanged": []}
+    totals = new_totals()
     contracts = sorted(CONTRACTS.glob("*.odcs.yaml"))
     if not contracts:
         sys.exit(f"data-quality: no contracts under {CONTRACTS}")
-    check_contracts(contracts, totals)
+    first_checked = read_first_checked()
+    try:
+        check_contracts(contracts, totals, first_checked=first_checked)
+    finally:
+        write_first_checked(first_checked)
     print(
-        f"data-quality: contracts={len(contracts)} passed={len(totals['passed'])} failed={len(totals['failed'])} "
-        f"absent_tables={len(totals['absent'])} unregistered={len(totals['unregistered'])} "
-        f"unchanged_tables={len(totals['unchanged'])}"
+        f"data-quality: contracts={len(contracts)} with_machine_rules={len(totals['with_rules'])} "
+        f"checked={len(totals['checked'])} checks={len(totals['checks'])} passed={len(totals['passed'])} "
+        f"failed={len(totals['failed'])} warned={len(totals['warned'])} absent_tables={len(totals['absent'])} "
+        f"unchanged_tables={len(totals['unchanged'])} not_in_datahub={len(totals['unregistered'])}"
     )
-    for label in ("failed", "absent", "unregistered"):
+    for label in ("failed", "warned", "absent"):
         for item in totals[label]:
             print(f"data-quality: {label}: {item}")
-    if totals["unregistered"]:
-        print("data-quality: register the contracts first: datahub-runtime.sh ingest data-contracts")
     # The run's last line (root ADR-0260). It writes no dataset, so a clean run changed nothing.
     if totals["failed"]:
         print(f"foundation-job-outcome failed {len(totals['failed'])} contract checks failed")
