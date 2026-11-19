@@ -53,7 +53,7 @@ MSYS_NO_PATHCONV=1 docker run --rm \
     mkdir -p "$HOME" "$XDG_CACHE_HOME" "$PNPM_HOME" "$PNPM_STORE_DIR"
     export PATH="$PNPM_HOME:$PATH"
     corepack enable --install-directory "$PNPM_HOME"
-    corepack prepare pnpm@9.12.0 --activate
+    corepack prepare pnpm@12.21.0 --activate
     cd /work/products/gongzzang
     pnpm install --frozen-lockfile --store-dir "$PNPM_STORE_DIR"
     pnpm -C apps/web test

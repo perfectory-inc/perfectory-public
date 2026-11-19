@@ -178,11 +178,11 @@ docker_args=(
   -e CARGO_TERM_COLOR=always
   -e COREPACK_HOME=/opt/corepack
   -e PNPM_HOME=/opt/pnpm
-  # pnpm reads ordinary config through npm_config_* environment variables.
-  # Passing PNPM_CONFIG_OFFLINE looks plausible but is ignored, which used to
-  # let verification retry the public registry despite `--network none`.
-  -e npm_config_store_dir=/pnpm/store
-  -e npm_config_offline=true
+  # pnpm 11 and later read config from pnpm_config_* environment variables and
+  # no longer from npm_config_* (pnpm's v10 -> v11 migration). An ignored offline
+  # setting used to let verification retry the public registry despite `--network none`.
+  -e pnpm_config_store_dir=/pnpm/store
+  -e pnpm_config_offline=true
   -e WRANGLER_SEND_METRICS=false
   -e "PERFECTORY_VERIFY_AREA=$AREA"
 )

@@ -18,6 +18,10 @@ jobs:
     name: Cargo advisories
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # Whether main has advisories, for the Renovate pulse (root ADR-0570): the check step's own outcome,
+    # not the job's (a failed setup is not an advisory).
+    outputs:
+      advisories: ${{ steps.workspaces.outcome }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -53,6 +57,7 @@ jobs:
       - name: The check refuses a planted advisory
         run: bash scripts/ci/cargo-advisories-self-test.sh
       - name: Every Cargo workspace on main
+        id: workspaces
         run: bash scripts/ci/cargo-advisories.sh check target/supply-chain/cargo-advisories.md
       - name: Upload supply-chain artifacts
         if: always()
@@ -62,8 +67,8 @@ jobs:
           path: target/supply-chain/
           if-no-files-found: error
           retention-days: 7
-  # The only job that writes: issues, nothing else, on main only, after the check that read the
-  # crates has finished in another job (root ADR-0271).
+  # The jobs that write (this and `repository` below): issues, nothing else, on main only, never in the
+  # job that reads the crates (root ADR-0271, ADR-0570).
   issue:
     name: Advisory issue
     needs: [check]
@@ -91,3 +96,40 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           CHECK_RESULT: ${{ needs.check.result }}
         run: bash scripts/ci/cargo-advisories.sh issue "$CHECK_RESULT" target/supply-chain/cargo-advisories.md
+  # Root ADR-0570: the repository against tools/github (the part the workflow token can read) and
+  # Renovate's pulse while main has advisories. One issue, opened on drift or silence, closed when
+  # clear; a run that cannot read GitHub leaves it as it is. Reads GitHub only, no crates.
+  repository:
+    name: Repository drift and Renovate pulse
+    needs: [check]
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/repository_drift.py
+            scripts/github/github-policy-json.py
+            tools/github
+          sparse-checkout-cone-mode: false
+      - name: Compare with tools/github and read Renovate's pulse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ADVISORIES: ${{ needs.check.outputs.advisories }}
+        run: |
+          mkdir -p target/repository-drift
+          python3 scripts/ci/repository_drift.py check target/repository-drift/summary.md --advisories "$ADVISORIES"
+      # The check records success|failure|unreadable and exits 0 (a crash leaves no record, and this
+      # step does not run); this step keeps the issue and then fails the run on findings.
+      - name: Keep the one issue in step
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/ci/repository_drift.py issue target/repository-drift/summary.md

@@ -3,7 +3,8 @@
 FROM node:24.20.0-bookworm@sha256:be23f54a88d34e8824c741b19b91064094f92c1c97b194144bfc8b50d67258e2 AS web
 WORKDIR /web
 # pnpm's version is package.json `packageManager`; corepack reads it.
-COPY web/package.json web/pnpm-lock.yaml /web/
+# pnpm 11 and later read their settings (overrides, allowBuilds) only from pnpm-workspace.yaml.
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml /web/
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY web /web
 RUN pnpm build

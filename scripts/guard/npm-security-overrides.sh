@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Threat model: honest-mistake detection.
-# Prevents: a package.json pnpm.overrides list edited by hand, a lockfile not regenerated from
+# Prevents: a pnpm-workspace.yaml overrides list edited by hand (or a package.json pnpm field that
+# pnpm 11+ ignores, root ADR-0572), a lockfile not regenerated from
 # the rendered overrides, or a lock still resolving a version below a recorded advisory floor
 # (root ADR-0158). The trees are every tracked pnpm-lock.yaml; the list lives in
 # tools/npm/security-overrides.contract.json and nowhere else.
