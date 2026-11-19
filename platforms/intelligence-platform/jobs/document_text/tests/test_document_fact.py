@@ -286,6 +286,15 @@ class FactRunTest(unittest.TestCase):
                 fact_run.main(["--pages", str(root), "--out", str(root / "out")])
             self.assertEqual((root / "out" / "document_fact_outcome.jsonl").read_text(encoding="utf-8"), "")
 
+    def test_the_budget_counts_the_seconds_the_unit_spent_before_the_image(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write(root, [("text_layer", "토지이용계획\n계 1,000 100.0\n산업시설용지 600 60.0\n공공시설용지 300 30.0")])
+            budget = load_contract()["document_fact"]["run_time_budget_seconds"]
+            with unittest.mock.patch.dict("os.environ", {}, clear=True):
+                fact_run.main(["--pages", str(root), "--out", str(root / "out"), "--already-spent-seconds", str(budget)])
+            self.assertEqual((root / "out" / "document_fact_outcome.jsonl").read_text(encoding="utf-8"), "")
+
     def test_an_ocr_value_without_a_total_waits_for_the_vision_check(self) -> None:
         facts, outcomes, _ = self.run_once([("ocr", "주요유치업종\n전기장비 제조업(28)")])
         self.assertEqual((facts, outcomes), ([], []))
