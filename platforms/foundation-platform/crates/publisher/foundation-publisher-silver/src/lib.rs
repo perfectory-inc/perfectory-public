@@ -151,6 +151,9 @@ pub mod place_identity;
 /// The parcel lineage's carry walk every placing producer shares (root ADR-0113 §6).
 pub mod lineage_carry;
 
+/// The parcel lineage as every consumer reads it: steward decisions in force (root ADR-0115 §9).
+pub mod lineage_steward_read;
+
 /// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
 pub mod real_transaction_gold_stage;
 pub mod registered_factory_stage;
