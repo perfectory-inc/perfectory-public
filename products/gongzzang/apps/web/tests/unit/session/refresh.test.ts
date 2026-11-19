@@ -29,7 +29,7 @@ const now = () => Math.floor(Date.now() / 1000);
 const session = (exp: number) => ({
   sub: "user_1",
   jti: "jti_old",
-  role: "Broker",
+  roles: ["Broker"],
   access_token: "at_old",
   refresh_token: "rt_old",
   id_token: "it_old",
@@ -55,7 +55,7 @@ describe("fresh session", () => {
     refreshTokens.mockResolvedValue({
       sub: "user_1",
       jti: "jti_new",
-      role: "Broker",
+      roles: ["Broker"],
       access_token: "at_new",
       refresh_token: "rt_new",
       id_token: "it_new",
