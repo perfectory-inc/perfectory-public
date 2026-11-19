@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "parcel_number_change_history",
+      "dagster_group": "collect",
       "scope": "skip-if-unchanged",
       "interruptible": false,
       "commits": "at_end",

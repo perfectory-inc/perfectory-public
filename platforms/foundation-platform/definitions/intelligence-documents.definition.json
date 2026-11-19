@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "intelligence_document_text",
+      "dagster_group": "gold",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
@@ -49,6 +50,7 @@
     },
     {
       "id": "intelligence_document_fact",
+      "dagster_group": "gold",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",

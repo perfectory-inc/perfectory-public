@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "silver_refresh_building_register_apartment_price",
+      "dagster_group": "silver",
       "scope": "full",
       "full_reason": "A new release appends every row of it, changed or not: the price lane is a part lane whose contract names no compare yet (root ADR-0317 moves it to versions).",
       "full_cost": "measured 2026-10-29 from silver.building_register_apartment_price$snapshots (read-only Trino), every commit of the load: the 2026-10-20 release appended 202,058,239 rows, 6.841 GB in six commits (five of 40,000,000 rows and one of 2,058,239); the 2026-10-11 release the same size. The 2026-10-28 figure (2,058,239 rows) was only its last commit.",

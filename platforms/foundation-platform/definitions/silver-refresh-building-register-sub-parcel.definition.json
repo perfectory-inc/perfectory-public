@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "silver_refresh_building_register_sub_parcel",
+      "dagster_group": "silver",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",

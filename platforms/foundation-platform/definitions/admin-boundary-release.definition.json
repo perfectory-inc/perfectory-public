@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "admin_boundary_release",
+      "dagster_group": "gold",
       "scope": "skip-if-unchanged",
       "interruptible": true,
       "commits": "as_it_goes",

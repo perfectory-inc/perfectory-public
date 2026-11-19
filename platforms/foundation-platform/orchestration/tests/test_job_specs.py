@@ -1411,6 +1411,39 @@ class TheDagsterStage(unittest.TestCase):
         self.refused(lambda jobs: switch_off(bake(jobs), dagster_stage="shadow", disabled_reason="off"),
                      "stays at dagster_stage airflow")
 
+    def test_every_job_names_its_group(self):
+        # Root ADR-0583 §2: a switched-off job too, so it is born where its group is when switched on.
+        specs = job_specs.load_specs()
+        self.assertEqual({spec.dagster_group for spec in specs}, set(job_specs.DAGSTER_GROUPS))
+        self.refused(lambda jobs: jobs["jobs"][0].pop("dagster_group"), "dagster_group must be one of")
+        self.refused(lambda jobs: switch_off(bake(jobs), dagster_group="serving", disabled_reason="off"),
+                     "dagster_group must be one of")
+
+    def test_a_group_moves_in_one_switch(self):
+        # Root ADR-0583 §2: in a group every switched-on job is at `dagster` or none is; the stages Airflow
+        # decides (airflow, shadow, proxied) are one side. `dagster` is not open yet, so the check is asked direct.
+        jobs = copy.deepcopy(real_inputs()[0])
+        self.assertEqual(job_specs.dagster_groups(jobs), [])
+        gold = [job for job in jobs["jobs"] if job["dagster_group"] == "gold" and job["enabled"]]
+        gold[0]["dagster_stage"] = "dagster"
+        self.assertEqual(len(job_specs.dagster_groups(jobs)), 1)
+        self.assertIn("group gold", job_specs.dagster_groups(jobs)[0])
+        for job in gold:
+            job["dagster_stage"] = "dagster"
+        self.assertEqual(job_specs.dagster_groups(jobs), [])
+
+    def test_the_groups_move_downstream_first(self):
+        # Root ADR-0583 §1: switching the groups to `dagster` in their order leaves no Airflow job started by
+        # the outputs of a job Dagster decides, at every step. The reconciler moves last, with its group.
+        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        feeders = job_specs.producers(jobs, graph)
+        for group in job_specs.DAGSTER_GROUPS:
+            for job in jobs["jobs"]:
+                if job["enabled"] and job["dagster_group"] == group:
+                    job["dagster_stage"] = "dagster"
+            self.assertEqual(job_specs.dagster_order(jobs, feeders), [], group)
+            self.assertEqual(job_specs.dagster_groups(jobs), [], group)
+
     def test_a_dagster_job_feeds_only_dagster_jobs(self):
         jobs, graph = (copy.deepcopy(value) for value in real_inputs())
         feeders = job_specs.producers(jobs, graph)

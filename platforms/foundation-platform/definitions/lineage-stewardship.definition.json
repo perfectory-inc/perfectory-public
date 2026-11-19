@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "lineage_stewardship",
+      "dagster_group": "silver",
       "scope": "skip-if-unchanged",
       "interruptible": true,
       "commits": "as_it_goes",

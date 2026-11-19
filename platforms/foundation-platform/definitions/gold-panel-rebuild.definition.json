@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "gold_panel_rebuild",
+      "dagster_group": "gold",
       "scope": "full",
       "full_reason": "It computes only the changed PNUs (root ADR-0180, ADR-0312), but writes whole: the copy-on-write MERGE rewrites every data file holding a changed PNU, and a national vintage's changes reach every file even in PNU range order (#896; about 1,400 changed PNUs a file, computed). Its unit price join appends a whole vintage whenever a hub price snapshot moves, and while that join and the hub registers were rewritten whole, root ADR-0326 sent the building panel to a full rebuild.",
       "full_cost": "measured 2026-10-29 (journal and read-only Trino $snapshots): gold.parcel_panel 2026-10-26 incremental, 48,477 PNUs changed (0.12%), 3,096 s, wrote 4.266 GB of 4.266 GB (100%); gold.building_panel 2026-10-28 full, 6,667 s, 5,945,309 rows, 1.967 GB (100%); silver.unit_official_price appended 188,745,290 rows, 0.503 GB per join, five joins 2026-10-12..21. The shape-ledger check of 2026-10-29 12:36 still reports 100% bytes on the last commit of both panels.",

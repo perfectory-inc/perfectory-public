@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "gold_court_auction_rebuild",
+      "dagster_group": "gold",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
@@ -49,6 +50,7 @@
     },
     {
       "id": "by_pnu_court_auction_bake",
+      "dagster_group": "gold",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",

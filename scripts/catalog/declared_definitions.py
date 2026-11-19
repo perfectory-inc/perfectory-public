@@ -481,6 +481,7 @@ def family_definitions(contracts):
             "enabled": True,
             "enabled_since": shared["enabled_since"],
             "dagster_stage": "shadow",
+            "dagster_group": "silver",
             "expected_outcome": dict(shared["expected_outcome"]),
         }],
         "host_memory": {job_id: [{"unit": "MemoryMax"},
