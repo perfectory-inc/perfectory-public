@@ -245,9 +245,12 @@ pub(super) async fn deferred(
     let Some(deadline) = config.partition_deadline else {
         return Ok(false);
     };
-    let root = config
-        .work_root
-        .join(format!("{}-partitions", config.unit_key));
+    let root = partition_root(config);
+    let waiting: Vec<String> = parts
+        .iter()
+        .filter(|part| !partition_archive(&root, part, bake_inputs).exists())
+        .map(|part| part.prefix.clone())
+        .collect();
     let warmed = warm_partitions(
         work,
         &root,
@@ -257,15 +260,196 @@ pub(super) async fn deferred(
         |dir| async move { super::bake_unit(config, images, &dir, columns, srid, layer).await },
     )
     .await?;
-    let Warmed::Deferred { baked, remaining } = warmed else {
+    if let Warmed::Deferred { baked, remaining } = warmed {
+        println!(
+            "lakehouse-tile-bake-deferred unit={} gold_snapshot={} baked={} remaining={}",
+            config.unit_key,
+            summary.canonical_iceberg_snapshot_id,
+            baked.join(","),
+            remaining.join(",")
+        );
+        return Ok(true);
+    }
+    // Root ADR-0576: every partition is cached. The join runs alone at the next start, which reads
+    // no handoff, unless an earlier run already left the joined archive.
+    let archives: Vec<(String, PathBuf)> = parts
+        .iter()
+        .map(|part| {
+            (
+                part.prefix.clone(),
+                partition_archive(&root, part, bake_inputs),
+            )
+        })
+        .collect();
+    if joined_archive(&root, &archives).exists() {
         return Ok(false);
-    };
+    }
+    JoinNext {
+        gold_snapshot: summary.canonical_iceberg_snapshot_id.clone(),
+        archives,
+    }
+    .write(&root)?;
     println!(
-        "lakehouse-tile-bake-deferred unit={} gold_snapshot={} baked={} remaining={}",
+        "lakehouse-tile-bake-deferred unit={} gold_snapshot={} baked={} remaining={TILE_JOIN}",
         config.unit_key,
         summary.canonical_iceberg_snapshot_id,
-        baked.join(","),
-        remaining.join(",")
+        waiting.join(",")
+    );
+    Ok(true)
+}
+
+/// What a deferred line names when every partition is cached and only the join is left.
+pub const TILE_JOIN: &str = "tile-join";
+
+/// The partition cache of the run's unit: `<work_root>/<unit>-partitions` (root ADR-0316).
+pub(super) fn partition_root(config: &super::Config) -> PathBuf {
+    config
+        .work_root
+        .join(format!("{}-partitions", config.unit_key))
+}
+
+/// Root ADR-0576: where the join of these partition archives lives under `root`, named by the
+/// archives it joins (each already named by its rows and every bake input), so the same partitions
+/// find the same joined archive and any changed one another.
+pub fn joined_archive(root: &Path, archives: &[(String, PathBuf)]) -> PathBuf {
+    let mut names: Vec<String> = archives
+        .iter()
+        .map(|(prefix, archive)| {
+            let file = archive
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            format!("{prefix}/{file}")
+        })
+        .collect();
+    names.sort();
+    let mut name = Sha256::new();
+    for each in &names {
+        name.update(each.as_bytes());
+        name.update(b"\n");
+    }
+    root.join("joined")
+        .join(format!("{:x}.pmtiles", name.finalize()))
+}
+
+/// Root ADR-0576: the join a run left for the next start, for the Gold snapshot it warmed.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct JoinNext {
+    pub gold_snapshot: String,
+    pub archives: Vec<(String, PathBuf)>,
+}
+
+impl JoinNext {
+    fn path(root: &Path) -> PathBuf {
+        root.join("join-next.json")
+    }
+
+    pub fn read(root: &Path) -> anyhow::Result<Option<Self>> {
+        let path = Self::path(root);
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                Ok(Some(serde_json::from_slice(&bytes).with_context(|| {
+                    format!("join state {}", path.display())
+                })?))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error).with_context(|| format!("join state {}", path.display())),
+        }
+    }
+
+    /// Written whole beside its final name, then renamed: a reader sees the old state or the new.
+    pub fn write(&self, root: &Path) -> anyhow::Result<()> {
+        std::fs::create_dir_all(root)?;
+        let path = Self::path(root);
+        let staged = path.with_extension("json.tmp");
+        std::fs::write(&staged, serde_json::to_vec_pretty(self)?)?;
+        std::fs::rename(&staged, &path)?;
+        Ok(())
+    }
+}
+
+/// Root ADR-0316, ADR-0576: tile-join of the partition archives into `work/unit.pmtiles`. The
+/// result is kept create-only as the joined archive; a later run that finds it links it instead of
+/// joining again.
+pub(super) async fn join_partitions(
+    config: &super::Config,
+    images: &super::ImageSet,
+    work: &Path,
+    archives: &[(String, PathBuf)],
+) -> anyhow::Result<PathBuf> {
+    let root = partition_root(config);
+    let joined = joined_archive(&root, archives);
+    let out = work.join("unit.pmtiles");
+    if joined.exists() {
+        std::fs::hard_link(&joined, &out)
+            .with_context(|| format!("joined archive {}", joined.display()))?;
+        println!(
+            "lakehouse-tile-bake-joined unit={} reused={}",
+            config.unit_key,
+            joined.display()
+        );
+        return Ok(out);
+    }
+    let join = work.join("join");
+    std::fs::create_dir_all(&join)?;
+    let mut prefixes = Vec::with_capacity(archives.len());
+    for (prefix, archive) in archives {
+        std::fs::hard_link(archive, join.join(format!("{prefix}.pmtiles")))?;
+        prefixes.push(prefix.clone());
+    }
+    let started = std::time::Instant::now();
+    let mut tile_join = super::run_args(
+        work,
+        &images.tippecanoe,
+        config.container_project.as_deref(),
+    );
+    // The image's entrypoint is tippecanoe; tile-join is installed beside it from the same commit.
+    let image = tile_join
+        .pop()
+        .context("docker run arguments end with the image")?;
+    tile_join.extend(["--entrypoint".into(), "tile-join".into(), image]);
+    tile_join.extend(tile_join_args(&prefixes));
+    super::docker(tile_join, config.tool_timeout, "tile-join").await?;
+    std::fs::remove_dir_all(&join)?;
+    std::fs::create_dir_all(root.join("joined"))?;
+    // Create-only: a named joined archive is never rewritten, and appears only once complete.
+    std::fs::hard_link(&out, &joined)
+        .with_context(|| format!("joined archive {}", joined.display()))?;
+    println!(
+        "lakehouse-tile-bake-joined unit={} partitions={} seconds={}",
+        config.unit_key,
+        archives.len(),
+        started.elapsed().as_secs()
+    );
+    Ok(out)
+}
+
+/// Root ADR-0576: a run that finds the join the last run left for this Gold snapshot joins only,
+/// before reading the handoff, and ends deferred; the next start gates, uploads and promotes the
+/// joined archive. `false` when there is no such join to do (and the run goes on as before).
+pub(super) async fn join_ahead(
+    config: &super::Config,
+    images: &super::ImageSet,
+    summary: &super::ServedSummary,
+    work: &Path,
+) -> anyhow::Result<bool> {
+    if config.partition_deadline.is_none() {
+        return Ok(false);
+    }
+    let root = partition_root(config);
+    let Some(next) = JoinNext::read(&root)? else {
+        return Ok(false);
+    };
+    if next.gold_snapshot != summary.canonical_iceberg_snapshot_id
+        || joined_archive(&root, &next.archives).exists()
+        || next.archives.iter().any(|(_, archive)| !archive.exists())
+    {
+        return Ok(false);
+    }
+    join_partitions(config, images, work, &next.archives).await?;
+    println!(
+        "lakehouse-tile-bake-deferred unit={} gold_snapshot={} baked= remaining=gate,upload,promote",
+        config.unit_key, summary.canonical_iceberg_snapshot_id
     );
     Ok(true)
 }
