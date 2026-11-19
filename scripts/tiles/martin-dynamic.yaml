@@ -10,21 +10,6 @@ postgres:
   auto_bounds: calc
   auto_publish: false
   tables:
-    parcels:
-      schema: serving_postgis
-      table: parcel_boundary_current
-      srid: 5179
-      geometry_column: geom
-      geometry_type: MULTIPOLYGON
-      layer_id: parcels
-      minzoom: 14
-      maxzoom: 16
-      # A parcel feature answers "which parcel is this polygon", and that answer is the PNU. It does
-      # not carry an industrial-complex code: membership is a dated fact read from data, and a tile
-      # baking it in would be a second, frozen answer that a designation change silently invalidates
-      # (ADR-0024, ADR-0020).
-      properties:
-        pnu: Parcel number
     admin:
       schema: serving_postgis
       table: administrative_unit_boundary_current
@@ -49,7 +34,7 @@ postgres:
       geometry_column: geom
       geometry_type: MULTIPOLYGON
       layer_id: complex
-      # Wider at the low end than `parcels` (14) and one step narrower than `admin` (5). There are
+      # One step narrower at the low end than `admin` (5). There are
       # 1,343 designation polygons in the whole country, so a z6 tile holds every complex in view
       # rather than thousands of them, and the median polygon — hundreds of thousands of square
       # metres — is still several tile units across at that zoom. At z5 it is a dot, and a marker
@@ -57,9 +42,9 @@ postgres:
       # cutting dynamic tiles for every other layer; clients overzoom past it.
       minzoom: 6
       maxzoom: 16
-      # A complex feature answers "which industrial complex is this polygon", so unlike `parcels` it
-      # carries `official_complex_code`: here the code is the feature's own identity rather than a
-      # dated membership claim about someone else's geometry (ADR-0024, ADR-0020).
+      # A complex feature answers "which industrial complex is this polygon", so it carries
+      # `official_complex_code`: here the code is the feature's own identity rather than a dated
+      # membership claim about someone else's geometry (ADR-0024, ADR-0020).
       #
       # Both properties are identities and neither expires. What is deliberately absent is
       # everything that moves — designation status, development progress, occupancy — because a tile
@@ -70,29 +55,3 @@ postgres:
       properties:
         complex_id: Stable lakehouse industrial-complex identity
         official_complex_code: Official industrial-complex code
-    parcel_anchor_aggregate:
-      schema: serving_postgis
-      table: tiles_slice_parcel_anchor_aggregate
-      srid: 4326
-      geometry_column: geom
-      geometry_type: POINT
-      layer_id: parcel_anchor_aggregate
-      minzoom: 0
-      maxzoom: 11
-      properties:
-        pnu: Representative parcel number
-        official_complex_code: Industrial-complex code
-        count: Aggregated parcel count
-    parcel_anchor:
-      schema: serving_postgis
-      table: tiles_slice_parcel_anchor
-      srid: 4326
-      geometry_column: geom
-      geometry_type: POINT
-      layer_id: parcel_anchor
-      minzoom: 12
-      maxzoom: 16
-      # Per-parcel, so the same rule as `parcels` above. The aggregate layer keeps its complex code
-      # because there the code is the feature's own identity, not a claim about a parcel.
-      properties:
-        pnu: Parcel number

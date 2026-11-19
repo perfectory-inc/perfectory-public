@@ -51,7 +51,7 @@ canonical_valkey='image: valkey/valkey:8-alpine@sha256:'
 
 compose_images=$(git ls-files \
   '*docker-compose*.yml' '*docker-compose*.yaml' '*compose*.yml' '*compose*.yaml' \
-  '*Dockerfile' '*Dockerfile.*' 'scripts/tiles/compose.yaml' '.github/workflows/*.yml' '.github/workflows/*.yaml' |
+  '*Dockerfile' '*Dockerfile.*' '.github/workflows/*.yml' '.github/workflows/*.yaml' |
   xargs -r grep -nE '^[[:space:]]*image: (postgres:|postgis/postgis:|redis:|valkey/valkey:)' || true)
 
 if [ -n "$compose_images" ]; then

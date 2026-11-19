@@ -10,16 +10,11 @@ async fn a_release_cannot_name_a_file_asset_that_does_not_exist() -> TestResult 
     run_in_disposable_database("tile_release_missing_asset", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
+        seed_publication_unit(&pool, "zoning").await?;
         let revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
-        let mut command = activation_command(
-            "parcels",
-            revision,
-            PARCELS_SNAPSHOT,
-            source_record_id,
-            None,
-        )?;
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
+        let mut command =
+            activation_command("zoning", revision, ZONING_SNAPSHOT, source_record_id, None)?;
         command
             .lineage
             .source_file_asset_ids
@@ -47,14 +42,14 @@ async fn a_file_asset_a_release_names_cannot_be_deleted() -> TestResult {
     run_in_disposable_database("tile_release_asset_delete", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
+        seed_publication_unit(&pool, "zoning").await?;
         let revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
         use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)

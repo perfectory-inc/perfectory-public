@@ -212,7 +212,6 @@ scripts/guard/the-contract-names-where-its-objects-live-self-test.sh,134,true,te
 scripts/guard/the-contract-names-where-its-objects-live.sh,74,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh,33,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/third-party-artifact-policy-self-test.sh,191,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/tiles-slice-proof-env-self-test.sh,29,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tracked-blob-sizes-self-test.sh,70,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tracked-paths-are-portable-self-test.sh,53,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tracked-paths-are-portable.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
@@ -223,8 +222,6 @@ scripts/guard/xtask-path-coverage.sh,39,true,ci,xtask,Guard run by monorepo-guar
 scripts/guard/zizmor-workflows-self-test.sh,97,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/zizmor-workflows.sh,22,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/tiles/boundary-slice-proof.sh,858,true,ci,xtask,Tile proof script run by a CI workflow
-scripts/tiles/http-evidence.sh,21,true,ci,xtask,Tile proof script run by a CI workflow
-scripts/tiles/tiles-slice-proof.sh,987,true,ci,xtask,Tile proof script run by a CI workflow
 scripts/verify/cargo-verify.sh,259,true,ci,xtask,Verification script run by CI / cargo xtask verify
 scripts/verify/foundation-kafka-live.sh,136,true,ci,xtask,Verification script run by CI / cargo xtask verify
 scripts/verify/foundation-r2-lakehouse-live.sh,128,true,ci,xtask,Verification script run by CI / cargo xtask verify

@@ -15,15 +15,15 @@ async fn an_identical_retry_is_answered_from_the_ledger_and_writes_nothing() -> 
     run_in_disposable_database("tile_true_replay", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
+        seed_publication_unit(&pool, "zoning").await?;
         let revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
         let command = || {
             activation_command_with_key(
                 "retry-me",
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )
@@ -85,18 +85,18 @@ async fn an_idempotency_key_reused_for_a_different_request_is_refused() -> TestR
     run_in_disposable_database("tile_key_reuse", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
+        seed_publication_unit(&pool, "zoning").await?;
         let revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
         let next_revision =
-            seed_data_revision(&pool, "parcels", NEXT_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "zoning", NEXT_SNAPSHOT, source_record_id).await?;
 
         let published = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command_with_key(
                 "reused-key",
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
@@ -106,12 +106,12 @@ async fn an_idempotency_key_reused_for_a_different_request_is_refused() -> TestR
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command_with_key(
                 "reused-key",
-                "parcels",
+                "zoning",
                 next_revision,
                 NEXT_SNAPSHOT,
                 source_record_id,
                 Some((
-                    published_unit(&published, "parcels")?.active_release_id,
+                    published_unit(&published, "zoning")?.active_release_id,
                     ServingGeneration::new(1)?,
                 )),
             )?)
@@ -150,8 +150,8 @@ async fn a_key_recorded_under_another_fingerprint_version_is_named_as_such() -> 
     run_in_disposable_database("tile_fingerprint_version", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+        seed_publication_unit(&pool, "zoning").await?;
+        let revision = seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
 
         // A key left by a deployment that computed fingerprints differently. The digest is
         // irrelevant — it is never reached.
@@ -170,9 +170,9 @@ async fn a_key_recorded_under_another_fingerprint_version_is_named_as_such() -> 
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command_with_key(
                 "older-encoding",
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
@@ -206,8 +206,8 @@ async fn a_key_held_by_an_uncommitted_transaction_answers_contended() -> TestRes
     run_in_disposable_database("tile_key_contended", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+        seed_publication_unit(&pool, "zoning").await?;
+        let revision = seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
 
         // Hold the key from a transaction that never commits. `outcome_manifest_id` may name a
         // manifest that does not exist because the foreign key is deferred to commit time, and this
@@ -227,9 +227,9 @@ async fn a_key_held_by_an_uncommitted_transaction_answers_contended() -> TestRes
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command_with_key(
                 "contended-key",
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)

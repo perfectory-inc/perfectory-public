@@ -89,7 +89,6 @@
         "products/gongzzang/.markdownlintignore",
         "products/gongzzang/.npmrc",
         "products/gongzzang/crates/foundation-platform-client/openapi/catalog.v1.json",
-        "scripts/tiles/vector-tile-manifest.local.json",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/config/cdn-front-door.contract.json",
         "platforms/foundation-platform/infra/lakehouse/contracts/rt-molit-real-transaction.contract.json",
@@ -286,7 +285,6 @@
           "**/package.json",
           ".github/workflows/**",
           "**/*compose*.yml",
-          "**/*compose*.yaml",
           "**/Dockerfile*"
         ]
       },
@@ -706,12 +704,6 @@
         "paths": [
           "scripts/github/**",
           "tools/github/**"
-        ]
-      },
-      {
-        "name": "tiles-slice-proof-env-self-test",
-        "paths": [
-          "scripts/tiles/**"
         ]
       },
       {

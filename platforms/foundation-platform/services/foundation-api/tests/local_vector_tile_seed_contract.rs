@@ -50,23 +50,3 @@ fn local_vector_tile_seed_matches_object_key_manifest_contract() {
     assert!(upsert.contains("current_version = EXCLUDED.current_version"));
     assert!(upsert.contains("previous_version = EXCLUDED.previous_version"));
 }
-
-#[test]
-fn local_v2_seed_is_additive_and_selects_one_complete_parcel_source() {
-    let seed = include_str!("../../../infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql");
-    assert!(seed.contains("catalog.vector_tile_publication_unit"));
-    assert!(seed.contains("catalog.vector_tile_release"));
-    assert!(seed.contains("source_kind, martin_source_id"));
-    assert!(seed.contains("'dynamic_postgis'"));
-    assert!(seed.contains("'parcels'"));
-    assert!(seed.contains("/parcels/{z}/{x}/{y}"));
-    assert!(seed.contains("catalog.vector_tile_runtime_manifest_pointer"));
-    assert!(seed.contains("serving_postgis.parcel_boundary_publication"));
-    // The seed's release used to name a projection revision no row anywhere held. The release now
-    // carries a foreign key to `serving_postgis.spatial_projection_load` and the promotion gate
-    // refuses a dynamic unit whose load did not succeed, so a seed that stops minting the load stops
-    // being promotable — this asserts it mints one, and closes it.
-    assert!(seed.contains("serving_postgis.spatial_projection_load"));
-    assert!(seed.contains("'succeeded'"));
-    assert!(!seed.contains("catalog.vector_tile_manifest"));
-}

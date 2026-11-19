@@ -38,10 +38,6 @@ use uuid::Uuid;
 
 use foundation_disposable_database::{run_in_disposable_database, TestResult};
 
-#[path = "support/spatial_tile_publication_evidence.rs"]
-mod spatial_tile_publication_evidence;
-use spatial_tile_publication_evidence::seed_parcel_source_evidence;
-
 #[path = "spatial_tile_publication/idempotency.rs"]
 mod idempotency;
 #[path = "spatial_tile_publication/lakehouse_bake.rs"]
@@ -72,15 +68,15 @@ async fn a_first_activation_publishes_a_complete_dynamic_manifest() -> TestResul
     run_in_disposable_database("tile_first_activation", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        let unit_id = seed_publication_unit(&pool, "parcels").await?;
+        let unit_id = seed_publication_unit(&pool, "zoning").await?;
         let revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
 
         let manifest = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
@@ -91,13 +87,10 @@ async fn a_first_activation_publishes_a_complete_dynamic_manifest() -> TestResul
         assert_eq!(manifest.refresh_after_seconds, 4);
         assert_eq!(manifest.publication_units.len(), 1);
 
-        let unit = published_unit(&manifest, "parcels")?;
+        let unit = published_unit(&manifest, "zoning")?;
         assert_eq!(unit.serving_generation.value(), 1);
         assert_eq!(unit.data_revision.as_uuid(), revision);
-        assert_eq!(
-            unit.canonical_iceberg_snapshot_id.as_str(),
-            PARCELS_SNAPSHOT
-        );
+        assert_eq!(unit.canonical_iceberg_snapshot_id.as_str(), ZONING_SNAPSHOT);
         assert!(
             matches!(unit.source, ActiveTileSource::DynamicPostgis(_)),
             "every unit enters the ledger dynamic; got {:?}",
@@ -148,7 +141,7 @@ async fn a_first_activation_publishes_a_complete_dynamic_manifest() -> TestResul
         );
         assert_eq!(
             release_row.try_get::<String, _>("martin_source_id")?,
-            "parcels"
+            "zoning"
         );
         assert!(release_row
             .try_get::<Option<Uuid>, _>("postgis_projection_revision")?
@@ -165,7 +158,7 @@ async fn a_first_activation_publishes_a_complete_dynamic_manifest() -> TestResul
         .bind(release_id)
         .fetch_all(&pool)
         .await?;
-        assert_eq!(layer_ids, vec!["parcels".to_owned()]);
+        assert_eq!(layer_ids, vec!["zoning".to_owned()]);
 
         // The immutable manifest's `file_asset` identity is preallocated at the derived key, so the
         // create-only projection written later cannot land anywhere else.
@@ -196,7 +189,7 @@ async fn a_first_activation_publishes_a_complete_dynamic_manifest() -> TestResul
             .fetch_all(&pool)
             .await?;
         assert_eq!(
-            ledger_outbox_event_id(&pool, &format!("activate-parcels-{revision}")).await?,
+            ledger_outbox_event_id(&pool, &format!("activate-zoning-{revision}")).await?,
             emitted.first().copied()
         );
         Ok(())
@@ -373,24 +366,24 @@ async fn a_stale_observation_loses_the_compare_and_swap_and_moves_nothing() -> T
     run_in_disposable_database("tile_stale_observation", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        let unit_id = seed_publication_unit(&pool, "parcels").await?;
-        let revision = seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+        let unit_id = seed_publication_unit(&pool, "zoning").await?;
+        let revision = seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
         let published = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
             .await?;
-        let active_release_id = published_unit(&published, "parcels")?.active_release_id;
-        let next_revision = seed_data_revision(&pool, "parcels", NEXT_SNAPSHOT, source_record_id).await?;
+        let active_release_id = published_unit(&published, "zoning")?.active_release_id;
+        let next_revision = seed_data_revision(&pool, "zoning", NEXT_SNAPSHOT, source_record_id).await?;
 
         // A repeated first-publication claim against a unit that has published.
         let repeated_first_claim = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command(
-                "parcels",
+                "zoning",
                 next_revision,
                 NEXT_SNAPSHOT,
                 source_record_id,
@@ -402,7 +395,7 @@ async fn a_stale_observation_loses_the_compare_and_swap_and_moves_nothing() -> T
             matches!(
                 &repeated_first_claim,
                 CatalogError::VectorTileServingStateConflict { unit_key, current, .. }
-                    if unit_key == "parcels" && current.contains("generation=1")
+                    if unit_key == "zoning" && current.contains("generation=1")
             ),
             "got: {repeated_first_claim:?}"
         );
@@ -411,7 +404,7 @@ async fn a_stale_observation_loses_the_compare_and_swap_and_moves_nothing() -> T
         // same-revision rollback re-activates a preserved release, so one id can be active twice.
         let stale_generation = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command(
-                "parcels",
+                "zoning",
                 next_revision,
                 NEXT_SNAPSHOT,
                 source_record_id,
@@ -422,7 +415,7 @@ async fn a_stale_observation_loses_the_compare_and_swap_and_moves_nothing() -> T
         assert!(
             matches!(
                 &stale_generation,
-                CatalogError::VectorTileServingStateConflict { unit_key, .. } if unit_key == "parcels"
+                CatalogError::VectorTileServingStateConflict { unit_key, .. } if unit_key == "zoning"
             ),
             "got: {stale_generation:?}"
         );
@@ -461,19 +454,19 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
     run_in_disposable_database("tile_carry_forward", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
-        let parcels_revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+        seed_publication_unit(&pool, "zoning").await?;
+        let zoning_revision =
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
         let first = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
-                "parcels",
-                parcels_revision,
-                PARCELS_SNAPSHOT,
+                "zoning",
+                zoning_revision,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
             .await?;
-        let parcels_release = published_unit(&first, "parcels")?.active_release_id;
+        let zoning_release = published_unit(&first, "zoning")?.active_release_id;
 
         // A second unit is seeded, then activated. That order is forced: its first activation is
         // also the first manifest that can name it, and a manifest naming a unit that has never
@@ -493,12 +486,12 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
 
         assert_eq!(second.manifest_generation.value(), 2);
         assert_eq!(second.publication_units.len(), 2);
-        let carried = published_unit(&second, "parcels")?;
+        let carried = published_unit(&second, "zoning")?;
         assert_eq!(
-            carried.active_release_id, parcels_release,
+            carried.active_release_id, zoning_release,
             "the untouched unit keeps its release"
         );
-        assert_eq!(carried.data_revision.as_uuid(), parcels_revision);
+        assert_eq!(carried.data_revision.as_uuid(), zoning_revision);
         assert_eq!(
             carried.serving_generation.value(),
             1,
@@ -514,21 +507,21 @@ async fn activating_one_unit_carries_every_other_unit_into_the_new_manifest() ->
         // Switching the first unit again now has to carry the second one, in the other direction.
         // Its expectation is still generation 1 — publishing `complex` did not invalidate it.
         let third_revision =
-            seed_data_revision(&pool, "parcels", NEXT_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "zoning", NEXT_SNAPSHOT, source_record_id).await?;
         let third = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
-                "parcels",
+                "zoning",
                 third_revision,
                 NEXT_SNAPSHOT,
                 source_record_id,
-                Some((parcels_release, ServingGeneration::new(1)?)),
+                Some((zoning_release, ServingGeneration::new(1)?)),
             )?)
             .await?;
 
         assert_eq!(third.manifest_generation.value(), 3);
         assert_eq!(third.publication_units.len(), 2);
-        let switched = published_unit(&third, "parcels")?;
-        assert_ne!(switched.active_release_id, parcels_release);
+        let switched = published_unit(&third, "zoning")?;
+        assert_ne!(switched.active_release_id, zoning_release);
         assert_eq!(switched.data_revision.as_uuid(), third_revision);
         assert_eq!(switched.serving_generation.value(), 2);
         let complex = published_unit(&third, "complex")?;
@@ -567,37 +560,37 @@ async fn two_edits_to_one_unit_from_one_observed_state_leave_exactly_one_winner(
     run_in_disposable_database("tile_same_unit_race", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
-        let first_revision = seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+        seed_publication_unit(&pool, "zoning").await?;
+        let first_revision = seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
         let published = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
-                "parcels",
+                "zoning",
                 first_revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
             .await?;
-        let observed = published_unit(&published, "parcels")?.active_release_id;
+        let observed = published_unit(&published, "zoning")?.active_release_id;
         let observed_generation = ServingGeneration::new(1)?;
 
         // Two different revisions, one observed state. Distinct revisions keep the release
         // uniqueness key out of it, so the compare-and-swap is the only thing that can decide.
-        let left_revision = seed_data_revision(&pool, "parcels", NEXT_SNAPSHOT, source_record_id).await?;
-        let right_revision = seed_data_revision(&pool, "parcels", FOURTH_SNAPSHOT, source_record_id).await?;
+        let left_revision = seed_data_revision(&pool, "zoning", NEXT_SNAPSHOT, source_record_id).await?;
+        let right_revision = seed_data_revision(&pool, "zoning", FOURTH_SNAPSHOT, source_record_id).await?;
         let capability = RuntimeManifestPublicationCapability::enabled();
         let left_writer = use_case(&pool, capability);
         let right_writer = use_case(&pool, capability);
         let (left, right) = tokio::join!(
             left_writer.attempt(activation_command(
-                "parcels",
+                "zoning",
                 left_revision,
                 NEXT_SNAPSHOT,
                 source_record_id,
                 Some((observed, observed_generation)),
             )?),
             right_writer.attempt(activation_command(
-                "parcels",
+                "zoning",
                 right_revision,
                 FOURTH_SNAPSHOT,
                 source_record_id,
@@ -617,7 +610,7 @@ async fn two_edits_to_one_unit_from_one_observed_state_leave_exactly_one_winner(
         assert!(
             matches!(
                 &loser,
-                CatalogError::VectorTileServingStateConflict { unit_key, .. } if unit_key == "parcels"
+                CatalogError::VectorTileServingStateConflict { unit_key, .. } if unit_key == "zoning"
             ),
             "the loser must learn its observation is stale, not that the database serialized: {loser:?}"
         );
@@ -627,7 +620,7 @@ async fn two_edits_to_one_unit_from_one_observed_state_leave_exactly_one_winner(
         let winner = expect_published(winner)?;
         assert_eq!(winner.manifest_generation.value(), 2);
         assert_eq!(
-            published_unit(&winner, "parcels")?.serving_generation.value(),
+            published_unit(&winner, "zoning")?.serving_generation.value(),
             2
         );
         assert_eq!(active_pointer(&pool).await?, winner.current_version.as_uuid());
@@ -663,19 +656,19 @@ async fn two_edits_to_different_units_both_commit_and_advance_the_global_generat
 
         // Both units published, one at a time, because a first activation is also the first manifest
         // that can name its unit.
-        seed_publication_unit(&pool, "parcels").await?;
-        let parcels_first =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+        seed_publication_unit(&pool, "zoning").await?;
+        let zoning_first =
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
         let bootstrap = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
-                "parcels",
-                parcels_first,
-                PARCELS_SNAPSHOT,
+                "zoning",
+                zoning_first,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
             .await?;
-        let parcels_release = published_unit(&bootstrap, "parcels")?.active_release_id;
+        let zoning_release = published_unit(&bootstrap, "zoning")?.active_release_id;
         seed_publication_unit(&pool, "complex").await?;
         let complex_first =
             seed_data_revision(&pool, "complex", COMPLEX_SNAPSHOT, source_record_id).await?;
@@ -692,16 +685,16 @@ async fn two_edits_to_different_units_both_commit_and_advance_the_global_generat
         let generation_before = paired.manifest_generation.value();
 
         // Both expectations are read here, before either edit runs. That is the interleaving.
-        let parcels_next =
-            seed_data_revision(&pool, "parcels", NEXT_SNAPSHOT, source_record_id).await?;
+        let zoning_next =
+            seed_data_revision(&pool, "zoning", NEXT_SNAPSHOT, source_record_id).await?;
         let complex_next =
             seed_data_revision(&pool, "complex", FOURTH_SNAPSHOT, source_record_id).await?;
-        let switch_parcels = activation_command(
-            "parcels",
-            parcels_next,
+        let switch_zoning = activation_command(
+            "zoning",
+            zoning_next,
             NEXT_SNAPSHOT,
             source_record_id,
-            Some((parcels_release, ServingGeneration::new(1)?)),
+            Some((zoning_release, ServingGeneration::new(1)?)),
         )?;
         let switch_complex = activation_command(
             "complex",
@@ -713,23 +706,23 @@ async fn two_edits_to_different_units_both_commit_and_advance_the_global_generat
         let capability = RuntimeManifestPublicationCapability::enabled();
         // Bound rather than inlined: `execute` borrows the use case, and a temporary inside
         // `join!` would be dropped while its future still holds the borrow.
-        let parcels_writer = use_case(&pool, capability);
+        let zoning_writer = use_case(&pool, capability);
         let complex_writer = use_case(&pool, capability);
-        let (parcels_result, complex_result) = tokio::join!(
-            parcels_writer.attempt(switch_parcels),
+        let (zoning_result, complex_result) = tokio::join!(
+            zoning_writer.attempt(switch_zoning),
             complex_writer.attempt(switch_complex),
         );
-        let parcels_published = expect_published(parcels_result?)?;
+        let zoning_published = expect_published(zoning_result?)?;
         let complex_published = expect_published(complex_result?)?;
 
         // Which one wins the lock is not fixed, so order the two results by what the database
         // decided instead of assuming it.
-        let (earlier, later) = if parcels_published.manifest_generation.value()
+        let (earlier, later) = if zoning_published.manifest_generation.value()
             < complex_published.manifest_generation.value()
         {
-            (&parcels_published, &complex_published)
+            (&zoning_published, &complex_published)
         } else {
-            (&complex_published, &parcels_published)
+            (&complex_published, &zoning_published)
         };
         assert_eq!(earlier.manifest_generation.value(), generation_before + 1);
         assert_eq!(
@@ -747,8 +740,8 @@ async fn two_edits_to_different_units_both_commit_and_advance_the_global_generat
         }
         // The later writer carried the earlier writer's *new* release, not the one it observed.
         assert_ne!(
-            published_unit(later, "parcels")?.active_release_id,
-            parcels_release
+            published_unit(later, "zoning")?.active_release_id,
+            zoning_release
         );
         assert_ne!(
             published_unit(later, "complex")?.active_release_id,
@@ -756,7 +749,7 @@ async fn two_edits_to_different_units_both_commit_and_advance_the_global_generat
         );
         // The earlier writer switched exactly one unit and carried the other unchanged.
         let earlier_switched = [
-            published_unit(earlier, "parcels")?.active_release_id != parcels_release,
+            published_unit(earlier, "zoning")?.active_release_id != zoning_release,
             published_unit(earlier, "complex")?.active_release_id != complex_release,
         ];
         assert_eq!(
@@ -801,16 +794,16 @@ async fn an_unpublished_neighbour_refuses_the_activation_by_name() -> TestResult
     run_in_disposable_database("tile_incomplete_manifest", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
+        seed_publication_unit(&pool, "zoning").await?;
         seed_publication_unit(&pool, "complex").await?;
         let revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
 
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command(
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
@@ -842,17 +835,17 @@ async fn an_unknown_publication_unit_is_refused() -> TestResult {
         let source_record_id = seed_source_record(&pool).await?;
         // The revision belongs to a unit that *does* exist, because a revision of a unit nobody
         // configured is no longer representable — `catalog.publication_revision` carries a foreign
-        // key to the unit. The activation still names `parcels`, which does not exist, and the use
+        // key to the unit. The activation still names `zoning`, which does not exist, and the use
         // case refuses on the unit before it ever reads a revision.
         seed_publication_unit(&pool, "complex").await?;
         let revision =
-            seed_data_revision(&pool, "complex", PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "complex", ZONING_SNAPSHOT, source_record_id).await?;
 
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command(
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
@@ -862,7 +855,7 @@ async fn an_unknown_publication_unit_is_refused() -> TestResult {
             matches!(
                 &error,
                 CatalogError::InvalidVectorTileRuntimeManifest(message)
-                    if message.contains("publication unit parcels does not exist")
+                    if message.contains("publication unit zoning does not exist")
             ),
             "got: {error:?}"
         );
@@ -890,19 +883,19 @@ async fn re_publishing_one_revision_after_observing_it_leaves_no_partial_state()
     run_in_disposable_database("tile_republish_revision", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
+        seed_publication_unit(&pool, "zoning").await?;
         let revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
         let published = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .execute(activation_command(
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
             .await?;
-        let active_release_id = published_unit(&published, "parcels")?.active_release_id;
+        let active_release_id = published_unit(&published, "zoning")?.active_release_id;
         let file_assets_before = file_asset_count(&pool).await?;
 
         // A *new* key deliberately: the same key would be caught by the idempotency ledger before any
@@ -912,10 +905,10 @@ async fn re_publishing_one_revision_after_observing_it_leaves_no_partial_state()
         // already in the transaction.
         let error = use_case(&pool, RuntimeManifestPublicationCapability::enabled())
             .attempt(activation_command_with_key(
-                "republish-parcels-under-a-new-key",
-                "parcels",
+                "republish-zoning-under-a-new-key",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 Some((active_release_id, ServingGeneration::new(1)?)),
             )?)
@@ -962,15 +955,15 @@ async fn publication_capability_off_records_the_activation_without_the_public_ev
     run_in_disposable_database("tile_capability_off", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        let unit_id = seed_publication_unit(&pool, "parcels").await?;
+        let unit_id = seed_publication_unit(&pool, "zoning").await?;
         let revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
 
         let manifest = use_case(&pool, RuntimeManifestPublicationCapability::disabled())
             .execute(activation_command(
-                "parcels",
+                "zoning",
                 revision,
-                PARCELS_SNAPSHOT,
+                ZONING_SNAPSHOT,
                 source_record_id,
                 None,
             )?)
@@ -989,7 +982,7 @@ async fn publication_capability_off_records_the_activation_without_the_public_ev
         assert_eq!(
             active_release_id,
             Some(
-                published_unit(&manifest, "parcels")?
+                published_unit(&manifest, "zoning")?
                     .active_release_id
                     .as_uuid()
             )
@@ -1002,7 +995,7 @@ async fn publication_capability_off_records_the_activation_without_the_public_ev
         // outcome and still announces nothing, even if the capability is on by then. Flipping the flag
         // does not retro-announce — the operator has to publish a new manifest.
         assert_eq!(
-            ledger_outbox_event_id(&pool, &format!("activate-parcels-{revision}")).await?,
+            ledger_outbox_event_id(&pool, &format!("activate-zoning-{revision}")).await?,
             None
         );
         Ok(())
@@ -1017,15 +1010,15 @@ async fn the_default_unit_of_work_does_not_publish_the_v2_event() -> TestResult 
     run_in_disposable_database("tile_default_capability", |pool| async move {
         MIGRATOR.run(&pool).await?;
         let source_record_id = seed_source_record(&pool).await?;
-        seed_publication_unit(&pool, "parcels").await?;
+        seed_publication_unit(&pool, "zoning").await?;
         let revision =
-            seed_data_revision(&pool, "parcels", PARCELS_SNAPSHOT, source_record_id).await?;
+            seed_data_revision(&pool, "zoning", ZONING_SNAPSHOT, source_record_id).await?;
 
         let uow = PgCatalogUnitOfWork::new(pool.clone());
         uow.mark_tile_layer_dynamic(activation_command(
-            "parcels",
+            "zoning",
             revision,
-            PARCELS_SNAPSHOT,
+            ZONING_SNAPSHOT,
             source_record_id,
             None,
         )?)
@@ -1047,7 +1040,7 @@ const fn derived_id(revision: Uuid, slot: u128) -> Uuid {
     Uuid::from_u128(revision.as_u128() ^ (slot << 96))
 }
 
-const PARCELS_SNAPSHOT: &str = "841361364657368623";
+const ZONING_SNAPSHOT: &str = "841361364657368623";
 const COMPLEX_SNAPSHOT: &str = "841361364657368624";
 const NEXT_SNAPSHOT: &str = "841361364657368625";
 const FOURTH_SNAPSHOT: &str = "841361364657368626";
@@ -1216,8 +1209,11 @@ async fn seed_data_revision(
     // The revision goes in the publication unit's own ledger. It used to be written to
     // `catalog.administrative_boundary_revision` — a `parcels` revision recorded as an
     // administrative boundary fact — because that was the only ledger `vector_tile_release` could
-    // reference. `derived_from_administrative_revision` is left NULL here: these units publish
-    // parcels and complex geometry and derive from no administrative fact.
+    // reference. `derived_from_administrative_revision` is left NULL here: these units derive from
+    // no administrative fact.
+    //
+    // The generic dynamic unit is `zoning`, not `parcels`: a dynamic `parcels` load needs sealed
+    // parcel evidence, and that ledger is closed since the PostGIS parcel copy retired (ADR-0571).
     //
     // Both writes take the publisher capability. `catalog.publication_revision` guards INSERT, not
     // only UPDATE and DELETE, because the runtime grant hands every `catalog` table an INSERT.
@@ -1251,22 +1247,16 @@ async fn seed_data_revision(
     .bind(format!("silver/test/{revision_id}/lineage.json"))
     .execute(&mut *tx)
     .await?;
-    let source_evidence_id = if unit_key == "parcels" {
-        Some(seed_parcel_source_evidence(&mut tx, revision_id, snapshot, source_record_id).await?)
-    } else {
-        None
-    };
     sqlx::query(
         "INSERT INTO serving_postgis.spatial_projection_load
          (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
-          source_evidence_id, status, loaded_row_count, finished_at)
-         VALUES ($1, $2, $3, $4, $5, 'succeeded', 1, now())",
+          status, loaded_row_count, finished_at)
+         VALUES ($1, $2, $3, $4, 'succeeded', 1, now())",
     )
     .bind(derived_id(revision_id, 1))
     .bind(publication_unit_id)
     .bind(revision_id)
     .bind(snapshot)
-    .bind(source_evidence_id)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
