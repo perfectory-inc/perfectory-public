@@ -18,13 +18,14 @@ SCRIPT = Path(__file__).resolve().parent / "spark-packages.sh"
 # Each spark-submit call takes the next word of the plan: `ok` writes a jar and succeeds, `fail` fails.
 DOCKER = r"""#!/usr/bin/env bash
 set -euo pipefail
-network="" source="" submit=0
+network="" source="" submit=0 repository=""
 previous=""
 for argument in "$@"; do
   case "$previous" in --network) network="$argument" ;; esac
   case "$argument" in
     type=bind,src=*,dst=/resolve) source="${argument#type=bind,src=}"; source="${source%,dst=/resolve}" ;;
     /opt/spark/bin/spark-submit) submit=1 ;;
+    DEFAULT_ARTIFACT_REPOSITORY=*) repository="${argument#DEFAULT_ARTIFACT_REPOSITORY=}" ;;
   esac
   previous="$argument"
 done
@@ -32,6 +33,7 @@ if ((!submit)); then
   exit 0
 fi
 echo "$network" >>"$FAKE_STATE/calls"
+echo "$network $repository" >>"$FAKE_STATE/repositories"
 outcome="$(head -n 1 "$FAKE_STATE/plan")"
 tail -n +2 "$FAKE_STATE/plan" >"$FAKE_STATE/plan.next" && mv "$FAKE_STATE/plan.next" "$FAKE_STATE/plan"
 if [ "$outcome" != ok ]; then
@@ -87,7 +89,15 @@ class SparkPackages(unittest.TestCase):
         result = self.resolve("fail", "fail", "fail", "ok", "ok")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.lines("calls"), ["none", "bridge", "bridge", "bridge", "none"])
-        self.assertEqual(self.lines("sleeps"), ["30", "60"])
+        self.assertEqual(self.lines("sleeps"), ["10", "20"])
+
+    def test_the_first_try_asks_maven_central_and_the_later_ones_its_mirror(self):
+        self.resolve("fail", "fail", "fail", "ok", "ok")
+        central = "https://repo1.maven.org/maven2/"
+        mirror = "https://maven-central.storage-download.googleapis.com/maven2/"
+        asked = (self.state / "repositories").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(asked, [f"none {central}", f"bridge {central}", f"bridge {mirror}", f"bridge {mirror}",
+                                 f"none {central}"])
 
     def test_a_network_that_fails_three_times_fails_the_run_and_saves_nothing(self):
         result = self.resolve("fail", "fail", "fail", "fail", "ok")
