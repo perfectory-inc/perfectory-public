@@ -40,9 +40,11 @@ const fn latest(key: &'static [&'static str]) -> LakehouseRowVersions {
     })
 }
 
-/// Its rows are the "done" record of the text job: a hash with an outcome for this extractor
-/// version is not read again by that version, failures included (root ADR-0477 §3), unless its
-/// current outcome is a memory kill with attempts left (root ADR-0593).
+/// Its rows are the "done" record of the text job.
+///
+/// A hash with an outcome for this extractor version is not read again by that version, failures
+/// included (root ADR-0477 §3), unless its current outcome is a memory kill with attempts left
+/// (root ADR-0593).
 pub const INTELLIGENCE_DOCUMENT_TEXT_OUTCOME: LakehouseTableContract = LakehouseTableContract {
     table_name: "intelligence.document_text_outcome",
     layer: LakehouseLayer::Intelligence,
