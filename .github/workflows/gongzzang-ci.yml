@@ -13,8 +13,11 @@ on:
   merge_group:
   # A pull request verifies only the crates it reaches (root ADR-0269); every night
   # main verifies every crate, as the merge queue does.
+  # Each nightly has its own minute (17:07 to 17:58 UTC, Foundation's 16 jobs first): at one shared
+  # minute the nine workflows asked for 48 runners at once, and on 2026-11-18 their jobs waited
+  # p50 176 s, p90 767 s beside the day's pull requests (20 runners in all).
   schedule:
-    - cron: "41 17 * * *"
+    - cron: "19 17 * * *"
     # Intentionally unfiltered so required/gongzzang-core always reports.
 
 defaults:
