@@ -254,7 +254,7 @@ fn check(name: &str, rules: &InferenceRules) -> String {
         }
         "floor_area" => format!(
             "(floor_area_m2 IS NOT NULL AND (abs(_floor_sum - floor_area_m2) < {tolerance:?} \
-             OR len(list_filter(coalesce(_floors, []), f -> abs(f - floor_area_m2) < {tolerance:?})) > 0))"
+             OR len(list_filter(coalesce(_floors, []), lambda f: abs(f - floor_area_m2) < {tolerance:?})) > 0))"
         ),
         "ownership_change" => "_owner_ok".to_owned(),
         _ => "true".to_owned(),
@@ -354,7 +354,7 @@ fn evidence_sql(sql: &mut String, asked: &[&str], rules: &InferenceRules) {
             "sold AS (\n  SELECT pnu AS candidate, list(DISTINCT CAST(ownership_changed_on AS DATE)) AS _sold_on\n  \
              FROM ownership WHERE ownership_change_reason IN ({causes}) AND ownership_changed_on IS NOT NULL\n  \
              GROUP BY pnu\n),\ncandidates AS (\n  SELECT f.*, coalesce(len(list_filter(s._sold_on, \
-             day -> date_diff('day', f.deal_date, day) BETWEEN {low} AND {high})) > 0, false) AS _owner_ok\n  \
+             lambda day: date_diff('day', f.deal_date, day) BETWEEN {low} AND {high})) > 0, false) AS _owner_ok\n  \
              FROM {from} f LEFT JOIN sold s ON s.candidate = f.candidate\n),\n"
         );
     } else {
