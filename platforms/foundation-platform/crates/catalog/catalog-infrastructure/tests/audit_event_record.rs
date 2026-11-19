@@ -1,8 +1,8 @@
 //! Disposable-Postgres proof of the audit record `audit.event` (root ADR-0569 §3, ADR-0584).
 //!
 //! The record answers "who changed this". A ledger row without its audit row, a row the API could
-//! rewrite, a writer that waits on another, or a row that could still arrive in a range after its
-//! digest was made would each make that answer wrong without anything saying so. Each property is
+//! rewrite, a writer that waits on another, a row that could still arrive in a range after its
+//! digest was made, or a digest that does not follow the one before would each make that answer wrong without anything saying so. Each property is
 //! planted here against the harness database (`cargo xtask integration foundation postgres`). Most
 //! tests roll back; the concurrency tests commit, because concurrency needs several transactions.
 
@@ -69,8 +69,9 @@ const FIXED_ROWS: &str = "
         '{\"generation\": 3, \"lanes\": \"a,b\"}'::jsonb, '한 줄 이유', 'api', 'x', 'requested', NULL,
         '00000000-0000-4000-8000-000000000002'::uuid, '1001'::xid8)::audit.event) AS second";
 
-/// The bytes a digest covers are fixed: these vectors were computed once from the canonical text
-/// with an independent SHA-256 (and the same computation reproduces the per-row chain's old vector).
+/// The bytes a digest covers are fixed: these vectors were computed once, outside Postgres, by a
+/// separate program that prints jsonb text by Postgres's rules and hashes it (the same program also
+/// gives the per-row chain's old vector `843fd170…`, which is how it was checked).
 /// A change to `audit.canon` or `audit.rows_sha256` that would make witnessed digests unverifiable
 /// fails here.
 #[tokio::test]
@@ -170,30 +171,196 @@ async fn an_open_writer_does_not_hold_back_another() -> Result<(), sqlx::Error> 
     open.rollback().await
 }
 
-/// The digest's range ends at `pg_snapshot_xmin`: a row whose transaction is still open is never
-/// below it, so it cannot arrive in a range that was already witnessed.
+async fn snapshot(pool: &PgPool) -> Result<String, sqlx::Error> {
+    sqlx::query_scalar("SELECT pg_current_snapshot()::text")
+        .fetch_one(pool)
+        .await
+}
+
+/// Which of `ids`' request rows lie between two snapshots.
+async fn between(
+    pool: &PgPool,
+    from: &str,
+    to: &str,
+    ids: &[Uuid],
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    let keys: Vec<String> = ids
+        .iter()
+        .map(|id| format!("operator_action:{id}:requested"))
+        .collect();
+    sqlx::query_scalar(
+        "SELECT change_id FROM audit.rows_between($1::pg_snapshot, $2::pg_snapshot)
+         WHERE source = 'dawneer' AND source_event_id = ANY($3) ORDER BY seq",
+    )
+    .bind(from)
+    .bind(to)
+    .bind(&keys)
+    .fetch_all(pool)
+    .await
+}
+
+/// A digest is the snapshot it was made in (ADR-0584 §2). A transaction still open when it is made
+/// holds back only its own row: a row committed after that transaction began is in this range, and
+/// the open one arrives in the next range once it commits — never in one already made.
 #[tokio::test]
 #[ignore = "requires disposable Postgres with Foundation migrations"]
-async fn an_open_row_is_never_below_the_digest_watermark() -> Result<(), sqlx::Error> {
+async fn a_long_transaction_holds_back_only_its_own_rows() -> Result<(), sqlx::Error> {
     let pool = pool().await?;
-    let mut open = pool.begin().await?;
-    let id = pause(&mut open).await?;
-    let txid: String = sqlx::query_scalar(
-        "SELECT txid::text FROM audit.event WHERE source = 'dawneer' AND source_event_id = $1",
+    let start = snapshot(&pool).await?;
+    let mut long = pool.begin().await?;
+    let late = pause(&mut long).await?;
+    let mut tx = pool.begin().await?;
+    let early = pause(&mut tx).await?;
+    tx.commit().await?;
+
+    let first = snapshot(&pool).await?;
+    assert_eq!(
+        between(&pool, &start, &first, &[late, early]).await?,
+        [early]
+    );
+
+    long.commit().await?;
+    let second = snapshot(&pool).await?;
+    assert_eq!(
+        between(&pool, &start, &first, &[late, early]).await?,
+        [early],
+        "a made range never changes"
+    );
+    assert_eq!(
+        between(&pool, &first, &second, &[late, early]).await?,
+        [late]
+    );
+    Ok(())
+}
+
+/// `txid` is the top-level transaction's id even inside a savepoint, so the row is covered when its
+/// transaction commits.
+#[tokio::test]
+#[ignore = "requires disposable Postgres with Foundation migrations"]
+async fn a_row_written_in_a_savepoint_is_covered_with_its_transaction() -> Result<(), sqlx::Error> {
+    let pool = pool().await?;
+    let start = snapshot(&pool).await?;
+    let mut tx = pool.begin().await?;
+    sqlx::query("SAVEPOINT inner_step")
+        .execute(&mut *tx)
+        .await?;
+    let id = pause(&mut tx).await?;
+    sqlx::query("RELEASE SAVEPOINT inner_step")
+        .execute(&mut *tx)
+        .await?;
+    let top: bool = sqlx::query_scalar(
+        "SELECT txid = pg_current_xact_id() FROM audit.event
+         WHERE source = 'dawneer' AND source_event_id = $1",
     )
     .bind(format!("operator_action:{id}:requested"))
-    .fetch_one(&mut *open)
+    .fetch_one(&mut *tx)
     .await?;
-    let below: bool =
-        sqlx::query_scalar("SELECT $1::xid8 < pg_snapshot_xmin(pg_current_snapshot())")
-            .bind(&txid)
-            .fetch_one(&pool)
-            .await?;
-    assert!(
-        !below,
-        "an open transaction's row {txid} is below the watermark"
-    );
-    open.rollback().await
+    assert!(top, "a savepoint's row carries the outer transaction's id");
+    tx.commit().await?;
+    let end = snapshot(&pool).await?;
+    assert_eq!(between(&pool, &start, &end, &[id]).await?, [id]);
+    Ok(())
+}
+
+/// The range hash is the rows' hash over exactly the rows between the two snapshots.
+#[tokio::test]
+#[ignore = "requires disposable Postgres with Foundation migrations"]
+async fn the_range_hash_is_the_hash_of_the_rows_between() -> Result<(), sqlx::Error> {
+    let pool = pool().await?;
+    let start = snapshot(&pool).await?;
+    let mut tx = pool.begin().await?;
+    pause(&mut tx).await?;
+    tx.commit().await?;
+    let end = snapshot(&pool).await?;
+    let (same, rows): (bool, i64) = sqlx::query_as(
+        "SELECT audit.range_sha256($1::pg_snapshot, $2::pg_snapshot)
+                = audit.rows_sha256(ARRAY(SELECT r FROM audit.rows_between($1::pg_snapshot, $2::pg_snapshot) AS r)),
+                (SELECT count(*) FROM audit.rows_between($1::pg_snapshot, $2::pg_snapshot))",
+    )
+    .bind(&start)
+    .bind(&end)
+    .fetch_one(&pool)
+    .await?;
+    assert!(same);
+    assert!(rows >= 1);
+    let nothing: bool = sqlx::query_scalar(
+        "SELECT audit.range_sha256($1::pg_snapshot, $1::pg_snapshot) = sha256(''::bytea)",
+    )
+    .bind(&end)
+    .fetch_one(&pool)
+    .await?;
+    assert!(nothing, "a snapshot to itself covers nothing");
+    Ok(())
+}
+
+/// The next digest as the digest job would make it, with one thing changed to plant a fault: the
+/// number moved by `$1`, the count by `$2`, a wrong own hash when `$3`, a snapshot from the future
+/// when `$4`, and no previous hash when `$5`.
+const NEXT_DIGEST: &str = "
+    WITH prev AS (SELECT digest_no, to_snapshot, digest_sha256 FROM audit.digest
+                  ORDER BY digest_no DESC LIMIT 1),
+         n AS (SELECT coalesce((SELECT digest_no FROM prev), 0) + 1 + $1 AS no,
+                      (SELECT to_snapshot FROM prev) AS f,
+                      CASE WHEN $4 THEN format('%s:%s:',
+                               pg_snapshot_xmax(pg_current_snapshot())::text::bigint + 1000,
+                               pg_snapshot_xmax(pg_current_snapshot())::text::bigint + 1000)::pg_snapshot
+                           ELSE pg_current_snapshot() END AS t,
+                      CASE WHEN $5 THEN NULL ELSE (SELECT digest_sha256 FROM prev) END AS p),
+         r AS (SELECT n.*, (SELECT count(*) FROM audit.rows_between(n.f, n.t)) + $2 AS c,
+                      audit.range_sha256(n.f, n.t) AS h FROM n)
+    INSERT INTO audit.digest
+        (digest_no, from_snapshot, to_snapshot, row_count, rows_sha256, previous_digest_sha256, digest_sha256)
+    SELECT no, f, t, c, h, p,
+           CASE WHEN $3 THEN sha256('not this digest'::bytea) ELSE audit.digest_sha256(no, f, t, c, h, p) END
+    FROM r";
+
+async fn next_digest(
+    tx: &mut Transaction<'_, Postgres>,
+    fault: (i64, i64, bool, bool, bool),
+) -> Result<(), sqlx::Error> {
+    sqlx::query(NEXT_DIGEST)
+        .bind(fault.0)
+        .bind(fault.1)
+        .bind(fault.2)
+        .bind(fault.3)
+        .bind(fault.4)
+        .execute(&mut **tx)
+        .await
+        .map(|_| ())
+}
+
+async fn digest_refused(
+    tx: &mut Transaction<'_, Postgres>,
+    fault: (i64, i64, bool, bool, bool),
+) -> Result<bool, sqlx::Error> {
+    sqlx::query("SAVEPOINT attempt").execute(&mut **tx).await?;
+    let outcome = next_digest(tx, fault).await;
+    sqlx::query("ROLLBACK TO SAVEPOINT attempt")
+        .execute(&mut **tx)
+        .await?;
+    Ok(outcome.is_err())
+}
+
+/// Digests follow one another and say only what is true of their rows (ADR-0584 §2): a skipped
+/// number, a wrong count, a wrong own hash, a snapshot that sees transactions not yet ended, and a
+/// missing link to the digest before are each refused; the true next digest is accepted.
+#[tokio::test]
+#[ignore = "requires disposable Postgres with Foundation migrations"]
+async fn a_digest_follows_the_one_before_and_matches_its_rows() -> Result<(), sqlx::Error> {
+    let pool = pool().await?;
+    let mut tx = pool.begin().await?;
+    next_digest(&mut tx, (0, 0, false, false, false)).await?;
+    for (what, fault) in [
+        ("a skipped number", (1, 0, false, false, false)),
+        ("a wrong count", (0, 1, false, false, false)),
+        ("a wrong own hash", (0, 0, true, false, false)),
+        ("a snapshot from the future", (0, 0, false, true, false)),
+        ("no link to the digest before", (0, 0, false, false, true)),
+    ] {
+        assert!(digest_refused(&mut tx, fault).await?, "accepted {what}");
+    }
+    next_digest(&mut tx, (0, 0, false, false, false)).await?;
+    tx.rollback().await
 }
 
 #[tokio::test]
@@ -258,6 +425,8 @@ async fn the_record_is_never_rewritten_and_a_role_writes_only_its_own_sources(
         "TRUNCATE audit.event",
         "UPDATE audit.digest SET row_count = 0",
         "DELETE FROM audit.digest",
+        "UPDATE audit.digest_witness SET rekor_log_index = 0",
+        "DELETE FROM audit.digest_witness",
         "UPDATE audit.source SET writer_role = 'postgres'",
         "DELETE FROM audit.import_cursor",
         // The harness role is no source's writer: it may not claim the console's events.

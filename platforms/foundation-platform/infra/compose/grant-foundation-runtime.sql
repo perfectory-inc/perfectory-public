@@ -58,7 +58,7 @@ REVOKE UPDATE, DELETE, TRUNCATE ON TABLE catalog.operator_action FROM foundation
 -- `audit.record` (the doors' shared step, which checks no source) is executable by neither.
 GRANT USAGE ON SCHEMA audit TO foundation_api, foundation_audit_importer;
 REVOKE ALL ON ALL TABLES IN SCHEMA audit FROM foundation_api, foundation_audit_importer;
-GRANT SELECT ON TABLE audit.event, audit.digest, audit.import_cursor, audit.source
+GRANT SELECT ON TABLE audit.event, audit.digest, audit.digest_witness, audit.import_cursor, audit.source
     TO foundation_api, foundation_audit_importer;
 GRANT EXECUTE ON FUNCTION
     audit.append(uuid, timestamptz, text, text, text, text, text, uuid, text, text, boolean,
