@@ -521,11 +521,6 @@ pub fn open_index(path: &Path) -> anyhow::Result<IndexStream> {
 }
 
 impl IndexStream {
-    /// The records the stream has not given yet.
-    pub fn len(&self) -> u64 {
-        self.left
-    }
-
     /// `Ok` once the stream gave every record of its file in strictly ascending id order.
     pub fn finish(self) -> anyhow::Result<()> {
         if let Some(error) = self.error {
@@ -542,6 +537,11 @@ impl IndexStream {
 
 impl Iterator for IndexStream {
     type Item = Record;
+
+    /// At most the records the header says are left; a bad record ends the stream sooner.
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, usize::try_from(self.left).ok())
+    }
 
     fn next(&mut self) -> Option<Record> {
         if self.left == 0 || self.error.is_some() {
