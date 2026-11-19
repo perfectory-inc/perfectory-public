@@ -17,12 +17,6 @@
 -- The Bronze object arrives with the source catalog and ingestion run that produced it, because
 -- `catalog.bronze_object` cannot exist without them. A row seeded without them would be shaped like
 -- a collection without being reachable from one.
---
--- Separate rows from `fixture.sql`'s, not a re-use of them. That file's source record addresses a
--- parcel GeoJSON, and pointing the boundary publish at it would make the export's own
--- `source_record_id` disagree with the object the Catalog says was read — which is the exact
--- mismatch `validate_row` exists to refuse, so re-using it would mean weakening the fixture until
--- the check passed.
 
 BEGIN;
 

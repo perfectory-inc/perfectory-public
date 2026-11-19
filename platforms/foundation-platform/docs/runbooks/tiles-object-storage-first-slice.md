@@ -2,12 +2,21 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-19
 ---
 
 # 객체 저장소 우선 타일 단계
 
 ## 범위와 증거 상태
+
+> **필지 단계는 끝났다(root ADR-0571, 2026-11-19).** PostGIS 필지 경계 사본
+> (`serving_postgis.parcel_boundary_mirror`·`_publication`·`_current`)을 지우면서 그것을 쓰고 읽던
+> 필지 전용 증명도 함께 지웠다 — `scripts/tiles/tiles-slice-proof.sh`, `fixture.sql`, `compose.yaml`,
+> `martin-static.yaml`, `http-evidence.sh`, 로컬 매니페스트 두 개, v2 로컬 seed, 그리고
+> `martin-dynamic.yaml`의 `parcels`·`parcel_anchor*` source. 필지 지도는 레이크하우스에서 굽고 R2에서
+> 제공한다. 아래의 필지 dynamic/static 증명, "Local PMTiles fallback", "Real R2 proof mode" 절은
+> 그 기록으로만 남는다. 지금 실행하는 증명은 행정 경계·산업단지 경계의
+> `scripts/tiles/boundary-slice-proof.sh`다.
 
 이 런북은 출시 전 Foundation 단계 하나를 다룬다. 한 산업단지의 세 필지를 두 Martin 경로로
 Mapbox Vector Tile로 제공한다.
@@ -93,18 +102,17 @@ nightly reconciliation을 실행하고 마지막 성공 시각과 lag를 노출�
 
 하네스는 고유한 Compose project와 일회용 PostGIS 저장소를 사용하고 종료 시 container를 정리한다.
 저장소에 기록된 모든 migration을 production `foundation-migrate` SQLx runner로 적용한 뒤
-`scripts/tiles/fixture.sql`을 실행하며 개발자나 production database는 수정하지 않는다.
+경계 fixture를 실행하며 개발자나 production database는 수정하지 않는다.
 `sqlx::Migrator::run`이 migration SSOT다. embedded migration set은 dirty ledger·누락 version·
 checksum drift를 거부한 뒤 pending migration을 적용한다. proof·disposable integration harness·
 Foundation CI는 같은 runner를 호출하며 SQLx의 private-ledger나 migration-count logic을 복제하지
 않는다. API build script는 migration directory 자체를 감시하므로 이미 embedded된 file이 바뀌지
 않아도 migration file이 추가·삭제되면 cached `foundation-migrate`를 다시 build한다.
 
-v2 로컬 fixture는 추가 방식이다. `infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql`은
-one complete `parcels` dynamic release and never rewrites the frozen v1 seed. The stable dynamic
-Martin URL is query-free; `serving_postgis.parcel_boundary_current` follows the one runtime-manifest
-pointer to the selected `data_revision`. Martin's dynamic cache is disabled with the supported
-`cache: disable` setting.
+경계 증명은 runtime-manifest pointer가 없는 상태에서 시작한다. 첫 승격(`admin`)이 manifest
+generation 1을 만들고, `complex` 승격이 2, `complex` 정적 승격이 3이다. dynamic Martin URL은
+query-free이고 각 `*_current` view가 하나의 runtime-manifest pointer를 따라 선택된 `data_revision`을
+읽는다. Martin의 dynamic cache는 지원되는 `cache: disable` 설정으로 끈다.
 
 ## 공식 행정 경계 공간 경로
 

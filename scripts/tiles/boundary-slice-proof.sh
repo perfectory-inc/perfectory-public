@@ -254,8 +254,6 @@ run_publisher \
   cargo run --locked --quiet -p foundation-outbox-publisher -- \
   prove-industrial-complex-boundary-static-release-mutation-guards
 
-psql_file "$SCRIPT_DIR/fixture.sql"
-psql_file "$REPO_ROOT/platforms/foundation-platform/infra/db/seeds/local_vector_tile_runtime_manifest_v2.sql"
 psql_file "$SCRIPT_DIR/administrative-boundary-fixture.sql"
 psql_file "$SCRIPT_DIR/industrial-complex-boundary-fixture.sql"
 
@@ -321,7 +319,6 @@ run_publisher \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_CANONICAL_ICEBERG_SNAPSHOT_ID=841361364657368624 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_SOURCE_RECORD_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743702 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_SOURCE_FILE_ASSET_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743703 \
-  -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_EXPECTED_MANIFEST_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743605 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_RELEASE_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743802 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_MANIFEST_ID=019d2b87-3fd1-7e3a-8d88-0b72c8743805 \
   -e FOUNDATION_PLATFORM_ADMINISTRATIVE_BOUNDARY_RUNTIME_PROMOTE_TILES_URL_TEMPLATE='http://127.0.0.1:3112/admin/{z}/{x}/{y}' \
@@ -367,7 +364,7 @@ assert_tile "$TILE_RELATIVE" \
 current_projection="$(psql_value "SELECT count(*) || '|' || string_agg(canonical_code, ',') FROM serving_postgis.administrative_unit_boundary_current;")"
 [[ "$current_projection" == "1|9999900100" ]]
 manifest_pointer="$(psql_value "SELECT pointer.manifest_id || '|' || manifest.manifest_generation FROM catalog.vector_tile_runtime_manifest_pointer pointer JOIN catalog.vector_tile_runtime_manifest manifest ON manifest.id=pointer.manifest_id;")"
-[[ "$manifest_pointer" == "019d2b87-3fd1-7e3a-8d88-0b72c8743805|2" ]]
+[[ "$manifest_pointer" == "019d2b87-3fd1-7e3a-8d88-0b72c8743805|1" ]]
 
 # ---------------------------------------------------------------------------
 # The industrial-complex designation boundary, through the same Postgres and the same Martin.
@@ -462,7 +459,7 @@ complex_projection="$(psql_value "SELECT count(*) || '|' || string_agg(official_
 current_projection="$(psql_value "SELECT count(*) || '|' || string_agg(canonical_code, ',') FROM serving_postgis.administrative_unit_boundary_current;")"
 [[ "$current_projection" == "1|9999900100" ]]
 manifest_pointer="$(psql_value "SELECT pointer.manifest_id || '|' || manifest.manifest_generation FROM catalog.vector_tile_runtime_manifest_pointer pointer JOIN catalog.vector_tile_runtime_manifest manifest ON manifest.id=pointer.manifest_id;")"
-[[ "$manifest_pointer" == "019d2b87-3fd1-7e3a-8d88-0b72c8743806|3" ]]
+[[ "$manifest_pointer" == "019d2b87-3fd1-7e3a-8d88-0b72c8743806|2" ]]
 
 # ---------------------------------------------------------------------------
 # The same unit through the static lane, and the source XOR that keeps the two lanes apart.
@@ -765,8 +762,8 @@ psql_value "INSERT INTO catalog.vector_tile_release_layer (
        WHERE build.id = '$STATIC_BUILD_JOB_ID' AND build.status = 'validated';" > /dev/null
 
 # A manifest is a complete publication, so the next one restates every unit. Copying the current
-# rows and overriding the one that changes is what keeps `admin` and `parcels` selected; composing
-# a fresh list here would be a second definition of "every unit" that the CAS would then reject.
+# rows and overriding the one that changes is what keeps `admin` selected; composing a fresh
+# list here would be a second definition of "every unit" that the CAS would then reject.
 psql_value "INSERT INTO catalog.vector_tile_runtime_manifest (id, manifest_generation)
       SELECT '$STATIC_MANIFEST_ID', manifest.manifest_generation + 1
         FROM catalog.vector_tile_runtime_manifest_pointer AS pointer
@@ -812,7 +809,7 @@ fi
 
 static_generation="$(psql_value "SELECT catalog.promote_vector_tile_runtime_manifest(
       '019d2b87-3fd1-7e3a-8d88-0b72c8743806', '$STATIC_MANIFEST_ID');")"
-[[ "$static_generation" == "4" ]] || fail "static promotion returned generation $static_generation"
+[[ "$static_generation" == "3" ]] || fail "static promotion returned generation $static_generation"
 psql_value "UPDATE catalog.vector_tile_build_job
                SET status = 'promoted', updated_at = now()
              WHERE id = '$STATIC_BUILD_JOB_ID' AND status = 'validated';" > /dev/null

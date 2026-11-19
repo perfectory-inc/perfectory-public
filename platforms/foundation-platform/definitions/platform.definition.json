@@ -1548,14 +1548,7 @@
         ],
         "why": "The scripts the release ships to the host: every container they start with `docker run` states its --memory at the run site, with the measurement it comes from beside it."
       },
-      "not_on_host": [
-        {
-          "files": [
-            "scripts/tiles/compose.yaml"
-          ],
-          "why": "The tile slice proof stack runs on a developer machine or CI runner only. It still states caps: Docker Desktop's VM is the whole budget there."
-        }
-      ],
+      "not_on_host": [],
       "outside_scope": [
         {
           "path_prefix": "products/gongzzang/",
