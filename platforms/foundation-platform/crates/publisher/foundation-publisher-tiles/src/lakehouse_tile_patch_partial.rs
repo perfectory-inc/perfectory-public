@@ -20,7 +20,7 @@ use foundation_publisher_core::refusal::Refused;
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 
-use super::patch::{PatchPolicy, Record};
+use super::patch::{self, PatchPolicy, Record};
 use super::{id_hash, patch_run, BakeContract, Config, ServedSummary};
 
 /// The summary's `partial` block.
@@ -149,26 +149,62 @@ pub fn merge(
     handed: &[Record],
     changes: &ChangeList,
 ) -> Result<Vec<Record>, String> {
+    let mut merged = Vec::with_capacity(old.len() + changes.upserted.len());
+    merge_walk(old.iter().copied(), handed, changes, |record| {
+        merged.push(record)
+    })?;
+    Ok(merged)
+}
+
+/// [`merge`] from the served index file at `old` into a new index file at `out`, one served record
+/// in memory (2026-11-13..18 the national parcel index, 1.6 GB of records, did not fit the bake's
+/// unit; `handed` is the partial handoff's index, the neighbourhood's rows). `Ok(Err)` is why the
+/// patch path declines; `out` is then left for the caller to discard.
+pub fn merge_file(
+    old: &Path,
+    handed: &[Record],
+    changes: &ChangeList,
+    out: &Path,
+) -> anyhow::Result<Result<(), String>> {
+    let mut served = patch::open_index(old)?;
+    let mut writer = patch::IndexWriter::create(out)?;
+    let mut failed = None;
+    let walked = merge_walk(served.by_ref(), handed, changes, |record| {
+        if failed.is_none() {
+            failed = writer.push(&record).err();
+        }
+    });
+    served.finish()?;
+    if let Some(error) = failed {
+        return Err(error);
+    }
+    if let Err(reason) = walked {
+        return Ok(Err(reason));
+    }
+    writer.finish()?;
+    Ok(Ok(()))
+}
+
+/// The merge walk: `old` in id order, each changed id replacing or dropping its record, every
+/// other handed row compared with the served record of its id as the walk passes it.
+fn merge_walk(
+    old: impl Iterator<Item = Record>,
+    handed: &[Record],
+    changes: &ChangeList,
+    mut emit: impl FnMut(Record),
+) -> Result<(), String> {
     let mut replaced: BTreeMap<u128, Option<Record>> =
         changes.deleted.iter().map(|id| (*id, None)).collect();
-    let mut drifted = 0_usize;
+    let mut unchanged: Vec<Record> = Vec::new();
     for record in handed {
         if changes.deleted.contains(&record.id) {
             return Err("the handoff carries a row the change list deletes".to_owned());
         }
         if changes.upserted.contains(&record.id) {
             replaced.insert(record.id, Some(*record));
-        } else if old
-            .binary_search_by_key(&record.id, |served| served.id)
-            .map_or(true, |at| old[at] != *record)
-        {
-            drifted += 1;
+        } else {
+            unchanged.push(*record);
         }
-    }
-    if drifted > 0 {
-        return Err(format!(
-            "{drifted} handed row(s) the change list does not name differ from the served index"
-        ));
     }
     let absent = changes
         .upserted
@@ -180,27 +216,36 @@ pub fn merge(
             "{absent} upserted id(s) have no row in the handoff"
         ));
     }
-    let mut merged = Vec::with_capacity(old.len() + replaced.len());
+    unchanged.sort_unstable_by_key(|record| record.id);
+    let mut checks = unchanged.into_iter().peekable();
+    let mut drifted = 0_usize;
     let mut pending = replaced.into_iter().peekable();
-    // Both sides are sorted by id: a merge walk, each changed id replacing or dropping its record.
     for record in old {
-        while let Some(&(id, replacement)) = pending.peek() {
-            if id >= record.id {
-                break;
-            }
-            pending.next();
-            merged.extend(replacement);
+        // A handed id below the served one is not served at all; the same id must match it.
+        while checks.next_if(|check| check.id < record.id).is_some() {
+            drifted += 1;
         }
-        match pending.peek() {
-            Some(&(id, replacement)) if id == record.id => {
-                pending.next();
-                merged.extend(replacement);
-            }
-            _ => merged.push(*record),
+        if let Some(check) = checks.next_if(|check| check.id == record.id) {
+            drifted += usize::from(check != record);
+        }
+        while let Some((_, replacement)) = pending.next_if(|&(id, _)| id < record.id) {
+            replacement.into_iter().for_each(&mut emit);
+        }
+        match pending.next_if(|&(id, _)| id == record.id) {
+            Some((_, replacement)) => replacement.into_iter().for_each(&mut emit),
+            None => emit(record),
         }
     }
-    merged.extend(pending.filter_map(|(_, replacement)| replacement));
-    Ok(merged)
+    drifted += checks.count();
+    if drifted > 0 {
+        return Err(format!(
+            "{drifted} handed row(s) the change list does not name differ from the served index"
+        ));
+    }
+    pending
+        .filter_map(|(_, replacement)| replacement)
+        .for_each(emit);
+    Ok(())
 }
 
 /// Bakes a partial handoff: the patch path only. Anything that would need a new base declines with
