@@ -874,7 +874,7 @@ const AREAS: &[Area] = &[
     Area {
         slug: "intelligence",
         dir: "platforms/intelligence-platform",
-        // No native -dev headers since the event backbone left (root ADR-0587): rdkafka-sys was the
+        // No native -dev headers since the event backbone left (root ADR-0589): rdkafka-sys was the
         // only crate that built C from source. python3 runs the jobs' tests below.
         apt_deps: &["python3"],
         python_tests: &[

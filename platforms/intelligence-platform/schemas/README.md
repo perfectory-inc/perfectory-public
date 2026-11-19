@@ -19,7 +19,7 @@ last_reviewed: 2026-11-19
 
 이 토픽을 발행하는 코드는 아직 없다. 이 파일은 정규화 outbox 기록(`NormalizationOutboxRecord`)의 전송 모양을
 고정하는 계약이다 — Kafka 이벤트 백본(어댑터·Karapace 클라이언트·실패 메시지 토픽)은 발행자가 없어 지웠고
-(루트 ADR-0587), 발행자가 생길 때 그 라이브러리와 함께 돌아온다.
+(루트 ADR-0589), 발행자가 생길 때 그 라이브러리와 함께 돌아온다.
 
 ## 스키마 변경 규칙 — 이전 판 전부와 하위 호환(`BACKWARD_TRANSITIVE`)
 
@@ -37,7 +37,7 @@ last_reviewed: 2026-11-19
 
 ## 스키마 레지스트리(Karapace)
 
-발행자가 생기면(루트 ADR-0587 결정 5항) **`TopicNameStrategy`**로 Confluent 호환 스키마 레지스트리에 등록한다. 등록 주제
+발행자가 생기면(루트 ADR-0589 결정 5항) **`TopicNameStrategy`**로 Confluent 호환 스키마 레지스트리에 등록한다. 등록 주제
 이름은 `<topic>-value`다(예: `intelligence.normalization-proposal.submission-requested.v1-value`).
 
 생산자는 그때 Avro 본문 앞에 5바이트 Confluent 전송 형식 접두사

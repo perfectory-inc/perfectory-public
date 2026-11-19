@@ -23,7 +23,7 @@ Intelligence Platform에서 작업하는 AI 에이전트 공용 진입점. 모�
   `config/document-extraction.contract.json`, [루트 ADR-0477](../../docs/adr/0477-foundation-hands-intelligence-documents-and-place-ids-and-takes-back-cited-facts-in-tables-only-intelligence-writes.md)). services: `intelligence-api` ·
   `intelligence-worker`(drain worker, floor/unit normalization, 지식 비계 CLI 둘).
 - **C0-C1**(인바운드 인증·admission control·durable outbox) 구현 완료. **C2** 이벤트 백본(Kafka·
-  Karapace 어댑터, 지식 원천 소비자)은 발행자가 없어 지웠다(2026-11-19, [루트 ADR-0587](../../docs/adr/0587-the-intelligence-event-backbone-with-no-producer-is-deleted-and-kafka-returns-with-its-library-when-a-producer-exists.md)). 두 플랫폼
+  Karapace 어댑터, 지식 원천 소비자)은 발행자가 없어 지웠다(2026-11-19, [루트 ADR-0589](../../docs/adr/0589-the-intelligence-event-backbone-with-no-producer-is-deleted-and-kafka-returns-with-its-library-when-a-producer-exists.md)). 두 플랫폼
   사이는 표로만 주고받는다(루트 ADR-0477). Kafka 는 실제 발행자가 생길 때 그 라이브러리
   (`schema_registry_converter`)와 함께 돌아온다. `/metrics` 분리 리스너는 C3로 연기.
 - knowledge retrieval은 **비계 수직 슬라이스만 구현**: Postgres 전문검색 색인(`ip_knowledge_chunk`),

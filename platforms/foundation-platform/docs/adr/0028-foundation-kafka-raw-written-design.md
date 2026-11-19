@@ -242,4 +242,4 @@ environment 이름을 문서화한다.
 
 개정 각주(2026-10-28, 경로 이동): `scripts/verify/foundation-kafka-live.sh` → `cargo xtask live kafka`(루트 `tools/xtask/src/live.rs`, #799).
 
-개정 각주(2026-11-19, 경로 이동): Intelligence 이벤트 백본을 지우며(루트 ADR-0587) 고정 Redpanda+Karapace compose 는 `platforms/intelligence-platform/docker/c2-event-backbone.compose.yml` → `platforms/foundation-platform/docker/kafka-live.compose.yml` 로 옮겼고, 호스트 포트 변수는 `FOUNDATION_TEST_KAFKA_HOST_PORT`·`FOUNDATION_TEST_KARAPACE_HOST_PORT` 다.
+개정 각주(2026-11-19, 경로 이동): Intelligence 이벤트 백본을 지우며(루트 ADR-0589) 고정 Redpanda+Karapace compose 는 `platforms/intelligence-platform/docker/c2-event-backbone.compose.yml` → `platforms/foundation-platform/docker/kafka-live.compose.yml` 로 옮겼고, 호스트 포트 변수는 `FOUNDATION_TEST_KAFKA_HOST_PORT`·`FOUNDATION_TEST_KARAPACE_HOST_PORT` 다.

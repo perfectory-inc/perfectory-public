@@ -1,4 +1,4 @@
-# ADR 0587: 발행자가 없는 Intelligence 이벤트 백본은 지우고, Kafka 는 발행자가 생길 때 그 라이브러리와 함께 돌아온다
+# ADR 0589: 발행자가 없는 Intelligence 이벤트 백본은 지우고, Kafka 는 발행자가 생길 때 그 라이브러리와 함께 돌아온다
 
 - Status: Accepted
 - Date: 2026-11-19

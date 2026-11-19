@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-01
-- Amended by: [ADR-0587](./0587-the-intelligence-event-backbone-with-no-producer-is-deleted-and-kafka-returns-with-its-library-when-a-producer-exists.md) (결정 3항의 Intelligence Redpanda 이전 문장은 옮길 것이 없어 닫힘)
+- Amended by: [ADR-0589](./0589-the-intelligence-event-backbone-with-no-producer-is-deleted-and-kafka-returns-with-its-library-when-a-producer-exists.md) (결정 3항의 Intelligence Redpanda 이전 문장은 옮길 것이 없어 닫힘)
 - Builds on: [ADR-0117](./0117-metadata-has-one-contract-per-dataset-and-one-place-to-look.md)(데이터 카탈로그 하나),
   [ADR-0097](./0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md)(버전은 계약 한 곳),
   [ADR-0077](./0077-the-pipe-looks-at-its-sources-every-day.md)(매일 원천 확인)
