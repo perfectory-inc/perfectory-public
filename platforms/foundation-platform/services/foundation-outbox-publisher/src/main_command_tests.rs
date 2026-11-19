@@ -162,6 +162,18 @@ fn staging_namespace_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn load_industrial_complex_notice_silver_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-industrial-complex-notice-silver"
+        ])?,
+        Command::LoadIndustrialComplexNoticeSilver
+    );
+    Ok(())
+}
+
+#[test]
 fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "derive-parcel-lineage"])?,
@@ -1031,6 +1043,16 @@ fn list_lakehouse_objects_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "list-lakehouse-objects"])?,
         Command::ListLakehouseObjects
+    );
+    Ok(())
+}
+
+/// The media reconciler's index read from the lakehouse, not Trino (root ADR-0387).
+#[test]
+fn media_index_delta_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "media-index-delta"])?,
+        Command::MediaIndexDelta
     );
     Ok(())
 }

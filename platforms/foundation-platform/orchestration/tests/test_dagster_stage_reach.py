@@ -9,7 +9,9 @@ import copy
 import dataclasses
 import datetime
 import json
+import itertools
 import pathlib
+import re
 import sys
 import unittest
 
@@ -95,6 +97,39 @@ class OneRuleForAMissedTick(unittest.TestCase):
         self.assertIn(candidates[0], owed())
         next(job for job in jobs["jobs"] if job["id"] == candidates[0])["dagster_stage"] = "dagster"
         self.assertNotIn(candidates[0], owed())
+
+
+class ARunOutlivesADeploy(unittest.TestCase):
+    """Root ADR-0565 §9: the code location is its own server, a deploy reloads it and restarts nothing, and a
+    run whose process died anyway is failed by run monitoring at its max runtime. 2026-11-14 03:12Z a deploy
+    restarted the daemon under an asset-check run, which stayed STARTED four days."""
+
+    @staticmethod
+    def service(compose, name):
+        """The lines of one compose service, up to the next service."""
+        lines = compose.split(f"\n  {name}:\n", 1)[1].splitlines()
+        return "\n".join(itertools.takewhile(lambda line: not re.match(r"^  [a-z]", line), lines))
+
+    def test_the_daemon_and_the_webserver_read_the_code_location_from_its_server(self):
+        workspace = (PLATFORM / "orchestration/dagster/workspace.yaml").read_text(encoding="utf-8")
+        self.assertIn("grpc_server:", workspace)
+        self.assertNotIn("python_file:", workspace)
+        compose = (PLATFORM / "compose.orchestration.yml").read_text(encoding="utf-8")
+        server = self.service(compose, "dagster-code-server")
+        self.assertIn('"code-server", "start"', server)
+        self.assertIn("FOUNDATION_HOST_CONNECTION", server, "runs are the code server's processes")
+        self.assertNotIn("FOUNDATION_HOST_CONNECTION", self.service(compose, "dagster-daemon"),
+                         "the daemon runs nothing on the host")
+
+    def test_a_deploy_reloads_the_location_and_restarts_nothing(self):
+        runtime = (PLATFORM / "scripts/deploy/airflow-runtime.sh").read_text(encoding="utf-8")
+        sync = runtime.split("sync_dagster() {", 1)[1].split("\n}\n", 1)[0]
+        self.assertNotIn("compose restart", sync)
+        self.assertIn("reloadRepositoryLocation", sync)
+
+    def test_every_run_has_a_max_runtime(self):
+        queue = (PLATFORM / "orchestration/dagster/dagster.yaml").read_text(encoding="utf-8")
+        self.assertRegex(queue, r"run_monitoring:\n  enabled: true\n  max_runtime_seconds: \d+")
 
 
 if __name__ == "__main__":

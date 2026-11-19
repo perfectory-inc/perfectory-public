@@ -35,6 +35,10 @@ def replay_pr469() -> dict:
             "fields": [[index, column, "string", True] for index, column in enumerate(live, start=1)],
             "columns": list(range(1, len(live) + 1)),
             "earlier": [],
+            # The write layout the ledger records for every table since #1404 (root ADR-0437): the
+            # one this table was written under then and still is, one partition per load.
+            "layout": {"write.distribution-mode": "range", "sort-order": "pnu ASC NULLS FIRST",
+                       "partitions": ["source_snapshot_id"]},
         }},
     }
 
@@ -225,8 +229,11 @@ class Replays(unittest.TestCase):
         self.assertIn("would gain required columns ['building_id'] with no registered backfill", refusals[0])
 
     def test_pr469_the_replay_is_the_shape_production_holds(self) -> None:
-        self.assertEqual(replay_pr469()["shapes"]["gold.unit_price_panel"],
-                         migrate.load_production_shape()["gold.unit_price_panel"])
+        # The columns the refusal was about; the ledger also records the table's write layout since
+        # the host publishes it (e2daecc9), which this replay of #469 does not describe.
+        replay = replay_pr469()["shapes"]["gold.unit_price_panel"]
+        live = migrate.load_production_shape()["gold.unit_price_panel"]
+        self.assertEqual(replay, {key: live[key] for key in replay})
 
     def test_pr469_on_an_empty_table_would_have_passed(self) -> None:
         # The refusal comes from the rows production held: the shape, not the contract alone.

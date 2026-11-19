@@ -385,12 +385,12 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
         lane_bakes = [job for job in spark if job["id"] in own_lane_bakes()]
         self.assertEqual({job["id"] for job in lane_bakes}, set(own_lane_bakes()), "every lane bake is in the spark pool")
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260 + 45 + 45 + 45
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260 + 45 + 45
                          + sum(job_specs.hold_minutes(job) for job in lane_bakes))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
                                          "by_pnu_serving_bake",
                                          "onbid_public_auction_silver", "rt_molit_real_transaction_silver",
-                                         "industrial_complex_notice_silver", *own_lane_bakes()})
+                                         *own_lane_bakes()})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
@@ -492,7 +492,9 @@ class AProducerOutranksItsConsumers(unittest.TestCase):
         feeders = job_specs.producers(jobs, graph)
         by_id = {entry["id"]: entry for entry in jobs["jobs"]}
         weights = job_specs.queue_weights(jobs, feeders)
-        circles = [{"map_edit_fold_admin", "map_edit_fold_complex"}]  # they share one ledger
+        circles = [{"map_edit_fold_admin", "map_edit_fold_complex"},  # they share one ledger
+                   # The collector asks the read records which notices are settled; the Silver load reads what it wrote.
+                   {"industrial_complex_notice_collect", "industrial_complex_notice_silver"}]
         pairs = [(writer, reader) for reader, writers in feeders.items() for writer in writers
                  if by_id[writer]["pool"] == by_id[reader]["pool"] and {writer, reader} not in circles]
         self.assertGreater(len(pairs), 100)
@@ -809,10 +811,10 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "building_register_floor")
         for job_id in ("by_pnu_serving_bake", "onbid_public_auction_silver", "rt_molit_real_transaction_silver",
-                       "industrial_complex_notice_silver", *own_lane_bakes()):
+                       *own_lane_bakes()):
             self.assertIn(job_id, blockers)
         by_id = {job["id"]: job for job in jobs["jobs"]}
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 45 + 45 + 45
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 45 + 45
                          + sum(job_specs.hold_minutes(by_id[job_id]) for job_id in own_lane_bakes()))
 
     def test_the_real_list_fits(self):
@@ -1386,7 +1388,10 @@ class TheDagsterStage(unittest.TestCase):
         self.assertEqual(spec.dagster_job, f"foundation_job__{job['id']}")
         value = jobs["priority_classes"][job.get("priority_class", "default")]["value"]
         self.assertEqual(spec.dagster_tags("triggered"), {"foundation/run-kind": "triggered", "foundation/run": "job",
-                                                          "foundation/pool": job["pool"], "dagster/priority": str(value)})
+                                                          "foundation/pool": job["pool"], "dagster/priority": str(value),
+                                                          # Root ADR-0565 §9: run monitoring fails a run whose
+                                                          # process died once its scheduled start's limit passed.
+                                                          "dagster/max_runtime_seconds": str(60 * spec.timeout_minutes)})
         for kind in ("", "triggered", "requested 11111111-1111-4111-8111-111111111111"):
             self.assertTrue(job_specs.RUN_KIND.fullmatch(kind), kind)
         for kind in (" triggered", "triggered; reboot", "requested x", "check"):

@@ -168,3 +168,21 @@ Airflow 가 결정하는 동안은 `run` 과제의 재시도가 같은 유닛 ru
 - **DataHub 의 Dagster 플러그인(`acryl-datahub-dagster-plugin`)이나 `openlineage-dagster` 로 계보**: 흐름의 정체가 Dagster 의 작업 이름으로 바뀌어
   작업마다 이력이 둘로 끊기고, `operations.rs` 가 두 이름을 이어야 한다. 플러그인은 Dagster 버전에 묶인다(잠금 파일의 1.13.27 과 따로 움직인다).
 - **단계를 조각마다 반쯤 열기**(예: 계보 없이 `dagster` 허용): 옮긴 작업이 운영 지도에서 사라진다. §1.
+
+## 개정 각주 — 2026-11-18, §9 의 조각: 코드 위치는 자기 서버, 배포는 다시 읽기만
+
+이 각주는 결정을 바꾸지 않는다. §9 가 "조각 4 에서 고정" 한 것을 잰 값으로 채운다.
+
+- **운영 증거.** 2026-11-14 03:12Z 배포가 Dagster 의 두 컨테이너를 재시작했고(`sync_dagster` 의 `compose restart`), 그 안의 검사 run 하나가
+  11-18 까지 6,265분 `STARTED` 로 남았다. 기본 실행기는 run 의 프로세스가 살았는지 모르고(1.13.27 `supports_check_run_worker_health`
+  False), 최대 실행 시간도 정해지지 않아 run monitoring 이 닫지 못했다.
+- **`dagster code-server start`.** 코드 위치는 자기 컨테이너 `dagster-code-server` 가 내고(Dagster 의 Docker 배포 안내의 사용자 코드 서버),
+  데몬과 웹서버는 `grpc_server` 로 읽는다. 배포는 컨테이너를 다시 띄우지 않고 `reloadRepositoryLocation` 으로 다시 읽게 한다. 잰 값
+  (1.13.27, 2026-11-18): 40초 run 이 도는 중에 다시 읽게 했고 run 은 옛 코드로 끝까지 돌아 `SUCCESS` 였다. run 은 코드 서버의 프로세스이므로
+  호스트 연결(강제 명령의 키)은 코드 서버만 가진다. 데몬은 아무것도 실행하지 않는다.
+- **그래도 죽은 run.** 이미지나 설정이 바뀌어 코드 서버가 다시 뜨면 그 안의 run 은 죽는다. 작업의 run 은 `dagster/max_runtime_seconds`(그
+  작업의 예약 시작 한도)를, 다른 run(검사)은 인스턴스의 `run_monitoring.max_runtime_seconds: 3600` 을 가져 run monitoring 이 실패로 닫는다.
+  `DockerRunLauncher`(run 마다 컨테이너, 작업자 상태 확인 지원)는 데몬에 Docker 소켓을 주어야 해 — 호스트의 root 와 같다 — 강제 명령의 경계를
+  깨므로 기각한다.
+- **메모리.** 코드 서버 1700m(프록시 약 100 MiB + 코드 프로세스 169 MiB × 2 + run 6 × 169 MiB, × 1.17), 데몬 1600m → 384m. 호스트 예산
+  61.96g / 62g. 웹서버는 이제 코드를 싣지 않으므로 다음 측정에서 줄인다.

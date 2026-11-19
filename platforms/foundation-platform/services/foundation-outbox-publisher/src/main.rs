@@ -83,6 +83,7 @@ use foundation_publisher_core::lakehouse_snapshot_scan;
 use foundation_publisher_silver::land_use_silver_export;
 #[cfg(test)]
 mod main_tests;
+mod media_index_delta;
 mod media_ladder_backlog;
 mod media_renditions;
 mod media_store;
@@ -96,8 +97,10 @@ use foundation_publisher_core::by_pnu_gateway_contract;
 #[cfg(test)]
 use foundation_publisher_core::test_support;
 mod handoff_object_support;
+mod juso_electronic_map_base;
 mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
+mod industrial_complex_notice_silver_load;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
@@ -173,6 +176,7 @@ enum Command {
     CollectJusoElectronicMap,
     PlanSilverLoadObjects,
     ListLakehouseObjects,
+    MediaIndexDelta,
     MediaLadderBacklog,
     CollectIndustrialComplexAddressSource,
     CollectIndustrialComplexNoticeAttachments,
@@ -256,6 +260,7 @@ enum Command {
     ExportLineageStewardFold,
     AppendLineageStewardFold,
     DeriveParcelLineage,
+    LoadIndustrialComplexNoticeSilver,
     ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -367,6 +372,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CollectJusoElectronicMap => Box::pin(juso_electronic_map_collect::run()),
         Command::PlanSilverLoadObjects => Box::pin(silver_load_objects::run()),
         Command::ListLakehouseObjects => Box::pin(lakehouse_object_listing::run()),
+        Command::MediaIndexDelta => Box::pin(media_index_delta::run()),
         Command::MediaLadderBacklog => Box::pin(media_ladder_backlog::run()),
         Command::CollectIndustrialComplexAddressSource => {
             Box::pin(industrial_complex_address_source_collect::run())
@@ -571,6 +577,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportLineageStewardFold => Box::pin(lineage_steward_fold::export()),
         Command::AppendLineageStewardFold => Box::pin(lineage_steward_fold::append()),
         Command::DeriveParcelLineage => Box::pin(parcel_lineage_derive::run()),
+        Command::LoadIndustrialComplexNoticeSilver => {
+            Box::pin(industrial_complex_notice_silver_load::run())
+        }
         Command::ExportLegalDongStewardDecisions => {
             Box::pin(lineage_steward_fold::export_legal_dong())
         }
@@ -724,6 +733,9 @@ where
         Some("export-lineage-steward-fold") => Ok(Command::ExportLineageStewardFold),
         Some("append-lineage-steward-fold") => Ok(Command::AppendLineageStewardFold),
         Some("derive-parcel-lineage") => Ok(Command::DeriveParcelLineage),
+        Some("load-industrial-complex-notice-silver") => {
+            Ok(Command::LoadIndustrialComplexNoticeSilver)
+        }
         Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
@@ -762,6 +774,7 @@ where
         Some("collect-juso-electronic-map") => Ok(Command::CollectJusoElectronicMap),
         Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),
         Some("list-lakehouse-objects") => Ok(Command::ListLakehouseObjects),
+        Some("media-index-delta") => Ok(Command::MediaIndexDelta),
         Some("media-ladder-backlog") => Ok(Command::MediaLadderBacklog),
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)

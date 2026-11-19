@@ -121,6 +121,9 @@ pub mod parcel_lineage_stage;
 /// Which parcel lineage groups the schedule derives and which it already holds (root ADR-0148).
 pub mod parcel_lineage_schedule;
 
+/// Stages ILIS notice detail reads and their stored attachments as Silver rows (root ADR-0484).
+pub mod industrial_complex_notice_stage;
+
 /// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
 pub mod real_transaction_gold_stage;
 

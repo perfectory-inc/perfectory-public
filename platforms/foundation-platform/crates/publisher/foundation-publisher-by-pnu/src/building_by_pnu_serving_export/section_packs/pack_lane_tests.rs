@@ -300,6 +300,8 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "unit": lane.unit(),
             "manifest_schema_versions": [1, 2, 3, 4],
+            // The deployed Worker reads every major the registry lists (root ADR-0336).
+            "document_schemas": crate::schema_registry::document_schemas(lane.name())?,
         })))
         .mount(&gateway)
         .await;

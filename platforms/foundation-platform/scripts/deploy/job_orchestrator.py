@@ -155,7 +155,7 @@ def start(jobs, job_id, kind, post):
         raise Refused(f"{kind[:60]!r} is not `triggered` or `requested <request id>`")
     job = next(job for job in jobs["jobs"] if job["id"] == job_id)
     priority = jobs["priority_classes"][job_specs.priority_class(jobs, job, job_id)]["value"]
-    tags = job_specs.run_tags(job["pool"], priority, kind)
+    tags = job_specs.run_tags(job["pool"], priority, kind, 60 * job_specs.scheduler_timeout_minutes(job))
     found = _expect(post(LAUNCH, {"params": {
         "mode": "default",
         "executionMetadata": {"tags": [{"key": key, "value": value} for key, value in tags.items()]},

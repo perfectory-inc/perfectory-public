@@ -164,3 +164,86 @@ tests:
             exp_annotations:
               summary: Dagster 상태(dagster.prom)를 30분 넘게 못 읽었어요 — 코드 위치가 죽어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
               runbook: docs/runbooks/asset-reconcile.md
+
+  # Root ADR-0565 §11: a job at `dagster` and a location that does not load is no job started. It pages,
+  # and the dual-run ticket says nothing. Job ids are synthetic.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_dagster_observing'
+        values: '1x60'
+      - series: 'foundation_dagster_answered'
+        values: '1x60'
+      - series: 'foundation_dagster_code_location_loaded{location="foundation"}'
+        values: '0x60'
+      - series: 'foundation_dagster_decided_jobs'
+        values: '3x60'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/dagster.prom"}'
+        values: '0+60x60'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: FoundationDagsterCodeLocationDown
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: FoundationDagsterDecidesNothing
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: orchestration
+            exp_annotations:
+              summary: 'Dagster 코드 위치가 15분 넘게 뜨지 않아요 — Dagster 가 결정하는 작업 3개가 하나도 시작되지 않아요. docker logs airflow-dagster-code-server-1 의 마지막 오류를 보세요'
+              runbook: docs/runbooks/production-orchestrator-cutover.md
+
+  # A sensor stopped by the deploy that holds its job says nothing; one stopped outside it, or whose
+  # ticks fail, is said after 30 minutes; a run past its limit after 15.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_dagster_sensor_running{job="synthetic_held"}'
+        values: '0x60'
+      - series: 'foundation_dagster_sensor_held{job="synthetic_held"}'
+        values: '1x60'
+      - series: 'foundation_dagster_sensor_running{job="synthetic_stopped"}'
+        values: '0x60'
+      - series: 'foundation_dagster_sensor_held{job="synthetic_stopped"}'
+        values: '0x60'
+      - series: 'foundation_dagster_sensor_running{job="synthetic_failing"}'
+        values: '1x60'
+      - series: 'foundation_dagster_sensor_tick_failed{job="synthetic_failing"}'
+        values: '1x60'
+      - series: 'foundation_dagster_run_overdue_seconds{run_job="foundation_job__synthetic_a"}'
+        values: '900+60x60'
+      - series: 'foundation_dagster_run_overdue_seconds{run_job="foundation_job__synthetic_b"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: FoundationDagsterSensorStopped
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: FoundationDagsterSensorStopped
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: orchestration
+              job: synthetic_stopped
+            exp_annotations:
+              summary: 'synthetic_stopped 을 결정하는 Dagster 센서가 30분 넘게 멈춰 있는데 배포가 쥐고 있지 않아요 — 그 작업은 시작되지 않아요. 되돌리기: python3 scripts/deploy/job_orchestrator.py unpause orchestration/jobs.v1.json synthetic_stopped'
+              runbook: docs/runbooks/production-orchestrator-cutover.md
+      - eval_time: 35m
+        alertname: FoundationDagsterSensorTickFailing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: orchestration
+              job: synthetic_failing
+            exp_annotations:
+              summary: 'synthetic_failing 을 결정하는 Dagster 센서의 틱이 30분 넘게 실패해요 — 실패하는 동안 그 작업은 시작되지 않아요. Dagster UI 의 센서 foundation_decide__synthetic_failing 틱 오류를 보세요'
+              runbook: docs/runbooks/production-orchestrator-cutover.md
+      - eval_time: 20m
+        alertname: FoundationDagsterRunOverdue
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: orchestration
+              run_job: foundation_job__synthetic_a
+            exp_annotations:
+              summary: 'Dagster 작업 foundation_job__synthetic_a 의 run 이 한도를 35m 0s 넘겨 열려 있어요 — run monitoring 이 닫지 못했어요. 그 run 의 프로세스가 살아 있는지 보고, 아니면 Dagster UI 에서 끝내세요(유닛은 systemd 의 것이라 따로 돌아요)'
+              runbook: docs/runbooks/production-orchestrator-cutover.md
