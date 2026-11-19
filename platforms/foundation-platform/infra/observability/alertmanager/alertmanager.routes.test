@@ -1,26 +1,32 @@
-# Which receiver an alert reaches (root ADR-0592). One case per line: the receiver, then the alert's
-# labels. The guard alertmanager-routes-pass-their-tests runs each through
+# Which route an alert takes (root ADR-0591). One case per line: the receiver, then the alert's labels.
+# Each route has its own receiver name (one Slack destination), so the receiver names the route. The
+# guard alertmanager-routes-pass-their-tests runs each line through
 # `amtool config routes test --verify.receivers`, from the pinned Alertmanager release; a line that
-# reaches another receiver fails it.
+# reaches another receiver fails it. The guard also derives one case from every alert rule: a ticket
+# outside security reaches slack-ticket, and nothing else does.
 #
-# Tickets: one batched message per rule, no resolved message.
-prelaunch-audit-ticket alertname=FoundationScheduledJobProblem service=data-flow severity=ticket kind=blocked job_id=data_quality
-prelaunch-audit-ticket alertname=FoundationScheduledJobProblem service=data-flow severity=ticket kind=failed job_id=source_sweep
-prelaunch-audit-ticket alertname=FoundationJobMissedStartNotTaken service=data-flow severity=ticket pool=spark
-prelaunch-audit-ticket alertname=FoundationJobOutcomeMissing service=job-outcome severity=ticket job_id=media_reconcile expectation=done
-prelaunch-audit-ticket alertname=FoundationHostOomKill service=host severity=ticket
-prelaunch-audit-ticket alertname=FoundationHostBehindMain service=deploy severity=ticket
-prelaunch-audit-ticket alertname=FoundationDagsterRunOverdue service=orchestration severity=ticket
-prelaunch-audit-ticket alertname=FoundationTileUnitUnmeasured service=serving-freshness severity=ticket bake_job=parcel_tile_bake
-# The security advisories keep one notice per advisory, tickets though they are (root ADR-0278).
-prelaunch-audit alertname=FoundationSecurityAdvisory service=security severity=ticket source=osv-ratchet advisory=RUSTSEC-0000-0000 package=example
-prelaunch-audit alertname=FoundationSecurityAdvisoriesUnreadable service=security severity=ticket
-# Pages: as before, each item on its own and a message when it resolves.
-prelaunch-audit alertname=FoundationUnitFailedLong service=unit-state severity=page unit=foundation-source-sweep.service
-prelaunch-audit alertname=FoundationJobOutcomeMissingLong service=job-outcome severity=page job_id=media_reconcile expectation=done
-prelaunch-audit alertname=FoundationByPnuServingStale service=serving-freshness severity=page bake_job=by_pnu_parcel_real_transaction_bake
+# Tickets: one batched message per rule.
+slack-ticket alertname=FoundationScheduledJobProblem service=data-flow severity=ticket kind=blocked job_id=data_quality
+slack-ticket alertname=FoundationScheduledJobProblem service=data-flow severity=ticket kind=failed job_id=source_sweep
+slack-ticket alertname=FoundationJobMissedStartNotTaken service=data-flow severity=ticket pool=spark
+slack-ticket alertname=FoundationJobOutcomeMissing service=job-outcome severity=ticket job_id=media_reconcile expectation=done
+slack-ticket alertname=FoundationDagsterCodeLocationDown service=dual-run severity=ticket
+slack-ticket alertname=FoundationTileUnitUnmeasured service=serving-freshness severity=ticket bake_job=parcel_tile_bake
+slack-ticket alertname=FoundationPlatformApiDbPoolExhausted service=foundation-api severity=ticket
+slack-ticket alertname=FoundationHostOomKill service=host severity=ticket
+slack-ticket alertname=FoundationReleaseMissing service=deploy severity=ticket
+# The security advisories: one notice per advisory, no reminder (root ADR-0278), tickets though they are.
+slack-security alertname=FoundationSecurityAdvisory service=security severity=ticket source=osv-ratchet advisory=RUSTSEC-0000-0000 package=example
+slack-security alertname=FoundationSecurityAdvisoriesUnreadable service=security severity=ticket
+# Pages: each item on its own, with its service's reminder.
+slack-unit-state alertname=FoundationUnitFailedLong service=unit-state severity=page unit=foundation-source-sweep.service
+slack-job-outcome alertname=FoundationJobOutcomeMissingLong service=job-outcome severity=page job_id=media_reconcile expectation=done
+slack-serving-freshness alertname=FoundationByPnuServingStale service=serving-freshness severity=page bake_job=by_pnu_parcel_real_transaction_bake
+prelaunch-audit alertname=FoundationHostDiskAlmostFull service=host severity=page mountpoint=/data
 prelaunch-audit alertname=FoundationPlatformApiScrapeDown service=foundation-api severity=page
 prelaunch-audit alertname=FoundationDeployFailedTwice service=deploy severity=page
+prelaunch-audit alertname=FoundationDeployDrainLong service=deploy severity=page
 # Alerts the host scripts post themselves carry no severity and keep their own routes.
-prelaunch-audit alertname=FoundationUnitFailed service=unit-failure unit=foundation-source-sweep.service
-prelaunch-audit alertname=FoundationStagingSmokeInputSkipped service=provider-account
+slack-unit-failure alertname=FoundationUnitFailed service=unit-failure unit=foundation-source-sweep.service
+slack-provider-account alertname=FoundationStagingSmokeInputSkipped service=provider-account
+slack-dual-run alertname=FoundationDualRunDisagreed service=dual-run job=asset_reconcile

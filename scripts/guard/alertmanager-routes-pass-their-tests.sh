@@ -85,7 +85,59 @@ if [ "$count" -eq 0 ]; then
   rc=1
 fi
 
+# Every alert rule is a case too, so a new rule cannot miss the batch by a severity typo or by having
+# none: a `severity: ticket` rule outside security reaches slack-ticket, every other rule does not.
+# Read by the narrow shapes the rules files use (no YAML parser on the runner), as
+# prometheus-rules-pass-their-tests reads them.
+rules_dir="$root/platforms/foundation-platform/infra/observability/prometheus"
+derived="$(python3 - "$rules_dir" <<'PY'
+import pathlib
+import re
+import sys
+
+for path in sorted(pathlib.Path(sys.argv[1]).glob("*.rules.yml")):
+    alert = labels = None
+    rules = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if match := re.match(r"^      - alert: (\S+)\s*$", line):
+            alert, labels = match.group(1), {}
+            rules.append((alert, labels))
+        elif alert and (match := re.match(r"^          (severity|service): (\S+)\s*$", line)):
+            labels.setdefault(match.group(1), match.group(2).strip("'\""))
+    for alert, labels in rules:
+        severity, service = labels.get("severity", ""), labels.get("service", "")
+        if severity not in ("page", "ticket"):
+            print(f"BAD {path.name} {alert} severity={severity or '<none>'}")
+            continue
+        want = "ticket" if severity == "ticket" and service != "security" else "not-ticket"
+        print(f"{want} alertname={alert} severity={severity}" + (f" service={service}" if service else ""))
+PY
+)"
+rules=0
+while read -r want labels; do
+  [ -n "$want" ] || continue
+  if [ "$want" = BAD ]; then
+    echo "FAIL ${name}: a rule has no severity of page or ticket, so its route is not known: ${labels}" >&2
+    rc=1
+    continue
+  fi
+  rules=$((rules + 1))
+  # shellcheck disable=SC2086 # the labels are separate words: name=value name=value
+  got="$("$amtool" config routes test --config.file="$config" $labels 2>&1 | head -n 1)"
+  if [ "$want" = ticket ] && [ "$got" != slack-ticket ]; then
+    echo "FAIL ${name}: the ticket rule {${labels// /, }} reaches ${got}, not slack-ticket" >&2
+    rc=1
+  elif [ "$want" = not-ticket ] && [ "$got" = slack-ticket ]; then
+    echo "FAIL ${name}: {${labels// /, }} is batched as a ticket; a page and the security advisories are not" >&2
+    rc=1
+  fi
+done <<<"$derived"
+if [ "$rules" -eq 0 ]; then
+  echo "FAIL ${name}: no alert rules read under $rules_dir" >&2
+  rc=1
+fi
+
 if [ "$rc" -ne 0 ]; then
   exit 1
 fi
-echo "OK ${name}: cases=${count} amtool=${pinned}"
+echo "OK ${name}: cases=${count} rules=${rules} amtool=${pinned}"

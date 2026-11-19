@@ -29,7 +29,7 @@ tests:
         alertname: FoundationHostDiskAlmostFull
         exp_alerts:
           - exp_labels:
-              severity: ticket
+              severity: page
               service: host
               device: /dev/sda2
               fstype: ext4

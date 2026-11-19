@@ -481,7 +481,8 @@
         "paths": [
           "tools/amtool.env",
           "platforms/foundation-platform/compose.observability.yml",
-          "platforms/foundation-platform/infra/observability/alertmanager/**"
+          "platforms/foundation-platform/infra/observability/alertmanager/**",
+          "platforms/foundation-platform/infra/observability/prometheus/*.rules.yml"
         ]
       },
       {
@@ -491,7 +492,8 @@
           "tools/pinned-artifacts.json",
           "scripts/ci/fetch_pinned.py",
           "platforms/foundation-platform/compose.observability.yml",
-          "platforms/foundation-platform/infra/observability/alertmanager/**"
+          "platforms/foundation-platform/infra/observability/alertmanager/**",
+          "platforms/foundation-platform/infra/observability/prometheus/*.rules.yml"
         ]
       },
       {

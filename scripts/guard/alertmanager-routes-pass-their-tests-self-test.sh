@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Proves alertmanager-routes-pass-their-tests rejects what it claims to reject: a ticket route that no
 # longer catches tickets, a service route placed above it, a case naming the wrong receiver, a config
-# amtool refuses, and amtool drifting from the Alertmanager image.
+# amtool refuses, a rule whose severity is neither page nor ticket, a page the ticket route batches,
+# and amtool drifting from the Alertmanager image.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -9,6 +10,7 @@ checker="$(pwd -P)/scripts/guard/alertmanager-routes-pass-their-tests.sh"
 real="$(pwd -P)"
 name="alertmanager-routes-pass-their-tests-self-test"
 config="platforms/foundation-platform/infra/observability/alertmanager"
+rules="platforms/foundation-platform/infra/observability/prometheus"
 test_root="$(mktemp -d)"
 cleanup() {
   case "${test_root:-}" in
@@ -20,10 +22,11 @@ trap cleanup EXIT
 
 fixture() {
   local label="$1" root="$test_root/$1"
-  mkdir -p "$root/tools" "$root/$config"
+  mkdir -p "$root/tools" "$root/$config" "$root/$rules"
   cp "$real/tools/amtool.env" "$root/tools/"
   cp "$real/platforms/foundation-platform/compose.observability.yml" "$root/platforms/foundation-platform/"
   cp "$real/$config/alertmanager.yml" "$real/$config/alertmanager.routes.test" "$root/$config/"
+  cp "$real/$rules"/*.rules.yml "$root/$rules/"
   printf '%s\n' "$root"
 }
 
@@ -53,11 +56,16 @@ expect() {
   fi
 }
 
-expect pass intact "$(fixture intact)"
+# The fixtures are independent and each runs the whole checker (every rule through amtool), so they
+# run side by side, as prometheus-rules-pass-their-tests-self-test does.
+pids=()
+expect pass intact "$(fixture intact)" &
+pids+=("$!")
 
 root="$(fixture ticket-matcher-typo)"
 replace "$root/$config/alertmanager.yml" '        - severity = "ticket"' '        - severity = "tickets"'
-expect fail ticket-matcher-typo "$root"
+expect fail ticket-matcher-typo "$root" &
+pids+=("$!")
 
 root="$(fixture service-route-above-tickets)"
 replace "$root/$config/alertmanager.yml" "  routes:
@@ -65,18 +73,50 @@ replace "$root/$config/alertmanager.yml" "  routes:
     - matchers:
         - service = "data-flow"
 '
-expect fail service-route-above-tickets "$root"
+expect fail service-route-above-tickets "$root" &
+pids+=("$!")
 
 root="$(fixture wrong-receiver)"
-replace "$root/$config/alertmanager.routes.test" "prelaunch-audit alertname=FoundationSecurityAdvisory " "prelaunch-audit-ticket alertname=FoundationSecurityAdvisory "
-expect fail wrong-receiver "$root"
+replace "$root/$config/alertmanager.routes.test" "slack-security alertname=FoundationSecurityAdvisory " "slack-ticket alertname=FoundationSecurityAdvisory "
+expect fail wrong-receiver "$root" &
+pids+=("$!")
 
 root="$(fixture unknown-receiver)"
-replace "$root/$config/alertmanager.yml" "      receiver: prelaunch-audit-ticket" "      receiver: prelaunch-audit-tickets"
-expect fail unknown-receiver "$root"
+replace "$root/$config/alertmanager.yml" "      receiver: slack-ticket" "      receiver: slack-tickets"
+expect fail unknown-receiver "$root" &
+pids+=("$!")
+
+root="$(fixture rule-severity-typo)"
+replace "$root/$rules/foundation-api.rules.yml" "      - alert: FoundationScheduledJobProblem
+        expr: foundation_scheduled_job_problem == 1
+        for: 1m
+        keep_firing_for: 15m
+        labels:
+          severity: ticket" "      - alert: FoundationScheduledJobProblem
+        expr: foundation_scheduled_job_problem == 1
+        for: 1m
+        keep_firing_for: 15m
+        labels:
+          severity: tickets"
+expect fail rule-severity-typo "$root" &
+pids+=("$!")
+
+root="$(fixture page-batched)"
+replace "$root/$config/alertmanager.yml" '        - severity = "ticket"
+        - service != "security"' '        - severity =~ "ticket|page"
+        - service != "security"'
+expect fail page-batched "$root" &
+pids+=("$!")
 
 root="$(fixture amtool-drift)"
 replace "$root/tools/amtool.env" "AMTOOL_VERSION=" "AMTOOL_VERSION=0."
-expect fail amtool-drift "$root"
+expect fail amtool-drift "$root" &
+pids+=("$!")
 
-echo "OK ${name}: 5 rejected, intact passes"
+failed=0
+for pid in "${pids[@]}"; do
+  wait "$pid" || failed=1
+done
+[ "$failed" -eq 0 ] || exit 1
+
+echo "OK ${name}: 7 rejected, intact passes"

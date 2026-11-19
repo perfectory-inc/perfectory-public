@@ -359,7 +359,7 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
     );
     for required in [
         "- severity = \"ticket\"",
-        "receiver: prelaunch-audit-ticket",
+        "receiver: slack-ticket",
         "repeat_interval: 8760h",
         "inhibit_rules:",
         "- kind = \"failed\"",

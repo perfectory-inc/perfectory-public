@@ -2,7 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-11-20
-- Amends: [ADR-0208](./0208-the-data-flow-maps-problems-reach-slack-through-the-existing-alertmanager.md) 결정 4(데이터 흐름 문제의 작업별 경로)
+- Amends: [ADR-0208](./0208-the-data-flow-maps-problems-reach-slack-through-the-existing-alertmanager.md) 결정 4(데이터 흐름 문제의 작업별 경로),
+  [ADR-0480](./0480-every-job-is-held-to-the-outcome-its-definition-expects-not-to-its-units-exit.md) (짧은 결과 없음 티켓의 12시간 재알림 → 묶음),
+  [ADR-0458](./0458-a-job-moves-from-airflow-to-dagster-on-agreeing-decisions-of-every-kind-it-makes-not-on-calendar-days.md) (이중 실행의 티켓 → 묶음)
 - Related: [ADR-0306](./0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md) (서빙 신선도 알림)
 - Related: [ADR-0278](./0278-security-advisories-reach-slack-through-the-existing-alertmanager.md) (보안 권고는 그대로),
   [ADR-0445](./0445-a-failed-host-unit-names-its-owner-and-runbook-and-a-unit-that-stays-failed-calls-its-owner.md) (12시간 재호출),
@@ -38,9 +40,14 @@ Alertmanager 0.28.1 문서(`docs/configuration.md` @v0.28.1)에서 확인한 것
 ## Decision
 
 1. **티켓은 규칙마다 묶는다.** 첫 하위 경로가 `severity = "ticket"` 이고 `service != "security"` 인 알림을 받는다.
-   - 수신자는 `prelaunch-audit-ticket` 이다. 같은 채널, 같은 봇이고 `send_resolved` 는 기본 false 다.
+   - 수신자는 `slack-ticket` 이다. 같은 채널, 같은 봇이다.
    - `group_by: [alertname]`, `group_wait: 5m`, `group_interval: 1h`, `repeat_interval: 24h`.
-   - 한 통이 그 규칙의 떠 있는 알림을 한 줄씩 적는다. 묶음이 바뀌면 많아야 한 시간에 한 번, 그대로면 하루에 한 번이다. 해소는 보내지 않는다. 다음 묶음에서 빠질 뿐이다.
+   - 한 통이 그 규칙의 떠 있는 알림을 한 줄씩 적고, 그 사이 해소된 것을 "해소 N:" 으로 적는다. 묶음이 바뀌면(더해지거나 해소되면) 많아야 한 시간에 한 번, 그대로면 하루에 한 번이다.
+   - **해소는 켠다**(`send_resolved: true`). 끄면 v0.28.1 `notify/notify.go` 의 `DedupStage.needsUpdate` 때문에 두 가지가 생긴다.
+     - 묶음에서 빠지는 알림이 아무것도 보내지 않는다. 지난 메시지가 하루 동안 사라진 항목을 적고 있다.
+     - 같은 알림이 다시 떠도, 지난 메시지의 firing 집합 안에 있으므로 하루 재알림 때까지 보내지 않는다.
+   - 티켓에 속한 규칙: 운영 지도(ADR-0195), 짧은 결과 없음(ADR-0480), 이중 실행의 티켓(ADR-0458), 배포의 티켓, 서빙 신선도·foundation-api·호스트의 티켓.
+   - 이 경로가 모든 서비스 경로보다 위라, 그 규칙들의 서비스별 재알림(12h 등)은 이 묶음의 24h 로 바뀐다.
    - ADR-0208 결정 4 의 작업별 경로(`service="data-flow"`, 작업·종류마다, `8760h`)는 지운다. 그 규칙들은 모두 티켓이라 이 경로로 온다.
 2. **보안 권고는 그대로다.** ADR-0278 의 권고마다 한 통, 재알림 없음을 지킨다. 그래서 `service != "security"` 다.
 3. **페이지는 그대로다.** 항목마다 한 통이고 해소도 보낸다.
@@ -49,12 +56,22 @@ Alertmanager 0.28.1 문서(`docs/configuration.md` @v0.28.1)에서 확인한 것
 4. **원인이 이미 알리는 증상은 억제한다. 원인과 증상을 잇는 레이블이 있을 때만이다.**
    - `FoundationJobOutcomeMissingLong` 이 떠 있으면 같은 `job_id`·`expectation` 의 `FoundationJobOutcomeMissing` 을 억제한다.
    - `FoundationPlatformApiScrapeDown` 이 떠 있으면 `FoundationSecurityAdvisoriesUnreadable` 을 억제한다. foundation-api 가 그 계열의 유일한 내보내는 곳이고 수집 대상도 하나라, 이을 레이블이 필요 없다.
+   - 있는 억제 `failed`→`blocked` 는 `equal: [alertname]` 이고, 양쪽 다 `alertname` 이 같으므로 빈 `equal` 과 같다. 어느 작업이든 실패하면 모든 `blocked` 가 조용해진다. ADR-0208 의 선택이고 그대로 둔다. 막은 작업을 `blocked` 시계열이 이름으로 가질 때(후속) 그 레이블로 좁힌다.
    - `blocked` 는 더 억제하지 않는다. 앞 작업의 `kind="failed"` 가 떠 있으면 기존 억제가 이미 막는다(11-18/19 의 source_sweep 뒤 76개). `FoundationUnitFailedLong` → `blocked` 는 넣지 않는다. 빈 `equal` 은 어느 유닛이든 실패하면 모든 `blocked` 를 억제한다. 남는 `blocked`(앞 작업의 실패 알림이 없는 것)는 결정 1 의 묶음으로 준다.
-5. **사일런스는 이름 있는 열린 PR 이 맡은 항목에만 건다.** 만료는 72시간 이하, 주석은 그 PR 번호다. 아무도 맡지 않은 것에는 걸지 않는다. 이 ADR 은 사일런스를 하나도 걸지 않는다(11-19 기준 그 조건을 채운 항목이 없다).
-6. **경로는 CI 에서 증명한다.**
-   - 가드 `alertmanager-routes-pass-their-tests` 가 고정된 Alertmanager 릴리스의 `amtool` 로 두 가지를 돌린다. `check-config`, 그리고 `alertmanager.routes.test` 의 사례마다 `config routes test --verify.receivers`.
+5. **바로 읽어야 하는 티켓 셋을 페이지로 올린다**(위 "티켓인데 바로 읽어야 하는 규칙"):
+   - `FoundationHostDiskAlmostFull`: 디스크가 다 차 운영 DB 가 선 일이 두 번 있다.
+   - `FoundationDeployDrainLong`, `FoundationDeployDagsPausedLong`: 그동안 모든 DAG 이 멈춘다. 이를 덮는 페이지가 없다.
+   - 묶음에 들어가면 같은 규칙의 둘째 항목이 한 시간 늦을 수 있다.
+6. **사일런스는 이름 있는 열린 PR 이 맡은 항목에만 건다.** 만료는 72시간 이하, 주석은 그 PR 번호다. 아무도 맡지 않은 것에는 걸지 않는다. 이 ADR 은 사일런스를 하나도 걸지 않는다(11-19 기준 그 조건을 채운 항목이 없다).
+7. **경로는 CI 에서 증명한다.**
+   - 경로마다 수신자 이름이 따로다(`slack-ticket`, `slack-security`, `slack-unit-state` …, 뿌리는 `prelaunch-audit`). Slack 설정은 YAML 앵커 하나라 목적지는 하나다. 그래서 수신자 이름이 경로를 가리킨다.
+   - 가드 `alertmanager-routes-pass-their-tests` 가 고정된 Alertmanager 릴리스의 `amtool` 로 세 가지를 돌린다.
+     - `check-config`.
+     - `alertmanager.routes.test` 의 사례마다 `config routes test --verify.receivers`(21개, 경로마다 하나 이상).
+     - **모든 알림 규칙**: `severity: ticket` 이고 security 가 아니면 `slack-ticket`, 아니면 `slack-ticket` 이 아니어야 한다. `severity` 가 page·ticket 이 아닌 규칙은 실패다(76개 규칙).
    - `amtool` 버전(`tools/amtool.env`)은 compose 의 Alertmanager 이미지와 같아야 한다.
-   - 자기시험이 다섯 가지를 심어 거부되는지 본다. 티켓 matcher 오타, 티켓 경로 위에 서비스 경로, 틀린 수신자 사례, 없는 수신자, 버전 어긋남.
+   - 자기시험이 일곱 가지를 심어 거부되는지 본다. 티켓 matcher 오타, 티켓 경로 위에 서비스 경로, 틀린 수신자 사례, 없는 수신자, 규칙의 severity 오타, 페이지까지 묶는 matcher, 버전 어긋남.
+   - 증명하지 않는 것: 간격(`group_*`, `repeat_interval`)과 `send_resolved`. amtool 이 경로만 푼다.
    - 막는 사고: matcher 오타나 경로 순서 하나로 티켓이 다시 작업마다 한 통이 되어도 저장소에서는 아무것도 말하지 않는 일.
 
 ## Rejected
@@ -69,7 +86,7 @@ Alertmanager 0.28.1 문서(`docs/configuration.md` @v0.28.1)에서 확인한 것
 
 ## Consequences
 
-- 예상: 티켓은 규칙마다 한 시간에 많아야 한 통이고 해소 통은 없다(추정 약 215 → 많아야 약 60 / 18h). 증상 둘은 억제된다. 페이지는 serving-freshness 12h 로 약 110 → 약 80 / 18h. 합치면 하루 약 435통(추정)이 약 180통 이하로 준다. 배포 뒤 `alertmanager_notifications_total` 의 하루 증가로 잰다.
+- 예상: 티켓은 규칙마다 한 시간에 많아야 한 통이다. 해소도 그 한 통에 든다(추정 약 215 → 많아야 약 60 / 18h). 증상 둘은 억제된다. 페이지는 serving-freshness 12h 로 약 110 → 약 80 / 18h. 합치면 하루 약 435통(추정)이 약 180통 이하로 준다. 배포 뒤 `alertmanager_notifications_total` 의 하루 증가로 잰다.
   - 아직도 "새 줄이 뜻을 갖는" 수준은 아니다. 남는 것은 열린 페이지 자체다(UnitFailedLong 넷, 서빙 지연). 그것들은 고쳐야 줄어든다.
 - 티켓은 늦게 온다. 첫 통은 5분 뒤, 묶음이 바뀌면 한 시간 뒤다. 바로 읽어야 할 것은 페이지여야 한다. 티켓인데 바로 읽어야 하는 규칙은 `severity: page` 로 올린다.
 - 운영 지도 런북(`operations-map.md`)의 Slack 표를 이 경로에 맞게 고쳤다.

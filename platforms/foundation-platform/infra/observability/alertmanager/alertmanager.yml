@@ -9,16 +9,19 @@ route:
   repeat_interval: 4h
   routes:
     # Every `severity: ticket` alert but the security advisories (root ADR-0591): one message per rule,
-    # naming each of its alerts, at most once an hour while the set changes and once a day while it
-    # stays, and none when it resolves. 2026-11-14..19 #alerts got about 480 messages a day, about two
-    # thirds of them tickets sent one per item and again on resolve, so no line meant anything. A
-    # ticket is read in a batch; a page (below) is read when it comes.
-    # The operations map's problems (root ADR-0195), which had their own per-job route, are all
-    # tickets and come here.
+    # naming each of its alerts, at most once an hour while the set changes (an alert added or
+    # resolved) and once a day while it stays. 2026-11-14..19 #alerts got about 480 messages a day,
+    # about two thirds of them tickets sent one per item and again on resolve, so no line meant
+    # anything. A ticket is read in a batch; a page (below) is read when it comes. Resolved is kept
+    # on: without it Alertmanager sends nothing when an alert leaves the batch, and an alert that
+    # comes back is still in the last message's set and is not sent again until the daily repeat
+    # (DedupStage.needsUpdate, notify/notify.go @v0.28.1).
+    # The operations map's problems (root ADR-0195), the job outcomes (ADR-0480), the dual run's
+    # tickets (ADR-0458) and the deploy tickets, which had their own routes or the root's, come here.
     - matchers:
         - severity = "ticket"
         - service != "security"
-      receiver: prelaunch-audit-ticket
+      receiver: slack-ticket
       group_by:
         - alertname
       group_wait: 5m
@@ -30,6 +33,7 @@ route:
     # by-PNU serving monitors sent a notice per lane every hour and buried the real failures.
     - matchers:
         - service = "unit-failure"
+      receiver: slack-unit-failure
       group_by:
         - alertname
         - unit
@@ -41,6 +45,7 @@ route:
     # cleanly. 2026-11-01..07 nine units stayed failed for days after a single notice each.
     - matchers:
         - service = "unit-state"
+      receiver: slack-unit-state
       group_by:
         - alertname
         - unit
@@ -49,10 +54,12 @@ route:
       repeat_interval: 12h
     # A job whose unit succeeds and that produces nothing it is expected to (root ADR-0480): one notice
     # per job and expectation, a reminder every twelve hours until it meets it, as a unit that stays
-    # failed is called (unit-state). 2026-11-06..09 a check waited for a chain never provisioned and ten
+    # failed is called (unit-state). Since root ADR-0591 only the page (FoundationJobOutcomeMissingLong,
+    # FoundationJobOutcomesSilent) comes here; the short ticket is batched above. 2026-11-06..09 a check waited for a chain never provisioned and ten
     # refused loads said `waiting`, with no failed unit and so no notice at all.
     - matchers:
         - service = "job-outcome"
+      receiver: slack-job-outcome
       group_by:
         - alertname
         - job_id
@@ -63,12 +70,13 @@ route:
     # Users see old data (FoundationByPnuServingStale, root ADR-0306): one notice per bake that publishes
     # the stale lanes, naming each lane, and a reminder every twelve hours until it publishes, as a unit
     # that stays failed is called (unit-state; every four hours until 2026-11-20, root ADR-0591: three
-    # bakes stale since 11-14 made eighteen messages a day). The daily
-    # reminder of a failed unit was read past for eight days (2026-10-28..11-05, the 공매 lane's 191-hour
+    # bakes stale since 11-14 made eighteen messages a day; look again once #alerts is under fifty a
+    # day). Its tickets are batched above. The daily reminder of a failed unit was read past for eight days (2026-10-28..11-05, the 공매 lane's 191-hour
     # pre-photo manifest). One notice per lane was one condition counted eight times: 2026-10-31..11-07
     # the panel bake's eight lanes made 2,057 monitor failures out of one unpublished bake (W83b).
     - matchers:
         - service = "serving-freshness"
+      receiver: slack-serving-freshness
       group_by:
         - alertname
         - bake_job
@@ -77,9 +85,12 @@ route:
       repeat_interval: 12h
     # Dagster decided a job's run differently from Airflow in the dual run (root ADR-0458): one notice
     # per job, and a reminder a day while the comparisons keep differing; the job's agreeing count
-    # starts again from the difference, so it does not move to Dagster until the rules agree.
+    # starts again from the difference, so it does not move to Dagster until the rules agree. The dual
+    # run's own alerts are tickets and are batched above (root ADR-0591); this route keeps the ones
+    # posted without a severity.
     - matchers:
         - service = "dual-run"
+      receiver: slack-dual-run
       group_by:
         - alertname
         - job
@@ -91,6 +102,7 @@ route:
     # provider with the owner action when it starts, one when a login works again, a reminder a day.
     - matchers:
         - service = "provider-account"
+      receiver: slack-provider-account
       group_by:
         - alertname
         - provider
@@ -98,9 +110,10 @@ route:
       group_interval: 5m
       repeat_interval: 24h
     # The repository's open security advisories (root ADR-0278): one notice per advisory when it
-    # opens and one when it is gone, the same way as the operations map's problems.
+    # opens and one when it is gone, and no reminder. Tickets, but not batched (root ADR-0591).
     - matchers:
         - service = "security"
+      receiver: slack-security
       group_by:
         - alertname
         - source
@@ -111,7 +124,9 @@ route:
       repeat_interval: 8760h
 
 # A job waiting on a failed one says "blocked"; while any job has failed, its own notice is the
-# one to read, and every blocked job would only repeat it.
+# one to read, and every blocked job would only repeat it. `equal: [alertname]` is fixed on both
+# sides, so ANY failed job mutes EVERY blocked one, related or not (root ADR-0208's choice, kept by
+# root ADR-0591 until the blocked series names the job it waits on).
 inhibit_rules:
   - source_matchers:
       - alertname = "FoundationScheduledJobProblem"
@@ -158,6 +173,8 @@ inhibit_rules:
       - alertname = "FoundationSecurityAdvisoriesUnreadable"
 
 receivers:
+  # One Slack destination; a receiver per route only so that `amtool config routes test` can tell the
+  # routes apart (guard alertmanager-routes-pass-their-tests, root ADR-0591).
   - name: prelaunch-audit
     # The bot token is a credential and lives outside this file: the compose file mounts it from
     # the host, because a receiver with no destination is how six weeks of alerts went nowhere
@@ -167,25 +184,29 @@ receivers:
     # and the Authorization header carries the bot token. One caveat the delivery proof exists
     # for: the Web API answers HTTP 200 even for logical failures (unknown channel, revoked
     # token), so only a message seen in the channel counts as delivered.
-    slack_configs:
+    slack_configs: &slack
       - channel: '#alerts'
         api_url: https://slack.com/api/chat.postMessage
         http_config:
           authorization:
             credentials_file: /etc/alertmanager/secrets/slack-bot-token
         send_resolved: true
-        title: '{{ .Status | toUpper }} {{ .CommonLabels.alertname }}'
+        title: '{{ .Status | toUpper }} {{ .CommonLabels.alertname }}{{ if gt (len .Alerts) 1 }} ({{ len .Alerts.Firing }}){{ end }}'
         text: >-
-          {{ range .Alerts }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}
-  # The same channel and bot for the tickets, without a message when they resolve (`send_resolved`
-  # defaults to false for Slack): a batch read later needs no "it is gone" line (root ADR-0591).
-  - name: prelaunch-audit-ticket
-    slack_configs:
-      - channel: '#alerts'
-        api_url: https://slack.com/api/chat.postMessage
-        http_config:
-          authorization:
-            credentials_file: /etc/alertmanager/secrets/slack-bot-token
-        title: 'TICKET {{ .CommonLabels.alertname }} ({{ len .Alerts }})'
-        text: >-
-          {{ range .Alerts }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}
+          {{ range .Alerts.Firing }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}{{ with .Alerts.Resolved }}해소 {{ len . }}: {{ range . }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}{{ end }}
+  - name: slack-ticket
+    slack_configs: *slack
+  - name: slack-unit-failure
+    slack_configs: *slack
+  - name: slack-unit-state
+    slack_configs: *slack
+  - name: slack-job-outcome
+    slack_configs: *slack
+  - name: slack-serving-freshness
+    slack_configs: *slack
+  - name: slack-dual-run
+    slack_configs: *slack
+  - name: slack-provider-account
+    slack_configs: *slack
+  - name: slack-security
+    slack_configs: *slack

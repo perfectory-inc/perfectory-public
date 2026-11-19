@@ -78,7 +78,7 @@ foundation-api /metrics ── foundation_scheduled_job_problem{job_id,kind,node
         ▼
 규칙 FoundationScheduledJobProblem (for 1m, keep_firing_for 15m)
         ▼
-Alertmanager  route severity="ticket" ── 규칙마다 묶어 한 통, 바뀌면 많아야 1시간에 1번, 그대로면 하루 1번, 해소는 안 보냄 (루트 ADR-0591)
+Alertmanager  route severity="ticket" ── 규칙마다 묶어 한 통, 바뀌면(새로·해소) 많아야 1시간에 1번, 그대로면 하루 1번 (루트 ADR-0591)
         ▼
 Slack #alerts   "TICKET FoundationScheduledJobProblem (N)" + 작업마다 한 줄 "<작업> [failed] 메모리 부족 · <로그 한 줄> — <더니어 링크>"
 ```
@@ -87,7 +87,7 @@ Slack #alerts   "TICKET FoundationScheduledJobProblem (N)" + 작업마다 한 �
 |---|---|
 | 문제가 새로 생김(1분 지속) | 5분 기다려 같은 규칙의 다른 문제와 묶어 `TICKET` 한 통 |
 | 같은 문제가 계속됨 | 하루 한 번 그 규칙의 남은 문제 목록(`repeat_interval: 24h`). 묶음이 바뀌면 많아야 1시간에 한 번(`group_interval: 1h`) |
-| 문제가 사라짐(15분 동안 다시 안 보임) | 보내지 않는다(`send_resolved` 기본 false). 다음 묶음 메시지에서 빠진다 |
+| 문제가 사라짐(15분 동안 다시 안 보임) | 같은 규칙의 다음 묶음 메시지(많아야 1시간 뒤)에 "해소 N:" 으로 적힌다 |
 | 새 실행이 다른 원인으로 실패 | 원인 줄이 바뀌므로 새 문제다. 같은 규칙의 묶음에 들어가 다음 묶음 메시지에 보인다 |
 | 앞 작업 실패로 멈춘(`blocked`) 작업 | 실패 알림이 떠 있는 동안 보내지 않는다(`inhibit_rules`) |
 | 꺼진 작업 | 보내지 않는다 |
