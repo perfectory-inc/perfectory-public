@@ -7,6 +7,7 @@ import { problem } from "@/lib/http/problem";
 import { GENERATED_API_PROXY_ROUTE_POLICIES } from "@/lib/policies/traffic-auth-policy.generated";
 import { checkRate } from "@/lib/ratelimit";
 import { SID_COOKIE_NAME } from "@/lib/session/cookie";
+import { freshSession } from "@/lib/session/refresh";
 import { hasAnyRole } from "@/lib/session/roles";
 import { getSession, type SessionData } from "@/lib/session/store";
 
@@ -16,7 +17,9 @@ async function resolveSession(req: NextRequest): Promise<SessionData | null> {
   const sid = req.cookies.get(SID_COOKIE_NAME)?.value;
   if (!sid) return null;
 
-  return getSession(sid);
+  const session = await getSession(sid);
+  // 만료됐거나 곧 끝나는 access token 은 중계하기 전에 서버에서 갱신한다(W-4).
+  return session ? freshSession(sid, session) : null;
 }
 
 function createRequestId(req: NextRequest): string {
