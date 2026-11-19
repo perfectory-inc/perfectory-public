@@ -163,7 +163,16 @@ class TheJobsDagsterDecides(unittest.TestCase):
             def answer():
                 connection, _ = server.accept()
                 with connection:
-                    asked.append(connection.recv(65536))
+                    # The whole request before answering: closing on a partial read is a broken pipe to the client.
+                    request = b""
+                    while b"\r\n\r\n" not in request and (chunk := connection.recv(65536)):
+                        request += chunk
+                    head, _, body = request.partition(b"\r\n\r\n")
+                    length = int(next(line.split(b":", 1)[1] for line in head.split(b"\r\n")
+                                      if line.lower().startswith(b"content-length:")))
+                    while len(body) < length and (chunk := connection.recv(65536)):
+                        body += chunk
+                    asked.append(request)
                     payload = json.dumps({"data": {"sensorsOrError": {"__typename": "Sensors", "results": []}}}).encode()
                     head = (b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n"
                             b"Connection: close\r\n\r\n")
