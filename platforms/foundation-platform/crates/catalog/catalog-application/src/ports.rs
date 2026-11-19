@@ -1169,7 +1169,7 @@ pub trait OperatorActionLedger: Send + Sync {
 }
 
 /// One row of the audit chain `audit.event` as the console reads it (root ADR-0569 §2).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditEvent {
     /// Its place in the chain, from 1 without a gap.
     pub seq: i64,
@@ -1256,7 +1256,7 @@ pub struct AuditEventFilter {
 
 /// One event to append through `audit.append` (root ADR-0569 §3). The chain fills `seq`, the
 /// hashes and `recorded_at`; the database checks the caller's role may write `source`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditAppend {
     /// The event's id.
     pub event_id: Uuid,
