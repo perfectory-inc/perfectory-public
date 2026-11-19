@@ -1,0 +1,95 @@
+# promtool unit tests for the foundation-data-flow rules (root ADR-0195, ADR-0208): the operations map's
+# problems as alerts. The series are what foundation-api writes (services/foundation-api/src/routes/
+# data_catalog/alerts.rs). Run by the guard prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # 2026-11-18/19: court_auction_silver's volume problem was written with a new sentence each run
+  # ("보통 104133행인데 이번엔 30434행", then "보통 6255행인데 이번엔 1893행"); each was a new alert,
+  # so a new message and a resolved one. The same job, kind and node is one alert whose summary is the
+  # sentence the map writes now.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_scheduled_job_problem{job_id="court_auction_silver",kind="volume",node_id="silver-court-auction",summary="보통 104133행인데 이번엔 30434행",link="https://console.example.test/#/flow?node=silver-court-auction"}'
+        values: '1x9'
+      - series: 'foundation_scheduled_job_problem{job_id="court_auction_silver",kind="volume",node_id="silver-court-auction",summary="보통 6255행인데 이번엔 1893행",link="https://console.example.test/#/flow?node=silver-court-auction"}'
+        values: '_x10 1x20'
+      - series: 'foundation_scheduled_jobs_readable'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: FoundationScheduledJobProblem
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              job_id: court_auction_silver
+              kind: volume
+              node_id: silver-court-auction
+            exp_annotations:
+              summary: 'court_auction_silver [volume] 보통 104133행인데 이번엔 30434행 — https://console.example.test/#/flow?node=silver-court-auction'
+              runbook: docs/runbooks/operations-map.md
+      - eval_time: 15m
+        alertname: FoundationScheduledJobProblem
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              job_id: court_auction_silver
+              kind: volume
+              node_id: silver-court-auction
+            exp_annotations:
+              summary: 'court_auction_silver [volume] 보통 6255행인데 이번엔 1893행 — https://console.example.test/#/flow?node=silver-court-auction'
+              runbook: docs/runbooks/operations-map.md
+      - eval_time: 15m
+        alertname: FoundationScheduledJobsUnreadable
+        exp_alerts: []
+
+  # Two kinds of one job stay two alerts; a problem with no console link says no link.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_scheduled_job_problem{job_id="gold_synthetic",kind="failed",node_id="",summary="메모리 부족",link=""}'
+        values: '1x10'
+      - series: 'foundation_scheduled_job_problem{job_id="gold_synthetic",kind="slow",node_id="",summary="보통 10분인데 이번 실행은 그보다 훨씬 오래 걸려요",link=""}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: FoundationScheduledJobProblem
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              job_id: gold_synthetic
+              kind: failed
+            exp_annotations:
+              summary: 'gold_synthetic [failed] 메모리 부족'
+              runbook: docs/runbooks/operations-map.md
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              job_id: gold_synthetic
+              kind: slow
+            exp_annotations:
+              summary: 'gold_synthetic [slow] 보통 10분인데 이번 실행은 그보다 훨씬 오래 걸려요'
+              runbook: docs/runbooks/operations-map.md
+
+  # The map cannot read the runs for 30 minutes: it says so, as the problem alert cannot fire then.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_scheduled_jobs_readable'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: FoundationScheduledJobsUnreadable
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: FoundationScheduledJobsUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+            exp_annotations:
+              summary: 데이터 흐름 지도가 30분째 작업 실행 기록을 못 읽어요 — 문제가 생겨도 알림이 안 와요
+              runbook: docs/runbooks/operations-map.md

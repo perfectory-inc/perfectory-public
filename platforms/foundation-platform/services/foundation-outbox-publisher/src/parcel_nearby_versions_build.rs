@@ -194,6 +194,17 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         pins: &nearby_pins,
     };
     let read = load_inputs(connection, &source, &edition)?;
+    for (input, millis) in &read.read_millis {
+        println!(
+            "gold-versions {TABLE} read {input} in {:.1}s",
+            *millis as f64 / 1000.0
+        );
+    }
+    println!(
+        "gold-versions {TABLE} read its inputs in {:.1}s (memory peak {:?} bytes)",
+        started.elapsed().as_secs_f64(),
+        process_memory::cgroup_peak_bytes()
+    );
     let sidos: BTreeSet<String> = if every_sido {
         read.parcels_by_sido.keys().cloned().collect()
     } else {

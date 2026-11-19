@@ -28,8 +28,10 @@ intelligence_document_extraction_contract
 intelligence_document_spark plan-text --out "${container_work}/plan"
 owed="$(intelligence_document_summary owed)"
 planned="$(intelligence_document_summary planned)"
+# Memory kills that used every attempt (root ADR-0593 §2): no longer owed, so named in every line.
+exhausted="$(intelligence_document_summary memory_kill_exhausted)"
 if [ "${planned}" = 0 ]; then
-  job_journal "${journal}" "intelligence document text: nothing owed run=${run_id}"
+  job_journal "${journal}" "intelligence document text: nothing owed run=${run_id} memory_kill_exhausted=${exhausted}"
   printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
@@ -51,16 +53,27 @@ if [ "${stopping}" = 1 ]; then
   job_journal "${journal}" "intelligence document text stopped; its finished documents were appended run=${run_id}" >&2
   exit 143
 fi
+# An image that died wrote no summary: the line then says so instead of failing here.
+read_summary="$(python3 -I -c '
+import json, sys
+try:
+    s = json.load(open(sys.argv[1], encoding="utf-8"))
+except OSError:
+    print("{\"summary\": \"absent\"}")
+    raise SystemExit(0)
+keys = ("read", "run_seconds", "peak_memory_mib", "memory_killed", "memory_kill_counter", "by_format")
+print(json.dumps({k: s.get(k) for k in keys}, sort_keys=True))
+' "${work}/out/summary.json")"
 if [ "${text_rc}" != 0 ]; then
-  job_journal "${journal}" "intelligence document text FAILED: the image exited ${text_rc}; its finished documents were appended run=${run_id}" >&2
+  # A full run exits 1 when the memory cap ended a document (appended as "memory cap: ", read again by
+  # a later run) or the OOM-kill count it marks them by was unreadable (root ADR-0593): 2026-11-12..19
+  # the cap killed ocrmypdf 185 times while every run said ok. What was read is appended, so the fact
+  # job is told before the unit fails and OnFailure names it.
+  job_journal "${journal}" "intelligence document text FAILED: the image exited ${text_rc}; its finished documents were appended run=${run_id} owed=${owed} planned=${planned} memory_kill_exhausted=${exhausted} ${read_summary}" >&2
   job_run_log_tail "${run_log}"
+  printf 'foundation-job-outcome changed\n'
   exit "${text_rc}"
 fi
 
-read_summary="$(python3 -I -c '
-import json, sys
-s = json.load(open(sys.argv[1], encoding="utf-8"))
-print(json.dumps({k: s[k] for k in ("read", "run_seconds", "peak_memory_mib", "by_format")}, sort_keys=True))
-' "${work}/out/summary.json")"
-job_journal "${journal}" "intelligence document text ok run=${run_id} owed=${owed} planned=${planned} ${read_summary}"
+job_journal "${journal}" "intelligence document text ok run=${run_id} owed=${owed} planned=${planned} memory_kill_exhausted=${exhausted} ${read_summary}"
 printf 'foundation-job-outcome changed\n'

@@ -11,7 +11,7 @@ import {
 const sample: SessionData = {
   sub: "user-uuid-1",
   jti: "jti-1",
-  role: "Buyer",
+  roles: [],
   access_token: "at-1",
   refresh_token: "rt-1",
   id_token: "it-1",

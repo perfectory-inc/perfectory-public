@@ -20,6 +20,15 @@
       "extension": {"linux": "tar.gz", "darwin": "tar.gz", "windows": "tar.gz"},
       "url": "https://github.com/prometheus/prometheus/releases/download/v{version}/prometheus-{version}.{os}-{arch}.{extension}"
     },
+    "amtool": {
+      "pins": "tools/amtool.env",
+      "version_variable": "AMTOOL_VERSION",
+      "sha256_variable": "AMTOOL_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux", "darwin": "darwin", "windows": "windows"},
+      "arch": {"x86_64": "amd64", "aarch64": "arm64"},
+      "extension": {"linux": "tar.gz", "darwin": "tar.gz", "windows": "tar.gz"},
+      "url": "https://github.com/prometheus/alertmanager/releases/download/v{version}/alertmanager-{version}.{os}-{arch}.{extension}"
+    },
     "gitleaks": {
       "pins": "tools/gitleaks.env",
       "version_variable": "GITLEAKS_VERSION",

@@ -79,6 +79,11 @@ class Host:
     control_root: pathlib.Path = pathlib.Path("/opt/perfectory-control/current")
     release_root: pathlib.Path = pathlib.Path("/opt/foundation-platform")
     state: pathlib.Path = pathlib.Path("/data/foundation-platform/worker-autodeploy")
+    # The workspaces and the package managers' cache, on the root SSD (the unit's CacheDirectory=).
+    # /data is one spinning disk that every job and Docker itself read: on 2026-11-19 the six Workers
+    # of 526aec30 took 82 min there, each install fetching pnpm and every package again into a
+    # workspace the run before had deleted, and the host deploy of the next commit waited for it.
+    work: pathlib.Path = pathlib.Path("/var/cache/foundation-worker-autodeploy")
     off_switches: tuple[pathlib.Path, ...] = (
         pathlib.Path("/etc/foundation-platform/autodeploy.off"),
         pathlib.Path("/etc/foundation-platform/worker-autodeploy.off"),
@@ -378,7 +383,7 @@ class Deploy:
 
     def wrangler(self, *args: str, target: Target | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
         env = ["--env", target.env] if target is not None and target.env else []
-        return command(["bash", str(WRANGLER), str(self.workspace), self.service, "wrangler", *args,
+        return command(["bash", str(WRANGLER), str(self.workspace), str(tool_cache(self.host)), self.service, "wrangler", *args,
                         "--config", self.config, *env], check=check)
 
     def resolve_d1_ids(self) -> None:
@@ -631,7 +636,7 @@ class Deploy:
 
     def run(self) -> dict[str, Any]:
         self.can_i_deploy()
-        command(["bash", str(WRANGLER), str(self.workspace), self.service, "install"])
+        command(["bash", str(WRANGLER), str(self.workspace), str(tool_cache(self.host)), self.service, "install"])
         self.resolve_d1_ids()
         before = {target.label: self.serving(target) for target in self.worker.targets}
         if self.worker.d1_database:
@@ -669,10 +674,20 @@ class Deploy:
 # --- one run -----------------------------------------------------------------------------------
 
 
+def tool_cache(host: Host) -> pathlib.Path:
+    """pnpm's store and the pnpm corepack fetched, kept across runs: the lockfile's integrity hashes
+    decide what is installed; the cache only saves fetching it again."""
+
+    return host.work / "tools"
+
+
 def stage(host: Host, tree: pathlib.Path, worker: Worker) -> pathlib.Path:
     """A fresh copy of the Worker's inputs, owned by the account the container runs as."""
 
-    workspace = host.state / "work" / worker.id
+    cache = tool_cache(host)
+    cache.mkdir(parents=True, exist_ok=True)
+    command(["chown", "-R", host.workspace_owner, str(cache)])
+    workspace = host.work / "work" / worker.id
     if workspace.exists():
         shutil.rmtree(workspace)
     for item in worker.inputs:

@@ -85,6 +85,51 @@ pub struct BakeConfig {
     /// Sample candidates per million PNUs (`gate::candidate_rate` of the Gold's record count);
     /// `None` is the contract's rate.
     pub sample_candidates_per_million: Option<u64>,
+    /// Where each finished dong is recorded, so a run stopped inside a shard resumes at the dong.
+    pub progress: Option<DongProgress>,
+}
+
+/// Where a bake records each dong it finished, and the build whose records it may reuse.
+///
+/// A shard is resumed whole or not at all (its summary), and a re-run used to render and check
+/// every dong again before finding its packs already written. A first shard longer than the unit's
+/// time limit then made no progress at all: the real-transaction lane's full bake was stopped at
+/// 1 h 55 three times (2026-11-18..19) without one shard finishing. A dong's record holds what its
+/// write produced: the packs (keys and sha256), the gate's counts and its cut. A re-run of the
+/// same build, snapshot, generations and sections takes the record instead of rendering the dong:
+/// the build renders a dong to the same bytes every time (create-only reports `reused`), so the
+/// record is what the render would give.
+#[derive(Clone, Debug)]
+pub struct DongProgress {
+    pub dir: PathBuf,
+    /// The publisher's identity (the sha256 of its binary): another build may render otherwise.
+    pub build: String,
+}
+
+/// One finished dong, as `DongProgress` keeps it.
+#[derive(Debug, Deserialize, Serialize)]
+struct DongRecord {
+    identity: DongIdentity,
+    packs: Vec<PackEntry>,
+    compared: u64,
+    equal: u64,
+    candidates: Vec<String>,
+    paged: u64,
+    withheld: Vec<WithheldDocument>,
+    cut: Cut,
+}
+
+/// What a record must match to stand in for rendering its dong.
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+struct DongIdentity {
+    build: String,
+    document_schema_version: String,
+    gold_iceberg_snapshot_id: String,
+    generations: BTreeMap<String, u64>,
+    patch: Option<u64>,
+    sections: Vec<String>,
+    rows: u64,
+    deleted: u64,
 }
 
 impl BakeConfig {
@@ -143,6 +188,18 @@ impl BakeConfig {
             lane.env("PNU_ALLOWLIST_PATH")
         );
         let unit_length = crate::by_pnu_gateway_contract::section_pack_policy()?.unit_prefix_length;
+        let progress = match (env("PACK_PROGRESS_DIR")?, env("PACK_PROGRESS_BUILD")?) {
+            (Some(dir), Some(build)) if !build.trim().is_empty() => Some(DongProgress {
+                dir: PathBuf::from(dir),
+                build,
+            }),
+            (None, None) => None,
+            _ => anyhow::bail!(
+                "{} and {} are set together",
+                lane.env("PACK_PROGRESS_DIR"),
+                lane.env("PACK_PROGRESS_BUILD")
+            ),
+        };
         let pnu_prefix = env("PNU_PREFIX")?;
         if let Some(prefix) = &pnu_prefix {
             ensure!(
@@ -176,6 +233,7 @@ impl BakeConfig {
             ),
             // Set from the Gold's record count once the scan has read it (`run`).
             sample_candidates_per_million: None,
+            progress,
         })
     }
 }
@@ -757,7 +815,7 @@ pub async fn bake(
     for unit in &all_units {
         let rows = units.get(unit).unwrap_or(&no_rows);
         let deleted = tombstones.get(unit).unwrap_or(&no_deletes);
-        jobs.push(write_unit(&run, unit, rows, deleted));
+        jobs.push(write_or_resume(&run, unit, rows, deleted));
     }
     let written = stream::iter(jobs)
         .buffer_unordered(config.max_concurrency)
@@ -939,6 +997,84 @@ pub(super) struct LaidOut {
 
 /// The dongs a base bake cut into parts, as `(section, (dong, count))`.
 type Cut = Vec<(String, (String, u32))>;
+
+/// `write_unit`, or the record of the same dong an earlier run of this build finished
+/// (`DongProgress`); a dong it writes is recorded once its packs are written.
+async fn write_or_resume(
+    run: &Run<'_>,
+    dong: &str,
+    rows: &[&JsonMap<String, JsonValue>],
+    deleted: &[String],
+) -> anyhow::Result<(Vec<PackEntry>, UnitCheck, Cut)> {
+    let Some(progress) = &run.config.progress else {
+        return write_unit(run, dong, rows, deleted).await;
+    };
+    let identity = DongIdentity {
+        build: progress.build.clone(),
+        document_schema_version: crate::by_pnu_serving_manifest_publish::document_schema_version(
+            run.config.lane,
+        )
+        .to_owned(),
+        gold_iceberg_snapshot_id: run.provenance.iceberg_snapshot_id.clone(),
+        generations: run.plan.generations.clone(),
+        patch: run.config.patch.as_ref().map(|patch| patch.patch),
+        sections: run.config.sections.clone(),
+        rows: u64::try_from(rows.len())?,
+        deleted: u64::try_from(deleted.len())?,
+    };
+    let path = progress.dir.join(format!("{dong}.json"));
+    if let Some(record) = read_dong_record(&path)?.filter(|record| record.identity == identity) {
+        let check = UnitCheck {
+            compared: record.compared,
+            equal: record.equal,
+            differing: Vec::new(),
+            candidates: record.candidates,
+            paged: record.paged,
+            withheld: record.withheld,
+        };
+        let packs = record
+            .packs
+            .into_iter()
+            .map(|pack| PackEntry {
+                outcome: "resumed".to_owned(),
+                ..pack
+            })
+            .collect();
+        return Ok((packs, check, record.cut));
+    }
+    let (packs, check, cut) = write_unit(run, dong, rows, deleted).await?;
+    let record = DongRecord {
+        identity,
+        packs: packs.clone(),
+        compared: check.compared,
+        equal: check.equal,
+        candidates: check.candidates.clone(),
+        paged: check.paged,
+        withheld: check.withheld.clone(),
+        cut: cut.clone(),
+    };
+    std::fs::create_dir_all(&progress.dir)
+        .with_context(|| format!("failed to create {}", progress.dir.display()))?;
+    // Written whole and renamed: a record is either all there or absent.
+    let partial = path.with_extension("json.partial");
+    std::fs::write(&partial, serde_json::to_vec(&record)?)
+        .with_context(|| format!("failed to write {}", partial.display()))?;
+    std::fs::rename(&partial, &path)
+        .with_context(|| format!("failed to record {}", path.display()))?;
+    Ok((packs, check, cut))
+}
+
+fn read_dong_record(path: &std::path::Path) -> anyhow::Result<Option<DongRecord>> {
+    match std::fs::read(path) {
+        Ok(bytes) => {
+            Ok(Some(serde_json::from_slice(&bytes).with_context(|| {
+                format!("{} is not a dong record", path.display())
+            })?))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("failed to read {}", path.display())),
+    }
+}
 
 async fn write_unit(
     run: &Run<'_>,

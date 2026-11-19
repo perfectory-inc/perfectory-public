@@ -264,6 +264,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         max_concurrency: 4,
         summary_path: dirs.work.join("unused.json"),
         sample_candidates_per_million: None,
+        progress: None,
     };
     let provenance = PackProvenance {
         table: "gold.unit_price".to_owned(),
@@ -503,6 +504,7 @@ async fn unit_price_patch_scan_keeps_the_change_set_by_key_2026_10_30() -> anyho
         max_concurrency: 1,
         summary_path: PathBuf::from("unused.json"),
         sample_candidates_per_million: None,
+        progress: None,
     };
     let gold = [
         row(PNU_A, BUILDING_1, 1),

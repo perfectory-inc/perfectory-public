@@ -7,13 +7,20 @@
 # a migration run — after the image rebuild, with nothing having said beforehand that the file
 # was behind. It is the same drift as the schema one, one file over.
 #
-# **It reads names, never values.** The required set comes from `${VAR:?...}` in the compose
-# files, and presence is decided by a `^NAME=` match. Nothing here prints, compares, or copies a
-# secret; a check that had to read them would be a second place they live.
+# **Compose says what is required.** The list is `config --variables` on the model the runtime
+# wrapper loads, so a compose file joining the wrapper is covered without editing this check.
+# Compose v5.2.0 (the host's) turns interpolation off for it (cmd/compose/config.go `runVariables`)
+# and reports `Required` for `${NAME:?...}` and `${NAME?...}` (compose-go v2.12.1
+# template/variables.go).
 #
-# **It fails when it cannot look.** A missing compose file, an unreadable env file, an empty
-# required set: each is a question that went unanswered, and the whole family of defects this
-# repository keeps finding is an unanswered question recorded as a pass.
+# **It reads names, never values.** `--variables` prints names and the compose files' own
+# defaults, not what the environment file holds, and presence is decided by a `^NAME=` match.
+# Nothing here prints, compares, or copies a secret; a check that had to read them would be a
+# second place they live.
+#
+# **It fails when it cannot look.** A compose file compose cannot load, an unreadable env file, an
+# empty required set: each is a question that went unanswered, and the whole family of defects
+# this repository keeps finding is an unanswered question recorded as a pass.
 set -uo pipefail
 
 release_dir="${1:-${FOUNDATION_PLATFORM_RELEASE_ROOT:-/opt/foundation-platform}/current}"
@@ -24,36 +31,21 @@ fail() {
   exit 1
 }
 
-# Which compose files the runtime loads is `foundation-runtime.sh`'s `-f` arguments, and that is
-# where it is read from. Listing them here was a second copy: a third compose file would join the
-# runtime and this check would keep asking about two, reporting complete coverage of a set it no
-# longer covers.
 runtime_script="${release_dir}/scripts/deploy/foundation-runtime.sh"
 [[ -f "${runtime_script}" ]] || fail "release has no runtime compose wrapper: ${runtime_script}"
+[[ -r "${env_file}" ]] || fail "cannot read the runtime environment file: ${env_file}"
 
-compose_files=()
-while read -r file; do
-  [[ -n "${file}" ]] && compose_files+=("${release_dir}/${file}")
-done < <(
-  sed -nE 's|^[[:space:]]*-f "\$\{root_dir\}/([^"]+)".*|\1|p' "${runtime_script}"
-)
-[[ "${#compose_files[@]}" -gt 0 ]] \
-  || fail "read no compose files out of ${runtime_script}, which cannot be right"
-
-for file in "${compose_files[@]}"; do
-  [[ -f "${file}" ]] || fail "release is missing a compose file: ${file}"
-done
-
+variables="$(FOUNDATION_PLATFORM_ENV_FILE="${env_file}" bash "${runtime_script}" config --variables --format json)" \
+  || fail "compose could not load this release's model (${runtime_script} config --variables)"
 # Only the variables compose itself calls required. A variable with a default is a choice the
 # deployment may leave alone, and demanding it here would make this check refuse working hosts.
-required="$(
-  grep -ohE '\$\{[A-Z_][A-Z0-9_]*:\?' "${compose_files[@]}" \
-    | tr -d '${:?' | sort -u
-)"
+required="$(python3 -I -c '
+import json, sys
+names = sorted(name for name, v in json.load(sys.stdin).items() if v["Required"])
+sys.stdout.buffer.write("".join(f"{name}\n" for name in names).encode())
+' <<<"${variables}")" || fail "compose's variable list is not the JSON this check reads"
 required_count="$(printf '%s\n' "${required}" | grep -c '[A-Z]')"
 [[ "${required_count}" -gt 0 ]] || fail "found no required variables in the compose files, which cannot be right"
-
-[[ -r "${env_file}" ]] || fail "cannot read the runtime environment file: ${env_file}"
 
 missing=""
 while IFS= read -r name; do

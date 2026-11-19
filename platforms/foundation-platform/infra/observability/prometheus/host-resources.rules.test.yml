@@ -29,7 +29,7 @@ tests:
         alertname: FoundationHostDiskAlmostFull
         exp_alerts:
           - exp_labels:
-              severity: ticket
+              severity: page
               service: host
               device: /dev/sda2
               fstype: ext4
@@ -285,7 +285,7 @@ tests:
         alertname: FoundationByPnuLaneUnmeasured
         exp_alerts:
           - exp_labels:
-              severity: page
+              severity: ticket
               service: serving-freshness
               lane: parcel-nearby
             exp_annotations:

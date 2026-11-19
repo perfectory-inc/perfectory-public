@@ -851,7 +851,7 @@ def load_detail_object(spark: Any, args: argparse.Namespace, entry: Mapping[str,
     """Commits one 물건상세 object, table by table in `DETAIL_TABLES` order: its new photos, its
     changed documents (root ADR-0540), then its reads (root ADR-0384)."""
 
-    from data_go_kr_onbid import changed_only  # noqa: PLC0415 - the same changed-key compare
+    from silver_release_compare import changed_only  # noqa: PLC0415 - the same changed-key compare
     from lakehouse_ingest import append_source_object  # noqa: PLC0415
     from platform_contracts import (  # noqa: PLC0415
         column_names, current_rows, ensure_contract_table, load_lakehouse_contract, spark_sql_type,
@@ -890,7 +890,7 @@ def load_code_object(spark: Any, args: argparse.Namespace, entry: Mapping[str, A
     """Commits one 공통코드 object: the codes whose name (or extra fields) changed, empty if none, so
     the table records it (root ADR-0540 §5)."""
 
-    from data_go_kr_onbid import changed_only  # noqa: PLC0415 - the same changed-key compare
+    from silver_release_compare import changed_only  # noqa: PLC0415 - the same changed-key compare
     from lakehouse_ingest import append_source_object  # noqa: PLC0415
     from platform_contracts import (  # noqa: PLC0415
         column_names, current_rows, ensure_contract_table, load_lakehouse_contract, spark_sql_type,

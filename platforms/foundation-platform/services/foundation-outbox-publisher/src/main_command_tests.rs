@@ -162,6 +162,18 @@ fn staging_namespace_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn load_data_go_kr_onbid_silver_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-data-go-kr-onbid-silver"
+        ])?,
+        Command::LoadDataGoKrOnbidSilver
+    );
+    Ok(())
+}
+
+#[test]
 fn load_industrial_complex_notice_silver_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

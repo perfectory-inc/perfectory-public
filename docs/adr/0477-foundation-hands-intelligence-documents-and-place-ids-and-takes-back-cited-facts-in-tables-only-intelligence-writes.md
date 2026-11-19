@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-11
+- Amended by: [ADR-0593](./0593-a-document-the-memory-cap-ended-is-read-again-and-fails-the-run-and-tesseract-gets-a-bounded-image.md)(메모리 상한이 끊은 문서는 다시 읽는다)
 - Builds on: ADR-0456(고시 첨부 수집과 그 Silver 색인 — W40 의 PR 로 들어온다),
   [ADR-0298](./0298-content-addressed-media-is-a-write-once-store-not-a-per-object-bronze-ledger.md)(내용주소 저장소),
   [ADR-0288](./0288-every-parcel-source-converges-on-one-place-identity.md) §5(place_id 가 유일한 조인 열쇠),

@@ -387,11 +387,11 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         lane_bakes = [job for job in spark if job["id"] in own_lane_bakes()]
         self.assertEqual({job["id"] for job in lane_bakes}, set(own_lane_bakes()), "every lane bake is in the spark pool")
         nearby = next(job for job in spark if job["id"] == "gold_parcel_nearby_rebuild")
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260 + 45 + 45 + job_specs.hold_minutes(nearby)
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260 + 45 + job_specs.hold_minutes(nearby)
                          + sum(job_specs.hold_minutes(job) for job in lane_bakes))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
                                          "by_pnu_serving_bake", "gold_parcel_nearby_rebuild",
-                                         "onbid_public_auction_silver", "rt_molit_real_transaction_silver",
+                                         "rt_molit_real_transaction_silver",
                                          *own_lane_bakes()})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
@@ -812,11 +812,11 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         # (1 slot, 60 + 30; root ADR-0333).
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "building_register_floor")
-        for job_id in ("by_pnu_serving_bake", "onbid_public_auction_silver", "rt_molit_real_transaction_silver",
+        for job_id in ("by_pnu_serving_bake", "rt_molit_real_transaction_silver",
                        "gold_parcel_nearby_rebuild", *own_lane_bakes()):
             self.assertIn(job_id, blockers)
         by_id = {job["id"]: job for job in jobs["jobs"]}
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 45 + 45 + job_specs.hold_minutes(by_id["gold_parcel_nearby_rebuild"])
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 45 + job_specs.hold_minutes(by_id["gold_parcel_nearby_rebuild"])
                          + sum(job_specs.hold_minutes(by_id[job_id]) for job_id in own_lane_bakes()))
 
     def test_the_real_list_fits(self):
