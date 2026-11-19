@@ -227,6 +227,28 @@ impl R2ObjectStorageConfig {
         )
     }
 
+    /// Builds the database recovery bucket's configuration with its read-only key pair, the
+    /// variables `/etc/foundation-platform/recovery.env` carries (scripts/recovery/identity-backup-lib.sh).
+    ///
+    /// # Errors
+    ///
+    /// Returns `PublishError` when a required recovery environment variable is missing.
+    pub fn postgres_recovery_reader_from_env() -> Result<Self, PublishError> {
+        let host = required_env("FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST")?;
+        Ok(Self {
+            bucket_name: required_env("FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET")?,
+            endpoint: format!("https://{host}"),
+            region: "auto".to_owned(),
+            access_key_id: required_env(
+                "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_READER_ACCESS_KEY_ID",
+            )?,
+            secret_access_key: required_env(
+                "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY",
+            )?,
+            namespace: R2KeyNamespace::from_env()?,
+        })
+    }
+
     fn lakehouse_from_env(
         access_key_env: &str,
         secret_key_env: &str,
