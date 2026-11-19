@@ -417,6 +417,11 @@ fn slo_policy_only_targets_exported_catalog_outbox_scope() -> Result<(), Box<dyn
 
 #[test]
 fn http_metrics_render_requests_and_timeouts_by_route() -> Result<(), Box<dyn Error>> {
+    // The test state's lazy database pool needs a Tokio runtime; nothing here awaits.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let _runtime = runtime.enter();
     let state = AppState::bootstrap_for_test()?;
     for _ in 0..7 {
         state.record_http_request("GET", "/catalog/v1/pipeline-graph", 200, 0.01);
@@ -461,6 +466,11 @@ fn metrics_body_renders_database_pool_metrics() {
 
 #[test]
 fn http_duration_histogram_carries_its_sum_and_count() -> Result<(), Box<dyn Error>> {
+    // The test state's lazy database pool needs a Tokio runtime; nothing here awaits.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let _runtime = runtime.enter();
     // Before 2026-11-19 the hand-written histogram had only `_bucket` lines: no `_sum`, no `_count`.
     let state = AppState::bootstrap_for_test()?;
     for _ in 0..3 {
@@ -493,6 +503,11 @@ fn http_duration_histogram_carries_its_sum_and_count() -> Result<(), Box<dyn Err
 
 #[test]
 fn each_state_counts_only_its_own_requests() -> Result<(), Box<dyn Error>> {
+    // The test state's lazy database pool needs a Tokio runtime; nothing here awaits.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let _runtime = runtime.enter();
     let first = AppState::bootstrap_for_test()?;
     let second = AppState::bootstrap_for_test()?;
     first.record_http_request("GET", "/healthz", 200, 0.01);
