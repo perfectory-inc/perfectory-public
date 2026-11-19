@@ -42,6 +42,17 @@ class Ratchet(unittest.TestCase):
         # A file this run did not check says nothing about its entry.
         self.assertEqual(lint.stale({"a.sh": {"SC2312": 2}}, allowed, ["a.sh"]), [])
 
+    def test_an_entry_for_a_file_that_is_gone_fails(self):
+        baseline = {"shellcheck": {"kept.sh": {"SC2312": 1}, "deleted.sh": {"SC2312": 4}}, "ruff": {"old.py": {"F401": 1}}}
+        self.assertEqual(lint.gone(baseline, {"shellcheck": ["kept.sh"], "ruff": []}),
+                         ["shellcheck: deleted.sh", "ruff: old.py"])
+        self.assertEqual(lint.gone(baseline, {"shellcheck": ["kept.sh", "deleted.sh"], "ruff": ["old.py"]}), [])
+
+    def test_the_settings_pins_baseline_and_checker_are_whole_tree_inputs(self):
+        for path in (".shellcheckrc", "ruff.toml", "tools/shellcheck.env", "tools/ruff.env",
+                     "tools/pinned-artifacts.json", "tools/ci/lint-baseline.json", "scripts/ci/lint_changed.py"):
+            self.assertIn(path, lint.WHOLE_TREE_INPUTS)
+
     def test_a_missing_baseline_is_empty_for_both_tools(self):
         self.assertEqual(lint.load_baseline("{}"), {"shellcheck": {}, "ruff": {}})
 

@@ -42,6 +42,12 @@ FETCHER = ROOT / "scripts" / "ci" / "fetch_pinned.py"
 SHELL_SUFFIXES = (".sh",)
 PYTHON_SUFFIXES = (".py",)
 TOOLS = ("shellcheck", "ruff")
+# A change to any of these can change the verdict on a file the change does not touch, so it
+# checks every file: the settings, the pins, the baseline and this checker.
+WHOLE_TREE_INPUTS = frozenset({
+    ".shellcheckrc", "ruff.toml", "tools/shellcheck.env", "tools/ruff.env", "tools/pinned-artifacts.json",
+    "tools/ci/lint-baseline.json", "scripts/ci/lint_changed.py", "scripts/ci/fetch_pinned.py",
+})
 # ShellCheck takes its files as arguments; a batch stays far under any command-line limit.
 BATCH = 50
 
@@ -161,13 +167,24 @@ def load_baseline(text: str | None = None) -> Findings:
 
 
 def base_baseline() -> Findings | None:
+    """The baseline at the change's base; None when there is no base, or the base has no baseline
+    (the change that introduces it). A base that cannot be read is an error, never "no baseline"."""
     base = os.environ.get("CHANGE_SCOPE_BASE", "")
     if not base:
         return None
-    shown = subprocess.run(["git", "-C", str(ROOT), "show", f"{base}:{BASELINE.relative_to(ROOT).as_posix()}"],
-                           capture_output=True, text=True, encoding="utf-8", check=False)
-    # No baseline at the base: the change that introduces it.
-    return load_baseline(shown.stdout) if shown.returncode == 0 else None
+    path = BASELINE.relative_to(ROOT).as_posix()
+    listed = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "--name-only", base, "--", path],
+                            capture_output=True, text=True, encoding="utf-8", check=False)
+    if listed.returncode != 0:
+        raise SystemExit(f"FAIL lint: cannot read the base {base}: {listed.stderr.strip()}")
+    if not listed.stdout.strip():
+        return None
+    return load_baseline(git("show", f"{base}:{path}"))
+
+
+def gone(baseline: Findings, existing: dict[str, list[str]]) -> list[str]:
+    """Baseline entries for files that are no longer tracked: an allowance nothing can use up."""
+    return [f"{tool}: {path}" for tool in TOOLS for path in baseline[tool] if path not in set(existing[tool])]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -178,6 +195,9 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     changed = changed_paths() if arguments.command == "check" else None
     files = {"shellcheck": tracked(SHELL_SUFFIXES), "ruff": tracked(PYTHON_SUFFIXES)}
+    every = {tool: list(paths) for tool, paths in files.items()}
+    if changed is not None and changed & WHOLE_TREE_INPUTS:
+        changed = None
     if changed is not None:
         files = {tool: [path for path in paths if path in changed] for tool, paths in files.items()}
     runners = {"shellcheck": run_shellcheck, "ruff": run_ruff}
@@ -190,7 +210,8 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             executable = given[tool] or pinned(tool, Path(temporary))
             if executable is None:
-                if arguments.command == "baseline":
+                # CI is the authority: there a missing tool is a failure, not a notice.
+                if arguments.command == "baseline" or os.environ.get("GITHUB_ACTIONS") == "true":
                     raise SystemExit(f"FAIL lint: {tool} is not pinned for this platform; pass --{tool}")
                 print(f"lint: {tool} is not pinned for this platform; {len(files[tool])} file(s) not checked here, CI checks them")
                 files[tool] = []
@@ -207,13 +228,16 @@ def main(argv: list[str] | None = None) -> int:
     shrink = [f"{tool}: {line}" for tool in TOOLS for line in stale(found[tool], baseline[tool], files[tool])]
     before = base_baseline()
     growth = grown(before, baseline) if before is not None else []
+    removed = gone(baseline, every)
     for line in problems:
         print(f"FAIL lint: {line}", file=sys.stderr)
     for line in shrink:
         print(f"FAIL lint: the baseline holds more than the file has; lower it: {line}", file=sys.stderr)
     for line in growth:
         print(f"FAIL lint: tools/ci/lint-baseline.json only shrinks: {line}", file=sys.stderr)
-    if problems or shrink or growth:
+    for line in removed:
+        print(f"FAIL lint: the baseline names a file that is gone; remove the entry: {line}", file=sys.stderr)
+    if problems or shrink or growth or removed:
         print("FAIL lint: fix the finding, or silence one line with its reason (`# shellcheck disable=SCnnnn` / `# noqa: CODE`). "
               "After fixing, `python3 scripts/ci/lint_changed.py baseline` lowers the baseline.", file=sys.stderr)
         return 1

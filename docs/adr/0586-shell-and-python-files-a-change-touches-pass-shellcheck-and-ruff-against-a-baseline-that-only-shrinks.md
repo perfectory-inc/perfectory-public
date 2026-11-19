@@ -37,23 +37,33 @@
 1. **검사 하나**: `scripts/ci/lint_changed.py check` 가 ShellCheck(`.shellcheckrc`)와 ruff(`ruff.toml`)를 돌린다. 가드
    `shell-and-python-lint` 가 부르고, `tools/ci/change-scope.json` 에 입력(`**/*.sh`, `**/*.py`, 두 설정, 기준선, 핀)을
    적는다. 막는 사고: 종료 코드를 가린 검사가 성공으로 보고된 일(2026-10-29).
-2. **바뀐 파일만**: PR 과 병합 큐에서는 그 변경이 건드린 파일만 검사한다(`CHANGE_SCOPE_BASE...HEAD`). 그 밖의 실행(밤
-   전체 실행, 손으로 돌릴 때)은 전체다.
+2. **바뀐 파일만**: PR 과 병합 큐에서는 그 변경이 건드린 파일만 검사한다(`CHANGE_SCOPE_BASE...HEAD`). 설정·핀·기준선·
+   검사기 자신(`.shellcheckrc`, `ruff.toml`, `tools/shellcheck.env`, `tools/ruff.env`, `tools/pinned-artifacts.json`,
+   기준선, `lint_changed.py`, `fetch_pinned.py`)을 건드린 변경은 전체를 검사한다: 건드리지 않은 파일의 판정이 바뀔 수
+   있다. 그 밖의 실행(main 의 push, 밤 전체 실행, 손으로 돌릴 때)도 전체다.
 3. **기준선은 파일·규칙별 개수이고 줄기만 한다**(`tools/ci/lint-baseline.json`).
    - 검사한 파일에서 어떤 규칙의 건수가 기준선보다 많으면 실패한다. 기준선에 없는 파일은 0건이어야 한다. 한 규칙을
      고친 만큼 다른 규칙을 더할 수 없다.
    - 검사한 파일이 나아졌으면 기준선도 내려야 한다(`lint_changed.py baseline` 이 다시 쓴다).
-   - 기준선은 변경의 base 와 비교해 새 항목이나 더 큰 수를 가질 수 없다.
-4. **규칙 묶음**: ShellCheck 기본 + `check-extra-masked-returns`. SC1091("source 한 파일을 열 수 없다")은 끈다: 스크립트가
-   아니라 검사기가 닿는 범위에 대한 말이다. ruff 는 기본 규칙(E4·E7·E9·F) + flake8-bugbear(B) + PLW1510. 형식은 판정하지
+   - 기준선은 변경의 base 와 비교해 새 항목이나 더 큰 수를 가질 수 없다. base 를 읽지 못하면 건너뛰지 않고 실패한다.
+   - 추적되지 않는 파일의 항목은 실패다. 그래서 이름을 바꾼 파일은 0건이어야 한다(옛 항목을 새 이름으로 옮기는 것은
+     "새 항목" 이다).
+4. **규칙 묶음**: ShellCheck 기본 + `check-extra-masked-returns`. source 한 파일은 따라가지 않는다
+   (`external-sources` 없음): 스크립트의 판정이 그 파일 하나에만 달려야 "바뀐 파일만" 이 아무것도 놓치지 않는다. 따라가도
+   건수는 같았다(실측 874건). 그래서 SC1091("따라가지 않음")은 끈다. ruff 는 기본 규칙(E4·E7·E9·F) + flake8-bugbear(B) + PLW1510. 형식은 판정하지
    않는다.
 5. **도구는 고정 내려받기다**: `tools/shellcheck.env`, `tools/ruff.env`, `tools/pinned-artifacts.json`. ShellCheck 는
-   Windows 를 고정하지 않는다(아키텍처별 배포가 없다). Windows 에서는 셸 파일을 건너뛴다고 알리고, 판정은 CI 가 한다.
+   Windows 를 고정하지 않는다(아키텍처별 배포가 없다). Windows 에서는 셸 파일을 건너뛴다고 알리고, 판정은 CI 가 한다:
+   CI(`GITHUB_ACTIONS`)에서 도구가 고정돼 있지 않으면 실패다. 첫 기준선은 Windows 에서 `--shellcheck` 로 릴리스 zip 의
+   실행 파일(digest 확인)을 넘겨 만들고, WSL 리눅스에서 고정 내려받기로 다시 만들어 같음을 확인했다.
 6. **한 줄을 봐줄 때는 그 줄에 이유와 함께 적는다**: `# shellcheck disable=SCnnnn`, `# noqa: CODE`.
 
 ## Consequences
 
 - 새 파일과 손댄 파일은 깨끗해야 한다. 손대지 않은 1,214건은 그대로 있고, 파일을 고칠 때 줄어든다.
+- ShellCheck 가 끝까지 읽지 못하는 파일이 둘 있다(SC1072·SC1073: `scripts/ci/gitleaks-scan.sh`,
+  `tools/semgrep/rules/pipefail-early-exit-reader.sh`). 그 뒤의 위반은 보이지 않는다. 기준선에 그 규칙으로 적혀 있다.
+- 한 줄을 봐주는 주석의 이유는 도구가 강제하지 않는다. 검토가 본다.
 - bash heredoc 안의 Python 52개(27개 파일)는 어느 도구도 보지 않는다. 파일로 꺼낼 때 검사 대상이 된다.
 - F821(정의되지 않은 이름) 24건과 B023(반복문 변수를 붙잡는 클로저) 42건은 실제 버그일 수 있다. 이 PR 은 고치지 않는다.
   목록은 기준선에 있고, 그 코드의 주인이 고친다.
