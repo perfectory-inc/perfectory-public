@@ -592,9 +592,21 @@ async fn an_onbid_object_is_the_first_append_into_each_empty_table() -> anyhow::
                 .await?,
         )?;
         assert_eq!((parent, added), (None, 1), "{short}");
-        let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
-        scanned.ensure_complete()?;
-        assert_eq!(scanned.rows.len(), 1, "{short}");
+        // The table's own record of the commit: the publisher's snapshot scan reads no `double`
+        // column, and five of these tables hold one.
+        let loaded = catalog
+            .load_table(&TableIdent::from_strs(["silver", short])?)
+            .await?;
+        let current = loaded
+            .metadata()
+            .current_snapshot()
+            .context("a current snapshot")?;
+        assert_eq!(current.snapshot_id(), snapshot.snapshot_id, "{short}");
+        let recorded = &current.summary().additional_properties;
+        assert_eq!(
+            recorded["foundation.ingest-batch-objects"], object,
+            "{short}"
+        );
     }
     Ok(())
 }
