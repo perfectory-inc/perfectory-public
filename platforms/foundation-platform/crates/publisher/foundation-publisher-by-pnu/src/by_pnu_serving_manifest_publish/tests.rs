@@ -1457,8 +1457,7 @@ async fn a_new_document_major_goes_out_only_to_a_gateway_that_reads_it() -> anyh
         .mount(&gateway)
         .await;
     super::require_gateway_reads_documents(lane, &gateway.uri(), []).await?;
-    // A lane the registry does not list asks nothing (the parcel documents are a subject now; the
-    // building documents move next).
-    super::require_gateway_reads_documents(ByPnuLane::Building, "http://127.0.0.1:9", []).await?;
+    // Every by-PNU lane's documents are a subject now (the building documents were the last), so no
+    // lane is left that asks nothing; subject_of_lane's None branch is the registry's own concern.
     Ok(())
 }
