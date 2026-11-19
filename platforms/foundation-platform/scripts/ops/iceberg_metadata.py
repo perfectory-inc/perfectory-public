@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -62,11 +63,18 @@ def committed_epoch(snapshot: dict) -> float:
     return datetime.fromisoformat(snapshot["committed_at"].replace("Z", "+00:00")).timestamp()
 
 
+class CatalogDeadline(TimeoutError):
+    """The caller's total time for its catalog reads has passed; the read was not sent."""
+
+
 class Catalog:
     """Reads table histories from the Iceberg REST catalog the lakehouse jobs commit through."""
 
-    def __init__(self, token: str, user_agent: str, environ=os.environ):
-        """`token`: the variable that holds the catalog token, the read-only one where the unit has it."""
+    def __init__(self, token: str, user_agent: str, environ=os.environ, deadline: float | None = None):
+        """`token`: the variable that holds the catalog token, the read-only one where the unit has it.
+        `deadline`: a `time.monotonic()` after which no read is sent (`CatalogDeadline`), and each read's
+        own timeout is at most what is left, so a caller under a unit time limit ends with a line, not a kill."""
+        self.deadline = deadline
         self.uri = environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI"].rstrip("/")
         self.warehouse = environ["FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE"]
         self.token = environ[token]
@@ -77,7 +85,13 @@ class Catalog:
     def _get(self, url: str) -> dict:
         request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}",
                                                        "User-Agent": self.user_agent})
-        with urllib.request.urlopen(request, timeout=60) as response:
+        timeout = 60.0
+        if self.deadline is not None:
+            left = self.deadline - time.monotonic()
+            if left <= 0:
+                raise CatalogDeadline("the catalog reads' deadline has passed")
+            timeout = min(timeout, left)
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.load(response)
 
     def table(self, name: str, absent_ok: bool = False) -> dict:

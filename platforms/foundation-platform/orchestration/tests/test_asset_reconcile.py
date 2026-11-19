@@ -1043,3 +1043,25 @@ class ServedSurfaces(unittest.TestCase):
         self.assertEqual({unit["serving_node"] for unit in index["tile_units"]}, tiles)
         self.assertEqual(len({unit["unit"] for unit in index["tile_units"]}), len(tiles))
         self.assertTrue(callable(asset_reconcile.runtime_manifest_reader()))
+
+    def test_catalog_reads_share_one_deadline_below_the_unit_limit(self):
+        import iceberg_metadata  # noqa: PLC0415
+        from unittest import mock  # noqa: PLC0415
+
+        environ = {"FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI": "http://127.0.0.1:9",
+                   "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE": "w", "TOKEN": "t"}
+        self.assertLess(asset_reconcile.CATALOG_SECONDS, 180)
+        spent = iceberg_metadata.Catalog("TOKEN", "test", environ, deadline=0.0)
+        with mock.patch("urllib.request.urlopen") as opened, self.assertRaises(iceberg_metadata.CatalogDeadline):
+            spent.table("silver.x")
+        opened.assert_not_called()
+        seen = []
+
+        def opening(request, timeout):
+            seen.append(timeout)
+            raise OSError("closed")
+
+        soon = iceberg_metadata.Catalog("TOKEN", "test", environ, deadline=iceberg_metadata.time.monotonic() + 5)
+        with mock.patch("urllib.request.urlopen", side_effect=opening), self.assertRaises(OSError):
+            soon.table("silver.x")
+        self.assertLessEqual(seen[0], 5)
