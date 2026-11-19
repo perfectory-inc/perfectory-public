@@ -2275,6 +2275,7 @@
         "removal_column": "row_state",
         "keep_ties": false
       },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY row_key ORDER BY ingested_at_utc DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
       "row_versions": {
         "kind": "latest_per_key"
       },
@@ -2367,6 +2368,7 @@
         "removal_column": "row_state",
         "keep_ties": false
       },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY row_key ORDER BY ingested_at_utc DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
       "row_versions": {
         "kind": "latest_per_key"
       },
@@ -2459,6 +2461,7 @@
         "removal_column": "row_state",
         "keep_ties": true
       },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY row_key ORDER BY ingested_at_utc DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
       "row_versions": {
         "kind": "latest_per_key"
       },
