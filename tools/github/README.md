@@ -267,6 +267,7 @@ pull request가 이 정책을 바꾸지 않는다.
 
 ```bash
 gh pr ready <PR 번호> && gh pr merge <PR 번호> --auto --squash   # 필수 검사가 초록이 되면 GitHub 가 큐에 넣는다
+gh pr checks <PR 번호>                                        # 푸시 직후라면 먼저: 줄이 보인 뒤에 위 명령을 건다(ADR-0585)
 ```
 
 base 가 `main` 인 PR 에만 부른다(다른 가지에는 필수 검사가 없어 그 자리에서 병합된다). 큐에서 빠진 PR 은 고친 뒤 같은
