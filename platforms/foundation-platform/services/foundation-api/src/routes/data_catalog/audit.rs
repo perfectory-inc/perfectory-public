@@ -351,11 +351,43 @@ pub(super) async fn export_audit_events(
         limit: Some(PAGE_MAX),
     };
     let mut filter = page.filter(&principal)?;
+    let events = every_selected_event(&state, &mut filter).await?;
+    let digest = state
+        .audit_events
+        .latest_digest()
+        .await
+        .map_err(|error| store_unavailable(&error))?
+        .map(digest_view);
+
+    let export_id = Uuid::new_v4();
+    record_export(&state, &principal, &filter, &events, csv, export_id).await?;
+
+    let digest_json = json!({ "digest": digest });
+    let (content_type, extension, body) = export_body(&events, &digest_json, csv)?;
+    let mut response = (StatusCode::OK, body).into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    if let Ok(disposition) = HeaderValue::from_str(&format!(
+        "attachment; filename=\"audit-{export_id}.{extension}\""
+    )) {
+        headers.insert(header::CONTENT_DISPOSITION, disposition);
+    }
+    if let Ok(digest) = HeaderValue::from_str(&digest_json["digest"].to_string()) {
+        headers.insert("x-audit-digest", digest);
+    }
+    Ok(response)
+}
+
+/// Every event the filters select, oldest first, at most `EXPORT_MAX`.
+async fn every_selected_event(
+    state: &AppState,
+    filter: &mut AuditEventFilter,
+) -> Result<Vec<AuditEventView>, ApiError> {
     let mut events = Vec::new();
     loop {
         let batch = state
             .audit_events
-            .page(&filter)
+            .page(filter)
             .await
             .map_err(|error| store_unavailable(&error))?;
         let full = u32::try_from(batch.len()).is_ok_and(|count| count == filter.limit);
@@ -371,14 +403,19 @@ pub(super) async fn export_audit_events(
         }
     }
     events.reverse();
-    let digest = state
-        .audit_events
-        .latest_digest()
-        .await
-        .map_err(|error| store_unavailable(&error))?
-        .map(digest_view);
+    Ok(events)
+}
 
-    let export_id = Uuid::new_v4();
+/// Records the export in the chain as `audit.exported`, with the filters it used. An export that
+/// cannot be recorded is not given.
+async fn record_export(
+    state: &AppState,
+    principal: &AuthorizedPrincipal,
+    filter: &AuditEventFilter,
+    events: &[AuditEventView],
+    csv: bool,
+    export_id: Uuid,
+) -> Result<(), ApiError> {
     let filters = json!({
         "format": if csv { "csv" } else { "jsonl" },
         "actor_staff_id": filter.actor_staff_id.map(|id| id.to_string()),
@@ -426,19 +463,26 @@ pub(super) async fn export_audit_events(
         })
         .await
         .map_err(|error| store_unavailable(&error))?;
+    Ok(())
+}
 
-    let digest_json = json!({ "digest": digest });
-    let (content_type, extension, body) = if csv {
+/// The export body: a CSV table, or JSON Lines that end with the `{"digest": ...}` line.
+fn export_body(
+    events: &[AuditEventView],
+    digest_json: &serde_json::Value,
+    csv: bool,
+) -> Result<(&'static str, &'static str, String), ApiError> {
+    Ok(if csv {
         let mut body = CSV_COLUMNS.join(",");
         body.push('\n');
-        for event in &events {
+        for event in events {
             body.push_str(&csv_row(event));
             body.push('\n');
         }
         ("text/csv; charset=utf-8", "csv", body)
     } else {
         let mut body = String::new();
-        for event in &events {
+        for event in events {
             body.push_str(&serde_json::to_string(event).map_err(|error| {
                 ApiError::Internal(format!("an audit event did not serialize: {error}"))
             })?);
@@ -447,19 +491,7 @@ pub(super) async fn export_audit_events(
         body.push_str(&digest_json.to_string());
         body.push('\n');
         ("application/x-ndjson", "jsonl", body)
-    };
-    let mut response = (StatusCode::OK, body).into_response();
-    let headers = response.headers_mut();
-    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
-    if let Ok(disposition) = HeaderValue::from_str(&format!(
-        "attachment; filename=\"audit-{export_id}.{extension}\""
-    )) {
-        headers.insert(header::CONTENT_DISPOSITION, disposition);
-    }
-    if let Ok(digest) = HeaderValue::from_str(&digest_json["digest"].to_string()) {
-        headers.insert("x-audit-digest", digest);
-    }
-    Ok(response)
+    })
 }
 
 /// Each importer's cursor and the newest digest: whether the chain is being fed and witnessed.
