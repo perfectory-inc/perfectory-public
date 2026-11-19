@@ -33,7 +33,17 @@ GATES = (
 # publisher cold inside a container and took 15 of a pull request's 21 minutes on 2026-10-12; the
 # merge group, a push to main and a manual run still select it by path exactly as before, so
 # nothing reaches main without it. A pull request only waits less for its first verdict.
-MERGE_QUEUE_ONLY = frozenset({"boundary-slice"})
+# Root ADR-0580 (amended 2026-11-20): every gate is left to the merge queue, and so is the Postgres
+# integration job (PULL_REQUEST_LEAVES below). A pull request keeps what catches its own mistakes
+# cheaply: the Rust job (fmt, clippy, the unit tests of the crates it reaches), the Python and Node
+# suites, the supply-chain gates and the repository guards. Measured on 258 pull-request runs,
+# 2026-11-12..19: a run took 64.6 runner-minutes and 8.4 runner starts on average against a cap of
+# 20 concurrent jobs, and only 4 failures in those 8 days were a pull request's own mistake that
+# one of the jobs moved here was the first to catch (Spark 2, Postgres 1, release dry run 1;
+# the suites caught 8 and stay). Those now fail in the merge group instead and drop the entry.
+MERGE_QUEUE_ONLY = frozenset(GATES)
+# Jobs that are not path-selected gates and a pull request leaves to the merge queue all the same.
+PULL_REQUEST_LEAVES = ("postgres-integration",)
 
 # Changes to dependency locks or the path-selection mechanism itself have an
 # unbounded blast radius. Running every gate is the safe default.
@@ -378,7 +388,7 @@ def deferral_warning(gate: str) -> str:
     """A workflow annotation, so the pull request page says the gate did not run here."""
     return (
         f"::warning title={gate} deferred to the merge queue::This pull request changes inputs of "
-        f"{gate}, which pull requests leave to the merge queue (root ADR-0199). It has not run on "
+        f"{gate}, which pull requests leave to the merge queue (root ADR-0199, ADR-0580). It has not run on "
         "this pull request; the merge group runs it before anything reaches main."
     )
 
@@ -426,7 +436,18 @@ def skipped_jobs(
         skipped.add(SUITE_JOB)
     if not supply_chain_selected(paths, crates_kind != "some"):
         skipped.add(SUPPLY_CHAIN_JOB)
+    if event_name == "pull_request":
+        skipped.update(PULL_REQUEST_LEAVES)
     return sorted(skipped)
+
+
+def left_to_the_queue(*, paths: Iterable[str] | None, crates_answer: str, suites_answer: str) -> list[str]:
+    """The jobs of PULL_REQUEST_LEAVES this pull request would have run: what the merge group runs."""
+    in_queue = skipped_jobs(
+        selected=set(GATES), paths=paths, crates_answer=crates_answer, suites_answer=suites_answer,
+        event_name="merge_group",
+    )
+    return [job for job in PULL_REQUEST_LEAVES if job not in in_queue]
 
 
 def _selector(command: str) -> str:
@@ -453,12 +474,16 @@ def skipped_jobs_main(args: argparse.Namespace) -> int:
         except (OSError, subprocess.CalledProcessError) as error:
             print(f"foundation-ci-scope: git comparison unavailable, every gate runs: {error}", file=sys.stderr)
             paths, selected = None, set(GATES)
+        crates_answer, suites_answer = _selector("crates"), _selector("suites")
         skipped = skipped_jobs(
-            selected=selected, paths=paths, crates_answer=_selector("crates"), suites_answer=_selector("suites"),
+            selected=selected, paths=paths, crates_answer=crates_answer, suites_answer=suites_answer,
             event_name=args.event_name,
         )
-        if args.event_name == "pull_request" and release_image_selected("merge_group", paths):
-            print(deferral_warning(RELEASE_JOB))
+        if args.event_name == "pull_request":
+            if release_image_selected("merge_group", paths):
+                print(deferral_warning(RELEASE_JOB))
+            for job in left_to_the_queue(paths=paths, crates_answer=crates_answer, suites_answer=suites_answer):
+                print(deferral_warning(job))
     print(json.dumps({"affected": args.affected, "skipped_jobs": skipped}, sort_keys=True))
     with args.github_output.open("a", encoding="utf-8", newline="\n") as output:
         output.write(f"skipped={json.dumps(skipped)}\n")

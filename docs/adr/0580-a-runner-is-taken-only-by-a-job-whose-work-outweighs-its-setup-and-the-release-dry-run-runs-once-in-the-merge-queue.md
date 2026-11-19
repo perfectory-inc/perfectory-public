@@ -59,7 +59,24 @@
    - 큐 실행이 같은 선택(릴리스 워크플로의 scope)으로 고르므로, 시험이 빌드하지 않은 커밋은 여전히 main 에 들어가지 않는다.
    - 큐에서라면 골랐을 PR 에는 `::warning title=release-image deferred to the merge queue::` 를 남긴다.
    - 시험: `test_foundation_ci_scope.py` 가 PR·push·schedule 에서 고르지 않고 merge_group 에서 고르는 것을 고정한다.
-3. **유지하는 것.** required 검사 12개, 보안 게이트(cargo-deny·SBOM·secret-scan·저장소 가드), 유료·자체 러너 금지(ADR-0420)는 그대로다. 새 가드는 없다. 기존 `check-workflow-policy.sh`·`change_scope.py check` 가 고친 워크플로를 그대로 검사한다.
+3. **Foundation 의 PR 은 자기 실수를 싸게 잡는 잡만 돌린다(2026-11-20 추가).** PR 에 남는 것: Rust 잡(fmt·clippy·닿는
+   크레이트의 단위 시험), Python·Node 묶음, 공급망 게이트, 저장소 가드, 비밀 검사. 큐에만 도는 것: 경로로 고르는 게이트
+   여섯(경계 슬라이스·Kafka·Compose smoke·Spark 샤드·Windows 정적 릴리스 도구·Dagster 관찰), Postgres 통합 시험, 위 2 의
+   릴리스 빌드 시험.
+   - 근거(2026-11-12~19, Foundation CI 의 PR 실행 258개, 브랜치 152개, 같은 기간 병합 119건·큐 실행 325회 중 실패 23회):
+     PR 실행 하나가 평균 러너 64.6분·시작 8.4번이었다(동시 상한 20). 무거운 잡이 혼자 잡은 실패 49건의 로그를 읽으니
+     PR 탓은 12건이었다: Python·Node 8, Spark 2, Postgres 1, 릴리스 빌드 1. 나머지는 PR 과 무관했다(낡은 운영 모양 원장
+     22, heapless 권고 8, Maven 6, 같은 PR 의 두 번째 실패 1).
+   - 그래서 Python·Node 묶음은 PR 에 남긴다(12건 중 8건, 돌 때 러너 10분). 옮기는 잡이 PR 에서 처음 잡던 실수는 8일에
+     4건이고, 이제 큐에서 실패해 그 항목이 빠진다. 큐 실패율은 7.1% 에서 약 8.3% 로 오를 것으로 계산한다.
+   - 기대: PR 실행당 러너 약 18분·시작 약 3.6번(같은 기간에 적용한 계산). 일주일 뒤 PR 실행당 러너분, 큐 실패율, 하루
+     병합 수를 같은 방법으로 재서 여기에 적는다. 큐 실패율이 12% 를 넘으면 가장 많이 떨어뜨린 잡을 PR 로 되돌린다.
+   - 장치는 새로 만들지 않는다. `foundation_ci_scope.py` 의 `MERGE_QUEUE_ONLY`(ADR-0199)가 게이트 전부가 되고,
+     `PULL_REQUEST_LEAVES` 가 게이트가 아닌 Postgres 통합 잡을 PR 의 `skipped` 에 넣는다. `required/foundation` 은
+     전처럼 건너뛴 잡을 통과로 본다. 큐에서라면 돌았을 잡마다 PR 에 `deferred to the merge queue` 경고를 남긴다.
+   - 다른 영역은 바꾸지 않는다. 같은 8일에 여덟 워크플로를 합쳐 러너 73시간(Foundation 은 278시간)이고 잡 하나가
+     1~5분이다.
+4. **유지하는 것.** required 검사 12개, 보안 게이트(cargo-deny·SBOM·secret-scan·저장소 가드), 유료·자체 러너 금지(ADR-0420)는 그대로다. 새 가드는 없다. 기존 `check-workflow-policy.sh`·`change_scope.py check` 가 고친 워크플로를 그대로 검사한다.
 
 ## Consequences
 

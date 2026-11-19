@@ -123,12 +123,17 @@ class FoundationCiScopeTest(unittest.TestCase):
             "boundary-slice",
             scope.selected_gates(event_name="pull_request", base="a" * 40, head="b" * 40, paths=boundary),
         )
-        # Only the deferred gate moves: the rest of a pull request's selection is unchanged.
-        everything = scope.selected_gates(
-            event_name="pull_request", base="a" * 40, head="b" * 40, paths=["Cargo.lock"]
+        # Root ADR-0580 (amended): a pull request leaves every gate to the merge queue, even when a
+        # lock change selects them all; the merge group still runs them all.
+        self.assertEqual(scope.MERGE_QUEUE_ONLY, set(scope.GATES))
+        self.assertEqual(
+            scope.selected_gates(event_name="pull_request", base="a" * 40, head="b" * 40, paths=["Cargo.lock"]),
+            set(),
         )
-        self.assertEqual(everything, set(scope.GATES) - scope.MERGE_QUEUE_ONLY)
-        self.assertEqual(scope.MERGE_QUEUE_ONLY, {"boundary-slice"})
+        self.assertEqual(
+            scope.selected_gates(event_name="merge_group", base="a" * 40, head="b" * 40, paths=["Cargo.lock"]),
+            set(scope.GATES),
+        )
 
     def run_selector(self, event_name: str, paths: set[str]) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as temporary:
@@ -168,11 +173,36 @@ class FoundationCiScopeTest(unittest.TestCase):
             crates_answer="some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n",
             suites_answer="some\tno suite reads it\n",
         )
-        # The release dry run is left to the merge queue (root ADR-0580).
+        # A pull request keeps the Rust job and leaves the rest to the merge queue (root ADR-0580):
+        # every gate, the Postgres integration job and the release dry run.
         self.assertEqual(
             skipped,
-            ["boundary-slice", "compose-smoke", "dagster-observe", "release-image", "spark-runtime",
-             "static-release-toolchain-windows", "suites", "supply-chain"],
+            ["boundary-slice", "compose-smoke", "dagster-observe", "kafka-integration", "postgres-integration",
+             "release-image", "spark-runtime", "static-release-toolchain-windows", "suites", "supply-chain"],
+        )
+        self.assertNotIn("rust-quality", skipped)
+        # The merge group runs what the same change reaches: the Kafka gate and Postgres integration.
+        in_queue = scope.skipped_jobs(
+            selected=scope.selected_gates(event_name="merge_group", base="a" * 40, head="b" * 40, paths=[crate]),
+            paths=[crate],
+            crates_answer="some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n",
+            suites_answer="some\tno suite reads it\n", event_name="merge_group",
+        )
+        self.assertNotIn("kafka-integration", in_queue)
+        self.assertNotIn("postgres-integration", in_queue)
+        # And the pull request is told which jobs it left there.
+        self.assertEqual(
+            scope.left_to_the_queue(
+                paths=[crate],
+                crates_answer="some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n",
+                suites_answer="some\tno suite reads it\n",
+            ),
+            ["postgres-integration"],
+        )
+        self.assertEqual(
+            scope.left_to_the_queue(paths=["platforms/foundation-platform/README.md"],
+                                    crates_answer="some\t0 crate(s) changed\n", suites_answer="some\tnone\n"),
+            [],
         )
         queued = scope.skipped_jobs(
             selected=selected, paths=[crate],
@@ -222,10 +252,17 @@ class FoundationCiScopeTest(unittest.TestCase):
         for crates, suites in (("", ""), ("all\tpush verifies every crate\n", "all\tx\n")):
             with self.subTest(crates=crates):
                 skipped = scope.skipped_jobs(
-                    selected=set(scope.GATES), paths=["x/y.md"], crates_answer=crates, suites_answer=suites
+                    selected=set(scope.GATES), paths=["x/y.md"], crates_answer=crates, suites_answer=suites,
+                    event_name="merge_group",
                 )
                 # A document starts no release build, whatever the crate answer (root ADR-0345).
                 self.assertEqual(skipped, [scope.RELEASE_JOB])
+                # On a pull request the same answer still leaves Postgres integration to the queue.
+                self.assertEqual(
+                    scope.skipped_jobs(selected=set(scope.GATES), paths=["x/y.md"], crates_answer=crates,
+                                       suites_answer=suites, event_name="pull_request"),
+                    ["postgres-integration", scope.RELEASE_JOB],
+                )
         # Unknown paths (no comparison): supply-chain runs.
         self.assertNotIn(
             "supply-chain",
