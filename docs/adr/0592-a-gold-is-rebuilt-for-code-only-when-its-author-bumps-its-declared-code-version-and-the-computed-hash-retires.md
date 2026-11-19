@@ -75,15 +75,25 @@ Gold 를 포함한 모든 자산의 `AssetSpec.code_version` 으로 낸다. ADR-
    - 계약 편집은 그 자체로 다시 짓게 하지 않는다. 행을 바꾸는 편집(생산자가 읽는 kind 줄, 값 영역)이면 작성자가 같은 PR 에서 판을
      올린다.
    - 판의 꼴은 `YYYY-MM-DD.#<PR 번호>` 다. 두 PR 이 같은 판을 고를 수 없으므로, 큐에서 둘이 같은 값을 싣지 않는다.
-2. **막는 검사는 생산자 자기 파일에만 둔다.**
-   - PR 이 생산자 스크립트(`jobs/<producer>.py`) 자체를 바꾸었는데 그 생산자의 판이 그대로면 CI 가 실패한다. 공유 모듈은 막지
-     않는다. 공유 모듈까지 막으면 `gold_rebuild`·`gold_incremental` 변경마다 모든 생산자의 올림을 요구하게 된다.
-   - 행이 바뀌지 않는 변경이면 PR 본문에 `code-version-unchanged: <producer> — <이유>` 줄을 쓴다. 검사는 그 줄을 읽고 통과한다.
-     기록은 PR 에 남고 저장소에 목록이 생기지 않는다.
-   - 공유 모듈이나 계약이 바뀌면, 영향받는 Gold 생산자를 적은 PR 댓글을 단다(막지 않음). 대상은 `job_code_version.py --files`
-     목록에 그 파일이 든 생산자다. 올릴지는 작성자와 검토자가 정한다.
+2. **행을 바꿀 수 있는 공유 모듈은 자기 판을 가진다.** 주인의 규칙 "코드가 바뀌면 모든 데이터가 따라간다" 때문이다. 공유 모듈의
+   행 규칙이 바뀌면 그것을 쓰는 Gold 가 모두 다시 지어져야 한다.
+   - 그런 모듈은 맨 위에 `CODE_VERSION = "<판>"` 한 줄을 둔다. 판의 꼴은 §1 과 같다. 저장소의 다른 곳에 목록은 없다. 판이 없는
+     모듈(계획기, Spark 설정)은 판에 들어가지 않는다.
+   - 계획기가 쓰는 **실효 판**은 생산자의 판 뒤에, 생산자 스크립트에서 import 로 닿는 모든 모듈 중 `CODE_VERSION` 을 가진 것들의
+     `모듈=판` 을 이름 순으로 이은 문자열이다. import 는 표준 라이브러리 `modulefinder` 로 찾는다.
+   - 생산자가 무엇을 쓰는지는 import 문이 이미 선언한다. 그래서 따로 적는 목록이 없고, 적는 것을 잊을 수도 없다. 공유 모듈 판을
+     한 번 올리면 그 모듈에 닿는 Gold 가 정확히 다시 지어진다. 생산자가 판 있는 모듈을 새로 import 하면 실효 판이 바뀌어 다시
+     짓는다. 그것이 맞다.
+   - 판 없는 모듈이 바뀌면 실효 판은 그대로다. ADR-0321 의 해시가 `gold_rebuild` 를 고칠 때마다 일으키던 전파가 사라진다.
+3. **막는 검사는 판을 가진 파일에만 둔다.**
+   - PR 이 생산자 스크립트(`jobs/<producer>.py`)나 `CODE_VERSION` 을 가진 모듈의 파일을 바꾸었는데 그 판이 그대로면 CI 가 실패한다.
+     판 없는 모듈은 막지 않는다.
+   - 행이 바뀌지 않는 변경이면 PR 본문에 `code-version-unchanged: <모듈> — <이유>` 줄을 쓴다. 검사는 그 줄을 읽고 통과한다. 기록은
+     PR 에 남고 저장소에 목록이 생기지 않는다.
+   - 판 없는 모듈이 행을 바꾸는 코드를 처음 갖게 되면, 작성자는 그 PR 에서 `CODE_VERSION` 을 붙인다. 그래서 모듈이 판을 갖는 일은
+     리뷰를 거친 결정이다. 판 없는 모듈이나 계약이 바뀌면 그것에 닿는 Gold 생산자를 PR 댓글로 알린다(막지 않음).
    - 검사가 보지 못하는 것: 이름으로 읽는 파일, `producer_arguments`, 이미지·pyspark 판 올림. 이들은 작성자 몫이다.
-3. **누가 무엇을 정하나.**
+4. **누가 무엇을 정하나.**
    - Gold 커밋은 지은 판을 `foundation.build-source-sha256` 에 문자열로 적는다. 이름은 그대로 두므로 지금의 독자들이 계속 읽는다.
    - Dagster 는 언제 돌릴지 정한다. Gold 묶음이 옮긴 뒤 `decide.py` 센서가 Iceberg 머리에 기록된 판과 선언된 판을 비교한다. 다르면
      빚진 run 을 연다(입력 변경과 같은 `OWED_TAG` 경로, 그래서 한 번 올려도 run 은 하나다).
@@ -91,8 +101,9 @@ Gold 를 포함한 모든 자산의 `AssetSpec.code_version` 으로 낸다. ADR-
    - `code_version_changed()` 는 쓰지 않는다. 지난 평가와만 비교하므로, 올린 판의 빌드가 실패하면 다시 켜지지 않는다. 기록된 판과
      비교하면 성공할 때까지 빚이 남는다.
    - 같은 문자열을 Gold 노드의 `AssetSpec.code_version` 으로도 낸다. Dagster UI 의 "Unsynced" 가 같은 사실을 보인다.
-4. **넘어가기: 옛 JSON 기록은 판 `"1"` 로 읽는다.**
-   - 모든 생산자의 첫 선언은 `"1"` 이다. 그래서 넘어가는 배포에서 다시 짓는 Gold 는 없다. 끝까지 간 통째 7번 중 6번이 0키였다.
+5. **넘어가기: 옛 JSON 기록은 판 `"1"` 로 읽는다.**
+   - 모든 생산자와 판 있는 공유 모듈의 첫 선언은 `"1"` 이고, 옛 JSON 기록은 넘어가는 날의 실효 판으로 읽는다. 그래서 넘어가는
+     배포에서 다시 짓는 Gold 는 없다. 끝까지 간 통째 7번 중 6번이 0키였다.
    - 진짜 코드 변경이 아직 지어지지 않은 생산자는 넘어가는 PR 이 `"2"` 로 선언한다. 2026-11-19 기준으로는
      `building_panel_silver_to_gold`(`unit_official_price.py` 변경) 하나다. 그 PR 을 쓰는 날 다시 확인한다.
    - 같은 PR 에서 지우는 것: `gold_code_version.value`·`same`·`changed_parts`·`settings`·`scheme`·`remeasured`, 계약의
@@ -103,22 +114,38 @@ Gold 를 포함한 모든 자산의 `AssetSpec.code_version` 으로 낸다. ADR-
      `lakehouse_schema_migrate.py`(옮겨 싣기는 그대로), `release_changes.py`(`call_graph` 로).
    - `gold_versions_commit.rs` 의 `run_id` 와 `by_pnu_panel_delta` 의 설명은 넘어가는 날 한 번 "코드가 움직였다" 로 바뀐다. 그 뒤로는
      판이 오를 때만 바뀐다.
-5. **ADR-0499 는 그대로다.**
-   - `observe_assets.code_versions` 는 §4 가 덮는 Gold 노드만 선언된 판으로 덮는다. 다른 자산은 작업 단위 값을 그대로 쓴다.
+6. **ADR-0499 는 그대로다.**
+   - `observe_assets.code_versions` 는 §7 이 덮는 Gold 노드만 선언된 판으로 덮는다. 다른 자산은 작업 단위 값을 그대로 쓴다.
    - `gold_panel_rebuild` 가 함께 쓰는 `silver.unit_official_price` 는 Gold 가 아니라 작업 단위 값을 쓴다.
    - ADR-0499 의 재시도는 `asset_reconcile.py` 가 `job_code_version` 을 직접 읽으므로 바뀌지 않는다.
    - `job_code_version.py` 에는 Gold 를 위한 예외를 두지 않는다.
-6. **이 ADR 이 덮는 Gold** 는 `gold_rebuild.load_contract()` 가 내는 표다. 자기 해시를 가진 다른 Gold 는 이 ADR 밖이다.
+7. **이 ADR 이 덮는 Gold** 는 `gold_rebuild.load_contract()` 가 내는 표다. 자기 해시를 가진 다른 Gold 는 이 ADR 밖이다.
    `parcel_nearby_versions` 는 발행기의 `parcel_nearby_versions_build.rs` 가 자기 `code_version()`(SQL 글에서 계산)과 기록을
    비교한다. 각자 자기 PR 에서 같은 선언으로 옮긴다.
 
 ## Consequences
 
-- 코드 때문에 생기는 통째 재빌드는 작성자가 판을 올린 PR 에서만 생긴다. 11-05..19 기록에 대 보면, 끝까지 간 7번 중 6번(0키)은
-  생기지 않는다. 11-11 은 코드가 바뀌었으므로 작성자가 올렸어야 하고, 올렸다면 같은 1,389키를 게시한다. 끝나지 못한 10번은 같은
-  변경을 다시 시작한 것이어서, 판을 올린 경우만 남는다.
+- 코드 때문에 생기는 통째 재빌드는 작성자가 판을 올린 PR 에서만 생긴다. 2026-11-05..19 기록에 대 본 결과:
+  - 계약만 바뀐 5번(11-09 ×2, 11-14 ×2, 11-19 parcel)은 모두 0키였고, 다시 짓지 않는다.
+  - 11-11 은 행을 바꾼 유일한 변경이다(1,389키). `by_pnu_kinds` 에 판이 있다면 작성자가 그것을 올린다. 그 모듈에 닿는 Gold 생산자
+    15개(지금 import 로 잰 수)가 모두 다시 지어진다. 그날 ADR-0321 의 해시도 같은 표들을 바꿨다. 올림은 한 번이다.
+  - 11-13 은 `vworld_parcel_editions` 의 원장 경로·읽기 코드가 바뀌었고 0키였다. 작성자가 `code-version-unchanged` 근거를 쓰면 다시
+    짓지 않는다.
+  - 11-19 `unit_official_price` 는 넘어가는 PR 의 `"2"`(§5)가 맡는다. 그 모듈에 닿는 `building_panel`·`unit_price_panel` 이 다시
+    지어진다.
+  - 끝나지 못한 10번은 같은 변경을 다시 시작한 것이어서, 판을 올린 경우만 남는다.
+- **가정: 법정동 변환 규칙이 바뀐다.** 두 경우로 나뉜다.
+  - 코드표 자료가 바뀌는 경우(`reference.legal_dong_code_change` 에 새 줄): 코드가 아니라 자료다. ADR-0329 의 따라가기가
+    `changed_codes` 의 행만 Silver 에서 다시 잇고, Gold 는 움직인 Silver 핀을 따라 증분으로 다시 짓는다. 판은 필요 없다.
+  - 변환 코드가 바뀌는 경우(`address_pnu.py` 의 주소→PNU 규칙): `address_pnu` 에 `CODE_VERSION` 을 두고 올린다. 그 모듈에
+    닿는 Gold 생산자 셋(court_auction, onbid_public_auction, real_transaction)은 모두 다시 지어진다.
+  - 그러나 그 규칙으로 PNU 를 만든 것은 Silver 적재기다(courtauction_go_kr, data_go_kr_onbid, data_go_kr_registered_factory,
+    data_go_kr_file_data, place_identity_resolver). Silver 적재기는 지금 코드 판을 기록하지 않는다. 그래서 이 ADR 만으로는 Silver
+    행이 새 규칙으로 다시 만들어지지 않는다. Gold 를 다시 지어도 옛 Silver PNU 를 읽을 뿐이다. 주인의 규칙을 끝까지 지키려면 Silver
+    적재기도 같은 선언된 판을 기록하고, 판이 오르면 그 표의 현재 행을 다시 잇는다(ADR-0329 의 첫 따라가기와 같은 경로). 이것은 다음
+    ADR 의 몫이고, 이 ADR 을 구현한 뒤 바로 잇는다.
 - 대가: 행을 바꾸는 계약 편집에서 판 올림을 잊으면, 그 Gold 는 다음 올림이나 입력 변경 전까지 옛 계약대로 남는다. 증분 run 의
-  parity 표본(ADR-0180)과 바뀐 행만 쓰는 비교(ADR-0564)가 차이를 본다. 공유 모듈 PR 의 댓글(§2)이 잊음을 줄인다.
+  parity 표본(ADR-0180)과 바뀐 행만 쓰는 비교(ADR-0564)가 차이를 본다. 판 없는 모듈 PR 의 댓글(§3)이 잊음을 줄인다.
 - 판 올림을 되돌리는 PR 은 판을 다시 바꾸므로 다시 짓는다. 그것이 맞다.
 - 배포가 긴 run 을 멈추는 문제는 이 ADR 로 드물어진다(2026-11-19 15:00 에 `interruptible` 이라 멈춰 90분이 사라짐). 배포가
   기다릴지 체크포인트할지는 지금 정하지 않는다. 기준은 [ADR-0301](./0301-deploy-stops-an-interruptible-job-rather-than-waiting-hours-and-a-long-pause-alerts.md)
@@ -136,5 +163,6 @@ Gold 를 포함한 모든 자산의 `AssetSpec.code_version` 으로 낸다. ADR-
   [`state:modified`](https://docs.getdbt.com/reference/node-selection/methods#state) 는 파일이나 노드 본문을 단위로 계산한다. 필드
   단위로 계산하는 공개 도구는 이번에 찾지 못했다(위 두 문서와 Dagster 문서를 봄). 손 목록이 필드 목록이 되어 더 커지고 주인의 결정에
   맞지 않는다. 11-05..19 에 몇 번을 피했을지는 필드 단위로 다시 재야 알 수 있다. 기각 근거는 그 수가 아니라 유지 부담이다.
-- **공유 모듈까지 막는 검사, 또는 저장소 안의 "안 올림" 목록.** 모듈 단위로 막으면 공유 모듈 PR 마다 모든 생산자의 올림을 요구한다.
+- **생산자가 쓰는 공유 모듈을 따로 적는 목록.** import 문이 이미 그 선언이다. 따로 적으면 잊을 수 있고, 손 목록이 하나 더 생긴다.
+- **판 없는 모듈까지 막는 검사, 또는 저장소 안의 "안 올림" 목록.** 모든 모듈을 막으면 `gold_rebuild` 같은 계획기 PR 마다 모든 생산자의 올림을 요구한다.
   ADR-0321 의 측정으로, 모듈 단위로 세면 필지 판이 30일 중 22일, 건물 판이 20일 바뀐다. 저장소 안의 예외 목록은 없앤 손 목록이 이름만 바뀐 것이다.
