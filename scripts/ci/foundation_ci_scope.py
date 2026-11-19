@@ -38,9 +38,10 @@ GATES = (
 # cheaply: the Rust job (fmt, clippy, the unit tests of the crates it reaches), the Python and Node
 # suites, the supply-chain gates and the repository guards. Measured on 258 pull-request runs,
 # 2026-11-12..19: a run took 64.6 runner-minutes and 8.4 runner starts on average against a cap of
-# 20 concurrent jobs, and only 4 failures in those 8 days were a pull request's own mistake that
-# one of the jobs moved here was the first to catch (Spark 2, Postgres 1, release dry run 1;
-# the suites caught 8 and stay). Those now fail in the merge group instead and drop the entry.
+# 20 concurrent jobs, and only 3 failures in those 8 days were a pull request's own mistake that
+# one of the jobs moved here was the first to catch (Spark 2, Postgres 1; the release dry run,
+# moved earlier, 1; the suites caught 8 and stay). Those now fail in the merge group instead and
+# drop the entry.
 MERGE_QUEUE_ONLY = frozenset(GATES)
 # Jobs that are not path-selected gates and a pull request leaves to the merge queue all the same.
 PULL_REQUEST_LEAVES = ("postgres-integration",)
@@ -420,7 +421,7 @@ def release_image_selected(event_name: str, paths: Iterable[str] | None) -> bool
 
 def skipped_jobs(
     *, selected: set[str], paths: Iterable[str] | None, crates_answer: str, suites_answer: str,
-    event_name: str = "pull_request",
+    event_name: str,
 ) -> list[str]:
     """The Foundation CI jobs with no work (root ADR-0324), from the gate selection and the crate
     and suite selectors' answers. An empty (unreadable) answer skips none of its jobs."""
@@ -471,18 +472,26 @@ def skipped_jobs_main(args: argparse.Namespace) -> int:
         try:
             paths = git_changed_paths(args.repository, args.base, args.head) if comparable else None
             selected = selected_gates(event_name=args.event_name, base=args.base, head=args.head, paths=paths)
+            by_path = path_selected_gates(event_name=args.event_name, base=args.base, head=args.head, paths=paths)
         except (OSError, subprocess.CalledProcessError) as error:
-            print(f"foundation-ci-scope: git comparison unavailable, every gate runs: {error}", file=sys.stderr)
-            paths, selected = None, set(GATES)
+            # Nothing is known about the change: every gate is taken as selected. A pull request
+            # still leaves them to the merge queue, as it leaves Postgres integration.
+            print(f"foundation-ci-scope: git comparison unavailable, every gate is selected: {error}", file=sys.stderr)
+            paths, by_path = None, set(GATES)
+            selected = by_path - deferred_gates(args.event_name, by_path)
         crates_answer, suites_answer = _selector("crates"), _selector("suites")
         skipped = skipped_jobs(
             selected=selected, paths=paths, crates_answer=crates_answer, suites_answer=suites_answer,
             event_name=args.event_name,
         )
         if args.event_name == "pull_request":
+            # The gate jobs no longer start on a pull request, so their own warning (`--gate`) is
+            # never printed there: the scope job says what the merge group will run.
+            left = sorted(deferred_gates(args.event_name, by_path))
             if release_image_selected("merge_group", paths):
-                print(deferral_warning(RELEASE_JOB))
-            for job in left_to_the_queue(paths=paths, crates_answer=crates_answer, suites_answer=suites_answer):
+                left.append(RELEASE_JOB)
+            left += left_to_the_queue(paths=paths, crates_answer=crates_answer, suites_answer=suites_answer)
+            for job in left:
                 print(deferral_warning(job))
     print(json.dumps({"affected": args.affected, "skipped_jobs": skipped}, sort_keys=True))
     with args.github_output.open("a", encoding="utf-8", newline="\n") as output:

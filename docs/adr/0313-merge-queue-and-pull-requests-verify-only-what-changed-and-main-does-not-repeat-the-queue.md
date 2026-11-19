@@ -80,3 +80,7 @@ bors 의 "큐에서 전부"는 저장소 하나가 한 빌드인 Rust 의 형태
 ---
 
 2026-11-12 개정 주: 큐 실행의 비교 기준(`merge_group.base_sha`)은 main 끝이 아니라 큐의 앞 항목이다(첫 항목만 main 끝). 그 위에서 좁히는 것이 안전하려면 모든 항목이 자기 실행을 통과해야 한다: [ADR-0552](./0552-the-merge-queue-merges-a-pull-request-only-when-its-own-queue-run-is-green.md).
+
+---
+
+2026-11-20 개정 주: Foundation 의 PR 은 경로로 고르는 게이트 전부와 Postgres 통합 시험을 머지 큐에 맡긴다(큐·수동·야간 실행의 선택은 그대로다): [ADR-0580](./0580-a-runner-is-taken-only-by-a-job-whose-work-outweighs-its-setup-and-the-release-dry-run-runs-once-in-the-merge-queue.md) 3항.
