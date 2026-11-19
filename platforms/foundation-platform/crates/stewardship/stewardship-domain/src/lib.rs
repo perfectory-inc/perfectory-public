@@ -73,6 +73,11 @@ pub enum ItemKind {
     Parcel,
     /// Where an abolished 법정동 code went: the subject is the old code, a candidate a new one.
     LegalDong,
+    /// The rows a parcel source could not place (root ADR-0483 §5): the subject is
+    /// `<source table>|<pnu_unresolved_reason>|<법정동 code or ->`, the candidates its
+    /// [`PlaceReferenceEvidence`]. A steward reads it; what settles it is a resolver rule or the
+    /// source's value, so it takes no link.
+    PlaceReference,
 }
 
 impl ItemKind {
@@ -82,6 +87,7 @@ impl ItemKind {
         match self {
             Self::Parcel => "parcel",
             Self::LegalDong => "legal_dong",
+            Self::PlaceReference => "place_reference",
         }
     }
 
@@ -93,6 +99,7 @@ impl ItemKind {
         match unit {
             "parcel" => Ok(Self::Parcel),
             "legal_dong" => Ok(Self::LegalDong),
+            "place_reference" => Ok(Self::PlaceReference),
             other => Err(StewardshipError::InvalidItem(format!(
                 "unknown unit {other}"
             ))),
@@ -102,11 +109,11 @@ impl ItemKind {
     /// Whether `code` is a well-formed subject or candidate of this kind.
     #[must_use]
     pub fn is_code(self, code: &str) -> bool {
-        let digits = match self {
-            Self::Parcel => 19,
-            Self::LegalDong => 10,
-        };
-        code.len() == digits && code.bytes().all(|b| b.is_ascii_digit())
+        match self {
+            Self::Parcel => is_digits(code, 19),
+            Self::LegalDong => is_digits(code, 10),
+            Self::PlaceReference => is_place_reference(code),
+        }
     }
 
     /// Whether `status` belongs to this kind.
@@ -121,7 +128,64 @@ impl ItemKind {
                 status,
                 ReviewStatus::Steward | ReviewStatus::Split | ReviewStatus::AwaitingData
             ),
+            Self::PlaceReference => {
+                matches!(status, ReviewStatus::Steward | ReviewStatus::AwaitingData)
+            }
         }
+    }
+}
+
+fn is_digits(code: &str, n: usize) -> bool {
+    code.len() == n && code.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `silver.<table>|<reason>|<10-digit 법정동 code or ->`, the subject of a place-reference item
+/// (`place_reference_queue.subject`): lowercase snake-case names, as the contracts write them.
+fn is_place_reference(code: &str) -> bool {
+    let name = |part: &str| {
+        !part.is_empty()
+            && part
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    };
+    let mut parts = code.split('|');
+    let (Some(table), Some(reason), Some(dong), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    table.strip_prefix("silver.").is_some_and(name)
+        && name(reason)
+        && (dong == "-" || is_digits(dong, 10))
+}
+
+/// What the place-reference queue recorded for one (source, reason, 법정동 code), stored as the
+/// item's `candidates_json` (root ADR-0483 §5); `place_reference_queue.items` writes it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlaceReferenceEvidence {
+    /// The Silver table, `silver.<name>`.
+    pub source: String,
+    /// The rows' `pnu_unresolved_reason`.
+    pub reason: String,
+    /// The rows' 10-digit 법정동 code, when the source has one.
+    pub legal_dong_code: Option<String>,
+    /// How many current rows stand behind the item.
+    pub rows: u64,
+    /// A few of those rows' keys, for a steward to look up.
+    pub sample_row_keys: Vec<String>,
+}
+
+impl PlaceReferenceEvidence {
+    /// The subject code this evidence stands under.
+    #[must_use]
+    pub fn subject_code(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.source,
+            self.reason,
+            self.legal_dong_code.as_deref().unwrap_or("-")
+        )
     }
 }
 
@@ -260,6 +324,19 @@ impl ReviewItem {
             return Ok(Vec::new());
         }
         serde_json::from_str(&self.candidates_json)
+            .map_err(|error| StewardshipError::InvalidItem(format!("candidates_json: {error}")))
+    }
+
+    /// The place-reference evidence, parsed; other kinds have none.
+    ///
+    /// # Errors
+    /// Returns [`StewardshipError::InvalidItem`] when the stored JSON is not that evidence.
+    pub fn place_reference(&self) -> Result<Option<PlaceReferenceEvidence>, StewardshipError> {
+        if self.kind != ItemKind::PlaceReference {
+            return Ok(None);
+        }
+        serde_json::from_str(&self.candidates_json)
+            .map(Some)
             .map_err(|error| StewardshipError::InvalidItem(format!("candidates_json: {error}")))
     }
 
@@ -454,6 +531,12 @@ pub fn check_decision(
             status: item.status,
         });
     }
+    if item.kind == ItemKind::PlaceReference && draft.outcome.writes_lineage() {
+        return Err(StewardshipError::InvalidInput(format!(
+            "{}: a place-reference item takes no link or not-a-link; a resolver rule or the source's value settles it (root ADR-0483 §5)",
+            item.subject_code
+        )));
+    }
     let candidates = item.candidates()?;
     match (draft.outcome, draft.candidate_code.as_deref()) {
         (Outcome::Link, None) => {
@@ -496,6 +579,8 @@ fn check_candidate(
                 offered.iter().any(|c| c.code == code)
             }
         }
+        // check_decision refuses every link on this kind before it gets here.
+        ItemKind::PlaceReference => false,
     };
     if listed {
         Ok(())
