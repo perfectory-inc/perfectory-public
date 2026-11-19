@@ -80,6 +80,9 @@ const DATA_CATALOG_ROUTES: &[(Method, &[Segment])] = &[
     (Method::GET, &[Literal("service-checks")]),
     // Every cadastral edition's readiness and who served which (root ADR-0379).
     (Method::GET, &[Literal("parcel-editions")]),
+    // The by-PNU cut-overs operators approved and what the host did with each (root ADR-0433).
+    // Approving goes through `operator-actions` above, never through this read.
+    (Method::GET, &[Literal("by-pnu-cutovers")]),
     // Pause, resume, run once now or stop one scheduled job (root ADR-0282).
     (
         Method::POST,
@@ -218,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn the_data_catalog_is_read_only_and_has_six_routes() {
+    fn the_data_catalog_reads_are_read_only() {
         assert!(data_catalog_allowed(&Method::GET, "search"));
         assert!(data_catalog_allowed(&Method::GET, "entity"));
         assert!(data_catalog_allowed(&Method::GET, "scheduled-jobs"));
@@ -226,6 +229,11 @@ mod tests {
         assert!(data_catalog_allowed(&Method::GET, "dataset-snapshots"));
         assert!(data_catalog_allowed(&Method::GET, "service-checks"));
         assert!(data_catalog_allowed(&Method::GET, "parcel-editions"));
+        assert!(data_catalog_allowed(&Method::GET, "by-pnu-cutovers"));
+        assert!(
+            !data_catalog_allowed(&Method::POST, "by-pnu-cutovers"),
+            "a cut-over is approved through operator-actions"
+        );
         assert!(
             !data_catalog_allowed(&Method::POST, "parcel-editions"),
             "the served edition moves through a reviewed promotion, never from the console"
@@ -251,5 +259,35 @@ mod tests {
             !allowed(&Method::GET, "search"),
             "the catalog list does not open data catalog paths"
         );
+    }
+
+    /// DW-2: the cut-over tab called a route this list did not hold, and the relay answered 404.
+    /// `web/src/api/relayed-routes.json` is every route the web client calls (its own test keeps
+    /// it equal to the client); each must be relayed.
+    #[test]
+    fn every_route_the_web_client_calls_is_relayed() {
+        // `cargo test` runs a crate's tests from that crate's directory.
+        let path = "../web/src/api/relayed-routes.json";
+        let text = std::fs::read_to_string(path).expect("relayed-routes.json is readable");
+        let listed: serde_json::Value =
+            serde_json::from_str(&text).expect("relayed-routes.json is JSON");
+        let routes = listed["routes"].as_array().expect("a routes array");
+        assert!(!routes.is_empty());
+        for route in routes {
+            let method: Method = route["method"]
+                .as_str()
+                .and_then(|m| m.parse().ok())
+                .expect("a method");
+            let path = route["path"].as_str().expect("a path");
+            let relayed = match route["api"].as_str() {
+                Some("foundation") => allowed(&method, path),
+                Some("data-catalog") => data_catalog_allowed(&method, path),
+                other => panic!("unknown relay {other:?}"),
+            };
+            assert!(
+                relayed,
+                "the web calls {method} {path}, which the relay refuses"
+            );
+        }
     }
 }
