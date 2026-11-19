@@ -865,10 +865,6 @@ class MissedStarts(unittest.TestCase):
         before = job_specs.previous_slot("40 11 * * *", since.timestamp()) + asset_reconcile.MISSED_START_GRACE
         self.assertEqual(self.owed({}, now=before)[0], [])
 
-    def test_no_slot_is_judged_before_the_records_are_seeded(self):
-        self.assertEqual(asset_reconcile.missed_starts(self.NOW, self.jobs, self.reconciler, None, {},
-                                                       lambda job: False, lambda service: False), ([], []))
-
     def test_a_takes_turns_job_is_never_started_for_a_slot(self):
         turns = [job["id"] for job in self.jobs["jobs"] if job.get("takes_turns")]
         owed, _ = asset_reconcile.missed_starts(self.NOW, self.jobs, self.reconciler, {}, {}, lambda job: False,

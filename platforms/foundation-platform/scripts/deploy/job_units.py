@@ -74,9 +74,6 @@ QUEUE_HISTORY = "history.jsonl"
 # under the scheduler's 0750 home, which only the scheduler could read, and a refusal made before the
 # queue existed (2026-11-09 11:40Z, data_go_kr_file_data's first run) had no record anything could see.
 STARTS_DIR = "/var/lib/foundation-jobs/queue/starts"
-# Written by the deploy once it has copied the start records of the home's old directory over, so a
-# job with no record here is one that never started, not one whose record was not copied yet.
-STARTS_SEEDED = ".seeded"
 # Every outcome the scheduler's runner said for a job (root ADR-0480): one appended line per run, check
 # answer or start it did not make, beside the queue, read by the asset reconciler and the readiness
 # report. A run used to leave its outcome only in its own journal and a start the runner refused left
@@ -258,15 +255,12 @@ def starts_dir() -> str:
     return os.environ.get("FOUNDATION_SCHEDULED_STARTS_DIR") or STARTS_DIR
 
 
-def last_starts() -> dict[str, int] | None:
-    """{job id: when it last started, epoch seconds}, or None until the deploy has seeded the records
-    (STARTS_SEEDED): before that a job with no record may only have one the deploy has not copied yet."""
-    if not os.path.exists(os.path.join(starts_dir(), STARTS_SEEDED)):
-        return None
+def last_starts() -> dict[str, int]:
+    """{job id: when it last started, epoch seconds}; a job with no record never started."""
     found = {}
     for name in sorted(os.listdir(starts_dir())):
         if not JOB_ID.fullmatch(name):
-            continue  # the marker, or a partial write (`.next`)
+            continue  # a partial write (`.next`)
         try:
             with open(os.path.join(starts_dir(), name), encoding="utf-8") as handle:
                 found[name] = int(handle.read().strip())
