@@ -12,7 +12,9 @@ use std::fmt::Write as _;
 
 use anyhow::{ensure, Context as _};
 use lakehouse_domain::industrial_complex_lakehouse_contracts;
-use lakehouse_domain::LakehouseTableContract;
+use lakehouse_domain::{
+    LakehouseTableContract, CURRENT_ROWS_COLUMNS, CURRENT_ROWS_FILTER, CURRENT_ROWS_SOURCE,
+};
 use serde_json::Value;
 
 use crate::lineage_carry::{carry_candidates, Link};
@@ -748,9 +750,45 @@ fn contract_of(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
         .with_context(|| format!("no lakehouse contract for {table}"))
 }
 
+/// The rows the newest-per-key window ranks at once: a slice of a table's versions, by a hash of its
+/// first key column (a key falls in one slice whole). One window over 82M+ versions of 소유 spilled
+/// past 4 GB on 2026-11-19.
+const WINDOW_SLICE_ROWS: i64 = 10_000_000;
+
+/// Builds `target` by the current-rows `template` over the local `raw` versions, a slice of
+/// [`WINDOW_SLICE_ROWS`] at a time by a hash of `first_key`.
+fn windowed_into(
+    connection: &duckdb::Connection,
+    template: &str,
+    projected: &[&str],
+    raw: &str,
+    target: &str,
+    first_key: &str,
+) -> anyhow::Result<()> {
+    let versions: i64 =
+        connection.query_row(&format!("SELECT count(*) FROM {raw}"), [], |row| row.get(0))?;
+    let slices = versions / WINDOW_SLICE_ROWS + 1;
+    for slice in 0..slices {
+        let rows = template
+            .replace(CURRENT_ROWS_COLUMNS, &projected.join(", "))
+            .replace(CURRENT_ROWS_SOURCE, raw)
+            .replace(
+                CURRENT_ROWS_FILTER,
+                &format!("coalesce(hash({first_key}), 0) % {slices} = {slice}"),
+            );
+        if slice == 0 {
+            connection.execute_batch(&format!("CREATE OR REPLACE TABLE {target} AS {rows}"))?;
+        } else {
+            connection.execute_batch(&format!("INSERT INTO {target} {rows}"))?;
+        }
+    }
+    Ok(())
+}
+
 /// Builds `target` from `table`'s current rows at its pin, projecting `columns`, by the contract's one
-/// rendering (root ADR-0564 §4). The pinned table is read once: a table whose rule keeps no ties is
-/// refused, on the built table, when two current rows of a key tie.
+/// rendering (root ADR-0564 §4). The pinned table is read once, into a local copy of the columns the
+/// rule needs; the rule then runs over it a slice of keys at a time. A table whose rule keeps no ties
+/// is refused, on the built table, when two current rows of a key tie.
 fn current_rows_into(
     connection: &duckdb::Connection,
     source: &Source<'_>,
@@ -799,15 +837,10 @@ fn current_rows_into(
     } else {
         format!("(SELECT *, {} FROM {pinned})", missing.join(", "))
     };
-    let render = |projected: &[&str]| {
-        template
-            .replace("{columns}", &projected.join(", "))
-            .replace("{source}", &from)
-            .replace("{filter}", "TRUE")
-    };
     let latest = contract
         .current_row_latest()
         .with_context(|| format!("{table} keeps no versions per key"))?;
+    let raw = format!("{target}_versions");
     // The key rides along for the tie check and leaves after it.
     let extra: Vec<&str> = if latest.keep_ties {
         Vec::new()
@@ -824,10 +857,31 @@ fn current_rows_into(
         .copied()
         .chain(extra.iter().copied())
         .collect();
+    // One read of the pin: every column the rule or the projection names (all of them when the
+    // contract selects by a predicate, whose columns are SQL this reader does not parse).
+    let needed = if contract.current_row_predicate.is_some() {
+        "*".to_owned()
+    } else {
+        projected
+            .iter()
+            .copied()
+            .chain(latest.key.iter().copied())
+            .chain(latest.newest_first.iter().copied())
+            .chain(latest.removal_column)
+            .collect::<BTreeSet<&str>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE {target} AS {}",
-        render(&projected)
+        "CREATE OR REPLACE TABLE {raw} AS SELECT {needed} FROM {from}"
     ))?;
+    let first_key = latest
+        .key
+        .first()
+        .context("a newest-per-key rule names its key")?;
+    windowed_into(connection, &template, &projected, &raw, target, first_key)?;
+    connection.execute_batch(&format!("DROP TABLE {raw}"))?;
     if !latest.keep_ties {
         let (rows, keys): (i64, i64) = connection.query_row(
             &format!(
