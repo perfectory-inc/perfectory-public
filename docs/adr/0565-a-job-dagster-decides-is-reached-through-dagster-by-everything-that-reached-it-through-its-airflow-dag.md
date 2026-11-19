@@ -203,3 +203,28 @@ Airflow 가 결정하는 동안은 `run` 과제의 재시도가 같은 유닛 ru
   덧붙인다. 자격 증명 모양의 이름(토큰에서 나온 이름, `TOKEN`·`KEY`·`SECRET`·`PASSWORD`·`URL` 을 담은 이름)은 계약이 거부한다.
   `lakehouse-reader.env` 가 버킷·엔드포인트를 채우므로, 그것만 읽던 단위 셋(`admin-boundary-release`, `complex-boundary-release`,
   `media-reconcile`)은 쓰기 토큰이 든 파일을 더 이상 읽지 않는다. 사람 단계는 없다.
+
+## 개정 각주 — 2026-11-18, §7 의 조각: 계보는 op 이 같은 이름으로
+
+이 각주는 §7 의 "같은 이름" 이 무엇인지 잰 값으로 좁히고, §7 이 병합 조건으로 둔 시험을 무엇으로 대신하는지 적는다.
+
+- **운영의 이름(2026-11-18, DataHub GraphQL 읽기).** 120개 흐름 모두 `urn:li:dataFlow:(airflow,foundation_<id>,perfectory)` 이고 자식은
+  `foundation_<id>` 와 `foundation_<id>.run` 둘이다. 흐름 urn 의 첫 칸은 이벤트의 `processing_engine` 이 정한다(DataHub 의 OpenLineage 변환,
+  우선순위: 환경 변수 → `processing_engine` → `producer`). 기록된 결과는 `SUCCESS`/`COMPLETE` 1,778 과 `FAILURE`/`FAIL` 297 뿐이다(건너뛴
+  task 는 따로 남지 않는다).
+- **그래서 같은 이름은 흐름 id 와 작업 이름이다.** op 은 엔진을 사실대로 `Dagster` 라 보내고(`lineage.py`), DataHub 의 흐름은
+  `urn:li:dataFlow:(dagster,foundation_<id>,perfectory)` 가 된다. 흐름 id·자식 작업 이름·namespace·부모 run·입출력 데이터셋은 Airflow 와 같다.
+  Airflow 의 이름을 빌려 쓰는 것(`processing_engine` 을 `Airflow` 로)은 카탈로그에 거짓을 쓰는 것이라 기각한다. 전역 환경 변수
+  (`DATAHUB_OPENLINEAGE_ORCHESTRATOR`)는 Spark 의 계보까지 바꾼다.
+- **읽는 쪽이 이어 붙인다**(§7 이 허락한 "읽는 쪽을 함께 고친다"). `operations.rs` 는 이미 흐름을 id 로 모은다. 한 작업의 run 이력만
+  urn 전체 대신 흐름 안의 작업 이름으로 고르게 바꿨다: 옮긴 작업의 이력은 Airflow 가 보낸 run 에서 이어진다(시험
+  `a_job_moved_to_dagster_keeps_one_run_history_across_the_two_engines_flows`).
+- **보내는 것.** run 하나에 Airflow 와 같은 모양: 작업 `foundation_<id>` 의 START(run 이 생긴 시각 — DAG run 이 큐에 든 시각과 같은 뜻)와
+  마지막 시도의 COMPLETE/FAIL, 시도마다 `foundation_<id>.run` 의 START·COMPLETE/FAIL(부모 = 그 run, 작업의 입출력). 할 일 없는 run·배포가 쥔
+  run 은 COMPLETE 다. 클라이언트는 Airflow 의 공급자가 쓰는 `openlineage-python` 1.53.0, 전송 설정은 compose 의 YAML 앵커 하나로 Airflow 와
+  같다. 코드 서버가 `metadata-shared` 에 붙는다. 보내기 실패는 run 을 실패시키지 않는다. `proxied` 작업은 보내지 않는다(DAG 가 보낸다).
+- **§7 의 "CI 의 DataHub" 시험 대신.** CI 에는 DataHub 가 없고(표준 러너에 GMS·검색·Kafka 를 올리는 비용), 운영 DataHub 에 시험 이벤트를 쓰는
+  것은 이 작업의 권한 밖이다. 고정한 것: 이벤트의 이름·부모·엔진·데이터셋(`test_dagster_lineage.py`, `dagster-observe` 레인), 두 엔진의
+  흐름을 한 이력으로 읽는 것(위 Rust 시험), 운영 DataHub 의 실제 urn 모양(위 측정). 남는 것은 DataHub 가 `dagster` 흐름 밑에 같은 자식
+  이름을 만드는지 하나이고, 단계를 여는 PR 이 첫 `dagster` 작업의 첫 run 뒤 DataHub 를 읽어 확인한다(붙지 않으면 그 작업을 `proxied` 로
+  되돌린다, §1).
