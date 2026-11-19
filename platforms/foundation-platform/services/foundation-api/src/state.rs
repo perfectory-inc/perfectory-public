@@ -312,7 +312,7 @@ pub struct AppState {
     runtime_manifest_publication: RuntimeManifestPublicationCapability,
 }
 
-/// The audit chain route tests write to: appends are kept, reads answer nothing (root ADR-0569).
+/// The audit record route tests write to: appends are kept, reads answer nothing (root ADR-0569).
 #[cfg(test)]
 #[derive(Default)]
 pub struct MemoryAuditStore {
@@ -352,10 +352,24 @@ impl catalog_application::ports::AuditEventStore for MemoryAuditStore {
         Ok(Vec::new())
     }
 
+    async fn export(
+        &self,
+        _filter: &catalog_application::ports::AuditEventFilter,
+        _max: u32,
+    ) -> Result<catalog_application::ports::AuditExport, catalog_application::ports::AuditStoreError>
+    {
+        Ok(catalog_application::ports::AuditExport {
+            events: Vec::new(),
+            cursor: "1:1:".to_owned(),
+            digests: Vec::new(),
+            uncovered: 0,
+        })
+    }
+
     async fn latest_digest(
         &self,
     ) -> Result<
-        Option<catalog_application::ports::AuditDigestHead>,
+        Option<catalog_application::ports::AuditDigest>,
         catalog_application::ports::AuditStoreError,
     > {
         Ok(None)
