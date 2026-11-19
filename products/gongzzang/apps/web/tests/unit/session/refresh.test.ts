@@ -64,7 +64,9 @@ describe("fresh session", () => {
 
     const fresh = await freshSession("sid_1", session(now() - 5));
 
-    expect(refreshTokens).toHaveBeenCalledWith(expect.objectContaining({ refresh_token: "rt_old" }));
+    expect(refreshTokens).toHaveBeenCalledWith(
+      expect.objectContaining({ refresh_token: "rt_old" }),
+    );
     expect(fresh?.access_token).toBe("at_new");
     expect(store.refreshSession).toHaveBeenCalledWith(
       "sid_1",
