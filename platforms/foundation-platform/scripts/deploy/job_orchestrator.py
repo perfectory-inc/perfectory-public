@@ -21,50 +21,23 @@ none. Which of the two a job is asked through is its `dagster_stage` in the job 
   <id>` (an operator's run-now, root ADR-0282 §4). A run already open is joined on the host, not doubled
   (start-scheduled-job.sh).
 
-Dagster is asked over its webserver's GraphQL, at the address the job list already names
-(`observers.dagster.ui`, which the asset reconciler's metrics read too); it is the host's loopback. Exit 0
-done, 64 a request this cannot serve (a job Dagster does not decide), 1 Dagster did not do it.
+Dagster is asked over the writable webserver's unix socket (dagster_writes.WRITER_SOCKET), in a directory
+only root opens; its gate answers these documents and nothing else (root ADR-0565 §8). Every reader asks
+the read-only webserver instead; no host port reaches this one. Exit 0 done, 64 a request this cannot
+serve (a job Dagster does not decide), 1 Dagster did not do it.
 """
 
 import json
 import pathlib
 import sys
-import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "orchestration" / "dags"))
+import dagster_writes  # noqa: E402
 import job_specs  # noqa: E402
 
-REQUEST_SECONDS = 30
-
-SENSORS = """
-query Sensors($repository: RepositorySelector!) {
-  sensorsOrError(repositorySelector: $repository) {
-    __typename
-    ... on Sensors { results { name sensorState { id status } } }
-    ... on PythonError { message }
-  }
-}
-"""
-STOP = """
-mutation Stop($id: String!) {
-  stopSensor(id: $id) { __typename ... on PythonError { message } }
-}
-"""
-START = """
-mutation Start($sensor: SensorSelector!) {
-  startSensor(sensorSelector: $sensor) { __typename ... on PythonError { message } }
-}
-"""
-LAUNCH = """
-mutation Launch($params: ExecutionParams!) {
-  launchRun(executionParams: $params) {
-    __typename
-    ... on LaunchRunSuccess { run { runId } }
-    ... on PythonError { message }
-  }
-}
-"""
-REPOSITORY = {"repositoryLocationName": job_specs.DAGSTER_LOCATION, "repositoryName": job_specs.DAGSTER_REPOSITORY}
+SENSORS, STOP, START, LAUNCH = (dagster_writes.SENSORS, dagster_writes.STOP_SENSOR, dagster_writes.START_SENSOR,
+                                dagster_writes.LAUNCH_RUN)
+REPOSITORY = dagster_writes.REPOSITORY
 
 
 class Refused(Exception):
@@ -80,22 +53,18 @@ def decided(jobs):
     return [job["id"] for job in jobs["jobs"] if job["enabled"] and job.get("dagster_stage", "airflow") == "dagster"]
 
 
-def poster(jobs):
-    """`post(query, variables)` to Dagster's GraphQL at the job list's `observers.dagster.ui`: its `data`."""
-    url = ((jobs.get("observers") or {}).get("dagster") or {}).get("ui") or ""
-    if not url.startswith("http://127.0.0.1:"):
-        raise Unanswered(f"jobs.v1.json observers.dagster.ui {url!r} is not Dagster on this host's loopback")
+def poster(socket_path=None):
+    """`post(query, variables)` to the writable webserver over its unix socket: the answer's `data`."""
+    where = socket_path or dagster_writes.WRITER_SOCKET
 
     def post(query, variables):
-        request = urllib.request.Request(f"{url}/graphql", method="POST", headers={"Content-Type": "application/json"},
-                                         data=json.dumps({"query": query, "variables": variables}).encode())
         try:
-            with urllib.request.urlopen(request, timeout=REQUEST_SECONDS) as response:
-                answer = json.loads(response.read())
+            status, body = dagster_writes.ask("POST", "/graphql", {"query": query, "variables": variables}, where)
+            answer = json.loads(body)
         except (OSError, ValueError) as error:
-            raise Unanswered(f"Dagster did not answer at {url}: {error}") from None
-        if answer.get("errors") or not isinstance(answer.get("data"), dict):
-            raise Unanswered(f"Dagster refused the request: {json.dumps(answer.get('errors'))[:300]}")
+            raise Unanswered(f"Dagster did not answer at {where}: {error}") from None
+        if status != 200 or answer.get("errors") or not isinstance(answer.get("data"), dict):
+            raise Unanswered(f"Dagster refused the request ({status}): {json.dumps(answer.get('errors'))[:300]}")
         return answer["data"]
 
     return post
@@ -175,12 +144,12 @@ def main(argv, post=None):
             print("".join(f"{job_id}\n" for job_id in decided(jobs)), end="")
         elif command in ("pause", "unpause"):
             if argv[2:]:
-                done = (pause if command == "pause" else unpause)(jobs, argv[2:], post or poster(jobs))
+                done = (pause if command == "pause" else unpause)(jobs, argv[2:], post or poster())
                 print(f"job-orchestrator: {command}d {len(done)} of {len(argv) - 2} sensors: {' '.join(done) or 'none'}")
         else:
             if len(argv) < 3:
                 raise Refused("start names one job")
-            run_id = start(jobs, argv[2], " ".join(argv[3:]) or "triggered", post or poster(jobs))
+            run_id = start(jobs, argv[2], " ".join(argv[3:]) or "triggered", post or poster())
             print(f"job-orchestrator: started {argv[2]} as Dagster run {run_id}")
     except Refused as error:
         print(f"job-orchestrator: refused: {error}", file=sys.stderr)

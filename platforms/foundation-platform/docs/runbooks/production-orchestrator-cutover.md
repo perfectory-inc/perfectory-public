@@ -94,7 +94,9 @@ journalctl -u foundation-outbox-publish.service -n 20 # Airflow 가 시작한 �
   `airflow-runtime.sh up -d` 가 프로필 `dagster-observe` 를 켜고 airflow-db 안에 데이터베이스·역할 `dagster`, Airflow
   Viewer 계정 `foundation-dagster-observe` 를 만든 뒤 다시 시작한다. 끄면 컨테이너 둘만 지우고 데이터베이스는 남긴다.
   Dagster 가 뜨지 않아도 배포는 실패하지 않고 `WARN dagster:` 줄을 남긴다.
-- 보기: `ssh -L 19085:127.0.0.1:19085 ai-server` 뒤 `http://127.0.0.1:19085`. 자산 142개(그래프 노드), 센서
+- 보기: `ssh -L 19085:127.0.0.1:19085 ai-server` 뒤 `http://127.0.0.1:19085`. 읽기 전용 웹서버다(`--read-only`): 보기만 되고
+  센서를 멈추거나 run 을 띄우는 단추는 꺼져 있다. 바꾸는 길은 배포와 run-now(`job_orchestrator.py`) 둘뿐이고, 쓰기 웹서버의 문지기
+  (`writer_gate.py`)가 그 문서만 받는다(루트 ADR-0565 §8). 자산 142개(그래프 노드), 센서
   `foundation_airflow__airflow_dag_status_sensor`(30초), 단가 검사 둘(WARN, 막지 않음).
 - 깨끗한지: 센서 틱에 오류가 없고, Airflow 의 그날 자산 사건 수와 Dagster 의 materialization 수가 같다.
 - 죽은 코드 위치: 자산 대조기가 5분마다 Dagster GraphQL 에 코드 위치의 로드 상태와 이중 실행 작업마다 마지막 비교 시각을 묻는다

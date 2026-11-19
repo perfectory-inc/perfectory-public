@@ -224,7 +224,7 @@ env_value() { sed -n "s/^$1=//p" "${env_file}" | tail -1; }
 # Dagster follows orchestration/jobs.v1.json `observers.dagster` (root ADR-0333 stage 0). It runs
 # no job, so it never fails the deploy: what goes wrong is said on stderr and Airflow goes on.
 sync_dagster() {
-  local code load_error reloaded
+  local load_error
   if [[ "${COMPOSE_PROFILES:-}" != dagster-observe ]]; then
     # Off: its containers go; its database and history stay.
     compose --profile dagster-observe rm --stop --force "${dagster_services[@]}" >/dev/null 2>&1 || true
@@ -259,31 +259,32 @@ sync_dagster() {
   # restart killed every run in progress (root ADR-0565 §9; 2026-11-14 03:12Z a check run stayed
   # STARTED four days).
   compose up -d "${dagster_services[@]}" >/dev/null
+  # The writable webserver answers the host only on its socket, through its gate (root ADR-0565 §8):
+  # these three questions are asked from inside its container, where the socket is the account's.
+  local ready=""
   for _ in $(seq 1 30); do
-    code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:19085/server_info || true)"
-    [[ "${code}" == 200 ]] && break
+    dagster_ask ready >/dev/null 2>&1 && { ready=1; break; }
     sleep 10
   done
-  if [[ "${code}" == 200 ]]; then
-    reloaded="$(curl -s -X POST -H 'Content-Type: application/json' http://127.0.0.1:19085/graphql       --data '{"query":"mutation { reloadRepositoryLocation(repositoryLocationName: \"foundation\") { __typename } }"}' || true)"
-    grep -q '"WorkspaceLocationEntry"' <<<"${reloaded}" ||
-      printf 'airflow-runtime: WARN dagster: the code location did not reload; it serves the release it loaded last
-' >&2
-  fi
-  if [[ "${code}" == 200 ]]; then
-    # The UI answers while the code location fails to load: from 2026-11-06 21:16Z to 11-09 every load
-    # failed and this said "observing", and the dual run recorded no comparison (root ADR-0431).
-    load_error="$(curl -s -X POST -H 'Content-Type: application/json' http://127.0.0.1:19085/graphql \
-      --data '{"query":"{ workspaceOrError { ... on Workspace { locationEntries { name locationOrLoadError { __typename ... on PythonError { message } } } } } }"}' |
-      python3 -c 'import json, sys
-entries = json.load(sys.stdin)["data"]["workspaceOrError"]["locationEntries"]
-print("; ".join(e["name"] + ": " + e["locationOrLoadError"]["message"].splitlines()[0] for e in entries
-                if (e["locationOrLoadError"] or {}).get("__typename") == "PythonError"))' 2>&1 || true)"
-    [[ -z "${load_error}" ]] && { printf 'dagster: observing; UI on 127.0.0.1:19085\n'; return 0; }
-    printf 'airflow-runtime: WARN dagster: the code location does not load (%s); Dagster is not observing\n' "${load_error}" >&2
+  if [[ -z "${ready}" ]]; then
+    printf 'airflow-runtime: WARN dagster: the writable webserver did not answer on its socket after 5 minutes\n' >&2
     return 0
   fi
-  printf 'airflow-runtime: WARN dagster: the UI answered %s after 5 minutes\n' "${code}" >&2
+  dagster_ask reload ||
+    printf 'airflow-runtime: WARN dagster: the code location did not reload; it serves the release it loaded last\n' >&2
+  # The UI answers while the code location fails to load: from 2026-11-06 21:16Z to 11-09 every load
+  # failed and this said "observing", and the dual run recorded no comparison (root ADR-0431).
+  if ! load_error="$(dagster_ask location-errors 2>&1)"; then
+    printf 'airflow-runtime: WARN dagster: the code location could not be read (%s); Dagster is not observing\n' "${load_error}" >&2
+    return 0
+  fi
+  [[ -z "${load_error}" ]] && { printf 'dagster: observing; read-only UI on 127.0.0.1:19085\n'; return 0; }
+  printf 'airflow-runtime: WARN dagster: the code location does not load (%s); Dagster is not observing\n' "${load_error}" >&2
+}
+
+# One of the deploy's questions to the writable webserver (orchestration/dagster/writer_gate.py ask).
+dagster_ask() {
+  compose exec -T dagster-webserver python /opt/dagster/gate/writer_gate.py ask "$1" </dev/null
 }
 
 verify_up() {
