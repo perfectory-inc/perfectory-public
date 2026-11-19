@@ -27,6 +27,7 @@ ADR-0195 로 지도는 작업마다 실패·멈춤·늦음·느림·양 이상�
    `FoundationScheduledJobsUnreadable` 하나.
 4. **경로** `service="data-flow"`: 작업·종류마다 묶고 `repeat_interval: 8760h` — 시작 한 번, 해소 한 번. 알림 기록 보관
    (`--data.retention=120h`)이 지나면 열린 문제는 한 번 더 온다. **억제**: 실패 알림이 떠 있는 동안 `blocked` 는 보내지 않는다.
+   - 2026-11-20 개정: 이 작업별 경로는 [ADR-0591](./0591-alertmanager-sends-tickets-batched-per-rule-and-pages-as-they-come.md) 로 지웠다. 이 규칙들은 티켓이라 규칙마다 묶어 한 시간에 많아야 한 통, 해소 통 없이 간다. 억제는 그대로다.
 5. **링크**는 `FOUNDATION_PLATFORM_DAWNEER_UI_URL`(operations-map.env) + `#/flow?node=<노드>`(노드를 모르면 `?job=`).
    더니어는 그 주소로 열리면 그 패널을 연다.
 6. **배포가 규칙을 실제로 읽게 한다.** Prometheus·Alertmanager 는 설정 파일을 `current` 링크로 바인드하는데 Docker 는

@@ -322,8 +322,9 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
     assert!(rules.contains("foundation_api_up != 1 or absent(foundation_api_up)"));
 
     // The operations map's problems reach Slack through this Alertmanager (root ADR-0208): the
-    // rule holds a series through a restart, the route never repeats a problem that stays the
-    // same, and a blocked job is quiet while the failure it waits on is announced.
+    // rule holds a series through a restart, and a blocked job is quiet while the failure it waits
+    // on is announced. They are tickets, so they arrive batched per rule (root ADR-0591; the routes
+    // themselves are proven by the guard alertmanager-routes-pass-their-tests).
     for required in [
         "alert: FoundationScheduledJobProblem",
         "expr: foundation_scheduled_job_problem == 1",
@@ -357,7 +358,8 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
         "Alertmanager has no route for the security advisories"
     );
     for required in [
-        "- service = \"data-flow\"",
+        "- severity = \"ticket\"",
+        "receiver: prelaunch-audit-ticket",
         "repeat_interval: 8760h",
         "inhibit_rules:",
         "- kind = \"failed\"",

@@ -8,19 +8,22 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
-    # The operations map's problems (root ADR-0195): one notice per job and kind when it starts
-    # and one when it resolves, never a reminder while it stays the same. The notification log
-    # keeps what was sent for --data.retention (120h), so a problem still open after five days is
-    # announced once more; nothing else repeats it.
+    # Every `severity: ticket` alert but the security advisories (root ADR-0591): one message per rule,
+    # naming each of its alerts, at most once an hour while the set changes and once a day while it
+    # stays, and none when it resolves. 2026-11-18/19 #alerts got about 480 messages a day; one ticket
+    # rule (FoundationScheduledJobProblem) was 60% of them, sent per job, 38 of them "blocked" behind
+    # the same failed source_sweep. A ticket is read in a batch; a page (below) is read when it comes.
+    # The operations map's problems (root ADR-0195), which had their own per-job route, are all
+    # tickets and come here.
     - matchers:
-        - service = "data-flow"
+        - severity = "ticket"
+        - service != "security"
+      receiver: prelaunch-audit-ticket
       group_by:
         - alertname
-        - job_id
-        - kind
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 8760h
+      group_wait: 5m
+      group_interval: 1h
+      repeat_interval: 24h
     # A host unit that reports its successes as well as its failures
     # (scripts/ops/notify-unit-failure.sh): one notice per unit when it starts failing, one when a
     # run succeeds again, and a reminder a day while it keeps failing. 2026-10-28/29 the hourly
@@ -58,7 +61,9 @@ route:
       group_interval: 5m
       repeat_interval: 12h
     # Users see old data (FoundationByPnuServingStale, root ADR-0306): one notice per bake that publishes
-    # the stale lanes, naming each lane, and a reminder every four hours until it publishes. The daily
+    # the stale lanes, naming each lane, and a reminder every twelve hours until it publishes, as a unit
+    # that stays failed is called (unit-state; every four hours until 2026-11-20, root ADR-0591: three
+    # bakes stale since 11-14 made eighteen messages a day). The daily
     # reminder of a failed unit was read past for eight days (2026-10-28..11-05, the 공매 lane's 191-hour
     # pre-photo manifest). One notice per lane was one condition counted eight times: 2026-10-31..11-07
     # the panel bake's eight lanes made 2,057 monitor failures out of one unpublished bake (W83b).
@@ -69,7 +74,7 @@ route:
         - bake_job
       group_wait: 30s
       group_interval: 5m
-      repeat_interval: 4h
+      repeat_interval: 12h
     # Dagster decided a job's run differently from Airflow in the dual run (root ADR-0458): one notice
     # per job, and a reminder a day while the comparisons keep differing; the job's agreeing count
     # starts again from the difference, so it does not move to Dagster until the rules agree.
@@ -135,6 +140,23 @@ inhibit_rules:
     equal:
       - unit
 
+  # The long notice of a job's missing outcome is the short one six hours on (root ADR-0480); while
+  # it fires the short one only repeats it (root ADR-0591).
+  - source_matchers:
+      - alertname = "FoundationJobOutcomeMissingLong"
+    target_matchers:
+      - alertname = "FoundationJobOutcomeMissing"
+    equal:
+      - job_id
+      - expectation
+  # foundation-api is the one exporter of the security series (root ADR-0278): while Prometheus cannot
+  # scrape it, "advisories unreadable" is that scrape failure said again (2026-11-19, root ADR-0591).
+  # One target, so no label to match on.
+  - source_matchers:
+      - alertname = "FoundationPlatformApiScrapeDown"
+    target_matchers:
+      - alertname = "FoundationSecurityAdvisoriesUnreadable"
+
 receivers:
   - name: prelaunch-audit
     # The bot token is a credential and lives outside this file: the compose file mounts it from
@@ -153,5 +175,17 @@ receivers:
             credentials_file: /etc/alertmanager/secrets/slack-bot-token
         send_resolved: true
         title: '{{ .Status | toUpper }} {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}
+  # The same channel and bot for the tickets, without a message when they resolve (`send_resolved`
+  # defaults to false for Slack): a batch read later needs no "it is gone" line (root ADR-0591).
+  - name: prelaunch-audit-ticket
+    slack_configs:
+      - channel: '#alerts'
+        api_url: https://slack.com/api/chat.postMessage
+        http_config:
+          authorization:
+            credentials_file: /etc/alertmanager/secrets/slack-bot-token
+        title: 'TICKET {{ .CommonLabels.alertname }} ({{ len .Alerts }})'
         text: >-
           {{ range .Alerts }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}
