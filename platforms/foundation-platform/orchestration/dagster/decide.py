@@ -75,6 +75,10 @@ OWED_OVERLAP_SECONDS = 2 * SENSOR_SECONDS
 OWED_WITHHELD = ("waiting", "skipped", "failed")
 # The run states in which a job's run holds it (a tick or an event waits behind it).
 OPEN_STATUSES = ("NOT_STARTED", "QUEUED", "STARTING", "STARTED", "CANCELING")
+# The metadata entry airlift puts on the materializations it makes from an Airflow run: the DAG run as the
+# Airflow REST API returned it, with its `start_date` (dagster-airlift 0.29.27, core/sensor/event_translation.py
+# get_common_metadata; core/runtime_representations.py DagRun.start_date).
+AIRLIFT_RUN_METADATA = "Run Metadata (raw)"
 
 
 @dataclass
@@ -170,12 +174,23 @@ def _newest_event(instance, keys):
     return (newest.storage_id, newest.timestamp) if newest is not None else (0, None)
 
 
-def _last_run_at(instance, job_name):
-    """When the newest started run of `job_name` started, whoever launched it; None when none has."""
-    from dagster import RunsFilter
+def _last_run_at(instance, job_name, output_keys=()):
+    """When the job's newest run started, whoever launched it; None when none has. That is the newest
+    started Dagster run of `job_name`, or the newest Airflow run airlift saw make one of `output_keys`:
+    a job that comes to `dagster` from Airflow has no Dagster run yet, and an input that changed after its
+    last Airflow run (the deploy paused its DAG) is still owed that one run (root ADR-0583 §6)."""
+    from dagster import AssetRecordsFilter, RunsFilter
 
     starts = [record.start_time for record in instance.get_run_records(RunsFilter(job_name=job_name), limit=5)
               if record.start_time is not None]
+    for key in output_keys:
+        for record in instance.fetch_materializations(AssetRecordsFilter(asset_key=key), limit=1,
+                                                      ascending=False).records:
+            materialization = record.asset_materialization
+            raw = materialization.metadata.get(AIRLIFT_RUN_METADATA) if materialization is not None else None
+            started = (getattr(raw, "data", None) or {}).get("start_date") if raw is not None else None
+            if started:
+                starts.append(datetime.datetime.fromisoformat(started).timestamp())
     return max(starts, default=None)
 
 
@@ -210,6 +225,7 @@ def evaluator(spec, run_limit_seconds, clock=time.time, reconcilers=()):
     from dagster import DagsterRunStatus, RunRequest, RunsFilter, SkipReason
 
     inputs = [observe_assets.asset_key(dataset) for dataset in spec.starting_inputs]
+    outputs = [observe_assets.asset_key(dataset) for dataset in spec.outputs]
 
     def evaluate(context):
         cursor = Cursor.load(context.cursor) if context.cursor else None
@@ -219,7 +235,8 @@ def evaluator(spec, run_limit_seconds, clock=time.time, reconcilers=()):
         first_id, first_at = _newest_event(context.instance, inputs) if cursor is None else (0, None)
         owed = _owed(context.instance, reconcilers, spec.job_id, cursor.since) if cursor is not None and not held else []
         requests, cursor = decide(spec, run_limit_seconds, cursor, clock(), held, events, first_id, owed,
-                                  _last_run_at(context.instance, spec.dagster_job), first_at)
+                                  _last_run_at(context.instance, spec.dagster_job, outputs if cursor is None else ()),
+                                  first_at)
         context.update_cursor(cursor.dump())
         if not requests:
             return SkipReason("a run of the job is open; what is due waits" if held else "nothing is due")
