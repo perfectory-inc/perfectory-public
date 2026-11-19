@@ -613,9 +613,14 @@ class Registration(unittest.TestCase):
         nodes = {node["id"]: node for node in graph["nodes"]}
         edges = {edge["id"]: edge for edge in graph["edges"]}
         node_id = lambda table: table.replace(".", "-").replace("_", "-")  # noqa: E731
+        import gold_rebuild
         missing = []
         for lane, kind in by_pnu_kinds.kinds().items():
-            gold, surface = node_id(kind.gold_table), f"{lane}-by-pnu-section-packs"
+            # A kind whose producer left Spark bakes the table of appended row versions the publisher
+            # builds in its own unit (root ADR-0564, ADR-0567).
+            moved = gold_rebuild.producer_left_spark(kind.producer)
+            table = by_pnu_kinds.baked_gold_table(lane) if moved else kind.gold_table
+            gold, surface = node_id(table), f"{lane}-by-pnu-section-packs"
             # A section of its host panel is fed by the panel; a kind with its own producer by the
             # Silver it reads beside the anchor (root ADR-0287).
             # Its first non-anchor input is the one its job is found by; every other input needs its
@@ -623,6 +628,8 @@ class Registration(unittest.TestCase):
             others = []
             if kind.follows_host_panel:
                 feeder = node_id(kind.host_panel)
+            elif moved:
+                feeder = sorted(edge["from"] for edge in edges.values() if edge["to"] == gold)[0]
             else:
                 required, _, anchor, _ = __import__(kind.producer).lane_inputs(lane)
                 feeder, *others = [node_id(name) for name in required if name != anchor]
@@ -637,14 +644,15 @@ class Registration(unittest.TestCase):
             # dedicated bake job, which the served edge moves to so a slow panel bake never blocks it
             # (root ADR-0303 §2). The server is the job that carries the served edge.
             server = next((job_id for job_id, job in jobs.items() if served in job.get("pipeline_graph_edges", [])), None)
-            wanted = [(gold in nodes and nodes[gold].get("table_name") == kind.gold_table, f"graph node {gold}"),
+            script = "gold-versions-build.sh" if moved else "gold-panel-rebuild.sh"
+            wanted = [(gold in nodes and nodes[gold].get("table_name") == table, f"graph node {gold}"),
                       (surface in nodes, f"graph node {surface}"),
                       (fed in edges, f"graph edge {fed}"), (served in edges, f"graph edge {served}"),
                       (builder is not None and fed in jobs[builder]["pipeline_graph_edges"], f"a job carries {fed}"),
                       (kind.follows_host_panel or builder != "gold_kind_rebuild", f"{fed} outside gold_kind_rebuild"),
-                      (kind.follows_host_panel or builder is not None and f"gold-panel-rebuild.sh {lane}" in
+                      (kind.follows_host_panel or builder is not None and f"{script} {lane}" in
                        job_specs.service_unit_text(jobs[builder]["systemd_service"]),
-                       f"{builder}'s unit runs gold-panel-rebuild.sh {lane}"),
+                       f"{builder}'s unit runs {script} {lane}"),
                       (server is not None, f"a bake job carries {served}"),
                       (kind.follows_host_panel == (server == "by_pnu_serving_bake"),
                        f"{served} is baked by {'by_pnu_serving_bake' if kind.follows_host_panel else 'the kind own dedicated job, not by_pnu_serving_bake'}"),
@@ -678,7 +686,10 @@ class Registration(unittest.TestCase):
         lanes = json.loads((PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))["by_pnu_lanes"]
         contract = gold_rebuild.load_contract()
         kinds = by_pnu_kinds.kinds()
-        served = [kinds[name].gold_table if name in kinds else lane["gold_table"] for name, lane in lanes.items()]
+        # A kind whose producer left Spark bakes the table of appended row versions the publisher builds
+        # (root ADR-0564, ADR-0567); this job does not rebuild it.
+        served = [kinds[name].gold_table if name in kinds else lane["gold_table"] for name, lane in lanes.items()
+                  if name not in kinds or not gold_rebuild.producer_left_spark(kinds[name].producer)]
         self.assertTrue(served)
         self.assertEqual(sorted(set(served) - set(contract["tables"])), [])
         self.assertEqual(len(served), len(set(served)))

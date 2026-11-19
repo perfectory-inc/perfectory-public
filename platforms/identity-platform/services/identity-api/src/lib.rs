@@ -11,7 +11,7 @@ use std::sync::Arc;
 use axum::Router;
 
 pub use openapi::openapi_document;
-pub use state::{AppState, ProductionConfig};
+pub use state::{AppState, ProductionConfig, StaffAdministration};
 
 /// Builds the Identity HTTP router from an explicit application state.
 pub fn router(state: Arc<AppState>) -> Router {

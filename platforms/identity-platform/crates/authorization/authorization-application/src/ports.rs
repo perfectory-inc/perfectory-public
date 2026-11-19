@@ -5,8 +5,9 @@ use std::fmt::{Display, Formatter};
 
 use async_trait::async_trait;
 use authorization_domain::{RoleCode, RoleGrant};
+use chrono::{DateTime, Utc};
 use identity_shared_kernel::StaffId;
-use staff_identity_domain::{Staff, StaffIdentityError};
+use staff_identity_domain::{ExternalAccount, ExternalAccountLink, Staff, StaffIdentityError};
 
 /// Persistence failures specific to assigning a staff role.
 #[derive(Debug)]
@@ -47,6 +48,66 @@ pub trait RoleGrantUnitOfWork: Send + Sync {
         role_code: &RoleCode,
         granted_by: StaffId,
     ) -> Result<RoleGrant, RoleGrantPersistenceError>;
+}
+
+/// Persistence failures specific to linking a source's account to a staff member.
+#[derive(Debug)]
+pub enum ExternalAccountLinkPersistenceError {
+    /// The target staff account does not exist.
+    StaffNotFound(String),
+    /// The account already has a link that holds now (to this or another staff member).
+    AlreadyLinked,
+    /// The staff member has no link to the account that holds now.
+    NotLinked,
+    /// The link record or its outbox event could not be persisted.
+    Infrastructure(String),
+}
+
+impl Display for ExternalAccountLinkPersistenceError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StaffNotFound(staff_id) => write!(formatter, "staff not found (id={staff_id})"),
+            Self::AlreadyLinked => formatter.write_str("external account is already linked"),
+            Self::NotLinked => formatter.write_str("external account is not linked to this staff"),
+            Self::Infrastructure(message) => {
+                write!(
+                    formatter,
+                    "external account link infrastructure error: {message}"
+                )
+            }
+        }
+    }
+}
+
+impl Error for ExternalAccountLinkPersistenceError {}
+
+/// Atomically appends an external-account link record and its outbox event (root ADR-0569).
+#[async_trait]
+pub trait ExternalAccountLinkUnitOfWork: Send + Sync {
+    /// Appends a link of `account` to `staff_id` that holds from `valid_from`.
+    ///
+    /// # Errors
+    /// Returns [`ExternalAccountLinkPersistenceError::AlreadyLinked`] when the account has a link
+    /// that holds now, or another variant when the target is absent or the write fails.
+    async fn link(
+        &self,
+        staff_id: StaffId,
+        account: &ExternalAccount,
+        valid_from: DateTime<Utc>,
+        linked_by: StaffId,
+    ) -> Result<ExternalAccountLink, ExternalAccountLinkPersistenceError>;
+
+    /// Appends the end, now, of the link of `account` to `staff_id` that holds now.
+    ///
+    /// # Errors
+    /// Returns [`ExternalAccountLinkPersistenceError::NotLinked`] when no such link holds, or
+    /// another variant when the write fails.
+    async fn unlink(
+        &self,
+        staff_id: StaffId,
+        account: &ExternalAccount,
+        unlinked_by: StaffId,
+    ) -> Result<ExternalAccountLink, ExternalAccountLinkPersistenceError>;
 }
 
 /// Dedicated transaction boundary for creating the first Identity administrator.

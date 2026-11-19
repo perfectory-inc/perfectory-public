@@ -73,6 +73,9 @@ pub struct IcebergSnapshotSummary {
 /// of `namespace.table` to snapshot id (`gold_rebuild.py`: `SOURCE_SNAPSHOTS_PROPERTY`,
 /// `pins_property_value`; root ADR-0130).
 const SOURCE_SNAPSHOTS_KEY: &str = "foundation.source-iceberg-snapshots";
+/// The current rows a commit of a table of appended row versions leaves (root ADR-0564 §5); its
+/// `total-records` counts every version.
+const CURRENT_RECORDS_KEY: &str = "foundation.current-records";
 
 impl IcebergSnapshotSummary {
     /// Rows the commit added (Iceberg's `added-records`).
@@ -400,6 +403,8 @@ impl IcebergRestCatalog {
     /// 2026-11-13 the parcel panel's compaction left 17, and the bake read 39,861,494 rows for a
     /// table of 39,861,511 and refused every run after.
     /// Equality deletes are refused: no Gold writer makes them, and their count is not one of rows.
+    /// A table of appended row versions answers its current rows, `foundation.current-records` of
+    /// the snapshot or of the commit a compaction followed (root ADR-0564 §5).
     ///
     /// Returns `Ok(None)` when the table does not exist.
     ///
@@ -430,6 +435,31 @@ impl IcebergRestCatalog {
             Some(serde_json::Value::Number(value)) => value.as_u64(),
             _ => None,
         };
+        // A table of appended row versions holds every version of a key; its rows are the current
+        // ones, which its producer records on each commit (root ADR-0564 §5). A compaction after it
+        // (`replace`) records none and changes no row, so the commit it follows is read.
+        for commit in lineage(&payload.metadata, Some(snapshot_id)) {
+            if let Some(current) = commit.summary.get(CURRENT_RECORDS_KEY) {
+                let text = match current {
+                    serde_json::Value::String(value) => value.clone(),
+                    other => other.to_string(),
+                };
+                return text.parse::<u64>().map(Some).map_err(|_| {
+                    LakehouseError::Upstream(format!(
+                        "{table_name} snapshot {} records {CURRENT_RECORDS_KEY} {text:?}, not a count",
+                        commit.snapshot_id
+                    ))
+                });
+            }
+            if commit
+                .summary
+                .get("operation")
+                .and_then(serde_json::Value::as_str)
+                != Some("replace")
+            {
+                break;
+            }
+        }
         if read("total-equality-deletes").unwrap_or(0) > 0 {
             return Err(LakehouseError::Upstream(format!(
                 "{table_name} snapshot {snapshot_id} carries equality deletes; only position deletes are read"

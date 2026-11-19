@@ -1,6 +1,7 @@
 //! PostgreSQL authorization adapters.
 
 mod effective_role_reader;
+mod external_account_link_uow;
 mod identity_bootstrap_uow;
 mod role_grant_uow;
 
@@ -21,6 +22,7 @@ fn is_foreign_key_constraint_violation(error: &sqlx::Error, constraint: &str) ->
 }
 
 pub use effective_role_reader::PgEffectiveRoleReader;
+pub use external_account_link_uow::PgExternalAccountLinkUnitOfWork;
 pub use identity_bootstrap_uow::PgIdentityBootstrapUnitOfWork;
 pub use role_grant_uow::PgRoleGrantUnitOfWork;
 

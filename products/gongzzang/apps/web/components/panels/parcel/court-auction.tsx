@@ -207,6 +207,7 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
                   .filter(Boolean)
                   .join(" · ")}
                 {o.building_structure ? `\n${o.building_structure}` : ""}
+                {o.closure_kind_name ? `\n${t("detail.closure")} ${o.closure_kind_name}` : ""}
               </li>
             ))}
           </ul>
@@ -227,6 +228,39 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
           </ul>
         </Section>
       )}
+      {(detail.related_cases?.length ?? 0) > 0 && (
+        <Section title={t("detail.relatedCases")}>
+          <ul className="mt-1 flex flex-col gap-1">
+            {detail.related_cases?.map((r, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
+              <li key={i}>
+                {[r.related_user_case_no, r.relation_kind_name].filter(Boolean).join(" · ")}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+      {(detail.parties?.length ?? 0) > 0 && (
+        <Section title={t("detail.parties")}>
+          <p className="mt-1">
+            {detail.parties
+              ?.map((p) => t("detail.partyCount", { kind: p.kind_name ?? "", count: p.count }))
+              .join(" · ")}
+          </p>
+        </Section>
+      )}
+      {detail.survey && <SurveySection t={t} survey={detail.survey} />}
+      {detail.appraisal && (
+        <Section title={t("detail.appraisal")}>
+          <Rows
+            rows={present([
+              [t("detail.priceBasis"), detail.appraisal.price_basis_date],
+              [t("detail.written"), detail.appraisal.written_date],
+              [t("detail.opinion"), detail.appraisal.opinion],
+            ])}
+          />
+        </Section>
+      )}
       {detail.appraisal_points.length > 0 && (
         <Section title={t("detail.appraisalPoints")}>
           <ul className="mt-1 flex flex-col gap-1">
@@ -243,6 +277,45 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
         </Section>
       )}
     </div>
+  );
+}
+
+type Survey = NonNullable<Detail["survey"]>;
+
+/** The case's newest 현황조사서 (root ADR-0540 §1): when it was surveyed, the possession and lease
+ * narrative and each 목록's possession, names masked. */
+function SurveySection({ t, survey }: { t: Translate; survey: Survey }) {
+  const surveyed = (survey.surveyed_raw ?? "")
+    .split("^")
+    .filter((part) => part.trim() !== "")
+    .join(", ");
+  return (
+    <Section title={t("detail.survey")}>
+      <Rows
+        rows={present([
+          [t("detail.surveyedAt"), surveyed],
+          [t("detail.possession"), survey.possession_summary],
+          [t("detail.lease"), survey.lease_text],
+        ])}
+      />
+      {(survey.objects?.length ?? 0) > 0 && (
+        <ul className="mt-1 flex flex-col gap-1">
+          {survey.objects?.map((o) => (
+            <li key={o.object_seq} className="whitespace-pre-line">
+              <span className="text-[var(--color-muted)]">
+                {t("detail.objectNumber", { n: o.object_seq })}
+              </span>{" "}
+              {[
+                o.possession_text,
+                o.lease_count ? t("detail.leaseCount", { n: o.lease_count }) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
   );
 }
 

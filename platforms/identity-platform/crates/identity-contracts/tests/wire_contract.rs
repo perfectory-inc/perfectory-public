@@ -4,9 +4,9 @@ use chrono::Utc;
 use identity_contracts::{
     AssignStaffRoleRequest, IdentityEventDeliveryV1, IdentityEventV1, PolicyDecisionRequest,
     PolicyDecisionResponse, PrincipalId, ResourceAction, ServiceCapabilityChangedV1,
-    StaffInvitedV1, StaffRoleAssignedV1, StaffRoleResponse, StaffSessionRevokedV1,
-    VerifyStaffSessionResponse, ASSIGN_STAFF_ROLE_ROUTE, POLICY_DECISION_ROUTE,
-    VERIFY_STAFF_SESSION_ROUTE,
+    StaffExternalAccountChangedV1, StaffInvitedV1, StaffRoleAssignedV1, StaffRoleResponse,
+    StaffSessionRevokedV1, VerifyStaffSessionResponse, ASSIGN_STAFF_ROLE_ROUTE,
+    POLICY_DECISION_ROUTE, STAFF_EXTERNAL_ACCOUNTS_ROUTE, VERIFY_STAFF_SESSION_ROUTE,
 };
 use uuid::Uuid;
 
@@ -48,6 +48,10 @@ fn staff_contracts_publish_v1_routes_without_credentials() -> Result<(), Box<dyn
         "/identity/v1/staff/{staff_id}/roles"
     );
     assert_eq!(POLICY_DECISION_ROUTE, "/identity/v1/policy/decisions");
+    assert_eq!(
+        STAFF_EXTERNAL_ACCOUNTS_ROUTE,
+        "/identity/v1/staff/{staff_id}/external-accounts"
+    );
 
     let principal_id = PrincipalId::new(Uuid::nil());
     let session = VerifyStaffSessionResponse {
@@ -107,6 +111,12 @@ fn identity_events_use_identity_v1_names_and_preserve_payload_fields(
         }),
         IdentityEventV1::ServiceCapabilityGranted(capability_change(principal_id, timestamp)),
         IdentityEventV1::ServiceCapabilityRevoked(capability_change(principal_id, timestamp)),
+        IdentityEventV1::StaffExternalAccountLinked(account_change(principal_id, timestamp, None)),
+        IdentityEventV1::StaffExternalAccountUnlinked(account_change(
+            principal_id,
+            timestamp,
+            Some(timestamp),
+        )),
     ];
 
     let event_types = events
@@ -125,9 +135,27 @@ fn identity_events_use_identity_v1_names_and_preserve_payload_fields(
             "identity.staff.session_revoked.v1".to_owned(),
             "identity.service_principal.capability_granted.v1".to_owned(),
             "identity.service_principal.capability_revoked.v1".to_owned(),
+            "identity.staff.external_account_linked.v1".to_owned(),
+            "identity.staff.external_account_unlinked.v1".to_owned(),
         ])
     );
     Ok(())
+}
+
+fn account_change(
+    staff_id: PrincipalId,
+    valid_from: chrono::DateTime<Utc>,
+    valid_to: Option<chrono::DateTime<Utc>>,
+) -> StaffExternalAccountChangedV1 {
+    StaffExternalAccountChangedV1 {
+        schema_version: 1,
+        staff_id,
+        provider: "github".to_owned(),
+        external_id: "1".to_owned(),
+        valid_from,
+        valid_to,
+        changed_by: staff_id,
+    }
 }
 
 fn capability_change(

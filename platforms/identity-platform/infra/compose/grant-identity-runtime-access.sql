@@ -2,6 +2,8 @@ GRANT USAGE ON SCHEMA identity TO :"identity_api_role";
 REVOKE UPDATE ON identity.staff FROM :"identity_api_role";
 GRANT SELECT, INSERT ON identity.staff TO :"identity_api_role";
 GRANT SELECT, INSERT ON identity.staff_role TO :"identity_api_role";
+-- External-account links are an append-only record (root ADR-0569): no UPDATE, no DELETE.
+GRANT SELECT, INSERT ON identity.staff_external_account TO :"identity_api_role";
 GRANT SELECT, INSERT, UPDATE ON identity.staff_session TO :"identity_api_role";
 GRANT SELECT, INSERT, UPDATE ON identity.revoked_jti TO :"identity_api_role";
 GRANT SELECT ON identity.service_principal TO :"identity_api_role";

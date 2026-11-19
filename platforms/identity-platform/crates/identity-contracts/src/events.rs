@@ -25,6 +25,12 @@ pub enum IdentityEventV1 {
     /// A capability was revoked from a service principal by the workload policy.
     #[serde(rename = "identity.service_principal.capability_revoked.v1")]
     ServiceCapabilityRevoked(ServiceCapabilityChangedV1),
+    /// A source's account was tied to a staff member (root ADR-0569).
+    #[serde(rename = "identity.staff.external_account_linked.v1")]
+    StaffExternalAccountLinked(StaffExternalAccountChangedV1),
+    /// A source's account stopped belonging to a staff member (root ADR-0569).
+    #[serde(rename = "identity.staff.external_account_unlinked.v1")]
+    StaffExternalAccountUnlinked(StaffExternalAccountChangedV1),
 }
 
 /// Event emitted when a staff account is invited.
@@ -87,4 +93,25 @@ pub struct ServiceCapabilityChangedV1 {
     pub changed_at: DateTime<Utc>,
     /// Lowercase hex SHA-256 of the compiled workload policy that caused the change.
     pub policy_sha256: String,
+}
+
+/// Event emitted when an external-account link is appended: linked, or unlinked with `valid_to`.
+///
+/// The event type says which; the payload is the appended link record.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct StaffExternalAccountChangedV1 {
+    /// Payload schema version. Always `1` for this event type.
+    pub schema_version: u32,
+    /// Staff principal the account belongs to.
+    pub staff_id: PrincipalId,
+    /// Source of the account: `github` or `unix`.
+    pub provider: String,
+    /// The source's immutable id: a numeric GitHub user id, or `<uid>@<host>`.
+    pub external_id: String,
+    /// UTC timestamp from which the link holds.
+    pub valid_from: DateTime<Utc>,
+    /// UTC timestamp at which the link stopped holding; absent while it holds.
+    pub valid_to: Option<DateTime<Utc>>,
+    /// Principal that recorded the change.
+    pub changed_by: PrincipalId,
 }

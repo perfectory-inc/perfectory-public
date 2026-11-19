@@ -126,8 +126,6 @@ HELD_OFF = {
     "gold_parcel_regulation_zones_rebuild": "its first national build ran 9,610 s, past the 150-minute limit "
                                             "(2026-11-07, root ADR-0435 개정 ②)",
     "gold_court_auction_rebuild": "the court-auction lane's own work (W18h, root ADR-0353)",
-    "gold_parcel_nearby_rebuild": "its first full build on Spark timed out at 160 minutes four times "
-                                  "(2026-11-12..13) holding the one rebuild lock; it is born on DuckDB (W81b, W83b)",
 }
 
 

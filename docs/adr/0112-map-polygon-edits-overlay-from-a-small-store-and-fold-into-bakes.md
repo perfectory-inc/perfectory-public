@@ -149,3 +149,15 @@ ADR-0111 A 단계로 필지·행정경계·산업단지 세 레이어가 R2 정�
 > **Revision (2026-09-29):** 행정경계 유닛의 id 규칙 `uuid5("scope:legal-dong:" + 현재 코드)` 는 코드가 바뀌면
 > id 가 바뀌어 ADR-0103 1항을 어긴다. [ADR-0113](./0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md)
 > 9항이 "승계 사슬의 가장 이른 코드" 로 바꾼다. 개편 전 7월 스냅숏은 두 규칙의 결과가 같다.
+
+> **Revision (2026-11-19, 12번 3단계 필지):** 필지 유닛을 이 경로에 올린다. 편집 저장소 계약
+> `map_edit_gateway.units.parcels`(id `pnu`, 타일 속성 없음), 웹 오버레이 유닛 목록(`MAP_EDIT_OVERLAY_UNITS`,
+> 계약과 같음을 시험이 지킨다). 접기는 7번 그대로이되 두 가지가 다르다.
+> ① 접는 작업은 따로 두지 않고 필지 굽기의 Gold 반쪽(`parcel_served_gold`)이 한다. 편집과 필지 Gold 는 서로를
+> 읽는 고리라 별도 작업이면 같은 무게 묶음이 되어 매시간 접기를 굶긴다(`pool_starvation`). 주기는 8번의 초기값
+> 하루 1회다.
+> ② 필지 접기는 8번대로 패치이고, 그 입력은 [ADR-0375](./0375-regulation-zones-reach-the-panel-by-pnu-and-the-tile-handoff-reads-only-changed-tiles.md)
+> §2 의 부분 handoff 다: 바뀐 PNU 만 Gold 에 키로 쓰고(`MERGE`, 표는 `pnu` 로 replaced), 옛·새 상자가 닿는 z14
+> 타일의 행만 넘긴다. 부분일 수 없거나 굽기가 거절하면 강제 Gold 전량(선언된 full 예외)으로 간다.
+> 마커 앵커는 ADR-0225 가 v2 유닛으로 옮겨 이 단계에서 할 일이 없다. fallback 제거는 첫 레이크하우스 필지 기본판
+> 승격(build kind `lakehouse_bake`, 위 각주 ③)이 한다.

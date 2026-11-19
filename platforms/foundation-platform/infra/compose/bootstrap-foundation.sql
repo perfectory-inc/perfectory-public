@@ -14,10 +14,20 @@ WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'foundation_ap
 ALTER ROLE foundation_api WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
     NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'foundation_api_password';
 
+-- The role the audit importer writes its sources as (root ADR-0569 §3, §6). `audit.append` takes a
+-- source only from the role listed as its writer, so the importer cannot write the console's events
+-- and the API cannot write a deploy. It cannot log in until the importer is deployed with its own
+-- credential (ADR-0569 stage 4); until then it exists so the grants below name a real role.
+SELECT 'CREATE ROLE foundation_audit_importer'
+WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'foundation_audit_importer')
+\gexec
+ALTER ROLE foundation_audit_importer WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+    NOINHERIT NOREPLICATION NOBYPASSRLS;
+
 -- The database psql is connected to (PGDATABASE): `foundation` under compose, `foundation_staging`
 -- when the staging smoke bootstraps its own (root ADR-0177). One file, whichever database it is.
 REVOKE CONNECT ON DATABASE :"DBNAME" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"DBNAME" TO foundation_migrator, foundation_api;
+GRANT CONNECT ON DATABASE :"DBNAME" TO foundation_migrator, foundation_api, foundation_audit_importer;
 GRANT CREATE ON DATABASE :"DBNAME" TO foundation_migrator;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO foundation_migrator;

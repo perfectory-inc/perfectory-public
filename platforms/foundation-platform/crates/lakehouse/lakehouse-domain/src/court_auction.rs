@@ -568,3 +568,266 @@ pub const SILVER_COURT_AUCTION_CODE: LakehouseTableContract = LakehouseTableCont
     ],
     load: OBJECT_LOAD,
 };
+
+const CASE_DOCUMENT_READ_KEY: &[&str] =
+    &["court_office_code", "case_no", "document", "asked_round"];
+const PER_CASE_ROUND: &[&str] = &["court_office_code", "case_no", "round_seq"];
+
+/// One row per 사건 문서 request (사건상세, 현황조사, 감정평가), failed reads included: the record the
+/// next run's case frontier is computed from (root ADR-0352, ADR-0540 §3).
+pub const SILVER_COURT_AUCTION_CASE_DOCUMENT_READ: LakehouseTableContract =
+    LakehouseTableContract {
+        table_name: "silver.court_auction_case_document_read",
+        layer: LakehouseLayer::Silver,
+        physical_format: LakehousePhysicalFormat::Parquet,
+        serving_role: LakehouseServingRole::Canonical,
+        current_row_predicate: None,
+        row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+            key: CASE_DOCUMENT_READ_KEY,
+            newest_first: LATEST,
+            removal_column: None,
+            keep_ties: false,
+        }),
+        columns: with_load_columns!(
+            column("court_office_code", "string", true),
+            column("case_no", "string", true),
+            // The contract's role: case_detail, case_survey or case_appraisal.
+            column("document", "string", true),
+            // The round asked; 0 asks the newest.
+            column("asked_round", "int", true),
+            column("answered_round", "int", false),
+            column("requested_at_utc", "timestamp", true),
+            column("http_status", "int", false),
+            column("read_outcome", "string", true),
+            column("list_fingerprint", "string", false),
+        ),
+        partition_spec: &[],
+        sort_order: CASE_DOCUMENT_READ_KEY,
+        write_distribution: LakehouseWriteDistribution::Hash,
+        quality_gates: &[
+            "append_only",
+            "(court_office_code, case_no, document, asked_round, source_snapshot_id) unique",
+        ],
+        load: OBJECT_LOAD,
+    };
+
+/// A case's related and merged cases as the 사건상세 lists them (`dlt_rletReltCsLst`,
+/// `dlt_dpcnMrgTrnscsCsRlet`): one edition per case read whose list changed (root ADR-0540 §4).
+pub const SILVER_COURT_AUCTION_CASE_RELATED: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_case_related",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: read_editions(CASE_KEY),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        // The row's place in the case's lists, from 1 (related cases, then merged ones).
+        column("related_seq", "int", true),
+        // related (관련사건) or merged (중복·병합).
+        column("list", "string", true),
+        column("related_court_office_code", "string", false),
+        column("related_case_no", "string", false),
+        column("related_user_case_no", "string", false),
+        column("relation_kind_code", "string", false),
+        column("relation_kind_name", "string", false),
+        column("related_court_name", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: &["court_office_code", "case_no", "related_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, related_seq, source_snapshot_id) unique",
+        "a case's rows of one read are appended together, only when its list changed",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// A case's 목록 and each one's 종국결과 as the 사건상세 lists them (`dlt_rletCsDspslObjctLst`): one
+/// edition per case read whose list changed (root ADR-0540 §4).
+pub const SILVER_COURT_AUCTION_CASE_OBJECT: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_case_object",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: read_editions(CASE_KEY),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("object_seq", "int", true),
+        column("list_kind_code", "string", false),
+        column("list_kind_name", "string", false),
+        column("closure_kind_code", "string", false),
+        column("closure_kind_name", "string", false),
+        column("legal_dong_code", "string", false),
+        column("lot_raw", "string", false),
+        column("building_name", "string", false),
+        column("building_unit_raw", "string", false),
+        column("print_address_raw", "string", false),
+        column("register_record_yn", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: &["court_office_code", "case_no", "object_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, object_seq, source_snapshot_id) unique",
+        "a case's rows of one read are appended together, only when its list changed",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// A case's 당사자 by kind (`dlt_rletCsIntrpsLst`): the kind and its place in the list, never the
+/// person's name, which stays in Bronze (root ADR-0540 §4). One edition per case read whose list
+/// changed.
+pub const SILVER_COURT_AUCTION_CASE_PARTY: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_case_party",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: read_editions(CASE_KEY),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        // The row's place in the site's list, from 1.
+        column("party_seq", "int", true),
+        column("party_kind_code", "string", false),
+        column("party_kind_name", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: &["court_office_code", "case_no", "party_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, party_seq, source_snapshot_id) unique",
+        "no person's name (root ADR-0540 §4)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// A case's 현황조사 of one round (`dma_ordTsCurstExmnMngInf`): its dates, status and the
+/// possession and lease narrative, names masked (root ADR-0540 §4). Newest per (case, round).
+pub const SILVER_COURT_AUCTION_SURVEY: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_survey",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: PER_CASE_ROUND,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("round_seq", "int", true),
+        column("transmit_status_code", "string", false),
+        column("case_name_code", "string", false),
+        // 조사일시: the site's caret-joined text, as received.
+        column("surveyed_raw", "string", false),
+        column("sent_date", "date", false),
+        column("received_date", "date", false),
+        column("cancelled_date", "date", false),
+        column("possession_summary", "string", false),
+        column("first_possession", "string", false),
+        column("second_possession", "string", false),
+        column("lease_text", "string", false),
+        column("lawsuit_kind_code", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: PER_CASE_ROUND,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, round_seq, source_snapshot_id, source_line_number) unique",
+        "free text masked by courtauction-go-kr.contract.json personal_names (root ADR-0540 §4)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// A 현황조사 round's 목록 (`dlt_ordTsCurstExmnRletLst`): each one's possession code, its 임차 count
+/// and the possession text, names masked. One edition per (case, round) read whose list changed
+/// (root ADR-0540 §4).
+pub const SILVER_COURT_AUCTION_SURVEY_OBJECT: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_survey_object",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: read_editions(PER_CASE_ROUND),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("round_seq", "int", true),
+        column("object_seq", "int", true),
+        column("sale_object_seq", "int", false),
+        column("list_kind_code", "string", false),
+        column("possession_code", "string", false),
+        column("possession_text", "string", false),
+        column("remarks", "string", false),
+        column("lease_count", "int", false),
+        column("land_category", "string", false),
+        column("area_raw", "string", false),
+        column("lot_raw", "string", false),
+        column("building_name", "string", false),
+        column("building_unit_raw", "string", false),
+        column("print_address_raw", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: &["court_office_code", "case_no", "round_seq", "object_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, round_seq, object_seq, source_snapshot_id) unique",
+        "a round's rows of one read are appended together, only when its list changed",
+        "free text masked by courtauction-go-kr.contract.json personal_names (root ADR-0540 §4)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// A case's 감정평가 of one round (`dma_ordTsIndvdAeeWevlInf`), newest per (case, round).
+///
+/// Its number and dates (the key of its 감정평가서) and the opinion, names masked; never the
+/// appraiser's name (root ADR-0540 §4).
+pub const SILVER_COURT_AUCTION_APPRAISAL: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_appraisal",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: PER_CASE_ROUND,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("round_seq", "int", true),
+        column("appraisal_no", "string", false),
+        column("price_basis_date", "date", false),
+        column("surveyed_date", "date", false),
+        column("written_date", "date", false),
+        column("list_kind_code", "string", false),
+        column("opinion", "string", false),
+        column("court_name", "string", false),
+        column("user_case_no", "string", false),
+        column("lawsuit_kind_code", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: PER_CASE_ROUND,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, round_seq, source_snapshot_id, source_line_number) unique",
+        "no person's name (root ADR-0540 §4)",
+    ],
+    load: OBJECT_LOAD,
+};
