@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Proves alertmanager-routes-pass-their-tests rejects what it claims to reject: a ticket route that no
 # longer catches tickets, a service route placed above it, a case naming the wrong receiver, a config
-# amtool refuses, a rule whose severity is neither page nor ticket, a page the ticket route batches,
+# amtool refuses, a rule whose severity is neither page nor ticket, a page route that no longer catches pages,
 # and amtool drifting from the Alertmanager image.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -101,11 +101,9 @@ replace "$root/$rules/foundation-api.rules.yml" "      - alert: FoundationSchedu
 expect fail rule-severity-typo "$root" &
 pids+=("$!")
 
-root="$(fixture page-batched)"
-replace "$root/$config/alertmanager.yml" '        - severity = "ticket"
-        - service != "security"' '        - severity =~ "ticket|page"
-        - service != "security"'
-expect fail page-batched "$root" &
+root="$(fixture page-matcher-typo)"
+replace "$root/$config/alertmanager.yml" '        - severity = "page"' '        - severity = "pages"'
+expect fail page-matcher-typo "$root" &
 pids+=("$!")
 
 root="$(fixture amtool-drift)"

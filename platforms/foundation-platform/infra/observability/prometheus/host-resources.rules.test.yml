@@ -285,7 +285,7 @@ tests:
         alertname: FoundationByPnuLaneUnmeasured
         exp_alerts:
           - exp_labels:
-              severity: page
+              severity: ticket
               service: serving-freshness
               lane: parcel-nearby
             exp_annotations:

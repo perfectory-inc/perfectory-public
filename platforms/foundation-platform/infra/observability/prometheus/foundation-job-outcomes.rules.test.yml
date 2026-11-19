@@ -66,7 +66,7 @@ tests:
               owner: platform
               runbook: docs/runbooks/shape-ledger-bucket.md
             exp_annotations:
-              summary: '<!channel> shape_ledger_check 가 기대한 결과(done)를 기한보다 1d 0h 45m 0s 더 내지 않았어요 — 주인 platform 가 고칠 차례예요. 런북 docs/runbooks/shape-ledger-bucket.md'
+              summary: 'shape_ledger_check 가 기대한 결과(done)를 기한보다 1d 0h 45m 0s 더 내지 않았어요 — 주인 platform 가 고칠 차례예요. 런북 docs/runbooks/shape-ledger-bucket.md'
               runbook: docs/runbooks/job-outcomes.md
       - eval_time: 51h
         alertname: FoundationJobOutcomesSilent
@@ -136,7 +136,7 @@ tests:
               severity: page
               service: job-outcome
             exp_annotations:
-              summary: '<!channel> 한 시간 넘게 어떤 작업도 결과를 남기지 않았어요 — 스케줄러가 아무것도 시작하지 않고 있어요. Airflow 스케줄러(docker logs airflow-scheduler-1)와 start-scheduled-job 을 보세요'
+              summary: '한 시간 넘게 어떤 작업도 결과를 남기지 않았어요 — 스케줄러가 아무것도 시작하지 않고 있어요. Airflow 스케줄러(docker logs airflow-scheduler-1)와 start-scheduled-job 을 보세요'
               runbook: docs/runbooks/job-outcomes.md
   - interval: 1m
     input_series:

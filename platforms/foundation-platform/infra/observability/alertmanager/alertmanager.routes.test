@@ -2,8 +2,8 @@
 # Each route has its own receiver name (one Slack destination), so the receiver names the route. The
 # guard alertmanager-routes-pass-their-tests runs each line through
 # `amtool config routes test --verify.receivers`, from the pinned Alertmanager release; a line that
-# reaches another receiver fails it. The guard also derives one case from every alert rule: a ticket
-# outside security reaches slack-ticket, and nothing else does.
+# reaches another receiver fails it. The guard also derives one case from every alert rule: a page
+# reaches slack-page, a ticket outside security slack-ticket, a security alert slack-security.
 #
 # Tickets: one batched message per rule.
 slack-ticket alertname=FoundationScheduledJobProblem service=data-flow severity=ticket kind=blocked job_id=data_quality
@@ -18,14 +18,14 @@ slack-ticket alertname=FoundationReleaseMissing service=deploy severity=ticket
 # The security advisories: one notice per advisory, no reminder (root ADR-0278), tickets though they are.
 slack-security alertname=FoundationSecurityAdvisory service=security severity=ticket source=osv-ratchet advisory=RUSTSEC-0000-0000 package=example
 slack-security alertname=FoundationSecurityAdvisoriesUnreadable service=security severity=ticket
-# Pages: each item on its own, with its service's reminder.
-slack-unit-state alertname=FoundationUnitFailedLong service=unit-state severity=page unit=foundation-source-sweep.service
-slack-job-outcome alertname=FoundationJobOutcomeMissingLong service=job-outcome severity=page job_id=media_reconcile expectation=done
-slack-serving-freshness alertname=FoundationByPnuServingStale service=serving-freshness severity=page bake_job=by_pnu_parcel_real_transaction_bake
-prelaunch-audit alertname=FoundationHostDiskAlmostFull service=host severity=page mountpoint=/data
-prelaunch-audit alertname=FoundationPlatformApiScrapeDown service=foundation-api severity=page
-prelaunch-audit alertname=FoundationDeployFailedTwice service=deploy severity=page
-prelaunch-audit alertname=FoundationDeployDrainLong service=deploy severity=page
+# Pages: one message per rule with a channel mention while it fires.
+slack-page alertname=FoundationUnitFailedLong service=unit-state severity=page unit=foundation-source-sweep.service
+slack-page alertname=FoundationJobOutcomeMissingLong service=job-outcome severity=page job_id=media_reconcile expectation=done
+slack-page alertname=FoundationByPnuServingStale service=serving-freshness severity=page bake_job=by_pnu_parcel_real_transaction_bake
+slack-page alertname=FoundationHostDiskAlmostFull service=host severity=page mountpoint=/data
+slack-page alertname=FoundationPlatformApiScrapeDown service=foundation-api severity=page
+slack-page alertname=FoundationDeployFailedTwice service=deploy severity=page
+slack-page alertname=FoundationDeployDrainLong service=deploy severity=page
 # Alerts the host scripts post themselves carry no severity and keep their own routes.
 slack-unit-failure alertname=FoundationUnitFailed service=unit-failure unit=foundation-source-sweep.service
 slack-provider-account alertname=FoundationStagingSmokeInputSkipped service=provider-account

@@ -482,7 +482,7 @@
           "tools/amtool.env",
           "platforms/foundation-platform/compose.observability.yml",
           "platforms/foundation-platform/infra/observability/alertmanager/**",
-          "platforms/foundation-platform/infra/observability/prometheus/*.rules.yml"
+          "platforms/foundation-platform/infra/observability/prometheus/**"
         ]
       },
       {
@@ -493,7 +493,7 @@
           "scripts/ci/fetch_pinned.py",
           "platforms/foundation-platform/compose.observability.yml",
           "platforms/foundation-platform/infra/observability/alertmanager/**",
-          "platforms/foundation-platform/infra/observability/prometheus/*.rules.yml"
+          "platforms/foundation-platform/infra/observability/prometheus/**"
         ]
       },
       {

@@ -85,8 +85,8 @@ if [ "$count" -eq 0 ]; then
   rc=1
 fi
 
-# Every alert rule is a case too, so a new rule cannot miss the batch by a severity typo or by having
-# none: a `severity: ticket` rule outside security reaches slack-ticket, every other rule does not.
+# Every alert rule is a case too, so a new rule cannot miss its route by a severity typo or by having
+# none: a page reaches slack-page, a ticket outside security slack-ticket, security slack-security.
 # Read by the narrow shapes the rules files use (no YAML parser on the runner), as
 # prometheus-rules-pass-their-tests reads them.
 rules_dir="$root/platforms/foundation-platform/infra/observability/prometheus"
@@ -109,7 +109,7 @@ for path in sorted(pathlib.Path(sys.argv[1]).glob("*.rules.yml")):
         if severity not in ("page", "ticket"):
             print(f"BAD {path.name} {alert} severity={severity or '<none>'}")
             continue
-        want = "ticket" if severity == "ticket" and service != "security" else "not-ticket"
+        want = "slack-security" if service == "security" else f"slack-{severity}"
         print(f"{want} alertname={alert} severity={severity}" + (f" service={service}" if service else ""))
 PY
 )"
@@ -125,11 +125,8 @@ while read -r want labels; do
   # shellcheck disable=SC2086 # the labels are separate words: name=value name=value
   got="$("$amtool" config routes test --config.file="$config" $labels 2>&1)" || true
   got="${got%%$'\n'*}"
-  if [ "$want" = ticket ] && [ "$got" != slack-ticket ]; then
-    echo "FAIL ${name}: the ticket rule {${labels// /, }} reaches ${got}, not slack-ticket" >&2
-    rc=1
-  elif [ "$want" = not-ticket ] && [ "$got" = slack-ticket ]; then
-    echo "FAIL ${name}: {${labels// /, }} is batched as a ticket; a page and the security advisories are not" >&2
+  if [ "$got" != "$want" ]; then
+    echo "FAIL ${name}: the rule {${labels// /, }} reaches ${got}, not ${want}" >&2
     rc=1
   fi
 done <<<"$derived"

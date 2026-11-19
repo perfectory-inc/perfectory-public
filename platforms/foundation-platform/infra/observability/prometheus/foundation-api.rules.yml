@@ -29,7 +29,7 @@ groups:
         expr: foundation_api_schema_ready != 1
         for: 5m
         labels:
-          severity: page
+          severity: ticket
           service: foundation-api
         annotations:
           summary: Foundation Platform API database schema is behind the running binary
@@ -336,7 +336,7 @@ groups:
         # (newest first, eight a run) has had three turns. Users then see data older than it.
         expr: time() - foundation_source_sweep_unfetched_oldest_listed_timestamp_seconds > 72 * 3600
         labels:
-          severity: page
+          severity: ticket
           service: serving-freshness
         annotations:
           summary: '{{ $labels.source }} 에 공급자가 올린 지 {{ humanizeDuration $value }} 된 파일이 아직 Bronze 에 없어요 — 그 원천을 읽는 Silver·Gold·화면이 그만큼 옛 판이에요. journalctl -u foundation-source-sweep.service 의 "| raon" 줄(받은 것·실패·상한)을 보세요'
@@ -564,7 +564,7 @@ groups:
           )
           unless on(lane) foundation_by_pnu_served_manifest_age_seconds
         labels:
-          severity: page
+          severity: ticket
           service: serving-freshness
         annotations:
           summary: '{{ $labels.lane }} 레인은 서빙하기로 등록됐는데, 신선도 예산이 지나도록 화면에 나간 manifest 를 재는 것이 없어요 — 첫 발행이 안 됐거나 서빙 모니터 타이머가 꺼져 있어요. 그 레인의 cut-over 기록(by-pnu-auto-promote)과 systemctl status foundation-by-pnu-serving-monitor@{{ $labels.lane }}.timer 를 보세요'
@@ -811,7 +811,7 @@ groups:
           severity: page
           service: unit-state
         annotations:
-          summary: '<!channel> {{ $labels.unit }} 가 {{ $value | humanizeDuration }} 째 실패한 채예요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. journalctl -u {{ $labels.unit }} 로 원인을 읽고 런북대로 고치거나, 더 안 쓰는 유닛이면 정의에서 지우세요'
+          summary: '{{ $labels.unit }} 가 {{ $value | humanizeDuration }} 째 실패한 채예요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. journalctl -u {{ $labels.unit }} 로 원인을 읽고 런북대로 고치거나, 더 안 쓰는 유닛이면 정의에서 지우세요'
           runbook: '{{ $labels.runbook }}'
       - alert: FoundationUnitFailedUnowned
         # No X-Foundation-Owner=: a unit file the release removed (the deploy clears that state) or one
@@ -819,10 +819,10 @@ groups:
         expr: foundation_unit_failed_since_seconds{owner=""}
         for: 2h
         labels:
-          severity: page
+          severity: ticket
           service: unit-state
         annotations:
-          summary: '<!channel> {{ $labels.unit }} 가 실패했는데 주인이 없어요 — 릴리스가 지운 유닛이면 다음 배포가 실패 상태를 치워요. 남아 있으면 유닛 파일에 X-Foundation-Owner= 와 Documentation= 를 다세요'
+          summary: '{{ $labels.unit }} 가 실패했는데 주인이 없어요 — 릴리스가 지운 유닛이면 다음 배포가 실패 상태를 치워요. 남아 있으면 유닛 파일에 X-Foundation-Owner= 와 Documentation= 를 다세요'
           runbook: docs/runbooks/deploy-alerts.md
       - alert: FoundationUnitsUnread
         # The reconciler runs every five minutes; 30 minutes without the file is no answer at all.
@@ -973,7 +973,7 @@ groups:
           severity: page
           service: job-outcome
         annotations:
-          summary: '<!channel> {{ $labels.job_id }} 가 기대한 결과({{ $labels.expectation }})를 기한보다 {{ $value | humanizeDuration }} 더 내지 않았어요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. 런북 {{ $labels.runbook }}'
+          summary: '{{ $labels.job_id }} 가 기대한 결과({{ $labels.expectation }})를 기한보다 {{ $value | humanizeDuration }} 더 내지 않았어요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. 런북 {{ $labels.runbook }}'
           runbook: docs/runbooks/job-outcomes.md
       - alert: FoundationJobOutcomesSilent
         # The scheduler decided nothing: the reconciler itself runs every five minutes and a dozen jobs
@@ -987,7 +987,7 @@ groups:
           severity: page
           service: job-outcome
         annotations:
-          summary: '<!channel> 한 시간 넘게 어떤 작업도 결과를 남기지 않았어요 — 스케줄러가 아무것도 시작하지 않고 있어요. Airflow 스케줄러(docker logs airflow-scheduler-1)와 start-scheduled-job 을 보세요'
+          summary: '한 시간 넘게 어떤 작업도 결과를 남기지 않았어요 — 스케줄러가 아무것도 시작하지 않고 있어요. Airflow 스케줄러(docker logs airflow-scheduler-1)와 start-scheduled-job 을 보세요'
           runbook: docs/runbooks/job-outcomes.md
       - alert: FoundationJobOutcomesUnread
         # Without the file the three above cannot fire.

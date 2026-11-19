@@ -8,6 +8,21 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
+    # Pages (root ADR-0591; owner, 2026-11-20: urgent alerts arrive in Slack, no pager): the few things
+    # a person must act on: a production unit or job down or failing for hours, a screen serving data
+    # past its limit, the disk nearly full, monitoring blind, a deploy stuck. One message per rule,
+    # naming each of its alerts, with a channel mention while it fires; at most once an hour while the
+    # set changes and once a day while it stays. 2026-11-18/19 the pages one per item would have been
+    # about 68 mentions a day; per rule, about 24 (most of them nine failing units).
+    # The unit-state, job-outcome and serving-freshness routes held only pages and are gone.
+    - matchers:
+        - severity = "page"
+      receiver: slack-page
+      group_by:
+        - alertname
+      group_wait: 1m
+      group_interval: 1h
+      repeat_interval: 24h
     # Every `severity: ticket` alert but the security advisories (root ADR-0591): one message per rule,
     # naming each of its alerts, at most once an hour while the set changes (an alert added or
     # resolved) and once a day while it stays. 2026-11-14..19 #alerts got about 480 messages a day,
@@ -40,49 +55,6 @@ route:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 24h
-    # A unit that stayed failed six hours, or a failed unit with no owner (root ADR-0445): the owner
-    # is called by name with a channel mention, and again every twelve hours until the unit runs
-    # cleanly. 2026-11-01..07 nine units stayed failed for days after a single notice each.
-    - matchers:
-        - service = "unit-state"
-      receiver: slack-unit-state
-      group_by:
-        - alertname
-        - unit
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 12h
-    # A job whose unit succeeds and that produces nothing it is expected to (root ADR-0480): one notice
-    # per job and expectation, a reminder every twelve hours until it meets it, as a unit that stays
-    # failed is called (unit-state). Since root ADR-0591 only the page (FoundationJobOutcomeMissingLong,
-    # FoundationJobOutcomesSilent) comes here; the short ticket is batched above. 2026-11-06..09 a check waited for a chain never provisioned and ten
-    # refused loads said `waiting`, with no failed unit and so no notice at all.
-    - matchers:
-        - service = "job-outcome"
-      receiver: slack-job-outcome
-      group_by:
-        - alertname
-        - job_id
-        - expectation
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 12h
-    # Users see old data (FoundationByPnuServingStale, root ADR-0306): one notice per bake that publishes
-    # the stale lanes, naming each lane, and a reminder every twelve hours until it publishes, as a unit
-    # that stays failed is called (unit-state; every four hours until 2026-11-20, root ADR-0591: three
-    # bakes stale since 11-14 made eighteen messages a day; look again once #alerts is under fifty a
-    # day). Its tickets are batched above. The daily reminder of a failed unit was read past for eight days (2026-10-28..11-05, the 공매 lane's 191-hour
-    # pre-photo manifest). One notice per lane was one condition counted eight times: 2026-10-31..11-07
-    # the panel bake's eight lanes made 2,057 monitor failures out of one unpublished bake (W83b).
-    - matchers:
-        - service = "serving-freshness"
-      receiver: slack-serving-freshness
-      group_by:
-        - alertname
-        - bake_job
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 12h
     # Dagster decided a job's run differently from Airflow in the dual run (root ADR-0458): one notice
     # per job, and a reminder a day while the comparisons keep differing; the job's agreeing count
     # starts again from the difference, so it does not move to Dagster until the rules agree. The dual
@@ -192,18 +164,19 @@ receivers:
           authorization:
             credentials_file: /etc/alertmanager/secrets/slack-bot-token
         send_resolved: true
+        # A page that fires starts with a channel mention, so the owner's Slack app notifies; nothing
+        # else does: tickets, resolves and the alerts the host scripts post without a severity stay
+        # quiet (owner, 2026-11-20: urgent alerts arrive in Slack, no pager; root ADR-0591). The
+        # mention lived in four rules' summaries before; one place now decides it.
+        pretext: '{{ if and (eq .Status "firing") (eq .CommonLabels.severity "page") }}<!channel>{{ end }}'
         title: '{{ .Status | toUpper }} {{ .CommonLabels.alertname }}{{ if gt (len .Alerts) 1 }} ({{ len .Alerts.Firing }}){{ end }}'
         text: >-
           {{ range .Alerts.Firing }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}{{ with .Alerts.Resolved }}해소 {{ len . }}: {{ range . }}{{ .Annotations.summary }}{{ "\n" }}{{ end }}{{ end }}
+  - name: slack-page
+    slack_configs: *slack
   - name: slack-ticket
     slack_configs: *slack
   - name: slack-unit-failure
-    slack_configs: *slack
-  - name: slack-unit-state
-    slack_configs: *slack
-  - name: slack-job-outcome
-    slack_configs: *slack
-  - name: slack-serving-freshness
     slack_configs: *slack
   - name: slack-dual-run
     slack_configs: *slack
