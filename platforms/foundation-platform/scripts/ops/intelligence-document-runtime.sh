@@ -117,5 +117,6 @@ intelligence_document_fact_run() {
     -e MODEL_RUNTIME_BASE_URL="${model_base}" -e MODEL_RUNTIME_CHAT_PATH="${model_path}" \
     -e MODEL_RUNTIME_DEFAULT_MODEL="${model_name}" \
     -v "${work}/plan:/plan:ro" -v "${work}/media:/media:ro" -v "${work}/out:/out" --entrypoint python \
-    "${INTELLIGENCE_DOCUMENT_IMAGE}" -m document_text.fact_run --pages /plan --media /media --out /out >> "${run_log}" 2>&1
+    "${INTELLIGENCE_DOCUMENT_IMAGE}" -m document_text.fact_run --pages /plan --media /media --out /out \
+    --already-spent-seconds "${SECONDS}" >> "${run_log}" 2>&1
 }

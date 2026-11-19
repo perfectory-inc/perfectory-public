@@ -139,6 +139,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--media", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--contract", type=Path, default=CONTRACT)
+    # The seconds the unit spent before this image started (its plan step and media fetch). The
+    # budget is the unit's, not the image's: 2026-11-18 the steps around the image took 10-25 min,
+    # the image spent its whole 3,300 s from its own start, and at 13:21Z the append after it was
+    # killed at the unit's 80-minute limit (11-14..18: 4 timeouts; W83c).
+    parser.add_argument("--already-spent-seconds", type=float, default=0.0)
     args = parser.parse_args(argv)
 
     contract = load_contract(args.contract)
@@ -158,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
                 pages[row["sha256"]].append(Page(row["page_number"], row["char_start"], row["char_end"], row["method"], row["text"]))
     planned = sorted(formats)[: settings["per_run_limit"]]
     port = Port.from_env(settings["model_timeout_seconds"])
-    started = time.monotonic()
+    started = time.monotonic() - max(args.already_spent_seconds, 0.0)
     if port is not None:
         # A model call is bounded by the run's budget, not only by the document it is in:
         # 2026-11-13 22:43Z a run's last documents asked the model page after page past
