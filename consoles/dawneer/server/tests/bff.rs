@@ -11,6 +11,7 @@ use axum::{Json, Router};
 use dawneer_server::app::{router, AppState, CSRF_HEADER, SESSION_COOKIE};
 use dawneer_server::config::Config;
 use dawneer_server::oidc::Provider;
+use dawneer_server::session::SessionStore;
 use openidconnect::core::{
     CoreIdToken, CoreIdTokenClaims, CoreJsonWebKeySet, CoreJwsSigningAlgorithm,
     CoreRsaPrivateSigningKey,
@@ -335,11 +336,17 @@ async fn harness() -> Result<Harness, Box<dyn std::error::Error + Send + Sync>> 
         client_secret: CLIENT_SECRET.to_owned(),
         foundation_base: Url::parse(&foundation_base)?,
         web_dir,
+        database_url: None,
     };
     let http = reqwest::Client::new();
     let provider = Provider::discover(&http, &config).await?;
     Ok(Harness {
-        app: router(Arc::new(AppState::new(config, provider, http))),
+        app: router(Arc::new(AppState::new(
+            config,
+            provider,
+            http,
+            SessionStore::default(),
+        ))),
         issuer,
     })
 }

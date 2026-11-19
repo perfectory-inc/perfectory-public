@@ -860,6 +860,7 @@ jobs:
       FOUNDATION_ADMIN_PASSWORD: compose_admin_ci
       FOUNDATION_MIGRATOR_PASSWORD: compose_migrator_ci
       FOUNDATION_API_PASSWORD: compose_api_ci
+      DAWNEER_SESSION_DATABASE_PASSWORD: compose_dawneer_session_ci
       FOUNDATION_DB_PORT: 15434
       FOUNDATION_API_PORT: 18080
       FOUNDATION_REDIS_PORT: 16379
