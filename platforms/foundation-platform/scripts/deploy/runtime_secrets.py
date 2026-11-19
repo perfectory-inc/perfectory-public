@@ -20,9 +20,6 @@ checked against it:
     rename       on the data host, as root, before host: a group file holding a token's old name
                  (`renamed_from`) and not its derived one gains the derived name with the same value
                  (root ADR-0247). Prints the files and names it changed, never a value.
-    generate     on the data host, as root, before the environment check: a name a group lists as
-                 `generated` (a password between two of the host's own services, which no person
-                 knows or needs) and its file lacks gets a random 64-hex value. Prints names only.
     host         on the data host, as root: every group file a unit loads exists, is owned and
                  no more open than the contract says, and holds every name it declares. Prints
                  names, never values.
@@ -83,9 +80,6 @@ class Group:
     mode: int | None = None
     optional: bool = False
     release: bool = False  # sourced by the unit's own ExecStart from the release, not an EnvironmentFile
-    # Names whose value nobody outside the host knows (a password between two of its own services):
-    # `generate` writes a random value for each one the file lacks, so no person is asked for it.
-    generated: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -198,16 +192,10 @@ def load(area: Path = AREA) -> Contract:
         mode = entry.get("mode")
         if not release and not entry.get("optional") and not (entry.get("owner") and entry.get("group") and mode):
             raise ContractError(f"group {name!r}: owner, group and mode are required")
-        holds = _resolve_holds(area, entry.get("holds", []), tokens)
-        generated = frozenset(entry.get("generated", []))
-        if not generated <= holds:
-            raise ContractError(f"group {name!r}: generates {sorted(generated - holds)}, which it does not hold")
-        if generated and release:
-            raise ContractError(f"group {name!r}: a release group cannot generate a host secret")
         groups[name] = Group(
-            name=name, path=entry["path"], holds=holds,
+            name=name, path=entry["path"], holds=_resolve_holds(area, entry.get("holds", []), tokens),
             owner=entry.get("owner"), group=entry.get("group"), mode=int(mode, 8) if mode else None,
-            optional=bool(entry.get("optional")), release=release, generated=generated,
+            optional=bool(entry.get("optional")), release=release,
         )
     consumers = []
     for entry in raw["consumers"]:
@@ -586,12 +574,6 @@ def set_names(area: Path, group_name: str, source: Path, root: Path = Path("/"))
     foreign = sorted(set(values) - group.holds)
     if foreign:
         raise ContractError(f"set: group {group_name!r} does not hold {foreign}")
-    return _write_names(group, values, root)
-
-
-def _write_names(group: Group, values: Mapping[str, str], root: Path) -> list[str]:
-    """Replaces `values`' names in the group's file, keeps every other line, and leaves the file with
-    the contract's owner, group and mode."""
     import grp  # noqa: PLC0415 (Unix only)
     import pwd  # noqa: PLC0415 (Unix only)
 
@@ -606,30 +588,6 @@ def _write_names(group: Group, values: Mapping[str, str], root: Path) -> list[st
     text = "".join(f"{line}\n" for line in kept) + "".join(f"{name}={value}\n" for name, value in values.items())
     _replace_atomically(path, text, uid, gid, group.mode)
     return list(values)
-
-
-def generate(area: Path = AREA, root: Path = Path("/")) -> list[str]:
-    """Writes a random value (64 hex characters) for each name a group generates and its file lacks;
-    a name already present keeps its value. Returns "NAME in group" for each written; never a value.
-    Runs before the release checks the environment, so a new generated name needs no person."""
-    import secrets  # noqa: PLC0415
-
-    contract = load(area)
-    written = []
-    for group in contract.groups.values():
-        if not group.generated:
-            continue
-        if group.owner is None or group.group is None or group.mode is None:
-            raise ContractError(f"generate: group {group.name!r} declares no owner, group and mode to write it with")
-        path = root / group.path.lstrip("/")
-        if path.is_symlink():
-            raise ContractError(f"generate: {group.path} is a symlink")
-        present = _names_in(path) if path.exists() else set()
-        missing = sorted(group.generated - present)
-        if missing:
-            _write_names(group, {name: secrets.token_hex(32) for name in missing}, root)
-            written.extend(f"{name} in {group.name}" for name in missing)
-    return written
 
 
 def host(area: Path = AREA, root: Path = Path("/")) -> list[str]:
@@ -678,7 +636,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check")
     sub.add_parser("render")
-    parsers = {name: sub.add_parser(name) for name in ("host", "rename", "set", "generate")}
+    parsers = {name: sub.add_parser(name) for name in ("host", "rename", "set")}
     for parser_ in parsers.values():
         parser_.add_argument("--root", type=Path, default=Path("/"), help="filesystem root the group paths are under")
     parsers["set"].add_argument("group", help="the contract group whose file is written")
@@ -710,10 +668,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "set":
             for name in set_names(args.area, args.group, args.source, args.root):
                 print(f"set {name} in {args.group}")
-            return 0
-        if args.command == "generate":
-            for entry in generate(args.area, args.root):
-                print(f"generated {entry}")
             return 0
         if args.command == "rename":
             for entry in rename(args.area, args.root):
