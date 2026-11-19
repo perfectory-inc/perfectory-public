@@ -315,12 +315,16 @@ def control_environment() -> dict[str, str]:
 
 
 def artifact_files(target: Path) -> dict[str, str]:
+    """Each artifact's sha256, read in chunks: every registered job's ExecStartPre (verify-current) runs
+    this inside the job's own memory limit. Reading each file whole held the largest, the 280 MB
+    aws-java-sdk-bundle jar, and from 2026-11-14 the kernel killed it at 260 MB anon in the 256M
+    parcel-number-change (6 times) and registered-factory (2) before the job started (W83c)."""
     result = {}
     for path in target.rglob("*"):
         if path.is_symlink() or not (path.is_dir() or path.is_file()):
             raise ValueError("artifact contains a link or special file")
         if path.is_file() and path != target / "build.json":
-            result[path.relative_to(target).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+            result[path.relative_to(target).as_posix()] = file_sha256(path)
     return result
 
 

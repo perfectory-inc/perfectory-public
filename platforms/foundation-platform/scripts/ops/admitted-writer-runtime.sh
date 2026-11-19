@@ -69,7 +69,11 @@ publisher = root / "foundation-outbox-publisher"
 info = os.lstat(publisher) if os.path.lexists(publisher) else None
 if info is None or not stat.S_ISREG(info.st_mode) or info.st_mode & 0o222:
     refuse("publisher must be a read-only regular file in the release artifacts")
-if hashlib.sha256(publisher.read_bytes()).hexdigest() != files.get("foundation-outbox-publisher"):
+# In chunks (hashlib.file_digest): this runs inside every job's own memory limit, and the 114 MB
+# publisher read whole is that much of a 256M job (W83c).
+with open(publisher, "rb") as handle:
+    publisher_sha256 = hashlib.file_digest(handle, "sha256").hexdigest()
+if publisher_sha256 != files.get("foundation-outbox-publisher"):
     refuse("publisher sha256 differs from the release build manifest")
 # FLOOR's native image (its configuration names it) must be the image this build produced.
 image = os.environ.get("FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE")

@@ -356,6 +356,18 @@ class ReleaseAdmissionTests(unittest.TestCase):
         self.addCleanup(lambda: self.make_writable(artifacts))
         return artifacts
 
+    def test_artifact_digests_never_read_a_file_whole(self):
+        # verify-current runs inside each job's memory limit; a 280 MB jar read whole was OOM-killed.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "jars").mkdir()
+            payload = os.urandom(3 << 20)
+            (root / "jars" / "big.jar").write_bytes(payload)
+            (root / "build.json").write_text("{}")
+            with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("read whole")):
+                found = self.module.artifact_files(root)
+        self.assertEqual(found, {"jars/big.jar": hashlib.sha256(payload).hexdigest()})
+
     def test_trusted_build_artifacts_verify_without_a_mutable_cache(self):
         artifacts = self.artifacts()
         self.module.verify_artifacts(self.merged, artifacts, os.getuid())
