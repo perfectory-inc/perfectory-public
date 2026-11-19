@@ -478,24 +478,8 @@ const AREAS: &[Area] = &[
                 ],
                 covers: &["infra/lakehouse/spark/tests"],
             },
-            // The two suites below belonged to no runner until ADR-0011. The dbt
-            // contract tests had never executed at all: not in a workflow, not in
-            // `lefthook.yml`, not here. Twenty-five of their twenty-six assertions
-            // pass; the twenty-sixth cannot, and nobody could have known.
-            PythonTests {
-                dir: ".",
-                python_path: None,
-                args: &[
-                    "-m",
-                    "unittest",
-                    "discover",
-                    "-s",
-                    "infra/lakehouse/dbt/tests",
-                    "-p",
-                    "test_*.py",
-                ],
-                covers: &["infra/lakehouse/dbt/tests"],
-            },
+            // The suite below belonged to no runner until ADR-0011 (so did the dbt
+            // contract tests, deleted with the dbt project by root ADR-0588).
             PythonTests {
                 dir: ".",
                 python_path: None,

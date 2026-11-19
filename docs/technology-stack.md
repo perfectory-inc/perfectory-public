@@ -58,7 +58,7 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 | 층 자료 임시 그룹 처리 | DuckDB — 정확한 crate 버전은 [Foundation Cargo workspace](../platforms/foundation-platform/Cargo.toml)가 소유 | 기존 Rust 정규화에 완전한 건물 그룹을 전달. 영속 원장 아님. [ADR-0127](./adr/0127-floor-duckdb-staging-preserves-normalization-and-native-resource-contracts.md), 기존 Cargo 검증 경로에서 검사하며 운영 설치·실행은 별도 확인 |
 | Unix 입력 파일 열기 | [rustix](https://github.com/bytecodealliance/rustix) — 버전은 Foundation Cargo workspace/lockfile 소유 | 파일 교체 중에도 no-follow·nonblocking open을 보장. 직접 syscall/OS 숫자 상수를 만들지 않음 |
 | Lakehouse table/catalog | Iceberg Spark runtime — 판과 최소 판은 [lakehouse-engine.contract.json](../platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json) `iceberg` 만 소유, R2 REST catalog 설정 | 자격증명 주입 시 실행; 기본 Compose는 shell |
-| SQL transform | dbt-trino project | 모델 목록은 `platforms/foundation-platform/infra/lakehouse/dbt/models` 가 소유 |
+| SQL transform | 발행기 안의 DuckDB(루트 ADR-0559) — SQL 프레임워크는 두지 않는다(루트 ADR-0588) | 변환은 Dagster 파티션 + `code_version` |
 | Observability | Prometheus, Alertmanager — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유; tracing/OpenTelemetry/Sentry adapters | Compose/manifest 실행 경로 확인 |
 | Identity provider | Zitadel local image — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | local Compose만 실행 중; production provider/version 배선 미완료 |
 
@@ -125,7 +125,6 @@ es-toolkit의 `recommend`는 이 표가 노리는 행동 그 자체다 — 필�
 | Silver handoff / Foundation | Spark/Python fixture·JSONL/Parquet | 결정론적 fixture 작업 | Spark batch runtime + R2/Iceberg 자격증명 필요 | 관리형 Spark 호환 runtime + R2/Iceberg | batch 코드는 있으나 실제 backend 종단 간 증거는 제한적 |
 | Gold projection / Foundation | Spark `industrial_complex_silver_to_gold.py` | contract/fixture test | Spark + catalog credentials 필요 | Spark + catalog credentials 필요 | Spark Gold job은 있으나 dbt `models/gold/` 없음 |
 | Iceberg/Trino query / Foundation | Trino shell; R2 catalog 속성을 주입하면 실제 조회 | 자격증명 없는 shell 또는 보호된 R2 | R2 catalog + staging 자격증명 | R2 catalog + production 자격증명 | Compose만으로 backend 연결은 증명되지 않음 |
-| dbt models / Foundation | local Trino profile/template | 모델 계약 테스트 | dbt-trino target 필요 | dbt-trino target 필요 | 9개 모델, Gold tier 미구현 |
 | 데이터 전달(edge) / Foundation | `wrangler dev --local` + local R2(각 게이트웨이 `verify:local`) | workerd 시험·생성 구성 drift 검사(`config:check`), `tofu test` 모의 프로바이더 | 미리보기 Worker·레인(`*-preview`) | Cloudflare Worker custom domain, 문 셋은 서울 CloudFront 앞문 뒤 | 실행 중. 경로·압축·캐시 수명은 [전달 계층](./architecture/edge-delivery.md) |
 | Catalog publish / Foundation | 기준은 dev R2 + local Postgres지만 출시 전 private 설정은 production R2/catalog 공유 | logging/protected smoke | staging R2/Postgres | production R2/Postgres | code path 실행 중, production rollout gate 필요 |
 | normalization proposal / Intelligence | local PostgreSQL workflow + mock/provider gateway | mock or explicit protected LLM lane | LLM provider credentials 필요 | LLM provider/quotas/approval policy 필요 | proposal adapter/worker 존재, provider standard 미선정 |
@@ -160,7 +159,7 @@ SSOT로 사용한다. 이 표는 기술 현황을, 로드맵은 실제 다음 �
 
 1. Production Kafka broker, schema registry, topic ownership, ACL, deployment가 없다.
    Redpanda/Karapace local compose가 운영 Kafka 생산을 의미하지 않는다.
-2. dbt `models/gold/`가 없고 Gold는 Spark job projection으로만 존재한다.
+2. (지움) dbt 프로젝트는 아무도 돌리지 않아 루트 ADR-0588 로 지웠다.
 3. R2/Iceberg Compose는 credential-less shell을 띄울 수 있을 뿐 실제 catalog backend 연결을
    증명하지 않는다.
 4. Production Zitadel/LLM/search provider는 issuer, model, quota, secret wiring이 확정되지 않았다.
@@ -196,4 +195,3 @@ SSOT로 사용한다. 이 표는 기술 현황을, 로드맵은 실제 다음 �
 - [`platforms/foundation-platform/docker-compose.yml`](../platforms/foundation-platform/docker-compose.yml)
 - [`platforms/foundation-platform/compose.lakehouse.yml`](../platforms/foundation-platform/compose.lakehouse.yml)
 - [`platforms/intelligence-platform/docker/c2-event-backbone.compose.yml`](../platforms/intelligence-platform/docker/c2-event-backbone.compose.yml)
-- [`platforms/foundation-platform/infra/lakehouse/dbt`](../platforms/foundation-platform/infra/lakehouse/dbt)

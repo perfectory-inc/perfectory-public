@@ -1,13 +1,12 @@
 //! Conservative normalized unit designation (ADR-0107 §1–2).
 //!
-//! This is the Rust twin of the dbt macro `foundation_normalized_unit_name`.
-//! Both implementations are graded by the same golden-vector seed
-//! (`infra/lakehouse/dbt/seeds/unit_name_normalization_vectors.csv`), so a
-//! change to one side without the other fails loudly. The vectors freeze the
-//! macro's *actual* behavior, quirks included — the virtue of this form is
-//! that both registries normalize identically, not that it is pretty.
+//! The golden vectors (`tests/fixtures/unit_name_normalization_vectors.csv`)
+//! were harvested from the dbt macro `foundation_normalized_unit_name` this
+//! function was the twin of; the macro left with the dbt project (root
+//! ADR-0588), and the vectors still freeze that behavior, quirks included, so
+//! a change to the normal form fails loudly.
 
-/// Applies the conservative normal form shared with the dbt macro:
+/// Applies the conservative normal form (the golden vectors' form):
 /// 공백·괄호주석·동접두·앞`제`·뒤`호`·층접두 제거, 지층/지하층→`B`,
 /// 한글 음역 6종 영문화, 구분자(`·.,`) 제거, 숫자런별 선행 0 제거.
 /// 붙임표는 보존한다 — `6-2`와 `62`는 다른 호다 (ADR-0106 §3).
@@ -130,8 +129,7 @@ mod tests {
     /// 시험 실행 시점에 읽는다 (cargo 는 시험의 작업 디렉터리를 크레이트
     /// 루트로 맞춘다). 컴파일타임 포함이 아니어서 도메인 층의 빌드 결합·env
     /// 접근 가드와 충돌하지 않는다.
-    const GOLDEN_VECTOR_PATH: &str =
-        "../../../infra/lakehouse/dbt/seeds/unit_name_normalization_vectors.csv";
+    const GOLDEN_VECTOR_PATH: &str = "tests/fixtures/unit_name_normalization_vectors.csv";
 
     /// Minimal CSV field split for the seed's shape: three columns, optional
     /// double quotes around a field, no embedded quotes.
@@ -156,11 +154,10 @@ mod tests {
         Some((fields.next()?, fields.next()?, fields.next()?))
     }
 
-    /// 골든 벡터 교차 시험 (ADR-0107 §2): dbt 매크로를 실행해 채취한 정답을
-    /// 이 함수가 전량 재현해야 한다. dbt 쪽은 같은 seed 를
-    /// `tests/assert_normalizer_matches_golden_vectors.sql` 이 채점한다.
+    /// 골든 벡터 시험 (ADR-0107 §2): dbt 매크로를 실행해 채취한 정답을
+    /// 이 함수가 전량 재현해야 한다(매크로는 루트 ADR-0588 로 지웠다).
     #[test]
-    fn every_golden_vector_matches_the_dbt_macro() {
+    fn every_golden_vector_matches_the_normal_form() {
         let read = std::fs::read_to_string(GOLDEN_VECTOR_PATH);
         assert!(
             read.is_ok(),
