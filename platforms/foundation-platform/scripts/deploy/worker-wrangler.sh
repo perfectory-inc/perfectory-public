@@ -23,7 +23,7 @@ action="${4:?${usage}}"
 shift 4
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "${here}/../../../../tools/container-images.env"
-memory="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["containers"]["wrangler"]["memory_limit"])' \
+memory="$(python3 -I -B -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["containers"]["wrangler"]["memory_limit"])' \
   "${here}/../../config/worker-deploys.contract.json")"
 owner="$(stat -c '%u:%g' "${workspace}")"
 

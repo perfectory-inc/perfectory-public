@@ -22,7 +22,7 @@
 runtime_chain_before() {
   local runtime="$1" serving="$2" config oneshots code=0
   config="$("${runtime}" config --format json)"
-  oneshots="$(python3 -c '
+  oneshots="$(python3 -I -B -c '
 import json, sys
 service = json.load(sys.stdin)["services"][sys.argv[1]]
 print(" ".join(sorted(name for name, need in (service.get("depends_on") or {}).items()
