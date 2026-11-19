@@ -2,7 +2,7 @@
 //!
 //! `foundation-outbox-publisher verify-static-release-toolchain` runs the same
 //! [`static_release_toolchain::verify`]. The Windows CI gate needs only this crate, and building
-//! the whole publisher cold on Windows, DuckDB included, took 783-840 s of the gate's 823-898 s
+//! the whole publisher cold on Windows, `DuckDB` included, took 783-840 s of the gate's 823-898 s
 //! (2026-11-18).
 
 use std::time::Duration;
