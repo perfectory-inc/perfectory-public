@@ -84,7 +84,9 @@ query LocationErrors {
 
 JOB_ID = re.compile(r"[a-z][a-z0-9_]*")
 RUN_ID = re.compile(r"[0-9a-f-]{8,64}")
-STATE_ID = re.compile(r"[0-9a-f]{8,64}")
+# A sensor's state id as Dagster's GraphQL gives it: `<origin id>::<selector id>` (1.13.27
+# dagster/_core/remote_representation/handle.py CompoundID.to_string, delimiter "::"), or one hex id.
+STATE_ID = re.compile(r"[0-9a-f]{8,64}(?:::[0-9a-f]{8,64})?")
 
 
 def normal(document: str) -> str:

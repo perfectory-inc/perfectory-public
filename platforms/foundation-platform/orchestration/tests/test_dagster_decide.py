@@ -259,7 +259,10 @@ class TheOwedRunsTest(unittest.TestCase):
         reconciler = next(job for job in jobs["jobs"] if job.get("reconciles"))
         stages = (*observe_assets.job_specs.IMPLEMENTED_DAGSTER_STAGES, "dagster")
         seen = []
+        # One job switched alone, so the group rule (root ADR-0583 §2, its own test) is set aside here;
+        # the order rule is what this test reads.
         with mock.patch.object(observe_assets.job_specs, "IMPLEMENTED_DAGSTER_STAGES", stages), \
+                mock.patch.object(observe_assets.job_specs, "dagster_groups", lambda *_: []), \
                 mock.patch.object(decide, "evaluator", lambda spec, limit, reconcilers=(): seen.append(
                     [found.job_id for found in reconcilers]) or (lambda context: None)):
             reconciler["dagster_stage"] = "proxied"
@@ -285,7 +288,9 @@ class TheSensorTest(unittest.TestCase):
         next(job for job in jobs["jobs"] if job["id"] == "gold_unit_price_rebuild")["dagster_stage"] = "dagster"
         stages = (*observe_assets.job_specs.IMPLEMENTED_DAGSTER_STAGES, "dagster")
         with mock.patch.object(observe_assets.job_specs, "IMPLEMENTED_DAGSTER_STAGES", stages), \
-                mock.patch.object(observe_assets.job_specs, "dagster_order", lambda *_: []):
+                mock.patch.object(observe_assets.job_specs, "dagster_order", lambda *_: []), \
+                mock.patch.object(observe_assets.job_specs, "dagster_groups", lambda *_: []):
+            # One job switched alone: the order and group rules have their own tests (test_job_specs).
             return decide.sensors(jobs, graph), run_jobs.run_jobs(jobs, graph), jobs, graph
 
     def test_one_sensor_per_dagster_job_starts_its_dagster_job_with_its_priority(self):

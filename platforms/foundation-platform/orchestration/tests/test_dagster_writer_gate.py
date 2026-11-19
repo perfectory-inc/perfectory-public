@@ -24,7 +24,8 @@ import writer_gate  # noqa: E402
 
 HAS_AIRLIFT = importlib.util.find_spec("dagster_airlift") is not None
 NEEDS_AIRLIFT = "requires dagster-airlift (the CI dagster-observe lane runs it)"
-STATE = "0f" * 20
+# Dagster 1.13.27 gives a sensor state the compound id `<origin id>::<selector id>` (CompoundID).
+STATE = "0f" * 20 + "::" + "a1" * 20
 RUN = "6f1c2a3b-4d5e-4f60-8a71-b82c93d4e5f6"
 
 
@@ -68,6 +69,7 @@ class WhatTheHostMaySend(unittest.TestCase):
             "a launch of a subset": body(dagster_writes.LAUNCH_RUN, {"params": {**launch_params(), "stepKeys": ["x"]}}),
             "another sensor": body(dagster_writes.START_SENSOR, {"sensor": {**dagster_writes.REPOSITORY, "sensorName": "other"}}),
             "a stop of no state": body(dagster_writes.STOP_SENSOR, {"id": "x; drop"}),
+            "a stop of a state with a third part": body(dagster_writes.STOP_SENSOR, {"id": STATE + "::ff"}),
             "variables where none": body(dagster_writes.RELOAD_LOCATION, {"x": 1}),
             "a batch": json.dumps([{"query": dagster_writes.RELOAD_LOCATION}]).encode(),
             "extra fields": body(dagster_writes.RELOAD_LOCATION, extensions={}),
