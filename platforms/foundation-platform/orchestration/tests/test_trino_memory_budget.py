@@ -114,11 +114,25 @@ class AnAdHocQueryRunsAloneUnderLowerCaps(unittest.TestCase):
 
 class EveryFileFollowsTheRelease(unittest.TestCase):
     def test_every_config_file_is_mounted_where_trino_reads_it(self):
-        # foundation-release.sh trino compares these files' bytes with the running container's.
+        # foundation-release.sh trino digests these files' bytes into the container's label.
         service = trino_service()
         for path in sorted([*TRINO.glob("*.properties"), *TRINO.glob("*.json"), TRINO / "jvm.config"]):
             with self.subTest(path.name):
                 self.assertIn(f"- ./infra/lakehouse/trino/{path.name}:/etc/trino/{path.name}:ro\n", service)
+
+    def test_every_file_trino_mounts_from_the_release_is_in_the_digest_compose_compares(self):
+        # A mounted file keeps its path across releases, so Compose's config hash sees its bytes only
+        # through the label (Compose v5.2.0 pkg/compose/hash.go ServiceHash marshals the labels).
+        service = trino_service()
+        self.assertIn("foundation.trino-files-digest: ${FOUNDATION_TRINO_FILES_DIGEST:-}\n", service)
+        mounted = set(re.findall(r"- \./infra/lakehouse/trino/([^:/]+):/etc/trino/", service))
+        digested = {path.name for path in [*TRINO.glob("*.properties"), *TRINO.glob("*.json"), TRINO / "jvm.config"]}
+        self.assertEqual(mounted, digested)
+        step = (PLATFORM / "scripts/deploy/trino-follows-the-release.sh").read_text(encoding="utf-8")
+        self.assertIn('FOUNDATION_TRINO_FILES_DIGEST="$(trino_files_digest)"', step)
+        self.assertIn("trino_compose up -d --no-deps trino\n", step)
+        self.assertNotIn("--force-recreate", step)
+        self.assertNotIn(" cat ", step)
 
     def test_spill_is_on_the_contracts_data_disk_path(self):
         layout = json.loads(LAYOUT.read_text(encoding="utf-8"))
