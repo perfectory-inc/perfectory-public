@@ -145,6 +145,33 @@ pub async fn connect_postgres(database_url: &str) -> Result<sqlx::PgPool, Startu
         })
 }
 
+/// `CLIENT_ADDRESS_HEADER` must be a header name when set, and must be set in production: there the
+/// API runs behind an edge, and the TCP peer it would fall back to is the edge itself
+/// (`http::client_address`).
+pub fn check_client_address_header(is_production: bool) -> Result<(), StartupError> {
+    check_client_address_header_value(
+        is_production,
+        env::var(crate::http::client_address::CLIENT_ADDRESS_HEADER_ENV)
+            .ok()
+            .as_deref(),
+    )
+}
+
+pub fn check_client_address_header_value(
+    is_production: bool,
+    value: Option<&str>,
+) -> Result<(), StartupError> {
+    match crate::http::client_address::trusted_header(value) {
+        Err(reason) => Err(production_config_error(reason)),
+        Ok(None) if is_production => Err(production_config_error(format!(
+            "{} must name the header the edge sets to the client address (cf-connecting-ip behind \
+             Cloudflare); without it every user shares the load balancer's address as rate-limit key",
+            crate::http::client_address::CLIENT_ADDRESS_HEADER_ENV
+        ))),
+        Ok(_) => Ok(()),
+    }
+}
+
 pub fn is_production_env() -> bool {
     std::env::var("APP_ENV").as_deref() == Ok("production")
         || std::env::var("NODE_ENV").as_deref() == Ok("production")

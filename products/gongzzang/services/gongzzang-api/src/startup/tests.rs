@@ -3,6 +3,7 @@
 use product_identity_infrastructure::verifier::Verifier;
 
 use crate::photo_upload::ListingPhotoUploadConfigError;
+use crate::startup::check_client_address_header_value;
 
 use super::{
     build_parcel_lookup_from_edge_base_url, build_photo_download_issuer_from_config_result,
@@ -124,4 +125,18 @@ fn production_rejects_missing_listing_photo_download_r2_config() {
             if reason.contains("listing photo download")
                 && reason.contains("LISTING_PHOTO_R2_BUCKET"))
     );
+}
+
+#[test]
+fn production_refuses_to_start_without_a_client_address_header() {
+    assert!(check_client_address_header_value(true, None).is_err());
+    assert!(check_client_address_header_value(true, Some("  ")).is_err());
+    assert!(check_client_address_header_value(true, Some("cf-connecting-ip")).is_ok());
+    assert!(check_client_address_header_value(true, Some("CF-Connecting-IP")).is_ok());
+}
+
+#[test]
+fn outside_production_the_header_is_optional_but_must_be_a_header_name() {
+    assert!(check_client_address_header_value(false, None).is_ok());
+    assert!(check_client_address_header_value(false, Some("not a header")).is_err());
 }

@@ -8,6 +8,9 @@
 //!   `cf-connecting-ip` behind Cloudflare. Name it only when the origin accepts nothing but the edge
 //!   (Cloudflare docs: restrict the origin to Cloudflare's addresses); otherwise a caller writes it.
 //! - Unset, or the header absent or not an address: the TCP peer (`ConnectInfo`).
+//!
+//! Production refuses to start without it (`startup::check_client_address_header`): behind a load
+//! balancer the TCP peer is the balancer, and every user would share one rate-limit key.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::LazyLock;
@@ -19,12 +22,25 @@ use axum::http::{Extensions, HeaderMap, HeaderName};
 pub const CLIENT_ADDRESS_HEADER_ENV: &str = "CLIENT_ADDRESS_HEADER";
 
 static TRUSTED_HEADER: LazyLock<Option<HeaderName>> = LazyLock::new(|| {
-    std::env::var(CLIENT_ADDRESS_HEADER_ENV)
+    trusted_header(std::env::var(CLIENT_ADDRESS_HEADER_ENV).ok().as_deref())
         .ok()
-        .map(|name| name.trim().to_ascii_lowercase())
-        .filter(|name| !name.is_empty())
-        .and_then(|name| HeaderName::try_from(name).ok())
+        .flatten()
 });
+
+/// The configured header name: `Ok(None)` when unset or blank, `Err` when it is not a header name.
+pub fn trusted_header(value: Option<&str>) -> Result<Option<HeaderName>, String> {
+    value
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map_or_else(
+            || Ok(None),
+            |name| {
+                HeaderName::try_from(name.to_ascii_lowercase())
+                    .map(Some)
+                    .map_err(|_| format!("{CLIENT_ADDRESS_HEADER_ENV}={name} is not a header name"))
+            },
+        )
+}
 
 /// The request's client address, or `None` when neither the edge nor the socket gives one.
 #[must_use]
