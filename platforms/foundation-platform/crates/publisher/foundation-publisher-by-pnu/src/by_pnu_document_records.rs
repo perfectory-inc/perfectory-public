@@ -444,19 +444,16 @@ fn every_by_pnu_document_has_the_fields_its_schema_version_recorded() -> anyhow:
 }
 
 #[test]
-fn a_document_that_gains_a_field_under_its_recorded_version_is_refused() -> anyhow::Result<()> {
-    let version = document_schema_version(ByPnuLane::Parcel);
+fn a_document_that_gains_a_field_under_its_registered_revision_is_refused() -> anyhow::Result<()> {
+    let (source, revision) =
+        registered(ByPnuLane::Parcel.name())?.context("the registry lists the parcel subject")?;
     let mut gained = shape_of::<ParcelByPnuDocument<'static>>()?;
-    check(version, &gained, &[])?;
+    compare(&revision, &gained, &[], &source)?;
     gained.insert("legal_dong.code".to_owned(), false);
-    let error = check(version, &gained, &[]).expect_err("a gained field must refuse");
+    let error = compare(&revision, &gained, &[], &source).expect_err("a gained field must refuse");
     assert!(error.to_string().contains("legal_dong.code"), "{error}");
-    let error = check(
-        "foundation-platform.parcel_by_pnu_profile.v999",
-        &gained,
-        &[],
-    )
-    .expect_err("a version without a record must refuse");
+    let error = check("foundation-platform.example_by_pnu.v999", &gained, &[])
+        .expect_err("a version without a record must refuse");
     assert!(error.to_string().contains("has no record"), "{error}");
     Ok(())
 }

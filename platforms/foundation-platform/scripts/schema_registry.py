@@ -22,7 +22,10 @@ refused rather than ignored.
 
 Run `python3 scripts/schema_registry.py check [--base <ref>]` from the platform directory or name it
 with `--platform`; with a base, merged revisions and their files must be unchanged
-(append-only) and no new revision may be legacy.
+(append-only) and no new revision may be legacy. `generate` writes `HOST_SCHEMAS`, the Rust
+constants of the host lanes' subjects (the parcel and building documents and the building pages),
+which the publisher compiles in and `check` holds to the registry, as the web's generated zod
+schemas are held (apps/web/codegen/gen-schemas.mjs).
 """
 from __future__ import annotations
 
@@ -42,6 +45,10 @@ ALLOWED_KEYWORDS = frozenset({
     "type", "properties", "required", "items", "enum", "pattern", "x-open-enum",
 })
 TYPES = frozenset({"object", "array", "string", "integer", "number", "boolean", "null"})
+# The host lanes (a `<lane>_by_pnu_gateway` block of the connection contract), whose documents the
+# publisher's Rust types write: their subjects' strings are compiled in from this file.
+HOST_LANES = ("parcel", "building")
+HOST_SCHEMAS = pathlib.Path("crates/publisher/foundation-publisher-core/src/host_document_schemas.rs")
 PATH = re.compile(r"^[a-z_][a-z0-9_]*(\[\])?(\.[a-z_][a-z0-9_]*(\[\])?)*$")
 # Files that may spell a registered subject's wire string: the registry, the records it was
 # translated from, generated code, tests, documents. Anywhere else it is a hand-written version list.
@@ -51,6 +58,7 @@ WIRE_STRING_ALLOWED = (
     ":(exclude)platforms/foundation-platform/definitions/**",
     ":(exclude)platforms/foundation-platform/contracts/by-pnu-documents/**",
     ":(exclude)*.generated.ts",
+    ":(exclude)platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/host_document_schemas.rs",
     ":(exclude)*test*",
     ":(exclude)*.md",
 )
@@ -93,7 +101,15 @@ def current(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def subject_of_lane(registry: dict[str, Any], lane: str) -> dict[str, Any] | None:
-    return next((entry for entry in registry["subjects"] if entry["owner"].get("lane") == lane), None)
+    """The subject of the lane's documents (not of a part of them, such as the building pages)."""
+    return next((entry for entry in registry["subjects"]
+                 if entry["owner"].get("lane") == lane and "part" not in entry["owner"]), None)
+
+
+def owner_key(entry: dict[str, Any]) -> tuple[str | None, str | None]:
+    """What a subject is the schema of: a lane's documents, a part of them, or a serving surface."""
+    owner = entry.get("owner") or {}
+    return (owner.get("lane") or owner.get("surface"), owner.get("part"))
 
 
 # --- the schema subset -------------------------------------------------------------------------
@@ -279,7 +295,14 @@ def check_subject(platform: pathlib.Path, entry: dict[str, Any], connections: di
     lanes = connections["by_pnu_lanes"]
     lane = owner.get("lane")
     line = lanes.get(lane)
-    if line is None:
+    if "part" in owner and (lane not in HOST_LANES or not re.fullmatch(r"[a-z][a-z0-9_]*", str(owner["part"]))):
+        fail(f"owner.part {owner['part']!r}: only a host lane's documents have parts, named in snake_case")
+    if lane in HOST_LANES:
+        # A host lane's gateway block states no document schema: the publisher compiles the
+        # subject's strings in (HOST_SCHEMAS).
+        if not isinstance(connections.get(f"{lane}_by_pnu_gateway"), dict):
+            fail(f"owner.lane {lane!r} has no {lane}_by_pnu_gateway block in config/r2-connections.contract.json")
+    elif line is None:
         fail(f"owner.lane {lane!r} is no by_pnu_lanes line of config/r2-connections.contract.json")
     else:
         stated = sorted(f for f in ("document_schema_version", "document_schema_version_reason", "document_schema_expands") if f in line)
@@ -401,9 +424,9 @@ def check(platform: pathlib.Path = PLATFORM, base: str | None = None) -> list[st
     subjects = [entry.get("subject") for entry in registry["subjects"]]
     if len(set(subjects)) != len(subjects):
         out.append("registry.json: a subject is listed twice")
-    owners = [(entry.get("owner") or {}).get("lane") or (entry.get("owner") or {}).get("surface") for entry in registry["subjects"]]
+    owners = [owner_key(entry) for entry in registry["subjects"]]
     if len(set(owners)) != len(owners):
-        out.append("registry.json: two subjects name the same owner lane or surface")
+        out.append("registry.json: two subjects name the same owner lane (and part) or surface")
     for entry in registry["subjects"]:
         out += check_subject(platform, entry, connections)
     # A pack lane's document schema is its subject here and nowhere else (root ADR-0336): the lane
@@ -418,9 +441,45 @@ def check(platform: pathlib.Path = PLATFORM, base: str | None = None) -> list[st
         if path.relative_to(platform).as_posix() not in listed:
             out.append(f"{path.relative_to(platform).as_posix()}: a schema file no revision names")
     out += wire_strings_by_hand(platform.parents[1], registry)
+    written = platform / HOST_SCHEMAS
+    if not written.is_file() or written.read_text(encoding="utf-8") != host_schemas(registry):
+        out.append(f"{HOST_SCHEMAS.as_posix()} is not what the registry generates; run `python3 scripts/schema_registry.py generate`")
     if base:
         out += unchanged_since(platform, base)
     return out
+
+
+def host_schemas(registry: dict[str, Any]) -> str:
+    """The Rust constants of each host lane subject: the string the publisher writes, the other
+    strings of its major (a served document of one of them is read and patched over, root
+    ADR-0320), and the revision its documents carry once the registry made one."""
+    lines = [
+        "//! Generated by `scripts/schema_registry.py generate` from contracts/schema-registry (root",
+        "//! ADR-0336): the document schemas of the host lanes, whose documents the publisher's Rust types",
+        "//! write. Do not edit; change the subject's revisions in its definition (published_schemas) and",
+        "//! regenerate. `scripts/schema_registry.py check` holds this file to the registry.",
+    ]
+    for entry in sorted(registry["subjects"], key=lambda e: (owner_key(e)[0] or "", owner_key(e)[1] or "")):
+        lane, part = owner_key(entry)
+        if lane not in HOST_LANES or "lane" not in entry["owner"]:
+            continue
+        name = f"{lane}_{part or 'document'}".upper()
+        now = current(entry)
+        expands = [s for s in identities(entry, entry["major"]) if s != now["schema_version"]]
+        revision = "None" if now.get("legacy") else f"Some({now['revision']})"
+        lines += [
+            "",
+            f"/// `{entry['subject']}` major {entry['major']}, revision {now['revision']}: what its documents carry in",
+            "/// `schema_version`.",
+            f"pub const {name}_SCHEMA_VERSION: &str = {json.dumps(now['schema_version'])};",
+            "",
+            "/// The other strings of the major: documents the export reads and patches over (root ADR-0320).",
+            f"pub const {name}_SCHEMA_EXPANDS: &[&str] = &[{', '.join(json.dumps(s) for s in expands)}];",
+            "",
+            "/// The `schema_revision` its documents carry: none while the current revision is legacy.",
+            f"pub const {name}_SCHEMA_REVISION: Option<u32> = {revision};",
+        ]
+    return "\n".join(lines) + "\n"
 
 
 def can_i_deploy(registry: dict[str, Any], subject: str, major: int, deployed: dict[str, Any]) -> list[str]:
@@ -440,10 +499,14 @@ def can_i_deploy(registry: dict[str, Any], subject: str, major: int, deployed: d
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("command", choices=("check",))
+    parser.add_argument("command", choices=("check", "generate"))
     parser.add_argument("--platform", type=pathlib.Path, default=PLATFORM)
     parser.add_argument("--base", help="the pull request base: merged revisions must be unchanged")
     args = parser.parse_args(argv)
+    if args.command == "generate":
+        (args.platform / HOST_SCHEMAS).write_text(host_schemas(load(args.platform)), encoding="utf-8", newline="\n")
+        print(f"wrote {HOST_SCHEMAS.as_posix()}")
+        return 0
     failures = check(args.platform, args.base)
     for failure in failures:
         print(f"FAIL schema-registry: {failure}", file=sys.stderr)
