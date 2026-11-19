@@ -370,7 +370,8 @@ def document_frames(spark, round_row):
            "property_seq": round_row["property_seq"], "source_record_id": "o", "source_line_number": 1,
            "source_snapshot_id": "s1"}
     values = {
-        job.CASE_DOC: {"case_name": "부동산임의경매", "claim_amount_krw": 150000000, "commencement_date": date(2099, 1, 1)},
+        job.CASE_DOC: {"case_name": "부동산임의경매", "claim_amount_krw": 150000000, "commencement_date": date(2099, 1, 1),
+                       "user_case_no": "2099타경1"},
         job.SPEC_DOC: {"assumed_rights": "해당사항없음", "item_usage_code": "10", "bid_kind_code": "000331"},
         job.SCHEDULE_DOC: {"schedule_seq": 1, "schedule_date": date(2099, 1, 2), "schedule_kind_code": "01",
                            "result_code": "002", "minimum_bid_price_krw": 100},
@@ -422,7 +423,7 @@ def full_document_frames(spark, round_row):
                            "deadline_date": date(2099, 2, 1)},
         # A 정정공고 naming the round's case and property (root ADR-0575 §6).
         job.NOTICE_ITEM_DOC: {"department_code": "1002", "sale_date": date(2099, 1, 5), "bid_kind_code": "000331",
-                              "list": "correction", "list_seq": 1, "user_case_no": round_row["user_case_no"],
+                              "list": "correction", "list_seq": 1, "user_case_no": "2099타경1",
                               "property_seq": round_row["property_seq"], "change_date": date(2099, 1, 4),
                               "change_text": "최저매각가격 정정"},
         # 문건·송달 (root ADR-0575 §5): the role and kind, never the masked name.

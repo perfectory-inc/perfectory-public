@@ -180,7 +180,8 @@ pub(crate) async fn collect_dividends(
     };
     let mut result = DividendsResult::default();
     let mut stop = None;
-    // The departments of each court.
+    // The departments of each court (the screen sends no headers of its own for them).
+    let no_headers = BTreeMap::new();
     let asked: Vec<_> = courts
         .iter()
         .map(|court| {
@@ -188,7 +189,7 @@ pub(crate) async fn collect_dividends(
                 &on,
                 &notices.depts_operation,
                 &notices.depts_path,
-                &BTreeMap::new(),
+                &no_headers,
                 json!({ notices.depts_court_field.as_str(): court }),
                 &now,
             )

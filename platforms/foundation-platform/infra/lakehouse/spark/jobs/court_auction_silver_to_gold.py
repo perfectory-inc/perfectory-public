@@ -324,10 +324,14 @@ def detail_parts(frames: dict[str, Any]) -> dict[str, Any]:
         "registered_date", "reached_date", "delivery_result", "recipient_role", "document_kind", "action"], "_deliveries")
     dividend = current(DIVIDEND_DOC).select(*CASE, F.struct(
         "commencement_date", "notice_date", "deadline_date").alias("_dividend_notice"))
-    changes = _listed(current(NOTICE_ITEM_DOC).where(F.col("list").isin("correction", "cancellation"))
-                      .where(F.col("user_case_no").isNotNull() & F.col("property_seq").isNotNull()),
-                      ("court_office_code", "user_case_no", "property_seq"), ("change_date", "list", "list_seq"),
-                      ["list", "change_date", "change_text"], "_notice_changes")
+    # A notice names the case by its user number (2099타경1): the case table gives its key.
+    case_numbers = current(CASE_DOC).where(F.col("user_case_no").isNotNull()).select(
+        "court_office_code", "user_case_no", "case_no").dropDuplicates(["court_office_code", "user_case_no"])
+    noticed = (current(NOTICE_ITEM_DOC).where(F.col("list").isin("correction", "cancellation"))
+               .where(F.col("user_case_no").isNotNull() & F.col("property_seq").isNotNull())
+               .drop("case_no").join(case_numbers, ["court_office_code", "user_case_no"]))
+    changes = _listed(noticed, PROPERTY,
+                      ("change_date", "list", "list_seq"), ["list", "change_date", "change_text"], "_notice_changes")
     return {"case": case, "spec": spec, "schedule": schedule, "objects": objects, "annexes": annexes,
             "appraisal_points": points, "related_cases": related, "parties": parties, "survey": survey,
             "appraisal": appraisal, "filings": filings, "deliveries": deliveries, "notice_changes": changes,
