@@ -20,3 +20,5 @@
 # source enters the image; the current source is still supplied by the audited /work bind at run time.
 !platforms/foundation-platform/services/foundation-profile-gateway/package.json
 !platforms/foundation-platform/services/foundation-profile-gateway/pnpm-lock.yaml
+# pnpm 11 and later read the overrides and allowBuilds the install needs only from here (root ADR-0572).
+!platforms/foundation-platform/services/foundation-profile-gateway/pnpm-workspace.yaml

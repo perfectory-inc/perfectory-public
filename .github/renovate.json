@@ -77,8 +77,13 @@
       "enabled": false
     },
     {
-      "description": "pnpm.overrides are rendered from tools/npm/security-overrides.contract.json (root ADR-0158), not edited.",
+      "description": "pnpm overrides are rendered from tools/npm/security-overrides.contract.json into each tree's pnpm-workspace.yaml (root ADR-0158, ADR-0572), not edited.",
       "matchDepTypes": ["pnpm.overrides"],
+      "enabled": false
+    },
+    {
+      "description": "pnpm-workspace.yaml holds the rendered overrides and the reviewed allowBuilds (root ADR-0572); a fix moves the contract, not this file.",
+      "matchFileNames": ["**/pnpm-workspace.yaml"],
       "enabled": false
     },
     {

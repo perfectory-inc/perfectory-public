@@ -125,3 +125,5 @@ C 로 옮길 때 소유자가 할 일(코드는 별도 PR — 정책 가드가 �
 개정 각주(2026-10-28, 경로 이동): 본문이 가리키는 경로 중 지금 없는 것과 그 행방.
 
 - `scripts/ci/osv-vulnerability-gate.sh` → `cargo xtask ci osv-gate`(`tools/xtask/src/ci.rs`, #798)
+
+개정 각주(2026-11-18): 1·4항의 렌더 대상은 [ADR-0572](./0572-pnpm-12-and-every-tree-s-pnpm-settings-live-in-its-pnpm-workspace-yaml-where-the-overrides-contract-renders.md) 가 트리의 `pnpm-workspace.yaml` `overrides` 로 옮겼다(pnpm 11 이후 `package.json#pnpm` 을 읽지 않는다). `check` 는 `package.json` 의 `pnpm` 필드를 거부한다.

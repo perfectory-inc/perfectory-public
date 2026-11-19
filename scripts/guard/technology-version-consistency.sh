@@ -71,6 +71,7 @@ package_files=$( {
   git ls-files 'products/gongzzang/**/package.json'
   git ls-files --error-unmatch 'products/gongzzang/package.json' 2>/dev/null || true
   git ls-files 'platforms/foundation-platform/**/package.json'
+  git ls-files 'consoles/**/package.json'
 } | sort -u )
 if [ -n "$package_files" ]; then
   check_exact_manifest_value() {
@@ -98,6 +99,23 @@ for key, value in pins.items():
     print(f"{key}\t{value}")
 PY
 )
+fi
+
+# The pnpm pin's other copies (root ADR-0572): every pnpm/action-setup `version:` and every
+# `corepack prepare pnpm@<v>` in a tracked file. A workflow or image left on the old pnpm would install
+# with a pnpm that reads another set of settings.
+pnpm_pin=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["manifest_exact_pins"]["pnpm"])' "$version_pins_contract" | tr -d '\r')
+setup_versions=$(git ls-files '.github/workflows/*.yml' | xargs -r grep -nA3 'uses: pnpm/action-setup@' | grep -E 'version:' || true)
+if [ -n "$setup_versions" ] && printf '%s\n' "$setup_versions" | grep -Ev "version: ${pnpm_pin}\$" >/dev/null; then
+  echo "FAIL technology-version: pnpm/action-setup must install pnpm ${pnpm_pin}:" >&2
+  printf '%s\n' "$setup_versions" | grep -Ev "version: ${pnpm_pin}\$" >&2 || true
+  fail=1
+fi
+corepack_prepares=$(git grep -nE 'corepack prepare pnpm@[0-9]' -- ':!docs/adr' || true)
+if [ -n "$corepack_prepares" ] && printf '%s\n' "$corepack_prepares" | grep -Fv "pnpm@${pnpm_pin}" >/dev/null; then
+  echo "FAIL technology-version: corepack must prepare pnpm ${pnpm_pin}:" >&2
+  printf '%s\n' "$corepack_prepares" | grep -Fv "pnpm@${pnpm_pin}" >&2 || true
+  fail=1
 fi
 
 if [ -f products/gongzzang/.nvmrc ]; then
