@@ -26,7 +26,9 @@ use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG, PYTHON_VALUES_SQL};
+use crate::duckdb_parquet_stage::{
+    with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG, PYTHON_VALUES_SQL,
+};
 
 /// The plan file `plan-silver-load-objects` writes.
 pub const PLAN_SCHEMA: &str = "foundation-platform.silver_load_objects.v1";
@@ -911,6 +913,7 @@ pub fn read_object(
 // `{name}` is a placeholder of the SQL text, not a format argument.
 #[allow(clippy::literal_string_with_formatting_args)]
 fn current(
+    stage: &DuckDbParquetStage,
     contract: &LakehouseTableContract,
     head: Option<i64>,
     columns: &[&str],
@@ -921,16 +924,17 @@ fn current(
             columns.join(", ")
         ));
     };
+    let pinned = format!(
+        "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
+        contract.table_name
+    );
     Ok(contract
         .current_rows_sql_template()
         .with_context(|| format!("{} keeps no versions per key", contract.table_name))?
         .replace("{columns}", &columns.join(", "))
         .replace(
             "{source}",
-            &format!(
-                "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-                contract.table_name
-            ),
+            &with_contract_columns(stage.connection(), contract, &pinned)?,
         )
         .replace("{filter}", "TRUE"))
 }
@@ -983,7 +987,7 @@ pub fn item_changes(
         .collect::<Vec<_>>()
         .join(", ");
     let sql = ITEM_CHANGES_SQL
-        .replace("{current}", &current(contract, head, &columns)?)
+        .replace("{current}", &current(stage, contract, head, &columns)?)
         .replace("{key_matches}", &same(&KEY))
         .replace("{content_matches}", &same(&content_columns(contract)))
         .replace("{complete}", if complete { "true" } else { "false" })
@@ -1025,7 +1029,7 @@ pub fn compared_changes(
     compared.extend(content_columns(contract));
     stage.connection().execute_batch(
         &CHANGED_SQL
-            .replace("{current}", &current(contract, head, &columns)?)
+            .replace("{current}", &current(stage, contract, head, &columns)?)
             .replace("{matches}", &same(&compared)),
     )?;
     count(stage, "onbid_changed")

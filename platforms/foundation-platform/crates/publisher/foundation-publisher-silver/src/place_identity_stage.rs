@@ -15,7 +15,9 @@
 
 use anyhow::Context;
 
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG};
+use lakehouse_domain::LakehouseTableContract;
+
+use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG};
 
 const REFERENCE_SQL: &str = include_str!("place_identity_stage/reference.sql");
 const OFFERS_SQL: &str = include_str!("place_identity_stage/offers.sql");
@@ -93,37 +95,56 @@ pub struct ParcelsRead {
 /// Reads the served parcels among `place_asked` and the register titles on the roads offered.
 ///
 /// The titles are those of every building that ever stood on a road `place_roads` names, current
-/// rows only (root ADR-0390: the whole register is not carried past the scan). `title_rows_sql` is
-/// the titles' contract-rendered current-row query.
+/// rows only (root ADR-0390: the whole register is not carried past the scan), by the titles'
+/// contract-rendered current-row query (`title_contract`).
 ///
 /// # Errors
-/// Returns a `DuckDB` failure, or the snapshot id holds a quote.
+/// Returns a `DuckDB` failure, the snapshot id holds a quote, or the titles keep no versions.
 pub fn read_served(
     stage: &DuckDbParquetStage,
     pins: &PlacePins,
-    title_rows_sql: &str,
+    title_contract: &LakehouseTableContract,
+) -> anyhow::Result<ParcelsRead> {
+    read_served_from(
+        stage,
+        &source(PARCEL_TABLE, pins.parcels),
+        &source(TITLE_TABLE, pins.titles),
+        &pins.served_snapshot_id,
+        title_contract,
+    )
+}
+
+/// [`read_served`] over the two table references it is given.
+fn read_served_from(
+    stage: &DuckDbParquetStage,
+    parcels: &str,
+    titles: &str,
+    served_snapshot_id: &str,
+    title_contract: &LakehouseTableContract,
 ) -> anyhow::Result<ParcelsRead> {
     anyhow::ensure!(
-        !pins.served_snapshot_id.contains('\''),
+        !served_snapshot_id.contains('\''),
         "the served edition's snapshot id holds a quote"
     );
-    let parcels = source(PARCEL_TABLE, pins.parcels);
-    let titles = source(TITLE_TABLE, pins.titles);
     let keys = format!(
         "mgm_bldrgst_pk IN (SELECT mgm_bldrgst_pk FROM {titles} \
          WHERE regexp_extract(road_address_raw, place_register_road(), 2) IN (SELECT road_name FROM place_roads))"
     );
-    let title_rows = title_rows_sql
-        .replace("{columns}", "pnu, road_address_raw")
-        .replace("{source}", &titles)
-        .replace("{filter}", &keys);
     let connection = stage.connection();
+    let title_rows = title_contract
+        .current_rows_sql_template()
+        .context("the register titles keep no versions per key")?
+        .replace("{columns}", "pnu, road_address_raw")
+        .replace(
+            "{source}",
+            &with_contract_columns(connection, title_contract, titles)?,
+        )
+        .replace("{filter}", &keys);
     connection
         .execute_batch(&format!(
             "CREATE OR REPLACE TEMP TABLE place_parcels AS SELECT DISTINCT pnu FROM {parcels} \
-             WHERE source_snapshot_id = '{}' AND valid_to_utc IS NULL AND pnu IN (SELECT pnu FROM place_asked);\n\
-             CREATE OR REPLACE TEMP TABLE place_titles AS {title_rows};",
-            pins.served_snapshot_id
+             WHERE source_snapshot_id = '{served_snapshot_id}' AND valid_to_utc IS NULL AND pnu IN (SELECT pnu FROM place_asked);\n\
+             CREATE OR REPLACE TEMP TABLE place_titles AS {title_rows};"
         ))
         .context("DuckDB failed to read the served parcels and the register titles")?;
     let count = |table: &str| -> anyhow::Result<u64> {

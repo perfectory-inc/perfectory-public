@@ -26,6 +26,7 @@ use sha2::{Digest, Sha256};
 
 use duckdb::Connection;
 
+use crate::duckdb_parquet_stage::with_contract_columns;
 use crate::legal_dong_code_change_stage::{PAIR_ROWS_SQL, RENUMBERED_INTO_SQL};
 
 const NEAREST_SQL: &str = include_str!("parcel_nearby_stage/nearest.sql");
@@ -281,6 +282,8 @@ fn current_rows(
         .current_row_latest()
         .with_context(|| format!("{table} keeps no versions per key"))?;
     let pinned = source.of(table)?;
+    // A column the table gained after the pinned snapshot reads as NULL there.
+    let read = with_contract_columns(connection, contract, &pinned)?;
     // The key rides along for the tie check and leaves after it.
     let extra: Vec<&str> = if latest.keep_ties {
         Vec::new()
@@ -299,7 +302,7 @@ fn current_rows(
         .collect();
     connection.execute_batch(&format!(
         "CREATE OR REPLACE TEMP TABLE {into} AS {}",
-        latest.current_rows_sql(&pinned, &projected, "TRUE")
+        latest.current_rows_sql(&read, &projected, "TRUE")
     ))?;
     if !latest.keep_ties {
         let key = latest.key.join(", ");

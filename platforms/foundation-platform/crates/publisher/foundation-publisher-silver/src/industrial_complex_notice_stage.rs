@@ -17,7 +17,11 @@ use foundation_publisher_core::lakehouse_data_commit::{StagedFile, TableShape};
 use lakehouse_domain::LakehouseTableContract;
 use sha2::{Digest, Sha256};
 
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG, PYTHON_VALUES_SQL};
+use duckdb::Connection;
+
+use crate::duckdb_parquet_stage::{
+    with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG, PYTHON_VALUES_SQL,
+};
 
 /// The read record a load's plan is decided from (`notice_detail.read_from`).
 pub const DETAIL_TABLE: &str = "silver.industrial_complex_notice_detail";
@@ -216,6 +220,7 @@ fn file_name(table: &str, object_key: &str) -> String {
 /// The current-rows query of the attachment table at `head` (or of no rows when the table has no
 /// snapshot), over the keys `notice_attachments` names, projecting `columns`.
 fn current_attachments(
+    connection: &Connection,
     contract: &LakehouseTableContract,
     head: Option<i64>,
     columns: &[&str],
@@ -229,8 +234,9 @@ fn current_attachments(
     let latest = contract
         .current_row_latest()
         .with_context(|| format!("{ATTACHMENT_TABLE} keeps no versions per key"))?;
+    let pinned = format!("{LAKEHOUSE_CATALOG}.{ATTACHMENT_TABLE} AT (VERSION => {head})");
     Ok(latest.current_rows_sql(
-        &format!("{LAKEHOUSE_CATALOG}.{ATTACHMENT_TABLE} AT (VERSION => {head})"),
+        &with_contract_columns(connection, contract, &pinned)?,
         columns,
         "notice_sequence IN (SELECT notice_sequence FROM notice_attachments)",
     ))
@@ -296,7 +302,12 @@ pub fn stage_object(
             &CHANGED_SQL
                 .replace(
                     "{current}",
-                    &current_attachments(attachment_contract, attachment_head, &compared)?,
+                    &current_attachments(
+                        connection,
+                        attachment_contract,
+                        attachment_head,
+                        &compared,
+                    )?,
                 )
                 .replace("{matches}", &same_row),
         )
