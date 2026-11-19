@@ -247,6 +247,7 @@ mod tests {
             typical_duration_runs: 0,
             recent_runs: Vec::new(),
             started_by: ScheduledJobStart::Schedule,
+            decided_by: foundation_contracts::data_catalog::ScheduledJobScheduler::Airflow,
             upstream_job_ids: Vec::new(),
             pipeline_graph_edges: Vec::new(),
             reads: Vec::new(),

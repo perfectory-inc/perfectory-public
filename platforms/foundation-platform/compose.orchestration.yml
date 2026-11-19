@@ -212,6 +212,34 @@ services:
       airflow-apiserver:
         condition: service_healthy
 
+  # The webserver the operations map reads (root ADR-0565 §8): the same GraphQL without a mutation
+  # (`--read-only`), so foundation-api can ask it for the runs and logs of the jobs Dagster decides
+  # and change nothing; the one above stops and starts sensors and launches runs, and stays on the
+  # host's loopback. foundation-api reaches it on the identity network both join, as it reaches
+  # airflow-apiserver (compose.orchestration-bridge.yml). It loads no code: the location is
+  # dagster-code-server's. 182 MiB measured 2026-11-19 with a gRPC location (laptop, 1.13.27, with or
+  # without --read-only), x1.5 as above; measured again on the host after the first deploy. Its 288m
+  # come out of Trino's cap (compose.lakehouse.yml), which the Trino readers' moves leave idle.
+  dagster-webserver-read-only:
+    logging: *log-cap
+    image: foundation-platform-dagster:local
+    pull_policy: never
+    profiles: ["dagster-observe"]
+    mem_limit: 288m
+    restart: unless-stopped
+    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster/home/workspace.yaml",
+              "--read-only"]
+    environment:
+      <<: *dagster-environment
+    volumes:
+      - dagster-state:/var/lib/dagster
+    networks:
+      default: {}
+      identity-shared: {}
+    depends_on:
+      dagster-code-server:
+        condition: service_healthy
+
   # The code location's own server (root ADR-0565 §9; Dagster's documented Docker deployment runs the
   # code location as a gRPC server of its own). `dagster code-server start` loads the definitions in a
   # subprocess, so a release reloads them (airflow-runtime.sh: reloadRepositoryLocation) and this

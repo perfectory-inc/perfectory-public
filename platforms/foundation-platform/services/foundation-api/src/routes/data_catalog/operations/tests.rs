@@ -68,6 +68,7 @@ fn list() -> JobList {
                 disabled_reason: None,
                 started_by: ScheduledJobStart::Schedule,
                 pipeline_graph_edges: vec!["synthetic-edge".to_owned()],
+                dagster_stage: DagsterStage::Airflow,
             },
             ListedJob {
                 id: "half_hourly".to_owned(),
@@ -81,6 +82,7 @@ fn list() -> JobList {
                 disabled_reason: None,
                 started_by: ScheduledJobStart::Schedule,
                 pipeline_graph_edges: vec!["synthetic-edge".to_owned()],
+                dagster_stage: DagsterStage::Airflow,
             },
             ListedJob {
                 id: "off".to_owned(),
@@ -94,6 +96,7 @@ fn list() -> JobList {
                 disabled_reason: Some("waiting for a supervised run".to_owned()),
                 started_by: ScheduledJobStart::Inputs,
                 pipeline_graph_edges: Vec::new(),
+                dagster_stage: DagsterStage::Dagster,
             },
         ],
     }

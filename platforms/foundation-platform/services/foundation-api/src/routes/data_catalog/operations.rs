@@ -22,7 +22,7 @@ use croner::Cron;
 use foundation_contracts::data_catalog::{
     DataContractQuality, DataQualityCheck, DataQualityDetail, DataQualityResult, DataQualityStatus,
     OperationsLinks, ScheduledJobDataset, ScheduledJobRun, ScheduledJobRunOutcome,
-    ScheduledJobStart, ScheduledJobStatus, ScheduledJobsStatus,
+    ScheduledJobScheduler, ScheduledJobStart, ScheduledJobStatus, ScheduledJobsStatus,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
@@ -39,6 +39,7 @@ const DEFAULT_DEPENDENCIES_PATH: &str = "orchestration/job-dependencies.v1.json"
 const DEPENDENCIES_SCHEMA: &str = "foundation-platform.orchestration_job_dependencies.v1";
 const SCHEDULER_UI_URL_ENV: &str = "FOUNDATION_PLATFORM_AIRFLOW_UI_URL";
 const CATALOG_UI_URL_ENV: &str = "FOUNDATION_PLATFORM_DATAHUB_UI_URL";
+const DAGSTER_UI_URL_ENV: &str = "FOUNDATION_PLATFORM_DAGSTER_UI_URL";
 /// Search results per catalog page.
 const PAGE: u64 = 100;
 /// Pages read at most. A catalog with more flows or contracts than this is reported, never cut
@@ -106,6 +107,31 @@ struct ListedJob {
     disabled_reason: Option<String>,
     started_by: ScheduledJobStart,
     pipeline_graph_edges: Vec<String>,
+    /// Which orchestrator decides it (root ADR-0431 §5, ADR-0565): absent is `airflow`. Only
+    /// `dagster` moves where its runs are read; every earlier stage still runs through its DAG.
+    #[serde(default)]
+    dagster_stage: DagsterStage,
+}
+
+/// A job's `dagster_stage` in the job list.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum DagsterStage {
+    #[default]
+    Airflow,
+    Shadow,
+    Proxied,
+    Dagster,
+}
+
+impl ListedJob {
+    fn decided_by(&self) -> ScheduledJobScheduler {
+        if self.dagster_stage == DagsterStage::Dagster {
+            ScheduledJobScheduler::Dagster
+        } else {
+            ScheduledJobScheduler::Airflow
+        }
+    }
 }
 
 /// `orchestration/job-dependencies.v1.json`, rendered by `job_specs.py`.
@@ -198,6 +224,7 @@ fn links() -> OperationsLinks {
     OperationsLinks {
         scheduler_url: value(SCHEDULER_UI_URL_ENV),
         catalog_url: value(CATALOG_UI_URL_ENV),
+        dagster_url: value(DAGSTER_UI_URL_ENV),
     }
 }
 
@@ -376,6 +403,7 @@ pub(super) fn job_statuses(
                 typical_duration_runs: typical.map_or(0, |(_, count)| count),
                 recent_runs,
                 started_by: job.started_by,
+                decided_by: job.decided_by(),
                 pipeline_graph_edges: job.pipeline_graph_edges.clone(),
                 upstream_job_ids: depends.producers.clone(),
                 reads: depends.reads.clone(),

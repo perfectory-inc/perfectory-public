@@ -510,6 +510,8 @@ export interface components {
         OperationsLinks: {
             /** @description The data catalog's (`DataHub`'s) web address. */
             catalog_url?: string | null;
+            /** @description Dagster's web address, where the runs of a job Dagster decides are opened (root ADR-0565 §8). */
+            dagster_url?: string | null;
             /** @description The scheduler's (Airflow's) web address. */
             scheduler_url?: string | null;
         };
@@ -812,6 +814,12 @@ export interface components {
          */
         ScheduledJobRunOutcome: "running" | "succeeded" | "failed" | "skipped" | "up_for_retry" | "unknown";
         /**
+         * @description Which orchestrator decides when a scheduled job runs (the job list's `dagster_stage`, root
+         *     ADR-0565): where its runs and their logs are opened.
+         * @enum {string}
+         */
+        ScheduledJobScheduler: "airflow" | "dagster";
+        /**
          * @description What starts a scheduled job (the job list's `started_by`, root ADR-0171).
          * @enum {string}
          */
@@ -822,6 +830,8 @@ export interface components {
             catalog_job_urn?: string | null;
             /** @description The scheduler's name for the job (its Airflow DAG). */
             dag_id: string;
+            /** @description Which orchestrator decides it: where its runs and their logs are opened. */
+            decided_by: components["schemas"]["ScheduledJobScheduler"];
             /** @description What the job does, as the job list says. */
             description: string;
             /** @description Why it is off and what turns it on, for a job that is off. */

@@ -12,6 +12,11 @@ services:
   foundation-api:
     environment:
       FOUNDATION_PLATFORM_AIRFLOW_API_URL: "http://airflow-apiserver:8080"
+      # The jobs Dagster decides: their runs and logs, from the read-only webserver (root ADR-0565 §8).
+      FOUNDATION_PLATFORM_DAGSTER_API_URL: "http://dagster-webserver-read-only:3000"
+      # Where staff open those runs: the operating webserver, on the host's loopback through the SSH tunnel
+      # (jobs.v1.json observers.dagster.ui). An address, not a secret, so not in operations-map.env.
+      FOUNDATION_PLATFORM_DAGSTER_UI_URL: "http://127.0.0.1:19085"
       FOUNDATION_PLATFORM_SERVICE_CHECKS_PATH: /run/foundation-service-checks/service-checks.json
       FOUNDATION_PLATFORM_PARCEL_EDITIONS_PATH: /run/foundation-parcel-editions/readiness.json
     volumes:
