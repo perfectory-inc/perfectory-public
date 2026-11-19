@@ -58,7 +58,13 @@ class Fixture:
         self.contract = {
             "workflows": {
                 "example-ci.yml": {
-                    "paths": ["platforms/example/**", "tools/xtask/**", ".cargo/config.toml", "rust-toolchain.toml"],
+                    "paths": [
+                        "platforms/example/**",
+                        "tools/xtask/**",
+                        ".cargo/config.toml",
+                        "rust-toolchain.toml",
+                        "scripts/ci/apt-install.sh",
+                    ],
                 }
             },
             "unscoped": {"guard.yml": {"reason": "reads everything", "owns": ["docs/**"]}},
@@ -69,6 +75,7 @@ class Fixture:
             "tools/xtask/src/main.rs": "",
             ".cargo/config.toml": "",
             "rust-toolchain.toml": "",
+            "scripts/ci/apt-install.sh": "",
             "scripts/ci/require-successful-needs.sh": "",
             "scripts/ci/example-setup.sh": "",
             "docs/guide.md": "",
@@ -161,6 +168,25 @@ class DecideTest(unittest.TestCase):
             "  e2e:\n    steps:\n      - run: bash scripts/e2e.sh\n"
         )
         self.assertTrue(fixture.decide("pull_request", {"platforms/example/scripts/e2e.sh"}))
+
+    def test_named_file_written_from_the_checkout_root(self) -> None:
+        """2026-11-19, #1510: three workflows run `"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh"` and a
+        change to that script started none of their jobs; the name after the slash was not read."""
+        for spelling in ('"$GITHUB_WORKSPACE/scripts/ci/tool.sh"', '"${GITHUB_WORKSPACE}/scripts/ci/tool.sh"',
+                         "${{ github.workspace }}/scripts/ci/tool.sh"):
+            with self.subTest(spelling=spelling):
+                fixture = Fixture(self)
+                fixture.files["scripts/ci/tool.sh"] = ""
+                fixture.contract["workflows"]["example-ci.yml"]["paths"] = ["rust-toolchain.toml"]
+                fixture.workflow(ON_BLOCK + f"jobs:\n  e2e:\n    steps:\n      - run: bash {spelling}\n")
+                self.assertTrue(fixture.decide("pull_request", {"scripts/ci/tool.sh"}))
+        # A path under some other directory is still not this repository's file.
+        fixture = Fixture(self)
+        fixture.files["scripts/ci/tool.sh"] = ""
+        fixture.contract["workflows"]["example-ci.yml"]["paths"] = ["rust-toolchain.toml"]
+        fixture.contract["unscoped"]["guard.yml"]["owns"].append("scripts/**")
+        fixture.workflow(ON_BLOCK + "jobs:\n  e2e:\n    steps:\n      - run: bash /opt/scripts/ci/tool.sh\n")
+        self.assertFalse(fixture.decide("pull_request", {"scripts/ci/tool.sh"}))
 
     def test_unknown_comparison_and_manual_events_run(self) -> None:
         fixture = Fixture(self)
