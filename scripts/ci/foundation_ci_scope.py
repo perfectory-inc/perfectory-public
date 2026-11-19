@@ -189,13 +189,17 @@ SUITE_JOB = "suites"
 SUPPLY_CHAIN_JOB = "supply-chain"
 # Root ADR-0345: the release build as a dry run (no attestation, no push). It has work exactly when
 # merging would give main a release build: the release workflow's own scope (root ADR-0309,
-# tools/ci/change-scope.json), asked of the same change. A pull request and the merge queue run it;
-# a push to main and the nightly run leave it to the release workflow, which builds main for real.
+# tools/ci/change-scope.json), asked of the same change. The merge queue runs it; a push to main and
+# the nightly run leave it to the release workflow, which builds main for real.
 # 2026-10-29: #939 compiled in a file the publisher image lacked; every pull request passed and
 # every release build on main failed for 11 hours.
+# Root ADR-0580: a pull request leaves it to the merge queue, as it leaves the boundary slice
+# (ADR-0199). The queue re-ran the same 11-minute build on a new base for every pull request
+# (2026-11-18: 12 runs in two hours, 131 runner-minutes, 234 s median wait for a runner); nothing
+# reaches main without the queue's run, so main still never gets a commit the dry run did not build.
 RELEASE_JOB = "release-image"
 RELEASE_WORKFLOW = "foundation-release-build.yml"
-RELEASE_EVENTS = frozenset({"pull_request", "merge_group", "workflow_dispatch"})
+RELEASE_EVENTS = frozenset({"merge_group", "workflow_dispatch"})
 WORKSPACE = "platforms/foundation-platform"
 # What cargo-deny and the SBOM read, besides every Cargo.toml of the workspace and any lock (run
 # all). Advisories change without a commit: the nightly full run and dependency-advisories.yml.
@@ -450,6 +454,8 @@ def skipped_jobs_main(args: argparse.Namespace) -> int:
             selected=selected, paths=paths, crates_answer=_selector("crates"), suites_answer=_selector("suites"),
             event_name=args.event_name,
         )
+        if args.event_name == "pull_request" and release_image_selected("merge_group", paths):
+            print(deferral_warning(RELEASE_JOB))
     print(json.dumps({"affected": args.affected, "skipped_jobs": skipped}, sort_keys=True))
     with args.github_output.open("a", encoding="utf-8", newline="\n") as output:
         output.write(f"skipped={json.dumps(skipped)}\n")
