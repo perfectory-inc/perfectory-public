@@ -29,7 +29,7 @@ groups:
         expr: foundation_api_schema_ready != 1
         for: 5m
         labels:
-          severity: page
+          severity: ticket
           service: foundation-api
         annotations:
           summary: Foundation Platform API database schema is behind the running binary
@@ -115,31 +115,6 @@ groups:
           summary: Foundation Platform outbox retry backlog is non-empty
           description: At least one unpublished outbox event has retry_count greater than zero for 10 minutes.
           runbook: docs/runbooks/slo-alert-policy.md
-      # The operations map's problems (root ADR-0195), one alert per job and kind. Alertmanager
-      # sends one notice when it starts and one when it resolves; the labels change only when a
-      # new run changes what the problem is (services/foundation-api/src/routes/data_catalog/alerts.rs).
-      # keep_firing_for holds it through a restart or a scrape the map could not read, so neither
-      # is reported as resolved and then again as new.
-      - alert: FoundationScheduledJobProblem
-        expr: foundation_scheduled_job_problem == 1
-        for: 1m
-        keep_firing_for: 15m
-        labels:
-          severity: ticket
-          service: data-flow
-        annotations:
-          summary: '{{ $labels.job_id }} [{{ $labels.kind }}] {{ $labels.summary }}{{ if $labels.link }} — {{ $labels.link }}{{ end }}'
-          runbook: docs/runbooks/operations-map.md
-      - alert: FoundationScheduledJobsUnreadable
-        # Without the runs the map knows no problem, so the alert above cannot fire either.
-        expr: foundation_scheduled_jobs_readable == 0
-        for: 30m
-        labels:
-          severity: ticket
-          service: data-flow
-        annotations:
-          summary: 데이터 흐름 지도가 30분째 작업 실행 기록을 못 읽어요 — 문제가 생겨도 알림이 안 와요
-          runbook: docs/runbooks/operations-map.md
       # The repository's open security advisories (root ADR-0278): Dependabot alerts and what the
       # daily OSV and Cargo ratchets on main refuse, one alert per source, advisory and package.
       # Alertmanager sends one notice when it opens and one when a read finds it gone; a source
@@ -175,7 +150,7 @@ groups:
       - alert: FoundationDeployDrainLong
         expr: time() - foundation_deploy_phase_started_timestamp_seconds{phase="drain"} > 1200
         labels:
-          severity: ticket
+          severity: page
           service: deploy
         annotations:
           summary: '배포 0단계(드레인)가 20분 넘게 끝나지 않아요 — 그동안 모든 DAG 이 멈춰 있어요. journalctl -u foundation-autodeploy.service 로 무엇을 기다리는지 보세요'
@@ -195,7 +170,7 @@ groups:
           time() - foundation_deploy_dags_paused_since_timestamp_seconds{scope="all"} > 1800
           or time() - foundation_deploy_dags_paused_since_timestamp_seconds{scope="held"} > 3600
         labels:
-          severity: ticket
+          severity: page
           service: deploy
         annotations:
           summary: '배포가 DAG({{ $labels.scope }})을 {{ humanizeDuration $value }}째 멈춰 두고 있어요 — 수집·적재가 돌지 않아요. 배포가 끝났는데도 남아 있으면 jobs.v1.json 의 켜진 작업을 손으로 unpause 하세요'
@@ -361,7 +336,7 @@ groups:
         # (newest first, eight a run) has had three turns. Users then see data older than it.
         expr: time() - foundation_source_sweep_unfetched_oldest_listed_timestamp_seconds > 72 * 3600
         labels:
-          severity: page
+          severity: ticket
           service: serving-freshness
         annotations:
           summary: '{{ $labels.source }} 에 공급자가 올린 지 {{ humanizeDuration $value }} 된 파일이 아직 Bronze 에 없어요 — 그 원천을 읽는 Silver·Gold·화면이 그만큼 옛 판이에요. journalctl -u foundation-source-sweep.service 의 "| raon" 줄(받은 것·실패·상한)을 보세요'
@@ -589,7 +564,7 @@ groups:
           )
           unless on(lane) foundation_by_pnu_served_manifest_age_seconds
         labels:
-          severity: page
+          severity: ticket
           service: serving-freshness
         annotations:
           summary: '{{ $labels.lane }} 레인은 서빙하기로 등록됐는데, 신선도 예산이 지나도록 화면에 나간 manifest 를 재는 것이 없어요 — 첫 발행이 안 됐거나 서빙 모니터 타이머가 꺼져 있어요. 그 레인의 cut-over 기록(by-pnu-auto-promote)과 systemctl status foundation-by-pnu-serving-monitor@{{ $labels.lane }}.timer 를 보세요'
@@ -710,7 +685,7 @@ groups:
           and node_filesystem_readonly{fstype=~"ext4|xfs"} == 0
         for: 30m
         labels:
-          severity: ticket
+          severity: page
           service: host
         annotations:
           summary: '{{ $labels.mountpoint }} 디스크가 {{ $value | humanizePercentage }} 남았어요 — 다 차면 운영 DB·수집·적재가 멈춰요. du -xh --max-depth=2 {{ $labels.mountpoint }} 로 무엇이 큰지 보세요'
@@ -836,7 +811,7 @@ groups:
           severity: page
           service: unit-state
         annotations:
-          summary: '<!channel> {{ $labels.unit }} 가 {{ $value | humanizeDuration }} 째 실패한 채예요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. journalctl -u {{ $labels.unit }} 로 원인을 읽고 런북대로 고치거나, 더 안 쓰는 유닛이면 정의에서 지우세요'
+          summary: '{{ $labels.unit }} 가 {{ $value | humanizeDuration }} 째 실패한 채예요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. journalctl -u {{ $labels.unit }} 로 원인을 읽고 런북대로 고치거나, 더 안 쓰는 유닛이면 정의에서 지우세요'
           runbook: '{{ $labels.runbook }}'
       - alert: FoundationUnitFailedUnowned
         # No X-Foundation-Owner=: a unit file the release removed (the deploy clears that state) or one
@@ -844,10 +819,10 @@ groups:
         expr: foundation_unit_failed_since_seconds{owner=""}
         for: 2h
         labels:
-          severity: page
+          severity: ticket
           service: unit-state
         annotations:
-          summary: '<!channel> {{ $labels.unit }} 가 실패했는데 주인이 없어요 — 릴리스가 지운 유닛이면 다음 배포가 실패 상태를 치워요. 남아 있으면 유닛 파일에 X-Foundation-Owner= 와 Documentation= 를 다세요'
+          summary: '{{ $labels.unit }} 가 실패했는데 주인이 없어요 — 릴리스가 지운 유닛이면 다음 배포가 실패 상태를 치워요. 남아 있으면 유닛 파일에 X-Foundation-Owner= 와 Documentation= 를 다세요'
           runbook: docs/runbooks/deploy-alerts.md
       - alert: FoundationUnitsUnread
         # The reconciler runs every five minutes; 30 minutes without the file is no answer at all.
@@ -998,7 +973,7 @@ groups:
           severity: page
           service: job-outcome
         annotations:
-          summary: '<!channel> {{ $labels.job_id }} 가 기대한 결과({{ $labels.expectation }})를 기한보다 {{ $value | humanizeDuration }} 더 내지 않았어요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. 런북 {{ $labels.runbook }}'
+          summary: '{{ $labels.job_id }} 가 기대한 결과({{ $labels.expectation }})를 기한보다 {{ $value | humanizeDuration }} 더 내지 않았어요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. 런북 {{ $labels.runbook }}'
           runbook: docs/runbooks/job-outcomes.md
       - alert: FoundationJobOutcomesSilent
         # The scheduler decided nothing: the reconciler itself runs every five minutes and a dozen jobs
@@ -1012,7 +987,7 @@ groups:
           severity: page
           service: job-outcome
         annotations:
-          summary: '<!channel> 한 시간 넘게 어떤 작업도 결과를 남기지 않았어요 — 스케줄러가 아무것도 시작하지 않고 있어요. Airflow 스케줄러(docker logs airflow-scheduler-1)와 start-scheduled-job 을 보세요'
+          summary: '한 시간 넘게 어떤 작업도 결과를 남기지 않았어요 — 스케줄러가 아무것도 시작하지 않고 있어요. Airflow 스케줄러(docker logs airflow-scheduler-1)와 start-scheduled-job 을 보세요'
           runbook: docs/runbooks/job-outcomes.md
       - alert: FoundationJobOutcomesUnread
         # Without the file the three above cannot fire.
@@ -1026,3 +1001,36 @@ groups:
         annotations:
           summary: 작업 결과(job-outcomes.prom)를 30분 넘게 못 읽었어요 — 일을 안 하는 작업이 있어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
           runbook: docs/runbooks/asset-reconcile.md
+
+  # The operations map's problems (root ADR-0195), apart from foundation-api's group so that they are
+  # tested (foundation-data-flow.rules.test.yml; a group with one tested alert has all of them tested).
+  - name: foundation-data-flow
+    rules:
+      # One alert per job, kind and node (root ADR-0195). The map writes the problem's sentence and its
+      # console link as labels of the series (services/foundation-api/src/routes/data_catalog/alerts.rs);
+      # an alert's labels are its identity, so a new sentence was a new alert: 2026-11-18/19, 31 of 123
+      # series were the same job and kind with another sentence ("보통 104133행인데 이번엔 30434행",
+      # an upstream list one job longer), each a new message and a resolved one (root ADR-0591, ADR-0594). The
+      # expression drops the two, and the summary reads them back from the series as it is now.
+      # keep_firing_for holds it through a restart or a scrape the map could not read, so neither
+      # is reported as resolved and then again as new.
+      - alert: FoundationScheduledJobProblem
+        expr: max without (summary, link) (foundation_scheduled_job_problem) == 1
+        for: 1m
+        keep_firing_for: 15m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '{{ $labels.job_id }} [{{ $labels.kind }}]{{ with printf "foundation_scheduled_job_problem{job_id=%q,kind=%q,node_id=%q}" $labels.job_id $labels.kind $labels.node_id | query }}{{ with first . }} {{ .Labels.summary }}{{ if .Labels.link }} — {{ .Labels.link }}{{ end }}{{ end }}{{ end }}'
+          runbook: docs/runbooks/operations-map.md
+      - alert: FoundationScheduledJobsUnreadable
+        # Without the runs the map knows no problem, so the alert above cannot fire either.
+        expr: foundation_scheduled_jobs_readable == 0
+        for: 30m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: 데이터 흐름 지도가 30분째 작업 실행 기록을 못 읽어요 — 문제가 생겨도 알림이 안 와요
+          runbook: docs/runbooks/operations-map.md

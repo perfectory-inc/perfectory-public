@@ -26,7 +26,7 @@ tests:
         alertname: FoundationSourceFilesUnfetched
         exp_alerts:
           - exp_labels:
-              severity: page
+              severity: ticket
               service: serving-freshness
               source: synthetic__monthly
             exp_annotations:
