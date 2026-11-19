@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """Capture the production lakehouse's table shapes into the committed shape ledger (root ADR-0259).
 
-Read-only: the REST catalog for every table of every namespace a contract names, and Trino's
-`$files` metadata table for the column sets its live data files hold. Writes, per table, whether its
-current snapshot holds rows, its columns now, and every other set of columns a live data file was
-written with. No row value leaves the catalog, so the ledger is safe for the public repository.
+Read-only: the REST catalog for every table of every namespace a contract names, and each table's
+manifests for the column sets its live data files hold, read by the release's publisher with the
+lakehouse read-only key (`lakehouse-file-shapes`, root ADR-0565; it asked Trino's `$files` before, 1,390
+statements a day). Writes, per table, whether its current snapshot holds rows, its columns now, and
+every other set of columns a live data file was written with. No row value leaves the catalog, so the
+ledger is safe for the public repository.
 
-Usage (the catalog settings are the ones `lakehouse-migrate` runs with; `.env.local` on a laptop;
-Trino is the server's, published on its loopback, reached through `ssh -L 18081:127.0.0.1:18081`):
-  FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI=... FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE=... \
-  FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN=... [FOUNDATION_PLATFORM_TRINO_URL=http://127.0.0.1:18081] \
-  python3 scripts/ops/lakehouse-production-shape.py
+Runs on the data host, where the host publishes the ledger (root ADR-0476): the publisher is the
+admitted one of the current release (scripts/ops/admitted-writer-runtime.sh), and the unit's
+environment holds the catalog's read-only token and the lakehouse read-only key pair
+(config/runtime-secrets.contract.json, foundation-shape-ledger-check.service).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -127,30 +129,41 @@ def table_shape(metadata: dict, file_shapes: list[list[int]]) -> dict:
             "columns": columns, "earlier": earlier, "layout": table_layout(metadata)}
 
 
-def trino_rows(url: str, sql: str) -> list[list]:
-    """One statement over Trino's client protocol (POST /v1/statement, then follow nextUri)."""
-    headers = {"X-Trino-User": "lakehouse-production-shape", "User-Agent": "foundation-lakehouse-production-shape"}
-    request = urllib.request.Request(f"{url}/v1/statement", data=sql.encode(), headers=headers, method="POST")
-    rows: list[list] = []
-    while request is not None:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            page = json.load(response)
-        if "error" in page:
-            raise RuntimeError(f"trino: {page['error'].get('message')}")
-        rows += page.get("data", [])
-        request = urllib.request.Request(page["nextUri"], headers=headers) if page.get("nextUri") else None
-    return rows
+ADMITTED_RUNTIME = AREA / "scripts/ops/admitted-writer-runtime.sh"
 
 
-def live_file_shapes(trino_url: str, table_name: str) -> list[list[int]]:
-    """The distinct sets of field ids the table's live data files hold: a data file's manifest entry
-    records a size for every column the file was written with."""
-    namespace, name = table_name.split(".", 1)
-    rows = trino_rows(trino_url, f'SELECT array_sort(map_keys(column_sizes)) FROM r2.{namespace}."{name}$files" '
-                                 "WHERE content = 0 GROUP BY 1")
-    if any(row[0] is None for row in rows):
-        raise ValueError(f"{table_name}: a live data file records no column sizes")
-    return [row[0] for row in rows]
+def run_publisher(lines: list[str]) -> str:
+    """What the current release's admitted publisher's `lakehouse-file-shapes` answers to `lines`."""
+    return subprocess.run(
+        ["bash", "-c", 'source "$1" --current && exec "${PUBLISHER_BIN}" lakehouse-file-shapes', "-",
+         str(ADMITTED_RUNTIME)],
+        input="".join(f"{line}\n" for line in lines), capture_output=True, text=True, check=True, timeout=900).stdout
+
+
+def file_answers(asked: dict[str, str | None], run=run_publisher) -> dict[str, dict]:
+    """Table -> what its live data files hold (`shapes`, and `bounds` of the key asked with it), one
+    publisher run for every table: `asked` is table -> its cluster key or None."""
+    if not asked:
+        return {}
+    lines = [f"{table} {key}" if key else table for table, key in asked.items()]
+    found = {answer["table"]: answer for answer in map(json.loads, filter(None, run(lines).splitlines()))}
+    missing = sorted(set(asked) - set(found))
+    if missing:
+        raise RuntimeError(f"the publisher did not answer for {missing}")
+    return found
+
+
+def last_data_commit(metadata: dict) -> tuple[dict, str] | None:
+    """(summary, operation) of the table's newest commit that is not a `replace` (compaction) and has a
+    parent (not its first), from its metadata's snapshot list: what Trino's `$snapshots` held."""
+    commits = [snapshot for snapshot in metadata.get("snapshots") or []
+               if snapshot.get("parent-snapshot-id") is not None
+               and (snapshot.get("summary") or {}).get("operation") != "replace"]
+    if not commits:
+        return None
+    newest = max(commits, key=lambda snapshot: snapshot["timestamp-ms"])
+    summary = dict(newest.get("summary") or {})
+    return summary, summary.get("operation")
 
 
 def render(ledger: dict) -> str:
@@ -179,12 +192,20 @@ def render(ledger: dict) -> str:
     return rendered
 
 
-def capture() -> dict:
+def capture(keys: dict[str, str] | None = None, run=run_publisher) -> dict:
     """The ledger of the production lakehouse now, from the catalog settings in the environment."""
+    return capture_with_files(keys, run)[0]
+
+
+def capture_with_files(keys: dict[str, str] | None = None, run=run_publisher) -> tuple[dict, dict, dict]:
+    """(the ledger, table -> its files' answer, table -> its last data commit) of production now.
+
+    `keys` is table -> the cluster key whose file bounds the layout check reads (shape-ledger-check.py):
+    one publisher run answers the ledger and the check together, so no table is read twice."""
     uri = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI"].rstrip("/")
     warehouse = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE"]
     token = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN"]
-    trino_url = os.environ.get("FOUNDATION_PLATFORM_TRINO_URL", "http://127.0.0.1:18081").rstrip("/")
+    keys = keys or {}
 
     def get(url: str) -> dict:
         request = urllib.request.Request(url, headers={
@@ -199,7 +220,7 @@ def capture() -> dict:
     contracts = json.loads(CONTRACTS.read_text(encoding="utf-8"))["contracts"]
     # Every table of every namespace a contract names, not only the contract tables: a pull request
     # that adds a contract for a table production already holds is gated by that table's shape.
-    tables = {}
+    metadatas = {}
     for namespace in sorted({table_name.split(".", 1)[0] for table_name in contracts}):
         names, page = [], ""
         while True:
@@ -209,19 +230,21 @@ def capture() -> dict:
             if not page:
                 break
         for name in sorted(names):
-            metadata = get(f"{uri}/v1/{prefix}/namespaces/{namespace}/tables/{name}")["metadata"]
-            table_name = f"{namespace}.{name}"
-            # A table no write has committed to has no snapshot, so no file (Trino refuses its $files).
-            written = metadata.get("current-snapshot-id") not in (None, -1)
-            files = live_file_shapes(trino_url, table_name) if written else []
-            tables[table_name] = table_shape(metadata, files)
+            metadatas[f"{namespace}.{name}"] = get(f"{uri}/v1/{prefix}/namespaces/{namespace}/tables/{name}")["metadata"]
+    # A table no write has committed to has no snapshot, so no file.
+    written = {table: metadata for table, metadata in metadatas.items()
+               if metadata.get("current-snapshot-id") not in (None, -1)}
+    answers = file_answers({table: keys.get(table) for table in written}, run)
+    tables = {table: table_shape(metadata, answers[table]["shapes"] if table in written else [])
+              for table, metadata in metadatas.items()}
+    commits = {table: last_data_commit(metadata) for table, metadata in written.items()}
     return {
         "schema_version": SCHEMA_VERSION,
         "decision": "docs/adr/0259-ci-migrates-the-production-table-shape.md",
         "captured_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "captured_by": "platforms/foundation-platform/scripts/ops/lakehouse-production-shape.py",
         "tables": tables,
-    }
+    }, answers, commits
 
 
 def main() -> int:

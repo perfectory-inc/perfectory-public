@@ -7,9 +7,16 @@
 //! batch; the last batch completes the load. A run stopped at its limit keeps its batches and the
 //! next run goes on with the offices they did not hold (root ADR-0457). The first load has no
 //! watermark and reads every office: the declared exception.
+//!
+//! The Silver tables are read by the publisher's own `DuckDB` (root ADR-0559, ADR-0565), attached to the
+//! catalog with the read-only token and the read-only key pair, at the snapshot the catalog's REST
+//! history names as `main`'s head. Measured 2026-11-18 on production against Trino at the same pinned
+//! snapshots: the same 106,319 current offices and 178,973 current members, the same changed-key counts
+//! (content digests equal), 4-5 s against Trino's 2 s.
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
+use std::path::Path;
 
 use anyhow::{bail, Context};
 use catalog_domain::real_estate_broker::{name_key, number_key};
@@ -19,12 +26,16 @@ use serde::Deserialize;
 use sqlx::{Connection, PgConnection, Row};
 
 use crate::handoff_object_support::copy_text_escape;
-use crate::public_data_control_support::{optional_env_value, required_env_value};
-use crate::trino_cli::TrinoRows;
+use crate::lakehouse_reader::{self, LakehouseReader};
+use crate::public_data_control_support::required_env_value;
 
-const TRINO_CONTAINER_ENV: &str = "FOUNDATION_PLATFORM_REAL_ESTATE_BROKER_LOOKUP_TRINO_CONTAINER";
-const TRINO_CATALOG: &str = "r2";
-/// Changed offices per Trino query, so one statement stays a few tens of kilobytes.
+/// Where the `DuckDB` the load reads with keeps its database and spill (the job's state root).
+const WORK_ENV: &str = "FOUNDATION_PLATFORM_REAL_ESTATE_BROKER_LOOKUP_WORK";
+/// What the load's `DuckDB` may hold before it spills: its unit is capped at 1G (MemoryHigh 921M,
+/// tools/host-memory-budget.contract.json). Measured 2026-11-18 on production: every current office and
+/// member (a first load's read) in a 900m container at this limit, the same rows as without it.
+const DUCKDB_MEMORY_MIB: u64 = 600;
+/// Changed offices per query, so one statement stays a few tens of kilobytes.
 const KEYS_PER_QUERY: usize = 500;
 /// Offices per committed batch: the first load's 106,429 offices are six batches, and a run stopped
 /// at its limit keeps every batch it committed (root ADR-0457).
@@ -53,11 +64,6 @@ const MEMBER_COLUMNS: &[&str] = &[
 ];
 
 type OfficeKey = (String, String);
-
-#[derive(Deserialize)]
-struct Snapshot {
-    snapshot_id: i64,
-}
 
 #[derive(Deserialize)]
 struct ChangedKey {
@@ -97,10 +103,7 @@ struct Pinned {
 
 impl Pinned {
     fn source(&self) -> String {
-        format!(
-            "{TRINO_CATALOG}.{} FOR VERSION AS OF {}",
-            self.contract.table_name, self.snapshot_id
-        )
+        lakehouse_reader::source(self.contract.table_name, Some(self.snapshot_id))
     }
 }
 
@@ -108,7 +111,8 @@ fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-/// A watermark is a Trino timestamp as Trino wrote it; anything else is not put into SQL.
+/// A watermark is a UTC timestamp as the load writes it (`2026-11-18 07:15:11.131736 UTC`, the form
+/// Trino wrote and the load keeps); anything else is not put into SQL.
 fn valid_watermark(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() >= 19
@@ -126,22 +130,23 @@ fn valid_watermark(value: &str) -> bool {
             .all(|character| character.is_ascii_alphanumeric() || " ._/+:-".contains(character))
 }
 
-async fn pin(container: &str, contract: &'static LakehouseTableContract) -> anyhow::Result<Pinned> {
-    let (schema, table) = contract
-        .table_name
-        .split_once('.')
-        .context("a Silver table name is schema.table")?;
-    let sql = format!(
-        "SELECT snapshot_id FROM {TRINO_CATALOG}.{schema}.\"{table}$history\" \
-         WHERE is_current_ancestor ORDER BY made_current_at DESC LIMIT 1"
-    );
-    let mut reader = TrinoRows::start(container, &sql)?;
-    let mut head = None;
-    while let Some(row) = reader.next::<Snapshot>().await? {
-        head = Some(row.snapshot_id);
-    }
-    let snapshot_id = head
-        .filter(|snapshot| *snapshot > 0)
+/// The microseconds since the epoch a watermark names (`valid_watermark`), its zone UTC.
+fn watermark_micros(watermark: &str) -> anyhow::Result<i64> {
+    let text = watermark.strip_suffix(" UTC").unwrap_or(watermark);
+    chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f")
+        .with_context(|| format!("watermark {watermark:?} is not a UTC timestamp"))
+        .map(|at| at.and_utc().timestamp_micros())
+}
+
+/// `main`'s head of the contract's table, from the catalog's own history (no engine).
+async fn pin(
+    reader: &LakehouseReader,
+    contract: &'static LakehouseTableContract,
+) -> anyhow::Result<Pinned> {
+    let snapshot_id = reader
+        .main_snapshot(contract.table_name)
+        .await?
+        .with_context(|| format!("{} does not exist", contract.table_name))?
         .with_context(|| format!("{} has no current snapshot yet", contract.table_name))?;
     Ok(Pinned {
         contract,
@@ -150,32 +155,36 @@ async fn pin(container: &str, contract: &'static LakehouseTableContract) -> anyh
 }
 
 /// The offices with a row at or after `watermark` (every office when there is none), and the
-/// newest `ingested_at_utc` among those rows.
-async fn changed_offices(
-    container: &str,
+/// newest `ingested_at_utc` among those rows, in the form the load keeps.
+fn changed_offices(
+    reader: &LakehouseReader,
     pinned: &Pinned,
     watermark: Option<&str>,
 ) -> anyhow::Result<(BTreeSet<OfficeKey>, Option<String>)> {
-    let filter = watermark.map_or_else(
-        || "TRUE".to_owned(),
-        |watermark| format!("ingested_at_utc >= TIMESTAMP {}", quote(watermark)),
-    );
+    let filter = match watermark {
+        None => "TRUE".to_owned(),
+        Some(watermark) => format!(
+            "epoch_us(ingested_at_utc) >= {}",
+            watermark_micros(watermark)?
+        ),
+    };
+    // Written from the microseconds, so no time zone setting of the engine changes the text.
     let sql = format!(
-        "SELECT sigungu_code, registration_no, CAST(max(ingested_at_utc) AS varchar) AS newest \
+        "SELECT sigungu_code, registration_no, \
+         strftime(make_timestamp(epoch_us(max(ingested_at_utc))), '%Y-%m-%d %H:%M:%S.%f') || ' UTC' AS newest \
          FROM {} WHERE {filter} GROUP BY sigungu_code, registration_no",
         pinned.source()
     );
-    let mut reader = TrinoRows::start(container, &sql)?;
     let mut keys = BTreeSet::new();
     let mut newest: Option<String> = None;
-    while let Some(row) = reader.next::<ChangedKey>().await? {
+    for row in reader.rows::<ChangedKey>(&sql)? {
         if !valid_watermark(&row.newest) {
             bail!(
-                "{} carries an ingested_at_utc Trino did not write as a timestamp",
+                "{} carries an ingested_at_utc that is not a timestamp",
                 pinned.contract.table_name
             );
         }
-        // Trino writes one fixed-width form per column type, so the text orders as the time does.
+        // One fixed-width form, so the text orders as the time does.
         if newest
             .as_deref()
             .is_none_or(|current| row.newest.as_str() > current)
@@ -188,8 +197,8 @@ async fn changed_offices(
 }
 
 /// The current rows of `keys`, a chunk of keys per query; every office when `all`.
-async fn current_rows<T: serde::de::DeserializeOwned>(
-    container: &str,
+fn current_rows<T: serde::de::DeserializeOwned>(
+    reader: &LakehouseReader,
     pinned: &Pinned,
     columns: &[&str],
     keys: &BTreeSet<OfficeKey>,
@@ -211,7 +220,7 @@ async fn current_rows<T: serde::de::DeserializeOwned>(
                 let rows = chunk
                     .iter()
                     .map(|(sigungu, registration)| {
-                        format!("ROW({}, {})", quote(sigungu), quote(registration))
+                        format!("({}, {})", quote(sigungu), quote(registration))
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -221,11 +230,11 @@ async fn current_rows<T: serde::de::DeserializeOwned>(
     };
     let mut rows = Vec::new();
     for filter in filters {
-        let sql = latest.current_rows_sql(&pinned.source(), columns, &filter);
-        let mut reader = TrinoRows::start(container, &sql)?;
-        while let Some(row) = reader.next::<T>().await? {
-            rows.push(row);
-        }
+        rows.extend(reader.rows::<T>(&latest.current_rows_sql(
+            &pinned.source(),
+            columns,
+            &filter,
+        ))?);
     }
     Ok(rows)
 }
@@ -267,8 +276,8 @@ async fn copy_rows(conn: &mut PgConnection, sql: &str, lines: &[String]) -> anyh
 /// Refuses missing configuration, a Silver table without a snapshot, failed reads, and a failed
 /// write; a failed run writes nothing and the next one reads from the same watermark.
 pub async fn run() -> anyhow::Result<()> {
-    let container = optional_env_value(TRINO_CONTAINER_ENV)?
-        .unwrap_or_else(|| "foundation-platform-trino".to_owned());
+    let reader =
+        LakehouseReader::open(Path::new(&required_env_value(WORK_ENV)?), DUCKDB_MEMORY_MIB)?;
     let mut conn = PgConnection::connect(&required_env_value("DATABASE_URL")?).await?;
     let completed = sqlx::query(
         "SELECT id, office_watermark, member_watermark FROM catalog.real_estate_broker_lookup_load
@@ -286,20 +295,18 @@ pub async fn run() -> anyhow::Result<()> {
     // The batches a stopped run committed after the last completed load: their offices are loaded
     // already, and this run goes on with the rest.
     let resumed = loaded_since(&mut conn, completed.as_ref().map(|(id, _, _)| *id)).await?;
-    let office = pin(&container, &SILVER_REAL_ESTATE_BROKER_OFFICE).await?;
-    let member = pin(&container, &SILVER_REAL_ESTATE_BROKER_MEMBER).await?;
+    let office = pin(&reader, &SILVER_REAL_ESTATE_BROKER_OFFICE).await?;
+    let member = pin(&reader, &SILVER_REAL_ESTATE_BROKER_MEMBER).await?;
     let (office_keys, office_newest) = changed_offices(
-        &container,
+        &reader,
         &office,
         last.as_ref().map(|(office, _)| office.as_str()),
-    )
-    .await?;
+    )?;
     let (member_keys, member_newest) = changed_offices(
-        &container,
+        &reader,
         &member,
         last.as_ref().map(|(_, member)| member.as_str()),
-    )
-    .await?;
+    )?;
     let changed: BTreeSet<OfficeKey> = office_keys
         .union(&member_keys)
         .filter(|key| !resumed.contains(*key))
@@ -313,10 +320,8 @@ pub async fn run() -> anyhow::Result<()> {
         return Ok(());
     }
     let first = last.is_none();
-    let offices: Vec<OfficeRow> =
-        current_rows(&container, &office, OFFICE_COLUMNS, &changed, first).await?;
-    let members: Vec<MemberRow> =
-        current_rows(&container, &member, MEMBER_COLUMNS, &changed, first).await?;
+    let offices: Vec<OfficeRow> = current_rows(&reader, &office, OFFICE_COLUMNS, &changed, first)?;
+    let members: Vec<MemberRow> = current_rows(&reader, &member, MEMBER_COLUMNS, &changed, first)?;
 
     let office_watermark = office_newest
         .or_else(|| last.as_ref().map(|(office, _)| office.clone()))
@@ -591,12 +596,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_a_timestamp_trino_wrote_becomes_a_watermark() {
+    fn only_a_utc_timestamp_becomes_a_watermark() {
         assert!(valid_watermark("2026-11-12 03:00:00.123456 UTC"));
         assert!(valid_watermark("2026-11-12 03:00:00.123456"));
         assert!(!valid_watermark("2026-11-12' OR TRUE --"));
         assert!(!valid_watermark("2026-11-12 03:00:00') --"));
         assert!(!valid_watermark("yesterday"));
+    }
+
+    #[test]
+    fn a_kept_watermark_is_read_as_the_microseconds_it_names() -> anyhow::Result<()> {
+        // The form stored by every load so far (Trino's CAST AS varchar) and the one the DuckDB read
+        // writes are the same text; the first load's watermark has no fraction and no zone.
+        assert_eq!(
+            watermark_micros("2026-11-18 07:15:11.131736 UTC")?,
+            1_794_986_111_131_736
+        );
+        assert_eq!(watermark_micros(UNLOADED_WATERMARK)?, 0);
+        assert!(watermark_micros("2026-11-18 07:15:11.131736 +09:00").is_err());
+        Ok(())
     }
 
     fn office(name: &str) -> OfficeRow {

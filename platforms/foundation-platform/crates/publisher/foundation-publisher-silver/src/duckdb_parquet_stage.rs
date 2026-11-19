@@ -12,7 +12,7 @@
 
 use std::path::Path;
 
-use anyhow::{ensure, Context};
+use anyhow::{bail, ensure, Context};
 use duckdb::{Config, Connection};
 use foundation_publisher_core::lakehouse_data_commit::{StagedFile, TableShape};
 
@@ -211,6 +211,72 @@ impl DuckDbParquetStage {
     #[must_use]
     pub const fn connection(&self) -> &Connection {
         &self.connection
+    }
+
+    /// Lowers the memory `DuckDB` may hold before it spills to `mib`, for a reader whose unit is capped
+    /// below the engine contract's execution profile (half of it is the default): `DuckDB` must spill
+    /// before the kernel's limit, not after.
+    ///
+    /// # Errors
+    /// `DuckDB` refuses the setting.
+    pub fn limit_memory(&self, mib: u64) -> anyhow::Result<()> {
+        self.connection
+            .execute_batch(&format!("SET memory_limit = '{mib}MiB'"))
+            .context("DuckDB refused the memory limit")
+    }
+
+    /// The rows `query` answers, one JSON object per row as `DuckDB`'s `to_json` writes it, for a
+    /// reader that loads them somewhere else (the Silver-to-Postgres loads, root ADR-0565: they read
+    /// through Trino's CLI before, one JSON object per row as well).
+    ///
+    /// # Errors
+    /// The query fails or a row cannot be rendered.
+    pub fn json_rows(&self, query: &str) -> anyhow::Result<Vec<String>> {
+        let mut rows = Vec::new();
+        self.each_json_row(query, |row| {
+            rows.push(row);
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+
+    /// Each row `query` answers, as [`Self::json_rows`] renders it, handed to `each` as it is read:
+    /// the result streams a vector at a time (`stream_arrow`, `DuckDB`'s streaming execution), so a
+    /// load of millions of rows never holds them all. The first error `each` returns stops the read.
+    ///
+    /// # Errors
+    /// The query fails, a row cannot be rendered, or `each` refused one.
+    pub fn each_json_row(
+        &self,
+        query: &str,
+        mut each: impl FnMut(String) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        use duckdb::arrow::{array::Array as _, compute::cast, datatypes::DataType};
+
+        let mut statement = self
+            .connection
+            .prepare(&format!("SELECT to_json(q)::VARCHAR FROM ({query}) AS q"))
+            .context("DuckDB refused the query")?;
+        let batches = statement
+            .stream_arrow([])
+            .context("DuckDB failed to run the query")?;
+        for batch in batches {
+            let batch = batch.context("DuckDB failed to read a row")?;
+            // VARCHAR arrives as a string or a string view, by DuckDB's settings: one form here.
+            let column = cast(batch.column(0), &DataType::Utf8)
+                .context("DuckDB answered a row that is not text")?;
+            let text = column
+                .as_any()
+                .downcast_ref::<duckdb::arrow::array::StringArray>()
+                .context("DuckDB answered a row that is not text")?;
+            for index in 0..text.len() {
+                if text.is_null(index) {
+                    bail!("DuckDB answered a row with no value");
+                }
+                each(text.value(index).to_owned())?;
+            }
+        }
+        Ok(())
     }
 
     /// Writes the rows of `query` as one Parquet file carrying the table's field ids.
