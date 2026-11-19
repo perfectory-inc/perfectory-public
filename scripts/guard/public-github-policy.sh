@@ -167,6 +167,12 @@ require(settings.get("allow_merge_commit") is False
         and settings.get("allow_rebase_merge") is False
         and settings.get("allow_squash_merge") is True,
         "only squash merge may be enabled")
+# Root ADR-0585: a ready pull request enters main's merge queue through GitHub's auto-merge, and
+# hosted Renovate's automerge needs this setting to use it. Off, the only thing that enqueued a
+# green pull request was a script on one laptop: nothing merged while it was not running, and on
+# 2026-11-13 it enqueued #1332 414 times, each time dropping the pull requests behind it.
+require(settings.get("allow_auto_merge") is True,
+        "auto-merge must stay enabled: it is how a ready pull request enters the merge queue")
 
 actions = load("actions-policy.json")
 require(actions == {

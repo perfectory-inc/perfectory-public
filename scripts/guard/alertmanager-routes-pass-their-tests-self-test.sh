@@ -59,7 +59,8 @@ expect() {
 # The fixtures are independent and each runs the whole checker (every rule through amtool), so they
 # run side by side, as prometheus-rules-pass-their-tests-self-test does.
 pids=()
-expect pass intact "$(fixture intact)" &
+root="$(fixture intact)"
+expect pass intact "$root" &
 pids+=("$!")
 
 root="$(fixture ticket-matcher-typo)"

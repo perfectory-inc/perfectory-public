@@ -53,7 +53,7 @@ pre-commit:
 # claim. To add a check: put it in CI first, then optionally mirror it here.
 #
 # Moved to CI only by ADR-0149: the Foundation ownership boundary scan (65 s locally; one perl
-# process per Rust file) — gongzzang-ci.yml `Repo guardrails`, required/gongzzang-core.
+# process per Rust file) — gongzzang-ci.yml `Policy gates` (job `policy`), required/gongzzang-core.
 pre-push:
   parallel: true
   commands:

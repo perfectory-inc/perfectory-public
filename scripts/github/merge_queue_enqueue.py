@@ -4,8 +4,10 @@
 
   merge_queue_enqueue.py <pull request number> [--dry-run] [--repository OWNER/NAME]
 
-This is the one way a pull request enters the queue. A pull request carrying `hotfix:main-red` or
-`hotfix:deploy-stop` is enqueued with `jump: true`, GitHub's own "jump the queue". Nobody else's
+This is the one way a pull request goes to the FRONT of the queue. An ordinary pull request enters
+through GitHub's auto-merge (`gh pr merge <number> --auto --squash`, root ADR-0585) and needs no
+script. A pull request carrying `hotfix:main-red` or `hotfix:deploy-stop` is enqueued here with
+`jump: true`, GitHub's own "jump the queue". Nobody else's
 entry is removed: on 2026-11-11 the queue was emptied three times to put a fix first (#1316, #1337,
 #1337 with #1342), each time dropping every running queue build and making up to 19 pull requests
 wait for a re-enqueue.

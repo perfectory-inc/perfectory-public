@@ -41,9 +41,14 @@ ALWAYS_RUN_EVENTS = frozenset({"workflow_dispatch", "schedule"})
 NARROWED_EVENTS = frozenset({"pull_request", "merge_group"})
 # The verification tool every area CI runs lives outside every area (ADR-0004, ADR-0010).
 XTASK_RUN = re.compile(r"cargo\s+.*xtask\s+(verify|integration)")
-XTASK_INPUTS = ("tools/xtask/**", ".cargo/config.toml", "rust-toolchain.toml")
+# xtask installs an area's Debian packages through scripts/ci/apt-install.sh (tools/xtask/src/process.rs).
+XTASK_INPUTS = ("tools/xtask/**", ".cargo/config.toml", "rust-toolchain.toml", "scripts/ci/apt-install.sh")
 # Repository files a workflow names in its steps are its inputs without being listed.
 NAMED_FILE = re.compile(r"(?<![\w./-])((?:[\w.-]+/)+[\w.-]+\.(?:sh|py|json|toml|yml|yaml))\b")
+# A name written from the checkout root counts like a bare one. 2026-11-19, #1510 changed
+# scripts/ci/apt-install.sh; three workflows run it as "$GITHUB_WORKSPACE/scripts/ci/apt-install.sh"
+# and none of them took it as an input (the name was read as GITHUB_WORKSPACE/scripts/...).
+CHECKOUT_ROOT = re.compile(r"\$GITHUB_WORKSPACE/|\$\{GITHUB_WORKSPACE\}/|\$\{\{ ?github\.workspace ?\}\}/")
 SCOPE_IF = "${{ needs.scope.outputs.affected == 'true' }}"
 SCOPE_ENV = "CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}"
 # Root ADR-0324: an untouched area's required job is skipped (GitHub counts that as passing); a
@@ -83,7 +88,7 @@ def load_contract(root: Path = ROOT) -> dict:
 
 def named_files(root: Path, text: str, working_directory: str) -> set[str]:
     found = set()
-    for literal in NAMED_FILE.findall(text):
+    for literal in NAMED_FILE.findall(CHECKOUT_ROOT.sub("", text)):
         for candidate in (literal, f"{working_directory}/{literal}" if working_directory else literal):
             path = PurePosixPath(candidate).as_posix()
             if ".." not in PurePosixPath(path).parts and (root / path).is_file():

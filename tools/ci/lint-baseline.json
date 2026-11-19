@@ -1,0 +1,1040 @@
+{
+ "ruff": {
+  "platforms/foundation-platform/crates/publisher/foundation-publisher-core/tests/fixtures/merge_on_read/generate.py": {
+   "B007": 1
+  },
+  "platforms/foundation-platform/infra/datahub/seed_declared_lineage.py": {
+   "B023": 12
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_energy_silver_to_gold.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py": {
+   "F401": 3
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_sizes.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/code_go_kr_legal_dong.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py": {
+   "B007": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/engine_equality.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/geometry_tolerance.py": {
+   "B905": 3
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/gold_code_version.py": {
+   "B007": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py": {
+   "B905": 1,
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/lakehouse_maintenance.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_land.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_lineage.py": {
+   "B905": 5
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py": {
+   "B023": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/platform_contracts.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/regulation_zones_silver_to_gold.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/rt_molit_real_transaction.py": {
+   "B905": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/served_gold_common.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_release_compare.py": {
+   "B905": 5
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_number_change_history.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/jobs/zone_overlap.py": {
+   "B905": 4
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_apartment_price_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_building_panel.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_building_panel_args.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_building_register_floor_history.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_changelog_spark.py": {
+   "E731": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_current_rows_sql.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_data_go_kr_file_data.py": {
+   "B905": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_exclusive_unit_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_gold_fingerprint_iceberg.py": {
+   "F541": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_gold_incremental_iceberg.py": {
+   "F811": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_gold_range_layout_iceberg.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_housing_permit_basis_outline_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_lakehouse_ingest.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_lakehouse_schema_migrate.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_maintenance_regular_inspection_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_panel_snapshot_pins.py": {
+   "B023": 2,
+   "F401": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_parcel_boundaries_layout_iceberg.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_parcel_edition_pairs.py": {
+   "B023": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_parcel_lineage_section_spark.py": {
+   "B905": 3,
+   "E741": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_parcel_panel_served_edition_spark.py": {
+   "B007": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_annex_parking_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_basis_outline_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_building_outline_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_demolition_loss_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_floor_overview_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_major_repair_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_parking_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_site_location_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_structure_ledger_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_temporary_building_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_register_master_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_register_sub_parcel_contract.py": {
+   "E402": 2
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_rt_molit_real_transaction.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_silver_release_compare_lanes_spark.py": {
+   "B023": 6
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_silver_scalar_handoff_to_lakehouse.py": {
+   "F841": 1
+  },
+  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_unit_price_panel_iceberg.py": {
+   "F841": 1
+  },
+  "platforms/foundation-platform/orchestration/dags/job_specs.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/orchestration/dagster/dual_run.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/orchestration/dagster/place_identity_checks.py": {
+   "F541": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_admin_boundary_release.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_admitted_writer_runtime.py": {
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_airflow_readiness.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_asset_reconcile.py": {
+   "E731": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_by_pnu_auto_promote.py": {
+   "B905": 2,
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_by_pnu_edge_probe.py": {
+   "F541": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_by_pnu_gateway_canary.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_by_pnu_lane_cutover.py": {
+   "F401": 2,
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_by_pnu_pack_bake.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_by_pnu_pack_operator.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_by_pnu_serving_bake.py": {
+   "B905": 1,
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_by_pnu_serving_monitor.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_complex_boundary_release.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_court_auction_commands.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_cutover_approval.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_daily_source_sweep_command.py": {
+   "E731": 1,
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_data_go_kr_file_data_command.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_foundation_autodeploy.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_gold_input_readiness.py": {
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_gold_panel_rebuild.py": {
+   "PLW1510": 3
+  },
+  "platforms/foundation-platform/orchestration/tests/test_held_lock.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_host_config_check.py": {
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_host_docker_data_root_script.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_host_docker_layout.py": {
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_identity_restore_drill.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_job_specs.py": {
+   "B023": 4,
+   "E731": 2,
+   "PLW1510": 17
+  },
+  "platforms/foundation-platform/orchestration/tests/test_job_units.py": {
+   "PLW1510": 6
+  },
+  "platforms/foundation-platform/orchestration/tests/test_juso_electronic_map_command.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_lakehouse_maintenance_script.py": {
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_legal_dong_code_collect_command.py": {
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_legal_dong_code_load.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_measure_building_section_packs.py": {
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_onbid_commands.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_parcel_boundary_equality.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_parcel_edition_readiness_script.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_parcel_number_change_collect_command.py": {
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_parcel_registry_cycle.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_parcel_tile_bake.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_pinned_cleanup.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_postgres_restore_drill.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_provider_alert.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_raon_large_files_command.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_registered_factory_command.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_release_changes.py": {
+   "PLW1510": 3
+  },
+  "platforms/foundation-platform/orchestration/tests/test_run_now_dispatch.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_runtime_database_url.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_runtime_up_in_order.py": {
+   "PLW1510": 5
+  },
+  "platforms/foundation-platform/orchestration/tests/test_service_checks.py": {
+   "E731": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_spark_run_logs.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_staging_smoke.py": {
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/orchestration/tests/test_unit_failure_alerts.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_unit_owners.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/orchestration/tests/test_worker_autodeploy.py": {
+   "F401": 1
+  },
+  "platforms/foundation-platform/scripts/deploy/edge_settings.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/scripts/deploy/foundation-release-prune.py": {
+   "E401": 1,
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/scripts/deploy/runtime_secrets.py": {
+   "B905": 1,
+   "F401": 1
+  },
+  "platforms/foundation-platform/scripts/ops/asset_reconcile.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/scripts/ops/data-quality-check.py": {
+   "B905": 1,
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/scripts/ops/job_outcomes.py": {
+   "B905": 1
+  },
+  "platforms/foundation-platform/scripts/ops/korea-edge-measure.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/scripts/ops/readiness_report.py": {
+   "PLW1510": 1
+  },
+  "platforms/foundation-platform/scripts/tiles/admin-boundary/merge.py": {
+   "B007": 1
+  },
+  "platforms/foundation-platform/tests/release_admission/test_foundation_release_admission.py": {
+   "PLW1510": 2
+  },
+  "platforms/foundation-platform/tests/release_admission/test_registered_runtime.py": {
+   "PLW1510": 9
+  },
+  "platforms/foundation-platform/tests/static_release_toolchain/test_static_release_toolchain_contract.py": {
+   "E402": 1,
+   "F401": 1
+  },
+  "platforms/intelligence-platform/jobs/document_text/document_text/extract.py": {
+   "B905": 1
+  },
+  "platforms/intelligence-platform/jobs/document_text/document_text/fact_run.py": {
+   "F401": 1
+  },
+  "platforms/intelligence-platform/jobs/document_text/document_text/facts.py": {
+   "B023": 11,
+   "E741": 4
+  },
+  "platforms/intelligence-platform/jobs/document_text/document_text/run.py": {
+   "PLW1510": 1
+  },
+  "platforms/intelligence-platform/jobs/document_text/tests/test_document_fact.py": {
+   "E741": 3
+  },
+  "platforms/intelligence-platform/jobs/document_text/tests/test_document_text.py": {
+   "E741": 3
+  },
+  "scripts/catalog/audit-documentation.py": {
+   "B023": 4,
+   "B033": 5
+  },
+  "scripts/catalog/declared_definitions.py": {
+   "B007": 1,
+   "B905": 1,
+   "PLW1510": 2
+  },
+  "scripts/catalog/render-foundation-baseline.py": {
+   "F401": 1
+  },
+  "scripts/catalog/render-public-data-catalog.py": {
+   "F841": 2
+  },
+  "scripts/catalog/render-showing-inventory.py": {
+   "E731": 2
+  },
+  "scripts/catalog/test_generated_docs_merge.py": {
+   "PLW1510": 1
+  },
+  "scripts/catalog/test_pipeline_graph.py": {
+   "PLW1510": 2
+  },
+  "scripts/catalog/test_pipeline_graph_connectivity.py": {
+   "PLW1510": 1
+  },
+  "scripts/ci/cancel_superseded_queue_runs.py": {
+   "PLW1510": 1
+  },
+  "scripts/ci/compose_model.py": {
+   "PLW1510": 3
+  },
+  "scripts/ci/foundation_postgres_production_shape.py": {
+   "B905": 1
+  },
+  "scripts/ci/main_health.py": {
+   "PLW1510": 1
+  },
+  "scripts/ci/test_foundation_spark_shards.py": {
+   "B023": 1
+  },
+  "scripts/ci/test_osv_reads_every_lockfile_document.py": {
+   "PLW1510": 2
+  },
+  "scripts/ci/unit_memory.py": {
+   "F841": 1
+  },
+  "scripts/github/merge_queue_enqueue.py": {
+   "PLW1510": 1
+  },
+  "tools/semgrep/rules/parcel-reads.py": {
+   "F821": 18
+  },
+  "tools/semgrep/rules/r2-read-paths.py": {
+   "F401": 6,
+   "F821": 6
+  }
+ },
+ "shellcheck": {
+  "platforms/foundation-platform/scripts/compose-smoke.sh": {
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/deploy/airflow-runtime.sh": {
+   "SC2016": 3,
+   "SC2312": 12
+  },
+  "platforms/foundation-platform/scripts/deploy/assert-runtime-environment.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/deploy/assert-runtime-migrations.sh": {
+   "SC2016": 1,
+   "SC2312": 2
+  },
+  "platforms/foundation-platform/scripts/deploy/datahub-runtime.sh": {
+   "SC2016": 2,
+   "SC2312": 9
+  },
+  "platforms/foundation-platform/scripts/deploy/deploy-start-once.sh": {
+   "SC2154": 1,
+   "SC2312": 6
+  },
+  "platforms/foundation-platform/scripts/deploy/foundation-autodeploy.sh": {
+   "SC2312": 7
+  },
+  "platforms/foundation-platform/scripts/deploy/foundation-deploy.sh": {
+   "SC1010": 1,
+   "SC2015": 1,
+   "SC2016": 1,
+   "SC2034": 1,
+   "SC2154": 1,
+   "SC2312": 5
+  },
+  "platforms/foundation-platform/scripts/deploy/foundation-release-test.sh": {
+   "SC2016": 11,
+   "SC2312": 85
+  },
+  "platforms/foundation-platform/scripts/deploy/foundation-release.sh": {
+   "SC2312": 31
+  },
+  "platforms/foundation-platform/scripts/deploy/foundation-runtime.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/deploy/host-config-check.sh": {
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/deploy/runtime-up-in-order.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/deploy/trino-follows-the-release.sh": {
+   "SC2154": 1,
+   "SC2312": 6
+  },
+  "platforms/foundation-platform/scripts/load/lakehouse-batch-load.sh": {
+   "SC2011": 1,
+   "SC2012": 1,
+   "SC2086": 1,
+   "SC2312": 5
+  },
+  "platforms/foundation-platform/scripts/load/vworld-parcel-handoff-export.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/admin-boundary-release.sh": {
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/ops/admitted-writer-runtime.sh": {
+   "SC2034": 3,
+   "SC2312": 2
+  },
+  "platforms/foundation-platform/scripts/ops/bronze-object-members.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/by-pnu-auto-promote.sh": {
+   "SC2312": 5
+  },
+  "platforms/foundation-platform/scripts/ops/by-pnu-bake-shards.sh": {
+   "SC2034": 3,
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/by-pnu-gateway-canary.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/by-pnu-lane-cutover.sh": {
+   "SC2312": 21
+  },
+  "platforms/foundation-platform/scripts/ops/by-pnu-pack-bake.sh": {
+   "SC2312": 6
+  },
+  "platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh": {
+   "SC2012": 1,
+   "SC2015": 1,
+   "SC2034": 4,
+   "SC2128": 4,
+   "SC2153": 1,
+   "SC2178": 5,
+   "SC2312": 37
+  },
+  "platforms/foundation-platform/scripts/ops/by-pnu-serving-bake.sh": {
+   "SC2034": 1,
+   "SC2209": 1,
+   "SC2312": 10
+  },
+  "platforms/foundation-platform/scripts/ops/court-auction-collect.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/daily-source-sweep.sh": {
+   "SC2094": 2,
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh": {
+   "SC2312": 2
+  },
+  "platforms/foundation-platform/scripts/ops/gold-panel-rebuild.sh": {
+   "SC2312": 6
+  },
+  "platforms/foundation-platform/scripts/ops/gold-versions-build.sh": {
+   "SC2312": 2
+  },
+  "platforms/foundation-platform/scripts/ops/host-docker-data-root.sh": {
+   "SC2001": 1,
+   "SC2015": 1,
+   "SC2312": 43
+  },
+  "platforms/foundation-platform/scripts/ops/industrial-complex-edge-export.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/industrial-complex-notice-collect.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/industrial-complex-notice-silver-load.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/intelligence-document-fact.sh": {
+   "SC2154": 3,
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/ops/intelligence-document-runtime.sh": {
+   "SC2154": 1,
+   "SC2174": 1,
+   "SC2312": 6
+  },
+  "platforms/foundation-platform/scripts/ops/intelligence-document-text.sh": {
+   "SC2154": 3
+  },
+  "platforms/foundation-platform/scripts/ops/juso-electronic-map-cycle.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/lakehouse-maintenance.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/legal-dong-code-collect.sh": {
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/ops/legal-dong-code-load.sh": {
+   "SC2034": 1,
+   "SC2154": 5,
+   "SC2312": 6
+  },
+  "platforms/foundation-platform/scripts/ops/legal-dong-code-validate.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/lineage-stewardship-cycle.sh": {
+   "SC2154": 1,
+   "SC2312": 13
+  },
+  "platforms/foundation-platform/scripts/ops/map-edit-fold.sh": {
+   "SC2154": 2
+  },
+  "platforms/foundation-platform/scripts/ops/map-edit-pending.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/measure-building-section-packs.sh": {
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/ops/media-reconcile.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/notify-unit-failure.sh": {
+   "SC2312": 2
+  },
+  "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh": {
+   "SC2312": 2
+  },
+  "platforms/foundation-platform/scripts/ops/parcel-edition-readiness.sh": {
+   "SC2012": 1,
+   "SC2016": 1,
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/parcel-number-change-collect.sh": {
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/ops/parcel-registry-cycle.sh": {
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh": {
+   "SC2034": 1,
+   "SC2100": 3,
+   "SC2154": 1,
+   "SC2312": 11
+  },
+  "platforms/foundation-platform/scripts/ops/postgres-production-shape.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/raon-large-files.sh": {
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/ops/registered-factory-cycle.sh": {
+   "SC2312": 1
+  },
+  "platforms/foundation-platform/scripts/ops/rt-molit-silver-load.sh": {
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/ops/run-now-dispatch.sh": {
+   "SC2312": 9
+  },
+  "platforms/foundation-platform/scripts/ops/staging-smoke.sh": {
+   "SC2312": 7
+  },
+  "platforms/foundation-platform/scripts/ops/start-scheduled-job.sh": {
+   "SC2015": 1,
+   "SC2312": 16,
+   "SC2329": 1
+  },
+  "platforms/foundation-platform/scripts/ops/unit-price-versions-migrate.sh": {
+   "SC2312": 5
+  },
+  "platforms/foundation-platform/scripts/ops/vworld-parcel-edition-collect.sh": {
+   "SC2094": 2,
+   "SC2312": 5
+  },
+  "platforms/foundation-platform/scripts/ops/zoning-tile-bake.sh": {
+   "SC2312": 5
+  },
+  "platforms/foundation-platform/scripts/recovery/identity-backup-lib.sh": {
+   "SC2034": 1,
+   "SC2148": 1,
+   "SC2312": 4
+  },
+  "platforms/foundation-platform/scripts/recovery/identity-restore-drill.sh": {
+   "SC2154": 1,
+   "SC2312": 3
+  },
+  "platforms/foundation-platform/scripts/recovery/run-identity-backup.sh": {
+   "SC2154": 1,
+   "SC2312": 2
+  },
+  "platforms/foundation-platform/scripts/recovery/run-postgres-backup.sh": {
+   "SC2209": 1,
+   "SC2312": 2
+  },
+  "platforms/foundation-platform/scripts/recovery/run-postgres-restore-drill.sh": {
+   "SC2034": 3,
+   "SC2154": 1,
+   "SC2312": 6
+  },
+  "platforms/foundation-platform/scripts/smoke/identity-foundation-signed-oidc.sh": {
+   "SC2312": 5
+  },
+  "platforms/foundation-platform/scripts/tiles/admin-boundary/convert.sh": {
+   "SC2012": 1,
+   "SC2312": 2
+  },
+  "platforms/identity-platform/infra/zitadel/configure-zitadel.sh": {
+   "SC2312": 2
+  },
+  "platforms/identity-platform/scripts/compose-smoke.sh": {
+   "SC2312": 3
+  },
+  "platforms/identity-platform/scripts/deploy/identity-runtime.sh": {
+   "SC2312": 1
+  },
+  "products/gongzzang/infra/zitadel/init-zitadel.sh": {
+   "SC2034": 1,
+   "SC2312": 1
+  },
+  "products/gongzzang/packages/api-types/scripts/generate.tests.sh": {
+   "SC2016": 1
+  },
+  "products/gongzzang/scripts/ci/vitest-lane-completeness.sh": {
+   "SC2016": 1,
+   "SC2086": 1,
+   "SC2312": 2
+  },
+  "products/gongzzang/scripts/sqlx-migrate.sh": {
+   "SC1090": 1,
+   "SC2312": 1
+  },
+  "products/gongzzang/scripts/sqlx-prepare.sh": {
+   "SC1090": 1,
+   "SC2312": 1
+  },
+  "products/gongzzang/scripts/web-preview/common.sh": {
+   "SC2016": 2,
+   "SC2034": 1,
+   "SC2312": 3
+  },
+  "products/gongzzang/scripts/web-preview/deploy.sh": {
+   "SC2016": 1,
+   "SC2034": 2,
+   "SC2312": 3
+  },
+  "products/gongzzang/scripts/web-preview/teardown.sh": {
+   "SC2034": 1,
+   "SC2312": 3
+  },
+  "products/gongzzang/tests/migrations/test_v001_full.sh": {
+   "SC1090": 1,
+   "SC2312": 7
+  },
+  "products/gongzzang/tests/migrations/test_v002_audit_immutable.sh": {
+   "SC1090": 1,
+   "SC2312": 3
+  },
+  "scripts/ci/apt-install.sh": {
+   "SC2312": 6
+  },
+  "scripts/ci/cargo-advisories-self-test.sh": {
+   "SC1007": 1,
+   "SC2016": 1
+  },
+  "scripts/ci/cargo-advisories.sh": {
+   "SC2016": 2,
+   "SC2312": 5
+  },
+  "scripts/ci/conftest.sh": {
+   "SC2034": 1,
+   "SC2312": 1
+  },
+  "scripts/ci/gitleaks-scan.sh": {
+   "SC1072": 1,
+   "SC1073": 1
+  },
+  "scripts/ci/opengrep.sh": {
+   "SC2312": 1
+  },
+  "scripts/ci/release-push.sh": {
+   "SC2312": 1
+  },
+  "scripts/ci/require-successful-needs.sh": {
+   "SC2312": 1
+  },
+  "scripts/ci/reuse-lint.sh": {
+   "SC2015": 1
+  },
+  "scripts/ci/sccache-setup.sh": {
+   "SC2312": 1
+  },
+  "scripts/ci/zizmor.sh": {
+   "SC2312": 1
+  },
+  "scripts/github/check-actions-cache-controls.sh": {
+   "SC2154": 2
+  },
+  "scripts/github/configure-public-repository.sh": {
+   "SC2312": 12
+  },
+  "scripts/github/import-private-feature-diff.sh": {
+   "SC2016": 1,
+   "SC2312": 4
+  },
+  "scripts/github/prepare-public-root.sh": {
+   "SC2016": 1
+  },
+  "scripts/github/publish-public-root.sh": {
+   "SC2312": 3
+  },
+  "scripts/github/safe-git-transport.sh": {
+   "SC2312": 1
+  },
+  "scripts/guard/apt-install-self-test.sh": {
+   "SC2312": 7
+  },
+  "scripts/guard/area-ci-input-coverage.sh": {
+   "SC2312": 4
+  },
+  "scripts/guard/area-registry-self-test.sh": {
+   "SC2312": 1
+  },
+  "scripts/guard/assert-runtime-environment-self-test.sh": {
+   "SC2016": 5
+  },
+  "scripts/guard/assert-runtime-migrations-self-test.sh": {
+   "SC2086": 1
+  },
+  "scripts/guard/cargo-verify-isolation-self-test.sh": {
+   "SC2312": 8
+  },
+  "scripts/guard/check-workflow-policy.sh": {
+   "SC2312": 4
+  },
+  "scripts/guard/container-images-match-the-contract-self-test.sh": {
+   "SC2312": 2
+  },
+  "scripts/guard/container-images-match-the-contract.sh": {
+   "SC2312": 2
+  },
+  "scripts/guard/declared-definitions-reproduce-artifacts-self-test.sh": {
+   "SC2312": 2
+  },
+  "scripts/guard/every-container-has-a-memory-cap-self-test.sh": {
+   "SC2015": 1,
+   "SC2016": 7,
+   "SC2312": 1
+  },
+  "scripts/guard/every-container-has-a-memory-cap.sh": {
+   "SC2312": 3
+  },
+  "scripts/guard/every-job-declares-its-scope-self-test.sh": {
+   "SC2312": 10
+  },
+  "scripts/guard/file-line-limit-self-test.sh": {
+   "SC2312": 9
+  },
+  "scripts/guard/hook-isolation-self-test.sh": {
+   "SC2043": 1
+  },
+  "scripts/guard/identity-endpoints-match-the-contract.sh": {
+   "SC2034": 1
+  },
+  "scripts/guard/legal-publication-self-test.sh": {
+   "SC2312": 1
+  },
+  "scripts/guard/lib/fixture-repo.sh": {
+   "SC2034": 1
+  },
+  "scripts/guard/live-lane-completeness.sh": {
+   "SC2312": 6
+  },
+  "scripts/guard/parcel-edition-promotion-is-readiness-gated-self-test.sh": {
+   "SC2312": 5
+  },
+  "scripts/guard/prometheus-rules-pass-their-tests-self-test.sh": {
+   "SC2312": 1
+  },
+  "scripts/guard/prometheus-rules-pass-their-tests.sh": {
+   "SC2312": 2
+  },
+  "scripts/guard/public-github-policy.sh": {
+   "SC2312": 3
+  },
+  "scripts/guard/public-repository-safety.sh": {
+   "SC2016": 3,
+   "SC2254": 1,
+   "SC2312": 4
+  },
+  "scripts/guard/public-root-builder.sh": {
+   "SC2312": 1
+  },
+  "scripts/guard/public-root-publisher-self-test.sh": {
+   "SC2016": 8
+  },
+  "scripts/guard/public-tree-snapshot-self-test.sh": {
+   "SC2312": 4
+  },
+  "scripts/guard/publication-authority-self-test.sh": {
+   "SC2312": 3
+  },
+  "scripts/guard/release-push-self-test.sh": {
+   "SC2312": 2
+  },
+  "scripts/guard/repository-identity-capture-self-test.sh": {
+   "SC2119": 3,
+   "SC2120": 1
+  },
+  "scripts/guard/repository-identity-policy-self-test.sh": {
+   "SC2312": 1
+  },
+  "scripts/guard/rust-ci-setup-self-test.sh": {
+   "SC2016": 1,
+   "SC2312": 4
+  },
+  "scripts/guard/sido-codes-come-from-the-legal-dong-table-self-test.sh": {
+   "SC2312": 8
+  },
+  "scripts/guard/static-release-toolchain-ssot-self-test.sh": {
+   "SC2016": 3
+  },
+  "scripts/guard/technology-version-consistency.sh": {
+   "SC2312": 6
+  },
+  "scripts/guard/the-contract-names-where-its-objects-live.sh": {
+   "SC2312": 4
+  },
+  "scripts/guard/unique-package-names.sh": {
+   "SC2016": 1
+  },
+  "scripts/guard/workflow-policy-self-test.sh": {
+   "SC2089": 1,
+   "SC2090": 1,
+   "SC2094": 2,
+   "SC2312": 1
+  },
+  "scripts/guard/xtask-path-coverage-self-test.sh": {
+   "SC2312": 5
+  },
+  "scripts/tiles/boundary-slice-proof.sh": {
+   "SC2312": 11
+  },
+  "scripts/tiles/tiles-slice-proof.sh": {
+   "SC1090": 1,
+   "SC2034": 3,
+   "SC2094": 4,
+   "SC2155": 1,
+   "SC2163": 6,
+   "SC2312": 12
+  },
+  "scripts/verify/cargo-verify.sh": {
+   "SC2312": 4
+  },
+  "scripts/verify/foundation-spark-runtime-files.sh": {
+   "SC2016": 1,
+   "SC2312": 4,
+   "SC2329": 1
+  },
+  "scripts/verify/foundation-spark-runtime.sh": {
+   "SC2016": 1
+  },
+  "scripts/verify/integration.sh": {
+   "SC2140": 2
+  },
+  "tools/semgrep/rules/batch-containers.sh": {
+   "SC2154": 1,
+   "SC2168": 1
+  },
+  "tools/semgrep/rules/cargo-goes-through-xtask.sh": {
+   "SC2034": 1
+  },
+  "tools/semgrep/rules/judgment-position.sh": {
+   "SC1010": 1,
+   "SC2034": 1,
+   "SC2154": 2
+  },
+  "tools/semgrep/rules/lineage-is-derived.sh": {
+   "SC2154": 1
+  },
+  "tools/semgrep/rules/pinned-downloads.sh": {
+   "SC2154": 2
+  },
+  "tools/semgrep/rules/pipefail-early-exit-reader.sh": {
+   "SC1050": 1,
+   "SC1072": 1,
+   "SC1073": 1,
+   "SC1133": 1
+  },
+  "tools/semgrep/rules/root-python-runs-isolated.sh": {
+   "SC2034": 1,
+   "SC2154": 6
+  }
+ }
+}

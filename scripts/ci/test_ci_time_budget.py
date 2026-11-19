@@ -139,5 +139,64 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(self._run(10, [20, 20, 20]), 1)
 
 
+def job(wait_s, conclusion="success", steps=True, base=MONDAY):
+    """A synthetic job that waited `wait_s` seconds for a runner."""
+    stamp = lambda s: (base + timedelta(seconds=s)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    return {"created_at": stamp(0), "started_at": stamp(wait_s), "conclusion": conclusion,
+            "steps": [{"name": "x"}] if steps else []}
+
+
+class RunnerWaitTest(unittest.TestCase):
+    """Root ADR-0582: the weekly report carries the runner wait percentiles."""
+
+    def test_only_jobs_that_took_a_runner_count(self):
+        waits = tb.job_waits([job(30), job(5, conclusion="skipped"), job(9, conclusion="cancelled", steps=False),
+                              job(12, conclusion="cancelled"), {"created_at": None, "started_at": None}])
+        self.assertEqual(waits, [30.0, 12.0])
+
+    def test_the_sample_spreads_over_the_whole_week(self):
+        runs = [dict(run(f"s{i}", "W", i * 60, i * 60 + 1), id=i) for i in range(100)]
+        picked = tb.sample_evenly(runs, 5)
+        self.assertEqual([r["id"] for r in picked], [0, 25, 50, 74, 99])
+        self.assertEqual(len(tb.sample_evenly(runs[:3], 5)), 3)
+
+    def test_percentiles_per_week_and_event(self):
+        samples = [
+            {"event": "pull_request", "run_started_at": "2030-01-07T01:00:00Z", "waits": [1.0, 2.0, 3.0, 100.0]},
+            {"event": "merge_group", "run_started_at": "2030-01-08T01:00:00Z", "waits": [7.0]},
+            {"event": "push", "run_started_at": "2030-01-14T01:00:00Z", "waits": [9.0]},
+        ]
+        rows = {(r["week_start"], r["event"]): r for r in tb.queue_trend(samples, [MONDAY])}
+        self.assertEqual(len(rows), len(tb.QUEUE_EVENTS))
+        pr = rows[("2030-01-07", "pull_request")]
+        self.assertEqual((pr["runs"], pr["jobs"], pr["p50"], pr["p90"], pr["max"]), (1, 4, 2.0, 100.0, 100.0))
+        self.assertEqual(rows[("2030-01-07", "merge_group")]["p50"], 7.0)
+        self.assertIsNone(rows[("2030-01-07", "push")]["p50"], "next week's run is not this week's")
+
+    def test_queue_runs_are_not_pull_request_attempts(self):
+        runs = [run("a", "X", 0, 5), dict(run("b", "X", 0, 50), event="merge_group")]
+        self.assertEqual([a["head_sha"] for a in tb.group_attempts(runs)], ["a"])
+
+    def test_measure_writes_the_runner_wait_table_and_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            runs = tmp / "runs.json"
+            runs.write_text(json.dumps([
+                dict(run("a", "W", 0, 5), id=1, jobs=[job(40), job(60)]),
+                dict(run("b", "W", 0, 9), id=2, event="merge_group", jobs=[job(300)]),
+            ]), encoding="utf-8")
+            trend, summary = tmp / "trend.json", tmp / "summary.md"
+            now = (MONDAY + timedelta(weeks=1, hours=1)).isoformat()
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(tb.main(["measure", "--weeks", "1", "--now", now, "--runs-json", str(runs),
+                                          "--out", str(trend), "--markdown", str(summary)]), 0)
+            text = summary.read_text(encoding="utf-8")
+            self.assertIn("| 2030-01-07 | pull_request | 1 | 2 | 40 | 60 | 60 | 60 |", text)
+            self.assertIn("| 2030-01-07 | merge_group | 1 | 1 | 300 |", text)
+            data = json.loads(trend.read_text(encoding="utf-8"))
+            self.assertEqual(data["weeks"][0]["count"], 1)
+            self.assertEqual({r["event"] for r in data["runner_wait"]}, set(tb.QUEUE_EVENTS))
+
+
 if __name__ == "__main__":
     unittest.main()

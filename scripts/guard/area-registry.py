@@ -27,6 +27,9 @@ NOT_AN_AREA_LIST = {
     "tools/xtask/src/main.rs",
     # Service identities that call Foundation, not the area set.
     "platforms/foundation-platform/docs/architecture/traffic-auth-policy-registry.v1.json",
+    # Finding counts per shell and Python file (root ADR-0586): its keys are file paths, and files
+    # that still carry findings sit in every area. scripts/ci/lint_changed.py writes it.
+    "tools/ci/lint-baseline.json",
 }
 
 

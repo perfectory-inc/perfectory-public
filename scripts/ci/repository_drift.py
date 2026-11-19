@@ -128,7 +128,10 @@ def renovate_silent(pulls: list[dict], now: datetime) -> str | None:
 
 def gh(*args: str) -> str:
     try:
-        done = subprocess.run(["gh", *args], capture_output=True, text=True, encoding="utf-8", timeout=120)
+        # check=False: the status is read below and raised as Unreadable with gh's own message.
+        done = subprocess.run(
+            ["gh", *args], capture_output=True, text=True, encoding="utf-8", timeout=120, check=False
+        )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise Unreadable(f"gh {' '.join(args[:2])}: {error}") from error
     if done.returncode != 0:

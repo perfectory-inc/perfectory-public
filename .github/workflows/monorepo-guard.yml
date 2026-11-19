@@ -109,6 +109,7 @@ jobs:
       - name: Actions cache budget tests
         run: |
           python3 scripts/ci/test_actions_cache_budget.py -v
+          python3 scripts/ci/test_lint_changed.py -v
           python3 scripts/ci/actions_cache_budget.py check
       # Which failed runs the scheduled rerun-runner-failures workflow re-runs (root ADR-0421).
       - name: Main health tests

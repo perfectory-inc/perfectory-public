@@ -1,6 +1,7 @@
 name: ci-time-budget
 # Weekly trend of pull request CI wall time against the one budget in
-# tools/ci/ci-time-budget.contract.json (root ADR-0203). It gates no pull request:
+# tools/ci/ci-time-budget.contract.json (root ADR-0203), and the runner wait per event beside it
+# (root ADR-0582; reported, not judged). It gates no pull request:
 # a red run here means last week's median PR waited longer than the budget.
 on:
   schedule:
@@ -17,7 +18,8 @@ jobs:
   trend:
     name: CI time trend
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # The runner wait reads one jobs list per sampled run (root ADR-0582): 1 week measured 4 min 50 s.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

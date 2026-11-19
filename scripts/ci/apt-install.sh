@@ -16,11 +16,21 @@
 #     ~/.cache/perfectory/apt, keyed by the runner image and the package set. A workflow restores
 #     and saves that directory with actions/cache (key prefix apt-packages-v1-, budgeted in
 #     tools/ci/actions-cache-budget.contract.json); a hit installs with no network at all.
+#     A set kept for another image still saves the download: the files apt asks for by the same
+#     name (package, version, architecture) are copied from it, and apt fetches only the rest.
+#     GitHub runs several image versions at once and main saves one; 2026-11-17..19, 18 of 30
+#     Postgres integration runs were on an image the cache did not name and downloaded 29.8 MB
+#     again, 12 of them for 450-640 s.
 #  3. A download goes only to mirrors that answered a short probe a moment ago: the runner's own
 #     list first, then mirrors outside ubuntu.com. A dead mirror costs one probe, not 20 s a file.
 #     The archive's signature is what apt trusts, so any mirror of it is as good as the official.
 #  4. Retries everywhere: apt retries each file, and the whole probe/update/download repeats three
 #     times with a wait, because `apt-get update` is judged by --error-on=any, not by its exit code.
+#  5. A download that stalls is stopped and resumed elsewhere. A mirror that answers the probe can
+#     still serve at 50-75 kB/s ("Fetched 29.8 MB in 9min 42s", 2026-11-19), and a stalled download
+#     stays stalled. The first two attempts give the download a time limit; the next attempt puts
+#     the mirrors outside the runner's list first and continues the partial files. The last attempt
+#     has no limit, so a slow archive is never worse than it was.
 #
 # Off a GitHub runner (the Docker verification image, a developer's machine) the cache is off and
 # the system's own sources are used, still with the retries.
@@ -98,6 +108,9 @@ FALLBACK_MIRRORS=(
   "http://mirrors.ocf.berkeley.edu/ubuntu/"
 )
 PROBE_SECONDS="${PERFECTORY_APT_PROBE_SECONDS:-8}"
+# Foundation's 29.8 MB took 3-28 s from a healthy mirror (2026-11-17..19, 18 downloads).
+DOWNLOAD_SECONDS="${PERFECTORY_APT_DOWNLOAD_SECONDS:-180}"
+attempt=1
 
 work="$(mktemp -d)"
 trap '"${sudo[@]}" rm -rf "$work"' EXIT
@@ -126,7 +139,12 @@ configure_mirrors() {
       [ -n "$mirror" ] && [ "${mirror#\#}" = "$mirror" ] && candidates+=("${mirror%/}/")
     done </etc/apt/apt-mirrors.txt
   fi
-  candidates+=("${FALLBACK_MIRRORS[@]}")
+  if [ "$attempt" -gt 1 ]; then
+    # The runner's own mirror failed or stalled a moment ago: it goes last.
+    candidates=("${FALLBACK_MIRRORS[@]}" "${candidates[@]}")
+  else
+    candidates+=("${FALLBACK_MIRRORS[@]}")
+  fi
   # One probe per host: the runner lists https://archive.ubuntu.com, the fallbacks http://.
   mapfile -t candidates < <(printf '%s\n' "${candidates[@]}" | awk -F'://' '!seen[$2]++')
   for mirror in "${candidates[@]}"; do
@@ -173,6 +191,39 @@ if [ -n "$set_dir" ]; then
   mkdir -p "$download_dir/partial"
 fi
 
+# Copies, from the sets kept for other images, the files apt is about to fetch. A file is taken by
+# the name apt gives it (package_version_architecture.deb), so a superseded version is never
+# copied, and only when its SHA-256 is the one in the signed index: apt 2.8.4 accepts a file already
+# in its archive directory by name and size alone (measured: zeros of the right length passed), and
+# --print-uris names an MD5 sum, so the SHA-256 is read from the package's index entry.
+indexed_sha256() {
+  local name="$1" package version
+  package="${name%%_*}"
+  version="${name#*_}"
+  version="${version%_*}"
+  apt-cache "${apt_options[@]}" show "$package=${version//%3a/:}" 2>/dev/null | awk '$1 == "SHA256:" { print $2; exit }'
+}
+
+reuse_kept_files() {
+  local wanted name other digest actual copied=0 total=0
+  wanted="$("${sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" \
+    -o "Dir::Cache::Archives=$download_dir" install -y --no-install-recommends --print-uris -qq "${missing[@]}")" || return 1
+  while read -r _ name _; do
+    [ -n "$name" ] || continue
+    total=$((total + 1))
+    digest=""
+    for other in "$cache_root"/*/; do
+      [ "${other%/}" != "$download_dir" ] && [ -f "$other$name" ] || continue
+      [ -n "$digest" ] || digest="$(indexed_sha256 "$name")"
+      actual="$(sha256sum "$other$name")" || continue
+      [ -n "$digest" ] && [ "${actual%% *}" = "$digest" ] || continue
+      cp "$other$name" "$download_dir/$name" && copied=$((copied + 1))
+      break
+    done
+  done <<<"$wanted"
+  say "package files to fetch: $total; kept from another runner image: $copied"
+}
+
 fetch_and_install() {
   [ "$ubuntu_sources" != true ] || configure_mirrors
   "${sudo[@]}" apt-get "${apt_options[@]}" update --error-on=any || return 1
@@ -181,8 +232,14 @@ fetch_and_install() {
       install -y --no-install-recommends "${missing[@]}"
     return
   fi
-  "${sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" \
-    -o "Dir::Cache::Archives=$download_dir" install -y --no-install-recommends --download-only "${missing[@]}" || return 1
+  reuse_kept_files || return 1
+  local limit=()
+  [ "$attempt" -ge 3 ] || limit=(timeout --signal=TERM --kill-after=10 "$DOWNLOAD_SECONDS")
+  "${sudo[@]}" "${limit[@]}" env DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" \
+    -o "Dir::Cache::Archives=$download_dir" install -y --no-install-recommends --download-only "${missing[@]}" || {
+    say "the download failed or passed its limit (${DOWNLOAD_SECONDS}s on the first two attempts); partial files are kept"
+    return 1
+  }
   "${sudo[@]}" chown -R "$(id -u):$(id -g)" "$download_dir"
   rm -rf "$download_dir/partial" "$download_dir/lock"
   touch "$download_dir/complete"
