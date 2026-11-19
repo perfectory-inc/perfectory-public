@@ -64,11 +64,16 @@ def pdf_page_texts(path: Path) -> list[str]:
         return texts
 
 
-def ocr_pages(src: Path, dst: Path, pages: list[int], languages: str, jobs: int, timeout: int) -> None:
+def ocr_pages(src: Path, dst: Path, pages: list[int], languages: str, jobs: int, timeout: int,
+              downsample_above: int) -> None:
     subprocess.run(
         [
             "ocrmypdf",
             "--force-ocr",
+            # Tesseract's image only (the contract's ocr_downsample_reason): its memory, per job.
+            "--tesseract-downsample-large-images",
+            "--tesseract-downsample-above",
+            str(downsample_above),
             "--pages",
             ",".join(str(p) for p in pages),
             "-l",
@@ -126,7 +131,8 @@ def extract(path: Path, media_format: str, settings: dict) -> Result:
             thin = pages_needing_ocr(texts, settings["ocr_below_chars"])
             if thin:
                 ocred = workdir / "ocr.pdf"
-                ocr_pages(pdf, ocred, thin, settings["ocr_languages"], settings["ocr_jobs"], settings["ocr_timeout_seconds_per_page"] * len(thin))
+                ocr_pages(pdf, ocred, thin, settings["ocr_languages"], settings["ocr_jobs"],
+                          settings["ocr_timeout_seconds_per_page"] * len(thin), settings["ocr_downsample_above_px"])
                 ocr_texts = pdf_page_texts(ocred)
                 for number in thin:
                     texts[number - 1] = ocr_texts[number - 1]
