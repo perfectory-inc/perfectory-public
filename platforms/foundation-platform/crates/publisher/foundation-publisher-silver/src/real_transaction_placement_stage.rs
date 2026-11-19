@@ -10,10 +10,23 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
+use anyhow::{ensure, Context as _};
+use lakehouse_domain::industrial_complex_lakehouse_contracts;
+use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 
 use crate::lineage_carry::{carry_candidates, Link};
 use crate::lineage_steward_read::{steward_resolved, LineageRow};
+use crate::parcel_nearby_stage::Source;
+
+const RT_SOURCE: &str = "silver.real_transaction";
+const PARCEL_SOURCE: &str = "silver.parcel_boundaries";
+const CODE_CHANGE_SOURCE: &str = "reference.legal_dong_code_change";
+const LEGAL_DONG_SOURCE: &str = "reference.legal_dong_code_snapshot";
+const LAND_SOURCE: &str = "silver.land_characteristic";
+const TITLE_SOURCE: &str = "silver.building_register_titles";
+const OWNERSHIP_SOURCE: &str = "silver.land_ownership";
+const LINEAGE_SOURCE: &str = "silver.parcel_lineage";
 
 /// `deals.sql`: the deals with their address codes, `row_id` and source PNU.
 pub const DEALS_SQL: &str = include_str!("real_transaction_placement_stage/deals.sql");
@@ -526,11 +539,17 @@ fn address_code_table(
 
 const LINEAGE_SETUP_SQL: &str = "
 INSERT INTO merges SELECT predecessor_pnu, successor_pnu, grade FROM lineage WHERE relation = 'merge';
+CREATE OR REPLACE TEMP TABLE lineage_read AS
+  SELECT DISTINCT * EXCLUDE (_rank, _ranked) FROM (
+    SELECT *, @rank@ AS _rank,
+           evidence_kind = 'same_lot_paired_dong' AND coalesce(predecessor_pnu, '') <> '' AS _ranked
+    FROM lineage)
+  QUALIFY NOT _ranked OR _rank = min(CASE WHEN _ranked THEN _rank END) OVER (PARTITION BY predecessor_pnu);
 CREATE OR REPLACE TEMP TABLE carry_sources AS
   SELECT DISTINCT pnu_candidate AS pnu FROM resolved WHERE pnu_candidate IS NOT NULL
   AND pnu_candidate NOT IN (SELECT pnu FROM parcels WHERE pnu IS NOT NULL);
 CREATE OR REPLACE TEMP TABLE lineage_links AS
-  SELECT DISTINCT predecessor_pnu, successor_pnu FROM lineage
+  SELECT DISTINCT predecessor_pnu, successor_pnu FROM lineage_read
   WHERE coalesce(predecessor_pnu, '') <> '' AND predecessor_pnu <> successor_pnu;
 CREATE OR REPLACE TEMP TABLE reached (pnu VARCHAR);
 CREATE OR REPLACE TEMP TABLE frontier AS SELECT pnu FROM carry_sources;";
@@ -545,7 +564,7 @@ INSERT INTO reached SELECT pnu FROM frontier;";
 const LINEAGE_ROWS_SQL: &str = "
 SELECT DISTINCT coalesce(predecessor_pnu, ''), successor_pnu, coalesce(relation, ''), coalesce(grade, ''),
        coalesce(evidence_kind, ''), coalesce(evidence_ref, '')
-FROM lineage WHERE successor_pnu IN (SELECT pnu FROM reached)";
+FROM lineage_read WHERE successor_pnu IN (SELECT pnu FROM reached)";
 
 /// `carry` (`successor_pnu`, `source_pnu`, `hop`, `path`) and `merges` from `lineage` for the retired sources.
 ///
@@ -559,7 +578,19 @@ fn lineage_tables(connection: &duckdb::Connection) -> anyhow::Result<(u64, u64)>
     if !has_table(connection, "lineage")? {
         return Ok((0, 0));
     }
-    connection.execute_batch(LINEAGE_SETUP_SQL)?;
+    let rank = crate::lineage_steward_read::EVIDENCE_RANKS.iter().fold(
+        String::from("CASE"),
+        |case, (prefix, rank)| {
+            format!(
+                "{case} WHEN starts_with(coalesce(evidence_ref, ''), {}) THEN {rank}",
+                quoted(prefix)
+            )
+        },
+    ) + &format!(
+        " ELSE {} END",
+        crate::lineage_steward_read::EVIDENCE_RANKS.len()
+    );
+    connection.execute_batch(&LINEAGE_SETUP_SQL.replace("@rank@", &rank))?;
     let sources = count(connection, "SELECT count(*) FROM carry_sources")?;
     for _hop in 0..crate::lineage_carry::MAX_HOPS {
         if count(connection, "SELECT count(*) FROM frontier")? == 0 {
@@ -662,4 +693,157 @@ pub fn place(
         lineage_sources,
         lineage_candidates,
     })
+}
+
+/// The Silver columns a deal is placed and served from (the job's `DEAL_COLUMNS`); never the Silver's
+/// own `pnu`, `legal_dong_code` or grade (root ADR-0351 §3).
+pub const DEAL_COLUMNS: [&str; 27] = [
+    "dataset_slug",
+    "deal_ym",
+    "row_key",
+    "deal_date",
+    "deal_amount_10k_krw",
+    "deposit_10k_krw",
+    "monthly_rent_10k_krw",
+    "rent_kind",
+    "address_raw",
+    "jibun_raw",
+    "bonbun",
+    "bubun",
+    "building_type",
+    "building_use",
+    "building_name",
+    "building_area_m2",
+    "building_area_kind",
+    "land_area_m2",
+    "land_area_kind",
+    "floor",
+    "build_year",
+    "land_use",
+    "jimok",
+    "share_dealing_type",
+    "dealing_gbn",
+    "cancelled",
+    "cancel_date",
+];
+
+fn contract_of(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
+    industrial_complex_lakehouse_contracts()
+        .iter()
+        .find(|contract| contract.table_name == table)
+        .with_context(|| format!("no lakehouse contract for {table}"))
+}
+
+/// `table`'s current rows at its pin, projecting `columns`, by the contract's one rendering
+/// (root ADR-0564 §4). A table whose rule keeps no ties is refused when two current rows of a key tie.
+fn current_rows_of(
+    connection: &duckdb::Connection,
+    source: &Source<'_>,
+    table: &str,
+    columns: &[&str],
+) -> anyhow::Result<String> {
+    let contract = contract_of(table)?;
+    let template = contract
+        .current_rows_sql_template()
+        .with_context(|| format!("{table} keeps no versions per key"))?;
+    let from = source.of(table)?;
+    let render = |projected: &[&str]| {
+        template
+            .replace("{columns}", &projected.join(", "))
+            .replace("{source}", &from)
+            .replace("{filter}", "TRUE")
+    };
+    let latest = contract
+        .current_row_latest()
+        .with_context(|| format!("{table} keeps no versions per key"))?;
+    if !latest.keep_ties {
+        let (rows, keys): (i64, i64) = connection.query_row(
+            &format!(
+                "SELECT count(*), count(DISTINCT ({})) FROM ({})",
+                latest.key.join(", "),
+                render(latest.key)
+            ),
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        ensure!(
+            rows == keys,
+            "{table} ({from}) holds {} current rows tied on their version order",
+            rows - keys
+        );
+    }
+    Ok(render(columns))
+}
+
+/// Loads every table `place` reads, at the pins of `source`, with the parcels of the served `edition`.
+///
+/// # Errors
+/// An edition that is not a plain snapshot id or holds no parcel, a pin missing, a tie the contract
+/// forbids, or a SQL error.
+pub fn load_inputs(
+    connection: &duckdb::Connection,
+    source: &Source<'_>,
+    edition: &str,
+) -> anyhow::Result<()> {
+    ensure!(
+        !edition.is_empty()
+            && edition
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-')),
+        "the edition {edition:?} is not a plain snapshot id"
+    );
+    let parcels = contract_of(PARCEL_SOURCE)?;
+    let predicate = parcels
+        .current_row_predicate
+        .context("silver.parcel_boundaries names its current rows by a predicate")?;
+    let deals = current_rows_of(connection, source, RT_SOURCE, &DEAL_COLUMNS)?;
+    let land = current_rows_of(
+        connection,
+        source,
+        LAND_SOURCE,
+        &["pnu", "land_category", "area_m2", "zone_name_1"],
+    )?;
+    let titles = current_rows_of(
+        connection,
+        source,
+        TITLE_SOURCE,
+        &[
+            "pnu",
+            "approval_year",
+            "floor_area_m2",
+            "main_or_annex_kind",
+        ],
+    )?;
+    let ownership = current_rows_of(
+        connection,
+        source,
+        OWNERSHIP_SOURCE,
+        &["pnu", "ownership_changed_on", "ownership_change_reason"],
+    )?;
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE deals_raw AS {deals};
+         CREATE OR REPLACE TABLE parcels AS
+           SELECT DISTINCT pnu FROM {parcels_table}
+           WHERE source_snapshot_id = '{edition}' AND ({predicate}) AND pnu IS NOT NULL;
+         CREATE OR REPLACE TABLE code_changes AS
+           SELECT kind, old_code, new_code, level, effective_date, source FROM {changes};
+         CREATE OR REPLACE TABLE code_names AS
+           SELECT region_cd, full_name, status FROM {names}
+           WHERE snapshot_date = (SELECT max(snapshot_date) FROM {names});
+         CREATE OR REPLACE TABLE land AS {land};
+         CREATE OR REPLACE TABLE titles AS
+           SELECT pnu, approval_year, floor_area_m2 FROM ({titles}) WHERE main_or_annex_kind = 'main';
+         CREATE OR REPLACE TABLE ownership AS {ownership};
+         CREATE OR REPLACE TABLE lineage AS
+           SELECT predecessor_pnu, successor_pnu, relation, grade, evidence_kind, evidence_ref FROM {lineage};",
+        parcels_table = source.of(PARCEL_SOURCE)?,
+        changes = source.of(CODE_CHANGE_SOURCE)?,
+        names = source.of(LEGAL_DONG_SOURCE)?,
+        lineage = source.of(LINEAGE_SOURCE)?,
+    ))?;
+    ensure!(
+        count(connection, "SELECT count(*) FROM parcels")? > 0,
+        "edition {edition} holds no served parcel"
+    );
+    Ok(())
 }
