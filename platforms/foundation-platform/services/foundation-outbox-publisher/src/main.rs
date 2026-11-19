@@ -176,6 +176,7 @@ enum Command {
     CollectJusoElectronicMap,
     PlanSilverLoadObjects,
     ListLakehouseObjects,
+    ListRecoveryObjects,
     MediaIndexDelta,
     MediaLadderBacklog,
     CollectIndustrialComplexAddressSource,
@@ -372,6 +373,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CollectJusoElectronicMap => Box::pin(juso_electronic_map_collect::run()),
         Command::PlanSilverLoadObjects => Box::pin(silver_load_objects::run()),
         Command::ListLakehouseObjects => Box::pin(lakehouse_object_listing::run()),
+        Command::ListRecoveryObjects => Box::pin(lakehouse_object_listing::run_recovery()),
         Command::MediaIndexDelta => Box::pin(media_index_delta::run()),
         Command::MediaLadderBacklog => Box::pin(media_ladder_backlog::run()),
         Command::CollectIndustrialComplexAddressSource => {
@@ -774,6 +776,7 @@ where
         Some("collect-juso-electronic-map") => Ok(Command::CollectJusoElectronicMap),
         Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),
         Some("list-lakehouse-objects") => Ok(Command::ListLakehouseObjects),
+        Some("list-recovery-objects") => Ok(Command::ListRecoveryObjects),
         Some("media-index-delta") => Ok(Command::MediaIndexDelta),
         Some("media-ladder-backlog") => Ok(Command::MediaLadderBacklog),
         Some("collect-industrial-complex-address-source") => {
