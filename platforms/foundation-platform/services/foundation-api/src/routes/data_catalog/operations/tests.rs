@@ -129,7 +129,7 @@ fn flow(flow_id: &str, jobs: &[(&str, Vec<JsonValue>)]) -> JsonValue {
     flow_of("synthetic", flow_id, jobs)
 }
 
-/// A flow as DataHub names it from the engine that reported it (`processing_engine`).
+/// A flow as `DataHub` names it from the engine that reported it (`processing_engine`).
 fn flow_of(engine: &str, flow_id: &str, jobs: &[(&str, Vec<JsonValue>)]) -> JsonValue {
     json!({
         "urn": format!("urn:li:dataFlow:({engine},{flow_id},test)"),
