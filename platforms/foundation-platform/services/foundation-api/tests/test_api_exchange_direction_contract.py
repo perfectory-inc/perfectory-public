@@ -20,7 +20,6 @@ CONTRACT_IDS = {
     "artifact-registration-push",
     "staff-command-push",
     "outbox-fanout-push",
-    "dbt-modeling-pull",
     "no-cross-service-db-access",
 }
 

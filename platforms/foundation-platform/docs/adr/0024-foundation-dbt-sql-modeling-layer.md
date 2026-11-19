@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Accepted |
+| Status | Superseded by [ADR-0588](../../../../docs/adr/0588-the-dbt-project-nobody-runs-is-deleted-and-transforms-stay-on-dagster-partitions-with-code-versions.md) |
 | Date | 2026-07-09 |
 | Scope | foundation-platform lakehouse SQL modeling |
 | Related | ADR 0007, ADR 0022, Gongzzang ADR 0051 |

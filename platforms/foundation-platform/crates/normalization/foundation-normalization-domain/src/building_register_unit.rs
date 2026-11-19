@@ -107,7 +107,7 @@ pub struct NormalizedBuildingRegisterUnit {
     /// (`D07-01호`, `아파트501`). `None` when the raw name is empty.
     pub unit_designation: Option<String>,
     /// Conservative normalized designation (ADR-0107 §1) — the cross-registry
-    /// matching form shared with the dbt macro and frozen by golden vectors.
+    /// matching form frozen by golden vectors.
     pub unit_designation_normalized: Option<String>,
     /// The unit's floor, normalized by the shared floor rules (지하 = negative index).
     pub floor: NormalizedBuildingRegisterFloor,
