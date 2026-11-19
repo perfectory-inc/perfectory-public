@@ -225,10 +225,6 @@
       "target_auth_method": "zitadel_workload_bearer"
     },
     {
-      "source_policy_id": "foundation_outbox_to_gongzzang_events",
-      "target_auth_method": "timestamped_hmac_sha256"
-    },
-    {
       "source_policy_id": "gongzzang_outbox_publisher_to_foundation_lakehouse_registry",
       "target_auth_method": "zitadel_workload_bearer"
     }

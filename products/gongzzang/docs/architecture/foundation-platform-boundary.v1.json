@@ -90,9 +90,7 @@
       "FOUNDATION_PLATFORM_CATALOG_EDGE_BASE_URL",
       "NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL"
     ],
-    "required_service_auth_env": [
-      "FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE"
-    ],
+    "required_service_auth_env": ["FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE"],
     "forbidden_env": [
       "VWORLD_*",
       "ODP_SERVICE_KEY",
