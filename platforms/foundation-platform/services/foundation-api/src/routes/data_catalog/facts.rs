@@ -25,7 +25,7 @@ use lakehouse_infrastructure::{
 };
 use regex::Regex;
 use serde_json::{json, Value as JsonValue};
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 
 use super::health::{iceberg_table, late, FailedRunLog};
 use super::operations::{
@@ -121,31 +121,57 @@ fn kept() -> &'static RwLock<Option<Arc<Facts>>> {
 
 static READING: AtomicBool = AtomicBool::new(false);
 
+/// Told when a read has been kept, for the calls that wait for the first one.
+fn kept_changed() -> &'static Notify {
+    static KEPT_CHANGED: Notify = Notify::const_new();
+    &KEPT_CHANGED
+}
+
 /// The kept read, starting the next one when it is older than `FRESH_FOR`; the first call waits.
+///
+/// Every read runs in its own task, never in the caller's future: a caller that gives up (a
+/// request timed out, `/metrics`'s read budget) drops only its wait, and the read is still kept.
+/// The first read used to run inside the first caller; on 2026-11-19 it took longer than the 3 s
+/// request timeout, every scrape cancelled it, and nothing was ever kept (`/metrics` 408 from 03:05Z).
 pub(super) async fn current(
     list: Arc<JobList>,
     dependencies: Arc<Vec<JobDependencies>>,
 ) -> Arc<Facts> {
-    let previous = kept().read().await.clone();
-    match previous {
-        Some(facts) if Utc::now() - facts.read_at < FRESH_FOR => facts,
-        Some(facts) => {
-            if !READING.swap(true, Ordering::AcqRel) {
-                let earlier = Arc::clone(&facts);
-                tokio::spawn(async move {
-                    let next = Arc::new(read(Some(&earlier), &list, &dependencies).await);
-                    *kept().write().await = Some(next);
-                    READING.store(false, Ordering::Release);
-                });
+    loop {
+        // Made before the kept read is looked at, so a read kept in between still wakes it
+        // (`notify_waiters` reaches every `Notified` from its creation).
+        let changed = kept_changed().notified();
+        let previous = kept().read().await.clone();
+        match previous {
+            Some(facts) if Utc::now() - facts.read_at < FRESH_FOR => return facts,
+            Some(facts) => {
+                start_read(Some(Arc::clone(&facts)), &list, &dependencies);
+                return facts;
             }
-            facts
-        }
-        None => {
-            let next = Arc::new(read(None, &list, &dependencies).await);
-            *kept().write().await = Some(Arc::clone(&next));
-            next
+            None => {
+                start_read(None, &list, &dependencies);
+                changed.await;
+            }
         }
     }
+}
+
+/// Starts the next read in its own task unless one is running.
+fn start_read(
+    earlier: Option<Arc<Facts>>,
+    list: &Arc<JobList>,
+    dependencies: &Arc<Vec<JobDependencies>>,
+) {
+    if READING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let (list, dependencies) = (Arc::clone(list), Arc::clone(dependencies));
+    tokio::spawn(async move {
+        let next = Arc::new(read(earlier.as_deref(), &list, &dependencies).await);
+        *kept().write().await = Some(next);
+        READING.store(false, Ordering::Release);
+        kept_changed().notify_waiters();
+    });
 }
 
 async fn read(previous: Option<&Facts>, list: &JobList, dependencies: &[JobDependencies]) -> Facts {
