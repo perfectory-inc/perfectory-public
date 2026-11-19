@@ -148,6 +148,8 @@
         "scripts/ci/test_foundation_spark_runtime_files.py",
         "scripts/ci/foundation_spark_shards.py",
         "scripts/ci/test_foundation_spark_shards.py",
+        "scripts/ci/spark-packages.sh",
+        "scripts/ci/test_spark_packages.py",
         "scripts/ci/foundation-spark-runtime-durations.json",
         "scripts/ci/foundation_postgres_production_shape.py",
         "scripts/ci/test_foundation_postgres_production_shape.py",

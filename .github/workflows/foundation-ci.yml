@@ -1062,6 +1062,7 @@ jobs:
         run: |
           python3 scripts/ci/test_foundation_spark_runtime_files.py -v
           python3 scripts/ci/test_foundation_spark_shards.py -v
+          python3 scripts/ci/test_spark_packages.py -v
       - name: Select Spark runtime gate
         working-directory: ${{ github.workspace }}
         shell: bash
@@ -1073,6 +1074,16 @@ jobs:
         run: |
           python3 scripts/ci/foundation_ci_scope.py             --gate spark-runtime             --event-name "$FOUNDATION_CI_EVENT_NAME"             --base "$FOUNDATION_CI_BASE"             --head "$FOUNDATION_CI_HEAD"             --repository "$FOUNDATION_CI_REPOSITORY"             --github-env "$GITHUB_ENV"
 
+      # The engine's Spark packages (Iceberg, Hadoop's S3 layer, Sedona: 508 MB of jars) are Ivy's cache,
+      # saved from main and keyed by the engine contract: scripts/ci/spark-packages.sh then resolves them
+      # with no network. 2026-11-19: Maven Central refused the runners, Ivy reported "module not found",
+      # and the merge queue merged nothing for two and a half hours.
+      - name: Restore Spark packages
+        if: ${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/spark-packages/cache
+          key: spark-packages-v1-${{ runner.os }}-${{ hashFiles('platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json') }}
       # The Spark tests in infra/lakehouse/spark/tests skip on the default runner, which has no
       # PySpark: the Iceberg commit and snapshot-pin tests among them (root ADR-0139). Here they run
       # in the compose `spark` image with the engine contract's Iceberg runtime, and a test that
@@ -1096,7 +1107,14 @@ jobs:
             echo "This change reaches no Spark runtime test planned for this shard; see the plan above."
             exit 0
           fi
-          SPARK_RUNTIME_TARGETS="$targets" bash scripts/verify/foundation-spark-runtime.sh
+          SPARK_RUNTIME_TARGETS="$targets" SPARK_RUNTIME_IVY_CACHE="$HOME/.cache/perfectory/spark-packages" bash scripts/verify/foundation-spark-runtime.sh
+      # scripts/ci/spark-packages.sh asks for a save only when it had to download; main alone saves.
+      - name: Save Spark packages
+        if: ${{ always() && env.PERFECTORY_SPARK_PACKAGES_SAVE != '' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/spark-packages/cache
+          key: spark-packages-v1-${{ runner.os }}-${{ hashFiles('platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json') }}
 
   # Root ADR-0345: the release build of .github/workflows/foundation-release-build.yml, built here as
   # a dry run: every image, the executable and the jars from the same script, read from main's build
@@ -1131,9 +1149,18 @@ jobs:
           path: ~/.cache/perfectory/pinned
           key: pinned-release-binaries-v1-${{ runner.os }}
           restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+      # The engine's Spark packages (Iceberg, Hadoop's S3 layer, Sedona: 508 MB of jars) are Ivy's cache,
+      # saved from main and keyed by the engine contract: scripts/ci/spark-packages.sh then resolves them
+      # with no network. 2026-11-19: Maven Central refused the runners, Ivy reported "module not found",
+      # and the merge queue merged nothing for two and a half hours.
+      - name: Restore Spark packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/spark-packages/cache
+          key: spark-packages-v1-${{ runner.os }}-${{ hashFiles('platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json') }}
       - name: Build the release, attest and publish nothing
         working-directory: ${{ github.workspace }}
-        run: python3 scripts/deploy/foundation-release-build.py --out "$RUNNER_TEMP/release" --cache-ref "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release" --cache-read-only
+        run: python3 scripts/deploy/foundation-release-build.py --out "$RUNNER_TEMP/release" --cache-ref "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release" --cache-read-only --ivy-cache "$HOME/.cache/perfectory/spark-packages"
 
   dagster-observe:
     needs: [scope]

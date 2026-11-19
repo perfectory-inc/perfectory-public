@@ -85,8 +85,24 @@ jobs:
           path: ~/.cache/perfectory/pinned
           key: pinned-release-binaries-v1-${{ runner.os }}
           restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+      # The engine's Spark packages (Iceberg, Hadoop's S3 layer, Sedona: 508 MB of jars) are Ivy's cache,
+      # saved from main and keyed by the engine contract: scripts/ci/spark-packages.sh then resolves them
+      # with no network. 2026-11-19: Maven Central refused the runners, Ivy reported "module not found",
+      # and the merge queue merged nothing for two and a half hours.
+      - name: Restore Spark packages
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/spark-packages/cache
+          key: spark-packages-v1-${{ runner.os }}-${{ hashFiles('platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json') }}
       - name: Build the release artifacts
-        run: python3 scripts/deploy/foundation-release-build.py --out "$RUNNER_TEMP/release" --cache-ref "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release"
+        run: python3 scripts/deploy/foundation-release-build.py --out "$RUNNER_TEMP/release" --cache-ref "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release" --ivy-cache "$HOME/.cache/perfectory/spark-packages"
+      # scripts/ci/spark-packages.sh asks for a save only when it had to download; main alone saves.
+      - name: Save Spark packages
+        if: ${{ always() && env.PERFECTORY_SPARK_PACKAGES_SAVE != '' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/spark-packages/cache
+          key: spark-packages-v1-${{ runner.os }}-${{ hashFiles('platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json') }}
       - name: Attest the manifest and every blob
         id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2 (SHA pin, ADR 0028)

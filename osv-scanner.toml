@@ -42,3 +42,48 @@ reason = "chrono: 취약점이 아니라 '관리 중단' 권고이고 모든 판
 id = "GHSA-fc5q-39xc-vjpf"
 ignoreUntil = 2026-12-18
 reason = "picomatch(CVE-2026-112366, 단일 가지 반복 extglob ReDoS): 권고가 'through 4.0.7'(last_affected) 이고 2026-11-18 npm 최신이 4.0.7 이라 올릴 수정판이 없다. 일곱 pnpm 트리 모두 vite·vitest·tinyglobby·fdir(빌드·시험 도구)와 gongzzang 의 micromatch(fast-glob·markdownlint-cli2)·@parcel/watcher(next-intl 메시지 추출) 가 끌어오고, 패턴은 우리 설정·소스의 고정 glob 뿐이다 — 요청 입력이 glob 이 되는 실행 경로가 없다. 수정판이 나오면 security-overrides 계약으로 올리고 닫는다(30일 뒤 다시 본다)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0574"
+ignoreUntil = 2026-12-19
+reason = "heapless 0.8.0 ← rstar 0.12.2 ← geo 0.33.1(foundation catalog-domain), gongzzang lockfile 의 heapless 0.6.1·0.7.17·0.8.0 은 geo-types 0.7.20 의 선택 의존 rstar 0.8~0.13 이 lockfile 에만 남긴 것(cargo tree 로 빌드되지 않음 확인). 수정판은 heapless >=0.9.4(2026-11-18) 인데 그 heapless 를 쓰는 rstar 0.14 를 geo 가 지원하는 변경(georust/geo#1641, 2026-11-12 병합)이 아직 릴리스되지 않았다 — crates.io 최신 geo 0.33.1 은 rstar ^0.12, geo-types 0.7.20 에는 rstar_0_14 기능이 없다. 권고는 'unsound'(정보성)이고, rstar 0.12.2 가 쓰는 heapless 는 nearest_neighbor 의 binary_heap 하나다: 권고가 가리키는 Deque·IndexMap·SortedLinkedList·Spsc·pool·HistoryBuf 는 쓰지 않고, into_vec 뒤 vec::IntoIter::drop(-0577)은 원소의 Drop 이 패닉할 때만이며 원소는 참조와 거리뿐이다. geo 가 rstar 0.14 로 릴리스되면 올리고 닫는다(30일 뒤 다시 본다)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0575"
+ignoreUntil = 2026-12-19
+reason = "RUSTSEC-2026-0574 와 같은 이유(heapless <0.9.4 unsound, geo 0.33.1 → rstar 0.12.2 → heapless 0.8; 수정 경로 georust/geo#1641 미릴리스)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0576"
+ignoreUntil = 2026-12-19
+reason = "RUSTSEC-2026-0574 와 같은 이유(heapless <0.9.4 unsound, geo 0.33.1 → rstar 0.12.2 → heapless 0.8; 수정 경로 georust/geo#1641 미릴리스)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0577"
+ignoreUntil = 2026-12-19
+reason = "RUSTSEC-2026-0574 와 같은 이유(heapless <0.9.4 unsound, geo 0.33.1 → rstar 0.12.2 → heapless 0.8; 수정 경로 georust/geo#1641 미릴리스)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0578"
+ignoreUntil = 2026-12-19
+reason = "RUSTSEC-2026-0574 와 같은 이유(heapless <0.9.4 unsound, geo 0.33.1 → rstar 0.12.2 → heapless 0.8; 수정 경로 georust/geo#1641 미릴리스)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0579"
+ignoreUntil = 2026-12-19
+reason = "RUSTSEC-2026-0574 와 같은 이유(heapless <0.9.4 unsound, geo 0.33.1 → rstar 0.12.2 → heapless 0.8; 수정 경로 georust/geo#1641 미릴리스)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0580"
+ignoreUntil = 2026-12-19
+reason = "RUSTSEC-2026-0574 와 같은 이유(heapless <0.9.4 unsound, geo 0.33.1 → rstar 0.12.2 → heapless 0.8; 수정 경로 georust/geo#1641 미릴리스)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0581"
+ignoreUntil = 2026-12-19
+reason = "RUSTSEC-2026-0574 와 같은 이유(heapless <0.9.4 unsound, geo 0.33.1 → rstar 0.12.2 → heapless 0.8; 수정 경로 georust/geo#1641 미릴리스)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0582"
+ignoreUntil = 2026-12-19
+reason = "RUSTSEC-2026-0574 와 같은 이유(heapless <0.9.4 unsound, geo 0.33.1 → rstar 0.12.2 → heapless 0.8; 수정 경로 georust/geo#1641 미릴리스)."
