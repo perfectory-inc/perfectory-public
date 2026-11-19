@@ -3,13 +3,13 @@
   "description": [
     "Dependency updates arrive as pull requests from the hosted Renovate app (root ADR-0271).",
     "Version pins live in tools/technology-versions.contract.json (root ADR-0097): the custom managers below update the contract in the same branch as every file that copies a pin, so the version guards see one value.",
-    "Patch and digest updates open ready pull requests that the merge queue takes once CI is green; minor and major (non-security) updates open as drafts for a person to review.",
+    "Patch and digest updates and lockfile maintenance open ready pull requests with GitHub's auto-merge on, which adds them to the merge queue once CI is green (root ADR-0585); minor and major (non-security) updates open as drafts for a person to review.",
+    "The Dependency Dashboard issue (on by default in config:recommended; this file no longer turns it off) lists what Renovate found, what it holds back and why, so a silent Renovate is visible (root ADR-0585).",
     "Security (vulnerability) updates automerge once CI is green, even a major: the vulnerability risk outweighs the regression risk and CI is the gate (ADR-0302 amends ADR-0097 for security only)."
   ],
   "extends": ["config:recommended"],
   "timezone": "Asia/Seoul",
   "schedule": ["before 9am on monday"],
-  "dependencyDashboard": false,
   "semanticCommits": "enabled",
   "prConcurrentLimit": 6,
   "prHourlyLimit": 3,
@@ -24,6 +24,7 @@
   },
   "lockFileMaintenance": {
     "enabled": true,
+    "automerge": true,
     "schedule": ["before 9am on monday"]
   },
   "enabledManagers": ["cargo", "npm", "github-actions", "custom.regex"],
@@ -92,22 +93,26 @@
     {
       "matchDatasources": ["crate"],
       "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
-      "groupName": "cargo patch updates"
+      "groupName": "cargo patch updates",
+      "automerge": true
     },
     {
       "matchDatasources": ["npm"],
       "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
-      "groupName": "npm patch updates"
+      "groupName": "npm patch updates",
+      "automerge": true
     },
     {
       "matchDatasources": ["docker"],
       "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
-      "groupName": "container image patch updates"
+      "groupName": "container image patch updates",
+      "automerge": true
     },
     {
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
-      "groupName": "github-actions patch updates"
+      "groupName": "github-actions patch updates",
+      "automerge": true
     },
     {
       "matchDatasources": ["crate"],
