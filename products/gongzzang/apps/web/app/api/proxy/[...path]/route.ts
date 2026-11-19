@@ -6,7 +6,8 @@ import { problem } from "@/lib/http/problem";
 import { GENERATED_API_PROXY_ROUTE_POLICIES } from "@/lib/policies/traffic-auth-policy.generated";
 import { checkRate } from "@/lib/ratelimit";
 import { SID_COOKIE_NAME } from "@/lib/session/cookie";
-import { getSession, hasAnyRole, type SessionData } from "@/lib/session/store";
+import { hasAnyRole } from "@/lib/session/roles";
+import { getSession, type SessionData } from "@/lib/session/store";
 
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH"]);
 

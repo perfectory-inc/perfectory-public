@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { grantedRoles } from "@/lib/oidc";
-import { hasAnyRole } from "@/lib/session/store";
+import { hasAnyRole } from "@/lib/session/roles";
 
 const CLAIM = "urn:zitadel:iam:org:project:roles";
 
