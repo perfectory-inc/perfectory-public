@@ -65,5 +65,5 @@ GRANT EXECUTE ON FUNCTION
                  text, text, text, jsonb, jsonb, text, text, text, text, text, uuid),
     audit.advance_cursor(text, text, text)
     TO foundation_api, foundation_audit_importer;
--- The hourly digest (root ADR-0569 §4) is kept by the importer role only; the function checks it too.
-GRANT EXECUTE ON FUNCTION audit.record_digest(bigint, bytea, bigint, jsonb) TO foundation_audit_importer;
+-- The hourly digest (root ADR-0569 §4, ADR-0584 §2) is made and witnessed by the importer role only.
+GRANT EXECUTE ON FUNCTION audit.make_digest(), audit.witness_digest(bigint, jsonb) TO foundation_audit_importer;

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# The audit digest's witness (root ADR-0569 §4): root's step of foundation-audit-digest.service, run
-# from the control checkout like the shape ledger's writer key. It signs the digest the service user
-# prepared with the witness key, using the pinned cosign, which records the signature in the public
-# Rekor transparency log and answers the bundle. Only the digest's hash and signature leave the host.
+# The audit digest's witness (root ADR-0569 §4, ADR-0584 §2): root's step of
+# foundation-audit-digest.service, run from the control checkout like the shape ledger's writer key.
+# It signs each digest the service user kept and has not seen witnessed (pending/<no>.txt, oldest
+# first) with the witness key, using the pinned cosign, which records the signature in the public
+# Rekor transparency log and answers the bundle (pending/<no>.bundle.json). Only the digest's hash
+# and signature leave the host. A signing that fails stops here; the digest stays pending for the
+# next run, and the ones signed before it are still recorded.
 #
 # The key is made here once and never leaves root: /var/lib/perfectory/audit-witness/cosign.key
 # (0600). Its public half, cosign.pub (0644), is what anyone checks the Rekor entries against.
@@ -17,8 +20,8 @@ control="${FOUNDATION_AUDIT_WITNESS_CONTROL:-/opt/perfectory-control/current}"
 cache="${FOUNDATION_AUDIT_WITNESS_PINNED:-/var/lib/perfectory/pinned}"
 owner="$(stat -c %U:%G "${dir}")"
 
-if [[ ! -f "${dir}/digest.txt" && ! -d "${dir}/verify" ]]; then
-  log "no new row and no weekly check: nothing to witness"
+if [[ ! -d "${dir}/pending" && ! -d "${dir}/verify" ]]; then
+  log "no digest to witness and no weekly check"
   exit 0
 fi
 
@@ -51,9 +54,17 @@ if [[ -d "${dir}/verify" ]]; then
   log "verified ${checked} digests against Rekor"
 fi
 
-if [[ -f "${dir}/digest.txt" ]]; then
-  "${cosign}" sign-blob --yes --key "${keys}/cosign.key" --bundle "${dir}/bundle.json" "${dir}/digest.txt" >/dev/null
-  chown "${owner}" "${dir}/bundle.json"
-  chmod 0640 "${dir}/bundle.json"
-  log "witnessed $(cat "${dir}/digest.json")"
+if [[ -d "${dir}/pending" ]]; then
+  while IFS= read -r no; do
+    text="${dir}/pending/${no}.txt"
+    bundle="${dir}/pending/${no}.bundle.json"
+    if ! "${cosign}" sign-blob --yes --key "${keys}/cosign.key" --bundle "${bundle}" "${text}" >/dev/null; then
+      rm -f "${bundle}"
+      log "digest ${no} was not witnessed; it stays pending for the next run"
+      break
+    fi
+    chown "${owner}" "${bundle}"
+    chmod 0640 "${bundle}"
+    log "witnessed digest ${no}"
+  done < <(find "${dir}/pending" -maxdepth 1 -name '*.txt' -printf '%f\n' | sed -n 's/^\([1-9][0-9]*\)\.txt$/\1/p' | sort -n)
 fi

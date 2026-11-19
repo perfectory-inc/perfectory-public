@@ -118,8 +118,10 @@ postcondition() {
           AND NOT has_table_privilege('foundation_api', 'catalog.operator_action', 'TRUNCATE')
           AND has_table_privilege('foundation_api', 'audit.event', 'SELECT')
           AND has_function_privilege('foundation_api', 'audit.advance_cursor(text, text, text)', 'EXECUTE')
-          AND NOT has_function_privilege('foundation_api', 'audit.record_digest(bigint, bytea, bigint, jsonb)', 'EXECUTE')
-          AND has_function_privilege('foundation_audit_importer', 'audit.record_digest(bigint, bytea, bigint, jsonb)', 'EXECUTE')
+          AND NOT has_function_privilege('foundation_api', 'audit.make_digest()', 'EXECUTE')
+          AND NOT has_function_privilege('foundation_api', 'audit.witness_digest(bigint, jsonb)', 'EXECUTE')
+          AND has_function_privilege('foundation_audit_importer', 'audit.make_digest()', 'EXECUTE')
+          AND has_function_privilege('foundation_audit_importer', 'audit.witness_digest(bigint, jsonb)', 'EXECUTE')
           AND NOT EXISTS (
             SELECT 1 FROM pg_catalog.pg_tables AS t,
                  unnest(ARRAY['foundation_api', 'foundation_audit_importer']) AS r(role),

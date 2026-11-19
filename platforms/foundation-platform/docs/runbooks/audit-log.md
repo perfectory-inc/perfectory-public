@@ -37,15 +37,19 @@ last_reviewed: 2026-11-19
 
 | 걸음 | 누가 | 하는 일 |
 |---|---|---|
-| `audit-digest.sh prepare` | 서비스 사용자 | `audit.next_digest()`: 지난 digest 뒤의 줄이 그 head 에서 이어지는지 확인하고 digest 글을 `$RUNTIME_DIRECTORY/digest.txt` 에 쓴다 |
-| `audit-witness.sh`(컨트롤 checkout) | root | 증인 키(`/var/lib/perfectory/audit-witness/cosign.key`, 0600, 처음 한 번 만든다)와 고정 판 cosign 으로 서명해 공개 Rekor 에 올리고 번들을 받는다 |
-| `audit-digest.sh record` | 서비스 사용자 | `audit.record_digest(...)`: digest 를 다시 계산해 같을 때만 번들과 함께 `audit.digest` 에 남긴다 |
+| `audit-digest.sh prepare` | 서비스 사용자 | `audit.make_digest()`: 지금 스냅샷이 보고 지난 digest 의 스냅샷이 보지 않은 줄의 digest 를 `audit.digest` 에 먼저 남긴다(트리거가 줄과 대조). 새 줄이 없으면 만들지 않는다. 증인이 아직 없는 digest 마다 글을 `$RUNTIME_DIRECTORY/pending/<번호>.txt` 에 쓴다 |
+| `audit-witness.sh`(컨트롤 checkout) | root | 증인 키(`/var/lib/perfectory/audit-witness/cosign.key`, 0600, 처음 한 번 만든다)와 고정 판 cosign 으로 오래된 것부터 서명해 공개 Rekor 에 올리고 `pending/<번호>.bundle.json` 을 받는다. 실패하면 거기서 멈추고 그 digest 는 다음 실행에 다시 올린다 |
+| `audit-digest.sh record` | 서비스 사용자 | `audit.witness_digest(번호, 번들)`: 번들이 그 digest 의 해시에 대한 것일 때만 `audit.digest_witness` 에 남긴다(Rekor 위치는 번들에서 읽는다) |
 
-월요일 00:05 KST 에는 `audit.verify_all()` 로 seq 1 부터 전부, 그리고 모든 번들을 Rekor 와 대조한다.
-digest 없이 두 시간 넘은 줄이 있으면 가져오기 작업이 실패해 알린다(증인이 멈췄다는 뜻).
+digest 를 올리기 전에 남기므로, 올리기가 실패해도 같은 범위에 digest 가 둘 생기지 않는다. 다시 서명하면 Rekor 항목은 새로
+생기지만(서명이 매번 다르다) 같은 digest 해시를 증언하고, 표에는 처음 남긴 하나만 들어간다.
+
+월요일 00:05 KST 에는 `audit.verify_all()` 로 모든 digest 를 줄에서 다시 계산하고, 모든 번들을 Rekor 와 대조한다.
+증인 있는 digest 가 두 시간 넘게 덮지 못한 줄이 있으면 가져오기 작업이 실패해 알린다(증인이 멈췄다는 뜻).
 
 누구나 하는 대조: 공개 키(`/var/lib/perfectory/audit-witness/cosign.pub`, 저장소의 `config/audit-witness.pub`)로
-`cosign verify-blob --key cosign.pub --bundle <번들> <digest 글>`. digest 글은 `audit.digest_text(from_seq, to_seq, count, head_hash, previous_digest_sha256)` 다.
+`cosign verify-blob --key cosign.pub --bundle <번들> <digest 글>`. digest 글은
+`audit.digest_text(digest_no, from_snapshot, to_snapshot, row_count, rows_sha256, previous_digest_sha256)` 다(루트 ADR-0584 §2).
 
 ## 확인
 

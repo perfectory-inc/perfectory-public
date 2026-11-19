@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform audit digest: check the audit chain's new rows, witness their digest in the public Rekor log and keep it (root ADR-0569 §4)
+Description=Foundation Platform audit digest: keep the digest of the audit record's new rows, witness it in the public Rekor log (root ADR-0569 §4, ADR-0584 §2)
 Documentation=file:///opt/foundation-platform/current/docs/runbooks/audit-log.md
 X-Foundation-Owner=platform
 Requires=docker.service

@@ -47,7 +47,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Digest the audit chain every hour (root ADR-0569 §4): audit.next_digest checks that the rows after the last digest chain from its head and makes their digest; root's audit-witness.sh signs its SHA-256 with the witness key and the pinned cosign, which records it in the public Rekor log; audit.record_digest computes the digest again and keeps it with the Rekor bundle in audit.digest. Only the hash leaves the host. Every Monday 00:05 KST it first checks the whole chain and every digest from seq 1 (audit.verify_all) and every bundle against Rekor. `changed` when it kept a digest; `unchanged` with no new row. A range that does not chain, or a witness that cannot reach Rekor, fails the run.",
+      "description": "Digest the audit record every hour (root ADR-0569 §4, ADR-0584 §2): audit.make_digest keeps the next digest, the rows the current snapshot sees and the last digest's did not (its trigger checks it against the rows); root's audit-witness.sh signs the SHA-256 of every digest not yet witnessed with the witness key and the pinned cosign, which records it in the public Rekor log; audit.witness_digest keeps each bundle after checking it is for that digest's hash. Only the hash leaves the host. A failed upload leaves the digest pending for the next run. Every Monday 00:05 KST it first recomputes every digest from its rows (audit.verify_all) and checks every bundle against Rekor. `changed` when it kept a witness; `unchanged` with nothing to witness. A digest that does not match its rows fails the run.",
       "systemd_service": "foundation-audit-digest.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -63,7 +63,7 @@
         "measured_run_seconds": null,
         "first_run": {
           "estimate_seconds": 20,
-          "estimated_from": "computed (root ADR-0386): the first digest covers every row since seq 1 (about 1,200 after the first import), rehashed in SQL in well under a second; one cosign signature and one Rekor upload, a few seconds; the weekly check rehashes the whole chain (100 rows a day, root ADR-0569 §5) and verifies one bundle per hourly digest against Rekor"
+          "estimated_from": "computed (root ADR-0386): the first digest covers every row so far (about 1,200 after the first import), hashed in SQL in well under a second; one cosign signature and one Rekor upload, a few seconds; the weekly check rehashes every range (100 rows a day, root ADR-0569 §5) and verifies one bundle per hourly digest against Rekor"
         }
       },
       "pool": "default_pool",
@@ -78,7 +78,7 @@
       "dagster_stage": "shadow",
       "expected_outcome": {
         "changes_within_hours": null,
-        "no_change_bound_reason": "An operation, not a data producer: an hour without a new audit row is `unchanged`. The importer fails when a row has waited two hours for a digest, which bounds this job's silence."
+        "no_change_bound_reason": "An operation, not a data producer: an hour without a new audit row is `unchanged`. The importer fails when a row has waited two hours for a witnessed digest, which bounds this job's silence."
       }
     }
   ],
@@ -89,15 +89,17 @@
       "status": "implemented",
       "owner": "foundation-platform",
       "title": "감사 기록 사슬",
-      "description": "플랫폼의 모든 변경(더니어 동작·배포·호스트 명령·PR·지도 편집)을 직원 계정을 열쇠로 한 해시 사슬 한 표. 덧붙이기만 하고, 쓰는 문은 audit.append 하나다(루트 ADR-0569).",
+      "description": "플랫폼의 모든 변경(더니어 동작·배포·호스트 명령·PR·지도 편집)을 직원 계정을 열쇠로 한 표 하나. 덧붙이기만 하고, 쓰는 문은 audit.append 하나다. 매시 digest 가 줄들을 해시한다(루트 ADR-0569, ADR-0584).",
       "runbook_ref": "platforms/foundation-platform/docs/runbooks/audit-log.md",
       "evidence_refs": [
         "platforms/foundation-platform/migrations/20261118172000_every_change_is_one_hash_chained_audit_event.sql",
+        "platforms/foundation-platform/migrations/20261119054701_the_audit_chain_is_witnessed_by_its_digest_not_chained_row_by_row.sql",
         "platforms/foundation-platform/config/audit-events.contract.json"
       ],
       "tables": [
         "audit.event",
         "audit.digest",
+        "audit.digest_witness",
         "audit.import_cursor",
         "audit.source"
       ]
@@ -124,7 +126,7 @@
       "description": "공개 Sigstore Rekor 투명성 기록에 올린 매시 감사 digest 의 서명. 호스트가 지울 수 없는 바깥 증인이다(루트 ADR-0569 §4). 해시와 서명만 올라간다.",
       "runbook_ref": "platforms/foundation-platform/docs/runbooks/audit-log.md",
       "evidence_refs": [
-        "platforms/foundation-platform/migrations/20261119020000_the_audit_chain_is_digested_hourly_and_witnessed_outside_the_host.sql"
+        "platforms/foundation-platform/migrations/20261119140000_the_audit_digest_is_made_in_the_database_and_witnessed_after.sql"
       ],
       "surface_kind": "transparency_log"
     }
@@ -150,7 +152,7 @@
         "platforms/foundation-platform/scripts/ops/audit-digest.sh",
         "platforms/foundation-platform/scripts/ops/audit-witness.sh"
       ],
-      "description": "매시 새 줄의 digest 해시를 서명해 Rekor 에 올리고, 그 번들을 audit.digest 에 남긴다."
+      "description": "매시 새 줄의 digest 를 먼저 audit.digest 에 남기고, 그 해시를 서명해 Rekor 에 올린 뒤, 번들을 audit.digest_witness 에 남긴다."
     }
   ]
 }
