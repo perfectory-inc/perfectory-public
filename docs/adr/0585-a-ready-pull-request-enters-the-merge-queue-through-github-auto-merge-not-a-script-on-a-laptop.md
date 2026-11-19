@@ -74,8 +74,8 @@ Tide, Rust 의 bors 처럼 큰 프로젝트는 "넣는 일" 을 서버 쪽 서�
 4. **도구 사슬 보류는 Renovate 설정에 있다.** `node`·`pnpm`·`rust`·`packageManager` 는 `enabled: false` 라 PR 이
    열리지 않는다(ADR-0097 결정 1). 스크립트가 PR 을 열어 본 뒤 걸러 내던 일은 필요 없다.
 5. **Renovate 의존성 대시보드를 켠다.** `config:recommended` 가 기본으로 켜는 것을 `.github/renovate.json` 이 끄고
-   있었다. 그 줄을 지운다(Renovate 44 에서 이 옵션은 `dependencyDashboard.enabled` 객체다). Renovate 가 무엇을 찾았고
-   무엇을 왜 미뤘는지가 이슈 하나에 있다.
+   있었다. 끄던 줄을 없앤다. 같은 날 main 에 먼저 들어온 ADR-0568 §8 이 그 줄을 `true` 로 바꿔 두었으므로 그 값을
+   그대로 둔다(같은 결정이다). Renovate 가 무엇을 찾았고 무엇을 왜 미뤘는지가 이슈 하나에 있다.
 6. **앞에 세우는 길은 그대로이고, 부르는 사람이 바뀐다.** `hotfix:main-red`·`hotfix:deploy-stop` 라벨이 붙은 PR 은
    `scripts/github/merge_queue_enqueue.py` 가 `jump: true` 로 넣는다(ADR-0553). 지금까지는 노트북 스크립트가 불렀고,
    이제 고치는 PR 의 작성자가 라벨을 붙이고 한 번 부른다(`main-red` 이슈가 그 명령을 적어 준다). 자동 병합으로 이미 뒤에

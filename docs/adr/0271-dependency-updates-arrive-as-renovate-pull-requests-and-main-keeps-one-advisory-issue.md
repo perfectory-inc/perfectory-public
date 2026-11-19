@@ -55,6 +55,8 @@
    트리거·최상위·다른 쓰기 권한을 각각 거부한다). 그 잡은 크레이트를 읽은 잡과 분리되어 main 에서만 돌고, 스크립트
    하나만 체크아웃한다.
 
+개정 각주(2026-11-18): 4항의 "의존성 대시보드 이슈는 만들지 않는다" 는 [ADR-0568](./0568-a-new-advisory-on-a-lockfile-a-change-leaves-as-it-is-warns-while-its-fix-is-open-and-blocks-again-when-the-grace-ends.md) 8항이 바꿨다(`has_issues` 가 켜져 대시보드를 켠다). 같은 ADR 7항이 보안 PR 동시 상한 3 을 더했다. "소유자가 할 일" 2항은 2026-11-18 적용됐다(방화벽 우회 행위자, `has_issues`).
+
 ## 소유자가 할 일 (저장소 밖, 한 번)
 
 1. Renovate 앱 설치: <https://github.com/apps/renovate> → Only select repositories → 이 저장소. 설정 파일이 이미
@@ -80,3 +82,7 @@
   허용 목록에 박힌 서드파티 액션.
 - 공개 저장소에 이슈가 켜진다. 외부인도 이슈를 열 수 있다는 대가를 이슈 하나의 가시성과 바꾼다.
 - 예약 실행은 하루에 Rust 설치 + `cargo metadata` 6번 + 심은 권고 2개를 쓴다(표준 러너, 무료).
+
+개정 각주(2026-11-18): 7항의 "쓰기 권한은 그 잡의 `issues: write` 하나뿐" 은 [ADR-0570](./0570-the-repository-is-compared-with-tools-github-every-day-and-a-silent-renovate-while-main-has-advisories-opens-the-same-issue.md) 이 같은 파일에 쓰는 잡 하나(`Repository drift and Renovate pulse`, 같은 권한)를 더했다. 둘 다 크레이트를 읽는 잡과 분리되어 있다.
+
+개정 각주(2026-11-18): 3항의 "`pnpm.overrides` 는 … 렌더라 끈다" 는 [ADR-0572](./0572-pnpm-12-and-every-tree-s-pnpm-settings-live-in-its-pnpm-workspace-yaml-where-the-overrides-contract-renders.md) 뒤 트리의 `pnpm-workspace.yaml` `overrides` 다. `.github/renovate.json` 은 그 파일을 고치지 않는다(`matchFileNames`).

@@ -88,6 +88,8 @@ services:
       PGPASSWORD: ${FOUNDATION_ADMIN_PASSWORD:?set FOUNDATION_ADMIN_PASSWORD}
       FOUNDATION_MIGRATOR_PASSWORD: ${FOUNDATION_MIGRATOR_PASSWORD:?set FOUNDATION_MIGRATOR_PASSWORD}
       FOUNDATION_API_PASSWORD: ${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}
+      # The console's session-store role (root ADR-0116 §7); the release generates it on the host.
+      DAWNEER_SESSION_DATABASE_PASSWORD: ${DAWNEER_SESSION_DATABASE_PASSWORD:?set DAWNEER_SESSION_DATABASE_PASSWORD}
     volumes:
       - ./infra/compose/bootstrap-foundation.sql:/workspace/bootstrap-foundation.sql:ro
     command: ["psql", "-X", "--set=ON_ERROR_STOP=1", "--file=/workspace/bootstrap-foundation.sql"]
