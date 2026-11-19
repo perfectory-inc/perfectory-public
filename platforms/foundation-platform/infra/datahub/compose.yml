@@ -47,7 +47,10 @@ services:
       METADATA_AUDIT_EVENT_NAME: MetadataAuditEvent_v4
       METADATA_CHANGE_LOG_VERSIONED_TOPIC_NAME: MetadataChangeLog_Versioned_v1
       SCHEMA_REGISTRY_URL: "http://datahub-gms:8080/schema-registry/api/"
-    mem_limit: 512m
+    # Root ADR-0574, measured max x 1.5: 99 MiB working set over the 15 days Prometheus keeps
+    # (2026-11-19, container up since 2026-10-16), so 512m held 5x its peak; 160m gives the rest
+    # back to the host budget (the Dagster daemon's re-cap, root ADR-0583 §8).
+    mem_limit: 160m
     networks:
       - default
   datahub-gms-quickstart:
