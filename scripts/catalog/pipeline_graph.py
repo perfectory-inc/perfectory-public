@@ -22,6 +22,8 @@ DATA_RELATION = "feeds"
 # via steps that count as that resolver (address_pnu is 경매's path, converging under ADR-0288 §3).
 RESOLVER_VIA = {
     "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
+    # The same resolver in DuckDB inside the publisher (root ADR-0559): the loads that left Spark.
+    "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs",
     "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py",
 }
 # ADR-0483 (ADR-0288 §5): the stable place id is the join key of every parcel source. A PNU-keyed Gold

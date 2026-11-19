@@ -18,7 +18,8 @@ def write_json(path: Path, value: dict) -> None:
 def strip_resolver(graph: dict) -> None:
     """Take the place-identity resolver off the 공매 parcel edge (ADR-0288 §1)."""
     edge = next(e for e in graph["edges"] if e["id"] == "source-data-go-kr-onbid-to-silver-onbid-real-estate-item")
-    edge["via"] = [step for step in edge["via"] if "place_identity_resolver" not in step and "address_pnu" not in step]
+    edge["via"] = [step for step in edge["via"]
+                   if "place_identity_resolver" not in step and "place_identity_stage" not in step and "address_pnu" not in step]
 
 
 def drop_pnu_resolution(graph: dict) -> None:
