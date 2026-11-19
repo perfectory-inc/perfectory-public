@@ -5,6 +5,7 @@
     job_units.py running <unit|pattern>...     each matching service that runs, "<unit> <ActiveState>"
     job_units.py deferred-dir                  where the runner records a job a release build deferred
     job_units.py deferred                      the job ids recorded there, one per line
+    job_units.py admission-lock                the lock a start holds from its pool-full answer to its unit
     job_units.py pool-full <jobs.v1.json> <job id|service>
                                                why the job's pool has no room for it now, or the host no
                                                memory for what it claims (root ADR-0563), or nothing
@@ -68,6 +69,10 @@ QUEUE_DIR = "/var/lib/foundation-jobs/queue"
 # also appended to the history.
 STARTED_SUFFIX = ".started.json"
 QUEUE_HISTORY = "history.jsonl"
+# The one lock every start holds from its pool-full answer until systemd has its unit (start-scheduled-job.sh):
+# the answer reads what runs and the memory left, so two starts that asked at once both saw the same room.
+# Beside the queue, the scheduler's own directory; flock needs only a read of the file.
+ADMISSION_LOCK = "admission.lock"
 # When each job last started (start-scheduled-job.sh writes it, one file per job id holding the epoch
 # second; a check that found nothing to do counts as its start, root ADR-0305). Beside the queue, so the
 # asset reconciler (foundation-platform) reads what the takes_turns rule reads (root ADR-0467): it was
@@ -252,6 +257,10 @@ def claims_dir() -> str:
 
 def queue_dir() -> str:
     return os.environ.get("FOUNDATION_START_QUEUE_DIR") or QUEUE_DIR
+
+
+def admission_lock() -> str:
+    return os.path.join(queue_dir(), ADMISSION_LOCK)
 
 
 def starts_dir() -> str:
@@ -687,6 +696,9 @@ def main(argv) -> int:
         for unit, state in sorted(units.items()):
             print(unit, state)
         return 0
+    if argv == ["admission-lock"]:
+        print(admission_lock())
+        return 0
     if len(argv) == 3 and argv[0] == "pool-full":
         try:
             print(pool_full(argv[1], argv[2]))
@@ -765,7 +777,7 @@ def main(argv) -> int:
         print("\n".join(deferred()))
         return 0
     print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>... | deferred-dir | deferred"
-          " | pool-full <jobs.v1.json> <job id|service> | claim <jobs.v1.json> <claimant> <unit>"
+          " | admission-lock | pool-full <jobs.v1.json> <job id|service> | claim <jobs.v1.json> <claimant> <unit>"
           " | release <claimant> | queue <job id> <reason> | dequeue <job id> | preempted <jobs.v1.json> <job id> | leftover-failed <jobs.v1.json>"
           " | unretried-failed | record-outcome <job id> <outcome line> [run|check] [invocation]",
           file=sys.stderr)
