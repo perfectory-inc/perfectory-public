@@ -48,14 +48,20 @@ if [[ -d "${dir}/verify" ]]; then
     [[ -e "${text}" ]] || continue
     bundle="${text%.txt}.bundle.json"
     "${cosign}" verify-blob --key "${keys}/cosign.pub" --bundle "${bundle}" "${text}" >/dev/null 2>&1 \
-      || { log "digest $(basename "${text}" .txt) does not verify against Rekor"; exit 1; }
+      || { name="${text##*/}"; log "digest ${name%.txt} does not verify against Rekor"; exit 1; }
     checked=$((checked + 1))
   done
   log "verified ${checked} digests against Rekor"
 fi
 
 if [[ -d "${dir}/pending" ]]; then
+  # The pending digests oldest first. Each step is its own command, so a failed listing stops the
+  # witness (set -e) instead of looking like "nothing pending".
+  listing="$(find "${dir}/pending" -maxdepth 1 -name '*.txt' -printf '%f\n')"
+  numbers="$(sed -n 's/^\([1-9][0-9]*\)\.txt$/\1/p' <<<"${listing}")"
+  sorted="$(sort -n <<<"${numbers}")"
   while IFS= read -r no; do
+    [[ -n "${no}" ]] || continue
     text="${dir}/pending/${no}.txt"
     bundle="${dir}/pending/${no}.bundle.json"
     if ! "${cosign}" sign-blob --yes --key "${keys}/cosign.key" --bundle "${bundle}" "${text}" >/dev/null; then
@@ -66,5 +72,5 @@ if [[ -d "${dir}/pending" ]]; then
     chown "${owner}" "${bundle}"
     chmod 0640 "${bundle}"
     log "witnessed digest ${no}"
-  done < <(find "${dir}/pending" -maxdepth 1 -name '*.txt' -printf '%f\n' | sed -n 's/^\([1-9][0-9]*\)\.txt$/\1/p' | sort -n)
+  done <<<"${sorted}"
 fi

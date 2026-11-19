@@ -13,7 +13,8 @@ fi
 
 case "${1:-}" in
   prepare)
-    if [[ "$(date -u +%u%H)" == "715" ]]; then
+    weekday_hour="$(date -u +%u%H)"
+    if [[ "${weekday_hour}" == "715" ]]; then
       export FOUNDATION_AUDIT_VERIFY_ALL=1
     fi
     exec "${PUBLISHER_BIN}" prepare-audit-digest
