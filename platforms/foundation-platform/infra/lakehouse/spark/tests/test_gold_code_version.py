@@ -277,6 +277,21 @@ class Version(unittest.TestCase):
             named = {f"{Path(p.split('::')[0]).stem}.{p.split('::')[1]}" for p in parts if "::" in p}
             self.assertFalse(set(config["plumbing_symbols"]) & named, entry["producer"])
 
+    def test_a_record_written_before_the_scheme_and_blobs_fields_reads_as_the_same_code(self):
+        # 2026-11-20: #1518 added `scheme` and `blobs` beside the hash. A Gold's stored record from before
+        # holds only `sha256` and `parts`; with the code unchanged it must read as the same code, or every
+        # Gold would be rebuilt whole the day the change deploys (as 15a4f570 did on 2026-11-19).
+        contract = rebuild.load_contract()
+        config = code.settings(contract)
+        for table, entry in contract["tables"].items():
+            current = json.loads(code.value(entry["producer"], config, table, ["silver.x"]))
+            stored = json.dumps({"sha256": current["sha256"], "parts": current["parts"]},
+                                sort_keys=True, separators=(",", ":"))
+            self.assertTrue(code.same(stored, json.dumps(current)), table)
+            self.assertEqual(code.changed_parts(stored, json.dumps(current)), [], table)
+            # The module that measures the code is no part of what it measures.
+            self.assertFalse([p for p in current["parts"] if p.startswith("infra/lakehouse/spark/jobs/gold_code_version.py")], table)
+
     def test_a_test_runner_is_not_a_producer_and_records_no_version(self):
         self.assertIsNone(code.of_running_producer("gold.parcel_panel", PINS))
         with mock.patch.object(code.sys.modules["__main__"], "__file__",
