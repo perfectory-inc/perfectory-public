@@ -45,8 +45,18 @@ The rebuild contract's `code_version` (contracts/gold-panel-rebuild.contract.jso
   2026-11-13 #1385 added it to every versioned entry and on 11-16/17 gold.parcel_real_transaction was
   rebuilt whole for it, though its producer derives current rows from `current_row_latest`).
 
-The value is JSON `{"sha256": <of the whole>, "parts": {<path>[::<symbol>]: <sha256 prefix>}}`: the
-planner names the symbols and contracts that changed.
+The value is JSON `{"sha256": <of the whole>, "parts": {<path>[::<symbol>]: <sha256 prefix>},
+"scheme": <id of the rules>, "blobs": {<path>: <git blob id>}}`: the planner names the symbols and
+contracts that changed.
+
+INTERIM (2026-11-19, until the ADR that retires this module for Dagster's own code_version): a change
+to the rules themselves (this module, or the contract's `code_version` section) is not a code change.
+`scheme` is derived from both; `blobs` are the git blob ids of every file the version read. When the
+scheme differs and every file is byte for byte the one the recorded version read, the code that built
+the Gold is the code that would build it now, and `same` says so: the Gold is not rebuilt for being
+measured differently. 2026-11-18 15a4f570 left `current_rows_sql` out of the hash; the changed hash
+rebuilt gold.parcel_panel whole (39,861,511 rows in 4,796 s, changed_keys=0) and every other Gold that
+read that entry. A value recorded before this field exists has no blobs and is compared as before.
 """
 from __future__ import annotations
 
@@ -319,21 +329,45 @@ def parts(producer: str, config: dict[str, Any], table: str, inputs: Iterable[st
     return found
 
 
+def git_blob(path: Path) -> str:
+    """The file's git blob id (`git hash-object`): the same bytes have the same id on every host."""
+    data = path.read_bytes()
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def scheme(config: dict[str, Any]) -> str:
+    """The id of the rules a version is measured by: this module and the contract's settings."""
+    rules = git_blob(Path(__file__)) + json.dumps(config, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(rules.encode()).hexdigest()[:PART_DIGITS]
+
+
 def value(producer: str, config: dict[str, Any], table: str, inputs: Iterable[str], **paths: Any) -> str:
     hashed = parts(producer, config, table, inputs, **paths)
     whole = hashlib.sha256(json.dumps(hashed, sort_keys=True).encode()).hexdigest()
-    return json.dumps({"sha256": whole, "parts": {k: v[:PART_DIGITS] for k, v in sorted(hashed.items())}},
+    root = paths.get("root", PLATFORM)
+    files = sorted({name.split("::", 1)[0] for name in hashed})
+    return json.dumps({"sha256": whole, "parts": {k: v[:PART_DIGITS] for k, v in sorted(hashed.items())},
+                       "scheme": scheme(config), "blobs": {f: git_blob(root / f) for f in files}},
                       sort_keys=True, separators=(",", ":"))
+
+
+def remeasured(recorded: str, current: str) -> bool:
+    """The rules changed and nothing they read did: every file is the one the recorded version read."""
+    old, new = json.loads(recorded), json.loads(current)
+    return ("blobs" in old and old.get("scheme") != new.get("scheme")
+            and old["blobs"] == new.get("blobs"))
 
 
 def changed_parts(recorded: str, current: str) -> list[str]:
     """The symbols and contracts whose hash differs (or that one side lacks) between two values."""
+    if remeasured(recorded, current):
+        return []
     old, new = json.loads(recorded).get("parts", {}), json.loads(current).get("parts", {})
     return sorted(name for name in set(old) | set(new) if old.get(name) != new.get(name))
 
 
 def same(recorded: str, current: str) -> bool:
-    return json.loads(recorded)["sha256"] == json.loads(current)["sha256"]
+    return json.loads(recorded)["sha256"] == json.loads(current)["sha256"] or remeasured(recorded, current)
 
 
 def table_name(table: str) -> str:

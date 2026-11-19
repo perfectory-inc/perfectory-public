@@ -6,6 +6,7 @@ reaches, or a module the contract declares as plumbing. The planner rebuilds whe
 recorded beside the current Gold's pins differs, and publishes that build by its changed keys.
 Fixture modules are synthetic.
 """
+import hashlib
 import json
 import sys
 import tempfile
@@ -123,6 +124,56 @@ class Version(unittest.TestCase):
         decision = rebuild.plan("gold.x", ENTRY, INPUTS, gold(before), silver("11"),
                                 code_version=lambda inputs: tree.version())
         self.assertEqual(decision["action"], "nothing_to_do", decision["reasons"])
+
+    def test_a_version_records_its_rules_and_the_git_blob_of_every_file_it_read(self):
+        tree = fixture_tree(self)
+        recorded = json.loads(tree.version())
+        files = {"jobs/producer.py", "jobs/helper.py", "jobs/deep.py", "contracts/rules.contract.json"}
+        self.assertEqual(set(recorded["blobs"]), files)
+        # `git hash-object` of the same bytes.
+        data = (tree.root / "jobs/deep.py").read_bytes()
+        self.assertEqual(recorded["blobs"]["jobs/deep.py"],
+                         hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest())
+        self.assertEqual(recorded["scheme"], code.scheme({"plumbing": {}, "plumbing_symbols": {}, "scoped": {}}))
+
+    def test_a_change_to_the_rules_alone_is_not_a_code_change(self):
+        # INTERIM (2026-11-18 15a4f570): leaving a field out of the hash changed the hash, and
+        # gold.parcel_panel was rebuilt whole for changed_keys=0.
+        tree = fixture_tree(self)
+        wide = {"rules.contract.json": {"keep": ["a", "b"], "entries": {}, "reason": "fixture"}}
+        narrow = {"rules.contract.json": {"keep": ["a"], "entries": {}, "reason": "fixture"}}
+        before = tree.version(scoped=wide)
+        after = tree.version(scoped=narrow)
+        self.assertNotEqual(json.loads(before)["sha256"], json.loads(after)["sha256"])
+        self.assertTrue(code.same(before, after))
+        self.assertEqual(code.changed_parts(before, after), [])
+        decision = rebuild.plan("gold.x", ENTRY, INPUTS, gold(before), silver("11"),
+                                code_version=lambda inputs: after)
+        self.assertEqual(decision["action"], "nothing_to_do", decision["reasons"])
+
+    def test_new_rules_with_any_file_changed_compare_as_before(self):
+        tree = fixture_tree(self)
+        wide = {"rules.contract.json": {"keep": ["a", "b"], "entries": {}, "reason": "fixture"}}
+        narrow = {"rules.contract.json": {"keep": ["a"], "entries": {}, "reason": "fixture"}}
+        before = tree.version(scoped=wide)
+        tree.write("jobs/deep.py", DEEP.replace("return 1", "return 2"))
+        after = tree.version(scoped=narrow)
+        self.assertFalse(code.same(before, after))
+        self.assertIn("jobs/deep.py::g", code.changed_parts(before, after))
+        # A file the new rules read and the recorded version did not is not known to be unchanged.
+        tree.write("jobs/deep.py", DEEP)
+        unread = tree.version(plumbing={"deep": "fixture"})
+        self.assertNotIn("jobs/deep.py", json.loads(unread)["blobs"])
+        self.assertFalse(code.same(unread, tree.version()))
+
+    def test_a_version_recorded_without_blobs_is_compared_by_its_hash(self):
+        tree = fixture_tree(self)
+        wide = {"rules.contract.json": {"keep": ["a", "b"], "entries": {}, "reason": "fixture"}}
+        narrow = {"rules.contract.json": {"keep": ["a"], "entries": {}, "reason": "fixture"}}
+        before = json.loads(tree.version(scoped=wide))
+        old = json.dumps({"sha256": before["sha256"], "parts": before["parts"]})
+        self.assertFalse(code.same(old, tree.version(scoped=narrow)))
+        self.assertTrue(code.same(old, tree.version(scoped=wide)))
 
     def test_a_change_at_any_depth_or_in_a_contract_changes_the_version_and_names_the_part(self):
         for path, text, changed in (("jobs/deep.py", DEEP.replace("return 1", "return 2"), "jobs/deep.py::g"),
