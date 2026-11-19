@@ -5,13 +5,14 @@
 - Amends: [ADR-0271](./0271-dependency-updates-arrive-as-renovate-pull-requests-and-main-keeps-one-advisory-issue.md) 결정 4 의
   "의존성 대시보드 이슈는 만들지 않는다" 와 결정 5 의 "`allow_auto_merge` 는 계속 꺼 둔다",
   [ADR-0553](./0553-a-fix-for-main-or-the-deploy-goes-to-the-front-of-the-queue-without-emptying-it-and-a-run-the-queue-dropped-is-cancelled.md)
-  결정 1 의 "큐에 넣는 길은 스크립트 하나다"(앞에 세우는 길은 그대로 그 스크립트다)
+  결정 1 "큐에 넣는 길은 `scripts/github/merge_queue_enqueue.py <PR>` 하나다"(앞에 세우는 길은 그대로 그 스크립트다)와
+  Consequences 의 "코디네이터의 keeper 는 … 이 스크립트를 부른다"(이제 고치는 PR 의 작성자가 부른다)
 - Builds on: [ADR-0552](./0552-the-merge-queue-merges-a-pull-request-only-when-its-own-queue-run-is-green.md)(큐는 자기 실행이 초록인 PR 만 병합)
 
 ## Context
 
-GitHub 병합 큐는 PR 을 스스로 큐에 넣지 않는다. 누군가 "Merge when ready" 를 눌러야 한다. ADR-0271 결정 5 는 "큐가 초록
-non-draft PR 을 병합한다" 고 적었지만, 실제로 넣은 것은 코디네이터 노트북에서 도는 스크립트였다(저장소 밖,
+GitHub 병합 큐는 PR 을 스스로 큐에 넣지 않는다. 누군가 "Merge when ready" 를 눌러야 한다. ADR-0271 결정 5 는 그 일을
+"코디네이터가 초록 non-draft PR 을 넣는다" 로 맡겼고, 그 코디네이터는 노트북에서 도는 스크립트다(저장소 밖,
 `keeper.sh` ~ `keeper5.sh` 와 보조 파일 약 605줄). 5분마다 열린 PR 을 훑어 필수 검사가 초록인 것을
 `enqueuePullRequest` 로 넣는다.
 
@@ -51,16 +52,18 @@ Tide, Rust 의 bors 처럼 큰 프로젝트는 "넣는 일" 을 서버 쪽 서�
 2. **저장소 설정 `allow_auto_merge` 는 켠다.** `tools/github/repository-settings.json` 이 정본이고
    `scripts/guard/public-github-policy.sh` 가 켜져 있음을 단정한다. 막는 사고: 2026-11-13 의 414번 재투입과, 노트북이
    꺼진 동안의 병합 정지.
-3. **Renovate 의 patch·digest 묶음과 lockfile 유지보수는 `automerge: true` 다.** 보안 갱신은 이미 그랬다. minor·major
+3. **Renovate 의 patch·digest·pin·pinDigest 묶음 넷과 lockfile 유지보수는 `automerge: true` 다.** 보안 갱신은 이미
+   그랬다. minor·major
    는 초안으로 열려 사람이 본다(ADR-0097, ADR-0302 그대로).
 4. **도구 사슬 보류는 Renovate 설정에 있다.** `node`·`pnpm`·`rust`·`packageManager` 는 `enabled: false` 라 PR 이
    열리지 않는다(ADR-0097 결정 1). 스크립트가 PR 을 열어 본 뒤 걸러 내던 일은 필요 없다.
 5. **Renovate 의존성 대시보드를 켠다.** `config:recommended` 가 기본으로 켜는 것을 `.github/renovate.json` 이 끄고
    있었다. 그 줄을 지운다(Renovate 44 에서 이 옵션은 `dependencyDashboard.enabled` 객체다). Renovate 가 무엇을 찾았고
    무엇을 왜 미뤘는지가 이슈 하나에 있다.
-6. **앞에 세우는 길은 그대로다.** `hotfix:main-red`·`hotfix:deploy-stop` 라벨이 붙은 PR 은
-   `scripts/github/merge_queue_enqueue.py` 가 `jump: true` 로 넣는다(ADR-0553). 자동 병합으로 이미 뒤에 선 PR 도 그
-   스크립트가 자기 항목만 빼서 앞에 세운다.
+6. **앞에 세우는 길은 그대로이고, 부르는 사람이 바뀐다.** `hotfix:main-red`·`hotfix:deploy-stop` 라벨이 붙은 PR 은
+   `scripts/github/merge_queue_enqueue.py` 가 `jump: true` 로 넣는다(ADR-0553). 지금까지는 노트북 스크립트가 불렀고,
+   이제 고치는 PR 의 작성자가 라벨을 붙이고 한 번 부른다(`main-red` 이슈가 그 명령을 적어 준다). 자동 병합으로 이미 뒤에
+   선 PR 도 그 스크립트가 자기 항목만 빼서 앞에 세운다. 라벨 없는 PR 에 이 스크립트를 부를 일은 없다.
 7. **노트북 스크립트의 큐 투입 부분은 지운다.** 작업자 깨우기·실패 유닛 기록 같은 코디네이터 일은 이 결정의 범위가
    아니다.
 
@@ -70,8 +73,9 @@ Tide, Rust 의 bors 처럼 큰 프로젝트는 "넣는 일" 을 서버 쪽 서�
 - 큐에서 실패해 빠진 PR 은 누가 다시 켜기 전까지 다시 들어가지 않는다. 다시 넣는 것은 작성자의 결정이다(고치는 푸시 뒤
   `gh pr merge --auto`). 큐에서 빠질 때 자동 병합 요청이 함께 지워지는지는 문서에 없어, 첫 실제 사례에서 확인하고 이
   문서에 날짜와 함께 덧붙인다.
-- 워크플로는 자동 병합을 켜지 않는다. 공개 저장소의 워크플로 토큰은 읽기 전용이다(`check-workflow-policy.sh`). 켜는 주체는
-  작성자와 Renovate 앱이다.
+- 워크플로는 자동 병합을 켜지 않는다. 워크플로 토큰의 기본 권한은 읽기이고(`tools/github/workflow-permissions.json`,
+  `public-github-policy.sh` 가 단정), 어떤 작업도 `pull-requests`·`contents` 쓰기를 갖지 않는다. 켜는 주체는 작성자와
+  Renovate 앱이다.
 - 스크립트의 "lane freeze"(특정 파일을 건드리는 PR 을 잠시 붙잡기)는 옮기지 않는다. 필요하면 그 PR 을 초안으로 돌린다.
 - 실제 설정은 이 PR 이 병합될 때 `gh api -X PATCH repos/{owner}/{repo} -f allow_auto_merge=true` 로 맞춘다(관리자 토큰.
   ADR-0423 의 OpenTofu 적용이 들어오면 그 길로 간다). 매일 도는 대조(#1441)가 어긋남을 알린다.

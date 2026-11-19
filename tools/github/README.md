@@ -263,7 +263,13 @@ pull request가 이 정책을 바꾸지 않는다.
 
 ## 머지 큐에 넣기
 
-풀 리퀘스트를 큐에 넣는 길은 하나다(루트 ADR-0553).
+풀 리퀘스트는 GitHub 자동 병합으로 큐에 들어간다(루트 ADR-0585). 작성자가 준비 상태로 바꾸면서 한 번 부른다.
+
+```bash
+gh pr ready <PR 번호> && gh pr merge <PR 번호> --auto --squash   # 필수 검사가 초록이 되면 GitHub 가 큐에 넣는다
+```
+
+큐 앞에 세우는 길은 하나다(루트 ADR-0553). 고치는 PR 에 라벨을 붙이고 작성자가 부른다.
 
 ```bash
 python3 scripts/github/merge_queue_enqueue.py <PR 번호>            # --dry-run 으로 먼저 볼 수 있다
@@ -271,7 +277,7 @@ python3 scripts/github/merge_queue_enqueue.py <PR 번호>            # --dry-run
 
 | PR 의 라벨 | 하는 일 |
 |---|---|
-| 없음 | 큐 맨 뒤에 넣는다. 이미 큐에 있으면 아무것도 하지 않는다 |
+| 없음 | 큐 맨 뒤에 넣는다. 이미 큐에 있으면 아무것도 하지 않는다(보통은 위의 자동 병합이 한다) |
 | `hotfix:main-red` (main 의 필수 검사를 고치는 PR) | 큐 맨 앞에 넣는다(GitHub `jump`) |
 | `hotfix:deploy-stop` (멈춘 배포를 고치는 PR) | 큐 맨 앞에 넣는다(GitHub `jump`) |
 
