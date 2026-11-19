@@ -17,8 +17,8 @@ SupplementaryGroups=systemd-journal
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/audit-import.sh
+# A oneshot run is capped by its start timeout; systemd ignores RuntimeMaxSec= on Type=oneshot.
 TimeoutStartSec=10m
-RuntimeMaxSec=600
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
