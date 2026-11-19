@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { buildAuthorizationUrl, generatePkceParams } from "@/lib/oidc";
-import { setAuthStateCookie, signAuthStatePayload } from "@/lib/session/cookie";
+import { AUTH_STATE_TTL_SEC, sealAuthState, setAuthStateCookie } from "@/lib/session/cookie";
 import { sanitizeReturnTo } from "@/lib/url";
 
 export async function POST(req: NextRequest) {
@@ -20,20 +20,19 @@ export async function POST(req: NextRequest) {
     nonce: pkce.nonce,
   });
 
-  // C2: HMAC-sign the auth-state cookie payload (tamper prevention)
-  const payload = JSON.stringify({
+  // C2: 암호화+서명(iron-session) — 쿠키에서 verifier·nonce 가 읽히지 않는다.
+  const sealed = await sealAuthState({
     code_verifier: pkce.code_verifier,
     state: pkce.state,
     nonce: pkce.nonce,
     return_to: returnTo,
   });
-  const signed = signAuthStatePayload(payload);
 
   return new NextResponse(null, {
     status: 302,
     headers: {
       Location: authUrl,
-      "Set-Cookie": setAuthStateCookie(signed, 600),
+      "Set-Cookie": setAuthStateCookie(sealed, AUTH_STATE_TTL_SEC),
     },
   });
 }
