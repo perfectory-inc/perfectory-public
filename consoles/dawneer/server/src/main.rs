@@ -7,6 +7,9 @@ use anyhow::Context;
 use dawneer_server::app::{router, AppState};
 use dawneer_server::config::Config;
 use dawneer_server::oidc;
+use dawneer_server::session::SessionStore;
+use tower_sessions_core::ExpiredDeletion;
+use tower_sessions_sqlx_store::{sqlx::postgres::PgPoolOptions, PostgresStore};
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -25,8 +28,9 @@ async fn main() -> anyhow::Result<()> {
     let provider = oidc::Provider::discover(&http, &config)
         .await
         .context("cannot read the issuer's discovery document; is the tunnel open?")?;
+    let sessions = sessions(&config).await?;
     let bind = config.bind;
-    let app = router(Arc::new(AppState::new(config, provider, http)));
+    let app = router(Arc::new(AppState::new(config, provider, http, sessions)));
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("cannot listen on {bind}"))?;
@@ -37,4 +41,25 @@ async fn main() -> anyhow::Result<()> {
         })
         .await
         .context("server stopped")
+}
+
+/// Postgres when `DAWNEER_DATABASE_URL` is set (required over https), memory otherwise. The table
+/// is the compose bootstrap's; expired records are deleted hourly.
+async fn sessions(config: &Config) -> anyhow::Result<SessionStore> {
+    let Some(url) = config.database_url.as_deref() else {
+        tracing::warn!("sessions are in memory: a restart signs everyone out");
+        return Ok(SessionStore::default());
+    };
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .connect(url)
+        .await
+        .context("cannot reach the session database")?;
+    let store = PostgresStore::new(pool);
+    tokio::spawn(
+        store
+            .clone()
+            .continuously_delete_expired(Duration::from_secs(3600)),
+    );
+    Ok(SessionStore::new(store))
 }
