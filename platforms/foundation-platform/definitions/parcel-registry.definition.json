@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "parcel_registry",
+      "dagster_group": "gold",
       "scope": "changed-keys",
       "interruptible": false,
       "commits": "at_end",

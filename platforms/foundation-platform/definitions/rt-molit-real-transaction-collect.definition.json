@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "rt_molit_real_transaction_collect",
+      "dagster_group": "collect",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",

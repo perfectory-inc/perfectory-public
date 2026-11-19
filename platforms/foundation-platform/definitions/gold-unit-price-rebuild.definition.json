@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "gold_unit_price_rebuild",
+      "dagster_group": "gold",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",

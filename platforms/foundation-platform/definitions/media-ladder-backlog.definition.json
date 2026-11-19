@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "media_ladder_backlog",
+      "dagster_group": "operations",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",

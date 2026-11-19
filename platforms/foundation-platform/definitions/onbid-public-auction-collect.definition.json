@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "onbid_public_auction_collect",
+      "dagster_group": "collect",
       "scope": "full",
       "full_reason": "Every three hours it reads the whole open-item list: a condition that left the list is known only from a complete pass (root ADR-0275).",
       "full_cost": "measured: a complete item-list pass is about 8.8 MB gzipped into Bronze (data-go-kr-onbid.contract.json item_list), every 3 hours, about 70 MB a day; 2026-10-29 it listed 50,192 open conditions (onbid-item-detail.prom), at page_size 1,000 over 20 (prptDivCd, pvctTrgtYn) combinations at most about 70 list calls a pass (computed). The rest of each run is new-objects: details, bid info and announcement details only for conditions owed one (root ADR-0330, ADR-0339).",

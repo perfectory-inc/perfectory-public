@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "court_auction_collect",
+      "dagster_group": "collect",
       "scope": "full",
       "full_reason": "Every night it walks every list search page by page: the site offers no changed-since query.",
       "full_cost": "measured from the unit journal: 2026-10-19 one pass at one request every 3 seconds took 78 minutes (16:02-17:20 UTC); 2026-11-06 the same collector read ipcheck=false as a refusal after 1,528 requests in 87 minutes and every later run refused to start (root ADR-0289 replaces both: a list pass is about 2,500 pages at the contract's adaptive pace, measured on 2026-10-21 by the prototype at about 8 minutes).",

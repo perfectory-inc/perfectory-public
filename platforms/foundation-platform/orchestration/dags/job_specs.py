@@ -68,6 +68,10 @@ IMPLEMENTED_DAGSTER_STAGES = ("airflow", "shadow", "proxied")
 # The stages in which Dagster runs the job's unit, and Dagster's decisions are compared with Airflow's
 # while Airflow still decides (root ADR-0458 §4).
 DAGSTER_RUNS = ("proxied", "dagster")
+# The groups jobs move to Dagster in (jobs.v1.json `dagster_group`, root ADR-0583 §1), downstream first:
+# what a group writes is read only by its own jobs or by a group listed before it. A group is one switch:
+# its switched-on jobs reach `dagster` in one PR, and reverting that PR is the rollback (dagster_groups).
+DAGSTER_GROUPS = ("gold", "silver", "collect", "operations")
 COMPARED = ("shadow", "proxied")
 # A `proxied` job's run (root ADR-0431 §5): Airflow's `run` task asks Dagster's webserver to launch the
 # job's Dagster job, named after it, and Dagster runs the unit through the host's forced command
@@ -147,6 +151,7 @@ class JobSpec:
     reconciles: tuple = ()  # the jobs this one starts by state, not by event (root ADR-0333 §7)
     requeues: tuple = ()  # the jobs whose refused starts it starts again from the start queue (root ADR-0462)
     dagster_stage: str = "airflow"  # DAGSTER_STAGES
+    dagster_group: str = ""  # DAGSTER_GROUPS
     priority: int = 100  # the value of its priority class (root ADR-0435)
 
     @property
@@ -705,6 +710,26 @@ def dagster_stage(job, jobs=None):
     return value
 
 
+def dagster_group(job):
+    """The group a job moves to Dagster with (jobs.v1.json `dagster_group`, root ADR-0583 §2). Every job
+    names one, a switched-off one too: it takes its group's stage when it is switched on."""
+    value = job.get("dagster_group")
+    if value not in DAGSTER_GROUPS:
+        raise JobListError(f"{job['id']}: dagster_group must be one of {list(DAGSTER_GROUPS)} (root ADR-0583)")
+    return value
+
+
+def dagster_groups(jobs):
+    """Problems of the group switches (root ADR-0583 §2): in a group, either every switched-on job is at
+    `dagster` or none is, so a group moves in one PR and a job switched on later is born where its group is."""
+    decided = {}
+    for job in jobs["jobs"]:
+        if job["enabled"]:
+            decided.setdefault(dagster_group(job), set()).add(job.get("dagster_stage", "airflow") == "dagster")
+    return [f"group {group}: some of its switched-on jobs are at dagster_stage dagster and some are not; "
+            "a group moves in one switch (root ADR-0583 §2)" for group, kinds in sorted(decided.items()) if len(kinds) > 1]
+
+
 def dagster_order(jobs, feeders):
     """Problems of the move order (root ADR-0431 §3): a job Dagster decides (`dagster`) feeds only jobs
     Dagster decides, since an Airflow job started by its inputs waits for an Airflow asset event that
@@ -712,7 +737,10 @@ def dagster_order(jobs, feeders):
     stages = {job["id"]: job.get("dagster_stage", "airflow") for job in jobs["jobs"]}
     by_id = {job["id"]: job for job in jobs["jobs"]}
     problems = [f"{consumer}: started by the outputs of {producer}, which Dagster decides; it moves to dagster first"
-                for consumer, producers in sorted(feeders.items()) if started_by(by_id[consumer]) == "inputs"
+                for consumer, producers in sorted(feeders.items())
+                # A switched-off job runs nowhere and stays at `airflow` (dagster_stage); switched on, it is
+                # born at its group's side (dagster_groups, root ADR-0583 §2).
+                if started_by(by_id[consumer]) == "inputs" and by_id[consumer]["enabled"]
                 for producer in producers if stages[producer] == "dagster" and stages[consumer] != "dagster"]
     # A reconciler and the jobs it starts (started_for). A job Dagster decides reads what it is owed from
     # the reconciler's Dagster run, which exists only once Dagster runs the reconciler; a reconciler Dagster
@@ -1146,10 +1174,11 @@ def load_specs(jobs=None, graph=None):
                 reconciles=reconciles,
                 requeues=requeues,
                 dagster_stage=dagster_stage(job, jobs),
+                dagster_group=dagster_group(job),
                 priority=jobs["priority_classes"][priority_class(jobs, job, job_id)]["value"],
             )
         )
-    problems = pool_starvation(jobs, graph) + dagster_order(jobs, feeders)
+    problems = pool_starvation(jobs, graph) + dagster_order(jobs, feeders) + dagster_groups(jobs)
     if problems:
         raise JobListError("; ".join(problems))
     return specs

@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "legal_dong_code_changes",
+      "dagster_group": "collect",
       "scope": "skip-if-unchanged",
       "interruptible": false,
       "commits": "at_end",

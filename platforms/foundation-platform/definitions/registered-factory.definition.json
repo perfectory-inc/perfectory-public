@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "registered_factory",
+      "dagster_group": "silver",
       "scope": "skip-if-unchanged",
       "interruptible": false,
       "commits": "at_end",

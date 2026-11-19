@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "asset_reconcile",
+      "dagster_group": "operations",
       "scope": "skip-if-unchanged",
       "interruptible": true,
       "commits": "as_it_goes",

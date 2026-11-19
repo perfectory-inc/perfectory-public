@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "source_sweep",
+      "dagster_group": "collect",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
