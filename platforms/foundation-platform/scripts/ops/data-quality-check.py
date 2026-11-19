@@ -245,7 +245,7 @@ def check_contracts(paths, totals, read=lakehouse, first_checked=None, now=None)
     # The table's current schema (`{table}`), and the snapshot a count then pins to.
     described = read([(physical, "DESCRIBE {table}", None) for _, physical, _, _, _ in ruled])
     counted = []
-    for (contract, physical, columns, allowed, assertions), answer in zip(ruled, described):
+    for (contract, physical, columns, allowed, assertions), answer in zip(ruled, described, strict=True):
         if answer.get("absent"):
             totals["absent"].append(contract["id"])
             continue
@@ -281,7 +281,7 @@ def check_contracts(paths, totals, read=lakehouse, first_checked=None, now=None)
             outcome(totals, not missing, enforce, f"{contract['id']} schema missing={missing}")
 
     answers = read([(physical, sql, snapshot) for _, physical, snapshot, _, _, _, sql in counted])
-    for (contract, physical, snapshot, fields, rules, enforce, _), answer in zip(counted, answers):
+    for (contract, physical, snapshot, fields, rules, enforce, _), answer in zip(counted, answers, strict=True):
         if answer.get("error") or len(answer.get("rows") or []) != 1:
             raise RuntimeError(f"{physical} could not be counted: {answer.get('error') or 'no row'}")
         (row,) = answer["rows"]

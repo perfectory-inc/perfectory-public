@@ -346,7 +346,7 @@ class TheHost(unittest.TestCase):
                 (self.area / "config/runtime-secrets.contract.json").write_text(json.dumps(contract), encoding="utf-8")
                 found = runtime_secrets.fill_findings(runtime_secrets.load(self.area))
                 self.assertEqual(len(found), len(said), found)
-                for finding, words in zip(found, said):
+                for finding, words in zip(found, said, strict=True):
                     self.assertIn(words, finding)
         self.assertTrue(runtime_secrets.not_a_setting("FOUNDATION_PLATFORM_SOME_DATABASE_URL", {}))
 

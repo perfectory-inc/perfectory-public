@@ -564,7 +564,7 @@ def _files(root, rev, directory, pattern="*"):
                    capture_output=True, check=False)
     out = _git_input(root, "".join(f"{oid}\n" for oid, _ in blobs).encode(), "cat-file", "--batch")
     files, at = {}, 0
-    for oid, name in blobs:
+    for _, name in blobs:
         header_end = out.index(b"\n", at)
         size = int(out[at:header_end].split()[2])
         files[name] = out[header_end + 1:header_end + 1 + size]
