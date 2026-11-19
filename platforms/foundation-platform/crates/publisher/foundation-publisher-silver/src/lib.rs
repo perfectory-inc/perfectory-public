@@ -133,6 +133,12 @@ pub mod legal_dong_code_change_stage;
 /// The parcel nearby kind's Gold in `DuckDB` (root ADR-0465, ADR-0564 §9).
 pub mod parcel_nearby_stage;
 
+/// Stages 차세대 온비드 public sale Bronze objects as Silver rows (root ADR-0280, ADR-0340).
+pub mod onbid_silver_stage;
+
+/// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
+pub mod place_identity_stage;
+
 /// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
 pub mod real_transaction_gold_stage;
 

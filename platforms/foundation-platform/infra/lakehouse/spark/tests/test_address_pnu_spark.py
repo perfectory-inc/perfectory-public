@@ -121,48 +121,5 @@ class ResolveTest(unittest.TestCase):
                          [("9999920200100070000", "9999910200100070000", "code_served_edition")])
 
 
-@unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")
-class OnbidPlacementTest(unittest.TestCase):
-    """Root ADR-0482 §2: 공매 is placed by its code first, else by its item name's address."""
-
-    @classmethod
-    def setUpClass(cls):
-        import data_go_kr_onbid
-        cls.job = data_go_kr_onbid
-        cls.spark = (SparkSession.builder.master("local[1]").appName("synthetic-onbid-placement")
-                     .config("spark.ui.enabled", "false").config("spark.sql.shuffle.partitions", "2").getOrCreate())
-        cls.spark.sparkContext.setLogLevel("ERROR")
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.spark.stop()
-
-    def test_code_first_then_jibun_then_road_and_each_says_how(self):
-        rows = [
-            {"k": "a", "pnu": "9999910100100070000", "item_name": "합성도 가상시 가나동 8"},   # code wins
-            {"k": "b", "pnu": None, "item_name": "합성도 가상시 가나동 8, 101호 근린생활시설"},
-            {"k": "c", "pnu": None, "item_name": "합성도 가상시 가나대로 3 상가"},
-            {"k": "d", "pnu": None, "item_name": "합성도 가상시 가나동 9구역9블록"},             # prose
-            {"k": "e", "pnu": "9999910100100090000", "item_name": "합성도 가상시 가나동 9"},     # neither held
-        ]
-        frame = self.spark.createDataFrame(
-            [(r["k"], r["pnu"], r["item_name"], None, None, n) for n, r in enumerate(rows)],
-            "k string, pnu string, item_name string, pnu_basis string, pnu_unresolved_reason string, _row int")
-        prefixes = {"합성도": "99", "합성": "99"}
-        dongs = {("99", "가상시 가나동"): "9999910100"}
-        parcels = self.spark.createDataFrame([("9999910100100070000",), ("9999910100100080000",)], "pnu string")
-        titles = self.spark.createDataFrame([("9999910100100070000", "합성도 가상시 가나대로 3")],
-                                            "pnu string, road_address_raw string")
-        out = {r.k: r for r in self.job.placed_items(frame, rows, {}, set(), parcels, titles, prefixes, dongs).collect()}
-        self.assertEqual((out["a"].pnu, out["a"].pnu_basis), ("9999910100100070000", "legal_dong_code"))
-        self.assertEqual((out["b"].pnu, out["b"].pnu_basis), ("9999910100100080000", "jibun_address"))
-        self.assertEqual((out["c"].pnu, out["c"].pnu_basis), ("9999910100100070000", "road_address"))
-        self.assertEqual((out["d"].pnu, out["d"].pnu_unresolved_reason), (None, "no_source_code"))
-        self.assertEqual((out["e"].pnu, out["e"].pnu_unresolved_reason), (None, "parcel_absent"))
-        for row in out.values():
-            self.assertEqual(row.pnu is None, row.pnu_basis is None)
-            self.assertEqual(row.pnu is None, row.pnu_unresolved_reason is not None)
-
-
 if __name__ == "__main__":
     unittest.main()

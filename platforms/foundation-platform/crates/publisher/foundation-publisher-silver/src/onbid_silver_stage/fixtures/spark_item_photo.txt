@@ -1,0 +1,10 @@
+9999-0000|990001|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|photo_original|NULL|NULL|jpeg|1|bronze/source=datagokr__synthetic/year=2099/month=01/day=02/onbid-20990102t030405z.gz|3|20990102T030405Z
+9999-0000|990001|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|photo|3|NULL|png|1000|bronze/source=datagokr__synthetic/year=2099/month=01/day=02/onbid-20990102t030405z.gz|3|20990102T030405Z
+9999-0000|990001|cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc|appraisal|0|평가법인|pdf|5|bronze/source=datagokr__synthetic/year=2099/month=01/day=02/onbid-20990102t030405z.gz|3|20990102T030405Z
+9999-0000|990001|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd|location_map|0|NULL|png|3|bronze/source=datagokr__synthetic/year=2099/month=01/day=02/onbid-20990102t030405z.gz|3|20990102T030405Z
+9999-0000|990001|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee|photo_original|0|NULL|jpeg|489437|bronze/source=datagokr__synthetic/year=2099/month=01/day=02/onbid-20990102t030405z.gz|3|20990102T030405Z
+9999-0001|990001|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|photo_original|NULL|NULL|jpeg|1|bronze/source=datagokr__synthetic/year=2099/month=01/day=02/onbid-20990102t030405z.gz|1|20990102T030405Z
+9999-0001|990001|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|photo|3|NULL|png|1000|bronze/source=datagokr__synthetic/year=2099/month=01/day=02/onbid-20990102t030405z.gz|1|20990102T030405Z
+9999-0001|990001|cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc|appraisal|0|평가법인|pdf|5|bronze/source=datagokr__synthetic/year=2099/month=01/day=02/onbid-20990102t030405z.gz|1|20990102T030405Z
+9999-0001|990001|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd|location_map|0|NULL|png|3|bronze/source=datagokr__synthetic/year=2099/month=01/day=02/onbid-20990102t030405z.gz|1|20990102T030405Z
+9999-0001|990001|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee|photo_original|0|NULL|jpeg|489437|bronze/source=datagokr__synthetic/year=2099/month=01/day=02/onbid-20990102t030405z.gz|1|20990102T030405Z

@@ -381,7 +381,15 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # the lineage's derive.sql, and renumbered_into.sql); the publisher compiles in the parcel source contract
 # (the served edition) and the Gold rebuild contract (the kinds' row-loss bound) it reads; the stage's test
 # compiles in the document's registry schema and the file contract's headers it holds the build to.
-COMPILE_TIME_READ_BASELINE="${3:-201}"
+# 201 -> 213: the 차세대 온비드 Silver load left Spark (root ADR-0559). foundation-publisher-silver compiles
+# in the SQL files DuckDB runs for it (onbid_silver_stage/{values,answers,item_changes,changed}.sql, the
+# place-identity resolver's place_identity_stage/{reference,offers,place}.sql and the Python value readers
+# python_values.sql the ILIS notice load now shares: reviewed and compared as SQL; the engine-equality
+# verdict ran those files over the production objects), the source contract and the field inventory the
+# rows are rendered from (data-go-kr-onbid.contract.json, data-go-kr-onbid.fields.json), and the
+# publisher's load-data-go-kr-onbid-silver compiles in the parcel source contract its served edition
+# comes from (vworld-parcel-source-objects.json).
+COMPILE_TIME_READ_BASELINE="${3:-213}"
 
 cd "$repo_root"
 

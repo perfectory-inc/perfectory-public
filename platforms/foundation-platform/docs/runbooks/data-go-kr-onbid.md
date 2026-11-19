@@ -15,7 +15,7 @@ last_reviewed: 2026-10-19
 | 작업 | 단위 | 하는 일 |
 |---|---|---|
 | `onbid_public_auction_collect` (매시 7분, default_pool) | `foundation-onbid-collect.service` → `scripts/ops/onbid-collect.sh` | `collect-data-go-kr-onbid`: 공고·공고 입찰결과(매시간), 물건 전수(계약의 간격마다), 목록에서 빠진 회차의 입찰결과. API 하나에 gzip JSON Lines Bronze 객체 하나. 적재로 넘기는 것은 없다 |
-| `onbid_public_auction_silver` (매시 50분, spark 1칸) | `foundation-onbid-silver-load.service` → `scripts/ops/onbid-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 표마다 커밋 요약이 아직 기록하지 않은 Bronze 객체를 받고(계약 `silver_load`: 최근 7일, 표마다 24개), `data_go_kr_onbid.py load` 가 객체마다 커밋 하나로 `silver.onbid_real_estate_item`·`silver.onbid_item_bid_result` 에 쌓는다. 쌓을 것이 없으면 Spark 없이 끝난다. 받은 사본은 끝나면 지운다 |
+| `onbid_public_auction_silver` (매시 50분, default_pool) | `foundation-onbid-silver-load.service` → `scripts/ops/onbid-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 표마다 커밋 요약이 아직 기록하지 않은 Bronze 객체를 받고(계약 `silver_load`: 최근 7일, 표마다 24개), 발행기의 `load-data-go-kr-onbid-silver` 가 객체마다(발행기 안의 DuckDB 가 행을 만들고 발행기가 Iceberg 추가 커밋으로 붙인다, root ADR-0559) 커밋 하나로 여덟 표(`silver_load.tables`)에 쌓는다. 물건 목록의 필지는 `place_identity_stage`(원천 코드 먼저, 다음 물건명 주소)가 놓는다. 쌓을 것이 없으면 아무것도 띄우지 않는다. 저널 줄의 `data-go-kr-onbid-summary-json` 에 `"engine": "duckdb"` 가 찍힌다. 받은 사본은 끝나면 지운다 |
 
 상태는 `/var/lib/foundation-platform/onbid/` 에 있다: `collector/state.json`(KST 날짜별 API 호출 수, 마지막 완전 전수 시각, 그 전수의 열린 회차, 결과를 기다리는 회차), `journal.log`. 대기열은 없다: 적재가 실패한 객체는 표에 기록이 없으니 다음 계획이 다시 받는다.
 
