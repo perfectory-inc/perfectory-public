@@ -16,8 +16,10 @@ yanked = "deny"
 # justification (see foundation-platform adversarial review PCR2-73 / remediation #10).
 unmaintained = "all"
 unsound = "all"
+# An ignore the graph no longer needs fails, and every ignore carries its osv-scanner.toml ignoreUntil as its expiry (root ADR-0414).
+unused-ignored-advisory = "deny"
 ignore = [
-    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained (informational, all versions; no fixed release exists as of 2026-11-18, latest 0.4.45); it is a direct dependency here and is also pulled by sqlx-core, so it cannot leave the lockfile by our change alone; mirrors osv-scanner.toml (root ADR-0414); review by 2027-02-16" },
+    { id = "RUSTSEC-2026-0543", expiry = "2027-02-16", reason = "chrono is unmaintained (informational, all versions; no fixed release exists as of 2026-11-18, latest 0.4.45); it is a direct dependency here and is also pulled by sqlx-core, so it cannot leave the lockfile by our change alone; mirrors osv-scanner.toml (root ADR-0414); review by 2027-02-16" },
 ]
 
 [licenses]

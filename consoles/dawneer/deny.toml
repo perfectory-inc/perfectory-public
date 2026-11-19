@@ -12,6 +12,8 @@ yanked = "deny"
 # justification (see foundation-platform adversarial review PCR2-73 / remediation #10).
 unmaintained = "all"
 unsound = "all"
+# An ignore the graph no longer needs fails, and every ignore carries its osv-scanner.toml ignoreUntil as its expiry (root ADR-0414).
+unused-ignored-advisory = "deny"
 
 [licenses]
 confidence-threshold = 0.92

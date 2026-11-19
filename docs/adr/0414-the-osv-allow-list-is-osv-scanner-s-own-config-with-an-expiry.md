@@ -29,6 +29,11 @@ ADR-0028 의 OSV 게이트는 OSV-Scanner 보고서를 우리 TSV 기준선(`too
 2. **모든 항목은 `reason` 과 `ignoreUntil` 을 가진다.** 다시 볼 날을 길어야 90일 뒤로 적는다. 날이 지나면
    스캐너가 그 권고를 다시 보고해 게이트가 실패한다. 기준선의 "줄어도 실패"(낡은 행)와 발생 수 세기는
    이 만료로 대신한다 — 낡은 항목은 늦어도 만료 때 다시 검토된다.
+   - 2026-11-20 개정(W85): cargo-deny 의 허용도 같은 날에 끝난다. 다섯 `deny.toml` 의 허용마다 `expiry` 를
+     `osv-scanner.toml` 의 같은 ID `ignoreUntil` 로 적고(cargo-deny 0.21.0, PR#904·#916: 지나면 권고를 다시 보고하고
+     `advisory-ignore-expired`), 그래프가 더 쓰지 않는 허용은 `unused-ignored-advisory = "deny"` 로 실패한다. 전에는
+     "review by" 가 주석이라 webpki-roots(RUSTSEC-2026-0381, 10-20 에 권고가 영향 없음으로 고쳐짐)와 lru(0253) 허용이
+     한 달 동안 죽은 채 남았다(#1513).
 3. **`advisory` 주석은 xtask 가 낸다.** 보고서에는 목록이 허용하지 않은 것만 남으므로, GitHub Actions 안에서
    실패할 때 그 묶음마다 `::error title=advisory::<ID> <생태계>/<패키지>` 한 줄을 낸다(ADR-0278 의 읽는 쪽은 그대로).
    npm override 제안(`tools/npm/security-overrides.mjs propose`)도 같은 보고서를 읽으므로 따로 기준선을 걸러 내지 않는다.

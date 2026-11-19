@@ -13,6 +13,8 @@ yanked = "deny"
 # justification (see foundation-platform adversarial review PCR2-73 / remediation #10).
 unmaintained = "all"
 unsound = "all"
+# An ignore the graph no longer needs fails, and every ignore carries its osv-scanner.toml ignoreUntil as its expiry (root ADR-0414).
+unused-ignored-advisory = "deny"
 # Accepted, tracked transitive finding (remove once fixed upstream):
 # RUSTSEC-2024-0436 is pulled in only by Apache Parquet 59.1.0. Apache removed
 # `paste` upstream, but as of 2026-07-23 no released 59.x version contains that
@@ -21,17 +23,17 @@ unsound = "all"
 # so retain this compile-time-only maintenance exception until a compatible
 # release is published, then upgrade Parquet and delete it.
 ignore = [
-    { id = "RUSTSEC-2024-0436", reason = "parquet 59.1.0 still directly depends on paste; no compatible released Parquet 59.x removes it as of 2026-07-23; rav1e 0.8.1 (the AVIF encoder of the photo ladder, root ADR-0427) uses it as a compile-time proc-macro too" },
-    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained (informational, all versions; no fixed release exists as of 2026-11-18, latest 0.4.45); it is a direct dependency here and is also pulled by sqlx-core, arrow, parquet, iceberg, calamine, croner and serde_with, so it cannot leave the lockfile by our change alone; mirrors osv-scanner.toml (root ADR-0414); review by 2027-02-16" },
-    { id = "RUSTSEC-2026-0574", reason = "heapless 0.8.0 via rstar 0.12.2 via geo 0.33.1 (catalog-domain); unsound (informational), fixed only in heapless >=0.9.4, which needs rstar 0.14, which geo supports only on main (georust/geo#1641, merged 2026-11-12, unreleased; crates.io geo 0.33.1 requires rstar ^0.12); rstar uses only heapless::binary_heap (none of the flagged APIs; -0577's IntoIter::drop needs a panicking element Drop, rstar's elements are a reference and a distance); mirrors osv-scanner.toml (root ADR-0414); review by 2026-12-19" },
-    { id = "RUSTSEC-2026-0575", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
-    { id = "RUSTSEC-2026-0576", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
-    { id = "RUSTSEC-2026-0577", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
-    { id = "RUSTSEC-2026-0578", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
-    { id = "RUSTSEC-2026-0579", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
-    { id = "RUSTSEC-2026-0580", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
-    { id = "RUSTSEC-2026-0581", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
-    { id = "RUSTSEC-2026-0582", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
+    { id = "RUSTSEC-2024-0436", expiry = "2027-02-02", reason = "parquet 59.1.0 still directly depends on paste; no compatible released Parquet 59.x removes it as of 2026-07-23; rav1e 0.8.1 (the AVIF encoder of the photo ladder, root ADR-0427) uses it as a compile-time proc-macro too" },
+    { id = "RUSTSEC-2026-0543", expiry = "2027-02-16", reason = "chrono is unmaintained (informational, all versions; no fixed release exists as of 2026-11-18, latest 0.4.45); it is a direct dependency here and is also pulled by sqlx-core, arrow, parquet, iceberg, calamine, croner and serde_with, so it cannot leave the lockfile by our change alone; mirrors osv-scanner.toml (root ADR-0414); review by 2027-02-16" },
+    { id = "RUSTSEC-2026-0574", expiry = "2026-12-19", reason = "heapless 0.8.0 via rstar 0.12.2 via geo 0.33.1 (catalog-domain); unsound (informational), fixed only in heapless >=0.9.4, which needs rstar 0.14, which geo supports only on main (georust/geo#1641, merged 2026-11-12, unreleased; crates.io geo 0.33.1 requires rstar ^0.12); rstar uses only heapless::binary_heap (none of the flagged APIs; -0577's IntoIter::drop needs a panicking element Drop, rstar's elements are a reference and a distance); mirrors osv-scanner.toml (root ADR-0414); review by 2026-12-19" },
+    { id = "RUSTSEC-2026-0575", expiry = "2026-12-19", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
+    { id = "RUSTSEC-2026-0576", expiry = "2026-12-19", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
+    { id = "RUSTSEC-2026-0577", expiry = "2026-12-19", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
+    { id = "RUSTSEC-2026-0578", expiry = "2026-12-19", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
+    { id = "RUSTSEC-2026-0579", expiry = "2026-12-19", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
+    { id = "RUSTSEC-2026-0580", expiry = "2026-12-19", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
+    { id = "RUSTSEC-2026-0581", expiry = "2026-12-19", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
+    { id = "RUSTSEC-2026-0582", expiry = "2026-12-19", reason = "same as RUSTSEC-2026-0574 (heapless <0.9.4 unsound via rstar 0.12.2 via geo 0.33.1; georust/geo#1641 unreleased); review by 2026-12-19" },
 ]
 
 [licenses]
