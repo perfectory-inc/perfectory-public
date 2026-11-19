@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DawneerClient, loadSession, signOut } from "./api/client";
 import { MENU, movedTo, resolveRoute } from "./lib/routes";
+import { AuditPage } from "./pages/AuditPage";
 import { ComplexesPage } from "./pages/ComplexesPage";
 import { FlowPage } from "./pages/FlowPage";
 import { ReviewItemPage } from "./pages/ReviewItemPage";
@@ -88,6 +89,14 @@ export function App() {
           <TilesPage client={client} />
         ) : page.page === "complexes" ? (
           <ComplexesPage client={client} />
+        ) : page.page === "audit" ? (
+          <AuditPage
+            key={`${page.actor}/${page.objectType}/${page.objectId}`}
+            client={client}
+            actor={page.actor}
+            objectType={page.objectType}
+            objectId={page.objectId}
+          />
         ) : (
           <ReviewListPage client={client} />
         )}

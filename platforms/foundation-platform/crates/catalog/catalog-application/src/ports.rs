@@ -1151,6 +1151,248 @@ pub trait OperatorActionLedger: Send + Sync {
     ///
     /// Returns [`OperatorActionLedgerError`] when the ledger cannot be written.
     async fn record(&self, record: &OperatorActionRecord) -> Result<(), OperatorActionLedgerError>;
+
+    /// Records, after the request was committed, whether its switch was written (root ADR-0569
+    /// §3): the switch file lives outside the ledger's transaction, so its outcome is a second
+    /// audit row. `failure` is why it was not written; none when it was.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OperatorActionLedgerError`] when the audit row cannot be written.
+    async fn record_switch(
+        &self,
+        _record: &OperatorActionRecord,
+        _failure: Option<&str>,
+    ) -> Result<(), OperatorActionLedgerError> {
+        Ok(())
+    }
+}
+
+/// One row of the audit record `audit.event` as the console reads it (root ADR-0569 §2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuditEvent {
+    /// Its place in the record's order; a rolled-back write leaves a gap (root ADR-0584 §1).
+    pub seq: i64,
+    /// The event's id.
+    pub event_id: Uuid,
+    /// When it happened.
+    pub occurred_at: chrono::DateTime<chrono::Utc>,
+    /// When the chain took it; later than `occurred_at` for an imported event.
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
+    /// Where it came from: `dawneer`, `github`, `deploy`, `host_command`, ...
+    pub source: String,
+    /// The one action's id inside its source.
+    pub source_event_id: String,
+    /// `area.verb`, e.g. `operator_action.run_now`.
+    pub action: String,
+    /// `create`, `modify`, `remove`, `execute` or `access`.
+    pub operation: String,
+    /// `staff`, `service`, `system` or `unlinked`.
+    pub actor_kind: String,
+    /// The staff account, for a staff actor.
+    pub actor_staff_id: Option<Uuid>,
+    /// The staff account's Zitadel subject, when the source knew it.
+    pub actor_subject: Option<String>,
+    /// The source's own immutable id of the actor: `github:<id>`, `unix:<uid>@<host>`.
+    pub actor_external: Option<String>,
+    /// Whether the source verified the actor.
+    pub actor_verified: bool,
+    /// Who ran it on the actor's behalf (`github-app:<id>`).
+    pub on_behalf_of: Option<String>,
+    /// What it changed: its kind.
+    pub object_type: String,
+    /// What it changed: its id.
+    pub object_id: String,
+    /// The changed keys before.
+    pub before: Option<serde_json::Value>,
+    /// The changed keys after, or an execution's arguments.
+    pub after: Option<serde_json::Value>,
+    /// Why, as the person wrote it.
+    pub reason: Option<String>,
+    /// How it was applied: `pull_request`, `approval`, `host_command`, `deploy` or `api`.
+    pub applied_via_kind: Option<String>,
+    /// That way's number or id.
+    pub applied_via_ref: Option<String>,
+    /// `requested`, `succeeded`, `failed`, `refused` or `expired`.
+    pub result: String,
+    /// Why it failed or was refused.
+    pub error: Option<String>,
+    /// The id every event of one change shares.
+    pub change_id: Option<Uuid>,
+    /// The transaction that wrote it (`xid8` as text): which digest covers it (root ADR-0584 §1).
+    pub txid: String,
+}
+
+/// Which events to read: every filter given must hold. Newest first, by `seq`.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AuditEventFilter {
+    /// The staff account that acted.
+    pub actor_staff_id: Option<Uuid>,
+    /// The source's id of the actor, exactly.
+    pub actor_external: Option<String>,
+    /// The kind of what was changed, exactly.
+    pub object_type: Option<String>,
+    /// The start of the id of what was changed.
+    pub object_id_prefix: Option<String>,
+    /// The source, exactly.
+    pub source: Option<String>,
+    /// The action, exactly.
+    pub action: Option<String>,
+    /// The result, exactly.
+    pub result: Option<String>,
+    /// The change, exactly.
+    pub change_id: Option<Uuid>,
+    /// Happened at or after.
+    pub occurred_from: Option<chrono::DateTime<chrono::Utc>>,
+    /// Happened before.
+    pub occurred_to: Option<chrono::DateTime<chrono::Utc>>,
+    /// Only rows before this `seq` (the next page's cursor).
+    pub before_seq: Option<i64>,
+    /// Only rows this snapshot (`pg_snapshot` as text) did not see: an export's cursor, so that
+    /// a row committed late is never skipped (root ADR-0584 §3).
+    pub after_snapshot: Option<String>,
+    /// At most this many rows.
+    pub limit: u32,
+}
+
+/// One event to append through `audit.append` (root ADR-0569 §3, ADR-0584 §1). The record fills
+/// `seq`, `txid` and `recorded_at`; the database checks the caller's role may write `source`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuditAppend {
+    /// The event's id.
+    pub event_id: Uuid,
+    /// When it happened.
+    pub occurred_at: chrono::DateTime<chrono::Utc>,
+    /// The source.
+    pub source: String,
+    /// The one action's id inside its source; a second append of it writes nothing.
+    pub source_event_id: String,
+    /// `area.verb`.
+    pub action: String,
+    /// `create`, `modify`, `remove`, `execute` or `access`.
+    pub operation: String,
+    /// `staff`, `service`, `system` or `unlinked`.
+    pub actor_kind: String,
+    /// The staff account, for a staff actor.
+    pub actor_staff_id: Option<Uuid>,
+    /// What it changed: its kind.
+    pub object_type: String,
+    /// What it changed: its id.
+    pub object_id: String,
+    /// The changed keys after, or an execution's arguments.
+    pub after: Option<serde_json::Value>,
+    /// Why.
+    pub reason: Option<String>,
+    /// How it was applied, and that way's id.
+    pub applied_via: Option<(String, String)>,
+    /// The result.
+    pub result: String,
+    /// Why it failed.
+    pub error: Option<String>,
+    /// The change it belongs to.
+    pub change_id: Option<Uuid>,
+}
+
+/// Where an importer has read its source to (root ADR-0569 §6).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuditImportStatus {
+    /// The source.
+    pub source: String,
+    /// The cursor, as the importer wrote it.
+    pub cursor: String,
+    /// `running`, `waiting_for_credential` or `gap`.
+    pub state: String,
+    /// When it last moved.
+    pub advanced_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// One digest of the record and its public witness (root ADR-0584 §2): it covers the rows its
+/// `to_snapshot` sees and its `from_snapshot` did not.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuditDigest {
+    /// Its number; one more than the digest before.
+    pub digest_no: i64,
+    /// The digest before's snapshot (`pg_snapshot` as text); none for the first.
+    pub from_snapshot: Option<String>,
+    /// The snapshot it was made in.
+    pub to_snapshot: String,
+    /// How many rows it covers.
+    pub row_count: i64,
+    /// The SHA-256 of those rows, lowercase hex.
+    pub rows_sha256: String,
+    /// The digest before's `digest_sha256`; none for the first.
+    pub previous_digest_sha256: Option<String>,
+    /// The digest's SHA-256, lowercase hex: what the public log holds.
+    pub digest_sha256: String,
+    /// Its entry in the public Rekor log, once witnessed.
+    pub rekor_log_index: Option<i64>,
+    /// When it was made.
+    pub made_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Every row an export selects, read in one snapshot (root ADR-0584 §3).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuditExport {
+    /// The rows, oldest first; at most one more than asked, so the caller can tell it was cut.
+    pub events: Vec<AuditEvent>,
+    /// The snapshot they were read in: the next export's `after_snapshot`.
+    pub cursor: String,
+    /// The digests whose ranges reach the rows' transactions, oldest first.
+    pub digests: Vec<AuditDigest>,
+    /// How many of the rows no digest covers yet.
+    pub uncovered: i64,
+}
+
+/// Why the audit chain could not be read or written.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum AuditStoreError {
+    /// The database refused or could not be reached.
+    #[error("the audit chain is unavailable: {0}")]
+    Unavailable(String),
+}
+
+/// The audit chain (root ADR-0569): read by the console, appended through `audit.append`.
+#[async_trait]
+pub trait AuditEventStore: Send + Sync {
+    /// Reads one page of events, newest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuditStoreError`] when the chain cannot be read.
+    async fn page(&self, filter: &AuditEventFilter) -> Result<Vec<AuditEvent>, AuditStoreError>;
+
+    /// Appends one event; answers its `seq`, or none when it was in the chain already.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuditStoreError`] when the database refuses it.
+    async fn append(&self, event: &AuditAppend) -> Result<Option<i64>, AuditStoreError>;
+
+    /// Each source's newest cursor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuditStoreError`] when the chain cannot be read.
+    async fn import_status(&self) -> Result<Vec<AuditImportStatus>, AuditStoreError>;
+
+    /// Every row the filter selects, oldest first, at most `max + 1`, with the snapshot they
+    /// were read in and the digests that reach them, all read in one snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuditStoreError`] when the chain cannot be read.
+    async fn export(
+        &self,
+        filter: &AuditEventFilter,
+        max: u32,
+    ) -> Result<AuditExport, AuditStoreError>;
+
+    /// The newest digest, if any.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuditStoreError`] when the chain cannot be read.
+    async fn latest_digest(&self) -> Result<Option<AuditDigest>, AuditStoreError>;
 }
 
 /// Why the switch board did not take a request.

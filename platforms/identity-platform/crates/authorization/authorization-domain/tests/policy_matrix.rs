@@ -138,6 +138,33 @@ fn only_a_job_operator_and_the_owner_operate_scheduled_jobs(
 }
 
 #[test]
+fn only_an_audit_reader_and_the_owner_read_the_audit_chain(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Foundation root ADR-0569 §7: the chain names who changed what; it is its own capability.
+    let reads = |role: &str| -> Result<bool, Box<dyn std::error::Error>> {
+        Ok(evaluate_policy(&PolicyInput::resource_action(
+            vec![RoleCode::parse(role)?],
+            "foundation.operations",
+            "audit_read",
+        ))
+        .is_allowed())
+    };
+    assert!(reads("AUDIT_READER")?);
+    assert!(reads("MASTER_ADMIN")?);
+    for role in ["JOB_OPERATOR", "DATA_CATALOG_READER", "CATALOG_ADMIN"] {
+        assert!(!reads(role)?, "{role} reads the audit chain");
+    }
+    // Reading the chain operates nothing.
+    assert!(!evaluate_policy(&PolicyInput::resource_action(
+        vec![RoleCode::parse("AUDIT_READER")?],
+        "foundation.operations",
+        "operate",
+    ))
+    .is_allowed());
+    Ok(())
+}
+
+#[test]
 fn every_data_role_reads_the_data_catalog_and_nothing_else_does(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let reads = |role: &str| -> Result<bool, Box<dyn std::error::Error>> {

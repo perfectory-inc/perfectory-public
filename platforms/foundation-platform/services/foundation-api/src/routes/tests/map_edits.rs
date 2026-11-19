@@ -156,3 +156,53 @@ async fn without_a_configured_store_an_edit_answers_503_not_success() -> Result<
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     Ok(())
 }
+
+#[tokio::test]
+async fn an_edit_is_audited_before_and_after_the_store_without_its_geometry(
+) -> Result<(), Box<dyn Error>> {
+    // Root ADR-0569 §3: the request before the store is asked, the store's answer after.
+    let audit = Arc::new(crate::state::MemoryAuditStore::default());
+    let store = Arc::new(RecordingMapEditStore::default());
+    let state = AppState::bootstrap_for_test_with_identity_authorization(Arc::new(
+        StaffMapEditAuthorization::default(),
+    ))?
+    .with_map_edit_store(store.clone())
+    .with_audit_event_store(audit.clone());
+    let response = router(Arc::new(state))
+        .oneshot(post(edit(SQUARE), true)?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let appended = audit.appended.lock().map_err(|_| "poisoned")?.clone();
+    let steps: Vec<(&str, &str)> = appended
+        .iter()
+        .map(|event| {
+            (
+                event.source_event_id.rsplit(':').next().unwrap_or(""),
+                event.result.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        steps,
+        [("requested", "requested"), ("answered", "succeeded")]
+    );
+    assert!(appended
+        .iter()
+        .all(|event| event.action == "map_edit.upsert"
+            && event.actor_staff_id == Some(uuid::Uuid::nil())
+            && event.object_id.starts_with("complex/")));
+    assert_eq!(appended[0].change_id, appended[1].change_id);
+    let text = format!("{appended:?}");
+    assert!(
+        !text.contains("coordinates"),
+        "the geometry reached the chain: {text}"
+    );
+    assert_eq!(
+        appended[1]
+            .after
+            .as_ref()
+            .and_then(|after| after["change_seq"].as_u64()),
+        Some(1)
+    );
+    Ok(())
+}
