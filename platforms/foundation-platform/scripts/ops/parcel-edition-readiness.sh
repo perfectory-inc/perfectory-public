@@ -28,6 +28,9 @@ REQUESTS="${FOUNDATION_PLATFORM_JOB_SWITCHES_DIR:-/var/lib/foundation-jobs/switc
 # FoundationParcelServedEditionBehind (root ADR-0490 §7): 202609 waited 37 days and nothing said so.
 METRICS_DIR="${FOUNDATION_PARCEL_EDITION_METRICS_DIR:-/var/lib/foundation-jobs/metrics}"
 ANSWERS="$(dirname "${OUT}")/promotions"
+# Each by-PNU lane's records (by-pnu-serving-bake.sh reads.jsonl): a refused first publish of a promotion
+# rolls it back (root ADR-0490 §7).
+BAKE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}"
 PY=(python3 -E -s)
 # The host promotions ledger, where the contract names it (`host_promotions_ledger`, root ADR-0490 §5).
 LEDGER="${VWORLD_PARCEL_PROMOTIONS_LEDGER:-$("${PY[@]}" -c 'import json, sys
@@ -36,6 +39,13 @@ print(json.load(open(sys.argv[1], encoding="utf-8"))["host_promotions_ledger"]["
 
 work="$(mktemp -d)"
 trap 'rm -rf -- "${work}"' EXIT
+
+# Root ADR-0490 §7, first: when a lane of the lockstep barrier had its first publish of the promoted edition
+# refused, the edition that promotion moved from is appended to the host ledger and served again; the lanes
+# rebuild only the PNUs the two editions differ in (ADR-0381 §2). The judgement below reads the rolled-back
+# ledger, and the controller does not ask for the undone edition again.
+mkdir -p "$(dirname "${LEDGER}")"
+rolled="$("${PY[@]}" "${JOBS}/parcel_edition_readiness.py" rollback --bake-root "${BAKE_ROOT}" --ledger "${LEDGER}")"
 
 # One statement through --execute, as the other host readers send it: --file refuses a statement with no
 # terminating `;` ("Non-terminated statement"). From 2026-11-04 to 2026-11-11 every run left Silver unmeasured
@@ -77,13 +87,17 @@ for row in json.load(open(sys.argv[1], encoding="utf-8"))["editions"]:
     print(row["edition"], "ready" if row["ready"] else "not ready: " + row["first_failing_stage"], file=sys.stderr)' "${work}/readiness.json"
 mv -f -- "${work}/readiness.json" "${OUT}"
 mv -f -- "${work}/inputs.json" "${OUT}.inputs.json"
+# Root ADR-0490 §5: the host ledger is copied to the ledger bucket, which CI reads (root ADR-0476). Never fails
+# the judgement: the ledger here is what serves; the copy only lets a pull request be judged against it.
+"${PY[@]}" "${RELEASE_ROOT}/scripts/ops/parcel-promotions-publish.py" "${LEDGER}" \
+  || echo "parcel-edition-readiness: the promotions ledger was not copied to the bucket" >&2
 # Never fails the judgement: an unwritten series ages, and FoundationParcelEditionReadinessSilent says so.
 "${PY[@]}" "${JOBS}/parcel_edition_readiness.py" lag --report "${OUT}" --output "${METRICS_DIR}/parcel-edition-lag.prom" \
   || echo "parcel-edition-readiness: lag series not written" >&2
 # The outcome (root ADR-0171): the report moved only when an edition was judged again.
 judged="$(cat "${work}/judged")"
-if [ -z "${judged}" ] && [ -z "${answered}" ]; then
+if [ -z "${judged}" ] && [ -z "${answered}" ] && [ -z "${rolled}" ]; then
   printf 'foundation-job-outcome unchanged\n'
 else
-  printf 'foundation-job-outcome changed judged %s answered %s\n' "${judged:-none}" "${answered:-none}"
+  printf 'foundation-job-outcome changed judged %s answered %s rolled back %s\n' "${judged:-none}" "${answered:-none}" "${rolled:-none}"
 fi

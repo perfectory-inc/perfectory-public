@@ -8,6 +8,12 @@ write, on the ledger bucket only, under the prefix shape-ledger/ only, for TTL_S
 them, with the bucket and its endpoint, to writer.json in the unit's RuntimeDirectory, readable by
 the check's account alone; systemd removes the directory when the run ends.
 
+    shape-ledger-writer-key.py [<prefix>]
+
+The cadastral edition readiness unit mints its own the same way for parcel-editions/, where it copies
+the host promotions ledger (root ADR-0490 §5). A prefix is one of PREFIXES, never another: each unit
+gets a key to its own prefix only.
+
 No long-lived writer key exists anywhere: a host that leaks this file leaks 20 minutes of writes
 under one prefix of one bucket. It never fails the run: without the token, or when R2 refuses, it
 says why and writes nothing, and the check reports "not published" (its 48 hours still stand).
@@ -28,6 +34,8 @@ API = "https://api.cloudflare.com/client/v4"
 TOKEN_NAME = "FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN"
 ACCOUNT_NAME = "CLOUDFLARE_ACCOUNT_ID"
 PREFIX = "shape-ledger/"
+# Each prefix a unit may be given a key to: the shape ledger's, and the promotions ledger's copy.
+PREFIXES = (PREFIX, "parcel-editions/")
 # Longer than the unit's TimeoutStartSec (15 min) so a slow capture still publishes; no longer.
 TTL_SECONDS = 20 * 60
 KEY_FILE = "writer.json"
@@ -67,21 +75,23 @@ def cloudflare(token: str, method: str, path: str, body: dict | None = None) -> 
         return error.code, json.loads(error.read() or b"{}")
 
 
-def mint(token: str, account: str, name: str, call=cloudflare) -> dict:
-    """The temporary credentials of `name`/PREFIX, read and write, TTL_SECONDS; raises with the
+def mint(token: str, account: str, name: str, call=cloudflare, prefix: str = PREFIX) -> dict:
+    """The temporary credentials of `name`/`prefix`, read and write, TTL_SECONDS; raises with the
     HTTP status (never a value) when Cloudflare refuses."""
+    if prefix not in PREFIXES:
+        raise RuntimeError(f"no key is minted for the prefix {prefix!r}; only {', '.join(PREFIXES)}")
     status, verified = call(token, "GET", "/user/tokens/verify")
     if status != 200:
         raise RuntimeError(f"the account token does not verify (HTTP {status})")
     # The parent of a temporary credential is an R2 access key: an API token's is its id.
     status, answer = call(token, "POST", f"/accounts/{account}/r2/temp-access-credentials", {
         "bucket": name, "parentAccessKeyId": verified["result"]["id"], "permission": "object-read-write",
-        "ttlSeconds": TTL_SECONDS, "prefixes": [PREFIX]})
+        "ttlSeconds": TTL_SECONDS, "prefixes": [prefix]})
     if status != 200 or not answer.get("success"):
         codes = [error.get("code") for error in answer.get("errors") or []]
-        raise RuntimeError(f"R2 refused temporary credentials for {name}/{PREFIX} (HTTP {status}, codes {codes})")
+        raise RuntimeError(f"R2 refused temporary credentials for {name}/{prefix} (HTTP {status}, codes {codes})")
     result = answer["result"]
-    return {"endpoint": f"https://{account}.r2.cloudflarestorage.com", "bucket": name, "prefix": PREFIX,
+    return {"endpoint": f"https://{account}.r2.cloudflarestorage.com", "bucket": name, "prefix": prefix,
             "access_key_id": result["accessKeyId"], "secret_access_key": result["secretAccessKey"],
             "session_token": result["sessionToken"], "ttl_seconds": TTL_SECONDS}
 
@@ -100,22 +110,24 @@ def write_key(directory: pathlib.Path, key: dict, user: str | None) -> pathlib.P
     return path
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    prefix = argv[0] if argv else PREFIX
     directory = os.environ.get("RUNTIME_DIRECTORY", "").split(":")[0]
     if not directory:
-        log("no RUNTIME_DIRECTORY; run it as foundation-shape-ledger-check.service's ExecStartPre")
+        log("no RUNTIME_DIRECTORY; run it as a unit's ExecStartPre")
         return 0
     token, account = account_token()
     if not token or not account:
         log(f"no key minted: the cloudflare-deploy group holds no {TOKEN_NAME} and {ACCOUNT_NAME}")
         return 0
     try:
-        key = mint(token, account, bucket())
+        key = mint(token, account, bucket(), prefix=prefix)
     except (OSError, RuntimeError, KeyError) as error:
         log(f"no key minted: {error}")
         return 0
     path = write_key(pathlib.Path(directory), key, USER)
-    log(f"minted a {TTL_SECONDS // 60}-minute key for {key['bucket']}/{PREFIX} into {path}")
+    log(f"minted a {TTL_SECONDS // 60}-minute key for {key['bucket']}/{prefix} into {path}")
     return 0
 
 
