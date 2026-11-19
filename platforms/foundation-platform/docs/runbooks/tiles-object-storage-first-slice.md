@@ -11,7 +11,7 @@ last_reviewed: 2026-11-19
 
 > **필지 단계는 끝났다(root ADR-0571, 2026-11-19).** PostGIS 필지 경계 사본
 > (`serving_postgis.parcel_boundary_mirror`·`_publication`·`_current`)을 지우면서 그것을 쓰고 읽던
-> 필지 전용 증명도 함께 지웠다 — `scripts/tiles/tiles-slice-proof.sh`, `fixture.sql`, `compose.yaml`,
+> 필지 전용 증명도 함께 지웠다 — `tiles-slice-proof.sh`, `fixture.sql`, `compose.yaml`,
 > `martin-static.yaml`, `http-evidence.sh`, 로컬 매니페스트 두 개, v2 로컬 seed, 그리고
 > `martin-dynamic.yaml`의 `parcels`·`parcel_anchor*` source. 필지 지도는 레이크하우스에서 굽고 R2에서
 > 제공한다. 아래의 필지 dynamic/static 증명, "Local PMTiles fallback", "Real R2 proof mode" 절은
