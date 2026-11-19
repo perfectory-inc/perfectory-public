@@ -353,6 +353,12 @@ const fn event_type(event: &IdentityEventV1) -> &'static str {
         IdentityEventV1::ServiceCapabilityRevoked(_) => {
             "identity.service_principal.capability_revoked.v1"
         }
+        IdentityEventV1::StaffExternalAccountLinked(_) => {
+            "identity.staff.external_account_linked.v1"
+        }
+        IdentityEventV1::StaffExternalAccountUnlinked(_) => {
+            "identity.staff.external_account_unlinked.v1"
+        }
     }
 }
 
@@ -363,5 +369,7 @@ const fn has_supported_schema_version(event: &IdentityEventV1) -> bool {
         IdentityEventV1::StaffSessionRevoked(payload) => payload.schema_version == 1,
         IdentityEventV1::ServiceCapabilityGranted(payload)
         | IdentityEventV1::ServiceCapabilityRevoked(payload) => payload.schema_version == 1,
+        IdentityEventV1::StaffExternalAccountLinked(payload)
+        | IdentityEventV1::StaffExternalAccountUnlinked(payload) => payload.schema_version == 1,
     }
 }

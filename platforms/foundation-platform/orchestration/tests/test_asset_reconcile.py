@@ -79,7 +79,7 @@ class Reconciler(unittest.TestCase):
             "reference.legal_dong_code_change": table(snap("61", None, 0)),
             # The building-permit and nearby lanes (root ADR-0468), caught up.
             "gold.parcel_building_permits": table(snap("501", None, 0)),
-            "gold.parcel_nearby": table(snap("601", None, 0)),
+            "gold.parcel_nearby_versions": table(snap("601", None, 0)),
             # The lanes switched on behind the loaders that fill them (root ADR-0468, revised 2026-11-10), caught up.
             "gold.parcel_ownership": table(snap("701", None, 0)),
             "gold.parcel_sub_parcels": table(snap("702", None, 0)),
@@ -162,10 +162,10 @@ class Reconciler(unittest.TestCase):
             self.assertFalse(published("parcel-nearby"))
 
     def test_the_assets_are_those_the_reconciler_names_each_one_asset(self):
-        # The court auction Gold and its bake join when they are switched on (root ADR-0353, ADR-0386 §3),
-        # and the parcel-nearby bake again when its DuckDB-born Gold switches it back on (W83b).
+        # The court auction Gold and its bake join when they are switched on (root ADR-0353, ADR-0386 §3).
+        # The parcel-nearby bake is back with its DuckDB-born Gold (root ADR-0567).
         self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake",
-                                            "by_pnu_parcel_building_permits_bake",
+                                            "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake",
                                             *(f"by_pnu_parcel_{kind}_bake" for kind in (
                                                 "ownership", "sub_parcels", "energy", "demolitions", "factories",
                                                 "register_masters", "real_transaction"))})

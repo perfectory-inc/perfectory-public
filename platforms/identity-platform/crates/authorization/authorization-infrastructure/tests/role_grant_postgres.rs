@@ -5,13 +5,18 @@ use std::error::Error;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use authorization_application::ports::{RoleGrantPersistenceError, RoleGrantUnitOfWork};
+use authorization_application::ports::{
+    ExternalAccountLinkPersistenceError, ExternalAccountLinkUnitOfWork, RoleGrantPersistenceError,
+    RoleGrantUnitOfWork,
+};
 use authorization_domain::RoleCode;
-use authorization_infrastructure::PgRoleGrantUnitOfWork;
+use authorization_infrastructure::{PgExternalAccountLinkUnitOfWork, PgRoleGrantUnitOfWork};
+use chrono::{Duration, DurationRound, Utc};
 use identity_shared_kernel::StaffId;
 use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{Executor, PgPool};
+use staff_identity_domain::ExternalAccount;
 use uuid::Uuid;
 
 static MIGRATOR: Migrator = sqlx::migrate!("../../../migrations");
@@ -116,6 +121,7 @@ async fn run_contract(
         .await?;
     assert_assignment_contract(&admin_pool, &api_pool, grantor, target).await?;
     assert_profile_updates_denied(&api_pool, target).await?;
+    assert_external_account_contract(&admin_pool, &api_pool, grantor, target).await?;
 
     api_pool.close().await;
     admin_pool.close().await;
@@ -257,5 +263,79 @@ async fn apply_runtime_grants(
             format!("\"{provisioner_role}\"").as_str(),
         );
     sqlx::raw_sql(&grants).execute(pool).await?;
+    Ok(())
+}
+
+/// One account belongs to at most one staff member at any instant, records are only appended,
+/// and each record has its outbox event (root ADR-0569).
+async fn assert_external_account_contract(
+    admin_pool: &PgPool,
+    api_pool: &PgPool,
+    grantor: StaffId,
+    target: StaffId,
+) -> TestResult {
+    let unit_of_work = PgExternalAccountLinkUnitOfWork::new(api_pool.clone());
+    let account = ExternalAccount::parse("github", "583231")?;
+    let since = (Utc::now() - Duration::days(1)).duration_trunc(Duration::microseconds(1))?;
+    let (first, second) = tokio::join!(
+        unit_of_work.link(target, &account, since, grantor),
+        unit_of_work.link(grantor, &account, since, grantor),
+    );
+    assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+    let owner = if first.is_ok() { target } else { grantor };
+    let other = if owner == target { grantor } else { target };
+
+    // A backdated link to another staff member overlaps the one that holds: refused.
+    assert!(matches!(
+        unit_of_work
+            .link(other, &account, since - Duration::days(30), grantor)
+            .await,
+        Err(ExternalAccountLinkPersistenceError::AlreadyLinked)
+    ));
+    assert!(matches!(
+        unit_of_work.unlink(other, &account, grantor).await,
+        Err(ExternalAccountLinkPersistenceError::NotLinked)
+    ));
+    let ended = unit_of_work.unlink(owner, &account, grantor).await?;
+    assert_eq!(ended.valid_from, since);
+    assert!(ended.valid_to.is_some());
+
+    // After the end, the account can belong to someone else from then on, never before it.
+    assert!(matches!(
+        unit_of_work.link(other, &account, since, grantor).await,
+        Err(ExternalAccountLinkPersistenceError::AlreadyLinked)
+    ));
+    let later = ended.valid_to.ok_or("valid_to")?;
+    unit_of_work.link(other, &account, later, grantor).await?;
+
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM identity.staff_external_account WHERE external_id = '583231'",
+        )
+        .fetch_one(admin_pool)
+        .await?,
+        3
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM identity.outbox_event \
+             WHERE type LIKE 'identity.staff.external_account_%'",
+        )
+        .fetch_one(admin_pool)
+        .await?,
+        3
+    );
+    for statement in [
+        "UPDATE identity.staff_external_account SET valid_to = NULL",
+        "DELETE FROM identity.staff_external_account",
+        "TRUNCATE identity.staff_external_account",
+    ] {
+        for pool in [api_pool, admin_pool] {
+            assert!(
+                sqlx::query(statement).execute(pool).await.is_err(),
+                "accepted: {statement}"
+            );
+        }
+    }
     Ok(())
 }

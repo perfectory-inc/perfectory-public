@@ -27,7 +27,12 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
   제시외건물, 감정요항표) a whole edition per property or case whose list changed. A field that names a
   person is not read; free text has its names masked (the contract's `personal_names`);
 - for a 공통코드 object (root ADR-0540 §5): appends to `silver.court_auction_code` the codes whose
-  name changed, the site's name for each code the documents carry.
+  name changed, the site's name for each code the documents carry;
+- for a 사건상세, 현황조사 or 감정평가 object (root ADR-0540 §1, §4): its document tables (the case
+  basics into `silver.court_auction_case`, the related cases, the 목록 with their 종국결과 and the
+  당사자 kinds; a 현황조사 round and its 목록; a 감정평가 round), then one read row per request in
+  `silver.court_auction_case_document_read`, the record the collector's next case frontier is
+  computed from. A person's name is never read; free text is masked as the 물건상세's is.
 
 `parse` reads the plan directories without Spark. The last stdout line is `court-auction-summary-json {json}`.
 """
@@ -79,6 +84,24 @@ DOCUMENT_TABLES = (*LATEST_KEYS, *EDITION_PER)
 # collector's next frontier is computed from, so an object the record holds has everything else.
 DETAIL_TABLES = (PHOTO_TABLE, *DOCUMENT_TABLES, DETAIL_TABLE)
 CODES_ROLE = "common_codes"
+CASE_ROLES = ("case_detail", "case_survey", "case_appraisal")
+CASE_READ_TABLE = "silver.court_auction_case_document_read"
+CASE_READ_KEY = ("court_office_code", "case_no", "document", "asked_round")
+RELATED_TABLE = "silver.court_auction_case_related"
+CASE_OBJECT_TABLE = "silver.court_auction_case_object"
+PARTY_TABLE = "silver.court_auction_case_party"
+SURVEY_TABLE = "silver.court_auction_survey"
+SURVEY_OBJECT_TABLE = "silver.court_auction_survey_object"
+APPRAISAL_TABLE = "silver.court_auction_appraisal"
+ROUND = (*CASE, "round_seq")
+# Each case document's tables, in commit order, the read record last (root ADR-0540 §3).
+CASE_DOCUMENT_TABLES = {
+    "case_detail": (CASE_TABLE, RELATED_TABLE, CASE_OBJECT_TABLE, PARTY_TABLE, CASE_READ_TABLE),
+    "case_survey": (SURVEY_TABLE, SURVEY_OBJECT_TABLE, CASE_READ_TABLE),
+    "case_appraisal": (APPRAISAL_TABLE, CASE_READ_TABLE),
+}
+CASE_LATEST_KEYS = {CASE_TABLE: CASE, SURVEY_TABLE: ROUND, APPRAISAL_TABLE: ROUND, CASE_READ_TABLE: CASE_READ_KEY}
+CASE_EDITION_PER = {RELATED_TABLE: CASE, CASE_OBJECT_TABLE: CASE, PARTY_TABLE: CASE, SURVEY_OBJECT_TABLE: ROUND}
 CODE_TABLE = "silver.court_auction_code"
 CODE_KEY = ("system_code", "owner_code", "group_code", "code")
 
@@ -293,8 +316,11 @@ def search_complete(lines: Sequence[Mapping[str, Any]], search: Mapping[str, Any
 def search_roles(contract: Mapping[str, Any]) -> dict[str, str]:
     """Source slug → the search its objects hold (root ADR-0014 `{provider}__{dataset}`)."""
 
-    return {f"courtauctiongokr__{contract[role]['dataset_slug']}": role
-            for role in (*ROLE_TABLE, DETAIL_ROLE, CODES_ROLE)}
+    roles = {f"courtauctiongokr__{contract[role]['dataset_slug']}": role
+             for role in (*ROLE_TABLE, DETAIL_ROLE, CODES_ROLE)}
+    for document in contract["case_documents"]["documents"]:
+        roles[f"courtauctiongokr__{document['dataset_slug']}"] = document["role"]
+    return roles
 
 
 def snapshot_id(object_key: str) -> str:
@@ -341,6 +367,10 @@ def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], prefixes:
         return {"object_key": entry["object_key"], "complete": True,
                 "rows": code_rows_of(lines, contract[CODES_ROLE], entry["object_key"], entry["source_snapshot_id"],
                                      ingested_at)}
+    if entry["role"] in CASE_ROLES:
+        tables = case_document_rows(lines, contract["case_documents"], entry["role"], entry["object_key"],
+                                    entry["source_snapshot_id"], ingested_at)
+        return {"object_key": entry["object_key"], "complete": True, "rows": tables[CASE_READ_TABLE], "tables": tables}
     if entry["role"] == DETAIL_ROLE:
         rows = detail_rows_of(lines, contract[DETAIL_ROLE], entry["object_key"], entry["source_snapshot_id"], ingested_at)
         return {"object_key": entry["object_key"], "complete": True, **rows}
@@ -440,6 +470,149 @@ def code_rows_of(lines: Sequence[Mapping[str, Any]], codes: Mapping[str, Any], o
     return list(found.values())
 
 
+def case_document_rows(lines: Sequence[Mapping[str, Any]], documents: Mapping[str, Any], role: str, object_key: str,
+                       snapshot_id: str, ingested_at: datetime) -> dict[str, list[dict[str, Any]]]:
+    """A 사건상세, 현황조사 or 감정평가 object's rows (root ADR-0540 §1, §4), per table of
+    `CASE_DOCUMENT_TABLES[role]`: one read row per line, failed reads included; the document's rows
+    from each read answer, the last line naming a key (or an edition group) winning. The request key
+    is read back from the line's request (`case_documents.key_fields`), so a failed read still names
+    its case."""
+
+    document = next(d for d in documents["documents"] if d["role"] == role)
+    court_field, case_field = documents["key_fields"]
+    round_field = document.get("round_field")
+    tables: dict[str, dict[tuple, Any]] = {table: {} for table in CASE_DOCUMENT_TABLES[role]}
+    for number, line in enumerate(lines, start=1):
+        asked = (line.get("request") or {}).get(document["request_object"]) or {}
+        court, case = text_or_none(asked.get(court_field)), text_or_none(asked.get(case_field))
+        if not court or not case:
+            raise ValueError(f"{object_key} line {number}: a case document read without its key")
+        load = {"source_record_id": object_key, "source_line_number": number, "source_snapshot_id": snapshot_id,
+                "ingested_at_utc": ingested_at}
+        case_key = {"court_office_code": court, "case_no": case}
+        data: Any = None
+        if line.get("read_outcome") == "read":
+            try:
+                data = (json.loads(line.get("body") or "") or {}).get("data")
+            except (ValueError, AttributeError):
+                data = None
+        data = data if isinstance(data, Mapping) else {}
+        answered = None
+        if document.get("answered_round_pointer"):
+            found: Any = {"data": data}
+            for part in document["answered_round_pointer"].strip("/").split("/"):
+                found = found.get(part) if isinstance(found, Mapping) else None
+            answered = whole(found)
+        read = {**case_key, "document": role, "asked_round": whole(asked.get(round_field)) or 0 if round_field else 0,
+                "answered_round": answered, "requested_at_utc": _utc(line.get("requested_at_utc")) or ingested_at,
+                "http_status": whole(line.get("http_status")), "read_outcome": line.get("read_outcome") or "read",
+                "list_fingerprint": text_or_none(line.get("list_fingerprint")), **load}
+        tables[CASE_READ_TABLE][tuple(read[k] for k in CASE_READ_KEY)] = read
+        if not data:
+            continue
+        for table, rows in case_answer_rows(role, data, case_key, answered).items():
+            stamped = [{**row, **load} for row in rows]
+            if table in CASE_LATEST_KEYS:
+                tables[table].update({tuple(row[k] for k in CASE_LATEST_KEYS[table]): row for row in stamped})
+            else:
+                group = CASE_EDITION_PER[table]
+                owner = {**case_key, "round_seq": answered}
+                if all(owner.get(k) is not None for k in group):
+                    tables[table][tuple(owner[k] for k in group)] = stamped
+    return {table: [row for value in rows.values() for row in (value if isinstance(value, list) else [value])]
+            for table, rows in tables.items()}
+
+
+def case_answer_rows(role: str, data: Mapping[str, Any], case_key: Mapping[str, Any],
+                     round_seq: int | None) -> dict[str, list[dict[str, Any]]]:
+    """One case document answer's rows per document table. A list the answer gives empty is an empty
+    edition (the list was read and is empty). The fields that name a person (당사자 `intrpsNm`,
+    감정평가사 `aeeEvlExamrNm`/`aeeEvlJdgrNm`, 지분 서술 `dspslStkCtt`) are not read."""
+
+    if role == "case_detail":
+        related = [
+            {**case_key, "list": "related", "related_court_office_code": text_or_none(item.get("reltCsCortOfcCd")),
+             "related_case_no": text_or_none(item.get("reltCsNo")),
+             "related_user_case_no": text_or_none(item.get("userReltCsNo")),
+             "relation_kind_code": text_or_none(item.get("reltCsDvsCd")),
+             "relation_kind_name": text_or_none(item.get("reltCsDvsNm")),
+             "related_court_name": text_or_none(item.get("cortOfcNm"))}
+            for item in _list(data.get("dlt_rletReltCsLst"))
+        ] + [
+            {**case_key, "list": "merged", "related_court_office_code": text_or_none(item.get("reltCortOfcCd")),
+             "related_case_no": text_or_none(item.get("reltCsNo")),
+             "related_user_case_no": text_or_none(item.get("userReltCsNo")),
+             "relation_kind_code": text_or_none(item.get("reltCsDvsCd")), "relation_kind_name": None,
+             "related_court_name": text_or_none(item.get("cortOfcNm"))}
+            for item in _list(data.get("dlt_dpcnMrgTrnscsCsRlet"))
+        ]
+        objects = []
+        seen: set[int] = set()
+        for item in _list(data.get("dlt_rletCsDspslObjctLst")):
+            seq = whole(item.get("dspslObjctSeq"))
+            if seq is None or seq in seen:
+                continue
+            seen.add(seq)
+            objects.append({
+                **case_key, "object_seq": seq, "list_kind_code": text_or_none(item.get("auctnLstDvsCd")),
+                "list_kind_name": text_or_none(item.get("auctnLstNm")),
+                "closure_kind_code": text_or_none(item.get("ultmtDvsCd")),
+                "closure_kind_name": text_or_none(item.get("ultmtNm")), "legal_dong_code": code_of(item, OBJECT_CODE),
+                "lot_raw": text_or_none(item.get("rprsLtnoAddr")), "building_name": text_or_none(item.get("bldNm")),
+                "building_unit_raw": text_or_none(item.get("bldDtlDts")),
+                "print_address_raw": text_or_none(item.get("userSt")),
+                "register_record_yn": text_or_none(item.get("rgstRcrdYn")),
+            })
+        parties = [{**case_key, "party_seq": n, "party_kind_code": text_or_none(item.get("auctnIntrpsDvsCd")),
+                    "party_kind_name": text_or_none(item.get("auctnIntrpsDvsNm"))}
+                   for n, item in enumerate(_list(data.get("dlt_rletCsIntrpsLst")), start=1)]
+        return {CASE_TABLE: case_rows(case_key, data.get("dma_csBasInf"), data.get("dlt_dstrtDemnLstprdDts")),
+                RELATED_TABLE: [{**row, "related_seq": n} for n, row in enumerate(related, start=1)],
+                CASE_OBJECT_TABLE: objects, PARTY_TABLE: parties}
+    if round_seq is None:
+        return {}
+    keyed = {**case_key, "round_seq": round_seq}
+    if role == "case_survey":
+        info = data.get("dma_ordTsCurstExmnMngInf") if isinstance(data.get("dma_ordTsCurstExmnMngInf"), Mapping) else {}
+        survey = [{
+            **keyed, "transmit_status_code": text_or_none(info.get("auctnCurstExmnTrsmStatCd")),
+            "case_name_code": text_or_none(info.get("execIntgCsNmCd")), "surveyed_raw": text_or_none(info.get("exmnDtDts")),
+            "sent_date": ymd(info.get("exmndcSndngYmd")), "received_date": ymd(info.get("exmndcRcptnYmd")),
+            "cancelled_date": ymd(info.get("exmndcRtrcnYmd")), "possession_summary": masked_text(info.get("lstPossRltnDts")),
+            "first_possession": masked_text(info.get("fstmLstPossRltnDts")),
+            "second_possession": masked_text(info.get("scntmLstPossRltnDts")), "lease_text": masked_text(info.get("lesDts")),
+            "lawsuit_kind_code": text_or_none(info.get("lwstDvsCd")),
+        }] if info else []
+        objects = []
+        seen = set()
+        for item in _list(data.get("dlt_ordTsCurstExmnRletLst")):
+            seq = whole(item.get("objctSeq"))
+            if seq is None or seq in seen:
+                continue
+            seen.add(seq)
+            objects.append({
+                **keyed, "object_seq": seq, "sale_object_seq": whole(item.get("dspslObjctSeq")),
+                "list_kind_code": text_or_none(item.get("auctnLstDvsCd")),
+                "possession_code": text_or_none(item.get("auctnPossRltnCd")),
+                "possession_text": masked_text(item.get("gdsPossCtt")), "remarks": masked_text(item.get("rletLstRmk")),
+                "lease_count": whole(item.get("lesCnt")), "land_category": text_or_none(item.get("ldcgDts")),
+                "area_raw": text_or_none(item.get("objctArDts")), "lot_raw": text_or_none(item.get("rprsLtnoAddr")),
+                "building_name": text_or_none(item.get("bldNm")), "building_unit_raw": text_or_none(item.get("bldDtlDts")),
+                "print_address_raw": text_or_none(item.get("printSt")),
+            })
+        return {SURVEY_TABLE: survey, SURVEY_OBJECT_TABLE: objects} if info else {}
+    info = data.get("dma_ordTsIndvdAeeWevlInf") if isinstance(data.get("dma_ordTsIndvdAeeWevlInf"), Mapping) else {}
+    if not info:
+        return {}
+    return {APPRAISAL_TABLE: [{
+        **keyed, "appraisal_no": text_or_none(info.get("aeeWevlNo")), "price_basis_date": ymd(info.get("dspslPrcCrtrYmd")),
+        "surveyed_date": ymd(info.get("exmnYmd")), "written_date": ymd(info.get("wrtYmd")),
+        "list_kind_code": text_or_none(info.get("auctnLstDvsCd")), "opinion": masked_text(info.get("fstmEvlDcsnOponCtt")),
+        "court_name": text_or_none(info.get("cortOfcNm")), "user_case_no": text_or_none(info.get("userCsNo")),
+        "lawsuit_kind_code": text_or_none(info.get("lwstDvsCd")),
+    }]}
+
+
 def _list(value: Any) -> list[Mapping[str, Any]]:
     return [item for item in value if isinstance(item, Mapping)] if isinstance(value, list) else []
 
@@ -449,31 +622,39 @@ def _sold(value: Any) -> int | None:
     return amount if amount else None  # The site writes 0 for an unsold item.
 
 
+def case_rows(case_key: Mapping[str, Any], base: Any, deadline_list: Any) -> list[dict[str, Any]]:
+    """The case row the 사건 기본 states (물건상세 `csBaseInfo`, 사건상세 `dma_csBasInf`: the same fields,
+    equal for 2,898 of 2,898 cases measured 2026-10-21), with the latest 배당요구종기 of its list. The
+    사법보좌관 (`jdgeAojAsstnNm`) is not read."""
+
+    if not isinstance(base, Mapping) or not base:
+        return []
+    deadlines = [d for d in (ymd(item.get("dstrtDemnLstprdYmd")) for item in _list(deadline_list)) if d]
+    return [{
+        **case_key, "court_name": text_or_none(base.get("cortOfcNm")),
+        "court_branch_name": text_or_none(base.get("cortSptNm")), "user_case_no": text_or_none(base.get("userCsNo")),
+        "case_name": text_or_none(base.get("csNm")), "case_received_date": ymd(base.get("csRcptYmd")),
+        "commencement_date": ymd(base.get("csCmdcYmd")), "claim_amount_krw": whole(base.get("clmAmt")),
+        "department_code": text_or_none(base.get("jdbnCd")), "department_name": text_or_none(base.get("cortAuctnJdbnNm")),
+        "department_phone": text_or_none(base.get("jdbnTelno")),
+        "execution_officer_phone": text_or_none(base.get("execrCsTelno")),
+        "case_progress_status_code": text_or_none(base.get("csProgStatCd")),
+        "suspension_status_code": text_or_none(base.get("auctnSuspStatCd")),
+        "closure_kind_code": text_or_none(base.get("ultmtDvsCd")), "closed_date": ymd(base.get("csUltmtYmd")),
+        "duplicate_merge_kind_code": text_or_none(base.get("auctnDpcnMrgDvsCd")),
+        "appeal_yn": text_or_none(base.get("rletApalYn")), "lawsuit_kind_code": text_or_none(base.get("lwstDvsCd")),
+        "dividend_demand_deadline": max(deadlines) if deadlines else None,
+    }]
+
+
 def document_rows(result: Mapping[str, Any], keyed: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """A 물건상세 result's rows for each document table (root ADR-0540 §4), keyed by the read's
     request (``keyed``: court office, case, property). The fields that name a person (the share text
     `dspslStkCtt`, the 사법보좌관 `jdgeAojAsstnNm`) are not read; free text is masked."""
 
     case_key = {k: keyed[k] for k in CASE}
-    base = result.get("csBaseInfo") if isinstance(result.get("csBaseInfo"), Mapping) else {}
-    deadlines = [d for d in (ymd(item.get("dstrtDemnLstprdYmd")) for item in _list(result.get("dstrtDemnInfo"))) if d]
     out: dict[str, list[dict[str, Any]]] = {table: [] for table in DOCUMENT_TABLES}
-    if base:
-        out[CASE_TABLE].append({
-            **case_key, "court_name": text_or_none(base.get("cortOfcNm")),
-            "court_branch_name": text_or_none(base.get("cortSptNm")), "user_case_no": text_or_none(base.get("userCsNo")),
-            "case_name": text_or_none(base.get("csNm")), "case_received_date": ymd(base.get("csRcptYmd")),
-            "commencement_date": ymd(base.get("csCmdcYmd")), "claim_amount_krw": whole(base.get("clmAmt")),
-            "department_code": text_or_none(base.get("jdbnCd")), "department_name": text_or_none(base.get("cortAuctnJdbnNm")),
-            "department_phone": text_or_none(base.get("jdbnTelno")),
-            "execution_officer_phone": text_or_none(base.get("execrCsTelno")),
-            "case_progress_status_code": text_or_none(base.get("csProgStatCd")),
-            "suspension_status_code": text_or_none(base.get("auctnSuspStatCd")),
-            "closure_kind_code": text_or_none(base.get("ultmtDvsCd")), "closed_date": ymd(base.get("csUltmtYmd")),
-            "duplicate_merge_kind_code": text_or_none(base.get("auctnDpcnMrgDvsCd")),
-            "appeal_yn": text_or_none(base.get("rletApalYn")), "lawsuit_kind_code": text_or_none(base.get("lwstDvsCd")),
-            "dividend_demand_deadline": max(deadlines) if deadlines else None,
-        })
+    out[CASE_TABLE].extend(case_rows(case_key, result.get("csBaseInfo"), result.get("dstrtDemnInfo")))
     spec = result.get("dspslGdsDxdyInfo") if isinstance(result.get("dspslGdsDxdyInfo"), Mapping) else {}
     if spec:
         out[SPEC_TABLE].append({
@@ -732,6 +913,45 @@ def load_code_object(spark: Any, args: argparse.Namespace, entry: Mapping[str, A
     return counts
 
 
+def load_case_document_object(spark: Any, args: argparse.Namespace, entry: Mapping[str, Any],
+                              search: Mapping[str, Any]) -> dict[str, Any]:
+    """Commits one 사건상세, 현황조사 or 감정평가 object, table by table in `CASE_DOCUMENT_TABLES` order:
+    its changed documents (newest per key or a whole edition per changed list), then every read
+    (root ADR-0540 §3), so an object the read record records has its documents."""
+
+    from data_go_kr_onbid import changed_only  # noqa: PLC0415 - the same changed-key compare
+    from lakehouse_ingest import append_source_object  # noqa: PLC0415
+    from platform_contracts import (  # noqa: PLC0415
+        column_names, current_rows, ensure_contract_table, load_lakehouse_contract, spark_sql_type,
+    )
+
+    role = entry["role"]
+    counts: dict[str, Any] = {"object": entry["object_key"], "role": role,
+                              "rows": len(search["tables"][CASE_READ_TABLE])}
+    for name in CASE_DOCUMENT_TABLES[role]:
+        contract = load_lakehouse_contract(name)
+        table = f"`{args.iceberg_catalog_name}`.`silver`.`{name.split('.', 1)[1]}{args.table_suffix}`"
+        ensure_contract_table(spark, table, contract)
+        columns = list(column_names(contract))
+        ddl = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
+        staged = spark.createDataFrame([tuple(row.get(c) for c in columns) for row in search["tables"][name]], ddl)
+        if name in CASE_EDITION_PER:
+            per = CASE_EDITION_PER[name]
+            content = [c for c in columns if c not in (*per, *LOAD_COLUMNS)]
+            staged = changed_editions(staged, current_rows(spark.table(table), contract), per, content)
+        elif name != CASE_READ_TABLE:
+            key = CASE_LATEST_KEYS[name]
+            content = [c for c in columns if c not in (*key, *LOAD_COLUMNS)]
+            staged = changed_only(staged, current_rows(spark.table(table), contract), key, content)
+        staged = staged.select(*columns).cache()
+        short = name.split(".", 1)[1]
+        counts[f"{short}_appended_rows"] = staged.count()
+        counts[f"{short}_appended"] = append_source_object(spark, staged, columns, table, entry["object_key"],
+                                                           contract_table=name)
+        staged.unpersist()
+    return counts
+
+
 def relinked_rows(rows: Sequence[Mapping[str, Any]], record: str, snapshot: str, ingested_at: datetime,
                   prefixes: Mapping[str, str], dongs: Mapping[tuple[str, str], str]) -> list[dict[str, Any]]:
     """The current rows again, each with what its kept address offers the joins now (root ADR-0416).
@@ -854,6 +1074,9 @@ def _load(argv: Sequence[str]) -> int:
                 continue
             if role == CODES_ROLE:
                 summary["objects"].append(load_code_object(spark, args, entry, search))
+                continue
+            if role in CASE_ROLES:
+                summary["objects"].append(load_case_document_object(spark, args, entry, search))
                 continue
             contract_table = ROLE_TABLE[role]
             contract = load_lakehouse_contract(contract_table)

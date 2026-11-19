@@ -1,19 +1,24 @@
-//! Staff session verification and role assignment routes.
+//! Staff session verification, role assignment and external-account link routes.
 
 use std::sync::Arc;
 
-use authorization_application::{AssignStaffRoleError, AssignStaffRoleInput};
+use authorization_application::ports::ExternalAccountLinkPersistenceError;
+use authorization_application::{
+    AssignStaffRoleError, AssignStaffRoleInput, ExternalAccountLinkChange,
+    LinkStaffExternalAccountError, LinkStaffExternalAccountInput,
+};
 use authorization_domain::RoleCode;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use identity_contracts::{
-    AssignStaffRoleRequest, PrincipalId, StaffRoleResponse, VerifyStaffSessionResponse,
+    AssignStaffRoleRequest, ExternalAccountChange, PrincipalId, StaffExternalAccountRequest,
+    StaffExternalAccountResponse, StaffRoleResponse, VerifyStaffSessionResponse,
 };
 use identity_shared_kernel::StaffId;
 use staff_identity_application::{VerifyStaffSessionInput, VerifyStaffSessionOutput};
-use staff_identity_domain::StaffIdentityError;
+use staff_identity_domain::{ExternalAccount, StaffIdentityError};
 use uuid::Uuid;
 
 use crate::error::{ApiError, ApiErrorResponse};
@@ -133,6 +138,71 @@ pub async fn assign_role(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/identity/v1/staff/{staff_id}/external-accounts",
+    params(("staff_id" = Uuid, Path, description = "Staff identifier the account belongs to")),
+    request_body = StaffExternalAccountRequest,
+    security(("bearerAuth" = [])),
+    responses(
+        (status = 200, description = "Link record appended", body = StaffExternalAccountResponse),
+        (status = 400, description = "Invalid staff identifier, provider or account id, or a valid_from in the future", body = ApiErrorResponse),
+        (status = 401, description = "Credential is invalid, expired, or revoked", body = ApiErrorResponse),
+        (status = 403, description = "Verified staff principal cannot link accounts", body = ApiErrorResponse),
+        (status = 404, description = "Target staff does not exist, or holds no link to the account", body = ApiErrorResponse),
+        (status = 409, description = "The account is already linked over that interval", body = ApiErrorResponse),
+        (status = 500, description = "Opaque internal failure", body = ApiErrorResponse)
+    )
+)]
+pub async fn change_external_account(
+    State(state): State<Arc<AppState>>,
+    Path(staff_id): Path<String>,
+    headers: HeaderMap,
+    request: Result<Json<StaffExternalAccountRequest>, JsonRejection>,
+) -> Result<Json<StaffExternalAccountResponse>, ApiError> {
+    let target_staff_id = Uuid::parse_str(&staff_id)
+        .map(StaffId::new)
+        .map_err(|_| ApiError::BadRequest)?;
+    let bearer = bearer_credential(&headers)?;
+    let Json(request) = request.map_err(|_| ApiError::BadRequest)?;
+    let account = ExternalAccount::parse(&request.provider, &request.external_id)
+        .map_err(|_| ApiError::BadRequest)?;
+    let verified = state
+        .verify_staff_session
+        .execute(VerifyStaffSessionInput {
+            bearer_token: bearer.into_inner(),
+        })
+        .await
+        .map_err(|error| map_staff_auth_error(&error))?;
+    let now = chrono::Utc::now();
+    let change = match request.change {
+        ExternalAccountChange::Link => ExternalAccountLinkChange::Link {
+            valid_from: request.valid_from.unwrap_or(now),
+        },
+        ExternalAccountChange::Unlink => ExternalAccountLinkChange::Unlink,
+    };
+    let record = state
+        .link_external_account
+        .execute(LinkStaffExternalAccountInput {
+            actor_staff_id: verified.context.staff_id,
+            actor_roles: verified.context.roles,
+            target_staff_id,
+            account,
+            change,
+            now,
+        })
+        .await
+        .map_err(|error| map_link_external_account_error(&error))?;
+    Ok(Json(StaffExternalAccountResponse {
+        principal_id: PrincipalId::new(record.staff_id.as_uuid()),
+        provider: record.account.provider().as_str().to_owned(),
+        external_id: record.account.external_id().to_owned(),
+        valid_from: record.valid_from,
+        valid_to: record.valid_to,
+        linked_by: PrincipalId::new(record.linked_by.as_uuid()),
+    }))
+}
+
 pub struct BearerCredential(String);
 
 impl BearerCredential {
@@ -193,5 +263,20 @@ fn map_assign_role_error(error: &AssignStaffRoleError) -> ApiError {
         AssignStaffRoleError::Persistence(
             authorization_application::ports::RoleGrantPersistenceError::Infrastructure(cause),
         ) => ApiError::internal("assign_staff_role", cause),
+    }
+}
+
+fn map_link_external_account_error(error: &LinkStaffExternalAccountError) -> ApiError {
+    match error {
+        LinkStaffExternalAccountError::PermissionDenied(_) => ApiError::Forbidden,
+        LinkStaffExternalAccountError::ValidFromInFuture => ApiError::BadRequest,
+        LinkStaffExternalAccountError::Persistence(persistence) => match persistence {
+            ExternalAccountLinkPersistenceError::AlreadyLinked => ApiError::Conflict,
+            ExternalAccountLinkPersistenceError::StaffNotFound(_)
+            | ExternalAccountLinkPersistenceError::NotLinked => ApiError::NotFound,
+            ExternalAccountLinkPersistenceError::Infrastructure(cause) => {
+                ApiError::internal("link_staff_external_account", cause)
+            }
+        },
     }
 }

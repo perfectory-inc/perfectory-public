@@ -9,7 +9,7 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM pg_catalog.pg_roles
-        WHERE rolname IN ('foundation_migrator', 'foundation_api')
+        WHERE rolname IN ('foundation_migrator', 'foundation_api', 'foundation_audit_importer')
           AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolinherit OR rolreplication OR rolbypassrls)
     ) THEN
         RAISE EXCEPTION 'Foundation runtime role hardening contract failed';

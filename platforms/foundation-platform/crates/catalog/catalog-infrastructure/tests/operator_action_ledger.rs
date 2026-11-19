@@ -21,7 +21,7 @@ async fn request(tx: &mut Transaction<'_, Postgres>, action: &str) -> Result<Uui
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO catalog.operator_action (id, job_id, action, actor, reason, expires_at)
-         VALUES ($1, 'shape_ledger_check', $2, 'staff:owner', 'a supervised run',
+         VALUES ($1, 'shape_ledger_check', $2, '00000000-0000-4000-8000-0000000000aa', 'a supervised run',
                  CASE WHEN $2 = 'run_now' THEN now() + interval '10 minutes' END)",
     )
     .bind(id)
@@ -60,7 +60,7 @@ async fn a_run_now_is_answered_once_and_nothing_else_of_it_changes() -> Result<(
     for sql in [
         "UPDATE catalog.operator_action SET reason = 'rewritten' WHERE id = $1",
         "UPDATE catalog.operator_action SET expires_at = expires_at + interval '1 day' WHERE id = $1",
-        "UPDATE catalog.operator_action SET actor = 'staff:someone-else' WHERE id = $1",
+        "UPDATE catalog.operator_action SET actor = '00000000-0000-4000-8000-0000000000bb' WHERE id = $1",
         "DELETE FROM catalog.operator_action WHERE id = $1",
         // An answer is when and what together.
         "UPDATE catalog.operator_action SET consumed_at = now() WHERE id = $1",
@@ -95,7 +95,7 @@ async fn only_a_run_now_expires_and_only_a_pause_drops_what_is_pending() -> Resu
                   reason: &'static str| {
         format!(
             "INSERT INTO catalog.operator_action (id, job_id, action, drop_pending, actor, reason, expires_at)
-             VALUES ($1, 'shape_ledger_check', '{action}', {drop_pending}, 'staff:owner', '{reason}', {expires})"
+             VALUES ($1, 'shape_ledger_check', '{action}', {drop_pending}, '00000000-0000-4000-8000-0000000000aa', '{reason}', {expires})"
         )
     };
     for (sql, accepted) in [
@@ -157,7 +157,7 @@ async fn a_window_override_names_its_window_and_lasts_at_most_a_week() -> Result
                   end: &'static str| {
         format!(
             "INSERT INTO catalog.operator_action (id, job_id, action, actor, reason, expires_at, window_start, window_end)
-             VALUES ($1, 'shape_ledger_check', '{action}', 'staff:owner', 'collect in the day once', {expires}, {start}, {end})"
+             VALUES ($1, 'shape_ledger_check', '{action}', '00000000-0000-4000-8000-0000000000aa', 'collect in the day once', {expires}, {start}, {end})"
         )
     };
     for (sql, accepted) in [
@@ -337,7 +337,7 @@ fn release_approval(
 ) -> String {
     format!(
         "INSERT INTO catalog.operator_action (id, job_id, action, actor, reason, expires_at, lanes, generation)
-         VALUES ($1, '{job}', '{action}', 'staff:owner', 'the first publish of the lanes', {expires}, {lanes}, {generation})"
+         VALUES ($1, '{job}', '{action}', '00000000-0000-4000-8000-0000000000aa', 'the first publish of the lanes', {expires}, {lanes}, {generation})"
     )
 }
 

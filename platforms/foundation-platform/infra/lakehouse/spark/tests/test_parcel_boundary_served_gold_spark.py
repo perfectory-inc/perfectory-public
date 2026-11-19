@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import struct
 import sys
 import tempfile
 import unittest
@@ -201,7 +202,7 @@ class ParcelServedGoldIcebergTest(unittest.TestCase):
                     "boundary_id": f"{snapshot}-{p}", "pnu": p, "sido_code": "99", "sigungu_code": "99999",
                     "bjdong_code": "10100", "jibun": f"{n}", "bonbun": f"{n}", "bubun": "0",
                     "geometry_wkb": f"X'0103{n:02x}'", "geometry_srid": SRID,
-                    "bbox_min_x": 0.0, "bbox_min_y": 0.0, "bbox_max_x": 1.0, "bbox_max_y": 1.0,
+                    "bbox_min_x": 0.0, "bbox_min_y": 0.0, "bbox_max_x": 0.001, "bbox_max_y": 0.001,
                     "geometry_checksum_sha256": f"{n:064x}", "source_record_id": "synthetic.zip",
                     "source_snapshot_id": snapshot, "valid_from_utc": "TIMESTAMP '2099-01-01 00:00:00'",
                     "valid_to_utc": "CAST(NULL AS TIMESTAMP)",
@@ -265,6 +266,47 @@ class ParcelServedGoldIcebergTest(unittest.TestCase):
         self.assertIn(summary["canonical_iceberg_snapshot_id"], {str(r["snapshot_id"]) for r in snapshots})
         with self.assertRaises(FileExistsError):
             self.run_main(out)
+
+    def test_a_fold_writes_only_the_edited_parcels_and_hands_their_neighbourhood(self):
+        # Root ADR-0375 §2 for parcels: after a full run, a fold of one edit is a keyed write of
+        # that PNU and a partial handoff (neighbourhood rows plus a change list), not a rewrite.
+        self.run_main(Path(self.workspace.name) / "fold-base")
+        edits = Path(self.workspace.name) / "fold-edits.jsonl"
+        # One 0.0005-degree square at the origin: a single z14 tile, well under the fold's cap.
+        ring = [(0.0, 0.0), (0.0005, 0.0), (0.0005, 0.0005), (0.0, 0.0005), (0.0, 0.0)]
+        wkb = struct.pack("<BIII", 1, 3, 1, len(ring)) + b"".join(struct.pack("<dd", x, y) for x, y in ring)
+        edits.write_text(json.dumps({
+            "unit": "parcels", "change_seq": 7001, "feature_id": pnu(2), "op": "upsert",
+            "geometry_geojson": "{}", "geometry_wkb_hex": wkb.hex(), "geometry_srid": SRID,
+            "geometry_checksum_sha256": hashlib.sha256(wkb).hexdigest(), "properties_json": "{}",
+            "editor": "synthetic", "edited_at": "2099-01-01T00:00:00Z",
+        }) + "\n", encoding="utf-8")
+        out = Path(self.workspace.name) / "fold-1"
+        summary = self.run_main(out, "--edits-input", str(edits), "--fold")
+        self.assertEqual(summary["handoff_scope"], "partial")
+        partial = summary["partial"]
+        self.assertEqual(partial["neighbourhood_zoom"], 14)
+        changes = (out / partial["change_list"]["path"]).read_text(encoding="utf-8").splitlines()
+        self.assertEqual([json.loads(line) for line in changes], [{"feature_id": pnu(2), "op": "upsert"}])
+        gold = {r["pnu"]: r for r in self.spark.sql(
+            "SELECT pnu, origin, edits_through_change_seq FROM `proof`.`gold`.`parcel_boundary_served`").collect()}
+        self.assertEqual(len(gold), 7, "the fold kept every other parcel")
+        self.assertEqual((gold[pnu(2)]["origin"], gold[pnu(2)]["edits_through_change_seq"]), ("edit", 7001))
+        self.assertEqual(gold[pnu(1)]["origin"], "source")
+        # Every synthetic Silver box (0..0.001 degrees) covers the edit, so every parcel is a neighbour.
+        self.assertEqual(summary["served_row_count"], 7)
+        common.verify_handoff_parts(out / "parts", summary["handoff_parts"], 7)
+        # Nothing after the served sequence: the fold says so, writes nothing and exits 3.
+        before = self.spark.sql(
+            "SELECT count(*) AS n FROM `proof`.`gold`.`parcel_boundary_served`.snapshots").first()["n"]
+        argv = ["--source-snapshot-id", "synthetic-2", "--allow-non-served-edition",
+                "--output-dir", str(Path(self.workspace.name) / "fold-2" / "parts"), "--iceberg-catalog-name",
+                "proof", "--allow-non-smoke-write", "--fold"]
+        with patch.object(job, "build_spark_session", return_value=self.spark),                 patch.object(job, "assert_catalog_env"), patch.object(self.spark, "stop"):
+            self.assertEqual(job.main(argv), job.NOT_PARTIAL_EXIT)
+        after = self.spark.sql(
+            "SELECT count(*) AS n FROM `proof`.`gold`.`parcel_boundary_served`.snapshots").first()["n"]
+        self.assertEqual(before, after)
 
 
 if __name__ == "__main__":

@@ -154,6 +154,11 @@ services:
       context: .
       dockerfile: services/foundation-api/Dockerfile
     environment: &foundation-api-environment
+      # glibc gives each of the API's 21 threads its own malloc arena (8 x 20 cores allowed) and an
+      # arena keeps what a burst took: 2026-11-10..18 the process sat at its 512m cap and the kernel
+      # killed it 69 times, with seven arenas holding 23-62 MB each and no request in flight. Two
+      # arenas, as Trino's four (root ADR-0504) and Hadoop's (HADOOP-7154) (root ADR-0573).
+      MALLOC_ARENA_MAX: "2"
       DATABASE_URL: postgres://foundation_api:${FOUNDATION_API_PASSWORD:?set FOUNDATION_API_PASSWORD}@postgres:5432/foundation?application_name=foundation-api
       FOUNDATION_PLATFORM_API_BIND_ADDR: 0.0.0.0:8080
       IDENTITY_API_BASE_URL: ${IDENTITY_API_BASE_URL:-https://identity.example.test}

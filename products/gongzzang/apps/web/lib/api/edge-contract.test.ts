@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
+import { MAP_EDIT_OVERLAY_UNITS } from "@/lib/map/map-edit-overlay";
 import { PHOTO_RENDITIONS } from "@/lib/media/photo-ladder";
 import { EdgeBuildingProfileSchema } from "./building-edge";
 import { COMPLEX_INDEX_PATH } from "./complexes";
@@ -33,6 +34,13 @@ const buildingVersion = readFileSync(
 ).match(/pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "([^"]+)";/)?.[1];
 
 describe("the web reads what the foundation publishes", () => {
+  // Root ADR-0112: the map polls the edit overlay of every unit staff can edit, and only those.
+  it("polls the edit overlay of exactly the units the edit store holds", () => {
+    expect([...MAP_EDIT_OVERLAY_UNITS].sort()).toEqual(
+      Object.keys(connections.map_edit_gateway.units).sort(),
+    );
+  });
+
   // Root ADR-0456: the complex index is on the parcel edge, the host the web reads parcels from.
   it("reads the industrial-complex index where the contract puts it, on the parcel edge", () => {
     const documents = connections.industrial_complex_documents;

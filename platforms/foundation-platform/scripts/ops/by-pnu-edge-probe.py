@@ -295,15 +295,18 @@ def screen(contract: dict[str, Any], workers: list[tuple[str, str]], textfiles: 
     """The weekly synthetic screen (root ADR-0480): every section a parcel's screen shows, for real PNUs.
 
     The PNUs are the first entry each cut-over lane's gate sample serves (read on the host, never in the
-    repository), so each has at least one section that must show. For every PNU every lane any by-PNU
-    Worker serves is read once: `shown` (200, the lane's content type, a JSON object), `absent` (404: the
+    repository), so each has at least one section that must show. For every PNU every cut-over lane any
+    by-PNU Worker serves is read once: `shown` (200, the lane's content type, a JSON object), `absent` (404: the
     parcel has none of it), else `error`. The PNU's own lane answering 404 is `missing`. Each lane's
     freshness is held to its budget. (rows, failures): a failure is an error, a missing section, or a
     stale lane that shows."""
 
     probes = {base_url: Probe(contract, base_url) for _, base_url in workers}
+    # Only the lanes cut over, those whose monitor names a gate sample (by-pnu-lane-cutover.sh reads the
+    # same mark): a lane not published yet answers 503 by design and is on no screen. 2026-11-16 the
+    # screen failed 23 times on parcel-nearby, whose first publish is held (W83b).
     lanes = [(name, prefix, content_type, base_url) for lane, base_url in workers
-             for name, prefix, content_type in served_lanes(contract, lane)]
+             for name, prefix, content_type in served_lanes(contract, lane) if os.environ.get(sample_variable(name))]
     picked: dict[str, tuple[str, str]] = {}
     for name, prefix, _, base_url in lanes:
         variable = sample_variable(name)

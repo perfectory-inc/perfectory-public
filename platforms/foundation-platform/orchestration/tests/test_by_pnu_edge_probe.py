@@ -258,19 +258,28 @@ class TheWeeklyScreen(EdgeFixture):
             return probe.screen(CONTRACT, [("parcel", self.base)], textfiles)
 
     def test_every_section_is_read_once_for_each_sample_pnu_and_a_healthy_screen_passes(self):
-        rows, failures = self.read_screen()
+        others = [name for name, _, _ in probe.served_lanes(CONTRACT, "parcel") if name not in ("parcel", MEDIA_LANE)]
+        env = {**self.env, **{probe.sample_variable(name): self.sample(name, []) for name in others}}
+        rows, failures = self.read_screen(env=env)
         self.assertEqual(failures, [])
-        lanes = [name for name, _, _ in probe.served_lanes(CONTRACT, "parcel")]
         self.assertEqual({row["pnu"] for row in rows}, {PNU})
-        self.assertEqual(sorted(row["lane"] for row in rows), sorted(lanes))
+        self.assertEqual(sorted(row["lane"] for row in rows), sorted(["parcel", MEDIA_LANE, *others]))
         verdicts = {row["lane"]: row["verdict"] for row in rows}
         self.assertEqual((verdicts["parcel"], verdicts[MEDIA_LANE]), ("shown", "shown"))
-        self.assertEqual({verdicts[lane] for lane in lanes if lane not in ("parcel", MEDIA_LANE)}, {"absent"})
+        self.assertEqual({verdicts[lane] for lane in others}, {"absent"})
+
+    def test_a_lane_not_cut_over_is_on_no_screen(self):
+        # 2026-11-16: parcel-nearby, its first publish held, answered 503 and failed the screen 23 times.
+        other = next(name for name, _, _ in probe.served_lanes(CONTRACT, "parcel") if name not in ("parcel", MEDIA_LANE))
+        Edge.routes[f"{prefix(other)}{PNU}"] = [(503, {}, b"")]
+        rows, failures = self.read_screen()
+        self.assertNotIn(other, {row["lane"] for row in rows})
+        self.assertEqual(failures, [])
 
     def test_a_section_the_edge_fails_and_the_pnus_own_section_gone_fail_the_screen(self):
         other = next(name for name, _, _ in probe.served_lanes(CONTRACT, "parcel") if name not in ("parcel", MEDIA_LANE))
         Edge.routes[f"{prefix(other)}{PNU}"] = [SERVER_ERROR]
-        rows, failures = self.read_screen()
+        rows, failures = self.read_screen(env={**self.env, probe.sample_variable(other): self.sample(other, [])})
         self.assertTrue(any(failure.startswith(f"{other} for a sample PNU of parcel: error") for failure in failures), failures)
         # The parcel lane served the PNU when it was picked, then answers 404: its own section is missing.
         Edge.routes[f"{prefix('parcel')}{PNU}"] = [DOCUMENT, (404, {}, b"")]

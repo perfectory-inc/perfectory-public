@@ -100,11 +100,14 @@ mod handoff_object_support;
 mod juso_electronic_map_base;
 mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
+mod gold_versions_change_set;
+mod gold_versions_commit;
 mod industrial_complex_notice_silver_load;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
 mod parcel_lineage_derive;
+mod parcel_nearby_versions_build;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;
@@ -261,6 +264,8 @@ enum Command {
     AppendLineageStewardFold,
     DeriveParcelLineage,
     LoadIndustrialComplexNoticeSilver,
+    BuildParcelNearbyVersions,
+    ExportGoldVersionsChangeSet,
     ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -580,6 +585,8 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadIndustrialComplexNoticeSilver => {
             Box::pin(industrial_complex_notice_silver_load::run())
         }
+        Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
+        Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
         Command::ExportLegalDongStewardDecisions => {
             Box::pin(lineage_steward_fold::export_legal_dong())
         }
@@ -736,6 +743,8 @@ where
         Some("load-industrial-complex-notice-silver") => {
             Ok(Command::LoadIndustrialComplexNoticeSilver)
         }
+        Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
+        Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
         Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
