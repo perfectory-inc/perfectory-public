@@ -186,3 +186,8 @@ Airflow 가 결정하는 동안은 `run` 과제의 재시도가 같은 유닛 ru
   깨므로 기각한다.
 - **메모리.** 코드 서버 1700m(프록시 약 100 MiB + 코드 프로세스 169 MiB × 2 + run 6 × 169 MiB, × 1.17), 데몬 1600m → 384m. 호스트 예산
   61.96g / 62g. 웹서버는 이제 코드를 싣지 않으므로 다음 측정에서 줄인다.
+
+## 개정 각주 — 2026-11-19, 묶음으로 옮긴다([ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md))
+
+§1 의 단계를 여는 PR 은 [ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md) §2 의 묶음 필드(`dagster_group`)와 "한 묶음의 켜진 작업은 단계 하나" 검사를 함께 연다.
+§10(Airflow 를 지우는 때)은 그대로이고, 이중 실행(`dual_run.py`)은 그보다 먼저, 첫 묶음이 옮긴 뒤 지운다([ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md) §4).
