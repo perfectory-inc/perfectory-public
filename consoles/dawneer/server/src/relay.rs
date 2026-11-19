@@ -265,29 +265,25 @@ mod tests {
     /// `web/src/api/relayed-routes.json` is every route the web client calls (its own test keeps
     /// it equal to the client); each must be relayed.
     #[test]
-    fn every_route_the_web_client_calls_is_relayed() {
+    fn every_route_the_web_client_calls_is_relayed() -> Result<(), Box<dyn std::error::Error>> {
         // `cargo test` runs a crate's tests from that crate's directory.
-        let path = "../web/src/api/relayed-routes.json";
-        let text = std::fs::read_to_string(path).expect("relayed-routes.json is readable");
-        let listed: serde_json::Value =
-            serde_json::from_str(&text).expect("relayed-routes.json is JSON");
-        let routes = listed["routes"].as_array().expect("a routes array");
+        let text = std::fs::read_to_string("../web/src/api/relayed-routes.json")?;
+        let listed: serde_json::Value = serde_json::from_str(&text)?;
+        let routes = listed["routes"].as_array().ok_or("no routes array")?;
         assert!(!routes.is_empty());
         for route in routes {
-            let method: Method = route["method"]
-                .as_str()
-                .and_then(|m| m.parse().ok())
-                .expect("a method");
-            let path = route["path"].as_str().expect("a path");
+            let method: Method = route["method"].as_str().ok_or("no method")?.parse()?;
+            let path = route["path"].as_str().ok_or("no path")?;
             let relayed = match route["api"].as_str() {
                 Some("foundation") => allowed(&method, path),
                 Some("data-catalog") => data_catalog_allowed(&method, path),
-                other => panic!("unknown relay {other:?}"),
+                other => return Err(format!("unknown relay {other:?}").into()),
             };
             assert!(
                 relayed,
                 "the web calls {method} {path}, which the relay refuses"
             );
         }
+        Ok(())
     }
 }
