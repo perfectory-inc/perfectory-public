@@ -65,6 +65,10 @@
    | `workflow_run` `completed` | `conclusion` 이 `failure`, 사건이 `merge_group` 이 아님, `run_attempt` 가 1, 실패한 작업 전부에 실패한 단계가 없음 | `rerun-failed-jobs` 를 한 번 부른다 |
    | `workflow_run` `completed` | 판정에 쓰이는 워크플로(`main_health.py` 가 보는 것, `main-health.yml` 자신과 일정 전용 워크플로는 아님)의 main 실행 또는 `merge_group` 실행이 끝남 | `main-health.yml` 을 `workflow_dispatch` 로 부른다 |
 
+   main 실행에는 `schedule` 사건으로 도는 야간 전체 실행(Foundation CI 등)이 들어간다. 빼는 것은 판정에 쓰이지 않는
+   일정 전용 워크플로뿐이다. 야간 실행은 `main-health.yml` 이 가장 먼저 봐야 하는 실행이다: Foundation 야간이
+   2026-11-14~18 닷새 내리 실패하는 동안 10분 일정은 닷새에 약 20번 돌았다(W85 측정, #1511).
+
    `workflow_run` 은 `requested`·`in_progress` 로도 온다. `completed` 만 본다.
 
    취소와 재실행의 조건은 지금 `cancel_superseded_queue_runs.py`·`rerun_runner_failures.py` 와 같다. "main 에 없다" 는
@@ -167,6 +171,10 @@ App 은 소유자가 만든다. 에이전트는 만들지 않는다. 권한은 W
 - 새로 생기는 것: App 하나, Worker 하나, 비밀 둘, 비밀을 넣는 배포 단계. 취소·재실행의 조건이 Python 과 TypeScript 두
   곳에 있게 된다(일정 작업이 맞추는 역할로 남기 때문이다). 같은 기록 본문으로 두 구현을 시험해 어긋남을 막는다.
 - Worker 의 실패는 500 으로 GitHub 전달 기록에 남는다. 그 실패율 경보는 구현 PR 이 더한다.
+- 이 ADR 은 main 이 빨갛다는 것을 빨리 **알아내는** 데까지다. 그것이 **사람에게 닿는** 길은 여기서 정하지 않는다. 조직에
+  계정이 하나뿐이고 모든 에이전트가 그 계정으로 PR 을 올리므로 GitHub 알림은 사람 채널이 아니다. 지금 있는 길은
+  코디네이터다: `main-red` 이슈의 본문이 바뀌면 코디네이터가 소유자에게 전한다(W85 제안, 소유는 코디네이터). 이 길은
+  코디네이터 세션이 떠 있는 노트북에 기댄다.
 - `workflow_run` 사건은 fork PR 의 실행에서도 온다. Worker 는 코드를 체크아웃하지도 실행하지도 않고, 같은 워크플로의 실패한
   작업을 다시 돌리기만 한다(fork PR 실행은 승인 정책 그대로다).
 - Cloudflare Workers Paid 안에서 돈다. 하루 2,300 요청은 포함량 안이다(계산).
