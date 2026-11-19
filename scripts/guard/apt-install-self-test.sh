@@ -73,7 +73,11 @@ block() {
   done
 }
 
-official=(azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com)
+# The runner's own list names its mirrors (the 20261116 image dropped azure.archive.ubuntu.com for
+# archive.ubuntu.com and security.ubuntu.com); block what it names, not a host the image once had.
+mapfile -t listed < <(awk '!/^#/ && NF {print $1}' /etc/apt/apt-mirrors.txt 2>/dev/null | sed -E 's#^[a-z]+://([^/]+).*##')
+[ "${#listed[@]}" -ge 1 ] || listed=(archive.ubuntu.com)
+official=(azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com "${listed[@]}")
 mapfile -t fallbacks < <(sed -n 's#^  "http://\([^/"]*\)/.*#\1#p' "$script")
 [ "${#fallbacks[@]}" -ge 3 ] || fail "could not read the fallback mirrors from $script"
 
@@ -85,7 +89,9 @@ if ! output="$(PERFECTORY_APT_CACHE_DIR="$cache" GITHUB_ENV="$test_root/env" bas
 fi
 took=$((SECONDS - started))
 [ "$(dpkg-query -W -f='${db:Status-Status}' "$package")" = installed ] || fail "$package is not installed after the fallback install"
-grep -q 'mirror did not answer.*azure.archive.ubuntu.com' <<<"$output" || fail "the blocked azure mirror was not probed out: $output"
+for host in "${listed[@]}"; do
+  grep -qF "mirror did not answer in" <<<"$(grep -F "://$host/" <<<"$output")"     || fail "the runner's blocked mirror $host was not probed out: $output"
+done
 grep -q '^PERFECTORY_APT_CACHE_SAVE=[0-9a-f]\{64\}$' "$test_root/env" || fail "the download did not ask the workflow to save the cache"
 ls "$cache"/*/complete >/dev/null 2>&1 || fail "the downloaded set was not kept in the cache"
 echo "ok apt-install-self-test: every ubuntu.com mirror blocked, installed through a fallback in ${took}s"
