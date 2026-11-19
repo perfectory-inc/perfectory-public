@@ -135,14 +135,14 @@ Gold 를 포함한 모든 자산의 `AssetSpec.code_version` 으로 낸다. ADR-
     지어진다.
   - 끝나지 못한 10번은 같은 변경을 다시 시작한 것이어서, 판을 올린 경우만 남는다.
 - **가정: 법정동 변환 규칙이 바뀐다.** 두 경우로 나뉜다.
-  - 코드표 자료가 바뀌는 경우(`reference.legal_dong_code_change` 에 새 줄): 코드가 아니라 자료다. ADR-0329 의 따라가기가
+  - 코드표 자료가 바뀌는 경우(`reference.legal_dong_code_change` 에 새 줄): 코드가 아니라 자료다. ADR-0329 §3·ADR-0416 의 따라가기(`code_change_follow.py`)가
     `changed_codes` 의 행만 Silver 에서 다시 잇고, Gold 는 움직인 Silver 핀을 따라 증분으로 다시 짓는다. 판은 필요 없다.
   - 변환 코드가 바뀌는 경우(`address_pnu.py` 의 주소→PNU 규칙): `address_pnu` 에 `CODE_VERSION` 을 두고 올린다. 그 모듈에
     닿는 Gold 생산자 셋(court_auction, onbid_public_auction, real_transaction)은 모두 다시 지어진다.
   - 그러나 그 규칙으로 PNU 를 만든 것은 Silver 적재기다(courtauction_go_kr, data_go_kr_onbid, data_go_kr_registered_factory,
     data_go_kr_file_data, place_identity_resolver). Silver 적재기는 지금 코드 판을 기록하지 않는다. 그래서 이 ADR 만으로는 Silver
     행이 새 규칙으로 다시 만들어지지 않는다. Gold 를 다시 지어도 옛 Silver PNU 를 읽을 뿐이다. 주인의 규칙을 끝까지 지키려면 Silver
-    적재기도 같은 선언된 판을 기록하고, 판이 오르면 그 표의 현재 행을 다시 잇는다(ADR-0329 의 첫 따라가기와 같은 경로). 이것은 다음
+    적재기도 같은 선언된 판을 기록하고, 판이 오르면 그 표의 현재 행을 다시 잇는다(ADR-0416 의 첫 따라가기와 같은 경로). 이것은 다음
     ADR 의 몫이고, 이 ADR 을 구현한 뒤 바로 잇는다.
 - 대가: 행을 바꾸는 계약 편집에서 판 올림을 잊으면, 그 Gold 는 다음 올림이나 입력 변경 전까지 옛 계약대로 남는다. 증분 run 의
   parity 표본(ADR-0180)과 바뀐 행만 쓰는 비교(ADR-0564)가 차이를 본다. 판 없는 모듈 PR 의 댓글(§3)이 잊음을 줄인다.
