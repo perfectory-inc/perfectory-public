@@ -20,8 +20,8 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/audit-digest.sh prepare
 # root's alone (/var/lib/perfectory/audit-witness, 0600) and the pinned cosign is root's cache.
 ExecStart=+/opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/audit-witness.sh
 ExecStart=/opt/foundation-platform/current/scripts/ops/audit-digest.sh record
+# A oneshot run is capped by its start timeout; systemd ignores RuntimeMaxSec= on Type=oneshot.
 TimeoutStartSec=10m
-RuntimeMaxSec=600
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
