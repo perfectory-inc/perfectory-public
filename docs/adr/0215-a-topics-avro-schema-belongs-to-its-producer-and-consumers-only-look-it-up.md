@@ -1,6 +1,6 @@
 # ADR 0215: A topic's Avro schema belongs to its producer, and consumers only look it up
 
-- Status: Accepted
+- Status: Superseded by [ADR-0587](./0587-the-intelligence-event-backbone-with-no-producer-is-deleted-and-kafka-returns-with-its-library-when-a-producer-exists.md)
 - Date: 2026-10-14
 
 ## Context

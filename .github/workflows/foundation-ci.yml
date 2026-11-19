@@ -700,8 +700,8 @@ jobs:
     env:
       FOUNDATION_KAFKA_COMPOSE_PROJECT: foundation-kafka-ci-${{ github.run_id }}
       FOUNDATION_TEST_KAFKA_REQUIRED: "1"
-      INTELLIGENCE_TEST_KAFKA_HOST_PORT: 19092
-      INTELLIGENCE_TEST_KARAPACE_HOST_PORT: 18081
+      FOUNDATION_TEST_KAFKA_HOST_PORT: 19092
+      FOUNDATION_TEST_KARAPACE_HOST_PORT: 18081
 
     steps:
       - name: Checkout
@@ -842,7 +842,7 @@ jobs:
             exit 0
           fi
           cleanup_status=0
-          timeout --foreground 120s docker compose -p "$FOUNDATION_KAFKA_COMPOSE_PROJECT" -f platforms/intelligence-platform/docker/c2-event-backbone.compose.yml down -v --remove-orphans || cleanup_status=$?
+          timeout --foreground 120s docker compose -p "$FOUNDATION_KAFKA_COMPOSE_PROJECT" -f platforms/foundation-platform/docker/kafka-live.compose.yml down -v --remove-orphans || cleanup_status=$?
           # 컨테이너가 이미 없을 수 있다. 존재할 때만 지우므로 실패를 삼킬 필요가 없다
           # (`|| true` 는 진짜 실패도 함께 감춘다).
           if [ -n "$(docker ps -aq -f name=^foundation-kafka-postgres$)" ]; then

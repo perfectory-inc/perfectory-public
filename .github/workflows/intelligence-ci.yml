@@ -101,7 +101,7 @@ jobs:
           shared-key: intelligence-dependencies
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Single verification SSOT (ADR-0004): xtask owns fmt+clippy+test with the one
-      # flag policy and the native deps (cmake+libsasl2 for rdkafka). Runs from the
+      # flag policy and the native deps (python3 for the jobs' tests). Runs from the
       # repo root (this job defaults to the area). The default suite is backend-free;
       # DB-backed contracts run in the explicit Postgres lane below.
       - name: Verify (fmt, clippy, test)

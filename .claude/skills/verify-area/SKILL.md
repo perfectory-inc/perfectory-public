@@ -32,7 +32,7 @@ with `SQLX_OFFLINE=true`:
    - other areas: `cargo test --locked --workspace --all-features` (+ your
      extra args).
 
-It also apt-installs `cmake` + `libsasl2-dev` (needed by intelligence's
+It also apt-installs `cmake` + `libsasl2-dev` (needed by foundation's
 rdkafka; harmless elsewhere).
 
 ## Caches (named docker volumes — do not delete casually)
