@@ -53,7 +53,7 @@ pub fn http_user_action(auth: &AuthenticatedUser, action: &str) -> MutationConte
 /// - `actor_id` = `Extension<AuthenticatedUser>` (`auth_layer` 통과 시 항상 존재)
 /// - `correlation_id` = `Extension<RequestId>` (`request_id_layer` 가 항상 set),
 ///   fallback `cor_<ULID>` (테스트 / extractor 단독 시나리오)
-/// - `client_ip` = `X-Forwarded-For` 첫 IP (production proxy `ALB`/Cloudflare 환경)
+/// - `client_ip` = `http::client_address` (신뢰하는 앞문 헤더 또는 소켓; XFF 는 읽지 않음)
 /// - `user_agent` = `User-Agent` header, ≤500자 trim
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // 기존 핸들러 미마이그 — adoption 은 점진적 (FU 이후 핸들러부터).
@@ -62,7 +62,7 @@ pub struct MutationContextBuilder {
     pub auth: AuthenticatedUser,
     /// X-Request-Id 또는 fallback ULID — DB `correlation_id` 컬럼 source.
     pub correlation_id: String,
-    /// X-Forwarded-For 첫 IP (있으면) — DB `audit_log.ip_address` source.
+    /// 요청을 보낸 주소(있으면) — DB `audit_log.ip_address` source.
     pub client_ip: Option<String>,
     /// User-Agent header ≤500자 — DB `audit_log.user_agent` source.
     pub user_agent: Option<String>,
@@ -126,21 +126,11 @@ impl MutationContextBuilder {
     }
 }
 
-/// `X-Forwarded-For` 첫 IP 추출. `1.2.3.4, 5.6.7.8` 형태에서 `1.2.3.4` 선택.
-///
-/// **production trust boundary 주의**: ALB / Cloudflare 가 *마지막 hop* 만
-/// trusted 이라면 first IP 가 client (정상). 직접 노출 환경에서는 스푸핑 가능 —
-/// SP8 `IaC` 단계에서 trusted proxy hop count 명시 (1차 = first IP 채택).
+/// 요청을 보낸 주소 — `http::client_address` 하나(신뢰하는 앞문 헤더, 없으면 소켓). XFF 는 읽지 않는다.
 #[allow(dead_code)] // MutationContextBuilder 만 쓴다 — 핸들러 미마이그.
 fn extract_client_ip(parts: &Parts) -> Option<String> {
-    parts
-        .headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned)
+    crate::http::client_address::client_address(&parts.headers, &parts.extensions)
+        .map(|addr| addr.to_string())
 }
 
 /// `User-Agent` header → ≤500자 trim. 한글 / multibyte 안전 (chars iter).
@@ -241,28 +231,24 @@ mod tests {
     }
 
     #[test]
-    fn extract_client_ip_picks_first_xff() {
+    fn extract_client_ip_ignores_a_spoofed_forwarded_for() {
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-forwarded-for",
             HeaderValue::from_static("1.2.3.4, 5.6.7.8"),
         );
-        let parts = parts_with_headers(headers);
-        assert_eq!(extract_client_ip(&parts), Some("1.2.3.4".to_owned()));
-    }
-
-    #[test]
-    fn extract_client_ip_returns_none_when_missing() {
-        let parts = parts_with_headers(HeaderMap::new());
-        assert_eq!(extract_client_ip(&parts), None);
-    }
-
-    #[test]
-    fn extract_client_ip_returns_none_when_empty() {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", HeaderValue::from_static(""));
-        let parts = parts_with_headers(headers);
-        assert_eq!(extract_client_ip(&parts), None);
+        let mut parts = parts_with_headers(headers);
+        assert_eq!(
+            extract_client_ip(&parts),
+            None,
+            "no socket, no trusted header"
+        );
+        parts.extensions.insert(axum::extract::ConnectInfo(
+            "198.51.100.20:51234"
+                .parse::<std::net::SocketAddr>()
+                .unwrap(),
+        ));
+        assert_eq!(extract_client_ip(&parts), Some("198.51.100.20".to_owned()));
     }
 
     #[test]

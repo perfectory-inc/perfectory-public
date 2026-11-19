@@ -423,7 +423,11 @@ async fn async_main() -> Result<(), StartupError> {
             addr: addr.clone(),
             source,
         })?;
-    axum::serve(listener, app)
-        .await
-        .map_err(|source| StartupError::Serve { source })
+    // ConnectInfo: the TCP peer is the client address when no trusted edge header names one.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .map_err(|source| StartupError::Serve { source })
 }

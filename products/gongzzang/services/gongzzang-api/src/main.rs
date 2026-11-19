@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 mod app;
 mod http {
+    pub mod client_address;
     pub mod mutation_ctx;
     pub mod problem;
     pub mod request_id;

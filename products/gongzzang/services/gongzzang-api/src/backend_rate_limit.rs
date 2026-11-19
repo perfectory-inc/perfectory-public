@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::{HeaderMap, Method, StatusCode};
+use axum::http::{Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use deadpool_redis::redis;
@@ -231,24 +231,18 @@ fn matches_template_path(template: &str, path: &str) -> bool {
 
 fn resolve_rate_key(policy: &BackendRatePolicy, req: &Request<Body>) -> String {
     let subject = match policy.key_strategy {
-        BackendRateKeyStrategy::ClientIp => client_ip(req.headers()),
+        BackendRateKeyStrategy::ClientIp => client_ip(req),
         BackendRateKeyStrategy::SessionSub => req
             .extensions()
             .get::<AuthenticatedUser>()
-            .map_or_else(|| client_ip(req.headers()), |auth| auth.claims.sub.clone()),
+            .map_or_else(|| client_ip(req), |auth| auth.claims.sub.clone()),
     };
     format!("{}:{subject}", policy.key_prefix)
 }
 
-fn client_ip(headers: &HeaderMap) -> String {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("unknown")
-        .to_owned()
+fn client_ip(req: &Request<Body>) -> String {
+    crate::http::client_address::client_address(req.headers(), req.extensions())
+        .map_or_else(|| "unknown".to_owned(), |addr| addr.to_string())
 }
 
 #[cfg(test)]
