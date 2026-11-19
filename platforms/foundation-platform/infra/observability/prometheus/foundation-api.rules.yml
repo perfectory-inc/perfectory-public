@@ -1010,7 +1010,7 @@ groups:
       # console link as labels of the series (services/foundation-api/src/routes/data_catalog/alerts.rs);
       # an alert's labels are its identity, so a new sentence was a new alert: 2026-11-18/19, 31 of 123
       # series were the same job and kind with another sentence ("보통 104133행인데 이번엔 30434행",
-      # an upstream list one job longer), each a new message and a resolved one (root ADR-0591, ADR-0592). The
+      # an upstream list one job longer), each a new message and a resolved one (root ADR-0591, ADR-0594). The
       # expression drops the two, and the summary reads them back from the series as it is now.
       # keep_firing_for holds it through a restart or a scrape the map could not read, so neither
       # is reported as resolved and then again as new.
