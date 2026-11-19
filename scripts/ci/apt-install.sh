@@ -205,7 +205,7 @@ indexed_sha256() {
 }
 
 reuse_kept_files() {
-  local wanted name other digest copied=0 total=0
+  local wanted name other digest actual copied=0 total=0
   wanted="$("${sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get "${apt_options[@]}" \
     -o "Dir::Cache::Archives=$download_dir" install -y --no-install-recommends --print-uris -qq "${missing[@]}")" || return 1
   while read -r _ name _; do
@@ -215,7 +215,8 @@ reuse_kept_files() {
     for other in "$cache_root"/*/; do
       [ "${other%/}" != "$download_dir" ] && [ -f "$other$name" ] || continue
       [ -n "$digest" ] || digest="$(indexed_sha256 "$name")"
-      [ -n "$digest" ] && [ "$(sha256sum "$other$name" | cut -d' ' -f1)" = "$digest" ] || continue
+      actual="$(sha256sum "$other$name")" || continue
+      [ -n "$digest" ] && [ "${actual%% *}" = "$digest" ] || continue
       cp "$other$name" "$download_dir/$name" && copied=$((copied + 1))
       break
     done
