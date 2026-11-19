@@ -617,7 +617,8 @@ enum Read {
         line: String,
         failed: bool,
         photos: PhotoReport,
-        spec: Option<super::specs::WantedSpec>,
+        // Boxed: a version is a few strings, and most reads offer none (clippy::large_enum_variant).
+        spec: Option<Box<super::specs::WantedSpec>>,
     },
     Stopped(Stop),
 }
@@ -671,7 +672,7 @@ async fn read_one(
         Ok(mut value) => {
             let photo_count = match value.pointer_mut(&detail.result_pointer) {
                 Some(found) => {
-                    spec = super::specs::spec_of(specs, found);
+                    spec = super::specs::spec_of(specs, found).map(Box::new);
                     rewrite_photos(
                         found,
                         &detail.photos,
@@ -761,7 +762,7 @@ pub(crate) async fn collect_details(
                 result.asked += 1;
                 result.failed += u32::from(failed);
                 result.photos.absorb(photos);
-                result.specs.extend(spec);
+                result.specs.extend(spec.map(|spec| *spec));
                 result.lines.push(&line)?;
             }
         }
