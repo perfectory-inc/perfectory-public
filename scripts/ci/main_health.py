@@ -211,15 +211,27 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.fromisoformat(args.as_of.replace("Z", "+00:00")) if args.as_of else datetime.now(timezone.utc)
     try:
         observed = observe(repo, now, bool(args.as_of), gating_workflows())
-        found = {key: streak for key, observations in observed.items() if (streak := red(observations))}
-        for (workflow, job), streak in sorted(found.items()):
-            print(f"main-health: RED {workflow} / {job}: {', '.join(o['source'] for o in streak)}")
-        print(f"main-health: {len(found)} red job(s) as of {now.strftime(STAMP)}")
-        if not args.dry_run and not args.as_of:
-            report(repo, found)
     except GitHubUnreadable as error:
         # A 502 or a spent rate limit is not a verdict on main; the next run asks again.
         print(f"main-health: GitHub could not be read, leaving the issue as it is: {error}", file=sys.stderr)
+        return 0
+    found = {key: streak for key, observations in observed.items() if (streak := red(observations))}
+    for (workflow, job), streak in sorted(found.items()):
+        print(f"main-health: RED {workflow} / {job}: {', '.join(o['source'] for o in streak)}")
+    print(f"main-health: {len(found)} red job(s) as of {now.strftime(STAMP)}")
+    if args.dry_run or args.as_of:
+        return 0
+    try:
+        report(repo, found)
+    except GitHubUnreadable as error:
+        # Main IS red and the issue could not say so. A run that stays green here is an alarm that
+        # rings nowhere: 2026-11-14..18 the repository had issues disabled, every run found the red
+        # Foundation nightly jobs, logged this line and passed, five nights unseen (root ADR-0554 4).
+        if not found:
+            print(f"main-health: the issue could not be read, leaving it as it is: {error}", file=sys.stderr)
+            return 0
+        print(f"::error title=main-health::{len(found)} red job(s) on main and the main-red issue could not be kept: {error}")
+        return 1
     return 0
 
 

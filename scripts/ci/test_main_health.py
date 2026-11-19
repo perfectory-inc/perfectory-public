@@ -71,5 +71,41 @@ class RenderTest(unittest.TestCase):
         self.assertIn("hotfix:main-red", body)
 
 
+class ReportTest(unittest.TestCase):
+    """A red main that the issue cannot carry fails the run; a GitHub that cannot be read does not."""
+
+    def run_main(self, observed=None, unreadable_at: str = "") -> int:
+        def observe(*_args):
+            if unreadable_at == "observe":
+                raise mh.GitHubUnreadable("gh api repos: HTTP 502")
+            return observed or {}
+
+        def report(*_args):
+            if unreadable_at == "report":
+                raise mh.GitHubUnreadable("gh issue list --repo: the repository has disabled issues")
+
+        saved = (mh.observe, mh.report, mh.gating_workflows)
+        mh.observe, mh.report, mh.gating_workflows = observe, report, lambda: frozenset()
+        try:
+            return mh.main(["--repository", "o/r"])
+        finally:
+            mh.observe, mh.report, mh.gating_workflows = saved
+
+    def test_red_with_issues_disabled_fails_the_run(self) -> None:
+        # 2026-11-14..18: issues disabled, the nightly red five nights, every run green.
+        observed = {("Foundation Platform CI", "Postgres integration tests"): [seen(1, "fail", "main")]}
+        self.assertEqual(self.run_main(observed, unreadable_at="report"), 1)
+
+    def test_green_with_the_issue_unreadable_passes(self) -> None:
+        self.assertEqual(self.run_main({}, unreadable_at="report"), 0)
+
+    def test_github_unreadable_while_observing_is_no_verdict(self) -> None:
+        self.assertEqual(self.run_main(unreadable_at="observe"), 0)
+
+    def test_red_reported_passes(self) -> None:
+        observed = {("Foundation Platform CI", "Postgres integration tests"): [seen(1, "fail", "main")]}
+        self.assertEqual(self.run_main(observed), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
