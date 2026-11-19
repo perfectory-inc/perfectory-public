@@ -77,8 +77,7 @@ chmod 1777 "$work/tmp"
 SECONDS=0
 compose pull --quiet spark
 echo "foundation-spark-runtime: image ready in ${SECONDS}s"
-image="$(compose config --format json | python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["spark"]["image"])')"
-bash "$ROOT/scripts/ci/spark-packages.sh" "$ivy" "$image" "$packages"
+bash "$ROOT/scripts/ci/spark-packages.sh" "$ivy" "$packages"
 # SPARK_RUNTIME_TARGETS: this CI shard's part (foundation_spark_shards.py, root ADR-0365); unset, all.
 read -ra targets <<<"${SPARK_RUNTIME_TARGETS:-}"
 status=0

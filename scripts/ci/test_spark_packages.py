@@ -64,7 +64,7 @@ class SparkPackages(unittest.TestCase):
         # POSIX spellings: bash reads a backslash in a Windows path as an escape.
         environment = {**os.environ, "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}",
                        "FAKE_STATE": self.state.as_posix(), "GITHUB_ENV": self.github_env.as_posix()}
-        return subprocess.run([shutil.which("bash") or "bash", SCRIPT.as_posix(), self.ivy.as_posix(), "spark@sha256:0", "group:artifact:1"],
+        return subprocess.run([shutil.which("bash") or "bash", SCRIPT.as_posix(), self.ivy.as_posix(), "group:artifact:1"],
                               env=environment, text=True, capture_output=True, check=False)
 
     def lines(self, name: str) -> list[str]:

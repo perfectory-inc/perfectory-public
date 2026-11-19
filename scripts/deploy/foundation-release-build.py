@@ -200,14 +200,14 @@ def publisher_binary(archive: Path, config_digest: str, out: Path) -> None:
 
 
 def resolve_jars(release, ivy: Path) -> list[Path]:
-    """The engine's packages as the server resolves them: spark-submit in the pinned Spark image.
+    """The engine's packages as the server resolves them: spark-submit in the pinned Spark image
+    (tools/container-images.env SPARK_IMAGE, held equal to compose.lakehouse.yml's by the image guard).
 
     scripts/ci/spark-packages.sh resolves them in `ivy` with no network when the directory already
     holds them (CI restores it from the cache main saved), and from Maven Central otherwise.
     """
-    spark_image = release.spark_image_from_compose(run(*release.SPARK_COMPOSE_CONFIG, capture=True).encode())
     packages = release.engine_packages(PLATFORM)
-    run("bash", str(ROOT / "scripts" / "ci" / "spark-packages.sh"), str(ivy), spark_image, packages)
+    run("bash", str(ROOT / "scripts" / "ci" / "spark-packages.sh"), str(ivy), packages)
     jars = sorted((ivy / "jars").glob("*.jar"))
     if not jars or any(jar.is_symlink() or not jar.is_file() for jar in jars):
         raise ValueError("the dependency resolver produced no jars or a non-regular one")

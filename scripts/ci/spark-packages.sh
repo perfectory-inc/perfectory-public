@@ -4,7 +4,10 @@
 # runtime tests (scripts/verify/foundation-spark-runtime.sh) both resolve through this, so CI asks
 # Maven Central once per package set and every other run resolves with no network.
 #
-#   spark-packages.sh <ivy-dir> <spark-image> <packages>
+#   spark-packages.sh <ivy-dir> <packages>
+#
+# The image is the pinned Spark image (tools/container-images.env SPARK_IMAGE, a checked copy of the
+# one compose.lakehouse.yml runs).
 #
 # 1. Resolve with `--network none`. Ivy returns a fixed revision from its cache without asking the
 #    repository (BasicResolver.getDependency reads findModuleInCache first), so a directory a
@@ -21,15 +24,18 @@
 # failed the Spark runtime shards on pull requests four times that day.
 set -euo pipefail
 
-if (($# != 3)); then
-  echo "usage: spark-packages.sh <ivy-dir> <spark-image> <packages>" >&2
+if (($# != 2)); then
+  echo "usage: spark-packages.sh <ivy-dir> <packages>" >&2
   exit 2
 fi
-ivy="$1" image="$2" packages="$3"
+packages="$2"
 attempts=3
 
-mkdir -p "$ivy"
-ivy="$(cd "$ivy" && pwd -P)"
+mkdir -p "$1"
+ivy="$(cd "$1" && pwd -P)"
+cd "$(dirname "$0")/../.."
+source tools/container-images.env
+
 application="$(mktemp -d)"
 trap 'rm -rf "$application"' EXIT
 echo "print('spark packages resolved')" >"$application/resolve.py"
@@ -40,22 +46,21 @@ chmod 0644 "$application/resolve.py"
 # Either way both must read and write the directory, so root in the same image opens it.
 open() {
   docker run --rm --network none --user 0 --mount "type=bind,src=$ivy,dst=/resolve" \
-    --entrypoint chmod "$image" -R a+rwX /resolve
+    --entrypoint chmod "$SPARK_IMAGE" -R a+rwX /resolve
 }
 
 # Ivy copies the resolved jars from <ivy-dir>/cache into <ivy-dir>/jars. The folder is emptied first:
 # a jar of a package set this directory held before must not travel into a release.
+# With no network the container has only loopback and its generated hostname resolves nowhere, so
+# the JVM is given localhost in both modes; the application opens no connection of its own.
 resolve() {
-  local network="$1" host=()
-  # With no network the container has only loopback, and its generated hostname resolves nowhere.
-  if [ "$network" = none ]; then
-    host=(--hostname localhost -e SPARK_LOCAL_IP=127.0.0.1)
-  fi
+  local network="$1"
   open
   rm -rf "$ivy/jars"
-  docker run --rm --network "$network" "${host[@]}" --mount "type=bind,src=$ivy,dst=/resolve" \
+  docker run --rm --network "$network" --hostname localhost -e SPARK_LOCAL_IP=127.0.0.1 \
+    --mount "type=bind,src=$ivy,dst=/resolve" \
     --mount "type=bind,src=$application,dst=/application,readonly" \
-    --entrypoint /opt/spark/bin/spark-submit "$image" \
+    --entrypoint /opt/spark/bin/spark-submit "$SPARK_IMAGE" \
     --conf spark.jars.ivy=/resolve --packages "$packages" /application/resolve.py
 }
 
