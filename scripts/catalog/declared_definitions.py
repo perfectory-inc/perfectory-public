@@ -558,6 +558,10 @@ def _files(root, rev, directory, pattern="*"):
              (line.split("\t", 1) for line in listed.stdout.decode().splitlines()) if fields.split()[1] == "blob" and pathlib.PurePosixPath(name).match(pattern)]
     if not blobs:
         return {}
+    # A blob-less clone (CI's checkout) fetches each missing blob by itself on read: 84 round trips,
+    # 18 s. `git diff` against the tree fetches every blob it needs in one request first.
+    subprocess.run(["git", "-C", str(root), "diff", "--numstat", "--no-ext-diff", "--no-textconv", rev, "--", directory],
+                   capture_output=True, check=False)
     out = _git_input(root, "".join(f"{oid}\n" for oid, _ in blobs).encode(), "cat-file", "--batch")
     files, at = {}, 0
     for oid, name in blobs:
