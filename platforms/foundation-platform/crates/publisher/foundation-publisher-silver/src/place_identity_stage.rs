@@ -1,5 +1,4 @@
-//! The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1), in
-//! `DuckDB` inside the publisher (root ADR-0559).
+//! In `DuckDB` inside the publisher (root ADR-0559).
 //!
 //! It was `place_identity_resolver.py` and `address_pnu.py`, read by the Spark loads. A source names
 //! a place by a legal-dong code or by an address; this turns either into the current PNU of a served
@@ -91,9 +90,11 @@ pub struct ParcelsRead {
     pub held: u64,
 }
 
-/// Reads the served parcels among `place_asked` and the register titles of every building that ever
-/// stood on a road `place_roads` names, current rows only (root ADR-0390: the whole register is not
-/// carried past the scan). `title_rows_sql` is the titles' contract-rendered current-row query.
+/// Reads the served parcels among `place_asked` and the register titles on the roads offered.
+///
+/// The titles are those of every building that ever stood on a road `place_roads` names, current
+/// rows only (root ADR-0390: the whole register is not carried past the scan). `title_rows_sql` is
+/// the titles' contract-rendered current-row query.
 ///
 /// # Errors
 /// Returns a `DuckDB` failure, or the snapshot id holds a quote.

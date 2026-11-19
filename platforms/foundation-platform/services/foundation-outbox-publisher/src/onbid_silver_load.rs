@@ -29,6 +29,7 @@ use foundation_publisher_silver::{
     place_identity_stage::{
         self, PlacePins, CODE_CHANGE_TABLE, DONG_NAME_TABLE, PARCEL_TABLE, TITLE_TABLE,
     },
+    process_memory,
     vworld_parcel_source_contract::served_edition_view,
 };
 use lakehouse_domain::{
@@ -75,6 +76,11 @@ fn served_snapshot_id() -> anyhow::Result<String> {
         .as_str()
         .context("the served edition has no name")?;
     Ok(format!("{prefix}{edition}"))
+}
+
+/// Seconds since `started`, to a tenth.
+fn seconds(started: Instant) -> f64 {
+    (started.elapsed().as_secs_f64() * 10.0).round() / 10.0
 }
 
 fn locked(stage: &Mutex<DuckDbParquetStage>) -> anyhow::Result<MutexGuard<'_, DuckDbParquetStage>> {
@@ -139,6 +145,7 @@ impl Run {
         stage: &Mutex<DuckDbParquetStage>,
         object: &PlannedObject,
     ) -> anyhow::Result<Value> {
+        let started = Instant::now();
         let table = object.role.table();
         let table_contract = contract(table)?;
         let expected_head = head(&self.catalog, table).await?;
@@ -212,6 +219,7 @@ impl Run {
             )
             .await?
         );
+        line["seconds"] = json!(seconds(started));
         Ok(line)
     }
 }
@@ -263,11 +271,15 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             served_snapshot_id: served_snapshot_id()?,
         };
         let stage = &*locked(&stage)?;
+        // Each input is read once a run; how long each took is in the summary.
+        let step = Instant::now();
         place_identity_stage::load_reference(stage, &pins)?;
+        let reference_seconds = seconds(step);
         stage.connection().execute_batch(
             "CREATE OR REPLACE TEMP TABLE place_rows (_row BIGINT, pnu VARCHAR, address VARCHAR, cltr_mng_no VARCHAR, pbct_cdtn_no BIGINT)",
         )?;
         let item_contract = contract(Role::ItemList.table())?;
+        let step = Instant::now();
         for object in objects
             .iter()
             .filter(|object| object.role == Role::ItemList)
@@ -275,11 +287,19 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             read_object(stage, &run.source, item_contract, object, ingested_at)?;
             into_place_rows(stage, true)?;
         }
+        let item_objects_seconds = seconds(step);
+        let step = Instant::now();
         place_identity_stage::offers(stage)?;
+        let offers_seconds = seconds(step);
         let titles = contract(TITLE_TABLE)?
             .current_rows_sql_template()
             .context("the register titles keep no versions per key")?;
+        let step = Instant::now();
         let read = place_identity_stage::read_served(stage, &pins, &titles)?;
+        summary["place_seconds"] = json!({
+            "reference": reference_seconds, "item_objects": item_objects_seconds,
+            "offers": offers_seconds, "served_parcels_and_titles": seconds(step),
+        });
         summary["parcels_read"] = json!({"asked": read.asked, "held": read.held});
         summary["place_pins"] = json!({
             "code_changes": pins.code_changes, "dong_names": pins.dong_names,
@@ -299,6 +319,9 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     drop(stage);
     summary["objects"] = Value::Array(loaded);
     summary["deferred"] = json!(deferred);
+    summary["seconds"] = json!(seconds(started));
+    // The unit's limit is set from this (root ADR-0455): the most its cgroup held this run.
+    summary["memory_peak_bytes"] = json!(process_memory::cgroup_peak_bytes());
     println!("data-go-kr-onbid-summary-json {summary}");
     Ok(())
 }

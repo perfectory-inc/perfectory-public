@@ -108,6 +108,7 @@ async fn catalog_partitioned(
             "string" => PrimitiveType::String,
             "long" => PrimitiveType::Long,
             "int" => PrimitiveType::Int,
+            "double" => PrimitiveType::Double,
             "date" => PrimitiveType::Date,
             "timestamp" => PrimitiveType::Timestamptz,
             other => anyhow::bail!("this test has no Iceberg type for {other}"),
@@ -522,6 +523,79 @@ async fn a_partitioned_file_is_one_partition_or_refused() -> anyhow::Result<()> 
     let scanned = scan_snapshot_rows(contract, &LocalFiles, &snapshot).await?;
     scanned.ensure_complete()?;
     assert_eq!((scanned.rows.len(), scanned.data_file_count), (1500, 2));
+    Ok(())
+}
+
+/// One synthetic row of `contract` (PNU under the synthetic 99999 code, 2099 times), every column
+/// filled by its type.
+fn synthetic_row(contract: &LakehouseTableContract) -> anyhow::Result<String> {
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| {
+            let value = match (column.name, column.logical_type) {
+                ("pnu", _) => "'9999900000000000000'",
+                (_, "string") => "'synthetic'",
+                (_, "long") => "CAST(99001 AS BIGINT)",
+                (_, "int") => "CAST(1 AS INTEGER)",
+                (_, "double") => "CAST(1.5 AS DOUBLE)",
+                (_, "date") => "DATE '2099-01-01'",
+                (_, "timestamp") => "to_timestamp(4071006245)",
+                (_, other) => anyhow::bail!("this test has no value for {other}"),
+            };
+            Ok(format!("{value} AS {}", column.name))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(format!("SELECT {}", columns.join(", ")))
+}
+
+/// The 차세대 온비드 Silver load's first object into each of its eight empty tables (root
+/// ADR-0389), as `load-data-go-kr-onbid-silver` appends it: a commit that records the object,
+/// pinned on the head the rows were compared against (none yet).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_onbid_object_is_the_first_append_into_each_empty_table() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    for table in [
+        contract("silver.onbid_real_estate_item")?,
+        contract("silver.onbid_item_bid_result")?,
+        contract("silver.onbid_real_estate_item_photo")?,
+        contract("silver.onbid_real_estate_item_detail")?,
+        contract("silver.onbid_item_bid_info")?,
+        contract("silver.onbid_announcement")?,
+        contract("silver.onbid_announcement_bid_result")?,
+        contract("silver.onbid_announcement_detail")?,
+    ] {
+        let short = table
+            .table_name
+            .split_once('.')
+            .context("namespace.table")?
+            .1;
+        let catalog = catalog_with(&root.path().join(short), table).await?;
+        let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+        let shape = committer.table_shape(table.table_name).await?;
+        let file = stage.write(&shape, &synthetic_row(table)?, &format!("{short}-first"))?;
+        let object = "bronze/source=synthetic/onbid-20990102t030405z.gz".to_owned();
+        let (snapshot, parent, added) = appended(
+            committer
+                .append_at_head(
+                    DataAppend {
+                        table_name: table.table_name,
+                        contract: table,
+                        files: std::slice::from_ref(&file),
+                        batch: std::slice::from_ref(&object),
+                        already_ingested: &BTreeSet::new(),
+                        summary: BTreeMap::new(),
+                    },
+                    None,
+                )
+                .await?,
+        )?;
+        assert_eq!((parent, added), (None, 1), "{short}");
+        let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
+        scanned.ensure_complete()?;
+        assert_eq!(scanned.rows.len(), 1, "{short}");
+    }
     Ok(())
 }
 

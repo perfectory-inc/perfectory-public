@@ -505,6 +505,8 @@ impl OnbidSource {
     ///
     /// # Errors
     /// Returns an error when the contract lacks them.
+    // `{name}` is a placeholder of the SQL text, not a format argument.
+    #[allow(clippy::literal_string_with_formatting_args)]
     pub fn answers_sql(&self) -> anyhow::Result<String> {
         let codes = self
             .contract
@@ -906,6 +908,8 @@ pub fn read_object(
     })
 }
 
+// `{name}` is a placeholder of the SQL text, not a format argument.
+#[allow(clippy::literal_string_with_formatting_args)]
 fn current(
     contract: &LakehouseTableContract,
     head: Option<i64>,
@@ -940,12 +944,15 @@ pub struct ItemChanges {
     pub removed: u64,
 }
 
-/// `onbid_changes`: the placed item rows (`onbid_staged`) that are new or changed against the
-/// table's current rows at `head`, and, when `complete`, a removal marker per current condition the
-/// pass no longer holds.
+/// Builds `onbid_changes` from the placed item rows (`onbid_staged`).
+///
+/// It holds the rows that are new or changed against the table's current rows at `head`, and, when
+/// `complete`, a removal marker per current condition the pass no longer holds.
 ///
 /// # Errors
 /// Returns a `DuckDB` failure.
+// `{name}` is a placeholder of the SQL text, not a format argument.
+#[allow(clippy::literal_string_with_formatting_args)]
 pub fn item_changes(
     stage: &DuckDbParquetStage,
     contract: &LakehouseTableContract,

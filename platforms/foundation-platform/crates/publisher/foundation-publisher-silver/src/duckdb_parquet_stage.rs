@@ -20,8 +20,9 @@ use crate::{lakehouse_engine_contract::execution_profile, serving_scratch};
 
 /// The name a stage that reads the lakehouse attaches its catalog under.
 pub const LAKEHOUSE_CATALOG: &str = "lakehouse";
-/// The Python Silver loads' readers of a JSON value (`py_text`, `py_truthy`, `py_json_dumps`, …):
-/// every stage that reads a Bronze JSON object runs it first, so the loads that leave Spark read
+/// The Python Silver loads' readers of a JSON value (`py_text`, `py_truthy`, `py_json_dumps`, …).
+///
+/// Every stage that reads a Bronze JSON object runs it first, so the loads that leave Spark read
 /// values as one Python did (root ADR-0559).
 pub const PYTHON_VALUES_SQL: &str = include_str!("python_values.sql");
 const QUOTE: char = '\'';

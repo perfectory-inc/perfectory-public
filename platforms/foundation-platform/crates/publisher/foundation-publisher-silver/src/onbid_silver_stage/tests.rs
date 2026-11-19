@@ -165,38 +165,79 @@ fn a_plan_names_its_table_and_each_object_once() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test]
-fn the_staged_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+/// One role's fixture object staged, against the rows the Spark job built from it. A test per role:
+/// the eight together ran past the 60 s limit on CI (run 44440260869), where the bundled `DuckDB`
+/// is built unoptimized and plans each role's SQL in seconds.
+fn the_staged_rows_are_the_rows_the_spark_job_built(role: Role) -> anyhow::Result<()> {
     let source = OnbidSource::compiled()?;
     let directory = tempfile::tempdir()?;
     let stage = DuckDbParquetStage::open(directory.path())?;
     stage.connection().execute_batch(&source.values_sql()?)?;
     let ingested_at = chrono::DateTime::from_timestamp(4_070_000_000, 0).context("an instant")?;
-    for role in ROLES {
-        let table = role.table();
-        let read = read_object(
-            &stage,
-            &source,
-            contract(table)?,
-            &object(directory.path(), role)?,
-            ingested_at,
-        )?;
-        let expected = fixture(&format!("spark_{}.txt", role.name()))?;
-        let expected = expected.lines().map(str::to_owned).collect::<Vec<_>>();
-        assert_eq!(read.rows, u64::try_from(expected.len())?, "{}", role.name());
-        if expected.is_empty() {
-            continue;
-        }
-        let file = write(&stage, &shape(table)?, table, "onbid_rows", OBJECT_KEY)?
-            .context("rows to stage")?;
-        assert_eq!(
-            lines(&stage, table, &file.local_path)?,
-            expected,
-            "{}",
-            role.name()
-        );
+    let table = role.table();
+    let read = read_object(
+        &stage,
+        &source,
+        contract(table)?,
+        &object(directory.path(), role)?,
+        ingested_at,
+    )?;
+    let expected = fixture(&format!("spark_{}.txt", role.name()))?;
+    let expected = expected.lines().map(str::to_owned).collect::<Vec<_>>();
+    assert_eq!(read.rows, u64::try_from(expected.len())?, "{}", role.name());
+    if expected.is_empty() {
+        return Ok(());
     }
+    let file =
+        write(&stage, &shape(table)?, table, "onbid_rows", OBJECT_KEY)?.context("rows to stage")?;
+    assert_eq!(
+        lines(&stage, table, &file.local_path)?,
+        expected,
+        "{}",
+        role.name()
+    );
     Ok(())
+}
+
+#[test]
+fn the_staged_item_list_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::ItemList)
+}
+
+#[test]
+fn the_staged_item_bid_result_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::ItemBidResult)
+}
+
+#[test]
+fn the_staged_item_photo_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::ItemPhoto)
+}
+
+#[test]
+fn the_staged_item_detail_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::ItemDetail)
+}
+
+#[test]
+fn the_staged_item_bid_info_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::ItemBidInfo)
+}
+
+#[test]
+fn the_staged_announcement_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::Announcement)
+}
+
+#[test]
+fn the_staged_announcement_bid_result_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()>
+{
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::AnnouncementBidResult)
+}
+
+#[test]
+fn the_staged_announcement_detail_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::AnnouncementDetail)
 }
 
 #[test]

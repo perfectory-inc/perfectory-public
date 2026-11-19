@@ -48,8 +48,7 @@ if sys.argv[1] == "collect-data-go-kr-onbid":
 if sys.argv[1] == "load-data-go-kr-onbid-silver":
     root = os.environ["FOUNDATION_PLATFORM_ONBID_PLAN_ROOT"]
     with open(os.path.join(state, "load.log"), "a", encoding="utf-8") as log:
-        log.write(" ".join(sorted(os.listdir(root))) + "
-")
+        log.write(" ".join(sorted(os.listdir(root))) + "\n")
     if os.environ.get("FAKE_LOAD_FAIL") == "1":
         sys.exit(1)
     print('data-go-kr-onbid-summary-json {"engine": "duckdb", "status": "loaded"}')
