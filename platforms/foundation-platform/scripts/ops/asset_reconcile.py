@@ -597,7 +597,7 @@ def claim_metrics(now: float, jobs: dict, claims: list[dict], running_units) -> 
     return metrics
 
 
-def missed_starts(now: float, jobs: dict, reconciler: dict, starts: dict | None, queued: dict, paused, running):
+def missed_starts(now: float, jobs: dict, reconciler: dict, starts: dict, queued: dict, paused, running):
     """(owed lines, metric lines): each job the reconciler starts again (job_specs.requeued) whose newest
     scheduled slot, at least MISSED_START_GRACE old and after it was switched on, no start followed, owed
     one start keyed by that slot. Level-triggered on the record of starts rather than on a refusal being
@@ -608,11 +608,7 @@ def missed_starts(now: float, jobs: dict, reconciler: dict, starts: dict | None,
     2026-11-09 11:40Z: data_go_kr_file_data's first run was refused by the spark pool 3 hours before the
     start queue (root ADR-0462) was deployed, so nothing held the refusal and its next try was the next
     day's 11:40Z. A job in the queue is the queue's (queued_starts); a takes_turns job's deferral is its
-    rule's (root ADR-0138); a paused job starts nothing (root ADR-0282 §3). None until the deploy has
-    seeded the records (job_units.last_starts): no slot is judged without them."""
-    if starts is None:
-        print("missed starts: the start records are not seeded yet; no slot is judged")
-        return [], []
+    rule's (root ADR-0138); a paused job starts nothing (root ADR-0282 §3)."""
     listing = {job["id"]: job for job in jobs["jobs"]}
     owed, metrics = [], []
     for job_id in job_specs.requeued(jobs, reconciler):
