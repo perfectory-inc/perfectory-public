@@ -37,15 +37,19 @@ class ReadinessScriptTest(unittest.TestCase):
             publisher = root / "publisher"
             publisher.write_text(FAKE_PUBLISHER, encoding="utf-8")
             publisher.chmod(0o755)
-            runtime = root / "runtime.sh"
-            runtime.write_text(f'PUBLISHER_BIN={publisher.as_posix()!r}\n', encoding="utf-8")
+            # The script sources the runtime beside itself (nothing in the environment can name another),
+            # so the stand-in sits beside a copy of the script.
+            ops = root / "scripts" / "ops"
+            ops.mkdir(parents=True)
+            script = ops / SCRIPT.name
+            script.write_bytes(SCRIPT.read_bytes())
+            (ops / "admitted-writer-runtime.sh").write_text(f'PUBLISHER_BIN={publisher.as_posix()!r}\n', encoding="utf-8")
             log = root / "publisher.log"
             out = root / "editions" / "readiness.json"
             env = {
                 **os.environ,
                 "FAKE_LOG": str(log),
                 "FAKE_PARTITIONS": json.dumps(partitions),
-                "FOUNDATION_PARCEL_EDITION_ADMITTED_RUNTIME": runtime.as_posix(),
                 "FOUNDATION_PLATFORM_RELEASE_ROOT": str(PLATFORM),
                 "FOUNDATION_PARCEL_EDITION_READINESS_PATH": str(out),
                 "FOUNDATION_VWORLD_PARCEL_EDITION_STATE_ROOT": str(root / "absent"),
@@ -55,7 +59,7 @@ class ReadinessScriptTest(unittest.TestCase):
             }
             if fail:
                 env["FAKE_FAIL"] = "1"
-            done = subprocess.run([shutil.which("bash"), SCRIPT.as_posix()], env=env, capture_output=True, text=True, timeout=120)
+            done = subprocess.run([shutil.which("bash"), script.as_posix()], env=env, capture_output=True, text=True, timeout=120)
             report = json.loads(out.read_text(encoding="utf-8")) if out.is_file() else {}
             calls = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()] if log.is_file() else []
             return done, report, calls

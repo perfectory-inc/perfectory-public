@@ -12,6 +12,7 @@ import io
 import pathlib
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
 import urllib.error
@@ -96,6 +97,11 @@ class FakeResponse(io.BytesIO):
 class DataQualityJobTests(unittest.TestCase):
     def setUp(self):
         self.job = load_quality_job()
+        # The unit's StateDirectory on the host; here a directory of the test's own.
+        state = tempfile.TemporaryDirectory()
+        self.addCleanup(state.cleanup)
+        for name, path in (("WORK", "duckdb"), ("FIRST_CHECKED", "first-checked.json")):
+            setattr(self.job, name, pathlib.Path(state.name) / path)
         patcher = mock.patch.object(internal_http.time, "sleep")
         self.sleep = patcher.start()
         self.addCleanup(patcher.stop)

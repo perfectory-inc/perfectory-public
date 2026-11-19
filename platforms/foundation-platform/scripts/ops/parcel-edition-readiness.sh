@@ -21,8 +21,6 @@ JOBS="${RELEASE_ROOT}/infra/lakehouse/spark/jobs"
 OUT="${FOUNDATION_PARCEL_EDITION_READINESS_PATH:-/var/lib/foundation-platform/parcel-editions/readiness.json}"
 EDITION_STATE="${FOUNDATION_VWORLD_PARCEL_EDITION_STATE_ROOT:-/var/lib/foundation-platform/vworld-parcel-edition}"
 TILE_JOURNAL="${FOUNDATION_PARCEL_TILE_BAKE_STATE_ROOT:-/var/lib/foundation-parcel-tile-bake}/journal.log"
-# The admitted release's publisher; a test names a stand-in runtime (the unit never sets it).
-ADMITTED_RUNTIME="${FOUNDATION_PARCEL_EDITION_ADMITTED_RUNTIME:-$(dirname "$0")/admitted-writer-runtime.sh}"
 # The console's promotion requests (foundation-api writes them, root ADR-0381); this job only reads them,
 # and keeps its answers beside the report.
 REQUESTS="${FOUNDATION_PLATFORM_JOB_SWITCHES_DIR:-/var/lib/foundation-jobs/switches}/promote.d"
@@ -40,9 +38,14 @@ work="$(mktemp -d)"
 trap 'rm -rf -- "${work}"' EXIT
 
 # The rows per edition as the judgement reads them, `<source_snapshot_id>,<record_count>` per partition.
+# The admitted release's publisher (admitted-writer-runtime.sh, the one beside this file) reads them in
+# a subshell, so a refused admission or a failed read leaves this stage unmeasured, not the run failed.
+read_partitions() (
+  source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current || exit
+  exec timeout 120 "${PUBLISHER_BIN}" lakehouse-partitions
+)
 partitions=()
-if timeout 120 bash -c 'source "$1" --current && exec "${PUBLISHER_BIN}" lakehouse-partitions' - "${ADMITTED_RUNTIME}" \
-      <<< 'silver.parcel_boundaries' > "${work}/partitions.json" 2> "${work}/partitions.err" &&
+if read_partitions <<< 'silver.parcel_boundaries' > "${work}/partitions.json" 2> "${work}/partitions.err" &&
     "${PY[@]}" -c 'import json, sys
 (table,) = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
 for found in table["partitions"]:
