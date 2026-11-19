@@ -53,9 +53,9 @@ ALTER DEFAULT PRIVILEGES FOR ROLE foundation_migrator IN SCHEMA catalog, serving
 -- (2026-11-19), and the door that does will get a column grant on `consumed_at, outcome` alone.
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE catalog.operator_action FROM foundation_api;
 
--- The audit chain (root ADR-0569 §3): both roles read it and write it through its two doors only.
--- No application role holds INSERT, UPDATE, DELETE or TRUNCATE on any audit table, and
--- `audit.chain` (the doors' shared step, which checks no source) is executable by neither.
+-- The audit record (root ADR-0569 §3, ADR-0584): both roles read it and write it through its two
+-- doors only. No application role holds INSERT, UPDATE, DELETE or TRUNCATE on any audit table, and
+-- `audit.record` (the doors' shared step, which checks no source) is executable by neither.
 GRANT USAGE ON SCHEMA audit TO foundation_api, foundation_audit_importer;
 REVOKE ALL ON ALL TABLES IN SCHEMA audit FROM foundation_api, foundation_audit_importer;
 GRANT SELECT ON TABLE audit.event, audit.digest, audit.import_cursor, audit.source

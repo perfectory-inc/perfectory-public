@@ -601,7 +601,7 @@ const AREAS: &[Area] = &[
                     },
                     LaneTarget::Test {
                         package: "catalog-infrastructure",
-                        test: "audit_event_chain",
+                        test: "audit_event_record",
                     },
                     LaneTarget::Test {
                         package: "catalog-infrastructure",

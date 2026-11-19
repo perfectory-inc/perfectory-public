@@ -124,9 +124,12 @@ postcondition() {
                  unnest(ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) AS p(privilege)
             WHERE t.schemaname = 'audit'
               AND has_table_privilege(r.role, format('%I.%I', t.schemaname, t.tablename), p.privilege))
+          AND EXISTS (
+            SELECT 1 FROM pg_catalog.pg_proc AS f
+            WHERE f.pronamespace = 'audit'::regnamespace AND f.proname = 'record')
           AND NOT EXISTS (
             SELECT 1 FROM pg_catalog.pg_proc AS f
-            WHERE f.pronamespace = 'audit'::regnamespace AND f.proname = 'chain'
+            WHERE f.pronamespace = 'audit'::regnamespace AND f.proname = 'record'
               AND (has_function_privilege('foundation_api', f.oid, 'EXECUTE')
                 OR has_function_privilege('foundation_audit_importer', f.oid, 'EXECUTE')));"
       ;;
