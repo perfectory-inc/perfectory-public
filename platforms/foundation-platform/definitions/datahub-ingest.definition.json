@@ -39,7 +39,7 @@
       "started_once_after_deploy": true,
       "expected_outcome": {
         "changes_within_hours": null,
-        "no_change_bound_reason": "An operation on the catalog, not a data producer: it prints no outcome line and writes no lakehouse table. That it keeps finishing is the done bound."
+        "no_change_bound_reason": "An operation on the catalog, not a data producer: it writes no lakehouse table, so a finished run prints `foundation-job-outcome unchanged` (scripts/deploy/datahub-runtime.sh). That it keeps finishing is the done bound."
       }
     },
     {
@@ -78,7 +78,7 @@
       "started_once_after_deploy": true,
       "expected_outcome": {
         "changes_within_hours": null,
-        "no_change_bound_reason": "An operation on the catalog, not a data producer: it prints no outcome line and writes no lakehouse table. That it keeps finishing is the done bound."
+        "no_change_bound_reason": "An operation on the catalog, not a data producer: it writes no lakehouse table, so a finished run prints `foundation-job-outcome unchanged` (scripts/deploy/datahub-runtime.sh). That it keeps finishing is the done bound."
       }
     }
   ]
