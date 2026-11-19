@@ -1013,6 +1013,9 @@ def cut_over(bake_root: Path):
     return published
 
 
+CATALOG_SECONDS = 120
+
+
 def main() -> int:
     jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
     graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
@@ -1027,7 +1030,11 @@ def main() -> int:
         state = json.loads((state_dir / STATE_FILE).read_text(encoding="utf-8"))
     except (FileNotFoundError, ValueError):
         state = {}
-    catalog = iceberg_metadata.Catalog("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN", "foundation-asset-reconcile")
+    # One deadline for every catalog read of the tick, below the unit's 180 s: 2026-11-08..16 seven ticks
+    # were killed at 180 s after 8.6-9.2 s of CPU, silent, each read under its own 60 s timeout (W83c).
+    # Past it the unread assets are named below and the tick ends; the next tick, minutes later, reads them.
+    catalog = iceberg_metadata.Catalog("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN", "foundation-asset-reconcile",
+                                       deadline=time.monotonic() + CATALOG_SECONDS)
     cache: dict = {}
 
     def table(name):
@@ -1144,6 +1151,10 @@ def main() -> int:
         print(line)
     for error in errors:
         print(f"asset_reconcile: could not read {error}", file=sys.stderr)
+    unread = sum("CatalogDeadline" in error for error in errors)
+    if unread:
+        print(f"asset_reconcile: the catalog reads stopped at their {CATALOG_SECONDS} s deadline; "
+              f"{unread} asset(s) unread this tick", file=sys.stderr)
     if errors and len(errors) == len(found):
         print(f"foundation-job-outcome failed no asset could be read ({errors[0]})")
         return 1
