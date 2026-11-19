@@ -260,12 +260,17 @@ build_source "${test_root}/source-b" release-b "20260719000001 20260719000002"
 build_source "${test_root}/source-ahead" release-ahead \
   "20260719000001 20260719000002 20260901000001"
 build_source "${test_root}/source-prepared" release-prepared "20260719000001 20260719000002"
+# The newest of four releases where a rehearsal only needs a fourth one (the install-and-prune host
+# below). That host used the 3000-file archive, whose size matters to one gate only; every seal,
+# verify and build of it read 3000 files again, about a third of this rehearsal's time.
+build_source "${test_root}/source-newest" release-newest "20260719000001 20260719000002"
 release_a="$(register_release "${test_root}/source-a")"
 printf '%s\n' "${release_a}" >"${REHEARSAL_CONTROL_ROOT}/.perfectory-control-commit"
 release_b="$(register_release "${test_root}/source-b")"
 release_ahead="$(register_release "${test_root}/source-ahead")"
 prepared="$(register_release "${test_root}/source-prepared")"
-for name in a b ahead prepared; do
+release_newest="$(register_release "${test_root}/source-newest")"
+for name in a b ahead prepared newest; do
   tar -C "${test_root}/source-${name}" -czf "${test_root}/release-${name}.tar.gz" .
 done
 
@@ -1245,11 +1250,11 @@ install_prune_rehearsal() {
   local script="$1" pair id
   [[ ! -e "${test_root}/install-prune" ]] || { chmod -R u+w "${test_root}/install-prune"; rm -rf "${test_root}/install-prune"; }
   write_retention_contract "$(prune_id 0)" 1
-  for pair in "${release_a}:a" "${release_b}:b" "${prepared}:prepared" "${release_large}:large"; do
+  for pair in "${release_a}:a" "${release_b}:b" "${prepared}:prepared" "${release_newest}:newest"; do
     run_install_root "${script}" install "${pair%%:*}" "${test_root}/release-${pair#*:}.tar.gz" \
       >"${test_root}/install-prune.log" 2>&1 || return 1
   done
-  # current=large, previous=prepared; a and b are gone, with their artifacts.
+  # current=newest, previous=prepared; a and b are gone, with their artifacts.
   for id in "${release_a}" "${release_b}"; do
     expect test ! -e "${install_root}/releases/${id}" || return 1
     expect test ! -e "${install_root}/artifacts/${id}" || return 1
@@ -1258,7 +1263,7 @@ install_prune_rehearsal() {
   expect grep -q '^prune-ok removed=1 ' "${test_root}/install-prune.log" || return 1
   run_install_root "${script}" rollback || return 1
   expect test "$(readlink "${install_root}/current")" = "releases/${prepared}" || return 1
-  expect test "$(readlink "${install_root}/previous")" = "releases/${release_large}" || return 1
+  expect test "$(readlink "${install_root}/previous")" = "releases/${release_newest}" || return 1
   run_install_root "${test_root}/admission" verify-current >"${test_root}/install-prune.log" 2>&1 || return 1
   run_install_root "${script}" verify >>"${test_root}/install-prune.log" 2>&1 || return 1
 }
