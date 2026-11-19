@@ -7,7 +7,7 @@ import { POST as loginPOST } from "@/app/api/auth/login/route";
 import {
   AUTH_STATE_COOKIE_NAME,
   SID_COOKIE_NAME,
-  verifyAuthStatePayload,
+  unsealAuthState,
 } from "@/lib/session/cookie";
 import { __resetRedisForTest, getRedis } from "@/lib/session/redis";
 
@@ -61,13 +61,10 @@ describe("auth flow integration", () => {
     const authStateMatch = setCookie.match(new RegExp(`${AUTH_STATE_COOKIE_NAME}=([^;]+)`));
     expect(authStateMatch).not.toBeNull();
     const authState = String(authStateMatch?.[1]);
-    // C2: cookie is now HMAC-signed (payload.mac); use verifyAuthStatePayload to decode
-    const rawPayload = verifyAuthStatePayload(authState);
-    expect(rawPayload).not.toBeNull();
-    if (!rawPayload) throw new Error("verifyAuthStatePayload returned null");
-    const decoded = JSON.parse(rawPayload) as {
-      state: string;
-    };
+    // C2: the cookie is sealed (encrypted + signed); the state is not readable from it.
+    expect(authState).not.toContain("code_verifier");
+    const decoded = await unsealAuthState(decodeURIComponent(authState));
+    if (!decoded) throw new Error("unsealAuthState returned null");
 
     const callbackReq = new NextRequest(
       `http://localhost:3000/api/auth/callback?code=abc&state=${decoded.state}`,
