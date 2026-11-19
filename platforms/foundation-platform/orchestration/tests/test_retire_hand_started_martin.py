@@ -50,7 +50,8 @@ done
 exit 0
 """
 
-MARTIN = "ghcr.io/maplibre/martin:1.12.0"
+# Any Martin tag: the script asks for the image, not a version.
+MARTIN = "ghcr.io/maplibre/martin:synthetic"
 
 
 @unittest.skipUnless(shutil.which("bash") and os.name == "posix", "the script is bash on the host")

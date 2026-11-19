@@ -3,7 +3,7 @@
 # the host; the PR after that deploy removes this file, its deploy step, its test and the
 # `host.uncapped` entry of platform.definition.json.
 #
-# Removes the two Martin tile servers an operator started by hand with `docker run` in September 2026
+# Removes the two Martin tile servers an operator started by hand, outside any Compose file, in September 2026
 # (martin-complex 09-04, martin-static 09-27). Root ADR-0112 §10 and ADR-0133 decided to take them
 # down once the map was served from R2; root ADR-0343 §5 asks for it. Measured 2026-11-18 (W83c,
 # read-only): no Compose labels, `restart=no`, host network on 0.0.0.0:3110 and :3111, a health check
@@ -54,7 +54,7 @@ for name in martin-complex martin-static; do
   if docker rm -f "${name}" >/dev/null; then
     echo "retire-hand-started-martin ${name}: removed (no connection on :${port})"
   else
-    echo "retire-hand-started-martin ${name}: docker rm failed" >&2
+    echo "retire-hand-started-martin ${name}: removal failed" >&2
     status=1
   fi
 done
@@ -66,7 +66,7 @@ elif docker container inspect martin-static >/dev/null 2>&1; then
 else
   mounted_by=""
   for id in $(docker ps -aq); do
-    if docker container inspect -f '{{range .Mounts}}{{.Source}}{{println}}{{end}}' "${id}" | grep -Fxq "${STATIC_CONFIG}"; then
+    if grep -Fxq "${STATIC_CONFIG}" < <(docker container inspect -f '{{range .Mounts}}{{.Source}}{{println}}{{end}}' "${id}"); then
       mounted_by+=" ${id}"
     fi
   done
