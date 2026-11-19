@@ -18,21 +18,33 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The check reads which compose files the runtime loads out of `foundation-runtime.sh`'s `-f`
-# arguments, so every fixture ships one. Writing the list into the fixture instead would make the
-# self-test agree with a copy rather than with the thing the check actually reads.
+# The check asks compose (`config --variables`) through the release's `foundation-runtime.sh`, so
+# every fixture ships a wrapper that runs the pinned Compose (tools/docker-compose.env, fetched by
+# the one pinned fetcher, root ADR-0197) on the fixture's files the way the real one does. The
+# answer is compose's, not a copy the self-test could agree with.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) compose_bin="$test_root/docker-compose.exe" ;;
+  *) compose_bin="$test_root/docker-compose" ;;
+esac
+python3 -I scripts/ci/fetch_pinned.py tool docker-compose --output "$compose_bin" >/dev/null
+chmod +x "$compose_bin"
+
 write_runtime_wrapper() {
   local root="$1"; shift
   mkdir -p "$root/scripts/deploy"
   {
     printf '#!/usr/bin/env bash\n'
+    printf 'root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
     printf 'compose=(\n'
-    printf '  docker compose\n'
+    printf '  %q\n' "$compose_bin"
+    printf '  --project-directory "${root_dir}"\n'
     local file
     for file in "$@"; do
       printf '  -f "${root_dir}/%s"\n' "$file"
     done
+    printf '  --env-file "${FOUNDATION_PLATFORM_ENV_FILE}"\n'
     printf ')\n'
+    printf 'exec "${compose[@]}" "$@"\n'
   } >"$root/scripts/deploy/foundation-runtime.sh"
   chmod +x "$root/scripts/deploy/foundation-runtime.sh"
 }
@@ -146,11 +158,11 @@ GAMMA=y' accept
 expect prefix-is-not-a-match both 'ALPHABET=x
 GAMMA=y' reject "missing ALPHA"
 
-# The list comes from the wrapper, so a file added there is covered without editing this check.
+# Compose loads what the wrapper loads, so a file added there is covered without editing this check.
 expect a-third-compose-file-is-covered three-files 'ALPHA=x' reject "missing DELTA"
 
 expect unreadable-env both none reject "cannot read"
-expect missing-compose-file missing-recovery 'ALPHA=x' reject "missing a compose file"
+expect missing-compose-file missing-recovery 'ALPHA=x' reject "compose could not load"
 expect nothing-required no-required 'ALPHA=x' reject "no required variables"
 
 printf 'OK %s\n' "$name"

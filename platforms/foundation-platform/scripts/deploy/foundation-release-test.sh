@@ -202,20 +202,23 @@ PY
   for file in "${compose_files[@]}"; do
     cp "${repo_root}/${file}" "${dir}/${file}"
   done
-  grep -ohE '[$][{][A-Z_][A-Z0-9_]*:[?]' "${compose_files[@]/#/${dir}/}" \
-    | tr -d '${:?' | sort -u | sed 's/$/=rehearsal/' >"${dir}/rehearsal.env"
+  grep -ohE '[$][{][A-Z_][A-Z0-9_]*:?[?]' "${compose_files[@]/#/${dir}/}" \
+    | tr -d '${:?' | sort -u >"${dir}/rehearsal-required.txt"
+  sed 's/$/=rehearsal/' "${dir}/rehearsal-required.txt" >"${dir}/rehearsal.env"
+  # What `config --variables --format json` answers for those names (Compose v5.2.0).
+  python3 -I -c 'import json, sys
+names = open(sys.argv[1], encoding="utf-8").read().split()
+json.dump({n: {"Name": n, "DefaultValue": "", "PresenceValue": "", "Required": True} for n in names},
+          open(sys.argv[2], "w", encoding="utf-8"))' \
+    "${dir}/rehearsal-required.txt" "${dir}/rehearsal-variables.json"
   for version in ${migrations}; do
     printf -- '-- rehearsal\n' >"${dir}/migrations/${version}_rehearsal.sql"
   done
-  # Stands in for the compose wrapper: the rehearsal has no runtime to ask. It carries the same
-  # `-f` arguments as the real one, because the environment check reads that list out of the
-  # wrapper rather than holding a copy of it. A stub without them made the check refuse — which
-  # is the check behaving correctly, on a rehearsal that was not shaped like a release.
+  # Stands in for the compose wrapper: the rehearsal has no runtime to ask. The environment check
+  # asks it `config --variables`, and it answers with the names the compose files above require.
   {
     printf '#!/usr/bin/env bash\n'
-    for file in "${compose_files[@]}"; do
-      printf -- '  -f "${root_dir}/%s"\n' "${file}"
-    done
+    printf '[[ "${1:-} ${2:-}" != "config --variables" ]] || exec cat "$(dirname "${BASH_SOURCE[0]}")/../../rehearsal-variables.json"\n'
     printf "printf 'rehearsal-container\\\\n'\n"
   } >"${dir}/scripts/deploy/foundation-runtime.sh"
   chmod +x "${dir}/scripts/deploy/foundation-runtime.sh"
