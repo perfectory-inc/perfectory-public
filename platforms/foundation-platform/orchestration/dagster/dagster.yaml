@@ -38,8 +38,13 @@ run_coordinator:
         value: documents
         limit: 1
 
+# The default run launcher cannot tell whether a run's process is alive (dagster 1.13.27: no worker
+# health check), so a run whose process died stays STARTED until its max runtime: a job's run says its
+# own (job_specs.run_tags, `dagster/max_runtime_seconds`), every other run (an asset check) this hour.
+# 2026-11-14 03:12Z a deploy restarted the daemon under a check run, which stayed STARTED four days.
 run_monitoring:
   enabled: true
+  max_runtime_seconds: 3600
 
 local_artifact_storage:
   module: dagster._core.storage.root

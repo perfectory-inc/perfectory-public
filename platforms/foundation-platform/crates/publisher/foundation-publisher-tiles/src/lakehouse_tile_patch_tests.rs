@@ -580,3 +580,39 @@ fn the_tile_range_matches_the_golden_ranges_python_computes() -> anyhow::Result<
     }
     Ok(())
 }
+
+/// 2026-11-13..18: the national parcel index (39,876,546 records) held whole in a 1 GiB unit swapped
+/// until the 115-minute limit. Built in sorted runs merged from disk, it is the same index, and an id
+/// in two runs is refused as one in a single run is.
+#[test]
+fn an_index_built_in_sorted_runs_is_the_index_built_at_once() -> anyhow::Result<()> {
+    let rows: Vec<String> = [D, B, A, C]
+        .iter()
+        .zip([10.0, 11.0, 12.0, 13.0])
+        .map(|(id, lon)| row(id, &square(lon, 10.0, 0.001)))
+        .collect();
+    let text: String = rows.iter().map(|line| format!("{line}\n")).collect();
+    let file = written(text.as_bytes())?;
+    let dir = tempfile::tempdir()?;
+    let (at_once, in_runs) = (dir.path().join("once.idx"), dir.path().join("runs.idx"));
+    let columns = build_index_file(&summary(rows.len()), file.path(), &at_once, 100)?;
+    assert_eq!(
+        build_index_file(&summary(rows.len()), file.path(), &in_runs, 1)?,
+        columns
+    );
+    assert_eq!(std::fs::read(&in_runs)?, std::fs::read(&at_once)?);
+    assert_eq!(read_index(&in_runs)?.len(), 4);
+    // The sorted runs are gone; only the index stays.
+    assert_eq!(std::fs::read_dir(dir.path())?.count(), 2);
+
+    let twice = format!("{}\n{}\n{}\n", rows[0], rows[1], rows[0]);
+    let file = written(twice.as_bytes())?;
+    let error = build_index_file(&summary(3), file.path(), &dir.path().join("twice.idx"), 2)
+        .err()
+        .map(|error| error.to_string());
+    assert_eq!(
+        error.as_deref(),
+        Some("the served snapshot holds a feature id twice")
+    );
+    Ok(())
+}

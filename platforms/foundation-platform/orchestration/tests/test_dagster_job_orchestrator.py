@@ -35,7 +35,8 @@ def listed():
         "priority_classes": {"default": {"value": 100}, "publish": {"value": 300}},
         "pools": {"spark": {"slots": 3, "description": "d"}},
         "jobs": [
-            {"id": "nightly", "enabled": True, "dagster_stage": "dagster", "pool": "spark", "priority_class": "publish"},
+            {"id": "nightly", "enabled": True, "dagster_stage": "dagster", "pool": "spark", "priority_class": "publish",
+             "wait_limit_minutes": 10, "time_limit_minutes": 40, "stop_grace_minutes": 5},
             {"id": "hourly", "enabled": True, "dagster_stage": "dagster", "pool": "default_pool"},
             {"id": "proxied", "enabled": True, "dagster_stage": "proxied", "pool": "default_pool"},
             {"id": "old", "enabled": True, "pool": "default_pool"},
@@ -119,7 +120,7 @@ class TheJobsDagsterDecides(unittest.TestCase):
         ((_, params),) = dagster.told
         self.assertEqual(params["selector"], {**job_orchestrator.REPOSITORY, "pipelineName": "foundation_job__nightly"})
         tags = {tag["key"]: tag["value"] for tag in params["executionMetadata"]["tags"]}
-        self.assertEqual(tags, job_specs.run_tags("spark", 300, f"requested {REQUEST}"))
+        self.assertEqual(tags, job_specs.run_tags("spark", 300, f"requested {REQUEST}", 60 * 55))
         self.assertEqual(tags["foundation/run-kind"], f"requested {REQUEST}")
 
     def test_start_takes_only_a_kind_the_forced_command_reads(self):
@@ -225,7 +226,7 @@ class AgainstDagster(unittest.TestCase):
                 run_id = job_orchestrator.start(jobs, "nightly", f"requested {REQUEST}", post)
                 run = instance.get_run_by_id(run_id)
                 self.assertEqual(run.job_name, "foundation_job__nightly")
-                for key, value in job_specs.run_tags("spark", 300, f"requested {REQUEST}").items():
+                for key, value in job_specs.run_tags("spark", 300, f"requested {REQUEST}", 60 * 55).items():
                     self.assertEqual(run.tags[key], value)
 
 

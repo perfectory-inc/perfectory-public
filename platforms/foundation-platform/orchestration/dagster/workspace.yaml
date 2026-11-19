@@ -1,7 +1,8 @@
-# One code location: the release's (root ADR-0333 stage 0). The webserver and the daemon each load
-# it from the mounted release; a release switch takes effect when airflow-runtime.sh restarts them.
+# One code location: the release's (root ADR-0333 stage 0), served by its own server, dagster-code-server
+# (compose.orchestration.yml, root ADR-0565 §9). The webserver and the daemon read it from there; a release
+# switch takes effect when airflow-runtime.sh reloads the location, and the runs in progress keep running.
 load_from:
-  - python_file:
-      relative_path: /opt/foundation-platform/current/orchestration/dagster/definitions.py
-      working_directory: /opt/foundation-platform/current/orchestration/dagster
+  - grpc_server:
+      host: dagster-code-server
+      port: 4000
       location_name: foundation
