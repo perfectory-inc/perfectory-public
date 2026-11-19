@@ -1,0 +1,638 @@
+//! Where each 실거래 deal belongs, in `DuckDB` inside the publisher (root ADR-0350 §1, ADR-0351, ADR-0405).
+//!
+//! The rules of `placed_deals` in `real_transaction_silver_to_gold.py` and the resolver functions it
+//! calls (W81c slice 1): an unmasked lot is carried to its current parcel (`deals.sql`, `resolve.sql`);
+//! a masked lot (`3**`) is inferred level by level from the evidence the 실거래 contract enables
+//! (`inference_sql`, rendered here from `place_inference`); a deal the 본번 group level links is a
+//! row on every current parcel of the group; a deal on a retired parcel follows the lineage
+//! (`placed.sql`, over the candidates `lineage_carry` walks).
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
+
+use serde_json::Value;
+
+use crate::lineage_carry::{carry_candidates, Link};
+use crate::lineage_steward_read::{steward_resolved, LineageRow};
+
+/// `deals.sql`: the deals with their address codes, `row_id` and source PNU.
+pub const DEALS_SQL: &str = include_str!("real_transaction_placement_stage/deals.sql");
+/// `resolve.sql`: each source PNU carried to the current parcel.
+pub const RESOLVE_SQL: &str = include_str!("real_transaction_placement_stage/resolve.sql");
+/// `masked.sql`: the masked lots as the inference reads them.
+pub const MASKED_SQL: &str = include_str!("real_transaction_placement_stage/masked.sql");
+
+/// The evidence a level may name (`place_identity_resolver.EVIDENCE`).
+pub const EVIDENCE: [&str; 8] = [
+    "lot_range",
+    "zone",
+    "jimok",
+    "land_area",
+    "building_year",
+    "floor_area",
+    "registers_agree",
+    "ownership_change",
+];
+/// The parcel-row evidence the candidate join itself checks (`PARCEL_EVIDENCE`).
+const PARCEL_EVIDENCE: [&str; 3] = ["zone", "jimok", "land_area"];
+/// The grades a level may link with (`INFERRED_GRADES`).
+pub const INFERRED_GRADES: [&str; 3] = [
+    "inferred_ownership_change",
+    "inferred_attributes",
+    MAIN_LOT_GROUP,
+];
+/// The 본번 group level: one parcel's evidence, a claim on its group (root ADR-0405).
+pub const MAIN_LOT_GROUP: &str = "inferred_same_main_lot_group";
+/// The 본번 group level on a dataset measured under the bar, while the owner's switch shows it.
+pub const MAIN_LOT_GROUP_BELOW_BAR: &str = "inferred_same_main_lot_group_below_bar";
+/// A PNU's 법정동 (10), 산 flag (1) and 본번 (4): the key of its 본번 group.
+pub const MAIN_LOT_KEY_LENGTH: usize = 15;
+/// 본번 per bin of the candidate join.
+pub const LOT_BIN: u32 = 10;
+
+/// One inference level a dataset may link by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Level {
+    /// The grade a link by this level carries.
+    pub grade: String,
+    /// The evidence every candidate must fit.
+    pub evidence: Vec<String>,
+}
+
+/// What `place_inference` gives every level: the area tolerance, the ownership window and causes, and
+/// the 용도지역 a deal's zone has been split into since.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InferenceRules {
+    /// `area_tolerance_m2`.
+    pub tolerance_m2: f64,
+    /// `ownership_window_days`: days from the contract to the sale the land file records.
+    pub ownership_window_days: (i64, i64),
+    /// `ownership_causes`: the change reasons that are a sale.
+    pub ownership_causes: Vec<String>,
+    /// `zone_subdivisions`: a deal's zone → the zones it was split into.
+    pub zone_subdivisions: BTreeMap<String, Vec<String>>,
+}
+
+fn number(value: &Value, what: &str) -> anyhow::Result<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_str().and_then(|s| s.parse().ok()))
+        .ok_or_else(|| anyhow::anyhow!("place_inference {what} is not a number: {value}"))
+}
+
+fn level_of(level: &Value) -> anyhow::Result<Level> {
+    let grade = level["grade"].as_str().unwrap_or_default().to_owned();
+    let evidence: Vec<String> = level["evidence"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.as_str().map(str::to_owned))
+        .collect();
+    let unknown: Vec<&String> = evidence
+        .iter()
+        .filter(|e| !EVIDENCE.contains(&e.as_str()))
+        .collect();
+    if !unknown.is_empty() || !INFERRED_GRADES.contains(&grade.as_str()) {
+        anyhow::bail!("place_inference level {grade} names {unknown:?} or an unknown grade");
+    }
+    Ok(Level { grade, evidence })
+}
+
+/// The datasets the contract measured a level for (and the below-bar switch), in name order.
+#[must_use]
+pub fn measured_datasets(inference: &Value) -> Vec<String> {
+    let mut found: BTreeSet<String> = BTreeSet::new();
+    for level in inference["levels"].as_array().into_iter().flatten() {
+        if let Some(measured) = level["measured"].as_object() {
+            found.extend(measured.keys().cloned());
+        }
+    }
+    if let Some(measured) = inference["below_bar"]["measured"].as_object() {
+        found.extend(measured.keys().cloned());
+    }
+    found.into_iter().collect()
+}
+
+/// The levels a dataset links by, strongest first (`enabled_levels`, root ADR-0370, ADR-0483 §4): those
+/// whose measured `precision_wilson_low` reaches `precision_bar` on at least `min_measured_rows`, then
+/// the 본번 group level as `MAIN_LOT_GROUP_BELOW_BAR` when the owner's switch shows it for a dataset
+/// measured under the bar at or above its `floor`.
+///
+/// # Errors
+/// A level naming unknown evidence or grade, a missing number, or a switch naming no group level.
+pub fn enabled_levels(inference: &Value, dataset: &str) -> anyhow::Result<Vec<Level>> {
+    let bar = number(&inference["precision_bar"], "precision_bar")?;
+    let minimum = number(&inference["min_measured_rows"], "min_measured_rows")?;
+    let mut levels = Vec::new();
+    let every = inference["levels"].as_array().cloned().unwrap_or_default();
+    for level in &every {
+        let parsed = level_of(level)?;
+        let measured = &level["measured"][dataset];
+        if measured.is_object()
+            && number(&measured["precision_wilson_low"], "precision_wilson_low")? >= bar
+            && number(&measured["rows"], "rows")? >= minimum
+        {
+            levels.push(parsed);
+        }
+    }
+    let below = &inference["below_bar"];
+    let measured = &below["measured"][dataset];
+    let shown = below["shown"].as_bool().unwrap_or(false)
+        && measured.is_object()
+        && number(&measured["precision_wilson_low"], "precision_wilson_low")?
+            >= number(&below["floor"], "floor")?
+        && number(&measured["rows"], "rows")? >= minimum;
+    if shown && !levels.iter().any(|level| level.grade == MAIN_LOT_GROUP) {
+        let group = every
+            .iter()
+            .find(|level| level["grade"].as_str() == Some(MAIN_LOT_GROUP))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "place_inference.below_bar shows {MAIN_LOT_GROUP}, which no level names"
+                )
+            })?;
+        levels.push(Level {
+            grade: MAIN_LOT_GROUP_BELOW_BAR.to_owned(),
+            ..level_of(group)?
+        });
+    }
+    Ok(levels)
+}
+
+/// `place_inference`'s values every level reads.
+///
+/// # Errors
+/// A missing or malformed value.
+pub fn inference_rules(inference: &Value) -> anyhow::Result<InferenceRules> {
+    let window = inference["ownership_window_days"]
+        .as_array()
+        .filter(|w| w.len() == 2)
+        .ok_or_else(|| {
+            anyhow::anyhow!("place_inference.ownership_window_days is not [low, high]")
+        })?;
+    let day = |v: &Value| {
+        v.as_i64()
+            .ok_or_else(|| anyhow::anyhow!("ownership_window_days holds {v}"))
+    };
+    let strings = |v: &Value| -> Vec<String> {
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|s| s.as_str().map(str::to_owned))
+            .collect()
+    };
+    Ok(InferenceRules {
+        tolerance_m2: number(&inference["area_tolerance_m2"], "area_tolerance_m2")?,
+        ownership_window_days: (day(&window[0])?, day(&window[1])?),
+        ownership_causes: strings(&inference["ownership_causes"]),
+        zone_subdivisions: inference["zone_subdivisions"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(key, _)| !key.starts_with('$'))
+            .map(|(zone, parts)| (zone.clone(), strings(parts)))
+            .collect(),
+    })
+}
+
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
+}
+
+fn sets(levels: &[Level]) -> Vec<Vec<&'static str>> {
+    let mut out = Vec::new();
+    for level in levels {
+        out.push(
+            EVIDENCE
+                .iter()
+                .copied()
+                .filter(|e| *e != "registers_agree" && level.evidence.iter().any(|x| x == e))
+                .collect(),
+        );
+        if level.evidence.iter().any(|e| e == "registers_agree") {
+            out.push(vec!["zone", "land_area"]);
+            out.push(vec!["zone", "building_year", "floor_area"]);
+        }
+    }
+    out
+}
+
+/// The SQL of one evidence check over a candidate row (`infer_masked`'s `checks`).
+fn check(name: &str, rules: &InferenceRules) -> String {
+    let tolerance = rules.tolerance_m2;
+    match name {
+        "zone" => {
+            let split: Vec<String> = rules
+                .zone_subdivisions
+                .iter()
+                .flat_map(|(zone, parts)| parts.iter().map(move |part| quoted(&format!("{zone}|{part}"))))
+                .collect();
+            let split = if split.is_empty() { "''".to_owned() } else { split.join(", ") };
+            format!(
+                "(zone IS NULL OR zone_name_1 = zone OR concat_ws('|', zone, zone_name_1) IN ({split}))"
+            )
+        }
+        "jimok" => "(jimok IS NULL OR land_category = jimok)".to_owned(),
+        "land_area" => format!("(land_area_m2 IS NOT NULL AND abs(area_m2 - land_area_m2) < {tolerance:?})"),
+        "building_year" => {
+            "(building_year IS NOT NULL AND list_contains(coalesce(_years, []), building_year))".to_owned()
+        }
+        "floor_area" => format!(
+            "(floor_area_m2 IS NOT NULL AND (abs(_floor_sum - floor_area_m2) < {tolerance:?} \
+             OR len(list_filter(coalesce(_floors, []), f -> abs(f - floor_area_m2) < {tolerance:?})) > 0))"
+        ),
+        "ownership_change" => "_owner_ok".to_owned(),
+        _ => "true".to_owned(),
+    }
+}
+
+/// The inference of one dataset's masked deals (`infer_masked`), as one `SELECT` over the tables the
+/// caller holds: `masked` (masked.sql, this dataset's rows), `land_parcels` (`pnu`, `land_category`,
+/// `area_m2`, `zone_name_1`: the land register of the served parcels), `titles` (`pnu`,
+/// `approval_year`, `floor_area_m2`: the main buildings), `ownership` (`pnu`, `ownership_changed_on`,
+/// `ownership_change_reason`), `crosswalk` and `group_parcels` (`pnu`).
+///
+/// Returns `row_id`, `pnu`, `pnu_group` (the sorted current parcels of a 본번 group; `pnu` is then
+/// NULL), `place_identity_grade`, `pnu_unresolved_reason`, `pnu_candidate_count`.
+#[must_use]
+pub fn inference_sql(levels: &[Level], rules: &InferenceRules) -> String {
+    if levels.is_empty() {
+        return "SELECT row_id, NULL::VARCHAR AS pnu, NULL::VARCHAR[] AS pnu_group, \
+                'unresolved' AS place_identity_grade, 'jibun_masked' AS pnu_unresolved_reason, \
+                NULL::INTEGER AS pnu_candidate_count FROM masked"
+            .to_owned();
+    }
+    let every = sets(levels);
+    let joined: Vec<&str> = PARCEL_EVIDENCE
+        .iter()
+        .copied()
+        .filter(|e| every.iter().all(|set| set.contains(e)))
+        .collect();
+    let asked: Vec<&str> = EVIDENCE
+        .iter()
+        .copied()
+        .filter(|e| every.iter().any(|set| set.contains(e)))
+        .collect();
+    let mut sql = String::new();
+    let _ = write!(
+        sql,
+        "WITH carried AS (\n  SELECT p.pnu, p.land_category, p.area_m2, p.zone_name_1,\n         \
+         coalesce(x.current_code, substr(p.pnu, 1, 10)) AS _dong, substr(p.pnu, 11, 1) AS _mountain,\n         \
+         CAST(floor(TRY_CAST(substr(p.pnu, 12, 4) AS INTEGER) / {LOT_BIN}) AS INTEGER) AS _bin\n  \
+         FROM land_parcels p LEFT JOIN crosswalk x ON x.old_code = substr(p.pnu, 1, 10)\n),\n\
+         binned AS (\n  SELECT m.*, unnest(range(CAST(floor(lot_low / {LOT_BIN}) AS INTEGER), \
+         CAST(floor(lot_high / {LOT_BIN}) AS INTEGER) + 1)) AS _bin FROM masked m\n),\n\
+         joined AS (\n  SELECT d.* EXCLUDE (_bin), c.pnu AS candidate, c.land_category, c.area_m2, c.zone_name_1\n  \
+         FROM binned d JOIN carried c\n    ON c._dong = d.legal_dong_code\n   \
+         AND c._mountain = CASE WHEN d.lot_mountain THEN '2' ELSE '1' END\n   AND c._bin = d._bin\n   \
+         AND TRY_CAST(substr(c.pnu, 12, 4) AS INTEGER) BETWEEN d.lot_low AND d.lot_high\n"
+    );
+    for name in &joined {
+        let _ = write!(sql, "   AND {}\n", check(name, rules));
+    }
+    sql.push_str("),\n");
+    let mut from = "joined".to_owned();
+    if asked
+        .iter()
+        .any(|e| *e == "building_year" || *e == "floor_area")
+    {
+        sql.push_str(
+            "buildings AS (\n  SELECT pnu, list(DISTINCT approval_year) AS _years, list(floor_area_m2) AS _floors,\n         \
+             sum(floor_area_m2) AS _floor_sum FROM titles GROUP BY pnu\n),\n\
+             with_buildings AS (\n  SELECT j.*, b._years, b._floors, b._floor_sum FROM joined j \
+             LEFT JOIN buildings b ON b.pnu = j.candidate\n),\n",
+        );
+        from = "with_buildings".to_owned();
+    }
+    if asked.contains(&"ownership_change") {
+        let causes: Vec<String> = rules.ownership_causes.iter().map(|c| quoted(c)).collect();
+        let causes = if causes.is_empty() {
+            "NULL".to_owned()
+        } else {
+            causes.join(", ")
+        };
+        let (low, high) = rules.ownership_window_days;
+        let _ = write!(
+            sql,
+            "sold AS (\n  SELECT pnu AS candidate, list(DISTINCT CAST(ownership_changed_on AS DATE)) AS _sold_on\n  \
+             FROM ownership WHERE ownership_change_reason IN ({causes}) AND ownership_changed_on IS NOT NULL\n  \
+             GROUP BY pnu\n),\ncandidates AS (\n  SELECT f.*, coalesce(len(list_filter(s._sold_on, \
+             day -> date_diff('day', f.deal_date, day) BETWEEN {low} AND {high})) > 0, false) AS _owner_ok\n  \
+             FROM {from} f LEFT JOIN sold s ON s.candidate = f.candidate\n),\n"
+        );
+    } else {
+        let _ = write!(
+            sql,
+            "candidates AS (SELECT *, false AS _owner_ok FROM {from}),\n"
+        );
+    }
+    let mut tried = Vec::new();
+    for (rank, level) in levels.iter().enumerate() {
+        let fits: Vec<String> = level
+            .evidence
+            .iter()
+            .filter(|e| e.as_str() != "registers_agree")
+            .map(|e| check(e, rules))
+            .collect();
+        let fits = if fits.is_empty() {
+            "true".to_owned()
+        } else {
+            fits.join(" AND ")
+        };
+        let grade = quoted(&level.grade);
+        if level.evidence.iter().any(|e| e == "registers_agree") {
+            let land = format!("{} AND {}", check("zone", rules), check("land_area", rules));
+            let build = format!(
+                "{} AND {} AND {}",
+                check("zone", rules),
+                check("building_year", rules),
+                check("floor_area", rules)
+            );
+            let _ = write!(
+                sql,
+                "level_{rank} AS (\n  SELECT row_id, {rank} AS _rank, {grade} AS _grade,\n    \
+                 list_sort(list(DISTINCT candidate) FILTER ({fits})) AS _set,\n    \
+                 list_sort(list(DISTINCT candidate) FILTER ({land})) AS _land,\n    \
+                 list_sort(list(DISTINCT candidate) FILTER ({build})) AS _build\n  FROM candidates GROUP BY row_id\n),\n\
+                 level_{rank}_sized AS (\n  SELECT *, coalesce(len(_land), 0) AS _nl, coalesce(len(_build), 0) AS _nb,\n    \
+                 coalesce(len(_land), 0) = 1 AND coalesce(len(_build), 0) = 1 AND _land = _build AS _agreed\n  \
+                 FROM level_{rank} WHERE coalesce(len(_set), 0) > 0\n),\n\
+                 level_{rank}_out AS (\n  SELECT row_id, _rank, _grade,\n    \
+                 CASE WHEN _agreed THEN len(_set)\n         \
+                 ELSE greatest(_nl, _nb, CASE WHEN _nl = 1 AND _nb = 1 THEN 2 ELSE 0 END) END AS _count,\n    \
+                 CASE WHEN _agreed THEN _set[1] END AS _pnu\n  FROM level_{rank}_sized\n),\n"
+            );
+        } else {
+            let _ = write!(
+                sql,
+                "level_{rank}_out AS (\n  SELECT row_id, {rank} AS _rank, {grade} AS _grade, count(DISTINCT candidate) AS _count,\n    \
+                 min(candidate) AS _pnu\n  FROM candidates WHERE {fits} GROUP BY row_id\n),\n"
+            );
+        }
+        tried.push(format!("SELECT * FROM level_{rank}_out"));
+    }
+    let last = levels.len() - 1;
+    let groups: Vec<String> = [MAIN_LOT_GROUP, MAIN_LOT_GROUP_BELOW_BAR]
+        .iter()
+        .map(|g| quoted(g))
+        .collect();
+    let groups = groups.join(", ");
+    let _ = write!(
+        sql,
+        "tried AS (\n  {}\n),\n\
+         linked AS (\n  SELECT row_id, arg_min(_pnu, _rank) AS _pnu, arg_min(_grade, _rank) AS _grade,\n         \
+         arg_min(_count, _rank) AS _count\n  FROM tried WHERE _count = 1 GROUP BY row_id\n),\n\
+         last AS (SELECT row_id, _count AS _last FROM tried WHERE _rank = {last}),\n\
+         members AS (\n  SELECT substr(pnu, 1, {MAIN_LOT_KEY_LENGTH}) AS _key, list_sort(list(DISTINCT pnu)) AS _members\n  \
+         FROM group_parcels GROUP BY 1\n),\n\
+         grouped AS (\n  SELECT l.row_id, l._grade, l._count,\n    \
+         CASE WHEN l._grade IN ({groups}) THEN list_sort(list_distinct(list_concat(coalesce(m._members, []), [l._pnu]))) END AS _group,\n    \
+         CASE WHEN l._grade NOT IN ({groups}) THEN l._pnu END AS _pnu\n  \
+         FROM linked l LEFT JOIN members m ON m._key = CASE WHEN l._grade IN ({groups}) \
+         THEN substr(l._pnu, 1, {MAIN_LOT_KEY_LENGTH}) END\n)\n\
+         SELECT m.row_id, g._pnu AS pnu, g._group AS pnu_group,\n       \
+         coalesce(g._grade, 'unresolved') AS place_identity_grade,\n       \
+         CASE WHEN g._pnu IS NOT NULL OR g._group IS NOT NULL THEN NULL\n            \
+         WHEN coalesce(t._last, 0) > 1 THEN 'inference_ambiguous' ELSE 'inference_no_candidate' END AS pnu_unresolved_reason,\n       \
+         CAST(coalesce(g._count, t._last, 0) AS INTEGER) AS pnu_candidate_count\n\
+         FROM (SELECT DISTINCT row_id FROM masked) m LEFT JOIN grouped g ON g.row_id = m.row_id \
+         LEFT JOIN last t ON t.row_id = m.row_id",
+        tried.join("\n  UNION ALL BY NAME\n  ")
+    );
+    sql
+}
+
+/// `placed.sql`: every deal with the PNU it is placed on.
+pub const PLACED_SQL: &str = include_str!("real_transaction_placement_stage/placed.sql");
+
+/// What one placement counted.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PlacementCounts {
+    /// Deals read.
+    pub deals: u64,
+    /// Rows `placed` holds (a lineage or group deal is a row per parcel).
+    pub placed_rows: u64,
+    /// Deals placed on at least one parcel.
+    pub placed_deals: u64,
+    /// Retired source PNUs the lineage walk started from.
+    pub lineage_sources: u64,
+    /// Candidates the walk found for them.
+    pub lineage_candidates: u64,
+}
+
+fn count(connection: &duckdb::Connection, sql: &str) -> anyhow::Result<u64> {
+    let value: i64 = connection.query_row(sql, [], |row| row.get(0))?;
+    Ok(u64::try_from(value)?)
+}
+
+fn has_table(connection: &duckdb::Connection, name: &str) -> anyhow::Result<bool> {
+    Ok(count(
+        connection,
+        &format!(
+            "SELECT count(*) FROM duckdb_tables() WHERE table_name = {}",
+            quoted(name)
+        ),
+    )? > 0)
+}
+
+/// The code crosswalk as tables (`crosswalk`, `ambiguous`, `served_forms`) from `code_changes`.
+fn crosswalk_tables(
+    connection: &duckdb::Connection,
+) -> anyhow::Result<(BTreeMap<String, String>, BTreeSet<String>)> {
+    connection.execute_batch(crate::legal_dong_code_change_stage::PAIR_ROWS_SQL)?;
+    let pairs: Vec<(String, String)> = connection
+        .prepare("SELECT old_code, new_code FROM pair_rows")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    let (remap, ambiguous) =
+        crate::place_identity::code_crosswalk(pairs.iter().map(|(a, b)| (a.as_str(), b.as_str())));
+    connection.execute_batch(
+        "CREATE OR REPLACE TABLE crosswalk (old_code VARCHAR, current_code VARCHAR);
+         CREATE OR REPLACE TABLE ambiguous (amb_code VARCHAR);
+         CREATE OR REPLACE TABLE served_forms (_code10 VARCHAR, _form10 VARCHAR, _rank INTEGER);",
+    )?;
+    {
+        let mut appender = connection.appender("crosswalk")?;
+        for (old, current) in &remap {
+            appender.append_row(duckdb::params![old, current])?;
+        }
+    }
+    {
+        let mut appender = connection.appender("ambiguous")?;
+        for code in &ambiguous {
+            appender.append_row(duckdb::params![code])?;
+        }
+    }
+    {
+        let mut appender = connection.appender("served_forms")?;
+        for (code, form, rank) in crate::place_identity::served_forms(&remap) {
+            appender.append_row(duckdb::params![code, form, i32::from(rank)])?;
+        }
+    }
+    Ok((remap, ambiguous))
+}
+
+/// `address_codes` from `code_names` (region_cd, full_name, status: the newest code snapshot).
+fn address_code_table(
+    connection: &duckdb::Connection,
+    remap: &BTreeMap<String, String>,
+    ambiguous: &BTreeSet<String>,
+) -> anyhow::Result<()> {
+    let names: Vec<(String, String, String)> = connection
+        .prepare("SELECT region_cd, coalesce(full_name, ''), coalesce(status, '') FROM code_names")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<_, _>>()?;
+    let index = crate::place_identity::dong_index(
+        names
+            .iter()
+            .map(|(c, n, s)| (c.as_str(), n.as_str(), s.as_str())),
+    );
+    connection.execute_batch(
+        "CREATE OR REPLACE TABLE address_codes (_address VARCHAR, source_legal_dong VARCHAR, legal_dong VARCHAR);",
+    )?;
+    let mut appender = connection.appender("address_codes")?;
+    for (name, code, current) in crate::place_identity::address_codes(&index, remap, ambiguous) {
+        appender.append_row(duckdb::params![name, code, current])?;
+    }
+    Ok(())
+}
+
+const LINEAGE_SETUP_SQL: &str = "
+INSERT INTO merges SELECT predecessor_pnu, successor_pnu, grade FROM lineage WHERE relation = 'merge';
+CREATE OR REPLACE TEMP TABLE carry_sources AS
+  SELECT DISTINCT pnu_candidate AS pnu FROM resolved WHERE pnu_candidate IS NOT NULL
+  AND pnu_candidate NOT IN (SELECT pnu FROM parcels WHERE pnu IS NOT NULL);
+CREATE OR REPLACE TEMP TABLE lineage_links AS
+  SELECT DISTINCT predecessor_pnu, successor_pnu FROM lineage
+  WHERE coalesce(predecessor_pnu, '') <> '' AND predecessor_pnu <> successor_pnu;
+CREATE OR REPLACE TEMP TABLE reached (pnu VARCHAR);
+CREATE OR REPLACE TEMP TABLE frontier AS SELECT pnu FROM carry_sources;";
+
+const LINEAGE_HOP_SQL: &str = "
+CREATE OR REPLACE TEMP TABLE frontier AS
+  SELECT DISTINCT l.successor_pnu AS pnu FROM lineage_links l
+  WHERE l.predecessor_pnu IN (SELECT pnu FROM frontier)
+    AND l.successor_pnu NOT IN (SELECT pnu FROM reached);
+INSERT INTO reached SELECT pnu FROM frontier;";
+
+const LINEAGE_ROWS_SQL: &str = "
+SELECT DISTINCT coalesce(predecessor_pnu, ''), successor_pnu, coalesce(relation, ''), coalesce(grade, ''),
+       coalesce(evidence_kind, ''), coalesce(evidence_ref, '')
+FROM lineage WHERE successor_pnu IN (SELECT pnu FROM reached)";
+
+/// `carry` (successor_pnu, source_pnu, hop, path) and `merges` from `lineage` for the retired sources.
+///
+/// The walk reads only the rows of the successors at most `MAX_HOPS` links forward of a source
+/// (`parcel_lineage_section.rows_reaching`), resolved by the steward decisions in force.
+fn lineage_tables(connection: &duckdb::Connection) -> anyhow::Result<(u64, u64)> {
+    connection.execute_batch(
+        "CREATE OR REPLACE TABLE carry (successor_pnu VARCHAR, source_pnu VARCHAR, hop INTEGER, path VARCHAR);
+         CREATE OR REPLACE TABLE merges (predecessor_pnu VARCHAR, successor_pnu VARCHAR, grade VARCHAR);",
+    )?;
+    if !has_table(connection, "lineage")? {
+        return Ok((0, 0));
+    }
+    connection.execute_batch(LINEAGE_SETUP_SQL)?;
+    let sources = count(connection, "SELECT count(*) FROM carry_sources")?;
+    for _hop in 0..crate::lineage_carry::MAX_HOPS {
+        if count(connection, "SELECT count(*) FROM frontier")? == 0 {
+            break;
+        }
+        connection.execute_batch(LINEAGE_HOP_SQL)?;
+    }
+    let rows: Vec<LineageRow> = connection
+        .prepare(LINEAGE_ROWS_SQL)?
+        .query_map([], |row| {
+            Ok(LineageRow {
+                predecessor_pnu: row.get(0)?,
+                successor_pnu: row.get(1)?,
+                relation: row.get(2)?,
+                grade: row.get(3)?,
+                evidence_kind: row.get(4)?,
+                evidence_ref: row.get(5)?,
+                ..LineageRow::default()
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    let wanted: BTreeSet<String> = connection
+        .prepare("SELECT pnu FROM carry_sources")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<_, _>>()?;
+    let links: Vec<Link> = steward_resolved(&rows)?
+        .into_iter()
+        .map(|row| Link {
+            predecessor_pnu: row.predecessor_pnu,
+            successor_pnu: row.successor_pnu,
+            relation: row.relation,
+            grade: row.grade,
+        })
+        .collect();
+    let (candidates, _stopped) = carry_candidates(&links)?;
+    let mut appender = connection.appender("carry")?;
+    let mut found = 0_u64;
+    for candidate in candidates.iter().filter(|c| wanted.contains(&c.source_pnu)) {
+        appender.append_row(duckdb::params![
+            candidate.successor_pnu,
+            candidate.source_pnu,
+            i32::try_from(candidate.hop)?,
+            candidate.path
+        ])?;
+        found += 1;
+    }
+    Ok((sources, found))
+}
+
+const INFERENCE_SETUP_SQL: &str = "
+CREATE OR REPLACE TABLE land_parcels AS
+  SELECT * FROM land WHERE pnu IN (SELECT pnu FROM parcels WHERE pnu IS NOT NULL);
+CREATE OR REPLACE VIEW group_parcels AS SELECT pnu FROM parcels;
+CREATE OR REPLACE TABLE inferred (row_id VARCHAR, pnu VARCHAR, pnu_group VARCHAR[], place_identity_grade VARCHAR,
+  pnu_unresolved_reason VARCHAR, pnu_candidate_count INTEGER);";
+
+/// Places every deal and leaves `placed`.
+///
+/// The caller has loaded `deals_raw` (the Silver's current rows, the job's DEAL_COLUMNS),
+/// `code_changes`, `code_names` (the newest code snapshot), `parcels` (pnu), `land` (pnu,
+/// land_category, area_m2, zone_name_1), `titles` (the main buildings' pnu, approval_year,
+/// floor_area_m2), `ownership` (pnu, ownership_changed_on, ownership_change_reason) and, to follow
+/// the lineage, `lineage` (predecessor_pnu, successor_pnu, relation, grade, evidence_kind,
+/// evidence_ref).
+///
+/// # Errors
+/// A malformed `place_inference`, a lineage grade not known, or a SQL error.
+pub fn place(
+    connection: &duckdb::Connection,
+    inference: &Value,
+) -> anyhow::Result<PlacementCounts> {
+    let (remap, ambiguous) = crosswalk_tables(connection)?;
+    address_code_table(connection, &remap, &ambiguous)?;
+    connection.execute_batch(DEALS_SQL)?;
+    connection.execute_batch(RESOLVE_SQL)?;
+    connection.execute_batch(MASKED_SQL)?;
+    connection.execute_batch(INFERENCE_SETUP_SQL)?;
+    let rules = inference_rules(inference)?;
+    for dataset in measured_datasets(inference) {
+        let levels = enabled_levels(inference, &dataset)?;
+        if levels.is_empty() {
+            continue;
+        }
+        connection.execute_batch(&format!(
+            "CREATE OR REPLACE TEMP VIEW masked AS SELECT * FROM masked_all WHERE dataset_slug = {};
+             INSERT INTO inferred SELECT * FROM ({}) WHERE pnu IS NOT NULL OR pnu_group IS NOT NULL;",
+            quoted(&dataset),
+            inference_sql(&levels, &rules)
+        ))?;
+    }
+    let (lineage_sources, lineage_candidates) = lineage_tables(connection)?;
+    connection.execute_batch(PLACED_SQL)?;
+    Ok(PlacementCounts {
+        deals: count(connection, "SELECT count(*) FROM deals")?,
+        placed_rows: count(connection, "SELECT count(*) FROM placed")?,
+        placed_deals: count(
+            connection,
+            "SELECT count(DISTINCT row_id) FROM placed WHERE pnu IS NOT NULL",
+        )?,
+        lineage_sources,
+        lineage_candidates,
+    })
+}

@@ -158,6 +158,9 @@ pub mod lineage_steward_read;
 pub mod real_transaction_gold_stage;
 pub mod registered_factory_stage;
 
+/// Where each 실거래 deal belongs, in `DuckDB` (root ADR-0350 §1, ADR-0351, ADR-0405).
+pub mod real_transaction_placement_stage;
+
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
 /// keeps the executable's lint posture (root ADR-0200 §4).
 #[allow(
