@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-19
-- Builds on: [ADR-0200](./0200-the-outbox-publisher-is-split-into-lane-library-crates.md)(발행기 레인 크레이트), [ADR-0324](./0324-a-ci-job-with-no-work-does-not-take-a-runner.md)(일 없는 잡은 러너를 잡지 않는다), [ADR-0580](./0580-a-runner-is-taken-only-by-a-job-whose-work-outweighs-its-setup-and-the-release-dry-run-runs-once-in-the-merge-queue.md)
+- Builds on: [ADR-0200](./0200-the-outbox-publisher-is-split-into-lane-library-crates.md)(발행기 레인 크레이트), [ADR-0324](./0324-a-ci-job-with-no-work-does-not-take-a-runner.md)(일 없는 잡은 러너를 잡지 않는다), ADR-0580(#1462, 같은 W90)
 
 ## Context
 
