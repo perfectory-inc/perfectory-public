@@ -81,7 +81,8 @@ export interface TokenResult {
   expires_in: number;
   jti: string;
   sub: string;
-  role: string;
+  /** Zitadel 이 준 프로젝트 역할 전부(정렬). 없으면 빈 목록 — 기본 역할을 만들지 않는다. */
+  roles: string[];
 }
 
 export async function exchangeCode(input: {
@@ -137,7 +138,7 @@ export async function exchangeCode(input: {
     expires_in: result.expires_in ?? 300,
     jti,
     sub: idClaims.sub,
-    role: extractRole(idClaims),
+    roles: grantedRoles(idClaims),
   };
 }
 
@@ -155,14 +156,15 @@ function decodeJwtPayload(jwt: string): Record<string, unknown> {
   }
 }
 
-function extractRole(claims: Record<string, unknown>): string {
-  // Zitadel role assertion: urn:zitadel:iam:org:project:roles
+/**
+ * Zitadel 역할 주장 `urn:zitadel:iam:org:project:roles` 는 `{ 역할키: { 조직id: 도메인 } }` 객체다
+ * (Zitadel 문서 「Claims」 — Reserved claims). 키 하나를 고르지 않고 모두 돌려준다: 관문은
+ * `hasAnyRole` 로 "필요한 역할 중 하나라도 있나"만 묻는다. 순서는 객체 키 순서가 아니라 정렬이다.
+ */
+export function grantedRoles(claims: Record<string, unknown>): string[] {
   const roleClaim = claims["urn:zitadel:iam:org:project:roles"];
-  if (typeof roleClaim === "object" && roleClaim !== null) {
-    const first = Object.keys(roleClaim)[0];
-    if (first) return first;
-  }
-  return "Buyer"; // default safe role
+  if (typeof roleClaim !== "object" || roleClaim === null || Array.isArray(roleClaim)) return [];
+  return Object.keys(roleClaim).sort();
 }
 
 export async function refreshTokens(input: {
@@ -198,6 +200,6 @@ export async function refreshTokens(input: {
     expires_in: result.expires_in ?? 300,
     jti,
     sub: idClaims.sub,
-    role: extractRole(idClaims),
+    roles: grantedRoles(idClaims),
   };
 }
