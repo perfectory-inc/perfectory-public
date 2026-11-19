@@ -135,6 +135,11 @@ export const ParcelCourtAuctionByPnuSchema = z.object({
           change_date: z.string().nullish(),
           change_text: z.string().nullish(),
         })).nullish(),
+        dividend_notice: z.object({
+          commencement_date: z.string().nullish(),
+          notice_date: z.string().nullish(),
+          deadline_date: z.string().nullish(),
+        }).nullish(),
       }).nullish(),
     })),
     sale_results: z.array(z.object({

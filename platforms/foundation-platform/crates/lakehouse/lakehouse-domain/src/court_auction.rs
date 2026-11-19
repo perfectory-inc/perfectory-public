@@ -1183,3 +1183,89 @@ pub const SILVER_COURT_AUCTION_SALE_NOTICE_ITEM: LakehouseTableContract =
         ],
         load: OBJECT_LOAD,
     };
+
+const DIVIDEND_CASE_KEY: &[&str] = &["court_office_code", "case_no"];
+
+/// A case's 배당요구종기공고 (the department's notice list row), newest per case (root ADR-0575 §6).
+///
+/// Its dates (개시결정, 공고, 배당요구종기), the department, the order kind, the representative lot
+/// and the counts; never the creditor's, debtor's or owner's name, which the site gives unmasked.
+pub const SILVER_COURT_AUCTION_DIVIDEND_NOTICE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_dividend_notice",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: DIVIDEND_CASE_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("user_case_no", "string", false),
+        column("department_code", "string", false),
+        column("department_name", "string", false),
+        column("order_kind_code", "string", false),
+        column("commencement_date", "date", false),
+        column("notice_date", "date", false),
+        column("deadline_date", "date", false),
+        column("object_count", "int", false),
+        column("list_kind_code", "string", false),
+        column("lot_raw", "string", false),
+        column("building_name", "string", false),
+        column("print_address_raw", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: DIVIDEND_CASE_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, source_snapshot_id) unique",
+        "no person's name (root ADR-0575 §6)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+const DIVIDEND_OBJECT_KEY: &[&str] = &["court_office_code", "case_no", "object_seq"];
+
+/// A 배당요구종기공고 case's property (its 물건 list), newest per property (root ADR-0575 §6).
+///
+/// The address, the use and the 등기 고유번호 (`registry_unique_no`, the key the land and building
+/// registers carry); asked once per case, so the collector's next frontier reads this table.
+pub const SILVER_COURT_AUCTION_DIVIDEND_OBJECT: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_dividend_object",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: DIVIDEND_OBJECT_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("object_seq", "int", true),
+        column("registry_unique_no", "string", false),
+        column("list_kind_code", "string", false),
+        column("usage_name", "string", false),
+        column("register_record", "string", false),
+        column("lot_raw", "string", false),
+        column("building_name", "string", false),
+        column("building_unit_raw", "string", false),
+        column("print_address_raw", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: DIVIDEND_OBJECT_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, object_seq, source_snapshot_id) unique",
+    ],
+    load: OBJECT_LOAD,
+};

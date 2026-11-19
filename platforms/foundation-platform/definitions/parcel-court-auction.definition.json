@@ -392,6 +392,16 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "진행 물건 회차의 detail.notice_changes 로 그 물건의 정정공고·취소·변경공고(날짜·내용)를 싣는다. 레지스트리 개정 1.10, 바뀐 공고의 PNU 만(루트 ADR-0575 §6)."
+    },
+    {
+      "from": "silver-court-auction-dividend-notice",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "진행 물건 회차의 detail.dividend_notice 로 그 사건의 배당요구종기공고(개시결정일·공고일·배당요구종기일)를 싣는다. 레지스트리 개정 1.11, 바뀐 사건의 PNU 만(루트 ADR-0575 §6)."
     }
   ],
   "by_pnu_lanes": {
@@ -507,13 +517,20 @@
           "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
           "decision": "docs/adr/0575-court-auction-also-collects-the-sale-specification-pdf-per-version-and-the-filings-and-deliveries-per-changed-case.md",
           "reason": "each round's detail gains its 매각공고 changes (detail.notice_changes: the 정정공고 and 취소·변경공고 that name its case and property, their date and text), an optional list"
+        },
+        {
+          "major": 1,
+          "revision": 11,
+          "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
+          "decision": "docs/adr/0575-court-auction-also-collects-the-sale-specification-pdf-per-version-and-the-filings-and-deliveries-per-changed-case.md",
+          "reason": "each round's detail gains its case's 배당요구종기공고 (detail.dividend_notice: commencement, notice and deadline dates), an optional object"
         }
       ],
       "consumers": [
         {
           "name": "web",
           "at": "products/gongzzang/apps/web/lib/api/court-auction.generated.ts",
-          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas); each item's 물건상세 (root ADR-0540): 사건·매각물건명세서·기일내역·목록내역·제시외건물·감정평가요항표; the names the site gives their codes (기일결과 매각·유찰, 기일종류, 목록구분, 물건종류, 입찰구분, 감정요항표 항목; root ADR-0540 §5); the case's 관련사건·당사자·목록별 종국결과·현황조사서·감정평가 (root ADR-0540 §1); the 감정평가서 PDF (root ADR-0540 §1); the case's 문건·송달, never a name (root ADR-0575 §5); the newest 현황조사 round's 임대차관계, never a name (root ADR-0575 §6); the 매각공고's 정정·취소·변경 of the item (root ADR-0575 §6)",
+          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas); each item's 물건상세 (root ADR-0540): 사건·매각물건명세서·기일내역·목록내역·제시외건물·감정평가요항표; the names the site gives their codes (기일결과 매각·유찰, 기일종류, 목록구분, 물건종류, 입찰구분, 감정요항표 항목; root ADR-0540 §5); the case's 관련사건·당사자·목록별 종국결과·현황조사서·감정평가 (root ADR-0540 §1); the 감정평가서 PDF (root ADR-0540 §1); the case's 문건·송달, never a name (root ADR-0575 §5); the newest 현황조사 round's 임대차관계, never a name (root ADR-0575 §6); the 매각공고's 정정·취소·변경 of the item (root ADR-0575 §6); the case's 배당요구종기공고 (root ADR-0575 §6)",
           "reads": [
             {
               "path": "schema_version",
@@ -1009,6 +1026,22 @@
             },
             {
               "path": "court_auction.rounds[].detail.notice_changes[].change_text",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.dividend_notice",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.dividend_notice.commencement_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.dividend_notice.notice_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.dividend_notice.deadline_date",
               "required": false
             }
           ]

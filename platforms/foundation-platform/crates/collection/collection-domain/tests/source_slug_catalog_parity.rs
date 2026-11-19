@@ -109,8 +109,9 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // the 166th is the 매각물건명세서 PDF, asked once per version (root ADR-0575);
     // the 167th is its 문건·송달, asked with the case documents (root ADR-0575 §4);
     // the 168th is its 현황조사서, for the 임대차 list (root ADR-0575 §6);
-    // the 169th is its 매각공고, every court's this month and next (root ADR-0575 §6).
-    assert_eq!(checked, 169, "expected 169 in-scope catalog entries");
+    // the 169th is its 매각공고, every court's this month and next (root ADR-0575 §6);
+    // the 170th is its 배당요구종기공고, every court department's (root ADR-0575 §6).
+    assert_eq!(checked, 170, "expected 170 in-scope catalog entries");
     assert_eq!(
         skipped, 0,
         "expected no skipped mixed_public_source entries"

@@ -46,6 +46,10 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
 - for a 매각공고 object (root ADR-0575 §6): each listed notice into `silver.court_auction_sale_notice`
   (newest per notice, the rows whose content changed), then a whole edition per notice of its lists
   (its properties, 정정공고 and 취소·변경공고) into `silver.court_auction_sale_notice_item`;
+- for a 배당요구종기공고 object (root ADR-0575 §6): each listed case into
+  `silver.court_auction_dividend_notice` and each property of a case's 물건 list (its address and 등기
+  고유번호) into `silver.court_auction_dividend_object`, the rows whose content changed; the list's
+  creditor, debtor and owner names are never read;
 - for a 매각물건명세서 object (root ADR-0575): every version asked, CAPTCHA skips included, into
   `silver.court_auction_sale_specification_read`, the record the collector's next frontier reads. The
   PDF stays under the collector's own prefix; no row names a person.
@@ -114,6 +118,12 @@ NOTICE_ITEM_TABLE = "silver.court_auction_sale_notice_item"
 NOTICE_KEY = ("court_office_code", "department_code", "sale_date", "bid_kind_code")
 # A notice object's tables, in commit order, the lists last (the plan's table).
 NOTICE_TABLES = (NOTICE_TABLE, NOTICE_ITEM_TABLE)
+DIVIDENDS_ROLE = "dividend_notices"
+DIVIDEND_TABLE = "silver.court_auction_dividend_notice"
+DIVIDEND_OBJECT_TABLE = "silver.court_auction_dividend_object"
+DIVIDEND_OBJECT_KEY = (*CASE, "object_seq")
+# A 배당요구종기공고 object's tables, in commit order, the 물건 lists last (the plan's table).
+DIVIDEND_TABLES = (DIVIDEND_TABLE, DIVIDEND_OBJECT_TABLE)
 SPEC_READ_TABLE = "silver.court_auction_sale_specification_read"
 SPEC_TABLES = (SPEC_READ_TABLE,)
 CASE_READ_TABLE = "silver.court_auction_case_document_read"
@@ -137,7 +147,7 @@ CASE_DOCUMENT_TABLES = {
     "case_survey_report": (TENANT_TABLE, CASE_READ_TABLE),
 }
 CASE_LATEST_KEYS = {CASE_TABLE: CASE, SURVEY_TABLE: ROUND, APPRAISAL_TABLE: ROUND, CASE_READ_TABLE: CASE_READ_KEY,
-                    NOTICE_TABLE: NOTICE_KEY}
+                    NOTICE_TABLE: NOTICE_KEY, DIVIDEND_TABLE: CASE, DIVIDEND_OBJECT_TABLE: DIVIDEND_OBJECT_KEY}
 CASE_EDITION_PER = {RELATED_TABLE: CASE, CASE_OBJECT_TABLE: CASE, PARTY_TABLE: CASE, SURVEY_OBJECT_TABLE: ROUND,
                     FILING_TABLE: CASE, DELIVERY_TABLE: CASE, TENANT_TABLE: ROUND, NOTICE_ITEM_TABLE: NOTICE_KEY}
 CODE_TABLE = "silver.court_auction_code"
@@ -355,7 +365,7 @@ def search_roles(contract: Mapping[str, Any]) -> dict[str, str]:
     """Source slug → the search its objects hold (root ADR-0014 `{provider}__{dataset}`)."""
 
     roles = {f"courtauctiongokr__{contract[role]['dataset_slug']}": role
-             for role in (*ROLE_TABLE, DETAIL_ROLE, CODES_ROLE, REPORTS_ROLE, SPECS_ROLE, NOTICES_ROLE)}
+             for role in (*ROLE_TABLE, DETAIL_ROLE, CODES_ROLE, REPORTS_ROLE, SPECS_ROLE, NOTICES_ROLE, DIVIDENDS_ROLE)}
     for document in contract["case_documents"]["documents"]:
         roles[f"courtauctiongokr__{document['dataset_slug']}"] = document["role"]
     return roles
@@ -408,6 +418,11 @@ def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], prefixes:
     if entry["role"] == REPORTS_ROLE:
         tables = report_rows_of(lines, entry["object_key"], entry["source_snapshot_id"], ingested_at)
         return {"object_key": entry["object_key"], "complete": True, "rows": tables[REPORT_READ_TABLE],
+                "tables": tables}
+    if entry["role"] == DIVIDENDS_ROLE:
+        tables = dividend_rows_of(lines, contract[DIVIDENDS_ROLE], entry["object_key"], entry["source_snapshot_id"],
+                                  ingested_at)
+        return {"object_key": entry["object_key"], "complete": True, "rows": tables[DIVIDEND_OBJECT_TABLE],
                 "tables": tables}
     if entry["role"] == NOTICES_ROLE:
         tables = notice_rows_of(lines, contract[NOTICES_ROLE], entry["object_key"], entry["source_snapshot_id"],
@@ -696,6 +711,55 @@ def notice_rows_of(lines: Sequence[Mapping[str, Any]], notices: Mapping[str, Any
         lists[tuple(key.values())] = rows
     return {NOTICE_TABLE: list(notices_by_key.values()),
             NOTICE_ITEM_TABLE: [row for rows in lists.values() for row in rows]}
+
+
+def dividend_rows_of(lines: Sequence[Mapping[str, Any]], notices: Mapping[str, Any], object_key: str,
+                     snapshot_id: str, ingested_at: datetime) -> dict[str, list[dict[str, Any]]]:
+    """A 배당요구종기공고 object's rows (root ADR-0575 §6): one notice row per listed case and one row per
+    property of each case's 물건 list, the last line naming a key winning. The list's creditor,
+    debtor and owner fields (`rprs*Nm`, `real*`) name people and are never read."""
+
+    notice_rows: dict[tuple, dict[str, Any]] = {}
+    object_rows: dict[tuple, dict[str, Any]] = {}
+    for number, line in enumerate(lines, start=1):
+        if line.get("read_outcome") != "read":
+            continue
+        try:
+            data = (json.loads(line.get("body") or "") or {}).get("data")
+        except (ValueError, AttributeError):
+            continue
+        if not isinstance(data, Mapping):
+            continue
+        load = {"source_record_id": object_key, "source_line_number": number, "source_snapshot_id": snapshot_id,
+                "ingested_at_utc": ingested_at}
+        if line.get("operation") == notices["operation"]:
+            for row in _list(data.get("dlt_lstprdPbancCorOfc")):
+                key = {"court_office_code": text_or_none(row.get("cortOfcCd")), "case_no": text_or_none(row.get("csNo"))}
+                if any(v is None for v in key.values()):
+                    continue
+                notice_rows[tuple(key.values())] = {
+                    **key, "user_case_no": text_or_none(row.get("userCsNo")),
+                    "department_code": text_or_none(row.get("jdbnCd")),
+                    "department_name": text_or_none(row.get("cortAuctnJdbnNm")),
+                    "order_kind_code": text_or_none(row.get("orddcsDvsCd")),
+                    "commencement_date": ymd(row.get("csCmdcYmd")), "notice_date": ymd(row.get("dstrtDemnLstprdPbancYmd")),
+                    "deadline_date": ymd(row.get("dstrtDemnLstprdYmd")), "object_count": whole(row.get("dspslObjctCnt")),
+                    "list_kind_code": text_or_none(row.get("auctnLstDvsCd")),
+                    "lot_raw": text_or_none(row.get("rprsLtnoAddr")), "building_name": text_or_none(row.get("bldNm")),
+                    "print_address_raw": text_or_none(row.get("realSt")), **load}
+        elif line.get("operation") == notices["objects_operation"]:
+            for row in _list(data.get("dlt_dstrtDemnLstDts")):
+                key = {"court_office_code": text_or_none(row.get("cortOfcCd")), "case_no": text_or_none(row.get("csNo")),
+                       "object_seq": whole(row.get("dspslObjctSeq"))}
+                if any(v is None for v in key.values()):
+                    continue
+                object_rows[tuple(key.values())] = {
+                    **key, "registry_unique_no": text_or_none(row.get("objctRletCarUnqNo")),
+                    "list_kind_code": text_or_none(row.get("auctnLstDvsCd")), "usage_name": text_or_none(row.get("usgNm")),
+                    "register_record": text_or_none(row.get("rgstRcrd")), "lot_raw": text_or_none(row.get("rprsLtnoAddr")),
+                    "building_name": text_or_none(row.get("bldNm")), "building_unit_raw": text_or_none(row.get("bldDtlDts")),
+                    "print_address_raw": text_or_none(row.get("realSt")), **load}
+    return {DIVIDEND_TABLE: list(notice_rows.values()), DIVIDEND_OBJECT_TABLE: list(object_rows.values())}
 
 
 def spec_read_rows_of(lines: Sequence[Mapping[str, Any]], object_key: str, snapshot_id: str,
@@ -1197,7 +1261,8 @@ def load_case_document_object(spark: Any, args: argparse.Namespace, entry: Mappi
 
     role = entry["role"]
     counts: dict[str, Any] = {"object": entry["object_key"], "role": role, "rows": len(search["rows"])}
-    tables = ({REPORTS_ROLE: REPORT_TABLES, SPECS_ROLE: SPEC_TABLES, NOTICES_ROLE: NOTICE_TABLES}.get(role)
+    tables = ({REPORTS_ROLE: REPORT_TABLES, SPECS_ROLE: SPEC_TABLES, NOTICES_ROLE: NOTICE_TABLES,
+               DIVIDENDS_ROLE: DIVIDEND_TABLES}.get(role)
               or CASE_DOCUMENT_TABLES[role])
     for name in tables:
         contract = load_lakehouse_contract(name)
@@ -1349,7 +1414,7 @@ def _load(argv: Sequence[str]) -> int:
             if role == CODES_ROLE:
                 summary["objects"].append(load_code_object(spark, args, entry, search))
                 continue
-            if role in (*CASE_ROLES, REPORTS_ROLE, SPECS_ROLE, NOTICES_ROLE):
+            if role in (*CASE_ROLES, REPORTS_ROLE, SPECS_ROLE, NOTICES_ROLE, DIVIDENDS_ROLE):
                 summary["objects"].append(load_case_document_object(spark, args, entry, search))
                 continue
             contract_table = ROLE_TABLE[role]

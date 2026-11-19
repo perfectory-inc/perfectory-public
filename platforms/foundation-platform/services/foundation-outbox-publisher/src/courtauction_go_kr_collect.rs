@@ -184,6 +184,7 @@ pub(crate) struct SourceContract {
     pub(crate) appraisal_reports: reports::AppraisalReports,
     pub(crate) sale_specifications: specs::SaleSpecifications,
     pub(crate) sale_notices: notices::SaleNotices,
+    pub(crate) dividend_notices: dividends::DividendNotices,
     pub(crate) collection: Collection,
 }
 
@@ -1129,6 +1130,7 @@ pub async fn run() -> anyhow::Result<()> {
     }
     // The 매각공고 are read whole and commit at once, as the lists are (root ADR-0575 §6).
     let mut notices_report = json!({"asked": 0, "skipped": "the list pass did not end cleanly"});
+    let mut court_codes: Vec<String> = Vec::new();
     if stop.is_none() {
         let budget = Duration::from_secs(contract.sale_notices.run_time_budget_seconds);
         let notices_deadline = (Instant::now() + budget).min(deadline);
@@ -1136,6 +1138,7 @@ pub async fn run() -> anyhow::Result<()> {
         let (result, notices_stop) =
             notices::collect_notices(&contract, &asking, notices_deadline, today, Utc::now).await?;
         notices_report = json!(result);
+        court_codes.clone_from(&result.court_codes);
         println!("courtauction.go.kr sale notices: {notices_report}");
         // The phase's own deadline ends only the phase; an operator's window that ended ends the run.
         let complete = notices_stop.is_none();
@@ -1153,6 +1156,53 @@ pub async fn run() -> anyhow::Result<()> {
             )
             .await?;
             entry["role"] = json!("sale_notices");
+            entry["complete"] = json!(complete);
+            entry["rows"] = json!(result.lines.len());
+            objects.push(entry);
+        }
+    }
+    // The 배당요구종기공고 of the courts the 매각공고 read, likewise (root ADR-0575 §6).
+    let mut dividends_report = json!({"asked": 0, "skipped": "the list pass did not end cleanly"});
+    if stop.is_none() && !court_codes.is_empty() {
+        let budget = Duration::from_secs(contract.dividend_notices.run_time_budget_seconds);
+        let dividends_deadline = (Instant::now() + budget).min(deadline);
+        let known = if live.is_some() {
+            match dividends::known_from_lakehouse(&contract.dividend_notices).await {
+                Ok(known) => Some(known),
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: the dividend object table could not be read; no 물건 list asked");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let (result, dividends_stop) = dividends::collect_dividends(
+            &contract,
+            &asking,
+            dividends_deadline,
+            &court_codes,
+            known.as_ref(),
+            Utc::now,
+        )
+        .await?;
+        dividends_report = json!(result);
+        println!("courtauction.go.kr dividend notices: {dividends_report}");
+        let complete = dividends_stop.is_none();
+        if matches!(dividends_stop, Some(Stop::WindowEnded)) {
+            stop = dividends_stop;
+        }
+        if !result.lines.is_empty() {
+            let mut entry = persist(
+                &contract.dividend_notices.as_search(),
+                &config.output_dir,
+                &result.lines,
+                started,
+                &lists_night,
+                live,
+            )
+            .await?;
+            entry["role"] = json!("dividend_notices");
             entry["complete"] = json!(complete);
             entry["rows"] = json!(result.lines.len());
             objects.push(entry);
@@ -1368,6 +1418,7 @@ pub async fn run() -> anyhow::Result<()> {
             "objects": objects,
             "item_detail": detail_report,
             "sale_notices": notices_report,
+            "dividend_notices": dividends_report,
             "sale_specifications": specs_report,
             "case_documents": cases_report,
             "appraisal_reports": reports_report,
@@ -1405,6 +1456,7 @@ pub async fn run() -> anyhow::Result<()> {
 pub(crate) mod cases;
 pub(crate) mod codes;
 pub(crate) mod detail;
+pub(crate) mod dividends;
 pub(crate) mod notices;
 pub(crate) mod reports;
 pub(crate) mod specs;

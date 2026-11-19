@@ -899,7 +899,8 @@
           "tenantFixed": "확정일자",
           "noticeChanges": "매각공고 정정·취소",
           "noticeCorrection": "정정공고",
-          "noticeCancellation": "취소·변경공고"
+          "noticeCancellation": "취소·변경공고",
+          "dividendNoticeDate": "배당요구종기 공고일"
         }
       }
     },

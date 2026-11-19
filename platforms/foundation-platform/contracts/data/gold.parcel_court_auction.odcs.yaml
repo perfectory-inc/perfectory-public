@@ -89,6 +89,7 @@ customProperties:
       - "silver.court_auction_case_party"
       - "silver.court_auction_case_related"
       - "silver.court_auction_code"
+      - "silver.court_auction_dividend_notice"
       - "silver.court_auction_item"
       - "silver.court_auction_item_annex"
       - "silver.court_auction_item_object"

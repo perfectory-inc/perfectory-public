@@ -595,6 +595,37 @@ def notice_lines():
     ]
 
 
+class DividendRowsTest(unittest.TestCase):
+    def test_a_case_and_its_properties_without_a_name(self):
+        listed = {"cortOfcCd": "B999999", "csNo": "20990130000001", "userCsNo": "2099타경1", "jdbnCd": "1002",
+                  "orddcsDvsCd": "021", "csCmdcYmd": "20990907", "dstrtDemnLstprdPbancYmd": "20990917",
+                  "dstrtDemnLstprdYmd": "20991126", "dspslObjctCnt": 2, "rprsLtnoAddr": "1-1",
+                  "realSt": "합성도 가나동 1-1 외 1건", "rprsCrdtrNm": "홍길동", "rprsDebtrOwnrNm": "김철수",
+                  "realOwnr": "김OO"}
+        objects = {"cortOfcCd": "B999999", "csNo": "20990130000001", "dspslObjctSeq": 1,
+                   "objctRletCarUnqNo": "99999999999999", "usgNm": "토지", "rgstRcrd": "열람", "rprsLtnoAddr": "1-1"}
+        lines = [
+            {"operation": "searchDstrtDemnLstprdPbanc", "read_outcome": "read",
+             "body": json.dumps({"data": {"dlt_lstprdPbancCorOfc": [listed]}}, ensure_ascii=False)},
+            {"operation": "selectDstrtDemnLst", "read_outcome": "read",
+             "body": json.dumps({"data": {"dlt_dstrtDemnLstDts": [objects]}}, ensure_ascii=False)},
+        ]
+        tables = job.dividend_rows_of(lines, CONTRACT["dividend_notices"], "dividend-object", "20991113T030405Z",
+                                      datetime(2099, 11, 13, 3, 4, 5))
+        [notice] = tables[job.DIVIDEND_TABLE]
+        self.assertEqual((notice["deadline_date"], notice["object_count"], notice["user_case_no"]),
+                         (date(2099, 11, 26), 2, "2099타경1"))
+        [item] = tables[job.DIVIDEND_OBJECT_TABLE]
+        self.assertEqual((item["object_seq"], item["registry_unique_no"]), (1, "99999999999999"))
+        kept = json.dumps(tables, ensure_ascii=False, default=str)
+        for name in ("홍길동", "김철수", "김OO"):
+            self.assertNotIn(name, kept)
+        for table in job.DIVIDEND_TABLES:
+            names = {c["name"] for c in load_lakehouse_contract(table)["columns"]}
+            self.assertLessEqual(set(tables[table][0]), names, table)
+        self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_dividend_notice"], job.DIVIDENDS_ROLE)
+
+
 class NoticeRowsTest(unittest.TestCase):
     def test_a_notice_and_its_lists_with_the_change_text(self):
         tables = job.notice_rows_of(notice_lines(), CONTRACT["sale_notices"], "notice-object", "20991113T030405Z",

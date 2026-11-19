@@ -295,6 +295,7 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 법원경매 당사자 구분 (`silver.court_auction_case_party`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 관련사건 (`silver.court_auction_case_related`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 공통코드 (`silver.court_auction_code`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 법원경매 배당요구종기공고 (`silver.court_auction_dividend_notice`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 진행 물건 (`silver.court_auction_item`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 제시외건물 (`silver.court_auction_item_annex`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 목록내역 (`silver.court_auction_item_object`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
@@ -309,6 +310,7 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 법원경매 현황조사서 임대차관계 (`silver.court_auction_survey_tenant`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 감정평가서 읽은 기록 (`silver.court_auction_appraisal_report_read`) | — | — | 없음 |
 | 거래·공매·경매 | 법원경매 사건 문서 읽은 기록 (`silver.court_auction_case_document_read`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 배당요구종기공고 물건 (`silver.court_auction_dividend_object`) | — | — | 없음 |
 | 거래·공매·경매 | 법원경매 물건상세 읽은 기록 (`silver.court_auction_item_detail`) | — | — | 없음 |
 | 거래·공매·경매 | 법원경매 매각물건명세서 읽은 기록 (`silver.court_auction_sale_specification_read`) | — | — | 없음 |
 | 물류 입지 | 공항 (`silver.airport`) | `parcel-nearby` | — | 화면 |

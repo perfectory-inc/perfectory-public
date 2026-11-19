@@ -417,6 +417,9 @@ def full_document_frames(spark, round_row):
         job.TENANT_DOC: {"round_seq": 1, "tenant_seq": 1, "object_seq": 1, "usage_raw": "사무실",
                          "deposit_raw": "10,000,000원", "monthly_rent_raw": "500,000원", "move_in_raw": "2099.01.02",
                          "fixed_date_raw": "미상", "leased_part_raw": "전부"},
+        # The case's 배당요구종기공고 (root ADR-0575 §6).
+        job.DIVIDEND_DOC: {"commencement_date": date(2098, 12, 1), "notice_date": date(2098, 12, 10),
+                           "deadline_date": date(2099, 2, 1)},
         # A 정정공고 naming the round's case and property (root ADR-0575 §6).
         job.NOTICE_ITEM_DOC: {"department_code": "1002", "sale_date": date(2099, 1, 5), "bid_kind_code": "000331",
                               "list": "correction", "list_seq": 1, "user_case_no": round_row["user_case_no"],

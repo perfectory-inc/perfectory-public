@@ -135,7 +135,11 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
     [t("detail.caseReceived"), c?.case_received_date],
     [t("detail.commencement"), c?.commencement_date],
     [t("detail.claim"), money(c?.claim_amount_krw)],
-    [t("detail.dividendDeadline"), c?.dividend_demand_deadline],
+    [
+      t("detail.dividendDeadline"),
+      c?.dividend_demand_deadline ?? detail.dividend_notice?.deadline_date,
+    ],
+    [t("detail.dividendNoticeDate"), detail.dividend_notice?.notice_date],
     [t("detail.saleDecisionDate"), s?.sale_decision_date],
     [
       t("detail.depositRate"),

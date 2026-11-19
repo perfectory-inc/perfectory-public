@@ -107,31 +107,34 @@ pub(crate) struct NoticesResult {
     #[serde(skip)]
     pub(crate) lines: Vec<String>,
     pub(crate) courts: usize,
+    /// The court office codes the court list named, for the 배당요구종기공고 sweep (root ADR-0575 §6).
+    #[serde(skip)]
+    pub(crate) court_codes: Vec<String>,
     pub(crate) lists: u32,
     pub(crate) notices: u32,
     pub(crate) failed: u32,
 }
 
 /// One request's line and, when it was read, its answer.
-struct Answered {
-    line: String,
-    answer: Option<JsonValue>,
+pub(super) struct Answered {
+    pub(super) line: String,
+    pub(super) answer: Option<JsonValue>,
 }
 
-enum Sent {
+pub(super) enum Sent {
     Answered(Answered),
     Stopped(Stop),
 }
 
 /// The asking one request shares with the run.
-struct Ask<'a, 'b> {
-    asking: &'a Asking<'b>,
-    gate: &'a PaceGate,
-    deadline: Instant,
-    session_headers: &'a BTreeMap<String, String>,
+pub(super) struct Ask<'a, 'b> {
+    pub(super) asking: &'a Asking<'b>,
+    pub(super) gate: &'a PaceGate,
+    pub(super) deadline: Instant,
+    pub(super) session_headers: &'a BTreeMap<String, String>,
 }
 
-async fn send(
+pub(super) async fn send(
     on: &Ask<'_, '_>,
     operation: &str,
     path: &str,
@@ -192,7 +195,7 @@ async fn send(
 }
 
 /// The rows an answer lists at `pointer`, none when it lists none.
-fn rows_at(answer: Option<&JsonValue>, pointer: &str) -> Vec<JsonValue> {
+pub(super) fn rows_at(answer: Option<&JsonValue>, pointer: &str) -> Vec<JsonValue> {
     answer
         .and_then(|answer| answer.pointer(pointer))
         .and_then(JsonValue::as_array)
@@ -244,6 +247,7 @@ pub(crate) async fn collect_notices(
         .filter_map(|court| court.get(&notices.court_field)?.as_str().map(str::to_owned))
         .collect();
     result.courts = courts.len();
+    result.court_codes.clone_from(&courts);
     let mut lists = Vec::new();
     for court in &courts {
         for bid_kind in &notices.bid_kinds {

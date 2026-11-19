@@ -37,9 +37,9 @@ work="${LAKEHOUSE_STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "court-auction silver load FAILED at line ${LINENO} run=${run_id}" >&2; job_run_log_tail "${run_log}"' ERR
-trap 'rm -rf "${work}/items" "${work}/results" "${work}/details" "${work}/documents" "${work}/codes" "${work}/cases" "${work}/surveys" "${work}/appraisals" "${work}/filings" "${work}/tenants" "${work}/reports" "${work}/specs" "${work}/notices"' EXIT
+trap 'rm -rf "${work}/items" "${work}/results" "${work}/details" "${work}/documents" "${work}/codes" "${work}/cases" "${work}/surveys" "${work}/appraisals" "${work}/filings" "${work}/tenants" "${work}/reports" "${work}/specs" "${work}/notices" "${work}/dividends"' EXIT
 
-read -r window_days max_objects item_slug result_slug detail_slug code_slug case_slug survey_slug appraisal_slug filing_slug tenant_slug report_slug spec_slug notice_slug < <(python3 -I -c '
+read -r window_days max_objects item_slug result_slug detail_slug code_slug case_slug survey_slug appraisal_slug filing_slug tenant_slug report_slug spec_slug notice_slug dividend_slug < <(python3 -I -c '
 import json, sys
 c = json.load(open(sys.argv[1], encoding="utf-8"))
 print(c["silver_load"]["window_days"], c["silver_load"]["max_objects"],
@@ -48,7 +48,8 @@ print(c["silver_load"]["window_days"], c["silver_load"]["max_objects"],
       *("courtauctiongokr__" + d["dataset_slug"] for d in c["case_documents"]["documents"]),
       "courtauctiongokr__" + c["appraisal_reports"]["dataset_slug"],
       "courtauctiongokr__" + c["sale_specifications"]["dataset_slug"],
-      "courtauctiongokr__" + c["sale_notices"]["dataset_slug"])
+      "courtauctiongokr__" + c["sale_notices"]["dataset_slug"],
+      "courtauctiongokr__" + c["dividend_notices"]["dataset_slug"])
 ' "${CONTRACT}")
 
 plan() { # <table> <source slug> <dir>
@@ -72,7 +73,8 @@ owed_tenants="$(plan silver.court_auction_case_document_read "${tenant_slug}" "$
 owed_reports="$(plan silver.court_auction_appraisal_report_read "${report_slug}" "${work}/reports")"
 owed_specs="$(plan silver.court_auction_sale_specification_read "${spec_slug}" "${work}/specs")"
 owed_notices="$(plan silver.court_auction_sale_notice_item "${notice_slug}" "${work}/notices")"
-owed_case_documents=$((owed_cases + owed_surveys + owed_appraisals + owed_filings + owed_tenants + owed_reports + owed_specs + owed_notices))
+owed_dividends="$(plan silver.court_auction_dividend_object "${dividend_slug}" "${work}/dividends")"
+owed_case_documents=$((owed_cases + owed_surveys + owed_appraisals + owed_filings + owed_tenants + owed_reports + owed_specs + owed_notices + owed_dividends))
 if [ "${owed_items}" = 0 ] && [ "${owed_results}" = 0 ] && [ "${owed_details}" = 0 ] && [ "${owed_documents}" = 0 ]   && [ "${owed_codes}" = 0 ] && [ "${owed_case_documents}" = 0 ]; then
   job_journal "${journal}" "court-auction silver load: nothing owed run=${run_id}"
   printf 'foundation-job-outcome unchanged\n'
@@ -97,6 +99,7 @@ lakehouse_spark_run foundation-platform-compute \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/tenants" \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/reports"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/specs" \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/notices" \
+  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/dividends" \
   --allow-non-smoke-write >> "${run_log}" 2>&1
 
 summary="$(grep '^court-auction-summary-json ' "${run_log}" | tail -1)"
@@ -106,7 +109,7 @@ late="$(python3 -I -c '
 import json, sys
 print(sum(len(json.load(open(p, encoding="utf-8")).get("selection", {}).get("late", [])) for p in sys.argv[1:]))
 ' "${work}/items/plan.json" "${work}/results/plan.json" "${work}/details/plan.json" "${work}/documents/plan.json"   "${work}/codes/plan.json" "${work}/cases/plan.json" "${work}/surveys/plan.json" "${work}/appraisals/plan.json" "${work}/filings/plan.json" "${work}/tenants/plan.json" \
-  "${work}/reports/plan.json" "${work}/specs/plan.json" "${work}/notices/plan.json")"
+  "${work}/reports/plan.json" "${work}/specs/plan.json" "${work}/notices/plan.json" "${work}/dividends/plan.json")"
 if [ "${late}" != 0 ]; then
   job_journal "${journal}" "court-auction silver load LATE run=${run_id}: loaded ${late} object(s) older than ${window_days} days that no load had recorded ${summary}" >&2
   echo "court-auction silver load: ${late} Bronze object(s) waited more than ${window_days} days unloaded; they are loaded now, and this run fails so the gap is seen" >&2
