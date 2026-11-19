@@ -56,7 +56,7 @@ Alertmanager 0.28.1 문서(`docs/configuration.md` @v0.28.1)에서 확인한 것
 4. **원인이 이미 알리는 증상은 억제한다. 원인과 증상을 잇는 레이블이 있을 때만이다.**
    - `FoundationJobOutcomeMissingLong` 이 떠 있으면 같은 `job_id`·`expectation` 의 `FoundationJobOutcomeMissing` 을 억제한다.
    - `FoundationPlatformApiScrapeDown` 이 떠 있으면 `FoundationSecurityAdvisoriesUnreadable` 을 억제한다. foundation-api 가 그 계열의 유일한 내보내는 곳이고 수집 대상도 하나라, 이을 레이블이 필요 없다.
-   - 있는 억제 `failed`→`blocked` 는 `equal: [alertname]` 이고, 양쪽 다 `alertname` 이 같으므로 빈 `equal` 과 같다. 어느 작업이든 실패하면 모든 `blocked` 가 조용해진다. ADR-0208 의 선택이고 그대로 둔다. 막은 작업을 `blocked` 시계열이 이름으로 가질 때(후속) 그 레이블로 좁힌다.
+   - 있는 억제 `failed`→`blocked` 는 `equal: [alertname]` 이었다. 양쪽 다 `alertname` 이 같으므로 빈 `equal` 과 같아, 어느 작업이든 실패하면 모든 `blocked` 가 조용해졌다. 이제 `equal: [failed_job]` 으로 좁힌다. foundation-api(`alerts.rs`)가 문제마다 `failed_job` 레이블을 낸다. 실패는 자기 작업이고, 막힌 작업은 기다리는 실패한 앞 작업 중 첫째(이름 순)다. 그래서 실패가 그 뒤에 막힌 작업만 조용하게 한다.
    - `blocked` 는 더 억제하지 않는다. 앞 작업의 `kind="failed"` 가 떠 있으면 기존 억제가 이미 막는다(11-18/19 의 source_sweep 뒤 76개). `FoundationUnitFailedLong` → `blocked` 는 넣지 않는다. 빈 `equal` 은 어느 유닛이든 실패하면 모든 `blocked` 를 억제한다. 남는 `blocked`(앞 작업의 실패 알림이 없는 것)는 결정 1 의 묶음으로 준다.
 5. **바로 읽어야 하는 티켓 셋을 페이지로 올린다**(위 "티켓인데 바로 읽어야 하는 규칙"):
    - `FoundationHostDiskAlmostFull`: 디스크가 다 차 운영 DB 가 선 일이 두 번 있다.

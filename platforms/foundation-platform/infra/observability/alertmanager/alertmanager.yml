@@ -123,10 +123,11 @@ route:
       group_interval: 5m
       repeat_interval: 8760h
 
-# A job waiting on a failed one says "blocked"; while any job has failed, its own notice is the
-# one to read, and every blocked job would only repeat it. `equal: [alertname]` is fixed on both
-# sides, so ANY failed job mutes EVERY blocked one, related or not (root ADR-0208's choice, kept by
-# root ADR-0591 until the blocked series names the job it waits on).
+# A job waiting on a failed one says "blocked"; while the job it waits on has failed, that failure's
+# own notice is the one to read, and the blocked job would only repeat it. `failed_job` is the failed
+# job's id on both (alerts.rs: a failure names its own job, a blocked job the first failed job it
+# waits on), so a failure quiets only the jobs blocked behind it. Until 2026-11-20 this matched on
+# `alertname`, the same on both sides, so any failed job quieted every blocked one (root ADR-0591).
 inhibit_rules:
   - source_matchers:
       - alertname = "FoundationScheduledJobProblem"
@@ -135,7 +136,7 @@ inhibit_rules:
       - alertname = "FoundationScheduledJobProblem"
       - kind = "blocked"
     equal:
-      - alertname
+      - failed_job
   # A job that failed is not done: its failure notice, and its unit's, already say so (root ADR-0442 §5:
   # one event, one notice). A job that is not done and has not failed (it waits, is skipped, refused or
   # never started) has no other notice, and keeps this one.
