@@ -23,7 +23,7 @@ export default async function ProfilePage() {
         <dt className="text-[var(--color-muted)]">{t("userId")}</dt>
         <dd>{session.sub}</dd>
         <dt className="text-[var(--color-muted)]">{t("role")}</dt>
-        <dd>{session.role}</dd>
+        <dd>{session.roles.join(", ")}</dd>
       </dl>
 
       <form action={API.auth.logout} method="POST">

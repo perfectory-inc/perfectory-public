@@ -31,7 +31,7 @@ function session(role = "Buyer") {
   return {
     sub: "user_1",
     jti: "jti_1",
-    role,
+    roles: role === "Buyer" ? [] : [role],
     access_token: "access-token-1",
     refresh_token: "refresh-token-1",
     id_token: "id-token-1",

@@ -13,7 +13,7 @@ import { isReadOnlyPreview, isReadOnlyPreviewPage } from "@/lib/preview";
 import { checkRate } from "@/lib/ratelimit";
 import { API, AUTH_PATH_PREFIX, ROUTES } from "@/lib/routes";
 import { SID_COOKIE_NAME } from "@/lib/session/cookie";
-import { getSession, type SessionData } from "@/lib/session/store";
+import { getSession, hasAnyRole, type SessionData } from "@/lib/session/store";
 import { sanitizeReturnTo } from "@/lib/url";
 
 // SP9 ADR 0036 / foundation-platform ADR 0004 채택 후 — 우리 origin 의 PMTiles/SW prefix
@@ -366,7 +366,7 @@ export async function proxy(req: NextRequest) {
   }
 
   const pageRoutePolicy = getPageRoutePolicy(url.pathname);
-  if (pageRoutePolicy && !pageRoutePolicy.requiredRoles.includes(session.role)) {
+  if (pageRoutePolicy && !hasAnyRole(session, pageRoutePolicy.requiredRoles)) {
     return NextResponse.redirect(new URL(ROUTES.forbidden, req.url));
   }
 

@@ -7,7 +7,8 @@ export const REFRESH_TTL_SEC = 30 * 24 * 60 * 60;
 export interface SessionData {
   sub: string; // Zitadel sub
   jti: string; // current access_token JTI
-  role: string; // 'Buyer' | 'Seller' | 'Broker' | ...
+  /** 부여된 역할 전부(정렬). 빈 목록이면 역할 없음. */
+  roles: string[];
   access_token: string;
   refresh_token: string;
   id_token: string; // back-channel logout 용
@@ -36,7 +37,8 @@ export async function getSession(sid: string): Promise<SessionData | null> {
     data === null ||
     typeof (data as SessionData).sub !== "string" ||
     typeof (data as SessionData).jti !== "string" ||
-    typeof (data as SessionData).role !== "string" ||
+    !Array.isArray((data as SessionData).roles) ||
+    !(data as SessionData).roles.every((r) => typeof r === "string") ||
     typeof (data as SessionData).access_token !== "string" ||
     typeof (data as SessionData).refresh_token !== "string" ||
     typeof (data as SessionData).id_token !== "string" ||
@@ -57,4 +59,9 @@ export async function refreshSession(
   ttlSec: number,
 ): Promise<void> {
   await getRedis().set(KEY(sid), JSON.stringify(next), "EX", ttlSec);
+}
+
+/** 관문 규칙 하나: `required` 가운데 하나라도 세션에 있으면 통과. 빈 `required` 는 역할을 묻지 않는다. */
+export function hasAnyRole(session: Pick<SessionData, "roles">, required: readonly string[]): boolean {
+  return required.length === 0 || required.some((role) => session.roles.includes(role));
 }
