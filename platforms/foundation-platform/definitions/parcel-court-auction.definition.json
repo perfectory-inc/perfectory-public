@@ -22,7 +22,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Never run as its unit in the journal (new with root ADR-0353; #978 is unmerged); enabling it needs a run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 1800,
+          "estimated_from": "computed (root ADR-0457, ADR-0566): the same kind of build as gold_public_auction_rebuild (p90 541 s, max 543 s, 15 runs 2026-10-24..11-03), which reads one Silver lane; this one reads the item, sale-result, photo and the 물건상세 document tables, and its first run is whole (the new document inputs are not pinned by the current Gold, so gold_incremental refuses a merge): about three times the public-auction max, 1,800 s, inside the 3,510 s share of its 65-minute limit. It commits once at the end of a build (as_it_goes per build), retries 0."
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -36,8 +39,9 @@
         "gold-place-id-bridge-to-gold-parcel-court-auction",
         "gold-place-id-changelog-to-gold-parcel-court-auction"
       ],
-      "enabled": false,
-      "disabled_reason": "Never run (root ADR-0353, #978 unmerged): ADR-0386 §3 lets a job be enabled only with measured runs. Turned on by the pull request that records its first measured run and sets enabled_since.",
+      "enabled": true,
+      "enabled_since": "2026-11-18T12:00:00Z",
+      "dagster_stage": "shadow",
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
@@ -67,7 +71,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Never run as its unit in the journal (new with root ADR-0353; #978 is unmerged); enabling it needs a run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 900,
+          "estimated_from": "computed (root ADR-0457): the same lane bake as by_pnu_public_auction_bake (p90 60 s, max 82 s, 42 runs 2026-10-28..11-03); its first run after the 1.4 revision is a new generation of about 44,000 small documents (gold.parcel_court_auction rows, 2026-11-18), about ten times the public-auction max: 900 s, inside the 6,210 s share of its 115-minute limit."
+        }
       },
       "pool": "spark",
       "pool_slots": 2,
@@ -77,8 +84,9 @@
       "pipeline_graph_edges": [
         "gold-parcel-court-auction-to-parcel-court-auction-by-pnu-section-packs"
       ],
-      "enabled": false,
-      "disabled_reason": "Never run (root ADR-0353, #978 unmerged): ADR-0386 §3 lets a job be enabled only with measured runs. Turned on by the pull request that records its first measured run and sets enabled_since.",
+      "enabled": true,
+      "enabled_since": "2026-11-18T12:00:00Z",
+      "dagster_stage": "shadow",
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
