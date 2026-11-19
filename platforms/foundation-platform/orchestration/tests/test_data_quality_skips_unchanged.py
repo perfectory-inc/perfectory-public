@@ -34,9 +34,10 @@ FIELD_URN = "urn:li:assertion:field-status"
 class Run:
     """One check_contracts run against fakes of the lakehouse (`lakehouse-query`) and the catalog."""
 
-    def __init__(self, job, snapshot, last=None, absent=False):
+    def __init__(self, job, snapshot, last=None, absent=False, registered=True, first_checked=None, now=1_800_000_000):
         self.queries, self.reports = [], []
-        self.totals = {"passed": [], "failed": [], "absent": [], "unregistered": [], "unchanged": []}
+        self.totals = job.new_totals()
+        self.first_checked = {} if first_checked is None else first_checked
         job.yaml = SimpleNamespace(safe_load=lambda _text: CONTRACT)
         job.report = lambda urn, passed, properties: self.reports.append((urn, passed, properties))
         events = [] if last is None else [{"result": {"type": last[0], "nativeResults": [
@@ -45,9 +46,10 @@ class Run:
             "urn": FIELD_URN,
             "info": {"type": "FIELD", "fieldAssertion": {"fieldValuesAssertion": {"field": {"path": "status"}}}},
             "runEvents": {"runEvents": events},
-        }]
+        }] if registered else []
         self.snapshot, self.absent = snapshot, absent
-        job.check_contracts([SimpleNamespace(read_text=lambda encoding: "")], self.totals, read=self.read)
+        job.check_contracts([SimpleNamespace(read_text=lambda encoding: "")], self.totals, read=self.read,
+                            first_checked=self.first_checked, now=now)
 
     def read(self, queries):
         self.queries.extend(queries)
@@ -97,7 +99,8 @@ class SkipsUnchangedTables(unittest.TestCase):
         run = Run(self.job, 41, ("SUCCESS", {"snapshot_id": "41", "rules": self.rules, "invalid_rows": "0"}))
         self.assertFalse(run.counted())
         self.assertEqual(run.reports, [])
-        self.assertEqual(len(run.totals["passed"]), 1)
+        # The recorded allowed-values result, and the schema rule every contract with columns has.
+        self.assertEqual(len(run.totals["passed"]), 2)
         self.assertEqual(run.totals["unchanged"], ["gold.example snapshot=41"])
 
     def test_a_recorded_failure_on_an_unchanged_table_still_fails_the_run(self):
@@ -129,6 +132,42 @@ class SkipsUnchangedTables(unittest.TestCase):
     def test_a_result_recorded_before_snapshots_were_recorded_is_counted_again(self):
         run = Run(self.job, 41, ("SUCCESS", {"invalid_rows": "0"}))
         self.assertTrue(run.counted())
+
+
+class RulesComeFromTheContractFile(unittest.TestCase):
+    """Root ADR-0123: the rules are the contract file's. DataHub held 35 of 143 contracts on
+    2026-11-19, and the other 110 were never checked; a contract DataHub does not hold is checked too."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.modules.setdefault("yaml", types.ModuleType("yaml"))
+        cls.job = load_quality_job()
+
+    def test_a_contract_datahub_does_not_hold_is_checked_and_counted_and_nothing_is_written_there(self):
+        run = Run(self.job, 41, registered=False)
+        self.assertTrue(run.counted())
+        self.assertEqual(run.reports, [])
+        self.assertEqual(run.totals["unregistered"], ["gold.example"])
+        self.assertEqual((run.totals["with_rules"], run.totals["checked"]), (["gold.example"], ["gold.example"]))
+        # The schema rule (pnu and status exist) and the allowed-values rule (2 invalid rows).
+        self.assertEqual(len(run.totals["checks"]), 2)
+        self.assertEqual(run.totals["passed"], ["gold.example schema missing=[]"])
+
+    def test_a_contract_never_checked_warns_for_a_week_then_fails(self):
+        first_checked = {}
+        run = Run(self.job, 41, registered=False, first_checked=first_checked, now=1_800_000_000)
+        self.assertEqual((run.totals["failed"], run.totals["warned"]), ([], ["gold.example.status invalid=2"]))
+        self.assertEqual(first_checked, {"gold.example": 1_800_000_000})
+        six_days = Run(self.job, 41, registered=False, first_checked=first_checked, now=1_800_000_000 + 6 * 86400)
+        self.assertEqual(six_days.totals["failed"], [])
+        self.assertEqual(first_checked, {"gold.example": 1_800_000_000}, "the first check is kept, not moved")
+        a_week = Run(self.job, 41, registered=False, first_checked=first_checked, now=1_800_000_000 + 7 * 86400)
+        self.assertEqual(a_week.totals["failed"], ["gold.example.status invalid=2"])
+
+    def test_a_contract_with_a_result_in_datahub_is_enforced_at_once(self):
+        run = Run(self.job, 42, ("SUCCESS", {"snapshot_id": "41", "rules": "r", "invalid_rows": "0"}), first_checked={})
+        self.assertEqual(run.totals["failed"], ["gold.example.status invalid=2"])
+        self.assertEqual(run.totals["warned"], [])
 
 
 if __name__ == "__main__":
