@@ -23,16 +23,19 @@ for command_name in mktemp python3 tar uname; do
   }
 done
 
-case "$(uname -s)" in
+# Asked once and apart from the message that names them, so a failing uname stops the guard.
+kernel="$(uname -s)"
+machine="$(uname -m)"
+case "$kernel" in
   Linux) os=linux; executable_name=amtool ;;
   Darwin) os=darwin; executable_name=amtool ;;
   MINGW*|MSYS*|CYGWIN*) os=windows; executable_name=amtool.exe ;;
-  *) echo "FAIL ${name}: unsupported operating system $(uname -s)" >&2; exit 1 ;;
+  *) echo "FAIL ${name}: unsupported operating system ${kernel}" >&2; exit 1 ;;
 esac
-case "$(uname -m)" in
+case "$machine" in
   x86_64|amd64) arch=amd64 ;;
   aarch64|arm64) arch=arm64 ;;
-  *) echo "FAIL ${name}: unsupported machine $(uname -m)" >&2; exit 1 ;;
+  *) echo "FAIL ${name}: unsupported machine ${machine}" >&2; exit 1 ;;
 esac
 
 # The pin and the image: one version for both.

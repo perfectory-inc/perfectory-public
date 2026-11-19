@@ -113,7 +113,7 @@ class HostFixture(unittest.TestCase):
                      self.root / "built"):
             path.unlink(missing_ok=True)
         result = subprocess.run(["bash", str(SCRIPT)], env={**self.env, "SSH_ORIGINAL_COMMAND": job, **env},
-                                capture_output=True, text=True, timeout=60)
+                                capture_output=True, text=True, timeout=60, check=False)  # each test asserts the status
         log = self.root / "sudo.log"
         return result, log.read_text() if log.exists() else ""
 
@@ -150,7 +150,7 @@ class TheRunOutlivesItsConnection(HostFixture):
         (self.root / "started").touch()
         result = subprocess.run(["bash", str(SCRIPT)], env={**self.env, "SSH_ORIGINAL_COMMAND": "fold",
                                                             "FIXTURE_RUN_STATES": "activating,activating"},
-                                capture_output=True, text=True, timeout=60)
+                                capture_output=True, text=True, timeout=60, check=False)  # asserted below
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("foundation-fold.service invocation=new", result.stdout)
         self.assertEqual(result.stdout.count("foundation-job-outcome changed"), 2,
@@ -210,7 +210,7 @@ class OneStartAtATimeFromThePoolsAnswerToItsUnit(HostFixture):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("systemctl start --no-block foundation-bake.service", asked)
         self.assertEqual((self.root / "lock.log").read_text().split()[:1], ["held"])
-        probe = subprocess.run(["flock", "-n", str(self.lock()), "true"])
+        probe = subprocess.run(["flock", "-n", str(self.lock()), "true"], check=False)  # the status is the answer
         self.assertEqual(probe.returncode, 0, "the lock outlived the start")
 
     def test_a_start_waits_for_another_that_holds_the_lock_and_starts_nothing_past_it(self):
@@ -218,7 +218,7 @@ class OneStartAtATimeFromThePoolsAnswerToItsUnit(HostFixture):
         holder = subprocess.Popen(["flock", str(self.lock()), "sleep", "30"])
         self.addCleanup(holder.kill)
         for _ in range(50):
-            if subprocess.run(["flock", "-n", str(self.lock()), "true"]).returncode != 0:
+            if subprocess.run(["flock", "-n", str(self.lock()), "true"], check=False).returncode != 0:  # non-zero = held
                 break
             subprocess.run([sys.executable, "-c", "import time; time.sleep(0.1)"], check=True)
         result, asked = self.start("bake", FOUNDATION_ADMISSION_LOCK_SECONDS="1")
@@ -230,7 +230,7 @@ class OneStartAtATimeFromThePoolsAnswerToItsUnit(HostFixture):
         result, asked = self.start("floor", FIXTURE_HELD="foundation-paused.service", FIXTURE_PROBE_LOCK=str(self.lock()))
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(asked, "")
-        probe = subprocess.run(["flock", "-n", str(self.lock()), "true"])
+        probe = subprocess.run(["flock", "-n", str(self.lock()), "true"], check=False)  # the status is the answer
         self.assertEqual(probe.returncode, 0)
 
 
