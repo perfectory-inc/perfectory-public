@@ -7,7 +7,8 @@ export const REFRESH_TTL_SEC = 30 * 24 * 60 * 60;
 export interface SessionData {
   sub: string; // Zitadel sub
   jti: string; // current access_token JTI
-  role: string; // 'Buyer' | 'Seller' | 'Broker' | ...
+  /** 부여된 역할 전부(정렬). 빈 목록이면 역할 없음. */
+  roles: string[];
   access_token: string;
   refresh_token: string;
   id_token: string; // back-channel logout 용
@@ -36,7 +37,8 @@ export async function getSession(sid: string): Promise<SessionData | null> {
     data === null ||
     typeof (data as SessionData).sub !== "string" ||
     typeof (data as SessionData).jti !== "string" ||
-    typeof (data as SessionData).role !== "string" ||
+    !Array.isArray((data as SessionData).roles) ||
+    !(data as SessionData).roles.every((r) => typeof r === "string") ||
     typeof (data as SessionData).access_token !== "string" ||
     typeof (data as SessionData).refresh_token !== "string" ||
     typeof (data as SessionData).id_token !== "string" ||
