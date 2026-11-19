@@ -748,14 +748,16 @@ fn contract_of(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
         .with_context(|| format!("no lakehouse contract for {table}"))
 }
 
-/// `table`'s current rows at its pin, projecting `columns`, by the contract's one rendering
-/// (root ADR-0564 §4). A table whose rule keeps no ties is refused when two current rows of a key tie.
-fn current_rows_of(
+/// Builds `target` from `table`'s current rows at its pin, projecting `columns`, by the contract's one
+/// rendering (root ADR-0564 §4). The pinned table is read once: a table whose rule keeps no ties is
+/// refused, on the built table, when two current rows of a key tie.
+fn current_rows_into(
     connection: &duckdb::Connection,
     source: &Source<'_>,
     table: &str,
     columns: &[&str],
-) -> anyhow::Result<String> {
+    target: &str,
+) -> anyhow::Result<()> {
     let contract = contract_of(table)?;
     let template = contract
         .current_rows_sql_template()
@@ -806,12 +808,31 @@ fn current_rows_of(
     let latest = contract
         .current_row_latest()
         .with_context(|| format!("{table} keeps no versions per key"))?;
+    // The key rides along for the tie check and leaves after it.
+    let extra: Vec<&str> = if latest.keep_ties {
+        Vec::new()
+    } else {
+        latest
+            .key
+            .iter()
+            .copied()
+            .filter(|column| !columns.contains(column))
+            .collect()
+    };
+    let projected: Vec<&str> = columns
+        .iter()
+        .copied()
+        .chain(extra.iter().copied())
+        .collect();
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE {target} AS {}",
+        render(&projected)
+    ))?;
     if !latest.keep_ties {
         let (rows, keys): (i64, i64) = connection.query_row(
             &format!(
-                "SELECT count(*), count(DISTINCT ({})) FROM ({})",
-                latest.key.join(", "),
-                render(latest.key)
+                "SELECT count(*), count(DISTINCT ({})) FROM {target}",
+                latest.key.join(", ")
             ),
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
@@ -822,7 +843,10 @@ fn current_rows_of(
             rows - keys
         );
     }
-    Ok(render(columns))
+    for column in extra {
+        connection.execute_batch(&format!("ALTER TABLE {target} DROP COLUMN {column}"))?;
+    }
+    Ok(())
 }
 
 /// Loads every table `place` reads, at the pins of `source`, with the parcels of the served `edition`.
@@ -846,14 +870,15 @@ pub fn load_inputs(
     let predicate = parcels
         .current_row_predicate
         .context("silver.parcel_boundaries names its current rows by a predicate")?;
-    let deals = current_rows_of(connection, source, RT_SOURCE, &DEAL_COLUMNS)?;
-    let land = current_rows_of(
+    current_rows_into(connection, source, RT_SOURCE, &DEAL_COLUMNS, "deals_raw")?;
+    current_rows_into(
         connection,
         source,
         LAND_SOURCE,
         &["pnu", "land_category", "area_m2", "zone_name_1"],
+        "land",
     )?;
-    let titles = current_rows_of(
+    current_rows_into(
         connection,
         source,
         TITLE_SOURCE,
@@ -863,15 +888,18 @@ pub fn load_inputs(
             "floor_area_m2",
             "main_or_annex_kind",
         ],
+        "titles",
     )?;
-    let ownership = current_rows_of(
+    current_rows_into(
         connection,
         source,
         OWNERSHIP_SOURCE,
         &["pnu", "ownership_changed_on", "ownership_change_reason"],
+        "ownership",
     )?;
     connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE deals_raw AS {deals};
+        "DELETE FROM titles WHERE main_or_annex_kind IS DISTINCT FROM 'main';
+         ALTER TABLE titles DROP COLUMN main_or_annex_kind;
          CREATE OR REPLACE TABLE parcels AS
            SELECT DISTINCT pnu FROM {parcels_table}
            WHERE source_snapshot_id = '{edition}' AND ({predicate}) AND pnu IS NOT NULL;
@@ -880,10 +908,6 @@ pub fn load_inputs(
          CREATE OR REPLACE TABLE code_names AS
            SELECT region_cd, full_name, status FROM {names}
            WHERE snapshot_date = (SELECT max(snapshot_date) FROM {names});
-         CREATE OR REPLACE TABLE land AS {land};
-         CREATE OR REPLACE TABLE titles AS
-           SELECT pnu, approval_year, floor_area_m2 FROM ({titles}) WHERE main_or_annex_kind = 'main';
-         CREATE OR REPLACE TABLE ownership AS {ownership};
          CREATE OR REPLACE TABLE lineage AS
            SELECT predecessor_pnu, successor_pnu, relation, grade, evidence_kind, evidence_ref FROM {lineage};",
         parcels_table = source.of(PARCEL_SOURCE)?,
