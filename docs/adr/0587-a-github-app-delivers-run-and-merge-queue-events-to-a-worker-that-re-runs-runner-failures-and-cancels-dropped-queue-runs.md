@@ -91,13 +91,14 @@
    |---|---|---|
    | Actions | 읽기·쓰기 | 이 Worker(취소·재실행·dispatch) |
    | Merge queues | 읽기 | 이 Worker(`merge_group` 사건 구독) |
-   | Checks | 읽기 | W88b |
-   | Contents | 읽기 | 이 Worker(compare), W88b |
-   | Pull requests | 읽기 | W88b |
-   | Administration | 읽기 | W88b |
-   | Metadata | 읽기 | 필수 |
+   | Contents | 읽기 | 이 Worker(`compare`: 그 SHA 가 main 에 있는가) |
+   | Pull requests | 읽기 | W88b(감사 가져오기) |
+   | Metadata | 읽기 | 필수. W88b 가 ruleset 을 읽는 데도 쓴다 |
 
-   구독 사건: `workflow_run`, `merge_group`. W88b 는 웹훅이 아니라 API 로 읽으므로 사건을 더하지 않는다(W88b 와 확인할 것).
+   W88b 와 맞춘 것(2026-11-19): 가져오기는 API 로 읽으므로 웹훅 사건이 필요 없고, Pull requests 읽기와 Metadata 읽기면
+   된다. Checks·Administration 읽기는 넣지 않는다(ruleset 이력은 Administration **쓰기**가 있어야 하고 그것은 주지
+   않는다). Contents 읽기는 W88b 가 아니라 이 Worker 의 `compare` 때문에 있다. 구독 사건은 `workflow_run`,
+   `merge_group` 둘이다.
 
 4. **서명 확인이 먼저다.** Worker 는 본문을 바이트로 읽고 `X-Hub-Signature-256` 을 `crypto.subtle.verify`(HMAC-SHA256,
    시간이 일정한 비교)로 확인한 뒤에만 JSON 으로 읽는다. 서명이 없거나 틀리면 401. `X-GitHub-Event` 가 위 둘이 아니면
@@ -137,15 +138,17 @@
 
 ## 소유자가 App 을 만드는 순서
 
-App 은 소유자가 만든다. 에이전트는 만들지 않는다. W88b 의 권한이 위 표와 같은지 확인된 뒤에 한 번만 한다.
+App 은 소유자가 만든다. 에이전트는 만들지 않는다. 권한은 W88b 와 맞춘 위 표 그대로다.
 
 1. GitHub → 조직 `perfectory-inc` → Settings → Developer settings → GitHub Apps → **New GitHub App**.
 2. **GitHub App name**: `perfectory-ci-events`. **Homepage URL**: 저장소 주소.
 3. **Webhook**: Active 를 켠다. **Webhook URL**: Worker 주소(구현 PR 이 알려 준다. 그 전에는 Active 를 끄고 만든 뒤 나중에
    켠다). **Webhook secret**: 터미널에서 `openssl rand -hex 32` 로 만든 값. 이 값을 적어 둔다(8번에서 쓴다).
-4. **Repository permissions**: Actions = Read and write, Merge queues = Read-only, Checks = Read-only, Contents = Read-only,
-   Pull requests = Read-only, Administration = Read-only. Metadata 는 자동으로 Read-only. 나머지는 전부 No access.
-   Organization permissions 와 Account permissions 는 전부 No access.
+4. **Repository permissions**: Actions = Read and write, Merge queues = Read-only, Contents = Read-only,
+   Pull requests = Read-only. Metadata 는 자동으로 Read-only. 나머지는 전부 No access(Checks 와 Administration 도 No
+   access). Organization permissions 와 Account permissions 는 전부 No access.
+   나중에 더니어의 "변경 제안"(ADR-0569 뒤 단계)이 Contents 쓰기·Pull requests 쓰기를 요청할 수 있다. 그때는 따로 승인을
+   받아 이 App 의 권한을 올리고, 설치 화면에서 한 번 더 승인하게 된다. 지금은 넣지 않는다.
 5. **Subscribe to events**: Workflow run, Merge group 둘만 체크한다.
 6. **Where can this GitHub App be installed?**: Only on this account. **Create GitHub App**.
 7. 만든 App 화면에서 **App ID** 를 적는다. **Generate a private key** 를 눌러 `.pem` 파일을 받는다.
