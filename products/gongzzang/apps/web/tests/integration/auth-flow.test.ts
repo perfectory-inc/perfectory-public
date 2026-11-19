@@ -26,7 +26,7 @@ vi.mock("@/lib/oidc", async () => {
       expires_in: 300,
       jti: "jti-1",
       sub: "user-1",
-      role: "Buyer",
+      roles: [],
     })),
   };
 });

@@ -6,6 +6,7 @@ import { problem } from "@/lib/http/problem";
 import { GENERATED_API_PROXY_ROUTE_POLICIES } from "@/lib/policies/traffic-auth-policy.generated";
 import { checkRate } from "@/lib/ratelimit";
 import { SID_COOKIE_NAME } from "@/lib/session/cookie";
+import { hasAnyRole } from "@/lib/session/roles";
 import { getSession, type SessionData } from "@/lib/session/store";
 
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH"]);
@@ -158,7 +159,7 @@ async function enforceApiProxyExposure(
     return { session, response: sessionRequiredProblem(req, t) };
   }
 
-  if (policy.exposureClass === "privileged" && !policy.requiredRoles.includes(session.role)) {
+  if (policy.exposureClass === "privileged" && !hasAnyRole(session, policy.requiredRoles)) {
     return { session, response: insufficientRoleProblem(req, t) };
   }
 

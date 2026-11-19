@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
         {
           sub: next.sub,
           jti: next.jti,
-          role: next.role,
+          roles: next.roles,
           access_token: next.access_token,
           refresh_token: next.refresh_token,
           id_token: next.id_token,

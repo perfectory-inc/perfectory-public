@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
     {
       sub: tokens.sub,
       jti: tokens.jti,
-      role: tokens.role,
+      roles: tokens.roles,
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
       id_token: tokens.id_token,
