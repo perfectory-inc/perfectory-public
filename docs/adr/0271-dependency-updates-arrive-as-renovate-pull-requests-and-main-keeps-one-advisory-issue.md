@@ -55,6 +55,8 @@
    트리거·최상위·다른 쓰기 권한을 각각 거부한다). 그 잡은 크레이트를 읽은 잡과 분리되어 main 에서만 돌고, 스크립트
    하나만 체크아웃한다.
 
+개정 각주(2026-11-18): 4항의 "의존성 대시보드 이슈는 만들지 않는다" 는 [ADR-0568](./0568-a-new-advisory-on-a-lockfile-a-change-leaves-as-it-is-warns-while-its-fix-is-open-and-blocks-again-when-the-grace-ends.md) 8항이 바꿨다(`has_issues` 가 켜져 대시보드를 켠다). 같은 ADR 7항이 보안 PR 동시 상한 3 을 더했다. "소유자가 할 일" 2항은 2026-11-18 적용됐다(방화벽 우회 행위자, `has_issues`).
+
 ## 소유자가 할 일 (저장소 밖, 한 번)
 
 1. Renovate 앱 설치: <https://github.com/apps/renovate> → Only select repositories → 이 저장소. 설정 파일이 이미

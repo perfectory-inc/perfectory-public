@@ -345,8 +345,14 @@ jobs:
       - name: Install cargo-deny
         working-directory: ${{ github.workspace }}
         run: cargo xtask ci install-cargo-deny
+      # Root ADR-0568: a change that leaves this workspace's Cargo.lock and deny.toml as they are
+      # is not judged on their advisories here (the repository OSV gate and the daily check are).
       - name: cargo-deny
-        run: cargo-deny --locked check
+        working-directory: ${{ github.workspace }}
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: cargo xtask ci cargo-deny platforms/identity-platform --locked
 
   required:
     name: required/identity

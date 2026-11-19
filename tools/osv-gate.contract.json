@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "purpose": "How a pull request or the merge queue judges an OSV finding the change did not bring (root ADR-0568). The allow list stays osv-scanner.toml (root ADR-0414); this file holds only the grace rule. A finding in a lockfile the change touches fails as before. A finding in a lockfile the change leaves as it is fails too, unless a pull request carrying fix_pull_request_label that changes that lockfile or allow_list and names one of the finding's ids or aliases is open, and the first such pull request (any state) was opened less than grace_hours[severity] ago; then it is a warning. A push to main and the nightly run judge every finding as before. severity is the scanner's max_severity of the advisory group (CVSS base score): >= critical_from is critical, >= high_from is high, any other score is other, no score is unscored (unknown severity, so no longer than critical).",
+  "fix_pull_request_label": "security",
+  "allow_list": "osv-scanner.toml",
+  "critical_from": 9.0,
+  "high_from": 7.0,
+  "grace_hours": {
+    "critical": 24,
+    "high": 72,
+    "other": 168,
+    "unscored": 24
+  }
+}
