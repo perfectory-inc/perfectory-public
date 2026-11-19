@@ -1253,7 +1253,7 @@ def load_case_document_object(spark: Any, args: argparse.Namespace, entry: Mappi
     its changed documents (newest per key or a whole edition per changed list), then every read
     (root ADR-0540 §3), so an object the read record records has its documents."""
 
-    from data_go_kr_onbid import changed_only  # noqa: PLC0415 - the same changed-key compare
+    from silver_release_compare import changed_only  # noqa: PLC0415 - the same changed-key compare
     from lakehouse_ingest import append_source_object  # noqa: PLC0415
     from platform_contracts import (  # noqa: PLC0415
         column_names, current_rows, ensure_contract_table, load_lakehouse_contract, spark_sql_type,
