@@ -1,0 +1,28 @@
+# The host's root deploy scripts run Python isolated: `python3 -I`.
+#
+# Prevents: foundation-release.sh and foundation-deploy.sh ran `python3 -` and `python3 -c` as root
+# without -I at eight places (found 2026-11-19 by the second-pass reinvention inventory). Python
+# puts the caller's current directory (for `-` and `-c`) or the script's directory first on
+# sys.path, and reads PYTHON* variables and the user site directory, so whoever could write a
+# `json.py` there could run code as root outside release admission. Python 3.12 (the host's pinned
+# python3, 3.12.3) documents `-I` as implying -E (no PYTHON* variables), -P (no unsafe sys.path[0])
+# and -s (no user site directory): https://docs.python.org/3.12/using/cmdline.html#cmdoption-I
+#
+# foundation-release-test.sh is CI's harness and does not run as root. Comment lines are not
+# commands.
+rules:
+  - id: root-deploy-python-runs-isolated
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      A root deploy script runs python3 without -I; Python would put the current or the script's
+      directory first on sys.path and read PYTHON* variables. Write `python3 -I` (and -B for a
+      script file).
+    paths:
+      include:
+        - /platforms/foundation-platform/scripts/deploy/*.sh
+      exclude:
+        - /platforms/foundation-platform/scripts/deploy/foundation-release-test.sh
+    patterns:
+      - pattern-regex: (?<![\w./-])python3?(?=[ \t])(?![ \t]+-I\b)
+      - pattern-not-regex: "#[^\n]*"

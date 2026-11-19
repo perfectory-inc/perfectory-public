@@ -126,7 +126,7 @@ provision() {
   (($# > 0)) || fail "usage: $0 provision EMAIL..."
   local email body code role
   for email in "$@"; do
-    body="$(EMAIL="${email}" python3 -c '
+    body="$(EMAIL="${email}" python3 -I -c '
 import json, os
 e = os.environ["EMAIL"]
 info = {"active": True, "displayName": e, "email": e}
@@ -137,7 +137,7 @@ print(json.dumps({"proposal": {
     code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
       -H 'X-RestLi-Protocol-Version: 2.0.0' -d "${body}" "${gms}/aspects?action=ingestProposal")"
     [[ "${code}" == 200 ]] || fail "creating ${email} returned ${code}"
-    role="$(EMAIL="${email}" python3 -c '
+    role="$(EMAIL="${email}" python3 -I -c '
 import json, os
 urn = "urn:li:corpuser:" + os.environ["EMAIL"]
 print(json.dumps({"query": "mutation($u:[String!]!){batchAssignRole(input:{roleUrn:\"urn:li:dataHubRole:Admin\",actors:$u})}",

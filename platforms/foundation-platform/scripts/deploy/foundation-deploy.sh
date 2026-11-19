@@ -48,7 +48,7 @@ deploy_hold=/run/foundation-deploy-hold
 # stay paused across a reboot, and so does the series that says so.
 deploy_metrics=/var/lib/perfectory/metrics/deploy.prom
 identity="${control_root}/current/tools/github/repository-identity.json"
-repository="https://github.com/$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["full_name"])' "${identity}").git"
+repository="https://github.com/$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["full_name"])' "${identity}").git"
 
 log() { printf '\n==== %s\n' "$*"; }
 as_deployer() { sudo -u "${deployer}" -H "$@"; }
@@ -69,7 +69,7 @@ owed_by_inputs() {
 
 # The lists, from the job registry of the release now running.
 jobs_of() {
-  python3 - "$1" "${release_root}/current/orchestration/jobs.v1.json" <<'PY'
+  python3 -I - "$1" "${release_root}/current/orchestration/jobs.v1.json" <<'PY'
 import json, sys
 which, path = sys.argv[1], sys.argv[2]
 for job in json.load(open(path, encoding="utf-8"))["jobs"]:
@@ -138,7 +138,7 @@ git --git-dir="${mirror}" archive "${sha}" scripts/guard/migration-approval-gate
   tools/ci/migration-approval-gates.contract.json platforms/foundation-platform/migrations \
   platforms/foundation-platform/scripts/deploy/migration-approval-preflight.py | tar -x -C "${preflight}"
 preflight_status=0
-python3 "${preflight}/platforms/foundation-platform/scripts/deploy/migration-approval-preflight.py" "${preflight}" -- \
+python3 -I -B "${preflight}/platforms/foundation-platform/scripts/deploy/migration-approval-preflight.py" "${preflight}" -- \
   "${release_root}/current/scripts/deploy/foundation-runtime.sh" exec -T postgres \
   sh -c 'psql -X -q -A -t -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' || preflight_status=$?
 rm -rf "${preflight}"
@@ -375,7 +375,7 @@ rm -f "${changes}.hold"
 log "3. FLOOR config for ${sha} (from ${old})"
 floor="$(mktemp /var/lib/perfectory/floor-XXXXXX.env)"
 cp "${release_root}/config/${old}/building-register-floor.env" "${floor}"
-image="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["publisher_image"])' "${release_root}/artifacts/${sha}/build.json")"
+image="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["publisher_image"])' "${release_root}/artifacts/${sha}/build.json")"
 sed -i -e "s|^FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=.*|FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=${release_root}/releases/${sha}|" \
   -e "s|^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=.*|FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=${image}|" "${floor}"
 chown root:root "${floor}"; chmod 0644 "${floor}"
