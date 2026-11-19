@@ -1303,7 +1303,7 @@ async fn bake_in(
         {
             return Ok(());
         }
-        indexed = Some(index.without_records());
+        indexed = Some(index);
     }
     let prepared = {
         let (summary, handoff, csv, partition_prefix) = (

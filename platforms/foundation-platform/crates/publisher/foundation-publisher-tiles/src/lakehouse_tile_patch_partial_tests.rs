@@ -44,6 +44,22 @@ fn the_merged_index_is_the_index_a_full_handoff_would_make() -> anyhow::Result<(
     let merged = merge(&old, &handed, &changes(&[A, D], &[C])).map_err(anyhow::Error::msg)?;
     assert_eq!(merged, full);
     assert_eq!(diff(&old, &merged), diff(&old, &full));
+
+    // From the served index file, one record in memory: the same index, written as a file.
+    let dir = tempfile::tempdir()?;
+    let (served, out) = (dir.path().join("old.idx"), dir.path().join("merged.idx"));
+    patch::write_index(&served, &old)?;
+    merge_file(&served, &handed, &changes(&[A, D], &[C]), &out)?.map_err(anyhow::Error::msg)?;
+    assert_eq!(patch::read_index(&out)?, full);
+    // A drifted handoff is declined from the file as from the slice.
+    let drifted = zoning_index(&[zone(B, "합성 B 변경", &square(11.0, 10.0, 0.01))])?;
+    let declined = merge_file(
+        &served,
+        &drifted,
+        &changes(&[], &[]),
+        &dir.path().join("x.idx"),
+    )?;
+    assert!(declined.is_err_and(|reason| reason.contains("differ from the served index")));
     Ok(())
 }
 
