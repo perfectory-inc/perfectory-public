@@ -46,7 +46,7 @@ const DEFAULT_CONTRACT: &str = "config/audit-events.contract.json";
 const JOURNAL_TAG: &str = "foundation-operator-start";
 /// The importer's own identity in the chain; only `audit.append` makes it mean anything.
 const IMPORTER_ROLE: &str = "foundation_audit_importer";
-/// Rows per transaction: a console request waits for at most one batch (ADR-0569 §3).
+/// Rows per transaction: a short transaction holds back only its own rows from a digest (ADR-0584 §2).
 const BATCH: usize = 50;
 /// The name space of the change ids of pull requests made outside the console (ADR-0569 §6).
 const CHANGE_NAMESPACE: Uuid = Uuid::from_u128(0x6f1c_7f3a_0569_5a5a_8c1e_5c2e_6a1d_0569);
@@ -402,9 +402,6 @@ async fn append_batch(
     cursor: Option<(&str, &str, &str)>,
 ) -> anyhow::Result<u64> {
     let mut tx = conn.begin().await?;
-    sqlx::query("SET LOCAL lock_timeout = '10s'")
-        .execute(&mut *tx)
-        .await?;
     let mut appended = 0;
     for event in events {
         let seq: Option<i64> = sqlx::query_scalar(
@@ -484,6 +481,17 @@ fn listed_actions(path: &Path) -> anyhow::Result<BTreeSet<String>> {
         .collect())
 }
 
+/// A connection that writes as the importer. The host's credential is the database owner's; the
+/// chain is written as `foundation_audit_importer`, so the database refuses what the importer may
+/// not write (ADR-0569 §3). That role cannot log in by itself.
+pub(crate) async fn importer_connection() -> anyhow::Result<PgConnection> {
+    let mut conn = PgConnection::connect(&required_env_value("DATABASE_URL")?).await?;
+    sqlx::query(&format!("SET SESSION AUTHORIZATION {IMPORTER_ROLE}"))
+        .execute(&mut conn)
+        .await?;
+    Ok(conn)
+}
+
 pub async fn run() -> anyhow::Result<()> {
     let deploy_root = PathBuf::from(
         optional_env_value(DEPLOY_STATE_ENV)?.unwrap_or_else(|| DEFAULT_DEPLOY_STATE.to_owned()),
@@ -500,12 +508,7 @@ pub async fn run() -> anyhow::Result<()> {
     let host = optional_env_value(HOST_ENV)?.unwrap_or_else(|| "ai-server".to_owned());
     let actions = listed_actions(&contract)?;
 
-    let mut conn = PgConnection::connect(&required_env_value("DATABASE_URL")?).await?;
-    // The host's credential is the database owner's; the chain is written as the importer, so the
-    // database refuses what the importer may not write (ADR-0569 §3).
-    sqlx::query(&format!("SET SESSION AUTHORIZATION {IMPORTER_ROLE}"))
-        .execute(&mut conn)
-        .await?;
+    let mut conn = importer_connection().await?;
     let cursors: BTreeMap<String, (String, String)> = sqlx::query(
         "SELECT DISTINCT ON (source) source, cursor, state FROM audit.import_cursor
          ORDER BY source, advanced_at DESC",
@@ -623,6 +626,23 @@ pub async fn run() -> anyhow::Result<()> {
             .await?;
             return Err(error.context("the host command journal has a gap"));
         }
+    }
+
+    // A row no witnessed digest has covered for two hours: the hourly witness stopped (ADR-0569 §4,
+    // ADR-0584 §2). This job says so, because the stopped job cannot. Only rows the newest witnessed
+    // snapshot may not see are read (`txid >= xmin`, on the txid index), never the whole record.
+    let unwitnessed: i64 = sqlx::query_scalar(
+        "WITH w AS (SELECT d.to_snapshot AS snap FROM audit.digest d
+                    JOIN audit.digest_witness USING (digest_no) ORDER BY d.digest_no DESC LIMIT 1)
+         SELECT count(*) FROM audit.event e LEFT JOIN w ON true
+         WHERE (w.snap IS NULL OR (e.txid >= pg_snapshot_xmin(w.snap)
+                                   AND NOT pg_visible_in_snapshot(e.txid, w.snap)))
+           AND e.recorded_at < now() - interval '2 hours'",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    if unwitnessed > 0 {
+        bail!("{unwitnessed} audit rows have waited more than two hours for a witnessed digest; see foundation-audit-digest.service");
     }
 
     if appended > 0 {
