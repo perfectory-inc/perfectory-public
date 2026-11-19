@@ -75,7 +75,7 @@ block() {
 
 # The runner's own list names its mirrors (the 20261116 image dropped azure.archive.ubuntu.com for
 # archive.ubuntu.com and security.ubuntu.com); block what it names, not a host the image once had.
-mapfile -t listed < <(awk '!/^#/ && NF {print $1}' /etc/apt/apt-mirrors.txt 2>/dev/null | sed -E 's#^[a-z]+://([^/]+).*##')
+mapfile -t listed < <(awk '!/^#/ && NF {print $1}' /etc/apt/apt-mirrors.txt 2>/dev/null | sed -E 's#^[a-z]+://([^/]+).*#\1#')
 [ "${#listed[@]}" -ge 1 ] || listed=(archive.ubuntu.com)
 official=(azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com "${listed[@]}")
 mapfile -t fallbacks < <(sed -n 's#^  "http://\([^/"]*\)/.*#\1#p' "$script")
