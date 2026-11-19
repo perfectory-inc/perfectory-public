@@ -43,7 +43,6 @@
     "catalog.vector_tile_release_source_file_asset": "needs catalog.vector_tile_release, whose dynamic row needs a projection load chain (see serving_postgis.spatial_projection_load)",
     "catalog.vector_tile_runtime_manifest_unit": "needs catalog.vector_tile_release, whose dynamic row needs a projection load chain (see serving_postgis.spatial_projection_load)",
     "serving_postgis.administrative_unit_boundary_publication": "needs a serving_postgis.spatial_projection_load row (see it)",
-    "serving_postgis.industrial_complex_boundary_publication": "needs a serving_postgis.spatial_projection_load row (see it)",
-    "serving_postgis.parcel_boundary_publication": "needs a serving_postgis.spatial_projection_load row (see it)"
+    "serving_postgis.industrial_complex_boundary_publication": "needs a serving_postgis.spatial_projection_load row (see it)"
   }
 }

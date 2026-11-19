@@ -7,14 +7,12 @@
       "id": "serving-parcel-boundary",
       "type": "serving_group",
       "title": "필지 경계 서빙",
-      "description": "옛 PostGIS 필지 경계 사본(루트 ADR-0194, W86). 쓰는 곳·읽는 곳은 모두 지웠고, 표는 삭제 마이그레이션이 지운다. 필지 지도는 gold.parcel_boundary_served 에서 굽는다.",
+      "description": "옛 PostGIS 필지 경계 사본의 실행 원장만 남는다(루트 ADR-0571 §4: 이력, 공유 원장 spatial_projection_load 가 가리킨다). 사본 두 표는 지웠다. 필지 지도는 gold.parcel_boundary_served 에서 굽는다.",
       "status": "disabled",
       "owner": "foundation-platform",
       "evidence_refs": [],
       "tables": [
-        "serving_postgis.parcel_boundary_mirror",
-        "serving_postgis.parcel_boundary_mirror_rebuild_run",
-        "serving_postgis.parcel_boundary_publication"
+        "serving_postgis.parcel_boundary_mirror_rebuild_run"
       ]
     }
   ],
