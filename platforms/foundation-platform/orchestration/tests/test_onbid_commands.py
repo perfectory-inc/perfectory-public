@@ -56,7 +56,7 @@ assert {table: slug} in ({"silver.onbid_real_estate_item": "datagokr__onbid_real
                          {"silver.onbid_announcement": "datagokr__onbid_announcement"},
                          {"silver.onbid_announcement_bid_result": "datagokr__onbid_announcement_bid_result"},
                          {"silver.onbid_announcement_detail": "datagokr__onbid_announcement_detail"}), (table, slug)
-assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "24")
+assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "6")
 out = os.environ[prefix + "OUTPUT_DIR"]
 os.makedirs(out, exist_ok=True)
 objects = []
