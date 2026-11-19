@@ -1,6 +1,6 @@
 # ADR 0458: 작업은 달력의 날 수가 아니라 증거로 Dagster 로 옮긴다 — 자기 결정 N개가 같고, 자기가 하는 모든 종류의 결정이 한 번씩 같을 때
 
-- Status: Accepted
+- Status: Superseded by [ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md)
 - Date: 2026-11-09
 - Supersedes: [ADR-0431](./0431-scheduled-jobs-move-from-airflow-to-dagster-one-family-at-a-time-after-a-dual-run-in-which-both-decide.md) §4
   (옮기는 문턱 "연속 7일 매일 통과 + 정지 구간 결정을 사람이 확인"). 나머지(단계 필드, 이중 실행의 비교 규칙, 하류 먼저, 가족과 순서)는 그대로다.

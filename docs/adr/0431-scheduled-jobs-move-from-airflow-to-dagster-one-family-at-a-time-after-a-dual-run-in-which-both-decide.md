@@ -214,3 +214,8 @@ Dagster 의 기본 스케줄은 진행 중인 run 과 상관없이 틱마다 run
 이 각주는 결정을 바꾸지 않는다. 위 각주가 남긴 목록(배포의 드레인과 한 번 시작, run-now, 계보, 운영 지도)과 그 목록에 없던 둘(자산 조정자가
 말한 빚을 누가 시작하나, `check` 과제와 재시도)의 설계는 [ADR-0565](./0565-a-job-dagster-decides-is-reached-through-dagster-by-everything-that-reached-it-through-its-airflow-dag.md)
 가 정한다: 경로마다 장치 하나, 어느 쪽으로 닿는지는 작업의 `dagster_stage` 하나, `job_specs.py` 는 그 경로가 모두 선 PR 에서 단계를 연다.
+
+## 개정 각주 — 2026-11-19, §2·§7 대체
+
+§2(이중 실행)와 §7(가족과 순서)은 [ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md) 가 대체한다: 작업은 묶음 넷(Gold → Silver → 수집 → 운영)으로 옮기고, 묶음마다 스위치 하나다.
+이중 실행은 첫 묶음(Gold)이 옮긴 뒤 지운다. §1·§3·§5·§6 은 그대로다.

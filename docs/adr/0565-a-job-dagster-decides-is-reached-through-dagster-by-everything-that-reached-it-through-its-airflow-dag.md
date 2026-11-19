@@ -269,3 +269,8 @@ Airflow 가 결정하는 동안은 `run` 과제의 재시도가 같은 유닛 ru
 - **배포.** 문지기와 규칙은 이미지에 복사한다. 바뀌면 이미지가 바뀌고 compose 가 컨테이너를 다시 만든다(같은 이미지를 쓰는 코드
   서버도 다시 만들어지며, 그때 열린 run 은 최대 실행 시간에 닫힌다, §9). 소켓 디렉터리는 activate 가 tmpfiles 로 만들고, 부팅 때도
   Docker 보다 먼저 다시 만든다.
+
+## 개정 각주 — 2026-11-19, 묶음으로 옮긴다([ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md))
+
+§1 의 단계를 여는 PR 은 [ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md) §2 의 묶음 필드(`dagster_group`)와 "한 묶음의 켜진 작업은 단계 하나" 검사를 함께 연다.
+§10(Airflow 를 지우는 때)은 그대로이고, 이중 실행(`dual_run.py`)은 그보다 먼저, 첫 묶음이 옮긴 뒤 지운다([ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md) §4).
