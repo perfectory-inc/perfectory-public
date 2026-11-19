@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectSrcDataOrigins } from "@/lib/browser-data-origins";
 import { env } from "@/lib/env";
+import { clientAddress } from "@/lib/http/client-address";
 import { problem } from "@/lib/http/problem";
 import { tStatic } from "@/lib/i18n/static";
 import {
@@ -204,10 +205,6 @@ function isLocalHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
-function clientIp(req: NextRequest): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-}
-
 function rateLimitedProblem(req: NextRequest, type: string): NextResponse {
   return problem({
     type,
@@ -236,7 +233,7 @@ function resolveAuthRateKey(req: NextRequest, policy: AuthRateRoutePolicy): stri
   const subject =
     policy.rate.keyStrategy === "session_or_anon"
       ? (req.cookies.get(SID_COOKIE_NAME)?.value ?? "anon")
-      : clientIp(req);
+      : clientAddress(req.headers);
   return `${policy.rate.keyPrefix}:${subject}`;
 }
 
@@ -245,7 +242,7 @@ async function checkPublicMapRateLimit(req: NextRequest): Promise<NextResponse |
   if (!policy) return null;
 
   const r = await checkRate(
-    `${policy.rate.keyPrefix}:${clientIp(req)}`,
+    `${policy.rate.keyPrefix}:${clientAddress(req.headers)}`,
     policy.rate.limit,
     policy.rate.windowSec,
   );

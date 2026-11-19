@@ -2,6 +2,7 @@ import type { Options as KyOptions } from "ky";
 import { type NextRequest, NextResponse } from "next/server";
 import { getTranslations } from "next-intl/server";
 import { createServerApi } from "@/lib/api";
+import { clientAddress } from "@/lib/http/client-address";
 import { problem } from "@/lib/http/problem";
 import { GENERATED_API_PROXY_ROUTE_POLICIES } from "@/lib/policies/traffic-auth-policy.generated";
 import { checkRate } from "@/lib/ratelimit";
@@ -166,10 +167,6 @@ async function enforceApiProxyExposure(
   return { session, response: null };
 }
 
-function clientIp(req: NextRequest): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-}
-
 function resolveApiProxyRateKey(
   req: NextRequest,
   policy: (typeof GENERATED_API_PROXY_ROUTE_POLICIES)[number],
@@ -179,7 +176,7 @@ function resolveApiProxyRateKey(
     throw new Error(`API proxy route policy has no rate profile: ${policy.targetPath}`);
   }
 
-  const subject = session?.sub ?? clientIp(req);
+  const subject = session?.sub ?? clientAddress(req.headers);
   return `${policy.rate.keyPrefix}:${subject}`;
 }
 
