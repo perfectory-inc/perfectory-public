@@ -4,7 +4,8 @@
 unhealthy for four weeks (their health check asks port 3000; they listen on 3111 and 3110) and served
 nothing: no connection, and every served tile unit addressed to tiles.perfectory.io. Root ADR-0112 §10
 and ADR-0343 §5 decided to take them down. These tests pin that only that container is removed: one
-Compose declares, one of another image, or one with a connection is kept and the line says why.
+Compose declares, one of another image, or one with a connection is kept and the line says why; and
+that martin-static's hand-made config (the plain-text R2 key) goes only once nothing can mount it.
 """
 
 import os
@@ -19,16 +20,20 @@ PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = PLATFORM / "scripts/ops/retire-hand-started-martin.sh"
 
 DOCKER = """#!/usr/bin/env bash
-# A stub docker: containers are files under $STUB/containers/<name> holding "<project>|<image>".
+# A stub docker: containers are files under $STUB/containers/<name> holding "<project>|<image>|<mount>".
 set -u
 if [[ "$1 $2" == "container inspect" ]]; then
   if [[ "$3" == -f ]]; then
-    IFS='|' read -r project image < "$STUB/containers/$5"
-    case "$4" in *compose.project*) echo "$project" ;; *Image*) echo "$image" ;; esac
+    IFS='|' read -r project image mount < "$STUB/containers/$5"
+    case "$4" in *compose.project*) echo "$project" ;; *Image*) echo "$image" ;; *Mounts*) echo "$mount" ;; esac
     exit 0
   fi
   [[ -f "$STUB/containers/$3" ]]
   exit
+fi
+if [[ "$1 $2" == "ps -aq" ]]; then
+  ls "$STUB/containers"
+  exit 0
 fi
 if [[ "$1" == rm ]]; then
   rm "$STUB/containers/$3" && echo "$3" >> "$STUB/removed"
@@ -60,15 +65,18 @@ class RetireHandStartedMartin(unittest.TestCase):
             path = self.stub / "bin" / name
             path.write_text(text, encoding="utf-8")
             path.chmod(path.stat().st_mode | stat.S_IEXEC)
+        self.config = self.stub / "martin.yaml"
+        self.config.write_text("synthetic\n", encoding="utf-8")
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def container(self, name, project="", image=MARTIN):
-        (self.stub / "containers" / name).write_text(f"{project}|{image}\n", encoding="utf-8")
+    def container(self, name, project="", image=MARTIN, mount=""):
+        (self.stub / "containers" / name).write_text(f"{project}|{image}|{mount}\n", encoding="utf-8")
 
     def run_script(self):
-        env = dict(os.environ, STUB=str(self.stub), PATH=f"{self.stub / 'bin'}:{os.environ['PATH']}")
+        env = dict(os.environ, STUB=str(self.stub), PATH=f"{self.stub / 'bin'}:{os.environ['PATH']}",
+                   RETIRE_MARTIN_STATIC_CONFIG=str(self.config))
         return subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, env=env, check=False)
 
     def removed(self):
@@ -82,6 +90,22 @@ class RetireHandStartedMartin(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(sorted(self.removed()), ["martin-complex", "martin-static"])
         self.assertIn("martin-static: removed (no connection on :3111)", result.stdout)
+        self.assertIn(f"config {self.config}: removed (no container mounts it)", result.stdout)
+        self.assertFalse(self.config.exists())
+        self.assertIn(f"config {self.config}: gone", self.run_script().stdout)
+
+    def test_the_config_stays_while_martin_static_exists_or_any_container_mounts_it(self):
+        self.container("martin-static", project="foundation-platform-tiles")
+        result = self.run_script()
+        self.assertIn(f"config {self.config}: kept, martin-static still exists", result.stdout)
+        self.assertTrue(self.config.exists())
+
+        (self.stub / "containers" / "martin-static").unlink()
+        self.container("someone-else", image="nginx:1", mount=str(self.config))
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"config {self.config}: kept, mounted by someone-else", result.stdout)
+        self.assertTrue(self.config.exists())
 
     def test_a_declared_another_image_or_a_connected_container_is_kept_and_gone_is_said(self):
         self.container("martin-static", project="foundation-platform-tiles")

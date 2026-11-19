@@ -14,14 +14,21 @@
 #
 # A container is removed only while it is still that one: no Compose project label (a declared
 # service of that name is the deploy's, never this script's), the Martin image, and no established
-# connection on its port. Otherwise it is left and the line says why. Removing is `docker rm -f`;
-# the config files under /home/perfectory stay, so `docker run` with the September arguments brings
-# one back.
+# connection on its port. Otherwise it is left and the line says why. Removing is `docker rm -f`.
 #
-#     retire-hand-started-martin.sh        prints one line per container; exit 0 unless docker fails
+# Then martin-static's hand-made config file goes too: it is the one file on the host that holds the
+# tile reader's R2 key in plain text (the repository's martin-static-production.yaml reads it from the
+# environment). The owner's rule is no rotation, so the copy is deleted instead (2026-11-19). Measured
+# read-only that day: only martin-static mounts it, no unit, crontab or repository file names it. It is
+# removed only once martin-static is gone and no container, running or stopped, mounts it.
+#
+#     retire-hand-started-martin.sh        prints one line per container and one for the config;
+#                                          exit 0 unless docker or rm fails
 set -Eeuo pipefail
 
 declare -A PORTS=([martin-complex]=3110 [martin-static]=3111)
+# The hand-made file (a test points this at its own copy).
+STATIC_CONFIG="${RETIRE_MARTIN_STATIC_CONFIG:-/home/perfectory/tile-static/martin.yaml}"
 status=0
 for name in martin-complex martin-static; do
   port="${PORTS[${name}]}"
@@ -51,4 +58,25 @@ for name in martin-complex martin-static; do
     status=1
   fi
 done
+
+if [[ ! -e "${STATIC_CONFIG}" ]]; then
+  echo "retire-hand-started-martin config ${STATIC_CONFIG}: gone"
+elif docker container inspect martin-static >/dev/null 2>&1; then
+  echo "retire-hand-started-martin config ${STATIC_CONFIG}: kept, martin-static still exists"
+else
+  mounted_by=""
+  for id in $(docker ps -aq); do
+    if docker container inspect -f '{{range .Mounts}}{{.Source}}{{println}}{{end}}' "${id}" | grep -Fxq "${STATIC_CONFIG}"; then
+      mounted_by+=" ${id}"
+    fi
+  done
+  if [[ -n "${mounted_by}" ]]; then
+    echo "retire-hand-started-martin config ${STATIC_CONFIG}: kept, mounted by${mounted_by}"
+  elif rm -f -- "${STATIC_CONFIG}"; then
+    echo "retire-hand-started-martin config ${STATIC_CONFIG}: removed (no container mounts it)"
+  else
+    echo "retire-hand-started-martin config ${STATIC_CONFIG}: rm failed" >&2
+    status=1
+  fi
+fi
 exit "${status}"

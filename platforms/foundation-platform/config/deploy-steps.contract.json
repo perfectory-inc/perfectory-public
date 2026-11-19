@@ -38,7 +38,7 @@
       "inputs": ["scripts/ops/redact-logged-credentials.py"]
     },
     "retire-hand-started-martin": {
-      "$comment": "one-off: scripts/ops/retire-hand-started-martin.sh says when it ends. Runs once per host (and again only if the script changes, or while a container was kept): removes the two Martin containers started by hand with docker run in September 2026 (root ADR-0112 §10, ADR-0343 §5), each only while it has no Compose label, runs the Martin image and has no established connection on its port (measured 2026-11-18: none, and every served tile unit addressed to tiles.perfectory.io).",
+      "$comment": "one-off: scripts/ops/retire-hand-started-martin.sh says when it ends. Runs once per host (and again only if the script changes, or while a container was kept): removes the two Martin containers started by hand with docker run in September 2026 (root ADR-0112 §10, ADR-0343 §5), each only while it has no Compose label, runs the Martin image and has no established connection on its port (measured 2026-11-18: none, and every served tile unit addressed to tiles.perfectory.io); then martin-static's hand-made config, the one host file with the tile reader's R2 key in plain text, once nothing mounts it (owner 2026-11-19: no rotation, delete the copy).",
       "inputs": ["scripts/ops/retire-hand-started-martin.sh"]
     },
     "postgres-chain": {

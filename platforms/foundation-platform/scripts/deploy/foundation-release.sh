@@ -1133,8 +1133,9 @@ redact_logged_credentials() {
 
 # one-off: scripts/ops/retire-hand-started-martin.sh says when it ends; this goes with it. The two Martin
 # containers an operator started by hand in September 2026 (root ADR-0112 §10, ADR-0343 §5) are removed
-# while they are still those: no Compose label, the Martin image, no connection on their port. Recorded
-# only when both are gone, so a deploy that kept one asks again; it never stops a deploy.
+# while they are still those: no Compose label, the Martin image, no connection on their port; then
+# martin-static's hand-made config with the plain-text R2 key. Recorded only when nothing was kept, so a
+# deploy that kept one asks again; it never stops a deploy.
 retire_hand_started_martin() {
   local steps="${release_root}/current/scripts/deploy/deploy_steps.py" gate=0 report
   local script="${release_root}/current/scripts/ops/retire-hand-started-martin.sh"
@@ -1144,7 +1145,7 @@ retire_hand_started_martin() {
   [[ "${gate}" != 3 ]] || return 0
   if report="$(bash "${script}")"; then
     printf '%s\n' "${report}" >&2
-    if [[ "$(grep -c ': gone$\|: removed ' <<<"${report}")" == 2 ]]; then
+    if ! grep -q ': kept' <<<"${report}"; then
       python3 -I -B "${steps}" ran "${release_root}/current" retire-hand-started-martin || true
     fi
   else
