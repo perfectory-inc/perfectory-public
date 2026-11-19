@@ -82,3 +82,5 @@
   허용 목록에 박힌 서드파티 액션.
 - 공개 저장소에 이슈가 켜진다. 외부인도 이슈를 열 수 있다는 대가를 이슈 하나의 가시성과 바꾼다.
 - 예약 실행은 하루에 Rust 설치 + `cargo metadata` 6번 + 심은 권고 2개를 쓴다(표준 러너, 무료).
+
+개정 각주(2026-11-18): 7항의 "쓰기 권한은 그 잡의 `issues: write` 하나뿐" 은 [ADR-0570](./0570-the-repository-is-compared-with-tools-github-every-day-and-a-silent-renovate-while-main-has-advisories-opens-the-same-issue.md) 이 같은 파일에 쓰는 잡 하나(`Repository drift and Renovate pulse`, 같은 권한)를 더했다. 둘 다 크레이트를 읽는 잡과 분리되어 있다.
