@@ -139,6 +139,8 @@ RULES = {
             "platforms/foundation-platform/services/foundation-outbox-publisher/Cargo.toml",
             "platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs",
             "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/static_release_toolchain.rs",
+            # The Windows gate runs the verifier through this crate's own binary (root ADR-0581).
+            "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/bin/verify-static-release-toolchain.rs",
             "scripts/tiles/static_release_toolchain_contract.py",
         ],
         "prefixes": [
@@ -250,6 +252,7 @@ REQUIRED_WITNESSES = {
         "installer": "scripts/tiles/static_release_toolchain_contract.py",
         "embedded verifier": "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/static_release_toolchain.rs",
         "command entrypoint": "platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs",
+        "Windows gate entrypoint": "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/bin/verify-static-release-toolchain.rs",
     },
     "dagster-observe": {
         "runner": "scripts/verify/foundation-dagster-observe.sh",
