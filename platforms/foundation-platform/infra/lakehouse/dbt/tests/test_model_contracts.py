@@ -409,6 +409,12 @@ class FoundationDbtModelContractTest(unittest.TestCase):
             "silver.court_auction_case_object": (
                 "사건상세 목록의 건물명 원문 — 표시용(식별은 법원·사건·목록번호와 법정동 코드·지번, root ADR-0540)"
             ),
+            "silver.court_auction_dividend_notice": (
+                "배당요구종기공고 대표 물건의 건물명 원문 — 표시용(식별은 법원·사건, root ADR-0575 §6)"
+            ),
+            "silver.court_auction_dividend_object": (
+                "배당요구종기공고 물건의 건물명 원문 — 표시용(식별은 법원·사건·목록번호와 등기 고유번호, root ADR-0575 §6)"
+            ),
             "silver.court_auction_survey_object": (
                 "현황조사 목록의 건물명 원문 — 표시용(식별은 법원·사건·회차·목록번호, root ADR-0540)"
             ),

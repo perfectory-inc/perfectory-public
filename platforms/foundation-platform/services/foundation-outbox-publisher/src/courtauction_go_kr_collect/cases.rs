@@ -197,9 +197,10 @@ pub(crate) fn last_reads_of<'a>(
     for row in rows {
         let key: Option<CaseKey> = ["court_office_code", "case_no"]
             .iter()
-            .map(|column| text(&row[*column]))
+            .map(|column| row.get(*column).and_then(text))
             .collect();
-        let (Some(key), Some(snapshot)) = (key, text(&row["source_snapshot_id"])) else {
+        let (Some(key), Some(snapshot)) = (key, row.get("source_snapshot_id").and_then(text))
+        else {
             continue;
         };
         let Some(day) = run_day(&snapshot) else {
@@ -207,7 +208,7 @@ pub(crate) fn last_reads_of<'a>(
         };
         let read = LastRead {
             day,
-            fingerprint: text(&row["list_fingerprint"]),
+            fingerprint: row.get("list_fingerprint").and_then(text),
         };
         match out.get(&key) {
             Some((seen, _)) if *seen >= snapshot => {}
@@ -510,7 +511,16 @@ mod tests {
             .iter()
             .map(|d| d.role.as_str())
             .collect();
-        assert_eq!(roles, ["case_detail", "case_survey", "case_appraisal"]);
+        assert_eq!(
+            roles,
+            [
+                "case_detail",
+                "case_survey",
+                "case_appraisal",
+                "case_filings",
+                "case_survey_report"
+            ]
+        );
         assert!(contract.collection.pace.contains_key(&documents.pace_group));
         assert!(documents.per_run_limit >= 40_000);
         let key = vec!["B999999".to_owned(), "20990130000001".to_owned()];
@@ -529,6 +539,12 @@ mod tests {
                 ["dma_srchCurstExmndcRletIndctLst"]["ordTsCnt"],
             json!(""),
             "an empty round asks the newest"
+        );
+        // 문건·송달, as its screen (PGJ15AF03) sends it (root ADR-0575 §4).
+        assert_eq!(
+            request_body(documents, &documents.documents[3], &key, None),
+            json!({"dma_srchDlvrOfdocDts": {"cortOfcCd": "B999999", "csNo": "20990130000001",
+                   "srchFlag": "F"}})
         );
     }
 
