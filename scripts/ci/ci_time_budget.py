@@ -9,7 +9,7 @@ max(updated_at) - min(run_started_at): what an author waits from push to the las
     judge    read that JSON, warn for every attempt of the newest week over budget, and exit 1
              when that week's p50 is over budget (2 when the week measured nothing).
 
-`measure` also reports the runner wait (root ADR-0420 Consequences, ADR-0582): for an even sample
+`measure` also reports the runner wait (root ADR-0582): for an even sample
 of each week's completed runs per event, every job that took a runner contributes
 started_at - created_at. The wait is reported, never judged: the budget is the wall time only.
 
@@ -35,7 +35,7 @@ CONTRACT = ROOT / "tools" / "ci" / "ci-time-budget.contract.json"
 API = "https://api.github.com"
 # The runs API returns at most 1,000 results for a filtered query, silently.
 API_RESULT_CAP = 1000
-# The events whose runner wait the trend reports (root ADR-0420): what an author, the merge queue and
+# The events whose runner wait the trend reports (root ADR-0582): what an author, the merge queue and
 # main's deploy each wait for. Sampled runs per week and event: the jobs API is one request per run
 # and GITHUB_TOKEN allows 1,000 requests an hour for the whole repository. Week of 2026-11-09: 2,248
 # pull_request, 2,500 merge_group and 956 push runs, about 60 list pages; 4 weeks x (60 + 3 x 25 job

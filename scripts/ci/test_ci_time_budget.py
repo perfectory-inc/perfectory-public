@@ -147,7 +147,7 @@ def job(wait_s, conclusion="success", steps=True, base=MONDAY):
 
 
 class RunnerWaitTest(unittest.TestCase):
-    """Root ADR-0420 Consequences / ADR-0582: the weekly report carries the runner wait percentiles."""
+    """Root ADR-0582: the weekly report carries the runner wait percentiles."""
 
     def test_only_jobs_that_took_a_runner_count(self):
         waits = tb.job_waits([job(30), job(5, conclusion="skipped"), job(9, conclusion="cancelled", steps=False),

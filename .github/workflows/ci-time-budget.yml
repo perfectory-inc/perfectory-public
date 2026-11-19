@@ -1,7 +1,7 @@
 name: ci-time-budget
 # Weekly trend of pull request CI wall time against the one budget in
 # tools/ci/ci-time-budget.contract.json (root ADR-0203), and the runner wait per event beside it
-# (root ADR-0420, ADR-0582; reported, not judged). It gates no pull request:
+# (root ADR-0582; reported, not judged). It gates no pull request:
 # a red run here means last week's median PR waited longer than the budget.
 on:
   schedule:
