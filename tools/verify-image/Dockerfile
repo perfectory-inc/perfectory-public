@@ -21,11 +21,13 @@ ENV COREPACK_HOME=/opt/corepack \
     PATH=/opt/pnpm:$PATH
 RUN mkdir -p "$COREPACK_HOME" "$PNPM_HOME" /pnpm/store \
   && corepack enable --install-directory "$PNPM_HOME" \
-  && corepack prepare pnpm@9.12.0 --activate
+  && corepack prepare pnpm@12.21.0 --activate
 WORKDIR /warm/profile-gateway
 COPY platforms/foundation-platform/services/foundation-profile-gateway/package.json ./package.json
 COPY platforms/foundation-platform/services/foundation-profile-gateway/pnpm-lock.yaml ./pnpm-lock.yaml
-# `pnpm fetch` omits platform-specific optional packages in pnpm 9 even when the
+# The overrides and allowBuilds (esbuild, workerd) the install needs; pnpm 11+ reads them only here.
+COPY platforms/foundation-platform/services/foundation-profile-gateway/pnpm-workspace.yaml ./pnpm-workspace.yaml
+# `pnpm fetch` omitted platform-specific optional packages (pnpm 9) even when the
 # lockfile contains them.  workerd and esbuild resolve their Linux binaries
 # through optionalDependencies, so perform the exact Linux install while the
 # image still has network access and retain its content-addressed store only.

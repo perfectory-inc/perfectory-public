@@ -155,8 +155,20 @@ deferred="$(python3 -I -B "${job_units}" deferred-dir)" || refuse "cannot read w
 # A job a running deploy holds starts nothing until the release is live (root ADR-0565 §5): pausing a
 # DAG or stopping a sensor stops new decisions only, not a retry, a queued run or a run-now, and every
 # one of them comes through here. It waits like a build and is owed the same way.
+# One start at a time from the pool's answer to systemd's unit (job_units.py ADMISSION_LOCK): pool-full
+# counts what runs and the memory left, and a start asked beside another saw the room that one was
+# about to take. The lock is let go for every wait, so a waiting start holds no one up.
+admission_lock="$(python3 -I -B "${job_units}" admission-lock)" || refuse "cannot read where the admission lock is"
+admission_seconds="${FOUNDATION_ADMISSION_LOCK_SECONDS:-120}"
+admit() {
+  [[ "${checking}" == false ]] || return 0
+  mkdir -p "$(dirname "${admission_lock}")" && exec 7>>"${admission_lock}" || refuse "cannot open ${admission_lock}"
+  flock -w "${admission_seconds}" 7 || refuse "another start held ${admission_lock} for ${admission_seconds} seconds"
+}
+admitted() { [[ "${checking}" == true ]] || flock -u 7; }
 waited=0
 while :; do
+  admit
   build=0
   "${admission}" release-build-running || build=$?
   held="$(python3 -I -B "${job_units}" deploy-holds "${job}")" || refuse "cannot read what the deploy holds"
@@ -168,6 +180,7 @@ while :; do
       || refuse "systemd cannot tell what holds the pool of ${job}"
   fi
   ((build == 75)) || [[ -n "${full}" ]] || break
+  admitted
   if [[ "${checking}" == true ]]; then
     # The check's own ExecStartPre would refuse and alert. No answer lets the run start, and the run
     # is the one deferred and recorded.
@@ -260,6 +273,8 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 [[ -n "${invocation}" ]] || refuse "${service} reported no invocation"
+# systemd has the unit: the next pool-full counts it.
+admitted
 if [[ "${checking}" == false ]]; then
   date +%s >"${starts}/${job}.next" && mv "${starts}/${job}.next" "${starts}/${job}"
   rm -f "${deferred}/${job}" # it runs now: nothing is owed to it

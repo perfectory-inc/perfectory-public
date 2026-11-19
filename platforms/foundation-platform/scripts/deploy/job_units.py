@@ -5,6 +5,7 @@
     job_units.py running <unit|pattern>...     each matching service that runs, "<unit> <ActiveState>"
     job_units.py deferred-dir                  where the runner records a job a release build deferred
     job_units.py deferred                      the job ids recorded there, one per line
+    job_units.py admission-lock                the lock a start holds from its pool-full answer to its unit
     job_units.py pool-full <jobs.v1.json> <job id|service>
                                                why the job's pool has no room for it now, or the host no
                                                memory for what it claims (root ADR-0563), or nothing
@@ -68,15 +69,16 @@ QUEUE_DIR = "/var/lib/foundation-jobs/queue"
 # also appended to the history.
 STARTED_SUFFIX = ".started.json"
 QUEUE_HISTORY = "history.jsonl"
+# The one lock every start holds from its pool-full answer until systemd has its unit (start-scheduled-job.sh):
+# the answer reads what runs and the memory left, so two starts that asked at once both saw the same room.
+# Beside the queue, the scheduler's own directory; flock needs only a read of the file.
+ADMISSION_LOCK = "admission.lock"
 # When each job last started (start-scheduled-job.sh writes it, one file per job id holding the epoch
 # second; a check that found nothing to do counts as its start, root ADR-0305). Beside the queue, so the
 # asset reconciler (foundation-platform) reads what the takes_turns rule reads (root ADR-0467): it was
 # under the scheduler's 0750 home, which only the scheduler could read, and a refusal made before the
 # queue existed (2026-11-09 11:40Z, data_go_kr_file_data's first run) had no record anything could see.
 STARTS_DIR = "/var/lib/foundation-jobs/queue/starts"
-# Written by the deploy once it has copied the start records of the home's old directory over, so a
-# job with no record here is one that never started, not one whose record was not copied yet.
-STARTS_SEEDED = ".seeded"
 # Every outcome the scheduler's runner said for a job (root ADR-0480): one appended line per run, check
 # answer or start it did not make, beside the queue, read by the asset reconciler and the readiness
 # report. A run used to leave its outcome only in its own journal and a start the runner refused left
@@ -254,19 +256,20 @@ def queue_dir() -> str:
     return os.environ.get("FOUNDATION_START_QUEUE_DIR") or QUEUE_DIR
 
 
+def admission_lock() -> str:
+    return os.path.join(queue_dir(), ADMISSION_LOCK)
+
+
 def starts_dir() -> str:
     return os.environ.get("FOUNDATION_SCHEDULED_STARTS_DIR") or STARTS_DIR
 
 
-def last_starts() -> dict[str, int] | None:
-    """{job id: when it last started, epoch seconds}, or None until the deploy has seeded the records
-    (STARTS_SEEDED): before that a job with no record may only have one the deploy has not copied yet."""
-    if not os.path.exists(os.path.join(starts_dir(), STARTS_SEEDED)):
-        return None
+def last_starts() -> dict[str, int]:
+    """{job id: when it last started, epoch seconds}; a job with no record never started."""
     found = {}
     for name in sorted(os.listdir(starts_dir())):
         if not JOB_ID.fullmatch(name):
-            continue  # the marker, or a partial write (`.next`)
+            continue  # a partial write (`.next`)
         try:
             with open(os.path.join(starts_dir(), name), encoding="utf-8") as handle:
                 found[name] = int(handle.read().strip())
@@ -687,6 +690,9 @@ def main(argv) -> int:
         for unit, state in sorted(units.items()):
             print(unit, state)
         return 0
+    if argv == ["admission-lock"]:
+        print(admission_lock())
+        return 0
     if len(argv) == 3 and argv[0] == "pool-full":
         try:
             print(pool_full(argv[1], argv[2]))
@@ -765,7 +771,7 @@ def main(argv) -> int:
         print("\n".join(deferred()))
         return 0
     print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>... | deferred-dir | deferred"
-          " | pool-full <jobs.v1.json> <job id|service> | claim <jobs.v1.json> <claimant> <unit>"
+          " | admission-lock | pool-full <jobs.v1.json> <job id|service> | claim <jobs.v1.json> <claimant> <unit>"
           " | release <claimant> | queue <job id> <reason> | dequeue <job id> | preempted <jobs.v1.json> <job id> | leftover-failed <jobs.v1.json>"
           " | unretried-failed | record-outcome <job id> <outcome line> [run|check] [invocation]",
           file=sys.stderr)

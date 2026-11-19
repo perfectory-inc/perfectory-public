@@ -73,7 +73,8 @@ git -C "$repo" archive --format=tar "$commit" products/gongzzang platforms/found
     cd /src/products/gongzzang
     corepack enable >&2
     # OpenNext bundles from a flat node_modules; pnpm's isolated layout hides next's optional peers.
-    echo 'node-linker=hoisted' >>.npmrc
+    # pnpm 11 and later read settings from pnpm_config_* variables or pnpm-workspace.yaml, not .npmrc.
+    export pnpm_config_node_linker=hoisted
     pnpm install --frozen-lockfile --filter '@gongzzang/web...' >&2
     pnpm --filter @gongzzang/web add -D @opennextjs/cloudflare@${OPENNEXT_VERSION} wrangler@${WRANGLER_VERSION} >&2
     cd apps/web

@@ -50,6 +50,12 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+# Staff sessions in Postgres (root ADR-0116 §7): records and their expiry from tower-sessions; the
+# memory store for tests and a local http run.
+tower-sessions-core = { version = "0.15", features = ["deletion-task"] }
+tower-sessions-memory-store = "0.15"
+tower-sessions-sqlx-store = { version = "0.16", features = ["postgres"] }
+time = "0.3"
 thiserror = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "signal", "net"] }
 tower = { version = "0.5", features = ["util"] }

@@ -326,7 +326,7 @@ jobs:
         if: ${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}
         uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093  # v6.0.8 (SHA pin, ADR 0028)
         with:
-          version: 9.12.0
+          version: 12.21.0
 
       - name: Set up Node
         if: ${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}
@@ -521,10 +521,15 @@ jobs:
 
       - name: Run supply-chain tools (cargo-deny, SBOM)
         shell: bash
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
           mkdir -p target/supply-chain-tools
-          cargo-deny check --hide-inclusion-graph
+          # Root ADR-0568: a change that leaves Cargo.lock and deny.toml as they are is not judged on
+          # their advisories here (the repository OSV gate and the daily check on main are).
+          (cd "$GITHUB_WORKSPACE" && cargo xtask ci cargo-deny platforms/foundation-platform --locked --hide-inclusion-graph)
           source_version="${GITHUB_SHA:-$(git rev-parse --verify HEAD)}"
           syft "dir:." --exclude='./.git/**' --exclude='./target/**' --source-name=foundation-platform --source-version="$source_version" --output=cyclonedx-json=target/supply-chain-tools/cyclonedx-bom.json
 
@@ -866,6 +871,7 @@ jobs:
       FOUNDATION_ADMIN_PASSWORD: compose_admin_ci
       FOUNDATION_MIGRATOR_PASSWORD: compose_migrator_ci
       FOUNDATION_API_PASSWORD: compose_api_ci
+      DAWNEER_SESSION_DATABASE_PASSWORD: compose_dawneer_session_ci
       FOUNDATION_DB_PORT: 15434
       FOUNDATION_API_PORT: 18080
       FOUNDATION_REDIS_PORT: 16379

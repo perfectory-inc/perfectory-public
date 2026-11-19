@@ -589,10 +589,17 @@ def rewrite_data_files_sql(catalog: str, table: str, compaction: dict[str, Any],
     concatenates files as they come and turned gold.parcel_panel's 34 PNU-range files into 9 files
     that each span the whole country (2026-10-26, root ADR-0307).
 
-    `reasons` add their `REASON_OPTIONS`."""
+    `reasons` add their `REASON_OPTIONS`.
+
+    `min-file-size-bytes` is the small file the trigger counts (`small_file_bytes`). Left out, Iceberg
+    1.11.0 takes 75% of the target (SizeBasedFileRewritePlanner.MIN_FILE_SIZE_DEFAULT_RATIO), 384 MiB
+    of 512: the trigger fired on ten files under 128 MiB and the rewrite then read every file under
+    384 MiB, fresh 200-300 MiB files included. Files with deletes are still chosen by their deletes
+    and `rewrite-all` still takes every file (BinPackRewriteFilePlanner.filterFiles)."""
     options = {
         "min-input-files": compaction["min_input_files"],
         "target-file-size-bytes": compaction["target_file_bytes"],
+        "min-file-size-bytes": small_file_bytes(compaction),
         "partial-progress.enabled": "true",
         "partial-progress.max-commits": compaction["partial_progress_max_commits"],
     }
@@ -737,6 +744,11 @@ def file_shape(spark: Any, qualified: str) -> tuple[int, int]:
     return int(row.c), int(row.b)
 
 
+def small_file_bytes(compaction: dict[str, Any]) -> int:
+    """Under this a data file is small: what the trigger counts and what the rewrite takes."""
+    return int(compaction["target_file_bytes"] * compaction["trigger_small_file_fraction"])
+
+
 def small_file_count(spark: Any, qualified: str, target_bytes: int, fraction: float) -> int:
     """How many files sit under a fraction of the target size.
 
@@ -802,8 +814,10 @@ def maintain_table(
         else:
             ordered = column is not None
             result = spark.sql(rewrite_data_files_sql(catalog, table, compaction, ordered, reasons)).collect()[0]
-            print(f"maintenance-done step=compaction reasons={','.join(reasons)} read={result[0]} "
-                  f"wrote={result[1]} sorted={ordered} {measured}", flush=True)
+            # rewritten_bytes_count: the bytes the rewrite wrote (Iceberg 1.11.0 procedure output). The journal
+            # keeps only maintenance-done lines (lakehouse-maintenance.sh), so the line names its table.
+            print(f"maintenance-done step=compaction table={table} reasons={','.join(reasons)} read={result[0]} "
+                  f"wrote={result[1]} rewritten_bytes={result[2]} sorted={ordered} {measured}", flush=True)
 
     if "snapshot_expiry" in skip:
         print("maintenance-skip step=snapshot_expiry", flush=True)

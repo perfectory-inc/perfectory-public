@@ -133,5 +133,19 @@ if bash "$checker" "$fixture" >/dev/null 2>&1; then
   echo 'FAIL technology-version-consistency-self-test: Foundation Worker TypeScript drift was accepted' >&2
   exit 1
 fi
+sed -i "s/\"typescript\": \"0.0.1\"/\"typescript\": \"$typescript_pin\"/" \
+  "$fixture/platforms/foundation-platform/services/foundation-profile-gateway/package.json"
+
+# Root ADR-0572: the pnpm pin's copies outside the manifests.
+mkdir -p "$fixture/.github/workflows" "$fixture/tools/verify-image"
+printf '%s\n' 'jobs:' '  a:' '    steps:' '      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6' '        with:' "          version: $pnpm_pin" > "$fixture/.github/workflows/a.yml"
+printf '%s\n' 'FROM node' "RUN corepack prepare pnpm@$pnpm_pin --activate" > "$fixture/tools/verify-image/Dockerfile"
+git -C "$fixture" add .
+bash "$checker" "$fixture" >/dev/null
+sed -i "s/version: $pnpm_pin/version: 0.0.1/" "$fixture/.github/workflows/a.yml"
+expect_refused "a pnpm/action-setup version other than the pnpm pin"
+sed -i "s/version: 0.0.1/version: $pnpm_pin/" "$fixture/.github/workflows/a.yml"
+sed -i "s/pnpm@$pnpm_pin/pnpm@0.0.1/" "$fixture/tools/verify-image/Dockerfile"
+expect_refused "a corepack prepare of a pnpm other than the pin"
 
 echo 'OK technology-version-consistency-self-test'
