@@ -81,7 +81,12 @@ describe("dev cookie helpers (no prefix, localhost HTTP 호환)", () => {
 });
 
 describe("sealAuthState / unsealAuthState", () => {
-  const payload = { code_verifier: "v".repeat(43), state: "s1", nonce: "n1", return_to: "/listings" };
+  const payload = {
+    code_verifier: "v".repeat(43),
+    state: "s1",
+    nonce: "n1",
+    return_to: "/listings",
+  };
 
   it("roundtrips, and the seal does not show the verifier or nonce", async () => {
     const { sealAuthState, unsealAuthState } = await import("@/lib/session/cookie");

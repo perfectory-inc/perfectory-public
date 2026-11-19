@@ -4,11 +4,7 @@ import { NextRequest } from "next/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as callbackGET } from "@/app/api/auth/callback/route";
 import { POST as loginPOST } from "@/app/api/auth/login/route";
-import {
-  AUTH_STATE_COOKIE_NAME,
-  SID_COOKIE_NAME,
-  unsealAuthState,
-} from "@/lib/session/cookie";
+import { AUTH_STATE_COOKIE_NAME, SID_COOKIE_NAME, unsealAuthState } from "@/lib/session/cookie";
 import { __resetRedisForTest, getRedis } from "@/lib/session/redis";
 
 vi.mock("next-intl/server", () => ({
