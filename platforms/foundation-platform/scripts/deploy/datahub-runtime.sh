@@ -119,13 +119,6 @@ ingest() {
     acryldata/datahub-ingestion:v1.7.0.1@sha256:8845102fd495f2589e1ffc00dbd85cee3cbb700abc20d62fac1929ce95535620 \
     ingest -c "/recipes/$1.yml" || status=$?
   rm -f "${names}"
-  # The job's outcome line (root ADR-0171): an ingest writes the catalog, never a lakehouse table, so a
-  # finished run changed nothing the pipeline reads.
-  if ((status == 0)); then
-    printf 'foundation-job-outcome unchanged\n'
-  else
-    printf 'foundation-job-outcome failed the %s ingest exited %s\n' "$1" "${status}"
-  fi
   return "${status}"
 }
 

@@ -87,8 +87,8 @@ class WhatTheHostMaySend(unittest.TestCase):
 @unittest.skipUnless(HAS_AIRLIFT, NEEDS_AIRLIFT)
 class WhatAirflowMaySend(unittest.TestCase):
     def test_airlifts_documents_and_the_terminate_and_nothing_of_the_hosts(self):
-        from dagster_airlift.in_airflow.gql_queries import RUNS_QUERY, TRIGGER_ASSETS_MUTATION, VERIFICATION_QUERY
-
+        q = dagster_writes.airlift_queries()
+        RUNS_QUERY, TRIGGER_ASSETS_MUTATION, VERIFICATION_QUERY = q.RUNS_QUERY, q.TRIGGER_ASSETS_MUTATION, q.VERIFICATION_QUERY
         allowed = dagster_writes.airflow_allowed()
         for raw in (body(VERIFICATION_QUERY), body(TRIGGER_ASSETS_MUTATION, {"executionParams": launch_params()}),
                     body(RUNS_QUERY, {"runId": RUN}), body(dagster_writes.TERMINATE_RUN, {"runId": RUN})):

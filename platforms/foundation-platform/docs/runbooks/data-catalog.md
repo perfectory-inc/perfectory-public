@@ -38,9 +38,8 @@ Foundation 과 같은 장비에서 돈다.
 
 `scripts/deploy/datahub-runtime.sh ingest lakehouse-iceberg` 가 `infra/datahub/recipes/lakehouse-iceberg.yml` 로
 레이크하우스 카탈로그의 모든 표(이름·칸·타입·스냅숏)를 읽어 온다. 행은 읽지 않는다. 레시피의 `${변수}` 는 실행하는
-프로세스의 환경에서 이름으로만 넘기며 값을 찍지 않는다(R2 reader 키·카탈로그 읽기 전용 토큰). 매일 06:40 UTC 에
-작업 `datahub_ingest_lakehouse`(`foundation-datahub-ingest@lakehouse-iceberg.service`)가 돌린다(루트 ADR-0117 2026-11-19
-각주). 손으로 다시 돌릴 때는 Dawneer 의 run-now 를 쓴다.
+프로세스의 환경에서 이름으로만 넘기며 값을 찍지 않는다(R2 reader 키·카탈로그 토큰). 매일 실행은 Airflow 가 맡는다
+(ADR-0118); 그 전까지는 손으로 돌린다.
 
 선언 흐름(`seed_declared_lineage.py`)은 레이크하우스 표를 같은 `iceberg` 엔티티에 붙인다 — 설명·선언 상태는
 사람 편집 설명칸에, 흐름은 작업(job)으로. 그래서 한 표에 계획(설명·흐름)과 실물(칸·스냅숏)이 함께 보인다.
@@ -55,9 +54,7 @@ Foundation 과 같은 장비에서 돈다.
 
 ## 데이터 계약 등록
 
-`contracts/data/*.odcs.yaml`(ADR-0123, 생성물)을 등록한다. 매일 06:50 UTC 에 작업 `datahub_ingest_contracts`
-(`foundation-datahub-ingest@data-contracts.service`)가 배포된 릴리스의 계약을 등록한다. 지금은 꺼져 있다
-(`disabled_reason`: 새로 등록될 약 110개 계약의 첫 실패가 바로 경보가 되므로, 품질 작업의 보고만 하는 주가 먼저). 손으로는:
+`contracts/data/*.odcs.yaml`(ADR-0123, 생성물)을 등록한다. 계약 파일이 바뀐 릴리스를 배포한 뒤 돌린다.
 
 ```bash
 bash /opt/foundation-platform/current/scripts/deploy/datahub-runtime.sh ingest data-contracts

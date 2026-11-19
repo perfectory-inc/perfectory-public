@@ -14,6 +14,7 @@ inputs=(
   "scripts/catalog/render-pipeline-map.py"
   "scripts/catalog/pipeline_graph.py"
   "platforms/foundation-platform/orchestration/dags/job_specs.py"
+  "platforms/foundation-platform/orchestration/dags/dagster_writes.py"
   "platforms/foundation-platform/infra/datahub/dataset_names.py"
   "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json"
 )

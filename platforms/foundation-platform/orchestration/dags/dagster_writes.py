@@ -153,15 +153,30 @@ HOST = {
 }
 
 
+def airlift_queries():
+    """dagster-airlift's `in_airflow/gql_queries.py` loaded as one file: the package's `__init__` refuses
+    to import where Airflow is absent, as in the Dagster image the gate runs in; the file itself imports
+    nothing (1.13.27)."""
+    import importlib.util  # noqa: PLC0415
+
+    package = importlib.util.find_spec("dagster_airlift")
+    if package is None or not package.submodule_search_locations:
+        raise ImportError("dagster-airlift is not installed beside the gate")
+    path = os.path.join(next(iter(package.submodule_search_locations)), "in_airflow", "gql_queries.py")
+    spec = importlib.util.spec_from_file_location("dagster_airlift_gql_queries", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def airflow_allowed() -> dict:
     """What a proxied `run` task sends: dagster-airlift's own documents, as installed beside the gate (the
     Dagster image and the Airflow image pin the same version), and the terminate the DAG file adds."""
-    from dagster_airlift.in_airflow.gql_queries import RUNS_QUERY, TRIGGER_ASSETS_MUTATION, VERIFICATION_QUERY  # noqa: PLC0415
-
+    q = airlift_queries()
     return {
-        normal(VERIFICATION_QUERY): _no_variables,
-        normal(TRIGGER_ASSETS_MUTATION): _launch("executionParams"),
-        normal(RUNS_QUERY): _one("runId", RUN_ID),
+        normal(q.VERIFICATION_QUERY): _no_variables,
+        normal(q.TRIGGER_ASSETS_MUTATION): _launch("executionParams"),
+        normal(q.RUNS_QUERY): _one("runId", RUN_ID),
         normal(TERMINATE_RUN): _one("runId", RUN_ID),
     }
 

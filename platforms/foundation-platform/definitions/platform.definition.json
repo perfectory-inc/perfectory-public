@@ -1214,11 +1214,6 @@
             "memory_max": "2G",
             "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the collector runs natively like the onbid collector (1843M measured); no run logged yet; systemd logs the peak of every run under this cap"
           },
-          "foundation-datahub-ingest@.service": {
-            "class": "batch",
-            "memory_max": "256M",
-            "measured": "not run under a cap yet; the unit itself is bash and the docker CLI (tens of MiB), and the ingestion runs in a container capped at 1 GiB at its run site (scripts/deploy/datahub-runtime.sh, 124 MiB measured 2026-10-18); systemd logs the peak of every run under this cap"
-          },
           "foundation-data-quality.service": {
             "class": "batch",
             "memory_max": "512M",
