@@ -101,6 +101,8 @@ C 로 옮길 때 소유자가 할 일(코드는 별도 PR — 정책 가드가 �
   맡는다. 다만 기준선 갱신 규칙(새 기준선 행은 사람이)과 base 보고서의 출처(같은 잡에서 base 를 한 번 더 스캔)를
   정하는 별도 ADR 이 먼저다. 7.로 막힘 시간이 "사람이 고칠 때까지"에서 "한 줄 명령까지"로 줄었으므로 그 다음에 판단한다.
 
+개정 각주(2026-11-18): "무관한 PR 을 막지 않기" 의 차등 판정은 [ADR-0568](./0568-a-new-advisory-on-a-lockfile-a-change-leaves-as-it-is-warns-while-its-fix-is-open-and-blocks-again-when-the-grace-ends.md) 이 정했다(건드리지 않은 lockfile + 열린 고침 PR + 심각도별 유예).
+
 ## Consequences
 
 - 7개 manifest 가 계약 렌더로 바뀌었고 lock 7개를 핀 툴체인으로 다시 만들었다. 해석이 바뀐 것은 하나뿐이다:
@@ -123,5 +125,3 @@ C 로 옮길 때 소유자가 할 일(코드는 별도 PR — 정책 가드가 �
 개정 각주(2026-10-28, 경로 이동): 본문이 가리키는 경로 중 지금 없는 것과 그 행방.
 
 - `scripts/ci/osv-vulnerability-gate.sh` → `cargo xtask ci osv-gate`(`tools/xtask/src/ci.rs`, #798)
-
-개정 각주(2026-11-18): "무관한 PR 을 막지 않기" 의 차등 판정은 [ADR-0568](./0568-a-new-advisory-on-a-lockfile-a-change-leaves-as-it-is-warns-while-its-fix-is-open-and-blocks-again-when-the-grace-ends.md) 이 정했다(건드리지 않은 lockfile + 열린 고침 PR + 심각도별 유예).
