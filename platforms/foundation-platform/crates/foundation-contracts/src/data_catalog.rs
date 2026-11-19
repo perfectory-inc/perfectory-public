@@ -714,7 +714,7 @@ pub struct ByPnuCutovers {
 /// them from the identity API when it shows a row.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct AuditEventView {
-    /// Its place in the chain, from 1 without a gap.
+    /// Its place in the record's order; a rolled-back write leaves a gap.
     pub seq: i64,
     /// The event's id.
     pub event_id: String,
@@ -765,10 +765,8 @@ pub struct AuditEventView {
     pub error: Option<String>,
     /// The id every event of one change shares.
     pub change_id: Option<String>,
-    /// The row before's hash, lowercase hex.
-    pub prev_hash: String,
-    /// This row's hash, lowercase hex: `sha256(prev_hash || canon(row))`.
-    pub row_hash: String,
+    /// The transaction that wrote it (`xid8`): the digest whose snapshot first sees it covers it.
+    pub txid: String,
 }
 
 /// One page of the audit chain, newest first.
@@ -793,16 +791,23 @@ pub struct AuditImportSource {
     pub advanced_at: DateTime<Utc>,
 }
 
-/// The newest digest of the chain and its public witness (root ADR-0569 §4).
+/// One digest of the record and its public witness (root ADR-0584 §2): it covers the rows written
+/// by transactions its `to_snapshot` sees and its `from_snapshot` did not.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct AuditDigestView {
-    /// The first row it covers.
-    pub from_seq: i64,
-    /// The last row it covers.
-    pub to_seq: i64,
-    /// The `row_hash` of `to_seq`.
-    pub head_hash: String,
-    /// The digest's SHA-256, lowercase hex.
+    /// Its number; one more than the digest before.
+    pub digest_no: i64,
+    /// The digest before's snapshot (`pg_snapshot`); absent for the first.
+    pub from_snapshot: Option<String>,
+    /// The snapshot it was made in.
+    pub to_snapshot: String,
+    /// How many rows it covers.
+    pub row_count: i64,
+    /// The SHA-256 of those rows in `seq` order, lowercase hex.
+    pub rows_sha256: String,
+    /// The digest before's `digest_sha256`; absent for the first.
+    pub previous_digest_sha256: Option<String>,
+    /// The digest's SHA-256, lowercase hex: what the public log holds.
     pub digest_sha256: String,
     /// Its entry in the public Rekor log, once witnessed.
     pub rekor_log_index: Option<i64>,

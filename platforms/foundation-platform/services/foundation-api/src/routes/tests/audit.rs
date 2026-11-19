@@ -1,10 +1,10 @@
-//! The audit chain routes (root ADR-0569 §7): who may read them, the `seq` pages, `me`, and that an
-//! export ends with the digest and is itself recorded.
+//! The audit record routes (root ADR-0569 §7, ADR-0584 §3): who may read them, the `seq` pages,
+//! `me`, and that an export ends with its digests and its snapshot cursor and is itself recorded.
 
 use super::*;
 use catalog_application::ports::{
-    AuditAppend, AuditDigestHead, AuditEvent, AuditEventFilter, AuditEventStore, AuditImportStatus,
-    AuditStoreError,
+    AuditAppend, AuditDigest, AuditEvent, AuditEventFilter, AuditEventStore, AuditExport,
+    AuditImportStatus, AuditStoreError,
 };
 
 const STAFF: &str = "00000000-0000-4000-8000-0000000000aa";
@@ -86,12 +86,26 @@ fn event(seq: i64) -> AuditEvent {
         result: "requested".to_owned(),
         error: None,
         change_id: None,
-        prev_hash: "00".repeat(32),
-        row_hash: format!("{seq:064x}"),
+        txid: (1_000 + seq).to_string(),
+    }
+}
+
+fn digest(rows: i64) -> AuditDigest {
+    AuditDigest {
+        digest_no: 1,
+        from_snapshot: None,
+        to_snapshot: format!("{0}:{0}:", 1_001 + rows),
+        row_count: rows,
+        rows_sha256: "cd".repeat(32),
+        previous_digest_sha256: None,
+        digest_sha256: "ab".repeat(32),
+        rekor_log_index: Some(42),
+        made_at: chrono::DateTime::from_timestamp(1_763_510_400, 0).unwrap_or_default(),
     }
 }
 
 /// Holds rows 1..=`rows` and answers pages the way the database does: newest first, before a seq.
+/// One digest covers them all.
 #[derive(Default)]
 struct Chain {
     rows: i64,
@@ -129,15 +143,26 @@ impl AuditEventStore for Chain {
         }])
     }
 
-    async fn latest_digest(&self) -> Result<Option<AuditDigestHead>, AuditStoreError> {
-        Ok(Some(AuditDigestHead {
-            from_seq: 1,
-            to_seq: self.rows,
-            head_hash: format!("{:064x}", self.rows),
-            digest_sha256: "ab".repeat(32),
-            rekor_log_index: Some(42),
-            made_at: chrono::DateTime::from_timestamp(1_763_510_400, 0).unwrap_or_default(),
-        }))
+    async fn export(
+        &self,
+        filter: &AuditEventFilter,
+        max: u32,
+    ) -> Result<AuditExport, AuditStoreError> {
+        if self.down {
+            return Err(AuditStoreError::Unavailable("synthetic outage".to_owned()));
+        }
+        self.asked.lock().await.push(filter.clone());
+        let take = usize::try_from(max).unwrap_or_default() + 1;
+        Ok(AuditExport {
+            events: (1..=self.rows).take(take).map(event).collect(),
+            cursor: format!("{0}:{0}:", 1_001 + self.rows),
+            digests: vec![digest(self.rows)],
+            uncovered: 0,
+        })
+    }
+
+    async fn latest_digest(&self) -> Result<Option<AuditDigest>, AuditStoreError> {
+        Ok(Some(digest(self.rows)))
     }
 }
 
@@ -251,7 +276,7 @@ async fn a_bad_filter_is_refused_before_the_chain_is_read() -> Result<(), Box<dy
 }
 
 #[tokio::test]
-async fn an_export_is_oldest_first_ends_with_the_digest_and_is_recorded(
+async fn an_export_is_oldest_first_ends_with_its_digests_and_cursor_and_is_recorded(
 ) -> Result<(), Box<dyn Error>> {
     let chain = Arc::new(Chain {
         rows: 1_200,
@@ -260,7 +285,7 @@ async fn an_export_is_oldest_first_ends_with_the_digest_and_is_recorded(
     let (status, headers, body) = get_with(
         Arc::new(AuditReader),
         chain.clone(),
-        "/data-catalog/v1/audit/events/export?source=dawneer",
+        "/data-catalog/v1/audit/events/export?source=dawneer&after=1000:1000:",
     )
     .await?;
     assert_eq!(status, StatusCode::OK);
@@ -275,11 +300,22 @@ async fn an_export_is_oldest_first_ends_with_the_digest_and_is_recorded(
         .lines()
         .map(serde_json::from_str)
         .collect::<Result<_, _>>()?;
-    assert_eq!(lines.len(), 1_201, "every row and the digest line");
+    assert_eq!(
+        lines.len(),
+        1_202,
+        "every row, the digest line and the cursor line"
+    );
     assert_eq!(lines[0]["seq"], 1);
+    assert_eq!(lines[0]["txid"], "1001");
     assert_eq!(lines[1_199]["seq"], 1_200);
-    assert_eq!(lines[1_200]["digest"]["to_seq"], 1_200);
+    assert_eq!(lines[1_200]["digest"]["row_count"], 1_200);
     assert_eq!(lines[1_200]["digest"]["rekor_log_index"], 42);
+    assert_eq!(lines[1_201]["cursor"], "2201:2201:");
+    assert_eq!(lines[1_201]["uncovered"], 0);
+    assert_eq!(
+        chain.asked.lock().await[0].after_snapshot.as_deref(),
+        Some("1000:1000:")
+    );
     let appended = chain.appended.lock().await.clone();
     assert_eq!(appended.len(), 1);
     assert_eq!(appended[0].action, "audit.exported");
@@ -294,6 +330,47 @@ async fn an_export_is_oldest_first_ends_with_the_digest_and_is_recorded(
     let after = appended[0].after.clone().unwrap_or_default();
     assert_eq!(after["rows"], 1_200);
     assert_eq!(after["source"], "dawneer");
+    assert_eq!(after["after"], "1000:1000:");
+    assert_eq!(after["cursor"], "2201:2201:");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_export_cursor_that_is_not_a_snapshot_is_refused() -> Result<(), Box<dyn Error>> {
+    for after in ["seq:12", "1:2", "1:2:x", "-1:2:", "1:2:3,,4"] {
+        let chain = Arc::new(Chain {
+            rows: 3,
+            ..Chain::default()
+        });
+        let (status, _, _) = get_with(
+            Arc::new(AuditReader),
+            chain.clone(),
+            &format!("/data-catalog/v1/audit/events/export?after={after}"),
+        )
+        .await?;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{after}");
+        assert!(chain.asked.lock().await.is_empty(), "{after}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_export_wider_than_its_limit_is_refused_not_cut() -> Result<(), Box<dyn Error>> {
+    let chain = Arc::new(Chain {
+        rows: 50_001,
+        ..Chain::default()
+    });
+    let (status, _, _) = get_with(
+        Arc::new(AuditReader),
+        chain.clone(),
+        "/data-catalog/v1/audit/events/export",
+    )
+    .await?;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        chain.appended.lock().await.is_empty(),
+        "a refused export is not recorded as given"
+    );
     Ok(())
 }
 
@@ -310,7 +387,16 @@ async fn a_csv_export_has_one_header_line_and_quotes_what_it_must() -> Result<()
     )
     .await?;
     assert_eq!(status, StatusCode::OK);
-    assert!(headers.contains_key("x-audit-digest"));
+    assert_eq!(
+        headers.get("x-audit-cursor").and_then(|v| v.to_str().ok()),
+        Some("1003:1003:")
+    );
+    assert_eq!(
+        headers
+            .get("x-audit-uncovered")
+            .and_then(|v| v.to_str().ok()),
+        Some("0")
+    );
     let text = String::from_utf8(body)?;
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines.len(), 3);

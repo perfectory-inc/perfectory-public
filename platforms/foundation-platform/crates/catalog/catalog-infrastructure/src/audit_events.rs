@@ -1,21 +1,30 @@
-//! The Postgres audit chain, `audit.event` (root ADR-0569 §2, §3, §7).
+//! The Postgres audit record, `audit.event` (root ADR-0569 §2, §3; ADR-0584).
 //!
 //! Reads are plain `SELECT`s the API role is granted; the one write is `audit.append`, which the
-//! database answers for: it refuses a source this role may not write.
+//! database answers for: it refuses a source this role may not write. A write takes no lock, so
+//! nothing here waits for one (root ADR-0584 §1).
 
 use async_trait::async_trait;
 use catalog_application::ports::{
-    AuditAppend, AuditDigestHead, AuditEvent, AuditEventFilter, AuditEventStore, AuditImportStatus,
-    AuditStoreError,
+    AuditAppend, AuditDigest, AuditEvent, AuditEventFilter, AuditEventStore, AuditExport,
+    AuditImportStatus, AuditStoreError,
 };
+use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 
 /// The most rows one read answers.
 pub const AUDIT_PAGE_MAX: u32 = 500;
 
-/// How long a write waits for the chain's lock before it gives up (root ADR-0569 §3). The importer
-/// writes at most 50 rows a transaction, so a request waits for one batch at most.
-pub const AUDIT_LOCK_TIMEOUT: &str = "2s";
+const EVENT_COLUMNS: &str = "seq, event_id, occurred_at, recorded_at, source, source_event_id,
+    action, operation, actor_kind, actor_staff_id, actor_subject, actor_external, actor_verified,
+    on_behalf_of, object_type, object_id, before, after, reason, applied_via_kind,
+    applied_via_ref, result, error, change_id, txid::text AS txid";
+
+const DIGEST_COLUMNS: &str = "d.digest_no, d.from_snapshot::text AS from_snapshot,
+    d.to_snapshot::text AS to_snapshot, d.row_count, encode(d.rows_sha256, 'hex') AS rows_sha256,
+    encode(d.previous_digest_sha256, 'hex') AS previous_digest_sha256,
+    encode(d.digest_sha256, 'hex') AS digest_sha256, w.rekor_log_index, d.made_at
+    FROM audit.digest d LEFT JOIN audit.digest_witness w USING (digest_no)";
 
 /// Appends an event in `tx` through `audit.append`: the call the ledger trigger's sibling rows and
 /// the API's own events share.
@@ -59,22 +68,7 @@ pub async fn append_in(
     .await
 }
 
-/// Starts a transaction that waits at most [`AUDIT_LOCK_TIMEOUT`] for the chain's lock.
-///
-/// # Errors
-///
-/// Returns the database's error.
-pub async fn begin_bounded(
-    pool: &PgPool,
-) -> Result<sqlx::Transaction<'static, Postgres>, sqlx::Error> {
-    let mut tx = pool.begin().await?;
-    sqlx::query(&format!("SET LOCAL lock_timeout = '{AUDIT_LOCK_TIMEOUT}'"))
-        .execute(&mut *tx)
-        .await?;
-    Ok(tx)
-}
-
-/// Reads and appends the audit chain.
+/// Reads and appends the audit record.
 pub struct PgAuditEventStore {
     pool: PgPool,
 }
@@ -104,57 +98,164 @@ fn like_prefix(prefix: &str) -> String {
     escaped
 }
 
+/// `SELECT <events> FROM audit.event WHERE <every filter given>`.
+fn select_events(filter: &AuditEventFilter) -> QueryBuilder<'static, Postgres> {
+    let mut query = QueryBuilder::<Postgres>::new(format!(
+        "SELECT {EVENT_COLUMNS} FROM audit.event WHERE true"
+    ));
+    if let Some(staff) = filter.actor_staff_id {
+        query.push(" AND actor_staff_id = ").push_bind(staff);
+    }
+    if let Some(external) = &filter.actor_external {
+        query
+            .push(" AND actor_external = ")
+            .push_bind(external.clone());
+    }
+    if let Some(object_type) = &filter.object_type {
+        query
+            .push(" AND object_type = ")
+            .push_bind(object_type.clone());
+    }
+    if let Some(prefix) = &filter.object_id_prefix {
+        query
+            .push(" AND object_id LIKE ")
+            .push_bind(like_prefix(prefix))
+            .push(" ESCAPE '\\'");
+    }
+    if let Some(source) = &filter.source {
+        query.push(" AND source = ").push_bind(source.clone());
+    }
+    if let Some(action) = &filter.action {
+        query.push(" AND action = ").push_bind(action.clone());
+    }
+    if let Some(result) = &filter.result {
+        query.push(" AND result = ").push_bind(result.clone());
+    }
+    if let Some(change) = filter.change_id {
+        query.push(" AND change_id = ").push_bind(change);
+    }
+    if let Some(from) = filter.occurred_from {
+        query.push(" AND occurred_at >= ").push_bind(from);
+    }
+    if let Some(to) = filter.occurred_to {
+        query.push(" AND occurred_at < ").push_bind(to);
+    }
+    if let Some(before) = filter.before_seq {
+        query.push(" AND seq < ").push_bind(before);
+    }
+    if let Some(after) = &filter.after_snapshot {
+        // The rows the cursor's snapshot did not see: the same rule as a digest's range, so a row
+        // committed after a later one is still found (root ADR-0584 §3).
+        query
+            .push(" AND NOT pg_visible_in_snapshot(txid, ")
+            .push_bind(after.clone())
+            .push("::pg_snapshot)");
+    }
+    query
+}
+
+fn event_from(row: &PgRow) -> Result<AuditEvent, sqlx::Error> {
+    Ok(AuditEvent {
+        seq: row.try_get("seq")?,
+        event_id: row.try_get("event_id")?,
+        occurred_at: row.try_get("occurred_at")?,
+        recorded_at: row.try_get("recorded_at")?,
+        source: row.try_get("source")?,
+        source_event_id: row.try_get("source_event_id")?,
+        action: row.try_get("action")?,
+        operation: row.try_get("operation")?,
+        actor_kind: row.try_get("actor_kind")?,
+        actor_staff_id: row.try_get("actor_staff_id")?,
+        actor_subject: row.try_get("actor_subject")?,
+        actor_external: row.try_get("actor_external")?,
+        actor_verified: row.try_get("actor_verified")?,
+        on_behalf_of: row.try_get("on_behalf_of")?,
+        object_type: row.try_get("object_type")?,
+        object_id: row.try_get("object_id")?,
+        before: row.try_get("before")?,
+        after: row.try_get("after")?,
+        reason: row.try_get("reason")?,
+        applied_via_kind: row.try_get("applied_via_kind")?,
+        applied_via_ref: row.try_get("applied_via_ref")?,
+        result: row.try_get("result")?,
+        error: row.try_get("error")?,
+        change_id: row.try_get("change_id")?,
+        txid: row.try_get("txid")?,
+    })
+}
+
+fn digest_from(row: &PgRow) -> Result<AuditDigest, sqlx::Error> {
+    Ok(AuditDigest {
+        digest_no: row.try_get("digest_no")?,
+        from_snapshot: row.try_get("from_snapshot")?,
+        to_snapshot: row.try_get("to_snapshot")?,
+        row_count: row.try_get("row_count")?,
+        rows_sha256: row.try_get("rows_sha256")?,
+        previous_digest_sha256: row.try_get("previous_digest_sha256")?,
+        digest_sha256: row.try_get("digest_sha256")?,
+        rekor_log_index: row.try_get("rekor_log_index")?,
+        made_at: row.try_get("made_at")?,
+    })
+}
+
+/// The export, read in `tx` (one snapshot).
+async fn export_in(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    filter: &AuditEventFilter,
+    max: u32,
+) -> Result<AuditExport, sqlx::Error> {
+    let mut query = select_events(filter);
+    query
+        .push(" ORDER BY seq LIMIT ")
+        .push_bind(i64::from(max) + 1);
+    let events = query
+        .build()
+        .fetch_all(&mut **tx)
+        .await?
+        .iter()
+        .map(event_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    let cursor: String = sqlx::query_scalar("SELECT pg_current_snapshot()::text")
+        .fetch_one(&mut **tx)
+        .await?;
+    let txids: Vec<&str> = events.iter().map(|event| event.txid.as_str()).collect();
+    // Every digest whose range can hold one of these transactions: it must see the transaction
+    // (`txid < xmax(to)`) and the digest before must not have (`txid >= xmin(from)`). Bounded by the
+    // rows' own span, never the whole table of digests.
+    let digests = sqlx::query(&format!(
+        "WITH t AS (SELECT min(x) AS lo, max(x) AS hi FROM unnest($1::text[]::xid8[]) x)
+         SELECT {DIGEST_COLUMNS}, t
+         WHERE t.lo IS NOT NULL
+           AND t.lo < pg_snapshot_xmax(d.to_snapshot)
+           AND (d.from_snapshot IS NULL OR pg_snapshot_xmin(d.from_snapshot) <= t.hi)
+         ORDER BY d.digest_no"
+    ))
+    .bind(&txids)
+    .fetch_all(&mut **tx)
+    .await?
+    .iter()
+    .map(digest_from)
+    .collect::<Result<Vec<_>, _>>()?;
+    let uncovered: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM unnest($1::text[]::xid8[]) x
+         WHERE NOT coalesce(pg_visible_in_snapshot(x,
+             (SELECT to_snapshot FROM audit.digest ORDER BY digest_no DESC LIMIT 1)), false)",
+    )
+    .bind(&txids)
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(AuditExport {
+        events,
+        cursor,
+        digests,
+        uncovered,
+    })
+}
+
 #[async_trait]
 impl AuditEventStore for PgAuditEventStore {
     async fn page(&self, filter: &AuditEventFilter) -> Result<Vec<AuditEvent>, AuditStoreError> {
-        let mut query = QueryBuilder::<Postgres>::new(
-            "SELECT seq, event_id, occurred_at, recorded_at, source, source_event_id, action, operation,
-                    actor_kind, actor_staff_id, actor_subject, actor_external, actor_verified,
-                    on_behalf_of, object_type, object_id, before, after, reason, applied_via_kind,
-                    applied_via_ref, result, error, change_id, encode(prev_hash, 'hex') AS prev_hash,
-                    encode(row_hash, 'hex') AS row_hash
-             FROM audit.event WHERE true",
-        );
-        if let Some(staff) = filter.actor_staff_id {
-            query.push(" AND actor_staff_id = ").push_bind(staff);
-        }
-        if let Some(external) = &filter.actor_external {
-            query
-                .push(" AND actor_external = ")
-                .push_bind(external.clone());
-        }
-        if let Some(object_type) = &filter.object_type {
-            query
-                .push(" AND object_type = ")
-                .push_bind(object_type.clone());
-        }
-        if let Some(prefix) = &filter.object_id_prefix {
-            query
-                .push(" AND object_id LIKE ")
-                .push_bind(like_prefix(prefix))
-                .push(" ESCAPE '\\'");
-        }
-        if let Some(source) = &filter.source {
-            query.push(" AND source = ").push_bind(source.clone());
-        }
-        if let Some(action) = &filter.action {
-            query.push(" AND action = ").push_bind(action.clone());
-        }
-        if let Some(result) = &filter.result {
-            query.push(" AND result = ").push_bind(result.clone());
-        }
-        if let Some(change) = filter.change_id {
-            query.push(" AND change_id = ").push_bind(change);
-        }
-        if let Some(from) = filter.occurred_from {
-            query.push(" AND occurred_at >= ").push_bind(from);
-        }
-        if let Some(to) = filter.occurred_to {
-            query.push(" AND occurred_at < ").push_bind(to);
-        }
-        if let Some(before) = filter.before_seq {
-            query.push(" AND seq < ").push_bind(before);
-        }
+        let mut query = select_events(filter);
         query
             .push(" ORDER BY seq DESC LIMIT ")
             .push_bind(i64::from(filter.limit.clamp(1, AUDIT_PAGE_MAX)));
@@ -164,42 +265,15 @@ impl AuditEventStore for PgAuditEventStore {
             .await
             .map_err(|error| unavailable(&error))?;
         rows.iter()
-            .map(|row| {
-                Ok(AuditEvent {
-                    seq: row.try_get("seq")?,
-                    event_id: row.try_get("event_id")?,
-                    occurred_at: row.try_get("occurred_at")?,
-                    recorded_at: row.try_get("recorded_at")?,
-                    source: row.try_get("source")?,
-                    source_event_id: row.try_get("source_event_id")?,
-                    action: row.try_get("action")?,
-                    operation: row.try_get("operation")?,
-                    actor_kind: row.try_get("actor_kind")?,
-                    actor_staff_id: row.try_get("actor_staff_id")?,
-                    actor_subject: row.try_get("actor_subject")?,
-                    actor_external: row.try_get("actor_external")?,
-                    actor_verified: row.try_get("actor_verified")?,
-                    on_behalf_of: row.try_get("on_behalf_of")?,
-                    object_type: row.try_get("object_type")?,
-                    object_id: row.try_get("object_id")?,
-                    before: row.try_get("before")?,
-                    after: row.try_get("after")?,
-                    reason: row.try_get("reason")?,
-                    applied_via_kind: row.try_get("applied_via_kind")?,
-                    applied_via_ref: row.try_get("applied_via_ref")?,
-                    result: row.try_get("result")?,
-                    error: row.try_get("error")?,
-                    change_id: row.try_get("change_id")?,
-                    prev_hash: row.try_get("prev_hash")?,
-                    row_hash: row.try_get("row_hash")?,
-                })
-            })
+            .map(event_from)
             .collect::<Result<_, sqlx::Error>>()
             .map_err(|error| unavailable(&error))
     }
 
     async fn append(&self, event: &AuditAppend) -> Result<Option<i64>, AuditStoreError> {
-        let mut tx = begin_bounded(&self.pool)
+        let mut tx = self
+            .pool
+            .begin()
             .await
             .map_err(|error| unavailable(&error))?;
         let seq = append_in(&mut tx, event)
@@ -207,6 +281,29 @@ impl AuditEventStore for PgAuditEventStore {
             .map_err(|error| unavailable(&error))?;
         tx.commit().await.map_err(|error| unavailable(&error))?;
         Ok(seq)
+    }
+
+    async fn export(
+        &self,
+        filter: &AuditEventFilter,
+        max: u32,
+    ) -> Result<AuditExport, AuditStoreError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|error| unavailable(&error))?;
+        // One snapshot for the rows, the cursor and the digests, so the cursor is exactly what the
+        // rows were read in.
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| unavailable(&error))?;
+        let export = export_in(&mut tx, filter, max)
+            .await
+            .map_err(|error| unavailable(&error))?;
+        tx.commit().await.map_err(|error| unavailable(&error))?;
+        Ok(export)
     }
 
     async fn import_status(&self) -> Result<Vec<AuditImportStatus>, AuditStoreError> {
@@ -230,27 +327,17 @@ impl AuditEventStore for PgAuditEventStore {
             .map_err(|error| unavailable(&error))
     }
 
-    async fn latest_digest(&self) -> Result<Option<AuditDigestHead>, AuditStoreError> {
-        let row = sqlx::query(
-            "SELECT from_seq, to_seq, encode(head_hash, 'hex') AS head_hash,
-                    encode(digest_sha256, 'hex') AS digest_sha256, rekor_log_index, made_at
-             FROM audit.digest ORDER BY to_seq DESC LIMIT 1",
-        )
+    async fn latest_digest(&self) -> Result<Option<AuditDigest>, AuditStoreError> {
+        sqlx::query(&format!(
+            "SELECT {DIGEST_COLUMNS} ORDER BY d.digest_no DESC LIMIT 1"
+        ))
         .fetch_optional(&self.pool)
         .await
-        .map_err(|error| unavailable(&error))?;
-        row.map(|row| {
-            Ok(AuditDigestHead {
-                from_seq: row.try_get("from_seq")?,
-                to_seq: row.try_get("to_seq")?,
-                head_hash: row.try_get("head_hash")?,
-                digest_sha256: row.try_get("digest_sha256")?,
-                rekor_log_index: row.try_get("rekor_log_index")?,
-                made_at: row.try_get("made_at")?,
-            })
-        })
+        .map_err(|error| unavailable(&error))?
+        .as_ref()
+        .map(digest_from)
         .transpose()
-        .map_err(|error: sqlx::Error| unavailable(&error))
+        .map_err(|error| unavailable(&error))
     }
 }
 

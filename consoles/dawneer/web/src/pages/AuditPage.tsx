@@ -122,7 +122,7 @@ function EventDetail({ client, event }: { client: DawneerClient; event: AuditEve
         <p>
           원천 id: <span className="font-mono">{event.source_event_id}</span> · 기록 {when(event.recorded_at)}
         </p>
-        <p className="break-all font-mono text-slate-500">row_hash {event.row_hash}</p>
+        <p className="break-all font-mono text-slate-500">트랜잭션 {event.txid}</p>
         {event.change_id ? (
           <div>
             <h3 className="font-semibold text-slate-600">같은 변경</h3>
@@ -149,7 +149,7 @@ function ImportStatus({ client }: { client: DawneerClient }) {
       {" · "}
       증인:{" "}
       {digest
-        ? `#${digest.from_seq}–#${digest.to_seq} ${digest.rekor_log_index === null || digest.rekor_log_index === undefined ? "Rekor 대기" : `Rekor ${digest.rekor_log_index}`}`
+        ? `digest ${digest.digest_no} (${digest.row_count}줄, ${when(digest.made_at)}) ${digest.rekor_log_index === null || digest.rekor_log_index === undefined ? "Rekor 대기" : `Rekor ${digest.rekor_log_index}`}`
         : "아직 없음"}
     </p>
   );

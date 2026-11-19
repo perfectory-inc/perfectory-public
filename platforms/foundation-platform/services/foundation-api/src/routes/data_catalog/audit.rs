@@ -1,8 +1,10 @@
-//! The audit chain, read by account, object and time, and exported (root ADR-0569 §7).
+//! The audit record, read by account, object and time, and exported (root ADR-0569 §7, ADR-0584 §3).
 //!
 //! Every route is staff-only as `foundation.operations:audit_read`. The order is always `seq`, the
-//! chain's own: a filter by time selects rows but never reorders them, so an event imported late is
-//! still found where the chain put it. An export is itself recorded, as `audit.exported`.
+//! record's own: a filter by time selects rows but never reorders them, so an event imported late
+//! is still found where the record put it. A page's `seq` cursor only pages the screen; an export's
+//! cursor is the snapshot it was read in, so the next export from it misses no row committed late.
+//! An export is itself recorded, as `audit.exported`.
 
 use std::sync::Arc;
 
@@ -11,7 +13,7 @@ use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use catalog_application::ports::{
-    AuditAppend, AuditDigestHead, AuditEvent, AuditEventFilter, AuditStoreError,
+    AuditAppend, AuditDigest, AuditEvent, AuditEventFilter, AuditExport, AuditStoreError,
 };
 use chrono::{DateTime, Utc};
 use foundation_contracts::data_catalog::{
@@ -31,7 +33,7 @@ const PAGE_DEFAULT: u32 = 100;
 const PAGE_MAX: u32 = 500;
 /// Rows one export answers at most. The chain grows by fewer than 100 rows a day (root ADR-0569
 /// §5), so this is more than a year; a wider export is refused rather than cut short.
-const EXPORT_MAX: usize = 50_000;
+const EXPORT_MAX: u32 = 50_000;
 
 /// Which events to read. Every filter given must hold.
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -89,6 +91,8 @@ pub(super) struct AuditExportQuery {
     from: Option<DateTime<Utc>>,
     /// Happened before (RFC 3339).
     to: Option<DateTime<Utc>>,
+    /// Only rows this snapshot did not see: the `cursor` of the export before.
+    after: Option<String>,
 }
 
 fn parse_uuid(name: &str, value: &str) -> Result<Uuid, ApiError> {
@@ -140,8 +144,31 @@ impl AuditEventQuery {
             occurred_from: self.from,
             occurred_to: self.to,
             before_seq: self.before_seq,
+            after_snapshot: None,
             limit,
         })
+    }
+}
+
+/// A `pg_snapshot` as text, `xmin:xmax:xip,...` (PostgreSQL 17 「Snapshot Information
+/// Functions」): checked here so that a bad cursor is a 400, not a database error.
+fn snapshot_cursor(value: Option<&String>) -> Result<Option<String>, ApiError> {
+    let Some(value) = word("after", value)? else {
+        return Ok(None);
+    };
+    let mut parts = value.splitn(3, ':');
+    let number = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
+    let well_formed = matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some(xmin), Some(xmax), Some(xip))
+            if number(xmin) && number(xmax) && (xip.is_empty() || xip.split(',').all(number))
+    );
+    if well_formed {
+        Ok(Some(value))
+    } else {
+        Err(ApiError::BadRequest(
+            "after must be the cursor of an earlier export".to_owned(),
+        ))
     }
 }
 
@@ -176,16 +203,18 @@ fn view(event: AuditEvent) -> AuditEventView {
         result: event.result,
         error: event.error,
         change_id: event.change_id.map(|id| id.to_string()),
-        prev_hash: event.prev_hash,
-        row_hash: event.row_hash,
+        txid: event.txid,
     }
 }
 
-fn digest_view(digest: AuditDigestHead) -> AuditDigestView {
+fn digest_view(digest: AuditDigest) -> AuditDigestView {
     AuditDigestView {
-        from_seq: digest.from_seq,
-        to_seq: digest.to_seq,
-        head_hash: digest.head_hash,
+        digest_no: digest.digest_no,
+        from_snapshot: digest.from_snapshot,
+        to_snapshot: digest.to_snapshot,
+        row_count: digest.row_count,
+        rows_sha256: digest.rows_sha256,
+        previous_digest_sha256: digest.previous_digest_sha256,
         digest_sha256: digest.digest_sha256,
         rekor_log_index: digest.rekor_log_index,
         made_at: digest.made_at,
@@ -234,7 +263,7 @@ fn csv_field(value: &str) -> String {
     }
 }
 
-const CSV_COLUMNS: [&str; 26] = [
+const CSV_COLUMNS: [&str; 25] = [
     "seq",
     "event_id",
     "occurred_at",
@@ -259,8 +288,7 @@ const CSV_COLUMNS: [&str; 26] = [
     "result",
     "error",
     "change_id",
-    "prev_hash",
-    "row_hash",
+    "txid",
 ];
 
 fn csv_row(event: &AuditEventView) -> String {
@@ -293,8 +321,7 @@ fn csv_row(event: &AuditEventView) -> String {
         event.result.clone(),
         text(&event.error),
         text(&event.change_id),
-        event.prev_hash.clone(),
-        event.row_hash.clone(),
+        event.txid.clone(),
     ];
     fields
         .iter()
@@ -303,10 +330,12 @@ fn csv_row(event: &AuditEventView) -> String {
         .join(",")
 }
 
-// Each row carries its `seq` and `row_hash`. A JSON Lines export ends with one `{"digest": ...}`
-// line: the newest digest and its Rekor entry, against which the rows' hashes are checked. A CSV
-// export carries the same in the `X-Audit-Digest` header. The export itself is recorded in the
-// chain as `audit.exported`, with the filters it used.
+// Each row carries its `seq` and `txid`. A JSON Lines export ends with one `{"digest": ...}` line
+// for each digest whose range reaches the rows' transactions (with its Rekor entry), then one
+// `{"cursor": ..., "uncovered": n}` line: the snapshot the rows were read in, to pass as `after` to
+// the next export, and how many rows no digest covers yet. A CSV export carries the cursor and the
+// count in the `X-Audit-Cursor` and `X-Audit-Uncovered` headers. The export itself is recorded as
+// `audit.exported`, with the filters it used.
 /// Exports every event the filters select, oldest first, as JSON Lines or CSV.
 #[utoipa::path(
     get,
@@ -315,7 +344,7 @@ fn csv_row(event: &AuditEventView) -> String {
     params(AuditExportQuery),
     responses(
         (status = 200, description = "`application/x-ndjson` or `text/csv`, oldest first", content_type = "application/x-ndjson", body = String),
-        (status = 400, description = "An unknown format, an actor or change id that is not a UUID (or `me`), a filter longer than one line of 300 bytes, or a `from` not before `to`", body = ApiErrorResponse),
+        (status = 400, description = "An unknown format, an actor or change id that is not a UUID (or `me`), an `after` that is not an export's cursor, a filter longer than one line of 300 bytes, or a `from` not before `to`", body = ApiErrorResponse),
         (status = 401, description = "No staff identity"),
         (status = 403, description = "Principal may not read the audit chain"),
         (status = 422, description = "More than 50,000 events; narrow the filters", body = ApiErrorResponse),
@@ -351,19 +380,36 @@ pub(super) async fn export_audit_events(
         limit: Some(PAGE_MAX),
     };
     let mut filter = page.filter(&principal)?;
-    let events = every_selected_event(&state, &mut filter).await?;
-    let digest = state
+    filter.after_snapshot = snapshot_cursor(query.after.as_ref())?;
+    let AuditExport {
+        events,
+        cursor,
+        digests,
+        uncovered,
+    } = state
         .audit_events
-        .latest_digest()
+        .export(&filter, EXPORT_MAX)
         .await
-        .map_err(|error| store_unavailable(&error))?
-        .map(digest_view);
+        .map_err(|error| store_unavailable(&error))?;
+    if events.len() > EXPORT_MAX as usize {
+        return Err(ApiError::Unprocessable(format!(
+            "more than {EXPORT_MAX} events; narrow the filters"
+        )));
+    }
+    let events: Vec<AuditEventView> = events.into_iter().map(view).collect();
 
     let export_id = Uuid::new_v4();
-    record_export(&state, &principal, &filter, &events, csv, export_id).await?;
+    record_export(
+        &state, &principal, &filter, &events, csv, export_id, &cursor,
+    )
+    .await?;
 
-    let digest_json = json!({ "digest": digest });
-    let (content_type, extension, body) = export_body(&events, &digest_json, csv)?;
+    let trailer = ExportTrailer {
+        digests: digests.into_iter().map(digest_view).collect(),
+        cursor,
+        uncovered,
+    };
+    let (content_type, extension, body) = export_body(&events, &trailer, csv)?;
     let mut response = (StatusCode::OK, body).into_response();
     let headers = response.headers_mut();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
@@ -372,38 +418,18 @@ pub(super) async fn export_audit_events(
     )) {
         headers.insert(header::CONTENT_DISPOSITION, disposition);
     }
-    if let Ok(digest) = HeaderValue::from_str(&digest_json["digest"].to_string()) {
-        headers.insert("x-audit-digest", digest);
+    if let Ok(cursor) = HeaderValue::from_str(&trailer.cursor) {
+        headers.insert("x-audit-cursor", cursor);
     }
+    headers.insert("x-audit-uncovered", HeaderValue::from(trailer.uncovered));
     Ok(response)
 }
 
-/// Every event the filters select, oldest first, at most `EXPORT_MAX`.
-async fn every_selected_event(
-    state: &AppState,
-    filter: &mut AuditEventFilter,
-) -> Result<Vec<AuditEventView>, ApiError> {
-    let mut events = Vec::new();
-    loop {
-        let batch = state
-            .audit_events
-            .page(filter)
-            .await
-            .map_err(|error| store_unavailable(&error))?;
-        let full = u32::try_from(batch.len()).is_ok_and(|count| count == filter.limit);
-        filter.before_seq = batch.last().map(|event| event.seq);
-        events.extend(batch.into_iter().map(view));
-        if events.len() > EXPORT_MAX {
-            return Err(ApiError::Unprocessable(format!(
-                "more than {EXPORT_MAX} events; narrow the filters"
-            )));
-        }
-        if !full {
-            break;
-        }
-    }
-    events.reverse();
-    Ok(events)
+/// What follows an export's rows.
+struct ExportTrailer {
+    digests: Vec<AuditDigestView>,
+    cursor: String,
+    uncovered: i64,
 }
 
 /// Records the export in the chain as `audit.exported`, with the filters it used. An export that
@@ -415,6 +441,7 @@ async fn record_export(
     events: &[AuditEventView],
     csv: bool,
     export_id: Uuid,
+    cursor: &str,
 ) -> Result<(), ApiError> {
     let filters = json!({
         "format": if csv { "csv" } else { "jsonl" },
@@ -428,6 +455,8 @@ async fn record_export(
         "change_id": filter.change_id.map(|id| id.to_string()),
         "from": filter.occurred_from,
         "to": filter.occurred_to,
+        "after": filter.after_snapshot,
+        "cursor": cursor,
         "rows": events.len(),
         "from_seq": events.first().map(|event| event.seq),
         "to_seq": events.last().map(|event| event.seq),
@@ -466,10 +495,10 @@ async fn record_export(
     Ok(())
 }
 
-/// The export body: a CSV table, or JSON Lines that end with the `{"digest": ...}` line.
+/// The export body: a CSV table, or JSON Lines that end with the digests and the cursor.
 fn export_body(
     events: &[AuditEventView],
-    digest_json: &serde_json::Value,
+    trailer: &ExportTrailer,
     csv: bool,
 ) -> Result<(&'static str, &'static str, String), ApiError> {
     Ok(if csv {
@@ -488,7 +517,13 @@ fn export_body(
             })?);
             body.push('\n');
         }
-        body.push_str(&digest_json.to_string());
+        for digest in &trailer.digests {
+            body.push_str(&json!({ "digest": digest }).to_string());
+            body.push('\n');
+        }
+        body.push_str(
+            &json!({ "cursor": trailer.cursor, "uncovered": trailer.uncovered }).to_string(),
+        );
         body.push('\n');
         ("application/x-ndjson", "jsonl", body)
     })

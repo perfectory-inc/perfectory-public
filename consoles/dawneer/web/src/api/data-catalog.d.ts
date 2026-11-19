@@ -971,7 +971,7 @@ export interface components {
         AuditEventView: {
             /**
              * Format: int64
-             * @description Its place in the chain, from 1 without a gap.
+             * @description Its place in the record's order; a rolled-back write leaves a gap.
              */
             seq: number;
             /** @description The event's id. */
@@ -1029,10 +1029,8 @@ export interface components {
             error?: string | null;
             /** @description The id every event of one change shares. */
             change_id?: string | null;
-            /** @description The row before's hash, lowercase hex. */
-            prev_hash: string;
-            /** @description This row's hash, lowercase hex: `sha256(prev_hash || canon(row))`. */
-            row_hash: string;
+            /** @description The transaction that wrote it (`xid8`): the digest whose snapshot first sees it covers it. */
+            txid: string;
         };
         /** @description One page of the audit chain, newest first. */
         AuditEventPage: {
@@ -1058,21 +1056,30 @@ export interface components {
              */
             advanced_at: string;
         };
-        /** @description The newest digest of the chain and its public witness (root ADR-0569 §4). */
+        /**
+         * @description One digest of the record and its public witness (root ADR-0584 §2): it covers the rows written
+         *     by transactions its `to_snapshot` sees and its `from_snapshot` did not.
+         */
         AuditDigestView: {
             /**
              * Format: int64
-             * @description The first row it covers.
+             * @description Its number; one more than the digest before.
              */
-            from_seq: number;
+            digest_no: number;
+            /** @description The digest before's snapshot (`pg_snapshot`); absent for the first. */
+            from_snapshot?: string | null;
+            /** @description The snapshot it was made in. */
+            to_snapshot: string;
             /**
              * Format: int64
-             * @description The last row it covers.
+             * @description How many rows it covers.
              */
-            to_seq: number;
-            /** @description The `row_hash` of `to_seq`. */
-            head_hash: string;
-            /** @description The digest's SHA-256, lowercase hex. */
+            row_count: number;
+            /** @description The SHA-256 of those rows in `seq` order, lowercase hex. */
+            rows_sha256: string;
+            /** @description The digest before's `digest_sha256`; absent for the first. */
+            previous_digest_sha256?: string | null;
+            /** @description The digest's SHA-256, lowercase hex: what the public log holds. */
             digest_sha256: string;
             /**
              * Format: int64
@@ -1609,6 +1616,8 @@ export interface operations {
                 from?: string;
                 /** @description Happened before (RFC 3339). */
                 to?: string;
+                /** @description Only rows this snapshot did not see: the `cursor` of the export before. */
+                after?: string;
             };
             header?: never;
             path?: never;
@@ -1625,7 +1634,7 @@ export interface operations {
                     "application/x-ndjson": string;
                 };
             };
-            /** @description An unknown format, an actor or change id that is not a UUID (or `me`), a filter longer than one line of 300 bytes, or a `from` not before `to` */
+            /** @description An unknown format, an actor or change id that is not a UUID (or `me`), an `after` that is not an export's cursor, a filter longer than one line of 300 bytes, or a `from` not before `to` */
             400: {
                 headers: {
                     [name: string]: unknown;

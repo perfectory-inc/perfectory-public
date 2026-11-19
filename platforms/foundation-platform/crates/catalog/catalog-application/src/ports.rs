@@ -1168,10 +1168,10 @@ pub trait OperatorActionLedger: Send + Sync {
     }
 }
 
-/// One row of the audit chain `audit.event` as the console reads it (root ADR-0569 §2).
+/// One row of the audit record `audit.event` as the console reads it (root ADR-0569 §2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditEvent {
-    /// Its place in the chain, from 1 without a gap.
+    /// Its place in the record's order; a rolled-back write leaves a gap (root ADR-0584 §1).
     pub seq: i64,
     /// The event's id.
     pub event_id: Uuid,
@@ -1219,10 +1219,8 @@ pub struct AuditEvent {
     pub error: Option<String>,
     /// The id every event of one change shares.
     pub change_id: Option<Uuid>,
-    /// The row before's hash, lowercase hex.
-    pub prev_hash: String,
-    /// This row's hash, lowercase hex.
-    pub row_hash: String,
+    /// The transaction that wrote it (`xid8` as text): which digest covers it (root ADR-0584 §1).
+    pub txid: String,
 }
 
 /// Which events to read: every filter given must hold. Newest first, by `seq`.
@@ -1250,12 +1248,15 @@ pub struct AuditEventFilter {
     pub occurred_to: Option<chrono::DateTime<chrono::Utc>>,
     /// Only rows before this `seq` (the next page's cursor).
     pub before_seq: Option<i64>,
+    /// Only rows this snapshot (`pg_snapshot` as text) did not see: an export's cursor, so that
+    /// a row committed late is never skipped (root ADR-0584 §3).
+    pub after_snapshot: Option<String>,
     /// At most this many rows.
     pub limit: u32,
 }
 
-/// One event to append through `audit.append` (root ADR-0569 §3). The chain fills `seq`, the
-/// hashes and `recorded_at`; the database checks the caller's role may write `source`.
+/// One event to append through `audit.append` (root ADR-0569 §3, ADR-0584 §1). The record fills
+/// `seq`, `txid` and `recorded_at`; the database checks the caller's role may write `source`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditAppend {
     /// The event's id.
@@ -1305,21 +1306,41 @@ pub struct AuditImportStatus {
     pub advanced_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// The newest digest of the chain and its public witness (root ADR-0569 §4).
+/// One digest of the record and its public witness (root ADR-0584 §2): it covers the rows its
+/// `to_snapshot` sees and its `from_snapshot` did not.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AuditDigestHead {
-    /// The first row it covers.
-    pub from_seq: i64,
-    /// The last row it covers.
-    pub to_seq: i64,
-    /// The `row_hash` of `to_seq`, lowercase hex.
-    pub head_hash: String,
-    /// The digest's SHA-256, lowercase hex.
+pub struct AuditDigest {
+    /// Its number; one more than the digest before.
+    pub digest_no: i64,
+    /// The digest before's snapshot (`pg_snapshot` as text); none for the first.
+    pub from_snapshot: Option<String>,
+    /// The snapshot it was made in.
+    pub to_snapshot: String,
+    /// How many rows it covers.
+    pub row_count: i64,
+    /// The SHA-256 of those rows, lowercase hex.
+    pub rows_sha256: String,
+    /// The digest before's `digest_sha256`; none for the first.
+    pub previous_digest_sha256: Option<String>,
+    /// The digest's SHA-256, lowercase hex: what the public log holds.
     pub digest_sha256: String,
     /// Its entry in the public Rekor log, once witnessed.
     pub rekor_log_index: Option<i64>,
     /// When it was made.
     pub made_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Every row an export selects, read in one snapshot (root ADR-0584 §3).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuditExport {
+    /// The rows, oldest first; at most one more than asked, so the caller can tell it was cut.
+    pub events: Vec<AuditEvent>,
+    /// The snapshot they were read in: the next export's `after_snapshot`.
+    pub cursor: String,
+    /// The digests whose ranges reach the rows' transactions, oldest first.
+    pub digests: Vec<AuditDigest>,
+    /// How many of the rows no digest covers yet.
+    pub uncovered: i64,
 }
 
 /// Why the audit chain could not be read or written.
@@ -1354,12 +1375,24 @@ pub trait AuditEventStore: Send + Sync {
     /// Returns [`AuditStoreError`] when the chain cannot be read.
     async fn import_status(&self) -> Result<Vec<AuditImportStatus>, AuditStoreError>;
 
+    /// Every row the filter selects, oldest first, at most `max + 1`, with the snapshot they
+    /// were read in and the digests that reach them, all read in one snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuditStoreError`] when the chain cannot be read.
+    async fn export(
+        &self,
+        filter: &AuditEventFilter,
+        max: u32,
+    ) -> Result<AuditExport, AuditStoreError>;
+
     /// The newest digest, if any.
     ///
     /// # Errors
     ///
     /// Returns [`AuditStoreError`] when the chain cannot be read.
-    async fn latest_digest(&self) -> Result<Option<AuditDigestHead>, AuditStoreError>;
+    async fn latest_digest(&self) -> Result<Option<AuditDigest>, AuditStoreError>;
 }
 
 /// Why the switch board did not take a request.

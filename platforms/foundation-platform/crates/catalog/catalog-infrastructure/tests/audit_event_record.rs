@@ -439,3 +439,60 @@ async fn the_record_is_never_rewritten_and_a_role_writes_only_its_own_sources(
     }
     tx.rollback().await
 }
+
+/// What one export of `change` after `cursor` gives: its rows' change ids, and the next cursor.
+async fn export_after(
+    store: &catalog_infrastructure::PgAuditEventStore,
+    change: Uuid,
+    cursor: Option<String>,
+) -> Result<(Vec<Uuid>, String), catalog_application::ports::AuditStoreError> {
+    use catalog_application::ports::{AuditEventFilter, AuditEventStore};
+    let export = store
+        .export(
+            &AuditEventFilter {
+                change_id: Some(change),
+                after_snapshot: cursor,
+                limit: 1,
+                ..AuditEventFilter::default()
+            },
+            10,
+        )
+        .await?;
+    let rows = export.events.iter().filter_map(|e| e.change_id).collect();
+    Ok((rows, export.cursor))
+}
+
+/// An export's cursor is the snapshot it read in (ADR-0584 §3): a row whose transaction was still
+/// open at one export is in the next export from that cursor once it commits — never skipped
+/// because a later row was seen first — and an export from the newest cursor gives nothing again.
+#[tokio::test]
+#[ignore = "requires disposable Postgres with Foundation migrations"]
+async fn an_export_cursor_misses_no_row_committed_late() -> Result<(), Box<dyn std::error::Error>> {
+    let pool = pool().await?;
+    let store = catalog_infrastructure::PgAuditEventStore::new(pool.clone());
+    let (_, start) = export_after(&store, Uuid::new_v4(), None).await?;
+
+    let mut long = pool.begin().await?;
+    let late = pause(&mut long).await?;
+    let mut tx = pool.begin().await?;
+    let early = pause(&mut tx).await?;
+    tx.commit().await?;
+
+    let (seen, first) = export_after(&store, early, Some(start.clone())).await?;
+    assert_eq!(seen, vec![early]);
+    let (seen, _) = export_after(&store, late, Some(start)).await?;
+    assert!(seen.is_empty(), "an open transaction's row is not exported");
+
+    long.commit().await?;
+    let (seen, second) = export_after(&store, late, Some(first.clone())).await?;
+    assert_eq!(
+        seen,
+        vec![late],
+        "the late row follows the cursor it missed"
+    );
+    let (seen, _) = export_after(&store, early, Some(first)).await?;
+    assert!(seen.is_empty(), "a row is exported once along the cursors");
+    let (seen, _) = export_after(&store, late, Some(second)).await?;
+    assert!(seen.is_empty(), "the newest cursor gives nothing again");
+    Ok(())
+}

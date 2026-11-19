@@ -7,7 +7,7 @@ use catalog_application::ports::{
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::audit_events::{append_in, begin_bounded};
+use crate::audit_events::append_in;
 
 /// Appends operator requests to `catalog.operator_action`; the table's triggers keep it append-only
 /// and write each request's audit row in the same transaction (root ADR-0569 §3).
@@ -26,11 +26,7 @@ impl PgOperatorActionLedger {
 #[async_trait]
 impl OperatorActionLedger for PgOperatorActionLedger {
     async fn record(&self, record: &OperatorActionRecord) -> Result<(), OperatorActionLedgerError> {
-        let unavailable =
-            |error: sqlx::Error| OperatorActionLedgerError::Unavailable(error.to_string());
-        // The audit trigger waits for the chain's lock; a request waits two seconds at most and is
-        // then refused whole, ledger row and audit row together.
-        let mut tx = begin_bounded(&self.pool).await.map_err(unavailable)?;
+        // The table's audit trigger writes the audit row in this same statement: both or neither.
         sqlx::query(
             "INSERT INTO catalog.operator_action
                  (id, job_id, action, drop_pending, actor, reason, requested_at, expires_at,
@@ -50,10 +46,9 @@ impl OperatorActionLedger for PgOperatorActionLedger {
         .bind(&record.edition)
         .bind(&record.lanes)
         .bind(record.generation)
-        .execute(&mut *tx)
+        .execute(&self.pool)
         .await
-        .map_err(unavailable)?;
-        tx.commit().await.map_err(unavailable)?;
+        .map_err(|error| OperatorActionLedgerError::Unavailable(error.to_string()))?;
         Ok(())
     }
 
@@ -95,7 +90,7 @@ impl OperatorActionLedger for PgOperatorActionLedger {
             error: failure.map(|why| why.chars().take(1000).collect()),
             change_id: Some(record.id),
         };
-        let mut tx = begin_bounded(&self.pool).await.map_err(unavailable)?;
+        let mut tx = self.pool.begin().await.map_err(unavailable)?;
         append_in(&mut tx, &event).await.map_err(unavailable)?;
         tx.commit().await.map_err(unavailable)
     }
