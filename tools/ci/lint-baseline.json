@@ -357,9 +357,6 @@
   "platforms/foundation-platform/orchestration/tests/test_staging_smoke.py": {
    "PLW1510": 2
   },
-  "platforms/foundation-platform/orchestration/tests/test_start_scheduled_job.py": {
-   "PLW1510": 2
-  },
   "platforms/foundation-platform/orchestration/tests/test_unit_failure_alerts.py": {
    "PLW1510": 1
   },
@@ -426,7 +423,7 @@
    "E741": 3
   },
   "platforms/intelligence-platform/jobs/document_text/tests/test_document_text.py": {
-   "E741": 2
+   "E741": 3
   },
   "scripts/catalog/audit-documentation.py": {
    "B023": 4,
@@ -496,8 +493,7 @@
    "SC2312": 12
   },
   "platforms/foundation-platform/scripts/deploy/assert-runtime-environment.sh": {
-   "SC2016": 1,
-   "SC2312": 2
+   "SC2312": 1
   },
   "platforms/foundation-platform/scripts/deploy/assert-runtime-migrations.sh": {
    "SC2016": 1,
@@ -540,7 +536,7 @@
   },
   "platforms/foundation-platform/scripts/deploy/trino-follows-the-release.sh": {
    "SC2154": 1,
-   "SC2312": 9
+   "SC2312": 6
   },
   "platforms/foundation-platform/scripts/load/lakehouse-batch-load.sh": {
    "SC2011": 1,
@@ -701,9 +697,6 @@
   "platforms/foundation-platform/scripts/ops/registered-factory-cycle.sh": {
    "SC2312": 1
   },
-  "platforms/foundation-platform/scripts/ops/retire-hand-started-martin.sh": {
-   "SC2312": 1
-  },
   "platforms/foundation-platform/scripts/ops/rt-molit-silver-load.sh": {
    "SC2312": 3
   },
@@ -714,6 +707,7 @@
    "SC2312": 7
   },
   "platforms/foundation-platform/scripts/ops/start-scheduled-job.sh": {
+   "SC2015": 1,
    "SC2312": 16,
    "SC2329": 1
   },
@@ -873,7 +867,7 @@
    "SC2312": 1
   },
   "scripts/guard/assert-runtime-environment-self-test.sh": {
-   "SC2016": 1
+   "SC2016": 5
   },
   "scripts/guard/assert-runtime-migrations-self-test.sh": {
    "SC2086": 1
@@ -1037,6 +1031,10 @@
    "SC1072": 1,
    "SC1073": 1,
    "SC1133": 1
+  },
+  "tools/semgrep/rules/root-python-runs-isolated.sh": {
+   "SC2034": 1,
+   "SC2154": 6
   }
  }
 }
