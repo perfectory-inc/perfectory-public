@@ -88,12 +88,12 @@ pids+=("$!")
 
 root="$(fixture rule-severity-typo)"
 replace "$root/$rules/foundation-api.rules.yml" "      - alert: FoundationScheduledJobProblem
-        expr: foundation_scheduled_job_problem == 1
+        expr: max without (summary, link) (foundation_scheduled_job_problem) == 1
         for: 1m
         keep_firing_for: 15m
         labels:
           severity: ticket" "      - alert: FoundationScheduledJobProblem
-        expr: foundation_scheduled_job_problem == 1
+        expr: max without (summary, link) (foundation_scheduled_job_problem) == 1
         for: 1m
         keep_firing_for: 15m
         labels:

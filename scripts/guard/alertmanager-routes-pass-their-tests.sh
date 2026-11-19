@@ -123,7 +123,8 @@ while read -r want labels; do
   fi
   rules=$((rules + 1))
   # shellcheck disable=SC2086 # the labels are separate words: name=value name=value
-  got="$("$amtool" config routes test --config.file="$config" $labels 2>&1 | head -n 1)"
+  got="$("$amtool" config routes test --config.file="$config" $labels 2>&1)" || true
+  got="${got%%$'\n'*}"
   if [ "$want" = ticket ] && [ "$got" != slack-ticket ]; then
     echo "FAIL ${name}: the ticket rule {${labels// /, }} reaches ${got}, not slack-ticket" >&2
     rc=1
