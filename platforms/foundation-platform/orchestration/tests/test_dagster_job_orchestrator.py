@@ -7,8 +7,12 @@ code location (the CI `dagster-observe` lane, where a skip fails the lane), so a
 does not take cannot pass here.
 """
 
+import hashlib
 import importlib.util
 import io
+import os
+import socket
+import threading
 import json
 import pathlib
 import sys
@@ -21,6 +25,7 @@ PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PLATFORM / "orchestration" / "dags"))
 sys.path.insert(0, str(PLATFORM / "scripts" / "deploy"))
 
+import dagster_writes  # noqa: E402
 import job_orchestrator  # noqa: E402
 import job_specs  # noqa: E402
 
@@ -45,19 +50,28 @@ def listed():
     }
 
 
+def state_id(name):
+    """A sensor state's id as Dagster makes one: a hex digest."""
+    return hashlib.sha1(name.encode()).hexdigest()
+
+
 class Dagster:
-    """Dagster's GraphQL as job_orchestrator asks it: sensor name -> status, and what it was told."""
+    """Dagster's GraphQL as job_orchestrator asks it: sensor name -> status, and what it was told. Every
+    request is first one the writable webserver's gate lets the host send (dagster_writes.HOST)."""
 
     def __init__(self, sensors):
         self.sensors, self.told = dict(sensors), []
 
     def __call__(self, query, variables):
+        body = json.dumps({"query": query, "variables": variables}).encode()
+        reason = dagster_writes.refused(dagster_writes.HOST, "POST", "/graphql", body)
+        assert reason is None, f"the gate refuses it: {reason}"
         if "sensorsOrError" in query:
             return {"sensorsOrError": {"__typename": "Sensors", "results": [
-                {"name": name, "sensorState": {"id": f"state-{name}", "status": status}}
+                {"name": name, "sensorState": {"id": state_id(name), "status": status}}
                 for name, status in self.sensors.items()]}}
         if "stopSensor" in query:
-            name = variables["id"].removeprefix("state-")
+            name = next(name for name in self.sensors if state_id(name) == variables["id"])
             self.told.append(("stop", name))
             self.sensors[name] = "STOPPED"
             return {"stopSensor": {"__typename": "StopSensorMutationResult"}}
@@ -135,11 +149,32 @@ class TheJobsDagsterDecides(unittest.TestCase):
             job_orchestrator.pause(listed(), ["nightly"], refuses)
         self.assertIn("the location is loading", str(raised.exception))
 
-    def test_dagster_is_asked_only_on_the_hosts_loopback(self):
-        jobs = listed()
-        jobs["observers"]["dagster"]["ui"] = "http://dagster.example:3000"
-        with self.assertRaises(job_orchestrator.Unanswered):
-            job_orchestrator.poster(jobs)
+    @unittest.skipUnless(hasattr(socket, "AF_UNIX") and os.name == "posix", "a unix socket")
+    def test_dagster_is_asked_over_the_writer_socket_and_nothing_answering_is_unanswered(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "writer.sock")
+            with self.assertRaises(job_orchestrator.Unanswered):
+                job_orchestrator.poster(path)("query { version }", {})
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            server.bind(path)
+            server.listen(1)
+            asked = []
+
+            def answer():
+                connection, _ = server.accept()
+                with connection:
+                    asked.append(connection.recv(65536))
+                    payload = json.dumps({"data": {"sensorsOrError": {"__typename": "Sensors", "results": []}}}).encode()
+                    head = (b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n"
+                            b"Connection: close\r\n\r\n")
+                    connection.sendall(head % len(payload) + payload)
+
+            thread = threading.Thread(target=answer)
+            thread.start()
+            self.assertEqual(job_orchestrator.sensor_states(job_orchestrator.poster(path)), {})
+            thread.join()
+            server.close()
+            self.assertTrue(asked[0].startswith(b"POST /graphql HTTP/1.1"))
 
     def run_main(self, *argv, dagster=None):
         with tempfile.TemporaryDirectory() as directory:
@@ -207,6 +242,9 @@ class AgainstDagster(unittest.TestCase):
                                       location_name=job_specs.DAGSTER_LOCATION)
             with WorkspaceProcessContext(instance, target) as process:
                 def post(query, variables):
+                    # Dagster's own ids and answers, through the gate's rules for the host.
+                    body = json.dumps({"query": query, "variables": variables}).encode()
+                    self.assertIsNone(dagster_writes.refused(dagster_writes.HOST, "POST", "/graphql", body))
                     result = execute_dagster_graphql(process.create_request_context(), query, variables)
                     self.assertFalse(result.errors, result.errors)
                     return result.data
@@ -228,6 +266,11 @@ class AgainstDagster(unittest.TestCase):
                 self.assertEqual(run.job_name, "foundation_job__nightly")
                 for key, value in job_specs.run_tags("spark", 300, f"requested {REQUEST}", 60 * 55).items():
                     self.assertEqual(run.tags[key], value)
+                # What the deploy asks after a release (airflow-runtime.sh through writer_gate.py ask).
+                self.assertEqual(post(dagster_writes.RELOAD_LOCATION, None)["reloadRepositoryLocation"]["__typename"],
+                                 "WorkspaceLocationEntry")
+                entries = post(dagster_writes.LOCATION_ERRORS, None)["workspaceOrError"]["locationEntries"]
+                self.assertEqual([entry["locationOrLoadError"]["__typename"] for entry in entries], ["RepositoryLocation"])
 
 
 if __name__ == "__main__":

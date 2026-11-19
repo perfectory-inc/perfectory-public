@@ -18,6 +18,9 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /tmp/requ
     && chown dagster:dagster /var/lib/dagster
 
 COPY orchestration/dagster/dagster.yaml orchestration/dagster/workspace.yaml /opt/dagster/home/
+# The writable webserver's gate and what it allows (root ADR-0565 §8): in the image, not the mounted
+# release, so a change to them changes the image and compose recreates the webserver that serves them.
+COPY orchestration/dagster/writer_gate.py orchestration/dags/dagster_writes.py /opt/dagster/gate/
 
 USER dagster
 WORKDIR /var/lib/dagster

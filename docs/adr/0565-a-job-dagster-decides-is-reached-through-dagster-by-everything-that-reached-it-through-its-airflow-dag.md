@@ -244,3 +244,28 @@ Airflow 가 결정하는 동안은 `run` 과제의 재시도가 같은 유닛 ru
   코드를 싣지 않는다(위치는 코드 서버의 것). 182 MiB(2026-11-19, 노트북, gRPC 위치, `--read-only` 유무 같음) × 1.5 = 288m 이고, 그만큼
   Trino 의 상한을 16g → 16096m 로 줄였다(힙 11.0GiB 는 질의 7GB + 여유 3GB 위, Trino 읽기들이 옮겨 가 비어 간다). 호스트 합계는 61.96g 그대로.
   첫 배포 뒤 호스트에서 다시 잰다.
+
+## 개정 각주 — 2026-11-19, §8 의 둘째 조각: 쓰기 웹서버는 두 호출자의 문서만 받는다
+
+이 각주는 결정을 바꾸지 않는다. §8 이 읽는 쪽을 읽기 전용 웹서버로 옮긴 데 이어, 쓰는 쪽을 좁힌 모양을 적는다.
+
+- **까닭.** Dagster OSS 웹서버에는 로그인이 없다. 운영 웹서버가 호스트 루프백 `127.0.0.1:19085` 에 열려 있어서, 호스트의 어느
+  프로세스든 GraphQL 로 run 을 띄우고 끝내고 센서를 멈출 수 있었다.
+- **읽는 쪽은 모두 읽기 전용.** 호스트 포트 `127.0.0.1:19085` 는 이제 `dagster-webserver-read-only` 가 연다. 자산 대조기의
+  지표(`observers.dagster.ui`), 직원의 SSH 터널, 운영 지도(identity 망)가 모두 이것을 읽는다. `--read-only` 는 REST 보고
+  (`/report_asset_check/` 등)도 거절한다.
+- **쓰는 쪽은 둘, 각자의 문서만.** 쓰기 웹서버(`dagster-webserver`)는 호스트 포트가 없고 `writer_gate.py`(이미지 안) 뒤에서만
+  돈다. 문지기는 Dagster 자신의 웹서버 CLI 를 그대로 띄우고 듣는 곳마다 허용 목록(`orchestration/dags/dagster_writes.py`)을 건다.
+  - compose 망(TCP): Airflow 의 proxied `run` 작업이 보내는 것. dagster-airlift 의 확인·실행·run 조회 문서(설치된 패키지에서 읽는다)와
+    `TERMINATE_RUN`. 실행은 `foundation` 위치의 `foundation_job__<id>` 만, run 설정·부분 실행 없이.
+  - 유닉스 소켓 `/run/foundation-dagster/writer.sock`(디렉터리 0700, 소유 uid 10001 — 이미지의 계정이고 이 호스트에서는
+    foundation-api 의 uid, API 컨테이너는 이 디렉터리를 붙이지 않는다; `infra/tmpfiles/foundation-dagster-writer.conf`): 배포와
+    run-now(`job_orchestrator.py`, root)의 센서 목록·멈춤·시작·실행, 배포의 위치 다시 읽기와 로드 오류 조회
+    (`airflow-runtime.sh` 가 컨테이너 안에서 `writer_gate.py ask` 로 묻는다), 그리고 `GET /server_info`.
+  - 그 밖의 문서·경로·웹소켓·UI 는 403 이고 Dagster 에 닿지 않는다. 문서는 공백만 무시하고 글자 그대로 견준다.
+- **시험.** 규칙 자체(`test_dagster_writer_gate.py`), 배포·run-now 의 요청을 실제 Dagster GraphQL 에 문지기 규칙을 거쳐 보내는 것
+  (`test_dagster_job_orchestrator.py`, Dagster 이미지), proxied 작업의 요청을 Airflow 이미지에서 문지기 뒤의 가짜 Dagster 로 보내는
+  것(`test_airflow_proxied_run.py`).
+- **배포.** 문지기와 규칙은 이미지에 복사한다. 바뀌면 이미지가 바뀌고 compose 가 컨테이너를 다시 만든다(같은 이미지를 쓰는 코드
+  서버도 다시 만들어지며, 그때 열린 run 은 최대 실행 시간에 닫힌다, §9). 소켓 디렉터리는 activate 가 tmpfiles 로 만들고, 부팅 때도
+  Docker 보다 먼저 다시 만든다.

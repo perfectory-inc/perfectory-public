@@ -38,6 +38,7 @@ from airflow.sdk import DAG, Asset, AssetAny, AssetOrTimeSchedule, BaseOperator,
 from airflow.sdk.exceptions import AirflowSkipException
 from openlineage.client.event_v2 import Dataset
 
+from dagster_writes import TERMINATE_RUN
 from job_specs import (
     CHECK_TIMEOUT_MINUTES,
     DAGSTER_LOCATION,
@@ -76,16 +77,12 @@ CHECK_TASK_ID = "check"
 OWED_KEY = "owed"
 # A run of a reconciled job that is queued or running already covers what it is owed.
 ACTIVE_STATES = ("queued", "running")
-# Where a proxied `run` reaches Dagster (compose.orchestration.yml): the webserver on the project's network.
+# Where a proxied `run` reaches Dagster (compose.orchestration.yml): the writable webserver on the project's
+# network, whose gate answers only what this task sends (dagster_writes.airflow_allowed, root ADR-0565 §8).
 DAGSTER_URL = os.environ.get("FOUNDATION_DAGSTER_URL", "http://dagster-webserver:3000")
 # How often a proxied `run` asks whether its Dagster run ended: a run lasts minutes to hours and the
 # webserver answers every DAG's polls (its cap is 304m); the next task starts at most this much later.
 DAGSTER_POLL_SECONDS = 10
-TERMINATE_RUN = """
-mutation TerminateRun($runId: String!) {
-  terminateRun(runId: $runId) { __typename }
-}
-"""
 
 
 class RunJob(SSHOperator):

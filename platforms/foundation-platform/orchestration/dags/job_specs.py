@@ -69,18 +69,17 @@ IMPLEMENTED_DAGSTER_STAGES = ("airflow", "shadow", "proxied")
 # while Airflow still decides (root ADR-0458 §4).
 DAGSTER_RUNS = ("proxied", "dagster")
 COMPARED = ("shadow", "proxied")
-# A `proxied` job's run (root ADR-0431 §5): Airflow's `run` task asks Dagster's webserver to launch the
-# job's Dagster job, named after it, and Dagster runs the unit through the host's forced command
-# (orchestration/dagster/run_jobs.py, root ADR-0417). Both sides read these names from here, so the
-# Airflow image and the Dagster code location cannot drift apart.
-DAGSTER_JOB_PREFIX = "foundation_job__"
-# The sensor that decides a job at `dagster` (orchestration/dagster/decide.py). A deploy holds such a job by
-# stopping this sensor, as it pauses the DAG of a job Airflow decides (scripts/deploy/job_orchestrator.py).
-DAGSTER_SENSOR_PREFIX = "foundation_decide__"
-# The code location and the repository a `@definitions` function makes (orchestration/dagster/workspace.yaml):
-# what Airflow's proxied `run` task and the host's deploy and run-now name a Dagster job or sensor by.
-DAGSTER_LOCATION = "foundation"
-DAGSTER_REPOSITORY = "__repository__"
+# The Dagster names (dagster_writes.py, which the writable webserver's gate also reads, root ADR-0565 §8):
+# a `proxied` job's run (root ADR-0431 §5) is Airflow's `run` task asking Dagster to launch the job's
+# Dagster job, DAGSTER_JOB_PREFIX + its id, and Dagster runs the unit through the host's forced command
+# (orchestration/dagster/run_jobs.py, root ADR-0417); a job at `dagster` is decided by its sensor,
+# DAGSTER_SENSOR_PREFIX + its id (orchestration/dagster/decide.py), which a deploy stops to hold it
+# (scripts/deploy/job_orchestrator.py); both are named in the code location and repository
+# DAGSTER_LOCATION and DAGSTER_REPOSITORY (orchestration/dagster/workspace.yaml). One file, so the Airflow
+# image, the Dagster code location and the gate cannot drift apart.
+if str(pathlib.Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from dagster_writes import DAGSTER_JOB_PREFIX, DAGSTER_LOCATION, DAGSTER_REPOSITORY, DAGSTER_SENSOR_PREFIX  # noqa: E402, F401
 # Run tags. Airflow sends how the run was started (the forced command's words after the job id: empty for
 # a clock start, `triggered`, or `requested <id>`); Dagster's run answers with its outcome word and, for
 # the asset reconciler, the runs it found owed, which Airflow's `run` task pushes as today's XComs.
