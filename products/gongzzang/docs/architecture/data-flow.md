@@ -88,16 +88,13 @@ Current supporting policies:
 
 ```text
 Foundation Platform event
-  -> Next.js public receiver
-  -> Rust internal API
+  -> Rust internal API (/internal/foundation-platform/events)
   -> foundation_platform_event_inbox
   -> anchor projection import / cache invalidation
 ```
 
 Important files:
 
-- `apps/web/app/foundation-platform/events/route.ts`
-- `apps/web/lib/foundation-platform/event-inbox.ts`
 - `services/gongzzang-api/src/routes/foundation_events.rs`
 - `services/gongzzang-api/src/foundation_anchor_import.rs`
 - `migrations/20260719000118_foundation_platform_event_inbox_anchor_import.sql` (current fresh-schema creation)

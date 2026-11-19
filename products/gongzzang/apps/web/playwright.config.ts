@@ -43,9 +43,6 @@ export default defineConfig({
       SESSION_SECRET: process.env.SESSION_SECRET ?? "ci-placeholder-secret-32-bytes-padding-ok",
       INTERNAL_AUTH_SECRET:
         process.env.INTERNAL_AUTH_SECRET ?? "ci-e2e-internal-auth-secret-32-valid",
-      FOUNDATION_PLATFORM_WEBHOOK_SECRET:
-        process.env.FOUNDATION_PLATFORM_WEBHOOK_SECRET ??
-        "ci-e2e-foundation-platform-webhook-secret-32",
     },
   },
 });

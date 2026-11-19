@@ -17,11 +17,6 @@
       "id": "capacity-stress",
       "file": "tests/load/scenarios/capacity-stress.js",
       "maxSafeRps": 1
-    },
-    {
-      "id": "foundation-platform-events",
-      "file": "tests/load/scenarios/foundation-platform-events.js",
-      "maxSafeRps": 1
     }
   ]
 }

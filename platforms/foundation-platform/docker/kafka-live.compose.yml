@@ -19,9 +19,9 @@ services:
       - --kafka-addr
       - internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr
-      - internal://redpanda:9092,external://127.0.0.1:${INTELLIGENCE_TEST_KAFKA_HOST_PORT:-19092}
+      - internal://redpanda:9092,external://127.0.0.1:${FOUNDATION_TEST_KAFKA_HOST_PORT:-19092}
     ports:
-      - "127.0.0.1:${INTELLIGENCE_TEST_KAFKA_HOST_PORT:-19092}:19092"
+      - "127.0.0.1:${FOUNDATION_TEST_KAFKA_HOST_PORT:-19092}:19092"
 
   karapace:
     image: ghcr.io/aiven-open/karapace:6.2.0@sha256:a0badfd5b6cc208b76a70dfe2db25bdae5dba5137999d2c0f472ccd3986bdb78
@@ -32,7 +32,7 @@ services:
     depends_on:
       - redpanda
     ports:
-      - "127.0.0.1:${INTELLIGENCE_TEST_KARAPACE_HOST_PORT:-18081}:8081"
+      - "127.0.0.1:${FOUNDATION_TEST_KARAPACE_HOST_PORT:-18081}:8081"
     environment:
       KARAPACE_ADVERTISED_HOSTNAME: karapace
       KARAPACE_BOOTSTRAP_URI: redpanda:9092

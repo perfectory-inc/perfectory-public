@@ -177,15 +177,7 @@ assert_rejected provider-fixture "reserved synthetic namespace"
 cat >"$fixture" <<'JSON'
 {"pnu":"9999900101100010000","sido_code":"99","sigungu_code":"99999","primary_bjdong_code":"9999900101","anchor_lng":127.123450,"anchor_lat":36.123450,"source_record_id":"synthetic-source-record-1","source_snapshot_id":"synthetic-source-snapshot-1"}
 JSON
-mkdir -p "$test_root/platforms/foundation-platform/infra/lakehouse/dbt/smoke"
-cat >"$test_root/platforms/foundation-platform/infra/lakehouse/dbt/smoke/source-fixtures.sql" <<'SQL'
-INSERT INTO synthetic_fixture VALUES ('SYNTHETIC-ROW-1');
-SQL
 git -C "$test_root" add .
-assert_rejected unmarked-sql-fixture "synthetic-fixture provenance marker"
-
-git -C "$test_root" rm -q -f \
-  platforms/foundation-platform/infra/lakehouse/dbt/smoke/source-fixtures.sql
 cat >"$load_registry" <<'JSON'
 {
   "schemaVersion": "gongzzang.load.scenarios.v1",

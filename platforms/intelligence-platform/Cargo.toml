@@ -10,7 +10,6 @@ members = [
     "crates/normalization/intelligence-normalization-infrastructure",
     "services/intelligence-api",
     "services/intelligence-worker",
-    "crates/messaging/messaging-infrastructure",
 ]
 resolver = "2"
 
@@ -43,9 +42,7 @@ chrono = { version = "0.4", features = ["clock", "serde"] }
 lindera = { version = "5.1", default-features = false, features = ["embed-ko-dic"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-schema_registry_converter = "4.9.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-rdkafka = { version = "0.39.0", features = ["cmake-build"] }
 redis = { version = "1", features = ["tokio-comp"] }
 sqlx = { version = "0.8", default-features = false, features = [
     "runtime-tokio", "tls-rustls-ring", "postgres", "chrono", "uuid", "json", "migrate", "macros",

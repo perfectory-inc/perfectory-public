@@ -18,7 +18,7 @@ pub mod proposal;
 /// Entity-impact detection from semantic metadata.
 pub mod semantic_entity_impact;
 
-/// Conservative normalized unit designation shared with the dbt macro (ADR-0107).
+/// Conservative normalized unit designation frozen by golden vectors (ADR-0107).
 pub mod unit_designation_normalization;
 
 /// Semantic metadata for source fields and consistency domains.

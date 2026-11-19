@@ -955,7 +955,7 @@ fn foundation_python_plan_preserves_provider_and_discovers_spark_tests() {
 
     let plans = python_test_plans(area, area_dir);
 
-    assert_eq!(plans.len(), 7);
+    assert_eq!(plans.len(), 6);
     assert_eq!(
         plans[0].current_dir,
         area_dir.join("services/foundation-provider-acquisition-worker")
@@ -976,23 +976,11 @@ fn foundation_python_plan_preserves_provider_and_discovers_spark_tests() {
             "test_*.py",
         ],
     );
-    // The two suites ADR-0011 adopted. Naming their discovery roots here keeps
-    // the assertion honest about *which* trees the harness took responsibility
-    // for, not merely how many commands it emits.
+    // The suite ADR-0011 adopted (its dbt twin left with the dbt project, root ADR-0588).
+    // Naming its discovery root here keeps the assertion honest about *which* trees the
+    // harness took responsibility for, not merely how many commands it emits.
     assert_eq!(
         plans[2].args,
-        &[
-            "-m",
-            "unittest",
-            "discover",
-            "-s",
-            "infra/lakehouse/dbt/tests",
-            "-p",
-            "test_*.py",
-        ],
-    );
-    assert_eq!(
-        plans[3].args,
         &[
             "-m",
             "unittest",
@@ -1004,7 +992,7 @@ fn foundation_python_plan_preserves_provider_and_discovers_spark_tests() {
         ],
     );
     assert_eq!(
-        plans[4].args,
+        plans[3].args,
         &[
             "-m",
             "unittest",
@@ -1016,7 +1004,7 @@ fn foundation_python_plan_preserves_provider_and_discovers_spark_tests() {
         ],
     );
     assert_eq!(
-        plans[5].args,
+        plans[4].args,
         &[
             "-m",
             "unittest",
@@ -1028,7 +1016,7 @@ fn foundation_python_plan_preserves_provider_and_discovers_spark_tests() {
         ],
     );
     assert_eq!(
-        plans[6].args,
+        plans[5].args,
         &[
             "-m",
             "unittest",

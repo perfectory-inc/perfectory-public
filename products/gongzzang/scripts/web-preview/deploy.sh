@@ -62,7 +62,6 @@ vars=(
   "REDIS_URL=rediss://session.gongzzang-preview.invalid:6379"
   "SESSION_SECRET=$(random)"
   "INTERNAL_AUTH_SECRET=$(random)"
-  "FOUNDATION_PLATFORM_WEBHOOK_SECRET=$(random)"
 )
 
 echo "== build (${NODE_VERIFY_IMAGE}, @opennextjs/cloudflare ${OPENNEXT_VERSION})"

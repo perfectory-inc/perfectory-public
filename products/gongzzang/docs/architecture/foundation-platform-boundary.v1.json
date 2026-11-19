@@ -90,10 +90,7 @@
       "FOUNDATION_PLATFORM_CATALOG_EDGE_BASE_URL",
       "NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL"
     ],
-    "required_service_auth_env": [
-      "FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE",
-      "FOUNDATION_PLATFORM_WEBHOOK_SECRET"
-    ],
+    "required_service_auth_env": ["FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE"],
     "forbidden_env": [
       "VWORLD_*",
       "ODP_SERVICE_KEY",
@@ -332,19 +329,9 @@
       "classification": "foundation_platform_read_model_importer"
     },
     {
-      "path": "apps/web/app/foundation-platform/events/route.ts",
-      "owner": "gongzzang",
-      "classification": "foundation_platform_event_receiver"
-    },
-    {
       "path": ".github/workflows/gongzzang-db-migrations.yml",
       "owner": "gongzzang",
       "classification": "schema_migration_smoke"
-    },
-    {
-      "path": "docs/architecture/foundation-platform-webhook-receiver-contract.v1.pin.json",
-      "owner": "foundation-platform",
-      "classification": "contract_pin_copy"
     },
     {
       "path": "docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json",

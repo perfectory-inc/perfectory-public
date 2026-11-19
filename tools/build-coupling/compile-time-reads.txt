@@ -128,15 +128,8 @@ platforms/identity-platform/tools/identity-service-provisioner/src/manifest.rs:1
 platforms/identity-platform/tools/identity-service-provisioner/tests/manifest_contract.rs:3
 platforms/intelligence-platform/crates/knowledge/knowledge-infrastructure/src/postgres_index.rs:1
 platforms/intelligence-platform/crates/knowledge/knowledge-infrastructure/src/postgres_registry.rs:1
-platforms/intelligence-platform/crates/messaging/messaging-infrastructure/src/foundation_knowledge_avro.rs:1
-platforms/intelligence-platform/crates/messaging/messaging-infrastructure/tests/codec_contract.rs:1
-platforms/intelligence-platform/crates/messaging/messaging-infrastructure/tests/foundation_knowledge_schema_contract.rs:1
-platforms/intelligence-platform/crates/messaging/messaging-infrastructure/tests/karapace_contract.rs:6
-platforms/intelligence-platform/crates/messaging/messaging-infrastructure/tests/live_kafka_karapace.rs:2
 platforms/intelligence-platform/crates/normalization/intelligence-normalization-application/tests/event_schema_contract.rs:1
 platforms/intelligence-platform/crates/normalization/intelligence-normalization-infrastructure/src/postgres_workflow_state.rs:2
-platforms/intelligence-platform/services/intelligence-worker/src/knowledge_consumer.rs:1
-platforms/intelligence-platform/services/intelligence-worker/tests/foundation_knowledge_consumer.rs:1
 products/gongzzang/crates/foundation-platform-client/tests/catalog_client_boundary.rs:1
 products/gongzzang/crates/foundation-platform-client/tests/catalog_contract_pin.rs:2
 products/gongzzang/crates/gongzzang-persistence/tests/business_verification_integration/one_place.rs:1

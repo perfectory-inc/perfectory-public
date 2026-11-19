@@ -17,8 +17,6 @@ describe("env schema (SP6-i extension)", () => {
     process.env.NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL =
       "https://foundation-platform.gongzzang.test";
     process.env.INTERNAL_AUTH_SECRET = "production-internal-auth-secret-32-valid";
-    process.env.FOUNDATION_PLATFORM_WEBHOOK_SECRET =
-      "production-foundation-platform-webhook-secret-32-valid";
   };
 
   beforeEach(() => {
@@ -28,7 +26,6 @@ describe("env schema (SP6-i extension)", () => {
       vi.stubEnv("NODE_ENV", originalNodeEnv);
     }
     delete process.env.INTERNAL_AUTH_SECRET;
-    delete process.env.FOUNDATION_PLATFORM_WEBHOOK_SECRET;
     delete process.env.NEXT_PUBLIC_TILES_MANIFEST_URL;
     delete process.env.NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL;
   });
@@ -175,20 +172,6 @@ describe("env schema (SP6-i extension)", () => {
     delete process.env.INTERNAL_AUTH_SECRET;
 
     await expect(import("@/lib/env")).rejects.toThrow(/Invalid environment/);
-  });
-
-  it("throws on missing FOUNDATION_PLATFORM_WEBHOOK_SECRET in production", async () => {
-    setValidProductionEnv();
-    delete process.env.FOUNDATION_PLATFORM_WEBHOOK_SECRET;
-
-    await expect(import("@/lib/env")).rejects.toThrow(/FOUNDATION_PLATFORM_WEBHOOK_SECRET/);
-  });
-
-  it("throws on repeated-character FOUNDATION_PLATFORM_WEBHOOK_SECRET in production", async () => {
-    setValidProductionEnv();
-    process.env.FOUNDATION_PLATFORM_WEBHOOK_SECRET = "x".repeat(32);
-
-    await expect(import("@/lib/env")).rejects.toThrow(/FOUNDATION_PLATFORM_WEBHOOK_SECRET/);
   });
 
   it("throws on development INTERNAL_AUTH_SECRET in production", async () => {
