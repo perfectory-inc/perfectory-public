@@ -727,6 +727,20 @@ pub const DEAL_COLUMNS: [&str; 27] = [
     "cancel_date",
 ];
 
+/// The `DuckDB` type of an Iceberg logical type a contract names, for a column a pinned snapshot lacks.
+fn duckdb_type(logical: &str) -> &'static str {
+    match logical {
+        "long" => "BIGINT",
+        "int" | "integer" => "INTEGER",
+        "double" => "DOUBLE",
+        "float" => "FLOAT",
+        "boolean" => "BOOLEAN",
+        "date" => "DATE",
+        "timestamp" | "timestamptz" => "TIMESTAMPTZ",
+        _ => "VARCHAR",
+    }
+}
+
 fn contract_of(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
     industrial_complex_lakehouse_contracts()
         .iter()
@@ -746,7 +760,43 @@ fn current_rows_of(
     let template = contract
         .current_rows_sql_template()
         .with_context(|| format!("{table} keeps no versions per key"))?;
-    let from = source.of(table)?;
+    let pinned = source.of(table)?;
+    let held: BTreeSet<String> = connection
+        .prepare(&format!("DESCRIBE SELECT * FROM {pinned}"))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<_, _>>()?;
+    let latest_columns = contract.current_row_latest().map(|latest| {
+        latest
+            .key
+            .iter()
+            .chain(latest.newest_first)
+            .chain(latest.removal_column.as_ref())
+            .copied()
+            .collect::<Vec<&str>>()
+    });
+    // A column the table gained after the pinned snapshot reads as NULL there, as Iceberg reads it
+    // from files written before it (`platform_contracts.with_contract_columns`).
+    let missing: Vec<String> = columns
+        .iter()
+        .copied()
+        .chain(latest_columns.into_iter().flatten())
+        .filter(|column| !held.contains(*column))
+        .collect::<BTreeSet<&str>>()
+        .into_iter()
+        .map(|column| {
+            let kind = contract
+                .columns
+                .iter()
+                .find(|c| c.name == column)
+                .map_or("VARCHAR", |c| duckdb_type(c.logical_type));
+            format!("CAST(NULL AS {kind}) AS {column}")
+        })
+        .collect();
+    let from = if missing.is_empty() {
+        pinned
+    } else {
+        format!("(SELECT *, {} FROM {pinned})", missing.join(", "))
+    };
     let render = |projected: &[&str]| {
         template
             .replace("{columns}", &projected.join(", "))
