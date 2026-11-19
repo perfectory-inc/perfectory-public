@@ -682,7 +682,10 @@ def _load(argv: Sequence[str]) -> int:
             # copying the source code. The pairs and the current parcels are read once for the run, the
             # parcels cut to the PNUs these objects can ask about (root ADR-0390).
             remap, ambiguous = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
-            items = [row for entry in objects if entry["role"] == "item_list"
+            # Only the two columns the parcel cut asks about are kept, one object read at a time: whole
+            # rows of every item list held at once ran the driver out of spark-small (W83c).
+            items = [{"pnu": row["pnu"], "item_name": row.get("item_name")}
+                     for entry in objects if entry["role"] == "item_list"
                      for row in read_object(entry, source, now)["rows"]]
             # Root ADR-0482 §2: the address each item name gives, for what the code path leaves.
             dongs = address_pnu.lakehouse_legal_dong_index(spark, args.iceberg_catalog_name)
