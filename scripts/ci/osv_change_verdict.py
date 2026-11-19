@@ -137,7 +137,8 @@ def fixes_for(finding: Finding, pulls: list[dict], contract: dict) -> list[dict]
     finding's lockfile or the allow list. A body that names an id and changes neither is not a fix."""
     label = contract["fix_pull_request_label"]
     words = [
-        re.compile(rf"(?<![A-Za-z0-9-]){re.escape(name)}(?![A-Za-z0-9-])", re.IGNORECASE) for name in finding.aliases
+        re.compile(rf"(?<![A-Za-z0-9-]){re.escape(name)}(?![A-Za-z0-9-])", re.IGNORECASE)
+        for name in sorted({*finding.ids, *finding.aliases})
     ]
     targets = {finding.lockfile, contract["allow_list"]} - {""}
     return [

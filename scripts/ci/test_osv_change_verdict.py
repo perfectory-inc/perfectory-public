@@ -112,6 +112,15 @@ class VerdictTest(unittest.TestCase):
         self.assertFalse(verdict(finding(), set(), [pull(body="fixes CVE-2026-1123660")], CONTRACT, NOW)[0])
         self.assertFalse(verdict(finding(), set(), [pull(body="fixes GHSA-fc5q-39xc-vjpfx")], CONTRACT, NOW)[0])
 
+    def test_a_range_of_ids_names_only_its_first(self) -> None:
+        # 2026-11-19, heapless RUSTSEC-2026-0574..0582: a fix must name every id it covers.
+        def rustsec(number: str) -> Finding:
+            return Finding(LOCK, "crates.io/heapless@0.8.0", (f"RUSTSEC-2026-{number}",), (), "")
+
+        body = "fixes RUSTSEC-2026-0574..0582"
+        self.assertTrue(fixes_for(rustsec("0574"), [pull(body=body)], CONTRACT))
+        self.assertFalse(fixes_for(rustsec("0578"), [pull(body=body)], CONTRACT))
+
     def test_any_alias_names_it_case_ignored(self) -> None:
         self.assertTrue(fixes_for(finding(), [pull(body="Closes ghsa-fc5q-39xc-vjpf.")], CONTRACT))
 
