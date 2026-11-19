@@ -209,6 +209,11 @@ fn every_served_parcel_gets_its_nearest_facilities_stores_and_highways() -> anyh
     // The other edition's parcel and the closed one are not served.
     assert_eq!(read.parcels_by_sido.get("99"), Some(&3));
     assert_eq!(read.renumbered_codes, 1);
+    // Every pinned input is read once and timed (the first production run read each tie-checked
+    // input twice and spent 46 of its 60 minutes reading).
+    for input in inputs() {
+        assert!(read.read_millis.contains_key(input), "{input} is not timed");
+    }
     assert_eq!(read.facilities["railway_station"], 2);
     assert_eq!(read.facilities["university"], 1);
     assert_eq!(
