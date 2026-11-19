@@ -388,6 +388,103 @@ class CodeRowsTest(unittest.TestCase):
                 self.assertIn(column, {c["name"] for c in load_lakehouse_contract(table)["columns"]}, named)
 
 
+def case_line(role, data, round_asked="", outcome="read"):
+    """A 사건 문서 line as the collector writes it, with made-up values and names (root ADR-0540)."""
+
+    document = next(d for d in CONTRACT["case_documents"]["documents"] if d["role"] == role)
+    request = {"cortOfcCd": "B999999", "csNo": "20990130000001", **document["request_constants"]}
+    if document.get("round_field"):
+        request[document["round_field"]] = round_asked
+    return {"operation": document["operation"], "request": {document["request_object"]: request},
+            "requested_at_utc": "2099-01-02T03:04:05+00:00", "list_fingerprint": "f", "http_status": 200,
+            "read_outcome": outcome, "body": json.dumps({"status": 200, "data": data}, ensure_ascii=False)}
+
+
+CASE_DETAIL = {
+    "dma_csBasInf": {"cortOfcCd": "B999999", "csNo": "20990130000001", "cortOfcNm": "합성지방법원", "csNm": "부동산임의경매",
+                     "userCsNo": "2099타경1", "clmAmt": "150000000", "jdgeAojAsstnNm": "홍길동"},
+    "dlt_dstrtDemnLstprdDts": [{"dstrtDemnLstprdYmd": "20990301"}],
+    "dlt_rletReltCsLst": [{"reltCsCortOfcCd": "B999999", "reltCsNo": "20990130000009", "userReltCsNo": "2099타경9",
+                           "reltCsDvsCd": "01", "reltCsDvsNm": "중복", "cortOfcNm": "합성지방법원"}],
+    "dlt_dpcnMrgTrnscsCsRlet": [{"reltCortOfcCd": "B999999", "reltCsNo": "20990130000008", "reltCsDvsCd": "36"}],
+    "dlt_rletCsDspslObjctLst": [{"dspslObjctSeq": 1, "auctnLstDvsCd": "01", "auctnLstNm": "토지", "ultmtDvsCd": "000",
+                                 "ultmtNm": "미종국", "rprsAdongSdCd": "99", "rprsAdongSggCd": "999",
+                                 "rprsAdongEmdCd": "101", "rprsAdongRiCd": "00", "rprsLtnoAddr": "7"}],
+    "dlt_rletCsIntrpsLst": [{"auctnIntrpsDvsCd": "01", "auctnIntrpsDvsNm": "채권자", "intrpsNm": "김가상"},
+                            {"auctnIntrpsDvsCd": "05", "auctnIntrpsDvsNm": "임차인", "intrpsNm": "이합성"}],
+}
+SURVEY = {
+    "dlt_rletCsCurstExmnTs": [{"ordTsCnt": 1}, {"ordTsCnt": 2}],
+    "dma_ordTsCurstExmnMngInf": {"ordTsCnt": "2", "auctnCurstExmnTrsmStatCd": "06", "exmnDtDts": "2099년01월02일^",
+                                 "exmndcSndngYmd": "20990105", "lesDts": "임차인 홍길동 점유", "lwstDvsCd": "2"},
+    "dlt_ordTsCurstExmnRletLst": [{"objctSeq": 1, "dspslObjctSeq": 1, "auctnPossRltnCd": "09", "lesCnt": 1,
+                                   "gdsPossCtt": "소유자 김가상 점유", "dspslStkCtt": "갑구 2번 홍길동 지분"}],
+}
+APPRAISAL = {"dlt_aeeWevlOrdTsLst": [{"ordTsCnt": 1}],
+             "dma_ordTsIndvdAeeWevlInf": {"ordTsCnt": "1", "aeeWevlNo": "합성-0001", "dspslPrcCrtrYmd": "20990110",
+                                          "wrtYmd": "20990112", "aeeEvlExamrNm": "박감정", "fstmEvlDcsnOponCtt": "본건"}}
+
+
+class CaseDocumentRowsTest(unittest.TestCase):
+    def rows(self, role, lines):
+        return job.case_document_rows(lines, CONTRACT["case_documents"], role, "case-object", "20990102T030405Z",
+                                      datetime(2099, 1, 2, 3, 4, 5))
+
+    def test_the_case_detail_is_the_case_its_related_cases_objects_and_party_kinds_without_names(self):
+        tables = self.rows("case_detail", [case_line("case_detail", CASE_DETAIL)])
+        [case] = tables[job.CASE_TABLE]
+        self.assertEqual((case["case_name"], case["claim_amount_krw"]), ("부동산임의경매", 150000000))
+        self.assertEqual(case["dividend_demand_deadline"], date(2099, 3, 1))
+        related = tables[job.RELATED_TABLE]
+        self.assertEqual([(r["related_seq"], r["list"]) for r in related], [(1, "related"), (2, "merged")])
+        [obj] = tables[job.CASE_OBJECT_TABLE]
+        self.assertEqual((obj["closure_kind_name"], obj["legal_dong_code"]), ("미종국", "9999910100"))
+        self.assertEqual([p["party_kind_name"] for p in tables[job.PARTY_TABLE]], ["채권자", "임차인"])
+        written = json.dumps(tables, ensure_ascii=False, default=str)
+        for name in ("홍길동", "김가상", "이합성"):
+            self.assertNotIn(name, written, "no person's name leaves Bronze")
+        [read] = tables[job.CASE_READ_TABLE]
+        self.assertEqual((read["document"], read["asked_round"], read["read_outcome"]), ("case_detail", 0, "read"))
+
+    def test_a_survey_round_is_keyed_by_the_round_it_answered_and_its_text_is_masked(self):
+        tables = self.rows("case_survey", [case_line("case_survey", SURVEY)])
+        [survey] = tables[job.SURVEY_TABLE]
+        self.assertEqual(survey["round_seq"], 2, "the newest round answered")
+        self.assertNotIn("홍길동", survey["lease_text"])
+        [obj] = tables[job.SURVEY_OBJECT_TABLE]
+        self.assertEqual((obj["round_seq"], obj["possession_code"], obj["lease_count"]), (2, "09", 1))
+        self.assertNotIn("김가상", obj["possession_text"])
+        [read] = tables[job.CASE_READ_TABLE]
+        self.assertEqual((read["asked_round"], read["answered_round"]), (0, 2))
+
+    def test_an_appraisal_round_keeps_its_report_key_and_no_appraiser(self):
+        tables = self.rows("case_appraisal", [case_line("case_appraisal", APPRAISAL)])
+        [appraisal] = tables[job.APPRAISAL_TABLE]
+        self.assertEqual((appraisal["round_seq"], appraisal["appraisal_no"], appraisal["written_date"]),
+                         (1, "합성-0001", date(2099, 1, 12)))
+        self.assertNotIn("박감정", json.dumps(tables, ensure_ascii=False, default=str))
+
+    def test_a_failed_read_is_recorded_and_states_no_document(self):
+        failed = {**case_line("case_survey", {}, round_asked="1", outcome="failed"), "body": "<html>"}
+        tables = self.rows("case_survey", [failed])
+        self.assertEqual(tables[job.SURVEY_TABLE], [])
+        [read] = tables[job.CASE_READ_TABLE]
+        self.assertEqual((read["asked_round"], read["read_outcome"]), (1, "failed"))
+        with self.assertRaises(ValueError):
+            self.rows("case_survey", [{**failed, "request": {}}])
+
+    def test_every_case_table_row_names_only_its_columns_and_the_read_commits_last(self):
+        given = {"case_detail": CASE_DETAIL, "case_survey": SURVEY, "case_appraisal": APPRAISAL}
+        for role, tables in job.CASE_DOCUMENT_TABLES.items():
+            self.assertEqual(tables[-1], job.CASE_READ_TABLE)
+            rows = self.rows(role, [case_line(role, given[role])])
+            for table in tables:
+                names = {c["name"] for c in load_lakehouse_contract(table)["columns"]}
+                self.assertTrue(rows[table], table)
+                self.assertLessEqual(set(rows[table][0]), names, table)
+            self.assertEqual(job.search_roles(CONTRACT)[f"courtauctiongokr__{next(d for d in CONTRACT['case_documents']['documents'] if d['role'] == role)['dataset_slug']}"], role)
+
+
 @unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")
 class ChangesTest(unittest.TestCase):
     @classmethod

@@ -5,8 +5,13 @@
   "duckdb_version": "v2.0.0",
   "platform": "linux_amd64",
   "directory": "duckdb-extensions",
-  "load_order": ["httpfs", "avro", "iceberg"],
-  "load_order_reason": "iceberg reads manifests through avro and data files through httpfs. With automatic loading off it does not load them itself, so they are loaded first.",
+  "load_order": [
+    "httpfs",
+    "avro",
+    "iceberg",
+    "spatial"
+  ],
+  "load_order_reason": "iceberg reads manifests through avro and data files through httpfs. With automatic loading off it does not load them itself, so they are loaded first. spatial (geometries, the spheroid distance) stands alone; the parcel nearby Gold reads it (root ADR-0567). H3 is computed in the publisher (h3o): DuckDB's community h3 extension loads only with unsigned extensions allowed.",
   "distributions": {
     "httpfs": {
       "extension_version": "77392a7207",
@@ -49,6 +54,21 @@
             "compression": "gzip",
             "sha256": "b93676e544e5c6843915fb3392e3b3c35859c065fa6ace7a26cb46ca4394e56d",
             "size": 57088302
+          }
+        }
+      }
+    },
+    "spatial": {
+      "extension_version": "a3dbcd1781",
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/spatial.duckdb_extension.gz",
+          "sha256": "8d4bf1ab198806f123821d52ff5131745baaa19d5e91bd6b9772db922d31a228",
+          "file": {
+            "name": "spatial.duckdb_extension",
+            "compression": "gzip",
+            "sha256": "8ec99d875355200316c743ede176e2cb50d2b712d2fa192ccbf19cc245a8d0bc",
+            "size": 108189118
           }
         }
       }

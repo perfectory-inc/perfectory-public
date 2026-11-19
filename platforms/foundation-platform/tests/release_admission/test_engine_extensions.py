@@ -68,11 +68,12 @@ class EngineExtensionsTest(unittest.TestCase):
         for name, data in files.items():
             (self.output / "duckdb-extensions" / f"{name}.duckdb_extension").write_bytes(data)
 
-    def test_the_repository_contract_pins_the_three_files_the_publisher_loads(self):
+    def test_the_repository_contract_pins_the_files_the_publisher_loads(self):
         pinned = self.module.engine_extensions(PLATFORM)
         self.assertEqual(list(pinned), ["duckdb-extensions/httpfs.duckdb_extension",
                                         "duckdb-extensions/avro.duckdb_extension",
-                                        "duckdb-extensions/iceberg.duckdb_extension"])
+                                        "duckdb-extensions/iceberg.duckdb_extension",
+                                        "duckdb-extensions/spatial.duckdb_extension"])
         for pin in pinned.values():
             self.assertRegex(pin["sha256"], r"^[0-9a-f]{64}$")
             self.assertGreater(pin["size"], 0)

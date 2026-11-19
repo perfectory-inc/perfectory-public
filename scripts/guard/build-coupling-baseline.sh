@@ -375,7 +375,13 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # engine-equality verdict ran those files over every object production holds), the source contract the
 # load reads its field names from (industryland-or-kr.contract.json), and its test compiles in the
 # synthetic object and the rows the Spark job built from it (fixtures/: four files).
-COMPILE_TIME_READ_BASELINE="${3:-193}"
+# 193 -> 201: the parcel nearby Gold is born on DuckDB (root ADR-0564 §9 turn 2). foundation-publisher-silver
+# compiles in the two SQL files DuckDB runs for it (parcel_nearby_stage/nearest.sql, document.sql) and the
+# code change views every DuckDB stage now shares (legal_dong_code_change_stage/pair_rows.sql, moved out of
+# the lineage's derive.sql, and renumbered_into.sql); the publisher compiles in the parcel source contract
+# (the served edition) and the Gold rebuild contract (the kinds' row-loss bound) it reads; the stage's test
+# compiles in the document's registry schema and the file contract's headers it holds the build to.
+COMPILE_TIME_READ_BASELINE="${3:-201}"
 
 cd "$repo_root"
 

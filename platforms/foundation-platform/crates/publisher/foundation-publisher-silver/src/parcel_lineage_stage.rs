@@ -379,6 +379,9 @@ pub fn stage_group(
         .replace("{to_day}", &group.to_date.replace('-', ""))
         .replace("{ws}", WHITE_SPACE_CLASS);
     connection
+        .execute_batch(crate::legal_dong_code_change_stage::PAIR_ROWS_SQL)
+        .context("DuckDB failed to read the code change pairs in force")?;
+    connection
         .execute_batch(&sql)
         .context("DuckDB failed to derive the lineage")?;
     let codes = connection

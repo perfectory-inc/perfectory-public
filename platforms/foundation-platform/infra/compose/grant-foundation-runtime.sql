@@ -45,3 +45,23 @@ ALTER DEFAULT PRIVILEGES FOR ROLE foundation_migrator IN SCHEMA catalog, serving
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO foundation_api;
 ALTER DEFAULT PRIVILEGES FOR ROLE foundation_migrator IN SCHEMA catalog, serving_postgis
     GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO foundation_api;
+
+-- The operator ledger is append-only by grant as well as by trigger (root ADR-0569 §3, revising
+-- ADR-0282 §2). The blanket grant above gave `foundation_api` UPDATE and DELETE on it, and only the
+-- trigger stood in the way; the table owner can disable a trigger. The API only ever inserts a
+-- request (`PgOperatorActionLedger::record`); nothing in the tree fills `consumed_at` yet
+-- (2026-11-19), and the door that does will get a column grant on `consumed_at, outcome` alone.
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE catalog.operator_action FROM foundation_api;
+
+-- The audit chain (root ADR-0569 §3): both roles read it and write it through its two doors only.
+-- No application role holds INSERT, UPDATE, DELETE or TRUNCATE on any audit table, and
+-- `audit.chain` (the doors' shared step, which checks no source) is executable by neither.
+GRANT USAGE ON SCHEMA audit TO foundation_api, foundation_audit_importer;
+REVOKE ALL ON ALL TABLES IN SCHEMA audit FROM foundation_api, foundation_audit_importer;
+GRANT SELECT ON TABLE audit.event, audit.digest, audit.import_cursor, audit.source
+    TO foundation_api, foundation_audit_importer;
+GRANT EXECUTE ON FUNCTION
+    audit.append(uuid, timestamptz, text, text, text, text, text, uuid, text, text, boolean,
+                 text, text, text, jsonb, jsonb, text, text, text, text, text, uuid),
+    audit.advance_cursor(text, text, text)
+    TO foundation_api, foundation_audit_importer;

@@ -11,6 +11,8 @@ pub const VERIFY_STAFF_SESSION_ROUTE: &str = "/identity/v1/staff/sessions/verify
 pub const REVOKE_STAFF_SESSION_ROUTE: &str = "/identity/v1/staff/sessions/revoke";
 /// Route for assigning a role to a staff principal.
 pub const ASSIGN_STAFF_ROLE_ROUTE: &str = "/identity/v1/staff/{staff_id}/roles";
+/// Route for linking or unlinking a source's account to a staff principal (root ADR-0569).
+pub const STAFF_EXTERNAL_ACCOUNTS_ROUTE: &str = "/identity/v1/staff/{staff_id}/external-accounts";
 /// Route for requesting an authorization policy decision.
 pub const POLICY_DECISION_ROUTE: &str = "/identity/v1/policy/decisions";
 
@@ -78,6 +80,50 @@ pub struct StaffRoleResponse {
     pub granted_at: DateTime<Utc>,
     /// Authenticated principal that granted the role.
     pub granted_by: PrincipalId,
+}
+
+/// Whether a request ties an account to the staff principal or ends the tie.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalAccountChange {
+    /// Append a link that holds from `valid_from` (or now).
+    Link,
+    /// Append the end of the link that holds now.
+    Unlink,
+}
+
+/// Request body for linking or unlinking a source's account to the staff principal in the route.
+///
+/// The actor credential is supplied only in the `Authorization: Bearer` header. Records are only
+/// appended; an unlink appends the same link with `valid_to` filled.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct StaffExternalAccountRequest {
+    /// `link` or `unlink`.
+    pub change: ExternalAccountChange,
+    /// Source of the account: `github` or `unix`.
+    pub provider: String,
+    /// The source's immutable id: a numeric GitHub user id, or `<uid>@<host>`. Never a login name.
+    pub external_id: String,
+    /// For `link`: when the link starts to hold, at most now. Defaults to now. Ignored by `unlink`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valid_from: Option<DateTime<Utc>>,
+}
+
+/// The appended link record.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct StaffExternalAccountResponse {
+    /// Staff principal the account belongs to.
+    pub principal_id: PrincipalId,
+    /// Source of the account.
+    pub provider: String,
+    /// The source's immutable id.
+    pub external_id: String,
+    /// UTC timestamp from which the link holds.
+    pub valid_from: DateTime<Utc>,
+    /// UTC timestamp at which the link stopped holding; absent while it holds.
+    pub valid_to: Option<DateTime<Utc>>,
+    /// Authenticated principal that recorded this record.
+    pub linked_by: PrincipalId,
 }
 
 /// Request body for evaluating a resource action against the bearer principal.

@@ -223,3 +223,7 @@ Rust 독자는 Parquet 위치 삭제만 적용하고 동등 삭제와 삭제 벡
 - **Polars.** 가려진 지번 추론 한 단계는 가장 빨랐다(26 초, 4.39 GiB). 공간 연산(중심·타원체 거리·H3)과 Iceberg REST 쓰기가 본체에 없다.
 - **Trino 로 변환한다.** 같은 JVM 메모리 사고의 다른 쪽이다(ADR-0504).
 - **한꺼번에 옮긴다.** 판정 없이 옮기면 서빙 문서가 조용히 바뀐다. 한 작업씩, 판정과 함께.
+
+---
+
+개정 메모(2026-11-14): 주변의 예외 ⓑ(3 번) 기록 — 다른 행의 분류, 어느 쪽이 옳은지, 동률 규칙(거리, 그 다음 시설의 `row_key`)과 사장의 승인(2026-11-12) — 은 [ADR-0567](./0567-the-parcel-nearby-gold-is-born-on-duckdb-as-a-table-of-row-versions-with-the-exact-nearest-and-ties-broken-by-the-facility-key.md) 에 있다.
