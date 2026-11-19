@@ -641,6 +641,8 @@ async fn a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_
             .await?;
         assert_eq!(again, AppendOutcome::AlreadyIngested, "{short}");
     }
+    Ok(())
+}
 
 /// The Silver-to-Postgres loads read millions of rows through this (root ADR-0565): each row is one
 /// JSON object, handed over as it streams, and the first refusal stops the read.
