@@ -106,3 +106,5 @@
 2026-10-01 각주: §3·§4 의 "사람이 보는 곳" 은 [ADR-0119](./0119-staff-read-the-data-catalog-in-dawneer-through-foundation.md) 가 더니어로 구체화했다(DataHub 화면은 관리자 전용).
 
 2026-10-01 각주: §2 의 정본 방향은 [ADR-0123](./0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md) 이 바꿨다 — ODCS 계약은 Rust 레이크하우스 계약과 데이터 지도에서 생성한다.
+
+2026-11-19 각주: §3 의 두 수집은 손으로 한 번(2026-10-01) 돈 뒤 아무도 돌리지 않았다. 이제 작업 목록의 두 작업이 매일 돈다(`definitions/datahub-ingest.definition.json`: `datahub_ingest_lakehouse` 06:40 UTC, `datahub_ingest_contracts` 06:50 UTC, 데이터 품질 07:20 앞). 계약 수집은 꺼 둔 채 들어간다: 데이터 품질이 규칙을 DataHub 에서 읽는 동안 143개 계약(등록 35)을 등록하면 약 110개가 처음 검사되어 첫 실패가 바로 경보가 된다. 품질 작업이 계약 파일에서 규칙을 읽고 새 계약을 일주일 보고만 하게 되는 변경이 이 작업을 켠다. 계약은 "병합되면 CI 가 등록" 대신 배포된 릴리스의 계약 파일을 매일 등록한다(CI 에는 운영 GMS 가 없다). 레이크하우스 수집은 카탈로그의 읽기 전용 토큰과 레이크하우스 읽기 전용 키로만 읽는다(전에는 카탈로그 쓰기 토큰). DataHub 는 Airflow 가 물러날 때까지 실행 기록을 받는다(`docs/designs/data-catalog-datahub-vs-dagster.md` 선택지 C, 2026-11-19 코디네이터 결정). 그때 이 두 작업도 함께 다시 본다.
