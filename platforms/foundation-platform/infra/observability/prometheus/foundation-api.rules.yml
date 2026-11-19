@@ -115,31 +115,6 @@ groups:
           summary: Foundation Platform outbox retry backlog is non-empty
           description: At least one unpublished outbox event has retry_count greater than zero for 10 minutes.
           runbook: docs/runbooks/slo-alert-policy.md
-      # The operations map's problems (root ADR-0195), one alert per job and kind. Alertmanager
-      # sends one notice when it starts and one when it resolves; the labels change only when a
-      # new run changes what the problem is (services/foundation-api/src/routes/data_catalog/alerts.rs).
-      # keep_firing_for holds it through a restart or a scrape the map could not read, so neither
-      # is reported as resolved and then again as new.
-      - alert: FoundationScheduledJobProblem
-        expr: foundation_scheduled_job_problem == 1
-        for: 1m
-        keep_firing_for: 15m
-        labels:
-          severity: ticket
-          service: data-flow
-        annotations:
-          summary: '{{ $labels.job_id }} [{{ $labels.kind }}] {{ $labels.summary }}{{ if $labels.link }} — {{ $labels.link }}{{ end }}'
-          runbook: docs/runbooks/operations-map.md
-      - alert: FoundationScheduledJobsUnreadable
-        # Without the runs the map knows no problem, so the alert above cannot fire either.
-        expr: foundation_scheduled_jobs_readable == 0
-        for: 30m
-        labels:
-          severity: ticket
-          service: data-flow
-        annotations:
-          summary: 데이터 흐름 지도가 30분째 작업 실행 기록을 못 읽어요 — 문제가 생겨도 알림이 안 와요
-          runbook: docs/runbooks/operations-map.md
       # The repository's open security advisories (root ADR-0278): Dependabot alerts and what the
       # daily OSV and Cargo ratchets on main refuse, one alert per source, advisory and package.
       # Alertmanager sends one notice when it opens and one when a read finds it gone; a source
@@ -1026,3 +1001,36 @@ groups:
         annotations:
           summary: 작업 결과(job-outcomes.prom)를 30분 넘게 못 읽었어요 — 일을 안 하는 작업이 있어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
           runbook: docs/runbooks/asset-reconcile.md
+
+  # The operations map's problems (root ADR-0195), apart from foundation-api's group so that they are
+  # tested (foundation-data-flow.rules.test.yml; a group with one tested alert has all of them tested).
+  - name: foundation-data-flow
+    rules:
+      # One alert per job, kind and node (root ADR-0195). The map writes the problem's sentence and its
+      # console link as labels of the series (services/foundation-api/src/routes/data_catalog/alerts.rs);
+      # an alert's labels are its identity, so a new sentence was a new alert: 2026-11-18/19, 31 of 123
+      # series were the same job and kind with another sentence ("보통 104133행인데 이번엔 30434행",
+      # an upstream list one job longer), each a new message and a resolved one (root ADR-0591, ADR-0592). The
+      # expression drops the two, and the summary reads them back from the series as it is now.
+      # keep_firing_for holds it through a restart or a scrape the map could not read, so neither
+      # is reported as resolved and then again as new.
+      - alert: FoundationScheduledJobProblem
+        expr: max without (summary, link) (foundation_scheduled_job_problem) == 1
+        for: 1m
+        keep_firing_for: 15m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '{{ $labels.job_id }} [{{ $labels.kind }}]{{ with printf "foundation_scheduled_job_problem{job_id=%q,kind=%q,node_id=%q}" $labels.job_id $labels.kind $labels.node_id | query }}{{ with first . }} {{ .Labels.summary }}{{ if .Labels.link }} — {{ .Labels.link }}{{ end }}{{ end }}{{ end }}'
+          runbook: docs/runbooks/operations-map.md
+      - alert: FoundationScheduledJobsUnreadable
+        # Without the runs the map knows no problem, so the alert above cannot fire either.
+        expr: foundation_scheduled_jobs_readable == 0
+        for: 30m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: 데이터 흐름 지도가 30분째 작업 실행 기록을 못 읽어요 — 문제가 생겨도 알림이 안 와요
+          runbook: docs/runbooks/operations-map.md

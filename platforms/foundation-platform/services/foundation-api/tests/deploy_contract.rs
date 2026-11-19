@@ -327,7 +327,7 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
     // themselves are proven by the guard alertmanager-routes-pass-their-tests).
     for required in [
         "alert: FoundationScheduledJobProblem",
-        "expr: foundation_scheduled_job_problem == 1",
+        "expr: max without (summary, link) (foundation_scheduled_job_problem) == 1",
         "keep_firing_for:",
         "service: data-flow",
         "alert: FoundationScheduledJobsUnreadable",

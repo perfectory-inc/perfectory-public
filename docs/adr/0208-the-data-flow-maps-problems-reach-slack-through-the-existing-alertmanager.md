@@ -22,6 +22,7 @@ ADR-0195 로 지도는 작업마다 실패·멈춤·늦음·느림·양 이상�
    `foundation_scheduled_jobs_readable`. 계산은 지도와 같은 함수(`operations::jobs_status`)를 부른다 — 두 번째 판정은 없다.
 2. **"바뀔 때만"은 레이블의 안정성으로 보장한다.** 레이블은 같은 문제인 동안 바뀌지 않는다: 도는 중인 느린 작업의
    경과 초, "몇 분 전" 같은 값은 넣지 않는다. 새 실행이 원인을 바꾸면 레이블이 바뀌고, 그건 새 문제다.
+   - 2026-11-20 개정: [ADR-0592](./0592-a-scheduled-jobs-problem-is-one-alert-per-job-kind-and-node-whatever-its-sentence.md) — 알림의 정체는 `job_id`·`kind`·`node_id` 이고, 문장(`summary`)·`link` 는 규칙이 지금의 시계열에서 읽어 적는다. 같은 작업·종류에 문장만 바뀐 것은 새 문제가 아니다.
 3. **규칙** `FoundationScheduledJobProblem`: `for: 1m`, `keep_firing_for: 15m` — 재시작·한 번 못 읽은 수집이
    해소→재발로 보이지 않게. 지도가 실행 기록을 못 읽으면 문제 시계열을 내지 않고(모른다), 30분 지속되면
    `FoundationScheduledJobsUnreadable` 하나.
