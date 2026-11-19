@@ -3,10 +3,14 @@
     python -m document_text.run --index index.jsonl --done done.txt --media DIR --out DIR
 
 `--index` holds rows of the attachment index (the contract's `inputs.attachment_index.columns`),
-`--done` the hashes this extractor version already has an outcome for, `--media` the bytes as
+`--done` the hashes the run is not to read (the planner already left them out), `--media` the bytes as
 `<sha256>.<media_format>`. The run writes `document_text_outcome.jsonl`,
 `document_text_page.jsonl` and `summary.json` (per format: documents, outcomes, pages, seconds;
-the peak memory of the run and of its tool processes).
+the peak memory of the run and of its tool processes, the documents the memory cap ended).
+
+The run exits 1 after writing every row when the memory cap ended a document, or when it could not
+read the cgroup's OOM-kill count it marks those by (root ADR-0593): either way the unit fails after
+its append, so the cap has an owner.
 """
 
 from __future__ import annotations
@@ -45,8 +49,6 @@ def extract_isolated(source: Path, media_format: str, settings: dict, scratch: P
         return Result("failed", error=f"timeout after {error.timeout}s: worker")
     if done.returncode != 0 or not out.exists():
         reason = f"worker killed by signal {-done.returncode}" if done.returncode < 0 else f"worker exit {done.returncode}"
-        if done.returncode == -9:
-            reason += " (the image's memory cap)"
         tail = (done.stderr or b"").decode("utf-8", "replace").strip().splitlines()[-1:]
         return Result("failed", error=" ".join([reason, *tail]))
     data = json.loads(out.read_text(encoding="utf-8"))
@@ -93,8 +95,9 @@ def page_rows(contract: dict, doc, result) -> list[dict]:
     return rows
 
 
-# The container's own cgroup (Docker gives it a private cgroup namespace): the kernel counts each
-# OOM kill under the image's memory cap here.
+# The container's own cgroup (Docker gives it a private cgroup namespace; ai-server: cgroup v2,
+# CgroupnsMode private): the kernel counts each OOM kill under the image's memory cap here. The mark
+# assumes one document at a time, as the run reads them: a kill while two ran would mark both.
 MEMORY_EVENTS = Path("/sys/fs/cgroup/memory.events")
 MEMORY_KILL_MARK = "memory cap: "
 
@@ -152,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     by_format: dict[str, dict] = defaultdict(lambda: {"documents": 0, "pages": 0, "seconds": 0.0, "outcomes": defaultdict(int)})
     memory_killed = 0
+    counter_read = True
     started = time.monotonic()
     with (args.out / "document_text_outcome.jsonl").open("w", encoding="utf-8") as outcomes, (
         args.out / "document_text_page.jsonl"
@@ -162,9 +166,13 @@ def main(argv: list[str] | None = None) -> int:
             source = args.media / f"{doc.sha256}.{doc.media_format}"
             t0 = time.monotonic()
             kills_before = oom_kills(args.memory_events)
+            counter_read = counter_read and kills_before is not None
             result = extract_isolated(source, doc.media_format, settings, Path(scratch))
             elapsed = time.monotonic() - t0
             memory_killed += mark_memory_kill(result, kills_before, oom_kills(args.memory_events))
+            # A failed document has no pages: a document read again must not leave an older run's
+            # pages or facts current (root ADR-0593 §3).
+            assert result.outcome != "failed" or not result.pages
             at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             outcomes.write(json.dumps(outcome_row(contract, doc, result, int(elapsed * 1000), at), ensure_ascii=False) + "\n")
             for row in page_rows(contract, doc, result):
@@ -187,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
         "peak_memory_mib": peak_memory_mib(),
         # Read again by a later run; any at all fails the unit after the append, so the cap has an owner.
         "memory_killed": memory_killed,
+        "memory_kill_counter": counter_read or not docs,
         "by_format": {
             fmt: {**stats, "seconds": round(stats["seconds"], 1), "outcomes": dict(stats["outcomes"])}
             for fmt, stats in sorted(by_format.items())
@@ -194,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     (args.out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False))
-    return 0
+    return 1 if memory_killed or not summary["memory_kill_counter"] else 0
 
 
 if __name__ == "__main__":

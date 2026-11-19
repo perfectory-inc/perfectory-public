@@ -21,7 +21,7 @@
     }
   },
   "outputs": {
-    "$comment": "intelligence 가 쓰는 append-only 표. 이름공간 intelligence 는 intelligence 작업만 쓴다. 열쇠는 (sha256, extractor_version): 같은 바이트는 같은 추출기 판으로 한 번만 읽힌다. 판을 올리는 것은 전량 재처리이므로 ADR 에 이유와 측정 비용을 적는 선언된 예외다.",
+    "$comment": "intelligence 가 쓰는 append-only 표. 이름공간 intelligence 는 intelligence 작업만 쓴다. 열쇠는 (sha256, extractor_version): 같은 바이트는 같은 추출기 판으로 한 번 읽히고, 메모리 상한이 끊은 문서만 memory_kill.attempts 까지 다시 읽힌다(루트 ADR-0593; 현재 행은 가장 새 run 의 것). 판을 올리는 것은 전량 재처리이므로 ADR 에 이유와 측정 비용을 적는 선언된 예외다.",
     "document_text_outcome": {
       "table": "intelligence.document_text_outcome",
       "key": ["sha256", "extractor_version"],
@@ -56,14 +56,14 @@
       }
     },
     "document_fact_outcome": {
-      "$comment": "문서·사실 판마다 한 줄. 이 줄이 있는 해시는 이 판으로 다시 읽지 않는다. 모델이 필요했는데 없었거나 오류였거나 run 의 모델 예산이 다 된 문서는 사실도 이 줄도 쓰지 않아 다음 run 이 통째로 다시 읽는다(규칙은 밀리초다).",
+      "$comment": "문서·사실 판마다 한 줄. 이 줄이 있는 해시는 이 판으로 다시 읽지 않는다 — 텍스트 결과가 이 줄보다 새 run 이면(메모리 종료로 다시 읽힌 문서, 루트 ADR-0593) 다시 읽는다. 모델이 필요했는데 없었거나 오류였거나 run 의 모델 예산이 다 된 문서는 사실도 이 줄도 쓰지 않아 다음 run 이 통째로 다시 읽는다(규칙은 밀리초다).",
       "table": "intelligence.document_fact_outcome",
       "key": ["sha256", "extractor_version"],
       "columns": ["sha256", "extractor_version", "text_extractor_version", "fact_counts_json", "unsolved_pages_json", "dropped_json", "model_calls", "elapsed_ms", "extracted_at_utc"]
     }
   },
   "document_fact": {
-    "$comment": "사실 run 의 값. 입력은 text_extractor_version 의 document_text_page 이고, 이 판의 결과가 없는 해시만 읽는다. 모델은 MODEL_RUNTIME_*(config/model-runtime.contract.json 의 serving)로만 부른다. model_pages_per_run 은 run 하나가 모델에 묻는 쪽의 상한이다(표본 97 문서에서 규칙이 못 닫은 토지이용계획 쪽은 26). vision_model 은 OCR 쪽의 값을 쪽 그림으로 다시 읽는 모델이고(루트 ADR-0477 §5) 그림은 PDF 바이트에서 그리므로 vision_formats 의 형식만 확인된다 — 인쇄된 HWP 의 OCR 값은 확인되지 않은 채 버려지고 dropped 에 센다.",
+    "$comment": "사실 run 의 값. 입력은 text_extractor_version 의 document_text_page 이고, 이 판의 결과가 없거나 그 결과가 현재 텍스트 결과보다 옛 run 인 해시만 읽는다(루트 ADR-0593 §3). 모델은 MODEL_RUNTIME_*(config/model-runtime.contract.json 의 serving)로만 부른다. model_pages_per_run 은 run 하나가 모델에 묻는 쪽의 상한이다(표본 97 문서에서 규칙이 못 닫은 토지이용계획 쪽은 26). vision_model 은 OCR 쪽의 값을 쪽 그림으로 다시 읽는 모델이고(루트 ADR-0477 §5) 그림은 PDF 바이트에서 그리므로 vision_formats 의 형식만 확인된다 — 인쇄된 HWP 의 OCR 값은 확인되지 않은 채 버려지고 dropped 에 센다.",
     "extractor_version": "document-fact.v1",
     "text_extractor_version": "document-text.v1",
     "ksic_divisions": "config/ksic-divisions.json",
@@ -76,7 +76,7 @@
     "render_timeout_seconds": 60
   },
   "document_text": {
-    "$comment": "첫 조각: PDF 는 텍스트 층(pdfplumber), 글자가 ocr_below_chars 보다 적은 쪽만 OCR(ocrmypdf --skip-text, Tesseract kor). HWP·HWPX 는 LibreOffice + H2Orestart 로 PDF 로 바꾼 뒤 같은 길. 그 밖의 형식은 unsupported_format 으로 세고 남긴다(바이트는 저장소에 있어 나중에 다시 읽힌다). run 은 per_run_limit 건 또는 run_time_budget_seconds 가 지나면 새 문서를 시작하지 않는다: 실측(2026-11-11, 표본 97 개) 문서당 평균 65 초·최대 727 초(60 쪽 스캔)라 건수만으로는 run 시간이 묶이지 않는다. 못 읽은 문서는 결과가 없으므로 다음 run 이 고른다.",
+    "$comment": "첫 조각: PDF 는 텍스트 층(pdfplumber), 글자가 ocr_below_chars 보다 적은 쪽만 OCR(ocrmypdf --force-ocr --pages <그 쪽들>, Tesseract kor+eng, Tesseract 에 주는 그림은 ocr_downsample_above_px 로 묶는다). HWP·HWPX 는 LibreOffice + H2Orestart 로 PDF 로 바꾼 뒤 같은 길. 그 밖의 형식은 unsupported_format 으로 세고 남긴다(바이트는 저장소에 있어 나중에 다시 읽힌다). run 은 per_run_limit 건 또는 run_time_budget_seconds 가 지나면 새 문서를 시작하지 않는다: 실측(2026-11-11, 표본 97 개) 문서당 평균 65 초·최대 727 초(60 쪽 스캔)라 건수만으로는 run 시간이 묶이지 않는다. 못 읽은 문서는 결과가 없으므로 다음 run 이 고른다. 메모리 상한이 끊은 문서는 결과가 있어도 memory_kill 대로 다시 고른다(루트 ADR-0593).",
     "extractor_version": "document-text.v1",
     "pdf_formats": ["pdf"],
     "converted_formats": ["hwp", "hwpx"],
@@ -100,8 +100,8 @@
     "document_text": {
       "image": "intelligence-document-text:local",
       "image_from": "the release's own build of jobs/document_text/Dockerfile (compose.document-jobs.yml), tagged by the release admission like every compose image (root ADR-0276 §13)",
-      "memory_limit": "2g",
-      "memory_reason": "1.5 x the measured peak, rounded up (root ADR-0455 §3): the run process 486 MiB plus its largest tool process 777 MiB (LibreOffice or ocrmypdf), 97 attachments on 2026-11-11 (root ADR-0477, Consequences). Raising ocr_jobs means measuring again.",
+      "memory_limit": "2564m",
+      "memory_reason": "1.5 x the measured peak, rounded up (root ADR-0455 §3): 2026-11-19, the ten production PDFs the 2g cap had killed, every page OCR'd with the image's packages (ocrmypdf 16.7.0, Tesseract 5.5.0), ocr_jobs 4 and ocr_downsample_above_px 4000: highest container anon 1634 MiB, plus the run and worker processes (~75 MiB) = 1709 MiB -> x1.5 = 2564m. Unbounded, the same files peaked at 2.3-2.5 GiB (root ADR-0593). Raising ocr_jobs or the downsample bound means measuring again.",
       "cpus": 4,
       "cpus_reason": "ocr_jobs Tesseract processes; the text-layer pages need one."
     },

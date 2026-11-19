@@ -224,23 +224,33 @@ def outcome_rows(spark: Any, catalog: str, table: str, version: str) -> Any:
     return spark.table(qualified(catalog, table)).where(F.col("extractor_version") == version)
 
 
-def text_done(rows: Any, settings: Mapping[str, Any]) -> Any:
-    """The hashes `rows` (one version's text outcomes) hold done: all of them, less those the memory
-    cap ended that have attempts left: their current outcome is a memory kill and they have fewer
-    outcome rows than `memory_kill.attempts`. A memory kill says nothing about the document, only
-    about the cap, so it is read again; the bound keeps a document no cap fits from being read every
-    run (2026-11-12..19: 185 documents the 2 GiB cap ended stayed `failed` for good, root ADR-0593)."""
+def memory_kills(rows: Any, settings: Mapping[str, Any]) -> Any:
+    """The hashes of `rows` (one version's text outcomes) whose current outcome is a memory kill (the
+    contract's `memory_kill.error_prefixes`), each with its number of outcome rows: a row written
+    before the mark counts as one attempt like any other."""
     from functools import reduce  # noqa: PLC0415
 
     from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
     from pyspark.sql import functions as F  # noqa: PLC0415
 
-    kill = settings["memory_kill"]
     attempts = rows.groupBy("sha256").agg(F.count(F.lit(1)).alias("attempts"))
     current = current_rows(rows, load_lakehouse_contract(TEXT_OUTCOME))
-    killed = reduce(lambda a, b: a | b, [F.col("error").startswith(p) for p in kill["error_prefixes"]])
-    retry = (current.where((F.col("outcome") == "failed") & F.col("error").isNotNull() & killed)
-             .join(attempts, "sha256").where(F.col("attempts") < kill["attempts"]).select("sha256"))
+    killed = reduce(lambda a, b: a | b, [F.col("error").startswith(p) for p in settings["memory_kill"]["error_prefixes"]])
+    return (current.where((F.col("outcome") == "failed") & F.col("error").isNotNull() & killed)
+            .join(attempts, "sha256").select("sha256", "attempts"))
+
+
+def text_done(rows: Any, settings: Mapping[str, Any]) -> Any:
+    """The hashes `rows` (one version's text outcomes) hold done: all of them, less the memory kills
+    with attempts left (fewer outcome rows than `memory_kill.attempts`). A memory kill says nothing
+    about the document, only about the cap, so it is read again; the bound keeps a document no cap
+    fits from being read every run, and plan-text counts those as `memory_kill_exhausted`
+    (2026-11-12..19: 185 documents the 2 GiB cap ended stayed `failed` for good, root ADR-0593)."""
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    retry = memory_kills(rows, settings).where(F.col("attempts") < settings["memory_kill"]["attempts"]).select("sha256")
+    current = current_rows(rows, load_lakehouse_contract(TEXT_OUTCOME))
     return current.select("sha256").distinct().join(retry, "sha256", "left_anti")
 
 
@@ -267,13 +277,15 @@ def plan_text(spark: Any, args: argparse.Namespace, extraction: Mapping[str, Any
     if not spark.catalog.tableExists(f"{args.catalog}.{ATTACHMENT_TABLE}"):
         # Its Silver load creates it with its first object: until then nothing is owed.
         return {"step": "plan-text", "extractor_version": settings["extractor_version"], "owed": 0, "planned": 0,
-                "bytes_to_fetch": 0, "input": "absent"}
+                "memory_kill_exhausted": 0, "bytes_to_fetch": 0, "input": "absent"}
     attachments = current_rows(spark.table(qualified(args.catalog, ATTACHMENT_TABLE)), load_lakehouse_contract(ATTACHMENT_TABLE))
     # One document per hash, however many notices attach it; the newest notice orders it.
     documents = attachments.groupBy("sha256", "media_format").agg(
         F.max("notice_sequence").alias("notice_sequence"), F.max("size_bytes").alias("size_bytes"))
-    done = text_done(outcome_rows(spark, args.catalog, TEXT_OUTCOME, settings["extractor_version"]), settings)
-    owed = documents.join(done, "sha256", "left_anti").cache()
+    outcomes = outcome_rows(spark, args.catalog, TEXT_OUTCOME, settings["extractor_version"])
+    owed = documents.join(text_done(outcomes, settings), "sha256", "left_anti").cache()
+    # Memory kills no attempt is left for: said in the summary, not dropped in silence.
+    exhausted = memory_kills(outcomes, settings).where(F.col("attempts") >= settings["memory_kill"]["attempts"]).count()
     total = owed.count()
     planned = owed.orderBy(F.col("notice_sequence").desc(), "sha256").limit(settings["per_run_limit"]).collect()
     owed.unpersist()
@@ -287,7 +299,7 @@ def plan_text(spark: Any, args: argparse.Namespace, extraction: Mapping[str, Any
             if row["media_format"] in readable:
                 media.write(f"{media_key(prefix, row['sha256'], row['media_format'])}\t{row['sha256']}.{row['media_format']}\n")
     return {"step": "plan-text", "extractor_version": settings["extractor_version"], "owed": total, "planned": len(planned),
-            "bytes_to_fetch": sum(r["size_bytes"] or 0 for r in planned if r["media_format"] in readable)}
+            "memory_kill_exhausted": exhausted, "bytes_to_fetch": sum(r["size_bytes"] or 0 for r in planned if r["media_format"] in readable)}
 
 
 def plan_facts(spark: Any, args: argparse.Namespace, extraction: Mapping[str, Any]) -> dict[str, Any]:

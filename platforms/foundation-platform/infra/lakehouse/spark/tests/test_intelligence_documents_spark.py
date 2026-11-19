@@ -72,6 +72,9 @@ class OwedSparkTest(unittest.TestCase):
             text(6, "20990101T000000Z", "failed", kill), text(6, "20990102T000000Z"),  # read again: done
         ]
         self.assertEqual(self.done(rows), {sha(1), sha(2), sha(5), sha(6)})
+        # The one out of attempts is what plan-text names as memory_kill_exhausted.
+        kills = d.memory_kills(self.spark.createDataFrame(rows, TEXT_SCHEMA), self.settings).collect()
+        self.assertEqual({(r["sha256"], r["attempts"]) for r in kills}, {(sha(3), 1), (sha(4), 1), (sha(5), attempts)})
 
     def test_facts_follow_the_newest_text(self):
         texts = self.spark.createDataFrame([

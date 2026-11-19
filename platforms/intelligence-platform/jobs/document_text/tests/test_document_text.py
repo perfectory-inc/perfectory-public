@@ -33,6 +33,13 @@ SHA_A = "a" * 64
 SHA_B = "b" * 64
 
 
+def events(root: Path, kills: int = 0) -> list[str]:
+    """A cgroup's memory.events as the run reads it, in `root`: the arguments that point the run at it."""
+    path = root / "memory.events"
+    path.write_text(f"low 0\nhigh 0\nmax 0\noom 0\noom_kill {kills}\n", encoding="ascii")
+    return ["--memory-events", str(path)]
+
+
 class PagesTest(unittest.TestCase):
     def test_offsets_index_the_joined_text(self) -> None:
         pages = assemble([("text_layer", "산업단지 지정"), ("ocr", ""), ("text_layer", "면적 1,234㎡")])
@@ -132,7 +139,7 @@ class ContractTest(unittest.TestCase):
             )
             (root / "done.txt").write_text(SHA_A + "\n", encoding="utf-8")
             with mock.patch("sys.stdout"):
-                self.assertEqual(main(["--index", str(root / "index.jsonl"), "--done", str(root / "done.txt"), "--media", tmp, "--out", str(root / "out")]), 0)
+                self.assertEqual(main(["--index", str(root / "index.jsonl"), "--done", str(root / "done.txt"), "--media", tmp, "--out", str(root / "out"), *events(root)]), 0)
             outcomes = [json.loads(l) for l in (root / "out" / "document_text_outcome.jsonl").read_text(encoding="utf-8").splitlines()]
             self.assertEqual([(o["sha256"], o["outcome"]) for o in outcomes], [(SHA_B, "unsupported_format")])
             self.assertEqual(json.loads((root / "out" / "summary.json").read_text(encoding="utf-8"))["by_format"]["zip"]["documents"], 1)
@@ -159,10 +166,20 @@ class ContractTest(unittest.TestCase):
                 encoding="utf-8",
             )
             with mock.patch("document_text.run.WORKER", dies), mock.patch("sys.stdout"), mock.patch("sys.stderr"):
-                self.assertEqual(main(["--index", str(root / "index.jsonl"), "--media", tmp, "--out", str(root / "out")]), 0)
+                self.assertEqual(main(["--index", str(root / "index.jsonl"), "--media", tmp, "--out", str(root / "out"), *events(root)]), 0)
             outcomes = [json.loads(l) for l in (root / "out" / "document_text_outcome.jsonl").read_text(encoding="utf-8").splitlines()]
             self.assertEqual([(o["sha256"], o["outcome"]) for o in outcomes], [(SHA_A, "failed"), (SHA_B, "failed")])
             self.assertTrue(all(o["error"].startswith("worker exit 137") for o in outcomes))
+
+    def test_a_run_that_cannot_read_the_kill_count_fails_after_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "index.jsonl").write_text(json.dumps({"sha256": SHA_A, "media_format": "zip", "notice_sequence": 1}), encoding="utf-8")
+            with mock.patch("sys.stdout"):
+                rc = main(["--index", str(root / "index.jsonl"), "--media", tmp, "--out", str(root / "out"),
+                           "--memory-events", str(root / "absent")])
+            summary = json.loads((root / "out" / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual((rc, summary["memory_kill_counter"], summary["read"]), (1, False, 1))
 
     def test_a_worker_hands_back_what_extract_read(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -183,12 +200,12 @@ class ContractTest(unittest.TestCase):
                 encoding="utf-8",
             )
             with mock.patch("document_text.run.WORKER", killed), mock.patch("sys.stdout"), mock.patch("sys.stderr"):
-                main(["--index", str(root / "index.jsonl"), "--media", tmp, "--out", str(root / "out"), "--memory-events", str(events)])
+                rc = main(["--index", str(root / "index.jsonl"), "--media", tmp, "--out", str(root / "out"), "--memory-events", str(events)])
             outcomes = [json.loads(l) for l in (root / "out" / "document_text_outcome.jsonl").read_text(encoding="utf-8").splitlines()]
             summary = json.loads((root / "out" / "summary.json").read_text(encoding="utf-8"))
         # Only the first document ran while the counter rose; the second's failure is its own.
         self.assertEqual([o["error"].startswith(MEMORY_KILL_MARK) for o in outcomes], [True, False])
-        self.assertEqual(summary["memory_killed"], 1)
+        self.assertEqual((summary["memory_killed"], rc), (1, 1))
 
     def test_a_failure_with_no_kill_counted_is_the_documents_own(self) -> None:
         result = Result("failed", error="soffice exit 1: x")
@@ -206,12 +223,16 @@ class ContractTest(unittest.TestCase):
         for error in ["ocrmypdf exit -9: ", "worker killed by signal 9 (the image's memory cap)"]:
             self.assertTrue(error.startswith(tuple(kill["error_prefixes"])), error)
 
-    def test_tesseract_gets_the_bounded_image(self) -> None:
-        with mock.patch.object(extract_module.subprocess, "run") as run:
-            extract_module.ocr_pages(Path("a.pdf"), Path("b.pdf"), [2], "kor", 4, 60, 4000)
+    def test_tesseract_gets_the_contracts_bounded_image(self) -> None:
+        settings = load_contract()["document_text"]
+        layers = iter([[""], ["스캔한 쪽"]])
+        with mock.patch.object(extract_module, "pdf_page_texts", side_effect=lambda _p: next(layers)), mock.patch.object(
+            extract_module.subprocess, "run"
+        ) as run:
+            extract(Path("x.pdf"), "pdf", settings)
         argv = run.call_args.args[0]
         self.assertIn("--tesseract-downsample-large-images", argv)
-        self.assertEqual(argv[argv.index("--tesseract-downsample-above") + 1], "4000")
+        self.assertEqual(argv[argv.index("--tesseract-downsample-above") + 1], str(settings["ocr_downsample_above_px"]))
 
     def test_the_contract_is_the_areas_file(self) -> None:
         self.assertEqual(CONTRACT.parent.name, "config")
