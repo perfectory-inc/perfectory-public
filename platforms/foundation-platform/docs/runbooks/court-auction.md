@@ -85,6 +85,51 @@ last_reviewed: 2026-11-12
 묻는다. 예산은 계약 `case_documents.run_time_budget_seconds`(물건상세가 그만큼 먼저 멈춘다). 실행 줄
 `courtauction.go.kr case documents:` 에 대상·요청·실패 수가 나온다. 다 못 물은 사건은 다음 실행이 이어 묻는다.
 
+## 감정평가서 PDF (루트 ADR-0540 §1)
+
+사건 문서 뒤에 같은 실행이 `silver.court_auction_appraisal` 의 회차 가운데 아직 저장하지 않은 감정평가서를, 사이트의 감정평가 화면이
+여는 kapanet 뷰어(`ca.kapanet.or.kr/view/…`)에서 받아 공용 저장소(`onbid/media/sha256/<해시>.pdf`)에 한 번 담는다. 상한·동시·예산은
+계약 `appraisal_reports`. 뷰어가 reCAPTCHA 를 요구하면 **풀지 않는다**: 그 파일은 `captcha` 로 기록하고 건너뛰며, 계약의 대기를 두고,
+연속 `captcha_stop_after` 번이면 그 실행은 멈춘다(다음 실행이 다시 묻는다). 실행 줄 `courtauction.go.kr appraisal reports:` 에
+요청·저장·캡차 수가 나온다. 캡차 기록은 `silver.court_auction_appraisal_report_read` 의 `outcome = 'captcha'`.
+
+## 문건·송달 (루트 ADR-0575 §4·§5)
+
+사건 문서(`case_documents`)의 네 번째 문서다: 때가 된 사건(목록이 바뀜 — 새 기일·결과·상태, 또는 기일 전후)마다 다른 사건 문서와
+함께 한 번 묻는다. Silver 는 `silver.court_auction_case_filing`(접수일·제출자 자격·문건 종류·처리·결과)과
+`silver.court_auction_case_delivery`(등록일·도달일·결과·받는 사람 자격·종류·처리), 사건마다 판. 사이트가 O 로 가린 이름 낱말은 싣지
+않고, 가림이 없는 줄은 처리만 싣는다(이름과 종류를 가를 수 없다). 원문은 Bronze 에만 있다.
+
+## 현황조사서 임대차관계 (루트 ADR-0575 §6)
+
+사건 문서의 다섯 번째 문서(`case_survey_report`, PGJ15BP01 `selectCurstExmndc`)다. 현황조사 문서(`selectCurstExmnRletIndctLst`)가
+주지 않는 임대차 목록(점유부분·용도·보증금·차임·전입일자·확정일자·비고)을 회차마다 받아 `silver.court_auction_survey_tenant` 에 판으로
+싣는다. 임차인 이름(`intrpsNm`)과 주민번호 칸(`enrrno`)은 Silver 에 없고 Bronze 에만 있다. 화면은 현황조사서 칸의 임대차관계 표.
+
+## 매각공고 (루트 ADR-0575 §6)
+
+공통코드 뒤에 같은 실행이 법원 목록(60 곳) → 법원·입찰구분·달(이번 달·다음 달)마다 매각공고 목록 → 공고마다 상세를 읽는다(사이트는
+오늘 이후 공고만 준다). Silver 는 `silver.court_auction_sale_notice`(공고마다 최신)와 `silver.court_auction_sale_notice_item`(공고마다
+목록 판: 매각물건·정정공고·취소변경공고). 화면은 회차의 정정·취소·변경 공고. 실행 줄 `courtauction.go.kr sale notices:` 에 법원·목록·공고
+수가 나온다.
+
+## 배당요구종기공고 (루트 ADR-0575 §6)
+
+매각공고 뒤에 같은 실행이 그 단계가 읽은 법원마다 담당계 목록 → 담당계마다 배당요구종기공고 목록(사건마다 개시결정일·공고일·배당요구종기일)
+→ 아직 `silver.court_auction_dividend_object` 에 없는 사건만 물건 목록(주소·용도·등기 고유번호)을 묻는다. 목록은 채권자·채무자·소유자
+이름을 가리지 않고 주지만 Silver 는 그 칸을 읽지 않는다(Bronze 에만). 실행 줄 `courtauction.go.kr dividend notices:` 에 담당계·목록·사건·
+물건 목록 수가 나온다.
+
+## 매각물건명세서 PDF (루트 ADR-0575)
+
+물건상세 뒤, 사건 문서 앞에 같은 실행이 그 실행에 읽은 물건 가운데 사이트 화면이 명세서를 여는 것(실물, 기일입찰은 매각기일 7 일 전부터,
+기간입찰은 입찰 시작 7 일 전부터)의 판(문서 ID)을 `silver.court_auction_sale_specification_read` 에 저장·없음으로 적히지 않았을 때만
+묻는다. 한 판은 요청 셋이다: 사이트의 열람 기록 단계(법원 쪽 열람 기록이 판마다 한 번 남는다) → 법원 문서뷰어(`ecfs.scourt.go.kr`)
+문서 정보 → PDF. 워터마크는 이름·받는 시각 없이 "개인정보유출주의 제출일시: <작성 시각>" 만 보낸다. PDF 에는 사람 이름이 있으므로
+공용 저장소가 아니라 `courtauction-go-kr/sale-specifications/sha256/<해시>.pdf`(필지 경계가 서빙하지 않는 접두)에 둔다. 상한·동시·예산은
+계약 `sale_specifications`. 캡차나 로그인 화면이 오면 풀지 않고 `captcha` 로 적은 뒤 그 실행의 명세서 단계를 멈춘다. 실행 줄
+`courtauction.go.kr sale specifications:` 에 제안·대상·요청·저장 수가 나온다.
+
 ## 개인정보 (루트 ADR-0540)
 
 받은 응답은 Bronze 에 바이트 그대로 있다. 사람 이름이 있는 칸(지분 서술 `dspslStkCtt`, 사법보좌관 `jdgeAojAsstnNm`, 당사자 `intrpsNm`, 감정평가사 `aeeEvlExamrNm` 등)은

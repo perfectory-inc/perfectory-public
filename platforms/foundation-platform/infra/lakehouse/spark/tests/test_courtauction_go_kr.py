@@ -420,6 +420,24 @@ SURVEY = {
     "dlt_ordTsCurstExmnRletLst": [{"objctSeq": 1, "dspslObjctSeq": 1, "auctnPossRltnCd": "09", "lesCnt": 1,
                                    "gdsPossCtt": "소유자 김가상 점유", "dspslStkCtt": "갑구 2번 홍길동 지분"}],
 }
+# 문건·송달 as the site gives it: the names masked with O (root ADR-0575 §5); made-up values.
+FILINGS = {"dlt_ofdocDtsLst": [{"ofdocRcptYmd": "20990202", "rcptDts": "채권자 소송대리인 법OOO OOOOOOO 보정서 제출", "rcptRslt": ""},
+                               {"ofdocRcptYmd": "20990211", "rcptDts": "감정인 (주)OOOOOOOOO 회보서 제출", "rcptRslt": ""},
+                               {"ofdocRcptYmd": "20990212", "rcptDts": "홍길동 열람신청 제출", "rcptRslt": ""}],
+           "dlt_dlvrDtsLst": [{"dlvrbkRegYmd": "20990128", "lastDlvrblRchYmd": "2099.01.30 도달",
+                               "dlvrDts": "채권자대리인  김OO 보정명령등본 발송"},
+                              {"dlvrbkRegYmd": "20990204", "lastDlvrblRchYmd": "2099.02.11 폐문부재",
+                               "dlvrDts": "채무자겸소유자 이OO 개시결정정본 발송"}]}
+
+# 현황조사서 as the site gives it: the lessee's name and resident number field are never read (root ADR-0575 §6).
+SURVEY_REPORT = {"dlt_spotExmnOrdCntLst": [{"ordTsCnt": 1}],
+                 "dma_curstExmnMngInf": {"ordTsCnt": 1},
+                 "dlt_ordTsLserLtn": [{"objctSeq": 1, "btprtPrsnlDvsCd": "01", "auctnIntrpsDvsCd": "0001562",
+                                       "auctnLesUsgCd": "09", "lesUsgDts": "사무실", "lesDposDts": "10,000,000원",
+                                       "mmrntAmtDts": "500,000원", "mvinDtlCtt": "2099.01.02", "rgstryCrtcpCfmtnCtt": "미상",
+                                       "lesPartCtt": "전부", "lesDtsRmk": "임차인 홍길동 진술", "intrpsNm": "홍길동",
+                                       "enrrno": "합성암호값"}]}
+
 APPRAISAL = {"dlt_aeeWevlOrdTsLst": [{"ordTsCnt": 1}],
              "dma_ordTsIndvdAeeWevlInf": {"ordTsCnt": "1", "aeeWevlNo": "합성-0001", "dspslPrcCrtrYmd": "20990110",
                                           "wrtYmd": "20990112", "aeeEvlExamrNm": "박감정", "fstmEvlDcsnOponCtt": "본건"}}
@@ -474,7 +492,8 @@ class CaseDocumentRowsTest(unittest.TestCase):
             self.rows("case_survey", [{**failed, "request": {}}])
 
     def test_every_case_table_row_names_only_its_columns_and_the_read_commits_last(self):
-        given = {"case_detail": CASE_DETAIL, "case_survey": SURVEY, "case_appraisal": APPRAISAL}
+        given = {"case_detail": CASE_DETAIL, "case_survey": SURVEY, "case_appraisal": APPRAISAL, "case_filings": FILINGS,
+                 "case_survey_report": SURVEY_REPORT}
         for role, tables in job.CASE_DOCUMENT_TABLES.items():
             self.assertEqual(tables[-1], job.CASE_READ_TABLE)
             rows = self.rows(role, [case_line(role, given[role])])
@@ -483,6 +502,188 @@ class CaseDocumentRowsTest(unittest.TestCase):
                 self.assertTrue(rows[table], table)
                 self.assertLessEqual(set(rows[table][0]), names, table)
             self.assertEqual(job.search_roles(CONTRACT)[f"courtauctiongokr__{next(d for d in CONTRACT['case_documents']['documents'] if d['role'] == role)['dataset_slug']}"], role)
+
+    def test_a_survey_reports_lessees_keep_no_name_and_no_resident_number(self):
+        tables = self.rows("case_survey_report", [case_line("case_survey_report", SURVEY_REPORT)])
+        [tenant] = tables[job.TENANT_TABLE]
+        self.assertEqual((tenant["round_seq"], tenant["tenant_seq"], tenant["usage_raw"], tenant["deposit_raw"],
+                          tenant["monthly_rent_raw"], tenant["move_in_raw"]),
+                         (1, 1, "사무실", "10,000,000원", "500,000원", "2099.01.02"))
+        kept = json.dumps(tenant, ensure_ascii=False, default=str)
+        self.assertNotIn("홍길동", kept)
+        self.assertNotIn("합성암호값", kept)
+
+    def test_filings_keep_the_role_and_the_kind_and_never_the_masked_name(self):
+        tables = self.rows("case_filings", [case_line("case_filings", FILINGS)])
+        filings = tables[job.FILING_TABLE]
+        self.assertEqual([(r["filer_role"], r["document_kind"], r["action"]) for r in filings],
+                         [("채권자 소송대리인", "보정서", "제출"), ("감정인", "회보서", "제출"), (None, None, "제출")])
+        self.assertEqual(filings[0]["received_date"], date(2099, 2, 2))
+        deliveries = tables[job.DELIVERY_TABLE]
+        self.assertEqual([(r["recipient_role"], r["document_kind"], r["reached_date"], r["delivery_result"])
+                          for r in deliveries],
+                         [("채권자대리인", "보정명령등본", date(2099, 1, 30), "도달"),
+                          ("채무자겸소유자", "개시결정정본", date(2099, 2, 11), "폐문부재")])
+        kept = json.dumps(tables[job.FILING_TABLE] + tables[job.DELIVERY_TABLE], ensure_ascii=False, default=str)
+        for name in ("OO", "홍길동", "김", "이OO"):
+            self.assertNotIn(name, kept)
+
+
+def report_line(case, outcome, sha=None):
+    """A 감정평가서 line as the collector writes it, with made-up values (root ADR-0540 §1)."""
+
+    return {"operation": "kapanetAppraisalReport",
+            "request": {"court_office_code": "B999999", "case_no": case, "round_seq": 1, "appraisal_no": "합성-01",
+                        "written_date": "20990112"},
+            "requested_at_utc": "2099-01-13T03:04:05+00:00", "outcome": outcome, "sha256": sha,
+            "media_format": "pdf" if sha else None, "size_bytes": 1000 if sha else None,
+            "facts": {"view_url": "https://example.invalid/view", "http_status": 200, "file_http_status": 200}}
+
+
+class ReportRowsTest(unittest.TestCase):
+    def rows(self, lines):
+        return job.report_rows_of(lines, "report-object", "20990113T030405Z", datetime(2099, 1, 13, 3, 4, 5))
+
+    def test_only_a_stored_report_is_an_index_row_and_every_request_is_a_read(self):
+        tables = self.rows([report_line("A", "stored", "a" * 64), report_line("B", "captcha"),
+                            report_line("C", "gone")])
+        [stored] = tables[job.REPORT_TABLE]
+        self.assertEqual((stored["case_no"], stored["sha256"], stored["media_format"], stored["written_date"]),
+                         ("A", "a" * 64, "pdf", date(2099, 1, 12)))
+        self.assertEqual([r["outcome"] for r in tables[job.REPORT_READ_TABLE]], ["stored", "captcha", "gone"])
+        for table in job.REPORT_TABLES:
+            names = {c["name"] for c in load_lakehouse_contract(table)["columns"]}
+            self.assertLessEqual(set(tables[table][0]), names, table)
+        self.assertEqual(job.REPORT_TABLES[-1], job.REPORT_READ_TABLE, "the read record commits last")
+        self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_appraisal_report"], job.REPORTS_ROLE)
+
+    def test_a_read_without_its_key_is_refused(self):
+        line = report_line("A", "failed")
+        line["request"].pop("written_date")
+        with self.assertRaises(ValueError):
+            self.rows([line])
+
+    def test_the_store_index_is_one_the_media_reconcile_reads(self):
+        onbid = json.loads((job.CONTRACTS / "data-go-kr-onbid.contract.json").read_text(encoding="utf-8"))
+        self.assertIn(job.REPORT_TABLE, onbid["media"]["reconcile"]["index_tables"])
+        self.assertEqual(CONTRACT["appraisal_reports"]["reports_from"], job.REPORT_TABLE)
+        self.assertEqual(CONTRACT["appraisal_reports"]["reads_from"], job.REPORT_READ_TABLE)
+
+
+def notice_lines():
+    """A 매각공고 object as the collector writes it: the court list, one notice list and its detail,
+    with made-up values (root ADR-0575 §6)."""
+
+    listed = {"cortOfcCd": "B999999", "dspslDxdyYmd": "20991119", "jdbnCd": "1002", "cortAuctnJdbnNm": "경매2계",
+              "jdbnTelno": "000-0000", "bidDvsCd": "000331", "dspslPlcNm": "합성법정", "fstDspslHm": "1000",
+              "corCnt": 1, "canCnt": 1}
+    detail = {"result": {"dspslPbanc": {"csCnt": 2, "pbancInfo": {"lst": [
+        {"csNo": "2099타경1", "dspslSeq": "1", "usgNm": "대지", "aeeEvlAmt": "11,000,000",
+         "lwsDspslPrc": "<img src=\"/x.gif\" alt=\"첫번째\"> 8,800,000<br>입찰시간(10:00)<br>", "dspslRmk": "",
+         "st": "합성도 가나동 1 <br />[상세내역]<br /> 대 100㎡"}]}},
+        "crrctPbancLst": [{"csNo": "2099타경2", "dspslSeq": "1", "crrctCtt": "최저매각가격 7,000,000원으로 정정",
+                           "crrctPbancYmd": "20991118", "aeeEvlAmt": "9,000,000", "lwsDspslPrc": "7,000,000"}],
+        "rtrcnPbancLst": [{"csNo": "2099타경3</br>2099타경4</br>(중복)", "dspslSeq": "2", "crrctCtt": "변경 후 추후지정",
+                           "crrctPbancYmd": "20991118", "dspslGdsCsNo": "20990130000003", "rletPbancDvsCd": "2"}]}}
+    return [
+        {"operation": "selectCortOfcCdLst", "request": {}, "read_outcome": "read",
+         "body": json.dumps({"data": {"result": [{"cortOfcCd": "B999999"}]}})},
+        {"operation": "selectRletDspslPbanc", "request": {}, "read_outcome": "read",
+         "body": json.dumps({"data": {"dlt_rletDspslPbancLst": [listed]}}, ensure_ascii=False)},
+        {"operation": "selectRletDspslPbancDtl", "request": {"dma_srchGnrlPbanc": listed}, "read_outcome": "read",
+         "body": json.dumps({"data": detail}, ensure_ascii=False)},
+    ]
+
+
+class DividendRowsTest(unittest.TestCase):
+    def test_a_case_and_its_properties_without_a_name(self):
+        listed = {"cortOfcCd": "B999999", "csNo": "20990130000001", "userCsNo": "2099타경1", "jdbnCd": "1002",
+                  "orddcsDvsCd": "021", "csCmdcYmd": "20990907", "dstrtDemnLstprdPbancYmd": "20990917",
+                  "dstrtDemnLstprdYmd": "20991126", "dspslObjctCnt": 2, "rprsLtnoAddr": "1-1",
+                  "realSt": "합성도 가나동 1-1 외 1건", "rprsCrdtrNm": "홍길동", "rprsDebtrOwnrNm": "김철수",
+                  "realOwnr": "김OO"}
+        objects = {"cortOfcCd": "B999999", "csNo": "20990130000001", "dspslObjctSeq": 1,
+                   "objctRletCarUnqNo": "99999999999999", "usgNm": "토지", "rgstRcrd": "열람", "rprsLtnoAddr": "1-1"}
+        lines = [
+            {"operation": "searchDstrtDemnLstprdPbanc", "read_outcome": "read",
+             "body": json.dumps({"data": {"dlt_lstprdPbancCorOfc": [listed]}}, ensure_ascii=False)},
+            {"operation": "selectDstrtDemnLst", "read_outcome": "read",
+             "body": json.dumps({"data": {"dlt_dstrtDemnLstDts": [objects]}}, ensure_ascii=False)},
+        ]
+        tables = job.dividend_rows_of(lines, CONTRACT["dividend_notices"], "dividend-object", "20991113T030405Z",
+                                      datetime(2099, 11, 13, 3, 4, 5))
+        [notice] = tables[job.DIVIDEND_TABLE]
+        self.assertEqual((notice["deadline_date"], notice["object_count"], notice["user_case_no"]),
+                         (date(2099, 11, 26), 2, "2099타경1"))
+        [item] = tables[job.DIVIDEND_OBJECT_TABLE]
+        self.assertEqual((item["object_seq"], item["registry_unique_no"]), (1, "99999999999999"))
+        kept = json.dumps(tables, ensure_ascii=False, default=str)
+        for name in ("홍길동", "김철수", "김OO"):
+            self.assertNotIn(name, kept)
+        for table in job.DIVIDEND_TABLES:
+            names = {c["name"] for c in load_lakehouse_contract(table)["columns"]}
+            self.assertLessEqual(set(tables[table][0]), names, table)
+        self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_dividend_notice"], job.DIVIDENDS_ROLE)
+
+
+class NoticeRowsTest(unittest.TestCase):
+    def test_a_notice_and_its_lists_with_the_change_text(self):
+        tables = job.notice_rows_of(notice_lines(), CONTRACT["sale_notices"], "notice-object", "20991113T030405Z",
+                                    datetime(2099, 11, 13, 3, 4, 5))
+        [notice] = tables[job.NOTICE_TABLE]
+        self.assertEqual((notice["sale_date"], notice["department_code"], notice["case_count"],
+                          notice["correction_count"]), (date(2099, 11, 19), "1002", 2, 1))
+        items = {row["list"]: row for row in tables[job.NOTICE_ITEM_TABLE]}
+        self.assertEqual((items["sale"]["minimum_bid_price_krw"], items["sale"]["appraisal_amount_krw"]),
+                         (8_800_000, 11_000_000))
+        self.assertEqual(items["sale"]["property_text"], "합성도 가나동 1" + chr(10) + "[상세내역]" + chr(10) + "대 100㎡")
+        self.assertEqual((items["correction"]["change_text"], items["correction"]["change_date"]),
+                         ("최저매각가격 7,000,000원으로 정정", date(2099, 11, 18)))
+        self.assertEqual((items["cancellation"]["user_case_no"], items["cancellation"]["sale_case_no"]),
+                         ("2099타경3", "20990130000003"))
+        for table in job.NOTICE_TABLES:
+            names = {c["name"] for c in load_lakehouse_contract(table)["columns"]}
+            self.assertLessEqual(set(tables[table][0]), names, table)
+        self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_sale_notice"], job.NOTICES_ROLE)
+
+
+def spec_line(document, outcome, sha=None):
+    """A 매각물건명세서 line as the collector writes it, with made-up values (root ADR-0575)."""
+
+    return {"operation": "saleSpecificationPdf",
+            "request": {"court_office_code": "B999999", "case_no": "20990130099999", "item_seq": "1",
+                        "document_id": document, "written_date": "20991026"},
+            "requested_at_utc": "2099-11-13T03:04:05+00:00", "outcome": outcome, "sha256": sha,
+            "media_format": "pdf" if sha else None, "size_bytes": 1000 if sha else None,
+            "facts": {"log_http_status": 200, "info_http_status": 200, "file_http_status": 200,
+                      "document_name": "매각물건명세서", "document_written_ymd": "20991026",
+                      "document_written_hm": "2359"}}
+
+
+class SpecReadRowsTest(unittest.TestCase):
+    def rows(self, lines):
+        return job.spec_read_rows_of(lines, "spec-object", "20991113T030405Z", datetime(2099, 11, 13, 3, 4, 5))
+
+    def test_every_version_asked_is_a_read_row_with_no_name(self):
+        rows = self.rows([spec_line("DOC1", "stored", "a" * 64), spec_line("DOC2", "captcha")])
+        self.assertEqual([(r["document_id"], r["outcome"]) for r in rows], [("DOC1", "stored"), ("DOC2", "captcha")])
+        self.assertEqual((rows[0]["sha256"], rows[0]["spec_written_date"], rows[0]["document_written_date"]),
+                         ("a" * 64, date(2099, 10, 26), date(2099, 10, 26)))
+        names = {c["name"] for c in load_lakehouse_contract(job.SPEC_READ_TABLE)["columns"]}
+        self.assertLessEqual(set(rows[0]), names)
+        self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_sale_specification"], job.SPECS_ROLE)
+        self.assertEqual(CONTRACT["sale_specifications"]["reads_from"], job.SPEC_READ_TABLE)
+
+    def test_a_read_without_its_document_id_is_refused(self):
+        line = spec_line("DOC1", "failed")
+        line["request"].pop("document_id")
+        with self.assertRaises(ValueError):
+            self.rows([line])
+
+    def test_the_pdfs_are_not_in_the_served_media_store(self):
+        onbid = json.loads((job.CONTRACTS / "data-go-kr-onbid.contract.json").read_text(encoding="utf-8"))
+        self.assertNotIn(job.SPEC_READ_TABLE, onbid["media"]["reconcile"]["index_tables"])
+        self.assertFalse(CONTRACT["sale_specifications"]["object_prefix"].startswith(onbid["media"]["object_prefix"]))
 
 
 @unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")

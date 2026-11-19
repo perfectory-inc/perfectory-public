@@ -370,7 +370,8 @@ def document_frames(spark, round_row):
            "property_seq": round_row["property_seq"], "source_record_id": "o", "source_line_number": 1,
            "source_snapshot_id": "s1"}
     values = {
-        job.CASE_DOC: {"case_name": "부동산임의경매", "claim_amount_krw": 150000000, "commencement_date": date(2099, 1, 1)},
+        job.CASE_DOC: {"case_name": "부동산임의경매", "claim_amount_krw": 150000000, "commencement_date": date(2099, 1, 1),
+                       "user_case_no": "2099타경1"},
         job.SPEC_DOC: {"assumed_rights": "해당사항없음", "item_usage_code": "10", "bid_kind_code": "000331"},
         job.SCHEDULE_DOC: {"schedule_seq": 1, "schedule_date": date(2099, 1, 2), "schedule_kind_code": "01",
                            "result_code": "002", "minimum_bid_price_krw": 100},
@@ -411,6 +412,26 @@ def full_document_frames(spark, round_row):
                                 "remarks": "합성"},
         job.APPRAISAL_ROUND_DOC: {"round_seq": 1, "appraisal_no": "합성-01", "price_basis_date": date(2099, 1, 10),
                                   "written_date": date(2099, 1, 12), "opinion": "합성"},
+        job.REPORT_DOC: {"round_seq": 1, "appraisal_no": "합성-01", "written_date": date(2099, 1, 12),
+                         "sha256": "a" * 64, "media_format": "pdf", "size_bytes": 1000},
+        # 현황조사서's 임대차관계 (root ADR-0575 §6), never a name.
+        job.TENANT_DOC: {"round_seq": 1, "tenant_seq": 1, "object_seq": 1, "usage_raw": "사무실",
+                         "deposit_raw": "10,000,000원", "monthly_rent_raw": "500,000원", "move_in_raw": "2099.01.02",
+                         "fixed_date_raw": "미상", "leased_part_raw": "전부"},
+        # The case's 배당요구종기공고 (root ADR-0575 §6).
+        job.DIVIDEND_DOC: {"commencement_date": date(2098, 12, 1), "notice_date": date(2098, 12, 10),
+                           "deadline_date": date(2099, 2, 1)},
+        # A 정정공고 naming the round's case and property (root ADR-0575 §6).
+        job.NOTICE_ITEM_DOC: {"department_code": "1002", "sale_date": date(2099, 1, 5), "bid_kind_code": "000331",
+                              "list": "correction", "list_seq": 1, "user_case_no": "2099타경1",
+                              "property_seq": round_row["property_seq"], "change_date": date(2099, 1, 4),
+                              "change_text": "최저매각가격 정정"},
+        # 문건·송달 (root ADR-0575 §5): the role and kind, never the masked name.
+        job.FILING_DOC: {"filing_seq": 1, "received_date": date(2099, 2, 2), "filer_role": "채권자", "document_kind": "보정서",
+                         "action": "제출", "result": "합성"},
+        job.DELIVERY_DOC: {"delivery_seq": 1, "registered_date": date(2099, 1, 28), "reached_date": date(2099, 1, 30),
+                           "delivery_result": "도달", "recipient_role": "채권자대리인", "document_kind": "보정명령등본",
+                           "action": "발송"},
     }
     from platform_contracts import load_lakehouse_contract, spark_sql_type
 
@@ -497,6 +518,8 @@ class DetailSparkTest(unittest.TestCase):
             job.SURVEY_DOC: [{"round_seq": 1, "lease_text": "옛 회차"}, {"round_seq": 2, "lease_text": "새 회차"}],
             job.SURVEY_OBJECT_DOC: [{"round_seq": 2, "object_seq": 1, "possession_text": "○○○ 점유", "lease_count": 1}],
             job.APPRAISAL_ROUND_DOC: [{"round_seq": 1, "appraisal_no": "합성-0001", "written_date": date(2099, 1, 12)}],
+            job.REPORT_DOC: [{"round_seq": 1, "appraisal_no": "합성-0001", "written_date": date(2099, 1, 12),
+                              "sha256": "a" * 64, "media_format": "pdf", "size_bytes": 1000}],
         }
         for source, given in rows.items():
             columns = load_lakehouse_contract(source)["columns"]
@@ -511,6 +534,8 @@ class DetailSparkTest(unittest.TestCase):
         self.assertEqual((detail["survey"]["round_seq"], detail["survey"]["lease_text"]), (2, "새 회차"))
         self.assertEqual(detail["survey"]["objects"][0]["lease_count"], 1)
         self.assertEqual(detail["appraisal"]["appraisal_no"], "합성-0001")
+        self.assertEqual(detail["appraisal"]["report"], {"sha256": "a" * 64, "media_format": "pdf", "size_bytes": 1000},
+                         "the round's stored 감정평가서")
         bare = json.loads(job.with_detail(rounds, document_frames(self.spark, rounds.first()))
                           .select(F.to_json("detail").alias("j")).first().j)
         self.assertEqual((bare["related_cases"], bare["parties"]), ([], []), "a case never read has empty lists")

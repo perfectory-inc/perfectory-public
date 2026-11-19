@@ -105,9 +105,15 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // the 160th is the courtauction.go.kr 공통코드, asked once a run for the codes' names (root ADR-0540 §5);
     // the 161st is the juso.go.kr 도로명주소 전자지도 base, one 월전체 landed once per 시도 zip (root ADR-0494);
     // the 162nd–164th are the court auction 사건상세, 현황조사 and 감정평가, asked per case due (root ADR-0540 §1);
-    // the 165th–167th are three more data.go.kr files the same collector lands: 표준지공시지가,
+    // the 165th is the 감정평가서 PDF the site's 감정평가 screen opens (root ADR-0540 §1);
+    // the 166th is the 매각물건명세서 PDF, asked once per version (root ADR-0575);
+    // the 167th is its 문건·송달, asked with the case documents (root ADR-0575 §4);
+    // the 168th is its 현황조사서, for the 임대차 list (root ADR-0575 §6);
+    // the 169th is its 매각공고, every court's this month and next (root ADR-0575 §6);
+    // the 170th is its 배당요구종기공고, every court department's (root ADR-0575 §6);
+    // the 171st–173rd are three more data.go.kr files the same collector lands: 표준지공시지가,
     // 승강기 설치 현황 and 전국지식산업센터현황.
-    assert_eq!(checked, 167, "expected 167 in-scope catalog entries");
+    assert_eq!(checked, 173, "expected 173 in-scope catalog entries");
     assert_eq!(
         skipped, 0,
         "expected no skipped mixed_public_source entries"

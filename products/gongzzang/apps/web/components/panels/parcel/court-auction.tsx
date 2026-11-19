@@ -8,7 +8,7 @@ import type {
   CourtAuctionRound,
   CourtAuctionSaleResult,
 } from "@/lib/api/court-auction";
-import { parcelMediaStore } from "@/lib/api/public-auction";
+import { onbidMediaSrc, parcelMediaStore } from "@/lib/api/public-auction";
 import { formatPriceKrw } from "@/lib/listings/format";
 
 /** The parcel's 법원경매 (court auctions) as a category page: one card per item in progress, then
@@ -135,7 +135,11 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
     [t("detail.caseReceived"), c?.case_received_date],
     [t("detail.commencement"), c?.commencement_date],
     [t("detail.claim"), money(c?.claim_amount_krw)],
-    [t("detail.dividendDeadline"), c?.dividend_demand_deadline],
+    [
+      t("detail.dividendDeadline"),
+      c?.dividend_demand_deadline ?? detail.dividend_notice?.deadline_date,
+    ],
+    [t("detail.dividendNoticeDate"), detail.dividend_notice?.notice_date],
     [t("detail.saleDecisionDate"), s?.sale_decision_date],
     [
       t("detail.depositRate"),
@@ -259,6 +263,17 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
               [t("detail.opinion"), detail.appraisal.opinion],
             ])}
           />
+          {/* The 감정평가서 PDF sits once in the shared store the parcel edge serves (root ADR-0540 §1). */}
+          {detail.appraisal.report && (
+            <a
+              href={onbidMediaSrc(detail.appraisal.report)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block text-[var(--color-accent)]"
+            >
+              {t("detail.appraisalReport")}
+            </a>
+          )}
         </Section>
       )}
       {detail.appraisal_points.length > 0 && (
@@ -276,14 +291,106 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
           </ul>
         </Section>
       )}
+      <FilingSections t={t} detail={detail} />
     </div>
+  );
+}
+
+/** The case's 문건처리내역 and 송달내역 (root ADR-0575 §5). */
+function FilingSections({ t, detail }: { t: Translate; detail: Detail }) {
+  return (
+    <>
+      {(detail.filings?.length ?? 0) > 0 && (
+        <Section title={t("detail.filings")}>
+          <DatedList
+            t={t}
+            rows={(detail.filings ?? []).map((f) => [
+              f.received_date,
+              [f.filer_role, f.document_kind, f.action].filter(Boolean).join(" "),
+              f.result,
+            ])}
+            heads={["detail.filingDate", "detail.filingText", "detail.filingResult"]}
+          />
+        </Section>
+      )}
+      {(detail.notice_changes?.length ?? 0) > 0 && (
+        <Section title={t("detail.noticeChanges")}>
+          <ul className="mt-1 flex flex-col gap-1">
+            {detail.notice_changes?.map((c, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the notice's list order is the row's identity.
+              <li key={i}>
+                <span className="text-[var(--color-muted)]">
+                  {t(
+                    c.list === "correction"
+                      ? "detail.noticeCorrection"
+                      : "detail.noticeCancellation",
+                  )}{" "}
+                  {c.change_date ?? ""}
+                </span>{" "}
+                {c.change_text ?? ""}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+      {(detail.deliveries?.length ?? 0) > 0 && (
+        <Section title={t("detail.deliveries")}>
+          <DatedList
+            t={t}
+            rows={(detail.deliveries ?? []).map((d) => [
+              d.registered_date,
+              [d.recipient_role, d.document_kind, d.action].filter(Boolean).join(" "),
+              [d.reached_date, d.delivery_result].filter(Boolean).join(" "),
+            ])}
+            heads={["detail.deliveryDate", "detail.deliveryText", "detail.deliveryResult"]}
+          />
+        </Section>
+      )}
+    </>
+  );
+}
+
+/** The case's 문건·송달 (root ADR-0575 §5) as the site's table: date, what, result. The site masks
+ * the names in the text; the document keeps only the role and kind around them. */
+function DatedList({
+  t,
+  rows,
+  heads,
+}: {
+  t: Translate;
+  rows: (string | null | undefined)[][];
+  heads: [Parameters<Translate>[0], Parameters<Translate>[0], Parameters<Translate>[0]];
+}) {
+  return (
+    <table className="mt-1 w-full text-left tabular-nums">
+      <thead className="text-[var(--color-muted)]">
+        <tr>
+          {heads.map((h) => (
+            <th key={h} className="font-normal">
+              {t(h)}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
+          <tr key={i}>
+            {row.map((cell, j) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a row's cells are its columns, in order.
+              <td key={j}>{cell ?? ""}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
 type Survey = NonNullable<Detail["survey"]>;
 
 /** The case's newest 현황조사서 (root ADR-0540 §1): when it was surveyed, the possession and lease
- * narrative and each 목록's possession, names masked. */
+ * narrative, each 목록's possession and its 임대차관계 (root ADR-0575 §6), names masked or absent. */
 function SurveySection({ t, survey }: { t: Translate; survey: Survey }) {
   const surveyed = (survey.surveyed_raw ?? "")
     .split("^")
@@ -314,6 +421,33 @@ function SurveySection({ t, survey }: { t: Translate; survey: Survey }) {
             </li>
           ))}
         </ul>
+      )}
+      {(survey.tenants?.length ?? 0) > 0 && (
+        <table className="mt-1 w-full text-left tabular-nums">
+          <thead className="text-[var(--color-muted)]">
+            <tr>
+              <th className="font-normal">{t("detail.tenantPart")}</th>
+              <th className="font-normal">{t("detail.tenantUsage")}</th>
+              <th className="font-normal">{t("detail.tenantDeposit")}</th>
+              <th className="font-normal">{t("detail.tenantRent")}</th>
+              <th className="font-normal">{t("detail.tenantMoveIn")}</th>
+              <th className="font-normal">{t("detail.tenantFixed")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {survey.tenants?.map((r, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
+              <tr key={i}>
+                <td>{r.leased_part_raw ?? ""}</td>
+                <td>{r.usage_raw ?? ""}</td>
+                <td>{r.deposit_raw ?? ""}</td>
+                <td>{r.monthly_rent_raw ?? ""}</td>
+                <td>{r.move_in_raw ?? ""}</td>
+                <td>{r.fixed_date_raw ?? ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </Section>
   );

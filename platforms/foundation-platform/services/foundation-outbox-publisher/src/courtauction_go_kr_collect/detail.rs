@@ -295,11 +295,14 @@ pub(crate) async fn last_reads_from_lakehouse(
 /// The prefix the photos are stored under: the value the contract points at (one store, its
 /// writer's contract is its one record, root ADR-0296 §2).
 pub(crate) fn photo_prefix(detail: &ItemDetail) -> anyhow::Result<ObjectKeyPrefix> {
-    let (file, pointer) = detail
-        .photos
-        .object_prefix_from
+    photo_prefix_of(&detail.photos.object_prefix_from)
+}
+
+/// The shared store's prefix a contract's `object_prefix_from` (`<file>#<pointer>`) points at.
+pub(crate) fn photo_prefix_of(object_prefix_from: &str) -> anyhow::Result<ObjectKeyPrefix> {
+    let (file, pointer) = object_prefix_from
         .split_once('#')
-        .context("photos.object_prefix_from is <file>#<pointer>")?;
+        .context("object_prefix_from is <file>#<pointer>")?;
     anyhow::ensure!(
         file == "data-go-kr-onbid.contract.json",
         "photos.object_prefix_from names {file}; the store's writer contract is data-go-kr-onbid.contract.json"
@@ -536,6 +539,8 @@ pub(crate) struct DetailResult {
     pub(crate) asked: u32,
     pub(crate) failed: u32,
     pub(crate) photos: PhotoReport,
+    /// The 매각물건명세서 versions the answers offered (root ADR-0575 §1): a few strings each.
+    pub(crate) specs: Vec<super::specs::WantedSpec>,
 }
 
 /// The request body of one property.
@@ -612,6 +617,8 @@ enum Read {
         line: String,
         failed: bool,
         photos: PhotoReport,
+        // Boxed: a version is a few strings, and most reads offer none (clippy::large_enum_variant).
+        spec: Option<Box<super::specs::WantedSpec>>,
     },
     Stopped(Stop),
 }
@@ -629,6 +636,7 @@ async fn read_one(
     now: &(dyn Fn() -> DateTime<Utc> + Sync),
     store: &PhotoStore<'_>,
     seen: &SeenPhotos,
+    specs: &super::specs::SaleSpecifications,
 ) -> anyhow::Result<Read> {
     let (at, body, asked) = match send(asking, gate, deadline, detail, headers, wanted, now).await?
     {
@@ -653,6 +661,7 @@ async fn read_one(
         Asked::Unfinished => return Ok(Read::Stopped(Stop::TimeBudget)),
     };
     let mut photos = PhotoReport::default();
+    let mut spec = None;
     let failed = read.is_err();
     match read {
         Err((reason, text)) => {
@@ -663,6 +672,7 @@ async fn read_one(
         Ok(mut value) => {
             let photo_count = match value.pointer_mut(&detail.result_pointer) {
                 Some(found) => {
+                    spec = super::specs::spec_of(specs, found).map(Box::new);
                     rewrite_photos(
                         found,
                         &detail.photos,
@@ -684,6 +694,7 @@ async fn read_one(
         line: serde_json::to_string(&line)?,
         failed,
         photos,
+        spec,
     })
 }
 
@@ -724,7 +735,16 @@ pub(crate) async fn collect_details(
         .iter()
         .map(|wanted| {
             read_one(
-                asking, gate, deadline, detail, &headers, wanted, &now, store, &seen,
+                asking,
+                gate,
+                deadline,
+                detail,
+                &headers,
+                wanted,
+                &now,
+                store,
+                &seen,
+                &contract.sale_specifications,
             )
         })
         .collect();
@@ -737,10 +757,12 @@ pub(crate) async fn collect_details(
                 line,
                 failed,
                 photos,
+                spec,
             } => {
                 result.asked += 1;
                 result.failed += u32::from(failed);
                 result.photos.absorb(photos);
+                result.specs.extend(spec.map(|spec| *spec));
                 result.lines.push(&line)?;
             }
         }
