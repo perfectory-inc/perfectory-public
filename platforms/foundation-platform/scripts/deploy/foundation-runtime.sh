@@ -46,7 +46,7 @@ derive_port_from_env_url() {
   local url
   url="$(grep -E "^${key}=" "${FOUNDATION_PLATFORM_ENV_FILE}" | tail -1 | cut -d= -f2-)"
   [[ -n "${url}" ]] || return 0
-  python3 -I -c "
+  python3 -I -B -c "
 import sys, urllib.parse
 parts = urllib.parse.urlsplit(sys.argv[1])
 if parts.port:

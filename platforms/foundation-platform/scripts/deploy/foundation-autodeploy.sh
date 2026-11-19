@@ -116,7 +116,7 @@ if [[ -e "${off_switch}" ]]; then
   exit 0
 fi
 
-repository="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["full_name"])' \
+repository="$(python3 -I -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["full_name"])' \
   "${control_root}/tools/github/repository-identity.json")"
 head="$(/bin/bash "${control_root}/scripts/github/safe-git-transport.sh" --anonymous --no-repository \
   ls-remote "https://github.com/${repository}.git" refs/heads/main | cut -f1)" || head=""
