@@ -379,7 +379,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # (2 slots, 115 + 30; root ADR-0361) and every other lane's own bake; the bound reads no
         # takes_turns, so they count though they do not take turns. Each lane bake counts once at its own
         # hold, read from the job list for the lanes the index names (no count of lanes is written here).
-        # The parcel-nearby Gold the publisher builds (1 slot, 60 + 5; root ADR-0567) counts the same way.
+        # The parcel-nearby Gold the publisher builds (2 slots, 60 + 5; root ADR-0567) counts the same way.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
