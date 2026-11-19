@@ -499,7 +499,7 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
             if "FOUNDATION_CI_GATE_SELECTED == 'true'" in step:
                 self.assertRegex(
                     step,
-                    r"(?m)^      - name: (Set up Rust|Rust cache|Restore apt package cache)\n"
+                    r"(?m)^      - name: (Set up Rust|Rust cache|Restore apt package cache|Restore Spark packages)\n"
                     r"        if: \$\{\{ env\.FOUNDATION_CI_GATE_SELECTED == 'true' \}\}\n",
                     "only the shared Rust setup and the caches may skip by step condition",
                 )
@@ -508,6 +508,10 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
             # gate's shell guard, so an unselected run never sets PERFECTORY_APT_CACHE_SAVE.
             if re.search(r"(?m)^      - name: Save apt package cache\n", step):
                 self.assertIn("env.PERFECTORY_APT_CACHE_SAVE != ''", step)
+                continue
+            # The Spark packages' save likewise: only scripts/ci/spark-packages.sh asks for it.
+            if re.search(r"(?m)^      - name: Save Spark packages\n", step):
+                self.assertIn("env.PERFECTORY_SPARK_PACKAGES_SAVE != ''", step)
                 continue
             self.assertNotRegex(
                 step,

@@ -199,24 +199,16 @@ def publisher_binary(archive: Path, config_digest: str, out: Path) -> None:
         run("docker", "rm", container, capture=True)
 
 
-def resolve_jars(release, work: Path) -> list[Path]:
-    """The engine's packages as the server resolves them: spark-submit in the pinned Spark image."""
+def resolve_jars(release, ivy: Path) -> list[Path]:
+    """The engine's packages as the server resolves them: spark-submit in the pinned Spark image.
+
+    scripts/ci/spark-packages.sh resolves them in `ivy` with no network when the directory already
+    holds them (CI restores it from the cache main saved), and from Maven Central otherwise.
+    """
     spark_image = release.spark_image_from_compose(run(*release.SPARK_COMPOSE_CONFIG, capture=True).encode())
     packages = release.engine_packages(PLATFORM)
-    cache = work / "ivy"
-    cache.mkdir(mode=0o777)
-    cache.chmod(0o777)
-    resolver = work / "resolve.py"
-    resolver.write_text("print('release dependency resolution complete')\n")
-    run("docker", "run", "--rm", "--mount", f"type=bind,src={cache},dst=/resolve",
-        "--mount", f"type=bind,src={resolver},dst=/resolve.py,readonly",
-        "--entrypoint", "/opt/spark/bin/spark-submit", spark_image,
-        "--conf", "spark.jars.ivy=/resolve", "--packages", packages, "/resolve.py")
-    # Spark (uid 185) wrote the cache owner-only; the runner's account reads the jars and removes
-    # the directory afterwards.
-    run("docker", "run", "--rm", "--user", "0", "--mount", f"type=bind,src={cache},dst=/resolve",
-        "--entrypoint", "chmod", spark_image, "-R", "a+rwX", "/resolve")
-    jars = sorted((cache / "jars").glob("*.jar"))
+    run("bash", str(ROOT / "scripts" / "ci" / "spark-packages.sh"), str(ivy), spark_image, packages)
+    jars = sorted((ivy / "jars").glob("*.jar"))
     if not jars or any(jar.is_symlink() or not jar.is_file() for jar in jars):
         raise ValueError("the dependency resolver produced no jars or a non-regular one")
     return jars
@@ -269,6 +261,8 @@ def main() -> int:
     parser.add_argument("--cache-ref", help="registry repository whose buildcache-<image> tags hold the build cache")
     parser.add_argument("--cache-read-only", action="store_true",
                         help="read the build cache and write none (a pull request's dry run, root ADR-0345)")
+    parser.add_argument("--ivy-cache", type=Path,
+                        help="Ivy directory kept between runs; the jars resolve from it with no network when it holds them")
     arguments = parser.parse_args()
     out = arguments.out
     if out.exists() and any(out.iterdir()):
@@ -289,7 +283,7 @@ def main() -> int:
         binary = work / "foundation-outbox-publisher"
         publisher_binary(work / "publisher.oci.tar", images["publisher"]["config"], binary)
         started = time.monotonic()
-        jars = resolve_jars(release, work)
+        jars = resolve_jars(release, arguments.ivy_cache or work / "ivy")
         measured["jars"] = {"seconds": round(time.monotonic() - started)}
         # The executable and the jars travel as one image of files (`FROM scratch`), so the registry
         # holds them as it holds the images; the manifest names each file's own digest as well.

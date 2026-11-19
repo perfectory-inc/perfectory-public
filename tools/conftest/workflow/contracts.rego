@@ -62,10 +62,15 @@ conditional_steps := {
 	["Save pinned release binaries", cache_writer_if],
 	["Restore apt package cache", foundation_gate_if],
 	["Save apt package cache", apt_cache_save_if],
+	["Restore Spark packages", foundation_gate_if],
+	["Save Spark packages", spark_packages_save_if],
 }
 
 # scripts/ci/apt-install.sh asks for a save only when it downloaded a set the restored cache lacked.
 apt_cache_save_if := sprintf("${{ always() && env.PERFECTORY_APT_CACHE_SAVE != '' && (%s) }}", [cache_writer_if])
+
+# scripts/ci/spark-packages.sh asks for a save only when it resolved from the network.
+spark_packages_save_if := sprintf("${{ always() && env.PERFECTORY_SPARK_PACKAGES_SAVE != '' && (%s) }}", [cache_writer_if])
 
 # --- the parsed workflows -----------------------------------------------------------------------
 

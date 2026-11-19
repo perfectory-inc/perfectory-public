@@ -13,8 +13,11 @@
 # skip proves nothing.
 #
 # Speed (measured in this script's log, "durations, slowest first"): the Iceberg artifacts are
-# resolved once, before the files start, and the files then load the resolved jars, so concurrent
-# JVMs never share an Ivy resolution. Spark settings stay each session's own: a shared default
+# resolved once, before the container starts (scripts/ci/spark-packages.sh), and the files then load
+# the resolved jars, so concurrent JVMs never share an Ivy resolution. SPARK_RUNTIME_IVY_CACHE names
+# an Ivy directory kept between runs: CI restores it from the cache main saved, and the packages
+# then resolve with no network (2026-11-19: Maven Central refused the runners and four shards
+# failed with "module not found"). Unset, the directory is this run's own and is filled each time. Spark settings stay each session's own: a shared default
 # (fewer shuffle partitions, say) would change what a test exercises. Each test JVM compiles with C1
 # only, collects with the serial collector and sizes its pools for two CPUs: the files are short
 # and run side by side, so C2 compiler and parallel GC threads only take CPU from the other file.
@@ -53,11 +56,13 @@ echo "foundation-spark-runtime: compose service spark with $packages"
 
 work="$(mktemp -d)"
 log="$work/tests.log"
+ivy="${SPARK_RUNTIME_IVY_CACHE:-$work/ivy}"
 project="foundation-spark-runtime-$$"
 compose() {
-  # The service's state, Ivy and /tmp mounts point into this run's temporary directory, not the tree.
-  FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="$work/state" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="$work/ivy" \
-    FOUNDATION_PLATFORM_SPARK_TMP="$work/tmp" docker compose -p "$project" --project-directory "$AREA" -f "$AREA/compose.lakehouse.yml" \
+  # The service's state and /tmp mounts point into this run's temporary directory, not the tree;
+  # the resolved jars are mounted read-only.
+  FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="$work/state" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="$ivy" \
+    FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro FOUNDATION_PLATFORM_SPARK_TMP="$work/tmp" docker compose -p "$project" --project-directory "$AREA" -f "$AREA/compose.lakehouse.yml" \
     --profile lakehouse-batch "$@"
 }
 cleanup() {
@@ -65,29 +70,29 @@ cleanup() {
   rm -rf "$work" 2>/dev/null || true
 }
 trap cleanup EXIT
-mkdir -p "$work/state" "$work/ivy" "$work/tmp"
-chmod 0777 "$work/state" "$work/ivy"
+mkdir -p "$work/state" "$ivy" "$work/tmp"
+chmod 0777 "$work/state"
 chmod 1777 "$work/tmp"
-# Read-only source; Ivy, Spark's scratch and the tests' temporary tables live in the container's /tmp.
+# Read-only source and jars; Spark's scratch and the tests' temporary tables live in the container's /tmp.
 SECONDS=0
 compose pull --quiet spark
 echo "foundation-spark-runtime: image ready in ${SECONDS}s"
+image="$(compose config --format json | python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["spark"]["image"])')"
+bash "$ROOT/scripts/ci/spark-packages.sh" "$ivy" "$image" "$packages"
 # SPARK_RUNTIME_TARGETS: this CI shard's part (foundation_spark_shards.py, root ADR-0365); unset, all.
 read -ra targets <<<"${SPARK_RUNTIME_TARGETS:-}"
 status=0
 compose run --rm --no-deps -v "$ROOT:/repo:ro" -w "/repo/platforms/foundation-platform" \
   -e HOME=/tmp -e PYTHONDONTWRITEBYTECODE=1 -e RUN_SPARK_TESTS=1 -e RUN_ICEBERG_TESTS=1 \
-  -e SPARK_RUNTIME_JOBS -e "SPARK_RUNTIME_PACKAGES=$packages" \
+  -e SPARK_RUNTIME_JOBS \
   --entrypoint /bin/bash spark -c '
     set -euo pipefail
     py4j=(/opt/spark/python/lib/py4j-*-src.zip)
     export PYTHONPATH="/opt/spark/python:${py4j[0]}"
     defaults="--conf spark.ui.enabled=false"
     defaults+=" --driver-java-options \"-XX:TieredStopAtLevel=1 -XX:ReservedCodeCacheSize=256m -XX:+PrintCodeCache -XX:+UseSerialGC -XX:ActiveProcessorCount=2\""
-    # Resolve the Iceberg artifacts once; the files then load the jars instead of each resolving.
-    PYSPARK_SUBMIT_ARGS="--packages $SPARK_RUNTIME_PACKAGES --conf spark.jars.ivy=/tmp/ivy $defaults pyspark-shell" \
-      python3 -c "from pyspark.sql import SparkSession; SparkSession.builder.master(\"local[1]\").getOrCreate().stop()"
-    jars="$(printf "%s," /tmp/ivy/jars/*.jar)"
+    # The files load the jars spark-packages.sh resolved; none resolves.
+    jars="$(printf "%s," /home/spark/.ivy2/jars/*.jar)"
     export PYSPARK_SUBMIT_ARGS="--jars ${jars%,} $defaults pyspark-shell"
     bash /repo/scripts/verify/foundation-spark-runtime-files.sh "$0" "$@"' "$TESTS" "${targets[@]}" >"$log" 2>&1 || status=$?
 cat "$log"

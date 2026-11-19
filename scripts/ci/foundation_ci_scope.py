@@ -117,8 +117,11 @@ RULES = {
             # Which files each shard runs (root ADR-0365): a change here runs them all.
             "scripts/ci/foundation-spark-runtime-durations.json",
             "scripts/ci/foundation_spark_shards.py",
+            # How the packages are resolved before any file starts.
+            "scripts/ci/spark-packages.sh",
             "scripts/ci/test_foundation_spark_runtime_files.py",
             "scripts/ci/test_foundation_spark_shards.py",
+            "scripts/ci/test_spark_packages.py",
             "scripts/verify/foundation-spark-runtime-files.sh",
             "scripts/verify/foundation-spark-runtime.sh",
         ],
