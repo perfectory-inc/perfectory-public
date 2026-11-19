@@ -60,6 +60,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/b
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_sub_parcel_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/code_go_kr_legal_dong_contract.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_extensions.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/housing_permit_basis_outline_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_notice_stage.rs:3
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_notice_stage/tests.rs:4
@@ -68,11 +69,14 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/l
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/legal_dong_code_change_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage/tests.rs:2
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs:6
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_schedule.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage/tests.rs:3
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage/tests.rs:2
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs:3
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_gold_stage.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/floor_cycle/native_runtime.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/silver_refresh/land_tests.rs:1
@@ -110,6 +114,7 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/industria
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_notice_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/juso_electronic_map_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/media_renditions.rs:1
+platforms/foundation-platform/services/foundation-outbox-publisher/src/onbid_silver_load.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_nearby_versions_build.rs:2
 platforms/foundation-platform/services/foundation-outbox-publisher/src/silver_load_objects.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/tests/administrative_boundary_publication.rs:1

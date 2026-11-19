@@ -342,7 +342,19 @@ lane_exit() {
     record_failed "${code}" || true
   fi
   [[ "${OWN_RUN}" == true ]] || return 0
-  if ((code)); then
+  if [[ -n "${STOPPED_BY_TERM}" ]]; then
+    # The unit's time limit (or a stop) ended a bake: say whether it moved, so a bake that cannot
+    # finish one dong inside the limit is told apart from one that resumes (2026-11-18..19: three
+    # stops of the real-transaction full bake, each printed `unchanged`).
+    local finished=0
+    [[ -n "${dong_progress:-}" && -d "${dong_progress}" ]] &&
+      finished=$(($(find "${dong_progress}" -maxdepth 1 -name '*.json' | wc -l) - ${dongs_before:-0}))
+    if ((finished > 0)); then
+      echo "foundation-job-outcome failed stopped before it finished, after ${finished} more dongs; the next run resumes them"
+    else
+      echo "foundation-job-outcome failed no_progress: the ${UNIT} lane was stopped before one more dong finished; a re-run repeats the same work"
+    fi
+  elif ((code)); then
     echo "foundation-job-outcome failed the ${UNIT} lane exited ${code}"
   elif [[ -n "${LANE_WAITING}" ]]; then
     echo "foundation-job-outcome waiting ${LANE_WAITING}"
@@ -354,6 +366,8 @@ lane_exit() {
   rm -f "${BY_PNU_BAKE_PUBLISHED}"
 }
 trap lane_exit EXIT
+STOPPED_BY_TERM=""
+trap 'STOPPED_BY_TERM=1; exit 143' TERM
 # Root ADR-0333 §7: every run that leaves the lane serving a Gold snapshot records which one it read,
 # appended to the lane's reads.jsonl (never rewritten) and as a result line. The manifest is the
 # commit record; this is the asset reconciler's cheap view of it (scripts/ops/asset_reconcile.py),
@@ -945,6 +959,22 @@ else
   export_command="export-${UNIT}-by-pnu-serving" summary_dir="${run}"
   export_env=("${ENV_PREFIX}_CONFIRM_EXPORT=true" "${ENV_PREFIX}_TARGET_GENERATION=${generation}")
 fi
+# Root ADR-0147, W83c: the pack export records each dong it finished, for this publisher binary, so a
+# run stopped inside a shard resumes at the dong instead of rendering the shard again.
+dong_progress="" dongs_before=0
+if [[ "${LANE_SERVES}" == packs ]]; then
+  dong_progress="${run}/dongs"
+  mkdir -p "${dong_progress}"
+  dongs_before="$(find "${dong_progress}" -maxdepth 1 -name '*.json' | wc -l)"
+  export_env+=("${ENV_PREFIX}_PACK_PROGRESS_DIR=${dong_progress}"
+    "${ENV_PREFIX}_PACK_PROGRESS_BUILD=$(sha256sum "${PUBLISHER_BIN}" | cut -d' ' -f1)")
+fi
+# The shard plan is saved whenever it changes (a split, a baked shard), not only once all are baked:
+# a split learned by a run that is stopped later is not learned again.
+save_plan() {
+  [[ -z "${plan}" ]] || { printf '%s
+' "${done_shards[@]}" "${queue[@]}" >"${plan}.next" && mv "${plan}.next" "${plan}"; }
+}
 done_shards=()
 while ((${#queue[@]})); do
   prefix="${queue[0]}"; queue=("${queue[@]:1}")
@@ -1004,6 +1034,7 @@ while ((${#queue[@]})); do
         log "shard ${prefix} holds more rows than one run may keep; splitting it into ${prefix}0..${prefix}9"
       fi
       mapfile -t -O "${#queue[@]}" queue <<<"${children}"
+      save_plan
       baked=split
       break
     fi
@@ -1016,7 +1047,7 @@ while ((${#queue[@]})); do
     sleep "${RETRY_SECONDS}"
   done
   case "${baked}" in
-    yes) done_shards+=("${prefix}"); log "shard ${prefix} baked" ;;
+    yes) done_shards+=("${prefix}"); save_plan; log "shard ${prefix} baked" ;;
     split) ;;
     *) log "FAILED: shard ${prefix} did not bake in ${ATTEMPTS} attempts; nothing was published"; exit 1 ;;
   esac

@@ -59,7 +59,7 @@ from datetime import datetime, timezone
 from functools import reduce
 from operator import and_
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from changelog import RELEASE_VERSION_KEY, change_record_options
 from lakehouse_engine import apply_catalog_settings, assert_iceberg_runtime_loaded, iceberg_packages
@@ -554,3 +554,17 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def changed_only(staged: Any, current: Any, key: Sequence[str], content: Sequence[str]) -> Any:
+    """The staged rows (one per key) whose key is new or whose content differs from its current row
+    (root ADR-0311: append only the changed keys). Null-ness is hashed apart from the value, so a
+    null and an empty string differ, as `compared_changes` does. It was `data_go_kr_onbid.changed_only`;
+    the 경매 Silver load reads it here since the 공매 load left Spark (root ADR-0559)."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    fingerprint = F.xxhash64(*(F.col(c).isNull() for c in content), *(F.col(c) for c in content))
+    seen = current.select(*key, fingerprint.alias("_fingerprint"))
+    return staged.withColumn("_fingerprint", fingerprint).join(seen, [*key, "_fingerprint"], "left_anti") \
+        .drop("_fingerprint")

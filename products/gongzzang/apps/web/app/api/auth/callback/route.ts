@@ -9,7 +9,7 @@ import {
   AUTH_STATE_COOKIE_NAME,
   deleteAuthStateCookie,
   setSidCookie,
-  verifyAuthStatePayload,
+  unsealAuthState,
 } from "@/lib/session/cookie";
 import { createSession, REFRESH_TTL_SEC } from "@/lib/session/store";
 import { sanitizeReturnTo } from "@/lib/url";
@@ -31,26 +31,9 @@ export async function GET(req: NextRequest) {
     }).toResponse();
   }
 
-  // C2: verify HMAC signature before trusting cookie contents
-  const rawPayload = verifyAuthStatePayload(authStateCookie);
-  if (!rawPayload) {
-    return problem({
-      type: "auth/state-mismatch",
-      title: t("verifyFailedTitle"),
-      status: 401,
-      instance: req.url,
-    }).toResponse();
-  }
-
-  let authStatePayload: {
-    code_verifier: string;
-    state: string;
-    nonce: string;
-    return_to: string;
-  };
-  try {
-    authStatePayload = JSON.parse(rawPayload) as typeof authStatePayload;
-  } catch {
+  // C2: 봉인을 연다(iron-session) — 변조·만료·모양이 틀리면 null.
+  const authStatePayload = await unsealAuthState(authStateCookie);
+  if (!authStatePayload) {
     return problem({
       type: "auth/state-mismatch",
       title: t("verifyFailedTitle"),
@@ -102,7 +85,7 @@ export async function GET(req: NextRequest) {
     {
       sub: tokens.sub,
       jti: tokens.jti,
-      role: tokens.role,
+      roles: tokens.roles,
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
       id_token: tokens.id_token,

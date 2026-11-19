@@ -12,7 +12,7 @@ async function createRoleSession(role: "Admin" | "Broker" | "Buyer" | "Operator"
     {
       sub: `u_${role}`,
       jti: `j_${role}`,
-      role,
+      roles: role === "Buyer" ? [] : [role],
       access_token: "at",
       refresh_token: "rt",
       id_token: "it",
@@ -71,6 +71,28 @@ describe("proxy", () => {
 
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/forbidden");
+  });
+
+  it("lets a session holding Admin and Broker reach a broker-only page", async () => {
+    const sid = await createSession(
+      {
+        sub: "u_admin_broker",
+        jti: "j_admin_broker",
+        roles: ["Admin", "Broker"],
+        access_token: "at",
+        refresh_token: "rt",
+        id_token: "it",
+        exp: Math.floor(Date.now() / 1000) + 300,
+      },
+      300,
+    );
+    const req = new NextRequest("http://localhost:3000/listings/new", {
+      headers: { cookie: `${SID_COOKIE_NAME}=${sid}` },
+    });
+
+    const res = await proxy(req);
+
+    expect(res.headers.get("location") ?? "").not.toContain("/forbidden");
   });
 
   it("allows broker listing mutation pages", async () => {

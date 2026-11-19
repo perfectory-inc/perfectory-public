@@ -6,7 +6,7 @@ const SID_COOKIE_NAME = "sid";
 const SESSION_TTL_SEC = 60 * 60;
 
 interface E2eSessionOptions {
-  role?: string;
+  roles?: string[];
   baseURL?: string;
 }
 
@@ -19,7 +19,7 @@ export async function plantAuthenticatedSession(
   const session = {
     sub: "playwright",
     jti: `jti-${sid}`,
-    role: options.role ?? "Buyer",
+    roles: options.roles ?? [],
     access_token: "playwright-access-token",
     refresh_token: "playwright-refresh-token",
     id_token: "playwright-id-token",

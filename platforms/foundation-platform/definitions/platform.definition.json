@@ -987,7 +987,7 @@
           },
           {
             "what": "martin-static, martin-complex",
-            "why": "Started by hand with docker run (September 2026), in no compose file and no script, so this guard cannot see them: no memory cap, no log cap, restart no, host network listening on 0.0.0.0:3110 and 3111 with a healthcheck on port 3000 that has always failed. Measured 2026-10-29: 16.7MiB and 5.5MiB (peaks 57MiB and 56MiB over 13 days), no open connection; map tiles are served from R2 by the Worker (root ADR-0111 §10). Removing them was decided in root ADR-0112 §10 and ADR-0133 with the owner's go at the time it is done; root ADR-0343 §5 asks for it. Not capped in place: capping means recreating a container nothing uses."
+            "why": "Started by hand with docker run (September 2026), in no compose file and no script, so this guard cannot see them: no memory cap, no log cap, restart no, host network listening on 0.0.0.0:3110 and 3111 with a healthcheck on port 3000 that has always failed. Measured 2026-10-29: 16.7MiB and 5.5MiB (peaks 57MiB and 56MiB over 13 days), no open connection; map tiles are served from R2 by the Worker (root ADR-0111 §10). Removing them was decided in root ADR-0112 §10 and ADR-0133 with the owner's go at the time it is done; root ADR-0343 §5 asks for it. Not capped in place: capping means recreating a container nothing uses. Measured again 2026-11-18 (W83c): still no connection, and every unit of the current runtime manifest and every active release addressed to tiles.perfectory.io; the deploy step retire-hand-started-martin (scripts/ops/retire-hand-started-martin.sh) removes them, and the PR after it reports both gone removes this entry."
           },
           {
             "what": "the identity signed-OIDC smoke's containers",
@@ -1354,9 +1354,9 @@
           },
           "foundation-onbid-silver-load.service": {
             "class": "batch",
-            "memory_max": "1G",
+            "memory_max": "3G",
             "measured_peak": "542M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 433 runs, highest 2026-10-29 (foundation-onbid-silver-load)"
+            "measured": "journal `memory peak` 2026-10-18..11-08, 433 runs, highest 2026-10-29 (foundation-onbid-silver-load), when the load ran in the spark-small container (2560m, its own cap). Since root ADR-0559 the load is the publisher's DuckDB inside this unit: the stage's buffer is half the execution profile (2048 MiB, lakehouse-engine.contract.json), and the engine-equality harness on ai-server peaked at 1795 MiB anonymous over three production item list objects (62,235 conditions each, R2 reads and the place-identity inputs included); 3G holds the buffer and the process, and is under the 2560m container plus 1G unit it replaces"
           },
           "foundation-outbox-publish.service": {
             "class": "batch",
@@ -2036,7 +2036,6 @@
       "building_register_floor",
       "lineage_stewardship",
       "parcel_registry",
-      "onbid_public_auction_silver",
       "rt_molit_real_transaction_silver",
       "registered_factory",
       "court_auction_silver",

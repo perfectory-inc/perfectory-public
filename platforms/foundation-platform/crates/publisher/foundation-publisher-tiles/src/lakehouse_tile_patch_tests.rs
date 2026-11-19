@@ -262,14 +262,14 @@ fn the_neighbourhood_is_every_row_touching_a_dirty_tiles_minzoom_ancestor() -> a
     ];
     let far = row(C, &square(11.0, 11.0, 0.000_1));
     let lines = [near[0].clone(), far.clone(), near[1].clone()];
-    let records = std::sync::Arc::new(indexed(&lines)?);
+    let dir = tempfile::tempdir()?;
+    let index = dir.path().join("new.idx");
+    write_index(&index, &indexed(&lines)?)?;
     let text: String = lines.iter().map(|line| format!("{line}\n")).collect();
     let file = written(text.as_bytes())?;
     let csv = NeighbourhoodCsv {
         inner: Vec::new(),
-        index: records,
-        min_zoom: 14,
-        tiles,
+        ids: neighbourhood_ids(&index, 14, &tiles)?,
         kept: 0,
     };
     let prepared = prepare_handoff(&summary(3), file.path(), csv)?;
@@ -613,6 +613,53 @@ fn an_index_built_in_sorted_runs_is_the_index_built_at_once() -> anyhow::Result<
     assert_eq!(
         error.as_deref(),
         Some("the served snapshot holds a feature id twice")
+    );
+    Ok(())
+}
+
+/// The patch path reads the two indexes it compares as streams (2026-11-13..18: two national parcel
+/// indexes, 3.2 GB of records, would not fit the bake's unit): the same changes as the slices give,
+/// and a writer out of order or a file shorter than its count is refused.
+#[test]
+fn the_indexes_are_compared_as_streams_with_the_same_changes() -> anyhow::Result<()> {
+    let old = indexed(&[
+        row(A, &square(10.0, 10.0, 0.001)),
+        row(B, &square(11.0, 10.0, 0.001)),
+        row(C, &square(12.0, 10.0, 0.001)),
+    ])?;
+    let new = indexed(&[
+        row(A, &square(10.0, 10.0, 0.001)),
+        row(C, &square(12.5, 10.0, 0.001)),
+        row(D, &square(13.0, 10.0, 0.001)),
+    ])?;
+    let dir = tempfile::tempdir()?;
+    let (old_path, new_path) = (dir.path().join("old.idx"), dir.path().join("new.idx"));
+    write_index(&old_path, &old)?;
+    write_index(&new_path, &new)?;
+    let streamed = diff_files(&old_path, &new_path)?;
+    let sliced = diff(&old, &new);
+    assert!(!sliced.is_empty());
+    assert_eq!(
+        (streamed.upserted, streamed.deleted, streamed.boxes),
+        (sliced.upserted, sliced.deleted, sliced.boxes)
+    );
+    assert_eq!(
+        index_ids(&new_path)?,
+        new.iter().map(|record| record.id).collect::<Vec<_>>()
+    );
+
+    let mut writer = IndexWriter::create(&dir.path().join("unsorted.idx"))?;
+    writer.push(&new[1])?;
+    assert!(
+        writer.push(&new[0]).is_err(),
+        "the writer refuses a lower id"
+    );
+
+    let short = dir.path().join("short.idx");
+    std::fs::write(&short, &std::fs::read(&new_path)?[..16 + 40 * 2])?;
+    assert!(
+        open_index(&short).is_err(),
+        "a file shorter than its count is refused"
     );
     Ok(())
 }

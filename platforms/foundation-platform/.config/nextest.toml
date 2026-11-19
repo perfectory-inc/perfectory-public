@@ -19,6 +19,15 @@ slow-timeout = { period = "20s", terminate-after = 3 }
 filter = 'package(foundation-api) and binary(deploy_contract) and test(=postgres_recovery::postgres_recovery_contract_is_encrypted_bounded_and_rehearsable)'
 slow-timeout = { period = "30s", terminate-after = 4 }
 
+# The 차세대 온비드 stage's fixture tests, one per role: each plans the role's row SQL (dozens of nested
+# macros per column) in the bundled DuckDB, which the dev profile builds unoptimized. Measured on CI
+# 2026-11-19 (run 44565767978): 2.3-9.8 s for six roles, 23.8 s and 48.1 s for the two widest (item bid
+# information, item detail); the same eight take 6.7 s together in an optimized DuckDB. All eight in one
+# test ran past 60 s (run 44440260869). Their limit is their own.
+[[profile.default.overrides]]
+filter = 'package(foundation-publisher-silver) and test(/^onbid_silver_stage::tests::the_staged_.*_rows_are_the_rows_the_spark_job_built$/)'
+slow-timeout = { period = "30s", terminate-after = 4 }
+
 # The profile CI runs (`NEXTEST_PROFILE=ci`, set by scripts/ci/rust-setup.sh; root ADR-0269), as
 # oxidecomputer/omicron's: a failing test runs twice more so a flake is named FLAKY in the log, and
 # it still fails the run. It inherits everything above.

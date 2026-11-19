@@ -2,8 +2,8 @@
 root ADR-0280).
 
 The scripts run from an installed release layout (as in test_parcel_number_change_collect_command.py).
-The publisher and docker are stand-ins: the publisher answers the collect command with an outcome and
-the plan command with a plan of FAKE_OWED objects per table (every table the Silver job names); docker records its arguments. What runs
+The publisher is a stand-in: it answers the collect command with an outcome,
+the plan command with a plan of FAKE_OWED objects per table (every table silver_load.tables names) and records which plans the load command was handed. What runs
 for real is the scripts: the collect passes its outcome on and keeps no copy, a missing key stops the
 run before anything reaches the provider, the load with nothing owed ends without starting Spark,
 and a load hands Spark one plan directory per table and removes the copies whether it succeeds or not.
@@ -45,6 +45,14 @@ if sys.argv[1] == "collect-data-go-kr-onbid":
     open(os.path.join(out, "objects", "item-list.gz"), "wb").write(b"x")
     print("foundation-job-outcome " + os.environ["FAKE_OUTCOME"])
     sys.exit(0)
+if sys.argv[1] == "load-data-go-kr-onbid-silver":
+    root = os.environ["FOUNDATION_PLATFORM_ONBID_PLAN_ROOT"]
+    with open(os.path.join(state, "load.log"), "a", encoding="utf-8") as log:
+        log.write(" ".join(sorted(os.listdir(root))) + "\n")
+    if os.environ.get("FAKE_LOAD_FAIL") == "1":
+        sys.exit(1)
+    print('data-go-kr-onbid-summary-json {"engine": "duckdb", "status": "loaded"}')
+    sys.exit(0)
 assert sys.argv[1] == "plan-silver-load-objects", sys.argv
 prefix = "FOUNDATION_PLATFORM_SILVER_LOAD_"
 table, slug = os.environ[prefix + "TABLE"], os.environ[prefix + "SOURCE_SLUGS"]
@@ -72,13 +80,6 @@ json.dump({"schema_version": "foundation-platform.silver_load_objects.v1", "tabl
           open(os.path.join(out, "plan.json"), "w", encoding="utf-8"))
 """
 
-FAKE_DOCKER = r"""#!/usr/bin/env python3
-import os, sys
-open(os.path.join(os.environ["FAKE_STATE"], "docker.log"), "a").write(" ".join(sys.argv[1:]) + "\n")
-if os.environ.get("FAKE_DOCKER_FAIL") == "1":
-    sys.exit(1)
-print('data-go-kr-onbid-summary-json {"status": "loaded"}')
-"""
 
 
 class OnbidCommands(unittest.TestCase):
@@ -97,10 +98,6 @@ class OnbidCommands(unittest.TestCase):
         contracts.mkdir(parents=True)
         (contracts / "data-go-kr-onbid.contract.json").write_bytes(
             (PLATFORM / "infra/lakehouse/contracts/data-go-kr-onbid.contract.json").read_bytes())
-        # The load asks the Silver job which tables it plans (root ADR-0340 §6).
-        jobs = release / "infra/lakehouse/spark/jobs"
-        jobs.mkdir(parents=True)
-        (jobs / "data_go_kr_onbid.py").write_bytes((PLATFORM / "infra/lakehouse/spark/jobs/data_go_kr_onbid.py").read_bytes())
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
@@ -113,8 +110,6 @@ class OnbidCommands(unittest.TestCase):
                       "jars/fixture.jar": "0" * 64}}))
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        (bin_dir / "docker").write_text(FAKE_DOCKER)
-        (bin_dir / "docker").chmod(0o755)
         self.collect = base / "current/scripts/ops/onbid-collect.sh"
         self.load = base / "current/scripts/ops/onbid-silver-load.sh"
         self.state = root / "state"
@@ -158,21 +153,22 @@ class OnbidCommands(unittest.TestCase):
                 self.assertFalse((self.fake / "calls.log").exists())
                 self.assertFalse(self.state.exists(), "no state was written")
 
-    def test_a_load_hands_spark_one_plan_per_table_and_removes_the_copies(self):
-        self.env["FAKE_DOCKER_FAIL"] = "1"
+    def test_a_load_hands_the_publisher_one_plan_per_table_and_removes_the_copies(self):
+        # Root ADR-0559: the load is the publisher's DuckDB and its own Iceberg append; no Spark container.
+        self.env["FAKE_LOAD_FAIL"] = "1"
         failed = self.run_script(self.load)
         self.assertNotEqual(failed.returncode, 0)
         self.assertEqual(self.copies(), [], "an unloaded object has no commit record, so the next plan fetches it again")
-        self.env["FAKE_DOCKER_FAIL"] = "0"
+        self.env["FAKE_LOAD_FAIL"] = "0"
         loaded = self.run_script(self.load)
         self.assertEqual(loaded.returncode, 0, loaded.stderr)
         self.assertEqual(loaded.stdout.splitlines()[-1], "foundation-job-outcome changed")
         self.assertEqual(self.copies(), [])
-        call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
-        plans = [call[i + 1].rsplit("/", 1)[1] for i, arg in enumerate(call) if arg == "--plan-dir"]
-        self.assertEqual(plans, ["onbid_real_estate_item", "onbid_item_bid_result", "onbid_real_estate_item_photo",
-                                 "onbid_real_estate_item_detail", "onbid_item_bid_info", "onbid_announcement",
-                                 "onbid_announcement_bid_result", "onbid_announcement_detail"])
+        plans = (self.fake / "load.log").read_text().splitlines()[-1].split()
+        self.assertEqual(plans, sorted(["onbid_real_estate_item", "onbid_item_bid_result", "onbid_real_estate_item_photo",
+                                        "onbid_real_estate_item_detail", "onbid_item_bid_info", "onbid_announcement",
+                                        "onbid_announcement_bid_result", "onbid_announcement_detail"]))
+        self.assertIn('"engine": "duckdb"', (self.state / "journal.log").read_text(encoding="utf-8"))
 
     def test_a_load_of_late_objects_loads_them_and_fails(self):
         # An object no load recorded for longer than the window means loads have been failing; it is
@@ -180,19 +176,18 @@ class OnbidCommands(unittest.TestCase):
         self.env["FAKE_LATE"] = "1"
         result = self.run_script(self.load)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("spark-submit", (self.fake / "docker.log").read_text())
+        self.assertTrue((self.fake / "load.log").exists(), "the late objects were loaded")
         self.assertIn("waited more than 7 days", result.stderr)
         self.assertNotIn("foundation-job-outcome", result.stdout)
         self.assertIn("LATE", (self.state / "journal.log").read_text(encoding="utf-8"))
 
-    def test_the_load_with_nothing_owed_ends_without_spark(self):
+    def test_the_load_with_nothing_owed_ends_without_loading(self):
         self.env["FAKE_OWED"] = "0"
         result = self.run_script(self.load)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
-        self.assertFalse((self.fake / "docker.log").exists())
+        self.assertFalse((self.fake / "load.log").exists())
         self.assertEqual((self.fake / "calls.log").read_text().split(), ["plan-silver-load-objects"] * 8)
-
 
 if __name__ == "__main__":
     unittest.main()

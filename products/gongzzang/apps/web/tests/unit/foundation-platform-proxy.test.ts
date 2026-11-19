@@ -101,6 +101,17 @@ describe("proxy public map access", () => {
     }
   });
 
+  it("hands Next the same CSP on the request so it can put the nonce on its own scripts", async () => {
+    const res = await proxy(new NextRequest("http://localhost:3000/login"));
+    const responseCsp = res.headers.get("content-security-policy") ?? "";
+
+    // NextResponse.next({ request: { headers } }) carries request overrides as x-middleware-request-*.
+    expect(res.headers.get("x-middleware-request-content-security-policy")).toBe(responseCsp);
+    expect(cspDirective(responseCsp, "script-src")).toMatch(/'nonce-[A-Za-z0-9+/=]+'/);
+    expect(cspDirective(responseCsp, "script-src")).not.toContain("'unsafe-inline'");
+    expect(res.headers.get("x-middleware-request-x-csp-nonce")).toBeNull();
+  });
+
   it("allows Naver HTTP resources only for local production preview CSP", async () => {
     vi.stubEnv("NODE_ENV", "production");
     try {

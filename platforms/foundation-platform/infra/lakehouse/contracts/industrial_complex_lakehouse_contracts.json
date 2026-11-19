@@ -16187,7 +16187,7 @@
       "write_distribution": "hash",
       "quality_gates": [
         "append_only",
-        "(sha256, extractor_version) unique",
+        "one current row per (sha256, extractor_version); a document read again appends its newer run (root ADR-0593)",
         "outcome is text, partial_ocr, ocr, empty, unsupported_format or failed",
         "appended after the run's pages, so an outcome never names pages that are missing"
       ],
@@ -16474,7 +16474,7 @@
       "write_distribution": "hash",
       "quality_gates": [
         "append_only",
-        "(sha256, extractor_version) unique",
+        "one current row per (sha256, extractor_version); a document read again appends its newer run (root ADR-0593)",
         "appended after the run's facts, so an outcome never names facts that are missing"
       ],
       "load": {

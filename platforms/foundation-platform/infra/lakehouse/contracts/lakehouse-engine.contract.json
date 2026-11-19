@@ -126,7 +126,11 @@
         "wave": 4
       },
       "data_go_kr_onbid": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1469,
+          "rows": 112793,
+          "fingerprint": null
+        }
       },
       "data_go_kr_registered_factory": {
         "wave": 4

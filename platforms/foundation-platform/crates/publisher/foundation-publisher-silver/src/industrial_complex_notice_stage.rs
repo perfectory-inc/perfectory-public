@@ -9,19 +9,15 @@
 //! appends the attachments first, then the reads, each in a commit that records the object, even
 //! when it holds no row (`lakehouse_data_commit::append_at_head`).
 
-use std::{
-    io::Read as _,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, Utc};
-use duckdb::params;
 use foundation_publisher_core::lakehouse_data_commit::{StagedFile, TableShape};
 use lakehouse_domain::LakehouseTableContract;
 use sha2::{Digest, Sha256};
 
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG};
+use crate::duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG, PYTHON_VALUES_SQL};
 
 /// The read record a load's plan is decided from (`notice_detail.read_from`).
 pub const DETAIL_TABLE: &str = "silver.industrial_complex_notice_detail";
@@ -206,32 +202,6 @@ fn quote(text: &str) -> anyhow::Result<String> {
     Ok(text.to_owned())
 }
 
-/// The object's lines as `notice_lines`: the non-blank lines, numbered from 1, as Python's text
-/// reader split them (a `\r\n` ends a line like `\n`).
-fn load_lines(stage: &DuckDbParquetStage, path: &Path) -> anyhow::Result<()> {
-    let mut text = String::new();
-    flate2::read::GzDecoder::new(
-        std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?,
-    )
-    .read_to_string(&mut text)
-    .with_context(|| format!("{} is not gzip UTF-8 text", path.display()))?;
-    let connection = stage.connection();
-    connection.execute_batch(
-        "CREATE OR REPLACE TEMP TABLE notice_lines (line_number BIGINT NOT NULL, line VARCHAR NOT NULL)",
-    )?;
-    let mut insert = connection.prepare("INSERT INTO notice_lines VALUES (?, ?)")?;
-    let mut number = 0_i64;
-    for line in text.split('\n') {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        if line.trim().is_empty() {
-            continue;
-        }
-        number += 1;
-        insert.execute(params![number, line])?;
-    }
-    Ok(())
-}
-
 /// The name a staged file of `table` for `object_key` gets: the same object always names the same
 /// file, so a run that died leaves at most one object's files behind (root ADR-0560 §2).
 fn file_name(table: &str, object_key: &str) -> String {
@@ -282,7 +252,7 @@ pub fn stage_object(
     ingested_at: DateTime<Utc>,
 ) -> anyhow::Result<StagedNotice> {
     let (reads_shape, attachments_shape) = shapes;
-    load_lines(stage, &object.path)?;
+    stage.load_lines(&object.path, "notice_lines")?;
     let sql = ROWS_SQL
         .replace("{result_field}", &source.result_field)
         .replace("{files_field}", &source.files_field)
@@ -295,6 +265,9 @@ pub fn stage_object(
             &ingested_at.timestamp().to_string(),
         );
     let connection = stage.connection();
+    connection
+        .execute_batch(PYTHON_VALUES_SQL)
+        .context("DuckDB refused the Python value readers")?;
     connection
         .execute_batch(&sql)
         .with_context(|| format!("DuckDB failed to read {}", object.object_key))?;

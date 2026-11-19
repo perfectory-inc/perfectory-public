@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { connectSrcDataOrigins } from "@/lib/browser-data-origins";
 import { env } from "@/lib/env";
+import { clientAddress } from "@/lib/http/client-address";
 import { problem } from "@/lib/http/problem";
 import { tStatic } from "@/lib/i18n/static";
 import {
@@ -13,6 +14,7 @@ import { isReadOnlyPreview, isReadOnlyPreviewPage } from "@/lib/preview";
 import { checkRate } from "@/lib/ratelimit";
 import { API, AUTH_PATH_PREFIX, ROUTES } from "@/lib/routes";
 import { SID_COOKIE_NAME } from "@/lib/session/cookie";
+import { hasAnyRole } from "@/lib/session/roles";
 import { getSession, type SessionData } from "@/lib/session/store";
 import { sanitizeReturnTo } from "@/lib/url";
 
@@ -197,10 +199,6 @@ function isLocalHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
 
-function clientIp(req: NextRequest): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-}
-
 function rateLimitedProblem(req: NextRequest, type: string): NextResponse {
   return problem({
     type,
@@ -229,7 +227,7 @@ function resolveAuthRateKey(req: NextRequest, policy: AuthRateRoutePolicy): stri
   const subject =
     policy.rate.keyStrategy === "session_or_anon"
       ? (req.cookies.get(SID_COOKIE_NAME)?.value ?? "anon")
-      : clientIp(req);
+      : clientAddress(req.headers);
   return `${policy.rate.keyPrefix}:${subject}`;
 }
 
@@ -238,7 +236,7 @@ async function checkPublicMapRateLimit(req: NextRequest): Promise<NextResponse |
   if (!policy) return null;
 
   const r = await checkRate(
-    `${policy.rate.keyPrefix}:${clientIp(req)}`,
+    `${policy.rate.keyPrefix}:${clientAddress(req.headers)}`,
     policy.rate.limit,
     policy.rate.windowSec,
   );
@@ -264,15 +262,15 @@ function buildCspHeader(hostname: string, nonce: string): string {
     : `'self' ${env.NEXT_PUBLIC_API_BASE_URL} ${env.ZITADEL_ISSUER} https://*.map.naver.com https://*.map.naver.net https://*.naver.com https://*.navercorp.com https://*.pstatic.net${tileConnectSrc}`;
 
   // Naver Maps gl 이 WebGL + eval 사용 → 'unsafe-eval' 필수.
-  // 'strict-dynamic' 와 함께 modern browser 에서 호환 (CSP3).
+  // 'unsafe-inline' 은 두지 않는다: nonce 가 있으면 CSP2+ 브라우저는 어차피 무시하고, nonce 없는 인라인 스크립트는 막혀야 한다.
   return [
     `default-src 'self'`,
     // Naver Maps SDK 는 app/layout.tsx 의 <head> 에서 sync 로드되므로 strict-dynamic 을 쓰면
     // SDK 자체가 차단된다. 대신 명시적 allowlist + nonce + unsafe-eval (gl WebGL 필수) 조합.
     // Naver gl SDK 는 nrbe.map.naver.net (style json) + auth 등 일부 리소스를 HTTP 로 호출하므로 dev 에서는 http: 도 허용.
     allowLocalHttpMapRuntime
-      ? `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'unsafe-inline' http: https:`
-      : `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'unsafe-inline' https://oapi.map.naver.com https://*.map.naver.net https://*.pstatic.net`,
+      ? `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' http: https:`
+      : `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' https://oapi.map.naver.com https://*.map.naver.net https://*.pstatic.net`,
     `worker-src 'self' blob:`,
     `style-src 'self' 'unsafe-inline'`,
     `img-src ${imgSrc}`,
@@ -332,7 +330,9 @@ export async function proxy(req: NextRequest) {
   const nonce = randomBytes(16).toString("base64");
   const cspHeader = buildCspHeader(url.hostname, nonce);
   const reqHeaders = new Headers(req.headers);
-  reqHeaders.set("x-csp-nonce", nonce);
+  // Next 는 요청의 Content-Security-Policy 에서 'nonce-…' 를 읽어 자기 스크립트에 붙인다
+  // (Next 16 「Content Security Policy」 가이드). 응답에만 두면 OpenNext 밖(`next start`)에서는 못 본다.
+  reqHeaders.set("Content-Security-Policy", cspHeader);
 
   // 3. Auth gate
   if (isProductionDevOnlyPath(url.pathname)) {
@@ -360,7 +360,7 @@ export async function proxy(req: NextRequest) {
   }
 
   const pageRoutePolicy = getPageRoutePolicy(url.pathname);
-  if (pageRoutePolicy && !pageRoutePolicy.requiredRoles.includes(session.role)) {
+  if (pageRoutePolicy && !hasAnyRole(session, pageRoutePolicy.requiredRoles)) {
     return NextResponse.redirect(new URL(ROUTES.forbidden, req.url));
   }
 
@@ -379,7 +379,9 @@ function readOnlyPreviewProxy(req: NextRequest): NextResponse {
     return notFoundWithSecurityHeaders(cspHeader);
   }
   const reqHeaders = new Headers(req.headers);
-  reqHeaders.set("x-csp-nonce", nonce);
+  // Next 는 요청의 Content-Security-Policy 에서 'nonce-…' 를 읽어 자기 스크립트에 붙인다
+  // (Next 16 「Content Security Policy」 가이드). 응답에만 두면 OpenNext 밖(`next start`)에서는 못 본다.
+  reqHeaders.set("Content-Security-Policy", cspHeader);
   return nextWithSecurityHeaders(reqHeaders, cspHeader);
 }
 
