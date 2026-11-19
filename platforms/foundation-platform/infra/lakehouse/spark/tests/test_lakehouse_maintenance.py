@@ -488,6 +488,19 @@ class R2ResetsTest(unittest.TestCase):
         self.assertIn("'min-input-files','2'", sql)
         self.assertNotIn("strategy", sql)
 
+    def test_the_rewrite_takes_the_small_files_the_trigger_counted_and_no_others(self):
+        # Iceberg 1.11.0 defaults min-file-size-bytes to 75% of the target (384 MiB of 512); the trigger
+        # counts files under a quarter of it. A fresh 300 MiB file is not small and is not rewritten.
+        import lakehouse_maintenance as maintenance
+
+        compaction = sound_contract()["compaction"]
+        threshold = int(compaction["target_file_bytes"] * compaction["trigger_small_file_fraction"])
+        self.assertEqual(maintenance.small_file_bytes(compaction), threshold)
+        for reasons in ((maintenance.SMALL_FILES,), (maintenance.FOLD_DELETES,), (maintenance.OUT_OF_ORDER,)):
+            sql = rewrite_data_files_sql("r2", "gold.t", compaction, True, reasons)
+            self.assertIn(f"'min-file-size-bytes','{threshold}'", sql)
+        self.assertNotIn("max-file-size-bytes", sql)
+
     def test_a_sorted_table_is_compacted_in_its_sort_order(self):
         """Bin-pack mixed gold.parcel_panel's PNU ranges into whole-country files (root ADR-0307)."""
         sql = rewrite_data_files_sql("r2", "gold.parcel_panel", sound_contract()["compaction"], ordered=True)

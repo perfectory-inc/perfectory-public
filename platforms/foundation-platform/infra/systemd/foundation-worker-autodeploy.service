@@ -14,6 +14,9 @@ Type=oneshot
 # the control checkout's copy, the commit the host runs (root ADR-0159 §3). Until the token's file
 # exists it does nothing.
 EnvironmentFile=-/etc/foundation-platform/cloudflare-deploy.env
+# /var/cache/foundation-worker-autodeploy, on the root SSD: the workspaces and pnpm's store
+# (worker_autodeploy.py Host.work); /data is the spinning disk every job reads.
+CacheDirectory=foundation-worker-autodeploy
 ExecStart=/usr/bin/python3 /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/worker_autodeploy.py
 # Five Workers, each: an npm install, two uploads and deploys, and smokes that poll for two minutes
 # at most; well under this.
