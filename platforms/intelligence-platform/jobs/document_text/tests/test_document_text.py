@@ -17,7 +17,17 @@ from document_text import extract as extract_module
 from document_text.extract import Result, classify, extract, pages_needing_ocr
 from document_text.pages import assemble, citation_holds, cite, document_text
 from document_text.plan import plan
-from document_text.run import CONTRACT, extract_isolated, load_contract, main, outcome_row, page_rows
+from document_text.run import (
+    CONTRACT,
+    MEMORY_KILL_MARK,
+    extract_isolated,
+    load_contract,
+    main,
+    mark_memory_kill,
+    oom_kills,
+    outcome_row,
+    page_rows,
+)
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
@@ -159,6 +169,49 @@ class ContractTest(unittest.TestCase):
             scratch = Path(tmp)
             result = extract_isolated(scratch / "x.zip", "zip", load_contract()["document_text"], scratch)
         self.assertEqual((result.outcome, result.pages, result.error), ("unsupported_format", [], None))
+
+    def test_a_document_the_memory_cap_ended_says_so_and_the_run_counts_it(self) -> None:
+        # The worker stands in for an OCR that the cgroup's cap killed: the counter goes up while it runs.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            events = root / "memory.events"
+            events.write_text("low 0\nhigh 0\nmax 3\noom 1\noom_kill 1\n", encoding="ascii")
+            killed = (sys.executable, "-c", f"import os, pathlib; p = pathlib.Path({str(events)!r}); "
+                      "p.write_text(p.read_text().replace('oom_kill 1', 'oom_kill 2')); os._exit(137)")
+            (root / "index.jsonl").write_text(
+                "\n".join(json.dumps({"sha256": s, "media_format": "pdf", "notice_sequence": n}) for s, n in [(SHA_A, 2), (SHA_B, 1)]),
+                encoding="utf-8",
+            )
+            with mock.patch("document_text.run.WORKER", killed), mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+                main(["--index", str(root / "index.jsonl"), "--media", tmp, "--out", str(root / "out"), "--memory-events", str(events)])
+            outcomes = [json.loads(l) for l in (root / "out" / "document_text_outcome.jsonl").read_text(encoding="utf-8").splitlines()]
+            summary = json.loads((root / "out" / "summary.json").read_text(encoding="utf-8"))
+        # Only the first document ran while the counter rose; the second's failure is its own.
+        self.assertEqual([o["error"].startswith(MEMORY_KILL_MARK) for o in outcomes], [True, False])
+        self.assertEqual(summary["memory_killed"], 1)
+
+    def test_a_failure_with_no_kill_counted_is_the_documents_own(self) -> None:
+        result = Result("failed", error="soffice exit 1: x")
+        self.assertFalse(mark_memory_kill(result, 4, 4))
+        self.assertFalse(mark_memory_kill(result, None, None))  # not the image: nothing to read
+        self.assertFalse(mark_memory_kill(Result("text"), 4, 5))
+        self.assertEqual(result.error, "soffice exit 1: x")
+        self.assertIsNone(oom_kills(Path(tempfile.gettempdir()) / "absent-memory.events"))
+
+    def test_the_planner_knows_every_memory_kill_error_the_run_writes(self) -> None:
+        kill = load_contract()["document_text"]["memory_kill"]
+        self.assertIn(MEMORY_KILL_MARK, kill["error_prefixes"])
+        self.assertGreater(kill["attempts"], 1)
+        # The two errors of the runs before the mark (2026-11-12..19), as the run wrote them.
+        for error in ["ocrmypdf exit -9: ", "worker killed by signal 9 (the image's memory cap)"]:
+            self.assertTrue(error.startswith(tuple(kill["error_prefixes"])), error)
+
+    def test_tesseract_gets_the_bounded_image(self) -> None:
+        with mock.patch.object(extract_module.subprocess, "run") as run:
+            extract_module.ocr_pages(Path("a.pdf"), Path("b.pdf"), [2], "kor", 4, 60, 4000)
+        argv = run.call_args.args[0]
+        self.assertIn("--tesseract-downsample-large-images", argv)
+        self.assertEqual(argv[argv.index("--tesseract-downsample-above") + 1], "4000")
 
     def test_the_contract_is_the_areas_file(self) -> None:
         self.assertEqual(CONTRACT.parent.name, "config")

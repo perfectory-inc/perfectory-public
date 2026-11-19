@@ -60,7 +60,15 @@ fi
 read_summary="$(python3 -I -c '
 import json, sys
 s = json.load(open(sys.argv[1], encoding="utf-8"))
-print(json.dumps({k: s[k] for k in ("read", "run_seconds", "peak_memory_mib", "by_format")}, sort_keys=True))
+print(json.dumps({k: s[k] for k in ("read", "run_seconds", "peak_memory_mib", "memory_killed", "by_format")}, sort_keys=True))
 ' "${work}/out/summary.json")"
+# A document the image's memory cap ended is appended as that (its error starts "memory cap: ") and a
+# later run reads it again (root ADR-0593), but the run is not ok: 2026-11-12..19 the cap killed
+# ocrmypdf 185 times, every run said ok and nobody was told. The unit fails, so OnFailure names it.
+memory_killed="$(python3 -I -c 'import json, sys; print(int(json.load(open(sys.argv[1], encoding="utf-8"))["memory_killed"]))' "${work}/out/summary.json")"
+if [ "${memory_killed}" != 0 ]; then
+  job_journal "${journal}" "intelligence document text FAILED: the memory cap ended ${memory_killed} documents; appended, read again later run=${run_id} owed=${owed} planned=${planned} ${read_summary}" >&2
+  exit 1
+fi
 job_journal "${journal}" "intelligence document text ok run=${run_id} owed=${owed} planned=${planned} ${read_summary}"
 printf 'foundation-job-outcome changed\n'

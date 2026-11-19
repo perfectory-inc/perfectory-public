@@ -83,6 +83,13 @@
     "ocr_below_chars": 20,
     "ocr_languages": "kor+eng",
     "ocr_jobs": 4,
+    "ocr_downsample_above_px": 4000,
+    "ocr_downsample_reason": "ocrmypdf 16.7.0 --tesseract-downsample-above: the image handed to Tesseract only, never the page kept, is shrunk to fit this many pixels on its longer side (builtin_plugins/tesseract_ocr.py filter_ocr_image at the v16.7.0 tag). OCRmyPDF's own guidance: peak memory is about 15 bytes per pixel of the largest page per job, and --jobs multiplies it. An A4 page at 300 dpi is 3508 px long, so ordinary scans are untouched; the oversized scans the 2 GiB cap killed 185 times (2026-11-12..19) are what it bounds (root ADR-0593).",
+    "memory_kill": {
+      "$comment": "A document the image's memory cap ended is read again, up to `attempts` outcome rows (root ADR-0593): the kill is about the cap, not the document. `error_prefixes` names those outcomes: the run's own mark (the container's cgroup counted an OOM kill while the document was read) and the two errors the run wrote for them before it had one, 2026-11-12..19.",
+      "attempts": 3,
+      "error_prefixes": ["memory cap: ", "ocrmypdf exit -9:", "worker killed by signal 9 "]
+    },
     "convert_timeout_seconds": 180,
     "ocr_timeout_seconds_per_page": 60,
     "per_run_limit": 400,

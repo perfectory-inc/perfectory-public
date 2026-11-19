@@ -93,6 +93,35 @@ def page_rows(contract: dict, doc, result) -> list[dict]:
     return rows
 
 
+# The container's own cgroup (Docker gives it a private cgroup namespace): the kernel counts each
+# OOM kill under the image's memory cap here.
+MEMORY_EVENTS = Path("/sys/fs/cgroup/memory.events")
+MEMORY_KILL_MARK = "memory cap: "
+
+
+def oom_kills(path: Path) -> int | None:
+    """The cgroup's OOM-kill count, or None where there is none to read (not the image)."""
+    try:
+        text = path.read_text(encoding="ascii")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        name, _, value = line.partition(" ")
+        if name == "oom_kill":
+            return int(value)
+    return None
+
+
+def mark_memory_kill(result: Result, before: int | None, after: int | None) -> bool:
+    """A failed document during which the cap killed a process is the cap's outcome, not the
+    document's: its error says so, so that the planner reads it again (root ADR-0593)."""
+    if result.outcome != "failed" or before is None or after is None or after <= before:
+        return False
+    if not (result.error or "").startswith(MEMORY_KILL_MARK):
+        result.error = MEMORY_KILL_MARK + (result.error or "")
+    return True
+
+
 def peak_memory_mib() -> dict:
     try:
         import resource
@@ -111,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--media", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--contract", type=Path, default=CONTRACT)
+    parser.add_argument("--memory-events", type=Path, default=MEMORY_EVENTS)
     args = parser.parse_args(argv)
 
     contract = load_contract(args.contract)
@@ -121,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     by_format: dict[str, dict] = defaultdict(lambda: {"documents": 0, "pages": 0, "seconds": 0.0, "outcomes": defaultdict(int)})
+    memory_killed = 0
     started = time.monotonic()
     with (args.out / "document_text_outcome.jsonl").open("w", encoding="utf-8") as outcomes, (
         args.out / "document_text_page.jsonl"
@@ -130,8 +161,10 @@ def main(argv: list[str] | None = None) -> int:
                 break  # unread documents have no outcome, so the next run plans them
             source = args.media / f"{doc.sha256}.{doc.media_format}"
             t0 = time.monotonic()
+            kills_before = oom_kills(args.memory_events)
             result = extract_isolated(source, doc.media_format, settings, Path(scratch))
             elapsed = time.monotonic() - t0
+            memory_killed += mark_memory_kill(result, kills_before, oom_kills(args.memory_events))
             at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             outcomes.write(json.dumps(outcome_row(contract, doc, result, int(elapsed * 1000), at), ensure_ascii=False) + "\n")
             for row in page_rows(contract, doc, result):
@@ -152,6 +185,8 @@ def main(argv: list[str] | None = None) -> int:
         "read": sum(stats["documents"] for stats in by_format.values()),
         "run_seconds": round(time.monotonic() - started, 1),
         "peak_memory_mib": peak_memory_mib(),
+        # Read again by a later run; any at all fails the unit after the append, so the cap has an owner.
+        "memory_killed": memory_killed,
         "by_format": {
             fmt: {**stats, "seconds": round(stats["seconds"], 1), "outcomes": dict(stats["outcomes"])}
             for fmt, stats in sorted(by_format.items())
