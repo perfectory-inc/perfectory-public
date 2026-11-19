@@ -12,6 +12,10 @@ yanked = "deny"
 # justification (see foundation-platform adversarial review PCR2-73 / remediation #10).
 unmaintained = "all"
 unsound = "all"
+ignore = [
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained (informational, all versions; no fixed release exists as of 2026-11-18, latest 0.4.45); openidconnect 4.1 requires it for ID token times, so it cannot leave the lockfile by our change alone; mirrors osv-scanner.toml (root ADR-0414); review by 2027-02-16" },
+    { id = "RUSTSEC-2023-0071", reason = "rsa 0.9 Marvin timing attack on private-key operations; fixed in rsa 0.10, but openidconnect 4.1.0 (latest) requires rsa ^0.9.2 (ramosbugs/openidconnect-rs#140, open). The console never holds an RSA private key: it only verifies the issuer's RS256 signatures with public keys; only the tests sign, with a key made at test time; mirrors osv-scanner.toml (root ADR-0414); review by 2027-02-16" },
+]
 
 [licenses]
 confidence-threshold = 0.92

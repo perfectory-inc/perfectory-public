@@ -34,9 +34,14 @@ ignoreUntil = 2027-02-02
 reason = "libsqlite3-sys(번들 C SQLite CVE-2026-119375): 네 Rust lockfile 의 0.30.1 은 sqlx 0.8.6 의 sqlx-macros-core 가 sqlite 기능 없이도 lockfile 에만 풀어 넣는 sqlx-sqlite 의 것이다(sqlx 의 알려진 동작). 2026-11-09 네 워크스페이스 모두 `cargo tree --workspace --all-features --target all -e normal,build,dev -i libsqlite3-sys` 가 비었다 — 어느 빌드도 컴파일하지 않고 SQLite 를 열지 않는다. 수정판 0.39 는 sqlx 0.9 가 끌어오므로 sqlx 승급 때 닫는다."
 
 [[IgnoredVulns]]
+id = "RUSTSEC-2023-0071"
+ignoreUntil = 2027-02-16
+reason = "rsa 0.9: Marvin 공격(개인 키 연산의 시간 부채널). 수정은 rsa 0.10 이지만 dawneer 가 쓰는 openidconnect 4.1.0(최신)이 rsa ^0.9.2 를 요구한다(ramosbugs/openidconnect-rs#140, 열림). 콘솔은 RSA 개인 키를 갖지 않는다 — 발급자의 RS256 서명을 공개 키로 확인만 하고, 서명은 시험이 시험 때 만든 키로만 한다. openidconnect 가 rsa 0.10 으로 오르면 지운다. consoles/dawneer/deny.toml 의 ignore 도 같은 이유다."
+
+[[IgnoredVulns]]
 id = "RUSTSEC-2026-0543"
 ignoreUntil = 2027-02-16
-reason = "chrono: 취약점이 아니라 '관리 중단' 권고이고 모든 판이 해당한다 — 올릴 수정판이 없다(2026-11-18 crates.io 최신 0.4.45). 네 Rust lockfile(foundation·identity·intelligence·gongzzang)의 직접 의존 63개 Cargo.toml 에 더해 sqlx-core·arrow·parquet·iceberg·calamine·croner·serde_with 가 끌어오므로 우리 쪽만 jiff/time 으로 옮겨서는 lockfile 에서 빠지지 않는다. 부모들이 옮기는 동안 열어 두고, 우리 직접 의존의 이전은 별도 작업으로 다룬다. 각 deny.toml 의 ignore 도 같은 이유다."
+reason = "chrono: 취약점이 아니라 '관리 중단' 권고이고 모든 판이 해당한다 — 올릴 수정판이 없다(2026-11-18 crates.io 최신 0.4.45). 다섯 Rust lockfile(foundation·identity·intelligence·gongzzang·dawneer — dawneer 는 openidconnect 4.1 이 끌어온다)의 직접 의존 63개 Cargo.toml 에 더해 sqlx-core·arrow·parquet·iceberg·calamine·croner·serde_with 가 끌어오므로 우리 쪽만 jiff/time 으로 옮겨서는 lockfile 에서 빠지지 않는다. 부모들이 옮기는 동안 열어 두고, 우리 직접 의존의 이전은 별도 작업으로 다룬다. 각 deny.toml 의 ignore 도 같은 이유다."
 
 [[IgnoredVulns]]
 id = "GHSA-fc5q-39xc-vjpf"
