@@ -1,0 +1,8 @@
+# ShellCheck's settings for every script in the tree (scripts/ci/lint_changed.py; editors read the
+# same file). SC2312: an exit code hidden inside a command substitution, the rule AGENTS.md states
+# in prose. Sourced files are followed so a variable a sourced file sets is not reported unset.
+enable=check-extra-masked-returns
+external-sources=true
+# SC1091 says ShellCheck could not open a sourced file: a statement about the checker's reach
+# (generated and host-only files), not about the script.
+disable=SC1091

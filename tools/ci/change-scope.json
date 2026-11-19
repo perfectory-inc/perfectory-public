@@ -757,6 +757,19 @@
         ]
       },
       {
+        "name": "shell-and-python-lint",
+        "paths": [
+          "**/*.sh",
+          "**/*.py",
+          ".shellcheckrc",
+          "ruff.toml",
+          "tools/ci/lint-baseline.json",
+          "tools/shellcheck.env",
+          "tools/ruff.env",
+          "tools/pinned-artifacts.json"
+        ]
+      },
+      {
         "name": "file-line-limit-self-test",
         "paths": []
       },
