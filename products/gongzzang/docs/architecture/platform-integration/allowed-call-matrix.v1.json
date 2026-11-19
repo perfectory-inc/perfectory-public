@@ -37,30 +37,6 @@
       ]
     },
     {
-      "id": "foundation_outbox_to_gongzzang_webhook",
-      "status": "active",
-      "direction": "inbound",
-      "source_repo": "foundation-platform",
-      "source_service": "foundation-outbox-publisher",
-      "target_repo": "gongzzang",
-      "target_service": "gongzzang-web",
-      "protocol": "https",
-      "methods": ["POST"],
-      "allowed_surfaces": ["/foundation-platform/events"],
-      "traffic_policy_id": "foundation_outbox_to_gongzzang_events",
-      "webhook_policy_id": "foundation_platform_event_receiver",
-      "service_auth_policy_id": "foundation_outbox_to_gongzzang_webhook",
-      "decision_reference": "docs/adr/0034-catalog-ownership-handover-to-foundation-platform.md",
-      "required_controls": [
-        "timestamped_hmac_sha256",
-        "timestamp_skew_limit",
-        "event_header_match",
-        "event_replay_ledger",
-        "idempotency_key_store",
-        "dead_letter_queue"
-      ]
-    },
-    {
       "id": "dawneer_to_foundation_platform_catalog_read",
       "status": "planned",
       "direction": "cross_repo_reference",

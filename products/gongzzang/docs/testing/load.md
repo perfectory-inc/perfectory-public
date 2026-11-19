@@ -47,7 +47,6 @@ URL credential·path·query·fragment 거부는 private runner가 k6 시작 전�
 | `api-read-mix` | 혼합 API read 경로 검증 |
 | `map-marker-mix` | 매물 marker base·delta·tombstone·cache 경로 검증 |
 | `capacity-stress` | private non-production capacity 탐색 |
-| `foundation-platform-events` | Foundation Platform event consumer 검증 |
 
 `map-marker-mix` must exercise the runtime composition:
 
