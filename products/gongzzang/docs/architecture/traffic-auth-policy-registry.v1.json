@@ -980,29 +980,6 @@
       }
     },
     {
-      "id": "foundation_outbox_to_gongzzang_events",
-      "source_service": "foundation-outbox-publisher",
-      "target_service": "gongzzang-web",
-      "purpose": "Consumer cache invalidation and PNU anchor projection import events.",
-      "current_auth_policy": {
-        "method": "shared_webhook_secret",
-        "env": "FOUNDATION_PLATFORM_WEBHOOK_SECRET"
-      },
-      "target_auth_policy": {
-        "method": "timestamped_hmac_sha256",
-        "service_identity": "foundation-outbox-publisher"
-      },
-      "allowed_contracts": [
-        "catalog.industrial_complex.gold_pointer.published.v1",
-        "catalog.parcel_marker_anchor.snapshot.published.v1"
-      ],
-      "required_resilience": {
-        "idempotency_required": true,
-        "ack_contract_required": true,
-        "cache_invalidation_effect_required": true
-      }
-    },
-    {
       "id": "gongzzang_outbox_publisher_to_foundation_lakehouse_registry",
       "source_service": "gongzzang-outbox-publisher",
       "target_service": "foundation-api",

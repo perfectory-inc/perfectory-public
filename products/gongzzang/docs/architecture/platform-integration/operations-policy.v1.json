@@ -25,8 +25,7 @@
       "authorization",
       "cookie",
       "set-cookie",
-      "foundation_platform.workload_identity_token",
-      "foundation_platform_webhook_secret"
+      "foundation_platform.workload_identity_token"
     ]
   },
   "slos": [
@@ -38,17 +37,6 @@
       "p99_latency_ms": 1000,
       "timeout_ms": 5000,
       "alert_policy": "foundation_platform_catalog_read_slo_burn",
-      "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
-    },
-    {
-      "id": "foundation_outbox_to_gongzzang_webhook",
-      "surface": "foundation-platform webhook receiver",
-      "availability_percent": 99.9,
-      "p95_latency_ms": 250,
-      "p99_latency_ms": 1000,
-      "duplicate_ack_success_percent": 100,
-      "dead_letter_alert_after_count": 1,
-      "alert_policy": "foundation_platform_webhook_dead_letter_or_latency",
       "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
     }
   ],
@@ -64,33 +52,9 @@
       "signal": "circuit_breaker_open",
       "severity": "page",
       "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
-    },
-    {
-      "id": "foundation_platform_webhook_dead_letter_or_latency",
-      "signal": "dead_letter_count_or_handler_latency",
-      "severity": "page",
-      "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
-    },
-    {
-      "id": "foundation_platform_webhook_replay_surge",
-      "signal": "duplicate_event_rate",
-      "severity": "ticket",
-      "runbook": "docs/runbooks/foundation-platform-integration-operations.md"
     }
   ],
   "load_fault_tests": [
-    {
-      "id": "webhook_duplicate_burst_ack",
-      "test_file": "apps/web/tests/unit/foundation-platform-events-handler.test.ts",
-      "evidence": "acknowledges duplicate foundation-platform event bursts without repeated side effects",
-      "required": true
-    },
-    {
-      "id": "webhook_dead_letter_poison_event",
-      "test_file": "apps/web/tests/unit/foundation-platform-events-handler.test.ts",
-      "evidence": "dead_letter",
-      "required": true
-    },
     {
       "id": "anchor_import_processing_reclaim",
       "test_file": "crates/gongzzang-persistence/tests/foundation_anchor_import_integration.rs",

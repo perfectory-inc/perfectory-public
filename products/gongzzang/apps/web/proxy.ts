@@ -28,7 +28,6 @@ const PUBLIC_PATHS = [
   ROUTES.login,
   ROUTES.forbidden,
   AUTH_PATH_PREFIX,
-  API.foundationPlatform.events,
   "/fonts",
 ];
 const LISTING_MARKER_MASK_PREFIX = API.proxy.listingMarkerMasksPrefix;

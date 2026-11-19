@@ -55,21 +55,7 @@
       ]
     }
   ],
-  "inbound_identities": [
-    {
-      "id": "foundation_outbox_to_gongzzang_webhook",
-      "source_service": "foundation-outbox-publisher",
-      "target_service": "gongzzang-web",
-      "current_method": "timestamped_hmac_sha256",
-      "required_env": "FOUNDATION_PLATFORM_WEBHOOK_SECRET",
-      "production_required": true,
-      "runtime_files": [
-        "apps/web/app/foundation-platform/events/route.ts",
-        "apps/web/lib/foundation-platform/webhook-handler.ts",
-        "apps/web/lib/env.ts"
-      ]
-    }
-  ],
+  "inbound_identities": [],
   "forbidden": [
     "direct_foundation_platform_database",
     "anonymous_foundation_platform_service_call_in_production",
