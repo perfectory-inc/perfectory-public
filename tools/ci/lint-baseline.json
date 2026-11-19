@@ -701,6 +701,9 @@
   "platforms/foundation-platform/scripts/ops/registered-factory-cycle.sh": {
    "SC2312": 1
   },
+  "platforms/foundation-platform/scripts/ops/retire-hand-started-martin.sh": {
+   "SC2312": 1
+  },
   "platforms/foundation-platform/scripts/ops/rt-molit-silver-load.sh": {
    "SC2312": 3
   },
