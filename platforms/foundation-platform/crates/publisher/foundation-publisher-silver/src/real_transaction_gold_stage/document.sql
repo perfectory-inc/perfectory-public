@@ -104,13 +104,13 @@ kept AS (
 ),
 documents AS (
   SELECT pnu, _group,
-         '{"as_of_month":"{as_of}","transactions":[' || array_to_string(_kept, ',')
+         '{"as_of_month":"{build_month}","transactions":[' || array_to_string(_kept, ',')
            || '],"transactions_omitted":' || (len(coalesce(_all, [])) - len(_kept))
            || ',"main_lot_group_pnus":' || to_json(_group)::VARCHAR
            || ',"comparables":' || coalesce(comparables, '[]')
            || ',"comparables_from":"{comparables_from}","region":{"legal_dong_code":"' || substr(pnu, 1, 10)
            || '","from":"{region_from}","datasets":' || coalesce(datasets, '[]')
-           || '},"coverage":{coverage}}' AS real_transaction_json,
+           || '},"coverage":{coverage_json}}' AS real_transaction_json,
          coalesce(transaction_total, 0)::BIGINT AS transaction_total
   FROM kept
 ),

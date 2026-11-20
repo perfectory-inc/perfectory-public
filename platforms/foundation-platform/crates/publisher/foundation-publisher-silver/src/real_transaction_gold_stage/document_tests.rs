@@ -28,6 +28,8 @@ fn coverage() -> Vec<Coverage> {
 
 /// `pnu → (document, transaction_total, place_id, main_lot_group_place_ids, row_digest)`.
 type Documents = BTreeMap<String, (Value, i64, Option<String>, Option<String>, String)>;
+/// One `gold_rows` row as read back.
+type GoldRow = (String, String, i64, Option<String>, Option<String>, String);
 
 /// Places `deals` and builds the Gold rows for 2098-05 with every parcel's place id `P-<pnu>`.
 fn documents(connection: &Connection, levels: &Value, as_of: &str) -> anyhow::Result<Documents> {
@@ -36,7 +38,7 @@ fn documents(connection: &Connection, levels: &Value, as_of: &str) -> anyhow::Re
         "CREATE OR REPLACE TABLE place_ids AS SELECT pnu, 'P-' || pnu AS place_id FROM parcels",
     )?;
     gold_rows(connection, day(as_of), &coverage())?;
-    let rows: Vec<(String, String, i64, Option<String>, Option<String>, String)> = connection
+    let rows: Vec<GoldRow> = connection
         .prepare(
             "SELECT pnu, real_transaction_json, transaction_total, place_id, \
              main_lot_group_place_ids, row_digest FROM gold_rows",
@@ -291,28 +293,27 @@ fn the_document_is_the_text_spark_writes_and_the_digest_holds_content_only() -> 
     let deals = rows(&[big]);
     let land = [(factory.clone(), "공장용지", 1000.0)];
     let first = documents(
-        &inputs(&deals, &[], &[factory.clone()], &land, &[])?,
+        &inputs(&deals, &[], std::slice::from_ref(&factory), &land, &[])?,
         &json!([]),
         "2098-05-03",
     )?;
     let again = documents(
-        &inputs(&deals, &[], &[factory.clone()], &land, &[])?,
+        &inputs(&deals, &[], std::slice::from_ref(&factory), &land, &[])?,
         &json!([]),
         "2098-05-28",
     )?;
     assert_eq!(first[&factory].4, again[&factory].4);
-    let connection = inputs(&deals, &[], &[factory.clone()], &land, &[])?;
+    let connection = inputs(&deals, &[], std::slice::from_ref(&factory), &land, &[])?;
     documents(&connection, &json!([]), "2098-05-03")?;
     let (text, grade): (String, String) = connection.query_row(
         "SELECT g.real_transaction_json, p.place_identity_grade FROM gold_rows g JOIN placed p USING (pnu)",
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    let deal = concat!(
+    let deal =
         "\"deal_date\":\"2098-02-01\",\"deal_amount_10k_krw\":50000,\"land_area_m2\":1000.0,\
          \"building_area_m2\":1.23456785E7,\"land_use\":\"계획관리\",\"building_use\":\"공장\",\
-         \"build_year\":2001,\"jibun_raw\":\"5\""
-    );
+         \"build_year\":2001,\"jibun_raw\":\"5\"";
     let expected = format!(
         "{{\"as_of_month\":\"2098-05-01\",\"transactions\":[{{\"dataset_slug\":\"{INDUSTRIAL}\",\
          \"deal_date\":\"2098-02-01\",\"deal_amount_10k_krw\":50000,\"deposit_10k_krw\":null,\
@@ -351,7 +352,13 @@ fn past_the_document_bound_the_oldest_deals_are_left_out() -> anyhow::Result<()>
         })
         .collect();
     let land = [(factory.clone(), "대", 1000.0)];
-    let connection = inputs(&rows(&deals), &[], &[factory.clone()], &land, &[])?;
+    let connection = inputs(
+        &rows(&deals),
+        &[],
+        std::slice::from_ref(&factory),
+        &land,
+        &[],
+    )?;
     let docs = documents(&connection, &json!([]), "2098-05-03")?;
     let (document, total, ..) = &docs[&factory];
     let kept = document["transactions"]

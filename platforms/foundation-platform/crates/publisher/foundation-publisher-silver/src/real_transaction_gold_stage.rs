@@ -166,7 +166,9 @@ pub fn region_stats_query(as_of: NaiveDate) -> anyhow::Result<String> {
 /// it holds deals from (`YYYY-MM`; None when it holds no month).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Coverage {
+    /// The dataset (`dataset_slug`).
     pub dataset_slug: String,
+    /// The first month the Silver holds deals of it from, `YYYY-MM`.
     pub from_month: Option<String>,
 }
 
@@ -286,10 +288,12 @@ fn entry_sql(types: &BTreeMap<String, String>, fields: &[&str]) -> anyhow::Resul
     Ok(format!("('{{' || {} || '}}')", parts.join(" || ',' || ")))
 }
 
-/// Builds `gold_rows` (`pnu`, `real_transaction_json`, `transaction_total`, `attached_via`,
-/// `place_id`, `main_lot_group_place_ids`, `row_digest`) for the build month of `as_of`, from the
-/// tables `real_transaction_placement_stage::place` leaves (`placed`, `deals`, `parcels`, `land`)
-/// and `place_ids(pnu, place_id)`; the caller adds the two lineage columns. Returns the row count.
+/// Builds `gold_rows` for the build month of `as_of` and returns its row count.
+///
+/// The rows are `pnu`, `real_transaction_json`, `transaction_total`, `attached_via`, `place_id`,
+/// `main_lot_group_place_ids` and `row_digest`, from the tables
+/// `real_transaction_placement_stage::place` leaves (`placed`, `deals`, `parcels`, `land`) and
+/// `place_ids(pnu, place_id)`; the caller adds the two lineage columns.
 ///
 /// # Errors
 /// Returns `DuckDB`'s error, or refuses a `placed` without a field the document carries.
@@ -321,13 +325,16 @@ pub fn gold_rows(
     let values = [
         ("{transaction}", entry_sql(&types, &TRANSACTION_FIELDS)?),
         ("{comparable}", entry_sql(&types, &COMPARABLE_FIELDS)?),
-        ("{as_of}", date(0, true)?),
+        ("{build_month}", date(0, true)?),
         ("{comparables_from}", date(COMPARABLE_MONTHS, false)?),
         ("{next_month}", date(1, true)?),
         ("{region_from}", date(REGION_MONTHS, false)?),
         ("{comparable_count}", COMPARABLE_COUNT.to_string()),
         ("{budget}", DOCUMENT_BUDGET.to_string()),
-        ("{coverage}", coverage_json(coverage)?.replace('\'', "''")),
+        (
+            "{coverage_json}",
+            coverage_json(coverage)?.replace('\'', "''"),
+        ),
     ];
     let mut sql = DOCUMENT_SQL.to_owned();
     for (name, value) in &values {

@@ -8,32 +8,32 @@ use serde_json::{json, Value};
 
 use super::*;
 
-pub(crate) const OLD: &str = "9999910100";
-pub(crate) const NEW: &str = "9999920100";
-pub(crate) const OTHER: &str = "9999910200";
-pub(crate) const OLD_NAME: &str = "합성도 합성시 가동";
-pub(crate) const NEW_NAME: &str = "합성도 합성시 신구 가동";
-pub(crate) const OTHER_NAME: &str = "합성도 합성시 나동";
-pub(crate) const INDUSTRIAL: &str = "real_transaction_industrial_trade";
+pub const OLD: &str = "9999910100";
+pub const NEW: &str = "9999920100";
+pub const OTHER: &str = "9999910200";
+pub const OLD_NAME: &str = "합성도 합성시 가동";
+pub const NEW_NAME: &str = "합성도 합성시 신구 가동";
+pub const OTHER_NAME: &str = "합성도 합성시 나동";
+pub const INDUSTRIAL: &str = "real_transaction_industrial_trade";
 
-pub(crate) fn pnu(code: &str, main: u32, sub: u32) -> String {
+pub fn pnu(code: &str, main: u32, sub: u32) -> String {
     format!("{code}1{main:04}{sub:04}")
 }
 
-pub(crate) fn inference(levels: &Value) -> Value {
+pub fn inference(levels: &Value) -> Value {
     json!({"precision_bar": 0.99, "min_measured_rows": 200, "area_tolerance_m2": 0.05,
            "ownership_window_days": [0, 120], "ownership_causes": ["소유권이전"], "levels": levels})
 }
 
 /// One 공장창고 deal of 5억, 500 m² of building, as `DocumentSparkTest.deal` builds it by default.
-pub(crate) fn deal(key: &str, address: &str, jibun: &str, day: &str, land: f64) -> String {
+pub fn deal(key: &str, address: &str, jibun: &str, day: &str, land: f64) -> String {
     Deal::new(key, address, jibun, day).land(land).row()
 }
 
 /// One deal row in the job's `DEAL_COLUMNS` order (`DocumentSparkTest.deal`): a cancelled deal is
 /// cancelled on 2098-04-01.
 #[derive(Clone)]
-pub(crate) struct Deal {
+pub struct Deal {
     pub key: String,
     pub address: String,
     pub jibun: String,
@@ -46,7 +46,7 @@ pub(crate) struct Deal {
 }
 
 impl Deal {
-    pub(crate) fn new(key: &str, address: &str, jibun: &str, day: &str) -> Self {
+    pub fn new(key: &str, address: &str, jibun: &str, day: &str) -> Self {
         Self {
             key: key.to_owned(),
             address: address.to_owned(),
@@ -60,12 +60,12 @@ impl Deal {
         }
     }
 
-    pub(crate) fn land(mut self, land: f64) -> Self {
+    pub fn land(mut self, land: f64) -> Self {
         self.land = land;
         self
     }
 
-    pub(crate) fn row(&self) -> String {
+    pub fn row(&self) -> String {
         let jibun = self.jibun.as_str();
         let bonbun = if jibun.bytes().all(|b| b.is_ascii_digit()) {
             jibun
@@ -99,7 +99,7 @@ impl Deal {
 
 /// The tables `place` reads: `deals`, the code pairs, the snapshot, the served `parcels` and their
 /// `land`, `ownership` rows; no titles and no lineage.
-pub(crate) fn inputs(
+pub fn inputs(
     deals: &[String],
     pairs: &[(&str, &str)],
     parcels: &[String],
