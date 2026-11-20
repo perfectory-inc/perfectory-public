@@ -119,6 +119,10 @@ impl Run {
     ) -> anyhow::Result<Value> {
         let started = Instant::now();
         let table_contract = contract(TABLE)?;
+        // A table is born on its first commit (root ADR-0564 §1), as the Spark job made it.
+        self.committer
+            .create_table_if_absent(table_contract)
+            .await?;
         let shape = self.committer.table_shape(TABLE).await?;
         let expected_head = head(&self.catalog, TABLE).await?;
         let (mut line, staged) = {
@@ -173,11 +177,10 @@ impl Run {
     /// can move; the summary line of it, or `None` when its links are as of the pin.
     async fn follow(&self, stage: &Mutex<DuckDbParquetStage>) -> anyhow::Result<Option<Value>> {
         let started = Instant::now();
-        let recorded = self
-            .catalog
-            .load_ingested_batch_objects(TABLE)
-            .await?
-            .with_context(|| format!("{TABLE} does not exist"))?;
+        // A table no edition was ever loaded into has no links to follow.
+        let Some(recorded) = self.catalog.load_ingested_batch_objects(TABLE).await? else {
+            return Ok(None);
+        };
         let after = self.pins.code_changes;
         let before = last_followed(recorded.iter().map(String::as_str));
         if before == Some(after) {

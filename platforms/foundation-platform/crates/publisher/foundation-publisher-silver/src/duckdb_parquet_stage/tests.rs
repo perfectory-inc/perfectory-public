@@ -691,6 +691,46 @@ async fn a_registered_factory_edition_is_the_first_append_into_the_empty_table(
     Ok(())
 }
 
+/// 2026-11-20 11:43Z: the first file data load on `DuckDB` failed with `TableNotFound` on
+/// `silver.elevator_installation`, a table merged that day that no load had made yet. The Spark
+/// job created its table; a publisher load does too, on its first commit (root ADR-0564 §1), and
+/// leaves a table that exists as it is.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_load_makes_the_table_no_load_has_made_yet() -> anyhow::Result<()> {
+    let table = contract("silver.elevator_installation")?;
+    let root = tempfile::tempdir()?;
+    let catalog: Arc<dyn Catalog> = Arc::new(
+        MemoryCatalogBuilder::default()
+            .with_storage_factory(Arc::new(LocalFsStorageFactory))
+            .load(
+                "memory",
+                HashMap::from([(
+                    MEMORY_CATALOG_WAREHOUSE.to_owned(),
+                    root.path()
+                        .join("warehouse")
+                        .to_str()
+                        .context("the warehouse path must be UTF-8")?
+                        .to_owned(),
+                )]),
+            )
+            .await?,
+    );
+    catalog
+        .create_namespace(&NamespaceIdent::new("silver".to_owned()), HashMap::new())
+        .await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    assert!(committer.table_shape(table.table_name).await.is_err());
+    assert!(committer.create_table_if_absent(table).await?);
+    assert!(!committer.create_table_if_absent(table).await?);
+    let shape = committer.table_shape(table.table_name).await?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let file = stage.write(&shape, &synthetic_row(table)?, "elevator-first")?;
+    let object = "bronze/source=synthetic/file-20990102t030405z.zip";
+    let first = first_append(&catalog, table, file, object).await?;
+    assert_eq!(first, (None, 1));
+    Ok(())
+}
+
 /// One synthetic row of each ILIS notice table (notice `99…`, 2099 times), in contract order.
 const NOTICE_READ: &str = "SELECT CAST(99001 AS BIGINT) AS notice_sequence, to_timestamp(4071006245) AS requested_at_utc, \
      200 AS http_status, 'read' AS read_outcome, '999990' AS official_complex_code, \

@@ -69,6 +69,11 @@ impl Run {
         let file = self.source.file(&planned.slug)?;
         let table = file.table();
         let table_contract = contract(&table)?;
+        // A table is born on its first commit (root ADR-0564 §1): the deploy's lakehouse migration
+        // leaves an absent table to the load that makes it, as the Spark job made it.
+        self.committer
+            .create_table_if_absent(table_contract)
+            .await?;
         let shape = self.shape(&table).await?;
         let expected_head = head(&self.catalog, &table).await?;
         let followed = file.place_link()?.followed();
@@ -149,11 +154,10 @@ impl Run {
     ) -> anyhow::Result<Option<Value>> {
         let started = Instant::now();
         let table = file.table();
-        let recorded = self
-            .catalog
-            .load_ingested_batch_objects(&table)
-            .await?
-            .with_context(|| format!("{table} does not exist"))?;
+        // A table no edition was ever loaded into has no links to follow.
+        let Some(recorded) = self.catalog.load_ingested_batch_objects(&table).await? else {
+            return Ok(None);
+        };
         let after = self.pins.code_changes;
         let Some(before) = last_followed(recorded.iter().map(String::as_str)) else {
             return Ok(None);
