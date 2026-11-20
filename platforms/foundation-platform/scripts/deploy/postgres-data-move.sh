@@ -36,8 +36,13 @@ WHERE c.relkind IN ('r', 'p') AND n.nspname IN ('catalog', 'audit') ORDER BY 1
 SQL
 }
 
+# pg_controldata of a stopped cluster's directory, in the postgres service's own image and memory cap.
+postgres_controldata() {
+  "$1" run --rm -T -u 70:70 -v "$2:/d:ro" --entrypoint pg_controldata postgres /d
+}
+
 move_postgres_data() {
-  local runtime="$1" contract="$2" layout data marker volume source image
+  local runtime="$1" contract="$2" layout data marker volume source
   layout="$(python3 -I -c 'import json, sys
 entry = json.load(open(sys.argv[1]))["postgres_data"]
 print(entry["path"], entry["moved_marker"], entry["volume"])' "${contract}")" || return 1
@@ -55,18 +60,13 @@ print(entry["path"], entry["moved_marker"], entry["volume"])' "${contract}")" ||
     printf 'postgres-data-move: %s is not empty and %s does not exist; refusing to copy over it\n' "${data}" "${marker}" >&2
     return 1
   fi
-  local config
-  config="$("${runtime}" config --format json)" || return 1
-  image="$(python3 -I -c 'import json, sys; print(json.load(sys.stdin)["services"]["postgres"]["image"])' <<<"${config}")" || return 1
-
   local before after started copied controldata copy_controldata
   before="$(postgres_counts "${runtime}")" || { printf 'postgres-data-move: cannot count the cluster before the move\n' >&2; return 1; }
   started="${SECONDS}"
   # Docker's default 10 s would kill a shutdown checkpoint on the busy data disk: the copy of a cluster
   # that did not shut down cleanly is refused below.
   "${runtime}" stop -t 300 postgres || return 1
-  controldata="$(docker run --rm --network none --user 70:70 -v "${source}:/d:ro" --entrypoint pg_controldata "${image}" /d)" \
-    || { "${runtime}" up -d --wait postgres; return 1; }
+  controldata="$(postgres_controldata "${runtime}" "${source}")" || { "${runtime}" up -d --wait postgres; return 1; }
   if ! grep -qx 'Database cluster state: *shut down' <<<"${controldata}"; then
     printf 'postgres-data-move: the cluster did not shut down cleanly; not moved\n' >&2
     "${runtime}" up -d --wait postgres
@@ -82,7 +82,7 @@ print(entry["path"], entry["moved_marker"], entry["volume"])' "${contract}")" ||
     "${runtime}" up -d --wait postgres
     return 1
   fi
-  copy_controldata="$(docker run --rm --network none --user 70:70 -v "${data}:/d:ro" --entrypoint pg_controldata "${image}" /d)" || copy_controldata=""
+  copy_controldata="$(postgres_controldata "${runtime}" "${data}")" || copy_controldata=""
   links_before="$(find "${source}/pg_tblspc" -mindepth 1 -maxdepth 1 -printf '%f %l\n')" || links_before="unreadable"
   links_after="$(find "${data}/pg_tblspc" -mindepth 1 -maxdepth 1 -printf '%f %l\n')" || links_after="unreadable copy"
   links_before="$(sort <<<"${links_before}")"

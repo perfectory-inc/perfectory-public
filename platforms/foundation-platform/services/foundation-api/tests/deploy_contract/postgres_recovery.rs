@@ -24,7 +24,7 @@ fn assert_postgres_recovery_compose_contract() -> TestResult {
         "archive_timeout=60s",
         "foundation-backup:",
         "foundation-restore-drill:",
-        "pgdata:/var/lib/postgresql/data:ro",
+        "${FOUNDATION_PLATFORM_POSTGRES_DATA:-pgdata}:/var/lib/postgresql/data:ro",
         "recovery_data:/var/lib/postgresql/data",
         "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET",
         "FOUNDATION_RECOVERY_REPOSITORY_CIPHER_PASS",
