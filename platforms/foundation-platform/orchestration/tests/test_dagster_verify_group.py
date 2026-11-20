@@ -38,13 +38,14 @@ class TheSwitchCheck(unittest.TestCase):
         self.assertEqual(self.verify.deadline(weekly, at("2026-11-16T03:00:00")), 48 * HOUR)
         self.assertEqual(self.verify.deadline(replace(self.spec, schedule=None), at("2026-11-16T03:00:00")), 48 * HOUR)
 
-    def test_a_run_open_at_the_moment_or_created_in_time_answers_it(self):
+    def test_a_run_open_at_the_moment_or_created_after_it_answers_it(self):
         tick = at("2026-11-20T10:35:00")
-        self.assertTrue(self.verify.answered(tick, [(tick - HOUR, None)], 2 * HOUR), "still open")
-        self.assertTrue(self.verify.answered(tick, [(tick - HOUR, tick + 60)], 2 * HOUR), "open then")
-        self.assertTrue(self.verify.answered(tick, [(tick + HOUR, tick + 2 * HOUR)], 2 * HOUR), "created in time")
-        self.assertFalse(self.verify.answered(tick, [(tick - 2 * HOUR, tick - HOUR)], 2 * HOUR), "ended before")
-        self.assertFalse(self.verify.answered(tick, [(tick + 3 * HOUR, None)], 2 * HOUR), "too late")
+        self.assertTrue(self.verify.answered(tick, [(tick - HOUR, None)]), "still open")
+        self.assertTrue(self.verify.answered(tick, [(tick - HOUR, tick + 60)]), "open then")
+        self.assertTrue(self.verify.answered(tick, [(tick + HOUR, tick + 2 * HOUR)]), "created after")
+        # 2026-11-20: a deploy held asset_reconcile 07:25-07:35; its next run folded those ticks (decide.py).
+        self.assertTrue(self.verify.answered(tick, [(tick + 3 * HOUR, None)]), "late, but it folds the tick")
+        self.assertFalse(self.verify.answered(tick, [(tick - 2 * HOUR, tick - HOUR)]), "ended before")
 
     def test_only_a_passed_deadline_counts_as_missed(self):
         ticks = [at("2026-11-20T08:35:00"), at("2026-11-20T09:35:00"), at("2026-11-20T10:35:00")]

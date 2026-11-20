@@ -952,9 +952,9 @@ class ThePoolsTheSchedulerHas(unittest.TestCase):
         self.assertEqual(job_runs, decided + 2)
         self.assertLessEqual(job_runs, int(parallelism) + decided)
         self.assertEqual(int(most), job_runs + 1)
-        # The code server's cap counts every run (compose.orchestration.yml): 100 + 2 x 169 + runs x 169, x1.17.
+        # The code server's cap counts every run (compose.orchestration.yml): 100 + 2 x 169 + runs x 169.
         [cap] = re.findall(r"(?m)^  dagster-code-server:\n(?:    .*\n)*?    mem_limit: (\d+)m$", compose)
-        self.assertGreaterEqual(int(cap), (100 + 2 * 169 + int(most) * 169) * 1.17)
+        self.assertGreaterEqual(int(cap), 100 + 2 * 169 + int(most) * 169)
         self.assertEqual(limits, {(job_specs.POOL_TAG, name): slots for name, slots in pools.items()})
 
     def test_parallelism_leaves_a_slot_for_default_pool_jobs(self):

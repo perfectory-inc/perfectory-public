@@ -31,6 +31,10 @@ query() {
 
 serving='{"serving": []}'
 if [[ "${group}" == gold ]]; then
+  lanes_now="$(query 'foundation_by_pnu_lane_behind_seconds')"
+  lanes_week="$(query 'foundation_by_pnu_lane_behind_seconds offset 7d')"
+  units_now="$(query 'foundation_tile_unit_behind_seconds')"
+  units_week="$(query 'foundation_tile_unit_behind_seconds offset 7d')"
   serving="$(python3 -I -c '
 import json, sys
 def rows(text, label):
@@ -43,8 +47,7 @@ out = [{"kind": "by_pnu", "name": lane, "job": job, "now": value, "week_before":
 out += [{"kind": "tile", "name": unit, "now": value, "week_before": units_week.get((unit,))}
         for (unit,), value in sorted(units_now.items())]
 print(json.dumps({"serving": out}))
-' "$(query 'foundation_by_pnu_lane_behind_seconds')" "$(query 'foundation_by_pnu_lane_behind_seconds offset 7d')" \
-    "$(query 'foundation_tile_unit_behind_seconds')" "$(query 'foundation_tile_unit_behind_seconds offset 7d')")"
+' "${lanes_now}" "${lanes_week}" "${units_now}" "${units_week}")"
 fi
 
 printf '%s' "${serving}" | docker exec -i "${CODE_SERVER}" python -I "${RELEASE}/orchestration/dagster/verify_group.py" \

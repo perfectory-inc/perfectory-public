@@ -7,9 +7,11 @@ One JSON line per switched-on job of the group, then one line for the group:
 
 - `runs` the job's Dagster runs since the switch, by status; `launch_failed` those that failed before a step
   started (the daemon could not launch them); `duplicate_keys` run keys two runs share (one decision started twice).
-- `missed` the expected runs no run answered within the deadline: a clock tick, or an input event (a
-  materialization of a starting input), is answered by a run that was open at that moment or that was created
-  after it within `min(two ticks, 48 hours)` (§6, so a weekly or monthly fallback does not wait weeks).
+- `missed` the expected runs no run answered: a clock tick, or an input event (a materialization of a
+  starting input), is answered by a run that was open at that moment or that was created after it, however
+  late (the sensor folds what waited into the next run, decide.py: a deploy that held the job for an hour
+  missed nothing). One with no run since is missed once `min(two ticks, 48 hours)` passed (§6, so a weekly
+  or monthly fallback does not wait weeks): the job stopped running.
 - the group line: `stop` names every job that missed two or more, and says the rollback PR (§3) opens first.
 - for Gold, `serving`: each by-PNU lane and tile unit whose `behind` series (asset_reconcile.py) is now
   further behind than the same hour a week before by more than its interval (the bake's ticks, two of them).
@@ -43,15 +45,14 @@ def deadline(spec, at):
     return min(ticks[1] - at, DEADLINE_CAP) if len(ticks) >= 2 else DEADLINE_CAP
 
 
-def answered(at, runs, limit):
-    """Whether a run was open at `at` or was created within `limit` after it. `runs` are (created, ended)."""
-    return any(created <= at <= (ended if ended is not None else float("inf")) or at < created <= at + limit
-               for created, ended in runs)
+def answered(at, runs):
+    """Whether a run was open at `at` or was created after it. `runs` are (created, ended)."""
+    return any(created <= at <= (ended if ended is not None else float("inf")) or at < created for created, ended in runs)
 
 
 def missed(expected, runs, now, limit_of):
     """The expected moments whose deadline has passed and no run answered."""
-    return [at for at in expected if at + limit_of(at) <= now and not answered(at, runs, limit_of(at))]
+    return [at for at in expected if at + limit_of(at) <= now and not answered(at, runs)]
 
 
 def behind(serving):
