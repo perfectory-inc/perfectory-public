@@ -284,7 +284,7 @@ sync_dagster() {
 
 # One of the deploy's questions to the writable webserver (orchestration/dagster/writer_gate.py ask).
 dagster_ask() {
-  compose exec -T dagster-webserver python /opt/dagster/gate/writer_gate.py ask "$1" </dev/null
+  compose exec -T dagster-webserver python -I -B /opt/dagster/gate/writer_gate.py ask "$1" </dev/null
 }
 
 verify_up() {
