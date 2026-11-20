@@ -60,11 +60,10 @@ STARTED_BY = ("schedule", "inputs")
 # `airflow` (absent) Airflow decides and runs; `shadow` Airflow decides and runs while Dagster decides
 # beside it and compares; `proxied` Airflow decides, Dagster runs; `dagster` Dagster decides and runs.
 DAGSTER_STAGES = ("airflow", "shadow", "proxied", "dagster")
-# The stages something implements today; a later stage is refused until its slice lands (ADR-0431 §5).
-# `dagster` is half built: Dagster decides (orchestration/dagster/decide.py) and Airflow builds no DAG, but
-# the deploy's drain and start-once, an operator's run-now, the runs' lineage and the operations map
-# still reach a job through its Airflow DAG; the slice that moves them adds the stage here.
-IMPLEMENTED_DAGSTER_STAGES = ("airflow", "shadow", "proxied")
+# The stages something implements (ADR-0431 §5). At `dagster` Dagster decides (orchestration/dagster/decide.py)
+# and Airflow builds no DAG; the deploy's drain and start-once (job_orchestrator.py), an operator's run-now,
+# the runs' lineage (lineage.py) and the operations map reach the job through Dagster (root ADR-0565, ADR-0583 §9).
+IMPLEMENTED_DAGSTER_STAGES = DAGSTER_STAGES
 # The stages in which Dagster runs the job's unit, and Dagster's decisions are compared with Airflow's
 # while Airflow still decides (root ADR-0458 §4).
 DAGSTER_RUNS = ("proxied", "dagster")
@@ -91,13 +90,20 @@ RUN_KIND_TAG = "foundation/run-kind"
 OUTCOME_TAG = "foundation/job-outcome"
 OWED_TAG = "foundation/asset-owed"
 # The run queue's view of a job run (orchestration/dagster/dagster.yaml): every job run is counted under
-# JOB_RUN_TAG apart from the observer's check runs, its pool under POOL_TAG, and its priority class's value
-# is Dagster's own `dagster/priority`, the order the queue starts runs in (root ADR-0435).
+# JOB_RUN_TAG apart from the observer's check runs, its pool under POOL_TAG, and Dagster's own
+# `dagster/priority`, the order the queue starts runs in, is dagster_priority (root ADR-0435, ADR-0558).
 JOB_RUN_TAG = "foundation/run"
+# A job's `dagster/priority` is its priority class's value times this, plus its queue weight: the class
+# orders first (root ADR-0435), and inside it a job that writes what another reads starts first (root
+# ADR-0558), as Airflow orders its pool's tasks by the weight. A weight never reaches this (load_specs).
+QUEUE_WEIGHT_SPAN = 1000
 # What may follow the job id in a start: nothing (the clock), `triggered`, or `requested <id>` (an
 # operator's run-now, root ADR-0282 §4); the host's forced command reads the same words.
 RUN_KIND = re.compile(r"(?:triggered|requested [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?")
 POOL_TAG = "foundation/pool"
+# A run of a job Dagster decides (`dagster_stage: dagster`) also carries this: dagster.yaml holds such runs to
+# the pools' slots together, so the runs Airflow hands Dagster (proxied) always find a place (root ADR-0583 §7).
+DECIDED_TAG = "foundation/decided-by"
 PRIORITY_TAG = "dagster/priority"
 # Dagster's own run-monitoring tag (orchestration/dagster/dagster.yaml run_monitoring): past it a run still
 # open is failed. A job's run gets its scheduled start's limit: its wait, its run and its stop grace.
@@ -160,7 +166,10 @@ class JobSpec:
 
     def dagster_tags(self, run_kind=""):
         """The tags a Dagster run of this job carries: how it was started, and what the run queue reads."""
-        return run_tags(self.pool, self.priority, run_kind, 60 * self.timeout_minutes)
+        tags = run_tags(self.pool, dagster_priority(self), run_kind, 60 * self.timeout_minutes)
+        if self.dagster_stage == "dagster":
+            tags[DECIDED_TAG] = "dagster"
+        return tags
 
     @property
     def starting_inputs(self):
@@ -185,6 +194,14 @@ def run_tags(pool, priority, run_kind="", max_runtime_seconds=None):
     if max_runtime_seconds is not None:
         tags[MAX_RUNTIME_TAG] = str(max_runtime_seconds)
     return tags
+
+
+def dagster_priority(spec):
+    """The order Dagster's queue starts the job's runs in (QUEUE_WEIGHT_SPAN): its class, then its weight.
+    2026-11-20: Gold moved to Dagster (root ADR-0583), whose queue knew the class alone, so a bake could
+    have started before the rebuild whose output it reads, and #1515's tile, served Gold and registry order
+    (priority_weight 31..33) would have been lost."""
+    return spec.priority * QUEUE_WEIGHT_SPAN + spec.priority_weight
 
 
 def asset_uri(dataset):
@@ -1177,7 +1194,9 @@ def load_specs(jobs=None, graph=None):
                 priority=jobs["priority_classes"][priority_class(jobs, job, job_id)]["value"],
             )
         )
-    problems = pool_starvation(jobs, graph) + dagster_order(jobs, feeders) + dagster_groups(jobs)
+    problems = [f"{spec.job_id}: queue weight {spec.priority_weight} reaches QUEUE_WEIGHT_SPAN; raise the span"
+                for spec in specs if spec.priority_weight >= QUEUE_WEIGHT_SPAN]
+    problems += pool_starvation(jobs, graph) + dagster_order(jobs, feeders) + dagster_groups(jobs)
     if problems:
         raise JobListError("; ".join(problems))
     return specs

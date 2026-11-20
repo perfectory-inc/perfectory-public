@@ -40,7 +40,7 @@
       ],
       "enabled": true,
       "enabled_since": "2026-11-13T00:00:00Z",
-      "dagster_stage": "shadow",
+      "dagster_stage": "dagster",
       "expected_outcome": {
         "changes_within_hours": 72,
         "basis": "both broker Silver lanes take a new national file every day and offices change every day (root ADR-0511 §4); this job has not run yet, so its first change is its first load (root ADR-0457)."

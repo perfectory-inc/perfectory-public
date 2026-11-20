@@ -158,8 +158,9 @@ def staged(stage_of):
 
 def run_by_airflow():
     """Every job as Airflow runs it, its `run` task the forced command: the form a job has until it is
-    `proxied`, whichever jobs the real list has moved (AProxiedJobsRunIsDagsters has the other form)."""
-    return staged(lambda spec: "shadow" if spec.dagster_stage == "proxied" else spec.dagster_stage)
+    `proxied`, whichever jobs the real list has moved (AProxiedJobsRunIsDagsters has the other form; a job
+    Dagster decides has no DAG, ADagsterJobHasNoDag)."""
+    return staged(lambda spec: "shadow" if spec.dagster_stage in ("proxied", "dagster") else spec.dagster_stage)
 
 
 def load_dag_file(modules):
@@ -439,7 +440,7 @@ class TheCheckBeforeThePool(unittest.TestCase):
 def proxied(spec_ids):
     """job_specs.load_specs with the jobs `spec_ids`, and no other, at `dagster_stage: proxied`."""
     return staged(lambda spec: "proxied" if spec.job_id in spec_ids
-                  else "shadow" if spec.dagster_stage == "proxied" else spec.dagster_stage)
+                  else "shadow" if spec.dagster_stage in ("proxied", "dagster") else spec.dagster_stage)
 
 
 class ADagsterJobHasNoDag(unittest.TestCase):
@@ -450,11 +451,24 @@ class ADagsterJobHasNoDag(unittest.TestCase):
         real = job_specs.load_specs
         modules, built = stand_ins()
         with staged(lambda other: "dagster" if other.job_id == spec.job_id
-                    else "shadow" if other.dagster_stage == "proxied" else other.dagster_stage):
+                    else "shadow" if other.dagster_stage in ("proxied", "dagster") else other.dagster_stage):
             load_dag_file(modules)
         dags = {dag.dag_id for dag in built["dags"]}
         self.assertNotIn(spec.dag_id, dags)
         self.assertEqual(len(dags), len(real()) - 1)
+
+    def test_the_real_list_builds_no_dag_for_a_job_of_a_switched_group(self):
+        # Root ADR-0583 §2: the Gold group is switched, so none of its jobs has a DAG; every other job keeps its own.
+        modules, built = stand_ins()
+        # The proxied jobs' run task is AProxiedJobsRunIsDagsters' (it needs airlift's operator); here they run in Airflow.
+        with staged(lambda spec: "shadow" if spec.dagster_stage == "proxied" else spec.dagster_stage):
+            load_dag_file(modules)
+        dags = {dag.dag_id for dag in built["dags"]}
+        specs = job_specs.load_specs()
+        decided = {spec.dag_id for spec in specs if spec.dagster_stage == "dagster"}
+        self.assertTrue(decided)
+        self.assertFalse(dags & decided)
+        self.assertEqual(dags, {spec.dag_id for spec in specs} - decided)
 
 
 def airlift_stand_in(launched):
@@ -602,8 +616,11 @@ class WithAirflow(unittest.TestCase):
 
         module = load_dag_file({})
         dags = {value.dag_id: value for value in vars(module).values() if isinstance(value, DAG)}
-        specs = {spec.dag_id: spec for spec in job_specs.load_specs()}
+        everything = job_specs.load_specs()
+        # A job Dagster decides has no DAG (root ADR-0565; the Gold group since ADR-0583).
+        specs = {spec.dag_id: spec for spec in everything if spec.dagster_stage != "dagster"}
         self.assertEqual(set(dags), set(specs))
+        self.assertLess(len(specs), len(everything))
         for dag_id, dag in dags.items():
             with self.subTest(dag_id):
                 spec = specs[dag_id]

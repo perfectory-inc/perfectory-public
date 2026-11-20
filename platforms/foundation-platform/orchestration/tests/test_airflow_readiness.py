@@ -21,7 +21,10 @@ class ParserReadiness(unittest.TestCase):
             jobs = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text())
             (root / "orchestration/jobs.v1.json").write_text(json.dumps(jobs))
             # The DAG ids job_specs.py builds; the wrapper must wait for exactly these.
-            expected = [jobs["dag_id_prefix"] + job["id"] for job in jobs["jobs"]]
+            # A job Dagster decides has none (root ADR-0565), and the list holds such jobs (the Gold group, ADR-0583).
+            expected = [jobs["dag_id_prefix"] + job["id"] for job in jobs["jobs"]
+                        if job.get("dagster_stage", "airflow") != "dagster"]
+            self.assertLess(len(expected), len(jobs["jobs"]))
             self.assertGreater(len(expected), 1)
             (root / "expected.json").write_text(json.dumps(expected))
             (root / "runtime.env").touch()

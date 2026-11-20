@@ -102,6 +102,18 @@ class ReleaseChanges(unittest.TestCase):
         self.assertEqual(lines[0], "lakehouse tables this release changes: silver.building_register_floors")
         self.assertIn("building_register_floor", lines[2].split(": ", 1)[1].split(", "))
 
+    def test_a_job_whose_orchestrator_changes_is_held(self):
+        # Root ADR-0583 §6: the deploy that switches a group pauses its Airflow DAGs at step 0 and starts its
+        # sensors at step 7; a release that changes no table held nothing, and both could decide the job.
+        jobs = json.loads(json.dumps(JOBS))
+        switched = next(job for job in jobs["jobs"] if job["id"] == "write_a")
+        switched.update(enabled=True, dagster_stage="dagster")
+        self.write(self.new, "orchestration/jobs.v1.json", jobs)
+        self.assertEqual(self.run_script(), ["lakehouse tables this release changes: none",
+                                             "postgres migrations this release adds: none",
+                                             "jobs whose orchestrator this release changes: write_a",
+                                             "jobs the deploy holds until the release is live: write_a"])
+
     def test_the_hold_file_names_the_held_jobs_one_per_line_or_every_job(self):
         hold = self.running.parent / "hold"
 
