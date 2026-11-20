@@ -65,3 +65,24 @@ class QueueTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HandoffTest(unittest.TestCase):
+    """The whole unit goes to the steward database in the shape `parse_handoff` reads (stewardship_domain::handoff)."""
+
+    def test_the_handoff_is_the_whole_unit_with_no_legal_dong_evidence(self):
+        found = queue.items("silver.a", [{"reason": "jibun_masked", "legal_dong_code": "9999910100", "rows": 3,
+                                          "sample_row_keys": ["k1"]}])
+        rows = [{"item_id": i.item_id, "subject_code": i.subject_code, "status": i.status,
+                 "candidates_json": i.candidates_json, "evidence_etag": i.evidence_etag,
+                 "from_snapshot_id": None, "to_snapshot_id": "7"} for i in found]
+        document = job.handoff(rows, "2099-09-30T00:00:00Z")
+        self.assertEqual((document["unit"], document["item_count"]), ("place_reference", 1))
+        [item] = document["items"]
+        self.assertEqual(set(item), {"item_id", "subject_code", "status", "candidates_json", "evidence_etag",
+                                     "from_snapshot_id", "to_snapshot_id", "evidence_json"})
+        self.assertIsNone(item["evidence_json"])
+        self.assertEqual(item["subject_code"], "silver.a|jibun_masked|9999910100")
+        evidence = json.loads(item["candidates_json"])
+        self.assertEqual(set(evidence), {"source", "reason", "legal_dong_code", "rows", "sample_row_keys"},
+                         "the fields of stewardship_domain::PlaceReferenceEvidence (deny_unknown_fields)")

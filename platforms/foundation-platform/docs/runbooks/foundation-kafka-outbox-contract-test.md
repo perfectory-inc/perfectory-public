@@ -43,7 +43,7 @@ export DATABASE_URL='postgres://<user>:<password>@127.0.0.1:<port>/<migrated-dis
 cargo xtask live kafka
 ```
 
-이 명령은 `platforms/intelligence-platform/docker/c2-event-backbone.compose.yml`을 시작하고,
+이 명령은 `platforms/foundation-platform/docker/kafka-live.compose.yml`을 시작하고,
 두 서비스가 준비될 때까지 기다린 뒤 정본 토픽을 생성·조회하고 필요한 Kafka 변수를 설정한 다음
 다음 ignore 테스트를 `--nocapture`로 실행한다.
 
@@ -52,7 +52,7 @@ cargo xtask live kafka
 - `live_kafka_outage`
 
 다른 로컬 스택이 기본 포트·프로젝트 이름을 사용 중이면
-`INTELLIGENCE_TEST_KAFKA_HOST_PORT`, `INTELLIGENCE_TEST_KARAPACE_HOST_PORT`,
+`FOUNDATION_TEST_KAFKA_HOST_PORT`, `FOUNDATION_TEST_KARAPACE_HOST_PORT`,
 `FOUNDATION_KAFKA_COMPOSE_PROJECT`를 지정한다. Docker·Postgres·broker·registry·토픽·스키마가
 없거나 테스트가 실패하면 명령은 0이 아닌 값을 반환한다. 필수 모드 실패를 성공한 skip으로
 바꾸지 않는다.

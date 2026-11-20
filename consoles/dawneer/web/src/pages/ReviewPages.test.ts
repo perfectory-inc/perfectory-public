@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { ReviewItem } from "../api/client";
-import { DecisionTrail, decisionRequest, LegalDongPanel } from "./ReviewItemPage";
+import { DecisionTrail, decisionRequest, LegalDongPanel, PlaceReferencePanel } from "./ReviewItemPage";
 import { ReviewTable } from "./ReviewListPage";
 
 // Synthetic codes in the repository-reserved 99999 namespace (public-fixture-safety).
@@ -108,5 +108,42 @@ describe("a 법정동 item", () => {
     expect(markup).toContain("공문서");
     expect(markup).toContain("합성 공문");
     expect(markup).toContain("00000000-0000-0000-0000-000000000001");
+  });
+});
+
+// Root ADR-0483 §5: the rows a parcel source could not place stand on the same review list.
+const reference: ReviewItem = {
+  item_id: "00000000-0000-5000-8000-000000000003",
+  kind: "place_reference",
+  subject_code: "silver.real_transaction|jibun_masked|9999910100",
+  status: "awaiting_data",
+  evidence_etag: "2".repeat(64),
+  candidates: [],
+  legal_dong: null,
+  place_reference: {
+    source: "silver.real_transaction",
+    reason: "jibun_masked",
+    legal_dong_code: "9999910100",
+    rows: 12345,
+    sample_row_keys: ["99999-a", "99999-b"],
+  },
+  claim: null,
+  decisions: [],
+};
+
+describe("a place-reference item", () => {
+  it("reads in the list as source, reason and 법정동, with its row count", () => {
+    const markup = render(createElement(ReviewTable, { items: [reference] }));
+    expect(markup).toContain("못 놓인 원천 행");
+    expect(markup).toContain("real_transaction · 지번 가림 (원천이 가림) · 9999910100");
+    expect(markup).toContain("12,345행");
+    expect(markup).toContain("데이터 대기");
+  });
+
+  it("shows what the queue recorded", () => {
+    const markup = render(createElement(PlaceReferencePanel, { item: reference }));
+    for (const shown of ["silver.real_transaction", "지번 가림 (원천이 가림)", "jibun_masked", "9999910100", "12,345행", "99999-a, 99999-b"]) {
+      expect(markup).toContain(shown);
+    }
   });
 });

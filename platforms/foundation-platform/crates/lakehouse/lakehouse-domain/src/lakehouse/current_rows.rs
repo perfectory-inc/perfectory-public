@@ -5,8 +5,8 @@
 //! nowhere else:
 //!
 //! - [`LakehouseTableContract::current_rows_sql_template`]: one standard SQL text that Spark SQL,
-//!   `DuckDB` and Trino run alike. The contract artifact carries it, so the Python readers (the dbt
-//!   macro render, the Dagster checks) substitute into the same characters instead of rendering
+//!   `DuckDB` and Trino run alike. The contract artifact carries it, so the Python readers (the Dagster
+//!   checks) substitute into the same characters instead of rendering
 //!   their own.
 //! - [`LakehouseTableContract::current_rows`]: the same rule over rows a snapshot scan decoded.
 //!

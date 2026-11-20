@@ -478,24 +478,8 @@ const AREAS: &[Area] = &[
                 ],
                 covers: &["infra/lakehouse/spark/tests"],
             },
-            // The two suites below belonged to no runner until ADR-0011. The dbt
-            // contract tests had never executed at all: not in a workflow, not in
-            // `lefthook.yml`, not here. Twenty-five of their twenty-six assertions
-            // pass; the twenty-sixth cannot, and nobody could have known.
-            PythonTests {
-                dir: ".",
-                python_path: None,
-                args: &[
-                    "-m",
-                    "unittest",
-                    "discover",
-                    "-s",
-                    "infra/lakehouse/dbt/tests",
-                    "-p",
-                    "test_*.py",
-                ],
-                covers: &["infra/lakehouse/dbt/tests"],
-            },
+            // The suite below belonged to no runner until ADR-0011 (so did the dbt
+            // contract tests, deleted with the dbt project by root ADR-0588).
             PythonTests {
                 dir: ".",
                 python_path: None,
@@ -878,21 +862,9 @@ const AREAS: &[Area] = &[
     Area {
         slug: "intelligence",
         dir: "platforms/intelligence-platform",
-        // rdkafka-sys builds the vendored librdkafka from source under
-        // `--all-features`, which links every optional transport. This is the
-        // COMPLETE external -dev header set that build needs — declared here so a
-        // clean CI runner reproduces what the fat local `rust:*-bookworm` image
-        // happens to already carry (that gap is why `curl/curl.h not found` only
-        // ever bit CI). cmake = build driver; libssl = SSL; libsasl2 = GSSAPI/SASL;
-        // libcurl = OAUTHBEARER/OIDC; zlib = gzip. (zstd/lz4 are bundled by librdkafka.)
-        apt_deps: &[
-            "cmake",
-            "libssl-dev",
-            "libsasl2-dev",
-            "libcurl4-openssl-dev",
-            "zlib1g-dev",
-            "python3",
-        ],
+        // No native -dev headers since the event backbone left (root ADR-0589): rdkafka-sys was the
+        // only crate that built C from source. python3 runs the jobs' tests below.
+        apt_deps: &["python3"],
         python_tests: &[
             // The document text job (root ADR-0477): its own logic, stdlib only; the tools it
             // drives are measured in its image.
@@ -921,18 +893,6 @@ const AREAS: &[Area] = &[
         node_tests: &[],
 
         live_lanes: &[
-            LiveLane {
-                name: "kafka",
-                required_env: &[
-                    "INTELLIGENCE_TEST_KAFKA_BOOTSTRAP_SERVERS",
-                    "INTELLIGENCE_TEST_KARAPACE_URL",
-                ],
-                gating: LaneGating::Ignored,
-                targets: &[LaneTarget::Test {
-                    package: "messaging-infrastructure",
-                    test: "live_kafka_karapace",
-                }],
-            },
             LiveLane {
                 name: "redis",
                 required_env: &["INTELLIGENCE_REDIS_LIVE_TEST_URL"],

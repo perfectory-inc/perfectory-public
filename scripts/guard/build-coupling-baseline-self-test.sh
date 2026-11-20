@@ -112,6 +112,58 @@ none="$test_root/none"
 make_fixture "$none" 0 0
 expect_accepted "no build scripts and no compile-time reads" "$none" 0 0
 
+# Without a total the reads are held to the ledger, file by file (root ADR-0556). 2026-11-12: eight
+# open pull requests each edited the one number the reads used to be, so no two could merge
+# without a rebase; a line per file is edited only with that file.
+ledger=tools/build-coupling/compile-time-reads.txt
+make_ledger_fixture() {
+  local dir="$1" reads="$2"
+  make_fixture "$dir" 0 "$reads"
+  (cd "$dir" && bash "$checker" --write "$dir" >/dev/null)
+  fixture_git "$dir" add -A
+  fixture_git "$dir" -c commit.gpgsign=false commit -q -m ledger
+}
+expect_ledger() {
+  local verdict="$1" label="$2" dir="$3"
+  if bash "$checker" "$dir" 0 >/dev/null 2>&1; then
+    [ "$verdict" = accepted ] || { echo "FAIL build-coupling-baseline-self-test: $label should have been rejected" >&2; exit 1; }
+  else
+    [ "$verdict" = rejected ] || { echo "FAIL build-coupling-baseline-self-test: $label should have been accepted" >&2; exit 1; }
+  fi
+}
+ledger_holds="$test_root/ledger-holds"
+make_ledger_fixture "$ledger_holds" 2
+expect_ledger accepted "a ledger that names every reading file" "$ledger_holds"
+grep -qx 'crate/src/lib.rs:2' "$ledger_holds/$ledger" || {
+  echo "FAIL build-coupling-baseline-self-test: --write did not record crate/src/lib.rs:2" >&2
+  exit 1
+}
+
+ledger_grew="$test_root/ledger-grew"
+make_ledger_fixture "$ledger_grew" 2
+printf 'const E: &str = include_str!("e.txt");\n' >>"$ledger_grew/crate/src/lib.rs"
+fixture_git "$ledger_grew" add -A
+fixture_git "$ledger_grew" -c commit.gpgsign=false commit -q -m read
+expect_ledger rejected "a read added to a file without its ledger line" "$ledger_grew"
+
+ledger_new_file="$test_root/ledger-new-file"
+make_ledger_fixture "$ledger_new_file" 2
+printf 'const N: &str = include_str!("n.txt");\n' >"$ledger_new_file/crate/src/new.rs"
+fixture_git "$ledger_new_file" add -A
+fixture_git "$ledger_new_file" -c commit.gpgsign=false commit -q -m file
+expect_ledger rejected "a new reading file the ledger does not name" "$ledger_new_file"
+
+ledger_stale="$test_root/ledger-stale"
+make_ledger_fixture "$ledger_stale" 2
+printf 'pub fn main() {}\n' >"$ledger_stale/crate/src/lib.rs"
+fixture_git "$ledger_stale" add -A
+fixture_git "$ledger_stale" -c commit.gpgsign=false commit -q -m dropped
+expect_ledger rejected "a ledger line left after its reads were removed" "$ledger_stale"
+
+ledger_missing="$test_root/ledger-missing"
+make_fixture "$ledger_missing" 0 1
+expect_ledger rejected "reads with no ledger at all" "$ledger_missing"
+
 # Every read an image compiles must be in that image (build-coupling-baseline.py). 2026-10-29 the
 # publisher image lacked contracts/: each release build on main failed for 11 hours, and the pull
 # requests, compiled from the checkout, all passed. A workspace whose `app` is built by a Dockerfile

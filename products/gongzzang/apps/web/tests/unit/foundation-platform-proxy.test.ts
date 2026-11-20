@@ -19,19 +19,9 @@ const { proxy } = await import("@/proxy");
 const { checkRate } = await import("@/lib/ratelimit");
 const checkRateMock = vi.mocked(checkRate);
 
-describe("proxy foundation-platform receiver public access", () => {
+describe("proxy public map access", () => {
   beforeEach(() => {
     checkRateMock.mockResolvedValue({ allowed: true, remaining: 99 });
-  });
-
-  it("allows /foundation-platform/events without sid", async () => {
-    const req = new NextRequest("http://localhost:3000/foundation-platform/events", {
-      method: "POST",
-    });
-
-    const res = await proxy(req);
-
-    expect(res.status).toBe(200);
   });
 
   it("allows Gongzzang listing PBF marker tile proxy without sid", async () => {

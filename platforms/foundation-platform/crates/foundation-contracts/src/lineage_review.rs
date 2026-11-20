@@ -37,6 +37,25 @@ pub enum LineageReviewKind {
     Parcel,
     /// Where an abolished 법정동 code went: the subject is the old code, a candidate a new code.
     LegalDong,
+    /// Rows a parcel source could not place (root ADR-0483 §5): the subject is
+    /// `<source table>|<reason>|<법정동 code or ->`. Read, not linked: a resolver rule or the
+    /// source's value settles it.
+    PlaceReference,
+}
+
+/// What the place-reference queue recorded for one (source, reason, 법정동 code).
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct LineagePlaceReferenceEvidence {
+    /// The Silver table, `silver.<name>`.
+    pub source: String,
+    /// The rows' `pnu_unresolved_reason`.
+    pub reason: String,
+    /// The rows' 10-digit 법정동 code, when the source has one.
+    pub legal_dong_code: Option<String>,
+    /// How many current rows stand behind the item.
+    pub rows: u64,
+    /// A few of those rows' keys, for a steward to look up.
+    pub sample_row_keys: Vec<String>,
 }
 
 /// One new code the pairing run offers for an abolished 법정동 code.
@@ -166,7 +185,8 @@ pub struct LineageReviewItem {
     pub item_id: String,
     /// What the item decides.
     pub kind: LineageReviewKind,
-    /// The parcel (19-digit PNU) or the abolished 법정동 code (10 digits) to decide.
+    /// The parcel (19-digit PNU), the abolished 법정동 code (10 digits), or the place reference
+    /// (`<source table>|<reason>|<법정동 code or ->`).
     pub subject_code: String,
     /// Why it is on the queue.
     pub status: LineageReviewStatus,
@@ -176,6 +196,9 @@ pub struct LineageReviewItem {
     pub candidates: Vec<LineageReviewCandidate>,
     /// 법정동 items: what the pairing run recorded, with the codes it offers.
     pub legal_dong: Option<LineageLegalDongEvidence>,
+    /// Place-reference items: the source, reason, 법정동 code and row count behind it.
+    #[serde(default)]
+    pub place_reference: Option<LineagePlaceReferenceEvidence>,
     /// The live claim, if any.
     pub claim: Option<LineageReviewClaim>,
     /// Every decision, newest first.

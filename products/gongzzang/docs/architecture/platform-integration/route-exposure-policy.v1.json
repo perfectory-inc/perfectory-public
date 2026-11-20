@@ -63,12 +63,6 @@
       "required_controls": ["data_minimization", "rate_limit", "response_budget"]
     },
     {
-      "id": "gongzzang.foundation_platform.webhook_receiver",
-      "exposure": "foundation_platform_signed_webhook",
-      "path": "apps/web/app/foundation-platform/events/route.ts",
-      "required_controls": ["hmac_sha256_signature", "timestamp_skew_limit", "event_header_match"]
-    },
-    {
       "id": "gongzzang.foundation_platform.catalog_http_client",
       "exposure": "service_to_service_outbound",
       "path": "services/gongzzang-api/src/foundation_parcel_lookup.rs",

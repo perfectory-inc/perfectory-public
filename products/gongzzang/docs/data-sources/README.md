@@ -33,7 +33,6 @@ V-World 와 data.go.kr 의 카탈로그 연동은 파운데이션 이 소유한�
 허용:
 
 - 카탈로그 HTTP API 고정 계약 `docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json`
-- 이벤트 고정 계약 `docs/architecture/foundation-platform-webhook-receiver-contract.v1.pin.json`
 - 공짱 읽기 모델로 가져오는 불변 PNU 기준점 산출물, 파운데이션 건물 응답을 공짱 응답 모양으로 바꾸는 라우트 번역
 
 금지:

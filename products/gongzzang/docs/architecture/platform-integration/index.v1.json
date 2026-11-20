@@ -42,11 +42,6 @@
       "schema_version": "gongzzang.platform_integration.service_auth_policy.v1"
     },
     {
-      "id": "platform_integration.webhook",
-      "path": "docs/architecture/platform-integration/webhook-policy.v1.json",
-      "schema_version": "gongzzang.platform_integration.webhook_policy.v1"
-    },
-    {
       "id": "platform_integration.supply_chain",
       "path": "docs/architecture/platform-integration/supply-chain-policy.v1.json",
       "schema_version": "gongzzang.platform_integration.supply_chain_policy.v1"

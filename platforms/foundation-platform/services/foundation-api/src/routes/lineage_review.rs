@@ -19,9 +19,9 @@ use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use foundation_contracts::lineage_review::{
     LineageApprovalRequest, LineageApprovalVerdict, LineageDecisionDisposition,
     LineageDecisionOutcome, LineageDecisionRequest, LineageDecisionResponse,
-    LineageLegalDongCandidate, LineageLegalDongEvidence, LineageReasonCode, LineageReviewCandidate,
-    LineageReviewClaim, LineageReviewItem, LineageReviewItemPage, LineageReviewKind,
-    LineageReviewStatus, LineageStewardDecision,
+    LineageLegalDongCandidate, LineageLegalDongEvidence, LineagePlaceReferenceEvidence,
+    LineageReasonCode, LineageReviewCandidate, LineageReviewClaim, LineageReviewItem,
+    LineageReviewItemPage, LineageReviewKind, LineageReviewStatus, LineageStewardDecision,
 };
 use serde::Deserialize;
 use stewardship_application::{
@@ -53,6 +53,7 @@ const PAGE_LIMIT_DEFAULT: u32 = 50;
         LineageReviewKind,
         LineageReviewCandidate,
         LineageLegalDongEvidence,
+        LineagePlaceReferenceEvidence,
         LineageLegalDongCandidate,
         LineageReviewClaim,
         LineageReviewStatus,
@@ -427,14 +428,21 @@ async fn rule_on_decision(
     Ok(Json(decision_view(record)))
 }
 
-/// A subject or candidate code of either kind: a 19-digit PNU or a 10-digit 법정동 code. The store
-/// checks the item's own kind.
+/// A subject or candidate code of any kind: a 19-digit PNU, a 10-digit 법정동 code or a place
+/// reference. The store checks the item's own kind.
 fn check_code(value: &str, field: &str) -> Result<(), ApiError> {
-    if ItemKind::Parcel.is_code(value) || ItemKind::LegalDong.is_code(value) {
+    if [
+        ItemKind::Parcel,
+        ItemKind::LegalDong,
+        ItemKind::PlaceReference,
+    ]
+    .iter()
+    .any(|kind| kind.is_code(value))
+    {
         Ok(())
     } else {
         Err(ApiError::BadRequest(format!(
-            "{field} is a 19-digit PNU or a 10-digit 법정동 code"
+            "{field} is a 19-digit PNU, a 10-digit 법정동 code or a place reference"
         )))
     }
 }
@@ -442,6 +450,17 @@ fn check_code(value: &str, field: &str) -> Result<(), ApiError> {
 fn item_response(view: ReviewItemView) -> Result<LineageReviewItem, ApiError> {
     let candidates = view.item.candidates().map_err(stewardship_api_error)?;
     let legal_dong = legal_dong_response(&view.item).map_err(stewardship_api_error)?;
+    let place_reference = view
+        .item
+        .place_reference()
+        .map_err(stewardship_api_error)?
+        .map(|evidence| LineagePlaceReferenceEvidence {
+            source: evidence.source,
+            reason: evidence.reason,
+            legal_dong_code: evidence.legal_dong_code,
+            rows: evidence.rows,
+            sample_row_keys: evidence.sample_row_keys,
+        });
     Ok(LineageReviewItem {
         item_id: view.item.item_id.to_string(),
         kind: contract_kind(view.item.kind),
@@ -450,6 +469,7 @@ fn item_response(view: ReviewItemView) -> Result<LineageReviewItem, ApiError> {
         status: contract_status(view.item.status),
         candidates: candidates.into_iter().map(candidate_response).collect(),
         legal_dong,
+        place_reference,
         claim: view.claim.map(|claim| LineageReviewClaim {
             claimed_by: claim.claimed_by.to_string(),
             expires_at: claim.expires_at,
@@ -529,6 +549,7 @@ const fn domain_kind(kind: LineageReviewKind) -> ItemKind {
     match kind {
         LineageReviewKind::Parcel => ItemKind::Parcel,
         LineageReviewKind::LegalDong => ItemKind::LegalDong,
+        LineageReviewKind::PlaceReference => ItemKind::PlaceReference,
     }
 }
 
@@ -536,6 +557,7 @@ const fn contract_kind(kind: ItemKind) -> LineageReviewKind {
     match kind {
         ItemKind::Parcel => LineageReviewKind::Parcel,
         ItemKind::LegalDong => LineageReviewKind::LegalDong,
+        ItemKind::PlaceReference => LineageReviewKind::PlaceReference,
     }
 }
 

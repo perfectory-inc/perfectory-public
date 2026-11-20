@@ -21,7 +21,7 @@ last_reviewed: 2026-11-05
 | [observability.md](./observability.md) | 요청 식별자·추적·Sentry·상태 점검·감사 | 사용 중 |
 | [partner-listing-exchange-boundary.md](./partner-listing-exchange-boundary.md) | 공급자 중립 매물 교환의 소유권·정규화 경계 | 사용 중 |
 | [foundation-platform-boundary.v1.json](./foundation-platform-boundary.v1.json) | 파운데이션/공짱 경로 소유권 계약 | 사용 중 |
-| [foundation-platform-catalog-api-contract.v1.pin.json](./foundation-platform-catalog-api-contract.v1.pin.json) · [foundation-platform-webhook-receiver-contract.v1.pin.json](./foundation-platform-webhook-receiver-contract.v1.pin.json) | 파운데이션 계약의 소비자 핀 | 사용 중 |
+| [foundation-platform-catalog-api-contract.v1.pin.json](./foundation-platform-catalog-api-contract.v1.pin.json) | 파운데이션 계약의 소비자 핀 | 사용 중 |
 | [platform-integration/](./platform-integration/index.v1.json) | 플랫폼 연동 정책 선언 (`index.v1.json` + 정책별 파일) | 사용 중 |
 | [traffic-auth-policy-registry.v1.json](./traffic-auth-policy-registry.v1.json) | 트래픽·인증 정책의 단일 정본(손으로 편집). 생성기가 읽어 산출물을 다시 만든다 | 사용 중 |
 | [traffic-auth-policy-registry/](./traffic-auth-policy-registry/README.md) | 위 정본과 생성기·어긋남 검사 안내 | 사용 중 |

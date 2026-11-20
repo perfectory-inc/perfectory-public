@@ -88,6 +88,7 @@ jobs:
             python3 scripts/ci/test_foundation_ci_scope.py
             python3 scripts/ci/test_foundation_postgres_production_shape.py
             python3 scripts/ci/test_production_shape_fetch.py
+            python3 scripts/ci/test_parcel_promotions_check.py
           fi
           python3 scripts/ci/foundation_ci_scope.py --skipped-jobs --affected "$AFFECTED" \
             --event-name "$CHANGE_SCOPE_EVENT" --base "$CHANGE_SCOPE_BASE" --head "$CHANGE_SCOPE_HEAD" \
@@ -264,6 +265,11 @@ jobs:
       - name: Fetch production's published table shapes
         shell: bash
         run: python3 "$GITHUB_WORKSPACE/scripts/ci/production-shape-fetch.py"
+      # Root ADR-0490 §5: the host lays its promotions ledger over the parcel source contract, and a
+      # contract it does not continue stops every reader on the first deploy; judged here first.
+      - name: Judge the parcel source contract against production's promotions ledger
+        shell: bash
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/parcel-promotions-check.py"
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -710,8 +716,8 @@ jobs:
     env:
       FOUNDATION_KAFKA_COMPOSE_PROJECT: foundation-kafka-ci-${{ github.run_id }}
       FOUNDATION_TEST_KAFKA_REQUIRED: "1"
-      INTELLIGENCE_TEST_KAFKA_HOST_PORT: 19092
-      INTELLIGENCE_TEST_KARAPACE_HOST_PORT: 18081
+      FOUNDATION_TEST_KAFKA_HOST_PORT: 19092
+      FOUNDATION_TEST_KARAPACE_HOST_PORT: 18081
 
     steps:
       - name: Checkout
@@ -852,7 +858,7 @@ jobs:
             exit 0
           fi
           cleanup_status=0
-          timeout --foreground 120s docker compose -p "$FOUNDATION_KAFKA_COMPOSE_PROJECT" -f platforms/intelligence-platform/docker/c2-event-backbone.compose.yml down -v --remove-orphans || cleanup_status=$?
+          timeout --foreground 120s docker compose -p "$FOUNDATION_KAFKA_COMPOSE_PROJECT" -f platforms/foundation-platform/docker/kafka-live.compose.yml down -v --remove-orphans || cleanup_status=$?
           # 컨테이너가 이미 없을 수 있다. 존재할 때만 지우므로 실패를 삼킬 필요가 없다
           # (`|| true` 는 진짜 실패도 함께 감춘다).
           if [ -n "$(docker ps -aq -f name=^foundation-kafka-postgres$)" ]; then

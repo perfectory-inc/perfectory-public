@@ -18,9 +18,12 @@ export interface LaneSubject {
   strings: ReadonlySet<string>;
 }
 
-/// The registered subject `lane` owns, `null` when the registry lists none.
+/// The registered subject of `lane`'s documents, `null` when the registry lists none. A subject of a
+/// part of them (the building pages) is not what a manifest records.
 export function subjectOfLane(lane: string): LaneSubject | null {
-  const entry = registry.subjects.find((subject) => subject.owner.lane === lane);
+  const entry = registry.subjects.find(
+    (subject) => subject.owner.lane === lane && !("part" in subject.owner),
+  );
   if (entry === undefined) return null;
   const revisions = entry.revisions as readonly Revision[];
   const majors = [...new Set(revisions.map((revision) => revision.major))];

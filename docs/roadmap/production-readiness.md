@@ -328,11 +328,14 @@ last_reviewed: 2026-11-07
 | 행정·내부 | 지도 편집 원장 (`silver.map_edit_ledger`) | — | `admin-tiles`<br>`complex-tiles`<br>`parcel-tiles` | 화면 |
 | 행정·내부 | 법정동 연계정보 (`silver.adm_dong_code_linkage`) | — | — | 없음 |
 | 행정·내부 | 건축물대장 공동주택가격 판 버전 (`silver.building_register_apartment_price_versions`) | — | — | 없음 |
+| 행정·내부 | 승강기 설치 현황 (`silver.elevator_installation`) | — | — | 없음 |
+| 행정·내부 | 지식산업센터 (`silver.knowledge_industry_center`) | — | — | 없음 |
 | 행정·내부 | 필지고유번호변동연혁 (`silver.parcel_number_change_history`) | — | — | 없음 |
 | 행정·내부 | 필지 ID 원장 (`silver.parcel_registry`) | — | — | 없음 |
 | 행정·내부 | 중개사무소 소속 인원 (`silver.real_estate_broker_member`) | — | — | 없음 |
 | 행정·내부 | 중개사무소 등록 (`silver.real_estate_broker_office`) | — | — | 없음 |
 | 행정·내부 | 실거래가 적재 거부 줄 (`silver.real_transaction_rejected`) | — | — | 없음 |
+| 행정·내부 | 표준지공시지가 (`silver.standard_land_price`) | — | — | 없음 |
 | 행정·내부 | 세대별 기준일 공시가격 판 버전 (`silver.unit_official_price_versions`) | — | — | 없음 |
 
 <!-- END GENERATED showing-inventory -->
@@ -427,7 +430,7 @@ last_reviewed: 2026-11-07
   > **2026-10-28:** 두 표는 [ADR-0194](../adr/0194-retire-the-five-postgres-copies-that-r2-already-holds.md)가
   > 지웠다(`platforms/foundation-platform/migrations/20261014021000_drop_the_catalog_parcel_building_and_unit_copies.sql`).
   > 건물은 R2 by-PNU 묶음이 서빙하므로 이 생산자 공백은 더 이상 열린 일이 아니다.
-- [ ] dbt Gold 모델 또는 Spark Gold projection 중 하나를 정식 Gold 계약으로 확정
+- [ ] Gold projection(Spark·발행기 DuckDB)을 정식 Gold 계약으로 확정 — dbt 는 아무도 돌리지 않아 루트 ADR-0588 로 지웠다
 - [ ] Trino/Spark/Iceberg catalog 연결, snapshot 승격·롤백·재처리 증명
 - [ ] LLM 정규화 provider, 비용/쿼터, proposal 승인·적용 권한과 감사 로그 확정
 - [x] production orchestrator 선택, 소유자·스케줄·재시도·취소·롤백을 ADR로 결정 — Airflow

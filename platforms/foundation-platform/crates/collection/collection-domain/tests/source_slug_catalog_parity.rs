@@ -85,7 +85,7 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
         checked += 1;
     }
 
-    // Guardrail: the in-scope / out-of-scope split must stay as authored (133 in-scope, 10 mixed).
+    // Guardrail: the in-scope / out-of-scope split must stay as authored (162 in-scope, 10 mixed).
     // The three ILIS entries joined when the industrial-complex address source got a collector;
     // the 124th is the data.go.kr getStanReginCdList 법정동코드 endpoint (ADR-0103 Wave 1); the
     // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board); the
@@ -110,8 +110,10 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // the 167th is its 문건·송달, asked with the case documents (root ADR-0575 §4);
     // the 168th is its 현황조사서, for the 임대차 list (root ADR-0575 §6);
     // the 169th is its 매각공고, every court's this month and next (root ADR-0575 §6);
-    // the 170th is its 배당요구종기공고, every court department's (root ADR-0575 §6).
-    assert_eq!(checked, 170, "expected 170 in-scope catalog entries");
+    // the 170th is its 배당요구종기공고, every court department's (root ADR-0575 §6);
+    // the 171st–173rd are three more data.go.kr files the same collector lands: 표준지공시지가,
+    // 승강기 설치 현황 and 전국지식산업센터현황.
+    assert_eq!(checked, 173, "expected 173 in-scope catalog entries");
     assert_eq!(
         skipped, 0,
         "expected no skipped mixed_public_source entries"
@@ -247,10 +249,11 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
         "expected all 7 onbid operations to match the catalog"
     );
     // The registered factory, the nine other public bulk endpoints (root ADR-0401: the railway
-    // station and station-line endpoints are one file) and the three 표준데이터 (root ADR-0453).
+    // station and station-line endpoints are one file), the three 표준데이터 (root ADR-0453) and
+    // 표준지공시지가, 승강기 설치 현황 and 전국지식산업센터현황.
     assert_eq!(
-        file_data_checked, 13,
-        "expected the 13 file-data endpoints to match the catalog"
+        file_data_checked, 16,
+        "expected the 16 file-data endpoints to match the catalog"
     );
     Ok(())
 }

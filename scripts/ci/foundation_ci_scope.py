@@ -86,7 +86,7 @@ RULES = {
     },
     "kafka-integration": {
         "exact": [
-            "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml",
+            "platforms/foundation-platform/docker/kafka-live.compose.yml",
             "tools/xtask/src/live.rs",
         ],
         "prefixes": [
@@ -239,7 +239,7 @@ REQUIRED_WITNESSES = {
     },
     "kafka-integration": {
         "live harness": "tools/xtask/src/live.rs",
-        "broker compose": "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml",
+        "broker compose": "platforms/foundation-platform/docker/kafka-live.compose.yml",
         "Kafka adapter": "platforms/foundation-platform/crates/foundation-outbox/src/kafka_broadcaster.rs",
         "wire schema": "platforms/foundation-platform/schemas/foundation-platform.catalog.collection-raw-written.v1.avsc",
     },

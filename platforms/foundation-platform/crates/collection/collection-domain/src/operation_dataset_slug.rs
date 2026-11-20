@@ -130,6 +130,11 @@ pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
         "fileData15002851" => Some("airport"),
         "fileData15083033" => Some("commercial_district"),
         "fileData15136368" => Some("adm_dong_code_linkage"),
+        // Three files a broker shows a buyer (the W68 data landscape): the 표준지 price, the
+        // elevators of a building (freight lifts) and the 지식산업센터.
+        "fileData15004246" => Some("standard_land_price"),
+        "fileData15112638" => Some("elevator_installation"),
+        "fileData15117154" => Some("knowledge_industry_center"),
         // The three 표준데이터 the same collector asks through the dataset page's keyless download
         // (`stdData<공공데이터 번호>`, root ADR-0453).
         "stdData15021148" => Some("school_location"),

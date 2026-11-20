@@ -12,4 +12,3 @@ process.env.ZITADEL_REDIRECT_URI = "http://localhost:3000/api/auth/callback";
 process.env.REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 process.env.SESSION_SECRET = "test-secret-placeholder-32-chars-x";
 process.env.NEXT_PUBLIC_NAVER_MAPS_CLIENT_ID = "test-naver-client";
-process.env.FOUNDATION_PLATFORM_WEBHOOK_SECRET = "test-foundation-platform-webhook-secret-32-valid";

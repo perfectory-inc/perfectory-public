@@ -17,7 +17,6 @@
     "intelligence-ci.yml": {
       "paths": [
         "platforms/intelligence-platform/**",
-        "platforms/foundation-platform/schemas/foundation-platform.knowledge.source-upserted.v1.avsc",
         "tools/xtask/**",
         "scripts/ci/apt-install.sh",
         ".cargo/config.toml",
@@ -159,10 +158,12 @@
         "scripts/ci/test_foundation_postgres_production_shape.py",
         "scripts/ci/production-shape-fetch.py",
         "scripts/ci/test_production_shape_fetch.py",
+        "scripts/ci/parcel-promotions-check.py",
+        "scripts/ci/test_parcel_promotions_check.py",
         "scripts/guard/foundation-kafka-contract.sh",
         "**/Cargo.lock",
         "**/pnpm-lock.yaml",
-        "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml",
+        "platforms/foundation-platform/docker/kafka-live.compose.yml",
         "docs/technology-stack.md",
         "docs/adr/**",
         "docs/architecture/**",
@@ -197,6 +198,7 @@
         "scripts/deploy/**",
         "scripts/github/**",
         "scripts/ci/fetch_pinned.py",
+        "scripts/ci/parcel-promotions-check.py",
         "scripts/guard/migration-approval-gates.py",
         "tools/*.json",
         "tools/*.env",
@@ -783,7 +785,8 @@
           "**/Cargo.toml",
           "**/Dockerfile*",
           "**/*.dockerignore",
-          "**/*compose*.yml"
+          "**/*compose*.yml",
+          "tools/build-coupling/compile-time-reads.txt"
         ]
       },
       {

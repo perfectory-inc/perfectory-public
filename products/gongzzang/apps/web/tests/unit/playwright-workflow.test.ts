@@ -31,7 +31,6 @@ const REQUIRED_BUILD_ENV = [
   "REDIS_URL",
   "SESSION_SECRET",
   "INTERNAL_AUTH_SECRET",
-  "FOUNDATION_PLATFORM_WEBHOOK_SECRET",
 ] as const;
 
 describe("frontend workflow ownership", () => {

@@ -464,3 +464,126 @@ fn a_legal_dong_handoff_carries_its_evidence_and_only_its_statuses() {
         "the old code as its own candidate"
     );
 }
+
+// Root ADR-0483 §5: the rows a parcel source could not place, one item per (source, reason, 법정동).
+const REFERENCE: &str = "silver.real_transaction|jibun_masked|9999910100";
+
+fn reference_evidence(subject: &str) -> String {
+    let mut parts = subject.split('|');
+    let (source, reason, dong) = (
+        parts.next().unwrap_or_default(),
+        parts.next().unwrap_or_default(),
+        parts.next().unwrap_or_default(),
+    );
+    serde_json::json!({"source": source, "reason": reason,
+                       "legal_dong_code": (dong != "-").then_some(dong),
+                       "rows": 12_345, "sample_row_keys": ["99999-a"]})
+    .to_string()
+}
+
+fn reference_item(status: ReviewStatus) -> ReviewItem {
+    ReviewItem {
+        item_id: Uuid::nil(),
+        kind: ItemKind::PlaceReference,
+        subject_code: REFERENCE.to_owned(),
+        status,
+        candidates_json: reference_evidence(REFERENCE),
+        evidence_json: None,
+    }
+}
+
+#[test]
+fn a_place_reference_subject_is_source_reason_and_dong() {
+    let kind = ItemKind::PlaceReference;
+    assert!(kind.is_code(REFERENCE));
+    assert!(kind.is_code("silver.registered_factory|no_address|-"));
+    for bad in [
+        "real_transaction|jibun_masked|9999910100",
+        "silver.real_transaction|jibun_masked",
+        "silver.real_transaction|jibun_masked|99999",
+        "silver.Real|jibun_masked|-",
+        "silver.real_transaction|jibun_masked|-|x",
+        NEW,
+    ] {
+        assert!(!kind.is_code(bad), "{bad}");
+    }
+    assert_eq!(
+        ItemKind::from_wire("place_reference").map(ItemKind::wire),
+        Ok("place_reference")
+    );
+    assert!(kind.has_status(ReviewStatus::AwaitingData) && kind.has_status(ReviewStatus::Steward));
+    assert!(!kind.has_status(ReviewStatus::Pending) && !kind.has_status(ReviewStatus::Split));
+}
+
+#[test]
+fn a_place_reference_takes_no_link_but_a_note() {
+    let item = reference_item(ReviewStatus::Steward);
+    let evidence = item.place_reference().ok().flatten();
+    assert_eq!(
+        evidence.map(|e| (e.rows, e.subject_code())),
+        Some((12_345, REFERENCE.to_owned()))
+    );
+    for outcome in [Outcome::Link, Outcome::NotALink] {
+        let attempt = DecisionDraft {
+            outcome,
+            candidate_code: (outcome == Outcome::Link).then(|| NEW.to_owned()),
+            reason_code: Some(ReasonCode::OfficialDocument),
+            note: String::new(),
+            evidence_etag: item.evidence_etag(),
+            supersedes_decision_id: None,
+        };
+        assert!(
+            matches!(
+                check_decision(&item, &attempt, Uuid::nil(), None, now()),
+                Err(StewardshipError::InvalidInput(_))
+            ),
+            "{outcome:?}"
+        );
+    }
+    let note = DecisionDraft {
+        outcome: Outcome::Escalate,
+        candidate_code: None,
+        reason_code: None,
+        note: "해석기 규칙 필요".to_owned(),
+        evidence_etag: item.evidence_etag(),
+        supersedes_decision_id: None,
+    };
+    assert_eq!(
+        check_decision(&item, &note, Uuid::nil(), None, now()),
+        Ok(false)
+    );
+}
+
+#[test]
+fn a_place_reference_handoff_names_the_subject_its_evidence_stands_under() {
+    use super::handoff::{parse_handoff, HANDOFF_SCHEMA_VERSION};
+
+    let document = |subject: &str, status: &str, evidence: &str| {
+        let etag = super::status_from_wire(status)
+            .map(|s| evidence_etag(s, evidence))
+            .unwrap_or_default();
+        serde_json::json!({
+            "schema_version": HANDOFF_SCHEMA_VERSION, "unit": "place_reference",
+            "published_at_utc": "2099-09-30T00:00:00Z", "item_count": 1,
+            "items": [{"item_id": Uuid::nil(), "subject_code": subject, "status": status,
+                       "candidates_json": evidence, "evidence_etag": etag,
+                       "from_snapshot_id": null, "to_snapshot_id": "1"}]
+        })
+        .to_string()
+    };
+    let evidence = reference_evidence(REFERENCE);
+    assert!(parse_handoff(&document(REFERENCE, "awaiting_data", &evidence)).is_ok());
+    assert!(
+        parse_handoff(&document(REFERENCE, "pending", &evidence)).is_err(),
+        "a parcel status"
+    );
+    let elsewhere = "silver.real_transaction|jibun_masked|9999910200";
+    assert!(
+        parse_handoff(&document(elsewhere, "steward", &evidence)).is_err(),
+        "another dong's evidence"
+    );
+    assert!(
+        parse_handoff(&document(REFERENCE, "steward", "[]")).is_err(),
+        "evidence of another shape"
+    );
+}
