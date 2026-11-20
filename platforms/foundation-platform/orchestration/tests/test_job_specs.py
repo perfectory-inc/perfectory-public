@@ -1,6 +1,7 @@
 """The job list builds the DAGs the scheduler runs (root ADR-0122); these pin what it may say."""
 
 import copy
+import dataclasses
 import datetime
 import hashlib
 import json
@@ -129,14 +130,17 @@ class AnEventAPausedReaderMissedIsOwed(unittest.TestCase):
     """Root ADR-0337, 2026-10-28: a deploy held by_pnu_public_auction_bake paused 21:19-21:40 while
     gold_public_auction_rebuild ran; Airflow queued nothing for its 21:38 event (asset event 3912), and
     the bake waited 13 hours for its 10:45 fallback. The deploy asks owed_by_inputs once every DAG is
-    unpaused; this pins that it answers for every reader the job list starts by its inputs."""
+    unpaused; this pins that it answers for every reader the job list starts by its inputs. A reader
+    Dagster decides has no DAG to miss the event (its sensor keeps it, decide.py), so the replay reads the
+    job list as Airflow decided it: every job before its group's switch (root ADR-0583 §2)."""
 
     LAST_RUN = job_specs._instant("2026-10-28T21:04:08Z")
     EVENT = job_specs._instant("2026-10-28T21:38:23Z")
 
     @classmethod
     def setUpClass(cls):
-        cls.specs = job_specs.load_specs()
+        cls.specs = [dataclasses.replace(spec, dagster_stage="shadow") if spec.dagster_stage == "dagster" else spec
+                     for spec in job_specs.load_specs()]
         cls.by_id = {spec.job_id: spec for spec in cls.specs}
         # An event after every job was switched on: a job switched on later (enabled_since, the time
         # its pull request merged) is owed nothing for an earlier change, which a later test pins.
@@ -187,6 +191,12 @@ class AnEventAPausedReaderMissedIsOwed(unittest.TestCase):
         self.assertTrue(own)
         events = {job_specs.asset_uri(dataset): self.CHANGE for dataset in own}
         self.assertNotIn("gold_panel_rebuild", job_specs.owed_by_inputs(self.specs, events, runs, set()))
+
+    def test_a_reader_dagster_decides_is_owed_nothing_by_the_deploy(self):
+        everything = {job_specs.asset_uri(dataset): self.CHANGE for spec in self.specs for dataset in spec.inputs}
+        runs = {spec.dag_id: self.LAST_RUN for spec in self.specs}
+        decided = [dataclasses.replace(spec, dagster_stage="dagster") for spec in self.specs]
+        self.assertEqual(job_specs.owed_by_inputs(decided, everything, runs, set()), [])
 
 
 class TheRealJobList(unittest.TestCase):
@@ -925,18 +935,26 @@ class ThePoolsTheSchedulerHas(unittest.TestCase):
     """jobs.v1.json `pools` is the one list: the runtime creates them, compose leaves room for them."""
 
     def test_the_dagster_run_queue_admits_what_airflow_hands_it_and_keeps_a_place_for_checks(self):
-        # A proxied job's run is a Dagster run (root ADR-0431 §5): Airflow's parallelism bounds how many it
-        # opens at once, so the queue admits that many job runs, one place more for the observer's check
-        # runs, and no more of a pool's runs than its slots (orchestration/dagster/dagster.yaml).
+        # A proxied job's run is a Dagster run (root ADR-0431 §5) Airflow's parallelism bounds. The runs of
+        # jobs Dagster decides are held to the pools' slots together, and two job places more stay for the
+        # proxied runs (root ADR-0583 §7); one place more for the observer's check runs, and no more of a
+        # pool's runs than its slots (orchestration/dagster/dagster.yaml).
         compose = (job_specs.PLATFORM_ROOT / "compose.orchestration.yml").read_text(encoding="utf-8")
         [parallelism] = re.findall(r'AIRFLOW__CORE__PARALLELISM: "(\d+)"', compose)
         queue = (job_specs.PLATFORM_ROOT / "orchestration/dagster/dagster.yaml").read_text(encoding="utf-8")
         [most] = re.findall(r"max_concurrent_runs: (\d+)", queue)
         limits = {(key, value): int(limit) for key, value, limit in
                   re.findall(r"- key: (\S+)\n\s+value: (\S+)\n\s+limit: (\d+)", queue)}
-        self.assertEqual(limits.pop((job_specs.JOB_RUN_TAG, "job")), int(parallelism))
-        self.assertEqual(int(most), int(parallelism) + 1)
         pools = job_specs.declared_pools(real_inputs()[0])
+        decided = limits.pop((job_specs.DECIDED_TAG, "dagster"))
+        self.assertEqual(decided, sum(pools.values()))
+        job_runs = limits.pop((job_specs.JOB_RUN_TAG, "job"))
+        self.assertEqual(job_runs, decided + 2)
+        self.assertLessEqual(job_runs, int(parallelism) + decided)
+        self.assertEqual(int(most), job_runs + 1)
+        # The code server's cap counts every run (compose.orchestration.yml): 100 + 2 x 169 + runs x 169, x1.17.
+        [cap] = re.findall(r"(?m)^  dagster-code-server:\n(?:    .*\n)*?    mem_limit: (\d+)m$", compose)
+        self.assertGreaterEqual(int(cap), (100 + 2 * 169 + int(most) * 169) * 1.17)
         self.assertEqual(limits, {(job_specs.POOL_TAG, name): slots for name, slots in pools.items()})
 
     def test_parallelism_leaves_a_slot_for_default_pool_jobs(self):
@@ -1363,13 +1381,18 @@ class TheDagsterStage(unittest.TestCase):
             job_specs.load_specs(jobs, graph)
         self.assertIn(expected, str(raised.exception))
 
-    def test_every_job_past_airflow_is_in_the_dual_run_and_none_is_decided_by_dagster(self):
-        # Which stage a job is at is its own definition (a family moves by its PR, when the move gate of
-        # ADR-0458 says so), not a list here. Airflow still decides every job, so every job past `airflow`
-        # is compared with it; `dagster` opens with the slice that moves what still finds a job by its DAG.
-        stages = {spec.job_id: spec.dagster_stage for spec in job_specs.load_specs()}
-        self.assertLessEqual(set(stages.values()), {"airflow", *job_specs.COMPARED})
-        self.assertIn("proxied", stages.values())
+    def test_the_gold_group_is_decided_by_dagster_and_every_later_group_is_compared(self):
+        # Root ADR-0583 §1: the groups move downstream first, Gold first. Its switched-on jobs are at `dagster`;
+        # every other group's are still decided by Airflow and compared (§4 retires the comparison later).
+        stages = {}
+        for job in real_inputs()[0]["jobs"]:
+            if job["enabled"]:
+                stages.setdefault(job["dagster_group"], set()).add(job.get("dagster_stage", "airflow"))
+        self.assertEqual(stages.pop("gold"), {"dagster"})
+        for group, found in stages.items():
+            with self.subTest(group=group):
+                self.assertLessEqual(found, {"airflow", *job_specs.COMPARED})
+        self.assertIn("proxied", set().union(*stages.values()))
 
     def test_a_switched_on_job_is_born_in_the_dual_run(self):
         # 2026-11-13: 24 switched-on jobs had no stage; Airflow alone decided them and no comparison was kept.
@@ -1377,9 +1400,26 @@ class TheDagsterStage(unittest.TestCase):
         stages = {job["id"]: job.get("dagster_stage", "airflow") for job in real_inputs()[0]["jobs"] if job["enabled"]}
         self.assertNotIn("airflow", stages.values())
 
-    def test_an_unknown_or_unimplemented_stage(self):
+    def test_dagsters_queue_starts_a_writer_before_what_reads_it_and_a_class_before_its_weight(self):
+        # Root ADR-0558 as Airflow kept it (queue_weights), now in `dagster/priority` (dagster_priority).
+        specs = {spec.job_id: spec for spec in job_specs.load_specs()}
+        pairs = 0
+        for reader in specs.values():
+            for writer in reader.producers:
+                writer = specs[writer]
+                if writer.pool == reader.pool and writer.priority == reader.priority and writer.job_id != reader.job_id:
+                    pairs += 1
+                    self.assertGreaterEqual(job_specs.dagster_priority(writer), job_specs.dagster_priority(reader),
+                                            (writer.job_id, reader.job_id))
+        self.assertGreater(pairs, 0)
+        by_class = {}
+        for spec in specs.values():
+            by_class.setdefault(spec.priority, []).append(job_specs.dagster_priority(spec))
+        for lower, higher in zip(sorted(by_class), sorted(by_class)[1:], strict=False):
+            self.assertLess(max(by_class[lower]), min(by_class[higher]))
+
+    def test_an_unknown_stage(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(dagster_stage="both"), "must be one of")
-        self.refused(lambda jobs: enabled(jobs).update(dagster_stage="dagster"), "no implementation yet")
 
     def test_a_proxied_job_runs_in_dagster_by_its_name_with_its_queue_tags(self):
         jobs, graph = (copy.deepcopy(value) for value in real_inputs())
@@ -1390,7 +1430,9 @@ class TheDagsterStage(unittest.TestCase):
         self.assertEqual(spec.dagster_job, f"foundation_job__{job['id']}")
         value = jobs["priority_classes"][job.get("priority_class", "default")]["value"]
         self.assertEqual(spec.dagster_tags("triggered"), {"foundation/run-kind": "triggered", "foundation/run": "job",
-                                                          "foundation/pool": job["pool"], "dagster/priority": str(value),
+                                                          "foundation/pool": job["pool"],
+                                                          # The class, then the queue weight (root ADR-0558).
+                                                          "dagster/priority": str(value * 1000 + spec.priority_weight),
                                                           # Root ADR-0565 §9: run monitoring fails a run whose
                                                           # process died once its scheduled start's limit passed.
                                                           "dagster/max_runtime_seconds": str(60 * spec.timeout_minutes)})
@@ -1421,14 +1463,14 @@ class TheDagsterStage(unittest.TestCase):
 
     def test_a_group_moves_in_one_switch(self):
         # Root ADR-0583 §2: in a group every switched-on job is at `dagster` or none is; the stages Airflow
-        # decides (airflow, shadow, proxied) are one side. `dagster` is not open yet, so the check is asked direct.
+        # decides (airflow, shadow, proxied) are one side. Gold has switched; Silver, the next, is half switched here.
         jobs = copy.deepcopy(real_inputs()[0])
         self.assertEqual(job_specs.dagster_groups(jobs), [])
-        gold = [job for job in jobs["jobs"] if job["dagster_group"] == "gold" and job["enabled"]]
-        gold[0]["dagster_stage"] = "dagster"
+        silver = [job for job in jobs["jobs"] if job["dagster_group"] == "silver" and job["enabled"]]
+        silver[0]["dagster_stage"] = "dagster"
         self.assertEqual(len(job_specs.dagster_groups(jobs)), 1)
-        self.assertIn("group gold", job_specs.dagster_groups(jobs)[0])
-        for job in gold:
+        self.assertIn("group silver", job_specs.dagster_groups(jobs)[0])
+        for job in silver:
             job["dagster_stage"] = "dagster"
         self.assertEqual(job_specs.dagster_groups(jobs), [])
 

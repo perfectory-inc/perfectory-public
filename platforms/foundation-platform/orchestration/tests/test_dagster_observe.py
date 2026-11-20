@@ -285,7 +285,12 @@ class AirliftParityTest(unittest.TestCase):
         recorded, outputs = recorded_events(), contract_outputs()
         keep, drifted = comparable(recorded, outputs)
         seen = {item for item in self.observe_the_day() if item[0] not in drifted}
-        expected = {(dag, run, asset) for (dag, run), uris in recorded.items() if (dag, run) in keep for asset in uris}
+        # A job Dagster decides has no DAG, so airlift observes none of its recorded day (root ADR-0565, ADR-0583).
+        decided = {spec.dag_id for spec in job_specs.load_specs() if spec.dagster_stage == "dagster"}
+        expected = {(dag, run, asset) for (dag, run), uris in recorded.items()
+                    if (dag, run) in keep and dag not in decided for asset in uris}
+        self.assertTrue(expected)
+        self.assertFalse({item for item in seen if item[0] in decided})
         self.assertEqual(seen, expected)
         self.assertTrue(any(call == ("POST", f"{BASE}/api/v2/dags/~/dagRuns/list") for call in self.server.calls))
         self.assertFalse(any("/api/v1/" in url for _, url in self.server.calls))

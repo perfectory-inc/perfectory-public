@@ -36,7 +36,10 @@ A Postgres migration is not mapped to tables yet, so it makes every job a writer
 
 With --hold-file, the jobs the deploy holds until the new release is live are written there, one id
 per line: the writers and the jobs the graph cannot place when anything changes, nothing when
-nothing does, and `*` (every job) for a Postgres migration (deploy D5).
+nothing does, and `*` (every job) for a Postgres migration (deploy D5). A job whose orchestrator the
+release changes (its `dagster_stage`) is held too: step 0 pauses it where the running release decides it
+(its Airflow DAG) and step 7 gives it back where the new one does (its Dagster sensor), so the two never
+decide it at once while Airflow still reads the old DAG file (root ADR-0583 §6).
 """
 
 from __future__ import annotations
@@ -206,6 +209,21 @@ def added_migrations(running: Path, new: Path) -> list[str]:
     return sorted(names(new) - names(running))
 
 
+def moved(running: Path, new: Path) -> list[str]:
+    """The enabled jobs of the new release that the other orchestrator decides than in the running one:
+    Dagster at `dagster_stage: dagster`, Airflow at every other stage. A job the running release does not
+    list (a new job, or a running release with no job list) moved from nowhere."""
+    def decider(job: dict) -> str:
+        return "dagster" if job.get("dagster_stage") == "dagster" else "airflow"
+
+    try:
+        before = {job["id"]: decider(job) for job in read(running / JOBS)["jobs"]}
+    except (OSError, ValueError, KeyError):
+        before = {}
+    return sorted(job["id"] for job in read(new / JOBS)["jobs"]
+                  if job.get("enabled") and job["id"] in before and decider(job) != before[job["id"]])
+
+
 def writers(new: Path, tables: list[str], every_table: bool) -> tuple[list[str], list[str]]:
     """(the jobs whose asset is made from one of `tables`, the jobs the graph names no table for).
 
@@ -270,7 +288,10 @@ def main(argv: list[str]) -> int:
         why = " (a postgres migration: every job)" if migrations else ""
         print(f"jobs that write them{why}: {', '.join(writing) or 'none'}")
         print(f"jobs whose writes the pipeline graph does not name: {', '.join(unknown) or 'none'}")
-    held = ["*"] if migrations else sorted(set(writing) | set(unknown)) if tables else []
+    switched = moved(running, new)
+    if switched:
+        print(f"jobs whose orchestrator this release changes: {', '.join(switched)}")
+    held = ["*"] if migrations else sorted((set(writing) | set(unknown) if tables else set()) | set(switched))
     print(f"jobs the deploy holds until the release is live: {'every job' if held == ['*'] else ', '.join(held) or 'none'}")
     if hold_file is not None:
         hold_file.write_text("".join(f"{job}\n" for job in held), encoding="utf-8")

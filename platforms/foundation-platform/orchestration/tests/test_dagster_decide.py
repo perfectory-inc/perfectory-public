@@ -35,6 +35,15 @@ def spec_of(job_id):
     return next(spec for spec in observe_assets.job_specs.load_specs() if spec.job_id == job_id)
 
 
+def before_any_switch(jobs):
+    """The job list as it was before a group switched (root ADR-0583 §1: Gold has): every job Dagster
+    decides back at `shadow`, so a test can switch one job alone."""
+    for job in jobs["jobs"]:
+        if job.get("dagster_stage") == "dagster":
+            job["dagster_stage"] = "shadow"
+    return jobs
+
+
 def limit_of(job_id):
     import observe_assets
 
@@ -253,6 +262,7 @@ class TheOwedRunsTest(unittest.TestCase):
         import decide
 
         jobs, graph = (copy.deepcopy(value) for value in observe_assets.contracts())
+        before_any_switch(jobs)
         by_id = {job["id"]: job for job in jobs["jobs"]}
         # The bake is the end of its chain: nothing started by its outputs has to move before it.
         by_id["by_pnu_unit_price_bake"]["dagster_stage"] = "dagster"
@@ -285,6 +295,7 @@ class TheSensorTest(unittest.TestCase):
         import decide
 
         jobs, graph = (copy.deepcopy(value) for value in observe_assets.contracts())
+        before_any_switch(jobs)
         next(job for job in jobs["jobs"] if job["id"] == "gold_unit_price_rebuild")["dagster_stage"] = "dagster"
         stages = (*observe_assets.job_specs.IMPLEMENTED_DAGSTER_STAGES, "dagster")
         with mock.patch.object(observe_assets.job_specs, "IMPLEMENTED_DAGSTER_STAGES", stages), \
@@ -319,7 +330,9 @@ class TheSensorTest(unittest.TestCase):
             self.assertIsInstance(request, RunRequest)
             self.assertTrue(request.run_key.startswith("inputs:"))
             self.assertEqual(request.tags["foundation/run-kind"], "triggered")
-            self.assertEqual(request.tags["dagster/priority"], str(spec.priority))
+            self.assertEqual(request.tags["dagster/priority"], str(spec.priority * 1000 + spec.priority_weight))
+            # Held to the pools' slots together, apart from the runs Airflow hands Dagster (dagster.yaml).
+            self.assertEqual(request.tags["foundation/decided-by"], "dagster")
             clock[0] += STEP
             context = build_sensor_context(instance=instance, cursor=context.cursor)
             self.assertIsInstance(evaluate(context), SkipReason, "the same event never starts a second run")

@@ -26,8 +26,9 @@ Where Dagster does not do as Airflow did, by decision, with the incident each ru
 - **An input event missed while nothing evaluated still starts one run**: the data changed, and the one
   run is what reads it (the owner's rule, partial processing). Airflow dropped those (root ADR-0179) and
   the deploy started the job once instead (root ADR-0337).
-- **Capacity, not the clock, orders the starts** (root ADR-0435): every run carries its priority class's
-  value as `dagster/priority`, the queue starts higher classes first within dagster.yaml's limits, and the
+- **Capacity, not the clock, orders the starts** (root ADR-0435): every run carries its priority class,
+  then its queue weight, as `dagster/priority` (job_specs.dagster_priority: a writer before what reads it,
+  root ADR-0558), the queue starts higher ones first within dagster.yaml's limits, and the
   host's start (job_units.py pool-full) still holds back a start that would leave a higher claim no room,
   whoever starts it: a late run of a low class waits rather than run into a publish.
 

@@ -37,6 +37,10 @@ class TheOrderOfTheReconcilerAndWhatItStarts(unittest.TestCase):
         started = job_specs.started_for(jobs, reconciler)
         self.assertTrue(set(reconciler["reconciles"]) <= set(started))
         self.assertTrue(set(job_specs.requeued(jobs, reconciler)) <= set(started))
+        # The walk starts from the list before any group switched (root ADR-0583 §1: Gold already has).
+        for job_id in started:
+            if by_id[job_id].get("dagster_stage") == "dagster":
+                by_id[job_id]["dagster_stage"] = "shadow"
         first = started[0]
 
         def problems():
@@ -85,8 +89,9 @@ class OneRuleForAMissedTick(unittest.TestCase):
 
         jobs, _ = (copy.deepcopy(value) for value in real_inputs())
         reconciler = next(job for job in jobs["jobs"] if job.get("requeues_refused_starts_in"))
-        candidates = [job_id for job_id in job_specs.requeued(jobs, reconciler)
-                      if not next(job for job in jobs["jobs"] if job["id"] == job_id).get("takes_turns")]
+        by_id = {job["id"]: job for job in jobs["jobs"]}
+        requeued = [job_id for job_id in job_specs.requeued(jobs, reconciler) if not by_id[job_id].get("takes_turns")]
+        candidates = [job_id for job_id in requeued if by_id[job_id].get("dagster_stage") != "dagster"]
         now = datetime.datetime(2099, 1, 2, tzinfo=datetime.UTC).timestamp()
 
         def owed():
@@ -95,7 +100,9 @@ class OneRuleForAMissedTick(unittest.TestCase):
             return {line.split()[1] for line in lines}
 
         self.assertIn(candidates[0], owed())
-        next(job for job in jobs["jobs"] if job["id"] == candidates[0])["dagster_stage"] = "dagster"
+        # The Gold group is decided by Dagster (root ADR-0583): none of its jobs is caught up here.
+        self.assertFalse(owed() & {job_id for job_id in requeued if by_id[job_id].get("dagster_stage") == "dagster"})
+        by_id[candidates[0]]["dagster_stage"] = "dagster"
         self.assertNotIn(candidates[0], owed())
 
 

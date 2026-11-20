@@ -131,3 +131,31 @@ ADR-0431·0458 은 작업을 하나씩, 이중 실행의 일치 결정을 세어
 - **상류(수집)부터**: Airflow 의 입력 시작 작업이 Dagster run 의 사건을 보지 못해 Silver·Gold 가 굶는다(ADR-0431 §6).
 - **스위치 PR 을 되돌리는 것을 되돌리기로**: 뒤의 묶음이 `dagster` 이면 `dagster_order` 가 거부하고, §4 뒤에는 `shadow` 가 없다(§3).
 - **대기 노화를 Dagster 에 다시 만들기**: Dagster 에 없는 규칙을 센서로 흉내 내는 것은 새 자작 장치다. 메모리 종류로 나눈 풀이 같은 굶주림을 막는다.
+
+## 개정 각주 — 2026-11-20, Gold 스위치 PR 이 잰 것과 채운 것
+
+이 각주는 결정을 바꾸지 않는다. Gold 스위치(§5–§9)를 구현하며 본문이 정하지 않았거나 낡은 곳을 잰 값으로 채운다.
+
+- **§9 (b)**: 읽기 전용 웹서버 #1472 는 닫혔다. 운영 화면은 쓰기 웹서버의 호출 제한(`writer_gate.py`)과 운영 지도(#1440)가 맡고,
+  묶음 스위치는 그것을 기다리지 않는다. 계보(#1432)·운영 지도(#1440)는 #1531 로 병합됐다. §6 의 첫 평가(airlift 관찰부터)는
+  `decide._last_run_at` 에 이미 있다. 그래서 단계를 여는 PR(§9 c)은 Gold 스위치 PR 에 접는다: `IMPLEMENTED_DAGSTER_STAGES` 가 네 단계 모두다.
+- **§6 타일**: 본문은 "타일의 나이 지표가 없다" 고 했지만, `asset_reconcile.py` 가 `foundation_tile_unit_behind_seconds`
+  (서빙하는 타일이 그 Gold 보다 얼마나 뒤졌나, ADR-0444)를 낸다. 매달 판이 바뀌는 타일의 나이는 늘기만 하므로, 배포 뒤 24시간의 비교는
+  by-PNU 레인과 타일 모두 `behind` 계열로 지난주 같은 시각과 견준다(`scripts/ops/verify-dagster-group.sh`). 새 지표는 더하지 않는다.
+- **§6 배포 순서**: 배포의 보류(`release_changes.py`)는 표가 바뀐 작업만 잡았다. 표를 바꾸지 않는 스위치 릴리스는 아무것도 잡지 않아,
+  0단계가 Gold DAG 를 멈추지 않고 7단계가 센서를 켜는 동안 Airflow 가 옛 DAG 파일로 같은 작업을 정할 수 있었다. 결정하는 쪽
+  (`dagster` 인지 아닌지)이 바뀌는 작업은 이제 보류된다: 0단계가 지금 릴리스의 오케스트레이터(Airflow DAG)로 멈추고, 7단계가 새
+  릴리스의 오케스트레이터(센서)로 돌려준다.
+- **§7 줄 세우기**: Dagster 의 큐는 `dagster/priority` 만 본다. 그 값이 우선순위 등급의 값뿐이어서, Airflow 가 풀 안에서 지키던 순서
+  (`queue_weights`: 읽히는 쪽이 먼저, ADR-0558; #1515 의 타일 31·서빙 Gold 32·레지스트리 33)가 Gold 에서 사라질 뻔했다.
+  `dagster/priority` 는 이제 등급 값 × 1000 + 큐 무게다(`job_specs.dagster_priority`). 무게는 100 이하라 등급을 넘지 않고, 1000 에
+  닿으면 작업 목록이 거부한다.
+- **§7 한도 다시 셈**: Gold 의 spark run 은 몇 시간 간다. job run 한도 5 를 Gold 가 다 쥐면(spark 3 + documents 1 + default 1) Airflow 가
+  넘기는 proxied run(자산 조정자 포함)이 기다린다. Dagster 가 정하는 run 은 `foundation/decided-by=dagster` 태그로 풀 슬롯 합(4)까지,
+  job run 은 6, 전체는 7(검사 run 한 자리). 코드 서버 상한은 같은 식으로 100 + 2 × 169 + 7 × 169 = 1,621 MiB × 1.17 → 1900m.
+  잰 값(2026-11-20): run 프로세스 172–181 MiB VmRSS, gRPC 코드 프로세스 209 MiB, 컨테이너 13시간 최대 1,109 MiB.
+- **§8 데몬**: 2026-11-19 19:26Z 부터 13시간 최대 250 MiB(상한 576m). 센서는 코드 서버에서 평가되므로 데몬 상한은 그대로다.
+- **§5 7일 표**: PR 본문에 싣는다. 차이는 세 원인이다. (A) 비교 모형이 Airflow run 을 `start_date` 부터만 잡아, 줄에서 기다린 run(문서
+  풀 1자리, 두 작업이 번갈아 두 시간씩)을 비어 있다고 셌다 — Dagster 의 센서는 `QUEUED` run 을 잡는다. (B) run 이 열린 동안 바뀐 입력에
+  Airflow 는 뒤 run 을 하지 않았고 Dagster 는 한 번 더 한다(ADR-0565 §5, 부분 처리). (C) 열린 run 없이 온 입력 사건을 Airflow 가 흘렸다.
+  (B)·(C)는 스위치 뒤 run 이 늘어나는 쪽이다: `admin_boundary_release` 는 매일 09:31 입력에 한 번 더 돈다.

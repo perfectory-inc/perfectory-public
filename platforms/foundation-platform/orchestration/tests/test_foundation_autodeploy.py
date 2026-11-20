@@ -814,6 +814,17 @@ class TheWholeDeploy(unittest.TestCase):
                                     ignore=shutil.ignore_patterns("__pycache__"))
                 else:
                     (tree / relative).write_bytes((PLATFORM / relative).read_bytes())
+        # The commit moves no job to another orchestrator (release_changes.py holds one that moves): Dagster
+        # decides in it what the running release says it does (dagster_decides), and no other job.
+        decided = {job["id"] for job in json.loads((old / "orchestration/jobs.v1.json").read_text())["jobs"]
+                   if job.get("dagster_stage") == "dagster"}
+        listed = json.loads((new / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))
+        for job in listed["jobs"]:
+            if job["id"] in decided:
+                job["dagster_stage"] = "dagster"
+            elif job.get("dagster_stage") == "dagster":
+                job["dagster_stage"] = "shadow"
+        (new / "orchestration/jobs.v1.json").write_text(json.dumps(listed), encoding="utf-8")
         # This host migrated the running release (its record), so the running release is the baseline.
         subprocess.run([sys.executable, "-I", "-B", str(PLATFORM / "scripts/deploy/deploy_steps.py"), "ran", str(old),
                         "lakehouse-migrate"], env={**os.environ, "FOUNDATION_DEPLOY_STEPS_HOST_ROOT": str(self.root)},
