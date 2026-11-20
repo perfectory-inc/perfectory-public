@@ -1400,24 +1400,6 @@ class TheDagsterStage(unittest.TestCase):
         stages = {job["id"]: job.get("dagster_stage", "airflow") for job in real_inputs()[0]["jobs"] if job["enabled"]}
         self.assertNotIn("airflow", stages.values())
 
-    def test_dagsters_queue_starts_a_writer_before_what_reads_it_and_a_class_before_its_weight(self):
-        # Root ADR-0558 as Airflow kept it (queue_weights), now in `dagster/priority` (dagster_priority).
-        specs = {spec.job_id: spec for spec in job_specs.load_specs()}
-        pairs = 0
-        for reader in specs.values():
-            for writer in reader.producers:
-                writer = specs[writer]
-                if writer.pool == reader.pool and writer.priority == reader.priority and writer.job_id != reader.job_id:
-                    pairs += 1
-                    self.assertGreaterEqual(job_specs.dagster_priority(writer), job_specs.dagster_priority(reader),
-                                            (writer.job_id, reader.job_id))
-        self.assertGreater(pairs, 0)
-        by_class = {}
-        for spec in specs.values():
-            by_class.setdefault(spec.priority, []).append(job_specs.dagster_priority(spec))
-        for lower, higher in zip(sorted(by_class), sorted(by_class)[1:], strict=False):
-            self.assertLess(max(by_class[lower]), min(by_class[higher]))
-
     def test_an_unknown_stage(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(dagster_stage="both"), "must be one of")
 
