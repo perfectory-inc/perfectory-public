@@ -163,7 +163,7 @@ def extract(path: Path, media_format: str, settings: dict) -> Result:
                 if len(ocr_texts) != len(thin):
                     raise RuntimeError(f"the OCR'd raster has {len(ocr_texts)} pages, not the {len(thin)} sent")
                 # The raster holds the thin pages alone, in order: its n-th page is thin[n].
-                for number, text in zip(thin, ocr_texts):
+                for number, text in zip(thin, ocr_texts, strict=True):
                     texts[number - 1] = text
                     methods[number - 1] = "ocr"
             pages = assemble(list(zip(methods, texts)))
