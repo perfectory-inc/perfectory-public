@@ -88,7 +88,9 @@ SELECT o._row,
             WHEN o.reason IS NOT NULL THEN o.reason
             WHEN x.jibun IS NOT NULL THEN 'parcel_absent'
             WHEN t.pnus > 1 THEN 'road_ambiguous'
-            ELSE 'road_not_found' END AS reason
+            ELSE 'road_not_found' END AS reason,
+       -- pnu_candidate_count: one for a lot found; for a road address, the PNUs its titles name.
+       CASE WHEN x.jibun_ok THEN 1 WHEN o.road_name IS NOT NULL THEN CAST(coalesce(t.pnus, 0) AS INTEGER) END AS candidate_count
 FROM place_offers o
 JOIN place_code_result c ON c._row = o._row AND c.pnu IS NULL
 LEFT JOIN place_jibun j ON j._row = o._row

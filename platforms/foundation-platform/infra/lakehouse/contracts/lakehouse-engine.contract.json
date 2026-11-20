@@ -123,7 +123,11 @@
         "wave": 4
       },
       "data_go_kr_file_data": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1547,
+          "rows": 2907253,
+          "fingerprint": null
+        }
       },
       "data_go_kr_onbid": {
         "moved": {
@@ -133,7 +137,11 @@
         }
       },
       "data_go_kr_registered_factory": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1549,
+          "rows": 220705,
+          "fingerprint": null
+        }
       },
       "gold_rebuild": {
         "wave": 2

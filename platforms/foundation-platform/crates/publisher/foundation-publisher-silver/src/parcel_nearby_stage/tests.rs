@@ -427,3 +427,62 @@ fn the_headers_are_the_file_contract_s() -> anyhow::Result<()> {
         .all(|(_, name)| highway.contains(*name)));
     Ok(())
 }
+
+#[test]
+fn a_moved_store_touches_the_rings_around_both_its_cells_and_a_third_ring_is_outside(
+) -> anyhow::Result<()> {
+    // Root ADR-0596: the cells a store-only commit may change. A store moves from cell `from` to `to`.
+    let resolution = h3o::Resolution::try_from(STORE_H3_RESOLUTION)?;
+    let from = h3o::LatLng::new(37.0, 127.1235)?.to_cell(resolution);
+    let to = h3o::LatLng::new(37.3, 127.1235)?.to_cell(resolution);
+    let still = h3o::LatLng::new(38.0, 127.1235)?.to_cell(resolution);
+    let before = BTreeSet::from([
+        ("c1".to_owned(), u64::from(from)),
+        ("c2".to_owned(), u64::from(still)),
+    ]);
+    let after = BTreeSet::from([
+        ("c1".to_owned(), u64::from(to)),
+        ("c2".to_owned(), u64::from(still)),
+    ]);
+    let disk = |cell: h3o::CellIndex| -> BTreeSet<u64> {
+        cell.grid_disk::<Vec<_>>(u32::from(STORE_H3_RING))
+            .into_iter()
+            .map(u64::from)
+            .collect()
+    };
+    let touched = cells_around_moves(&before, &after)?;
+    assert_eq!(touched, &disk(from) | &disk(to));
+    assert!(
+        !touched.contains(&u64::from(still)),
+        "a store that stayed touches nothing"
+    );
+    // A parcel two rings from the moved store is inside, one three rings away is outside.
+    let ring = |k: u32| -> anyhow::Result<h3o::LatLng> {
+        let cell = from
+            .grid_ring_fast(k)
+            .flatten()
+            .next()
+            .context("a ring cell")?;
+        Ok(h3o::LatLng::from(cell))
+    };
+    let (two, three) = (ring(2)?, ring(3)?);
+    let connection = Connection::open_in_memory()?;
+    connection.execute_batch(&format!(
+        "CREATE TABLE parcels AS SELECT * FROM (VALUES \
+           ('9999900000100000000', {}, {}), ('9999900000200000000', {}, {})) AS p(pnu, lat, lon);",
+        two.lat(),
+        two.lng(),
+        three.lat(),
+        three.lng()
+    ))?;
+    let inside = "SELECT '9999900000100000000' AS pnu";
+    let outside = "SELECT '9999900000200000000' AS pnu";
+    assert_eq!(parcels_outside_cells(&connection, &touched, inside)?, 0);
+    assert_eq!(parcels_outside_cells(&connection, &touched, outside)?, 1);
+    assert_eq!(
+        parcels_outside_cells(&connection, &touched, "SELECT '9999900000900000000' AS pnu")?,
+        1,
+        "a parcel the parcels table does not hold is outside"
+    );
+    Ok(())
+}

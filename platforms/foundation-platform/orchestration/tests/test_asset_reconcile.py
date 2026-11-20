@@ -760,7 +760,7 @@ class QueuedStarts(unittest.TestCase):
         # The DAG starts only what the reconciler is allowed to: its reconciled jobs and the queued ones.
         (spec,) = [spec for spec in job_specs.load_specs() if spec.reconciles]
         self.assertIn(self.JOB, spec.requeues)
-        self.assertIn("data_go_kr_file_data", spec.requeues)
+        self.assertIn("parcel_registry", spec.requeues)
         self.assertFalse(set(spec.requeues) & set(spec.reconciles))
         self.assertFalse([job["id"] for job in self.jobs["jobs"]
                           if job["id"] in spec.requeues and (not job["enabled"] or job["pool"] != "spark")])
@@ -818,12 +818,15 @@ class CapacityClaims(unittest.TestCase):
 class MissedStarts(unittest.TestCase):
     """Root ADR-0467, the 2026-11-09 11:40Z replay: data_go_kr_file_data's first run was refused by the
     spark pool before the start queue was deployed (14:42Z), nothing held the refusal, and its next try
-    was the next day's 11:40Z. A slot no start followed is owed one start, whatever kept it away."""
+    was the next day's 11:40Z. A slot no start followed is owed one start, whatever kept it away.
 
-    JOB = "data_go_kr_file_data"
-    # 2026-11-09 16:20Z, the measurement of W30f; the job's slot is 11:40Z daily.
+    That load has since left Spark and its pool (root ADR-0559), and so have the registered factories
+    the replay ran on next; it runs on parcel_registry, a daily job still started from the spark pool's queue."""
+
+    JOB = "parcel_registry"
+    # 2026-11-09 16:20Z, the measurement of W30f; the job's slot is 10:10Z daily.
     NOW = 1794241200
-    SLOT = 1794224400
+    SLOT = 1794219000
 
     @classmethod
     def setUpClass(cls):
@@ -836,8 +839,8 @@ class MissedStarts(unittest.TestCase):
         return [line for line in owed if line.split()[1] == self.JOB], metrics
 
     def test_the_slot_is_the_newest_daily_start_before_the_grace(self):
-        self.assertEqual(job_specs.previous_slot("40 11 * * *", self.NOW), self.SLOT)
-        self.assertEqual(job_specs.previous_slot("40 11 * * *", self.SLOT - 1), self.SLOT - 86400)
+        self.assertEqual(job_specs.previous_slot("10 10 * * *", self.NOW), self.SLOT)
+        self.assertEqual(job_specs.previous_slot("10 10 * * *", self.SLOT - 1), self.SLOT - 86400)
         self.assertEqual(job_specs.previous_slot("55 * * * *", self.NOW), self.NOW - 25 * 60)
         self.assertEqual(job_specs.previous_slot("0,30 * * * *", 86400 * 10 + 10), 86400 * 10)
         self.assertEqual(job_specs.previous_slot("0 7 * * *", 86400 * 10 + 10), 86400 * 9 + 7 * 3600)
@@ -861,9 +864,11 @@ class MissedStarts(unittest.TestCase):
                 self.assertEqual(self.owed({}, **case)[0], [])
 
     def test_a_slot_within_the_grace_or_before_it_was_switched_on_is_not_missed(self):
-        self.assertEqual(self.owed({}, now=self.SLOT + 60)[0], [], "Airflow may not have asked yet")
+        # Yesterday's slot was started; today's is one minute old.
+        started = {self.JOB: self.SLOT - 86400 + 30}
+        self.assertEqual(self.owed(started, now=self.SLOT + 60)[0], [], "Airflow may not have asked yet")
         since = job_specs._instant(next(job for job in self.jobs["jobs"] if job["id"] == self.JOB)["enabled_since"])
-        before = job_specs.previous_slot("40 11 * * *", since.timestamp()) + asset_reconcile.MISSED_START_GRACE
+        before = job_specs.previous_slot("10 10 * * *", since.timestamp()) + asset_reconcile.MISSED_START_GRACE
         self.assertEqual(self.owed({}, now=before)[0], [])
 
     def test_a_takes_turns_job_is_never_started_for_a_slot(self):
@@ -877,9 +882,12 @@ class CodeChangedStarts(unittest.TestCase):
     """Root ADR-0499, the 2026-11-10 replay: data_go_kr_file_data failed at 11:42Z on a CSV escape, the
     fix (#1230) deployed at 13:42Z, and the job waited for 11-11 11:40Z. A failed run whose code version
     the running release no longer has is owed one start; the same failure under the same version, never
-    again."""
+    again.
 
-    JOB = "data_go_kr_file_data"
+    That load has since left Spark and its pool (root ADR-0559), and so have the registered factories
+    the replay ran on next; it runs on parcel_registry, which the reconciler still starts again."""
+
+    JOB = "parcel_registry"
     FAILED_AT = 1794310932  # 2026-11-10T11:42:12Z
     OLD, NEW = "a" * 64, "b" * 64
 

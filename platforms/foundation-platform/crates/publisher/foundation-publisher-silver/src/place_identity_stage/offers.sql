@@ -4,8 +4,9 @@
 --
 -- Input: place_rows(_row BIGINT, pnu VARCHAR, address VARCHAR): a format-valid source PNU or null,
 -- and the address text.
--- Output: place_offers(_row, jibun_pnu, reason, road_sido, road_sigungu, road_name, road_main_no,
--- road_sub_no), place_asked(pnu), place_roads(road_name).
+-- Output: place_offers(_row, jibun_pnu, jibun_code, reason, road_sido, road_sigungu, road_name,
+-- road_main_no, road_sub_no), place_asked(pnu), place_roads(road_name). jibun_code is the 법정동 the
+-- lot's names read as, also for a lot over 9999 that names no PNU.
 
 -- Python's \s, \S and \d in a text pattern: Unicode whitespace (str.isspace) and decimal digits.
 CREATE OR REPLACE MACRO place_s() AS '[' || py_ws() || ']';
@@ -104,6 +105,7 @@ SELECT k._row,
        CASE WHEN k.jibun_read AND d.code IS NOT NULL AND k.bonbun <= 9999 AND k.bubun <= 9999
             THEN d.code || CASE WHEN k.mountain THEN '2' ELSE '1' END || lpad(CAST(k.bonbun AS VARCHAR), 4, '0')
                  || lpad(CAST(k.bubun AS VARCHAR), 4, '0') END AS jibun_pnu,
+       CASE WHEN k.jibun_read THEN d.code END AS jibun_code,
        CASE WHEN trim(k.address, py_ws()) = '' THEN 'no_address'
             WHEN k.jibun_read AND d.code IS NULL THEN 'no_legal_dong'
             WHEN k.jibun_read THEN NULL

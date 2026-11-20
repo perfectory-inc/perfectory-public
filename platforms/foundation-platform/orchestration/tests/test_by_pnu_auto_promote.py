@@ -25,6 +25,11 @@ SCRIPT = PLATFORM / "scripts/ops/by-pnu-auto-promote.sh"
 FAKE_RUNNER = r'''#!/usr/bin/env bash
 here="$(cd "$(dirname "$0")" && pwd)"
 if [[ "$1 $2" == "lanes --pending" ]]; then cat "${here}/PENDING"; exit 0; fi
+# `lanes --pending-gold-lock`: GOLD_LOCK's lines, else every pending lane's gold step takes the lock.
+if [[ "$1 $2" == "lanes --pending-gold-lock" ]]; then
+  if [[ -f "${here}/GOLD_LOCK" ]]; then cat "${here}/GOLD_LOCK"; else sed 's/$/ yes/' "${here}/PENDING"; fi
+  exit 0
+fi
 exit 64
 '''
 FAKE_OPERATOR = r'''#!/usr/bin/env bash
@@ -119,6 +124,27 @@ class AutoPromotion(unittest.TestCase):
         metrics.write_text('foundation_asset_owed{asset="iceberg://gold.parcel_panel",job="gold_panel_rebuild"} 1\n')
         os.utime(metrics, (NIGHT - 1801, NIGHT - 1801))
         self.assertEqual(len(self.run_controller(now=NIGHT + 3600 * 25)[1]), 1, "a silent reconciler holds nothing")
+
+    def test_2026_11_19_a_lane_whose_gold_step_takes_no_rebuild_lock_is_not_held_by_an_owed_refresh(self):
+        # Root ADR-0595: parcel-nearby's Gold (its own DuckDB job) was committed 11-19 15:51Z; its first
+        # publish waited behind the failed, owed real-transaction bake into 11-20. The cut-over runner
+        # says which pending lane's gold step takes the Gold rebuild lock; only that one is held.
+        metrics = self.root / "asset-reconcile.prom"
+        self.env["FOUNDATION_AUTO_PROMOTE_ASSET_METRICS"] = str(metrics)
+        metrics.write_text('foundation_asset_owed{asset="perfectory://parcel-real-transaction-by-pnu-section-packs",'
+                           'job="by_pnu_parcel_real_transaction_bake"} 1\n')
+        os.utime(metrics, (NIGHT, NIGHT))
+        self.pending("parcel-ownership", "parcel-nearby")
+        (self.ops / "GOLD_LOCK").write_text("parcel-ownership yes\nparcel-nearby no\n")
+        result, started = self.run_controller()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(started, ["parcel-nearby cutover 1 --auto"])
+        self.assertIn("only lanes whose gold step takes no Gold rebuild lock may start: parcel-nearby", result.stdout)
+        # Every pending lane's gold step takes the lock: held, as before.
+        (self.ops / "GOLD_LOCK").write_text("parcel-ownership yes\nparcel-nearby yes\n")
+        result, started = self.run_controller()
+        self.assertEqual((result.returncode, started), (0, []), result.stderr)
+        self.assertIn("no first publish starts before it", result.stdout)
 
     def test_a_lane_that_failed_is_tried_again_after_a_doubling_backoff_and_the_next_lane_goes_first(self):
         self.assertEqual(self.run_controller()[1], ["parcel-ownership cutover 1 --auto"])

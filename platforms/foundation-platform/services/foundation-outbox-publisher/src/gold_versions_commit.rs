@@ -36,6 +36,9 @@ pub(crate) const SERVED_EDITION_PROPERTY: &str = "foundation.served-parcel-editi
 pub(crate) const FINGERPRINT_PROPERTY: &str = "foundation.content-fingerprint";
 /// The keys this commit appended (`gold_incremental.KEYS_CHANGED_PROPERTY`).
 pub(crate) const KEYS_CHANGED_PROPERTY: &str = "foundation.keys-changed";
+/// A record the producer checked that explains a commit over the bound on changed keys, which the
+/// bake's change set accepts too (root ADR-0346, ADR-0596); absent on every other commit.
+pub(crate) const RECORDED_EXPLANATION_PROPERTY: &str = "foundation.recorded-explanation";
 /// The tag on the commit the next run plans from (`gold_incremental.BUILD_TAG`, root ADR-0338).
 pub(crate) const BUILD_TAG: &str = "foundation-gold-build";
 /// The tag that keeps, on each input, the snapshot the table was last built from

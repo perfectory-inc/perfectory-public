@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # data.go.kr 파일 데이터 — 기타 공공 일괄 파일 수집과 Silver 적재 (root ADR-0401). 등록된 작업
-# data_go_kr_file_data(spark 3칸, 가중치 1)가 하루 한 번 돌린다.
+# data_go_kr_file_data 가 하루 한 번 돌린다.
 #
 #   1. 수집 — collect-data-go-kr-file-data 가 계약(data-go-kr-file-data.contract.json)의 파일 가운데 등록공장을 뺀
 #             전부를 맡는다(등록공장은 작업 registered_factory). 파일마다 포털의 메타데이터를 한 번 묻고, 마지막으로
@@ -8,9 +8,10 @@
 #             따로 커밋하므로 한 파일이 실패해도 다른 파일은 받고, run 은 끝에 실패한다.
 #   2. 계획 — plan-silver-load-objects 가 표마다 R2 만 보고 쌓을 판을 정한다: 그 원천의 Bronze 파일 가운데 표의 커밋
 #             요약이 아직 기록하지 않은 것, 계약의 범위(silver_load) 안에서 오래된 것부터 하나.
-#   3. 적재 — data_go_kr_file_data.py load 가 판마다 머리줄·인코딩·행 수 한계를 검사하고, 행 키로 표의 현재 행과
-#             비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓는다(ADR-0318). 쌓을 판이 없어도 돈다: 법정동 코드
-#             변경표가 표의 마지막 연결 뒤에 바뀌었으면 바뀐 코드 아래의 행만 다시 잇는다(ADR-0329 §3).
+#   3. 적재 — 발행기의 load-data-go-kr-file-data-silver 가(발행기 안의 DuckDB 가 행을 만들고 발행기가 Iceberg 에
+#             덧붙인다, 루트 ADR-0559) 판마다 머리줄·인코딩·행 수 한계를 검사하고, 행 키로 표의 현재 행과 비교해
+#             새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓는다(ADR-0318). 쌓을 판이 없어도 돈다: 법정동 코드 변경표가
+#             표의 마지막 연결 뒤에 바뀌었으면 바뀐 코드 아래의 행만 다시 잇는다(ADR-0329 §3). Spark 는 쓰지 않는다.
 #
 # run 당 상한은 파일 자체다(2026-11-04 실측): 8개가 모두 새 판이면 약 365 MB(상가(상권) zip 349 MB 가 59초), 간격을 넣어
 # 3분 안팎. 적재는 표마다 한 판. 받은 사본은 성공하든 실패하든 지운다. 실패하면 0 이 아닌 값으로 끝나고 Airflow 실패
@@ -68,9 +69,13 @@ collect_status="${collect_status:-0}"
 landed="$(python3 -I -c 'import json, sys; print(" ".join(f["dataset_slug"] for f in json.load(open(sys.argv[1], encoding="utf-8"))["files"]))' "${work}/collect/manifest.json")"
 
 # 2. 계획: 표마다, R2 의 Bronze 와 표의 커밋 기록만 본다.
-mapfile -t loads < <(python3 -I "${RELEASE_ROOT}/infra/lakehouse/spark/jobs/data_go_kr_file_data.py" tables)
+mapfile -t loads < <(python3 -I -c '
+import json, sys
+for slug in json.load(open(sys.argv[1], encoding="utf-8"))["files"]:
+    if slug != "registered_factory":
+        print(f"silver.{slug} datagokr__{slug}")
+' "${CONTRACT}")
 owed_total=0
-plan_args=()
 for load in "${loads[@]}"; do
   read -r table slug <<<"${load}"
   name="${table#silver.}"
@@ -85,21 +90,11 @@ print(c["window_days"], c["max_objects"])
     "${PUBLISHER_BIN}" plan-silver-load-objects >> "${run_log}" 2>&1
   owed="$(python3 -I -c 'import json, sys; print(len(json.load(open(sys.argv[1], encoding="utf-8"))["objects"]))' "${lake}/plans/${name}/plan.json")"
   owed_total=$((owed_total + owed))
-  plan_args+=(--plan-dir "/workspace/target/lakehouse/runs/${run_id}/plans/${name}")
 done
-chmod -R a+rwX "${lake}" # Spark 컨테이너는 uid 185 로 읽고, 판의 UTF-8 사본을 그 옆에 쓴다.
 
 # 3. 적재와 코드 변경 따라가기
 lakehouse_run_log "${run_log}"
-FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
-FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-lakehouse_spark_run foundation-platform-compute \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark spark-submit --master 'local[4,8]' --driver-memory 8g \
-  --jars "${SPARK_RELEASE_JARS}" \
-  /workspace/infra/lakehouse/spark/jobs/data_go_kr_file_data.py load \
-  "${plan_args[@]}" --allow-non-smoke-write >> "${run_log}" 2>&1
+FOUNDATION_PLATFORM_DATA_GO_KR_FILE_DATA_PLAN_ROOT="${lake}/plans"   "${PUBLISHER_BIN}" load-data-go-kr-file-data-silver >> "${run_log}" 2>&1
 
 summary="$(grep '^data-go-kr-file-data-summary-json ' "${run_log}" | tail -1)"
 appended="$(python3 -I -c '

@@ -533,9 +533,10 @@
           "explained_by": [
             "recorded_change_set",
             "code_version",
-            "document_schema"
+            "document_schema",
+            "recorded_explanation"
           ],
-          "reason": "Root ADR-0346: a change set over max_delta_fraction is past the measured break-even (cumulative_change_break_even_ratio), so a full bake is the cheaper way to publish it (building: 19 minutes, measured 2026-10-29). It goes full when a record explains it: every Gold commit between the two snapshots recorded its changed keys (ADR-0312), the code version both commits record differs (ADR-0321), or the bake states a document schema revision (ADR-0320; 2026-10-29 parcel-forest-ledger v1 -> v2, 39,715,931 of 39,703,956). Otherwise it is refused and the run names the counts and the records it checked: same code, same document schema and no recorded change set is a fingerprint drift or a wrong baseline (ADR-0099 §5). On 2026-10-29 the building lane was refused so: 5,946,006 of 5,945,309 differed between two whole overwrites that recorded nothing, 99.8% of it (measured in sido 41) source file-line ids in the documents (ADR-0331)."
+          "reason": "Root ADR-0346: a change set over max_delta_fraction is past the measured break-even (cumulative_change_break_even_ratio), so a full bake is the cheaper way to publish it (building: 19 minutes, measured 2026-10-29). It goes full when a record explains it: every Gold commit between the two snapshots recorded its changed keys (ADR-0312), the code version both commits record differs (ADR-0321), or the bake states a document schema revision (ADR-0320; 2026-10-29 parcel-forest-ledger v1 -> v2, 39,715,931 of 39,703,956), or (a table of appended row versions only, read by export-gold-versions-change-set) the commits between them record foundation.recorded-explanation, an explanation their producer checked, while the commits that record none fit max_delta_fraction by themselves (root ADR-0596: parcel-nearby's store-only commits, 11-19 Gold 80.38% of parcels count a store). Otherwise it is refused and the run names the counts and the records it checked: same code, same document schema and no recorded change set is a fingerprint drift or a wrong baseline (ADR-0099 §5). On 2026-10-29 the building lane was refused so: 5,946,006 of 5,945,309 differed between two whole overwrites that recorded nothing, 99.8% of it (measured in sido 41) source file-line ids in the documents (ADR-0331)."
         },
         "pnu_prefix_length": 5,
         "tombstone_schema_version": "foundation-platform.by_pnu_serving_tombstone.v1",
@@ -1223,8 +1224,8 @@
           },
           "foundation-data-go-kr-file-data.service": {
             "class": "batch",
-            "memory_max": "2G",
-            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the collector runs natively like the onbid collector (1843M measured); no run logged yet; systemd logs the peak of every run under this cap"
+            "memory_max": "3G",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting). Since root ADR-0559 the Silver load is the publisher's DuckDB inside this unit (it was the spark container, 8g driver): sized as the onbid Silver load, the same stage (2.1G measured 2026-11-20 on 48 objects); the largest edition (상가 2,753,778 rows, quarterly) has not run under this cap yet; systemd logs the peak of every run and the load prints memory_peak_bytes"
           },
           "foundation-data-quality.service": {
             "class": "batch",
@@ -1422,9 +1423,8 @@
           },
           "foundation-registered-factory.service": {
             "class": "batch",
-            "memory_max": "256M",
-            "measured_peak": "13M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 13 runs, highest 2026-10-28 (foundation-registered-factory)"
+            "memory_max": "3G",
+            "measured": "13M on the days the file is the same (journal `memory peak` 2026-10-18..11-08, 13 runs). Since root ADR-0559 the Silver load is the publisher's DuckDB inside this unit (it was the spark container, 8g driver): sized as the onbid Silver load, the same stage (2.1G measured 2026-11-20 on 48 objects); an edition (220,000 rows, yearly) has not run under this cap yet; systemd logs the peak of every run under this cap"
           },
           "foundation-rt-molit-collect.service": {
             "class": "batch",
@@ -2060,7 +2060,6 @@
       "lineage_stewardship",
       "parcel_registry",
       "rt_molit_real_transaction_silver",
-      "registered_factory",
       "court_auction_silver",
       "gold_panel_rebuild",
       "gold_kind_rebuild",

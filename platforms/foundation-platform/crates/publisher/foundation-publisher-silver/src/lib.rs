@@ -133,6 +133,9 @@ pub mod legal_dong_code_change_stage;
 /// The parcel nearby kind's Gold in `DuckDB` (root ADR-0465, ADR-0564 §9).
 pub mod parcel_nearby_stage;
 
+/// Stages the data.go.kr bulk files as Silver rows, one table per file (root ADR-0401 §3–4).
+pub mod data_go_kr_file_data_stage;
+
 /// Stages 차세대 온비드 public sale Bronze objects as Silver rows (root ADR-0280, ADR-0340).
 pub mod onbid_silver_stage;
 
@@ -144,6 +147,7 @@ pub mod place_identity_stage;
 
 /// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
 pub mod real_transaction_gold_stage;
+pub mod registered_factory_stage;
 
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
 /// keeps the executable's lint posture (root ADR-0200 §4).

@@ -14,7 +14,7 @@ last_reviewed: 2026-11-09
 
 ## 흐름
 
-작업 `registered_factory`(하루 한 번, spark 3칸, 가중치 1) → `foundation-registered-factory.service` →
+작업 `registered_factory`(하루 한 번) → `foundation-registered-factory.service` →
 `scripts/ops/registered-factory-cycle.sh`:
 
 1. `collect-data-go-kr-file-data`(`..._DATASETS=registered_factory`): 포털 메타데이터를 한 번 묻는다. 파일 id(`atchFileId`)가
@@ -22,9 +22,9 @@ last_reviewed: 2026-11-09
    ADR-0401 전의 `collector/accepted.json` 은 스크립트가 처음 한 번 그 자리로 옮긴다.
 2. `plan-silver-load-objects`: R2 만 보고 쌓을 판을 정한다. 이 원천의 Bronze zip 가운데 `silver.registered_factory`
    의 커밋 요약(`foundation.ingest-batch-objects`)이 아직 기록하지 않은 것, 계약의 `silver_load` 범위(최근 7일,
-   한 번에 하나) 안에서 오래된 것부터. 없으면 `unchanged` 로 끝난다(Spark 없음).
-3. `data_go_kr_registered_factory.py load`: 멤버를 검사하고(행 수 한계는 표가 가진 최신 판과 비교), `address_pnu.py`
-   로 PNU 를 찾고, `silver.registered_factory` 에 판 전체를 한 번 쌓는다.
+   한 번에 하나) 안에서 오래된 것부터. 없으면 `unchanged` 로 끝난다(적재를 부르지 않는다).
+3. 발행기의 `load-registered-factory-silver`(발행기 안의 DuckDB, 루트 ADR-0559; Spark 없음): 멤버를 검사하고(행 수 한계는
+   표가 가진 최신 판과 비교), 주소로 PNU 를 찾고(지번 → 도로명), `silver.registered_factory` 에 판 전체를 한 번 쌓는다.
 
 대기열은 없다. 적재가 실패하면 그 zip 은 표에 기록이 없으니 다음 실행이 다시 받는다. 7일 넘게 실패가 이어지면
 계획이 그 zip 을 쌓지 않고 `unrecorded_outside_window` 로 알린다(스냅숏 보존 30일보다 짧게 둔 범위).
@@ -68,14 +68,14 @@ last_reviewed: 2026-11-09
 
 ## 기타 공공 일괄 파일 (루트 ADR-0401)
 
-작업 `data_go_kr_file_data`(하루 한 번 11:40 UTC, spark 3칸, 90분) → `foundation-data-go-kr-file-data.service` →
+작업 `data_go_kr_file_data`(하루 한 번 11:40 UTC, 90분) → `foundation-data-go-kr-file-data.service` →
 `scripts/ops/data-go-kr-file-data-cycle.sh`:
 
 1. `collect-data-go-kr-file-data`: 계약의 파일 가운데 등록공장을 뺀 전부. 파일마다 메타데이터를 한 번 묻고 새 파일 id 일
    때만 받아 그 원천의 Bronze(`bronze/source=datagokr__<dataset_slug>/`)에 남긴다.
 2. `plan-silver-load-objects`: 표(`silver.<dataset_slug>`)마다, 그 표의 커밋 요약이 기록하지 않은 Bronze 파일을 하나.
-3. `data_go_kr_file_data.py load`(매일, 쌓을 판이 없어도): 판마다 인코딩·머리줄·칸 수·행 수 한계를 검사하고 UTF-8
-   사본을 만든 뒤, 행 키(제공자 키 또는 행 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓는다.
+3. 발행기의 `load-data-go-kr-file-data-silver`(발행기 안의 DuckDB, 루트 ADR-0559; Spark 없음. 매일, 쌓을 판이 없어도):
+   판마다 인코딩·머리줄·칸 수·행 수 한계를 검사하고, 행 키(제공자 키 또는 행 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓는다.
    원문 칸은 `provider_fields_json` 에 머리줄 이름 그대로 있다. 그다음 코드 변경 따라가기: 표가 마지막으로 이은
    `reference.legal_dong_code_change` 스냅숏(커밋 기록 `follow:reference.legal_dong_code_change@<스냅숏>@<시각>`)과 지금이
    다르면, `views.changed_codes` 가 말하는 코드 아래 행과 잇지 못한 행만 다시 잇고, 연결이 바뀐 행만 쌓는다. 옛 스냅숏이

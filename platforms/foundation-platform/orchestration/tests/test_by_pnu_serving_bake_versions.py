@@ -24,8 +24,12 @@ VERSIONS_FAKE = r'''elif command == "export-gold-versions-change-set":
         log.write(json.dumps({"command": "versions-change-set", "env": {k: v for k, v in os.environ.items() if k.startswith(p)}}) + "\n")
     open(os.environ[p + "UPSERTS"], "w").write("".join(pnu + "\n" for pnu in ups))
     open(os.environ[p + "DELETES"], "w").write("".join(pnu + "\n" for pnu in dels))
+    verdict = os.environ.get("FAKE_VERDICT", "delta")
+    # The shape the publisher writes (gold_versions_change_set.finish): name -> why, and the names checked.
+    explained = {"recorded_explanation": "version 2: store-only: 2 changed keys"} if verdict == "explained_full" else {}
     json.dump({"job_name": "gold_versions_change_set", "contract": os.environ[p + "TABLE"],
-               "verdict": os.environ.get("FAKE_VERDICT", "delta"),
+               "verdict": verdict, "explained_by": explained,
+               "explanations_checked": ["recorded_change_set", "code_version", "document_schema", "recorded_explanation"],
                "quality_metrics": {"upsert_count": len(ups), "delete_count": len(dels), "new_count": 0},
                "input": {"baseline_snapshot_id": os.environ[p + "BASELINE_SNAPSHOT_ID"],
                          "current_snapshot_id": os.environ[p + "CURRENT_SNAPSHOT_ID"]}},
@@ -79,6 +83,9 @@ class VersionsTableLane(unittest.TestCase):
                 else:
                     self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
                     self.assertIn("a full bake is cheaper past the break-even", result.stdout)
+                    # Root ADR-0596: the publisher's record reaches the bake's reason (2026-11-20 EGM B1:
+                    # a list here made the evidence reader fail and the bake exit 1).
+                    self.assertIn("recorded_explanation: version 2: store-only", result.stdout)
                 self.assertFalse([call for call in calls if call["command"] == "delta"])
 
 

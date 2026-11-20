@@ -882,6 +882,8 @@ pub struct ReadObject {
     pub complete: bool,
     /// Response keys of its items the inventory does not know (root ADR-0340 §2).
     pub unrepresented_fields: Vec<String>,
+    /// Its 200 lines whose body is not JSON: requests the provider did not answer.
+    pub unreadable_answers: u64,
 }
 
 fn count(stage: &DuckDbParquetStage, table: &str) -> anyhow::Result<u64> {
@@ -899,8 +901,10 @@ fn count(stage: &DuckDbParquetStage, table: &str) -> anyhow::Result<u64> {
 /// `values_sql` ([`OnbidSource::values_sql`]) must have run on the stage.
 ///
 /// # Errors
-/// Refuses what the Spark load stopped on: an item without its key in an item table, a body that is
-/// not JSON; and a `DuckDB` failure.
+/// Refuses what the Spark load stopped on: an item without its key in an item table; and a `DuckDB`
+/// failure. A 200 whose body is not JSON stopped the Spark load too; here it is counted
+/// ([`ReadObject::unreadable_answers`]) and read as a request with no answer, so the object is
+/// loaded and recorded.
 pub fn read_object(
     stage: &DuckDbParquetStage,
     source: &OnbidSource,
@@ -944,10 +948,16 @@ pub fn read_object(
         .collect::<Result<Vec<_>, _>>()?;
     let complete = object.role == Role::ItemList
         && connection.query_row("SELECT complete FROM onbid_pass", [], |row| row.get(0))?;
+    let unreadable: i64 = connection.query_row(
+        "SELECT count(*) FROM onbid_answers WHERE unreadable",
+        [],
+        |row| row.get(0),
+    )?;
     Ok(ReadObject {
         rows: count(stage, "onbid_rows")?,
         complete,
         unrepresented_fields,
+        unreadable_answers: u64::try_from(unreadable)?,
     })
 }
 

@@ -676,6 +676,19 @@ pub fn load_inputs(
     })
 }
 
+/// What a move of the parcels, the stores or the place ids can change: the 시도, and the cells a
+/// store left or entered with every cell within [`STORE_H3_RING`] rings of one.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ChangedSidos {
+    /// The 시도 whose documents can change.
+    pub sidos: BTreeSet<String>,
+    /// The cells whose parcels' `commercial_store_count` the moved stores can change (empty when
+    /// the stores did not move).
+    pub store_cells: BTreeSet<u64>,
+    /// The located stores (a coordinate inside Korea) before and after, when the stores moved.
+    pub located_stores: Option<(u64, u64)>,
+}
+
 /// The 시도 whose documents a move of the parcels, the stores or the place ids can change.
 ///
 /// Between `old` and `new` (the inputs [`load_inputs`] read): a parcel whose boundary or place id
@@ -690,7 +703,7 @@ pub fn changed_sidos(
     new: &Source<'_>,
     moved: &BTreeSet<String>,
     edition: &str,
-) -> anyhow::Result<BTreeSet<String>> {
+) -> anyhow::Result<ChangedSidos> {
     ensure!(
         is_plain(edition),
         "the edition {edition:?} is not a plain snapshot id"
@@ -724,58 +737,22 @@ pub fn changed_sidos(
         ));
     }
     let mut found = BTreeSet::new();
-    if moved.contains(STORE_SOURCE) {
-        let (lat, lon) = STORE_COORDINATES;
-        let columns = [
-            "row_key".to_owned(),
-            format!("TRY_CAST(trim({}) AS DOUBLE) AS lat", field(lat)?),
-            format!("TRY_CAST(trim({}) AS DOUBLE) AS lon", field(lon)?),
-        ];
-        let columns = columns.iter().map(String::as_str).collect::<Vec<_>>();
-        let side = |source: &Source<'_>, into: &str| -> anyhow::Result<BTreeSet<(String, u64)>> {
-            let query = format!(
-                "SELECT row_key, lat, lon FROM ({}) WHERE {}",
-                current_rows(connection, source, STORE_SOURCE, &columns, into)?,
-                inside("lat", "lon")
-            );
-            connection
-                .prepare(&query)?
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, f64>(1)?,
-                        row.get::<_, f64>(2)?,
-                    ))
-                })?
-                .map(|row| {
-                    let (key, lat, lon) = row?;
-                    Ok((key, u64::from(cell(lat, lon)?)))
-                })
-                .collect()
-        };
-        let (before, after) = (
-            side(old, "current_stores_before")?,
-            side(new, "current_stores_after")?,
-        );
-        // The cells a store left or entered, and every cell within the rings of one.
-        let mut touched = BTreeSet::new();
-        for (_, moved_cell) in before.symmetric_difference(&after) {
-            let center = h3o::CellIndex::try_from(*moved_cell)?;
-            for ring in center.grid_disk::<Vec<_>>(u32::from(STORE_H3_RING)) {
-                touched.insert(u64::from(ring));
-            }
-        }
-        if !touched.is_empty() {
-            let mut statement = connection.prepare("SELECT pnu, lat, lon FROM parcels")?;
-            let mut rows = statement.query([])?;
-            while let Some(row) = rows.next()? {
-                let pnu: String = row.get(0)?;
-                let prefix = pnu.get(..2).unwrap_or_default().to_owned();
-                if !found.contains(&prefix)
-                    && touched.contains(&u64::from(cell(row.get(1)?, row.get(2)?)?))
-                {
-                    found.insert(prefix);
-                }
+    let (touched, located_stores) = if moved.contains(STORE_SOURCE) {
+        let (cells, before, after) = moved_store_cells(connection, old, new)?;
+        (cells, Some((before, after)))
+    } else {
+        (BTreeSet::new(), None)
+    };
+    if !touched.is_empty() {
+        let mut statement = connection.prepare("SELECT pnu, lat, lon FROM parcels")?;
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let pnu: String = row.get(0)?;
+            let prefix = pnu.get(..2).unwrap_or_default().to_owned();
+            if !found.contains(&prefix)
+                && touched.contains(&u64::from(cell(row.get(1)?, row.get(2)?)?))
+            {
+                found.insert(prefix);
             }
         }
     }
@@ -790,7 +767,114 @@ pub fn changed_sidos(
             .context("DuckDB failed to find the 시도 the moved inputs touch")?;
         found.extend(sidos);
     }
-    Ok(found)
+    Ok(ChangedSidos {
+        sidos: found,
+        store_cells: touched,
+        located_stores,
+    })
+}
+
+/// The cells a store left or entered between `old` and `new` with every cell within
+/// [`STORE_H3_RING`] rings of one, and the located stores before and after.
+///
+/// # Errors
+/// Returns an error when a snapshot cannot be read or a point is not a coordinate.
+pub fn moved_store_cells(
+    connection: &Connection,
+    old: &Source<'_>,
+    new: &Source<'_>,
+) -> anyhow::Result<(BTreeSet<u64>, u64, u64)> {
+    let (lat, lon) = STORE_COORDINATES;
+    let columns = [
+        "row_key".to_owned(),
+        format!("TRY_CAST(trim({}) AS DOUBLE) AS lat", field(lat)?),
+        format!("TRY_CAST(trim({}) AS DOUBLE) AS lon", field(lon)?),
+    ];
+    let columns = columns.iter().map(String::as_str).collect::<Vec<_>>();
+    let side = |source: &Source<'_>, into: &str| -> anyhow::Result<BTreeSet<(String, u64)>> {
+        let query = format!(
+            "SELECT row_key, lat, lon FROM ({}) WHERE {}",
+            current_rows(connection, source, STORE_SOURCE, &columns, into)?,
+            inside("lat", "lon")
+        );
+        connection
+            .prepare(&query)?
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, f64>(1)?,
+                    row.get::<_, f64>(2)?,
+                ))
+            })?
+            .map(|row| {
+                let (key, lat, lon) = row?;
+                Ok((key, u64::from(cell(lat, lon)?)))
+            })
+            .collect()
+    };
+    let (before, after) = (
+        side(old, "current_stores_before")?,
+        side(new, "current_stores_after")?,
+    );
+    Ok((
+        cells_around_moves(&before, &after)?,
+        u64::try_from(before.len())?,
+        u64::try_from(after.len())?,
+    ))
+}
+
+/// The H3 cells within [`STORE_H3_RING`] rings of a cell a store (`row_key`, cell) left or entered
+/// between `before` and `after`: a store that moved counts at both its cells.
+fn cells_around_moves(
+    before: &BTreeSet<(String, u64)>,
+    after: &BTreeSet<(String, u64)>,
+) -> anyhow::Result<BTreeSet<u64>> {
+    let mut touched = BTreeSet::new();
+    for (_, moved_cell) in before.symmetric_difference(after) {
+        let center = h3o::CellIndex::try_from(*moved_cell)?;
+        for ring in center.grid_disk::<Vec<_>>(u32::from(STORE_H3_RING)) {
+            touched.insert(u64::from(ring));
+        }
+    }
+    Ok(touched)
+}
+
+/// The store cell ([`STORE_H3_RESOLUTION`]) of a point, as [`ChangedSidos::store_cells`] names it.
+///
+/// # Errors
+/// Returns an error when the point is not a coordinate.
+pub fn store_cell(lat: f64, lon: f64) -> anyhow::Result<u64> {
+    Ok(u64::from(cell(lat, lon)?))
+}
+
+/// How many of the parcels `pnus` (a query of one `pnu` column) lie outside `cells`.
+///
+/// A parcel is outside when the cell ([`STORE_H3_RESOLUTION`]) of its point in `parcels` is none
+/// of `cells`, or `parcels` does not hold it.
+///
+/// # Errors
+/// Returns an error when the parcels cannot be read or a point is not a coordinate.
+pub fn parcels_outside_cells(
+    connection: &Connection,
+    cells: &BTreeSet<u64>,
+    pnus: &str,
+) -> anyhow::Result<u64> {
+    let mut statement = connection.prepare(&format!(
+        "SELECT p.lat, p.lon FROM ({pnus}) k LEFT JOIN parcels p USING (pnu)"
+    ))?;
+    let mut rows = statement.query([])?;
+    let mut outside = 0;
+    while let Some(row) = rows.next()? {
+        let point: (Option<f64>, Option<f64>) = (row.get(0)?, row.get(1)?);
+        let inside = match point {
+            (Some(lat), Some(lon)) => cells.contains(&store_cell(lat, lon)?),
+            _ => false,
+        };
+        if !inside {
+            outside += 1;
+        }
+    }
+    Ok(outside)
 }
 
 /// The table [`build_sido`] appends to: the Gold's columns but `version_seq` and `row_state`.

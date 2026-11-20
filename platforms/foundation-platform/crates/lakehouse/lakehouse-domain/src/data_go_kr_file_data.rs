@@ -1,6 +1,6 @@
 //! The other public bulk files of the data.go.kr file data, one Silver table per file (root ADR-0401
 //! §3–4). `infra/lakehouse/contracts/data-go-kr-file-data.contract.json` names each file's header,
-//! row key and place link; the load is `infra/lakehouse/spark/jobs/data_go_kr_file_data.py`.
+//! row key and place link; the load is `foundation-publisher-silver`'s `data_go_kr_file_data_stage`.
 //!
 //! Every table has one shape. A row keeps every raw column under its header name in
 //! `provider_fields_json` (the header is the contract's, so Iceberg names stay identifiers) and its

@@ -85,15 +85,33 @@ owed = re.compile(r'^foundation_asset_owed\{asset="([^"]+)",job="([^"]+)"\} 1$')
 print(" ".join(sorted(found[1] for found in map(owed.match, lines) if found and found[2] in publish)))
 PY
 )" || { log "cannot read what the asset reconciler owes; nothing started"; exit 70; }
-if [[ -n "${owed}" ]]; then
-  log "a served lane's refresh is owed (${owed}); no first publish starts before it"
-  exit 0
-fi
 
 mapfile -t pending < <("${ops}/by-pnu-lane-cutover.sh" lanes --pending)
 if ((${#pending[@]} == 0)); then
   log "every lane is cut over; nothing to do"
   exit 0
+fi
+
+# Root ADR-0439 as amended by ADR-0595: the hold is on the one resource that has no queue and no
+# priority order, the Gold rebuild lock (gold-panel-rebuild.sh's flock, taken without waiting). A lane
+# whose gold step takes it (the cut-over runner says which: `lanes --pending-gold-lock`) waits for the
+# owed refresh. A lane whose gold step does not still claims the spark pool for its gold and bake steps,
+# but that pool is ordered by priority class (`publish` before `first_publish`, root ADR-0435), so it
+# needs no hold. 2026-11-19 12:12Z..11-20: parcel-nearby's Gold (its own DuckDB job) was committed and
+# its first publish waited behind the failed, owed real-transaction bake, with no alarm on the hold.
+if [[ -n "${owed}" ]]; then
+  locks="$("${ops}/by-pnu-lane-cutover.sh" lanes --pending-gold-lock)" \
+    || { log "cannot read which lanes' gold step takes the rebuild lock; nothing started"; exit 70; }
+  free=()
+  while read -r lane takes; do
+    if [[ -n "${lane}" && "${takes}" == no ]]; then free+=("${lane}"); fi
+  done <<<"${locks}"
+  if ((${#free[@]} == 0)); then
+    log "a served lane's refresh is owed (${owed}); no first publish starts before it"
+    exit 0
+  fi
+  log "a served lane's refresh is owed (${owed}); only lanes whose gold step takes no Gold rebuild lock may start: ${free[*]}"
+  pending=("${free[@]}")
 fi
 
 # The lane to start and its generation, or nothing while every pending lane waits out its backoff.

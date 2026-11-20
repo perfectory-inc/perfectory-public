@@ -184,6 +184,30 @@ fn staging_namespace_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn load_data_go_kr_file_data_silver_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-data-go-kr-file-data-silver"
+        ])?,
+        Command::LoadDataGoKrFileDataSilver
+    );
+    Ok(())
+}
+
+#[test]
+fn load_registered_factory_silver_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-registered-factory-silver"
+        ])?,
+        Command::LoadRegisteredFactorySilver
+    );
+    Ok(())
+}
+
+#[test]
 fn load_data_go_kr_onbid_silver_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
