@@ -107,3 +107,39 @@ took=$((SECONDS - started))
 grep -q '(no network)' <<<"$output" || fail "the second install did not come from the cache: $output"
 [ "$(dpkg-query -W -f='${db:Status-Status}' "$package")" = installed ] || fail "$package is not installed from the cache"
 echo "ok apt-install-self-test: every mirror blocked, installed from the package cache in ${took}s"
+
+# --- another runner image: the kept files are used, not downloaded again ---------------------------
+# GitHub runs several image versions at once and main saves the cache from one (2026-11-17..19: 18
+# of 30 Postgres integration runs were on another and downloaded 29.8 MB again, 12 for 450-640 s).
+# The set kept above is renamed to an image that is not this one; the index is read from a mirror,
+# and the package file itself must come from the kept set.
+sudo dpkg --purge "$package" >/dev/null
+sudo cp "$hosts_backup" /etc/hosts
+kept_marks=("$cache"/*/complete)
+mv "${kept_marks[0]%/complete}" "$cache/ubuntu24-00000000.0.0-amd64-0000000000000000"
+if ! output="$(PERFECTORY_APT_CACHE_DIR="$cache" GITHUB_ENV="$test_root/env" bash "$script" "$package" 2>&1)"; then
+  printf '%s\n' "$output" >&2
+  fail "with a set kept for another image, the install failed"
+fi
+grep -Eq 'kept from another runner image: [1-9]' <<<"$output" || fail "the files kept for another image were not used: $output"
+grep -q 'Need to get 0 B/' <<<"$output" || fail "a package file kept for another image was downloaded again: $output"
+state="$(dpkg-query -W -f='${db:Status-Status}' "$package")" || state=""
+[ "$state" = installed ] || fail "$package is not installed from the files kept for another image"
+echo "ok apt-install-self-test: a set kept for another image is reused, nothing downloaded again"
+
+# A kept file whose bytes are not the index's is not used.
+sudo dpkg --purge "$package" >/dev/null
+kept_marks=("$cache"/*/complete)
+mv "${kept_marks[0]%/complete}" "$cache/ubuntu24-00000000.0.0-amd64-0000000000000000"
+for file in "$cache"/ubuntu24-00000000.0.0-amd64-0000000000000000/*.deb; do
+  size="$(stat -c %s "$file")"
+  head -c "$size" /dev/zero >"$file.zero" && mv "$file.zero" "$file"
+done
+if ! output="$(PERFECTORY_APT_CACHE_DIR="$cache" GITHUB_ENV="$test_root/env" bash "$script" "$package" 2>&1)"; then
+  printf '%s\n' "$output" >&2
+  fail "with a damaged kept set, the install failed"
+fi
+grep -q 'kept from another runner image: 0$' <<<"$output" || fail "a kept file with the wrong bytes was used: $output"
+state="$(dpkg-query -W -f='${db:Status-Status}' "$package")" || state=""
+[ "$state" = installed ] || fail "$package is not installed after refusing the damaged file"
+echo "ok apt-install-self-test: a kept file with the wrong bytes is downloaded again, not installed"

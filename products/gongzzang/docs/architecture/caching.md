@@ -87,5 +87,5 @@ Next.js 환경 변수 검증도 운영에 안전한 Valkey 주소를 요구한�
 트래픽·인증, 파운데이션 이벤트 수신기, PNU 기준점 PBF 표식 계약은 CI에서 강제한다(로컬 훅은 보조일 뿐
 판정이 아니다). 파운데이션 경계는 `tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙)가 지키며 ADR-0149 이후
 CI 전용이다(`.github/workflows/gongzzang-ci.yml` 저장소 안전장치). 트래픽·인증 정책 산출물은 등록부에서
-`cargo run -p gongzzang-api --bin generate-traffic-auth-policy`로 다시 만들고, CI `traffic-auth-policy-drift`
+`cargo run -p gongzzang-api --bin generate-traffic-auth-policy`로 다시 만들고, CI `policy` 잡
 작업이 어긋남을 막는다.

@@ -15,6 +15,7 @@ use std::path::Path;
 use anyhow::{ensure, Context};
 use duckdb::{Config, Connection};
 use foundation_publisher_core::lakehouse_data_commit::{StagedFile, TableShape};
+use lakehouse_domain::LakehouseTableContract;
 
 use crate::{lakehouse_engine_contract::execution_profile, serving_scratch};
 
@@ -312,6 +313,60 @@ impl DuckDbParquetStage {
             name: name.to_owned(),
         })
     }
+}
+
+/// A pinned table reference with the nullable contract columns it lacks read as NULL.
+///
+/// `source` itself when it lacks none. Every pinned read that runs a contract's current-rows query
+/// reads through it (root ADR-0564 §4).
+///
+/// A read pinned by snapshot id has that snapshot's schema, so a table that gained a nullable
+/// column after its last data commit is read without it, and the contract's current-rows query
+/// names a column the read does not have. On 2026-11-19 the first Onbid load here refused the
+/// register titles for lacking `row_state`. Iceberg reads such a column as null from every file
+/// written before it; this is the same answer (Spark: `platform_contracts.with_contract_columns`).
+/// A required column is never invented: a query that names one the read lacks fails in `DuckDB`.
+///
+/// # Errors
+/// `DuckDB` cannot describe `source`, or it lacks a nullable column whose type has no null reader
+/// here.
+pub fn with_contract_columns(
+    connection: &Connection,
+    contract: &LakehouseTableContract,
+    source: &str,
+) -> anyhow::Result<String> {
+    let have = connection
+        .prepare(&format!("DESCRIBE SELECT * FROM {source}"))
+        .with_context(|| format!("DuckDB could not describe {source}"))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+    let mut added = Vec::new();
+    for column in contract.columns {
+        if column.required || have.contains(column.name) {
+            continue;
+        }
+        let sql_type = match column.logical_type {
+            "string" => "VARCHAR",
+            "int" => "INTEGER",
+            "long" => "BIGINT",
+            "double" => "DOUBLE",
+            "boolean" => "BOOLEAN",
+            "date" => "DATE",
+            "timestamp" => "TIMESTAMPTZ",
+            "binary" => "BLOB",
+            decimal if decimal.starts_with("decimal(") => decimal,
+            other => anyhow::bail!(
+                "{} ({source}) lacks {}, and a {other} column has no null reader",
+                contract.table_name,
+                column.name
+            ),
+        };
+        added.push(format!("CAST(NULL AS {sql_type}) AS {}", column.name));
+    }
+    if added.is_empty() {
+        return Ok(source.to_owned());
+    }
+    Ok(format!("(SELECT *, {} FROM {source})", added.join(", ")))
 }
 
 #[cfg(test)]

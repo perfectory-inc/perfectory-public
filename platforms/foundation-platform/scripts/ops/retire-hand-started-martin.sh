@@ -65,12 +65,19 @@ elif docker container inspect martin-static >/dev/null 2>&1; then
   echo "retire-hand-started-martin config ${STATIC_CONFIG}: kept, martin-static still exists"
 else
   mounted_by=""
+  unread=""
   for id in $(docker ps -aq); do
-    if grep -Fxq "${STATIC_CONFIG}" < <(docker container inspect -f '{{range .Mounts}}{{.Source}}{{println}}{{end}}' "${id}"); then
+    # Read apart from the comparison: an inspect that fails is not "does not mount it", and the file stays.
+    if ! mounts="$(docker container inspect -f '{{range .Mounts}}{{.Source}}{{println}}{{end}}' "${id}")"; then
+      unread+=" ${id}"
+    elif grep -Fxq "${STATIC_CONFIG}" <<<"${mounts}"; then
       mounted_by+=" ${id}"
     fi
   done
-  if [[ -n "${mounted_by}" ]]; then
+  if [[ -n "${unread}" ]]; then
+    echo "retire-hand-started-martin config ${STATIC_CONFIG}: kept, docker could not show the mounts of${unread}" >&2
+    status=1
+  elif [[ -n "${mounted_by}" ]]; then
     echo "retire-hand-started-martin config ${STATIC_CONFIG}: kept, mounted by${mounted_by}"
   elif rm -f -- "${STATIC_CONFIG}"; then
     echo "retire-hand-started-martin config ${STATIC_CONFIG}: removed (no container mounts it)"

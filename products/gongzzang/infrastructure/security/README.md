@@ -14,7 +14,7 @@ Pulumi 인프라 스택이 읽는 트래픽·인증 엣지 생성 산출물을 �
 - `aws-wafv2-edge-policy.generated.json`은 그 투영에서 나온 AWS WAFv2·Pulumi 규칙 목록이다.
 
 생성 파일을 직접 수정하지 않는다. 레지스트리를 바꾼 뒤 다음 명령으로 다시 생성한다
-(CI `traffic-auth-policy-drift` 가 같은 명령으로 어긋남을 검사한다).
+(CI `policy` 잡 가 같은 명령으로 어긋남을 검사한다).
 `cargo run -p gongzzang-api --bin generate-traffic-auth-policy`.
 
 현재 상태: `../index.ts` 가 WAFv2 규칙 목록을 읽어 WebACL 을 만든다. 범위는 Pulumi 설정 `wafScope`

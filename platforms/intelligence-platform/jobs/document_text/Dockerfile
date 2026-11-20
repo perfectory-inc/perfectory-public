@@ -1,5 +1,5 @@
 # The document text job of root ADR-0477: pdfplumber for the PDF text layer, ocrmypdf with
-# Tesseract (kor) for the pages that are scans, LibreOffice with the H2Orestart filter to print
+# Tesseract (kor) for the pages that are scans, drawn first at a fixed resolution by Ghostscript, LibreOffice with the H2Orestart filter to print
 # HWP 5 / HWPX to PDF. The tools run as child processes of `python -m document_text.run`.
 # Build from platforms/intelligence-platform: docker build -f jobs/document_text/Dockerfile .
 FROM python:3.14.10-slim-trixie@sha256:3cabfd7d7aaf394e6040e79fa1eec6ca1c52b74ed9188650472695d9a9326999
@@ -16,7 +16,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ca-certificates curl \
       libreoffice-writer-nogui libreoffice-java-common default-jre-headless \
-      ocrmypdf tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng \
+      ocrmypdf ghostscript tesseract-ocr tesseract-ocr-kor tesseract-ocr-eng \
       fonts-nanum fonts-noto-cjk \
  && curl -fsSL -o /tmp/H2Orestart.oxt "$H2ORESTART_URL" \
  && echo "$H2ORESTART_SHA256  /tmp/H2Orestart.oxt" | sha256sum -c - \

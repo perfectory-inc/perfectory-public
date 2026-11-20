@@ -1,6 +1,7 @@
 //! Catalog infrastructure: `SQLx` repository, unit of work (atomic mutation plus outbox),
 //! ACL adapters.
 
+pub mod audit_events;
 pub mod industrial_complex_transaction;
 pub mod job_switch_board;
 pub mod operator_action_ledger;
@@ -9,6 +10,7 @@ mod row_map;
 pub mod sqlx_repository;
 pub mod unit_of_work;
 
+pub use audit_events::PgAuditEventStore;
 pub use industrial_complex_transaction::{
     IndustrialComplexMutationReceipt, IndustrialComplexSnapshot,
     PgIndustrialComplexTransactionParticipant,

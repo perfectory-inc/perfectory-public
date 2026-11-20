@@ -91,7 +91,7 @@ packages/                    ← TS 라이브러리 (ui, api-types 생성물)
 | 5 | 시크릿 git 커밋 | gitleaks (루트 `lefthook.yml` + `secret-scan.yml`) | pre-commit + CI |
 | 6 | 코드 스타일 위반 | rustfmt + Biome (루트 lefthook), CI `cargo xtask verify gongzzang`·`gongzzang-frontend.yml` | pre-commit + CI |
 | 7 | 의존성 방향 위반 | (Rust) repo-guard `capability-layout` + `gongzzang-catalog-boundary.yml`; (TS) 도구 **미도입** — 수동 준수 | CI |
-| 8 | 파일 1500줄 초과 | `cargo run -p repo-guard -- file-line-limit` (gongzzang-ci Repo guardrails job), 루트 `file-line-limit.sh` | pre-push + CI |
+| 8 | 파일 1500줄 초과 | `cargo run -p repo-guard -- file-line-limit` (gongzzang-ci Policy gates job), 루트 `file-line-limit.sh` | pre-push + CI |
 | 9 | 글로서리 외 도메인 용어 | **미도입** — 자동 grep 룰 없음, 리뷰에서 수동 준수 | (수동) |
 | 10 | TODO/HACK/XXX/TEMP 코드 | 루트 Semgrep 규칙 `tools/semgrep/rules/gongzzang-implementation-markers.yml` + clippy `todo`·`unimplemented` deny | CI |
 | 11 | Foundation Platform 소유 Catalog crate·Catalog 표 쓰기·Catalog 변경 route 재도입 | `gongzzang-catalog-boundary.yml` | CI |

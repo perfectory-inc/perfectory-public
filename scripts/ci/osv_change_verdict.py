@@ -88,7 +88,10 @@ def severity_class(score: str, contract: dict) -> str:
 
 
 def toplevel(root: Path) -> Path | None:
-    shown = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    # check=False: not a repository answers None, read on the next line.
+    shown = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False
+    )
     return Path(shown.stdout.strip()) if shown.returncode == 0 and shown.stdout.strip() else None
 
 
@@ -186,14 +189,21 @@ def verdict(finding: Finding, touched: set[str] | None, pulls: list[dict], contr
 def touched_files(root: Path, base: str) -> set[str] | None:
     if not base or set(base) == {"0"}:
         return None
-    present = subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{base}^{{commit}}"], capture_output=True)
+    # check=False on the three: each status is read; a base that cannot be had counts every lockfile as touched.
+    present = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "-e", f"{base}^{{commit}}"], capture_output=True, check=False
+    )
     if present.returncode != 0:
         fetched = subprocess.run(
-            ["git", "-C", str(root), "fetch", "-q", "--no-tags", "--depth=1", "origin", base], capture_output=True
+            ["git", "-C", str(root), "fetch", "-q", "--no-tags", "--depth=1", "origin", base],
+            capture_output=True,
+            check=False,
         )
         if fetched.returncode != 0:
             return None
-    diff = subprocess.run(["git", "-C", str(root), "diff", "-z", "--name-only", base, "HEAD"], capture_output=True)
+    diff = subprocess.run(
+        ["git", "-C", str(root), "diff", "-z", "--name-only", base, "HEAD"], capture_output=True, check=False
+    )
     if diff.returncode != 0:
         return None
     return {name for name in diff.stdout.decode("utf-8", "surrogateescape").split("\0") if name}
@@ -208,6 +218,7 @@ def fix_pulls(repository: str, label: str) -> list[dict] | None:
                 "--limit", str(LIMIT), "--json", "number,title,body,createdAt,labels,state,files",
             ],
             capture_output=True, text=True, encoding="utf-8", timeout=120,
+            check=False,  # the status is read below: None tells the caller GitHub could not be read
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         print(f"osv-change-verdict: cannot list pull requests ({error})", file=sys.stderr)

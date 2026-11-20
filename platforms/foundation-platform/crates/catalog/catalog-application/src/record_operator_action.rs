@@ -134,7 +134,16 @@ impl RecordOperatorAction {
         };
         self.switches.ready()?;
         self.ledger.record(&record).await?;
-        self.switches.apply(&record)?;
+        let applied = self.switches.apply(&record);
+        // The request and its audit row are committed; whether the switch was written is the
+        // second audit row (root ADR-0569 §3). Losing that row must not hide the switch's own
+        // outcome from the caller, so its failure is only logged by the ledger.
+        let failure = applied.as_ref().err().map(ToString::to_string);
+        self.ledger
+            .record_switch(&record, failure.as_deref())
+            .await
+            .ok();
+        applied?;
         Ok(record)
     }
 }

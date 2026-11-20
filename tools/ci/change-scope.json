@@ -6,6 +6,7 @@
         "consoles/dawneer/**",
         "platforms/foundation-platform/docs/openapi/lineage-review.v1.json",
         "tools/xtask/**",
+        "scripts/ci/apt-install.sh",
         ".cargo/config.toml",
         "rust-toolchain.toml",
         "platforms/foundation-platform/docs/openapi/catalog.v1.json",
@@ -17,6 +18,7 @@
       "paths": [
         "platforms/intelligence-platform/**",
         "tools/xtask/**",
+        "scripts/ci/apt-install.sh",
         ".cargo/config.toml",
         "rust-toolchain.toml",
         "platforms/identity-platform/docs/openapi/identity.v1.json",
@@ -29,6 +31,7 @@
         "platforms/identity-platform/**",
         "platforms/foundation-platform/config/identity-route-policies.contract.json",
         "tools/xtask/**",
+        "scripts/ci/apt-install.sh",
         ".cargo/config.toml",
         "rust-toolchain.toml"
       ]
@@ -37,6 +40,7 @@
       "paths": [
         "products/gongzzang/**",
         "tools/xtask/**",
+        "scripts/ci/apt-install.sh",
         ".cargo/config.toml",
         "rust-toolchain.toml",
         "platforms/foundation-platform/config/r2-connections.contract.json",
@@ -53,6 +57,7 @@
       "paths": [
         "products/gongzzang/**",
         "tools/xtask/**",
+        "scripts/ci/apt-install.sh",
         ".cargo/config.toml",
         "rust-toolchain.toml",
         "platforms/foundation-platform/config/r2-connections.contract.json",
@@ -163,6 +168,7 @@
         "docs/adr/**",
         "docs/architecture/**",
         "tools/xtask/**",
+        "scripts/ci/apt-install.sh",
         ".cargo/config.toml",
         "rust-toolchain.toml",
         "scripts/github/**",
@@ -250,7 +256,9 @@
       ".github/workflows/**",
       "tools/cargo-nextest.env",
       "tools/pinned-artifacts.json",
-      "scripts/ci/rust-setup.sh"
+      "scripts/ci/rust-setup.sh",
+      "scripts/ci/apt-install.sh",
+      "scripts/ci/generate-declared.sh"
     ],
     "run_all_in_workspace": [
       "Cargo.toml",
@@ -779,6 +787,19 @@
           "**/*.dockerignore",
           "**/*compose*.yml",
           "tools/build-coupling/compile-time-reads.txt"
+        ]
+      },
+      {
+        "name": "shell-and-python-lint",
+        "paths": [
+          "**/*.sh",
+          "**/*.py",
+          ".shellcheckrc",
+          "ruff.toml",
+          "tools/ci/lint-baseline.json",
+          "tools/shellcheck.env",
+          "tools/ruff.env",
+          "tools/pinned-artifacts.json"
         ]
       },
       {

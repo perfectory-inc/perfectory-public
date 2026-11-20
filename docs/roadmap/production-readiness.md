@@ -145,6 +145,7 @@ last_reviewed: 2026-11-07
 - [ ] RAON 레인은 사람 단계 없이 매일 8개씩 새것부터 받는다(ADR-0514) — 배포 뒤 첫 실행(03:40 UTC)의 `| raon` 줄과 용도지역지구 20261109 의 경기·경북 Bronze 도착, parcel-zoning 재발행을 확인한다.
 - [ ] juso.go.kr 전자지도 이용 신청(ADR-0355 §3, 처리 10일).
 - [ ] 규제 구역 지도 타일을 만들지 결정(#974: 타일은 계획만, 월 ₩100 미만 추정).
+- [ ] CI 의 러너 실패 재실행·버려진 큐 실행 취소·main 빨간불을 사건으로 받는다([ADR-0587](../adr/0587-a-github-app-delivers-run-and-merge-queue-events-to-a-worker-that-re-runs-runner-failures-and-cancels-dropped-queue-runs.md), Proposed) — `*/5`·`*/10` 일정은 실제로 하루 세 번만 돈다. 사장이 GitHub App 을 만든 뒤(ADR 의 9단계) Worker 를 구현한다.
 - [ ] `MERGE` 로 쓰는 Gold 가 Spark 를 떠나는 길 결정([ADR-0561](../adr/0561-a-gold-that-merges-leaves-spark-by-becoming-a-table-of-appended-row-versions-the-publisher-commits.md), Proposed):
       아직 없는 두 Gold(주변·실거래)를 "바뀐 행을 쌓는 표"로 태어나게 하고 나머지는 그 둘을 잰 뒤 정한다는 권고. 받아들이기 전에는 짓지 않는다.
 - [x] 가린 지번 추정 진행 결정 — 승인(10-31 "해보자"), 구현은 #982.

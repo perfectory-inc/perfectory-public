@@ -29,8 +29,6 @@ pub struct Config {
     pub foundation_base: Url,
     /// Built screens (`web/dist`).
     pub web_dir: PathBuf,
-    /// `DAWNEER_DATABASE_URL`: the session store's Postgres; required when served over https.
-    pub database_url: Option<String>,
 }
 
 impl Config {
@@ -65,18 +63,9 @@ impl Config {
                 or("DAWNEER_FOUNDATION_API_BASE_URL", "http://127.0.0.1:18080"),
             )?,
             web_dir: PathBuf::from(or("DAWNEER_WEB_DIR", "web/dist")),
-            database_url: std::env::var("DAWNEER_DATABASE_URL")
-                .ok()
-                .filter(|url| !url.trim().is_empty()),
         };
         if !config.project_id.bytes().all(|b| b.is_ascii_digit()) || config.project_id.is_empty() {
             bail!("DAWNEER_ZITADEL_PROJECT_ID is a Zitadel project id (digits)");
-        }
-        if config.secure_cookies() && config.database_url.is_none() {
-            bail!(
-                "DAWNEER_DATABASE_URL is required when the console is served over https: sessions \
-                 live in Postgres so a restart or a release signs nobody out"
-            );
         }
         Ok(config)
     }

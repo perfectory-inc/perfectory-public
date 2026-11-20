@@ -291,11 +291,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         let step = Instant::now();
         place_identity_stage::offers(stage)?;
         let offers_seconds = seconds(step);
-        let titles = contract(TITLE_TABLE)?
-            .current_rows_sql_template()
-            .context("the register titles keep no versions per key")?;
         let step = Instant::now();
-        let read = place_identity_stage::read_served(stage, &pins, &titles)?;
+        let read = place_identity_stage::read_served(stage, &pins, contract(TITLE_TABLE)?)?;
         summary["place_seconds"] = json!({
             "reference": reference_seconds, "item_objects": item_objects_seconds,
             "offers": offers_seconds, "served_parcels_and_titles": seconds(step),

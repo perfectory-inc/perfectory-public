@@ -33,7 +33,18 @@ GATES = (
 # publisher cold inside a container and took 15 of a pull request's 21 minutes on 2026-10-12; the
 # merge group, a push to main and a manual run still select it by path exactly as before, so
 # nothing reaches main without it. A pull request only waits less for its first verdict.
-MERGE_QUEUE_ONLY = frozenset({"boundary-slice"})
+# Root ADR-0580 (amended 2026-11-20): every gate is left to the merge queue, and so is the Postgres
+# integration job (PULL_REQUEST_LEAVES below). A pull request keeps what catches its own mistakes
+# cheaply: the Rust job (fmt, clippy, the unit tests of the crates it reaches), the Python and Node
+# suites, the supply-chain gates and the repository guards. Measured on 258 pull-request runs,
+# 2026-11-12..19: a run took 64.6 runner-minutes and 8.4 runner starts on average against a cap of
+# 20 concurrent jobs, and only 3 failures in those 8 days were a pull request's own mistake that
+# one of the jobs moved here was the first to catch (Spark 2, Postgres 1; the release dry run,
+# moved earlier, 1; the suites caught 8 and stay). Those now fail in the merge group instead and
+# drop the entry.
+MERGE_QUEUE_ONLY = frozenset(GATES)
+# Jobs that are not path-selected gates and a pull request leaves to the merge queue all the same.
+PULL_REQUEST_LEAVES = ("postgres-integration",)
 
 # Changes to dependency locks or the path-selection mechanism itself have an
 # unbounded blast radius. Running every gate is the safe default.
@@ -139,6 +150,8 @@ RULES = {
             "platforms/foundation-platform/services/foundation-outbox-publisher/Cargo.toml",
             "platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs",
             "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/static_release_toolchain.rs",
+            # The Windows gate runs the verifier through this crate's own binary (root ADR-0581).
+            "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/bin/verify-static-release-toolchain.rs",
             "scripts/tiles/static_release_toolchain_contract.py",
         ],
         "prefixes": [
@@ -189,13 +202,17 @@ SUITE_JOB = "suites"
 SUPPLY_CHAIN_JOB = "supply-chain"
 # Root ADR-0345: the release build as a dry run (no attestation, no push). It has work exactly when
 # merging would give main a release build: the release workflow's own scope (root ADR-0309,
-# tools/ci/change-scope.json), asked of the same change. A pull request and the merge queue run it;
-# a push to main and the nightly run leave it to the release workflow, which builds main for real.
+# tools/ci/change-scope.json), asked of the same change. The merge queue runs it; a push to main and
+# the nightly run leave it to the release workflow, which builds main for real.
 # 2026-10-29: #939 compiled in a file the publisher image lacked; every pull request passed and
 # every release build on main failed for 11 hours.
+# Root ADR-0580: a pull request leaves it to the merge queue, as it leaves the boundary slice
+# (ADR-0199). The queue re-ran the same 11-minute build on a new base for every pull request
+# (2026-11-18: 12 runs in two hours, 131 runner-minutes, 234 s median wait for a runner); nothing
+# reaches main without the queue's run, so main still never gets a commit the dry run did not build.
 RELEASE_JOB = "release-image"
 RELEASE_WORKFLOW = "foundation-release-build.yml"
-RELEASE_EVENTS = frozenset({"pull_request", "merge_group", "workflow_dispatch"})
+RELEASE_EVENTS = frozenset({"merge_group", "workflow_dispatch"})
 WORKSPACE = "platforms/foundation-platform"
 # What cargo-deny and the SBOM read, besides every Cargo.toml of the workspace and any lock (run
 # all). Advisories change without a commit: the nightly full run and dependency-advisories.yml.
@@ -246,6 +263,7 @@ REQUIRED_WITNESSES = {
         "installer": "scripts/tiles/static_release_toolchain_contract.py",
         "embedded verifier": "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/static_release_toolchain.rs",
         "command entrypoint": "platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs",
+        "Windows gate entrypoint": "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/bin/verify-static-release-toolchain.rs",
     },
     "dagster-observe": {
         "runner": "scripts/verify/foundation-dagster-observe.sh",
@@ -371,7 +389,7 @@ def deferral_warning(gate: str) -> str:
     """A workflow annotation, so the pull request page says the gate did not run here."""
     return (
         f"::warning title={gate} deferred to the merge queue::This pull request changes inputs of "
-        f"{gate}, which pull requests leave to the merge queue (root ADR-0199). It has not run on "
+        f"{gate}, which pull requests leave to the merge queue (root ADR-0199, ADR-0580). It has not run on "
         "this pull request; the merge group runs it before anything reaches main."
     )
 
@@ -403,7 +421,7 @@ def release_image_selected(event_name: str, paths: Iterable[str] | None) -> bool
 
 def skipped_jobs(
     *, selected: set[str], paths: Iterable[str] | None, crates_answer: str, suites_answer: str,
-    event_name: str = "pull_request",
+    event_name: str,
 ) -> list[str]:
     """The Foundation CI jobs with no work (root ADR-0324), from the gate selection and the crate
     and suite selectors' answers. An empty (unreadable) answer skips none of its jobs."""
@@ -419,7 +437,18 @@ def skipped_jobs(
         skipped.add(SUITE_JOB)
     if not supply_chain_selected(paths, crates_kind != "some"):
         skipped.add(SUPPLY_CHAIN_JOB)
+    if event_name == "pull_request":
+        skipped.update(PULL_REQUEST_LEAVES)
     return sorted(skipped)
+
+
+def left_to_the_queue(*, paths: Iterable[str] | None, crates_answer: str, suites_answer: str) -> list[str]:
+    """The jobs of PULL_REQUEST_LEAVES this pull request would have run: what the merge group runs."""
+    in_queue = skipped_jobs(
+        selected=set(GATES), paths=paths, crates_answer=crates_answer, suites_answer=suites_answer,
+        event_name="merge_group",
+    )
+    return [job for job in PULL_REQUEST_LEAVES if job not in in_queue]
 
 
 def _selector(command: str) -> str:
@@ -443,13 +472,27 @@ def skipped_jobs_main(args: argparse.Namespace) -> int:
         try:
             paths = git_changed_paths(args.repository, args.base, args.head) if comparable else None
             selected = selected_gates(event_name=args.event_name, base=args.base, head=args.head, paths=paths)
+            by_path = path_selected_gates(event_name=args.event_name, base=args.base, head=args.head, paths=paths)
         except (OSError, subprocess.CalledProcessError) as error:
-            print(f"foundation-ci-scope: git comparison unavailable, every gate runs: {error}", file=sys.stderr)
-            paths, selected = None, set(GATES)
+            # Nothing is known about the change: every gate is taken as selected. A pull request
+            # still leaves them to the merge queue, as it leaves Postgres integration.
+            print(f"foundation-ci-scope: git comparison unavailable, every gate is selected: {error}", file=sys.stderr)
+            paths, by_path = None, set(GATES)
+            selected = by_path - deferred_gates(args.event_name, by_path)
+        crates_answer, suites_answer = _selector("crates"), _selector("suites")
         skipped = skipped_jobs(
-            selected=selected, paths=paths, crates_answer=_selector("crates"), suites_answer=_selector("suites"),
+            selected=selected, paths=paths, crates_answer=crates_answer, suites_answer=suites_answer,
             event_name=args.event_name,
         )
+        if args.event_name == "pull_request":
+            # The gate jobs no longer start on a pull request, so their own warning (`--gate`) is
+            # never printed there: the scope job says what the merge group will run.
+            left = sorted(deferred_gates(args.event_name, by_path))
+            if release_image_selected("merge_group", paths):
+                left.append(RELEASE_JOB)
+            left += left_to_the_queue(paths=paths, crates_answer=crates_answer, suites_answer=suites_answer)
+            for job in left:
+                print(deferral_warning(job))
     print(json.dumps({"affected": args.affected, "skipped_jobs": skipped}, sort_keys=True))
     with args.github_output.open("a", encoding="utf-8", newline="\n") as output:
         output.write(f"skipped={json.dumps(skipped)}\n")

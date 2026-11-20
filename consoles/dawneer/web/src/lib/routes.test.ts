@@ -35,7 +35,7 @@ describe("routes", () => {
   });
 
   it("has one menu for the flow and none for the moved pages", () => {
-    expect(MENU.map((item) => item.href)).toEqual(["#/", "#/flow", "#/tiles", "#/complexes"]);
+    expect(MENU.map((item) => item.href)).toEqual(["#/", "#/flow", "#/tiles", "#/complexes", "#/audit"]);
   });
 
   it("still finds the other screens", () => {
@@ -46,5 +46,25 @@ describe("routes", () => {
     });
     expect(resolveRoute("/tiles")).toEqual({ page: "tiles" });
     expect(resolveRoute("/complexes")).toEqual({ page: "complexes" });
+  });
+
+  it("opens the audit chain by account and by object (root ADR-0569 §7)", () => {
+    expect(resolveRoute("/audit")).toEqual({ page: "audit", actor: null, objectType: null, objectId: null });
+    expect(resolveRoute("/audit/actor/me")).toEqual({ page: "audit", actor: "me", objectType: null, objectId: null });
+    expect(resolveRoute("/audit/actor/00000000-0000-4000-8000-0000000000aa")).toEqual({
+      page: "audit",
+      actor: "00000000-0000-4000-8000-0000000000aa",
+      objectType: null,
+      objectId: null,
+    });
+    expect(resolveRoute("/audit/object/job/shape_ledger_check")).toEqual({
+      page: "audit",
+      actor: null,
+      objectType: "job",
+      objectId: "shape_ledger_check",
+    });
+    expect(resolveRoute("/audit/object/file/tools%2Fhost.json%23%2Fx")).toMatchObject({ objectId: "tools/host.json#/x" });
+    expect(resolveRoute("/audit/object/job/%E0%A4%A")).toEqual({ page: "review-list" });
+    expect(resolveRoute("/audit/actor/someone")).toEqual({ page: "review-list" });
   });
 });

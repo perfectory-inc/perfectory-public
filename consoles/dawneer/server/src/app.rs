@@ -24,7 +24,7 @@ use crate::oidc::{self, Provider};
 use crate::relay;
 use crate::session::{Session, SessionStore};
 
-/// The session cookie. Its value is a random id; the tokens stay in [`SessionStore`], keyed by its hash.
+/// The session cookie. Its value is a random id; the tokens stay in [`SessionStore`].
 pub const SESSION_COOKIE: &str = "dawneer_session";
 /// The header every state-changing request echoes the session's CSRF value in.
 pub const CSRF_HEADER: &str = "x-dawneer-csrf";
@@ -48,17 +48,12 @@ pub struct AppState {
 impl AppState {
     /// Builds the state from settings and the discovered issuer.
     #[must_use]
-    pub const fn new(
-        config: Config,
-        provider: Provider,
-        http: reqwest::Client,
-        sessions: SessionStore,
-    ) -> Self {
+    pub fn new(config: Config, provider: Provider, http: reqwest::Client) -> Self {
         Self {
             config,
             provider,
             http,
-            sessions,
+            sessions: SessionStore::default(),
         }
     }
 }
@@ -254,21 +249,14 @@ fn session_cookie(state: &AppState, value: String) -> Cookie<'static> {
 
 async fn login(State(state): State<Arc<AppState>>) -> Response {
     let authorization = state.provider.authorize();
-    if let Err(error) = state
+    state
         .sessions
         .begin(
-            &authorization.state,
+            authorization.state,
             authorization.verifier,
             authorization.nonce,
         )
-        .await
-    {
-        tracing::error!(%error, "sign-in could not be remembered");
-        return plain(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "sign-in is unavailable; try again",
-        );
-    }
+        .await;
     Redirect::to(authorization.url.as_str()).into_response()
 }
 
@@ -315,13 +303,7 @@ async fn callback(
     };
     tracing::info!(sub = %identity.sub, "staff signed in");
     let session = Session::new(identity, tokens, csrf, DEFAULT_ACCESS_LIFETIME);
-    if let Err(error) = state.sessions.insert(&id, &session).await {
-        tracing::error!(%error, "session could not be stored");
-        return plain(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "sign-in is unavailable; try again",
-        );
-    }
+    state.sessions.insert(id.clone(), session).await;
     let mut cookie = session_cookie(&state, id);
     cookie.set_max_age(SESSION_COOKIE_LIFETIME);
     let jar = CookieJar::new().add(cookie);
@@ -398,7 +380,11 @@ async fn session(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Resp
 
 /// The session's access token, refreshed first if it is about to expire.
 async fn access_token(state: &AppState, id: &str, session: &Session) -> Option<String> {
-    if session.access_remaining() > REFRESH_MARGIN {
+    if session
+        .access_expires
+        .saturating_duration_since(std::time::Instant::now())
+        > REFRESH_MARGIN
+    {
         return Some(session.access_token.clone());
     }
     let refresh_token = session.refresh_token.as_deref()?;

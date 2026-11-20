@@ -25,7 +25,7 @@ set -u
 if [[ "$1 $2" == "container inspect" ]]; then
   if [[ "$3" == -f ]]; then
     IFS='|' read -r project image mount < "$STUB/containers/$5"
-    case "$4" in *compose.project*) echo "$project" ;; *Image*) echo "$image" ;; *Mounts*) echo "$mount" ;; esac
+    case "$4" in *compose.project*) echo "$project" ;; *Image*) echo "$image" ;; *Mounts*) [[ "$mount" == UNREADABLE ]] && exit 1; echo "$mount" ;; esac
     exit 0
   fi
   [[ -f "$STUB/containers/$3" ]]
@@ -106,6 +106,14 @@ class RetireHandStartedMartin(unittest.TestCase):
         result = self.run_script()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"config {self.config}: kept, mounted by someone-else", result.stdout)
+        self.assertTrue(self.config.exists())
+
+    def test_the_config_stays_when_docker_cannot_show_a_containers_mounts(self):
+        # A failed inspect used to read as "does not mount it", and the file was deleted.
+        self.container("someone-else", image="nginx:1", mount="UNREADABLE")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn(f"config {self.config}: kept, docker could not show the mounts of someone-else", result.stderr)
         self.assertTrue(self.config.exists())
 
     def test_a_declared_another_image_or_a_connected_container_is_kept_and_gone_is_said(self):

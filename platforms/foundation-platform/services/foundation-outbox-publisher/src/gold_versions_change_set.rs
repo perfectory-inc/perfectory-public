@@ -20,7 +20,9 @@ use anyhow::{ensure, Context};
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
 use foundation_publisher_silver::{
     duckdb_extensions,
-    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{
+        with_contract_columns, DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
+    },
 };
 use lakehouse_domain::industrial_complex_lakehouse_contracts;
 use lakehouse_infrastructure::{
@@ -209,7 +211,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         connection.execute_batch(&format!(
             "CREATE OR REPLACE TABLE served_before AS {};",
             latest.current_rows_sql(
-                &source(baseline),
+                &with_contract_columns(connection, contract, &source(baseline))?,
                 &["pnu"],
                 "pnu IN (SELECT pnu FROM moved)"
             )
