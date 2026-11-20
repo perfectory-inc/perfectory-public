@@ -601,27 +601,16 @@ fn short_name(table: &LakehouseTableContract) -> anyhow::Result<&'static str> {
         .1)
 }
 
-/// One synthetic row of each of `tables` is the first append into the table while it is empty.
-async fn each_first_append(
-    tables: &[&'static LakehouseTableContract],
-    object: &str,
-) -> anyhow::Result<Vec<(Option<i64>, u64)>> {
-    let root = tempfile::tempdir()?;
-    let mut firsts = Vec::new();
-    for table in tables {
-        let short = short_name(table)?;
-        let catalog = catalog_with(&root.path().join(short), table).await?;
-        let shape = LakehouseDataCommitter::new(Arc::clone(&catalog))
-            .table_shape(table.table_name)
-            .await?;
-        let file = DuckDbParquetStage::open(&root.path().join(format!("stage-{short}")))?.write(
-            &shape,
-            &synthetic_row(table)?,
-            &format!("{short}-first"),
-        )?;
-        firsts.push(first_append(&catalog, table, file, object).await?);
-    }
-    Ok(firsts)
+/// `table` created empty under `root`, and its write shape.
+async fn empty_table(
+    root: &Path,
+    table: &'static LakehouseTableContract,
+) -> anyhow::Result<(Arc<dyn Catalog>, TableShape)> {
+    let catalog = catalog_with(&root.join(short_name(table)?), table).await?;
+    let shape = LakehouseDataCommitter::new(Arc::clone(&catalog))
+        .table_shape(table.table_name)
+        .await?;
+    Ok((catalog, shape))
 }
 
 /// The 차세대 온비드 Silver load's first object into each of its eight empty tables (root
@@ -638,9 +627,17 @@ async fn an_onbid_object_is_the_first_append_into_each_empty_table() -> anyhow::
         contract("silver.onbid_announcement_bid_result")?,
         contract("silver.onbid_announcement_detail")?,
     ];
-    let firsts =
-        each_first_append(&tables, "bronze/source=synthetic/onbid-20990102t030405z.gz").await?;
-    assert_eq!(firsts, vec![(None, 1); 8]);
+    let root = tempfile::tempdir()?;
+    // One stage for the whole test: its files live as long as it does.
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    for table in tables {
+        let (catalog, shape) = empty_table(root.path(), table).await?;
+        let name = format!("{}-first", short_name(table)?);
+        let file = stage.write(&shape, &synthetic_row(table)?, &name)?;
+        let object = "bronze/source=synthetic/onbid-20990102t030405z.gz";
+        let first = first_append(&catalog, table, file, object).await?;
+        assert_eq!(first, (None, 1), "{}", table.table_name);
+    }
     Ok(())
 }
 
@@ -661,9 +658,17 @@ async fn a_file_data_edition_is_the_first_append_into_each_empty_table() -> anyh
         contract("silver.university")?,
         contract("silver.subway_station")?,
     ];
-    let firsts =
-        each_first_append(&tables, "bronze/source=synthetic/file-20990102t030405z.csv").await?;
-    assert_eq!(firsts, vec![(None, 1); 11]);
+    let root = tempfile::tempdir()?;
+    // One stage for the whole test: its files live as long as it does.
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    for table in tables {
+        let (catalog, shape) = empty_table(root.path(), table).await?;
+        let name = format!("{}-first", short_name(table)?);
+        let file = stage.write(&shape, &synthetic_row(table)?, &name)?;
+        let object = "bronze/source=synthetic/file-20990102t030405z.csv";
+        let first = first_append(&catalog, table, file, object).await?;
+        assert_eq!(first, (None, 1), "{}", table.table_name);
+    }
     Ok(())
 }
 
