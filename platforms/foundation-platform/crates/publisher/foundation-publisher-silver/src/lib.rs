@@ -145,9 +145,18 @@ pub mod onbid_silver_stage;
 /// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
 pub mod place_identity_stage;
 
+/// The parcel lineage's carry walk every placing producer shares (root ADR-0113 §6).
+pub mod lineage_carry;
+
+/// The parcel lineage as every consumer reads it: steward decisions in force (root ADR-0115 §9).
+pub mod lineage_steward_read;
+
 /// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
 pub mod real_transaction_gold_stage;
 pub mod registered_factory_stage;
+
+/// Where each 실거래 deal belongs, in `DuckDB` (root ADR-0350 §1, ADR-0351, ADR-0405).
+pub mod real_transaction_placement_stage;
 
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
 /// keeps the executable's lint posture (root ADR-0200 §4).

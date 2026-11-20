@@ -72,6 +72,22 @@ pub fn load_reference(stage: &DuckDbParquetStage, pins: &PlacePins) -> anyhow::R
         .context("DuckDB failed to read the place-identity reference tables")
 }
 
+/// Builds the crosswalk and the address readings (`reference.sql`) from tables already loaded.
+///
+/// The caller loaded `place_code_changes` and `place_dong_names` at its own pins (the 실거래 placement
+/// reads its inputs once, root ADR-0564 §3); this adds `python_values.sql`.
+///
+/// # Errors
+/// Returns a `DuckDB` failure.
+pub fn reference_from_loaded(connection: &duckdb::Connection) -> anyhow::Result<()> {
+    connection
+        .execute_batch(&format!(
+            "{}\n{REFERENCE_SQL}",
+            crate::duckdb_parquet_stage::PYTHON_VALUES_SQL
+        ))
+        .context("DuckDB failed to build the place-identity reference tables")
+}
+
 /// What the rows in `place_rows` offer and ask (`offers.sql`).
 ///
 /// # Errors
