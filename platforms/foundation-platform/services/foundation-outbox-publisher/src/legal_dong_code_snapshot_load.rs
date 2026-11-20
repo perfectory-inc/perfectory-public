@@ -73,6 +73,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let table_contract = contract(TABLE)?;
     let committer = LakehouseDataCommitter::from_env().await?;
     let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
+    // A table is born on its first commit (root ADR-0564 §1), as the Spark job made it.
+    committer.create_table_if_absent(table_contract).await?;
     let shape = committer.table_shape(TABLE).await?;
     let expected_head = head(&catalog, TABLE).await?;
     // One instant for the load, to the second, as the Spark job took one.
