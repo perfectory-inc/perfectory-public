@@ -1,0 +1,2 @@
+B999999|20990130000001|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|000241|3|3|later|jpg|1003|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|2|20990102T030405Z
+B999999|20990130000001|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|000241|2|2|synthetic2.jpg|jpg|1002|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|2|20990102T030405Z

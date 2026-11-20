@@ -104,3 +104,18 @@ CREATE OR REPLACE MACRO ca_reached_parts(v) AS (
          ELSE struct_pack(reached := NULL::DATE, result := py_text(v)) END
   FROM (SELECT coalesce(py_text(v), '') AS t,
                '^[' || py_ws() || ']*(\p{Nd}{4})[.\-](\p{Nd}{2})[.\-](\p{Nd}{2})[' || py_ws() || ']*(.*)$' AS re));
+
+-- decimal: `float(str(value).strip())`, None when Python refuses it (None and True/False are "None"
+-- and "True"): digits with `_` between them, a fraction and an exponent, or inf/infinity/nan with a
+-- sign. Full-width digits are read as Python reads them.
+CREATE OR REPLACE MACRO ca_decimal(v) AS (
+  SELECT CASE
+    WHEN t IS NULL THEN NULL
+    WHEN regexp_full_match(t, '[+-]?(([0-9](_?[0-9])*)(\.([0-9](_?[0-9])*)?)?|\.[0-9](_?[0-9])*)([eE][+-]?[0-9](_?[0-9])*)?')
+      THEN TRY_CAST(replace(t, '_', '') AS DOUBLE)
+    WHEN regexp_full_match(lower(t), '[+-]?(inf|infinity)')
+      THEN CASE WHEN starts_with(t, '-') THEN '-inf'::DOUBLE ELSE 'inf'::DOUBLE END
+    WHEN regexp_full_match(lower(t), '[+-]?nan') THEN 'nan'::DOUBLE
+  END
+  FROM (SELECT CASE WHEN json_type(v) IN ('VARCHAR', 'BIGINT', 'UBIGINT', 'DOUBLE', 'HUGEINT')
+                    THEN onbid_ascii_digits(trim(py_str(v), py_ws())) END AS t));

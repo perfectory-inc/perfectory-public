@@ -66,10 +66,13 @@ pub enum Role {
     CaseFilings,
     /// 현황조사서 임대차 lists (root ADR-0575 §4).
     CaseSurveyReport,
+    /// 물건상세: each property's read, its case's photos and its documents (root ADR-0384,
+    /// ADR-0540 §4).
+    ItemDetail,
 }
 
 /// Every role, in the order a run loads an object of each.
-pub const ROLES: [Role; 10] = [
+pub const ROLES: [Role; 11] = [
     Role::CommonCodes,
     Role::AppraisalReports,
     Role::SaleSpecifications,
@@ -80,6 +83,7 @@ pub const ROLES: [Role; 10] = [
     Role::CaseAppraisal,
     Role::CaseFilings,
     Role::CaseSurveyReport,
+    Role::ItemDetail,
 ];
 
 /// The read record every case document writes, last.
@@ -100,6 +104,7 @@ impl Role {
             Self::CaseAppraisal => "case_appraisal",
             Self::CaseFilings => "case_filings",
             Self::CaseSurveyReport => "case_survey_report",
+            Self::ItemDetail => "item_detail",
         }
     }
 
@@ -157,6 +162,17 @@ impl Role {
                 ("silver.court_auction_survey_tenant", Keep::Editions),
                 CASE_READ,
             ],
+            // The job's DETAIL_TABLES: the photos, the documents, then the reads.
+            Self::ItemDetail => &[
+                ("silver.court_auction_item_photo", Keep::Changed),
+                ("silver.court_auction_case", Keep::Changed),
+                ("silver.court_auction_item_spec", Keep::Changed),
+                ("silver.court_auction_item_schedule", Keep::Editions),
+                ("silver.court_auction_item_object", Keep::Editions),
+                ("silver.court_auction_item_annex", Keep::Editions),
+                ("silver.court_auction_appraisal_point", Keep::Editions),
+                ("silver.court_auction_item_detail", Keep::Every),
+            ],
         }
     }
 
@@ -185,6 +201,20 @@ impl Role {
                 "silver.court_auction_survey_tenant",
                 &["leased_part_raw", "possession_text", "remarks"],
             )],
+            Self::ItemDetail => &[
+                (
+                    "silver.court_auction_item_spec",
+                    &[
+                        "assumed_rights",
+                        "superficies",
+                        "spec_remarks",
+                        "first_rank_setting",
+                        "item_remarks",
+                    ],
+                ),
+                ("silver.court_auction_item_annex", &["remarks"]),
+                ("silver.court_auction_appraisal_point", &["content"]),
+            ],
             Self::CommonCodes
             | Self::AppraisalReports
             | Self::SaleSpecifications
@@ -213,6 +243,7 @@ impl Role {
             Self::CaseSurveyReport => {
                 include_str!("courtauction_silver_stage/case_survey_report.sql")
             }
+            Self::ItemDetail => include_str!("courtauction_silver_stage/item_detail.sql"),
         }
     }
 
@@ -253,6 +284,10 @@ impl Role {
             | Self::CaseAppraisal
             | Self::CaseFilings
             | Self::CaseSurveyReport => Some(("ca_case_lines", &["court_office_code", "case_no"])),
+            Self::ItemDetail => Some((
+                "ca_detail_lines",
+                &["court_office_code", "case_no", "property_seq"],
+            )),
             Self::CommonCodes | Self::DividendNotices => None,
         }
     }
@@ -465,6 +500,29 @@ impl CourtAuctionSource {
                         "{detail_request_object}",
                         plain_name(self.field(role, "detail_request_object")?)?,
                     );
+            }
+            Role::ItemDetail => {
+                let photos = &self.section(role)["photos"];
+                let photo = |name: &str| -> anyhow::Result<&str> {
+                    plain_name(photos[name].as_str().with_context(|| {
+                        format!("courtauction-go-kr.contract.json has no item_detail.photos.{name}")
+                    })?)
+                };
+                sql = sql
+                    .replace(
+                        "{request_object}",
+                        plain_name(self.field(role, "request_object")?)?,
+                    )
+                    .replace(
+                        "{result_path}",
+                        &json_path(self.field(role, "result_pointer")?)?,
+                    )
+                    .replace("{photo_list}", photo("list_field")?)
+                    .replace("{photo_kind}", photo("kind_field")?)
+                    .replace("{photo_sequence}", photo("sequence_field")?)
+                    .replace("{photo_page}", photo("page_field")?)
+                    .replace("{photo_title}", photo("title_field")?)
+                    .replace("{object_code}", &self.object_code_sql()?);
             }
             Role::AppraisalReports
             | Role::SaleSpecifications

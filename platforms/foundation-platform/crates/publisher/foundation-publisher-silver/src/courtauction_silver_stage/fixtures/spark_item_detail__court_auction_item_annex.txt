@@ -1,0 +1,3 @@
+B999999|20990130000001|2|2|1|창고|판넬조|20㎡|3000000|제시외건물|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|2|20990102T030405Z
+B999999|20990130000001|3|2|1|창고|NULL|NULL|NULL|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|4|20990102T030405Z
+B999999|20990130000001|3|2|2|NULL|NULL|NULL|NULL|소유자 ○○○ 점유|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|4|20990102T030405Z

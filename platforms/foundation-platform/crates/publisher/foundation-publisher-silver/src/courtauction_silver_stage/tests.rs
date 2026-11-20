@@ -208,6 +208,11 @@ fn the_staged_case_survey_report_rows_are_the_rows_the_spark_job_built() -> anyh
 }
 
 #[test]
+fn the_staged_item_detail_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::ItemDetail)
+}
+
+#[test]
 fn a_case_document_read_without_its_case_refuses_the_object() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
     let source = CourtAuctionSource::compiled()?;
