@@ -39,14 +39,13 @@
         "silver-industrial-complex-notice-attachment-to-intelligence-document-text-outcome",
         "silver-industrial-complex-notice-attachment-to-intelligence-document-text-page"
       ],
-      "enabled": true,
+      "enabled": false,
+      "disabled_reason": "Paused by owner 2026-11-20 until the Spark/Airflow transition ends (DuckDB and Dagster first): on 11-20 ai-server load reached 125 with this lane's tesseract and ocrmypdf among the top CPU users, and the fact job's model runtime holds about 21 GB while it runs. Turn both document jobs on again in one pull request (enabled true, enabled_since the merge time) when the owner says the Spark/Airflow transition has ended. Nothing is lost while they are off: each run plans from the outcomes not yet written (root ADR-0477, ADR-0593), so the first run after reads the documents owed.",
       "started_once_after_deploy": false,
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when the attachment index gains a hash; that it is not behind it is the owed count each run reports (intelligence-documents-summary-json owed)."
-      },
-      "dagster_stage": "dagster",
-      "enabled_since": "2026-11-11T07:00:00Z"
+      }
     },
     {
       "id": "intelligence_document_fact",
@@ -93,14 +92,13 @@
         "silver-industrial-complex-notice-attachment-to-gold-complex-document-facts",
         "silver-industrial-complex-notice-detail-to-gold-complex-document-facts"
       ],
-      "enabled": true,
+      "enabled": false,
+      "disabled_reason": "Paused by owner 2026-11-20 until the Spark/Airflow transition ends (DuckDB and Dagster first): on 11-20 ai-server load reached 125 with this lane's tesseract and ocrmypdf among the top CPU users, and the fact job's model runtime holds about 21 GB while it runs. Turn both document jobs on again in one pull request (enabled true, enabled_since the merge time) when the owner says the Spark/Airflow transition has ended. Nothing is lost while they are off: each run plans from the outcomes not yet written (root ADR-0477, ADR-0593), so the first run after reads the documents owed.",
       "started_once_after_deploy": false,
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when the text job appends pages; that it is not behind them is the owed count each run reports (intelligence-documents-summary-json owed)."
-      },
-      "dagster_stage": "dagster",
-      "enabled_since": "2026-11-11T07:00:00Z"
+      }
     }
   ],
   "host_memory": {
