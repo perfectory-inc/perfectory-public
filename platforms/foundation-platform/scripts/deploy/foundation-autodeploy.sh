@@ -113,9 +113,11 @@ start_worker_deploy() {
 
 # How a failed deploy is tried again (root ADR-0597; config/autodeploy.contract.json). A control
 # checkout from before the keys tries each commit once, as before.
-read -r max_attempts retry_after < <(python3 -I -c 'import json, sys
+retrying="$(python3 -I -c 'import json, sys
 pacing = json.load(open(sys.argv[1]))
-print(int(pacing["deploy_attempts_per_commit"]), int(pacing["retry_after_minutes"]))'   "${platform}/config/autodeploy.contract.json" 2>/dev/null || echo "1 0")
+print(int(pacing["deploy_attempts_per_commit"]), int(pacing["retry_after_minutes"]))' \
+  "${platform}/config/autodeploy.contract.json" 2>/dev/null)" || retrying="1 0"
+read -r max_attempts retry_after <<<"${retrying}"
 # Each failed attempt is one line of failed/<sha>.
 attempts_of() {
   if [[ -e "${state}/failed/$1" ]]; then wc -l <"${state}/failed/$1"; else echo 0; fi
@@ -123,11 +125,12 @@ attempts_of() {
 # 0: <sha> failed before, is neither deployed nor refused, has attempts left and its wait has passed;
 # 1: no retry is owed; 2: one is owed, but not yet.
 retry_owed() {
-  local sha="$1" attempts
+  local sha="$1" attempts now last
   [[ -e "${state}/failed/${sha}" && ! -e "${state}/deployed/${sha}" && ! -e "${state}/refused/${sha}" ]] || return 1
   attempts="$(attempts_of "${sha}")"
   ((attempts < max_attempts)) || return 1
-  (($(date +%s) - $(stat -c %Y "${state}/failed/${sha}") >= retry_after * 60)) || return 2
+  now="$(date +%s)"; last="$(stat -c %Y "${state}/failed/${sha}")"
+  ((now - last >= retry_after * 60)) || return 2
 }
 # Deploys ${target}: the last part of every tick that deploys, a resumed one too (root ADR-0597).
 deploy_target() {
@@ -170,7 +173,8 @@ deploy_target() {
   else
     date -u +%FT%TZ >>"${state}/failed/${target}"
     reason=deploy_failed
-    log "the deploy of ${target} failed (exit ${status}, attempt $(attempts_of "${target}") of ${max_attempts}); see the log above"
+    attempt="$(attempts_of "${target}")"
+    log "the deploy of ${target} failed (exit ${status}, attempt ${attempt} of ${max_attempts}); see the log above"
     exit 1
   fi
 }
@@ -200,7 +204,8 @@ if [[ -e "${state}/failed/${current}" && ! -e "${state}/deployed/${current}" ]];
   owed=0; retry_owed "${current}" || owed=$?
   case "${owed}" in
     0) target="${current}" checks="resume its checks passed before it was first deployed"
-       log "the deploy of ${current} did not finish; finishing it (attempt $(( $(attempts_of "${current}") + 1 )) of ${max_attempts})"
+       attempt="$(attempts_of "${current}")"
+       log "the deploy of ${current} did not finish; finishing it (attempt $((attempt + 1)) of ${max_attempts})"
        deploy_target
        exit 0 ;;
     2) reason=retry_wait

@@ -138,8 +138,8 @@ if [[ -s "${progress}" ]]; then
   recorded="$(sed -n 's/^old \([0-9a-f]\{40\}\)$/\1/p' "${progress}" | tail -1)"
   if [[ -n "${recorded}" && -d "${release_root}/releases/${recorded}" ]]; then
     old="${recorded}"
-    printf 'foundation-deploy: finishing the deploy of %s over %s; done before: %s\n' "${sha}" "${old}" \
-      "$(sed -n 's/^done //p' "${progress}" | tr '\n' ' ')"
+    done_before="$(sed -n 's/^done //p' "${progress}" | tr '\n' ' ')"
+    printf 'foundation-deploy: finishing the deploy of %s over %s; done before: %s\n' "${sha}" "${old}" "${done_before}"
   else
     : >"${progress}"
   fi
