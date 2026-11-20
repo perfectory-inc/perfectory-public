@@ -38,7 +38,7 @@ use lakehouse_domain::{
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::{json, Value};
 
-use crate::{onbid_time_correction::Correction, public_data_control_support::required_env_value};
+use crate::public_data_control_support::required_env_value;
 
 const PLAN_ROOT_ENV: &str = "FOUNDATION_PLATFORM_ONBID_PLAN_ROOT";
 const PARCEL_SOURCE: &str =
@@ -316,22 +316,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         }
         loaded.push(run.load(&stage, object).await?);
     }
-    // one-off (see onbid_time_correction.rs): the rows the Spark load misread, after the run's
-    // objects and inside its budget. A failure of it is reported and does not fail the load.
-    let correction = Correction {
-        source: &run.source,
-        committer: &run.committer,
-        catalog: &run.catalog,
-        stage: &stage,
-        work: &plan_root.join("correction"),
-        ingested_at,
-        started,
-        budget,
-    };
-    summary["time_correction"] = match correction.run().await {
-        Ok(tables) => tables,
-        Err(error) => json!({"error": format!("{error:#}")}),
-    };
     drop(stage);
     summary["objects"] = Value::Array(loaded);
     summary["deferred"] = json!(deferred);
