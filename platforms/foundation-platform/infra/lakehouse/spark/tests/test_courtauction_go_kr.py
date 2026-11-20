@@ -491,6 +491,22 @@ class CaseDocumentRowsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.rows("case_survey", [{**failed, "request": {}}])
 
+    def test_every_contract_case_document_is_read_as_one(self):
+        given = {"case_detail": CASE_DETAIL, "case_survey": SURVEY, "case_appraisal": APPRAISAL, "case_filings": FILINGS,
+                 "case_survey_report": SURVEY_REPORT}
+        roles = {d["role"] for d in CONTRACT["case_documents"]["documents"]}
+        self.assertEqual(set(job.CASE_ROLES), roles)
+        with tempfile.TemporaryDirectory() as directory:
+            for role in sorted(roles):
+                path = Path(directory) / f"{role}.gz"
+                with gzip.open(path, "wt", encoding="utf-8") as handle:
+                    handle.write(json.dumps(case_line(role, given[role]), ensure_ascii=False) + chr(10))
+                entry = {"object_key": f"bronze/{role}-20990102t030405z.gz", "role": role,
+                         "source_snapshot_id": "20990102T030405Z", "path": path}
+                search = job.read_object(entry, CONTRACT, {}, {}, NOW)
+                self.assertEqual(set(search["tables"]), set(job.CASE_DOCUMENT_TABLES[role]), role)
+                self.assertEqual(len(search["tables"][job.CASE_READ_TABLE]), 1, role)
+
     def test_every_case_table_row_names_only_its_columns_and_the_read_commits_last(self):
         given = {"case_detail": CASE_DETAIL, "case_survey": SURVEY, "case_appraisal": APPRAISAL, "case_filings": FILINGS,
                  "case_survey_report": SURVEY_REPORT}

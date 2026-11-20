@@ -104,7 +104,6 @@ DOCUMENT_TABLES = (*LATEST_KEYS, *EDITION_PER)
 # collector's next frontier is computed from, so an object the record holds has everything else.
 DETAIL_TABLES = (PHOTO_TABLE, *DOCUMENT_TABLES, DETAIL_TABLE)
 CODES_ROLE = "common_codes"
-CASE_ROLES = ("case_detail", "case_survey", "case_appraisal")
 REPORTS_ROLE = "appraisal_reports"
 REPORT_TABLE = "silver.court_auction_appraisal_report"
 REPORT_READ_TABLE = "silver.court_auction_appraisal_report_read"
@@ -146,6 +145,10 @@ CASE_DOCUMENT_TABLES = {
     "case_filings": (FILING_TABLE, DELIVERY_TABLE, CASE_READ_TABLE),
     "case_survey_report": (TENANT_TABLE, CASE_READ_TABLE),
 }
+# Every case document role: an object of one loads its documents and its reads. Taken from the
+# tables so a document added there is loaded (2026-11-20: 문건·송달 and 현황조사서 were left out and
+# their objects fell through to the search path, a KeyError on the first night they were collected).
+CASE_ROLES = tuple(CASE_DOCUMENT_TABLES)
 CASE_LATEST_KEYS = {CASE_TABLE: CASE, SURVEY_TABLE: ROUND, APPRAISAL_TABLE: ROUND, CASE_READ_TABLE: CASE_READ_KEY,
                     NOTICE_TABLE: NOTICE_KEY, DIVIDEND_TABLE: CASE, DIVIDEND_OBJECT_TABLE: DIVIDEND_OBJECT_KEY}
 CASE_EDITION_PER = {RELATED_TABLE: CASE, CASE_OBJECT_TABLE: CASE, PARTY_TABLE: CASE, SURVEY_OBJECT_TABLE: ROUND,
