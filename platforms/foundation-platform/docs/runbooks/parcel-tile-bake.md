@@ -35,6 +35,8 @@ last_reviewed: 2026-10-29
    모든 시도가 캐시에 차면 `tile-join` 은 다음 run 에서 혼자 돌고(`remaining=tile-join`), 합친 판은
    `parcels-partitions/joined/` 에 create-only 로 남는다. 그다음 run 이 관문·업로드·승격을 한다(root ADR-0576). 저널 줄
    `lakehouse-tile-bake-joined` 에 합치기 초(`seconds=`) 또는 재사용(`reused=`)이 있다.
+   합치기 run 의 tile-join 은 도구 1회 상한이 아니라 계약 `tile_join_run_budget_seconds`(run 시작부터 6300초)에
+   묶인다. 그 안에 못 끝나면 `tile-join exceeded its time bound` 로 실패하고 합친 판은 남지 않는다.
    이 폴더는 쌓기만 하며 지우지 않는다(판마다 바뀐 시도 몫만 늘어난다).
 5. 필지는 4단계 앞에서 먼저 **패치**를 시도한다(루트 ADR-0323, 계약 `vector_tile_gateway.patches`).
    - 핸드오프를 한 번 읽어 feature 색인(id·내용 해시·상자)을 만든다.

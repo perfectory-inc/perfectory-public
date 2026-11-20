@@ -533,6 +533,23 @@ fn the_real_handoff_reader_classifies_a_missing_rows_geometry() -> anyhow::Resul
 }
 
 #[test]
+fn the_join_run_of_parcels_is_bounded_after_its_partition_budget_and_refused_before_it(
+) -> anyhow::Result<()> {
+    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    // Root ADR-0576: the run that only joins keeps the unit's limit, not the one-tool bound that
+    // stopped the first join run at 3,600 s (2026-11-20).
+    let join = contract.tile_join_run_budget_seconds["parcels"];
+    assert!(join > contract.partition_run_budget_seconds["parcels"]);
+    assert!(join < 115 * 60, "inside the job's 115-minute limit");
+    for (unit, bad) in [("parcels", json!(4200)), ("zoning", json!(6300))] {
+        let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
+        value["tile_join_run_budget_seconds"][unit] = bad;
+        assert!(BakeContract::parse(&value.to_string()).is_err(), "{unit}");
+    }
+    Ok(())
+}
+
+#[test]
 fn the_contract_bakes_parcels_at_maxzoom_detail_13_and_refuses_another_range() -> anyhow::Result<()>
 {
     let contract = BakeContract::parse(CONTRACT_JSON)?;

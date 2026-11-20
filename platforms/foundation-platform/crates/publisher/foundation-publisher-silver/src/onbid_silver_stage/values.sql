@@ -33,40 +33,31 @@ CREATE OR REPLACE MACRO onbid_decimal(v) AS
 CREATE OR REPLACE MACRO onbid_or_blank(v) AS
   CASE WHEN py_truthy(v) THEN trim(py_str(v), py_ws()) ELSE '' END;
 
--- `datetime.strptime(text, fmt)` as CPython's _strptime reads it: the format's regex matched from the
--- start with its alternatives tried in order (RE2's leftmost-first matching is the same), and the
--- text refused when anything is left after the match or the fields are no date. So a 12-digit
--- `yyyyMMddHHmm` read with the seconds format first takes its minute's second digit as the second:
--- 202611190930 is 09:03:00. That is what every Spark load wrote; the stage writes the same.
-CREATE OR REPLACE MACRO onbid_seconds_re() AS '^([0-9]{4})(1[0-2]|0[1-9]|[1-9])(3[01]|[12][0-9]|0[1-9]|[1-9]| [1-9])(2[0-3]|[0-1][0-9]|[0-9])([0-5][0-9]|[0-9])(6[0-1]|[0-5][0-9]|[0-9])';
-CREATE OR REPLACE MACRO onbid_minutes_re() AS '^([0-9]{4})(1[0-2]|0[1-9]|[1-9])(3[01]|[12][0-9]|0[1-9]|[1-9]| [1-9])(2[0-3]|[0-1][0-9]|[0-9])([0-5][0-9]|[0-9])';
+-- kst_minute: the provider's `yyyyMMddHHmm` (12 digits) or `yyyyMMddHHmmss` (14) in Korean time, the
+-- instant it names; None when it is neither or names no time. The instant, not a wall clock, so the
+-- stage's time zone does not enter it. The Spark load read it with `strptime` and the seconds format
+-- first, whose regex took a 12-digit minute's second digit as the second (202611190930 -> 09:03:00):
+-- 2026-11-19 the current Silver held 6,116 item rows ending at 17:05:09 for 17:59 and 3,270 bid
+-- results opened at 11:03 for 11:30. Fixed width, each field two digits.
+CREATE OR REPLACE MACRO onbid_kst_re() AS '^([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})?$';
+CREATE OR REPLACE MACRO onbid_kst_text(t) AS
+  CASE WHEN regexp_full_match(t, '[0-9]{12}|[0-9]{14}') THEN
+    regexp_extract(t, onbid_kst_re(), 1) || '-' || regexp_extract(t, onbid_kst_re(), 2) || '-'
+    || regexp_extract(t, onbid_kst_re(), 3) || ' ' || regexp_extract(t, onbid_kst_re(), 4) || ':'
+    || regexp_extract(t, onbid_kst_re(), 5) || ':' || coalesce(nullif(regexp_extract(t, onbid_kst_re(), 6), ''), '00')
+  END;
+CREATE OR REPLACE MACRO onbid_kst(v) AS
+  to_timestamp(epoch(TRY_CAST(onbid_kst_text(onbid_or_blank(v)) AS TIMESTAMP)) - 32400);
+
+-- `datetime.strptime(text, "%Y%m%d")` as CPython's _strptime reads it: the format's regex matched from
+-- the start with its alternatives tried in order (RE2's leftmost-first matching is the same), and the
+-- text refused when anything is left after the match or the fields are no date.
 CREATE OR REPLACE MACRO onbid_date_re() AS '^([0-9]{4})(1[0-2]|0[1-9]|[1-9])(3[01]|[12][0-9]|0[1-9]|[1-9]| [1-9])';
 
 -- The date of a match's first three groups (year, month, day), or None when they name no date.
 CREATE OR REPLACE MACRO onbid_match_date(t, re) AS
   TRY_CAST(regexp_extract(t, re, 1) || '-' || lpad(trim(regexp_extract(t, re, 2)), 2, '0') || '-'
            || lpad(trim(regexp_extract(t, re, 3)), 2, '0') AS DATE);
-
-CREATE OR REPLACE MACRO onbid_strptime_seconds(t) AS
-  CASE WHEN t <> '' AND regexp_extract(t, onbid_seconds_re(), 0) = t
-            AND TRY_CAST(regexp_extract(t, onbid_seconds_re(), 6) AS INTEGER) <= 59 THEN
-    onbid_match_date(t, onbid_seconds_re())
-      + to_hours(TRY_CAST(regexp_extract(t, onbid_seconds_re(), 4) AS BIGINT))
-      + to_minutes(TRY_CAST(regexp_extract(t, onbid_seconds_re(), 5) AS BIGINT))
-      + to_seconds(TRY_CAST(regexp_extract(t, onbid_seconds_re(), 6) AS BIGINT))
-  END;
-
-CREATE OR REPLACE MACRO onbid_strptime_minutes(t) AS
-  CASE WHEN t <> '' AND regexp_extract(t, onbid_minutes_re(), 0) = t THEN
-    onbid_match_date(t, onbid_minutes_re())
-      + to_hours(TRY_CAST(regexp_extract(t, onbid_minutes_re(), 4) AS BIGINT))
-      + to_minutes(TRY_CAST(regexp_extract(t, onbid_minutes_re(), 5) AS BIGINT))
-  END;
-
--- kst_minute: `yyyyMMddHHmm` (or with seconds) in Korean time, the instant it names; None when it is
--- not one. The instant, not a wall clock, so the stage's time zone does not enter it.
-CREATE OR REPLACE MACRO onbid_kst(v) AS
-  to_timestamp(epoch(coalesce(onbid_strptime_seconds(onbid_or_blank(v)), onbid_strptime_minutes(onbid_or_blank(v)))) - 32400);
 
 -- ymd: `yyyyMMdd` as a date; None when it is not one.
 CREATE OR REPLACE MACRO onbid_ymd(v) AS

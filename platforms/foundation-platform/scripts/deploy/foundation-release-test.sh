@@ -1449,4 +1449,9 @@ fi
 grep -q 'generated file differs from the signed release' "${test_root}/declared.log"
 printf 'declared-release-installs-the-signed-generated-files=pass\n'
 
+# Root ADR-0590: secrets the host makes are written before the first compose command.
+# shellcheck source=foundation-release-test-generate-order.sh
+source "${repo_root}/scripts/deploy/foundation-release-test-generate-order.sh"
+rehearse_generate_order "${test_root}" "${repo_root}"
+
 printf 'foundation-release-test=pass\n'
