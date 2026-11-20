@@ -167,6 +167,63 @@ fn a_plan_names_its_table_and_each_object_once() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 2026-11-17: the provider answered an announcement detail request with a 200 whose body was its
+/// "503 - Service Unavailable" HTML page, and the object stopped every hourly load. Such a line is
+/// a request with no answer: counted, no rows, and the lines beside it are read.
+#[test]
+fn a_200_whose_body_is_not_json_is_counted_and_read_as_no_answer() -> anyhow::Result<()> {
+    let source = OnbidSource::compiled()?;
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage.connection().execute_batch(&source.values_sql()?)?;
+    let ingested_at = chrono::DateTime::from_timestamp(4_070_000_000, 0).context("an instant")?;
+    let role = Role::AnnouncementDetail;
+    let answered = fixture("announcement_detail.jsonl")?;
+    let expected = read_object(
+        &stage,
+        &source,
+        contract(role.table())?,
+        &object(directory.path(), role)?,
+        ingested_at,
+    )?;
+    assert_eq!(expected.unreadable_answers, 0);
+
+    let page = serde_json::json!({
+        "request": {"pbancMngNo": "209901-99999-00"},
+        "http_status": 200,
+        "body": "<HTML><HEAD><TITLE>503 - Service Unavailable</TITLE></HEAD></HTML>",
+    });
+    let missing =
+        serde_json::json!({"request": {"pbancMngNo": "209901-99999-01"}, "http_status": 200});
+    let path = directory.path().join("with-a-page.gz");
+    let mut gzip = flate2::write::GzEncoder::new(
+        std::fs::File::create(&path)?,
+        flate2::Compression::default(),
+    );
+    writeln!(gzip, "{page}")?;
+    writeln!(gzip, "{}", answered.trim_end())?;
+    writeln!(gzip, "{missing}")?;
+    gzip.finish()?;
+    let read = read_object(
+        &stage,
+        &source,
+        contract(role.table())?,
+        &PlannedObject {
+            object_key: OBJECT_KEY.to_owned(),
+            role,
+            source_snapshot_id: "20990102T030405Z".to_owned(),
+            path,
+        },
+        ingested_at,
+    )?;
+    assert_eq!(
+        (read.unreadable_answers, read.rows),
+        (2, expected.rows),
+        "the page and the missing body are counted; the answered lines give their rows"
+    );
+    Ok(())
+}
+
 /// One role's fixture object staged, against the rows the Spark job built from it. A test per role:
 /// the eight together ran past the 60 s limit on CI (run 44440260869), where the bundled `DuckDB`
 /// is built unoptimized and plans each role's SQL in seconds.
