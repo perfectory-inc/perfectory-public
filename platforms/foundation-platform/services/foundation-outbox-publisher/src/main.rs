@@ -71,6 +71,7 @@ mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
 mod industrial_complex_notice_collect;
 mod lakehouse_object_listing;
+mod onbid_silver_load;
 mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
@@ -176,6 +177,7 @@ enum Command {
     BuildIndustrialComplexAddressResolution,
     CollectCodeGoKrLegalDong,
     CollectDataGoKrOnbid,
+    LoadDataGoKrOnbidSilver,
     CollectRtMolitRealTransaction,
     CollectCourtauctionGoKr,
     CollectDataGoKrFileData,
@@ -371,6 +373,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::CollectCodeGoKrLegalDong => Box::pin(code_go_kr_legal_dong_collect::run()),
         Command::CollectDataGoKrOnbid => Box::pin(data_go_kr_onbid_collect::run()),
+        Command::LoadDataGoKrOnbidSilver => Box::pin(onbid_silver_load::run()),
         Command::CollectRtMolitRealTransaction => {
             Box::pin(rt_molit_real_transaction_collect::run())
         }
@@ -788,6 +791,7 @@ where
         }
         Some("collect-code-go-kr-legal-dong") => Ok(Command::CollectCodeGoKrLegalDong),
         Some("collect-data-go-kr-onbid") => Ok(Command::CollectDataGoKrOnbid),
+        Some("load-data-go-kr-onbid-silver") => Ok(Command::LoadDataGoKrOnbidSilver),
         Some("collect-rt-molit-real-transaction") => Ok(Command::CollectRtMolitRealTransaction),
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
         Some("collect-data-go-kr-file-data") => Ok(Command::CollectDataGoKrFileData),

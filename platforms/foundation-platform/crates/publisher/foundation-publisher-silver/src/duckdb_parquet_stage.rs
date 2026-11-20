@@ -15,11 +15,17 @@ use std::path::Path;
 use anyhow::{bail, ensure, Context};
 use duckdb::{Config, Connection};
 use foundation_publisher_core::lakehouse_data_commit::{StagedFile, TableShape};
+use lakehouse_domain::LakehouseTableContract;
 
 use crate::{lakehouse_engine_contract::execution_profile, serving_scratch};
 
 /// The name a stage that reads the lakehouse attaches its catalog under.
 pub const LAKEHOUSE_CATALOG: &str = "lakehouse";
+/// The Python Silver loads' readers of a JSON value (`py_text`, `py_truthy`, `py_json_dumps`, …).
+///
+/// Every stage that reads a Bronze JSON object runs it first, so the loads that leave Spark read
+/// values as one Python did (root ADR-0559).
+pub const PYTHON_VALUES_SQL: &str = include_str!("python_values.sql");
 const QUOTE: char = '\'';
 
 /// What a stage needs to read the lakehouse on R2 (root ADR-0559 §6).
@@ -207,6 +213,45 @@ impl DuckDbParquetStage {
         Ok(Some(bytes))
     }
 
+    /// A gzip JSON Lines object as `table(line_number BIGINT, line VARCHAR)`: the non-blank lines,
+    /// numbered from 1, as Python's text reader split them (a `\r\n` ends a line like `\n`).
+    ///
+    /// # Errors
+    /// Returns an error when the file is not gzip UTF-8 text, `table` is not a plain identifier, or
+    /// `DuckDB` refuses a row.
+    pub fn load_lines(&self, path: &Path, table: &str) -> anyhow::Result<u64> {
+        use std::io::Read as _;
+
+        ensure!(
+            !table.is_empty()
+                && table
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+            "{table:?} is not a plain table name"
+        );
+        let mut text = String::new();
+        flate2::read::GzDecoder::new(
+            std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?,
+        )
+        .read_to_string(&mut text)
+        .with_context(|| format!("{} is not gzip UTF-8 text", path.display()))?;
+        self.connection.execute_batch(&format!(
+            "CREATE OR REPLACE TABLE {table} (line_number BIGINT NOT NULL, line VARCHAR NOT NULL)"
+        ))?;
+        let mut appender = self.connection.appender(table)?;
+        let mut number = 0_i64;
+        for line in text.split('\n') {
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            if line.trim().is_empty() {
+                continue;
+            }
+            number += 1;
+            appender.append_row(duckdb::params![number, line])?;
+        }
+        appender.flush()?;
+        Ok(u64::try_from(number)?)
+    }
+
     /// The connection a transform loads its inputs into and computes on.
     #[must_use]
     pub const fn connection(&self) -> &Connection {
@@ -334,6 +379,60 @@ impl DuckDbParquetStage {
             name: name.to_owned(),
         })
     }
+}
+
+/// A pinned table reference with the nullable contract columns it lacks read as NULL.
+///
+/// `source` itself when it lacks none. Every pinned read that runs a contract's current-rows query
+/// reads through it (root ADR-0564 §4).
+///
+/// A read pinned by snapshot id has that snapshot's schema, so a table that gained a nullable
+/// column after its last data commit is read without it, and the contract's current-rows query
+/// names a column the read does not have. On 2026-11-19 the first Onbid load here refused the
+/// register titles for lacking `row_state`. Iceberg reads such a column as null from every file
+/// written before it; this is the same answer (Spark: `platform_contracts.with_contract_columns`).
+/// A required column is never invented: a query that names one the read lacks fails in `DuckDB`.
+///
+/// # Errors
+/// `DuckDB` cannot describe `source`, or it lacks a nullable column whose type has no null reader
+/// here.
+pub fn with_contract_columns(
+    connection: &Connection,
+    contract: &LakehouseTableContract,
+    source: &str,
+) -> anyhow::Result<String> {
+    let have = connection
+        .prepare(&format!("DESCRIBE SELECT * FROM {source}"))
+        .with_context(|| format!("DuckDB could not describe {source}"))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+    let mut added = Vec::new();
+    for column in contract.columns {
+        if column.required || have.contains(column.name) {
+            continue;
+        }
+        let sql_type = match column.logical_type {
+            "string" => "VARCHAR",
+            "int" => "INTEGER",
+            "long" => "BIGINT",
+            "double" => "DOUBLE",
+            "boolean" => "BOOLEAN",
+            "date" => "DATE",
+            "timestamp" => "TIMESTAMPTZ",
+            "binary" => "BLOB",
+            decimal if decimal.starts_with("decimal(") => decimal,
+            other => anyhow::bail!(
+                "{} ({source}) lacks {}, and a {other} column has no null reader",
+                contract.table_name,
+                column.name
+            ),
+        };
+        added.push(format!("CAST(NULL AS {sql_type}) AS {}", column.name));
+    }
+    if added.is_empty() {
+        return Ok(source.to_owned());
+    }
+    Ok(format!("(SELECT *, {} FROM {source})", added.join(", ")))
 }
 
 #[cfg(test)]

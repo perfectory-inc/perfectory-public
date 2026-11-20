@@ -62,7 +62,7 @@ ensure_dagster_secrets() {
 
 # orchestration/jobs.v1.json `observers.dagster.enabled`: whether Dagster observes this Airflow.
 dagster_enabled() {
-  python3 -c '
+  python3 -I -B -c '
 import json, sys
 sys.exit(0 if json.load(open(sys.argv[1])).get("observers", {}).get("dagster", {}).get("enabled") is True else 1)
 ' "${jobs_file}"
@@ -102,7 +102,7 @@ init_secrets() {
     [[ -r "${host_key_file}" ]] || fail "cannot read the host key ${host_key_file}"
     # One JSON connection; single quotes keep compose from interpolating it. The host key pins
     # the server, so the scheduler never trusts an unknown one.
-    python3 - "${scheduler_key}" "${host_key_file}" >>"${env_file}" <<'PY'
+    python3 -I -B - "${scheduler_key}" "${host_key_file}" >>"${env_file}" <<'PY'
 import json, sys
 private = open(sys.argv[1]).read()
 host_key = " ".join(open(sys.argv[2]).read().split()[:2])
@@ -161,7 +161,7 @@ ensure_pools() {
   while IFS=$'\t' read -r name slots description; do
     # `compose exec` reads stdin; see sync_enabled.
     airflow_cli pools set "${name}" "${slots}" "${description}" </dev/null >/dev/null
-  done < <(python3 -c '
+  done < <(python3 -I -B -c '
 import json, sys
 for name, pool in json.load(open(sys.argv[1]))["pools"].items():
     print(name, pool["slots"], pool["description"], sep="\t")
@@ -182,7 +182,7 @@ sync_enabled() {
       airflow_cli dags pause "foundation_${id}" </dev/null >/dev/null
     fi
     printf 'job %-24s enabled=%s\n' "${id}" "${enabled}"
-  done < <(python3 -c '
+  done < <(python3 -I -B -c '
 import json, sys
 for job in json.load(open(sys.argv[1]))["jobs"]:
     if job.get("dagster_stage", "airflow") != "dagster":
@@ -194,7 +194,7 @@ wait_for_declared_dags() {
   local listing
   for _ in $(seq 1 30); do
     if listing="$(airflow_cli dags list --output json)" &&
-      printf '%s' "${listing}" | python3 -c '
+      printf '%s' "${listing}" | python3 -I -B -c '
 import json, sys
 try:
     expected = {"foundation_" + job["id"] for job in json.load(open(sys.argv[1]))["jobs"]
@@ -311,7 +311,7 @@ provision() {
   (($# > 0)) || fail "usage: $0 provision EMAIL..."
   local email
   for email in "$@"; do
-    if airflow_cli users list --output json | EMAIL="${email}" python3 -c '
+    if airflow_cli users list --output json | EMAIL="${email}" python3 -I -B -c '
 import json, os, sys
 sys.exit(0 if any(u.get("email") == os.environ["EMAIL"] for u in json.load(sys.stdin)) else 1)'; then
       printf 'exists      %s\n' "${email}"
@@ -338,7 +338,7 @@ trigger() {
 api_reader() {
   local username=foundation-operations-map password file="${runtime_dir}/operations-map-reader.env"
   password="$(random_hex)"
-  if airflow_cli users list --output json | USERNAME="${username}" python3 -c '
+  if airflow_cli users list --output json | USERNAME="${username}" python3 -I -B -c '
 import json, os, sys
 sys.exit(0 if any(u.get("username") == os.environ["USERNAME"] for u in json.load(sys.stdin)) else 1)'; then
     airflow_cli users delete --username "${username}" >/dev/null

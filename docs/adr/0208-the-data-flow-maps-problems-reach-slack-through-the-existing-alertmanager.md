@@ -22,11 +22,13 @@ ADR-0195 로 지도는 작업마다 실패·멈춤·늦음·느림·양 이상�
    `foundation_scheduled_jobs_readable`. 계산은 지도와 같은 함수(`operations::jobs_status`)를 부른다 — 두 번째 판정은 없다.
 2. **"바뀔 때만"은 레이블의 안정성으로 보장한다.** 레이블은 같은 문제인 동안 바뀌지 않는다: 도는 중인 느린 작업의
    경과 초, "몇 분 전" 같은 값은 넣지 않는다. 새 실행이 원인을 바꾸면 레이블이 바뀌고, 그건 새 문제다.
+   - 2026-11-20 개정: [ADR-0594](./0594-a-scheduled-jobs-problem-is-one-alert-per-job-kind-and-node-whatever-its-sentence.md) — 알림의 정체는 `job_id`·`kind`·`node_id` 이고, 문장(`summary`)·`link` 는 규칙이 지금의 시계열에서 읽어 적는다. 같은 작업·종류에 문장만 바뀐 것은 새 문제가 아니다.
 3. **규칙** `FoundationScheduledJobProblem`: `for: 1m`, `keep_firing_for: 15m` — 재시작·한 번 못 읽은 수집이
    해소→재발로 보이지 않게. 지도가 실행 기록을 못 읽으면 문제 시계열을 내지 않고(모른다), 30분 지속되면
    `FoundationScheduledJobsUnreadable` 하나.
 4. **경로** `service="data-flow"`: 작업·종류마다 묶고 `repeat_interval: 8760h` — 시작 한 번, 해소 한 번. 알림 기록 보관
    (`--data.retention=120h`)이 지나면 열린 문제는 한 번 더 온다. **억제**: 실패 알림이 떠 있는 동안 `blocked` 는 보내지 않는다.
+   - 2026-11-20 개정: 이 작업별 경로는 [ADR-0591](./0591-alertmanager-sends-tickets-batched-per-rule-and-pages-as-they-come.md) 로 지웠다. 이 규칙들은 티켓이라 규칙마다 묶어 한 시간에 많아야 한 통, 해소 통 없이 간다. 억제는 그대로다.
 5. **링크**는 `FOUNDATION_PLATFORM_DAWNEER_UI_URL`(operations-map.env) + `#/flow?node=<노드>`(노드를 모르면 `?job=`).
    더니어는 그 주소로 열리면 그 패널을 연다.
 6. **배포가 규칙을 실제로 읽게 한다.** Prometheus·Alertmanager 는 설정 파일을 `current` 링크로 바인드하는데 Docker 는

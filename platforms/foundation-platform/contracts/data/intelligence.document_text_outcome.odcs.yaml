@@ -69,7 +69,7 @@ schema:
       - type: "text"
         description: "append_only"
       - type: "text"
-        description: "(sha256, extractor_version) unique"
+        description: "one current row per (sha256, extractor_version); a document read again appends its newer run (root ADR-0593)"
       - type: "text"
         description: "outcome is text, partial_ocr, ocr, empty, unsupported_format or failed"
       - type: "text"

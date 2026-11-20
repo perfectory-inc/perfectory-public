@@ -21,6 +21,11 @@ vi.mock("@/lib/session/store", () => ({
   getSession: getSessionMock,
 }));
 
+// Token refresh has its own test (tests/unit/session/refresh.test.ts); here a session is used as read.
+vi.mock("@/lib/session/refresh", () => ({
+  freshSession: vi.fn(async (_sid: string, session: unknown) => session),
+}));
+
 vi.mock("@/lib/ratelimit", () => ({
   checkRate: checkRateMock,
 }));
@@ -31,7 +36,7 @@ function session(role = "Buyer") {
   return {
     sub: "user_1",
     jti: "jti_1",
-    role,
+    roles: role === "Buyer" ? [] : [role],
     access_token: "access-token-1",
     refresh_token: "refresh-token-1",
     id_token: "id-token-1",

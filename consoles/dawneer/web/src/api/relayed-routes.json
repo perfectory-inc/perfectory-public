@@ -1,0 +1,100 @@
+{
+	"$comment": "Every relay route the Dawneer web client calls, with synthetic ids. web/src/api/relayed-routes.test.ts keeps it equal to what DawneerClient asks for; server/src/relay.rs tests that the relay passes each one (DW-2: the cut-over tab once called a route the relay refused).",
+	"routes": [
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "by-pnu-cutovers"
+		},
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "dataset-snapshots"
+		},
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "entity"
+		},
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "parcel-editions"
+		},
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "quality-checks"
+		},
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "scheduled-jobs"
+		},
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "search"
+		},
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "service-checks"
+		},
+		{
+			"method": "GET",
+			"api": "foundation",
+			"path": "complexes"
+		},
+		{
+			"method": "GET",
+			"api": "foundation",
+			"path": "complexes/00000000-0000-5000-8000-000000000001"
+		},
+		{
+			"method": "GET",
+			"api": "foundation",
+			"path": "lineage-review/items"
+		},
+		{
+			"method": "GET",
+			"api": "foundation",
+			"path": "lineage-review/items/00000000-0000-5000-8000-000000000001"
+		},
+		{
+			"method": "GET",
+			"api": "foundation",
+			"path": "pipeline-graph"
+		},
+		{
+			"method": "GET",
+			"api": "foundation",
+			"path": "vector-tiles/runtime-manifest"
+		},
+		{
+			"method": "POST",
+			"api": "data-catalog",
+			"path": "scheduled-jobs/shape_ledger_check/operator-actions"
+		},
+		{
+			"method": "POST",
+			"api": "foundation",
+			"path": "lineage-review/decisions/00000000-0000-5000-8000-000000000001/approval"
+		},
+		{
+			"method": "POST",
+			"api": "foundation",
+			"path": "lineage-review/items/00000000-0000-5000-8000-000000000001/claim"
+		},
+		{
+			"method": "POST",
+			"api": "foundation",
+			"path": "lineage-review/items/00000000-0000-5000-8000-000000000001/decisions"
+		},
+		{
+			"method": "POST",
+			"api": "foundation",
+			"path": "lineage-review/items/00000000-0000-5000-8000-000000000001/release"
+		}
+	]
+}

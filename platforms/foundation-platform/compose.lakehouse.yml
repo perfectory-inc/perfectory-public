@@ -17,6 +17,11 @@ services:
     profiles:
       - lakehouse-query
     restart: unless-stopped
+    # What Trino runs from, as a label: the mounted files below keep their paths across releases, so
+    # Compose's config hash changes with their bytes only through this digest, which
+    # scripts/deploy/trino-follows-the-release.sh computes (root ADR-0504).
+    labels:
+      foundation.trino-files-digest: ${FOUNDATION_TRINO_FILES_DIGEST:-}
     # Without a cap the image's jvm.config (MaxRAMPercentage=80) sized the heap from the whole
     # host and held 27.7GB idle on a 62GB machine that also runs Spark and the data catalog
     # (root ADR-0118 §6). The query limits that make 16g enough are in config.properties; the

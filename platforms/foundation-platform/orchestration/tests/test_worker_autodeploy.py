@@ -279,7 +279,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
             (self.bin / name).write_text(body)
             (self.bin / name).chmod(0o755)
         self.host = autodeploy.Host(
-            control_root=root / "control/current", release_root=root / "opt", state=root / "state",
+            control_root=root / "control/current", release_root=root / "opt", state=root / "state", work=root / "cache",
             off_switches=(root / "autodeploy.off", root / "worker-autodeploy.off"),
             credential_uid=os.getuid(), workspace_owner="0:0", poll_tries=2, poll_seconds=0)
 
@@ -494,6 +494,17 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.assertNotIn(production, self.cloud())
         self.assertNotIn(production, self.acted_on("versions upload"))
 
+    def test_workspaces_and_the_package_cache_live_off_the_state_disk_and_the_cache_is_kept(self):
+        # 2026-11-19: six Workers took 82 min on /data, each install fetching everything again.
+        self.assertEqual(self.tick(), 0)
+        self.assertFalse((self.host.state / "work").exists(), "a workspace was staged on the state disk")
+        self.assertTrue((self.host.work / "work/parcel-gateway").is_dir())
+        cache = self.host.work / "tools"
+        (cache / "pnpm-store").mkdir(parents=True, exist_ok=True)
+        (cache / "pnpm-store/kept").write_text("x")
+        self.assertEqual(self.tick(), 0)
+        self.assertTrue((cache / "pnpm-store/kept").exists(), "the next run threw the package cache away")
+
     def test_map_edit_applies_its_d1_migrations_before_it_uploads(self):
         self.assertEqual(self.tick(), 0)
         actions = [c["action"] for c in self.calls() if c.get("name") == "foundation-map-edit-gateway"]
@@ -502,7 +513,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
     def map_edit_configs(self):
         entry = next(e for e in CONTRACT["workers"] if e["id"] == "map-edit-gateway")
         relative = pathlib.Path("platforms/foundation-platform") / entry["service_dir"]
-        workspace = self.host.state / "work/map-edit-gateway" / relative
+        workspace = self.host.work / "work/map-edit-gateway" / relative
         return (self.tree / relative / entry["wrangler_config"], workspace / entry["wrangler_config"],
                 workspace / f"autodeploy.{entry['wrangler_config']}")
 

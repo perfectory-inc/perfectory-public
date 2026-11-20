@@ -168,11 +168,18 @@ class FoundationCiScopeTest(unittest.TestCase):
             crates_answer="some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n",
             suites_answer="some\tno suite reads it\n",
         )
+        # The release dry run is left to the merge queue (root ADR-0580).
         self.assertEqual(
             skipped,
-            ["boundary-slice", "compose-smoke", "dagster-observe", "spark-runtime", "static-release-toolchain-windows",
-             "suites", "supply-chain"],
+            ["boundary-slice", "compose-smoke", "dagster-observe", "release-image", "spark-runtime",
+             "static-release-toolchain-windows", "suites", "supply-chain"],
         )
+        queued = scope.skipped_jobs(
+            selected=selected, paths=[crate],
+            crates_answer="some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n",
+            suites_answer="some\tno suite reads it\n", event_name="merge_group",
+        )
+        self.assertNotIn("release-image", queued)
         # A document: no crate, so neither Rust job runs.
         doc = scope.skipped_jobs(
             selected=set(), paths=["platforms/foundation-platform/README.md"],
@@ -184,16 +191,17 @@ class FoundationCiScopeTest(unittest.TestCase):
     def test_the_release_dry_run_runs_where_main_would_build_a_release(self) -> None:
         """Root ADR-0345, from 2026-10-29 (#939): the release workflow's own scope decides."""
         crate = "platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/schema_registry.rs"
-        for event in ("pull_request", "merge_group"):
-            with self.subTest(event=event):
-                self.assertTrue(scope.release_image_selected(event, [crate]))
-                self.assertFalse(scope.release_image_selected(event, ["products/gongzzang/apps/web/page.tsx"]))
-        self.assertTrue(scope.release_image_selected("pull_request", ["tools/release-build.contract.json"]))
-        self.assertTrue(scope.release_image_selected("pull_request", None), "unknown paths build")
+        self.assertTrue(scope.release_image_selected("merge_group", [crate]))
+        self.assertFalse(scope.release_image_selected("merge_group", ["products/gongzzang/apps/web/page.tsx"]))
+        self.assertTrue(scope.release_image_selected("merge_group", ["tools/release-build.contract.json"]))
+        self.assertTrue(scope.release_image_selected("merge_group", None), "unknown paths build")
         self.assertTrue(scope.release_image_selected("workflow_dispatch", []))
-        # main and the nightly run: the release workflow builds main for real.
-        for event in ("push", "schedule"):
-            self.assertFalse(scope.release_image_selected(event, [crate]))
+        # Root ADR-0580: a pull request leaves the dry run to the merge queue; main and the nightly
+        # run leave it to the release workflow, which builds main for real.
+        for event in ("pull_request", "push", "schedule"):
+            with self.subTest(event=event):
+                self.assertFalse(scope.release_image_selected(event, [crate]))
+                self.assertFalse(scope.release_image_selected(event, None))
         web = scope.skipped_jobs(selected=set(), paths=["products/gongzzang/apps/web/page.tsx"],
                                  crates_answer="", suites_answer="", event_name="pull_request")
         self.assertIn(scope.RELEASE_JOB, web)

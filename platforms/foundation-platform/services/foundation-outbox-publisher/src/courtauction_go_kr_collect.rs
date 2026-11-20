@@ -23,7 +23,8 @@
 //! After a list pass that was not cut short, the same run asks the site's 공통코드 once ([`codes`],
 //! root ADR-0540 §5), then the 물건상세 of the properties due, on the same pool and tally, and stores
 //! their photos once in the shared media store ([`detail`], root ADR-0384), then the 사건상세,
-//! 현황조사 and 감정평가 of the cases due ([`cases`], root ADR-0540 §1).
+//! 현황조사 and 감정평가 of the cases due ([`cases`], root ADR-0540 §1), then the 감정평가서 PDFs not
+//! yet stored ([`reports`]).
 
 use std::{
     collections::BTreeMap,
@@ -180,6 +181,10 @@ pub(crate) struct SourceContract {
     pub(crate) item_detail: detail::ItemDetail,
     pub(crate) common_codes: codes::CommonCodes,
     pub(crate) case_documents: cases::CaseDocuments,
+    pub(crate) appraisal_reports: reports::AppraisalReports,
+    pub(crate) sale_specifications: specs::SaleSpecifications,
+    pub(crate) sale_notices: notices::SaleNotices,
+    pub(crate) dividend_notices: dividends::DividendNotices,
     pub(crate) collection: Collection,
 }
 
@@ -934,6 +939,92 @@ async fn run_cases(
     Ok((result, stop, report))
 }
 
+/// The appraisal-report phase: the reports the lakehouse's 감정평가 rounds want, then their PDFs
+/// until `deadline`, into the shared store. A dry run (no store) or a frontier that cannot be read
+/// asks nothing.
+async fn run_reports(
+    contract: &SourceContract,
+    asking: &Asking<'_>,
+    deadline: Instant,
+    storage: Option<&dyn ObjectStorageService>,
+) -> anyhow::Result<(reports::ReportsResult, Option<Stop>, JsonValue)> {
+    let item = &contract.appraisal_reports;
+    if storage.is_none() {
+        let report = json!({"asked": 0, "skipped": "a dry run stores no report"});
+        return Ok((reports::ReportsResult::default(), None, report));
+    }
+    let today = (Utc::now() + chrono::Duration::hours(KST_HOURS)).date_naive();
+    let gone_since = today - chrono::Duration::days(contract.collection.recrawl.max_age_days);
+    let wanted = match reports::frontier_from_lakehouse(item, gone_since).await {
+        Ok(wanted) => wanted,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: the appraisal report frontier could not be read; none asked");
+            let report = json!({"asked": 0, "skipped": format!("{error:#}")});
+            return Ok((reports::ReportsResult::default(), None, report));
+        }
+    };
+    let on = reports::ReportAsking {
+        reports: item,
+        http: reports::http_client(item)?,
+        prefix: detail::photo_prefix_of(&item.object_prefix_from)?,
+        storage,
+        captchas_in_a_row: std::sync::atomic::AtomicU32::new(0),
+    };
+    let (result, stop) = reports::collect_reports(&on, asking, deadline, &wanted, Utc::now).await?;
+    let mut report = json!(result);
+    report["frontier"] = json!(wanted.len());
+    println!("courtauction.go.kr appraisal reports: {report}");
+    Ok((result, stop, report))
+}
+
+/// The 매각물건명세서 phase: the versions this run's 물건상세 offered against the lakehouse's record,
+/// then their PDFs until `deadline`, under the contract's own prefix (root ADR-0575). A dry run (no
+/// store) or a record that cannot be read asks nothing: the log step writes the court's view log,
+/// so nothing is asked blind.
+async fn run_specs(
+    contract: &SourceContract,
+    asking: &Asking<'_>,
+    deadline: Instant,
+    offered: Vec<specs::WantedSpec>,
+    storage: Option<&dyn ObjectStorageService>,
+) -> anyhow::Result<(specs::SpecsResult, Option<Stop>, JsonValue)> {
+    let item = &contract.sale_specifications;
+    if storage.is_none() {
+        let report = json!({"asked": 0, "skipped": "a dry run stores no specification"});
+        return Ok((specs::SpecsResult::default(), None, report));
+    }
+    let reads = match specs::reads_from_lakehouse(item).await {
+        Ok(reads) => reads,
+        Err(error) => {
+            tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: the sale specification record could not be read; none asked");
+            let report = json!({"asked": 0, "skipped": format!("{error:#}")});
+            return Ok((specs::SpecsResult::default(), None, report));
+        }
+    };
+    let today = (Utc::now() + chrono::Duration::hours(KST_HOURS)).date_naive();
+    let candidates = offered.len();
+    let wanted = specs::frontier(offered, reads.iter(), today, item.per_run_limit);
+    let gate = asking
+        .gates
+        .get(&item.pace_group)
+        .with_context(|| format!("no collection.pace group {:?}", item.pace_group))?;
+    let on = specs::SpecAsking {
+        specs: item,
+        session_headers: &contract.collection.session.headers,
+        gate,
+        http: specs::http_client(item)?,
+        prefix: item.prefix()?,
+        storage,
+        captcha_seen: std::sync::atomic::AtomicBool::new(false),
+    };
+    let (result, stop) = specs::collect_specs(&on, asking, deadline, &wanted, Utc::now).await?;
+    let mut report = json!(result);
+    report["offered"] = json!(candidates);
+    report["frontier"] = json!(wanted.len());
+    println!("courtauction.go.kr sale specifications: {report}");
+    Ok((result, stop, report))
+}
+
 /// Collects one run into Bronze.
 ///
 /// # Errors
@@ -1037,17 +1128,108 @@ pub async fn run() -> anyhow::Result<()> {
             objects.push(entry);
         }
     }
+    // The 매각공고 are read whole and commit at once, as the lists are (root ADR-0575 §6).
+    let mut notices_report = json!({"asked": 0, "skipped": "the list pass did not end cleanly"});
+    let mut court_codes: Vec<String> = Vec::new();
+    if stop.is_none() {
+        let budget = Duration::from_secs(contract.sale_notices.run_time_budget_seconds);
+        let notices_deadline = (Instant::now() + budget).min(deadline);
+        let today = (Utc::now() + chrono::Duration::hours(KST_HOURS)).date_naive();
+        let (result, notices_stop) =
+            notices::collect_notices(&contract, &asking, notices_deadline, today, Utc::now).await?;
+        notices_report = json!(result);
+        court_codes.clone_from(&result.court_codes);
+        println!("courtauction.go.kr sale notices: {notices_report}");
+        // The phase's own deadline ends only the phase; an operator's window that ended ends the run.
+        let complete = notices_stop.is_none();
+        if matches!(notices_stop, Some(Stop::WindowEnded)) {
+            stop = notices_stop;
+        }
+        if !result.lines.is_empty() {
+            let mut entry = persist(
+                &contract.sale_notices.as_search(),
+                &config.output_dir,
+                &result.lines,
+                started,
+                &lists_night,
+                live,
+            )
+            .await?;
+            entry["role"] = json!("sale_notices");
+            entry["complete"] = json!(complete);
+            entry["rows"] = json!(result.lines.len());
+            objects.push(entry);
+        }
+    }
+    // The 배당요구종기공고 of the courts the 매각공고 read, likewise (root ADR-0575 §6).
+    let mut dividends_report = json!({"asked": 0, "skipped": "the list pass did not end cleanly"});
+    if stop.is_none() && !court_codes.is_empty() {
+        let budget = Duration::from_secs(contract.dividend_notices.run_time_budget_seconds);
+        let dividends_deadline = (Instant::now() + budget).min(deadline);
+        let known = if live.is_some() {
+            match dividends::known_from_lakehouse(&contract.dividend_notices).await {
+                Ok(known) => Some(known),
+                Err(error) => {
+                    tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: the dividend object table could not be read; no 물건 list asked");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let (result, dividends_stop) = dividends::collect_dividends(
+            &contract,
+            &asking,
+            dividends_deadline,
+            &court_codes,
+            known.as_ref(),
+            Utc::now,
+        )
+        .await?;
+        dividends_report = json!(result);
+        println!("courtauction.go.kr dividend notices: {dividends_report}");
+        let complete = dividends_stop.is_none();
+        if matches!(dividends_stop, Some(Stop::WindowEnded)) {
+            stop = dividends_stop;
+        }
+        if !result.lines.is_empty() {
+            let mut entry = persist(
+                &contract.dividend_notices.as_search(),
+                &config.output_dir,
+                &result.lines,
+                started,
+                &lists_night,
+                live,
+            )
+            .await?;
+            entry["role"] = json!("dividend_notices");
+            entry["complete"] = json!(complete);
+            entry["rows"] = json!(result.lines.len());
+            objects.push(entry);
+        }
+    }
     let mut details: Option<(detail::DetailResult, JsonValue)> = None;
     let mut case_wanted: Vec<cases::WantedCase> = Vec::new();
-    // The case documents end the run; the 물건상세 leave them their budget (root ADR-0540 §1). The
-    // photos' display ladders are the hourly backlog's, not the run's (root ADR-0566).
-    let cases_deadline = deadline;
+    // The 감정평가서 end the run, the case documents before them, the 매각물건명세서 before those and
+    // the 물건상세 first (root ADR-0540 §1, ADR-0575). The photos' display ladders are the hourly
+    // backlog's, not the run's (ADR-0566).
+    let reports_deadline = deadline;
+    let cases_deadline = reports_deadline
+        .checked_sub(Duration::from_secs(
+            contract.appraisal_reports.run_time_budget_seconds,
+        ))
+        .unwrap_or(reports_deadline);
+    let specs_deadline = cases_deadline
+        .checked_sub(Duration::from_secs(
+            contract.case_documents.run_time_budget_seconds,
+        ))
+        .unwrap_or(cases_deadline);
     if stop.is_none() {
-        let detail_deadline = cases_deadline
+        let detail_deadline = specs_deadline
             .checked_sub(Duration::from_secs(
-                contract.case_documents.run_time_budget_seconds,
+                contract.sale_specifications.run_time_budget_seconds,
             ))
-            .unwrap_or(cases_deadline);
+            .unwrap_or(specs_deadline);
         let (asked, mut report) =
             detail_frontier(&contract, &results, live.map(|(_, s)| s)).await?;
         // The cases of this run's in-progress list rows, taken before the lines go (root ADR-0540 §3).
@@ -1112,6 +1294,7 @@ pub async fn run() -> anyhow::Result<()> {
             total.asked += result.asked;
             total.failed += result.failed;
             total.photos.absorb(result.photos);
+            total.specs.extend(result.specs);
             if stop.is_some() {
                 break;
             }
@@ -1123,8 +1306,24 @@ pub async fn run() -> anyhow::Result<()> {
         println!("courtauction.go.kr item detail: {report}");
         details = Some((total, report));
     }
-    // The 물건상세 phase ends at its own deadline (TimeBudget), which still leaves the case documents
-    // theirs; an operator's window that ended does not.
+    // The 물건상세 phase ends at its own deadline (TimeBudget), which still leaves the specifications
+    // and the case documents theirs; an operator's window that ended does not.
+    let mut sale_specifications = None;
+    if matches!(stop, None | Some(Stop::TimeBudget)) {
+        if let Some((total, _)) = details.as_mut() {
+            let offered = std::mem::take(&mut total.specs);
+            let (result, specs_stop, report) = run_specs(
+                &contract,
+                &asking,
+                specs_deadline,
+                offered,
+                live.map(|(_, s)| s),
+            )
+            .await?;
+            stop = specs_stop.or(stop);
+            sale_specifications = Some((result, report));
+        }
+    }
     let mut case_documents = None;
     if matches!(stop, None | Some(Stop::TimeBudget)) && details.is_some() {
         let (result, cases_stop, report) = run_cases(
@@ -1137,6 +1336,13 @@ pub async fn run() -> anyhow::Result<()> {
         .await?;
         stop = cases_stop.or(stop);
         case_documents = Some((result, report));
+    }
+    let mut appraisal_reports = None;
+    if matches!(stop, None | Some(Stop::TimeBudget)) && details.is_some() {
+        let (result, reports_stop, report) =
+            run_reports(&contract, &asking, reports_deadline, live.map(|(_, s)| s)).await?;
+        stop = reports_stop.or(stop);
+        appraisal_reports = Some((result, report));
     }
     let counts = asking.tally.counts();
     let sessions = pool.sessions();
@@ -1157,6 +1363,47 @@ pub async fn run() -> anyhow::Result<()> {
         }
         cases_report = report;
     }
+    let mut specs_report = json!({"asked": 0, "skipped": "the 물건상세 phase did not end cleanly"});
+    if let Some((result, report)) = sale_specifications {
+        if !result.lines.is_empty() {
+            let search = contract.sale_specifications.as_search();
+            let mut entry = persist(
+                &search,
+                &config.output_dir,
+                &result.lines,
+                started,
+                &night,
+                live,
+            )
+            .await?;
+            entry["role"] = json!("sale_specifications");
+            entry["complete"] = json!(stop.is_none());
+            entry["rows"] = json!(result.lines.len());
+            objects.push(entry);
+        }
+        specs_report = report;
+    }
+    let mut reports_report =
+        json!({"asked": 0, "skipped": "the 물건상세 phase did not end cleanly"});
+    if let Some((result, report)) = appraisal_reports {
+        if !result.lines.is_empty() {
+            let search = contract.appraisal_reports.as_search();
+            let mut entry = persist(
+                &search,
+                &config.output_dir,
+                &result.lines,
+                started,
+                &night,
+                live,
+            )
+            .await?;
+            entry["role"] = json!("appraisal_reports");
+            entry["complete"] = json!(stop.is_none());
+            entry["rows"] = json!(result.lines.len());
+            objects.push(entry);
+        }
+        reports_report = report;
+    }
     let detail_report = match details {
         Some((_, report)) => report,
         None => json!({"asked": 0, "skipped": "the list pass did not end cleanly"}),
@@ -1170,7 +1417,11 @@ pub async fn run() -> anyhow::Result<()> {
             "night": night,
             "objects": objects,
             "item_detail": detail_report,
+            "sale_notices": notices_report,
+            "dividend_notices": dividends_report,
+            "sale_specifications": specs_report,
             "case_documents": cases_report,
+            "appraisal_reports": reports_report,
         }),
     )?;
     tracing::info!(
@@ -1205,6 +1456,10 @@ pub async fn run() -> anyhow::Result<()> {
 pub(crate) mod cases;
 pub(crate) mod codes;
 pub(crate) mod detail;
+pub(crate) mod dividends;
+pub(crate) mod notices;
+pub(crate) mod reports;
+pub(crate) mod specs;
 
 #[cfg(test)]
 mod tests;

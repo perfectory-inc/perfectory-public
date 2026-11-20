@@ -3,13 +3,14 @@
   "description": [
     "Dependency updates arrive as pull requests from the hosted Renovate app (root ADR-0271).",
     "Version pins live in tools/technology-versions.contract.json (root ADR-0097): the custom managers below update the contract in the same branch as every file that copies a pin, so the version guards see one value.",
-    "Patch and digest updates open ready pull requests that the merge queue takes once CI is green; minor and major (non-security) updates open as drafts for a person to review.",
-    "Security (vulnerability) updates automerge once CI is green, even a major: the vulnerability risk outweighs the regression risk and CI is the gate (ADR-0302 amends ADR-0097 for security only)."
+    "Patch and digest updates and lockfile maintenance open ready pull requests with GitHub's auto-merge on, which adds them to the merge queue once CI is green (root ADR-0585); minor and major (non-security) updates open as drafts for a person to review.",
+    "Security (vulnerability) updates automerge once CI is green, even a major: the vulnerability risk outweighs the regression risk and CI is the gate (ADR-0302 amends ADR-0097 for security only).",
+    "The dependency dashboard is one issue listing pending, blocked and rate-limited updates, with the manual-run checkbox (root ADR-0568 8)."
   ],
   "extends": ["config:recommended"],
   "timezone": "Asia/Seoul",
   "schedule": ["before 9am on monday"],
-  "dependencyDashboard": false,
+  "dependencyDashboard": true,
   "semanticCommits": "enabled",
   "prConcurrentLimit": 6,
   "prHourlyLimit": 3,
@@ -20,10 +21,12 @@
     "schedule": ["at any time"],
     "draftPR": false,
     "automerge": true,
-    "labels": ["security"]
+    "labels": ["security"],
+    "prConcurrentLimit": 3
   },
   "lockFileMaintenance": {
     "enabled": true,
+    "automerge": true,
     "schedule": ["before 9am on monday"]
   },
   "enabledManagers": ["cargo", "npm", "github-actions", "custom.regex"],
@@ -75,8 +78,13 @@
       "enabled": false
     },
     {
-      "description": "pnpm.overrides are rendered from tools/npm/security-overrides.contract.json (root ADR-0158), not edited.",
+      "description": "pnpm overrides are rendered from tools/npm/security-overrides.contract.json into each tree's pnpm-workspace.yaml (root ADR-0158, ADR-0572), not edited.",
       "matchDepTypes": ["pnpm.overrides"],
+      "enabled": false
+    },
+    {
+      "description": "pnpm-workspace.yaml holds the rendered overrides and the reviewed allowBuilds (root ADR-0572); a fix moves the contract, not this file.",
+      "matchFileNames": ["**/pnpm-workspace.yaml"],
       "enabled": false
     },
     {
@@ -92,22 +100,26 @@
     {
       "matchDatasources": ["crate"],
       "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
-      "groupName": "cargo patch updates"
+      "groupName": "cargo patch updates",
+      "automerge": true
     },
     {
       "matchDatasources": ["npm"],
       "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
-      "groupName": "npm patch updates"
+      "groupName": "npm patch updates",
+      "automerge": true
     },
     {
       "matchDatasources": ["docker"],
       "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
-      "groupName": "container image patch updates"
+      "groupName": "container image patch updates",
+      "automerge": true
     },
     {
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
-      "groupName": "github-actions patch updates"
+      "groupName": "github-actions patch updates",
+      "automerge": true
     },
     {
       "matchDatasources": ["crate"],

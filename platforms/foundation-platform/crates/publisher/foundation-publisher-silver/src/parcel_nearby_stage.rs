@@ -18,6 +18,7 @@
 //! threads, a 5 GB `DuckDB` limit). Nothing here commits.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::time::Instant;
 
 use anyhow::{ensure, Context};
 use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableContract};
@@ -25,6 +26,7 @@ use sha2::{Digest, Sha256};
 
 use duckdb::Connection;
 
+use crate::duckdb_parquet_stage::with_contract_columns;
 use crate::legal_dong_code_change_stage::{PAIR_ROWS_SQL, RENUMBERED_INTO_SQL};
 
 const NEAREST_SQL: &str = include_str!("parcel_nearby_stage/nearest.sql");
@@ -259,12 +261,17 @@ fn field(header: &str) -> anyhow::Result<String> {
 }
 
 /// The current rows of `table` at `pin`, projecting `columns`, by its contract's one rendering
-/// (root ADR-0564 §4). A table that must not tie is refused when two current rows of a key do.
+/// (root ADR-0564 §4), built once into the temporary table `into`; returns the query that reads it.
+///
+/// The pinned table is read once: a table that must not tie is refused, on `into`, when two current
+/// rows of a key do. Until 2026-11-19 the tie check rendered the rule a second time and the first
+/// production run read every such input from R2 twice (46 minutes of a one-hour start, root ADR-0564).
 fn current_rows(
     connection: &Connection,
     source: &Source<'_>,
     table: &str,
     columns: &[&str],
+    into: &str,
 ) -> anyhow::Result<String> {
     let contract = contract(table)?;
     ensure!(
@@ -274,25 +281,46 @@ fn current_rows(
     let latest = contract
         .current_row_latest()
         .with_context(|| format!("{table} keeps no versions per key"))?;
-    let source = source.of(table)?;
-    let query = latest.current_rows_sql(&source, columns, "TRUE");
+    let pinned = source.of(table)?;
+    // A column the table gained after the pinned snapshot reads as NULL there.
+    let read = with_contract_columns(connection, contract, &pinned)?;
+    // The key rides along for the tie check and leaves after it.
+    let extra: Vec<&str> = if latest.keep_ties {
+        Vec::new()
+    } else {
+        latest
+            .key
+            .iter()
+            .copied()
+            .filter(|column| !columns.contains(column))
+            .collect()
+    };
+    let projected: Vec<&str> = columns
+        .iter()
+        .copied()
+        .chain(extra.iter().copied())
+        .collect();
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TEMP TABLE {into} AS {}",
+        latest.current_rows_sql(&read, &projected, "TRUE")
+    ))?;
     if !latest.keep_ties {
         let key = latest.key.join(", ");
         let (rows, keys): (i64, i64) = connection.query_row(
-            &format!(
-                "SELECT count(*), count(DISTINCT ({key})) FROM ({})",
-                latest.current_rows_sql(&source, latest.key, "TRUE")
-            ),
+            &format!("SELECT count(*), count(DISTINCT ({key})) FROM {into}"),
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         ensure!(
             rows == keys,
-            "{table} ({source}) holds {} current rows tied on their version order",
+            "{table} ({pinned}) holds {} current rows tied on their version order",
             rows - keys
         );
     }
-    Ok(query)
+    for column in extra {
+        connection.execute_batch(&format!("ALTER TABLE {into} DROP COLUMN {column}"))?;
+    }
+    Ok(format!("SELECT * FROM {into}"))
 }
 
 /// The spheroid distance in metres between two (longitude, latitude) points, as a macro.
@@ -340,6 +368,8 @@ pub struct NearbyInputs {
     pub highway_sigungu: u64,
     /// Codes the renumbering translates.
     pub renumbered_codes: u64,
+    /// Milliseconds each pinned input took to read, by table.
+    pub read_millis: BTreeMap<String, u64>,
     /// The located stores per H3 cell, which [`build_sido`] counts the rings of.
     #[serde(skip)]
     pub store_cells: StoreCells,
@@ -422,6 +452,14 @@ pub fn load_inputs(
         "the edition {edition:?} is not a plain snapshot id"
     );
     define_spheroid(connection)?;
+    let mut read_millis = BTreeMap::new();
+    let mut timed = |table: &str, at: Instant| {
+        read_millis.insert(
+            table.to_owned(),
+            u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX),
+        );
+    };
+    let at = Instant::now();
     let parcels = contract(PARCEL_SOURCE)?;
     let predicate = parcels
         .current_row_predicate
@@ -434,6 +472,7 @@ pub fn load_inputs(
                WHERE source_snapshot_id = '{edition}' AND ({predicate}) AND geometry_wkb IS NOT NULL);",
         parcels_table = source.of(PARCEL_SOURCE)?
     ))?;
+    timed(PARCEL_SOURCE, at);
     let (rows, keys): (i64, i64) = connection.query_row(
         "SELECT count(*), count(DISTINCT pnu) FROM parcels",
         [],
@@ -447,12 +486,14 @@ pub fn load_inputs(
     );
 
     // The code change table's pairs in force, and the codes the served edition holds of them.
+    let at = Instant::now();
     connection.execute_batch(&format!(
         "CREATE OR REPLACE TEMP TABLE code_changes AS \
          SELECT kind, old_code, new_code, level, effective_date, source \
          FROM {changes} WHERE kind IN ('pair', 'supersession');",
         changes = source.of(CODE_CHANGE_SOURCE)?
     ))?;
+    timed(CODE_CHANGE_SOURCE, at);
     connection.execute_batch(PAIR_ROWS_SQL)?;
     connection.execute_batch(
         "CREATE OR REPLACE TEMP TABLE served_codes AS \
@@ -476,7 +517,15 @@ pub fn load_inputs(
             columns.push(format!("{} AS {name}", field(header)?));
         }
         let columns = columns.iter().map(String::as_str).collect::<Vec<_>>();
-        let rows = current_rows(connection, source, file.table, &columns)?;
+        let at = Instant::now();
+        let rows = current_rows(
+            connection,
+            source,
+            file.table,
+            &columns,
+            &format!("current_{}", file.key),
+        )?;
+        timed(file.table, at);
         connection.execute_batch(&format!(
             "CREATE OR REPLACE TABLE f_{key} AS SELECT * FROM ({rows}) WHERE {inside};",
             key = file.key,
@@ -489,7 +538,15 @@ pub fn load_inputs(
         columns.push(format!("{} AS {name}", field(header)?));
     }
     let columns = columns.iter().map(String::as_str).collect::<Vec<_>>();
-    let rows = current_rows(connection, source, UNIVERSITY_SOURCE, &columns)?;
+    let at = Instant::now();
+    let rows = current_rows(
+        connection,
+        source,
+        UNIVERSITY_SOURCE,
+        &columns,
+        "current_university",
+    )?;
+    timed(UNIVERSITY_SOURCE, at);
     let picked = university_fields
         .iter()
         .map(|(name, _)| format!("u.{name}"))
@@ -523,7 +580,15 @@ pub fn load_inputs(
         format!("TRY_CAST(trim({}) AS DOUBLE) AS lon", field(store_lon)?),
     ];
     let store_columns = store_columns.iter().map(String::as_str).collect::<Vec<_>>();
-    let rows = current_rows(connection, source, STORE_SOURCE, &store_columns)?;
+    let at = Instant::now();
+    let rows = current_rows(
+        connection,
+        source,
+        STORE_SOURCE,
+        &store_columns,
+        "current_stores",
+    )?;
+    timed(STORE_SOURCE, at);
     let store_cells = StoreCells::from_points(&points(
         connection,
         &format!(
@@ -540,7 +605,15 @@ pub fn load_inputs(
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let rows = current_rows(connection, source, HIGHWAY_SOURCE, &highway_columns)?;
+    let at = Instant::now();
+    let rows = current_rows(
+        connection,
+        source,
+        HIGHWAY_SOURCE,
+        &highway_columns,
+        "current_highway",
+    )?;
+    timed(HIGHWAY_SOURCE, at);
     let record = HIGHWAY_FIELDS
         .iter()
         .map(|(name, _)| format!("'{name}': {name}"))
@@ -561,6 +634,7 @@ pub fn load_inputs(
          FROM k GROUP BY sigungu;"
     ))?;
 
+    let at = Instant::now();
     // The parcel place ids: each code's open period, else its latest closed one; a code-pair line
     // is a new code's form of an id, not a period (place_id_join.place_ids).
     connection.execute_batch(&format!(
@@ -571,6 +645,7 @@ pub fn load_inputs(
            WHERE unit = 'parcel' AND valid_from <> 'legal-dong-code-change') WHERE newest = 1;",
         bridge = source.of(BRIDGE_SOURCE)?
     ))?;
+    timed(BRIDGE_SOURCE, at);
     connection.execute_batch(BUILT_TABLE)?;
 
     let count = |sql: &str| -> anyhow::Result<u64> {
@@ -593,6 +668,7 @@ pub fn load_inputs(
         stores: store_cells.total(),
         highway_sigungu: count("SELECT count(*) FROM highway")?,
         renumbered_codes: count("SELECT count(*) FROM renumbering")?,
+        read_millis,
         store_cells,
     })
 }
@@ -653,10 +729,10 @@ pub fn changed_sidos(
             format!("TRY_CAST(trim({}) AS DOUBLE) AS lon", field(lon)?),
         ];
         let columns = columns.iter().map(String::as_str).collect::<Vec<_>>();
-        let side = |source: &Source<'_>| -> anyhow::Result<BTreeSet<(String, u64)>> {
+        let side = |source: &Source<'_>, into: &str| -> anyhow::Result<BTreeSet<(String, u64)>> {
             let query = format!(
                 "SELECT row_key, lat, lon FROM ({}) WHERE {}",
-                current_rows(connection, source, STORE_SOURCE, &columns)?,
+                current_rows(connection, source, STORE_SOURCE, &columns, into)?,
                 inside("lat", "lon")
             );
             connection
@@ -674,7 +750,10 @@ pub fn changed_sidos(
                 })
                 .collect()
         };
-        let (before, after) = (side(old)?, side(new)?);
+        let (before, after) = (
+            side(old, "current_stores_before")?,
+            side(new, "current_stores_after")?,
+        );
         // The cells a store left or entered, and every cell within the rings of one.
         let mut touched = BTreeSet::new();
         for (_, moved_cell) in before.symmetric_difference(&after) {

@@ -102,12 +102,12 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
 Node와 pnpm 버전은 `package.json`의 `engines`와 `packageManager`를 따른다.
 
 ```bash
-corepack pnpm@9.12.0 install --frozen-lockfile
-corepack pnpm@9.12.0 run config:check
-corepack pnpm@9.12.0 run typecheck
-corepack pnpm@9.12.0 test
-corepack pnpm@9.12.0 run build:check
-corepack pnpm@9.12.0 run verify:local
+corepack pnpm@12.21.0 install --frozen-lockfile
+corepack pnpm@12.21.0 run config:check
+corepack pnpm@12.21.0 run typecheck
+corepack pnpm@12.21.0 test
+corepack pnpm@12.21.0 run build:check
+corepack pnpm@12.21.0 run verify:local
 ```
 
 `verify:local`은 OS 임시 디렉터리의 Wrangler local R2에 묶음 manifest 와 발행자의 골든 묶음,

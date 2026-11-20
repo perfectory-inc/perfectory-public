@@ -23,6 +23,7 @@ async fn the_equality_gate_refuses_every_kind_of_difference() -> anyhow::Result<
         max_concurrency: 1,
         summary_path: lane.work.join("unused.json"),
         sample_candidates_per_million: None,
+        progress: None,
     };
     let approvals = ApprovedBuildingLinks::default();
     let documents = rows

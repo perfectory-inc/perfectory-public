@@ -14,7 +14,9 @@ use foundation_publisher_core::lakehouse_data_commit::{
     AppendOutcome, DataAppend, HeadMoved, LakehouseDataCommitter, StagedFile,
 };
 use foundation_publisher_silver::duckdb::Connection;
-use foundation_publisher_silver::duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG};
+use foundation_publisher_silver::duckdb_parquet_stage::{
+    with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG,
+};
 use lakehouse_domain::LakehouseTableContract;
 use lakehouse_infrastructure::{IcebergRestCatalog, IcebergSnapshotSummary};
 use serde_json::{json, Value};
@@ -208,10 +210,14 @@ pub(crate) fn diff(
             .current_row_latest()
             .context("the versions table has no current-row rule")?
             .current_rows_sql(
-                &format!(
-                    "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-                    commit.table
-                ),
+                &with_contract_columns(
+                    connection,
+                    commit.versions,
+                    &format!(
+                        "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
+                        commit.table
+                    ),
+                )?,
                 &commit.content_columns,
                 range,
             ),

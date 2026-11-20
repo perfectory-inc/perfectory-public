@@ -58,6 +58,10 @@ echo "$*" >> "$FIXTURE_ROOT/sleep.log"
 """
 SUDO = """#!/bin/sh
 echo "$*" >> "$FIXTURE_ROOT/sudo.log"
+# Whether the start was asked with the admission lock held (FIXTURE_PROBE_LOCK names it).
+if [ -n "${FIXTURE_PROBE_LOCK:-}" ]; then
+  if flock -n "$FIXTURE_PROBE_LOCK" true; then echo free; else echo held; fi >> "$FIXTURE_ROOT/lock.log"
+fi
 touch "$FIXTURE_ROOT/started"
 """
 # Release admission's `release-build-running`: 75 while FIXTURE_BUILD says a build holds the lock.
@@ -109,7 +113,7 @@ class HostFixture(unittest.TestCase):
                      self.root / "built"):
             path.unlink(missing_ok=True)
         result = subprocess.run(["bash", str(SCRIPT)], env={**self.env, "SSH_ORIGINAL_COMMAND": job, **env},
-                                capture_output=True, text=True, timeout=60)
+                                capture_output=True, text=True, timeout=60, check=False)  # each test asserts the status
         log = self.root / "sudo.log"
         return result, log.read_text() if log.exists() else ""
 
@@ -146,7 +150,7 @@ class TheRunOutlivesItsConnection(HostFixture):
         (self.root / "started").touch()
         result = subprocess.run(["bash", str(SCRIPT)], env={**self.env, "SSH_ORIGINAL_COMMAND": "fold",
                                                             "FIXTURE_RUN_STATES": "activating,activating"},
-                                capture_output=True, text=True, timeout=60)
+                                capture_output=True, text=True, timeout=60, check=False)  # asserted below
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("foundation-fold.service invocation=new", result.stdout)
         self.assertEqual(result.stdout.count("foundation-job-outcome changed"), 2,
@@ -192,6 +196,42 @@ class EveryStartTakesThePoolsSlots(HostFixture):
         result, asked = self.start("bake", FIXTURE_HELD="foundation-fold.service")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("systemctl start --no-block foundation-bake.service", asked)
+
+
+class OneStartAtATimeFromThePoolsAnswerToItsUnit(HostFixture):
+    """pool-full reads what runs and the memory left; two starts asked at once both saw the same
+    room. The answer and the start are one step under the queue's admission lock."""
+
+    def lock(self):
+        return self.root / "queue/admission.lock"
+
+    def test_the_start_is_asked_with_the_lock_held_and_lets_it_go_after(self):
+        result, asked = self.start("bake", FIXTURE_PROBE_LOCK=str(self.lock()))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("systemctl start --no-block foundation-bake.service", asked)
+        self.assertEqual((self.root / "lock.log").read_text().split()[:1], ["held"])
+        probe = subprocess.run(["flock", "-n", str(self.lock()), "true"], check=False)  # the status is the answer
+        self.assertEqual(probe.returncode, 0, "the lock outlived the start")
+
+    def test_a_start_waits_for_another_that_holds_the_lock_and_starts_nothing_past_it(self):
+        self.lock().parent.mkdir(parents=True, exist_ok=True)
+        holder = subprocess.Popen(["flock", str(self.lock()), "sleep", "30"])
+        self.addCleanup(holder.kill)
+        for _ in range(50):
+            if subprocess.run(["flock", "-n", str(self.lock()), "true"], check=False).returncode != 0:  # non-zero = held
+                break
+            subprocess.run([sys.executable, "-c", "import time; time.sleep(0.1)"], check=True)
+        result, asked = self.start("bake", FOUNDATION_ADMISSION_LOCK_SECONDS="1")
+        self.assertEqual(result.returncode, 64, result.stderr + result.stdout)
+        self.assertIn("another start held", result.stderr)
+        self.assertEqual(asked, "", "a start went past the lock another start held")
+
+    def test_a_start_that_waits_for_its_pool_does_not_hold_the_lock(self):
+        result, asked = self.start("floor", FIXTURE_HELD="foundation-paused.service", FIXTURE_PROBE_LOCK=str(self.lock()))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(asked, "")
+        probe = subprocess.run(["flock", "-n", str(self.lock()), "true"], check=False)  # the status is the answer
+        self.assertEqual(probe.returncode, 0)
 
 
 def epoch(text):

@@ -13,8 +13,11 @@ on:
   merge_group:
   # A pull request verifies only the crates it reaches (root ADR-0269); every night
   # main verifies every crate, as the merge queue does.
+  # Each nightly has its own minute (17:07 to 17:58 UTC, Foundation's 16 jobs first): at one shared
+  # minute the nine workflows asked for 48 runners at once, and on 2026-11-18 their jobs waited
+  # p50 176 s, p90 767 s beside the day's pull requests (20 runners in all).
   schedule:
-    - cron: "41 17 * * *"
+    - cron: "19 17 * * *"
     # Intentionally unfiltered so required/gongzzang-core always reports.
 
 defaults:
@@ -105,12 +108,18 @@ jobs:
       # Release artifact build stays in the area (not part of `verify`).
       - run: cargo build --release
 
-  cargo-deny:
+  # Root ADR-0580: cargo-deny, the repo guardrails and the traffic/auth policy drift share one runner.
+  # As three jobs each held a runner for 5-23 s of work behind 40-65 s of the same setup.
+  policy:
     needs: [scope]
     if: ${{ needs.scope.outputs.affected == 'true' }}
-    name: cargo-deny
+    name: Policy gates (cargo-deny, repo guardrails, traffic/auth drift)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # The drift step regenerates the six committed policy artifacts from the single registry
+    # SSOT (docs/architecture/traffic-auth-policy-registry.v1.json) and fails if
+    # any drifted. The generator shells out to Biome to format the .ts/.json
+    # outputs, so pnpm install must run first.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
@@ -140,76 +149,23 @@ jobs:
       - name: Install cargo-deny
         working-directory: ${{ github.workspace }}
         run: cargo xtask ci install-cargo-deny
-      - run: cargo deny check
-
-  guardrails:
-    needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
-    name: Repo guardrails
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
-        with:
-          persist-credentials: false
-      - name: Generate the declared artifacts (root ADR-0418)
-        shell: bash
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
-      - name: Set up Rust
+      # Root ADR-0568: a change that leaves this workspace's Cargo.lock and deny.toml as they are
+      # is not judged on their advisories here (the repository OSV gate and the daily check are).
+      - name: cargo-deny
         working-directory: ${{ github.workspace }}
-        shell: bash
-        run: bash scripts/ci/rust-setup.sh
-      - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
-        with:
-          # Reads the area's one dependency cache, which rust saves (root ADR-0269).
-          workspaces: |
-            products/gongzzang
-            tools/xtask
-          shared-key: gongzzang-dependencies
-          save-if: false
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: cargo xtask ci cargo-deny products/gongzzang --locked
       - name: File size limit (repo-guard)
         run: cargo run -p repo-guard -- file-line-limit
       - name: Migration version prefixes (repo-guard)
         run: cargo run -p repo-guard -- migration-version-prefixes
       - name: Capability-first crate layout (repo-guard)
         run: cargo run -p repo-guard -- capability-layout
-      # Markdown link checking moved to the monorepo-wide docs.yml gate (lychee,
-      # Phase D) — one definition covering all areas, not just gongzzang.
-
-  traffic-auth-policy-drift:
-    needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
-    name: Traffic/auth policy drift
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    # Regenerates the six committed policy artifacts from the single registry
-    # SSOT (docs/architecture/traffic-auth-policy-registry.v1.json) and fails if
-    # any drifted. The generator shells out to Biome to format the .ts/.json
-    # outputs, so pnpm install must run first.
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
-        with:
-          persist-credentials: false
-      - name: Generate the declared artifacts (root ADR-0418)
-        shell: bash
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
-      - name: Set up Rust
-        working-directory: ${{ github.workspace }}
-        shell: bash
-        run: bash scripts/ci/rust-setup.sh
-      - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
-        with:
-          # Reads the area's one dependency cache, which rust saves (root ADR-0269).
-          workspaces: |
-            products/gongzzang
-            tools/xtask
-          shared-key: gongzzang-dependencies
-          save-if: false
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093  # v6.0.8 (SHA pin, ADR 0028)
         with:
-          version: 9.12.0
+          version: 12.21.0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0 (SHA pin, ADR 0028)
         with:
           node-version: "24.20.0"
@@ -248,7 +204,7 @@ jobs:
   required:
     name: required/gongzzang-core
     if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}
-    needs: [scope, rust, cargo-deny, guardrails, traffic-auth-policy-drift]
+    needs: [scope, rust, policy]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -260,8 +216,6 @@ jobs:
           CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}
           REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_RUST: ${{ needs.rust.result }}
-          REQUIRED_RESULT_CARGO_DENY: ${{ needs.cargo-deny.result }}
-          REQUIRED_RESULT_GUARDRAILS: ${{ needs.guardrails.result }}
-          REQUIRED_RESULT_TRAFFIC_AUTH_POLICY_DRIFT: ${{ needs.traffic-auth-policy-drift.result }}
+          REQUIRED_RESULT_POLICY: ${{ needs.policy.result }}
         working-directory: .
         run: bash scripts/ci/require-successful-needs.sh

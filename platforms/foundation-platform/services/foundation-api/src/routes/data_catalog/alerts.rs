@@ -91,16 +91,30 @@ fn render(status: Option<&ScheduledJobsStatus>, console: Option<&str>) -> String
             };
             let _ = writeln!(
                 body,
-                "foundation_scheduled_job_problem{{job_id=\"{}\",kind=\"{}\",node_id=\"{}\",summary=\"{}\",link=\"{}\"}} 1",
+                "foundation_scheduled_job_problem{{job_id=\"{}\",kind=\"{}\",node_id=\"{}\",failed_job=\"{}\",summary=\"{}\",link=\"{}\"}} 1",
                 escape(&job.job_id),
                 kind(problem),
                 escape(&node_id),
+                escape(failed_job(job, problem)),
                 escape(&clip(&sentence(problem))),
                 escape(&link),
             );
         }
     }
     body
+}
+
+/// The failed job a problem is about, so that Alertmanager can quiet a blocked job while the failure
+/// it waits on is announced, and only then (root ADR-0591): a failure names its own job, a blocked
+/// job the first of the failed jobs it waits on, any other problem none.
+fn failed_job<'a>(job: &'a ScheduledJobStatus, problem: &'a ScheduledJobProblem) -> &'a str {
+    match problem {
+        ScheduledJobProblem::Failed { .. } => &job.job_id,
+        ScheduledJobProblem::Blocked { upstream_job_ids } => {
+            upstream_job_ids.iter().min().map_or("", String::as_str)
+        }
+        _ => "",
+    }
 }
 
 /// The dataset a problem opens, as the console's problem list picks it: the table a volume problem
@@ -302,7 +316,7 @@ mod tests {
             problem_lines(&body),
             vec![concat!(
                 "foundation_scheduled_job_problem{job_id=\"gold_synthetic\",kind=\"failed\",",
-                "node_id=\"node-gold_synthetic\",",
+                "node_id=\"node-gold_synthetic\",failed_job=\"gold_synthetic\",",
                 "summary=\"메모리 부족 · FAILED: synthetic \\\"gold\\\" step\",",
                 "link=\"https://console.example.test/#/flow?node=node-gold_synthetic\"} 1"
             )]
@@ -325,6 +339,55 @@ mod tests {
         );
         assert!(body.contains("foundation_scheduled_jobs_readable 1"));
         assert_eq!(problem_lines(&body), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_blocked_job_names_the_failed_job_it_waits_on_so_that_failure_quiets_it() {
+        // 2026-11-18/19: 38 jobs were blocked behind source_sweep, and Alertmanager's one rule for
+        // blocked jobs could only say "any job failed", not which (root ADR-0591).
+        let blocked = ScheduledJobProblem::Blocked {
+            upstream_job_ids: vec![
+                "vworld_parcel_edition".to_owned(),
+                "source_sweep".to_owned(),
+            ],
+        };
+        let failed = ScheduledJobProblem::Failed {
+            cause: None,
+            cause_line: None,
+            scheduler_run_id: None,
+        };
+        let body = render(
+            Some(&status(
+                vec![
+                    job("data_quality", true, vec![blocked]),
+                    job("source_sweep", true, vec![failed]),
+                ],
+                None,
+            )),
+            None,
+        );
+        let lines = problem_lines(&body);
+        assert_eq!(lines.len(), 2);
+        assert!(
+            lines[0].contains("job_id=\"data_quality\",kind=\"blocked\","),
+            "{}",
+            lines[0]
+        );
+        assert!(
+            lines[0].contains("failed_job=\"source_sweep\","),
+            "{}",
+            lines[0]
+        );
+        assert!(
+            lines[1].contains("job_id=\"source_sweep\",kind=\"failed\","),
+            "{}",
+            lines[1]
+        );
+        assert!(
+            lines[1].contains("failed_job=\"source_sweep\","),
+            "{}",
+            lines[1]
+        );
     }
 
     #[test]

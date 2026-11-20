@@ -65,7 +65,7 @@ schema:
       - type: "text"
         description: "append_only"
       - type: "text"
-        description: "(sha256, extractor_version) unique"
+        description: "one current row per (sha256, extractor_version); a document read again appends its newer run (root ADR-0593)"
       - type: "text"
         description: "appended after the run's facts, so an outcome never names facts that are missing"
 customProperties:

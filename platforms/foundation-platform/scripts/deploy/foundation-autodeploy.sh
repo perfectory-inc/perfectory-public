@@ -116,7 +116,7 @@ if [[ -e "${off_switch}" ]]; then
   exit 0
 fi
 
-repository="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["full_name"])' \
+repository="$(python3 -I -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["full_name"])' \
   "${control_root}/tools/github/repository-identity.json")"
 head="$(/bin/bash "${control_root}/scripts/github/safe-git-transport.sh" --anonymous --no-repository \
   ls-remote "https://github.com/${repository}.git" refs/heads/main | cut -f1)" || head=""
@@ -189,7 +189,7 @@ if ((${#candidates[@]} == 0)); then
   log "every commit after ${current} up to ${head} was refused or failed before; waiting for a newer commit on main"
   exit 0
 fi
-if ! target="$(python3 "${platform}/scripts/deploy/release_checks.py" newest-released "${repository}" "${candidates[@]}")"; then
+if ! target="$(python3 -I -B "${platform}/scripts/deploy/release_checks.py" newest-released "${repository}" "${candidates[@]}")"; then
   reason=releases_unreadable
   log "cannot read which releases are published; asking again next time"
   exit 0
@@ -219,7 +219,7 @@ else
     exit 0
   fi
   touch "${asked}"
-  if ! checks="$(python3 "${platform}/scripts/deploy/release_checks.py" "${api}" "${repository}" "${target}")"; then
+  if ! checks="$(python3 -I -B "${platform}/scripts/deploy/release_checks.py" "${api}" "${repository}" "${target}")"; then
     reason=checks_unreadable
     log "cannot read the checks of ${target}; asking again in ${recheck_seconds}s"
     exit 0

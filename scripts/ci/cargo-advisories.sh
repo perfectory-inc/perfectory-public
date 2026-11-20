@@ -34,7 +34,8 @@ check() {
     [ -f "$dir/Cargo.lock" ] || fail "$dir has no Cargo.lock"
     local config=()
     [ -f "$dir/deny.toml" ] && config=(--config "$dir/deny.toml")
-    if cargo-deny --locked --manifest-path "$dir/Cargo.toml" check "${config[@]}" --hide-inclusion-graph advisories >"$log" 2>&1; then
+    # --config goes before `check` since cargo-deny 0.21.0 (PR#899 moved it to the top level; 0.19 took it only after).
+    if cargo-deny --locked --manifest-path "$dir/Cargo.toml" "${config[@]}" check --hide-inclusion-graph advisories >"$log" 2>&1; then
       echo "ok $dir"
       continue
     fi

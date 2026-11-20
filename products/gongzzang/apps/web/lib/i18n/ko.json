@@ -881,7 +881,26 @@
           "appraisal": "감정평가",
           "priceBasis": "가격시점",
           "written": "작성일",
-          "opinion": "평가의견"
+          "opinion": "평가의견",
+          "appraisalReport": "감정평가서",
+          "filings": "문건처리내역",
+          "filingDate": "접수일",
+          "filingText": "접수내역",
+          "filingResult": "결과",
+          "deliveries": "송달내역",
+          "deliveryDate": "송달일",
+          "deliveryText": "송달내역",
+          "deliveryResult": "송달결과",
+          "tenantPart": "점유부분",
+          "tenantUsage": "용도",
+          "tenantDeposit": "보증(전세)금",
+          "tenantRent": "차임",
+          "tenantMoveIn": "전입일자",
+          "tenantFixed": "확정일자",
+          "noticeChanges": "매각공고 정정·취소",
+          "noticeCorrection": "정정공고",
+          "noticeCancellation": "취소·변경공고",
+          "dividendNoticeDate": "배당요구종기 공고일"
         }
       }
     },

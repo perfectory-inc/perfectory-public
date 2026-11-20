@@ -32,7 +32,7 @@ tests:
               owner: platform
               runbook: docs/runbooks/foundation-platform-low-cost-production-hardening.md
             exp_annotations:
-              summary: '<!channel> foundation-identity-restore-drill.service 가 7h 0m 0s 째 실패한 채예요 — 주인 platform 가 고칠 차례예요. journalctl -u foundation-identity-restore-drill.service 로 원인을 읽고 런북대로 고치거나, 더 안 쓰는 유닛이면 정의에서 지우세요'
+              summary: 'foundation-identity-restore-drill.service 가 7h 0m 0s 째 실패한 채예요 — 주인 platform 가 고칠 차례예요. journalctl -u foundation-identity-restore-drill.service 로 원인을 읽고 런북대로 고치거나, 더 안 쓰는 유닛이면 정의에서 지우세요'
               runbook: docs/runbooks/foundation-platform-low-cost-production-hardening.md
       - eval_time: 7h
         alertname: FoundationUnitsUnread
@@ -58,11 +58,11 @@ tests:
         alertname: FoundationUnitFailedUnowned
         exp_alerts:
           - exp_labels:
-              severity: page
+              severity: ticket
               service: unit-state
               unit: foundation-by-pnu-public-auction-bake.service
             exp_annotations:
-              summary: '<!channel> foundation-by-pnu-public-auction-bake.service 가 실패했는데 주인이 없어요 — 릴리스가 지운 유닛이면 다음 배포가 실패 상태를 치워요. 남아 있으면 유닛 파일에 X-Foundation-Owner= 와 Documentation= 를 다세요'
+              summary: 'foundation-by-pnu-public-auction-bake.service 가 실패했는데 주인이 없어요 — 릴리스가 지운 유닛이면 다음 배포가 실패 상태를 치워요. 남아 있으면 유닛 파일에 X-Foundation-Owner= 와 Documentation= 를 다세요'
               runbook: docs/runbooks/deploy-alerts.md
       - eval_time: 2h30m
         alertname: FoundationUnitFailedLong

@@ -80,32 +80,32 @@ describe("dev cookie helpers (no prefix, localhost HTTP 호환)", () => {
   });
 });
 
-describe("signAuthStatePayload / verifyAuthStatePayload", () => {
-  it("roundtrips correctly", async () => {
-    const { signAuthStatePayload, verifyAuthStatePayload } = await import("@/lib/session/cookie");
-    const original = JSON.stringify({ x: 1 });
-    const signed = signAuthStatePayload(original);
-    expect(verifyAuthStatePayload(signed)).toBe(original);
+describe("sealAuthState / unsealAuthState", () => {
+  const payload = {
+    code_verifier: "v".repeat(43),
+    state: "s1",
+    nonce: "n1",
+    return_to: "/listings",
+  };
+
+  it("roundtrips, and the seal does not show the verifier or nonce", async () => {
+    const { sealAuthState, unsealAuthState } = await import("@/lib/session/cookie");
+    const sealed = await sealAuthState(payload);
+    expect(sealed).not.toContain(payload.code_verifier);
+    expect(await unsealAuthState(sealed)).toEqual(payload);
   });
 
-  it("returns null on tampered MAC", async () => {
-    const { signAuthStatePayload, verifyAuthStatePayload } = await import("@/lib/session/cookie");
-    const signed = signAuthStatePayload("data");
-    const tampered = `${signed.slice(0, -2)}XX`;
-    expect(verifyAuthStatePayload(tampered)).toBe(null);
+  it("returns null on a tampered seal", async () => {
+    const { sealAuthState, unsealAuthState } = await import("@/lib/session/cookie");
+    const sealed = await sealAuthState(payload);
+    const i = Math.floor(sealed.length / 2);
+    const tampered = `${sealed.slice(0, i)}${sealed[i] === "A" ? "B" : "A"}${sealed.slice(i + 1)}`;
+    expect(await unsealAuthState(tampered)).toBeNull();
   });
 
-  it("returns null on tampered payload", async () => {
-    const { signAuthStatePayload, verifyAuthStatePayload } = await import("@/lib/session/cookie");
-    const signed = signAuthStatePayload("data");
-    const dot = signed.indexOf(".");
-    const originalMac = signed.slice(dot);
-    const tampered = `ZXZpbA${originalMac}`;
-    expect(verifyAuthStatePayload(tampered)).toBe(null);
-  });
-
-  it("returns null when no dot separator", async () => {
-    const { verifyAuthStatePayload } = await import("@/lib/session/cookie");
-    expect(verifyAuthStatePayload("nodothere")).toBe(null);
+  it("returns null on garbage and on the old HMAC format", async () => {
+    const { unsealAuthState } = await import("@/lib/session/cookie");
+    expect(await unsealAuthState("nodothere")).toBeNull();
+    expect(await unsealAuthState("eyJ4IjoxfQ.bWFj")).toBeNull();
   });
 });

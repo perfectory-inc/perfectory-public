@@ -831,3 +831,441 @@ pub const SILVER_COURT_AUCTION_APPRAISAL: LakehouseTableContract = LakehouseTabl
     ],
     load: OBJECT_LOAD,
 };
+
+const APPRAISAL_REPORT_KEY: &[&str] = &[
+    "court_office_code",
+    "case_no",
+    "round_seq",
+    "appraisal_no",
+    "written_date",
+];
+
+/// A stored 감정평가서 PDF of one 감정평가 round, by its content hash (root ADR-0540 §1, ADR-0298).
+///
+/// Only reports the shared media store holds, so the media reconcile reads every row as a key
+/// (`data-go-kr-onbid.contract.json` `media.reconcile.index_tables`). A report never changes; the
+/// newest row per round key is current.
+pub const SILVER_COURT_AUCTION_APPRAISAL_REPORT: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_appraisal_report",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: APPRAISAL_REPORT_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("round_seq", "int", true),
+        column("appraisal_no", "string", true),
+        column("written_date", "date", true),
+        column("sha256", "string", true),
+        column("media_format", "string", true),
+        column("size_bytes", "long", false),
+        column("requested_at_utc", "timestamp", true),
+    ),
+    partition_spec: &[],
+    sort_order: APPRAISAL_REPORT_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, round_seq, appraisal_no, written_date, source_snapshot_id) unique",
+        "every row names a stored object (sha256, media_format)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// One row per 감정평가서 request, CAPTCHA skips and failures included (root ADR-0540 §1, §3).
+///
+/// The record the next run's report frontier reads (a recent `gone` is not asked again) and the
+/// count of CAPTCHAs the viewer asked. The newest row per round key is current.
+pub const SILVER_COURT_AUCTION_APPRAISAL_REPORT_READ: LakehouseTableContract =
+    LakehouseTableContract {
+        table_name: "silver.court_auction_appraisal_report_read",
+        layer: LakehouseLayer::Silver,
+        physical_format: LakehousePhysicalFormat::Parquet,
+        serving_role: LakehouseServingRole::Canonical,
+        current_row_predicate: None,
+        row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+            key: APPRAISAL_REPORT_KEY,
+            newest_first: LATEST,
+            removal_column: None,
+            keep_ties: false,
+        }),
+        columns: with_load_columns!(
+            column("court_office_code", "string", true),
+            column("case_no", "string", true),
+            column("round_seq", "int", true),
+            column("appraisal_no", "string", true),
+            column("written_date", "date", true),
+            // stored, captcha, no_key, gone, not_stored or failed.
+            column("outcome", "string", true),
+            column("http_status", "int", false),
+            column("file_http_status", "int", false),
+            column("sha256", "string", false),
+            column("requested_at_utc", "timestamp", true),
+        ),
+        partition_spec: &[],
+        sort_order: APPRAISAL_REPORT_KEY,
+        write_distribution: LakehouseWriteDistribution::Hash,
+        quality_gates: &[
+            "append_only",
+            "(court_office_code, case_no, round_seq, appraisal_no, written_date, source_snapshot_id) unique",
+            "a CAPTCHA is recorded, never solved",
+        ],
+        load: OBJECT_LOAD,
+    };
+
+const SALE_SPECIFICATION_KEY: &[&str] =
+    &["court_office_code", "case_no", "item_seq", "document_id"];
+
+/// One row per 매각물건명세서 version asked, CAPTCHA skips and failures included (root ADR-0575).
+///
+/// A version is the specification's document id: the record the next run's frontier reads (a
+/// version stored or gone is not asked again, so the court's view log is written once per version).
+/// The PDF names people and lies under the collector's own prefix; no row carries a name. The
+/// newest row per version is current.
+pub const SILVER_COURT_AUCTION_SALE_SPECIFICATION_READ: LakehouseTableContract =
+    LakehouseTableContract {
+        table_name: "silver.court_auction_sale_specification_read",
+        layer: LakehouseLayer::Silver,
+        physical_format: LakehousePhysicalFormat::Parquet,
+        serving_role: LakehouseServingRole::Canonical,
+        current_row_predicate: None,
+        row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+            key: SALE_SPECIFICATION_KEY,
+            newest_first: LATEST,
+            removal_column: None,
+            keep_ties: false,
+        }),
+        columns: with_load_columns!(
+            column("court_office_code", "string", true),
+            column("case_no", "string", true),
+            column("item_seq", "string", true),
+            column("document_id", "string", true),
+            column("spec_written_date", "date", false),
+            column("document_name", "string", false),
+            column("document_written_date", "date", false),
+            // stored, captcha, no_document, gone, not_stored or failed.
+            column("outcome", "string", true),
+            column("log_http_status", "int", false),
+            column("info_http_status", "int", false),
+            column("file_http_status", "int", false),
+            column("sha256", "string", false),
+            column("media_format", "string", false),
+            column("size_bytes", "long", false),
+            column("requested_at_utc", "timestamp", true),
+        ),
+        partition_spec: &[],
+        sort_order: SALE_SPECIFICATION_KEY,
+        write_distribution: LakehouseWriteDistribution::Hash,
+        quality_gates: &[
+            "append_only",
+            "(court_office_code, case_no, item_seq, document_id, source_snapshot_id) unique",
+            "a CAPTCHA is recorded, never solved",
+            "no column names a person",
+        ],
+        load: OBJECT_LOAD,
+    };
+
+/// A case's received filings (문건, `dlt_ofdocDtsLst`), one edition per case read whose list changed
+/// (root ADR-0575 §5).
+///
+/// Each row is the date, the filer's role (the words before the name the site masks), the document
+/// kind (the words after it) and the action; the masked name is never kept.
+pub const SILVER_COURT_AUCTION_CASE_FILING: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_case_filing",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: read_editions(CASE_KEY),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        // The row's place in the site's list, from 1.
+        column("filing_seq", "int", true),
+        column("received_date", "date", false),
+        column("filer_role", "string", false),
+        column("document_kind", "string", false),
+        column("action", "string", false),
+        column("result", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: &["court_office_code", "case_no", "filing_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, filing_seq, source_snapshot_id) unique",
+        "no person's name, masked or not (root ADR-0575 §5)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// A case's deliveries (송달, `dlt_dlvrDtsLst`), one edition per case read whose list changed (root
+/// ADR-0575 §5).
+///
+/// Each row is the registered and reached dates, the delivery result, the recipient's role, the
+/// document kind and the action; the masked name is never kept.
+pub const SILVER_COURT_AUCTION_CASE_DELIVERY: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_case_delivery",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: read_editions(CASE_KEY),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        // The row's place in the site's list, from 1.
+        column("delivery_seq", "int", true),
+        column("registered_date", "date", false),
+        column("reached_date", "date", false),
+        column("delivery_result", "string", false),
+        column("recipient_role", "string", false),
+        column("document_kind", "string", false),
+        column("action", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: &["court_office_code", "case_no", "delivery_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, delivery_seq, source_snapshot_id) unique",
+        "no person's name, masked or not (root ADR-0575 §5)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// A 현황조사 round's 임대차 list (현황조사서 `dlt_ordTsLserLtn`), one edition per (case, round) read
+/// whose list changed (root ADR-0575 §6).
+///
+/// Each row is the lessee's place in the list, the 목록 it occupies, the use, the deposit, the rent,
+/// the move-in and fixed dates as the site writes them and the remarks, names masked; never the
+/// lessee's name or resident number field, which stay in Bronze.
+pub const SILVER_COURT_AUCTION_SURVEY_TENANT: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_survey_tenant",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: read_editions(PER_CASE_ROUND),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("round_seq", "int", true),
+        // The row's place in the site's list, from 1.
+        column("tenant_seq", "int", true),
+        column("object_seq", "int", false),
+        column("party_kind_code", "string", false),
+        column("person_kind_code", "string", false),
+        column("usage_code", "string", false),
+        column("usage_raw", "string", false),
+        column("deposit_raw", "string", false),
+        column("monthly_rent_raw", "string", false),
+        column("move_in_raw", "string", false),
+        column("fixed_date_raw", "string", false),
+        column("leased_part_raw", "string", false),
+        column("possession_text", "string", false),
+        column("remarks", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: &["court_office_code", "case_no", "round_seq", "tenant_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, round_seq, tenant_seq, source_snapshot_id) unique",
+        "no person's name or resident number (root ADR-0575 §6)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+const SALE_NOTICE_KEY: &[&str] = &[
+    "court_office_code",
+    "department_code",
+    "sale_date",
+    "bid_kind_code",
+];
+
+/// A court department's 매각공고 for one sale date and bid kind (매각공고 목록 and its detail's case
+/// count), newest per notice (root ADR-0575 §6).
+pub const SILVER_COURT_AUCTION_SALE_NOTICE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_sale_notice",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: SALE_NOTICE_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("department_code", "string", true),
+        column("sale_date", "date", true),
+        column("bid_kind_code", "string", true),
+        column("department_name", "string", false),
+        column("department_phone", "string", false),
+        column("sale_place", "string", false),
+        column("first_time_raw", "string", false),
+        column("second_time_raw", "string", false),
+        column("third_time_raw", "string", false),
+        column("fourth_time_raw", "string", false),
+        column("bid_start_date", "date", false),
+        column("bid_end_date", "date", false),
+        column("correction_count", "int", false),
+        column("cancellation_count", "int", false),
+        column("case_count", "int", false),
+    ),
+    partition_spec: &[],
+    sort_order: SALE_NOTICE_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, department_code, sale_date, bid_kind_code, source_snapshot_id) unique",
+    ],
+    load: OBJECT_LOAD,
+};
+
+/// A 매각공고's lists, one edition per notice read whose lists changed (root ADR-0575 §6).
+///
+/// Its properties (`sale`), its 정정공고 (`correction`) and its 취소·변경공고 (`cancellation`): the
+/// case and property, the use, the appraisal and minimum prices, the remarks, the property as the
+/// notice describes it and, for a change, its date and text. A notice names no person.
+pub const SILVER_COURT_AUCTION_SALE_NOTICE_ITEM: LakehouseTableContract =
+    LakehouseTableContract {
+        table_name: "silver.court_auction_sale_notice_item",
+        layer: LakehouseLayer::Silver,
+        physical_format: LakehousePhysicalFormat::Parquet,
+        serving_role: LakehouseServingRole::Canonical,
+        current_row_predicate: None,
+        row_versions: read_editions(SALE_NOTICE_KEY),
+        columns: with_load_columns!(
+            column("court_office_code", "string", true),
+            column("department_code", "string", true),
+            column("sale_date", "date", true),
+            column("bid_kind_code", "string", true),
+            // sale, correction or cancellation.
+            column("list", "string", true),
+            // The row's place in its list, from 1.
+            column("list_seq", "int", true),
+            column("user_case_no", "string", false),
+            column("sale_case_no", "string", false),
+            column("property_seq", "int", false),
+            column("usage_name", "string", false),
+            column("appraisal_amount_krw", "long", false),
+            column("minimum_bid_price_krw", "long", false),
+            column("remarks", "string", false),
+            column("property_text", "string", false),
+            column("change_text", "string", false),
+            column("change_date", "date", false),
+            column("notice_kind_code", "string", false),
+        ),
+        partition_spec: &[],
+        sort_order: &[
+            "court_office_code",
+            "department_code",
+            "sale_date",
+            "bid_kind_code",
+            "list",
+            "list_seq",
+        ],
+        write_distribution: LakehouseWriteDistribution::Hash,
+        quality_gates: &[
+            "append_only",
+            "(court_office_code, department_code, sale_date, bid_kind_code, list, list_seq, source_snapshot_id) unique",
+        ],
+        load: OBJECT_LOAD,
+    };
+
+const DIVIDEND_CASE_KEY: &[&str] = &["court_office_code", "case_no"];
+
+/// A case's 배당요구종기공고 (the department's notice list row), newest per case (root ADR-0575 §6).
+///
+/// Its dates (개시결정, 공고, 배당요구종기), the department, the order kind, the representative lot
+/// and the counts; never the creditor's, debtor's or owner's name, which the site gives unmasked.
+pub const SILVER_COURT_AUCTION_DIVIDEND_NOTICE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_dividend_notice",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: DIVIDEND_CASE_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("user_case_no", "string", false),
+        column("department_code", "string", false),
+        column("department_name", "string", false),
+        column("order_kind_code", "string", false),
+        column("commencement_date", "date", false),
+        column("notice_date", "date", false),
+        column("deadline_date", "date", false),
+        column("object_count", "int", false),
+        column("list_kind_code", "string", false),
+        column("lot_raw", "string", false),
+        column("building_name", "string", false),
+        column("print_address_raw", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: DIVIDEND_CASE_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, source_snapshot_id) unique",
+        "no person's name (root ADR-0575 §6)",
+    ],
+    load: OBJECT_LOAD,
+};
+
+const DIVIDEND_OBJECT_KEY: &[&str] = &["court_office_code", "case_no", "object_seq"];
+
+/// A 배당요구종기공고 case's property (its 물건 list), newest per property (root ADR-0575 §6).
+///
+/// The address, the use and the 등기 고유번호 (`registry_unique_no`, the key the land and building
+/// registers carry); asked once per case, so the collector's next frontier reads this table.
+pub const SILVER_COURT_AUCTION_DIVIDEND_OBJECT: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_dividend_object",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: DIVIDEND_OBJECT_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("object_seq", "int", true),
+        column("registry_unique_no", "string", false),
+        column("list_kind_code", "string", false),
+        column("usage_name", "string", false),
+        column("register_record", "string", false),
+        column("lot_raw", "string", false),
+        column("building_name", "string", false),
+        column("building_unit_raw", "string", false),
+        column("print_address_raw", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: DIVIDEND_OBJECT_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, object_seq, source_snapshot_id) unique",
+    ],
+    load: OBJECT_LOAD,
+};

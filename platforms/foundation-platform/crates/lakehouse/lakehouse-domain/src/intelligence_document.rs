@@ -27,7 +27,8 @@ const PAGE_KEY: &[&str] = &["sha256", "extractor_version", "page_number"];
 const FACT_KEY: &[&str] = &["sha256", "extractor_version", "fact_kind", "fact_index"];
 const COMPLEX_KEY: &[&str] = &["official_complex_code"];
 // A key is read once per extractor version, so a second row exists only if a run's append was
-// repeated; the later run (its id is its UTC start, `YYYYMMDDTHHMMSSZ`) is the one kept.
+// repeated or a document the memory cap ended was read again (root ADR-0593); the later run (its id
+// is its UTC start, `YYYYMMDDTHHMMSSZ`) is the one kept.
 const NEWEST: &[&str] = &["run_id"];
 
 const fn latest(key: &'static [&'static str]) -> LakehouseRowVersions {
@@ -39,8 +40,11 @@ const fn latest(key: &'static [&'static str]) -> LakehouseRowVersions {
     })
 }
 
-/// Its rows are the "done" record of the text job: a hash with an outcome for this extractor
-/// version is never read again by that version, failures included (root ADR-0477 §3).
+/// Its rows are the "done" record of the text job.
+///
+/// A hash with an outcome for this extractor version is not read again by that version, failures
+/// included (root ADR-0477 §3), unless its current outcome is a memory kill with attempts left
+/// (root ADR-0593).
 pub const INTELLIGENCE_DOCUMENT_TEXT_OUTCOME: LakehouseTableContract = LakehouseTableContract {
     table_name: "intelligence.document_text_outcome",
     layer: LakehouseLayer::Intelligence,
@@ -66,7 +70,7 @@ pub const INTELLIGENCE_DOCUMENT_TEXT_OUTCOME: LakehouseTableContract = Lakehouse
     write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "append_only",
-        "(sha256, extractor_version) unique",
+        "one current row per (sha256, extractor_version); a document read again appends its newer run (root ADR-0593)",
         "outcome is text, partial_ocr, ocr, empty, unsupported_format or failed",
         "appended after the run's pages, so an outcome never names pages that are missing",
     ],
@@ -167,7 +171,7 @@ pub const INTELLIGENCE_DOCUMENT_FACT_OUTCOME: LakehouseTableContract = Lakehouse
     write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "append_only",
-        "(sha256, extractor_version) unique",
+        "one current row per (sha256, extractor_version); a document read again appends its newer run (root ADR-0593)",
         "appended after the run's facts, so an outcome never names facts that are missing",
     ],
     load: LakehouseLoadUnit::Run { column: "run_id" },

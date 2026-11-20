@@ -9,8 +9,11 @@ on:
   merge_group:
   # A pull request verifies only the crates it reaches (root ADR-0269); every night
   # main verifies every crate, as the merge queue does.
+  # Each nightly has its own minute (17:07 to 17:58 UTC, Foundation's 16 jobs first): at one shared
+  # minute the nine workflows asked for 48 runners at once, and on 2026-11-18 their jobs waited
+  # p50 176 s, p90 767 s beside the day's pull requests (20 runners in all).
   schedule:
-    - cron: "41 17 * * *"
+    - cron: "33 17 * * *"
     # Intentionally unfiltered so required/intelligence always reports.
 defaults:
   run:
@@ -119,6 +122,19 @@ jobs:
           CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
           INTELLIGENCE_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/intelligence
         run: cargo xtask integration intelligence postgres --affected
+      # Root ADR-0580: the supply-chain policy is a step of this job, not a job of its own. As a job it
+      # held a runner for 4 s of work behind 30-60 s of setup and a queue wait (2026-11-18 measurement).
+      - name: Install cargo-deny
+        working-directory: ${{ github.workspace }}
+        run: cargo xtask ci install-cargo-deny
+      # Root ADR-0568: a change that leaves this workspace's Cargo.lock and deny.toml as they are
+      # is not judged on their advisories here (the repository OSV gate and the daily check are).
+      - name: cargo-deny (supply-chain policy)
+        working-directory: ${{ github.workspace }}
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: cargo xtask ci cargo-deny platforms/intelligence-platform --locked
       # Saved from main's runs only (root ADR-0269), and only when apt-install.sh downloaded a set the
       # restored cache did not hold.
       - name: Save apt package cache
@@ -128,51 +144,10 @@ jobs:
           path: ~/.cache/perfectory/apt
           key: apt-packages-v1-${{ runner.os }}-${{ github.job }}-${{ env.PERFECTORY_APT_CACHE_SAVE }}
 
-  supply-chain:
-    needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
-    name: Intelligence supply-chain policy
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: platforms/intelligence-platform
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - name: Generate the declared artifacts (root ADR-0418)
-        shell: bash
-        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
-      - name: Restore pinned release binaries
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}
-          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
-      - name: Set up Rust
-        working-directory: ${{ github.workspace }}
-        shell: bash
-        run: bash scripts/ci/rust-setup.sh
-      - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
-        with:
-          # Reads the area's one dependency cache, which rust saves (root ADR-0269).
-          workspaces: |
-            platforms/intelligence-platform
-            tools/xtask
-          shared-key: intelligence-dependencies
-          save-if: false
-      - name: Install cargo-deny
-        working-directory: ${{ github.workspace }}
-        run: cargo xtask ci install-cargo-deny
-      - name: cargo-deny
-        run: cargo-deny --locked check
-
   required:
     name: required/intelligence
     if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}
-    needs: [scope, rust, supply-chain]
+    needs: [scope, rust]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -184,6 +159,5 @@ jobs:
           CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}
           REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_RUST: ${{ needs.rust.result }}
-          REQUIRED_RESULT_SUPPLY_CHAIN: ${{ needs.supply-chain.result }}
         working-directory: .
         run: bash scripts/ci/require-successful-needs.sh

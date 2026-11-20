@@ -49,6 +49,8 @@ SHARED_WRITERS = (("object", "append_source_object("), ("batch", "append_batch_o
                   ("batch", "append_and_read_back("))
 NOTICE_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
                      "a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_no_row_is_recorded")
+ONBID_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
+                    "an_onbid_object_is_the_first_append_into_each_empty_table")
 # A table whose job writes it its own way: the test that loads its empty table, as module.Class.method.
 OWN_WRITERS = {
     "silver.administrative_boundaries": "test_silver_first_load_iceberg.AdministrativeBoundariesFirstLoadTest."
@@ -67,6 +69,15 @@ OWN_WRITERS = {
     # The ILIS notice Silver load's two tables, appended by the publisher the same way (root ADR-0559).
     "silver.industrial_complex_notice_detail": NOTICE_FIRST_LOAD,
     "silver.industrial_complex_notice_attachment": NOTICE_FIRST_LOAD,
+    # The 차세대 온비드 Silver load's eight tables, appended by the publisher the same way (root ADR-0559).
+    "silver.onbid_real_estate_item": ONBID_FIRST_LOAD,
+    "silver.onbid_item_bid_result": ONBID_FIRST_LOAD,
+    "silver.onbid_real_estate_item_photo": ONBID_FIRST_LOAD,
+    "silver.onbid_real_estate_item_detail": ONBID_FIRST_LOAD,
+    "silver.onbid_item_bid_info": ONBID_FIRST_LOAD,
+    "silver.onbid_announcement": ONBID_FIRST_LOAD,
+    "silver.onbid_announcement_bid_result": ONBID_FIRST_LOAD,
+    "silver.onbid_announcement_detail": ONBID_FIRST_LOAD,
 }
 RUST_TEST = "rust:"
 
@@ -336,7 +347,7 @@ class ObjectFirstLoadTest(unittest.TestCase):
         from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract
 
         lanes = tables_of("object")
-        self.assertIn("silver.onbid_real_estate_item", lanes)
+        self.assertIn("silver.court_auction_appraisal", lanes)
         for contract_name in lanes:
             with self.subTest(table=contract_name):
                 table, unquoted = target(contract_name)

@@ -120,8 +120,8 @@
     "object_prefix": "onbid/media",
     "reconcile": {
       "$comment": "루트 ADR-0387. 미디어 대조기(scripts/ops/media_reconcile.py, 작업 media_reconcile)가 object_prefix 의 sha256/ 아래 객체 전부를 index_table 의 (sha256, media_format) 전부와 맞춘다. 색인이 이름 대는데 R2 에 없는 키 = 없음(깨진 사진), R2 에 있는데 어느 색인 줄도 이름 대지 않는 키 = 고아(10-26 수집 40분 한도에 걸려 Bronze 커밋 없이 사진만 남은 일). 고아는 orphan_min_age_hours 보다 오래된 것만 센다: 수집 run 이 끝나고 Silver 적재가 그 줄을 색인에 넣기까지의 여유.",
-      "$index_tables": "루트 ADR-0429: 이 저장소에 사진을 담는 원천마다 그 Silver 색인 하나. 경매 사진(ADR-0384)이 같은 sha256/ 에 쌓이므로 경매 색인이 없으면 경매 사진이 전부 고아로 세어진다. 산업단지 고시 첨부(ADR-0484)도 같은 sha256/ 에 담기므로 그 색인도 여기 있다. 한 질의(UNION ALL)에 워터마크 하나: 세 적재 모두 append 이고 대조 시각(06:15 UTC)과 겹치지 않는다.",
-      "index_tables": ["silver.onbid_real_estate_item_photo", "silver.court_auction_item_photo", "silver.industrial_complex_notice_attachment"],
+      "$index_tables": "루트 ADR-0429: 이 저장소에 사진을 담는 원천마다 그 Silver 색인 하나. 경매 사진(ADR-0384)이 같은 sha256/ 에 쌓이므로 경매 색인이 없으면 경매 사진이 전부 고아로 세어진다. 산업단지 고시 첨부(ADR-0484)도 같은 sha256/ 에 담기므로 그 색인도 여기 있다. 경매 감정평가서 PDF(ADR-0540)도 같은 sha256/ 에 담기며, 그 색인은 저장된 것만 담는다(캡차·실패는 읽은 기록 표에). 한 질의(UNION ALL)에 워터마크 하나: 세 적재 모두 append 이고 대조 시각(06:15 UTC)과 겹치지 않는다.",
+      "index_tables": ["silver.onbid_real_estate_item_photo", "silver.court_auction_item_photo", "silver.industrial_complex_notice_attachment", "silver.court_auction_appraisal_report"],
       "orphan_min_age_hours": 48
     },
     "ladder_backlog": {
@@ -164,12 +164,16 @@
     "measured_object_seconds": {"p50": 16, "p90": 54, "max": 563, "measured_on": "2026-11-03"},
     "measured_objects_per_day": 104,
     "per_run_reason": "Root ADR-0390, ADR-0300 H. Measured 2026-11-03 (read-only Trino, the eight onbid Silver tables' $snapshots 10-27..11-03, 837 commits; one commit per object, objects in turn): an object that reads no parcels took p50 16 s, p90 54 s, max 563 s (702 objects; gaps over 600 s span a run boundary or an object that never committed). An item list object took p50 482 s, p90 957 s, max 2424 s, almost all of it reading and de-duplicating every current parcel again; the load now reads them once a run, cut to the PNUs its objects ask about, so that read is in run_start_seconds (31 s from the unit's start to its first commit, measured in the journal, plus 482 s, the per-object read it replaces, as its upper bound) and an item list object costs what a compared object does. At 1500 s the run stops starting objects: (1500 - 540) / 54 = 17 objects a run, 408 a day, against at most 104 a day the collector landed outside the 10-29/30 first loads; the object in flight (max 563 s) and the exit fit the unit's 40 minutes.",
-    "spark": {
-      "master": "local[2,8]",
-      "driver_memory": "1g",
-      "measured_jvm_non_heap_mib": 793,
-      "measured_python_mib": 601,
-      "memory_reason": "Root ADR-0390. compose.lakehouse.yml spark-small holds the whole container to 2560m. The kernel's OOM record of 2026-11-03 17:03:04 (one of 67 kills of this unit 10-28..11-03) shows the container at its limit with the JVM at 2841 MiB resident and swapped for a 2g heap (793 MiB beyond the heap) and the PySpark driver's Python at 601 MiB. A 1g heap plus those two is 2418 MiB, inside the cap; the 2g heap the script used to pass could never fit beside them. The run now holds only the cached parcels its objects ask about, so 1g is the heap's size, not a squeeze; a load that outgrows it fails alone (cgroup OOM, Slack)."
+    "tables": {
+      "$comment": "Root ADR-0340 §6, ADR-0559. The table each endpoint's objects load into (the item detail feeds both the media index and the detail table, each recording its own loads): onbid-silver-load.sh plans one table at a time from this, and the publisher's load-data-go-kr-onbid-silver refuses a plan of a table not here (its Rust roles are held equal to it by a test).",
+      "silver.onbid_real_estate_item": "item_list",
+      "silver.onbid_item_bid_result": "item_bid_result",
+      "silver.onbid_real_estate_item_photo": "item_detail",
+      "silver.onbid_real_estate_item_detail": "item_detail",
+      "silver.onbid_item_bid_info": "item_bid_info",
+      "silver.onbid_announcement": "announcement_list",
+      "silver.onbid_announcement_bid_result": "announcement_bid_result_list",
+      "silver.onbid_announcement_detail": "announcement_detail"
     }
   },
   "pnu": {

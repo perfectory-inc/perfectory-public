@@ -1,7 +1,6 @@
 //! Shared application state injected into HTTP routes.
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use catalog_application::verify_real_estate_broker::{BrokerRegister, VerifyRealEstateBroker};
@@ -28,6 +27,9 @@ use lakehouse_application::ports::{
 use lakehouse_application::{RecordLakehouseBatchRun, RegisterLakehouseObjectArtifact};
 use lakehouse_infrastructure::{
     PgIndustrialComplexGoldPointerReader, PgLakehouseBatchRunAudit, PgLakehouseRegistryUnitOfWork,
+};
+use metrics_exporter_prometheus::{
+    Matcher, PrometheusBuilder, PrometheusHandle, PrometheusRecorder,
 };
 use sqlx::migrate::Migrate;
 use sqlx::postgres::PgPoolOptions;
@@ -337,151 +339,93 @@ pub struct ApiDatabasePoolMetric {
     pub max_connections: u32,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ApiHttpRequestMetric {
-    pub method: String,
-    pub route: String,
-    pub status: u16,
-    pub count: u64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ApiHttpDurationMetric {
-    pub method: String,
-    pub route: String,
-    pub status: u16,
-    pub le: String,
-    pub count: u64,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ApiOverloadRejectionMetric {
-    pub reason: String,
-    pub count: u64,
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct ApiHttpRequestMetricKey {
-    method: String,
-    route: String,
-    status: u16,
-}
-
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct ApiHttpDurationMetricKey {
-    method: String,
-    route: String,
-    status: u16,
-    le: &'static str,
-}
-
-#[derive(Debug, Default)]
+/// The API's own HTTP metrics, kept by `metrics-exporter-prometheus` 0.18 (the pattern of
+/// intelligence-platform's `observability.rs`): it writes a histogram's `_bucket`, `_sum` and `_count`,
+/// and escapes label values. The hand-written exposition before it wrote only `_bucket`, so
+/// `histogram_quantile` worked and no mean or rate of seconds could be read. Each `AppState` keeps its
+/// own recorder (`build_recorder`, recorded through `metrics::with_local_recorder`): no process-wide
+/// recorder, so one state's requests are never another's (the router tests each build one).
+#[derive(Debug)]
 struct ApiHttpMetrics {
-    http_requests: Mutex<BTreeMap<ApiHttpRequestMetricKey, u64>>,
-    http_durations: Mutex<BTreeMap<ApiHttpDurationMetricKey, u64>>,
-    overload_rejections: Mutex<BTreeMap<String, u64>>,
+    recorder: PrometheusRecorder,
+    handle: PrometheusHandle,
+}
+
+const HTTP_REQUESTS: &str = "foundation_api_http_requests_total";
+const HTTP_DURATION: &str = "foundation_api_http_request_duration_seconds";
+const HTTP_TIMEOUTS: &str = "foundation_api_http_request_timeout_total";
+const HTTP_OVERLOAD: &str = "foundation_api_http_overload_rejected_total";
+/// The buckets the alert rules read (`infra/observability/prometheus/foundation-api.rules.yml`); the
+/// exporter adds `+Inf`.
+const HTTP_DURATION_BUCKETS: [f64; 8] = [0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0];
+
+impl Default for ApiHttpMetrics {
+    fn default() -> Self {
+        // `set_buckets_for_metric` refuses only an empty bucket list.
+        let recorder = PrometheusBuilder::new()
+            .set_buckets_for_metric(
+                Matcher::Full(HTTP_DURATION.to_owned()),
+                &HTTP_DURATION_BUCKETS,
+            )
+            .unwrap_or_else(|_| PrometheusBuilder::new())
+            .build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            metrics::describe_counter!(
+                HTTP_REQUESTS,
+                "HTTP requests handled by method, canonical route, and status."
+            );
+            metrics::describe_histogram!(
+                HTTP_DURATION,
+                "HTTP request duration by method, canonical route, status, and latency bucket."
+            );
+            metrics::describe_counter!(
+                HTTP_TIMEOUTS,
+                "HTTP requests timed out by canonical route."
+            );
+            metrics::describe_counter!(
+                HTTP_OVERLOAD,
+                "HTTP requests rejected before route handling by reason."
+            );
+        });
+        Self { recorder, handle }
+    }
 }
 
 impl ApiHttpMetrics {
     fn record_http_request(&self, method: &str, route: &str, status: u16, duration_seconds: f64) {
-        let Ok(mut counters) = self.http_requests.lock() else {
-            return;
-        };
-        let key = ApiHttpRequestMetricKey {
-            method: method.to_owned(),
-            route: route.to_owned(),
-            status,
-        };
-        let count = counters.entry(key).or_insert(0);
-        *count = count.saturating_add(1);
-        drop(counters);
-
         let safe_duration = if duration_seconds.is_finite() && duration_seconds >= 0.0 {
             duration_seconds
         } else {
             0.0
         };
-        let Ok(mut durations) = self.http_durations.lock() else {
-            return;
-        };
-        for (upper_bound, le) in HTTP_DURATION_BUCKETS {
-            if upper_bound.is_infinite() || safe_duration <= upper_bound {
-                let key = ApiHttpDurationMetricKey {
-                    method: method.to_owned(),
-                    route: route.to_owned(),
-                    status,
-                    le,
-                };
-                let count = durations.entry(key).or_insert(0);
-                *count = count.saturating_add(1);
+        metrics::with_local_recorder(&self.recorder, || {
+            let labels = [
+                ("method", method.to_owned()),
+                ("route", route.to_owned()),
+                ("status", status.to_string()),
+            ];
+            metrics::counter!(HTTP_REQUESTS, &labels).increment(1);
+            metrics::histogram!(HTTP_DURATION, &labels).record(safe_duration);
+            if status == 408 {
+                metrics::counter!(HTTP_TIMEOUTS, "route" => route.to_owned()).increment(1);
             }
-        }
-    }
-
-    fn http_request_metrics(&self) -> Vec<ApiHttpRequestMetric> {
-        let Ok(counters) = self.http_requests.lock() else {
-            return Vec::new();
-        };
-        counters
-            .iter()
-            .map(|(key, count)| ApiHttpRequestMetric {
-                method: key.method.clone(),
-                route: key.route.clone(),
-                status: key.status,
-                count: *count,
-            })
-            .collect()
-    }
-
-    fn http_duration_metrics(&self) -> Vec<ApiHttpDurationMetric> {
-        let Ok(counters) = self.http_durations.lock() else {
-            return Vec::new();
-        };
-        counters
-            .iter()
-            .map(|(key, count)| ApiHttpDurationMetric {
-                method: key.method.clone(),
-                route: key.route.clone(),
-                status: key.status,
-                le: key.le.to_owned(),
-                count: *count,
-            })
-            .collect()
+        });
     }
 
     fn record_overload_rejection(&self, reason: &str) {
-        let Ok(mut counters) = self.overload_rejections.lock() else {
-            return;
-        };
-        let count = counters.entry(reason.to_owned()).or_insert(0);
-        *count = count.saturating_add(1);
+        metrics::with_local_recorder(&self.recorder, || {
+            metrics::counter!(HTTP_OVERLOAD, "reason" => reason.to_owned()).increment(1);
+        });
     }
 
-    fn overload_rejection_metrics(&self) -> Vec<ApiOverloadRejectionMetric> {
-        let Ok(counters) = self.overload_rejections.lock() else {
-            return Vec::new();
-        };
-        counters
-            .iter()
-            .map(|(reason, count)| ApiOverloadRejectionMetric {
-                reason: reason.clone(),
-                count: *count,
-            })
-            .collect()
+    /// The exposition text, after the upkeep `build_recorder` leaves to its caller (it drains the
+    /// histogram samples recorded since the last scrape).
+    fn render(&self) -> String {
+        self.handle.run_upkeep();
+        self.handle.render()
     }
 }
-
-const HTTP_DURATION_BUCKETS: [(f64, &str); 9] = [
-    (0.05, "0.05"),
-    (0.1, "0.1"),
-    (0.25, "0.25"),
-    (0.5, "0.5"),
-    (1.0, "1"),
-    (2.5, "2.5"),
-    (5.0, "5"),
-    (10.0, "10"),
-    (f64::INFINITY, "+Inf"),
-];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LakehouseBatchRunMetric {
@@ -879,20 +823,13 @@ impl AppState {
             .record_http_request(method, route, status, duration_seconds);
     }
 
-    pub fn http_request_metrics(&self) -> Vec<ApiHttpRequestMetric> {
-        self.http_metrics.http_request_metrics()
-    }
-
-    pub fn http_duration_metrics(&self) -> Vec<ApiHttpDurationMetric> {
-        self.http_metrics.http_duration_metrics()
-    }
-
     pub fn record_overload_rejection(&self, reason: &str) {
         self.http_metrics.record_overload_rejection(reason);
     }
 
-    pub fn overload_rejection_metrics(&self) -> Vec<ApiOverloadRejectionMetric> {
-        self.http_metrics.overload_rejection_metrics()
+    /// The HTTP metrics in the Prometheus text format, `# HELP` and `# TYPE` lines included.
+    pub fn http_metrics_text(&self) -> String {
+        self.http_metrics.render()
     }
 
     pub async fn latest_lakehouse_batch_run_metrics(&self) -> Vec<LakehouseBatchRunMetric> {

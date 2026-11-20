@@ -220,42 +220,6 @@ impl Lane {
             .await
     }
 
-    /// Bakes `sections`: a base of `generation`, or a patch (which names no generation).
-    async fn bake_sections(
-        &self,
-        rows: &[JsonMap<String, JsonValue>],
-        snapshot: &str,
-        patch: Option<(u64, &[&str], &[&str])>,
-        sections: &[String],
-        generation: u64,
-    ) -> anyhow::Result<PackExportSummary> {
-        let config = BakeConfig {
-            lane: LANE,
-            output: self.output(),
-            generation: patch.is_none().then_some(generation),
-            sections: sections.to_vec(),
-            patch: patch.map(|(number, _, deletes)| PatchTarget {
-                patch: number,
-                deleted: deletes.iter().map(|pnu| (*pnu).to_owned()).collect(),
-            }),
-            upserts: patch
-                .map(|(_, upserts, _)| upserts.iter().map(|pnu| (*pnu).to_owned()).collect()),
-            pnu_prefix: None,
-            expected_gold_snapshot: None,
-            max_concurrency: 4,
-            summary_path: self.work.join("unused.json"),
-            sample_candidates_per_million: None,
-        };
-        bake::bake(
-            &config,
-            &self.store,
-            &pack_provenance(snapshot),
-            rows,
-            &Renderer::Building(ApprovedBuildingLinks::default()),
-        )
-        .await
-    }
-
     fn summaries(&self, name: &str, summaries: &[&PackExportSummary]) -> anyhow::Result<PathBuf> {
         let dir = self.work.join(name);
         std::fs::create_dir_all(&dir)?;
@@ -1495,6 +1459,7 @@ async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()>
     Ok(())
 }
 
+mod bake_runs;
 mod document_schema_record;
 mod equality_gate;
 mod rollback;

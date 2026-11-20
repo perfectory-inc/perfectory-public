@@ -2,10 +2,13 @@ import type { Options as KyOptions } from "ky";
 import { type NextRequest, NextResponse } from "next/server";
 import { getTranslations } from "next-intl/server";
 import { createServerApi } from "@/lib/api";
+import { clientAddress } from "@/lib/http/client-address";
 import { problem } from "@/lib/http/problem";
 import { GENERATED_API_PROXY_ROUTE_POLICIES } from "@/lib/policies/traffic-auth-policy.generated";
 import { checkRate } from "@/lib/ratelimit";
 import { SID_COOKIE_NAME } from "@/lib/session/cookie";
+import { freshSession } from "@/lib/session/refresh";
+import { hasAnyRole } from "@/lib/session/roles";
 import { getSession, type SessionData } from "@/lib/session/store";
 
 const BODY_METHODS = new Set(["POST", "PUT", "PATCH"]);
@@ -14,7 +17,9 @@ async function resolveSession(req: NextRequest): Promise<SessionData | null> {
   const sid = req.cookies.get(SID_COOKIE_NAME)?.value;
   if (!sid) return null;
 
-  return getSession(sid);
+  const session = await getSession(sid);
+  // 만료됐거나 곧 끝나는 access token 은 중계하기 전에 서버에서 갱신한다(W-4).
+  return session ? freshSession(sid, session) : null;
 }
 
 function createRequestId(req: NextRequest): string {
@@ -158,15 +163,11 @@ async function enforceApiProxyExposure(
     return { session, response: sessionRequiredProblem(req, t) };
   }
 
-  if (policy.exposureClass === "privileged" && !policy.requiredRoles.includes(session.role)) {
+  if (policy.exposureClass === "privileged" && !hasAnyRole(session, policy.requiredRoles)) {
     return { session, response: insufficientRoleProblem(req, t) };
   }
 
   return { session, response: null };
-}
-
-function clientIp(req: NextRequest): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 }
 
 function resolveApiProxyRateKey(
@@ -178,7 +179,7 @@ function resolveApiProxyRateKey(
     throw new Error(`API proxy route policy has no rate profile: ${policy.targetPath}`);
   }
 
-  const subject = session?.sub ?? clientIp(req);
+  const subject = session?.sub ?? clientAddress(req.headers);
   return `${policy.rate.keyPrefix}:${subject}`;
 }
 

@@ -136,7 +136,7 @@ done
    `wrangler.building.jsonc` 의 `env.preview` 는 그 투영이다. 사용자 지정 도메인이라 엣지 캐시가 운영 주소와 같게 동작한다.
    ```bash
    cd services/foundation-by-pnu-gateway   # 두 레인이 쓰는 한 소스(루트 ADR-0160)
-   corepack pnpm@9.12.0 install --frozen-lockfile
+   corepack pnpm@12.21.0 install --frozen-lockfile
    npx wrangler deploy -c wrangler.building.jsonc --env preview --var FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS:<운영 Worker 와 같은 값>
    ```
    바인딩 `FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW=true` 는 그 env 에만 있다. 이 명령은 운영 Worker 와 운영

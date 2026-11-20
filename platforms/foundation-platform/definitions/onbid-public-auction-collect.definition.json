@@ -229,9 +229,8 @@
         "collect-data-go-kr-onbid",
         "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
         "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs"
       ],
       "source_slugs": [
         "datagokr__onbid_real_estate_item"
@@ -247,7 +246,7 @@
         "collect-data-go-kr-onbid",
         "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
         "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs"
       ],
       "source_slugs": [
         "datagokr__onbid_real_estate_item_detail"
@@ -263,7 +262,7 @@
         "collect-data-go-kr-onbid",
         "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
         "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs"
       ],
       "source_slugs": [
         "datagokr__onbid_item_bid_result"
@@ -279,7 +278,7 @@
         "collect-data-go-kr-onbid",
         "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
         "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs"
       ],
       "source_slugs": [
         "datagokr__onbid_announcement"
@@ -295,7 +294,7 @@
         "collect-data-go-kr-onbid",
         "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
         "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs"
       ],
       "source_slugs": [
         "datagokr__onbid_announcement_bid_result"
@@ -311,7 +310,7 @@
         "collect-data-go-kr-onbid",
         "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
         "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs"
       ],
       "source_slugs": [
         "datagokr__onbid_announcement_detail"
@@ -327,7 +326,7 @@
         "collect-data-go-kr-onbid",
         "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
         "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs"
       ],
       "source_slugs": [
         "datagokr__onbid_real_estate_item_detail"
@@ -343,7 +342,7 @@
         "collect-data-go-kr-onbid",
         "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
         "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs"
       ],
       "source_slugs": [
         "datagokr__onbid_item_bid_info"

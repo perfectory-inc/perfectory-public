@@ -1,5 +1,6 @@
 """What `silver_release_compare` refuses before it reads a row (root ADR-0275)."""
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -224,6 +225,26 @@ class PartialMainTest(unittest.TestCase):
         # main moved on past the branch's base: its part came from elsewhere.
         self.assertFalse(job.part_of_the_staged_release({1, 2, 5}, {1, 2, 3, 4}))
         self.assertFalse(job.part_of_the_staged_release(set(), {1, 2}))
+
+
+@unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
+class ChangedOnlySparkTest(unittest.TestCase):
+    """Root ADR-0311: a compared table appends only the keys that are new or whose content changed."""
+
+    def test_only_new_and_changed_keys_are_appended(self) -> None:
+        from pyspark.sql import SparkSession
+
+        spark = SparkSession.builder.master("local[1]").appName("changed-only").getOrCreate()
+        try:
+            schema = "onbid_pbanc_no bigint, pbct_no bigint, org_nm string, rspb_sbr_nm string"
+            current = spark.createDataFrame([(1, 1, "a", None), (1, 2, "b", "x"), (2, 1, "c", "")], schema)
+            staged = spark.createDataFrame([(1, 1, "a", None), (1, 2, "b", "y"), (2, 1, "c", None), (3, 1, "d", None)],
+                                           schema)
+            changed = job.changed_only(staged, current, ["onbid_pbanc_no", "pbct_no"], ["org_nm", "rspb_sbr_nm"])
+            self.assertEqual(sorted((r.onbid_pbanc_no, r.pbct_no) for r in changed.collect()),
+                             [(1, 2), (2, 1), (3, 1)])  # a null where an empty string was is a change
+        finally:
+            spark.stop()
 
 
 if __name__ == "__main__":

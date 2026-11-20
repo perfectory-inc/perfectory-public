@@ -109,10 +109,14 @@ jobs:
       - name: Actions cache budget tests
         run: |
           python3 scripts/ci/test_actions_cache_budget.py -v
+          python3 scripts/ci/test_lint_changed.py -v
           python3 scripts/ci/actions_cache_budget.py check
       # Which failed runs the scheduled rerun-runner-failures workflow re-runs (root ADR-0421).
       - name: Main health tests
         run: python3 scripts/ci/test_main_health.py -v
+      # The daily repository drift and Renovate pulse check of dependency-advisories (root ADR-0570).
+      - name: Repository drift tests
+        run: python3 scripts/ci/test_repository_drift.py -v
       - name: Runner-failure re-run tests
         run: python3 scripts/ci/test_rerun_runner_failures.py -v
       - name: Dropped queue run and queue front lane tests
@@ -148,7 +152,15 @@ jobs:
       # passes every npm tree (OSV-Scanner 2.5.0 did, measured 2026-11-18).
       - name: The OSV scanner reads every lockfile document
         run: python3 scripts/ci/test_osv_reads_every_lockfile_document.py
+      # Root ADR-0568: a pull request or a merge group is judged by what it changed; a finding in a
+      # lockfile it leaves as it is warns while an open `security` pull request names it, within its grace.
+      - name: OSV change verdict self-test
+        run: python3 scripts/ci/test_osv_change_verdict.py -v
       - name: Repository OSV vulnerability ratchet
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: cargo xtask ci osv-gate --report-path target/supply-chain/osv-report.json
       # When the ratchet (or anything before it) fails, raise the npm floors the
       # report asks for, regenerate every lock with the pinned toolchain and keep
