@@ -201,11 +201,11 @@ class CourtAuctionCommands(unittest.TestCase):
         # document table, so a new document table is filled from the window's objects (root ADR-0540).
         # The 공통코드 objects are planned against the code table (root ADR-0540 §5).
         # The 사건 문서 objects are planned against their read record, one plan per document (root ADR-0540 §3).
-        self.assertEqual(plans, ["items", "results", "details", "documents", "cases", "surveys", "appraisals",
-                                 "filings", "tenants", "notices"])
-        # The 공통코드, 감정평가서, 매각물건명세서 and 배당요구종기공고 left Spark: the publisher loads their
-        # plans in DuckDB, before Spark loads the rest (root ADR-0559).
-        self.assertEqual((self.fake / "duckdb.log").read_text().splitlines()[-1], "codes dividends reports specs")
+        self.assertEqual(plans, ["items", "results"])
+        # Every document but the item and result searches left Spark: the publisher loads their plans in
+        # DuckDB, before Spark loads the searches (root ADR-0559).
+        self.assertEqual((self.fake / "duckdb.log").read_text().splitlines()[-1],
+                         "appraisals cases codes details dividends documents filings notices reports specs surveys tenants")
 
 
 if __name__ == "__main__":

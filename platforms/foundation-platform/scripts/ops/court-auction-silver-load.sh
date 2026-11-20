@@ -2,6 +2,10 @@
 # 법원경매정보의 Silver 적재 절반 (root ADR-0280, ADR-0281). 등록된 작업 court_auction_silver(spark 3칸, 가중치 1)가
 # 매일 06:30 KST, 수집이 끝난 뒤에 돌린다.
 #
+# 엔진(root ADR-0559): 물건 검색·매각결과만 Spark(courtauction_go_kr.py)가 쌓고, 나머지 문서 전부(아래의 물건상세·
+# 공통코드·사건 문서·감정평가서·명세서·매각공고·배당요구종기공고)는 발행기 load-courtauction-go-kr-silver 가 DuckDB 로
+# 같은 계획(${work}/duckdb/*)을 읽어 쌓는다. 표마다 쓰는 엔진은 하나다.
+#
 # 쌓을 것은 R2 만 보고 정한다. plan-silver-load-objects 가 검색마다 원천의 Bronze 접두어를 나열하고, 그 표의 커밋
 # 요약이 이미 기록한 객체를 빼고, 남은 것을 오래된 것부터 계약의 범위(courtauction-go-kr.contract.json silver_load)
 # 안에서 이 실행의 폴더로 받는다. courtauction_go_kr.py load 가 객체마다 커밋 하나로, 주소로 PNU 를 찾아
@@ -37,7 +41,7 @@ work="${LAKEHOUSE_STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "court-auction silver load FAILED at line ${LINENO} run=${run_id}" >&2; job_run_log_tail "${run_log}"' ERR
-trap 'rm -rf "${work}/items" "${work}/results" "${work}/details" "${work}/documents" "${work}/codes" "${work}/cases" "${work}/surveys" "${work}/appraisals" "${work}/filings" "${work}/tenants" "${work}/notices" "${work}/duckdb"' EXIT
+trap 'rm -rf "${work}/items" "${work}/results" "${work}/duckdb"' EXIT
 
 read -r window_days max_objects item_slug result_slug detail_slug code_slug case_slug survey_slug appraisal_slug filing_slug tenant_slug report_slug spec_slug notice_slug dividend_slug < <(python3 -I -c '
 import json, sys
@@ -62,22 +66,23 @@ plan() { # <table> <source slug> <dir>
 }
 owed_items="$(plan silver.court_auction_item "${item_slug}" "${work}/items")"
 owed_results="$(plan silver.court_auction_sale_result "${result_slug}" "${work}/results")"
-owed_details="$(plan silver.court_auction_item_detail "${detail_slug}" "${work}/details")"
-owed_documents="$(plan silver.court_auction_appraisal_point "${detail_slug}" "${work}/documents")"
+owed_details="$(plan silver.court_auction_item_detail "${detail_slug}" "${work}/duckdb/details")"
+owed_documents="$(plan silver.court_auction_appraisal_point "${detail_slug}" "${work}/duckdb/documents")"
 owed_codes="$(plan silver.court_auction_code "${code_slug}" "${work}/duckdb/codes")"
-owed_cases="$(plan silver.court_auction_case_document_read "${case_slug}" "${work}/cases")"
-owed_surveys="$(plan silver.court_auction_case_document_read "${survey_slug}" "${work}/surveys")"
-owed_appraisals="$(plan silver.court_auction_case_document_read "${appraisal_slug}" "${work}/appraisals")"
-owed_filings="$(plan silver.court_auction_case_document_read "${filing_slug}" "${work}/filings")"
-owed_tenants="$(plan silver.court_auction_case_document_read "${tenant_slug}" "${work}/tenants")"
+owed_cases="$(plan silver.court_auction_case_document_read "${case_slug}" "${work}/duckdb/cases")"
+owed_surveys="$(plan silver.court_auction_case_document_read "${survey_slug}" "${work}/duckdb/surveys")"
+owed_appraisals="$(plan silver.court_auction_case_document_read "${appraisal_slug}" "${work}/duckdb/appraisals")"
+owed_filings="$(plan silver.court_auction_case_document_read "${filing_slug}" "${work}/duckdb/filings")"
+owed_tenants="$(plan silver.court_auction_case_document_read "${tenant_slug}" "${work}/duckdb/tenants")"
 owed_reports="$(plan silver.court_auction_appraisal_report_read "${report_slug}" "${work}/duckdb/reports")"
 owed_specs="$(plan silver.court_auction_sale_specification_read "${spec_slug}" "${work}/duckdb/specs")"
-owed_notices="$(plan silver.court_auction_sale_notice_item "${notice_slug}" "${work}/notices")"
+owed_notices="$(plan silver.court_auction_sale_notice_item "${notice_slug}" "${work}/duckdb/notices")"
 owed_dividends="$(plan silver.court_auction_dividend_object "${dividend_slug}" "${work}/duckdb/dividends")"
-owed_case_documents=$((owed_cases + owed_surveys + owed_appraisals + owed_filings + owed_tenants + owed_notices))
-# The documents that left Spark: 공통코드, 감정평가서, 매각물건명세서, 배당요구종기공고 (root ADR-0559).
-owed_duckdb=$((owed_codes + owed_reports + owed_specs + owed_dividends))
-if [ "${owed_items}" = 0 ] && [ "${owed_results}" = 0 ] && [ "${owed_details}" = 0 ] && [ "${owed_documents}" = 0 ]   && [ "${owed_duckdb}" = 0 ] && [ "${owed_case_documents}" = 0 ]; then
+# The documents that left Spark (root ADR-0559): 공통코드, 감정평가서, 매각물건명세서, 배당요구종기공고,
+# 매각공고, the five 사건 문서 and 물건상세.
+owed_duckdb=$((owed_codes + owed_reports + owed_specs + owed_dividends + owed_notices + owed_cases + owed_surveys
+  + owed_appraisals + owed_filings + owed_tenants + owed_details + owed_documents))
+if [ "${owed_items}" = 0 ] && [ "${owed_results}" = 0 ] && [ "${owed_duckdb}" = 0 ]; then
   job_journal "${journal}" "court-auction silver load: nothing owed run=${run_id}"
   printf 'foundation-job-outcome unchanged\n'
   exit 0
@@ -89,8 +94,7 @@ if [ "${owed_duckdb}" != 0 ]; then
   duckdb_summary="$(grep '^courtauction-go-kr-duckdb-summary-json ' "${run_log}" | tail -1)"
 fi
 summary=""
-if [ "${owed_items}" != 0 ] || [ "${owed_results}" != 0 ] || [ "${owed_details}" != 0 ] || [ "${owed_documents}" != 0 ] \
-   || [ "${owed_case_documents}" != 0 ]; then
+if [ "${owed_items}" != 0 ] || [ "${owed_results}" != 0 ]; then
 chmod -R a+rX "${work}" # Spark 컨테이너는 uid 185 로 읽는다.
 
 lakehouse_run_log "${run_log}"
@@ -104,11 +108,6 @@ lakehouse_spark_run foundation-platform-compute \
   /workspace/infra/lakehouse/spark/jobs/courtauction_go_kr.py load \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/items" \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/results" \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/details" \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/documents"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/cases"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/surveys"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/appraisals" \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/filings" \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/tenants" \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/notices" \
   --allow-non-smoke-write >> "${run_log}" 2>&1
 
 summary="$(grep '^court-auction-summary-json ' "${run_log}" | tail -1)"
@@ -118,12 +117,11 @@ fi
 late="$(python3 -I -c '
 import json, sys
 print(sum(len(json.load(open(p, encoding="utf-8")).get("selection", {}).get("late", [])) for p in sys.argv[1:]))
-' "${work}/items/plan.json" "${work}/results/plan.json" "${work}/details/plan.json" "${work}/documents/plan.json"   "${work}/duckdb/codes/plan.json" "${work}/cases/plan.json" "${work}/surveys/plan.json" "${work}/appraisals/plan.json" "${work}/filings/plan.json" "${work}/tenants/plan.json" \
-  "${work}/duckdb/reports/plan.json" "${work}/duckdb/specs/plan.json" "${work}/notices/plan.json" "${work}/duckdb/dividends/plan.json")"
+' "${work}/items/plan.json" "${work}/results/plan.json" "${work}"/duckdb/*/plan.json)"
 if [ "${late}" != 0 ]; then
   job_journal "${journal}" "court-auction silver load LATE run=${run_id}: loaded ${late} object(s) older than ${window_days} days that no load had recorded ${summary}" >&2
   echo "court-auction silver load: ${late} Bronze object(s) waited more than ${window_days} days unloaded; they are loaded now, and this run fails so the gap is seen" >&2
   exit 1
 fi
-job_journal "${journal}" "court-auction silver load ok run=${run_id} owed=${owed_items}+${owed_results}+${owed_details}+${owed_documents}+${owed_duckdb}+${owed_case_documents} ${duckdb_summary} ${summary}"
+job_journal "${journal}" "court-auction silver load ok run=${run_id} owed=${owed_items}+${owed_results}+${owed_duckdb} ${duckdb_summary} ${summary}"
 printf 'foundation-job-outcome changed\n'
