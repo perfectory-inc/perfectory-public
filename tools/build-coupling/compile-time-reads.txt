@@ -69,6 +69,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/j
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lakehouse_engine_contract.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/legal_dong_code_change_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/legal_dong_code_snapshot_stage/tests.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/legal_dong_pairing_stage.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage/tests.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs:6

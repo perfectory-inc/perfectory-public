@@ -184,7 +184,11 @@
         "wave": 5
       },
       "legal_dong_code_change_pairs": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1564,
+          "rows": 312,
+          "fingerprint": null
+        }
       },
       "legal_dong_code_snapshot_to_reference": {
         "moved": {

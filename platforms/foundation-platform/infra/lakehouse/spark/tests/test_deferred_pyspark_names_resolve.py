@@ -61,7 +61,6 @@ MODULES = (
     "parcel_matching_gate",
     "place_id_release_to_gold",
     "lineage_review_queue_to_gold",
-    "legal_dong_code_change_pairs",
     "vworld_parcel_number_change_history",
     "onbid_public_auction_document",
     "address_pnu",

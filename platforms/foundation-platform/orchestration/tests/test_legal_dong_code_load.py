@@ -2,9 +2,10 @@
 
 On 2026-10-06 a 30527 handoff was loaded and moved to loaded/, then the pairing failed; the next run saw no
 pending handoff and no steward decision, so it never paired again. These tests run the real script, sourced
-the way lineage-stewardship-cycle.sh sources it, with `spark` replaced by a stand-in that writes the outputs
-the real jobs write (or fails the pairing on demand), and the publisher replaced by a stand-in for the
-steward database (root ADR-0263), and read what it leaves in the state roots.
+the way lineage-stewardship-cycle.sh sources it, with the pairing's rules replaced by a stand-in that writes the
+plan and the outputs the real rules write (or fails the pairing on demand), and the publisher replaced by a
+stand-in for the steward database (root ADR-0263) and the lakehouse (root ADR-0559), and read what it leaves in
+the state roots.
 """
 
 import json
@@ -19,35 +20,52 @@ import unittest
 ORCHESTRATION = pathlib.Path(__file__).resolve().parents[1]
 LOAD = ORCHESTRATION.parent / "scripts/ops/legal-dong-code-load.sh"
 
-# Stands in for the Spark jobs: argv is (work, container_work, job, args...). Container paths map to work.
-SPARK = textwrap.dedent("""
+# Stands in for the pairing's rules (legal_dong_code_change_pairs.py, no Spark): `rules-version`, the parcel
+# requests, the plan (in the compute container: its paths map to work) and, after the publisher's append, the
+# outputs.
+RULES = textwrap.dedent("""
     import json, os, pathlib, sys
-    work, container, job, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+    args = sys.argv[1:]
+    if args[:1] == ["rules-version"]:
+        print(os.environ["RULES_VERSION"])
+        sys.exit(0)
+    if args[:1] == ["parcel-requests"]:
+        assert (pathlib.Path(args[1]) / "snapshot.json").is_file(), "the publisher exports the snapshot first"
+        (pathlib.Path(args[1]) / "parcel-requests.json").write_text("[]")
+        sys.exit(0)
     opt = {args[i]: args[i + 1] for i in range(len(args) - 1) if args[i].startswith("--")}
-    out = lambda key: pathlib.Path(opt[key].replace(container, work, 1))
-    if job == "legal_dong_code_change_pairs.py":
+    work, container = os.environ.get("RULES_WORK", ""), os.environ.get("RULES_CONTAINER", "")
+    out = lambda key: pathlib.Path(opt[key].replace(container, work, 1) if container else opt[key])
+    inputs = out("--inputs")
+    if "--emit-appended" not in args:
         if os.environ.get("FAIL_PAIRING"):
             sys.exit("PairingConflict")
-        out("--projection-output").write_text('{"projection": true}')
-        out("--review-output").write_text('{"review": []}')
+        assert (inputs / "parcels.json").is_file(), "the publisher answers the parcel requests before the rules"
+        (inputs / "parcels-0-209901.jsonl").write_text("{}")
         export = json.loads(out("--steward-decision-export").read_text())
         recorded = [d["decision_id"] for d in export["decisions"]]
-        out("--review-handoff-output").write_text('{"items": []}')
-        out("--steward-fold-summary-output").write_text(json.dumps({"derivation_run_id": "r", "decision_ids": recorded}))
         verdicts = {f"db:{i}": "recorded" for i in recorded}
         if "--steward-decisions" in opt:
             verdicts.update({p.name: "recorded" for p in out("--steward-decisions").glob("*.json")})
-        summary = {"steward_decisions": verdicts, "rules_version": os.environ["RULES_VERSION"]}
-        if os.environ.get("OFFICIAL_DECIDED"):
-            summary["superseded_pairs"] = [{"old_code": "9999910100", "new_code": "9999910300",
-                                            "source": "derived:code-go-kr:date+name:20990701",
-                                            "official_targets": ["9999910500"], "kind": "dong_level"}]
-            summary["steward_contradicted_by_official"] = {"9999910700": {
-                "steward_pair": "9999910800", "steward_source": "steward:steward-a", "official_targets": ["9999910900"],
-                "kind": "dong_level", "changed_on": ["20990701", "20990702"]}}
-        out("--summary-output").write_text(json.dumps(summary))
-    else:
-        sys.exit("unexpected job " + job)
+        (inputs / "append.jsonl").write_text("")
+        (inputs / "plan.json").write_text(json.dumps({"recorded": recorded, "verdicts": verdicts}))
+        sys.exit(0)
+    assert (inputs / "appended.json").is_file(), "the outputs are written from the table the publisher read back"
+    assert not list(inputs.glob("parcels-*.jsonl")), "the parcel files are not kept past the rules"
+    plan = json.loads((inputs / "plan.json").read_text())
+    out("--projection-output").write_text('{"projection": true}')
+    out("--review-output").write_text('{"review": []}')
+    out("--review-handoff-output").write_text('{"items": []}')
+    out("--steward-fold-summary-output").write_text(json.dumps({"derivation_run_id": "r", "decision_ids": plan["recorded"]}))
+    summary = {"steward_decisions": plan["verdicts"], "rules_version": os.environ["RULES_VERSION"]}
+    if os.environ.get("OFFICIAL_DECIDED"):
+        summary["superseded_pairs"] = [{"old_code": "9999910100", "new_code": "9999910300",
+                                        "source": "derived:code-go-kr:date+name:20990701",
+                                        "official_targets": ["9999910500"], "kind": "dong_level"}]
+        summary["steward_contradicted_by_official"] = {"9999910700": {
+            "steward_pair": "9999910800", "steward_source": "steward:steward-a", "official_targets": ["9999910900"],
+            "kind": "dong_level", "changed_on": ["20990701", "20990702"]}}
+    out("--summary-output").write_text(json.dumps(summary))
 """)
 
 # Stands in for the publisher and the steward database: `db-decisions.json` holds the ids of the standing
@@ -76,11 +94,28 @@ PUBLISHER = textwrap.dedent("""
         prefix = "FOUNDATION_PLATFORM_PARCEL_NUMBER_CHANGE_"
         assert (pathlib.Path(os.environ[prefix + "HANDOFF_DIR"]) / "handoff.json").is_file(), os.environ[prefix + "HANDOFF_DIR"]
         pathlib.Path(os.environ[prefix + "SUMMARY_OUTPUT"]).write_text("{}")
+    elif sys.argv[1] == "export-legal-dong-pairing-inputs":
+        # The lakehouse rows the rules read (DuckDB inside the publisher, root ADR-0559), in two phases.
+        pair = pathlib.Path(os.environ["FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_DIR"])
+        if os.environ["FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_PHASE"] == "tables":
+            assert os.environ["FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_OFFICIAL_HISTORY"] in ("0", "1")
+            (pair / "snapshot.json").write_text(json.dumps(
+                [{"snapshot_date": os.environ["FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_SNAPSHOT_DATE"]}]))
+        else:
+            assert (pair / "parcel-requests.json").is_file(), "the rules write the requests before the parcels"
+            (pair / "parcels.json").write_text("[]")
+    elif sys.argv[1] == "append-legal-dong-code-changes":
+        pair = pathlib.Path(os.environ["FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_DIR"])
+        assert (pair / "append.jsonl").is_file() and (pair / "plan.json").is_file(), "the rules plan before the append"
+        (pair / "appended.json").write_text("{}")
     elif sys.argv[1] == "load-lineage-review-items":
         json.loads(pathlib.Path(os.environ["FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT"]).read_text())
     else:
         sys.exit("unexpected command " + sys.argv[1])
 """)
+
+# The publisher's part of one pairing (root ADR-0559): the tables, then the parcels the rules asked for, then the append.
+PAIRING = ["export-legal-dong-pairing-inputs", "export-legal-dong-pairing-inputs", "append-legal-dong-code-changes"]
 
 DRIVER = textwrap.dedent("""
     set -euo pipefail
@@ -90,7 +125,10 @@ DRIVER = textwrap.dedent("""
     run_log="${work}/run.log"
     publisher() { "${PUBLISHER_BIN}" "$@"; }
     notify_slack() { printf '%s\\n---\\n' "$1" >> "${WORK_ROOT}/slack.log"; }
-    spark() { printf '%s\\n' "$1" >> "${CALLS}"; python3 "${SPARK_STUB}" "${work}" "${container_work}" "$@"; }
+    pairing_rules() {
+      printf 'legal_dong_code_change_pairs.py\\n' >> "${CALLS}"
+      RULES_WORK="${work}" RULES_CONTAINER="${container_work}" python3 "${LEGAL_DONG_JOBS}/legal_dong_code_change_pairs.py" "$@"
+    }
     source "${LOAD}"
     load_legal_dong_code_handoffs
     echo "wrote=${legal_dong_code_wrote}"
@@ -106,12 +144,11 @@ class Harness(unittest.TestCase):
         self.parcel = self.root / "parcel-number-change"
         self.legal.mkdir()
         self.parcel.mkdir()
-        (self.root / "spark.py").write_text(SPARK)
         (self.root / "driver.sh").write_text(DRIVER)
         (self.root / "publisher.py").write_text(PUBLISHER)
-        # Stands in for the pairing job's `rules-version`: the deployed rules are whatever RULES_VERSION says.
+        # The deployed rules: `rules-version` is whatever RULES_VERSION says.
         (self.root / "jobs").mkdir()
-        (self.root / "jobs/legal_dong_code_change_pairs.py").write_text("import os\nprint(os.environ['RULES_VERSION'])\n")
+        (self.root / "jobs/legal_dong_code_change_pairs.py").write_text(RULES)
         self.rules = "v1"
         publisher = self.root / "publisher.sh"
         publisher.write_text(f'#!/usr/bin/env bash\nexec python3 "{(self.root / "publisher.py").as_posix()}" "$@"\n')
@@ -126,7 +163,7 @@ class Harness(unittest.TestCase):
         self.runs += 1
         self.calls.write_text("")
         self.publisher_calls.write_text("")
-        env = {"PATH": os.environ["PATH"], "LOAD": str(LOAD), "SPARK_STUB": str(self.root / "spark.py"),
+        env = {"PATH": os.environ["PATH"], "LOAD": str(LOAD),
                "WORK_ROOT": str(self.root / "runs"), "RUN_ID": f"run{self.runs}", "CALLS": str(self.calls),
                "journal": str(self.journal), "run_id": f"run{self.runs}",
                "FOUNDATION_LEGAL_DONG_CODE_STATE_ROOT": str(self.legal),
@@ -286,7 +323,7 @@ class StewardDatabase(Harness):
         result = self.run_cycle()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.jobs(), ["legal_dong_code_change_pairs.py"])
-        self.assertEqual(self.publisher(), ["export-legal-dong-steward-decisions", "load-lineage-review-items"])
+        self.assertEqual(self.publisher(), ["export-legal-dong-steward-decisions", *PAIRING, "load-lineage-review-items"])
         self.assertTrue((self.legal / "steward-list-published.json").exists())
         self.assertTrue(any("re-paired (steward database)" in line for line in self.journal_lines()))
         self.run_cycle()
@@ -299,7 +336,7 @@ class StewardDatabase(Harness):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.jobs(), ["legal_dong_code_change_pairs.py"])
         self.assertEqual(self.publisher(), ["export-legal-dong-steward-decisions", "export-legal-dong-steward-decisions",
-                                            "record-lineage-steward-folds", "load-lineage-review-items"])
+                                            *PAIRING, "record-lineage-steward-folds", "load-lineage-review-items"])
         self.assertEqual(json.loads(self.db.read_text()), [], "the run recorded the approval it appended")
         self.run_cycle()
         self.assertEqual(self.jobs(), [])
