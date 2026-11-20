@@ -92,12 +92,31 @@ class ExtractTest(unittest.TestCase):
         self.assertEqual(extract(Path("x.zip"), "zip", self.settings).outcome, "unsupported_format")
 
     def test_only_thin_pages_take_the_ocr_text(self) -> None:
-        layers = iter([["가" * 30, ""], ["가" * 30 + "(ocr)", "스캔한 쪽"]])
+        # The raster holds the thin pages alone, so its OCR'd text has one page per thin page.
+        layers = iter([["가" * 30, "", "나" * 30, " "], ["스캔한 쪽", "넷째 쪽"]])
         with mock.patch.object(extract_module, "pdf_page_texts", side_effect=lambda _p: next(layers)), mock.patch.object(
-            extract_module, "ocr_pages"
-        ) as ocr:
+            extract_module, "rasterize_pages"
+        ) as raster, mock.patch.object(extract_module, "ocr_pages"):
             result = extract(Path("x.pdf"), "pdf", self.settings)
-        self.assertEqual(ocr.call_args.args[2], [2])
+        self.assertEqual(raster.call_args.args[2], [2, 4])
+        self.assertEqual([(p.method, p.text) for p in result.pages],
+                         [("text_layer", "가" * 30), ("ocr", "스캔한 쪽"), ("text_layer", "나" * 30), ("ocr", "넷째 쪽")])
+
+    def test_an_ocr_that_lost_a_page_is_that_files_failure(self) -> None:
+        layers = iter([["", ""], ["스캔한 쪽"]])
+        with mock.patch.object(extract_module, "pdf_page_texts", side_effect=lambda _p: next(layers)), mock.patch.object(
+            extract_module, "rasterize_pages"
+        ), mock.patch.object(extract_module, "ocr_pages"):
+            result = extract(Path("x.pdf"), "pdf", self.settings)
+        self.assertEqual((result.outcome, result.pages), ("failed", []))
+        self.assertIn("not the 2 sent", result.error)
+
+    def test_one_thin_page_of_two_is_partial_ocr(self) -> None:
+        layers = iter([["가" * 30, ""], ["스캔한 쪽"]])
+        with mock.patch.object(extract_module, "pdf_page_texts", side_effect=lambda _p: next(layers)), mock.patch.object(
+            extract_module, "rasterize_pages"
+        ), mock.patch.object(extract_module, "ocr_pages"):
+            result = extract(Path("x.pdf"), "pdf", self.settings)
         self.assertEqual(result.outcome, "partial_ocr")
         self.assertEqual([(p.method, p.text) for p in result.pages], [("text_layer", "가" * 30), ("ocr", "스캔한 쪽")])
 
@@ -223,14 +242,21 @@ class ContractTest(unittest.TestCase):
         for error in ["ocrmypdf exit -9: ", "worker killed by signal 9 (the image's memory cap)"]:
             self.assertTrue(error.startswith(tuple(kill["error_prefixes"])), error)
 
-    def test_tesseract_gets_the_contracts_bounded_image(self) -> None:
+    def test_the_pages_are_drawn_at_the_contracts_resolution_before_ocr(self) -> None:
         settings = load_contract()["document_text"]
-        layers = iter([[""], ["스캔한 쪽"]])
+        layers = iter([["가" * 30, ""], ["스캔한 쪽"]])
         with mock.patch.object(extract_module, "pdf_page_texts", side_effect=lambda _p: next(layers)), mock.patch.object(
             extract_module.subprocess, "run"
         ) as run:
             extract(Path("x.pdf"), "pdf", settings)
-        argv = run.call_args.args[0]
+        gs, ocr = (call.args[0] for call in run.call_args_list)
+        self.assertEqual(gs[0], "gs")
+        self.assertIn(f"-r{settings['ocr_raster_dpi']}", gs)
+        self.assertIn("-sPageList=2", gs)
+        self.assertEqual(ocr[0], "ocrmypdf")
+        self.assertNotIn("--pages", ocr)  # every page of the raster is a page to OCR
+        self.assertEqual(ocr[-2], gs[gs.index("-o") + 1])
+        argv = ocr
         self.assertIn("--tesseract-downsample-large-images", argv)
         self.assertEqual(argv[argv.index("--tesseract-downsample-above") + 1], str(settings["ocr_downsample_above_px"]))
 

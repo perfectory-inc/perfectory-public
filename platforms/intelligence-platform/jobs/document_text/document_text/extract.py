@@ -1,7 +1,8 @@
 """One document's bytes to positioned page text, with mature tools only (root ADR-0477 §3).
 
 - PDF: the text layer through pdfplumber (MIT). A page with fewer than `ocr_below_chars`
-  visible characters is a scan: those pages alone go through ocrmypdf (MPL-2.0) with
+  visible characters is a scan: those pages alone are drawn at a fixed resolution by Ghostscript
+  (AGPL, run as a separate process like the others) and go through ocrmypdf (MPL-2.0) with
   Tesseract (Apache-2.0), and their text is read back from the OCR'd file.
 - HWP 5 / HWPX: LibreOffice (MPL-2.0) with the H2Orestart import filter (GPL-3.0, run as a
   separate process, never linked) prints the document to PDF, which then takes the PDF path.
@@ -64,8 +65,33 @@ def pdf_page_texts(path: Path) -> list[str]:
         return texts
 
 
-def ocr_pages(src: Path, dst: Path, pages: list[int], languages: str, jobs: int, timeout: int,
-              downsample_above: int) -> None:
+def rasterize_pages(src: Path, dst: Path, pages: list[int], dpi: int, timeout: int) -> None:
+    """The pages, in order, drawn by Ghostscript at `dpi` into an image-only PDF (the contract's
+    ocr_raster_reason). OCRmyPDF 16.7.0 rasterizes a page at its densest embedded image with no cap
+    (pdfinfo/info.py takes the max; only its preview is clamped to 300 dpi): 1,134-1,200 dpi scans
+    made 110-125 Mpx pages and ocrmypdf itself was killed at the cap (root ADR-0593)."""
+    subprocess.run(
+        [
+            "gs",
+            "-q",
+            "-dNOPAUSE",
+            "-dBATCH",
+            "-dSAFER",
+            "-sDEVICE=pdfimage24",
+            f"-r{dpi}",
+            "-sPageList=" + ",".join(str(p) for p in pages),
+            "-o",
+            str(dst),
+            str(src),
+        ],
+        check=True,
+        timeout=timeout,
+        capture_output=True,
+    )
+
+
+def ocr_pages(src: Path, dst: Path, languages: str, jobs: int, timeout: int, downsample_above: int) -> None:
+    """Every page of `src` (the rasterized pages) OCR'd into `dst`."""
     subprocess.run(
         [
             "ocrmypdf",
@@ -74,8 +100,6 @@ def ocr_pages(src: Path, dst: Path, pages: list[int], languages: str, jobs: int,
             "--tesseract-downsample-large-images",
             "--tesseract-downsample-above",
             str(downsample_above),
-            "--pages",
-            ",".join(str(p) for p in pages),
             "-l",
             languages,
             "--jobs",
@@ -130,12 +154,17 @@ def extract(path: Path, media_format: str, settings: dict) -> Result:
             methods = ["text_layer"] * len(texts)
             thin = pages_needing_ocr(texts, settings["ocr_below_chars"])
             if thin:
-                ocred = workdir / "ocr.pdf"
-                ocr_pages(pdf, ocred, thin, settings["ocr_languages"], settings["ocr_jobs"],
+                raster, ocred = workdir / "raster.pdf", workdir / "ocr.pdf"
+                rasterize_pages(pdf, raster, thin, settings["ocr_raster_dpi"],
+                                settings["raster_timeout_seconds_per_page"] * len(thin))
+                ocr_pages(raster, ocred, settings["ocr_languages"], settings["ocr_jobs"],
                           settings["ocr_timeout_seconds_per_page"] * len(thin), settings["ocr_downsample_above_px"])
                 ocr_texts = pdf_page_texts(ocred)
-                for number in thin:
-                    texts[number - 1] = ocr_texts[number - 1]
+                if len(ocr_texts) != len(thin):
+                    raise RuntimeError(f"the OCR'd raster has {len(ocr_texts)} pages, not the {len(thin)} sent")
+                # The raster holds the thin pages alone, in order: its n-th page is thin[n].
+                for number, text in zip(thin, ocr_texts):
+                    texts[number - 1] = text
                     methods[number - 1] = "ocr"
             pages = assemble(list(zip(methods, texts)))
             result = Result("", pages, len(thin))
