@@ -52,8 +52,10 @@ MOD = re.compile(r"((?:#\[[^\]]*\]\s*)*)(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+(\w+)\
 CFG = re.compile(r"#\[cfg\((.*)\)\]\s*$")
 PATH_ATTR = re.compile(r"#\[path\s*=\s*\"([^\"]+)\"\]")
 # What a string, char or comment hides from brace counting; replaced by spaces, so offsets hold.
+# A backslash escapes the character after it, a newline included: a string continued over a line with
+# `\` is one string (read as two half strings, it hid the `#[cfg(test)]` of a test module, 2026-11-21).
 OPAQUE = re.compile(
-    r"b?r(#*)\"(?:.|\n)*?\"\1|b?\"(?:\\.|[^\"\\])*\"|b?'(?:\\.|[^'\\])'|//[^\n]*|/\*(?:.|\n)*?\*/"
+    r"b?r(#*)\"(?:.|\n)*?\"\1|b?\"(?:\\(?:.|\n)|[^\"\\])*\"|b?'(?:\\.|[^'\\])'|//[^\n]*|/\*(?:.|\n)*?\*/"
 )
 # `cargo chef cook` is left out: it compiles the third-party dependencies only, never the sources of a
 # workspace crate.
