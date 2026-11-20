@@ -43,6 +43,15 @@ fn same_key(contract: &LakehouseTableContract, a: &str, b: &str) -> anyhow::Resu
         .join(" AND "))
 }
 
+/// Whether `time` is stored `HH:0M:0S` with minute and second not both zero.
+///
+/// From the instant itself (seconds into the hour): the stage has no time zone extension, and
+/// Korean time is whole hours from UTC.
+fn misread(time: &str) -> String {
+    let within = format!("(epoch_us({time}) // 1000000 % 3600)");
+    format!("({within} // 60 < 10 AND {within} % 60 < 10 AND {within} <> 0)")
+}
+
 fn count(stage: &DuckDbParquetStage, query: &str) -> anyhow::Result<u64> {
     let value: i64 =
         stage
@@ -91,11 +100,7 @@ pub fn candidates(
         .replace("{filter}", "TRUE");
     let pattern = times
         .iter()
-        .map(|time| {
-            format!(
-                "(minute({time}) < 10 AND second({time}) < 10 AND (minute({time}) <> 0 OR second({time}) <> 0))"
-            )
-        })
+        .map(|time| misread(time))
         .collect::<Vec<_>>()
         .join(" OR ");
     let reread = key(contract)?
@@ -226,7 +231,7 @@ mod tests {
     use anyhow::Context as _;
     use chrono::TimeZone as _;
 
-    use super::{corrections, keep_reread, Corrections};
+    use super::{corrections, keep_reread, misread, Corrections};
     use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
     #[test]
@@ -252,6 +257,16 @@ mod tests {
                ('A2', 1, TIMESTAMPTZ '2026-11-05 00:05:00+00'),
                ('A3', 1, TIMESTAMPTZ '2026-11-05 00:45:00+00')) t(onbid_pbanc_no, pbct_no, cltr_opbd_dt);",
         )?;
+        // 00:03:00 and 00:05:09 could be misread; 00:30:00 and 00:00:00 could not.
+        let held: Vec<bool> = stage
+            .connection()
+            .prepare(&format!(
+                "SELECT {} FROM (VALUES (to_timestamp(180)), (to_timestamp(309)), (to_timestamp(1800)), (to_timestamp(7200))) t(seen)",
+                misread("seen")
+            ))?
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        assert_eq!(held, [true, true, false, false]);
         keep_reread(&stage, contract, &times, "bronze/o1.gz")?;
         let at = chrono::Utc
             .with_ymd_and_hms(2026, 11, 20, 3, 0, 0)
@@ -266,7 +281,7 @@ mod tests {
         );
         let row: (String, String, String, String) = stage.connection().query_row(
             "SELECT onbid_pbanc_no, source_snapshot_id, source_record_id, \
-                    strftime(cltr_opbd_dt AT TIME ZONE 'UTC', '%H:%M:%S') FROM fix_rows",
+                    CAST(epoch_us(cltr_opbd_dt) // 1000000 % 3600 AS VARCHAR) FROM fix_rows",
             [],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )?;
@@ -276,7 +291,8 @@ mod tests {
                 "A1".to_owned(),
                 "20261105T000000Z+c1".to_owned(),
                 "bronze/o1.gz".to_owned(),
-                "00:30:00".to_owned()
+                // Seconds into the hour: 00:30:00.
+                "1800".to_owned()
             )
         );
         // After the version it corrects, before any later pass.
