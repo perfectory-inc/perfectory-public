@@ -33,6 +33,14 @@ run_coordinator:
   class: QueuedRunCoordinator
   config:
     max_concurrent_runs: 7
+    # A launch the code server does not answer in time goes back into the queue, up to three times a minute
+    # apart, instead of failing (dagster 1.13.27 QueuedRunCoordinatorDaemon: DagsterUserCodeUnreachableError,
+    # which a gRPC timeout raises). 2026-11-20 15:35Z, load in the 20s-40s, map_edit_fold_admin's tick run
+    # was failed on "Unexpected error in IPC client"; its worker started later and was ignored, so the tick
+    # was lost (the next one ran). A re-queued run is QUEUED, so such a late worker is still ignored and
+    # the retry launches it once.
+    max_user_code_failure_retries: 3
+    user_code_failure_retry_delay: 60
     tag_concurrency_limits:
       - key: foundation/run
         value: job
