@@ -10,10 +10,13 @@ does not, and the other spelling of a snapshot id.
 
 from __future__ import annotations
 
+import base64
 import copy
+import functools
 import json
 import os
 import re
+import struct
 import sys
 import tempfile
 import unittest
@@ -533,16 +536,138 @@ class TheJobReadsEditionsFromTheContractTest(unittest.TestCase):
             pairs_job.parse_args(base + ["--jibun-evidence", "editions", "--edition-pnus", "2099-2=x"])
 
     def test_validate_only_reads_the_lakehouse_when_given_no_local_table(self):
-        # 운영 미리 보기(legal-dong-code-validate.sh): 표 파일 없이 --validate-only 는 레이크하우스를 읽고 쓰지 않는다.
+        # 운영 미리 보기(legal-dong-code-validate.sh): 표 파일 없이 --validate-only 는 발행기가 내보낸 레이크하우스 행을
+        # 읽고(--inputs) 아무것도 쓰지 않는다.
         lake = pairs_job.parse_args(["--snapshot-date", "2099-11-01", "--table-source-record-id", "k", "--validate-only",
-                                     "--jibun-evidence", "editions"])
+                                     "--jibun-evidence", "editions", "--inputs", "d"])
         self.assertTrue(lake.validate_only and lake.table_html is None)
-        self.assertEqual(lake.change_table, "legal_dong_code_change", "no smoke-suffix check: nothing is written")
-        for local_only in (["--table-html", "t"], ["--recorded-changes", "r"],
-                           ["--validate-only", "--jibun-evidence", "editions", "--edition-pnus", "209902=x"]):
-            with self.subTest(local_only), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
-                pairs_job.parse_args(["--snapshot-date", "2099-11-01", "--table-source-record-id", "k",
-                                      "--allow-non-smoke-write", *local_only])
+        for refused in (["--table-html", "t"], ["--recorded-changes", "r", "--inputs", "d"], [],
+                        ["--inputs", "d", "--table-html", "t", "--validate-only"],
+                        ["--inputs", "d", "--validate-only", "--emit-appended"],
+                        ["--inputs", "d", "--validate-only", "--jibun-evidence", "editions", "--edition-pnus", "209902=x"]):
+            with self.subTest(refused), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                pairs_job.parse_args(["--snapshot-date", "2099-11-01", "--table-source-record-id", "k", *refused])
+
+
+def square_wkb(side: float = 0.0001) -> bytes:
+    ring = [(1.0, 2.0), (1.0 + side, 2.0), (1.0 + side, 2.0 + side), (1.0, 2.0 + side), (1.0, 2.0)]
+    return struct.pack("<BII", 1, 3, 1) + struct.pack("<I", len(ring)) + b"".join(struct.pack("<dd", *point) for point in ring)
+
+
+POINT_WKB = struct.pack("<BIdd", 1, 1, 1.0, 2.0)
+
+
+def publisher_export(directory: Path, rows, source: dict, loaded: tuple[str, ...], extra: dict[str, list[tuple[str, bytes]]] | None = None):
+    """What `export-legal-dong-pairing-inputs` leaves for the rules: the snapshot, the request list the rules
+    write from it, and each request's answer. Like the publisher, an answer holds every parcel under the asked
+    codes whose 지번 the earlier answer holds (a superset of what the rules keep) and names an edition the table
+    lacks."""
+
+    (directory / pairs_job.SNAPSHOT_FILE).write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    with mock.patch.object(editions, "load", return_value=source):
+        pairs_job.main(["parcel-requests", str(directory)])
+    requests = json.loads((directory / pairs_job.REQUESTS_FILE).read_text(encoding="utf-8"))
+    answers = []
+    for index, request in enumerate(requests):
+        name = request["edition"]
+        if name not in loaded:
+            answers.append({"present": False, "file": None, "rows": 0})
+            continue
+        held = [(value, square_wkb()) for value in PARCELS[name]] + (extra or {}).get(name, [])
+        lines = [json.dumps({"pnu": value, "jibun": f"{int(value[11:15])}대", "wkb": base64.b64encode(wkb).decode()}, ensure_ascii=False)
+                 for value, wkb in held if value[:10] in request["codes"]]
+        file = f"parcels-{index}-{name}.jsonl"
+        (directory / file).write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+        answers.append({"present": True, "file": file, "rows": len(lines)})
+    (directory / pairs_job.PARCELS_FILE).write_text(json.dumps(answers), encoding="utf-8")
+    return requests
+
+
+class TheRulesReadThePublishersExportTest(unittest.TestCase):
+    """Root ADR-0559: no Spark. The publisher's DuckDB writes the lakehouse rows into the run's folder and the
+    rules read them there; what they pair must be what they paired reading the table themselves."""
+
+    FLOOR = CONTRACT["pairing"]["floor_date"]
+
+    def evidence(self, directory: Path, source: dict, skipped: dict[str, int] | None = None):
+        read = functools.partial(pairs_job.exported_parcels, directory, 0.5, {} if skipped is None else skipped)
+        return pairs_job.edition_evidence(two_changes(), self.FLOOR, source, read)
+
+    def test_the_exported_parcels_pair_what_the_table_read_paired(self):
+        source = contract("209902", "209906", "209910")
+        with tempfile.TemporaryDirectory() as tmp:
+            # A lot the earlier edition never held, under a code the later request asks for: the publisher's answer
+            # may carry it, the rules' own filter leaves it out. A boundary that is a point is skipped and counted.
+            extra = {"209906": [(pnu("9711010300", 900), square_wkb()), (pnu("9711010300", 1), POINT_WKB)]}
+            requests = publisher_export(Path(tmp), two_changes(), source, ("209902", "209906", "209910"), extra)
+            self.assertEqual([(r["edition"], r["lots_of"]) for r in requests],
+                             [("209902", None), ("209906", 0), ("209906", None), ("209910", 2)])
+            skipped: dict[str, int] = {}
+            jibun = self.evidence(Path(tmp), source, skipped)
+        expected, direct = pair_with(source, "209902", "209906", "209910")
+        got = cg.pair_changes(two_changes(), self.FLOOR, jibun=jibun, min_share=MIN_SHARE)
+        self.assertEqual(got.pairs, expected.pairs)
+        self.assertEqual(got.review, expected.review)
+        self.assertEqual(skipped, {"209906": 1})
+        after = jibun.by_code["9711010100"].after["9711010300"]
+        self.assertEqual(set(after), set(direct.by_code["9711010100"].after["9711010300"]), "lot 900 is not read")
+        self.assertEqual({land[0] for land in after.values()}, {"대"})
+
+    def test_an_edition_the_table_lacks_waits_by_name(self):
+        source = contract("209902", "209906", "209910")
+        with tempfile.TemporaryDirectory() as tmp:
+            publisher_export(Path(tmp), two_changes(), source, ("209902", "209906"))
+            jibun = self.evidence(Path(tmp), source)
+        _, direct = pair_with(source, "209902", "209906")
+        self.assertEqual(jibun.awaiting, direct.awaiting)
+        self.assertIn("209910", "".join(jibun.awaiting.values()))
+
+    def test_parcels_the_publisher_did_not_export_are_refused(self):
+        source = contract("209902", "209906", "209910")
+        with tempfile.TemporaryDirectory() as tmp:
+            publisher_export(Path(tmp), two_changes(), source, ("209902", "209906", "209910"))
+            # 심은 위반: 다른 스냅숏의 요청으로 내보낸 필지를 읽는다.
+            with self.assertRaisesRegex(ValueError, "exported no parcels"):
+                pairs_job.exported_parcels(Path(tmp), 0.5, {}, "209902", {"9711010100", "9799999999"}, None)
+
+    def test_a_run_plans_then_writes_what_the_table_holds_after_the_append(self):
+        rows = two_changes()
+        source = contract("209902", "209906", "209910")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(editions, "load", return_value=source):
+            inputs = Path(tmp)
+            publisher_export(inputs, rows, source, ("209902", "209906", "209910"))
+            (inputs / pairs_job.RECORDED_FILE).write_text("[]", encoding="utf-8")
+            base = ["--snapshot-date", "2099-11-01", "--table-source-record-id", "k", "--inputs", tmp]
+            # The exported snapshot is held to the contract's size like the table read was: eight rows are no full table.
+            with self.assertRaises(cg.TableShrunk):
+                pairs_job.main([*base, "--jibun-evidence", "editions"])
+            size = mock.patch.object(cg, "check_table_size")
+            size.start()
+            self.addCleanup(size.stop)
+            self.assertEqual(pairs_job.main([*base, "--jibun-evidence", "editions"]), 0)
+            lines = [json.loads(line) for line in (inputs / pairs_job.APPEND_FILE).read_text(encoding="utf-8").splitlines()]
+            self.assertEqual({(line["old_code"], line["new_code"]) for line in lines},
+                             {("9711010100", "9711010300"), ("9811010100", "9811010300")})
+            self.assertEqual([line["seq"] for line in lines], list(range(len(lines))))
+            self.assertEqual({line["what"] for line in lines}, {"change"})
+            self.assertEqual(len({line["derivation_run_id"] for line in lines}), 1)
+            self.assertTrue(all(line["recorded_at_us"] % 1_000_000 == 0 and "recorded_at_utc" not in line for line in lines))
+            # The publisher appends them and reads the table back.
+            held = [{key: value for key, value in line.items() if key not in ("seq", "what", "recorded_at_us")} for line in lines]
+            (inputs / pairs_job.HELD_FILE).write_text(json.dumps(held), encoding="utf-8")
+            (inputs / pairs_job.APPENDED_FILE).write_text(json.dumps(
+                {"change_table_snapshot_id": "77", "steward_rows_appended": False, "changes_appended": True}), encoding="utf-8")
+            outputs = ["--emit-appended", "--projection-output", str(inputs / "projection.json"),
+                       "--summary-output", str(inputs / "summary.json"), "--review-output", str(inputs / "review.json")]
+            self.assertEqual(pairs_job.main([*base, *outputs]), 0)
+            summary = json.loads((inputs / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual((summary["status"], summary["changes_appended"], summary["change_table_snapshot_id"]), ("ready", True, "77"))
+            self.assertEqual(summary["fresh_changes"], len(lines))
+            self.assertEqual(json.loads((inputs / "projection.json").read_text(encoding="utf-8"))["change_table_snapshot_id"], "77")
+            # 심은 위반: 다른 작성자가 그 사이 표에 쌓았다 — 되읽은 표의 교차표가 계획과 다르다.
+            with mock.patch.object(pairs_job.views, "sigungu_crosswalk_view", return_value=({"sido": {"x": "y"}, "sigungu": {}}, [])), \
+                    self.assertRaisesRegex(ValueError, "another writer"):
+                pairs_job.main([*base, *outputs])
 
 
 if __name__ == "__main__":

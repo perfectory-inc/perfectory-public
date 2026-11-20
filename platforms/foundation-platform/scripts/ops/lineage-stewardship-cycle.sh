@@ -80,6 +80,17 @@ spark() {
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >> "${run_log}" 2>&1
 }
 
+# 짝 맞추기 규칙: Spark 세션 없는 순수 Python 이다(루트 ADR-0559). 필지 판 둘의 지번 집합을 메모리에 들기 때문에
+# (2026-11 실측 1,350만 필지, 약 5GB) 이 유닛이 아니라 계산 컨테이너의 한도 안에서 돈다. 레이크하우스는 읽지도
+# 쓰지도 않는다: 발행기가 실행 폴더에 내보낸 파일만 읽고 계획 파일만 쓴다.
+pairing_rules() {
+  lakehouse_run_log "${run_log}"
+  FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
+  FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
+  lakehouse_spark_run foundation-platform-compute \
+    spark python3 -E -s /workspace/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py "$@" >> "${run_log}" 2>&1
+}
+
 # The release's publisher, for the sourced legal-dong load (root ADR-0263); output goes to the run log.
 publisher() {
   "${PUBLISHER_BIN}" "$@"

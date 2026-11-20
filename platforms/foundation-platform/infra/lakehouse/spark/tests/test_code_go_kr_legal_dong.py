@@ -1076,16 +1076,17 @@ class StewardOnlyRerunTest(unittest.TestCase):
         data = (cg.JibunEvidence({}, {}, "b->a"),)
 
         def append(batch):
+            # As `append-legal-dong-code-changes` appends: a load unit the registry holds is refused, never skipped.
             units = sorted({r["derivation_run_id"] for r in batch})
-            if not lakehouse_ingest.decide_whether_to_append({unit: 1 for unit in registry}, units):
-                return False
+            if batch:
+                self.assertTrue(lakehouse_ingest.decide_whether_to_append({unit: 1 for unit in registry}, units),
+                                f"the load unit {units} collided with an earlier run's: its rows would be dropped")
             registry.update(units)
             held.extend(batch)
-            return True
 
         day1 = NOW
         plan = pairs_job.plan_derivation(table, [], CONTRACT, CADASTRAL, pairs_job.pairing_run_id(self.KEY, day1), day1, *data)
-        pairs_job.append_new_rows(append, plan["fresh_changes"], "change")
+        append(plan["fresh_changes"])
         self.assertEqual({i["old_code"] for i in plan["review"]}, {"9811000000", "9811010100", "9811010200"})
 
         day2 = NOW.replace(day=3)
@@ -1094,19 +1095,16 @@ class StewardOnlyRerunTest(unittest.TestCase):
         before = pairs_job.plan_derivation(table, list(held), CONTRACT, CADASTRAL, pairs_job.pairing_run_id(self.KEY, day2), day2, *data)
         steward, verdicts = pairs_job.fold_steward_decisions(decision, before["review"], codes, day2)
         self.assertEqual(list(verdicts.values()), ["recorded"])
-        pairs_job.append_new_rows(append, steward, "steward")
+        append(steward)
         after = pairs_job.plan_derivation(table, list(held), CONTRACT, CADASTRAL, pairs_job.pairing_run_id(self.KEY, day2), day2, *data)
         unlocked = {(r["old_code"], r["new_code"]) for r in after["fresh_changes"]}
         self.assertEqual(unlocked, {("9811010100", "9911010100"), ("9811010200", "9911010200")})
-        self.assertTrue(pairs_job.append_new_rows(append, after["fresh_changes"], "change"))
+        append(after["fresh_changes"])
         self.assertTrue(unlocked <= {(r["old_code"], r["new_code"]) for r in held})
         self.assertEqual(pairs_job.plan_derivation(table, list(held), CONTRACT, CADASTRAL, "run3", day2, *data)["review"], [])
 
-    def test_rows_the_registry_claims_are_refused_not_dropped(self):
-        # 심은 위반: 적재 단위가 이미 등록된 행을 새 행이라며 넘긴다(예전의 표 키 하나짜리 실행 id).
-        with self.assertRaisesRegex(ValueError, "dropped"):
-            pairs_job.append_new_rows(lambda batch: False, [{"derivation_run_id": "code-go-kr-pairing:k"}], "change")
-        self.assertFalse(pairs_job.append_new_rows(lambda batch: False, [], "change"))
+    def test_each_run_loads_under_its_own_unit(self):
+        # 예전의 표 키 하나짜리 실행 id 는 같은 표로 다시 돈 실행의 행을 이미 적재된 단위로 만들었다.
         self.assertNotEqual(pairs_job.pairing_run_id(self.KEY, NOW), pairs_job.pairing_run_id(self.KEY, NOW.replace(day=3)))
 
 

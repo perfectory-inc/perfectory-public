@@ -93,6 +93,22 @@ ${alerts}"
   fi
 }
 
+# 짝 맞추기 규칙이 읽을 레이크하우스 행을 ${work}/legal-dong/pairing 에 쓴다(루트 ADR-0559): $1 스냅숏 날짜,
+# $2 그 Bronze 키, $3 공식 이력을 읽으면 1. 발행기 안의 DuckDB 가 표를 읽고, 규칙(Spark 없는 Python)이 스냅숏에서
+# 어느 판의 어느 동 필지가 필요한지 적으면 그만큼만 다시 내보낸다. 필지 파일은 GB 단위다: 부른 쪽이 지운다.
+legal_dong_pairing_inputs() {
+  local pair="${work}/legal-dong/pairing"
+  mkdir -p "${pair}"
+  chmod 0777 "${pair}" # 규칙은 계산 컨테이너(uid 185)에서 돌며 계획을 여기에 쓴다.
+  FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_DIR="${pair}" FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_PHASE=tables \
+  FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_SNAPSHOT_DATE="$1" FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_SOURCE_RECORD_ID="$2" \
+  FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_OFFICIAL_HISTORY="$3" \
+    publisher export-legal-dong-pairing-inputs >> "${run_log}" 2>&1 || return 1
+  python3 -E -s "${LEGAL_DONG_JOBS}/legal_dong_code_change_pairs.py" parcel-requests "${pair}" >> "${run_log}" 2>&1 || return 1
+  FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_DIR="${pair}" FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_PHASE=parcels \
+    publisher export-legal-dong-pairing-inputs >> "${run_log}" 2>&1
+}
+
 # Pairs one snapshot: $1 snapshot date, $2 its Bronze key.
 legal_dong_pair() {
   local snapshot_date="$1" table_key="$2" out="${work}/legal-dong" cout="${container_work}/legal-dong"
@@ -105,15 +121,25 @@ legal_dong_pair() {
     decisions+=(--steward-decisions "${cout}/steward")
   fi
   # The official history is read once the table holds rows: one of its handoffs was loaded here.
-  local official=()
+  local official=() official_history=0 pair="${out}/pairing" status=0
   if compgen -G "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded/*" >/dev/null; then
     official=(--official-history-table silver.parcel_number_change_history)
+    official_history=1
   fi
-  spark legal_dong_code_change_pairs.py --allow-non-smoke-write --snapshot-date "${snapshot_date}" \
-    --table-source-record-id "${table_key}" --jibun-evidence editions ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
-    --projection-output "${cout}/projection.json" --review-output "${cout}/steward-review.json" \
-    --review-handoff-output "${cout}/review-handoff.json" --steward-fold-summary-output "${cout}/steward-fold.json" \
-    --summary-output "${cout}/pairs-summary.json"
+  local snapshot=(--snapshot-date "${snapshot_date}" --table-source-record-id "${table_key}")
+  # 1. 발행기가 읽고, 2. 규칙이 계획하고(Spark 없음), 3. 발행기가 쌓고 표를 되읽고, 4. 규칙이 그 표로 출력을 쓴다.
+  { legal_dong_pairing_inputs "${snapshot_date}" "${table_key}" "${official_history}" \
+      && pairing_rules "${snapshot[@]}" --jibun-evidence editions ${official[@]+"${official[@]}"} \
+        ${decisions[@]+"${decisions[@]}"} --inputs "${cout}/pairing"; } || status=$?
+  rm -f "${pair}"/parcels-*.jsonl # 필지 파일은 그것을 읽는 규칙이 끝나면 남기지 않는다.
+  [ "${status}" = 0 ] || return "${status}"
+  FOUNDATION_PLATFORM_LEGAL_DONG_PAIRING_DIR="${pair}" \
+    publisher append-legal-dong-code-changes >> "${run_log}" 2>&1
+  python3 -E -s "${LEGAL_DONG_JOBS}/legal_dong_code_change_pairs.py" "${snapshot[@]}" --inputs "${pair}" --emit-appended \
+    --projection-output "${out}/projection.json" --review-output "${out}/steward-review.json" \
+    --review-handoff-output "${out}/review-handoff.json" --steward-fold-summary-output "${out}/steward-fold.json" \
+    --summary-output "${out}/pairs-summary.json" >> "${run_log}" 2>&1
+  rm -rf "${pair}"
   legal_dong_install "${out}/projection.json" "${LEGAL_DONG_STATE_ROOT}/sigungu-crosswalk.projection.json"
   legal_dong_install "${out}/steward-review.json" "${LEGAL_DONG_STATE_ROOT}/steward-review.json"
   legal_dong_report_supersessions "${out}/pairs-summary.json"

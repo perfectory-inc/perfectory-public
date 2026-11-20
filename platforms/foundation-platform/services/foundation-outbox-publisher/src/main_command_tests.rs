@@ -233,6 +233,25 @@ fn parcel_registry_commands_are_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn legal_dong_pairing_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-legal-dong-pairing-inputs"
+        ])?,
+        Command::ExportLegalDongPairingInputs
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "append-legal-dong-code-changes"
+        ])?,
+        Command::AppendLegalDongCodeChanges
+    );
+    Ok(())
+}
+
+#[test]
 fn load_parcel_number_change_history_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

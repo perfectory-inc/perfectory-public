@@ -6,7 +6,7 @@
 # 않는다. 결과는 실행 폴더의 세 파일이다: summary.json(쌓였을 짝 `would_append`, 증거별 개수), steward-review.json,
 # projection.json. 스튜어드 결정 대기 파일은 읽기만 하고 옮기지 않는다.
 #
-# lineage_stewardship 과 같은 spark 자리를 쓰므로 그 단위가 도는 동안에는 돌리지 않는다. 런북:
+# 규칙은 lineage_stewardship 과 같은 계산 컨테이너에서 돌므로 그 단위가 도는 동안에는 돌리지 않는다. 런북:
 # docs/runbooks/legal-dong-code-changes.md 의 "운영 데이터로 미리 보기".
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
@@ -20,7 +20,7 @@ run_id="validate-$(date -u +%Y%m%dT%H%M%SZ)"
 work="${LAKEHOUSE_STATE_ROOT}/runs/${run_id}"
 container_work="/workspace/target/lakehouse/runs/${run_id}"
 mkdir -p "${work}"
-chmod 0777 "${work}" # Spark 컨테이너는 uid 185 로 쓴다.
+chmod 0777 "${work}" # 규칙은 계산 컨테이너(uid 185)에서 돌며 여기에 쓴다.
 
 marker="${LEGAL_DONG_STATE_ROOT}/latest-legal-dong-snapshot.json"
 read -r snapshot_date table_key < <(python3 -I -c 'import json, sys
@@ -29,8 +29,10 @@ print(m["snapshot_date"], m["source_record_id"])' "${marker}")
 
 # The official history, as the scheduled run reads it: once one of its handoffs was loaded (root ADR-0150).
 official=()
+official_history=0
 if compgen -G "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded/*" >/dev/null; then
   official=(--official-history-table silver.parcel_number_change_history)
+  official_history=1
 fi
 
 decisions=()
@@ -41,18 +43,28 @@ if compgen -G "${LEGAL_DONG_STATE_ROOT}/steward/pending/*.json" >/dev/null; then
   decisions=(--steward-decisions "${container_work}/steward")
 fi
 
-lakehouse_run_log "${work}/run.log"
-FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
-FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-lakehouse_spark_run foundation-platform-compute \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark spark-submit --master 'local[4,8]' --driver-memory 4g --jars "${SPARK_RELEASE_JARS}" \
-  /workspace/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py --validate-only \
-  --snapshot-date "${snapshot_date}" --table-source-record-id "${table_key}" --jibun-evidence editions \
-  ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
-  --projection-output "${container_work}/projection.json" --review-output "${container_work}/steward-review.json" \
-  --summary-output "${container_work}/summary.json" > "${work}/run.log" 2>&1
+# 정기 실행과 같은 읽기와 같은 규칙이다(legal-dong-code-load.sh 의 함수 그대로): 쌓기만 하지 않는다.
+run_log="${work}/run.log"
+publisher() {
+  "${PUBLISHER_BIN}" "$@"
+}
+pairing_rules() {
+  lakehouse_run_log "${run_log}"
+  FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
+  FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
+  lakehouse_spark_run foundation-platform-compute \
+    spark python3 -E -s /workspace/infra/lakehouse/spark/jobs/legal_dong_code_change_pairs.py "$@" >> "${run_log}" 2>&1
+}
+source "$(dirname "${BASH_SOURCE[0]}")/legal-dong-code-load.sh"
+status=0
+{ legal_dong_pairing_inputs "${snapshot_date}" "${table_key}" "${official_history}" \
+    && pairing_rules --validate-only --snapshot-date "${snapshot_date}" --table-source-record-id "${table_key}" \
+      --jibun-evidence editions ${official[@]+"${official[@]}"} ${decisions[@]+"${decisions[@]}"} \
+      --inputs "${container_work}/legal-dong/pairing" \
+      --projection-output "${container_work}/projection.json" --review-output "${container_work}/steward-review.json" \
+      --summary-output "${container_work}/summary.json"; } || status=$?
+rm -rf "${work}/legal-dong/pairing" # 필지 파일은 GB 단위다.
+[ "${status}" = 0 ] || { tail -n 20 "${run_log}" >&2; exit "${status}"; }
 
 printf 'legal-dong-code validate-only: %s\n' "${work}"
 python3 -I - "${work}/summary.json" <<'PY'
