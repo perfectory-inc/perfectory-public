@@ -616,8 +616,11 @@ class WithAirflow(unittest.TestCase):
 
         module = load_dag_file({})
         dags = {value.dag_id: value for value in vars(module).values() if isinstance(value, DAG)}
-        specs = {spec.dag_id: spec for spec in job_specs.load_specs()}
+        everything = job_specs.load_specs()
+        # A job Dagster decides has no DAG (root ADR-0565; the Gold group since ADR-0583).
+        specs = {spec.dag_id: spec for spec in everything if spec.dagster_stage != "dagster"}
         self.assertEqual(set(dags), set(specs))
+        self.assertLess(len(specs), len(everything))
         for dag_id, dag in dags.items():
             with self.subTest(dag_id):
                 spec = specs[dag_id]
