@@ -152,6 +152,10 @@ pub mod parcel_matching_gate_stage;
 /// ADR-0311, ADR-0559).
 pub mod silver_changes;
 
+/// Stages 법원경매정보 Bronze objects as Silver rows, the roles that left Spark (root ADR-0540,
+/// ADR-0575).
+pub mod courtauction_silver_stage;
+
 /// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
 pub mod place_identity_stage;
 

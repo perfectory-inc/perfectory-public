@@ -1,0 +1,2 @@
+B999999|20990130000001|1|합성-01|2099-01-12|cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc|pdf|2048|2099-01-14 00:00:00.000000|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|4|20990102T030405Z
+B999999|20990130000002|1|합성-01|2099-01-12|bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|pdf|NULL|2099-01-02 03:04:05.000000|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z

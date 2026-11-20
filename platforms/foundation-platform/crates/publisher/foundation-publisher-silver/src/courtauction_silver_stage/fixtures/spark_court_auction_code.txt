@@ -1,0 +1,3 @@
+PGJ|LJH|AUCTN_DXDY_RSLT_CD|002|합성유찰|NULL|NULL|NULL|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+PGJ|PGJ|AUCTN_DXDY_RSLT_CD|001|합성매각2|NULL|A,B|NULL|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|4|20990102T030405Z
+PGJ|PGJ|BID_DVS_CD|5|True|NULL|NULL|1.5|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
