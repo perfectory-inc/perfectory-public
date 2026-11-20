@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "audit_import",
+      "dagster_group": "operations",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
@@ -44,6 +45,7 @@
     },
     {
       "id": "audit_digest",
+      "dagster_group": "operations",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
