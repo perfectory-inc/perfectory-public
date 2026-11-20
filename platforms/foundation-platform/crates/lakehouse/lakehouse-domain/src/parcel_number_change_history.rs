@@ -8,9 +8,8 @@
 //! the file repeats exactly is kept once, at its first line, with `duplicate_count`.
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseEditionRead, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
-    LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS: &[LakehouseColumn] = &[
@@ -105,11 +104,11 @@ pub const SILVER_PARCEL_NUMBER_CHANGE_HISTORY: LakehouseTableContract = Lakehous
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    row_versions: LakehouseRowVersions::Editions {
-        edition_column: "source_snapshot_id",
-        newest_first: &["provider_updated_on"],
-        per: &["source_region_code"],
-        read: LakehouseEditionRead::Newest,
+    // 사건이다. 판이 아니다. 적재는 표가 갖지 않은 사건의 행만 붙이므로(루트 ADR-0318 §8) 한 시도의 가장 새
+    // 파일이 붙인 행은 그 달에 새로 생긴 몇 건뿐이다: "시도마다 가장 새 판"으로 읽으면 그 몇 건만 남는다
+    // (2026-11-15 적재 뒤 7개 시도, 짝 맞추기 창의 연결 3,702 건 중 1,669 건이 가려졌다). 모든 행이 현재다.
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: Some("vworld_parcel_number_change_history.official_links"),
     },
     columns: SILVER_PARCEL_NUMBER_CHANGE_HISTORY_COLUMNS,
     partition_spec: &[],

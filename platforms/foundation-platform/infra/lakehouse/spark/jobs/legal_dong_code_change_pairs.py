@@ -627,10 +627,10 @@ def _official_links(spark, F, table: str, floor: str) -> list[tuple[str, str, st
     """The window's links, by the loader's one rule (`pnch.official_links`); the filter here only
     keeps the rest of the country's history out of the driver.
 
-    Each 시도 file is a whole history, so the current rows are each 시도's newest edition
-    (`Editions per source_region_code`, root ADR-0286 §6); `distinct` folds the provider's repeated
-    lines within one edition, no longer the editions' overlap (2026-11-04: the 19 newest editions of
-    34 hold every one of the 590,490 distinct events).
+    Every row of the table is read (root ADR-0318 §8: a load appends only the events the table does
+    not hold, so a 시도's newest file holds that month's few; read as "each 시도's newest edition" the
+    window's links fell from 3,702 to 2,033 after the 2026-11-15 load). `distinct` folds the repeats:
+    the provider's repeated lines, and the files of 2026-10 that were appended whole.
     """
 
     from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415

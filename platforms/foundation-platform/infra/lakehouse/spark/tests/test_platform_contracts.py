@@ -579,16 +579,16 @@ class RowVersionsTest(unittest.TestCase):
                 self.assertIn(function, {node.name for node in tree.body if isinstance(node, ast.FunctionDef)})
 
     def test_a_contract_without_row_versions_or_naming_a_foreign_column_is_refused(self) -> None:
-        contract = dict(load_lakehouse_contract("silver.parcel_number_change_history"))
+        contract = dict(load_lakehouse_contract("silver.registered_factory"))
         missing = {key: value for key, value in contract.items() if key != "row_versions"}
         with self.assertRaisesRegex(ValueError, "must declare row_versions"):
             row_versions(missing)
         for broken in (
-            {"kind": "editions", "edition_column": "no_such_column", "newest_first": ["provider_updated_on"],
+            {"kind": "editions", "edition_column": "no_such_column", "newest_first": ["ingested_at_utc"],
              "per": [], "read": "newest"},
-            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["provider_updated_on"],
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["ingested_at_utc"],
              "per": ["no_such_column"], "read": "newest"},
-            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["provider_updated_on"],
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["ingested_at_utc"],
              "per": [], "read": "oldest"},
             {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": [], "per": [], "read": "newest"},
             {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["no_such_column"], "per": [],
