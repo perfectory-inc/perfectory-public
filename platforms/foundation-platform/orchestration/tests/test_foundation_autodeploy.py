@@ -1453,7 +1453,8 @@ class TheWholeDeploy(unittest.TestCase):
         result = self.deploy()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.released(), ["datahub", "trino"])
-        self.assertNotIn("dags pause", (self.root / "airflow.log").read_text())
+        log = self.root / "airflow.log"
+        self.assertNotIn("dags pause", log.read_text() if log.exists() else "", "nothing is paused again")
 
     def test_a_dag_that_cannot_be_unpaused_fails_the_deploy_loudly(self):
         result = self.deploy(FIXTURE_AIRFLOW_FAILS="unpause foundation_outbox_publish")
