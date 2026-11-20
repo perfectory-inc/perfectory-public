@@ -222,6 +222,10 @@
           "mode": "2770"
         },
         {
+          "path": "/var/lib/foundation-platform/silver-refresh-duckdb",
+          "mode": "0755"
+        },
+        {
           "path": "/data/foundation-platform/tile-bake",
           "mode": "0755"
         },

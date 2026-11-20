@@ -29,7 +29,7 @@ use lakehouse_domain::{
 use lakehouse_infrastructure::IcebergRestCatalog;
 use sha2::{Digest, Sha256};
 
-use super::{execute, lane::LaneContract};
+use super::lane::LaneContract;
 use crate::{
     data_go_kr_file_data_stage::{epoch, literal},
     duckdb_parquet_stage::{
@@ -89,9 +89,36 @@ fn seconds(started: Instant) -> f64 {
     (started.elapsed().as_secs_f64() * 10.0).round() / 10.0
 }
 
-/// The lane's directory of the release copy: beside `work`, which a run empties at its start.
-fn copy_directory(runtime: &execute::Runtime) -> PathBuf {
-    runtime.lane_root.join("release-copy")
+/// Where a lane loaded by `DuckDB` keeps its release copy, its spill and its staged files: the SSD
+/// (`silver-refresh.sh` sets it), not the lane's state on the data disk, which is a slow disk.
+const DUCKDB_ROOT_ENV: &str = "FOUNDATION_PLATFORM_SILVER_REFRESH_DUCKDB_ROOT";
+
+/// This lane's directory under [`DUCKDB_ROOT_ENV`].
+fn duckdb_root(contract: &LaneContract) -> anyhow::Result<PathBuf> {
+    let root = std::env::var(DUCKDB_ROOT_ENV)
+        .ok()
+        .filter(|root| !root.trim().is_empty())
+        .with_context(|| format!("{DUCKDB_ROOT_ENV} names where a DuckDB lane works"))?;
+    Ok(PathBuf::from(root).join(contract.lane.id()))
+}
+
+/// Removes the stage directories an earlier run left when it was killed (a stage removes its own
+/// when it ends): gigabytes of spill nothing reads again.
+fn remove_dead_stages(parent: &Path) -> anyhow::Result<()> {
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return Ok(());
+    };
+    for entry in entries {
+        let path = entry?.path();
+        let dead = path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with(".duckdb-stage-"));
+        if dead && path.is_dir() {
+            std::fs::remove_dir_all(&path)
+                .with_context(|| format!("cannot remove {}", path.display()))?;
+        }
+    }
+    Ok(())
 }
 
 /// The copy of `release` in `directory`, made now unless a whole copy of this release is there
@@ -209,7 +236,6 @@ fn staged_name(table: &str, identity: &str, bucket: usize) -> String {
 /// (`HeadMoved`: the next run compares again from the kept copy), or `DuckDB` or the catalog fails.
 pub(in crate::remote_lakehouse_job) async fn append_release(
     contract: &LaneContract,
-    runtime: &execute::Runtime,
     catalog: &IcebergRestCatalog,
     release: &Release<'_>,
 ) -> anyhow::Result<ReleaseAppend> {
@@ -285,13 +311,13 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
         .unwrap_or_default();
     let shape = committer.table_shape(table).await?;
 
+    let root = duckdb_root(contract)?;
+    let (stages, copies) = (root.join("stage"), root.join("release-copy"));
+    remove_dead_stages(&stages)?;
     // The staged files live as long as the stage: it is kept until the append is done.
-    let stage = DuckDbParquetStage::open_reading_lakehouse(
-        &runtime.work().join("duckdb"),
-        &LakehouseRead::from_env()?,
-    )?;
+    let stage = DuckDbParquetStage::open_reading_lakehouse(&stages, &LakehouseRead::from_env()?)?;
     let started = Instant::now();
-    let (copy, rows) = release_copy(&stage, table_contract, release, &copy_directory(runtime))?;
+    let (copy, rows) = release_copy(&stage, table_contract, release, &copies)?;
     report.copy_seconds = seconds(started);
     let copied = release_relation(&copy)?;
     report.release_rows = check_release(
@@ -450,10 +476,9 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
         report.snapshot_id = Some(snapshot.snapshot_id);
     }
     // The release is in `main`: its copy is not needed again.
-    let directory = copy_directory(runtime);
-    if directory.exists() {
-        std::fs::remove_dir_all(&directory)
-            .with_context(|| format!("cannot remove {}", directory.display()))?;
+    if copies.exists() {
+        std::fs::remove_dir_all(&copies)
+            .with_context(|| format!("cannot remove {}", copies.display()))?;
     }
     Ok(report)
 }

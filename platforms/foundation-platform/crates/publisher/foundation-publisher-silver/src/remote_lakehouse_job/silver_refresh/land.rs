@@ -884,7 +884,6 @@ pub(in crate::remote_lakehouse_job) async fn load(
         let objects = release.object_keys();
         let appended = duckdb_release::append_release(
             contract,
-            runtime,
             catalog,
             &duckdb_release::Release {
                 identity: &identity,

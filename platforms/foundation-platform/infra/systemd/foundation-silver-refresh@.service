@@ -52,4 +52,4 @@ ProtectHome=true
 ProtectSystem=strict
 # The lanes' work on the data disk (silver-refresh.sh's state root; the release creates it). The
 # root disk is small.
-ReadWritePaths=/data/foundation-platform/silver-refresh
+ReadWritePaths=/data/foundation-platform/silver-refresh /var/lib/foundation-platform/silver-refresh-duckdb

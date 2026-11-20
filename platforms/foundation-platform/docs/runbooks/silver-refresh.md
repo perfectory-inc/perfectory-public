@@ -237,7 +237,7 @@ main 을 덮어쓰지 못한다. 비교 커밋은 요약에 `foundation.change-r
 | 단계 | 무엇 | 로그의 줄 |
 |---|---|---|
 | 내보내기 | 전과 같다 (R2 의 gzip JSONL 넘김) | `region=… exporting` |
-| 사본 | 넘김을 한 번 읽어 레인 상태 폴더의 `release-copy/release.parquet` 로 쓴다. 완료 표지 `release.json` 이 같은 판이면 다시 만들지 않는다 | `the release copy … is whole` |
+| 사본 | 넘김을 한 번 읽어 SSD 의 `/var/lib/foundation-platform/silver-refresh-duckdb/<레인>/release-copy/release.parquet` 로 쓴다(임시 파일과 준비 파일도 그 폴더 아래다. `/data` 는 느린 디스크다). 완료 표지 `release.json` 이 같은 판이면 다시 만들지 않는다 | `the release copy … is whole` |
 | 검사 | 필수 열의 null·빈 값, 판 식별자, 기대 행 수, 판의 순서. 실패하면 아무것도 커밋하지 않는다 | 실패의 문장 그대로 |
 | 비교 | `main` 의 한 스냅숏과 묶음(시도)마다 | `bucket "41": N changed keys and M removal markers` |
 | 커밋 | 한 번. 판의 객체·변경 기록·판 기록이 그 커밋에 함께 간다 | `silver-release-append {json}` |
@@ -246,7 +246,7 @@ main 을 덮어쓰지 못한다. 비교 커밋은 요약에 `foundation.change-r
 
 - **`main` 이 비교 중에 움직였다**(`… moved from snapshot … since its rows were computed: nothing was appended`): 그 run 은 실패로 끝나고 올린 파일은 지워진다. 다음 run 이 남아 있는 사본으로 다시 비교한다. 손댈 것이 없다.
 - **검사 실패**: 사본은 남는다. 원인은 내보내기나 원천이다. 고친 뒤 `release-copy/` 를 지우고 다시 돌린다(사본이 낡은 넘김의 것일 수 있다).
-- **Spark 로 되돌리기**: 계약의 `engine` 줄을 지우는 PR 이고, 그 PR 이 배포된 뒤 레인 상태 폴더의 `release-copy/` 를 지운다.
+- **Spark 로 되돌리기**: 계약의 `engine` 줄을 지우는 PR 이고, 그 PR 이 배포된 뒤 `/var/lib/foundation-platform/silver-refresh-duckdb/<레인>/` 을 지운다.
 
 ### 첫 감독 실행 (레인마다)
 
