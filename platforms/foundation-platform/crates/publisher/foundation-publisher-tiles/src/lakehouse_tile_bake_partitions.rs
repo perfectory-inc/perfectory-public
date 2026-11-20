@@ -228,6 +228,16 @@ pub(super) fn validate_budgets(contract: &super::BakeContract) -> anyhow::Result
             "{unit}'s partition_run_budget_seconds is positive and names a partitioned unit"
         );
     }
+    // Root ADR-0576: the join run's bound is later than the partition budget it follows.
+    for (unit, budget) in &contract.tile_join_run_budget_seconds {
+        anyhow::ensure!(
+            contract
+                .partition_run_budget_seconds
+                .get(unit)
+                .is_some_and(|partitions| budget > partitions),
+            "{unit}'s tile_join_run_budget_seconds is later than its partition_run_budget_seconds"
+        );
+    }
     Ok(())
 }
 
@@ -376,6 +386,7 @@ pub(super) async fn join_partitions(
     images: &super::ImageSet,
     work: &Path,
     archives: &[(String, PathBuf)],
+    bound: std::time::Duration,
 ) -> anyhow::Result<PathBuf> {
     let root = partition_root(config);
     let joined = joined_archive(&root, archives);
@@ -409,7 +420,7 @@ pub(super) async fn join_partitions(
         .context("docker run arguments end with the image")?;
     tile_join.extend(["--entrypoint".into(), "tile-join".into(), image]);
     tile_join.extend(tile_join_args(&prefixes));
-    super::docker(tile_join, config.tool_timeout, "tile-join").await?;
+    super::docker(tile_join, bound, "tile-join").await?;
     std::fs::remove_dir_all(&join)?;
     std::fs::create_dir_all(root.join("joined"))?;
     // Create-only: a named joined archive is never rewritten, and appears only once complete.
@@ -433,9 +444,9 @@ pub(super) async fn join_ahead(
     summary: &super::ServedSummary,
     work: &Path,
 ) -> anyhow::Result<bool> {
-    if config.partition_deadline.is_none() {
+    let (Some(_), Some(deadline)) = (config.partition_deadline, config.join_deadline) else {
         return Ok(false);
-    }
+    };
     let root = partition_root(config);
     let Some(next) = JoinNext::read(&root)? else {
         return Ok(false);
@@ -446,7 +457,10 @@ pub(super) async fn join_ahead(
     {
         return Ok(false);
     }
-    join_partitions(config, images, work, &next.archives).await?;
+    // The run does nothing else, so its tile-join may take what the unit's limit leaves (11-20: the
+    // one-tool bound stopped it at 3,600 s).
+    let bound = deadline.saturating_duration_since(std::time::Instant::now());
+    join_partitions(config, images, work, &next.archives, bound).await?;
     println!(
         "lakehouse-tile-bake-deferred unit={} gold_snapshot={} baked= remaining=gate,upload,promote",
         config.unit_key, summary.canonical_iceberg_snapshot_id
