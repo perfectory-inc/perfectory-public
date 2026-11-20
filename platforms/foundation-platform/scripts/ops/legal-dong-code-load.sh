@@ -154,10 +154,10 @@ load_parcel_number_change_handoffs() {
   for handoff in $(find "${pending}" -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null | sort); do
     name="$(basename "${handoff}")"
     cp -R "${handoff}" "${work}/parcel-number-change/${name}"
-    chmod -R a+rwX "${work}/parcel-number-change/${name}" # Spark 컨테이너(uid 185)가 요약을 쓴다.
-    spark vworld_parcel_number_change_history.py load --allow-non-smoke-write \
-      --handoff-dir "${container_work}/parcel-number-change/${name}" \
-      --summary-output "${container_work}/parcel-number-change/${name}/load-summary.json"
+    # 공식 이력은 발행기 안의 DuckDB 가 쌓는다(루트 ADR-0559): Spark 를 띄우지 않는다.
+    FOUNDATION_PLATFORM_PARCEL_NUMBER_CHANGE_HANDOFF_DIR="${work}/parcel-number-change/${name}" \
+    FOUNDATION_PLATFORM_PARCEL_NUMBER_CHANGE_SUMMARY_OUTPUT="${work}/parcel-number-change/${name}/load-summary.json" \
+      publisher load-parcel-number-change-history >> "${run_log}" 2>&1
     mv "${handoff}" "${PARCEL_NUMBER_CHANGE_STATE_ROOT}/loaded/${name}"
     parcel_number_change_loaded=$((parcel_number_change_loaded + 1))
     job_journal "${journal}" "parcel-number-change loaded handoff=${name} run=${run_id}"

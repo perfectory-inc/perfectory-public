@@ -283,7 +283,11 @@
         "wave": 5
       },
       "vworld_parcel_number_change_history": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1558,
+          "rows": 78,
+          "fingerprint": null
+        }
       }
     }
   }

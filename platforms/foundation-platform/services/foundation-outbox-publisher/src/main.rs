@@ -161,6 +161,7 @@ use foundation_publisher_tiles::tile_derivative_object_storage;
 mod audit_digest;
 mod audit_import;
 mod legal_dong_code_snapshot_load;
+mod parcel_number_change_history_load;
 mod parcel_registry_load;
 mod real_estate_broker_lookup_load;
 mod registered_factory_silver_load;
@@ -189,6 +190,7 @@ enum Command {
     LoadLegalDongCodeSnapshot,
     ProbeParcelRegistry,
     LoadParcelRegistry,
+    LoadParcelNumberChangeHistory,
     CollectRtMolitRealTransaction,
     CollectCourtauctionGoKr,
     CollectDataGoKrFileData,
@@ -396,6 +398,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadLegalDongCodeSnapshot => Box::pin(legal_dong_code_snapshot_load::run()),
         Command::ProbeParcelRegistry => Box::pin(parcel_registry_load::probe()),
         Command::LoadParcelRegistry => Box::pin(parcel_registry_load::run()),
+        Command::LoadParcelNumberChangeHistory => {
+            Box::pin(parcel_number_change_history_load::run())
+        }
         Command::CollectRtMolitRealTransaction => {
             Box::pin(rt_molit_real_transaction_collect::run())
         }
@@ -828,6 +833,7 @@ where
         Some("load-legal-dong-code-snapshot") => Ok(Command::LoadLegalDongCodeSnapshot),
         Some("probe-parcel-registry") => Ok(Command::ProbeParcelRegistry),
         Some("load-parcel-registry") => Ok(Command::LoadParcelRegistry),
+        Some("load-parcel-number-change-history") => Ok(Command::LoadParcelNumberChangeHistory),
         Some("collect-rt-molit-real-transaction") => Ok(Command::CollectRtMolitRealTransaction),
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
         Some("collect-data-go-kr-file-data") => Ok(Command::CollectDataGoKrFileData),

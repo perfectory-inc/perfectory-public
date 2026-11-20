@@ -46,8 +46,6 @@ SPARK = textwrap.dedent("""
                 "steward_pair": "9999910800", "steward_source": "steward:steward-a", "official_targets": ["9999910900"],
                 "kind": "dong_level", "changed_on": ["20990701", "20990702"]}}
         out("--summary-output").write_text(json.dumps(summary))
-    elif job == "vworld_parcel_number_change_history.py":
-        out("--summary-output").write_text("{}")
     else:
         sys.exit("unexpected job " + job)
 """)
@@ -72,6 +70,11 @@ PUBLISHER = textwrap.dedent("""
         assert pathlib.Path(os.environ[prefix + "INPUT"]).is_file(), os.environ[prefix + "INPUT"]
         pathlib.Path(os.environ[prefix + "LATEST_MARKER_OUTPUT"]).write_text(json.dumps(
             {"snapshot_date": os.environ[prefix + "DATE"], "source_record_id": os.environ[prefix + "SOURCE_RECORD_ID"]}))
+        pathlib.Path(os.environ[prefix + "SUMMARY_OUTPUT"]).write_text("{}")
+    elif sys.argv[1] == "load-parcel-number-change-history":
+        # The official history's load (DuckDB inside the publisher, root ADR-0559): it reads the handoff it is given.
+        prefix = "FOUNDATION_PLATFORM_PARCEL_NUMBER_CHANGE_"
+        assert (pathlib.Path(os.environ[prefix + "HANDOFF_DIR"]) / "handoff.json").is_file(), os.environ[prefix + "HANDOFF_DIR"]
         pathlib.Path(os.environ[prefix + "SUMMARY_OUTPUT"]).write_text("{}")
     elif sys.argv[1] == "load-lineage-review-items":
         json.loads(pathlib.Path(os.environ["FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT"]).read_text())
@@ -213,7 +216,8 @@ class PairingOwed(Harness):
         self.stage_legal_dong("table-20990701", "20990701")
         result = self.run_cycle()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.jobs(), ["vworld_parcel_number_change_history.py", "legal_dong_code_change_pairs.py"])
+        self.assertEqual(self.jobs(), ["legal_dong_code_change_pairs.py"])
+        self.assertIn("load-parcel-number-change-history", self.publisher(), "the official history is the publisher's load")
         self.assertIn("load-legal-dong-code-snapshot", self.publisher(), "the snapshot is the publisher's load")
         self.assertIsNone(self.marker())
         paid = json.loads((self.legal / "last-pairing.json").read_text())
@@ -264,7 +268,8 @@ class PairingOwed(Harness):
         self.stage_parcel_number_change("pnch-20990702T000000Z")
         result = self.run_cycle()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.jobs(), ["vworld_parcel_number_change_history.py"])
+        self.assertEqual(self.jobs(), [])
+        self.assertIn("load-parcel-number-change-history", self.publisher())
         self.assertEqual(self.marker()["owed_since_run"], "run1")
         self.assertIn("no legal-dong snapshot loaded yet", self.journal_lines()[-1])
 
