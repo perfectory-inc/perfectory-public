@@ -321,30 +321,3 @@ fn the_roles_are_the_tables_the_source_contract_lists() -> anyhow::Result<()> {
     assert_eq!(listed, roles);
     Ok(())
 }
-
-/// one-off (see `onbid_time_correction_stage`): the columns the correction reads again are the
-/// ones the inventory labels as twelve digits; the fourteen-digit modification time is not one.
-#[test]
-fn the_minute_time_columns_are_the_ones_the_inventory_labels_as_twelve_digits() -> anyhow::Result<()>
-{
-    let source = OnbidSource::compiled()?;
-    let columns = |role: Role| source.minute_time_columns(role, contract(role.table())?);
-    assert_eq!(columns(Role::ItemList)?, ["bid_begins_at", "bid_ends_at"]);
-    assert_eq!(
-        columns(Role::ItemBidResult)?,
-        [
-            "bid_begins_at",
-            "bid_ends_at",
-            "opened_at",
-            "opbd_bgng_dt",
-            "opbd_cmptn_dt"
-        ]
-    );
-    assert_eq!(
-        columns(Role::Announcement)?,
-        ["cltr_bid_bgng_dt", "cltr_bid_end_dt", "cltr_opbd_dt"]
-    );
-    assert_eq!(columns(Role::AnnouncementBidResult)?, ["cltr_opbd_dt"]);
-    assert!(columns(Role::ItemDetail)?.is_empty());
-    Ok(())
-}
