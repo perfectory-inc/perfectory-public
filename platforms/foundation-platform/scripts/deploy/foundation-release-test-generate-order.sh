@@ -20,7 +20,7 @@ rehearse_generate_order() {
   # The contract's own groups, owned here by the rehearsal's user (the host's are root's).
   order_user="$(id -un)"
   order_group="$(id -gn)"
-  python3 - "${order_root}/opt/release" "${order_host}" "${order_user}" "${order_group}" <<'PY'
+  python3 -I -B - "${order_root}/opt/release" "${order_host}" "${order_user}" "${order_group}" <<'PY'
 import json, pathlib, sys
 area, root, user, group_name = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3], sys.argv[4]
 path = area / "config/runtime-secrets.contract.json"
@@ -97,7 +97,7 @@ RUN
   [[ -s "${order_host}/compose-calls.txt" ]] || { printf 'migrate made no compose call\n' >&2; exit 1; }
   printf 'migrate-generates-host-secrets-before-compose=pass\n'
   # The order as it was (generate only after the first compose call): the same host must stop.
-  python3 - "${order_host}" <<'PY'
+  python3 -I -B - "${order_host}" <<'PY'
 import pathlib, sys
 root = pathlib.Path(sys.argv[1])
 for line in (root / "generated.txt").read_text(encoding="utf-8").splitlines():
