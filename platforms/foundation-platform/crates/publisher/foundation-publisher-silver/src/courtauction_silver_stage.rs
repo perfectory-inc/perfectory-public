@@ -22,6 +22,8 @@ use crate::duckdb_parquet_stage::{DuckDbParquetStage, PYTHON_VALUES_SQL};
 use crate::onbid_silver_stage::{snapshot_id, PLAN_SCHEMA};
 use crate::silver_changes::{self, content_columns, table_key};
 
+pub mod names;
+
 const SOURCE_CONTRACT: &str =
     include_str!("../../../../infra/lakehouse/contracts/courtauction-go-kr.contract.json");
 const VALUES_SQL: &str = include_str!("courtauction_silver_stage/values.sql");
@@ -200,6 +202,14 @@ impl CourtAuctionSource {
             "{SLUG_PREFIX}{}",
             self.field(role, "dataset_slug")?
         ))
+    }
+
+    /// The contract's `personal_names`, compiled.
+    ///
+    /// # Errors
+    /// Refuses rules that are not the contract's shape.
+    pub fn name_mask(&self) -> anyhow::Result<names::NameMask> {
+        names::NameMask::new(&self.contract["personal_names"])
     }
 
     /// The readers every object's SQL calls: run once on the stage.
