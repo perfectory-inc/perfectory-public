@@ -85,15 +85,34 @@ owed = re.compile(r'^foundation_asset_owed\{asset="([^"]+)",job="([^"]+)"\} 1$')
 print(" ".join(sorted(found[1] for found in map(owed.match, lines) if found and found[2] in publish)))
 PY
 )" || { log "cannot read what the asset reconciler owes; nothing started"; exit 70; }
-if [[ -n "${owed}" ]]; then
-  log "a served lane's refresh is owed (${owed}); no first publish starts before it"
-  exit 0
-fi
 
 mapfile -t pending < <("${ops}/by-pnu-lane-cutover.sh" lanes --pending)
 if ((${#pending[@]} == 0)); then
   log "every lane is cut over; nothing to do"
   exit 0
+fi
+
+# The hold's reason is the one rebuild lock a cut-over's Gold step takes. A lane whose Gold is a table of
+# appended row versions its own job builds (foundation-gold-versions@<lane>, the publisher's DuckDB, root
+# ADR-0564) takes no rebuild lock in its gold step, so an owed refresh does not hold it (root ADR-0595):
+# 2026-11-19 12:12Z to 11-20 06:00Z parcel-nearby's Gold was committed and its first publish waited
+# behind the real-transaction bake, which had failed and stayed owed, with no alarm on the hold.
+if [[ -n "${owed}" ]]; then
+  mapfile -t free < <(python3 -I - "${release_root}/orchestration/jobs.v1.json" "${pending[@]}" <<'PY'
+import json, sys
+jobs, *lanes = sys.argv[1:]
+own = {job.get("systemd_service") for job in json.load(open(jobs, encoding="utf-8"))["jobs"]}
+for lane in lanes:
+    if f"foundation-gold-versions@{lane}.service" in own:
+        print(lane)
+PY
+  ) || { log "cannot read which lanes build their own Gold; nothing started"; exit 70; }
+  if ((${#free[@]} == 0)); then
+    log "a served lane's refresh is owed (${owed}); no first publish starts before it"
+    exit 0
+  fi
+  log "a served lane's refresh is owed (${owed}); only a lane whose Gold its own versions job builds may start: ${free[*]}"
+  pending=("${free[@]}")
 fi
 
 # The lane to start and its generation, or nothing while every pending lane waits out its backoff.

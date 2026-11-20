@@ -120,6 +120,29 @@ class AutoPromotion(unittest.TestCase):
         os.utime(metrics, (NIGHT - 1801, NIGHT - 1801))
         self.assertEqual(len(self.run_controller(now=NIGHT + 3600 * 25)[1]), 1, "a silent reconciler holds nothing")
 
+    def test_2026_11_19_a_lane_whose_gold_its_own_versions_job_builds_is_not_held_by_an_owed_refresh(self):
+        # Root ADR-0595: parcel-nearby's Gold (foundation-gold-versions@parcel-nearby, DuckDB) was committed
+        # 11-19 15:51Z; its first publish waited behind the failed, owed real-transaction bake into 11-20.
+        metrics = self.root / "asset-reconcile.prom"
+        self.env["FOUNDATION_AUTO_PROMOTE_ASSET_METRICS"] = str(metrics)
+        metrics.write_text('foundation_asset_owed{asset="perfectory://parcel-real-transaction-by-pnu-section-packs",'
+                           'job="by_pnu_parcel_real_transaction_bake"} 1\n')
+        os.utime(metrics, (NIGHT, NIGHT))
+        jobs = json.loads((self.release / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))
+        own = {job.get("systemd_service") for job in jobs["jobs"]}
+        self.assertIn("foundation-gold-versions@parcel-nearby.service", own)
+        self.assertNotIn("foundation-gold-versions@parcel-ownership.service", own)
+        self.pending("parcel-ownership", "parcel-nearby")
+        result, started = self.run_controller()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(started, ["parcel-nearby cutover 1 --auto"])
+        self.assertIn("only a lane whose Gold its own versions job builds may start: parcel-nearby", result.stdout)
+        # A lane whose Gold step takes the rebuild lock is still held.
+        self.pending("parcel-ownership", "parcel-regulation-zones")
+        result, started = self.run_controller()
+        self.assertEqual((result.returncode, started), (0, []), result.stderr)
+        self.assertIn("no first publish starts before it", result.stdout)
+
     def test_a_lane_that_failed_is_tried_again_after_a_doubling_backoff_and_the_next_lane_goes_first(self):
         self.assertEqual(self.run_controller()[1], ["parcel-ownership cutover 1 --auto"])
         # A quarter hour later the ownership run failed (11-05 02:42Z: R2 `service error` in latency):

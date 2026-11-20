@@ -25,8 +25,8 @@ use foundation_publisher_silver::{
     duckdb_extensions,
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
     parcel_nearby_stage::{
-        build_sido, changed_sidos, code_version, inputs, load_inputs, whole_table_inputs,
-        NearbyPins, Source, PARCEL_SOURCE,
+        build_sido, changed_sidos, code_version, inputs, load_inputs, parcels_outside_cells,
+        whole_table_inputs, NearbyPins, Source, PARCEL_SOURCE, STORE_H3_RING, STORE_SOURCE,
     },
     process_memory, vworld_parcel_source_contract,
 };
@@ -37,8 +37,8 @@ use serde_json::{json, Value};
 use crate::{
     gold_versions_commit::{
         self as versions, Commit, CODE_VERSION_PROPERTY, CURRENT_RECORDS_PROPERTY,
-        FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, SERVED_EDITION_PROPERTY,
-        SOURCE_SNAPSHOTS_PROPERTY, VERSION_SEQ_PROPERTY,
+        FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, RECORDED_EXPLANATION_PROPERTY,
+        SERVED_EDITION_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY, VERSION_SEQ_PROPERTY,
     },
     public_data_control_support::required_env_value,
 };
@@ -55,6 +55,8 @@ const REBUILD_CONTRACT: &str =
 /// Above this share of the current rows changed in one commit the run stops, unless the code or
 /// the served edition moved, which explains a change of any size (root ADR-0346, ADR-0564 §3-4).
 const MAX_CHANGED_KEY_FRACTION: f64 = 0.5;
+/// The document field a store-only commit may change, and nothing else (root ADR-0596).
+const STORE_COUNT_FIELD: &str = "commercial_store_count";
 /// The share of the memory left that the buffer manager takes; the rest is `DuckDB`'s own
 /// structures and the commit's uploads (W81b measured a 5.01 GiB peak at a 5 GB limit).
 const MEMORY_SHARE: (u64, u64) = (3, 5);
@@ -123,6 +125,45 @@ fn write_summary(path: &str, summary: &Value) -> anyhow::Result<()> {
 
 /// Builds and appends the nearby Gold's changed keys.
 #[allow(clippy::too_many_lines)]
+/// Why a commit over [`MAX_CHANGED_KEY_FRACTION`] whose code and edition stayed is still the
+/// stores' doing, or `None` (root ADR-0596). It is when only the stores moved, no key came or went,
+/// every changed row differs from the head's only in [`STORE_COUNT_FIELD`], and every changed parcel
+/// lies in `store_cells` (within [`STORE_H3_RING`] rings of a cell a store left or entered). Reads
+/// `appended` and `current_rows` as [`versions::diff`] leaves them.
+pub(crate) fn store_only(
+    connection: &foundation_publisher_silver::duckdb::Connection,
+    moved: &BTreeSet<String>,
+    diff: &versions::Diff,
+    store_cells: &BTreeSet<u64>,
+) -> anyhow::Result<Option<String>> {
+    if moved.len() != 1 || !moved.contains(STORE_SOURCE) || diff.added != 0 || diff.removed != 0 {
+        return Ok(None);
+    }
+    let otherwise: i64 = connection.query_row(
+        &format!(
+            "SELECT count(*) FROM appended a JOIN current_rows c USING (pnu) WHERE a.change = 'changed'              AND (json_merge_patch(a.nearby_json, '{{\"{STORE_COUNT_FIELD}\": null}}')::VARCHAR                     IS DISTINCT FROM json_merge_patch(c.nearby_json, '{{\"{STORE_COUNT_FIELD}\": null}}')::VARCHAR                   OR a.place_id IS DISTINCT FROM c.place_id OR a.attached_via IS DISTINCT FROM c.attached_via)"
+        ),
+        [],
+        |row| row.get(0),
+    )?;
+    if otherwise != 0 {
+        return Ok(None);
+    }
+    let outside = parcels_outside_cells(
+        connection,
+        store_cells,
+        "SELECT pnu FROM appended WHERE change = 'changed'",
+    )?;
+    if outside != 0 {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "store-only: {} changed keys, each differing from the head only in {STORE_COUNT_FIELD},          every one within {STORE_H3_RING} rings of the {} cells a store of {STORE_SOURCE} left or entered",
+        diff.changed,
+        store_cells.len()
+    )))
+}
+
 pub(crate) async fn run() -> anyhow::Result<()> {
     let started = Instant::now();
     let summary_path = required_env_value(SUMMARY_ENV)?;
@@ -205,6 +246,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         started.elapsed().as_secs_f64(),
         process_memory::cgroup_peak_bytes()
     );
+    let mut store_cells = BTreeSet::new();
     let sidos: BTreeSet<String> = if every_sido {
         read.parcels_by_sido.keys().cloned().collect()
     } else {
@@ -214,7 +256,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             catalog: LAKEHOUSE_CATALOG,
             pins: &old_pins,
         };
-        changed_sidos(connection, &old, &source, &moved, &edition)?
+        let changed = changed_sidos(connection, &old, &source, &moved, &edition)?;
+        store_cells = changed.store_cells;
+        changed
+            .sidos
             .into_iter()
             .filter(|sido| read.parcels_by_sido.contains_key(sido))
             .collect()
@@ -280,6 +325,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     };
     let diff = versions::diff(connection, &commit, &range)?;
     let (fingerprint, current_records) = versions::after(connection, &commit, &diff)?;
+    let mut recorded_explanation = None;
     if let Some(base) = &base {
         let floor = (1.0 - max_row_loss_fraction()?) * base.current_records as f64;
         if (current_records as f64) < floor {
@@ -292,9 +338,16 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         }
         let fraction = diff.keys() as f64 / (base.current_records.max(1)) as f64;
         if fraction > MAX_CHANGED_KEY_FRACTION && !explained {
+            recorded_explanation = store_only(connection, &moved, &diff, &store_cells)?;
+        }
+        if let Some(why) = &recorded_explanation {
+            println!(
+                "gold-versions {TABLE} {fraction:.3} of its current rows changed, explained: {why}"
+            );
+        } else if fraction > MAX_CHANGED_KEY_FRACTION && !explained {
             bail!(
                 "{} of {TABLE}'s {} current rows changed ({fraction:.3}), over {MAX_CHANGED_KEY_FRACTION} \
-                 with neither the code nor the served edition moved: nothing was appended (root ADR-0564 §3-4)",
+                 with neither the code nor the served edition moved and no store-only record: nothing was appended (root ADR-0564 §3-4, ADR-0596)",
                 diff.keys(),
                 base.current_records
             );
@@ -305,7 +358,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let run = versions::run_id(TABLE, &pins, &code, &edition);
     let shape = committer.table_shape(TABLE).await?;
     let files = versions::stage(&stage, &shape, &run, "pnu")?;
-    let summary = BTreeMap::from([
+    let mut summary = BTreeMap::from([
         (VERSION_SEQ_PROPERTY.to_owned(), version_seq.to_string()),
         (
             CURRENT_RECORDS_PROPERTY.to_owned(),
@@ -323,6 +376,9 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         (CODE_VERSION_PROPERTY.to_owned(), code.clone()),
         (SERVED_EDITION_PROPERTY.to_owned(), edition.clone()),
     ]);
+    if let Some(why) = &recorded_explanation {
+        summary.insert(RECORDED_EXPLANATION_PROPERTY.to_owned(), why.clone());
+    }
     let snapshot = versions::append(&committer, &catalog, &commit, &files, &run, summary).await?;
     drop(stage);
     let tags = versions::pin(&catalog, TABLE, snapshot, &pins).await?;
@@ -332,6 +388,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         "parent_snapshot_id": head, "version_seq": version_seq, "run": run,
         "pins": pins, "moved": moved, "served_edition": edition, "code_version": code,
         "every_sido": every_sido, "sidos": sidos, "seconds_by_sido": seconds_by_sido,
+        "recorded_explanation": recorded_explanation,
         "inputs": read, "diff": diff, "current_records": current_records,
         "content_fingerprint": versions::fingerprint_text(fingerprint),
         "files": files.len(), "tags": tags, "duckdb_memory_limit_bytes": memory_limit,
@@ -350,4 +407,92 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use foundation_publisher_silver::{duckdb::Connection, parcel_nearby_stage::store_cell};
+
+    use super::*;
+
+    const HEAD: &str = r#"{"airport":{"name":"A","distance_m":9000},"commercial_store_count":3}"#;
+
+    /// The head's row and the build's row of one parcel at (37.5, 127.0), as `versions::diff` leaves
+    /// them, for a build that only moved the stores.
+    fn tables(built: &str, place_id: &str) -> anyhow::Result<Connection> {
+        let connection = Connection::open_in_memory()?;
+        connection.execute_batch(&format!(
+            "CREATE TABLE parcels AS SELECT '9999900000100000000' AS pnu, 37.5::DOUBLE AS lat, 127.0::DOUBLE AS lon;              CREATE TABLE current_rows AS SELECT '9999900000100000000' AS pnu, '{HEAD}' AS nearby_json,                NULL::VARCHAR AS attached_via, 'P1' AS place_id;              CREATE TABLE appended AS SELECT '9999900000100000000' AS pnu, '{built}' AS nearby_json,                NULL::VARCHAR AS attached_via, '{place_id}' AS place_id, 'changed' AS change;"
+        ))?;
+        Ok(connection)
+    }
+
+    fn stores_only() -> BTreeSet<String> {
+        BTreeSet::from([STORE_SOURCE.to_owned()])
+    }
+
+    fn changed(keys: u64) -> versions::Diff {
+        versions::Diff {
+            built: keys,
+            changed: keys,
+            current_in_range: keys,
+            ..versions::Diff::default()
+        }
+    }
+
+    #[test]
+    fn a_change_of_the_store_count_alone_in_the_touched_cells_is_explained() -> anyhow::Result<()> {
+        // Root ADR-0596: a quarter's 상가 file moves the count around most parcels (11-19 Gold: 80.38%
+        // of parcels count a store), past the 0.5 bound, and nothing else.
+        let built = r#"{"airport":{"name":"A","distance_m":9000},"commercial_store_count":5}"#;
+        let connection = tables(built, "P1")?;
+        let cells = BTreeSet::from([store_cell(37.5, 127.0)?]);
+        let why = store_only(&connection, &stores_only(), &changed(1), &cells)?;
+        assert!(why.is_some_and(|why| why.starts_with("store-only: 1 changed keys")));
+        Ok(())
+    }
+
+    #[test]
+    fn a_moved_distance_a_parcel_outside_the_cells_or_another_input_is_not() -> anyhow::Result<()> {
+        let cells = BTreeSet::from([store_cell(37.5, 127.0)?]);
+        let distance = r#"{"airport":{"name":"A","distance_m":8000},"commercial_store_count":5}"#;
+        let connection = tables(distance, "P1")?;
+        assert_eq!(
+            store_only(&connection, &stores_only(), &changed(1), &cells)?,
+            None,
+            "a distance moved"
+        );
+        let count = r#"{"airport":{"name":"A","distance_m":9000},"commercial_store_count":5}"#;
+        let connection = tables(count, "P2")?;
+        assert_eq!(
+            store_only(&connection, &stores_only(), &changed(1), &cells)?,
+            None,
+            "the place id moved"
+        );
+        let connection = tables(count, "P1")?;
+        let elsewhere = BTreeSet::from([store_cell(35.1, 129.0)?]);
+        assert_eq!(
+            store_only(&connection, &stores_only(), &changed(1), &elsewhere)?,
+            None,
+            "outside the cells"
+        );
+        let more = BTreeSet::from([STORE_SOURCE.to_owned(), PARCEL_SOURCE.to_owned()]);
+        assert_eq!(
+            store_only(&connection, &more, &changed(1), &cells)?,
+            None,
+            "the parcels moved too"
+        );
+        let added = versions::Diff {
+            added: 1,
+            ..changed(1)
+        };
+        assert_eq!(
+            store_only(&connection, &stores_only(), &added, &cells)?,
+            None,
+            "a key came"
+        );
+        Ok(())
+    }
 }
