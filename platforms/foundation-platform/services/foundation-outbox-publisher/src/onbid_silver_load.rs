@@ -41,7 +41,7 @@ use serde_json::{json, Value};
 use crate::public_data_control_support::required_env_value;
 
 const PLAN_ROOT_ENV: &str = "FOUNDATION_PLATFORM_ONBID_PLAN_ROOT";
-const PARCEL_SOURCE: &str =
+pub(crate) const PARCEL_SOURCE: &str =
     include_str!("../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
 
 pub(crate) fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {

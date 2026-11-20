@@ -15,7 +15,7 @@ last_reviewed: 2026-10-14
 | --- | --- |
 | 작업 | `orchestration/jobs.v1.json` 의 `parcel_registry`(spark 3 자리, 매일 10:10 UTC) |
 | 실행 | `infra/systemd/foundation-parcel-registry.service`(150 분) → `scripts/ops/parcel-registry-cycle.sh` |
-| 등록 | `infra/lakehouse/spark/jobs/parcel_registry_to_silver.py`(`--probe-missing`, `--bootstrap`) |
+| 등록 | 발행기의 `probe-parcel-registry` · `load-parcel-registry` (발행기 안의 DuckDB, `parcel_registry_stage`; Spark 없음) |
 | journal | `/var/lib/foundation-platform/lineage-stewardship/parcel-registry/journal.log`(시도마다 `region= parcels= seconds=`) |
 
 ## 예상 (2026-10-14, 실측 전)

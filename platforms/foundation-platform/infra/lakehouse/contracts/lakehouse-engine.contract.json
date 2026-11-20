@@ -237,7 +237,11 @@
         "wave": 2
       },
       "parcel_registry_to_silver": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1557,
+          "rows": 52881152,
+          "fingerprint": null
+        }
       },
       "place_id_release_to_gold": {
         "wave": 3

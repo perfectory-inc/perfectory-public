@@ -57,7 +57,6 @@ MODULES = (
     "served_gold_common",
     "land_use_zone_area_tile_handoff",
     "legal_dong_code_snapshot_to_reference",
-    "parcel_registry_to_silver",
     "parcel_registry_frames",
     "parcel_matching_gate",
     "place_id_release_to_gold",
