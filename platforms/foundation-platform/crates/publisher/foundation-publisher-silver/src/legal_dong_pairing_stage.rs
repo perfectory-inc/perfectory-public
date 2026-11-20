@@ -10,7 +10,12 @@
 //!
 //! The file names are the Python module's constants of the same names.
 
-use std::path::Path;
+use std::{
+    collections::BTreeSet,
+    fs::File,
+    io::{BufWriter, Write as _},
+    path::Path,
+};
 
 use anyhow::{ensure, Context};
 use chrono::NaiveDate;
@@ -82,26 +87,41 @@ pub fn at_head(
     with_contract_columns(stage.connection(), contract, &pinned)
 }
 
-fn sql_path(path: &Path) -> anyhow::Result<String> {
-    let text = path
-        .to_str()
-        .with_context(|| format!("{} is not a UTF-8 path", path.display()))?;
-    Ok(literal(&text.replace('\\', "/")))
-}
-
-/// Writes the rows of `query` to `path` as one JSON array; returns how many.
-fn copy_json_array(stage: &DuckDbParquetStage, query: &str, path: &Path) -> anyhow::Result<u64> {
-    let rows = stage
-        .connection()
-        .execute(
-            &format!(
-                "COPY ({query}) TO {} (FORMAT JSON, ARRAY true)",
-                sql_path(path)?
-            ),
-            [],
-        )
-        .with_context(|| format!("DuckDB failed to write {}", path.display()))?;
-    Ok(u64::try_from(rows)?)
+/// Writes the rows of `query` to `path`, one JSON object per row (`to_json`): as one JSON array,
+/// or one object per line. Returns how many. The file is written here, not by `DuckDB`: the
+/// stage's `DuckDB` reads and writes no file outside its own directory.
+fn write_rows(
+    stage: &DuckDbParquetStage,
+    query: &str,
+    path: &Path,
+    array: bool,
+    mut seen: impl FnMut(&str),
+) -> anyhow::Result<u64> {
+    let mut file = BufWriter::new(
+        File::create(path).with_context(|| format!("cannot write {}", path.display()))?,
+    );
+    let mut rows = 0_u64;
+    if array {
+        file.write_all(b"[")?;
+    }
+    stage.each_json_row(query, |row| {
+        if array && rows > 0 {
+            file.write_all(b",\n")?;
+        }
+        file.write_all(row.as_bytes())?;
+        if !array {
+            file.write_all(b"\n")?;
+        }
+        seen(&row);
+        rows += 1;
+        Ok(())
+    })?;
+    if array {
+        file.write_all(b"]\n")?;
+    }
+    file.flush()
+        .with_context(|| format!("cannot write {}", path.display()))?;
+    Ok(rows)
 }
 
 /// `snapshot.json`: the six columns the rules read of the snapshot taken on `snapshot_date` from
@@ -116,7 +136,7 @@ pub fn export_snapshot(
     record: &str,
     directory: &Path,
 ) -> anyhow::Result<u64> {
-    copy_json_array(
+    write_rows(
         stage,
         &format!(
             "SELECT region_cd, full_name, status, parent_cd, created_date, abolished_date FROM {source} \
@@ -125,6 +145,8 @@ pub fn export_snapshot(
             record = literal(record),
         ),
         &directory.join(SNAPSHOT_FILE),
+        true,
+        |_| {},
     )
 }
 
@@ -161,7 +183,13 @@ pub fn export_changes(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    copy_json_array(stage, &format!("SELECT {columns} FROM {source}"), &path)
+    write_rows(
+        stage,
+        &format!("SELECT {columns} FROM {source}"),
+        &path,
+        true,
+        |_| {},
+    )
 }
 
 /// `official-links.txt`: one `OLD_PNU NEW_PNU YYYYMMDD` line per link; returns the line count.
@@ -180,18 +208,27 @@ pub fn export_official_links(
     directory: &Path,
 ) -> anyhow::Result<u64> {
     let path = directory.join(LINKS_FILE);
-    let rows = stage
-        .connection()
-        .execute(
-            &format!(
-                "COPY (SELECT DISTINCT old_pnu || ' ' || new_pnu || ' ' || strftime(changed_on, '%Y%m%d') AS link                  FROM {source} WHERE changed_on >= DATE '{floor}' AND coalesce(quarantine_reason, '') = '' ORDER BY 1)                  TO {path} (FORMAT CSV, HEADER false, QUOTE '', DELIMITER '	')",
-                floor = floor.format("%Y-%m-%d"),
-                path = sql_path(&path)?,
-            ),
-            [],
-        )
-        .context("DuckDB failed to write the official links")?;
-    Ok(u64::try_from(rows)?)
+    let mut file = BufWriter::new(
+        File::create(&path).with_context(|| format!("cannot write {}", path.display()))?,
+    );
+    let mut rows = 0_u64;
+    stage.each_json_row(
+        &format!(
+            "SELECT DISTINCT old_pnu || ' ' || new_pnu || ' ' || strftime(changed_on, '%Y%m%d') AS link \
+             FROM {source} WHERE changed_on >= DATE '{floor}' AND coalesce(quarantine_reason, '') = '' ORDER BY 1",
+            floor = floor.format("%Y-%m-%d"),
+        ),
+        |row| {
+            let row: Value = serde_json::from_str(&row)?;
+            let link = row["link"].as_str().context("a link is no text")?;
+            writeln!(file, "{link}")?;
+            rows += 1;
+            Ok(())
+        },
+    )?;
+    file.flush()
+        .with_context(|| format!("cannot write {}", path.display()))?;
+    Ok(rows)
 }
 
 /// One parcel read the rules ask for (`parcel-requests.json`).
@@ -240,6 +277,11 @@ pub fn export_parcels(
     .with_context(|| format!("{REQUESTS_FILE} is not the rules' request list"))?;
     let connection = stage.connection();
     let mut answers: Vec<ParcelAnswer> = Vec::with_capacity(requests.len());
+    // The requests a later one is bound by: their answers' 지번 are kept as a table.
+    let binding = requests
+        .iter()
+        .filter_map(|request| request.lots_of)
+        .collect::<BTreeSet<_>>();
     for (index, request) in requests.iter().enumerate() {
         let edition = literal(&request.snapshot_id);
         let present = connection
@@ -252,15 +294,12 @@ pub fn export_parcels(
             Some(earlier) => {
                 ensure!(earlier < index, "request {index} is bound by a later one");
                 // No file: the earlier edition is not loaded or held nothing, so no 지번 is asked for.
-                match &answers[earlier].file {
-                    None => None,
-                    Some(file) => Some(format!(
-                        " AND regexp_full_match(pnu, '[0-9]{{19}}') AND substr(pnu, 11, 9) IN (\
-                         SELECT DISTINCT substr(pnu, 11, 9) FROM read_json({path}, format = 'newline_delimited', \
-                         columns = {{pnu: 'VARCHAR'}}) WHERE regexp_full_match(pnu, '[0-9]{{19}}'))",
-                        path = sql_path(&directory.join(file))?,
-                    )),
-                }
+                answers[earlier].file.as_ref().map(|_| {
+                    format!(
+                        " AND regexp_full_match(pnu, '[0-9]{{19}}') \
+                         AND substr(pnu, 11, 9) IN (SELECT lot FROM pair_lots_{earlier})"
+                    )
+                })
             }
         };
         let (Some(bound), true, false) = (bound, present, request.codes.is_empty()) else {
@@ -281,27 +320,55 @@ pub fn export_parcels(
             appender.flush()?;
         }
         let file = format!("parcels-{index}-{}.jsonl", request.edition);
-        let rows = connection
-            .execute(
-                &format!(
-                    "COPY (SELECT pnu, jibun, to_base64(geometry_wkb) AS wkb FROM {source} \
-                     WHERE source_snapshot_id = {edition} AND geometry_wkb IS NOT NULL \
-                     AND substr(pnu, 1, 10) IN (SELECT code FROM pair_codes){bound}) TO {path} (FORMAT JSON)",
-                    path = sql_path(&directory.join(&file))?,
-                ),
-                [],
-            )
-            .with_context(|| format!("DuckDB failed to export the parcels of {}", request.edition))?;
+        let mut lots = BTreeSet::new();
+        let keep_lots = binding.contains(&index);
+        let rows = write_rows(
+            stage,
+            &format!(
+                "SELECT pnu, jibun, to_base64(geometry_wkb) AS wkb FROM {source} \
+                 WHERE source_snapshot_id = {edition} AND geometry_wkb IS NOT NULL \
+                 AND substr(pnu, 1, 10) IN (SELECT code FROM pair_codes){bound}"
+            ),
+            &directory.join(&file),
+            false,
+            |row| {
+                if keep_lots {
+                    if let Some(lot) = lot_of(row) {
+                        lots.insert(lot.to_owned());
+                    }
+                }
+            },
+        )
+        .with_context(|| format!("cannot export the parcels of {}", request.edition))?;
+        if keep_lots {
+            connection.execute_batch(&format!(
+                "CREATE OR REPLACE TEMP TABLE pair_lots_{index} (lot VARCHAR NOT NULL)"
+            ))?;
+            let mut appender = connection.appender(&format!("pair_lots_{index}"))?;
+            for lot in &lots {
+                appender.append_row([lot])?;
+            }
+            appender.flush()?;
+        }
         answers.push(ParcelAnswer {
             present,
             file: Some(file),
-            rows: u64::try_from(rows)?,
+            rows,
         });
     }
     let path = directory.join(PARCELS_FILE);
     std::fs::write(&path, serde_json::to_vec(&answers)?)
         .with_context(|| format!("cannot write {}", path.display()))?;
     Ok(answers)
+}
+
+/// The 지번 (ledger kind, 본번, 부번: the PNU's last nine digits) of an exported parcel row, when
+/// its PNU is 19 digits: what bounds a later edition's read.
+fn lot_of(row: &str) -> Option<&str> {
+    let pnu = row.strip_prefix("{\"pnu\":\"")?.get(..19)?;
+    pnu.bytes()
+        .all(|byte| byte.is_ascii_digit())
+        .then(|| &pnu[10..])
 }
 
 /// One load of `append.jsonl`: a steward decision file, or the run's changes.
@@ -326,28 +393,64 @@ pub fn stage_append(
     directory: &Path,
 ) -> anyhow::Result<Vec<AppendUnit>> {
     let path = directory.join(APPEND_FILE);
-    if std::fs::metadata(&path)
-        .with_context(|| format!("cannot read {}", path.display()))?
-        .len()
-        == 0
-    {
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("cannot read {}", path.display()))?;
+    if text.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let read = contract
+    let texts = contract
         .columns
         .iter()
         .filter(|column| column.logical_type != "timestamp")
-        .map(|column| format!("{}: 'VARCHAR'", column.name))
-        .chain(
-            [
-                "seq: 'BIGINT'",
-                "recorded_at_us: 'BIGINT'",
-                "what: 'VARCHAR'",
-            ]
-            .map(str::to_owned),
-        )
-        .collect::<Vec<_>>()
-        .join(", ");
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
+    let connection = stage.connection();
+    connection
+        .execute_batch(&format!(
+            "CREATE OR REPLACE TEMP TABLE pair_append_read ({}, seq BIGINT NOT NULL, \
+             recorded_at_us BIGINT NOT NULL, what VARCHAR NOT NULL)",
+            texts
+                .iter()
+                .map(|name| format!("{name} VARCHAR"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+        .context("DuckDB failed to make the table of rows to append")?;
+    {
+        let mut appender = connection.appender("pair_append_read")?;
+        for (number, line) in text.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let row: Value = serde_json::from_str(line)
+                .with_context(|| format!("{APPEND_FILE}:{} is not JSON", number + 1))?;
+            let mut values: Vec<duckdb::types::Value> = texts
+                .iter()
+                .map(|name| {
+                    row[*name]
+                        .as_str()
+                        .map_or(duckdb::types::Value::Null, |text| {
+                            duckdb::types::Value::Text(text.to_owned())
+                        })
+                })
+                .collect();
+            for name in ["seq", "recorded_at_us"] {
+                values.push(duckdb::types::Value::BigInt(
+                    row[name]
+                        .as_i64()
+                        .with_context(|| format!("{APPEND_FILE}:{} names no {name}", number + 1))?,
+                ));
+            }
+            values.push(duckdb::types::Value::Text(
+                row["what"]
+                    .as_str()
+                    .with_context(|| format!("{APPEND_FILE}:{} names no what", number + 1))?
+                    .to_owned(),
+            ));
+            appender.append_row(duckdb::appender_params_from_iter(values))?;
+        }
+        appender.flush()?;
+    }
     let columns = contract
         .columns
         .iter()
@@ -357,14 +460,16 @@ pub fn stage_append(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    stage
-        .connection()
+    connection
         .execute_batch(&format!(
-            "CREATE OR REPLACE TEMP TABLE pair_append AS SELECT {columns}, seq, what FROM \
-             read_json({path}, format = 'newline_delimited', columns = {{{read}}})",
-            path = sql_path(&path)?,
+            "CREATE OR REPLACE TEMP TABLE pair_append AS SELECT {columns}, seq, what FROM pair_append_read"
         ))
         .context("DuckDB failed to read the rows to append")?;
+    append_units(stage)
+}
+
+/// The load units of `pair_append`, in the order the rules wrote them.
+fn append_units(stage: &DuckDbParquetStage) -> anyhow::Result<Vec<AppendUnit>> {
     let units = stage
         .connection()
         .prepare(
