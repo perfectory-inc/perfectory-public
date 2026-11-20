@@ -72,6 +72,12 @@ FOUNDATION_PROMETHEUS_CONFIG_DIGEST="$(config_digest prometheus)"
 FOUNDATION_ALERTMANAGER_CONFIG_DIGEST="$(config_digest alertmanager)"
 export FOUNDATION_PROMETHEUS_CONFIG_DIGEST FOUNDATION_ALERTMANAGER_CONFIG_DIGEST
 
+# Where Postgres keeps its data directory: the named volume, or the SSD bind once the deploy moved it
+# (root ADR-0598).
+# shellcheck source=postgres-data-source.sh
+source "${root_dir}/scripts/deploy/postgres-data-source.sh"
+postgres_data_source "${root_dir}"
+
 compose=(
   docker compose
   --project-directory "${root_dir}"

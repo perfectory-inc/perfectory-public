@@ -937,6 +937,12 @@ migrate_runtime() {
   local started="${SECONDS}"
   # A migration that fails exits schema_not_applied (deploy-start-once.sh SCHEMA_NOT_APPLIED, root
   # ADR-0597): the one switch failure after which the deploy keeps the held DAGs paused.
+  # one-off (postgres-data-move.sh): the data directory moves to the SSD once, before the chain runs on
+  # it (root ADR-0598). A move that fails leaves Postgres on its volume and stops the deploy here.
+  # shellcheck source=postgres-data-move.sh
+  source "${release_root}/current/scripts/deploy/postgres-data-move.sh"
+  move_postgres_data "${runtime}" "${release_root}/current/config/host-layout.contract.json" \
+    || exit "${schema_not_applied}"
   runtime_chain_before "${runtime}" foundation-api || exit "${schema_not_applied}"
   # `foundation-api` is the last link: requiring it requires all of them, in the compose file's
   # order. `--wait` returns once the state is reached, not when the request was accepted.

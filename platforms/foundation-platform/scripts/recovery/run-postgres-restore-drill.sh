@@ -15,6 +15,8 @@
 # whole restore proves the backup restores. Measured 2026-10-14 by hand: 130.1GB, 2,664 files, 23
 # minutes; R2 reads are Class B and egress is free.
 set -Eeuo pipefail
+# A drill restores into its own project and volume, never the runtime's data directory (root ADR-0598).
+unset FOUNDATION_PLATFORM_POSTGRES_DATA
 
 # The release this run started from, not whatever `current` points at after a deploy mid-drill.
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"

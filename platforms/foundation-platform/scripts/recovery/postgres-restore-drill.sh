@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+# A drill restores into its own project and volume, never the runtime's data directory (root ADR-0598).
+unset FOUNDATION_PLATFORM_POSTGRES_DATA
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 evidence_dir="${FOUNDATION_RECOVERY_EVIDENCE_DIR:-${root_dir}/target/recovery}"
