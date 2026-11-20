@@ -158,6 +158,10 @@ pub struct BakeContract {
     /// the run started; the run ends deferred and the next start continues from the cache.
     #[serde(default)]
     pub partition_run_budget_seconds: std::collections::BTreeMap<String, u64>,
+    /// Root ADR-0576: the run that only joins bounds its tile-join this many seconds after the run
+    /// started, in place of the one-tool bound; past it the run fails and keeps no joined archive.
+    #[serde(default)]
+    pub tile_join_run_budget_seconds: std::collections::BTreeMap<String, u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -697,6 +701,8 @@ struct Config {
     tile_max_zoom: Option<u8>,
     /// Root ADR-0493: when this run starts no more partitions, if the contract budgets them.
     partition_deadline: Option<std::time::Instant>,
+    /// Root ADR-0576: when the tile-join of a run that only joins is stopped, if the contract says.
+    join_deadline: Option<std::time::Instant>,
 }
 
 /// `{PREFIX}_REHEARSAL`: unset or `0` is a bake, `1` a rehearsal; anything else is refused, so a
@@ -766,6 +772,7 @@ impl Config {
             tile_bytes_budget: None,
             tile_max_zoom: None,
             partition_deadline: None,
+            join_deadline: None,
         })
     }
 }
@@ -1041,7 +1048,7 @@ async fn build_archive(
         .into_iter()
         .map(|(prefix, archive, _)| (prefix, archive))
         .collect();
-    partitions::join_partitions(config, images, work, &archives).await
+    partitions::join_partitions(config, images, work, &archives, config.tool_timeout).await
 }
 
 /// Everything besides the rows that decides a baked tile's bytes. ADR-0316: the tippecanoe
@@ -1227,6 +1234,10 @@ pub async fn run() -> anyhow::Result<()> {
     // The budget counts from the run's start: reading the handoff is part of the run.
     config.partition_deadline = contract
         .partition_run_budget_seconds
+        .get(&config.unit_key)
+        .map(|seconds| std::time::Instant::now() + Duration::from_secs(*seconds));
+    config.join_deadline = contract
+        .tile_join_run_budget_seconds
         .get(&config.unit_key)
         .map(|seconds| std::time::Instant::now() + Duration::from_secs(*seconds));
     let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
