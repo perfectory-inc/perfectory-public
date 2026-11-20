@@ -448,6 +448,18 @@ impl WriteMode {
     }
 }
 
+/// Which engine loads the lane (root ADR-0599 §8). A line of the migration, deleted with the
+/// `spark` block when the last lane has moved: not a switch to keep.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub(in crate::remote_lakehouse_job) enum Engine {
+    /// The two Spark jobs, through a load branch and a changes branch.
+    #[default]
+    Spark,
+    /// `DuckDB` inside the publisher: a local copy, one compare, one commit.
+    Duckdb,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub(in crate::remote_lakehouse_job) struct SparkRunner {
@@ -496,6 +508,12 @@ struct Block {
     export: String,
     #[serde(default)]
     export_chunk_rows: Option<u32>,
+    /// Which engine loads the lane; absent, Spark (root ADR-0599 §8).
+    #[serde(default)]
+    engine: Engine,
+    /// Why and on what verdict the lane left Spark (root ADR-0559 §5): prose for the reader.
+    #[serde(rename = "engine_reason", default)]
+    _engine_reason: Option<String>,
     spark: SparkRunner,
     /// Land lanes that append a release's changes instead of publishing it whole (root ADR-0275).
     #[serde(default)]
@@ -592,6 +610,8 @@ pub(in crate::remote_lakehouse_job) struct LaneContract {
     pub handoff_prefix: Option<String>,
     /// How a land lane finds its release in the ledger and names its handoffs.
     pub land: Option<LandRule>,
+    /// Which engine loads the lane (`Block::engine`).
+    pub engine: Engine,
     pub spark: SparkRunner,
     /// A land lane that appends a release's changes to `main` rather than publishing its staged
     /// branch (root ADR-0275): the columns compared. `None` publishes the release whole.
@@ -793,6 +813,7 @@ impl LaneContract {
                 roles: BTreeMap::new(),
                 export: block.export,
                 kind,
+                engine: block.engine,
                 export_chunk_rows: None,
                 handoff_prefix: Some(rule.handoff_prefix.clone()),
                 land: Some(rule),
@@ -877,6 +898,7 @@ impl LaneContract {
             roles: block_roles,
             export: block.export,
             kind,
+            engine: block.engine,
             export_chunk_rows: block.export_chunk_rows,
             handoff_prefix,
             land: None,

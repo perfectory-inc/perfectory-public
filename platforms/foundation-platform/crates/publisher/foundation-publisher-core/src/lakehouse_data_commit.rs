@@ -430,7 +430,7 @@ impl LakehouseDataCommitter {
             "an append to {} names no staged file",
             request.table_name
         );
-        self.append_on(request, None).await
+        self.append_on(request, None, BTreeMap::new()).await
     }
 
     /// [`Self::append`], only while `main` is still at `expected_head` (the snapshot the staged
@@ -446,20 +446,61 @@ impl LakehouseDataCommitter {
     /// # Errors
     /// Everything [`Self::append`] refuses, and [`HeadMoved`] (downcast it) when `main` is at
     /// another snapshot before the upload, at the commit, or because another commit won the race:
-    /// nothing is committed, and files already uploaded are named by no snapshot.
+    /// nothing is committed, and the files this call uploaded are deleted unless `main` names them
+    /// (an earlier attempt's commit that landed with its response lost).
     pub async fn append_at_head(
         &self,
         request: DataAppend<'_>,
         expected_head: Option<i64>,
     ) -> anyhow::Result<AppendOutcome> {
-        self.append_on(request, Some(expected_head)).await
+        self.append_on(request, Some(expected_head), BTreeMap::new())
+            .await
+    }
+
+    /// [`Self::append_at_head`], setting `table_properties` on the table in the same catalog
+    /// commit as the snapshot (root ADR-0599 §4): a record that must outlive the snapshot's
+    /// summary, such as a release's edition (`foundation.edition.<edition>`, root ADR-0328 §3),
+    /// is written with the rows or not at all.
+    ///
+    /// # Errors
+    /// What [`Self::append_at_head`] returns.
+    pub async fn append_at_head_recording(
+        &self,
+        request: DataAppend<'_>,
+        expected_head: Option<i64>,
+        table_properties: BTreeMap<String, String>,
+    ) -> anyhow::Result<AppendOutcome> {
+        self.append_on(request, Some(expected_head), table_properties)
+            .await
+    }
+
+    /// Deletes the objects of `uploaded` that `main` names in no snapshot: what an append refused
+    /// at the commit left in the table's location. `main` may name them when an earlier attempt's
+    /// commit landed and its response was lost; those stay. Nothing here fails the caller: an
+    /// object that cannot be deleted is one more orphan, as before.
+    async fn delete_unnamed(&self, table_name: &str, uploaded: &[String]) {
+        let Ok(table) = self.load(table_name).await else {
+            return;
+        };
+        let targets: BTreeSet<&str> = uploaded.iter().map(String::as_str).collect();
+        let Ok(named) = referenced_by_main(&table, &targets).await else {
+            return;
+        };
+        for target in uploaded {
+            if !named.contains(target) {
+                // An orphan left is not a failure of the append.
+                let _ = table.file_io().delete(target).await;
+            }
+        }
     }
 
     /// `pinned`: the head the append is valid on, when it is valid on one head only.
+    /// `table_properties`: set on the table in the same commit.
     async fn append_on(
         &self,
         request: DataAppend<'_>,
         pinned: Option<Option<i64>>,
+        table_properties: BTreeMap<String, String>,
     ) -> anyhow::Result<AppendOutcome> {
         let table_name = request.table_name;
         let batch = batch_identities(request.batch)?;
@@ -552,6 +593,17 @@ impl LakehouseDataCommitter {
             .add_data_files(data_files)
             .set_snapshot_properties(summary)
             .apply(transaction)?;
+        let transaction = if table_properties.is_empty() {
+            transaction
+        } else {
+            table_properties
+                .into_iter()
+                .fold(
+                    transaction.update_table_properties(),
+                    |action, (key, value)| action.set(key, value),
+                )
+                .apply(transaction)?
+        };
         let committed = match pinned {
             None => transaction.commit(self.catalog.as_ref()).await,
             Some(expected) => {
@@ -566,6 +618,7 @@ impl LakehouseDataCommitter {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner);
                 if let (Err(_), Some(found)) = (&committed, moved_to) {
+                    self.delete_unnamed(table_name, &locations).await;
                     return Err(HeadMoved {
                         table_name: table_name.to_owned(),
                         expected,
