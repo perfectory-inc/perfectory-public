@@ -526,7 +526,20 @@ export function problemRows(jobs: ScheduledJobStatus[]): ProblemRow[] {
 }
 
 /** The scheduler's page for a job's DAG, or for one run's `run` task, where its log is. */
-export function schedulerUrl(links: OperationsLinks | undefined, dagId: string, runId?: string | null): string | null {
+export function schedulerUrl(
+  links: OperationsLinks | undefined,
+  dagId: string,
+  runId?: string | null,
+  decided?: { job_id: string; decided_by?: "airflow" | "dagster" },
+): string | null {
+  // A job Dagster decides has no DAG: its runs are Dagster's, under its Dagster job (root ADR-0565 §8).
+  if (decided?.decided_by === "dagster") {
+    const dagster = trimEnd(links?.dagster_url ?? "", "/");
+    if (!dagster) return null;
+    return runId
+      ? `${dagster}/runs/${encodeURIComponent(runId)}`
+      : `${dagster}/locations/foundation/jobs/${encodeURIComponent(`foundation_job__${decided.job_id}`)}`;
+  }
   const base = trimEnd(links?.scheduler_url ?? "", "/");
   if (!base) return null;
   const dag = `${base}/dags/${encodeURIComponent(dagId)}`;

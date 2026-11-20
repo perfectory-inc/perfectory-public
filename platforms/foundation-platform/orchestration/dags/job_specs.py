@@ -68,19 +68,22 @@ IMPLEMENTED_DAGSTER_STAGES = ("airflow", "shadow", "proxied")
 # The stages in which Dagster runs the job's unit, and Dagster's decisions are compared with Airflow's
 # while Airflow still decides (root ADR-0458 §4).
 DAGSTER_RUNS = ("proxied", "dagster")
+# The groups jobs move to Dagster in (jobs.v1.json `dagster_group`, root ADR-0583 §1), downstream first:
+# what a group writes is read only by its own jobs or by a group listed before it. A group is one switch:
+# its switched-on jobs reach `dagster` in one PR, and reverting that PR is the rollback (dagster_groups).
+DAGSTER_GROUPS = ("gold", "silver", "collect", "operations")
 COMPARED = ("shadow", "proxied")
-# A `proxied` job's run (root ADR-0431 §5): Airflow's `run` task asks Dagster's webserver to launch the
-# job's Dagster job, named after it, and Dagster runs the unit through the host's forced command
-# (orchestration/dagster/run_jobs.py, root ADR-0417). Both sides read these names from here, so the
-# Airflow image and the Dagster code location cannot drift apart.
-DAGSTER_JOB_PREFIX = "foundation_job__"
-# The sensor that decides a job at `dagster` (orchestration/dagster/decide.py). A deploy holds such a job by
-# stopping this sensor, as it pauses the DAG of a job Airflow decides (scripts/deploy/job_orchestrator.py).
-DAGSTER_SENSOR_PREFIX = "foundation_decide__"
-# The code location and the repository a `@definitions` function makes (orchestration/dagster/workspace.yaml):
-# what Airflow's proxied `run` task and the host's deploy and run-now name a Dagster job or sensor by.
-DAGSTER_LOCATION = "foundation"
-DAGSTER_REPOSITORY = "__repository__"
+# The Dagster names (dagster_writes.py, which the writable webserver's gate also reads, root ADR-0565 §8):
+# a `proxied` job's run (root ADR-0431 §5) is Airflow's `run` task asking Dagster to launch the job's
+# Dagster job, DAGSTER_JOB_PREFIX + its id, and Dagster runs the unit through the host's forced command
+# (orchestration/dagster/run_jobs.py, root ADR-0417); a job at `dagster` is decided by its sensor,
+# DAGSTER_SENSOR_PREFIX + its id (orchestration/dagster/decide.py), which a deploy stops to hold it
+# (scripts/deploy/job_orchestrator.py); both are named in the code location and repository
+# DAGSTER_LOCATION and DAGSTER_REPOSITORY (orchestration/dagster/workspace.yaml). One file, so the Airflow
+# image, the Dagster code location and the gate cannot drift apart.
+if str(pathlib.Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from dagster_writes import DAGSTER_JOB_PREFIX, DAGSTER_LOCATION, DAGSTER_REPOSITORY, DAGSTER_SENSOR_PREFIX  # noqa: E402, F401
 # Run tags. Airflow sends how the run was started (the forced command's words after the job id: empty for
 # a clock start, `triggered`, or `requested <id>`); Dagster's run answers with its outcome word and, for
 # the asset reconciler, the runs it found owed, which Airflow's `run` task pushes as today's XComs.
@@ -147,6 +150,7 @@ class JobSpec:
     reconciles: tuple = ()  # the jobs this one starts by state, not by event (root ADR-0333 §7)
     requeues: tuple = ()  # the jobs whose refused starts it starts again from the start queue (root ADR-0462)
     dagster_stage: str = "airflow"  # DAGSTER_STAGES
+    dagster_group: str = ""  # DAGSTER_GROUPS
     priority: int = 100  # the value of its priority class (root ADR-0435)
 
     @property
@@ -705,6 +709,26 @@ def dagster_stage(job, jobs=None):
     return value
 
 
+def dagster_group(job):
+    """The group a job moves to Dagster with (jobs.v1.json `dagster_group`, root ADR-0583 §2). Every job
+    names one, a switched-off one too: it takes its group's stage when it is switched on."""
+    value = job.get("dagster_group")
+    if value not in DAGSTER_GROUPS:
+        raise JobListError(f"{job['id']}: dagster_group must be one of {list(DAGSTER_GROUPS)} (root ADR-0583)")
+    return value
+
+
+def dagster_groups(jobs):
+    """Problems of the group switches (root ADR-0583 §2): in a group, either every switched-on job is at
+    `dagster` or none is, so a group moves in one PR and a job switched on later is born where its group is."""
+    decided = {}
+    for job in jobs["jobs"]:
+        if job["enabled"]:
+            decided.setdefault(dagster_group(job), set()).add(job.get("dagster_stage", "airflow") == "dagster")
+    return [f"group {group}: some of its switched-on jobs are at dagster_stage dagster and some are not; "
+            "a group moves in one switch (root ADR-0583 §2)" for group, kinds in sorted(decided.items()) if len(kinds) > 1]
+
+
 def dagster_order(jobs, feeders):
     """Problems of the move order (root ADR-0431 §3): a job Dagster decides (`dagster`) feeds only jobs
     Dagster decides, since an Airflow job started by its inputs waits for an Airflow asset event that
@@ -712,7 +736,10 @@ def dagster_order(jobs, feeders):
     stages = {job["id"]: job.get("dagster_stage", "airflow") for job in jobs["jobs"]}
     by_id = {job["id"]: job for job in jobs["jobs"]}
     problems = [f"{consumer}: started by the outputs of {producer}, which Dagster decides; it moves to dagster first"
-                for consumer, producers in sorted(feeders.items()) if started_by(by_id[consumer]) == "inputs"
+                for consumer, producers in sorted(feeders.items())
+                # A switched-off job runs nowhere and stays at `airflow` (dagster_stage); switched on, it is
+                # born at its group's side (dagster_groups, root ADR-0583 §2).
+                if started_by(by_id[consumer]) == "inputs" and by_id[consumer]["enabled"]
                 for producer in producers if stages[producer] == "dagster" and stages[consumer] != "dagster"]
     # A reconciler and the jobs it starts (started_for). A job Dagster decides reads what it is owed from
     # the reconciler's Dagster run, which exists only once Dagster runs the reconciler; a reconciler Dagster
@@ -1146,10 +1173,11 @@ def load_specs(jobs=None, graph=None):
                 reconciles=reconciles,
                 requeues=requeues,
                 dagster_stage=dagster_stage(job, jobs),
+                dagster_group=dagster_group(job),
                 priority=jobs["priority_classes"][priority_class(jobs, job, job_id)]["value"],
             )
         )
-    problems = pool_starvation(jobs, graph) + dagster_order(jobs, feeders)
+    problems = pool_starvation(jobs, graph) + dagster_order(jobs, feeders) + dagster_groups(jobs)
     if problems:
         raise JobListError("; ".join(problems))
     return specs

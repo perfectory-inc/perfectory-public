@@ -181,6 +181,12 @@ RULES = {
             "platforms/foundation-platform/orchestration/tests/test_dagster_decide.py",
             "platforms/foundation-platform/orchestration/tests/test_dagster_publish_checks.py",
             "platforms/foundation-platform/orchestration/tests/test_dagster_systemd_pipes.py",
+            # What may change Dagster, and who may ask (root ADR-0565 §8): the gate's rules, the host's
+            # writer, and their tests, which replay both callers' requests against Dagster itself.
+            "platforms/foundation-platform/orchestration/dags/dagster_writes.py",
+            "platforms/foundation-platform/scripts/deploy/job_orchestrator.py",
+            "platforms/foundation-platform/orchestration/tests/test_dagster_writer_gate.py",
+            "platforms/foundation-platform/orchestration/tests/test_dagster_job_orchestrator.py",
             "scripts/verify/foundation-dagster-observe.sh",
         ],
         "prefixes": [

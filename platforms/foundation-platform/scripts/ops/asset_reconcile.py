@@ -935,7 +935,7 @@ def run_overdue(jobs: dict, runs: list, now: float) -> str:
 
 
 def dagster_post(url: str):
-    """`post` for dagster_state: one GraphQL query to Dagster's webserver (jobs.v1.json observers.dagster.ui)."""
+    """`post` for dagster_state: one GraphQL query to the read-only webserver (jobs.v1.json observers.dagster.ui)."""
     import urllib.request  # noqa: PLC0415
 
     def post(query: str) -> dict:

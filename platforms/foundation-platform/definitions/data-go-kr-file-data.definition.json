@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "data_go_kr_file_data",
+      "dagster_group": "silver",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",

@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "gold_kind_rebuild",
+      "dagster_group": "gold",
       "scope": "full",
       "full_reason": "It computes only the PNUs whose inputs changed (root ADR-0180, ADR-0193), but the copy-on-write MERGE rewrites every data file holding one, and a national vintage's changes reach every file even in PNU range order (#896; computed).",
       "full_cost": "measured 2026-10-29 (journal and read-only Trino $snapshots): 2026-10-26 parcel_forest_ledger incremental, 48,477 PNUs changed, 892 s, wrote 1.855 GB (100%); 2026-10-23 parcel_transfer_history incremental, 52,780 PNUs, 6,249 s, wrote 3.256 GB (100%); 9.76 GB across the six kinds at 100% of bytes on each last commit. The shape-ledger check of 2026-10-29 12:36 still reports 100% bytes on every kind's last commit, and two kinds not ordered by PNU.",
@@ -58,6 +59,7 @@
     },
     {
       "id": "by_pnu_serving_bake",
+      "dagster_group": "gold",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",

@@ -1,6 +1,6 @@
 # ADR 0321: Gold 커밋은 자기를 만든 코드를 함께 적고, 코드가 바뀌면 바뀐 키만 게시한다, 그리고 긴 배포 멈춤은 경보한다
 
-- Status: Accepted
+- Status: Accepted — §1·§2·§4 일부·§7 일부는 [ADR-0592](./0592-a-gold-is-rebuilt-for-code-only-when-its-author-bumps-its-declared-code-version-and-the-computed-hash-retires.md) 가 대체(Superseded in part by ADR-0592)
 - Date: 2026-10-28
 - Builds on: [ADR-0191](./0191-a-release-becomes-a-changelog-once-and-every-layer-reads-only-the-changes.md) §5(빌드
   코드 변경 → `foundation.build-source-sha256`), [ADR-0139](./0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md)(Silver
@@ -168,3 +168,5 @@ foundation-api 하나).
 ---
 
 개정 2026-11-07: §4 의 "기록이 없는 머리는 지금 코드로 만든 것으로 받아들인다"는 입력이 움직이지 않는 동안만이다 — 입력이 재생성을 요구하면 코드 변경과 같이 전량을 키로 게시한다([ADR-0437](./0437-a-gold-without-a-recorded-code-version-rebuilds-whole-by-key-and-a-monitor-holds-a-404-to-what-the-lane-serves.md), 2026-11-03..06 parcel Gold 라이브락).
+
+개정 2026-11-19: §1·§2(호출 그래프의 해시와 그 손 목록), §4 의 `code_changed_parts`, §7 의 `plumbing_symbols` 근거는 [ADR-0592](./0592-a-gold-is-rebuilt-for-code-only-when-its-author-bumps-its-declared-code-version-and-the-computed-hash-retires.md) 가 대체한다 — 생산자가 선언한 `code_version` 문자열이 그 자리를 맡는다. §5(그림자 브랜치에서 짓고 바뀐 키만 게시)는 그대로다.

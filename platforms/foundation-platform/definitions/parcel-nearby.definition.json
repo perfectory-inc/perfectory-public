@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "gold_parcel_nearby_rebuild",
+      "dagster_group": "gold",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
@@ -57,6 +58,7 @@
     },
     {
       "id": "by_pnu_parcel_nearby_bake",
+      "dagster_group": "gold",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",

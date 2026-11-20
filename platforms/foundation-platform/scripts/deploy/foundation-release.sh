@@ -1041,6 +1041,13 @@ prepare_job_state_directories() {
   done
   install -o root -g root -m 0644 -t /etc/tmpfiles.d "${conf}"
   systemd-tmpfiles --create /etc/tmpfiles.d/foundation-job-state.conf
+  # The other directories of infra/tmpfiles, written by hand: the writable Dagster webserver's socket
+  # directory (root ADR-0565 §8), before compose starts the container that binds in it.
+  for conf in "${release}"/infra/tmpfiles/*.conf; do
+    [[ "${conf##*/}" == foundation-job-state.conf ]] && continue
+    install -o root -g root -m 0644 -t /etc/tmpfiles.d "${conf}"
+    systemd-tmpfiles --create "/etc/tmpfiles.d/${conf##*/}"
+  done
 }
 
 install_lakehouse_migration_unit() {

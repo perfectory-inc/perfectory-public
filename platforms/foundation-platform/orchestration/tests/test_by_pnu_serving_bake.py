@@ -286,8 +286,8 @@ class ByPnuServingBake(unittest.TestCase):
             (job_specs.PLATFORM_ROOT / "infra/lakehouse/spark/jobs/by_pnu_kinds.py").read_bytes())
         # Which job bakes a lane (`all` leaves a lane another job bakes to it) is read from the job
         # list and the graph (root ADR-0303, ADR-0333).
-        for relative in ("orchestration/dags/job_specs.py", "orchestration/jobs.v1.json",
-                         "docs/catalog/pipeline-graph.v1.json", "infra/datahub/dataset_names.py",
+        for relative in ("orchestration/dags/job_specs.py", "orchestration/dags/dagster_writes.py",
+                         "orchestration/jobs.v1.json", "docs/catalog/pipeline-graph.v1.json", "infra/datahub/dataset_names.py",
                          "scripts/ops/lane_follow_gate.py", "scripts/ops/iceberg_metadata.py"):
             (release / relative).parent.mkdir(parents=True, exist_ok=True)
             (release / relative).write_bytes((job_specs.PLATFORM_ROOT / relative).read_bytes())

@@ -36,6 +36,7 @@ import json
 import os
 import socket
 
+import lineage as lineage_module
 import observe_assets
 import systemd_pipes
 
@@ -108,9 +109,10 @@ class ForcedCommand:
         return lines(), wait
 
 
-def run_job(spec, transport=None):
+def run_job(spec, transport=None, lineage_client=None):
     """The Dagster job of one job: one op, the unit through the forced command (`transport`, or the
-    host's from the environment)."""
+    host's from the environment), reporting its runs to the data catalog when Dagster decides it
+    (lineage.py; `lineage_client`, or the environment's transport)."""
     from dagster import Failure, OpExecutionContext, RetryPolicy, job, op
 
     keys = [observe_assets.asset_key(dataset) for dataset in spec.outputs]
@@ -126,6 +128,26 @@ def run_job(spec, transport=None):
         description=f"Runs systemd service {spec.systemd_service} through the host's forced command.",
         retry_policy=retry)
     def run(context: OpExecutionContext):
+        # A proxied job's runs are reported by its DAG (foundation_jobs.py); one Dagster decides, by its op.
+        lineage = lineage_of(context) if decided_here else None
+        if lineage is None:
+            return runs_once(context)
+        retry_number = context.retry_number
+        record = context.instance.get_run_record_by_id(context.run_id)
+        lineage.started(retry_number, record.create_timestamp.timestamp() if record else None)
+        try:
+            runs_once(context)
+        except BaseException:
+            lineage.ended(retry_number, succeeded=False, last_try=retry_number >= spec.retries)
+            raise
+        lineage.ended(retry_number, succeeded=True, last_try=True)
+
+    def lineage_of(context):
+        if lineage_client is not None:
+            return lineage_module.Lineage(spec, context.run_id, context.log, lineage_client)
+        return lineage_module.Lineage.from_environment(spec, context.run_id, context.log)
+
+    def runs_once(context):
         if decided_here and spec.check_service:
             checker = systemd_pipes.SystemdUnitPipesClient(
                 transport=transport or ForcedCommand.from_environment(60 * job_specs.CHECK_TIMEOUT_MINUTES))
@@ -157,9 +179,9 @@ def run_job(spec, transport=None):
                description=spec.description)(runs_the_unit)
 
 
-def run_jobs(jobs=None, graph=None, transport=None):
+def run_jobs(jobs=None, graph=None, transport=None, lineage_client=None):
     """The Dagster jobs of every job Dagster runs: those at `proxied` (and, from its slice, `dagster`)."""
     if jobs is None or graph is None:
         jobs, graph = observe_assets.contracts()
-    return [run_job(spec, transport) for spec in job_specs.load_specs(jobs, graph)
+    return [run_job(spec, transport, lineage_client) for spec in job_specs.load_specs(jobs, graph)
             if spec.dagster_stage in job_specs.DAGSTER_RUNS]

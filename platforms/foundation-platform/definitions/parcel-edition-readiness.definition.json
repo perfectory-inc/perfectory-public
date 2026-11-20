@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "parcel_edition_readiness",
+      "dagster_group": "operations",
       "scope": "skip-if-unchanged",
       "interruptible": false,
       "commits": "at_end",

@@ -5,8 +5,9 @@
 #   parcel-edition-readiness.sh            write ${OUT}
 #
 # Read-only on everything it measures, and each read is the smallest that answers its stage:
-#   silver     silver."parcel_boundaries$partitions" through Trino: the table's partition metadata
-#              (rows per edition, ADR-0316), no data file is read — under a second on 2026-11-04;
+#   silver     silver.parcel_boundaries' rows per edition (ADR-0316) from its `main` snapshot's manifests,
+#              the publisher's `lakehouse-partitions` with the read-only key: no data file is read and no
+#              engine runs (root ADR-0565; it asked Trino's `$partitions` before);
 #   source     the newest provider inventory the daily edition collection kept
 #              (vworld-parcel-edition-collect.sh), checked for re-uploads per edition;
 #   rehearsal  the parcel tile bake's journal (parcel-tile-bake.sh), its rehearsal lines.
@@ -20,7 +21,6 @@ JOBS="${RELEASE_ROOT}/infra/lakehouse/spark/jobs"
 OUT="${FOUNDATION_PARCEL_EDITION_READINESS_PATH:-/var/lib/foundation-platform/parcel-editions/readiness.json}"
 EDITION_STATE="${FOUNDATION_VWORLD_PARCEL_EDITION_STATE_ROOT:-/var/lib/foundation-platform/vworld-parcel-edition}"
 TILE_JOURNAL="${FOUNDATION_PARCEL_TILE_BAKE_STATE_ROOT:-/var/lib/foundation-parcel-tile-bake}/journal.log"
-TRINO_CONTAINER="${FOUNDATION_PARCEL_EDITION_TRINO_CONTAINER:-foundation-platform-trino}"
 # The console's promotion requests (foundation-api writes them, root ADR-0381); this job only reads them,
 # and keeps its answers beside the report.
 REQUESTS="${FOUNDATION_PLATFORM_JOB_SWITCHES_DIR:-/var/lib/foundation-jobs/switches}/promote.d"
@@ -47,16 +47,25 @@ trap 'rm -rf -- "${work}"' EXIT
 mkdir -p "$(dirname "${LEDGER}")"
 rolled="$("${PY[@]}" "${JOBS}/parcel_edition_readiness.py" rollback --bake-root "${BAKE_ROOT}" --ledger "${LEDGER}")"
 
-# One statement through --execute, as the other host readers send it: --file refuses a statement with no
-# terminating `;` ("Non-terminated statement"). From 2026-11-04 to 2026-11-11 every run left Silver unmeasured
-# that way, and 202609 stayed `not ready: silver` (root ADR-0379 §2).
+# The rows per edition as the judgement reads them, `<source_snapshot_id>,<record_count>` per partition.
+# The admitted release's publisher (admitted-writer-runtime.sh, the one beside this file) reads them in
+# a subshell, so a refused admission or a failed read leaves this stage unmeasured, not the run failed.
+read_partitions() (
+  source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current || exit
+  exec timeout 120 "${PUBLISHER_BIN}" lakehouse-partitions
+)
 partitions=()
-if timeout 120 docker exec "${TRINO_CONTAINER}" trino --server localhost:8080 --catalog r2 --output-format CSV \
-    --execute 'SELECT partition.source_snapshot_id, record_count FROM silver."parcel_boundaries$partitions"' \
-    > "${work}/partitions.csv" 2> "${work}/trino.err"; then
+if read_partitions <<< 'silver.parcel_boundaries' > "${work}/partitions.json" 2> "${work}/partitions.err" &&
+    "${PY[@]}" -c 'import json, sys
+(table,) = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+for found in table["partitions"]:
+    edition = found["partition"].get("source_snapshot_id")
+    if edition is not None:
+        print(edition, found["record_count"], sep=",")' "${work}/partitions.json" > "${work}/partitions.csv" \
+      2>> "${work}/partitions.err"; then
   partitions=(--partitions "${work}/partitions.csv")
 else
-  echo "parcel-edition-readiness: silver not measured: $(tail -1 "${work}/trino.err")" >&2
+  echo "parcel-edition-readiness: silver not measured: $(tail -1 "${work}/partitions.err")" >&2
 fi
 
 inventory=()

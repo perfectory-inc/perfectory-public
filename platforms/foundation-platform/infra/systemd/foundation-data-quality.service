@@ -14,12 +14,16 @@ User=foundation-platform
 Environment=DOCKER_CONFIG=/var/lib/foundation-platform/docker-config
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=-/etc/foundation-platform/operations-map.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/data-quality-check.py
 TimeoutStartSec=30m
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+# DuckDB's database and spill while it counts (lakehouse-query, root ADR-0565).
+StateDirectory=foundation-data-quality
 # Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=460M
 MemoryMax=512M

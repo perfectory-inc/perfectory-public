@@ -374,14 +374,9 @@
    "PLW1510": 1
   },
   "platforms/foundation-platform/scripts/deploy/runtime_secrets.py": {
-   "B905": 1,
-   "F401": 1
+   "B905": 1
   },
   "platforms/foundation-platform/scripts/ops/asset_reconcile.py": {
-   "PLW1510": 1
-  },
-  "platforms/foundation-platform/scripts/ops/data-quality-check.py": {
-   "B905": 1,
    "PLW1510": 1
   },
   "platforms/foundation-platform/scripts/ops/job_outcomes.py": {
@@ -432,7 +427,7 @@
   "scripts/catalog/declared_definitions.py": {
    "B007": 1,
    "B905": 1,
-   "PLW1510": 2
+   "PLW1510": 1
   },
   "scripts/catalog/render-foundation-baseline.py": {
    "F401": 1
@@ -673,7 +668,6 @@
   },
   "platforms/foundation-platform/scripts/ops/parcel-edition-readiness.sh": {
    "SC2012": 1,
-   "SC2016": 1,
    "SC2312": 1
   },
   "platforms/foundation-platform/scripts/ops/parcel-number-change-collect.sh": {

@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "real_estate_broker_lookup_load",
+      "dagster_group": "gold",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",

@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "parcel_served_gold",
+      "dagster_group": "gold",
       "scope": "full",
       "full_reason": "A new cadastral edition rebuilds the national served Gold and its matching gate over every 시도; an edition already baked or waiting does nothing.",
       "full_cost": "measured 2026-10-13 (root ADR-0322 §4, the job is disabled since): the matching gate 13.5 minutes and the served Gold 59 minutes per edition, over about 39.9M parcels; the 2026-10-16 rehearsal failed before measuring.",

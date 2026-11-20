@@ -76,8 +76,12 @@ mod onbid_time_correction;
 mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
+mod lakehouse_file_shapes;
 mod lakehouse_inventory;
+mod lakehouse_partitions;
 mod lakehouse_quality_rules_evaluate;
+mod lakehouse_query;
+mod lakehouse_reader;
 mod lakehouse_registry_control;
 #[cfg(test)]
 mod test_crosswalk;
@@ -157,7 +161,6 @@ use foundation_publisher_tiles::tile_derivative_object_storage;
 mod audit_digest;
 mod audit_import;
 mod real_estate_broker_lookup_load;
-mod trino_cli;
 mod unit_official_price_projection_load;
 use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
 use foundation_publisher_collection::vworld_dataset_collection_plan;
@@ -311,6 +314,9 @@ enum Command {
     RegisterServingSourceLineage,
     RunPublisher,
     InventoryLakehouse,
+    LakehouseFileShapes,
+    LakehousePartitions,
+    LakehouseQuery,
     MigrateR2BronzeKeys,
     SeedLakehouseRegistry,
     SmokeR2,
@@ -669,6 +675,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::RunPublisher => Box::pin(run_publisher()),
         // main() runs it before any runtime starts and exits with its outcome.
         Command::InventoryLakehouse => Box::pin(lakehouse_inventory::run()),
+        Command::LakehouseFileShapes => Box::pin(lakehouse_file_shapes::run()),
+        Command::LakehousePartitions => Box::pin(lakehouse_partitions::run()),
+        Command::LakehouseQuery => Box::pin(lakehouse_query::run()),
         Command::MigrateR2BronzeKeys => Box::pin(r2_bronze_key_migration::run()),
         Command::WriteR2BronzeKeyCleanupCandidates => {
             Box::pin(async { r2_bronze_key_cleanup_candidates::run() })
@@ -968,6 +977,9 @@ where
         }
         Some("register-serving-source-lineage") => Ok(Command::RegisterServingSourceLineage),
         Some("inventory-lakehouse") => Ok(Command::InventoryLakehouse),
+        Some("lakehouse-file-shapes") => Ok(Command::LakehouseFileShapes),
+        Some("lakehouse-partitions") => Ok(Command::LakehousePartitions),
+        Some("lakehouse-query") => Ok(Command::LakehouseQuery),
         Some("migrate-r2-bronze-keys") => Ok(Command::MigrateR2BronzeKeys),
         Some("write-r2-bronze-key-cleanup-candidates") => {
             Ok(Command::WriteR2BronzeKeyCleanupCandidates)

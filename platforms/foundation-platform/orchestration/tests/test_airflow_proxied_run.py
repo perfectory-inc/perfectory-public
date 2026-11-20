@@ -23,27 +23,39 @@ from unittest import mock
 ORCHESTRATION = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ORCHESTRATION / "dags"))
 
+import dagster_writes  # noqa: E402
 import job_specs  # noqa: E402
 
 HAS_AIRFLOW = all(importlib.util.find_spec(name) is not None for name in ("airflow", "dagster_airlift"))
 NEEDS_AIRFLOW = "requires the release's Airflow image (the CI dagster-observe lane runs it)"
 JOB = "onbid_public_auction_collect"
+RUN = "6f1c2a3b-4d5e-4f60-8a71-b82c93d4e5f6"
 
 
 class Dagster(http.server.BaseHTTPRequestHandler):
-    """Dagster's /graphql as the proxied task uses it; every query is kept."""
+    """Dagster's /graphql as the proxied task uses it, behind the writable webserver's gate for Airflow
+    (dagster_writes.airflow_allowed, root ADR-0565 §8): a request it refuses is answered 403 and kept in
+    `refused`, so a document airlift or the DAG file changes fails here. Every query is kept."""
 
-    asked, ended = [], ("SUCCESS", {})
+    asked, refused, ended = [], [], ("SUCCESS", {})
 
     def do_POST(self):  # noqa: N802 - http.server's name
-        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        raw = self.rfile.read(int(self.headers["Content-Length"]))
+        reason = dagster_writes.refused(dagster_writes.airflow_allowed(), "POST", self.path, raw)
+        if reason is not None:
+            Dagster.refused.append(reason)
+            self.send_response(403)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        body = json.loads(raw)
         Dagster.asked.append(body)
         query = body["query"]
         if "launchPipelineExecution" in query:
-            data = {"launchPipelineExecution": {"__typename": "LaunchRunSuccess", "run": {"id": "run-1"}}}
+            data = {"launchPipelineExecution": {"__typename": "LaunchRunSuccess", "run": {"id": RUN}}}
         elif "runOrError" in query:
             status, tags = Dagster.ended
-            data = {"runOrError": {"__typename": "Run", "id": "run-1", "status": status,
+            data = {"runOrError": {"__typename": "Run", "id": RUN, "status": status,
                                    "tags": [{"key": key, "value": value} for key, value in tags.items()]}}
         else:
             data = {"version": "1.13.27"}
@@ -84,6 +96,7 @@ class TheProxiedRunInAirflow(unittest.TestCase):
 
     def execute(self, ended, run_type="scheduled"):
         Dagster.asked.clear()
+        Dagster.refused.clear()
         Dagster.ended = ended
         task = self.dag.get_task("run")
         ti = mock.Mock()
@@ -112,6 +125,18 @@ class TheProxiedRunInAirflow(unittest.TestCase):
         self.assertEqual(tags["foundation/run-kind"], "triggered")
         self.assertEqual(tags["dagster-airlift/airflow-task-id"], "run")
         ti.xcom_push.assert_called_once_with(key="outcome", value="changed")
+        self.assertEqual(Dagster.refused, [], "the gate lets every request of the task through")
+
+    def test_a_killed_task_terminates_its_run_through_the_gate(self):
+        task, _, context = self.execute(("SUCCESS", {"foundation/job-outcome": "changed"}))
+        task.execute(context)
+        task.on_kill()
+        self.assertEqual(Dagster.refused, [])
+        (terminate,) = [body for body in Dagster.asked if "terminateRun" in body["query"]]
+        self.assertEqual(terminate["variables"], {"runId": RUN})
+        # What the host may send, Airflow may not: a sensor stopped from the compose network is refused.
+        stop = json.dumps({"query": dagster_writes.STOP_SENSOR, "variables": {"id": "ab" * 20}}).encode()
+        self.assertIsNotNone(dagster_writes.refused(dagster_writes.airflow_allowed(), "POST", "/graphql", stop))
 
     def test_a_waiting_run_is_skipped_and_a_failed_one_fails(self):
         from airflow.sdk.exceptions import AirflowSkipException

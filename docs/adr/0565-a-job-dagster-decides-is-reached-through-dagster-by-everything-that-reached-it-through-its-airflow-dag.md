@@ -186,3 +186,91 @@ Airflow 가 결정하는 동안은 `run` 과제의 재시도가 같은 유닛 ru
   깨므로 기각한다.
 - **메모리.** 코드 서버 1700m(프록시 약 100 MiB + 코드 프로세스 169 MiB × 2 + run 6 × 169 MiB, × 1.17), 데몬 1600m → 384m. 호스트 예산
   61.96g / 62g. 웹서버는 이제 코드를 싣지 않으므로 다음 측정에서 줄인다.
+
+## 개정 각주 — 2026-11-14, 첫 Trino 독자가 떠난다: 운영 모양 원장
+
+이 각주는 결정을 바꾸지 않는다. Airflow 끄기와 함께 맡은 Trino 끄기의 첫 독자(운영 모양 원장, 2026-11-12 Trino 문장 1,939개 중 1,390개)를
+어디로 옮기는지 적는다.
+
+- **엔진 없이 매니페스트로.** 원장과 배치 검사가 Trino 의 `$files`·`$snapshots` 에 묻던 것은 표의 메타데이터뿐이다. 이미 있는 Rust
+  매니페스트 읽기(`lakehouse_snapshot_scan`, `inventory-lakehouse` 가 쓰는 것)가 파일마다 열 크기를 기록한 필드 id 를 더 내고, 발행기
+  명령 `lakehouse-file-shapes` 가 표마다 그 집합과 군집 키의 경계를 한 줄로 낸다. 마지막 데이터 커밋은 카탈로그 REST 메타데이터의
+  스냅숏 목록에서 읽는다. 원장 단위는 현재 릴리스의 승인된 발행기(`admitted-writer-runtime.sh`)를 부른다. 2026-11-13 운영 표 5개에서
+  DuckDB 로 매니페스트를 직접 읽은 열 집합이 Trino `$files` 와 같았다(표당 약 1초).
+- **읽기 전용 키만.** 매니페스트를 읽으려면 lakehouse 읽기 키 쌍과 버킷·엔드포인트가 필요한데, 버킷·엔드포인트를 가진 그룹
+  파일은 모두 쓰기 토큰도 가졌다(`source-sweep.env`, `parcel-publication.env`). 그룹은 이제 `fills` 를 선언할 수 있다: 배포의
+  `runtime_secrets.py rename` 단계가, 그 그룹 파일에 없는 비밀 아닌 설정을 그것을 이미 가진 다른 그룹 파일들이 같은 값으로 가질 때
+  덧붙인다. 자격 증명 모양의 이름(토큰에서 나온 이름, `TOKEN`·`KEY`·`SECRET`·`PASSWORD`·`URL` 을 담은 이름)은 계약이 거부한다.
+  `lakehouse-reader.env` 가 버킷·엔드포인트를 채우므로, 그것만 읽던 단위 셋(`admin-boundary-release`, `complex-boundary-release`,
+  `media-reconcile`)은 쓰기 토큰이 든 파일을 더 이상 읽지 않는다. 사람 단계는 없다.
+
+## 개정 각주 — 2026-11-18, §7 의 조각: 계보는 op 이 같은 이름으로
+
+이 각주는 §7 의 "같은 이름" 이 무엇인지 잰 값으로 좁히고, §7 이 병합 조건으로 둔 시험을 무엇으로 대신하는지 적는다.
+
+- **운영의 이름(2026-11-18, DataHub GraphQL 읽기).** 120개 흐름 모두 `urn:li:dataFlow:(airflow,foundation_<id>,perfectory)` 이고 자식은
+  `foundation_<id>` 와 `foundation_<id>.run` 둘이다. 흐름 urn 의 첫 칸은 이벤트의 `processing_engine` 이 정한다(DataHub 의 OpenLineage 변환,
+  우선순위: 환경 변수 → `processing_engine` → `producer`). 기록된 결과는 `SUCCESS`/`COMPLETE` 1,778 과 `FAILURE`/`FAIL` 297 뿐이다(건너뛴
+  task 는 따로 남지 않는다).
+- **그래서 같은 이름은 흐름 id 와 작업 이름이다.** op 은 엔진을 사실대로 `Dagster` 라 보내고(`lineage.py`), DataHub 의 흐름은
+  `urn:li:dataFlow:(dagster,foundation_<id>,perfectory)` 가 된다. 흐름 id·자식 작업 이름·namespace·부모 run·입출력 데이터셋은 Airflow 와 같다.
+  Airflow 의 이름을 빌려 쓰는 것(`processing_engine` 을 `Airflow` 로)은 카탈로그에 거짓을 쓰는 것이라 기각한다. 전역 환경 변수
+  (`DATAHUB_OPENLINEAGE_ORCHESTRATOR`)는 Spark 의 계보까지 바꾼다.
+- **읽는 쪽이 이어 붙인다**(§7 이 허락한 "읽는 쪽을 함께 고친다"). `operations.rs` 는 이미 흐름을 id 로 모은다. 한 작업의 run 이력만
+  urn 전체 대신 흐름 안의 작업 이름으로 고르게 바꿨다: 옮긴 작업의 이력은 Airflow 가 보낸 run 에서 이어진다(시험
+  `a_job_moved_to_dagster_keeps_one_run_history_across_the_two_engines_flows`).
+- **보내는 것.** run 하나에 Airflow 와 같은 모양: 작업 `foundation_<id>` 의 START(run 이 생긴 시각 — DAG run 이 큐에 든 시각과 같은 뜻)와
+  마지막 시도의 COMPLETE/FAIL, 시도마다 `foundation_<id>.run` 의 START·COMPLETE/FAIL(부모 = 그 run, 작업의 입출력). 할 일 없는 run·배포가 쥔
+  run 은 COMPLETE 다. 클라이언트는 Airflow 의 공급자가 쓰는 `openlineage-python` 1.53.0, 전송 설정은 compose 의 YAML 앵커 하나로 Airflow 와
+  같다. 코드 서버가 `metadata-shared` 에 붙는다. 보내기 실패는 run 을 실패시키지 않는다. `proxied` 작업은 보내지 않는다(DAG 가 보낸다).
+- **§7 의 "CI 의 DataHub" 시험 대신.** CI 에는 DataHub 가 없고(표준 러너에 GMS·검색·Kafka 를 올리는 비용), 운영 DataHub 에 시험 이벤트를 쓰는
+  것은 이 작업의 권한 밖이다. 고정한 것: 이벤트의 이름·부모·엔진·데이터셋(`test_dagster_lineage.py`, `dagster-observe` 레인), 두 엔진의
+  흐름을 한 이력으로 읽는 것(위 Rust 시험), 운영 DataHub 의 실제 urn 모양(위 측정). 남는 것은 DataHub 가 `dagster` 흐름 밑에 같은 자식
+  이름을 만드는지 하나이고, 단계를 여는 PR 이 첫 `dagster` 작업의 첫 run 뒤 DataHub 를 읽어 확인한다(붙지 않으면 그 작업을 `proxied` 로
+  되돌린다, §1).
+
+## 개정 각주 — 2026-11-19, §8 의 조각: 운영 지도는 `dagster` 작업을 읽기 전용 웹서버에서 읽는다
+
+이 각주는 결정을 바꾸지 않는다. §8 을 구현한 모양과 잰 값을 적는다.
+
+- **누가 결정하나.** 작업 목록의 `dagster_stage` 를 `foundation-api` 도 읽고, 작업 상태에 `decided_by`(`airflow`|`dagster`)를 싣는다.
+  `dagster` 만 읽는 곳이 바뀐다. 그 앞의 단계는 모두 DAG 로 돈다.
+- **읽기.** `dagster` 작업의 실패(또는 waiting)한 최신 run 은 그 Dagster 작업(`foundation_job__<id>`)의 run 목록에서 찾고, 줄은 그 run 의
+  메시지 사건이다(op 이 강제 명령의 줄을 그대로 남긴다). 원인 분류(`classify`)와 가리기(`mask`)는 같은 함수다. 열린 run 은 끝나지 않은
+  Dagster run 의 만든 시각. `scheduler_run_id` 는 Dagster run id 가 된다.
+- **링크.** `OperationsLinks.dagster_url`(운영 웹서버의 루프백 주소, 비밀이 아니라 compose 에 적는다)에서 Dawneer 는 run 이면
+  `/runs/<id>`, 아니면 `/locations/foundation/jobs/foundation_job__<id>` 를 연다. 문구는 오케스트레이터 이름 없이 "실패 로그"·"실행 기록".
+- **읽기 전용 웹서버.** `dagster-webserver-read-only`(`--read-only`, 호스트 포트 없음, identity 망에서 `foundation-api` 만 닿는다).
+  코드를 싣지 않는다(위치는 코드 서버의 것). 182 MiB(2026-11-19, 노트북, gRPC 위치, `--read-only` 유무 같음) × 1.5 = 288m 이고, 그만큼
+  Trino 의 상한을 16g → 16096m 로 줄였다(힙 11.0GiB 는 질의 7GB + 여유 3GB 위, Trino 읽기들이 옮겨 가 비어 간다). 호스트 합계는 61.96g 그대로.
+  첫 배포 뒤 호스트에서 다시 잰다.
+
+## 개정 각주 — 2026-11-19, §8 의 둘째 조각: 쓰기 웹서버는 두 호출자의 문서만 받는다
+
+이 각주는 결정을 바꾸지 않는다. §8 이 읽는 쪽을 읽기 전용 웹서버로 옮긴 데 이어, 쓰는 쪽을 좁힌 모양을 적는다.
+
+- **까닭.** Dagster OSS 웹서버에는 로그인이 없다. 운영 웹서버가 호스트 루프백 `127.0.0.1:19085` 에 열려 있어서, 호스트의 어느
+  프로세스든 GraphQL 로 run 을 띄우고 끝내고 센서를 멈출 수 있었다.
+- **읽는 쪽은 모두 읽기 전용.** 호스트 포트 `127.0.0.1:19085` 는 이제 `dagster-webserver-read-only` 가 연다. 자산 대조기의
+  지표(`observers.dagster.ui`), 직원의 SSH 터널, 운영 지도(identity 망)가 모두 이것을 읽는다. `--read-only` 는 REST 보고
+  (`/report_asset_check/` 등)도 거절한다.
+- **쓰는 쪽은 둘, 각자의 문서만.** 쓰기 웹서버(`dagster-webserver`)는 호스트 포트가 없고 `writer_gate.py`(이미지 안) 뒤에서만
+  돈다. 문지기는 Dagster 자신의 웹서버 CLI 를 그대로 띄우고 듣는 곳마다 허용 목록(`orchestration/dags/dagster_writes.py`)을 건다.
+  - compose 망(TCP): Airflow 의 proxied `run` 작업이 보내는 것. dagster-airlift 의 확인·실행·run 조회 문서(설치된 패키지에서 읽는다)와
+    `TERMINATE_RUN`. 실행은 `foundation` 위치의 `foundation_job__<id>` 만, run 설정·부분 실행 없이.
+  - 유닉스 소켓 `/run/foundation-dagster/writer.sock`(디렉터리 0700, 소유 uid 10001 — 이미지의 계정이고 이 호스트에서는
+    foundation-api 의 uid, API 컨테이너는 이 디렉터리를 붙이지 않는다; `infra/tmpfiles/foundation-dagster-writer.conf`): 배포와
+    run-now(`job_orchestrator.py`, root)의 센서 목록·멈춤·시작·실행, 배포의 위치 다시 읽기와 로드 오류 조회
+    (`airflow-runtime.sh` 가 컨테이너 안에서 `writer_gate.py ask` 로 묻는다), 그리고 `GET /server_info`.
+  - 그 밖의 문서·경로·웹소켓·UI 는 403 이고 Dagster 에 닿지 않는다. 문서는 공백만 무시하고 글자 그대로 견준다.
+- **시험.** 규칙 자체(`test_dagster_writer_gate.py`), 배포·run-now 의 요청을 실제 Dagster GraphQL 에 문지기 규칙을 거쳐 보내는 것
+  (`test_dagster_job_orchestrator.py`, Dagster 이미지), proxied 작업의 요청을 Airflow 이미지에서 문지기 뒤의 가짜 Dagster 로 보내는
+  것(`test_airflow_proxied_run.py`).
+- **배포.** 문지기와 규칙은 이미지에 복사한다. 바뀌면 이미지가 바뀌고 compose 가 컨테이너를 다시 만든다(같은 이미지를 쓰는 코드
+  서버도 다시 만들어지며, 그때 열린 run 은 최대 실행 시간에 닫힌다, §9). 소켓 디렉터리는 activate 가 tmpfiles 로 만들고, 부팅 때도
+  Docker 보다 먼저 다시 만든다.
+
+## 개정 각주 — 2026-11-19, 묶음으로 옮긴다([ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md))
+
+§1 의 단계를 여는 PR 은 [ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md) §2 의 묶음 필드(`dagster_group`)와 "한 묶음의 켜진 작업은 단계 하나" 검사를 함께 연다.
+§10(Airflow 를 지우는 때)은 그대로이고, 이중 실행(`dual_run.py`)은 그보다 먼저, 첫 묶음이 옮긴 뒤 지운다([ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md) §4).

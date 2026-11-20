@@ -18,6 +18,7 @@ function job(overrides: Partial<ScheduledJobStatus>): ScheduledJobStatus {
     typical_duration_runs: 0,
     recent_runs: [],
     started_by: "schedule",
+    decided_by: "airflow",
     upstream_job_ids: [],
     pipeline_graph_edges: [],
     reads: [],

@@ -72,8 +72,8 @@ function JobCard({
         </ul>
       ) : null}
       <div className="mt-2 flex flex-wrap gap-3">
-        <ExternalLink href={schedulerUrl(links, job.dag_id, failed?.kind === "failed" ? failed.scheduler_run_id : null)}>
-          {failed ? "Airflow 실패 로그" : "Airflow 실행 기록"}
+        <ExternalLink href={schedulerUrl(links, job.dag_id, failed?.kind === "failed" ? failed.scheduler_run_id : null, job)}>
+          {failed ? "실패 로그" : "실행 기록"}
         </ExternalLink>
         <ExternalLink href={catalogLineageUrl(links, job.catalog_job_urn ?? null)}>DataHub 계보</ExternalLink>
       </div>

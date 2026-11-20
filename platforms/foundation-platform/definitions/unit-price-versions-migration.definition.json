@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "unit_price_versions_migration",
+      "dagster_group": "silver",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",

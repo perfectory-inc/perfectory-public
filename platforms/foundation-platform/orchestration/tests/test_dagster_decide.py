@@ -259,7 +259,10 @@ class TheOwedRunsTest(unittest.TestCase):
         reconciler = next(job for job in jobs["jobs"] if job.get("reconciles"))
         stages = (*observe_assets.job_specs.IMPLEMENTED_DAGSTER_STAGES, "dagster")
         seen = []
+        # One job switched alone, so the group rule (root ADR-0583 §2, its own test) is set aside here;
+        # the order rule is what this test reads.
         with mock.patch.object(observe_assets.job_specs, "IMPLEMENTED_DAGSTER_STAGES", stages), \
+                mock.patch.object(observe_assets.job_specs, "dagster_groups", lambda *_: []), \
                 mock.patch.object(decide, "evaluator", lambda spec, limit, reconcilers=(): seen.append(
                     [found.job_id for found in reconcilers]) or (lambda context: None)):
             reconciler["dagster_stage"] = "proxied"
@@ -285,7 +288,9 @@ class TheSensorTest(unittest.TestCase):
         next(job for job in jobs["jobs"] if job["id"] == "gold_unit_price_rebuild")["dagster_stage"] = "dagster"
         stages = (*observe_assets.job_specs.IMPLEMENTED_DAGSTER_STAGES, "dagster")
         with mock.patch.object(observe_assets.job_specs, "IMPLEMENTED_DAGSTER_STAGES", stages), \
-                mock.patch.object(observe_assets.job_specs, "dagster_order", lambda *_: []):
+                mock.patch.object(observe_assets.job_specs, "dagster_order", lambda *_: []), \
+                mock.patch.object(observe_assets.job_specs, "dagster_groups", lambda *_: []):
+            # One job switched alone: the order and group rules have their own tests (test_job_specs).
             return decide.sensors(jobs, graph), run_jobs.run_jobs(jobs, graph), jobs, graph
 
     def test_one_sensor_per_dagster_job_starts_its_dagster_job_with_its_priority(self):
@@ -318,6 +323,45 @@ class TheSensorTest(unittest.TestCase):
             clock[0] += STEP
             context = build_sensor_context(instance=instance, cursor=context.cursor)
             self.assertIsInstance(evaluate(context), SkipReason, "the same event never starts a second run")
+
+    def test_the_first_look_counts_from_the_airflow_run_airlift_saw(self):
+        # Root ADR-0583 §6: a job comes to `dagster` from Airflow with no Dagster run of its own. Its last
+        # Airflow run is on its outputs' materializations as airlift made them (the DAG run's raw metadata),
+        # so an input that changed after that run, while the deploy held the DAG, is owed one run.
+        import time
+
+        import observe_assets
+        from dagster import AssetMaterialization, DagsterInstance, JsonMetadataValue, RunRequest, SkipReason, \
+            build_sensor_context
+
+        import decide
+
+        spec = spec_of("gold_unit_price_rebuild")
+        evaluate = decide.evaluator(spec, limit_of(spec.job_id), clock=lambda: clock[0])
+        output = observe_assets.asset_key(spec.outputs[0])
+        source = observe_assets.asset_key(spec.starting_inputs[0])
+
+        def airflow_run(instance, started):
+            iso = datetime.datetime.fromtimestamp(started, datetime.UTC).isoformat()
+            instance.report_runless_asset_event(AssetMaterialization(
+                output, metadata={decide.AIRLIFT_RUN_METADATA: JsonMetadataValue({"start_date": iso})}))
+
+        for airflow_started, owed in ((time.time() - 3600, True), (time.time() + 3600, False)):
+            with self.subTest(owed=owed), DagsterInstance.ephemeral() as instance:
+                clock = [time.time()]
+                airflow_run(instance, airflow_started)
+                instance.report_runless_asset_event(AssetMaterialization(source))
+                context = build_sensor_context(instance=instance)
+                self.assertIsInstance(evaluate(context), SkipReason)
+                clock[0] += STEP
+                context = build_sensor_context(instance=instance, cursor=context.cursor)
+                found = evaluate(context)
+                if owed:
+                    (request,) = found
+                    self.assertIsInstance(request, RunRequest)
+                    self.assertEqual(request.tags["foundation/run-kind"], "triggered")
+                else:
+                    self.assertIsInstance(found, SkipReason, "the Airflow run read the input: nothing owed")
 
 
 if __name__ == "__main__":

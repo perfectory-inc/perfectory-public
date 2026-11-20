@@ -26,7 +26,10 @@ services:
     # host and held 27.7GB idle on a 62GB machine that also runs Spark and the data catalog
     # (root ADR-0118 §6). The query limits that make 16g enough are in config.properties; the
     # host total it has to fit in is checked by scripts/guard/every-container-has-a-memory-cap.sh.
-    mem_limit: 16g
+    # 16g less the 288m of Dagster's read-only webserver (compose.orchestration.yml, root ADR-0565 §8):
+    # the shape ledger, the data contracts and the Silver-to-Postgres loads no longer read through
+    # Trino; the heap is still 11.0GiB, over a query's 7GB and the 3GB headroom.
+    mem_limit: 16096m
     environment:
       # glibc makes up to 8 malloc arenas per core (160 on ai-server's 20); idle Trino held 164 of them,
       # 2.5GB outside the heap that Trino's memory accounting cannot see, and a query took the process

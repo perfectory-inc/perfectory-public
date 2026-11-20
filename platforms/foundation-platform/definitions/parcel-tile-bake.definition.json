@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "parcel_tile_bake",
+      "dagster_group": "gold",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",

@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "shape_ledger_check",
+      "dagster_group": "operations",
       "scope": "full",
       "full_reason": "It reads the catalog metadata and the $files and $snapshots metadata tables of every table, no data file.",
       "full_cost": "measured from the 2026-10-29 journal: 37 s a run (12:36:12-12:36:49 UTC), no data file read.",

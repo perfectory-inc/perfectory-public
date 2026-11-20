@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "industrial_complex_notice_collect",
+      "dagster_group": "collect",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
@@ -50,6 +51,7 @@
     },
     {
       "id": "industrial_complex_notice_silver",
+      "dagster_group": "silver",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",

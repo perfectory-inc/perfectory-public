@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "onbid_public_auction_silver",
+      "dagster_group": "silver",
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",

@@ -15,6 +15,11 @@ x-log-cap: &log-cap
     max-size: "50m"
     max-file: "3"
 
+# Where every run is reported to the data catalog (root ADR-0118 §2), on the network DataHub's GMS joins:
+# Airflow's OpenLineage provider for a DAG's runs, and the op of a job Dagster decides for its own
+# (orchestration/dagster/lineage.py, root ADR-0565 §7), so both reach the same endpoint.
+x-openlineage-transport: &openlineage-transport '{"type": "http", "url": "http://datahub-gms:8080", "endpoint": "openapi/openlineage/api/v1/lineage"}'
+
 x-airflow-environment: &airflow-environment
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
   # One run per slot of the pools in orchestration/jobs.v1.json (`spark`: FLOOR alone, or one fold
@@ -32,9 +37,8 @@ x-airflow-environment: &airflow-environment
   AIRFLOW__API_AUTH__JWT_SECRET: "${AIRFLOW_JWT_SECRET:?run airflow-runtime.sh init-secrets}"
   AIRFLOW__API__SECRET_KEY: "${AIRFLOW_API_SECRET_KEY:?run airflow-runtime.sh init-secrets}"
   AIRFLOW__API__BASE_URL: http://127.0.0.1:19080
-  # Every run reports to the data catalog (root ADR-0118 §2), on the network DataHub's GMS joins.
   AIRFLOW__OPENLINEAGE__NAMESPACE: perfectory
-  AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type": "http", "url": "http://datahub-gms:8080", "endpoint": "openapi/openlineage/api/v1/lineage"}'
+  AIRFLOW__OPENLINEAGE__TRANSPORT: *openlineage-transport
   # Where a proxied job's `run` task launches its Dagster run (root ADR-0431 §5): the webserver, on this
   # project's network.
   FOUNDATION_DAGSTER_URL: http://dagster-webserver:3000
@@ -194,18 +198,55 @@ services:
     # start, so what it needs was not measurable under it. A proxied job's Airflow task launches and
     # polls its run here (root ADR-0431 §5), so the cap leaves room before the first job is proxied:
     # x1.5 of the capped reading, measured again after the first proxied family's first day.
+    #
+    # The only webserver that can change Dagster, and it answers only its two callers (root ADR-0565 §8):
+    # Dagster OSS has no sign-in, so `writer_gate.py` (in the image) runs Dagster's own webserver behind
+    # an allow-list per listener: on this project's network what a proxied job's `run` task sends, on
+    # the unix socket in /run/foundation-dagster (0700, infra/tmpfiles/foundation-dagster-writer.conf)
+    # what the deploy and an operator's run-now send (scripts/deploy/job_orchestrator.py). No host port:
+    # staff and every reader use dagster-webserver-read-only, which the loopback port now publishes.
     mem_limit: 448m
     restart: unless-stopped
-    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster/home/workspace.yaml"]
+    command: ["python", "/opt/dagster/gate/writer_gate.py", "-h", "0.0.0.0", "-p", "3000",
+              "-w", "/opt/dagster/home/workspace.yaml"]
+    environment:
+      <<: *dagster-environment
+    volumes:
+      - /opt/foundation-platform:/opt/foundation-platform:ro
+      - dagster-state:/var/lib/dagster
+      - /run/foundation-dagster:/run/foundation-dagster
+    depends_on:
+      airflow-apiserver:
+        condition: service_healthy
+
+  # The webserver every reader asks (root ADR-0565 §8): the same GraphQL and UI without a mutation
+  # (`--read-only`, which also refuses the REST reports). foundation-api asks it for the runs and logs
+  # of the jobs Dagster decides, on the identity network both join, as it reaches airflow-apiserver
+  # (compose.orchestration-bridge.yml); the asset reconciler's metrics and staff (through the SSH tunnel)
+  # on the host's loopback (jobs.v1.json observers.dagster.ui). It loads no code: the location is
+  # dagster-code-server's. 182 MiB measured 2026-11-19 with a gRPC location (laptop, 1.13.27, with or
+  # without --read-only), x1.5 as above; measured again on the host after the first deploy. Its 288m
+  # come out of Trino's cap (compose.lakehouse.yml), which the Trino readers' moves leave idle.
+  dagster-webserver-read-only:
+    logging: *log-cap
+    image: foundation-platform-dagster:local
+    pull_policy: never
+    profiles: ["dagster-observe"]
+    mem_limit: 288m
+    restart: unless-stopped
+    command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster/home/workspace.yaml",
+              "--read-only"]
     environment:
       <<: *dagster-environment
     ports:
       - "127.0.0.1:19085:3000"
     volumes:
-      - /opt/foundation-platform:/opt/foundation-platform:ro
       - dagster-state:/var/lib/dagster
+    networks:
+      default: {}
+      identity-shared: {}
     depends_on:
-      airflow-apiserver:
+      dagster-code-server:
         condition: service_healthy
 
   # The code location's own server (root ADR-0565 §9; Dagster's documented Docker deployment runs the
@@ -236,6 +277,8 @@ services:
       # scheduler's connection from runtime.env, whose key can only run the forced command, and only from
       # this project's network. Only this container holds it: runs are its processes.
       FOUNDATION_HOST_CONNECTION: "${AIRFLOW_CONN_FOUNDATION_HOST:?run airflow-runtime.sh init-secrets}"
+      # A job Dagster decides reports its runs from its op, as its DAG did (lineage.py).
+      FOUNDATION_OPENLINEAGE_TRANSPORT: *openlineage-transport
     extra_hosts:
       - "foundation-host:host-gateway"
     volumes:
@@ -248,7 +291,8 @@ services:
       retries: 30
       start_period: 1m0s
     # The asset checks' runs read the lakehouse through Trino, on the compute project's network, and
-    # the dual run pages through Alertmanager, on the runtime project's. The host sees a job run come
+    # the dual run pages through Alertmanager, on the runtime project's; a run reports to DataHub's GMS on
+    # the shared metadata network. The host sees a job run come
     # from this project's network (`default`, the gateway every other route loses to): the scheduler's
     # key is accepted only from there (foundation-release.sh `timers`, authorized_keys `from=`).
     networks:
@@ -256,6 +300,7 @@ services:
         gw_priority: 1
       lakehouse-compute: {}
       foundation-runtime: {}
+      metadata-shared: {}
     depends_on:
       airflow-apiserver:
         condition: service_healthy

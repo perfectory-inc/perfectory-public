@@ -162,7 +162,8 @@ class GoldPanelRebuild(unittest.TestCase):
         self.jobs = release / "orchestration/jobs.v1.json"
         self.jobs.write_bytes(job_specs.JOBS.read_bytes())
         # Which job makes each table is read from the job list and the graph (root ADR-0333).
-        (release / "orchestration/dags/job_specs.py").write_bytes((ORCHESTRATION / "dags/job_specs.py").read_bytes())
+        for name in ("job_specs.py", "dagster_writes.py"):
+            (release / "orchestration/dags" / name).write_bytes((ORCHESTRATION / "dags" / name).read_bytes())
         (release / "docs/catalog").mkdir(parents=True)
         (release / "docs/catalog/pipeline-graph.v1.json").write_bytes(job_specs.GRAPH.read_bytes())
         (release / "infra/datahub").mkdir(parents=True)

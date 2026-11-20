@@ -12,6 +12,7 @@ import io
 import pathlib
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
 import urllib.error
@@ -96,6 +97,11 @@ class FakeResponse(io.BytesIO):
 class DataQualityJobTests(unittest.TestCase):
     def setUp(self):
         self.job = load_quality_job()
+        # The unit's StateDirectory on the host; here a directory of the test's own.
+        state = tempfile.TemporaryDirectory()
+        self.addCleanup(state.cleanup)
+        for name, path in (("WORK", "duckdb"), ("FIRST_CHECKED", "first-checked.json")):
+            setattr(self.job, name, pathlib.Path(state.name) / path)
         patcher = mock.patch.object(internal_http.time, "sleep")
         self.sleep = patcher.start()
         self.addCleanup(patcher.stop)
@@ -116,28 +122,39 @@ class DataQualityJobTests(unittest.TestCase):
             self.assertEqual(self.job.assertions_of("contract"), [])
         self.assertEqual(self.sleep.call_count, 1)
 
-    def test_a_trino_that_did_not_answer_is_asked_again(self):
-        runs = [
-            subprocess.CompletedProcess([], 1, "", "Error running command: JsonResponse{statusCode=503, ...}"),
-            subprocess.CompletedProcess([], 0, "a,varchar\n", ""),
-        ]
-        with mock.patch.object(self.job.subprocess, "run", side_effect=runs):
-            self.assertEqual(self.job.trino("SHOW COLUMNS FROM t"), [["a", "varchar"]])
+    def publisher_answers(self, *exits):
+        """subprocess.run as the publisher's `lakehouse-query` would exit, in turn."""
+        def run(argv, **_options):
+            status, output = exits[len(calls)]
+            calls.append(argv)
+            if status:
+                raise subprocess.CalledProcessError(status, argv, output, "the catalog did not answer")
+            return subprocess.CompletedProcess(argv, 0, output, "")
+        calls = []
+        return run, calls
 
-    def test_a_query_error_is_still_an_absent_table_at_once(self):
-        runs = [subprocess.CompletedProcess([], 1, "", "Query failed: Table 'r2.silver.t' does not exist")]
-        with mock.patch.object(self.job.subprocess, "run", side_effect=runs) as run:
-            with self.assertRaises(LookupError):
-                self.job.trino("SHOW COLUMNS FROM t")
-        self.assertEqual(run.call_count, 1)
+    def test_a_publisher_run_whose_catalog_did_not_answer_is_run_again(self):
+        answer = '{"table": "silver.t", "snapshot_id": 7, "rows": []}\n'
+        run, calls = self.publisher_answers((1, ""), (0, answer))
+        with mock.patch.object(self.job.subprocess, "run", run):
+            answers = self.job.lakehouse([("silver.t", "DESCRIBE SELECT * FROM {source}", None)])
+        self.assertEqual(answers, [{"table": "silver.t", "snapshot_id": 7, "rows": []}])
+        self.assertEqual(len(calls), 2)
+        self.assertIn("lakehouse-query", calls[0][2], "the admitted release's publisher, through its runtime")
 
-    def test_a_trino_that_stays_down_fails_the_run_instead_of_hiding_tables(self):
-        down = subprocess.CompletedProcess([], 1, "", "java.net.ConnectException: Connection refused")
-        with mock.patch.object(self.job.subprocess, "run", return_value=down) as run:
-            with self.assertRaises(internal_http.TrinoUnavailable) as raised:
-                self.job.trino("SHOW COLUMNS FROM t")
-        self.assertNotIsInstance(raised.exception, LookupError)
-        self.assertEqual(run.call_count, internal_http.DAILY_JOB_POLICY.attempts)
+    def test_a_publisher_that_stays_down_fails_the_run_instead_of_hiding_tables(self):
+        run, calls = self.publisher_answers(*[(1, "")] * internal_http.DAILY_JOB_POLICY.attempts)
+        with mock.patch.object(self.job.subprocess, "run", run):
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.job.lakehouse([("silver.t", "DESCRIBE SELECT * FROM {source}", None)])
+        self.assertEqual(len(calls), internal_http.DAILY_JOB_POLICY.attempts)
+
+    def test_an_answer_short_of_the_queries_fails_at_once(self):
+        run, calls = self.publisher_answers((0, '{"table": "silver.t", "snapshot_id": 7, "rows": []}\n'))
+        with mock.patch.object(self.job.subprocess, "run", run):
+            with self.assertRaises(RuntimeError):
+                self.job.lakehouse([("silver.t", "SELECT 1 FROM {source}", None), ("silver.u", "SELECT 1 FROM {source}", None)])
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

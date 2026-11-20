@@ -5,6 +5,7 @@
   "jobs": [
     {
       "id": "silver_refresh_real_estate_broker_office",
+      "dagster_group": "silver",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",

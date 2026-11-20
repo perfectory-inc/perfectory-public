@@ -729,3 +729,26 @@ async fn a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_
     }
     Ok(())
 }
+
+/// The Silver-to-Postgres loads read millions of rows through this (root ADR-0565): each row is one
+/// JSON object, handed over as it streams, and the first refusal stops the read.
+#[test]
+fn rows_stream_as_json_objects_and_a_refusal_stops_the_read() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(root.path())?;
+    let rows = stage.json_rows(
+        "SELECT range AS n, '99999' || range::VARCHAR AS pnu, NULL::VARCHAR AS absent FROM range(5000)",
+    )?;
+    assert_eq!(rows.len(), 5000, "every vector of the stream");
+    assert_eq!(rows[1], r#"{"n":1,"pnu":"999991","absent":null}"#);
+
+    let mut seen = 0;
+    let refused = stage.each_json_row("SELECT range AS n FROM range(5000)", |_| {
+        seen += 1;
+        anyhow::ensure!(seen < 3000, "the reader refused row {seen}");
+        Ok(())
+    });
+    assert!(refused.is_err());
+    assert_eq!(seen, 3000, "nothing after the refusal");
+    Ok(())
+}

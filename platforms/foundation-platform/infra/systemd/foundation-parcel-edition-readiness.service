@@ -14,6 +14,8 @@ User=foundation-platform
 Environment=DOCKER_CONFIG=/var/lib/foundation-platform/docker-config
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=-/etc/foundation-platform/operations-map.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 # Root ADR-0490 §5: a 20-minute R2 key for parcel-editions/ of the ledger bucket only, minted as root from
 # the control checkout into the RuntimeDirectory (root ADR-0476 §3); the job copies the host promotions
 # ledger there for CI. The job's own process never sees the account token.

@@ -125,7 +125,21 @@ class ARunOutlivesADeploy(unittest.TestCase):
         runtime = (PLATFORM / "scripts/deploy/airflow-runtime.sh").read_text(encoding="utf-8")
         sync = runtime.split("sync_dagster() {", 1)[1].split("\n}\n", 1)[0]
         self.assertNotIn("compose restart", sync)
-        self.assertIn("reloadRepositoryLocation", sync)
+        # Through the writable webserver's gate, from inside its container (root ADR-0565 §8).
+        self.assertIn("dagster_ask reload", sync)
+        self.assertIn("reloadRepositoryLocation", (PLATFORM / "orchestration/dags/dagster_writes.py").read_text(encoding="utf-8"))
+        self.assertNotIn("19085/graphql", runtime, "no host port reaches the writable webserver")
+
+    def test_only_the_read_only_webserver_has_a_host_port(self):
+        compose = (PLATFORM / "compose.orchestration.yml").read_text(encoding="utf-8")
+        for name in ("dagster-webserver", "dagster-code-server", "dagster-daemon"):
+            self.assertNotIn("ports:", self.service(compose, name), name)
+        read_only = self.service(compose, "dagster-webserver-read-only")
+        self.assertIn('"--read-only"]', read_only)
+        self.assertIn('"127.0.0.1:19085:3000"', read_only)
+        writable = self.service(compose, "dagster-webserver")
+        self.assertIn("/opt/dagster/gate/writer_gate.py", writable)
+        self.assertNotIn('"dagster-webserver",', writable, "the writable webserver runs only behind its gate")
 
     def test_every_run_has_a_max_runtime(self):
         queue = (PLATFORM / "orchestration/dagster/dagster.yaml").read_text(encoding="utf-8")
