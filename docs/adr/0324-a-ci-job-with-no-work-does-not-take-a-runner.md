@@ -83,3 +83,7 @@ Foundation 게이트와 `required/*` 에는 아직 적용되지 않았다.
   러너 대기 합 8,609 s → 4,074 s, 벽시계 17.8 → 14.2분. 두 탐침 모두 다른 PR 25개가 동시에 돌던 때라 잡마다
   중앙값 4–5분을 기다렸다 — 남은 벽시계는 조직 전체의 러너 경합이고, Foundation 임계경로의 일은
   scope 23 s + Rust 325 s + required 8 s ≈ 6분이다.
+
+---
+
+2026-11-20 개정 주: Foundation 의 PR 은 경로로 고르는 게이트 전부와 Postgres 통합 시험을 머지 큐에 맡긴다(큐·수동·야간 실행의 선택은 그대로다): [ADR-0580](./0580-a-runner-is-taken-only-by-a-job-whose-work-outweighs-its-setup-and-the-release-dry-run-runs-once-in-the-merge-queue.md) 3항.
