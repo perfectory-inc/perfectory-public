@@ -21,6 +21,8 @@ RestartSec=6h
 RestartSteps=2
 RestartMaxDelaySec=1d
 User=foundation-platform
+# Its docker calls read the account's own config, not $HOME/.docker under /nonexistent (scripts/ops/admitted-writer-runtime.sh).
+Environment=DOCKER_CONFIG=/var/lib/foundation-platform/docker-config
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 Environment=FOUNDATION_RECOVERY_EVIDENCE_DIR=/var/lib/foundation-platform/recovery
