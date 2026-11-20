@@ -101,8 +101,9 @@ pub const HIGHWAY_FIELDS: [(&str, &str); 2] =
     [("route_name", "노선명"), ("facility_name", "출입시설")];
 /// The stores' coordinate headers.
 pub const STORE_COORDINATES: (&str, &str) = ("위도", "경도");
-/// Resolution 9 cells average 0.105 km² (edge about 174 m, h3geo.org); two rings span about five
-/// cell edges, about 500 m around the parcel.
+/// Resolution 9 cells average 0.105 km² (edge about 174 m, h3geo.org); the parcel's cell and the
+/// two rings around it are 19 cells, about 2.0 km², as much as a circle of about 800 m radius,
+/// centred on the parcel's cell (not on the parcel).
 pub const STORE_H3_RESOLUTION: u8 = 9;
 /// The rings around a parcel's cell whose stores it counts.
 pub const STORE_H3_RING: u8 = 2;

@@ -80,3 +80,9 @@
 ---
 
 개정 메모(2026-11-14): 계산 엔진과 표는 [ADR-0567](./0567-the-parcel-nearby-gold-is-born-on-duckdb-as-a-table-of-row-versions-with-the-exact-nearest-and-ties-broken-by-the-facility-key.md) 이 고쳤다 — Sedona `ST_KNN` 대신 발행기 안 DuckDB 의 정확한 최근접(같은 거리는 시설의 `row_key`), 표는 `gold.parcel_nearby_versions`. 문서의 모양은 그대로다.
+
+개정 메모(2026-11-20, 사실 바로잡기 — 결정은 그대로): ① §1 `commercial_store_count` 의 "약 500 m" 는 틀렸다. 해상도 9 칸 19 개는
+약 2.0 km² 로 반지름 약 800 m 원의 넓이이고, 필지가 아니라 필지가 속한 칸이 가운데다(같은 칸의 필지는 같은 수). 화면 문구도
+"주변 약 800m 권역" 으로 고쳤다. ② §3 "그 파일들은 … 한 해 몇 번 바뀐다" 도 틀렸다. 계약
+`data-go-kr-file-data.contract.json` 의 `published` 로 학교 위치는 매달, 대학·도시철도역은 해마다, 공항·철도역·출입시설은
+비정기, 상가는 분기다. 근거: 공간 관계 검토(2026-11-20) N1·N3.

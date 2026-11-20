@@ -16,9 +16,11 @@ lane's gate sample (the file FOUNDATION_PLATFORM_<LANE>_BY_PNU_SERVING_MONITOR_S
 written on the host at the lane's cut-over: no PNU enters the repository), takes the first entry the
 edge does not answer 404 (within contract by_pnu_section_packs.edge_probe.scan_documents) and GETs its
 document `reads` more times. Every one of those answers must be 200, of the lane's content type, a
-non-empty JSON object. On the Worker that serves parcel_media it then takes the first blob the media
-documents lane's sample documents name and GETs it `reads` times: 200, the content type of its
-extension, bytes whose sha256 is the one in its name.
+non-empty JSON object, and for a lane `edge_probe.content` names, one whose section holds a non-null
+value for at least one of its `any_of` fields (an all-null document fails). On the Worker that
+serves parcel_media it then takes the first blob the media documents lane's sample documents name
+and GETs it `reads` times: 200, the content type of its extension, bytes whose sha256 is the one in
+its name.
 
 2026-10-29: every onbid photo GET after the first answered 500, while a HEAD check passed. The first
 read of a version may already come from the edge copy, which every version shares; the second always
@@ -129,6 +131,23 @@ def json_document(answer: Answer) -> tuple[Any, str | None]:
     return value, None
 
 
+def content_problem(contract: dict[str, Any], lane: str, document: Any) -> str | None:
+    """Why the document of a lane edge_probe.content names says nothing, or None (root ADR-0327).
+
+    Its section must hold a non-null value for at least one of the lane's `any_of` fields."""
+
+    rule = contract["by_pnu_section_packs"]["edge_probe"].get("content", {}).get(lane)
+    if rule is None:
+        return None
+    section = contract["by_pnu_lanes"][lane]["section"]
+    held = document.get(section) if isinstance(document, dict) else None
+    if not isinstance(held, dict):
+        return f"no {section!r} object"
+    if all(held.get(field) is None for field in rule["any_of"]):
+        return f"every one of {section}.{{{','.join(rule['any_of'])}}} is null"
+    return None
+
+
 def decoded(answer: Answer) -> Answer:
     """The answer with its gzip content coding removed, or a 0 answer saying it does not decode."""
 
@@ -196,6 +215,12 @@ class Probe:
             elif problem := judge(answer):
                 self.fail(f"{what}: {problem}")
 
+    def judge(self, lane: str, answer: Answer) -> str | None:
+        """A non-empty JSON object, and for a lane edge_probe.content names, one that says something."""
+
+        document, problem = json_document(answer)
+        return problem or content_problem(self.contract, lane, document)
+
     def lane(self, lane: str, prefix: str, content_type: str) -> list[str]:
         """Holds the first sample entry the edge serves; the lane's sample ([] when not cut over)."""
 
@@ -212,7 +237,7 @@ class Probe:
         for key in sample[: self.policy["scan_documents"]]:
             path = f"{prefix}{request_path_of(key)}"
             if self.get(path)[0] != 404:
-                self.hold(path, content_type, lambda answer: json_document(answer)[1])
+                self.hold(path, content_type, lambda answer: self.judge(lane, answer))
                 return sample
         self.fail(f"{lane}: none of the first {self.policy['scan_documents']} entries of its gate sample is served")
         return sample

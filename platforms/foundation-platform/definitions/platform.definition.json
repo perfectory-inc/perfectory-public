@@ -604,6 +604,18 @@
           "user_agent": "perfectory-edge-probe/1 (root ADR-0327)",
           "scan_documents": 20,
           "scan_documents_reason": "the probe reads a lane's gate sample (written on the host at the cut-over, so no PNU enters the repository) in order and holds the first entry the edge does not answer 404: a public auction ends and its PNU's document goes, so the first entry alone would alert on a lane that serves. At most this many single reads before the lane is a failure",
+          "content": {
+            "parcel-nearby": {
+              "any_of": [
+                "airport",
+                "railway_station",
+                "subway_station",
+                "school",
+                "university"
+              ],
+              "reason": "an answer of the lane's section in which every one of these is null is a document built from empty facility files, not a parcel with nothing near it: every parcel in Korea has a nearest 공항, 초중등학교 and 대학 once their files hold rows. 2026-11-10 a failed data.go.kr load left six of its Silver tables empty, and only their missing snapshot stopped the Gold then; a load that commits empty files would build all-null documents that a 200 answer passes (spatial relations review 2026-11-20 §5 item 2). Only a lane named here is held to its content; the others to a non-empty JSON object"
+            }
+          },
           "media": {
             "documents_lane": "parcel-public-auction",
             "reason": "the blobs the parcel edge serves (parcel_media) are named by the served public auction documents (rounds[].photos[], sha256 and media_format); the probe takes the first one the lane's sample documents name, read from the edge within scan_documents, so no hash enters the repository. A sample that names none has no blob a user can reach, and the media read is skipped and said so"
@@ -1527,8 +1539,9 @@
           "foundation-gold-versions@.service": {
             "class": "batch",
             "memory_max": "8G",
-            "measured_peak": "5131M",
-            "measured": "not this unit's: never run under it. The same DuckDB SQL in a container capped like it (W81b, 2026-11-13, ai-server): every served parcel, one 시도 at a time, 5.01 GiB anon peak at a 5 GB DuckDB limit with 4 threads. The publisher gives DuckDB three fifths of what the unit has left (parcel_nearby_versions_build MEMORY_SHARE), so about 4.8 GiB here; its first runs log the unit's own peak."
+            "measured_peak": "7373M",
+            "measured": "its own: run 20261119T152616Z of foundation-gold-versions@parcel-nearby (2026-11-19 15:26-15:51Z, every served parcel, 39,861,511 rows committed in 1500 s), systemd's memory peak 7.2G, swap peak 13.5M; the publisher's own peak in its run log 7,733,563,392 bytes",
+            "headroom_why": "The peak follows the cap, not the work: the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (parcel_nearby_versions_build MEMORY_SHARE) and DuckDB fills it and the page cache, so a larger memory_max would only raise the peak. The run fit: no timeout, 13.5M swap, under MemoryMax"
           }
         }
       },
