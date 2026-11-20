@@ -886,6 +886,10 @@ start_console() {
     || printf 'console: did not start; the deploy goes on (see docker logs of dawneer, console-tunnel)\n' >&2
 }
 
+# What `migrate` exits with when a migration itself failed (root ADR-0597); deploy-start-once.sh
+# names the same number SCHEMA_NOT_APPLIED.
+schema_not_applied=77
+
 migrate_runtime() {
   local lakehouse="$1"
   assert_current_release
@@ -931,7 +935,9 @@ migrate_runtime() {
   source "${in_order}"
   # The chain's own time (root ADR-0308 postgres-chain budget): from its first `up` to its last.
   local started="${SECONDS}"
-  runtime_chain_before "${runtime}" foundation-api
+  # A migration that fails exits schema_not_applied (deploy-start-once.sh SCHEMA_NOT_APPLIED, root
+  # ADR-0597): the one switch failure after which the deploy keeps the held DAGs paused.
+  runtime_chain_before "${runtime}" foundation-api || exit "${schema_not_applied}"
   # `foundation-api` is the last link: requiring it requires all of them, in the compose file's
   # order. `--wait` returns once the state is reached, not when the request was accepted.
   "${runtime}" up -d --wait foundation-api
@@ -944,7 +950,7 @@ migrate_runtime() {
   # first identity bring-up as policy calls dying inside a healthy-looking container.
   "${runtime}" up -d --wait identity-zitadel-loopback identity-api-loopback
   start_console "${runtime}"
-  verify_runtime_schema
+  ( verify_runtime_schema ) || exit "${schema_not_applied}"
   migrate_lakehouse "${lakehouse}"
 }
 
@@ -1095,7 +1101,9 @@ migrate_lakehouse() {
     journalctl -u foundation-lakehouse-migrate.service --since "-2h" --no-pager -o cat |
       grep -a '^lakehouse-migrate' | tail -40 >&2
     printf 'lakehouse migration failed; the release is installed but not migrated\n' >&2
-    exit 75
+    # Not 75: the deploy reads 75 as "an operator's unit runs, ask again" (root ADR-0441), which
+    # retried a failing migration every minute without bound.
+    exit "${schema_not_applied}"
   fi
 }
 
