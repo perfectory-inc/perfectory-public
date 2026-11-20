@@ -530,8 +530,8 @@
       "via": [
         "collect-data-go-kr-file-data",
         "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/data_go_kr_file_data_stage.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs"
       ],
       "source_slugs": [
         "datagokr__standard_land_price"
@@ -546,8 +546,8 @@
       "via": [
         "collect-data-go-kr-file-data",
         "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/data_go_kr_file_data_stage.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs"
       ],
       "source_slugs": [
         "datagokr__elevator_installation"
@@ -562,8 +562,8 @@
       "via": [
         "collect-data-go-kr-file-data",
         "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/data_go_kr_file_data_stage.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs"
       ],
       "source_slugs": [
         "datagokr__knowledge_industry_center"

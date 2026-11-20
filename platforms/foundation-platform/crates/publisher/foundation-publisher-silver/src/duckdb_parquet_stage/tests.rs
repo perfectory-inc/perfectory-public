@@ -641,7 +641,7 @@ async fn an_onbid_object_is_the_first_append_into_each_empty_table() -> anyhow::
     Ok(())
 }
 
-/// The data.go.kr file data Silver load's first edition into each of its eleven empty tables
+/// The data.go.kr file data Silver load's first edition into each of its fourteen empty tables
 /// (root ADR-0389), as `load-data-go-kr-file-data-silver` appends it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_file_data_edition_is_the_first_append_into_each_empty_table() -> anyhow::Result<()> {
@@ -657,6 +657,9 @@ async fn a_file_data_edition_is_the_first_append_into_each_empty_table() -> anyh
         contract("silver.school_location")?,
         contract("silver.university")?,
         contract("silver.subway_station")?,
+        contract("silver.standard_land_price")?,
+        contract("silver.elevator_installation")?,
+        contract("silver.knowledge_industry_center")?,
     ];
     let root = tempfile::tempdir()?;
     // One stage for the whole test: its files live as long as it does.

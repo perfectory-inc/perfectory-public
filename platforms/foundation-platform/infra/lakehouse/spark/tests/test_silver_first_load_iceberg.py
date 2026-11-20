@@ -80,7 +80,7 @@ OWN_WRITERS = {
     "silver.onbid_announcement": ONBID_FIRST_LOAD,
     "silver.onbid_announcement_bid_result": ONBID_FIRST_LOAD,
     "silver.onbid_announcement_detail": ONBID_FIRST_LOAD,
-    # The data.go.kr file data Silver load's eleven tables, appended by the publisher the same way (root ADR-0559).
+    # The data.go.kr file data Silver load's fourteen tables, appended by the publisher the same way (root ADR-0559).
     "silver.highway_access_point": FILE_DATA_FIRST_LOAD,
     "silver.household_count": FILE_DATA_FIRST_LOAD,
     "silver.dong_population": FILE_DATA_FIRST_LOAD,
@@ -92,6 +92,9 @@ OWN_WRITERS = {
     "silver.school_location": FILE_DATA_FIRST_LOAD,
     "silver.university": FILE_DATA_FIRST_LOAD,
     "silver.subway_station": FILE_DATA_FIRST_LOAD,
+    "silver.standard_land_price": FILE_DATA_FIRST_LOAD,
+    "silver.elevator_installation": FILE_DATA_FIRST_LOAD,
+    "silver.knowledge_industry_center": FILE_DATA_FIRST_LOAD,
 }
 RUST_TEST = "rust:"
 
