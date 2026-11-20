@@ -130,7 +130,7 @@ impl NameMask {
 fn replace_all(
     pattern: &Regex,
     text: &str,
-    mut with: impl FnMut(&Captures<'_>) -> anyhow::Result<String>,
+    mut with: impl FnMut(&Captures<'_, str>) -> anyhow::Result<String>,
 ) -> anyhow::Result<String> {
     let mut out = String::with_capacity(text.len());
     let mut last = 0;
