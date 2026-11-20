@@ -220,6 +220,19 @@ fn load_legal_dong_code_snapshot_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn parcel_registry_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "probe-parcel-registry"])?,
+        Command::ProbeParcelRegistry
+    );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "load-parcel-registry"])?,
+        Command::LoadParcelRegistry
+    );
+    Ok(())
+}
+
+#[test]
 fn load_data_go_kr_onbid_silver_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

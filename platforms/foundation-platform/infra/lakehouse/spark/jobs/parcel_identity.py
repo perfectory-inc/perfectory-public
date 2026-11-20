@@ -6,7 +6,8 @@ the lineage proves it strongly enough, and is issued afresh when the land itself
 split, resurvey) or the proof is weak. A fresh id that a later, stronger link shows to be the same
 land is not deleted: it is redirected to the id it should have kept. Ids are never reused.
 
-Pure Python over plain values; `parcel_registry_to_silver.py` feeds it from the lakehouse.
+Pure Python over plain values. The registry's step itself left Spark (root ADR-0559): the publisher's
+`load-parcel-registry` runs these rules as DuckDB joins (`parcel_registry_stage`), checked against this module.
 """
 
 from __future__ import annotations

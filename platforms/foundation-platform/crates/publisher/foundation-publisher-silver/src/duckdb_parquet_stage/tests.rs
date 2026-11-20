@@ -731,6 +731,21 @@ async fn a_load_makes_the_table_no_load_has_made_yet() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The parcel registry's first step into its empty table (root ADR-0389), as
+/// `load-parcel-registry` appends it: a commit that records the run's id.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parcel_registry_step_is_the_first_append_into_the_empty_table() -> anyhow::Result<()> {
+    let table = contract("silver.parcel_registry")?;
+    let root = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let (catalog, shape) = empty_table(root.path(), table).await?;
+    let file = stage.write(&shape, &synthetic_row(table)?, "parcel-registry-first")?;
+    let run = "parcel-registry-0123456789abcdef01234567";
+    let first = first_append(&catalog, table, file, run).await?;
+    assert_eq!(first, (None, 1));
+    Ok(())
+}
+
 /// One synthetic row of each ILIS notice table (notice `99…`, 2099 times), in contract order.
 const NOTICE_READ: &str = "SELECT CAST(99001 AS BIGINT) AS notice_sequence, to_timestamp(4071006245) AS requested_at_utc, \
      200 AS http_status, 'read' AS read_outcome, '999990' AS official_complex_code, \

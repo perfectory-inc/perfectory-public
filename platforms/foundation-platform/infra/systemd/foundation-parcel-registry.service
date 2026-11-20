@@ -22,6 +22,6 @@ ProtectHome=true
 ProtectSystem=strict
 ReadWritePaths=/var/lib/foundation-platform/lineage-stewardship
 # Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
-MemoryHigh=1843M
-MemoryMax=2G
+MemoryHigh=2764M
+MemoryMax=3G
 OOMScoreAdjust=500

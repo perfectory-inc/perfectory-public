@@ -133,6 +133,7 @@ pub mod legal_dong_code_snapshot_stage;
 
 /// The parcel nearby kind's Gold in `DuckDB` (root ADR-0465, ADR-0564 §9).
 pub mod parcel_nearby_stage;
+pub mod parcel_registry_stage;
 
 /// Stages the data.go.kr bulk files as Silver rows, one table per file (root ADR-0401 §3–4).
 pub mod data_go_kr_file_data_stage;

@@ -427,8 +427,6 @@ class ParcelReadersDefaultToTheServedEditionTest(unittest.TestCase):
 
     READERS = {  # job: (its served-id flag, the attribute, its other required arguments, its earlier-endpoint flag)
         "parcel_boundary_served_gold": ("--source-snapshot-id", "source_snapshot_id", ["--output-dir", "p"], None),
-        "parcel_registry_to_silver": ("--to-snapshot-id", "to_snapshot_id", ["--to-date", "2099-09-01", "--to-sido", "97"],
-                                      "--from-snapshot-id"),
         "parcel_matching_gate": ("--snapshot-id", "snapshot_id", ["--sido", "97"], "--lineage-from-snapshot-id"),
     }
 
