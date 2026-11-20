@@ -96,7 +96,7 @@
       "relation": "validates",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_matching_gate.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_matching_gate_stage/gate.sql"
       ],
       "description": "서빙본을 만들기 전 대조 관문의 (b) 검사가 필지마다 현재 parcel_id 를 하나씩 갖는지 본다. 그 표가 아직 없으면 관문이 돌지 않고 기다린다(루트 ADR-0265)."
     }

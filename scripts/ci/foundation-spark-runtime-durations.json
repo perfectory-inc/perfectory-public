@@ -31,7 +31,6 @@
     "test_parcel_boundaries_layout_iceberg.py": 9,
     "test_parcel_boundary_served_gold_spark.py": 12,
     "test_parcel_lineage_section_spark.py": 10,
-    "test_parcel_matching_gate_spark.py": 14,
     "test_parcel_panel_carry_spark.py": 15,
     "test_parcel_panel_served_edition_spark.py": 9,
     "test_pinned_read_added_column_iceberg.py": 7,

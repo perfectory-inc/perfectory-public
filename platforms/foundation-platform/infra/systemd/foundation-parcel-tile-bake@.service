@@ -17,6 +17,8 @@ WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/map-edit.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+# The matching gate reads the lakehouse's data files in DuckDB with the read-only pair (root ADR-0559 §6).
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/parcel-tile-bake.sh %i
 # The timeout below kills the script and the compose client, not the Spark container the Docker
 # daemon owns. Spark runs in the Compose project named after this INVOCATION_ID; this removes that

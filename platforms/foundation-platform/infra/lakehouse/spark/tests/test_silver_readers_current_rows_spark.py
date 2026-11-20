@@ -74,26 +74,6 @@ class SilverReadersCurrentRowsTest(unittest.TestCase):
         frame.write.mode("overwrite").saveAsTable(name)
         return contract
 
-    def test_the_matching_gate_holds_the_current_attribute_rows(self):
-        import parcel_matching_gate as job
-
-        name = "silver.land_individual_price"
-        once = [{"pnu": pnu(i), "base_year": "2026", "ingested_at_utc": OLD} for i in range(1, 4)]
-        contract = self.table(name, once)
-        spec = f"{name}:base_year=2026"
-
-        def held(rule):
-            with mock.patch("platform_contracts.load_lakehouse_contract", side_effect=lambda _: rule):
-                return sorted(r.pnu for r in job.attribute_frame(self.spark, "spark_catalog", spec, "99")[1].collect())
-
-        self.assertEqual(held(versioned(contract, ["pnu"])), held(contract), "one row per key: the same parcels")
-        # Lot 2's newest version is of another year: under versions it no longer holds the attribute.
-        self.table(name, once + [{**once[1], "base_year": "2025", "ingested_at_utc": NEW}])
-        self.assertEqual(held(versioned(contract, ["pnu"])), [pnu(1), pnu(3)])
-        # The table's own contract keeps versions (root ADR-0311); without a rule it is read as it is.
-        # Before ADR-0328 its rule tied these rows on a null release id and read them all, too.
-        unversioned = {**contract, "current_row_latest": None}
-        self.assertEqual(held(unversioned), [pnu(1), pnu(2), pnu(3)], "an unversioned table is read as it is")
 
 
 

@@ -25,7 +25,7 @@ last_reviewed: 2026-10-29
 
 1. 계약의 `served_edition` 이 이 작업이 마지막으로 구운 판과 같으면 "할 일 없음"으로 끝난다
    (`/var/lib/foundation-parcel-tile-bake/baked-edition`). `--force <이유>` 는 같은 판을 다시 굽는다.
-2. 대조 관문 `parcel_matching_gate.py` 를 판의 모든 시도에 돌린다(ADR-0113 §7). 거부면 아무것도 쓰지 않는다.
+2. 대조 관문 `run-parcel-matching-gate`(발행기 안 DuckDB, 루트 ADR-0559)를 판의 모든 시도에 돌린다(ADR-0113 §7). 거부면 아무것도 쓰지 않는다.
 3. `parcel_boundary_served_gold.py` 가 `gold.parcel_boundary_served` 를 커밋하고 v2 조각을 쓴다.
 4. `bake-lakehouse-tiles` 가 GDAL·tippecanoe 로 굽고, 관문(최대 줌 feature id 전수)과 첫 판 동등성 관문을
    통과하면 R2 에 create-only 로 올리고 승격한다. 승격 전 실패는 서비스에 아무것도 바꾸지 않는다.

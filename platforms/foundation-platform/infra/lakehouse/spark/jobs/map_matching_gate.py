@@ -3,7 +3,7 @@
 A bake is refused when a polygon would reach the map without its place, its identity or an
 attribute the sources do hold. Each check returns counts per reason and a sample, so the refusal
 says exactly what is wrong; an empty `violations` is a pass. Pure Python over plain values: the
-served-Gold jobs and `parcel_matching_gate.py` feed it from the lakehouse.
+served-Gold jobs feed it from the lakehouse.
 
 What is *allowed* to be empty is named, never inferred: a parcel with no official land price has
 no row in the source under its number nor under any number its lineage links it to.
@@ -20,7 +20,7 @@ EXISTS = "존재"
 # the map; renumbering never does that (ids are carried). Tolerated: none.
 MAX_VANISHED_ADMIN_IDS = 0
 SAMPLE = 20
-# The parcel refusals, named once: `parcel_matching_gate.py` reports the same reasons from joins.
+# The parcel refusals, named once: the publisher's parcel matching gate (`parcel_matching_gate_stage`) words them the same.
 MALFORMED_PNU = "malformed PNU"
 NO_LEGAL_DONG = "legal dong not existing in the official list"
 NO_BOUNDARY = "no administrative boundary for the parcel's 읍면동"
