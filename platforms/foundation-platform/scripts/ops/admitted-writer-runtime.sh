@@ -48,6 +48,13 @@ RELEASE_JARS_DIR="${ARTIFACT_ROOT}/jars"
 unset PYTHONPATH PYTHONHOME BASH_ENV ENV LD_PRELOAD LD_LIBRARY_PATH
 unset FOUNDATION_PLATFORM_LAKEHOUSE_ENGINE_CONTRACT_PATH COMPOSE_FILE COMPOSE_PATH_SEPARATOR
 unset DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG
+# The Docker CLI reads its config and CLI plugins under DOCKER_CONFIG, else $HOME/.docker, and the
+# job account's home is /nonexistent. 2026-11-20 03:05Z a root step (audit-witness) made /nonexistent
+# (root, 0700); from then every job's `docker compose` read "permission denied", lost its compose
+# plugin ("unknown flag: --project-directory") and ended 125, the deploy's lakehouse migration too.
+# The account's own directory, fixed here and not taken from the caller. Docker only reads it; while
+# it does not exist the CLI runs on its defaults.
+export DOCKER_CONFIG=/var/lib/foundation-platform/docker-config
 # The trusted build wrote build.json; admission re-verifies every byte as root before start.
 # This repeats the one check a job can make for itself: the binary it is about to run is the
 # one that manifest names for this release, and the frozen jar list comes from the same file.
