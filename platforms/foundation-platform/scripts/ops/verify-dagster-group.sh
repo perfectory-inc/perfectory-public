@@ -59,7 +59,7 @@ import json, sys
 group = sys.argv[2]
 jobs = json.load(open(sys.argv[1], encoding="utf-8"))
 ids = {jobs["dag_id_prefix"] + job["id"] for job in jobs["jobs"] if job.get("dagster_group") == group and job["enabled"]}
-# A DAG the new release stops building stays listed (stale), paused since the switch's step 0: it decides
+# A DAG the new release stops building stays listed (stale), paused since step 0 of the switch: it decides
 # nothing. One still unpaused would.
 print(" ".join(sorted(ids & {row["dag_id"] for row in json.load(sys.stdin) if str(row["is_paused"]).lower() != "true"})))
 ' "${RELEASE}/orchestration/jobs.v1.json" "${group}")"
