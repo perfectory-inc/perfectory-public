@@ -542,7 +542,7 @@ describe("parcel panel sections", () => {
       expect(anchors()).toContain("주변");
       expect(screen.getByText("공항 · 12.3km")).toBeTruthy();
       expect(screen.getByText("역 · 1호선 · 850m")).toBeTruthy();
-      expect(screen.getByText("반경 약 500m 안 42곳")).toBeTruthy();
+      expect(screen.getByText("주변 약 800m 권역 42곳")).toBeTruthy();
       expect(screen.getByText("경부선 가IC")).toBeTruthy();
       expect(screen.queryByText("철도역")).toBeNull();
     } finally {
