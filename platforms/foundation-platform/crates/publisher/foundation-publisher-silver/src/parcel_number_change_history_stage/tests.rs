@@ -152,17 +152,14 @@ fn the_zip_must_hold_one_named_utf8_member() -> anyhow::Result<()> {
 fn a_key_names_its_file_and_its_bytes() -> anyhow::Result<()> {
     let source = HistorySource::compiled()?;
     let checksum = "a".repeat(64);
-    let key = format!(
-        "bronze/source=vworldkr__parcel_number_change_history/30527-5--sha256-{checksum}.zip"
-    );
-    assert_eq!(source.content_key_checksum(&key, "30527-5")?, checksum);
+    let (file, other) = ("30527-5", "30527-6");
+    let folder = "bronze/source=vworldkr__parcel_number_change_history";
+    let key = format!("{folder}/{file}--sha256-{checksum}.zip");
+    assert_eq!(source.content_key_checksum(&key, file)?, checksum);
     // Another file's key, and the plain keys of 2026-10-05, are never loaded.
-    assert!(source.content_key_checksum(&key, "30527-6").is_err());
+    assert!(source.content_key_checksum(&key, other).is_err());
     assert!(source
-        .content_key_checksum(
-            "bronze/source=vworldkr__parcel_number_change_history/30527-5.zip",
-            "30527-5"
-        )
+        .content_key_checksum(&format!("{folder}/{file}.zip"), file)
         .is_err());
     Ok(())
 }
