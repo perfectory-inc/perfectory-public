@@ -34,7 +34,7 @@ use crate::{
     place_identity_stage::{self, PlacePins, CODE_CHANGE_TABLE},
 };
 
-const CONTRACT: &str =
+pub(crate) const CONTRACT: &str =
     include_str!("../../../../infra/lakehouse/contracts/data-go-kr-file-data.contract.json");
 const CHANGES_SQL: &str = include_str!("data_go_kr_file_data_stage/changes.sql");
 /// Its own job and table (`data_go_kr_registered_factory.py`).
@@ -159,7 +159,7 @@ fn texts(value: &Value, what: &str) -> anyhow::Result<Vec<String>> {
 }
 
 /// `'text'` as a SQL literal.
-fn literal(text: &str) -> String {
+pub(crate) fn literal(text: &str) -> String {
     format!("'{}'", text.replace('\'', "''"))
 }
 
@@ -356,12 +356,12 @@ const fn py_space(character: char) -> bool {
     character.is_whitespace() || matches!(character, '\u{1c}'..='\u{1f}')
 }
 
-fn py_strip(text: &str) -> &str {
+pub(crate) fn py_strip(text: &str) -> &str {
     text.trim_matches(py_space)
 }
 
 /// `bytes` read strictly in `encoding`, as Python's codec of that name reads them.
-fn decode(bytes: &[u8], encoding: &str) -> anyhow::Result<String> {
+pub(crate) fn decode(bytes: &[u8], encoding: &str) -> anyhow::Result<String> {
     let strict_utf8 = |bytes: &[u8]| {
         std::str::from_utf8(bytes)
             .map(str::to_owned)
@@ -405,8 +405,8 @@ enum CsvState {
 /// The records of a CSV text as Python's `csv.reader` reads them (the excel dialect, not strict):
 /// a quote opens a quoted field only at a field's start, a doubled quote inside one is a quote, a
 /// character after a closing quote is kept, and a blank line is a record of no fields.
-struct PyCsvRecords<'a> {
-    rest: &'a str,
+pub(crate) struct PyCsvRecords<'a> {
+    pub(crate) rest: &'a str,
 }
 
 impl Iterator for PyCsvRecords<'_> {
@@ -549,7 +549,9 @@ fn push_csv(
 }
 
 /// A zip member's name as written: zips from Windows tools store UTF-8 names without the flag.
-fn member_name(member: &zip::read::ZipFile<'_, std::fs::File>) -> anyhow::Result<String> {
+pub(crate) fn member_name(
+    member: &zip::read::ZipFile<'_, std::fs::File>,
+) -> anyhow::Result<String> {
     match std::str::from_utf8(member.name_raw()) {
         Ok(name) => Ok(name.to_owned()),
         Err(_) => Ok(member.name()?.into_owned()),
@@ -680,7 +682,7 @@ pub fn read_file(stage: &DuckDbParquetStage, file: &FileEntry, path: &Path) -> a
     Ok(u64::try_from(sink.rows)?)
 }
 
-fn count(stage: &DuckDbParquetStage, query: &str) -> anyhow::Result<u64> {
+pub(crate) fn count(stage: &DuckDbParquetStage, query: &str) -> anyhow::Result<u64> {
     let value: i64 =
         stage
             .connection()
@@ -838,7 +840,7 @@ pub fn edition_filter(file: &FileEntry) -> anyhow::Result<String> {
     })
 }
 
-fn column_names(contract: &LakehouseTableContract) -> Vec<&'static str> {
+pub(crate) fn column_names(contract: &LakehouseTableContract) -> Vec<&'static str> {
     contract.columns.iter().map(|column| column.name).collect()
 }
 
@@ -986,7 +988,7 @@ pub fn link(
         .with_context(|| format!("DuckDB failed to link the rows of {}", file.slug))
 }
 
-fn epoch(instant: DateTime<Utc>) -> String {
+pub(crate) fn epoch(instant: DateTime<Utc>) -> String {
     format!("to_timestamp({})", instant.timestamp())
 }
 

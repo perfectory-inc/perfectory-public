@@ -147,6 +147,7 @@ pub mod place_identity_stage;
 
 /// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
 pub mod real_transaction_gold_stage;
+pub mod registered_factory_stage;
 
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
 /// keeps the executable's lint posture (root ADR-0200 §4).

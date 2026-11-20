@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 import address_pnu  # noqa: E402
 import code_change_follow as follow  # noqa: E402
 import courtauction_go_kr as court  # noqa: E402
-import data_go_kr_registered_factory as factory  # noqa: E402
 
 NOW = datetime(2099, 1, 2, 3, 4, 5)
 NAMES = [("9800000000", "가상남도", "폐지"), ("9899910100", "가상남도 가상군 가나면", "폐지"),
@@ -58,18 +57,6 @@ class RelinkTest(unittest.TestCase):
         self.assertEqual(again["legal_dong_code"], "9999910100")
         self.assertEqual(again["appraisal_amount_krw"], 1)
         self.assertEqual((again["source_record_id"], again["source_snapshot_id"]), ("follow:x", "20990102T030405Z"))
-
-    def test_a_factory_line_keeps_its_values_and_gets_a_new_link(self) -> None:
-        row = {"serial_no": 1, "company_name": "합성공업", "complex_name": None, "products": "부품",
-               "factory_address_raw": "가상남도 가상군 가나면 7", "source_line_number": 2}
-        [again] = factory.relinked_offers([row], PREFIXES, DONGS)
-        self.assertEqual(again["jibun_pnu"], "9999910100100070000")
-        self.assertEqual((again["company_name"], again["source_line_number"]), ("합성공업", 2))
-        built = set(again) | {"pnu", "pnu_basis", "pnu_unresolved_reason", "pnu_candidate_count",
-                              "source_record_id", "source_snapshot_id", "ingested_at_utc"}
-        from platform_contracts import load_lakehouse_contract  # noqa: PLC0415
-
-        self.assertLessEqual({c["name"] for c in load_lakehouse_contract(factory.TABLE)["columns"]}, built)
 
 
 if __name__ == "__main__":

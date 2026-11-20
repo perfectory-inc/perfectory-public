@@ -1423,9 +1423,8 @@
           },
           "foundation-registered-factory.service": {
             "class": "batch",
-            "memory_max": "256M",
-            "measured_peak": "13M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 13 runs, highest 2026-10-28 (foundation-registered-factory)"
+            "memory_max": "3G",
+            "measured": "13M on the days the file is the same (journal `memory peak` 2026-10-18..11-08, 13 runs). Since root ADR-0559 the Silver load is the publisher's DuckDB inside this unit (it was the spark container, 8g driver): sized as the onbid Silver load, the same stage (2.1G measured 2026-11-20 on 48 objects); an edition (220,000 rows, yearly) has not run under this cap yet; systemd logs the peak of every run under this cap"
           },
           "foundation-rt-molit-collect.service": {
             "class": "batch",
@@ -2061,7 +2060,6 @@
       "lineage_stewardship",
       "parcel_registry",
       "rt_molit_real_transaction_silver",
-      "registered_factory",
       "court_auction_silver",
       "gold_panel_rebuild",
       "gold_kind_rebuild",

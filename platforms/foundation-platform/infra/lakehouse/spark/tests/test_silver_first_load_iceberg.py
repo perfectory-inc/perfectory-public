@@ -53,6 +53,8 @@ ONBID_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckd
                     "an_onbid_object_is_the_first_append_into_each_empty_table")
 FILE_DATA_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
                         "a_file_data_edition_is_the_first_append_into_each_empty_table")
+FACTORY_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
+                      "a_registered_factory_edition_is_the_first_append_into_the_empty_table")
 # A table whose job writes it its own way: the test that loads its empty table, as module.Class.method.
 OWN_WRITERS = {
     "silver.administrative_boundaries": "test_silver_first_load_iceberg.AdministrativeBoundariesFirstLoadTest."
@@ -95,6 +97,8 @@ OWN_WRITERS = {
     "silver.standard_land_price": FILE_DATA_FIRST_LOAD,
     "silver.elevator_installation": FILE_DATA_FIRST_LOAD,
     "silver.knowledge_industry_center": FILE_DATA_FIRST_LOAD,
+    # The registered factories, appended by the publisher the same way (root ADR-0559).
+    "silver.registered_factory": FACTORY_FIRST_LOAD,
 }
 RUST_TEST = "rust:"
 
