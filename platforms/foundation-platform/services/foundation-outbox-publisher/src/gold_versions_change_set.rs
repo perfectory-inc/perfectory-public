@@ -11,10 +11,14 @@
 //! (`quality_metrics`, `input`), with its verdict in `verdict`: `delta`, `comparison_gone`
 //! (the reflected snapshot is not in `main`'s lineage any more), `not_a_delta` (more than the
 //! contract's `max_delta_fraction` changed and nothing recorded explains it) or `explained_full`
-//! (the code version moved between the two, or the bake states a document schema revision: root
-//! ADR-0346). The bake maps the verdict to the delta job's exit codes.
+//! (the code version moved between the two, the bake states a document schema revision, or the
+//! commits between them record an explanation the producer checked while the rest of their keys
+//! fit the bound: root ADR-0346, ADR-0596). The bake maps the verdict to the delta job's exit codes.
 
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use anyhow::{ensure, Context};
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
@@ -31,11 +35,16 @@ use lakehouse_infrastructure::{
 use serde_json::json;
 
 use crate::{
-    gold_versions_commit::{CODE_VERSION_PROPERTY, CURRENT_RECORDS_PROPERTY, VERSION_SEQ_PROPERTY},
+    gold_versions_commit::{
+        CODE_VERSION_PROPERTY, CURRENT_RECORDS_PROPERTY, KEYS_CHANGED_PROPERTY,
+        RECORDED_EXPLANATION_PROPERTY, VERSION_SEQ_PROPERTY,
+    },
     public_data_control_support::required_env_value,
 };
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_CHANGE_SET_";
+/// The R2 contract: the explanation names it accepts.
+const CONNECTIONS: &str = include_str!("../../../config/r2-connections.contract.json");
 /// The summary's job name.
 pub(crate) const JOB_NAME: &str = "gold_versions_change_set";
 /// The summary schema the delta job writes (`by_pnu_panel_delta.RUN_SUMMARY_SCHEMA_VERSION`).
@@ -75,17 +84,70 @@ pub(crate) fn version_at(
     Ok(Some((0, None, Some(0))))
 }
 
-/// What the verdict is, from the counts and the explanations recorded.
+/// The explanations recorded by the commits from snapshot `current` back to, not including, version
+/// `before` (in `main`'s lineage, `history` newest first; root ADR-0596), and the keys the commits
+/// that recorded none changed: a commit without its keys-changed count counts as every key
+/// ([`u64::MAX`]).
+pub(crate) fn recorded_explanations(
+    history: &[IcebergSnapshotSummary],
+    current: i64,
+    before: i64,
+) -> anyhow::Result<(Vec<String>, u64)> {
+    let Some(position) = history
+        .iter()
+        .position(|found| found.snapshot_id == current)
+    else {
+        return Ok((Vec::new(), u64::MAX));
+    };
+    let (mut explained, mut unexplained) = (Vec::new(), 0_u64);
+    for commit in &history[position..] {
+        let Some(sequence) = commit.summary.get(VERSION_SEQ_PROPERTY) else {
+            continue;
+        };
+        if sequence.parse::<i64>()? <= before {
+            break;
+        }
+        if let Some(why) = commit.summary.get(RECORDED_EXPLANATION_PROPERTY) {
+            explained.push(format!("version {sequence}: {why}"));
+        } else {
+            let keys = commit
+                .summary
+                .get(KEYS_CHANGED_PROPERTY)
+                .map_or(Ok(u64::MAX), |text| text.parse::<u64>())?;
+            unexplained = unexplained.saturating_add(keys);
+        }
+    }
+    Ok((explained, unexplained))
+}
+
+/// The contract's names of the records that may explain a change set over its bound
+/// (`by_pnu_serving_patches.over_max_delta_fraction.explained_by`, root ADR-0346): the one list the
+/// Spark delta job reads too.
+pub(crate) fn accepted_explanations() -> anyhow::Result<Vec<String>> {
+    let contract: serde_json::Value = serde_json::from_str(CONNECTIONS)?;
+    contract["by_pnu_serving_patches"]["over_max_delta_fraction"]["explained_by"]
+        .as_array()
+        .context("the R2 contract names no over_max_delta_fraction.explained_by")?
+        .iter()
+        .map(|name| {
+            name.as_str()
+                .map(str::to_owned)
+                .context("an explained_by name is not a string")
+        })
+        .collect()
+}
+
+/// What the verdict is, from the counts and whether a record explains them.
 pub(crate) fn verdict(
     changes: u64,
     current_total: u64,
     max_delta_fraction: f64,
-    explained: &[String],
+    explained: bool,
 ) -> &'static str {
     #[allow(clippy::cast_precision_loss)]
     let over = changes as f64 > current_total as f64 * max_delta_fraction;
     if current_total == 0 || over {
-        if explained.is_empty() {
+        if !explained {
             "not_a_delta"
         } else {
             "explained_full"
@@ -240,7 +302,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             (&upserts, &deletes, u64::try_from(new_count)?),
             current_total,
             max_delta_fraction,
-            (before_code != after_code, &revision),
+            (
+                before_code != after_code,
+                &revision,
+                recorded_explanations(&history, current, before)?,
+            ),
             (&upserts_path, &deletes_path, &summary_path),
         );
     }
@@ -250,7 +316,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         (&upserts, &deletes, 0),
         current_total,
         max_delta_fraction,
-        (before_code != after_code, &revision),
+        (before_code != after_code, &revision, (Vec::new(), 0)),
         (&upserts_path, &deletes_path, &summary_path),
     )
 }
@@ -261,23 +327,43 @@ fn finish(
     (upserts, deletes, new_count): (&BTreeSet<String>, &BTreeSet<String>, u64),
     current_total: u64,
     max_delta_fraction: f64,
-    (code_moved, revision): (bool, &str),
+    (code_moved, revision, (recorded, unexplained_keys)): (bool, &str, (Vec<String>, u64)),
     (upserts_path, deletes_path, summary_path): (&str, &str, &str),
 ) -> anyhow::Result<()> {
     let (upsert_count, delete_count) =
         (u64::try_from(upserts.len())?, u64::try_from(deletes.len())?);
-    let mut explained = Vec::new();
+    // The Spark delta job's shape (`by_pnu_panel_delta.explanations`): name -> why, only the names
+    // the contract accepts, and the names checked.
+    let accepted = accepted_explanations()?;
+    let mut found = BTreeMap::new();
     if code_moved {
-        explained.push("the code version moved between the two snapshots".to_owned());
+        found.insert(
+            "code_version",
+            "the code version moved between the two snapshots".to_owned(),
+        );
     }
     if !revision.is_empty() {
-        explained.push(format!("the document schema revision {revision}"));
+        found.insert(
+            "document_schema",
+            format!("the document schema revision {revision}"),
+        );
     }
+    // A recorded explanation covers its own commit's keys; the commits that record none must fit
+    // the bound by themselves, or nothing explains the whole (root ADR-0596).
+    #[allow(clippy::cast_precision_loss)]
+    let rest_fits = unexplained_keys as f64 <= current_total as f64 * max_delta_fraction;
+    if rest_fits && !recorded.is_empty() {
+        found.insert("recorded_explanation", recorded.join("; "));
+    }
+    let explained: BTreeMap<&str, String> = found
+        .into_iter()
+        .filter(|(name, _)| accepted.iter().any(|known| known == name))
+        .collect();
     let verdict = verdict(
         upsert_count + delete_count,
         current_total,
         max_delta_fraction,
-        &explained,
+        !explained.is_empty(),
     );
     write_list(Path::new(upserts_path), upserts)?;
     write_list(Path::new(deletes_path), deletes)?;
@@ -287,7 +373,7 @@ fn finish(
         "verdict": verdict, "row_count": upsert_count,
         "counts": {"changed": changed, "new": new_count, "deleted": delete_count,
                    "same": current_total.saturating_sub(changed + new_count)},
-        "explained_by": explained,
+        "explained_by": explained, "explanations_checked": accepted,
         "quality_metrics": {
             "changed_count": changed, "new_count": new_count, "deleted_count": delete_count,
             "unchanged_count": current_total.saturating_sub(changed + new_count),
@@ -351,15 +437,103 @@ mod tests {
     }
 
     #[test]
-    fn a_change_over_the_bound_is_full_only_when_a_record_explains_it() {
-        assert_eq!(verdict(5, 100, 0.1, &[]), "delta");
-        assert_eq!(verdict(50, 100, 0.1, &[]), "not_a_delta");
+    fn a_recorded_explanation_covers_its_commit_and_the_rest_are_counted() -> anyhow::Result<()> {
+        // Root ADR-0596: newest first; the reflected snapshot is version 1.
+        let history = [
+            snapshot(
+                5,
+                &[(VERSION_SEQ_PROPERTY, "3"), (KEYS_CHANGED_PROPERTY, "4")],
+            ),
+            snapshot(4, &[("operation", "replace")]),
+            snapshot(
+                3,
+                &[
+                    (VERSION_SEQ_PROPERTY, "2"),
+                    (KEYS_CHANGED_PROPERTY, "60"),
+                    (RECORDED_EXPLANATION_PROPERTY, "store-only: 60 changed keys"),
+                ],
+            ),
+            snapshot(
+                1,
+                &[(VERSION_SEQ_PROPERTY, "1"), (KEYS_CHANGED_PROPERTY, "100")],
+            ),
+        ];
+        let (explained, rest) = recorded_explanations(&history, 5, 1)?;
+        assert_eq!(explained, ["version 2: store-only: 60 changed keys"]);
+        assert_eq!(rest, 4);
+        assert_eq!(recorded_explanations(&history, 3, 1)?.1, 0);
+        assert!(recorded_explanations(&history, 5, 2)?.0.is_empty());
+        // A commit that records no count of its keys is not bounded.
+        let unknown = [snapshot(2, &[(VERSION_SEQ_PROPERTY, "2")])];
+        assert_eq!(recorded_explanations(&unknown, 2, 1)?.1, u64::MAX);
+        Ok(())
+    }
+
+    #[test]
+    fn a_store_only_commit_over_the_bound_bakes_full_and_an_unrecorded_one_is_refused(
+    ) -> anyhow::Result<()> {
+        // Root ADR-0596: 60 of 100 keys changed, over max_delta_fraction 0.5.
+        let dir = tempfile::tempdir()?;
+        let path = |name: &str| dir.path().join(name).to_string_lossy().into_owned();
+        let (upserts_path, deletes_path, summary_path) = (path("u"), path("d"), path("s"));
+        let upserts: BTreeSet<String> = (0..60).map(|key| format!("{key:019}")).collect();
+        let verdict_of = |recorded: Vec<String>, rest: u64| -> anyhow::Result<String> {
+            finish(
+                "gold.parcel_nearby_versions",
+                &json!({}),
+                (&upserts, &BTreeSet::new(), 0),
+                100,
+                0.5,
+                (false, "", (recorded, rest)),
+                (&upserts_path, &deletes_path, &summary_path),
+            )?;
+            let summary: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&summary_path)?)?;
+            // The bake reads the Spark delta job's shape: a map of name -> why, and the names checked.
+            assert!(summary["explained_by"].is_object(), "{summary}");
+            assert!(summary["explanations_checked"].is_array(), "{summary}");
+            if summary["verdict"] == "explained_full" {
+                assert!(summary["explained_by"]["recorded_explanation"]
+                    .as_str()
+                    .is_some_and(|why| why.contains("store-only")));
+            }
+            Ok(summary["verdict"].as_str().unwrap_or_default().to_owned())
+        };
+        let store_only = || vec!["version 2: store-only: 60 changed keys".to_owned()];
+        assert_eq!(verdict_of(store_only(), 4)?, "explained_full");
         assert_eq!(
-            verdict(50, 100, 0.1, &["the code version moved".to_owned()]),
-            "explained_full"
+            verdict_of(store_only(), 51)?,
+            "not_a_delta",
+            "the unrecorded rest is over the bound"
         );
         assert_eq!(
-            verdict(0, 0, 0.1, &[]),
+            verdict_of(Vec::new(), 0)?,
+            "not_a_delta",
+            "nothing recorded"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn the_explanations_are_the_contract_s() -> anyhow::Result<()> {
+        // Root ADR-0346 §4: one list of names, the Spark delta job's and this one's.
+        let accepted = accepted_explanations()?;
+        for name in ["code_version", "document_schema", "recorded_explanation"] {
+            assert!(
+                accepted.iter().any(|found| found == name),
+                "{name} not in {accepted:?}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_change_over_the_bound_is_full_only_when_a_record_explains_it() {
+        assert_eq!(verdict(5, 100, 0.1, false), "delta");
+        assert_eq!(verdict(50, 100, 0.1, false), "not_a_delta");
+        assert_eq!(verdict(50, 100, 0.1, true), "explained_full");
+        assert_eq!(
+            verdict(0, 0, 0.1, false),
             "not_a_delta",
             "an empty table is no delta"
         );

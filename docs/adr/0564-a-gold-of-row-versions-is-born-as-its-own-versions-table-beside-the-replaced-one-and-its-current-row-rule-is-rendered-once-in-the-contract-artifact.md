@@ -102,7 +102,7 @@
       범위 안에서 사라진 키는 삭제 표시 행으로 준비한다. 같은 키는 쓰지 않는다. **붙는 것은 바뀐 키뿐이다.**
    4. *검사(커밋 전, 전부 DuckDB).* 준비 파일만으로 되는 것: 생산자의 품질 관문(`lane.validate` 의 이식), 한 커밋에 키마다 한 행.
       S 의 현재 행이 있어야 하는 것: 변경 비율 상한(`max_changed_key_fraction` 을 넘으면 거부 — `MERGE` 때처럼 전체로 넘어가는 것이
-      아니라 멈추고 알린다; 넘는 변경을 싣는 것은 사유를 적은 운영자 실행이다), 대조 표본(입력이 안 바뀐 키 표본을 다시 계산해
+      아니라 멈추고 알린다; 넘는 변경을 싣는 것은 사유를 적은 운영자 실행이다 — 2026-11-20 개정: 주변 Gold 의 상가만 커밋은 생산자가 확인해 기록하고 넘는다, [ADR-0596](./0596-the-nearby-gold-records-a-store-only-commit-and-the-bake-bakes-it-full-until-nearby-moves-to-the-platform-gis.md)), 대조 표본(입력이 안 바뀐 키 표본을 다시 계산해
       현재 행과 같아야 한다), 행 하한, 섹션 포함(ADR-0272), 붙인 뒤의 현재 행 수.
    5. *커밋.* 준비 파일 전부를 **한 번의 추가 커밋**으로 붙인다. 요약 속성은 지금 Gold 커밋이 싣는 이름 그대로(`foundation.content-fingerprint`·
       `foundation.source-iceberg-snapshots`·`foundation.keys-changed`·`foundation.build-source-sha`)에 둘을 더한다: `foundation.version-seq`,

@@ -85,3 +85,9 @@ ADR-0099 §5 가 말한 "지문 정의 표류"(계보가 지문에 들어감)다
   한 번 다르다 — 그 커밋이 바뀐 키를 기록하지 않으면 이 결정의 §3 대로 거부되고 사람이 전량을 강제한다(그날 한 번).
 - 통째 덮어쓰기(ADR-0326 의 비용 선택)도 바뀐 키를 기록하면 그런 날도 §1 이 설명한다. 그 기록은 ADR-0312 의 몫이다.
 - 필지 레인의 검증 재기준(ADR-0146, 운영자가 켜는 것)은 그대로 거부한다: 운영자가 이미 지켜보는 경로다.
+
+---
+
+개정 메모(2026-11-20): 받아들이는 기록에 `recorded_explanation` 이 더해졌다. 행 판 표의 커밋이 생산자가 확인한 이유를
+`foundation.recorded-explanation` 에 적은 것이다. 지금은 주변 Gold 의 상가만 커밋뿐이다
+([ADR-0596](./0596-the-nearby-gold-records-a-store-only-commit-and-the-bake-bakes-it-full-until-nearby-moves-to-the-platform-gis.md)).

@@ -150,7 +150,8 @@ class LargeChange(unittest.TestCase):
         return refused.exception
 
     def test_the_contract_accepts_the_three_records_with_its_reason(self):
-        self.assertEqual(self.ACCEPTED, ("recorded_change_set", "code_version", "document_schema"))
+        self.assertEqual(self.ACCEPTED, ("recorded_change_set", "code_version", "document_schema",
+                                         "recorded_explanation"))
         for broken in ({"explained_by": ["the size of the change"], "reason": "x"},
                        {"explained_by": ["code_version"], "reason": " "}):
             with self.subTest(broken=broken), self.assertRaises(ValueError):

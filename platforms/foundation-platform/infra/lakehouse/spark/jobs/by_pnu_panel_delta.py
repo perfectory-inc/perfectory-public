@@ -61,8 +61,10 @@ EXIT_NO_COMPARISON = 3
 EXIT_NOT_A_DELTA = 4
 EXIT_NO_DIGEST = 5
 EXIT_EXPLAINED_FULL = 6
-# The records that may explain a change set over max_delta_fraction (root ADR-0346).
-EXPLANATIONS = ("recorded_change_set", "code_version", "document_schema")
+# The records that may explain a change set over max_delta_fraction (root ADR-0346). The last is
+# written only on a table of appended row versions, whose change set the publisher names instead of
+# this job (export-gold-versions-change-set, root ADR-0596); this job never finds it.
+EXPLANATIONS = ("recorded_change_set", "code_version", "document_schema", "recorded_explanation")
 
 
 def accepted_explanations(contract: dict[str, Any]) -> tuple[str, ...]:
