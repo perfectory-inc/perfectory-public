@@ -439,6 +439,8 @@ impl CourtAuctionSource {
     ///
     /// # Errors
     /// Returns an error when the contract lacks a value the SQL takes.
+    // `{name}` is a placeholder of the SQL text, not a format argument.
+    #[allow(clippy::literal_string_with_formatting_args)]
     pub fn role_sql(&self, role: Role) -> anyhow::Result<String> {
         let mut sql = role.sql().to_owned();
         if role.is_case_document() {

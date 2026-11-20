@@ -13,7 +13,8 @@ use anyhow::Context;
 use chrono::TimeZone as _;
 use foundation_publisher_core::lakehouse_data_commit::{TableField, TableShape};
 use lakehouse_domain::{
-    industrial_complex_lakehouse_contract_by_table_name, LakehouseTableContract,
+    industrial_complex_lakehouse_contract_by_table_name, LakehouseRowVersions,
+    LakehouseTableContract,
 };
 
 use super::{
@@ -135,6 +136,14 @@ fn the_staged_rows_are_the_rows_the_spark_job_built(role: Role) -> anyhow::Resul
             .collect::<Vec<_>>()
     );
     for table in &staged {
+        let short = table.table.split_once('.').context("a schema")?.1;
+        // A table more than one role writes has the rows of each role's object apart.
+        let expected = fixture(&format!("spark_{}__{short}.txt", role.name()))
+            .or_else(|_| fixture(&format!("spark_{short}.txt")))?;
+        if table.rows == 0 {
+            assert_eq!(expected, "", "{}", table.table);
+            continue;
+        }
         let file = write(
             &stage,
             &shape(table.table)?,
@@ -143,10 +152,6 @@ fn the_staged_rows_are_the_rows_the_spark_job_built(role: Role) -> anyhow::Resul
             OBJECT_KEY,
         )?
         .context("rows to stage")?;
-        // A table more than one role writes has the rows of each role's object apart.
-        let short = table.table.split_once('.').context("a schema")?.1;
-        let expected = fixture(&format!("spark_{}__{short}.txt", role.name()))
-            .or_else(|_| fixture(&format!("spark_{short}.txt")))?;
         assert_eq!(
             lines(&stage, table.table, &file.local_path)?,
             expected.lines().map(str::to_owned).collect::<Vec<_>>(),
@@ -313,14 +318,25 @@ fn each_role_writes_its_tables_and_the_contract_names_its_source() -> anyhow::Re
     for role in ROLES {
         assert!(source.source_slug(role)?.starts_with("courtauctiongokr__"));
         for (table, keep) in role.tables() {
-            assert_eq!(Role::of_table(table)?, role);
+            // A table more than one role writes (the 사건 문서' read record, the case) names one of them.
+            assert!(Role::of_table(table)?
+                .tables()
+                .iter()
+                .any(|(name, _)| name == table));
             let contract = contract(table)?;
-            // A changed-keys table keeps its newest row per key; a read record keeps every row.
-            assert_eq!(
-                *keep == Keep::Changed,
-                contract.current_row_latest().is_some() && !table.ends_with("_read"),
-                "{table}"
-            );
+            // A changed-keys table keeps its newest row per key; an editions table appends whole
+            // lists; a read record keeps every row.
+            match keep {
+                Keep::Changed => assert!(contract.current_row_latest().is_some(), "{table}"),
+                Keep::Editions => assert!(
+                    matches!(contract.row_versions, LakehouseRowVersions::Editions { .. }),
+                    "{table}"
+                ),
+                Keep::Every => assert!(
+                    table.ends_with("_read") || *table == "silver.court_auction_item_detail",
+                    "{table}"
+                ),
+            }
         }
     }
     assert!(Role::of_table("silver.court_auction_item").is_err());
