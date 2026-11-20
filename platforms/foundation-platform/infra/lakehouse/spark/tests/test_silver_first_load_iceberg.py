@@ -51,6 +51,8 @@ NOTICE_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duck
                      "a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_no_row_is_recorded")
 ONBID_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
                     "an_onbid_object_is_the_first_append_into_each_empty_table")
+FILE_DATA_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
+                        "a_file_data_edition_is_the_first_append_into_each_empty_table")
 # A table whose job writes it its own way: the test that loads its empty table, as module.Class.method.
 OWN_WRITERS = {
     "silver.administrative_boundaries": "test_silver_first_load_iceberg.AdministrativeBoundariesFirstLoadTest."
@@ -78,6 +80,18 @@ OWN_WRITERS = {
     "silver.onbid_announcement": ONBID_FIRST_LOAD,
     "silver.onbid_announcement_bid_result": ONBID_FIRST_LOAD,
     "silver.onbid_announcement_detail": ONBID_FIRST_LOAD,
+    # The data.go.kr file data Silver load's eleven tables, appended by the publisher the same way (root ADR-0559).
+    "silver.highway_access_point": FILE_DATA_FIRST_LOAD,
+    "silver.household_count": FILE_DATA_FIRST_LOAD,
+    "silver.dong_population": FILE_DATA_FIRST_LOAD,
+    "silver.railway_station": FILE_DATA_FIRST_LOAD,
+    "silver.port": FILE_DATA_FIRST_LOAD,
+    "silver.airport": FILE_DATA_FIRST_LOAD,
+    "silver.commercial_district": FILE_DATA_FIRST_LOAD,
+    "silver.adm_dong_code_linkage": FILE_DATA_FIRST_LOAD,
+    "silver.school_location": FILE_DATA_FIRST_LOAD,
+    "silver.university": FILE_DATA_FIRST_LOAD,
+    "silver.subway_station": FILE_DATA_FIRST_LOAD,
 }
 RUST_TEST = "rust:"
 

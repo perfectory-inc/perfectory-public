@@ -123,7 +123,11 @@
         "wave": 4
       },
       "data_go_kr_file_data": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1546,
+          "rows": 2907253,
+          "fingerprint": null
+        }
       },
       "data_go_kr_onbid": {
         "moved": {

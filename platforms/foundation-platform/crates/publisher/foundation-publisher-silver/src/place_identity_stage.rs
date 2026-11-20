@@ -19,7 +19,7 @@ use lakehouse_domain::LakehouseTableContract;
 
 use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG};
 
-const REFERENCE_SQL: &str = include_str!("place_identity_stage/reference.sql");
+pub(crate) const REFERENCE_SQL: &str = include_str!("place_identity_stage/reference.sql");
 const OFFERS_SQL: &str = include_str!("place_identity_stage/offers.sql");
 const PLACE_SQL: &str = include_str!("place_identity_stage/place.sql");
 
@@ -186,6 +186,19 @@ pub fn place(
         })
         .collect::<anyhow::Result<_>>()?;
     Ok(found)
+}
+
+/// Places the rows by the `place_offers` already on the stage (`place.sql` alone), for a load
+/// that makes one offer of several address columns: `place_code_result`, `place_address_result`
+/// and `place_result`.
+///
+/// # Errors
+/// Returns a `DuckDB` failure.
+pub fn place_offered(stage: &DuckDbParquetStage) -> anyhow::Result<()> {
+    stage
+        .connection()
+        .execute_batch(PLACE_SQL)
+        .context("DuckDB failed to place the rows")
 }
 
 #[cfg(test)]

@@ -59,14 +59,14 @@ pub(crate) async fn head(catalog: &IcebergRestCatalog, table: &str) -> anyhow::R
         .map(|snapshot| snapshot.snapshot_id))
 }
 
-async fn pinned(catalog: &IcebergRestCatalog, table: &str) -> anyhow::Result<i64> {
+pub(crate) async fn pinned(catalog: &IcebergRestCatalog, table: &str) -> anyhow::Result<i64> {
     head(catalog, table)
         .await?
         .with_context(|| format!("{table} has no snapshot to place rows by"))
 }
 
 /// The `silver.parcel_boundaries.source_snapshot_id` of the edition the map serves.
-fn served_snapshot_id() -> anyhow::Result<String> {
+pub(crate) fn served_snapshot_id() -> anyhow::Result<String> {
     let contract: Value = serde_json::from_str(PARCEL_SOURCE)?;
     let prefix = contract["snapshot_id_prefix"]
         .as_str()
@@ -79,7 +79,7 @@ fn served_snapshot_id() -> anyhow::Result<String> {
 }
 
 /// Seconds since `started`, to a tenth.
-fn seconds(started: Instant) -> f64 {
+pub(crate) fn seconds(started: Instant) -> f64 {
     (started.elapsed().as_secs_f64() * 10.0).round() / 10.0
 }
 

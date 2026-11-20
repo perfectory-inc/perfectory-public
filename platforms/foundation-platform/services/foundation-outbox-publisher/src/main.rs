@@ -57,6 +57,7 @@ mod code_go_kr_legal_dong_collect;
 #[cfg(unix)]
 mod courtauction_go_kr_collect;
 mod data_go_kr_file_data_collect;
+mod data_go_kr_file_data_silver_load;
 mod data_go_kr_onbid_collect;
 mod dbase_table;
 mod industrial_complex_address_resolution_build;
@@ -178,6 +179,7 @@ enum Command {
     CollectCodeGoKrLegalDong,
     CollectDataGoKrOnbid,
     LoadDataGoKrOnbidSilver,
+    LoadDataGoKrFileDataSilver,
     CollectRtMolitRealTransaction,
     CollectCourtauctionGoKr,
     CollectDataGoKrFileData,
@@ -375,6 +377,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CollectCodeGoKrLegalDong => Box::pin(code_go_kr_legal_dong_collect::run()),
         Command::CollectDataGoKrOnbid => Box::pin(data_go_kr_onbid_collect::run()),
         Command::LoadDataGoKrOnbidSilver => Box::pin(onbid_silver_load::run()),
+        Command::LoadDataGoKrFileDataSilver => {
+            Box::pin(data_go_kr_file_data_silver_load::run())
+        }
         Command::CollectRtMolitRealTransaction => {
             Box::pin(rt_molit_real_transaction_collect::run())
         }
@@ -799,6 +804,7 @@ where
         Some("collect-code-go-kr-legal-dong") => Ok(Command::CollectCodeGoKrLegalDong),
         Some("collect-data-go-kr-onbid") => Ok(Command::CollectDataGoKrOnbid),
         Some("load-data-go-kr-onbid-silver") => Ok(Command::LoadDataGoKrOnbidSilver),
+        Some("load-data-go-kr-file-data-silver") => Ok(Command::LoadDataGoKrFileDataSilver),
         Some("collect-rt-molit-real-transaction") => Ok(Command::CollectRtMolitRealTransaction),
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
         Some("collect-data-go-kr-file-data") => Ok(Command::CollectDataGoKrFileData),

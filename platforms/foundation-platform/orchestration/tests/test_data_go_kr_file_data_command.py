@@ -1,11 +1,12 @@
 """The data.go.kr file-data job's real command line (scripts/ops/data-go-kr-file-data-cycle.sh, root ADR-0401).
 
-The script runs from an installed release layout (as in test_registered_factory_command.py). The publisher and docker
-are stand-ins: the publisher answers the collect command with a manifest and each table's plan command with a plan of
-FAKE_OWED; docker records its arguments. What runs for real is the script: it names every file of the contract but the
-registered factory (its own job collects it), plans every table, starts Spark every run (the code-change follow-up
-needs it even when nothing is owed), removes the copies whether the run succeeds or not, and stops before the portal
-when a variable is missing.
+The script runs from an installed release layout (as in test_registered_factory_command.py). The publisher is a
+stand-in: it answers the collect command with a manifest, each table's plan command with a plan of FAKE_OWED, and
+the load command (load-data-go-kr-file-data-silver, DuckDB inside the publisher, root ADR-0559) with a summary line,
+recording the plans it was given. What runs for real is the script: it names every file of the contract but the
+registered factory (its own job collects it), plans every table, starts the load every run (the code-change
+follow-up needs it even when nothing is owed), removes the copies whether the run succeeds or not, and stops before
+the portal when a variable is missing. No Spark and no docker.
 """
 
 import hashlib
@@ -52,6 +53,16 @@ if sys.argv[1] == "collect-data-go-kr-file-data":
         sys.exit(1)
     print("foundation-job-outcome " + ("changed" if landed else "unchanged"))
     sys.exit(0)
+if sys.argv[1] == "load-data-go-kr-file-data-silver":
+    root = os.environ[prefix + "PLAN_ROOT"]
+    plans = sorted(name for name in os.listdir(root) if os.path.isfile(os.path.join(root, name, "plan.json")))
+    with open(os.path.join(os.environ["FAKE_STATE"], "load.log"), "a", encoding="utf-8") as log:
+        log.write(" ".join(plans) + "\n")
+    if os.environ.get("FAKE_LOAD_FAIL") == "1":
+        sys.exit(1)
+    appended = int(os.environ.get("FAKE_APPENDED", "0"))
+    print("data-go-kr-file-data-summary-json " + json.dumps({"editions": [], "follows": [{"appended": appended}]}))
+    sys.exit(0)
 assert sys.argv[1] == "plan-silver-load-objects", sys.argv
 p = "FOUNDATION_PLATFORM_SILVER_LOAD_"
 table = os.environ[p + "TABLE"]
@@ -71,11 +82,6 @@ json.dump({"schema_version": "foundation-platform.silver_load_objects.v1", "obje
 FAKE_DOCKER = r"""#!/usr/bin/env python3
 import json, os, sys
 open(os.path.join(os.environ["FAKE_STATE"], "docker.log"), "a").write(" ".join(sys.argv[1:]) + "\n")
-if os.environ.get("FAKE_DOCKER_FAIL") == "1":
-    sys.exit(1)
-if "spark-submit" in sys.argv:
-    appended = int(os.environ.get("FAKE_APPENDED", "0"))
-    print("data-go-kr-file-data-summary-json " + json.dumps({"editions": [], "follows": [{"appended": appended}]}))
 """
 
 
@@ -107,9 +113,6 @@ class DataGoKrFileDataCommand(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "docker").write_text(FAKE_DOCKER)
         (bin_dir / "docker").chmod(0o755)
-        (release / "infra/lakehouse/spark/jobs").mkdir(parents=True)
-        for name in ("data_go_kr_file_data.py", "address_pnu.py"):
-            (release / "infra/lakehouse/spark/jobs" / name).write_bytes((PLATFORM / "infra/lakehouse/spark/jobs" / name).read_bytes())
         self.script = base / "current/scripts/ops/data-go-kr-file-data-cycle.sh"
         self.state = root / "state"
         self.fake = root / "fake"
@@ -124,7 +127,7 @@ class DataGoKrFileDataCommand(unittest.TestCase):
     def run_job(self, env=None):
         return subprocess.run(["bash", str(self.script)], env=env or self.env, capture_output=True, text=True, timeout=120)
 
-    def test_every_file_is_asked_every_table_planned_and_spark_follows_code_changes_even_when_nothing_is_owed(self):
+    def test_every_file_is_asked_every_table_planned_and_the_load_follows_code_changes_even_when_nothing_is_owed(self):
         files = json.loads(CONTRACT.read_text(encoding="utf-8"))["files"]
         same = self.run_job()
         self.assertEqual(same.returncode, 0, same.stderr + same.stdout)
@@ -133,9 +136,11 @@ class DataGoKrFileDataCommand(unittest.TestCase):
         command, datasets = calls[0].split(" ")
         expected = [slug for slug in files if slug != "registered_factory"]
         self.assertEqual((command, datasets.split(",")), ("collect-data-go-kr-file-data", expected))
-        self.assertEqual([c.split(" ")[1] for c in calls[1:]], ["silver." + slug for slug in expected])
-        call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
-        self.assertEqual(call.count("--plan-dir"), 14, "one Spark run for every table, for the code-change follow-up too")
+        self.assertEqual([c.split(" ")[1] for c in calls[1:-1]], ["silver." + slug for slug in expected])
+        self.assertEqual(calls[-1].split(" ")[0], "load-data-go-kr-file-data-silver")
+        plans = (self.fake / "load.log").read_text(encoding="utf-8").splitlines()[-1].split()
+        self.assertEqual(plans, sorted(expected), "one load over every table's plan, for the code-change follow-up too")
+        self.assertFalse((self.fake / "docker.log").exists(), "the load starts no container")
         self.assertEqual(sorted(self.state.rglob("*.csv")), [])
 
     def test_a_landed_owed_or_followed_run_is_a_change(self):
@@ -148,7 +153,7 @@ class DataGoKrFileDataCommand(unittest.TestCase):
         self.assertEqual(sorted(self.state.rglob("*.csv")), [])
 
     def test_a_failed_collection_or_load_fails_the_run_and_leaves_no_copy(self):
-        for env in ({"FAKE_LANDED": "airport", "FAKE_FAIL": "1"}, {"FAKE_OWED": "silver.port", "FAKE_DOCKER_FAIL": "1"}):
+        for env in ({"FAKE_LANDED": "airport", "FAKE_FAIL": "1"}, {"FAKE_OWED": "silver.port", "FAKE_LOAD_FAIL": "1"}):
             with self.subTest(env):
                 failed = self.run_job({**self.env, **env})
                 self.assertNotEqual(failed.returncode, 0)
@@ -159,7 +164,7 @@ class DataGoKrFileDataCommand(unittest.TestCase):
     def test_one_files_failed_collection_still_loads_what_landed_then_fails(self):
         failed = self.run_job({**self.env, "FAKE_LANDED": "airport", "FAKE_FAIL": "1"})
         self.assertNotEqual(failed.returncode, 0)
-        self.assertIn("spark-submit", (self.fake / "docker.log").read_text(), "the files that landed are loaded")
+        self.assertTrue((self.fake / "load.log").exists(), "the files that landed are loaded")
         journal = (self.state / "journal.log").read_text(encoding="utf-8")
         self.assertIn("COLLECT FAILED", journal)
         self.assertIn("school_location: SERVICE_KEY_IS_NOT_REGISTERED_ERROR", journal)
