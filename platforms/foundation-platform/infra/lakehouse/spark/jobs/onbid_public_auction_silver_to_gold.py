@@ -57,7 +57,7 @@ ITEM = "cltr_mng_no"
 USAGE_CODE_SOURCE = "reference.onbid_usage_code"
 PHOTO_SOURCE = "silver.onbid_real_estate_item_photo"
 CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
-# The source's own PNU text, kept beside the resolved one (data_go_kr_onbid.py, root ADR-0288 §1).
+# The source's own PNU text, kept beside the resolved one (the Onbid Silver load, root ADR-0288 §1).
 RAW_PNU = "ltno_pnu_raw"
 # A round's media as the document carries it (root ADR-0296 §5): the content hash and its facts, from
 # which the web builds the public URL, and a photo's full-size `original` beside it (root ADR-0424).

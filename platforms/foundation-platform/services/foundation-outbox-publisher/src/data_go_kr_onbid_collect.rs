@@ -7,7 +7,7 @@
 //! the request's parameters (never the service key), its HTTP status and the response body as
 //! received. Nothing here interprets a row beyond what the run itself needs (paging, the item keys
 //! that decide which results to ask): the Silver load parses the lines
-//! (`infra/lakehouse/spark/jobs/data_go_kr_onbid.py`).
+//! (`load-data-go-kr-onbid-silver`, root ADR-0559).
 //!
 //! data.go.kr counts each API's calls separately per day (the gateway's X-RateLimit-Limit). A run
 //! stops an API before it would pass the contract's own bound for the KST day, and treats HTTP 429
