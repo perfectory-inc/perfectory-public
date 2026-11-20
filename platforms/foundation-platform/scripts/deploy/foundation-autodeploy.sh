@@ -16,8 +16,13 @@
 # - once the host runs main's head, it starts foundation-worker-autodeploy.service, which deploys the
 #   Cloudflare Workers whose sources changed (root ADR-0175), and a new deploy waits while that runs.
 #
-# A refused or failed commit exits 1 once, so the unit's OnFailure reports it; later ticks skip it
-# quietly. The outcome of every commit is kept under the state directory.
+# A refused commit exits 1 once, so the unit's OnFailure reports it; later ticks skip it quietly. A
+# deploy is done only when every step of foundation-deploy.sh passed (deployed/<sha>), not when the
+# release link moved (root ADR-0597): a failed deploy is tried again from the step that failed, at
+# most deploy_attempts_per_commit times and retry_after_minutes apart (config/autodeploy.contract.json),
+# each failed attempt one line of failed/<sha> and one exit 1. A host whose release link already names
+# a commit that has no deployed/ record finishes that deploy first. The outcome of every commit is kept
+# under the state directory.
 set -euo pipefail
 
 # Fixed paths, no environment override: a caller cannot appoint what decides or what deploys.
@@ -105,6 +110,75 @@ start_worker_deploy() {
   systemctl start --no-block "${edge_unit}" >/dev/null 2>&1 || true
 }
 
+
+# How a failed deploy is tried again (root ADR-0597; config/autodeploy.contract.json). A control
+# checkout from before the keys tries each commit once, as before.
+retrying="$(python3 -I -c 'import json, sys
+pacing = json.load(open(sys.argv[1]))
+print(int(pacing["deploy_attempts_per_commit"]), int(pacing["retry_after_minutes"]))' \
+  "${platform}/config/autodeploy.contract.json" 2>/dev/null)" || retrying="1 0"
+read -r max_attempts retry_after <<<"${retrying}"
+# Each failed attempt is one line of failed/<sha>.
+attempts_of() {
+  if [[ -e "${state}/failed/$1" ]]; then wc -l <"${state}/failed/$1"; else echo 0; fi
+}
+# 0: <sha> failed before, is neither deployed nor refused, has attempts left and its wait has passed;
+# 1: no retry is owed; 2: one is owed, but not yet.
+retry_owed() {
+  local sha="$1" attempts now last
+  [[ -e "${state}/failed/${sha}" && ! -e "${state}/deployed/${sha}" && ! -e "${state}/refused/${sha}" ]] || return 1
+  attempts="$(attempts_of "${sha}")"
+  ((attempts < max_attempts)) || return 1
+  now="$(date +%s)"; last="$(stat -c %Y "${state}/failed/${sha}")"
+  ((now - last >= retry_after * 60)) || return 2
+}
+# Deploys ${target}: the last part of every tick that deploys, a resumed one too (root ADR-0597).
+deploy_target() {
+  # Whether a unit runs is job_units.py's answer (root ADR-0184). A systemd that cannot answer is not
+  # "nothing runs": the tick fails, and its OnFailure says so. Assign its output before testing it;
+  # a failure inside `[[ -n "$(...)" ]]` would not stop the script.
+  running_units() {
+    python3 -I -B "${platform}/scripts/deploy/job_units.py" running "$@" \
+      || { log "systemd cannot tell which units run; asking again next time" >&2; exit 1; }
+  }
+  # No wait for an operator's unit here (root ADR-0441): a run keeps the release it started with. The
+  # deploy itself waits for one only when its release holds jobs (foundation-deploy.sh, exit 75).
+  reason=systemd_unreadable # until it answers
+  # A Worker deploy and an edge apply read the control checkout and the release this deploy is about to
+  # replace.
+  running="$(running_units "${worker_unit}" "${edge_unit}")"
+  if [[ -n "${running}" ]]; then
+    reason=worker_deploy
+    log "${target}: waiting for the Worker deploy and the edge settings (${worker_unit} ${edge_unit})"
+    exit 0
+  fi
+
+  reason=deploying
+  write_metrics
+  log "deploying ${target} over ${current} (${checks#* })"
+  mkdir -p "${state}/failed" "${state}/deployed"
+  status=0
+  /bin/bash "${platform}/scripts/deploy/foundation-deploy.sh" "${target}" || status=$?
+  if [[ "${status}" == 75 ]]; then
+    # The release holds jobs and an operator's unit runs (root ADR-0441): not a failure; asked again.
+    reason=operator_unit
+    log "${target}: the release holds jobs; waiting for the operator's units, asking again next time"
+    exit 0
+  fi
+  if [[ "${status}" == 0 ]]; then
+    date -u +%FT%TZ >"${state}/deployed/${target}"
+    reason="" host_commit="${target}"
+    log "${target} deployed"
+    start_worker_deploy
+  else
+    date -u +%FT%TZ >>"${state}/failed/${target}"
+    reason=deploy_failed
+    attempt="$(attempts_of "${target}")"
+    log "the deploy of ${target} failed (exit ${status}, attempt ${attempt} of ${max_attempts}); see the log above"
+    exit 1
+  fi
+}
+
 mkdir -p "${state}"
 exec 9>"${state}/lock"
 flock -n 9 || { log "a deploy is already running"; exit 0; }
@@ -123,6 +197,23 @@ head="$(/bin/bash "${control_root}/scripts/github/safe-git-transport.sh" --anony
 [[ "${head}" =~ ^[0-9a-f]{40}$ ]] || { reason=main_unreadable; log "cannot read main's head; asking again next time"; exit 0; }
 current="$(readlink -f "${release_root}/current")"; current="${current##*/}"
 host_commit="${current}"
+# The release link names ${current}, but a deploy is done only when all its steps passed (root
+# ADR-0597). 2026-11-20 10:28Z: step 4 of 46ad8d1e failed after the link moved, every later tick found
+# the host on that commit, and the 13 DAGs it held stayed paused until the next commit deployed.
+if [[ -e "${state}/failed/${current}" && ! -e "${state}/deployed/${current}" ]]; then
+  owed=0; retry_owed "${current}" || owed=$?
+  case "${owed}" in
+    0) target="${current}" checks="resume its checks passed before it was first deployed"
+       attempt="$(attempts_of "${current}")"
+       log "the deploy of ${current} did not finish; finishing it (attempt $((attempt + 1)) of ${max_attempts})"
+       deploy_target
+       exit 0 ;;
+    2) reason=retry_wait
+       log "the deploy of ${current} did not finish; trying again ${retry_after} minutes after its last attempt"
+       exit 0 ;;
+    *) log "the deploy of ${current} did not finish after ${max_attempts} attempts; a newer commit on main is the way past it" ;;
+  esac
+fi
 if [[ "${head}" == "${current}" ]]; then
   # The host runs main: the Workers follow it (root ADR-0175). The unit deploys only a Worker whose
   # sources changed or whose last attempt failed and may be retried, and does nothing until the
@@ -133,7 +224,8 @@ fi
 # The commit to deploy: the newest on main the host does not run whose release is published (root
 # ADR-0276 §13). Its signed release is built after the merge (~31 min); while merges come faster,
 # waiting for main's head would never deploy (2026-10-19: 13e6d650 was released while the tick
-# waited on b375edaa). A refused or failed commit is passed over. Main's history comes from the
+# waited on b375edaa). A refused commit is passed over, and a failed one unless a retry is owed (root
+# ADR-0597). Main's history comes from the
 # deploy's mirror over git, not the rate-limited API; without it only the head is a candidate.
 if [[ "$(git --git-dir="${mirror}" rev-parse -q --verify refs/heads/main 2>/dev/null)" != "${head}" ]]; then
   /bin/bash "${control_root}/scripts/github/safe-git-transport.sh" --anonymous --repository "${mirror}" \
@@ -182,7 +274,9 @@ fi
 in_scope="$(cat "${state}/in-scope" 2>/dev/null || true)"
 candidates=()
 while read -r commit; do
-  [[ -e "${state}/refused/${commit}" || -e "${state}/failed/${commit}" ]] || candidates+=("${commit}")
+  [[ ! -e "${state}/refused/${commit}" ]] || continue
+  if [[ -e "${state}/failed/${commit}" ]]; then retry_owed "${commit}" || continue; fi
+  candidates+=("${commit}")
 done < <(git --git-dir="${mirror}" rev-list --first-parent "${current}..${head}" 2>/dev/null || printf '%s\n' "${head}")
 if ((${#candidates[@]} == 0)); then
   reason=every_newer_commit_refused_or_failed
@@ -262,45 +356,4 @@ if [[ -n "${last}" ]] && (($(date +%s) - last < quiet * 60)); then
   exit 0
 fi
 
-# Whether a unit runs is job_units.py's answer (root ADR-0184). A systemd that cannot answer is not
-# "nothing runs": the tick fails, and its OnFailure says so. Assign its output before testing it;
-# a failure inside `[[ -n "$(...)" ]]` would not stop the script.
-running_units() {
-  python3 -I -B "${platform}/scripts/deploy/job_units.py" running "$@" \
-    || { log "systemd cannot tell which units run; asking again next time" >&2; exit 1; }
-}
-# No wait for an operator's unit here (root ADR-0441): a run keeps the release it started with. The
-# deploy itself waits for one only when its release holds jobs (foundation-deploy.sh, exit 75).
-reason=systemd_unreadable # until it answers
-# A Worker deploy and an edge apply read the control checkout and the release this deploy is about to
-# replace.
-running="$(running_units "${worker_unit}" "${edge_unit}")"
-if [[ -n "${running}" ]]; then
-  reason=worker_deploy
-  log "${target}: waiting for the Worker deploy and the edge settings (${worker_unit} ${edge_unit})"
-  exit 0
-fi
-
-reason=deploying
-write_metrics
-log "deploying ${target} over ${current} (${checks#* })"
-mkdir -p "${state}/failed" "${state}/deployed"
-status=0
-/bin/bash "${platform}/scripts/deploy/foundation-deploy.sh" "${target}" || status=$?
-if [[ "${status}" == 75 ]]; then
-  # The release holds jobs and an operator's unit runs (root ADR-0441): not a failure; asked again.
-  reason=operator_unit
-  log "${target}: the release holds jobs; waiting for the operator's units, asking again next time"
-  exit 0
-fi
-if [[ "${status}" == 0 ]]; then
-  date -u +%FT%TZ >"${state}/deployed/${target}"
-  reason="" host_commit="${target}"
-  log "${target} deployed"
-  start_worker_deploy
-else
-  date -u +%FT%TZ >"${state}/failed/${target}"
-  reason=deploy_failed
-  log "the deploy of ${target} failed (exit ${status}); see the log above"
-  exit 1
-fi
+deploy_target

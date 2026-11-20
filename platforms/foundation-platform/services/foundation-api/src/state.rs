@@ -181,6 +181,9 @@ pub struct DatabaseBudgetConfig {
     pub max_connections: u32,
     pub min_connections: u32,
     pub acquire_timeout_ms: u64,
+    /// How long the process waits for its first connection before it gives up (root ADR-0597).
+    /// `acquire_timeout_ms` is a request's budget; a start is not a request.
+    pub startup_timeout_ms: u64,
     pub statement_timeout_ms: u64,
     pub idle_timeout_seconds: u64,
 }
@@ -191,6 +194,13 @@ impl Default for DatabaseBudgetConfig {
             max_connections: 8,
             min_connections: 1,
             acquire_timeout_ms: 500,
+            // Root ADR-0597, from ai-server 2026-11-20 10:28Z: the API's first connection did not
+            // reach Postgres within the request budget (500 ms) while the host's disk was saturated
+            // (I/O pressure full 45-48%), the process exited and `up --wait foundation-api` failed
+            // the deploy. Its first connection arrived 36 s after the container's first start. The
+            // container's health check allows 100 s (interval 10 s x 10 retries) before compose
+            // calls it unhealthy: 90 s waits out the measured 36 s with room and ends inside it.
+            startup_timeout_ms: 90_000,
             statement_timeout_ms: 2500,
             idle_timeout_seconds: 300,
         }
@@ -260,6 +270,11 @@ impl DatabaseBudgetConfig {
                 "FOUNDATION_PLATFORM_DB_ACQUIRE_TIMEOUT_MS",
                 Self::default().acquire_timeout_ms,
             )?,
+            startup_timeout_ms: optional_positive_u64_var(
+                lookup,
+                "FOUNDATION_PLATFORM_DB_STARTUP_TIMEOUT_MS",
+                Self::default().startup_timeout_ms,
+            )?,
             statement_timeout_ms: optional_positive_u64_var(
                 lookup,
                 "FOUNDATION_PLATFORM_DB_STATEMENT_TIMEOUT_MS",
@@ -279,6 +294,36 @@ impl DatabaseBudgetConfig {
         }
 
         Ok(config)
+    }
+}
+
+/// The first connection, within the start's own budget (root ADR-0597): a connection that times
+/// out or cannot be opened is asked again until `budget` is spent, anything else (a refused
+/// password, an unknown database) ends the start at once.
+async fn wait_for_first_connection(pool: &sqlx::PgPool, budget: Duration) -> anyhow::Result<()> {
+    let deadline = tokio::time::Instant::now() + budget;
+    let mut attempts = 0_u32;
+    loop {
+        attempts += 1;
+        match pool.acquire().await {
+            Ok(_) => {
+                if attempts > 1 {
+                    tracing::info!(attempts, "the first database connection is open");
+                }
+                return Ok(());
+            }
+            Err(error @ (sqlx::Error::PoolTimedOut | sqlx::Error::Io(_))) => {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(anyhow::Error::new(error).context(format!(
+                        "no database connection within the start's {} ms (FOUNDATION_PLATFORM_DB_STARTUP_TIMEOUT_MS)",
+                        budget.as_millis()
+                    )));
+                }
+                tracing::warn!(attempts, %error, "the first database connection is not open yet; asking again");
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            Err(error) => return Err(error.into()),
+        }
     }
 }
 
@@ -663,8 +708,12 @@ impl AppState {
                     Ok(())
                 })
             })
-            .connect(&config.database_url)
-            .await?;
+            .connect_lazy(&config.database_url)?;
+        wait_for_first_connection(
+            &pool,
+            Duration::from_millis(config.database.startup_timeout_ms),
+        )
+        .await?;
 
         let identity_authorization = Arc::new(http_identity_authorization(
             config.zitadel_issuer_url,
@@ -1275,6 +1324,7 @@ mod tests {
         assert_eq!(config.database.max_connections, 8);
         assert_eq!(config.database.min_connections, 1);
         assert_eq!(config.database.acquire_timeout_ms, 500);
+        assert_eq!(config.database.startup_timeout_ms, 90_000);
         assert_eq!(config.database.statement_timeout_ms, 2500);
         assert_eq!(config.database.idle_timeout_seconds, 300);
         Ok(())
@@ -1330,6 +1380,7 @@ mod tests {
             ("FOUNDATION_PLATFORM_DB_MAX_CONNECTIONS", "12"),
             ("FOUNDATION_PLATFORM_DB_MIN_CONNECTIONS", "2"),
             ("FOUNDATION_PLATFORM_DB_ACQUIRE_TIMEOUT_MS", "750"),
+            ("FOUNDATION_PLATFORM_DB_STARTUP_TIMEOUT_MS", "30000"),
             ("FOUNDATION_PLATFORM_DB_STATEMENT_TIMEOUT_MS", "3000"),
             ("FOUNDATION_PLATFORM_DB_IDLE_TIMEOUT_SECONDS", "120"),
         ]);
@@ -1339,6 +1390,7 @@ mod tests {
         assert_eq!(config.database.max_connections, 12);
         assert_eq!(config.database.min_connections, 2);
         assert_eq!(config.database.acquire_timeout_ms, 750);
+        assert_eq!(config.database.startup_timeout_ms, 30_000);
         assert_eq!(config.database.statement_timeout_ms, 3000);
         assert_eq!(config.database.idle_timeout_seconds, 120);
         Ok(())
