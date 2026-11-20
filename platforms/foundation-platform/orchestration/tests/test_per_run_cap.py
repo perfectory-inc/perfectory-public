@@ -125,6 +125,11 @@ def real_graph():
 HELD_OFF = {
     "gold_parcel_regulation_zones_rebuild": "its first national build ran 9,610 s, past the 150-minute limit "
                                             "(2026-11-07, root ADR-0435 개정 ②)",
+    # Paused by the owner 2026-11-20 until the Spark/Airflow transition ends: the host's load reached
+    # 125 with their OCR among the top CPU users (their disabled_reason). Nothing is lost while off:
+    # each run plans from the outcomes not yet written (root ADR-0477, ADR-0593).
+    "intelligence_document_text": "paused by the owner 2026-11-20 until the Spark/Airflow transition ends",
+    "intelligence_document_fact": "paused by the owner 2026-11-20 until the Spark/Airflow transition ends",
 }
 
 
