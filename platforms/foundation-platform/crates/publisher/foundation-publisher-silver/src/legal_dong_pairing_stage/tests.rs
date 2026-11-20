@@ -42,7 +42,7 @@ fn the_snapshot_and_the_recorded_changes_are_written_as_the_rules_read_them() ->
          CREATE TABLE changes AS SELECT 'pair|rule|9999910200|9999910100' AS change_key, 'pair' AS kind,
            '9999910200' AS old_code, '9999910100' AS new_code, 'dong' AS level, '20990101' AS effective_date,
            'rule' AS source, NULL::VARCHAR AS rule_verdict, NULL::VARCHAR AS detail, 'run-1' AS derivation_run_id,
-           make_timestamptz(4070908800000000) AS recorded_at_utc;",
+           to_timestamp(4070908800) AS recorded_at_utc;",
     )?;
     let day = NaiveDate::from_ymd_opt(2099, 1, 2).context("day")?;
     assert_eq!(

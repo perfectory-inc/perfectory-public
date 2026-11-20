@@ -455,7 +455,7 @@ pub fn stage_append(
         .columns
         .iter()
         .map(|column| match column.logical_type {
-            "timestamp" => format!("make_timestamptz(recorded_at_us) AS {}", column.name),
+            "timestamp" => format!("to_timestamp(recorded_at_us // 1000000) AS {}", column.name),
             _ => column.name.to_owned(),
         })
         .collect::<Vec<_>>()
