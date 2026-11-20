@@ -1025,3 +1025,6 @@ mod address_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;
