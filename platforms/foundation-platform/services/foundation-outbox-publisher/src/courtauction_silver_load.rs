@@ -1,5 +1,6 @@
-//! `load-courtauction-go-kr-silver`: the Silver half of 법원경매정보 for the documents that left
-//! Spark (root ADR-0280, ADR-0540, ADR-0575, ADR-0559).
+//! `load-courtauction-go-kr-silver`: 법원경매정보 Silver documents that left Spark (root ADR-0559).
+//!
+//! The documents are root ADR-0280, ADR-0540 and ADR-0575's.
 //!
 //! `court-auction-silver-load.sh` runs it over the plan directories of its tables, before the Spark
 //! job loads the rest. For each object, oldest first, `DuckDB` inside the publisher builds the rows

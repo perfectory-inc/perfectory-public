@@ -248,8 +248,9 @@ pub struct PlannedObject {
     pub path: PathBuf,
 }
 
-/// Every object the plans in `plan_dirs` fetched, with its role, oldest run first; an object two
-/// plans of its role name (one per table it writes) once.
+/// Every object the plans in `plan_dirs` fetched, with its role, oldest run first.
+///
+/// An object two plans of its role name (one per table it writes) comes once.
 ///
 /// # Errors
 /// Refuses another plan format, a plan of a table this load does not write, and an object of a

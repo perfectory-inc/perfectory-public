@@ -1,6 +1,8 @@
-//! What a Silver load that left Spark appends of a newest-per-key table: the staged rows whose key is
-//! new or whose content differs from the table's current rows at the head it pinned (root ADR-0311,
-//! ADR-0559). The Spark loads called it `changed_only`; the `DuckDB` stages share it here.
+//! The changed rows a Silver load that left Spark appends (root ADR-0311, ADR-0559).
+//!
+//! Of a newest-per-key table: the staged rows whose key is new or whose content differs from the
+//! table's current rows at the head it pinned. The Spark loads called it `changed_only`; the
+//! `DuckDB` stages share it here.
 
 use anyhow::Context;
 use lakehouse_domain::LakehouseTableContract;
