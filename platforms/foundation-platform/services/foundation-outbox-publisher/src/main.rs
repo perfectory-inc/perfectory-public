@@ -72,6 +72,7 @@ mod industrial_complex_gold_profile_export;
 mod industrial_complex_notice_collect;
 mod lakehouse_object_listing;
 mod onbid_silver_load;
+mod onbid_time_correction;
 mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;

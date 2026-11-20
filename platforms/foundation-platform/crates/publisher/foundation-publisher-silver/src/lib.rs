@@ -136,6 +136,9 @@ pub mod parcel_nearby_stage;
 /// Stages 차세대 온비드 public sale Bronze objects as Silver rows (root ADR-0280, ADR-0340).
 pub mod onbid_silver_stage;
 
+/// Re-versions the Onbid rows whose minute times the Spark load misread (one-off).
+pub mod onbid_time_correction_stage;
+
 /// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
 pub mod place_identity_stage;
 

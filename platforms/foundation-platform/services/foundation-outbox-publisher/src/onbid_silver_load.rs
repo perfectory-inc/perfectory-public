@@ -38,19 +38,19 @@ use lakehouse_domain::{
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::{json, Value};
 
-use crate::public_data_control_support::required_env_value;
+use crate::{onbid_time_correction::Correction, public_data_control_support::required_env_value};
 
 const PLAN_ROOT_ENV: &str = "FOUNDATION_PLATFORM_ONBID_PLAN_ROOT";
 const PARCEL_SOURCE: &str =
     include_str!("../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
 
-fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
+pub(crate) fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
     industrial_complex_lakehouse_contract_by_table_name(table)
         .with_context(|| format!("no contract for {table}"))
 }
 
 /// The snapshot `main` of `table` is at now; `None` for a table with none.
-async fn head(catalog: &IcebergRestCatalog, table: &str) -> anyhow::Result<Option<i64>> {
+pub(crate) async fn head(catalog: &IcebergRestCatalog, table: &str) -> anyhow::Result<Option<i64>> {
     Ok(catalog
         .load_main_snapshot_history(table)
         .await?
@@ -83,14 +83,16 @@ fn seconds(started: Instant) -> f64 {
     (started.elapsed().as_secs_f64() * 10.0).round() / 10.0
 }
 
-fn locked(stage: &Mutex<DuckDbParquetStage>) -> anyhow::Result<MutexGuard<'_, DuckDbParquetStage>> {
+pub(crate) fn locked(
+    stage: &Mutex<DuckDbParquetStage>,
+) -> anyhow::Result<MutexGuard<'_, DuckDbParquetStage>> {
     stage
         .lock()
         .map_err(|_| anyhow::anyhow!("an earlier step of the load panicked"))
 }
 
 /// Appends one object's file (or none) to `table` on `expected_head`, recording the object.
-async fn append(
+pub(crate) async fn append(
     committer: &LakehouseDataCommitter,
     catalog: &IcebergRestCatalog,
     table: &str,
@@ -313,6 +315,22 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         }
         loaded.push(run.load(&stage, object).await?);
     }
+    // one-off (see onbid_time_correction.rs): the rows the Spark load misread, after the run's
+    // objects and inside its budget. A failure of it is reported and does not fail the load.
+    let correction = Correction {
+        source: &run.source,
+        committer: &run.committer,
+        catalog: &run.catalog,
+        stage: &stage,
+        work: &plan_root.join("correction"),
+        ingested_at,
+        started,
+        budget,
+    };
+    summary["time_correction"] = match correction.run().await {
+        Ok(tables) => tables,
+        Err(error) => json!({"error": format!("{error:#}")}),
+    };
     drop(stage);
     summary["objects"] = Value::Array(loaded);
     summary["deferred"] = json!(deferred);
