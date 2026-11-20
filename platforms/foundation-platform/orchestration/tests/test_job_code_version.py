@@ -111,7 +111,7 @@ class TheRealTree(unittest.TestCase):
 
     def test_the_three_jobs_reach_what_their_fixes_changed(self):
         cases = {
-            "data_go_kr_file_data": "infra/lakehouse/spark/jobs/data_go_kr_file_data.py",  # #1230, the CSV escape
+            "data_go_kr_file_data": "scripts/ops/data-go-kr-file-data-cycle.sh",  # #1230 fixed its Spark job; the load is the publisher's now
             "gold_parcel_real_transaction_rebuild": "infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py",  # #1262
             "zoning_tile_bake": "scripts/ops/zoning-tile-bake.sh",  # #1234
         }

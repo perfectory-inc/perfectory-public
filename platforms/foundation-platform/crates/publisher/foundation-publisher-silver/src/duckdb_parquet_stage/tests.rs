@@ -549,14 +549,75 @@ fn synthetic_row(contract: &LakehouseTableContract) -> anyhow::Result<String> {
     Ok(format!("SELECT {}", columns.join(", ")))
 }
 
+/// `file` appended as `object` into `table` while it is empty, as a publisher Silver load appends
+/// it: a commit that records the object, pinned on the head the rows were compared against (none
+/// yet). Returns the commit's parent and its added rows.
+async fn first_append(
+    catalog: &Arc<dyn Catalog>,
+    table: &'static LakehouseTableContract,
+    file: StagedFile,
+    object: &str,
+) -> anyhow::Result<(Option<i64>, u64)> {
+    let short = short_name(table)?;
+    let object = object.to_owned();
+    let (snapshot, parent, added) = appended(
+        LakehouseDataCommitter::new(Arc::clone(catalog))
+            .append_at_head(
+                DataAppend {
+                    table_name: table.table_name,
+                    contract: table,
+                    files: std::slice::from_ref(&file),
+                    batch: std::slice::from_ref(&object),
+                    already_ingested: &BTreeSet::new(),
+                    summary: BTreeMap::new(),
+                },
+                None,
+            )
+            .await?,
+    )?;
+    // The table's own record of the commit: the publisher's snapshot scan reads no `double`
+    // column, and some of these tables hold one.
+    let loaded = catalog
+        .load_table(&TableIdent::from_strs(["silver", short])?)
+        .await?;
+    let current = loaded
+        .metadata()
+        .current_snapshot()
+        .context("a current snapshot")?;
+    assert_eq!(current.snapshot_id(), snapshot.snapshot_id, "{short}");
+    let recorded = &current.summary().additional_properties;
+    assert_eq!(
+        recorded["foundation.ingest-batch-objects"], object,
+        "{short}"
+    );
+    Ok((parent, added))
+}
+
+fn short_name(table: &LakehouseTableContract) -> anyhow::Result<&'static str> {
+    Ok(table
+        .table_name
+        .split_once('.')
+        .context("namespace.table")?
+        .1)
+}
+
+/// `table` created empty under `root`, and its write shape.
+async fn empty_table(
+    root: &Path,
+    table: &'static LakehouseTableContract,
+) -> anyhow::Result<(Arc<dyn Catalog>, TableShape)> {
+    let catalog = catalog_with(&root.join(short_name(table)?), table).await?;
+    let shape = LakehouseDataCommitter::new(Arc::clone(&catalog))
+        .table_shape(table.table_name)
+        .await?;
+    Ok((catalog, shape))
+}
+
 /// The 차세대 온비드 Silver load's first object into each of its eight empty tables (root
-/// ADR-0389), as `load-data-go-kr-onbid-silver` appends it: a commit that records the object,
-/// pinned on the head the rows were compared against (none yet).
+/// ADR-0389), as `load-data-go-kr-onbid-silver` appends it.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_onbid_object_is_the_first_append_into_each_empty_table() -> anyhow::Result<()> {
-    let root = tempfile::tempdir()?;
-    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
-    for table in [
+    let tables = [
         contract("silver.onbid_real_estate_item")?,
         contract("silver.onbid_item_bid_result")?,
         contract("silver.onbid_real_estate_item_photo")?,
@@ -565,48 +626,51 @@ async fn an_onbid_object_is_the_first_append_into_each_empty_table() -> anyhow::
         contract("silver.onbid_announcement")?,
         contract("silver.onbid_announcement_bid_result")?,
         contract("silver.onbid_announcement_detail")?,
-    ] {
-        let short = table
-            .table_name
-            .split_once('.')
-            .context("namespace.table")?
-            .1;
-        let catalog = catalog_with(&root.path().join(short), table).await?;
-        let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
-        let shape = committer.table_shape(table.table_name).await?;
-        let file = stage.write(&shape, &synthetic_row(table)?, &format!("{short}-first"))?;
-        let object = "bronze/source=synthetic/onbid-20990102t030405z.gz".to_owned();
-        let (snapshot, parent, added) = appended(
-            committer
-                .append_at_head(
-                    DataAppend {
-                        table_name: table.table_name,
-                        contract: table,
-                        files: std::slice::from_ref(&file),
-                        batch: std::slice::from_ref(&object),
-                        already_ingested: &BTreeSet::new(),
-                        summary: BTreeMap::new(),
-                    },
-                    None,
-                )
-                .await?,
-        )?;
-        assert_eq!((parent, added), (None, 1), "{short}");
-        // The table's own record of the commit: the publisher's snapshot scan reads no `double`
-        // column, and five of these tables hold one.
-        let loaded = catalog
-            .load_table(&TableIdent::from_strs(["silver", short])?)
-            .await?;
-        let current = loaded
-            .metadata()
-            .current_snapshot()
-            .context("a current snapshot")?;
-        assert_eq!(current.snapshot_id(), snapshot.snapshot_id, "{short}");
-        let recorded = &current.summary().additional_properties;
-        assert_eq!(
-            recorded["foundation.ingest-batch-objects"], object,
-            "{short}"
-        );
+    ];
+    let root = tempfile::tempdir()?;
+    // One stage for the whole test: its files live as long as it does.
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    for table in tables {
+        let (catalog, shape) = empty_table(root.path(), table).await?;
+        let name = format!("{}-first", short_name(table)?);
+        let file = stage.write(&shape, &synthetic_row(table)?, &name)?;
+        let object = "bronze/source=synthetic/onbid-20990102t030405z.gz";
+        let first = first_append(&catalog, table, file, object).await?;
+        assert_eq!(first, (None, 1), "{}", table.table_name);
+    }
+    Ok(())
+}
+
+/// The data.go.kr file data Silver load's first edition into each of its fourteen empty tables
+/// (root ADR-0389), as `load-data-go-kr-file-data-silver` appends it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_data_edition_is_the_first_append_into_each_empty_table() -> anyhow::Result<()> {
+    let tables = [
+        contract("silver.highway_access_point")?,
+        contract("silver.household_count")?,
+        contract("silver.dong_population")?,
+        contract("silver.railway_station")?,
+        contract("silver.port")?,
+        contract("silver.airport")?,
+        contract("silver.commercial_district")?,
+        contract("silver.adm_dong_code_linkage")?,
+        contract("silver.school_location")?,
+        contract("silver.university")?,
+        contract("silver.subway_station")?,
+        contract("silver.standard_land_price")?,
+        contract("silver.elevator_installation")?,
+        contract("silver.knowledge_industry_center")?,
+    ];
+    let root = tempfile::tempdir()?;
+    // One stage for the whole test: its files live as long as it does.
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    for table in tables {
+        let (catalog, shape) = empty_table(root.path(), table).await?;
+        let name = format!("{}-first", short_name(table)?);
+        let file = stage.write(&shape, &synthetic_row(table)?, &name)?;
+        let object = "bronze/source=synthetic/file-20990102t030405z.csv";
+        let first = first_append(&catalog, table, file, object).await?;
+        assert_eq!(first, (None, 1), "{}", table.table_name);
     }
     Ok(())
 }

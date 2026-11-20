@@ -502,8 +502,8 @@ class AProducerOutranksItsConsumers(unittest.TestCase):
         self.assertGreater(len(pairs), 100)
         self.assertEqual([pair for pair in pairs if weights[pair[0]] <= weights[pair[1]]], [])
         self.assertEqual(weights["map_edit_fold_admin"], weights["map_edit_fold_complex"])
-        # The incident's pair, and what Airflow is handed.
-        self.assertGreater(weights["data_go_kr_file_data"], weights["gold_parcel_nearby_rebuild"])
+        # The incident's pair no longer shares a pool (the file data load left Spark, root ADR-0559): the
+        # rule above holds for every pair that does. What Airflow is handed:
         specs = {spec.job_id: spec.priority_weight for spec in job_specs.load_specs()}
         self.assertEqual(specs, weights)
 
