@@ -155,3 +155,59 @@ fn two_editions_tied_on_the_order_are_refused_and_the_factory_orders_by_its_day(
         Ok(vec![json!("20991231")])
     );
 }
+
+/// Root ADR-0318 §8: the official parcel-number history appends only the events the table does not
+/// hold, so a 시도's newest file holds a few rows. Read as editions (its declaration until
+/// 2026-11-20) the second load hid the first: in production 1,669 of the pairing window's 3,702
+/// links, in 7 시도, after the 2026-11-15 load.
+#[test]
+fn a_load_of_the_parcel_number_history_that_appends_a_few_rows_hides_none_of_the_earlier_ones() {
+    use lakehouse_domain::{
+        LakehouseEditionRead, NewestEditionError, SILVER_PARCEL_NUMBER_CHANGE_HISTORY as HISTORY,
+    };
+    use serde_json::{json, Map, Value};
+
+    let row = |old: &str, edition: &str, updated: &str| -> Map<String, Value> {
+        json!({"old_pnu": old, "source_region_code": "99", "source_snapshot_id": edition,
+               "provider_updated_on": updated})
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
+    };
+    // The first load appends the file whole; the next month's file repeats it and adds one event,
+    // and the load appends that one row.
+    let rows = [
+        row("9999910100100010000", "file-1@2099-01-15", "2099-01-15"),
+        row("9999910100100020000", "file-1@2099-01-15", "2099-01-15"),
+        row("9999910100100030000", "file-1@2099-01-15", "2099-01-15"),
+        row("9999910100100040000", "file-1@2099-02-15", "2099-02-15"),
+    ];
+    // Planted: the declaration it had. The newest edition of the 시도 is the one row.
+    let as_editions = LakehouseTableContract {
+        row_versions: LakehouseRowVersions::Editions {
+            edition_column: "source_snapshot_id",
+            newest_first: &["provider_updated_on"],
+            per: &["source_region_code"],
+            read: LakehouseEditionRead::Newest,
+        },
+        ..HISTORY
+    };
+    assert_eq!(
+        as_editions
+            .newest_edition_rows(&rows)
+            .map(|rows| rows.len()),
+        Ok(1)
+    );
+    // Every row is an event and every row is current: there is no edition to pick, and the one
+    // reader folds them all.
+    assert!(matches!(
+        HISTORY.newest_edition_rows(&rows),
+        Err(NewestEditionError::NotEditions(_))
+    ));
+    assert!(matches!(
+        HISTORY.row_versions,
+        LakehouseRowVersions::Events {
+            canonical_reader: Some("vworld_parcel_number_change_history.official_links")
+        }
+    ));
+}

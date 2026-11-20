@@ -326,8 +326,25 @@ class TableContractTest(unittest.TestCase):
         self.assertEqual(set(rows[0]), set(column_names(load_lakehouse_contract(job.TABLE_CONTRACT))))
         self.assertEqual({row["source_region_code"] for row in rows}, {"99"})
 
+    def test_a_load_that_appends_a_few_rows_hides_none_of_the_earlier_links(self):
+        # 루트 ADR-0318 §8: 적재는 표가 갖지 않은 사건의 행만 붙인다. 다음 달 파일이 붙인 한 행이 "그 시도의 가장 새 판"
+        # 으로 읽히면 앞 적재의 연결이 전부 가려진다(2026-11-15 뒤 운영: 창의 연결 3,702 건 중 1,669 건).
+        from platform_contracts import load_lakehouse_contract, row_versions  # noqa: PLC0415
+
+        def loaded(pnu, edition):
+            return {"old_pnu": pnu, "new_pnu": dong("9999920100"), "changed_on": date(2099, 7, 1), "quarantine_reason": None,
+                    "source_region_code": "99", "source_snapshot_id": edition}
+
+        first = [loaded(f"99999101001{n:04d}0000", "file-1@2099-07-15") for n in (1, 2, 3)]
+        second = [loaded("9999910100100040000", "file-1@2099-08-15")]
+        self.assertEqual(row_versions(load_lakehouse_contract(job.TABLE_CONTRACT)),
+                         {"kind": "events", "canonical_reader": "vworld_parcel_number_change_history.official_links"})
+        self.assertEqual(len(job.official_links(first + second, date(2099, 1, 1))), 4)
+        # 심은 위반: 예전 선언대로 가장 새 판의 행만 넘기면 한 건만 남는다.
+        self.assertEqual(len(job.official_links(second, date(2099, 1, 1))), 1)
+
     def test_the_region_code_is_the_member_names_province(self):
-        # Root ADR-0286: the edition group. An old-name file keeps its own code beside the renamed one.
+        # The file's 시도, kept beside the renamed one's: an old-name file keeps its own code.
         self.assertEqual(job.region_code("ABPD_UNQ_NO_CHG_HIST_98_209801.txt", CONTRACT), "98")
         self.assertEqual(job.region_code(MEMBER, CONTRACT), "99")
         for broken in ("ABPD_UNQ_NO_CHG_HIST_9_209909.txt", "ABPD_UNQ_NO_CHG_HIST_99_209909.csv", "other.txt"):

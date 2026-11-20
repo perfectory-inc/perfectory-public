@@ -9037,15 +9037,8 @@
       "current_row_latest": null,
       "current_rows_sql": null,
       "row_versions": {
-        "kind": "editions",
-        "edition_column": "source_snapshot_id",
-        "newest_first": [
-          "provider_updated_on"
-        ],
-        "per": [
-          "source_region_code"
-        ],
-        "read": "newest"
+        "kind": "events",
+        "canonical_reader": "vworld_parcel_number_change_history.official_links"
       },
       "columns": [
         {

@@ -216,7 +216,8 @@ def table_rows(
 
 def official_links(rows: Iterable[Mapping[str, Any]], floor: date) -> list[tuple[str, str, str]]:
     """(old PNU, new PNU, 토지이동일자 YYYYMMDD) of the rows the pairing may read: dated on or after
-    `floor`, not quarantined, one link per distinct dated pair. The same link arrives from an old-name
+    `floor`, not quarantined, one link per distinct dated pair. The table's one reader (its contract's
+    `canonical_reader`): `rows` are every row of the table, never one edition of it (root ADR-0318 §8). The same link arrives from an old-name
     file and its renamed 시도's. The date says which change a link belongs to: the pairing holds a
     derived pair only against official rows of the same change (root ADR-0156)."""
 
