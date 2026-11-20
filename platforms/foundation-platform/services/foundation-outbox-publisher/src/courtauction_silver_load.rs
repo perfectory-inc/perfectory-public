@@ -14,10 +14,10 @@
 use std::{path::PathBuf, sync::Mutex, time::Instant};
 
 use anyhow::Context;
-use foundation_publisher_core::lakehouse_data_commit::{LakehouseDataCommitter, TableShape};
+use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     courtauction_silver_stage::{
-        appended, planned_objects, read_object, CourtAuctionSource, PlannedObject, ROLES,
+        appended, planned_objects, read_object, CourtAuctionSource, PlannedObject,
     },
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
     onbid_silver_stage::{plan_dirs, write},
@@ -40,7 +40,6 @@ struct Run {
     source: CourtAuctionSource,
     committer: LakehouseDataCommitter,
     catalog: IcebergRestCatalog,
-    shapes: std::collections::BTreeMap<&'static str, TableShape>,
     ingested_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -59,17 +58,19 @@ impl Run {
         let mut tables = serde_json::Map::new();
         for table in &staged {
             let table_contract = contract(table.table)?;
+            // A table is born on its first commit (root ADR-0564 §1): the deploy's lakehouse
+            // migration leaves an absent table to the load that makes it, as the Spark job made it.
+            self.committer
+                .create_table_if_absent(table_contract)
+                .await?;
+            let shape = self.committer.table_shape(table.table).await?;
             // Pinned before the compare, so the commit refuses a head that moved since.
             let expected_head = head(&self.catalog, table.table).await?;
             let (file, rows) = {
                 let stage = &*locked(stage)?;
                 let (rows_table, rows) = appended(stage, table_contract, expected_head, table)?;
-                let shape = self
-                    .shapes
-                    .get(table.table)
-                    .with_context(|| format!("no shape of {}", table.table))?;
                 (
-                    write(stage, shape, table.table, &rows_table, &object.object_key)?,
+                    write(stage, &shape, table.table, &rows_table, &object.object_key)?,
                     rows,
                 )
             };
@@ -104,12 +105,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let source = CourtAuctionSource::compiled()?;
     let objects = planned_objects(&plan_dirs(&plan_root)?, &source)?;
     let committer = LakehouseDataCommitter::from_env().await?;
-    let mut shapes = std::collections::BTreeMap::new();
-    for role in ROLES {
-        for (table, _) in role.tables() {
-            shapes.insert(*table, committer.table_shape(table).await?);
-        }
-    }
     let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
     let stage = Mutex::new(DuckDbParquetStage::open_reading_lakehouse(
         &plan_root,
@@ -125,7 +120,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         source,
         committer,
         catalog,
-        shapes,
         ingested_at,
     };
     let mut loaded = Vec::with_capacity(objects.len());
