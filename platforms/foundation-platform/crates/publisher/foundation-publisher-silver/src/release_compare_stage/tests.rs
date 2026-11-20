@@ -35,14 +35,14 @@ fn table(stage: &DuckDbParquetStage, name: &str, rows: &str) -> anyhow::Result<(
             "pnu" | "zone_code" | "remark" | "source_snapshot_id" | "row_state" => {
                 format!("v.{}", column.name)
             }
-            "ingested_at_utc" => "to_timestamp(v.at) AS ingested_at_utc".to_owned(),
+            "ingested_at_utc" => "to_timestamp(v.secs) AS ingested_at_utc".to_owned(),
             other => format!("'x' AS {other}"),
         })
         .collect::<Vec<_>>()
         .join(", ");
     stage.connection().execute_batch(&format!(
         "CREATE OR REPLACE TABLE {name} AS SELECT {columns} FROM (VALUES {rows}) \
-         v(pnu, zone_code, remark, source_snapshot_id, at, row_state)"
+         v(pnu, zone_code, remark, source_snapshot_id, secs, row_state)"
     ))?;
     Ok(())
 }
@@ -115,7 +115,7 @@ fn a_bucket_appends_the_changed_keys_rows_and_one_marker_per_vanished_key() -> a
     let rows: Vec<(String, String, Option<String>, String, i64)> = stage
         .connection()
         .prepare(
-            "SELECT pnu, zone_code, row_state, source_snapshot_id, epoch(ingested_at_utc)::BIGINT \
+            "SELECT pnu, zone_code, row_state, source_snapshot_id, epoch_us(ingested_at_utc) // 1000000 \
              FROM rc_changes ORDER BY pnu, zone_code",
         )?
         .query_map([], |row| {
@@ -307,7 +307,7 @@ fn a_release_is_copied_from_its_handoffs_and_checked_before_it_is_compared() -> 
     assert!(!copy.with_extension("partial").exists());
     let release = release_relation(&copy)?;
     let instant: i64 = stage.connection().query_row(
-        &format!("SELECT epoch(max(ingested_at_utc))::BIGINT FROM {release}"),
+        &format!("SELECT epoch_us(max(ingested_at_utc)) // 1000000 FROM {release}"),
         [],
         |row| row.get(0),
     )?;

@@ -407,10 +407,11 @@ pub fn compare_bucket(
 fn typed(name: &str, logical_type: &str) -> anyhow::Result<String> {
     Ok(match logical_type {
         "string" => name.to_owned(),
-        // No time zone database is loaded in the stage: the instant is read as UTC text.
-        "timestamp" => {
-            format!("to_timestamp(epoch(strptime({name}, '%Y-%m-%dT%H:%M:%SZ'))) AS {name}")
-        }
+        // No time zone database is loaded in the stage (no ICU): the instant is UTC text, read
+        // as a plain timestamp and counted in microseconds. Any other form is refused.
+        "timestamp" => format!(
+            "CASE WHEN {name} IS NULL THEN NULL              WHEN regexp_full_match({name}, '[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}Z')              THEN to_timestamp(epoch_us(CAST(replace(replace({name}, 'T', ' '), 'Z', '') AS TIMESTAMP)) // 1000000)              ELSE error('{name} is not an instant like 2099-01-01T00:00:00Z: ' || {name}) END AS {name}"
+        ),
         "date" => format!("CAST({name} AS DATE) AS {name}"),
         "int" => format!("CAST({name} AS INTEGER) AS {name}"),
         "long" => format!("CAST({name} AS BIGINT) AS {name}"),
