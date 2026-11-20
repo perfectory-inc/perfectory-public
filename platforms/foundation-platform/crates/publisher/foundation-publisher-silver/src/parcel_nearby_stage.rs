@@ -685,6 +685,8 @@ pub struct ChangedSidos {
     /// The cells whose parcels' `commercial_store_count` the moved stores can change (empty when
     /// the stores did not move).
     pub store_cells: BTreeSet<u64>,
+    /// The located stores (a coordinate inside Korea) before and after, when the stores moved.
+    pub located_stores: Option<(u64, u64)>,
 }
 
 /// The 시도 whose documents a move of the parcels, the stores or the place ids can change.
@@ -735,10 +737,11 @@ pub fn changed_sidos(
         ));
     }
     let mut found = BTreeSet::new();
-    let touched = if moved.contains(STORE_SOURCE) {
-        moved_store_cells(connection, old, new)?
+    let (touched, located_stores) = if moved.contains(STORE_SOURCE) {
+        let (cells, before, after) = moved_store_cells(connection, old, new)?;
+        (cells, Some((before, after)))
     } else {
-        BTreeSet::new()
+        (BTreeSet::new(), None)
     };
     if !touched.is_empty() {
         let mut statement = connection.prepare("SELECT pnu, lat, lon FROM parcels")?;
@@ -767,16 +770,20 @@ pub fn changed_sidos(
     Ok(ChangedSidos {
         sidos: found,
         store_cells: touched,
+        located_stores,
     })
 }
 
-/// The cells a store left or entered between `old` and `new`, and every cell within
-/// [`STORE_H3_RING`] rings of one.
-fn moved_store_cells(
+/// The cells a store left or entered between `old` and `new` with every cell within
+/// [`STORE_H3_RING`] rings of one, and the located stores before and after.
+///
+/// # Errors
+/// Returns an error when a snapshot cannot be read or a point is not a coordinate.
+pub fn moved_store_cells(
     connection: &Connection,
     old: &Source<'_>,
     new: &Source<'_>,
-) -> anyhow::Result<BTreeSet<u64>> {
+) -> anyhow::Result<(BTreeSet<u64>, u64, u64)> {
     let (lat, lon) = STORE_COORDINATES;
     let columns = [
         "row_key".to_owned(),
@@ -809,8 +816,21 @@ fn moved_store_cells(
         side(old, "current_stores_before")?,
         side(new, "current_stores_after")?,
     );
+    Ok((
+        cells_around_moves(&before, &after)?,
+        u64::try_from(before.len())?,
+        u64::try_from(after.len())?,
+    ))
+}
+
+/// The H3 cells within [`STORE_H3_RING`] rings of a cell a store (`row_key`, cell) left or entered
+/// between `before` and `after`: a store that moved counts at both its cells.
+fn cells_around_moves(
+    before: &BTreeSet<(String, u64)>,
+    after: &BTreeSet<(String, u64)>,
+) -> anyhow::Result<BTreeSet<u64>> {
     let mut touched = BTreeSet::new();
-    for (_, moved_cell) in before.symmetric_difference(&after) {
+    for (_, moved_cell) in before.symmetric_difference(after) {
         let center = h3o::CellIndex::try_from(*moved_cell)?;
         for ring in center.grid_disk::<Vec<_>>(u32::from(STORE_H3_RING)) {
             touched.insert(u64::from(ring));

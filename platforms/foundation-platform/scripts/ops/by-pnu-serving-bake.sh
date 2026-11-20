@@ -728,7 +728,9 @@ except (OSError, ValueError):
     sys.exit(0)
 counts = ", ".join(f"{name} {count}" for name, count in sorted(found.get("counts", {}).items()))
 explained = found.get("explained_by") or {}
-records = "; ".join(f"{name}: {why}" for name, why in sorted(explained.items())) if explained else \
+# name -> why, as both change-set jobs write it; a list (an older publisher) is read as unnamed records.
+pairs = sorted(explained.items()) if isinstance(explained, dict) else [("record", why) for why in explained]
+records = "; ".join(f"{name}: {why}" for name, why in pairs) if pairs else \
     "checked " + ", ".join(found.get("explanations_checked", [])) + ", none recorded"
 print(f"{counts}; {records}")
 PY

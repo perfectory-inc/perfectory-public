@@ -362,6 +362,29 @@ class LaneCutover(OperatorHarness):
                                                  if lane not in (LANE, "parcel-zoning") and lane not in held])
         self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "curl")])
 
+    def test_the_pending_lanes_say_whether_their_gold_step_takes_the_rebuild_lock(self):
+        # Root ADR-0595: the auto-promotion holds a lane behind an owed refresh only on the Gold rebuild
+        # lock. The gold step takes it unless the lane's Gold is no table of gold-panel-rebuild's contract,
+        # ends with _versions and has a foundation-gold-versions job (a lane in ADR-0564 §6's shadow
+        # period, its versions table beside a rebuilt one, still takes it).
+        import gold_rebuild  # noqa: PLC0415 -- beside by_pnu_kinds on the path
+
+        rebuild = gold_rebuild.load_contract()["tables"]
+        services = {job["systemd_service"] for job in JOBS}
+        pending, _ = self.runner("lanes", "--pending")
+        result, calls = self.runner("lanes", "--pending-gold-lock")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        answers = dict(line.split() for line in result.stdout.splitlines())
+        self.assertEqual(list(answers), pending.stdout.split())
+        for lane, takes in answers.items():
+            gold = by_pnu_kinds.lane_fields(lane)["gold_table"]
+            own = (gold not in rebuild and gold.endswith("_versions")
+                   and f"foundation-gold-versions@{lane}.service" in services)
+            self.assertEqual(takes, "no" if own else "yes", lane)
+        self.assertEqual(answers.get("parcel-nearby"), "no")
+        self.assertIn("yes", answers.values())
+        self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "curl")])
+
     def test_the_automatic_cut_over_is_root_without_sudo_one_pending_lane_and_pages_on_failure(self):
         # Root ADR-0435: the auto-promotion's start needs no terminal and no request time.
         result, calls = self.run_operator(LANE, "cutover", "1", "--auto", attended=False, flags=False)

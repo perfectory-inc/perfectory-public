@@ -35,3 +35,10 @@ ADR-0435 는 spark 풀의 순서를 등급으로 정했다: `publish`(1000) > `d
 - 재생성 자물쇠(`gold-panel-rebuild.sh` 의 flock)는 등급과 별개다: cut-over 의 gold 단계가 이미 자물쇠를 쥐었다면
   패널 재생성은 그 단계가 끝난 뒤 자산 조정기(#1136)가 다시 시작한다.
 - 다른 Gold 재생성(종류 Gold 등)도 서빙 레인의 굽기를 먹이면 같은 방식으로 `priority_class_from` 을 적으면 된다.
+
+---
+
+개정 메모(2026-11-20): 이 결정과 같은 PR(#1148)이 자동 승격에 넣은 붙잡기("서빙 레인의 `publish` 자산이 밀린 동안 첫 발행을 시작하지
+않는다")는 이 본문에 없었다. [ADR-0595](./0595-a-first-publish-waits-for-an-owed-refresh-only-on-the-gold-rebuild-lock-the-one-resource-with-no-priority-order.md)
+가 그것을 적고 고쳤다: 첫 발행은 밀린 갱신을 **Gold 재생성 자물쇠**에서만 기다린다. 레인의 gold 단계가 그 자물쇠를 쥘 때다
+(`by-pnu-lane-cutover.sh lanes --pending-gold-lock`). spark 풀의 다툼은 이 ADR §1 의 등급이 정한다.

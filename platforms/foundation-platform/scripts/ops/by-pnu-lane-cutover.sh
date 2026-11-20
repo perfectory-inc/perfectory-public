@@ -4,6 +4,7 @@
 #
 #   by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes|lane,lane,...> <generation> [--dry-run]
 #   by-pnu-lane-cutover.sh lanes --pending
+#   by-pnu-lane-cutover.sh lanes --pending-gold-lock
 #
 # Started only by `by-pnu-pack-operator.sh <lane|lanes|lane,lane,...> cutover <generation>` (as root,
 # in its own transient unit) or, with --dry-run, run by it in the caller's terminal. `lanes` is every
@@ -73,7 +74,10 @@
 # writes and waits for nothing. It exits 1 when a preview does not answer.
 # `lanes --pending` prints the lanes not cut over yet, one per line, in contract order: the lanes the
 # auto-promotion (scripts/ops/by-pnu-auto-promote.sh, root ADR-0435) publishes. It reads the contracts
-# and the monitor files only.
+# and the monitor files only. `lanes --pending-gold-lock` prints the same lanes, each with `yes` when
+# its gold step takes the Gold rebuild lock (a gold-panel-rebuild.sh unit, whose flock has no queue and
+# no priority order) or `no` (its own job's unit, which claims only the priority-ordered spark pool):
+# the auto-promotion holds a lane behind an owed refresh only on that lock (root ADR-0439, ADR-0595).
 #
 # A lane whose history step finds its 실거래 history not loaded yet, or whose inputs step finds an input
 # of its Gold not loaded yet, is not ready, not broken: the run records it `waiting` and exits 75, which
@@ -86,11 +90,13 @@
 set -euo pipefail
 log() { printf '%s by-pnu-lane-cutover: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes|lane,lane,...> <generation> [--dry-run] | lanes --pending"
+USAGE="usage: by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes|lane,lane,...> <generation> [--dry-run] | lanes --pending | lanes --pending-gold-lock"
 
-TARGET="${1:-}" GENERATION="${2:-}" DRY_RUN="" PENDING=""
+TARGET="${1:-}" GENERATION="${2:-}" DRY_RUN="" PENDING="" GOLD_LOCK=""
 if [[ "$#" == 2 && "${TARGET}" == lanes && "${GENERATION}" == --pending ]]; then
   PENDING=1 GENERATION=1
+elif [[ "$#" == 2 && "${TARGET}" == lanes && "${GENERATION}" == --pending-gold-lock ]]; then
+  PENDING=1 GENERATION=1 GOLD_LOCK=1
 fi
 [[ -n "${PENDING}" || "$#" == 2 || ( "$#" == 3 && "${3}" == --dry-run ) ]] || refuse "${USAGE}"
 [[ "${3:-}" == --dry-run ]] && DRY_RUN=1
@@ -234,7 +240,15 @@ preview_answers() {
 }
 
 if [[ -n "${PENDING}" ]]; then
-  for entry in ${PLAN[@]+"${PLAN[@]}"}; do echo "${entry%% *}"; done
+  for entry in ${PLAN[@]+"${PLAN[@]}"}; do
+    if [[ -n "${GOLD_LOCK}" ]]; then
+      read -r lane _ unit _ <<<"${entry}"
+      # The gold step's unit (third field): its own job's .service, or a gold-panel-rebuild.sh unit.
+      [[ "${unit}" == *.service ]] && echo "${lane} no" || echo "${lane} yes"
+    else
+      echo "${entry%% *}"
+    fi
+  done
   exit 0
 fi
 

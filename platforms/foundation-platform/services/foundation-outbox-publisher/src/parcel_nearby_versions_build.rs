@@ -26,7 +26,8 @@ use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
     parcel_nearby_stage::{
         build_sido, changed_sidos, code_version, inputs, load_inputs, parcels_outside_cells,
-        whole_table_inputs, NearbyPins, Source, PARCEL_SOURCE, STORE_H3_RING, STORE_SOURCE,
+        whole_table_inputs, ChangedSidos, NearbyPins, Source, PARCEL_SOURCE, STORE_H3_RING,
+        STORE_SOURCE,
     },
     process_memory, vworld_parcel_source_contract,
 };
@@ -123,25 +124,41 @@ fn write_summary(path: &str, summary: &Value) -> anyhow::Result<()> {
         .with_context(|| format!("cannot write {path}"))
 }
 
-/// Builds and appends the nearby Gold's changed keys.
-#[allow(clippy::too_many_lines)]
-/// Why a commit over [`MAX_CHANGED_KEY_FRACTION`] whose code and edition stayed is still the
-/// stores' doing, or `None` (root ADR-0596). It is when only the stores moved, no key came or went,
-/// every changed row differs from the head's only in [`STORE_COUNT_FIELD`], and every changed parcel
-/// lies in `store_cells` (within [`STORE_H3_RING`] rings of a cell a store left or entered). Reads
-/// `appended` and `current_rows` as [`versions::diff`] leaves them.
+/// Why a commit whose code and served edition stayed is the stores' doing, or `None` (root ADR-0596).
+///
+/// It is when only the stores moved, the located stores did not fall to none or move by more than
+/// `max_loss` of the head's (a broken or emptied store file would otherwise move every count), no key
+/// came or went, every changed row differs from the head's in [`STORE_COUNT_FIELD`] and in nothing
+/// else, and every changed parcel lies in `stores.store_cells` (within [`STORE_H3_RING`] rings of an
+/// H3 cell a store left or entered). Reads `appended` and `current_rows` as [`versions::diff`] leaves
+/// them.
 pub(crate) fn store_only(
     connection: &foundation_publisher_silver::duckdb::Connection,
     moved: &BTreeSet<String>,
     diff: &versions::Diff,
-    store_cells: &BTreeSet<u64>,
+    stores: &ChangedSidos,
+    max_loss: f64,
 ) -> anyhow::Result<Option<String>> {
     if moved.len() != 1 || !moved.contains(STORE_SOURCE) || diff.added != 0 || diff.removed != 0 {
         return Ok(None);
     }
+    let Some((before, after)) = stores.located_stores else {
+        return Ok(None);
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let moved_share = before.abs_diff(after) as f64 / before.max(1) as f64;
+    if before == 0 || after == 0 || moved_share > max_loss {
+        return Ok(None);
+    }
+    let field = format!("'$.{STORE_COUNT_FIELD}'");
+    let without = format!("'{{\"{STORE_COUNT_FIELD}\": null}}'");
     let otherwise: i64 = connection.query_row(
         &format!(
-            "SELECT count(*) FROM appended a JOIN current_rows c USING (pnu) WHERE a.change = 'changed'              AND (json_merge_patch(a.nearby_json, '{{\"{STORE_COUNT_FIELD}\": null}}')::VARCHAR                     IS DISTINCT FROM json_merge_patch(c.nearby_json, '{{\"{STORE_COUNT_FIELD}\": null}}')::VARCHAR                   OR a.place_id IS DISTINCT FROM c.place_id OR a.attached_via IS DISTINCT FROM c.attached_via)"
+            "SELECT count(*) FROM appended a JOIN current_rows c USING (pnu) WHERE a.change = 'changed' \
+             AND (json_extract(a.nearby_json, {field}) IS NOT DISTINCT FROM json_extract(c.nearby_json, {field}) \
+                  OR json_merge_patch(a.nearby_json, {without})::VARCHAR \
+                     IS DISTINCT FROM json_merge_patch(c.nearby_json, {without})::VARCHAR \
+                  OR a.place_id IS DISTINCT FROM c.place_id OR a.attached_via IS DISTINCT FROM c.attached_via)"
         ),
         [],
         |row| row.get(0),
@@ -151,19 +168,42 @@ pub(crate) fn store_only(
     }
     let outside = parcels_outside_cells(
         connection,
-        store_cells,
+        &stores.store_cells,
         "SELECT pnu FROM appended WHERE change = 'changed'",
     )?;
     if outside != 0 {
         return Ok(None);
     }
     Ok(Some(format!(
-        "store-only: {} changed keys, each differing from the head only in {STORE_COUNT_FIELD},          every one within {STORE_H3_RING} rings of the {} cells a store of {STORE_SOURCE} left or entered",
+        "store-only: {} changed keys, each differing from the head only in {STORE_COUNT_FIELD}, every one \
+         within {STORE_H3_RING} rings of the {} H3 cells a store of {STORE_SOURCE} left or entered \
+         ({before} -> {after} located stores)",
         diff.changed,
-        store_cells.len()
+        stores.store_cells.len()
     )))
 }
 
+/// What the commit records about why it changed, or why it is refused (root ADR-0564 §3.4,
+/// ADR-0596): a moved code version or served edition, else a store-only explanation, explains a
+/// change of any size; with neither, `fraction` (the share of the current rows changed) must stay
+/// within [`MAX_CHANGED_KEY_FRACTION`].
+pub(crate) fn recorded_or_refused(
+    fraction: f64,
+    moved_code_or_edition: Option<String>,
+    store_only: Option<String>,
+) -> Result<Option<String>, String> {
+    match (moved_code_or_edition, store_only) {
+        (Some(why), _) | (None, Some(why)) => Ok(Some(why)),
+        (None, None) if fraction > MAX_CHANGED_KEY_FRACTION => Err(format!(
+            "{fraction:.3} of the current rows changed, over {MAX_CHANGED_KEY_FRACTION}, with neither the \
+             code nor the served edition moved and no store-only explanation"
+        )),
+        (None, None) => Ok(None),
+    }
+}
+
+/// Builds and appends the nearby Gold's changed keys.
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn run() -> anyhow::Result<()> {
     let started = Instant::now();
     let summary_path = required_env_value(SUMMARY_ENV)?;
@@ -217,8 +257,19 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             || moved.iter().any(|input| whole.contains(&input.as_str()))
             || !base.pins.keys().all(|input| pins.contains_key(input))
     });
-    let explained = base.as_ref().is_none_or(|base| {
-        base.code_version != code || base.served_edition.as_deref() != Some(edition.as_str())
+    // A moved code version or served edition explains a change of any size (root ADR-0346); the
+    // commit records which, so the bake reads it beside a store-only one (root ADR-0596).
+    let moved_code_or_edition = base.as_ref().and_then(|base| {
+        if base.code_version != code {
+            Some(format!("the code version moved to {code}"))
+        } else if base.served_edition.as_deref() != Some(edition.as_str()) {
+            Some(format!(
+                "the served parcel edition moved {} -> {edition}",
+                base.served_edition.as_deref().unwrap_or("-")
+            ))
+        } else {
+            None
+        }
     });
 
     // Compute.
@@ -246,7 +297,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         started.elapsed().as_secs_f64(),
         process_memory::cgroup_peak_bytes()
     );
-    let mut store_cells = BTreeSet::new();
+    let mut stores = ChangedSidos::default();
     let sidos: BTreeSet<String> = if every_sido {
         read.parcels_by_sido.keys().cloned().collect()
     } else {
@@ -256,10 +307,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             catalog: LAKEHOUSE_CATALOG,
             pins: &old_pins,
         };
-        let changed = changed_sidos(connection, &old, &source, &moved, &edition)?;
-        store_cells = changed.store_cells;
-        changed
+        stores = changed_sidos(connection, &old, &source, &moved, &edition)?;
+        stores
             .sidos
+            .clone()
             .into_iter()
             .filter(|sido| read.parcels_by_sido.contains_key(sido))
             .collect()
@@ -327,7 +378,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let (fingerprint, current_records) = versions::after(connection, &commit, &diff)?;
     let mut recorded_explanation = None;
     if let Some(base) = &base {
-        let floor = (1.0 - max_row_loss_fraction()?) * base.current_records as f64;
+        let max_loss = max_row_loss_fraction()?;
+        let floor = (1.0 - max_loss) * base.current_records as f64;
         if (current_records as f64) < floor {
             bail!(
                 "{TABLE} would hold {current_records} current rows, fewer than the {floor:.0} its \
@@ -337,19 +389,26 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             );
         }
         let fraction = diff.keys() as f64 / (base.current_records.max(1)) as f64;
-        if fraction > MAX_CHANGED_KEY_FRACTION && !explained {
-            recorded_explanation = store_only(connection, &moved, &diff, &store_cells)?;
-        }
+        // Checked at any size, so store-only commits under the bound are recorded too: several in a
+        // row while the bake is behind must not sum past its bound unexplained (root ADR-0596).
+        let store = store_only(connection, &moved, &diff, &stores, max_loss)?;
+        recorded_explanation = recorded_or_refused(fraction, moved_code_or_edition, store)
+            .map_err(|why| {
+                let whole = if every_sido {
+                    "; every 시도 was rebuilt (a whole-table input or the pin set moved), so the stores were not compared"
+                } else {
+                    ""
+                };
+                anyhow::anyhow!(
+                    "{} of {TABLE}'s {} current rows changed: {why}{whole}: nothing was appended \
+                     (root ADR-0564 §3.4, ADR-0596)",
+                    diff.keys(),
+                    base.current_records
+                )
+            })?;
         if let Some(why) = &recorded_explanation {
             println!(
-                "gold-versions {TABLE} {fraction:.3} of its current rows changed, explained: {why}"
-            );
-        } else if fraction > MAX_CHANGED_KEY_FRACTION && !explained {
-            bail!(
-                "{} of {TABLE}'s {} current rows changed ({fraction:.3}), over {MAX_CHANGED_KEY_FRACTION} \
-                 with neither the code nor the served edition moved and no store-only record: nothing was appended (root ADR-0564 §3-4, ADR-0596)",
-                diff.keys(),
-                base.current_records
+                "gold-versions {TABLE} {fraction:.3} of its current rows changed, recorded: {why}"
             );
         }
     }
@@ -418,13 +477,20 @@ mod tests {
     use super::*;
 
     const HEAD: &str = r#"{"airport":{"name":"A","distance_m":9000},"commercial_store_count":3}"#;
+    const COUNT_ONLY: &str =
+        r#"{"airport":{"name":"A","distance_m":9000},"commercial_store_count":5}"#;
+    const LOSS: f64 = 0.1;
 
     /// The head's row and the build's row of one parcel at (37.5, 127.0), as `versions::diff` leaves
-    /// them, for a build that only moved the stores.
-    fn tables(built: &str, place_id: &str) -> anyhow::Result<Connection> {
+    /// them. PNUs are synthetic (99999...).
+    fn tables(built: &str, place_id: &str, attached_via: &str) -> anyhow::Result<Connection> {
         let connection = Connection::open_in_memory()?;
         connection.execute_batch(&format!(
-            "CREATE TABLE parcels AS SELECT '9999900000100000000' AS pnu, 37.5::DOUBLE AS lat, 127.0::DOUBLE AS lon;              CREATE TABLE current_rows AS SELECT '9999900000100000000' AS pnu, '{HEAD}' AS nearby_json,                NULL::VARCHAR AS attached_via, 'P1' AS place_id;              CREATE TABLE appended AS SELECT '9999900000100000000' AS pnu, '{built}' AS nearby_json,                NULL::VARCHAR AS attached_via, '{place_id}' AS place_id, 'changed' AS change;"
+            "CREATE TABLE parcels AS SELECT '9999900000100000000' AS pnu, 37.5::DOUBLE AS lat, 127.0::DOUBLE AS lon; \
+             CREATE TABLE current_rows AS SELECT '9999900000100000000' AS pnu, '{HEAD}' AS nearby_json, \
+               NULL::VARCHAR AS attached_via, 'P1' AS place_id; \
+             CREATE TABLE appended AS SELECT '9999900000100000000' AS pnu, '{built}' AS nearby_json, \
+               {attached_via} AS attached_via, '{place_id}' AS place_id, 'changed' AS change;"
         ))?;
         Ok(connection)
     }
@@ -442,57 +508,149 @@ mod tests {
         }
     }
 
+    /// A store move over the parcel's own H3 cell, `before` -> `after` located stores.
+    fn moved_here(before: u64, after: u64) -> anyhow::Result<ChangedSidos> {
+        Ok(ChangedSidos {
+            sidos: BTreeSet::from(["99".to_owned()]),
+            store_cells: BTreeSet::from([store_cell(37.5, 127.0)?]),
+            located_stores: Some((before, after)),
+        })
+    }
+
     #[test]
     fn a_change_of_the_store_count_alone_in_the_touched_cells_is_explained() -> anyhow::Result<()> {
         // Root ADR-0596: a quarter's 상가 file moves the count around most parcels (11-19 Gold: 80.38%
-        // of parcels count a store), past the 0.5 bound, and nothing else.
-        let built = r#"{"airport":{"name":"A","distance_m":9000},"commercial_store_count":5}"#;
-        let connection = tables(built, "P1")?;
-        let cells = BTreeSet::from([store_cell(37.5, 127.0)?]);
-        let why = store_only(&connection, &stores_only(), &changed(1), &cells)?;
-        assert!(why.is_some_and(|why| why.starts_with("store-only: 1 changed keys")));
+        // of parcels count a store), past the bound, and nothing else.
+        let connection = tables(COUNT_ONLY, "P1", "NULL")?;
+        let why = store_only(
+            &connection,
+            &stores_only(),
+            &changed(1),
+            &moved_here(100, 95)?,
+            LOSS,
+        )?;
+        let why = why.context("explained")?;
+        assert!(why.starts_with("store-only: 1 changed keys"), "{why}");
+        assert!(why.contains("(100 -> 95 located stores)"), "{why}");
+        assert!(
+            !why.contains("  "),
+            "no run of spaces enters the recorded text: {why}"
+        );
         Ok(())
     }
 
     #[test]
-    fn a_moved_distance_a_parcel_outside_the_cells_or_another_input_is_not() -> anyhow::Result<()> {
-        let cells = BTreeSet::from([store_cell(37.5, 127.0)?]);
+    fn anything_but_the_store_count_moving_is_not_store_only() -> anyhow::Result<()> {
+        let here = moved_here(100, 95)?;
         let distance = r#"{"airport":{"name":"A","distance_m":8000},"commercial_store_count":5}"#;
-        let connection = tables(distance, "P1")?;
-        assert_eq!(
-            store_only(&connection, &stores_only(), &changed(1), &cells)?,
-            None,
-            "a distance moved"
-        );
-        let count = r#"{"airport":{"name":"A","distance_m":9000},"commercial_store_count":5}"#;
-        let connection = tables(count, "P2")?;
-        assert_eq!(
-            store_only(&connection, &stores_only(), &changed(1), &cells)?,
-            None,
-            "the place id moved"
-        );
-        let connection = tables(count, "P1")?;
-        let elsewhere = BTreeSet::from([store_cell(35.1, 129.0)?]);
-        assert_eq!(
-            store_only(&connection, &stores_only(), &changed(1), &elsewhere)?,
-            None,
-            "outside the cells"
-        );
-        let more = BTreeSet::from([STORE_SOURCE.to_owned(), PARCEL_SOURCE.to_owned()]);
-        assert_eq!(
-            store_only(&connection, &more, &changed(1), &cells)?,
-            None,
-            "the parcels moved too"
-        );
+        let cases: [(&str, Connection, BTreeSet<String>, versions::Diff); 6] = [
+            (
+                "a distance moved",
+                tables(distance, "P1", "NULL")?,
+                stores_only(),
+                changed(1),
+            ),
+            (
+                "the place id moved",
+                tables(COUNT_ONLY, "P2", "NULL")?,
+                stores_only(),
+                changed(1),
+            ),
+            (
+                "attached_via moved",
+                tables(COUNT_ONLY, "P1", "'lineage'")?,
+                stores_only(),
+                changed(1),
+            ),
+            (
+                "the count stayed (a digest-only drift)",
+                tables(HEAD, "P1", "NULL")?,
+                stores_only(),
+                changed(1),
+            ),
+            (
+                "the parcels moved too",
+                tables(COUNT_ONLY, "P1", "NULL")?,
+                BTreeSet::from([STORE_SOURCE.to_owned(), PARCEL_SOURCE.to_owned()]),
+                changed(1),
+            ),
+            (
+                "a key left",
+                tables(COUNT_ONLY, "P1", "NULL")?,
+                stores_only(),
+                versions::Diff {
+                    removed: 1,
+                    ..changed(1)
+                },
+            ),
+        ];
+        for (case, connection, moved, diff) in cases {
+            assert_eq!(
+                store_only(&connection, &moved, &diff, &here, LOSS)?,
+                None,
+                "{case}"
+            );
+        }
+        let connection = tables(COUNT_ONLY, "P1", "NULL")?;
         let added = versions::Diff {
             added: 1,
             ..changed(1)
         };
         assert_eq!(
-            store_only(&connection, &stores_only(), &added, &cells)?,
+            store_only(&connection, &stores_only(), &added, &here, LOSS)?,
             None,
             "a key came"
         );
+        let elsewhere = ChangedSidos {
+            store_cells: BTreeSet::from([store_cell(35.1, 129.0)?]),
+            ..moved_here(100, 95)?
+        };
+        assert_eq!(
+            store_only(&connection, &stores_only(), &changed(1), &elsewhere, LOSS)?,
+            None,
+            "outside the cells"
+        );
         Ok(())
+    }
+
+    #[test]
+    fn an_emptied_or_halved_store_file_is_not_store_only() -> anyhow::Result<()> {
+        // A file whose coordinates do not parse, or half loaded, moves every count near a store.
+        let connection = tables(COUNT_ONLY, "P1", "NULL")?;
+        for (before, after) in [(2, 0), (0, 2), (100, 50), (100, 150)] {
+            let stores = moved_here(before, after)?;
+            assert_eq!(
+                store_only(&connection, &stores_only(), &changed(1), &stores, LOSS)?,
+                None,
+                "{before} -> {after}"
+            );
+        }
+        let no_totals = ChangedSidos {
+            located_stores: None,
+            ..moved_here(100, 95)?
+        };
+        assert_eq!(
+            store_only(&connection, &stores_only(), &changed(1), &no_totals, LOSS)?,
+            None
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_commit_records_why_it_changed_or_is_refused_over_the_bound() {
+        let code = Some("the code version moved to c".to_owned());
+        let store = Some("store-only: 9 changed keys".to_owned());
+        assert_eq!(
+            recorded_or_refused(0.9, code.clone(), store.clone()),
+            Ok(code.clone())
+        );
+        assert_eq!(
+            recorded_or_refused(0.9, None, store.clone()),
+            Ok(store.clone())
+        );
+        // Under the bound a store-only commit is recorded too, and an unexplained one is not refused.
+        assert_eq!(recorded_or_refused(0.2, None, store.clone()), Ok(store));
+        assert_eq!(recorded_or_refused(0.2, None, None), Ok(None));
+        assert!(recorded_or_refused(0.6, None, None).is_err_and(|why| why.contains("over 0.5")));
     }
 }

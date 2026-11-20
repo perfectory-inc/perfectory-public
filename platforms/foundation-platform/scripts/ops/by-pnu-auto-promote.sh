@@ -92,26 +92,25 @@ if ((${#pending[@]} == 0)); then
   exit 0
 fi
 
-# The hold's reason is the one rebuild lock a cut-over's Gold step takes. A lane whose Gold is a table of
-# appended row versions its own job builds (foundation-gold-versions@<lane>, the publisher's DuckDB, root
-# ADR-0564) takes no rebuild lock in its gold step, so an owed refresh does not hold it (root ADR-0595):
-# 2026-11-19 12:12Z to 11-20 06:00Z parcel-nearby's Gold was committed and its first publish waited
-# behind the real-transaction bake, which had failed and stayed owed, with no alarm on the hold.
+# Root ADR-0439 as amended by ADR-0595: the hold is on the one resource that has no queue and no
+# priority order, the Gold rebuild lock (gold-panel-rebuild.sh's flock, taken without waiting). A lane
+# whose gold step takes it (the cut-over runner says which: `lanes --pending-gold-lock`) waits for the
+# owed refresh. A lane whose gold step does not still claims the spark pool for its gold and bake steps,
+# but that pool is ordered by priority class (`publish` before `first_publish`, root ADR-0435), so it
+# needs no hold. 2026-11-19 12:12Z..11-20: parcel-nearby's Gold (its own DuckDB job) was committed and
+# its first publish waited behind the failed, owed real-transaction bake, with no alarm on the hold.
 if [[ -n "${owed}" ]]; then
-  mapfile -t free < <(python3 -I - "${release_root}/orchestration/jobs.v1.json" "${pending[@]}" <<'PY'
-import json, sys
-jobs, *lanes = sys.argv[1:]
-own = {job.get("systemd_service") for job in json.load(open(jobs, encoding="utf-8"))["jobs"]}
-for lane in lanes:
-    if f"foundation-gold-versions@{lane}.service" in own:
-        print(lane)
-PY
-  ) || { log "cannot read which lanes build their own Gold; nothing started"; exit 70; }
+  locks="$("${ops}/by-pnu-lane-cutover.sh" lanes --pending-gold-lock)" \
+    || { log "cannot read which lanes' gold step takes the rebuild lock; nothing started"; exit 70; }
+  free=()
+  while read -r lane takes; do
+    if [[ -n "${lane}" && "${takes}" == no ]]; then free+=("${lane}"); fi
+  done <<<"${locks}"
   if ((${#free[@]} == 0)); then
     log "a served lane's refresh is owed (${owed}); no first publish starts before it"
     exit 0
   fi
-  log "a served lane's refresh is owed (${owed}); only a lane whose Gold its own versions job builds may start: ${free[*]}"
+  log "a served lane's refresh is owed (${owed}); only lanes whose gold step takes no Gold rebuild lock may start: ${free[*]}"
   pending=("${free[@]}")
 fi
 
