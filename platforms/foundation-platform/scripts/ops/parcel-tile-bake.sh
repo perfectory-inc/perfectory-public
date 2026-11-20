@@ -238,7 +238,14 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
       edition="${plan[0]}"; snapshot="${plan[1]}"; sido="${plan[2]}"
       if [[ -s "${attempted_file}" ]]; then
         read -r tried tried_at <"${attempted_file}"
-        if [[ "${tried}" == "${snapshot}" ]] && (( $(date -u +%s) - tried_at < retry_seconds )); then
+        # Root ADR-0490 §4: the wait is for a rehearsal that reached its outcome (the gate's verdict and a
+        # Gold). The journal's last rehearsal line of the edition says which: one that FAILED, a step
+        # crashing rather than the gate refusing, judged nothing and is rehearsed at the next start
+        # (2026-11-20 03:15Z: the gate passed, then the served Gold's docker call broke).
+        last="$(grep -E "rehearsal-gold ${snapshot} FAILED|rehearsal-gold: served Gold of ${snapshot} " \
+          "${journal}" 2>/dev/null | tail -n 1 || true)"
+        if [[ "${tried}" == "${snapshot}" && "${last}" != *" FAILED at line "* ]] \
+          && (( $(date -u +%s) - tried_at < retry_seconds )); then
           job_journal "${journal}" "nothing to do: ${served_done}; ${snapshot} was rehearsed $(date -u -d "@${tried_at}" +%FT%TZ), again after ${REHEARSAL_RETRY_DAYS:-7} days"
           echo "foundation-job-outcome unchanged"; exit 0
         fi
@@ -334,8 +341,13 @@ fi
 # bake / rehearsal-bake
 # Root ADR-0490 §4: the bake half bakes the served Gold first; with none waiting, the candidate's rehearsal.
 # A rehearsal bake that failed waits for the next rehearsal Gold, not the next day.
+# A run that failed while its last line was still a deferral (root ADR-0493, ADR-0576: warming the
+# partitions or joining them) built no archive and passed through no gate, so it judged nothing: the
+# next start bakes the same Gold again (2026-11-20 04:52Z: the join run's time bound).
 if [[ "${MODE}" == bake && ! -s "${ready_file}" && -s "${STATE_ROOT}/rehearsal-ready" ]]; then
-  if [[ -s "${STATE_ROOT}/rehearsal-bake-failed" ]] \
+  rehearsal_log="$(cut -d' ' -f2 "${STATE_ROOT}/rehearsal-ready")/bake.log"
+  last_line="$(grep -oE 'lakehouse-tile-bake-[a-z-]+' "${rehearsal_log}" 2>/dev/null | tail -n 1 || true)"
+  if [[ -s "${STATE_ROOT}/rehearsal-bake-failed" && "${last_line}" != lakehouse-tile-bake-deferred ]] \
     && cmp -s "${STATE_ROOT}/rehearsal-ready" "${STATE_ROOT}/rehearsal-bake-failed"; then
     job_journal "${journal}" "nothing to do: the bake of the rehearsal Gold $(cut -d' ' -f1 "${STATE_ROOT}/rehearsal-ready") failed; the next rehearsal makes another"
     echo "foundation-job-outcome unchanged"; exit 0

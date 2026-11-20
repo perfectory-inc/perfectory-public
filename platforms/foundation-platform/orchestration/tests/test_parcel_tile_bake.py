@@ -41,6 +41,8 @@ if script.endswith("parcel_matching_gate.py"):
         sys.exit(3)
     summary.write_text(json.dumps({"passed": os.environ["FAKE_GATE"] == "pass"}))
     sys.exit(0 if os.environ["FAKE_GATE"] == "pass" else 1)
+if os.environ.get("FAKE_GOLD") == "broken":  # 2026-11-20: docker exited 125 before the job ran
+    sys.exit(125)
 host(job_args[job_args.index("--output-dir") + 1]).mkdir(parents=True)
 summary.write_text("{}")
 '''
@@ -71,7 +73,10 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
         publisher = artifacts / "foundation-outbox-publisher"
-        publisher.write_text("#!/bin/sh\n[ -z \"$FAKE_PUBLISHER_FAIL\" ] || exit 1\necho lakehouse-tile-bake-rehearsal synthetic\nexit 0\n")
+        publisher.write_text("#!/bin/sh\n[ -z \"$FAKE_PUBLISHER_FAIL\" ] || exit 1\n"
+                             "[ -z \"$FAKE_PUBLISHER_DEFER\" ] || { echo lakehouse-tile-bake-deferred unit=parcels"
+                             " gold_snapshot=1 baked= remaining=tile-join; exit 0; }\n"
+                             "echo lakehouse-tile-bake-rehearsal synthetic\nexit 0\n")
         publisher.chmod(0o555)
         (artifacts / "build.json").write_text(json.dumps({
             "source": RELEASE_ID, "publisher_image": "sha256:" + "a" * 64, "tippecanoe_image": "sha256:" + "d" * 64,
@@ -244,6 +249,26 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.assertEqual(len(calls_after), len(calls))
         self.assertIn("again after 7 days", (self.state / "journal.log").read_text())
 
+    def test_a_rehearsal_that_failed_before_its_outcome_is_rehearsed_again_at_the_next_start(self):
+        # 2026-11-20 03:15Z: the gate passed, the served Gold's docker call broke, and the 7-day wait
+        # held the edition's next rehearsal until 11-27 though nothing was judged.
+        self.wait_for_rehearsal()
+        self.env["FAKE_GOLD"] = "broken"
+        failed, calls = self.run_half("gold", "pass", bootstrap=True)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
+        self.assertIn("FAILED at line", (self.state / "journal.log").read_text())
+        self.assertTrue((self.state / "rehearsal-attempted").exists(), "the attempt is recorded as before")
+        del self.env["FAKE_GOLD"]
+        again, calls_after = self.run_half("gold", "pass", bootstrap=True)
+        self.assertEqual(again.returncode, 0, again.stderr + again.stdout)
+        self.assertEqual(len(calls_after), len(calls) + 2, "rehearsed again, gate and Gold")
+        self.assertTrue((self.state / "rehearsal-ready").exists())
+        # Its outcome reached, the edition waits again.
+        waited, calls_waited = self.run_half("gold", "pass", bootstrap=True)
+        self.assertEqual(waited.returncode, 0, waited.stderr)
+        self.assertEqual(len(calls_waited), len(calls_after))
+
     def test_the_bake_half_bakes_the_rehearsal_when_no_served_gold_waits(self):
         self.wait_for_rehearsal()
         self.run_half("gold", "pass", bootstrap=True)
@@ -267,6 +292,24 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         again, _ = self.run_half("bake", "pass", bootstrap=True)
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertIn("failed; the next rehearsal makes another", (self.state / "journal.log").read_text())
+
+    def test_a_rehearsal_bake_that_failed_while_deferred_is_baked_again_from_the_same_gold(self):
+        # 2026-11-20: the run that only joins hit its time bound after the run before deferred
+        # remaining=tile-join; no archive was built and no gate ran, yet the Gold was held as failed.
+        self.wait_for_rehearsal()
+        self.run_half("gold", "pass", bootstrap=True)
+        self.env["FAKE_PUBLISHER_DEFER"] = "1"
+        deferred, _ = self.run_half("bake", "pass", bootstrap=True)
+        self.assertEqual(deferred.returncode, 0, deferred.stderr)
+        del self.env["FAKE_PUBLISHER_DEFER"]
+        self.env["FAKE_PUBLISHER_FAIL"] = "1"
+        failed, _ = self.run_half("bake", "pass", bootstrap=True)
+        self.assertNotEqual(failed.returncode, 0)
+        del self.env["FAKE_PUBLISHER_FAIL"]
+        again, _ = self.run_half("bake", "pass", bootstrap=True)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        journal = (self.state / "journal.log").read_text().splitlines()
+        self.assertNotIn("nothing to do", journal[-1], "the same Gold is baked again")
 
 
 if __name__ == "__main__":
