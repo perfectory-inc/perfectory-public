@@ -56,9 +56,10 @@ def missed(expected, runs, now, limit_of):
 
 
 def behind(serving):
-    """The lanes and units further behind than a week before by more than their interval."""
-    return [row for row in serving
-            if row.get("now") is not None and row["now"] > (row.get("week_before") or 0.0) + row["interval"]]
+    """The lanes and units further behind than a week before by more than their interval. One with no series
+    a week before (a lane registered since) has nothing to be compared with."""
+    return [row for row in serving if row.get("now") is not None and row.get("week_before") is not None
+            and row["now"] > row["week_before"] + row["interval"]]
 
 
 def _job_report(instance, spec, since, now):
