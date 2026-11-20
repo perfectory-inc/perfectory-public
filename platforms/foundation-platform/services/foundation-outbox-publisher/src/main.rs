@@ -56,6 +56,7 @@ mod canonical_release_proof;
 mod code_go_kr_legal_dong_collect;
 #[cfg(unix)]
 mod courtauction_go_kr_collect;
+mod courtauction_silver_load;
 mod data_go_kr_file_data_collect;
 mod data_go_kr_file_data_silver_load;
 mod data_go_kr_onbid_collect;
@@ -201,6 +202,7 @@ enum Command {
     IntelligenceDocuments,
     CollectRtMolitRealTransaction,
     CollectCourtauctionGoKr,
+    LoadCourtauctionGoKrSilver,
     CollectDataGoKrFileData,
     CollectJusoElectronicMap,
     PlanSilverLoadObjects,
@@ -417,6 +419,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportLegalDongPairingInputs => Box::pin(legal_dong_pairing_load::export()),
         Command::AppendLegalDongCodeChanges => Box::pin(legal_dong_pairing_load::append_changes()),
         Command::IntelligenceDocuments => Box::pin(intelligence_documents_load::run()),
+        Command::LoadCourtauctionGoKrSilver => Box::pin(courtauction_silver_load::run()),
         Command::CollectRtMolitRealTransaction => {
             Box::pin(rt_molit_real_transaction_collect::run())
         }
@@ -869,6 +872,7 @@ where
         Some("intelligence-documents") => Ok(Command::IntelligenceDocuments),
         Some("collect-rt-molit-real-transaction") => Ok(Command::CollectRtMolitRealTransaction),
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
+        Some("load-courtauction-go-kr-silver") => Ok(Command::LoadCourtauctionGoKrSilver),
         Some("collect-data-go-kr-file-data") => Ok(Command::CollectDataGoKrFileData),
         Some("collect-juso-electronic-map") => Ok(Command::CollectJusoElectronicMap),
         Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),
