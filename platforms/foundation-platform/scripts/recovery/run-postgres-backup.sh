@@ -6,6 +6,11 @@ evidence_dir="${FOUNDATION_RECOVERY_EVIDENCE_DIR:-${root_dir}/target/recovery}"
 compose=(docker compose --project-directory "${root_dir}" -f "${root_dir}/docker-compose.yml" -f "${root_dir}/compose.recovery.yml" --profile recovery)
 export MSYS2_ENV_CONV_EXCL="${MSYS2_ENV_CONV_EXCL:-};FOUNDATION_RECOVERY_REPOSITORY_PATH;FOUNDATION_RECOVERY_EVIDENCE_DIR"
 
+# The runtime cluster's data directory, as the runtime's own compose calls mount it (root ADR-0598).
+# shellcheck source=../deploy/postgres-data-source.sh
+source "${root_dir}/scripts/deploy/postgres-data-source.sh"
+postgres_data_source "${root_dir}"
+
 mkdir -p "${evidence_dir}"
 "${compose[@]}" run --rm -T --interactive=false --no-deps foundation-backup pgbackrest-backup stanza-create
 "${compose[@]}" run --rm -T --interactive=false --no-deps foundation-backup pgbackrest-backup check
@@ -17,6 +22,9 @@ if ! grep -q '"backup"[[:space:]]*:[[:space:]]*\[[^]]' \
     backup_type=full
 elif [[ "$(date -u +%u)" == "7" ]]; then
     backup_type=full
+elif [[ -e "${evidence_dir}/full-backup-requested" ]]; then
+    # The deploy asked for one after it moved the data directory (postgres-data-move.sh, root ADR-0598).
+    backup_type=full
 fi
 
 "${compose[@]}" run --rm -T --interactive=false --no-deps foundation-backup pgbackrest-backup backup "--type=${backup_type}"
@@ -25,4 +33,5 @@ fi
 "${compose[@]}" run --rm -T --interactive=false --no-deps foundation-backup pgbackrest-backup info --output=json \
     >"${evidence_dir}/backup-info.json"
 
+[[ "${backup_type}" != full ]] || rm -f "${evidence_dir}/full-backup-requested"
 printf 'postgres-backup-ok type=%s evidence=%s\n' "${backup_type}" "${evidence_dir}/backup-info.json"

@@ -75,6 +75,7 @@ class TheyAreRecreatedOnlyWhenTheirFilesChange(unittest.TestCase):
         self.root = pathlib.Path(temp.name)
         (self.root / "scripts/deploy").mkdir(parents=True)
         shutil.copy(RUNTIME, self.root / "scripts/deploy/foundation-runtime.sh")
+        shutil.copy(RUNTIME.parent / "postgres-data-source.sh", self.root / "scripts/deploy/postgres-data-source.sh")
         shutil.copytree(PLATFORM / "infra/observability", self.root / "infra/observability")
         (self.root / "recovery.env").write_text("")
         # docker: `network inspect` answers that the network exists; `compose` prints the digests.

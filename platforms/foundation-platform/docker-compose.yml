@@ -39,7 +39,9 @@ services:
       POSTGRES_PASSWORD: ${FOUNDATION_ADMIN_PASSWORD:?set FOUNDATION_ADMIN_PASSWORD}
       POSTGRES_DB: foundation
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # The named volume until the deploy moved the data directory to the system disk's SSD; then the
+      # bind postgres-data-source.sh exports (config/host-layout.contract.json postgres_data, root ADR-0598).
+      - ${FOUNDATION_PLATFORM_POSTGRES_DATA:-pgdata}:/var/lib/postgresql/data
       # Initialize the Foundation database namespace.
       - ./infra/db/init:/docker-entrypoint-initdb.d:ro
       # Bulk projection tablespaces live outside the data volume so a national-scale

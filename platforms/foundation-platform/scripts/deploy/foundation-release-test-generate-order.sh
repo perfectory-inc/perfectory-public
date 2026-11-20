@@ -61,6 +61,8 @@ if [[ "${1:-}" == config ]]; then printf '{"services":{"foundation-api":{}}}\n';
 RUNTIME
   chmod +x "${order_root}/opt/release/scripts/deploy/foundation-runtime.sh"
   cp "${repo_root}/scripts/deploy/runtime-up-in-order.sh" "${order_root}/opt/release/scripts/deploy/"
+  # The one-off move of the data directory (root ADR-0598) lies outside the order: stubbed.
+  printf 'move_postgres_data() { :; }\n' >"${order_root}/opt/release/scripts/deploy/postgres-data-move.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' >"${order_root}/admission"
   chmod +x "${order_root}/admission"
   # Its own bash with its own errexit, as the deploy runs it: a function called under `if` runs
