@@ -160,3 +160,20 @@ ADR-0431·0458 은 작업을 하나씩, 이중 실행의 일치 결정을 세어
   풀 1자리, 두 작업이 번갈아 두 시간씩)을 비어 있다고 셌다 — Dagster 의 센서는 `QUEUED` run 을 잡는다. (B) run 이 열린 동안 바뀐 입력에
   Airflow 는 뒤 run 을 하지 않았고 Dagster 는 한 번 더 한다(ADR-0565 §5, 부분 처리). (C) 열린 run 없이 온 입력 사건을 Airflow 가 흘렸다.
   (B)·(C)는 스위치 뒤 run 이 늘어나는 쪽이다: `admin_boundary_release` 는 매일 09:31 입력에 한 번 더 돈다.
+
+## 개정 각주 — 2026-11-20, Silver 스위치와 호스트 허가의 끝 조건
+
+이 각주는 결정을 바꾸지 않는다. Silver 스위치 PR 이 잰 것과, §7 이 "남는다" 고만 한 호스트 허가의 끝을 적는다.
+
+- **묶음 사이의 기다림**: §5 의 "§4 뒤 묶음은 Gold 의 7일 운영 기록" 은 §4 뒤의 묶음 이야기다. §4 전에 옮기는 묶음은 Gold 처럼 제
+  7일 비교 표를 증거로 쓴다(Silver: 42개 모두 줄 있음, 40개 차이 0, 둘은 Gold 의 원인 A — 줄에서 기다린 Airflow run). 묶음 사이에는
+  스위치 배포와 확인 한 바퀴(24시간)만 둔다. 되돌리기는 늦은 묶음부터(§3)라 창이 겹쳐도 된다.
+- **§7 한도 (Silver)**: Dagster 가 정하는 run 은 풀 슬롯 합 + 1(5): Silver 의 기본 풀 적재(매시 공매·공고 Silver)가 spark·documents 가
+  찬 동안에도 하나는 돈다. job run 6, 전체 7, 코드 서버 1700m 은 그대로다.
+- **`pool_full`·claim·메모리 허가의 끝 조건**: 셋은 Dagster 밖의 시작까지 세기에 남는다(2026-10-18 운영자 일회성이 spark 3 슬롯을 쥐어
+  FLOOR 가 14배 느려졌다). 2026-11-20 의 Dagster 밖 시작: 운영자 일회성(`by-pnu-pack-operator.sh`, `unit-price-versions-migrate.sh`,
+  `bronze-object-members.sh`, `measure-building-section-packs.sh`, `host-docker-data-root.sh`), cutover·승격(`by-pnu-lane-cutover.sh`,
+  `by-pnu-auto-promote.sh`), 타일 연습 인스턴스(`foundation-parcel-tile-bake@rehearsal-*`), 손 `systemctl start`. 이것들이 모두 Dagster
+  run(작업의 Dagster job 이나 그 목적의 Dagster job)으로 가면, 셋을 **한 PR 로** 지운다: 슬롯은 Dagster 의 풀 태그 한도가, claim 은
+  Dagster run 의 우선순위가, 메모리 허가는 run 태그의 메모리 종류 풀이 맡는다. 그 PR 은 운영 묶음 스위치 뒤, Airflow 삭제와 같은 주다.
+  손 `systemctl start` 는 그때 강제 명령이 Dagster run 이 아닌 시작을 거부하는 것으로 닫는다.
