@@ -145,7 +145,6 @@ pub mod onbid_silver_stage;
 /// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
 pub mod place_identity_stage;
 
-
 /// The parcel lineage's carry walk every placing producer shares (root ADR-0113 §6).
 pub mod lineage_carry;
 
