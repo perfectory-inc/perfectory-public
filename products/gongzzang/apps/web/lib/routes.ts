@@ -63,9 +63,6 @@ export const API = {
         photoId,
       )}` as const,
   },
-  foundationPlatform: {
-    events: "/foundation-platform/events",
-  },
 } as const;
 
 /** Auth prefix — proxy.ts 의 internal-only path 분류용. */

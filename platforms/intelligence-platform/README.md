@@ -16,7 +16,6 @@ intelligence-platform/
 ├── crates/intelligence-contracts/  이벤트 envelope·dead-letter·trace 계약
 ├── crates/normalization/       LLM 정규화 제안
 ├── crates/knowledge/           지식 원천 registry·색인
-├── crates/messaging/           Kafka·Avro·Karapace 어댑터
 ├── services/intelligence-api   HTTP API
 ├── services/intelligence-worker  비동기 워커
 ├── jobs/document_text          문서 쪽·위치 텍스트 작업(루트 ADR-0477)
@@ -41,9 +40,8 @@ intelligence-platform/
 - `crates/normalization/intelligence-normalization-domain`: 정규화 규칙과 도메인 타입
 - `crates/normalization/intelligence-normalization-application`: 정규화 유스케이스와 port
 - `crates/normalization/intelligence-normalization-infrastructure`: 모델·Foundation·상태·rate-limit adapter
-- `crates/messaging/messaging-infrastructure`: Kafka·Avro·schema registry adapter
 - `services/intelligence-api`: Axum HTTP API 경계
-- `services/intelligence-worker`: 백그라운드 작업·이벤트 소비·outbox 전달
+- `services/intelligence-worker`: 백그라운드 작업·outbox 전달
 
 앱은 intelligence-platform API를 호출해야 합니다. Open WebUI나 model server에 직접
 연결하지 않습니다. Open WebUI는 모델 개발 UI로 사용할 수 있지만 production backend
@@ -172,7 +170,6 @@ cargo run -p intelligence-worker --bin normalization_outbox_drain_worker
 ```bash
 cargo run -p intelligence-worker --bin building_register_floor_normalization
 cargo run -p intelligence-worker --bin building_register_unit_normalization
-cargo run -p intelligence-worker --bin foundation_knowledge_consumer
 cargo run -p intelligence-worker --bin knowledge_scaffold_index
 cargo run -p intelligence-worker --bin knowledge_scaffold_query
 ```
@@ -180,10 +177,6 @@ cargo run -p intelligence-worker --bin knowledge_scaffold_query
 - `building_register_floor_normalization` — 건축물대장 **층** 정규화 제안 작업(generate → validate →
   Foundation submitter 제출). env로 dry-run을 지원한다.
 - `building_register_unit_normalization` — 건축물대장 **단위** 정규화 제안 작업.
-- `foundation_knowledge_consumer` — Foundation 지식 원천 이벤트(Kafka·Karapace schema, DLQ)를
-  Postgres 지식 원천 registry로 소비한다. 스키마는 Foundation 소유
-  `foundation-platform.knowledge.source-upserted.v1.avsc`이고, 소비자는 `<topic>-value` subject에서 그 스키마를
-  조회만 한다(등록하지 않음). Foundation이 등록하기 전에는 기동이 실패한다. 현재 Foundation 쪽 producer는 없다.
 - `knowledge_scaffold_index`·`knowledge_scaffold_query` — `tenant:scaffold` 비계 코퍼스 전용 개발 CLI. 승인 전 production
   RAG endpoint를 두지 않는다는 Intelligence ADR-0002에 따라 HTTP route 대신 CLI로만 둔다.
 

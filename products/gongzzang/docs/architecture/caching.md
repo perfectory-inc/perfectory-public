@@ -28,7 +28,6 @@ last_reviewed: 2026-11-05
 - Next.js 세션 저장: `apps/web/lib/session/store.ts`
 - 세션 갱신의 단일 비행(동시 요청 합치기): `apps/web/lib/session/single-flight.ts`
 - 프런트엔드·API 프록시의 요청 속도 제한: `apps/web/lib/ratelimit.ts`
-- 파운데이션 이벤트 수신함 중복 제거: `apps/web/lib/foundation-platform/event-inbox.ts`
 - Rust API 의 JTI 거부 목록: `crates/product-identity-infrastructure/src/jti_denylist.rs`
 - Rust API 백엔드 요청 속도 제한: `services/gongzzang-api/src/backend_rate_limit.rs`
 - 매물 표식 서빙 캐시·단일 비행: `services/gongzzang-api/src/listing_marker_serving`
@@ -67,14 +66,14 @@ Next.js 환경 변수 검증도 운영에 안전한 Valkey 주소를 요구한�
 
 ## 5. 파운데이션 캐시 무효화
 
-파운데이션 이벤트는 카탈로그 관련 캐시를 무효화하고 기준점 투영 가져오기를 시작할 수 있다.
+웹 앱의 파운데이션 웹훅 수신(`/foundation-platform/events`)과 그 Valkey 수신함은 2026-11-19 에 지웠다 —
+파운데이션 발행기는 웹훅 끝점 없이 로그로만 발행하고(운영 `catalog.outbox_event` 6,092 건 전부), 수신이 다루던 두 사건
+(`gold_pointer.published.v1`·`parcel_marker_anchor.snapshot.published.v1`)은 운영에서 한 번도 발행되지 않았으며, 무효화하던
+캐시 태그 `foundation-platform-catalog` 는 어떤 fetch 도 달지 않았다. 남은 수신은 Rust API 의 내부 경로 하나다.
 
 주요 파일:
 
-- `apps/web/app/foundation-platform/events/route.ts`
-- `apps/web/lib/foundation-platform/event-inbox.ts`
 - `services/gongzzang-api/src/routes/foundation_events.rs`
-- `docs/architecture/foundation-platform-webhook-receiver-contract.v1.pin.json`
 
 ## 6. 정적 타일 캐시
 

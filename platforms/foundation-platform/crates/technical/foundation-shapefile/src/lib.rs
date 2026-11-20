@@ -21,6 +21,9 @@ const EPSG_4326_PROJ: &str = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs";
 // public-repository-safety: reviewed-runtime-coordinate — these are the belt central
 // meridians the PRJ validator accepts, not sample data.
 const SUPPORTED_CENTRAL_MERIDIANS: [f64; 4] = [125.0, 127.0, 129.0, 131.0]; // public-repository-safety: reviewed-runtime-coordinate
+                                                                            // public-repository-safety: reviewed-runtime-coordinate — the one national grid the 주소정보 전자지도
+                                                                            // is drawn in (GRS80 UTM-K, EPSG:5179: tmerc, k 0.9996, x_0 1,000,000, y_0 2,000,000).
+const UTM_K_CENTRAL_MERIDIAN: f64 = 127.5; // public-repository-safety: reviewed-runtime-coordinate
 const REQUIRED_MEMBER_EXTENSIONS: [&str; 5] = ["shp", "shx", "dbf", "prj", "cpg"];
 
 type InMemoryShapefileReader = shapefile::Reader<Cursor<Vec<u8>>, Cursor<Vec<u8>>>;
@@ -187,7 +190,57 @@ impl ShapefileFeature {
             .with_context(|| format!("required shapefile field {field_name} is null or blank"))
     }
 
-    /// Returns the EPSG:4326 polygonal `GeoJSON` geometry for this feature.
+    /// Every dBase cell of this feature by column name, as JSON, for a reader that keeps a layer's
+    /// columns as the provider wrote them: text without its space and NUL padding (blank is
+    /// null), a whole number as an integer, other numbers as numbers, a date as `YYYY-MM-DD`.
+    #[must_use]
+    pub fn attributes(&self) -> serde_json::Map<String, JsonValue> {
+        let number = |value: f64| {
+            if value.fract() == 0.0 && value.abs() < 9.0e15 {
+                #[allow(clippy::cast_possible_truncation)] // whole and below 2^53
+                let whole = value as i64;
+                json!(whole)
+            } else {
+                json!(value)
+            }
+        };
+        self.record
+            .clone()
+            .into_iter()
+            .map(|(name, value)| {
+                let value = match value {
+                    FieldValue::Character(text) => text
+                        .map(|text| {
+                            text.trim_matches(|c: char| c == '\0' || c.is_whitespace())
+                                .to_owned()
+                        })
+                        .filter(|text| !text.is_empty())
+                        .map_or(JsonValue::Null, JsonValue::String),
+                    FieldValue::Numeric(value) => value.map_or(JsonValue::Null, number),
+                    FieldValue::Float(value) => {
+                        value.map_or(JsonValue::Null, |value| number(f64::from(value)))
+                    }
+                    FieldValue::Integer(value) => json!(value),
+                    FieldValue::Double(value) | FieldValue::Currency(value) => number(value),
+                    FieldValue::Logical(value) => value.map_or(JsonValue::Null, JsonValue::Bool),
+                    FieldValue::Date(value) => value.map_or(JsonValue::Null, |date| {
+                        json!(format!(
+                            "{:04}-{:02}-{:02}",
+                            date.year(),
+                            date.month(),
+                            date.day()
+                        ))
+                    }),
+                    FieldValue::Memo(text) => JsonValue::String(text),
+                    FieldValue::DateTime(value) => JsonValue::String(format!("{value:?}")),
+                };
+                (name, value)
+            })
+            .collect()
+    }
+
+    /// Returns the EPSG:4326 `GeoJSON` geometry for this feature: a `MultiPolygon` for a polygon
+    /// shape, a `MultiLineString` for a polyline and a `Point` for a point.
     #[must_use]
     pub const fn geometry(&self) -> &JsonValue {
         &self.geometry
@@ -521,7 +574,56 @@ fn shape_to_epsg4326_geojson(
     projection: &SourceProjection,
     shape: Shape,
 ) -> anyhow::Result<JsonValue> {
+    let project = |x: f64, y: f64| {
+        projection
+            .to_epsg4326(x, y)
+            .map(|(longitude, latitude)| vec![longitude, latitude])
+    };
+    let lines = |parts: Vec<Vec<(f64, f64)>>| -> anyhow::Result<JsonValue> {
+        let coordinates = parts
+            .into_iter()
+            .map(|part| {
+                part.into_iter()
+                    .map(|(x, y)| project(x, y))
+                    .collect::<anyhow::Result<Vec<_>>>()
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(json!({"type": "MultiLineString", "coordinates": coordinates}))
+    };
     let polygons: MultiPolygon<f64> = match shape {
+        Shape::Point(point) => {
+            return Ok(json!({"type": "Point", "coordinates": project(point.x, point.y)?}));
+        }
+        Shape::PointM(point) => {
+            return Ok(json!({"type": "Point", "coordinates": project(point.x, point.y)?}));
+        }
+        Shape::PointZ(point) => {
+            return Ok(json!({"type": "Point", "coordinates": project(point.x, point.y)?}));
+        }
+        Shape::Polyline(line) => {
+            return lines(
+                line.parts()
+                    .iter()
+                    .map(|part| part.iter().map(|p| (p.x, p.y)).collect())
+                    .collect(),
+            );
+        }
+        Shape::PolylineM(line) => {
+            return lines(
+                line.parts()
+                    .iter()
+                    .map(|part| part.iter().map(|p| (p.x, p.y)).collect())
+                    .collect(),
+            );
+        }
+        Shape::PolylineZ(line) => {
+            return lines(
+                line.parts()
+                    .iter()
+                    .map(|part| part.iter().map(|p| (p.x, p.y)).collect())
+                    .collect(),
+            );
+        }
         Shape::Polygon(polygon) => polygon
             .try_into()
             .context("failed to convert Polygon rings")?,
@@ -531,7 +633,9 @@ fn shape_to_epsg4326_geojson(
         Shape::PolygonZ(polygon) => polygon
             .try_into()
             .context("failed to convert PolygonZ rings")?,
-        _ => bail!("shapefile feature geometry must be Polygon, PolygonM, or PolygonZ"),
+        _ => {
+            bail!("shapefile feature geometry must be a Point, Polyline or Polygon (plain, M or Z)")
+        }
     };
     let coordinates = polygons
         .0
@@ -559,7 +663,8 @@ fn shape_to_epsg4326_geojson(
     }))
 }
 
-/// A validated Korea 2000 2010 belt projection read from a shapefile `.prj` member.
+/// A validated Korea projection read from a shapefile `.prj` member: a Korea 2000 2010 belt (the
+/// `VWorld` exports) or the national UTM-K grid (EPSG:5179, the 주소정보 전자지도).
 pub struct SourceProjection {
     source_name: String,
     source: Proj,
@@ -579,14 +684,14 @@ impl SourceProjection {
     /// Parses and validates a shapefile WKT projection definition.
     ///
     /// # Errors
-    /// Returns an error when WKT parsing fails or the CRS is not one of the GRS80 Korea 2000
-    /// 2010 Transverse Mercator belts used by `VWorld` spatial-file exports.
+    /// Returns an error when WKT parsing fails or the CRS is neither one of the GRS80 Korea 2000
+    /// 2010 Transverse Mercator belts used by `VWorld` spatial-file exports nor GRS80 UTM-K.
     pub fn from_prj(wkt: &str) -> anyhow::Result<Self> {
         let source_name =
             projected_crs_name(wkt).context("PRJ is not a supported Korea 2000 2010 belt")?;
         let proj_string = proj4wkt::wkt_to_projstring(wkt)
             .context("failed to parse shapefile PRJ as WKT1/WKT2")?;
-        validate_supported_korea_belt(&proj_string)?;
+        validate_supported_korea_projection(&proj_string)?;
         let source = Proj::from_proj_string(&proj_string)
             .context("failed to initialize source projection from PRJ")?;
         let target = Proj::from_proj_string(EPSG_4326_PROJ)
@@ -638,8 +743,24 @@ fn projected_crs_name(wkt: &str) -> anyhow::Result<String> {
     Ok(name.to_owned())
 }
 
-fn validate_supported_korea_belt(proj_string: &str) -> anyhow::Result<()> {
+fn validate_supported_korea_projection(proj_string: &str) -> anyhow::Result<()> {
     let params = proj_parameters(proj_string);
+    // UTM-K's datum is the ITRF2000-based Korean datum: its PRJ names D_ITRF_2000 and no shift, so
+    // the shift may be absent as well as the identity (it is never a real shift).
+    let utm_k = params.get("proj").is_some_and(|value| *value == "tmerc")
+        && numeric_param_is(&params, "lat_0", 38.0)
+        && (numeric_param_is(&params, "k", 0.9996) || numeric_param_is(&params, "k_0", 0.9996))
+        && numeric_param_is(&params, "x_0", 1_000_000.0)
+        && numeric_param_is(&params, "y_0", 2_000_000.0)
+        && numeric_param_is(&params, "a", 6_378_137.0)
+        && numeric_param_is(&params, "rf", 298.257_222_101)
+        && numeric_param_is(&params, "lon_0", UTM_K_CENTRAL_MERIDIAN)
+        && params
+            .get("towgs84")
+            .is_none_or(|value| is_null_towgs84(value));
+    if utm_k {
+        return Ok(());
+    }
     let supported = params.get("proj").is_some_and(|value| *value == "tmerc")
         && numeric_param_is(&params, "lat_0", 38.0)
         && (numeric_param_is(&params, "k", 1.0) || numeric_param_is(&params, "k_0", 1.0))
@@ -653,7 +774,7 @@ fn validate_supported_korea_belt(proj_string: &str) -> anyhow::Result<()> {
             .is_some_and(|value| is_null_towgs84(value));
     if !supported {
         bail!(
-            "PRJ is not a supported Korea 2000 2010 belt (GRS80 tmerc, lon_0 125/127/129/131); parsed definition: {proj_string}"
+            "PRJ is not a supported Korea 2000 2010 belt (GRS80 tmerc, lon_0 125/127/129/131) or UTM-K; parsed definition: {proj_string}"
         );
     }
     Ok(())
@@ -727,6 +848,53 @@ mod tests {
         r#"PARAMETER["Scale_Factor",1.0],"#,
         r#"PARAMETER["Latitude_Of_Origin",38.0],UNIT["Meter",1.0]]"#,
     );
+
+    /// The PRJ the 주소정보 전자지도 download ships beside its layers (`GRS80_UTMK.prj`, W61c).
+    const UTM_K: &str = concat!(
+        r#"PROJCS["PCS_ITRF2000_TM",GEOGCS["GCS_ITRF_2000",DATUM["D_ITRF_2000","#,
+        r#"SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],"#,
+        r#"UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],"#,
+        r#"PARAMETER["False_Easting",1000000.0],PARAMETER["False_Northing",2000000.0],"#,
+        r#"PARAMETER["Central_Meridian",127.5],PARAMETER["Scale_Factor",0.9996],"#, // public-repository-safety: reviewed-runtime-coordinate
+        r#"PARAMETER["Latitude_Of_Origin",38.0],UNIT["Meter",1.0]]"#,
+    );
+
+    #[test]
+    fn utm_k_false_origin_maps_to_its_central_meridian() -> anyhow::Result<()> {
+        let projection = SourceProjection::from_prj(UTM_K)?;
+        let (longitude, latitude) = projection.to_epsg4326(1_000_000.0, 2_000_000.0)?;
+        assert!((longitude - 127.5).abs() < 1e-8, "longitude={longitude}"); // public-repository-safety: reviewed-runtime-coordinate
+        assert!((latitude - 38.0).abs() < 1e-8, "latitude={latitude}");
+        let other_scale = UTM_K.replace("0.9996", "0.9999");
+        assert!(SourceProjection::from_prj(&other_scale).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn points_and_polylines_become_point_and_multilinestring() -> anyhow::Result<()> {
+        let projection = SourceProjection::from_prj(UTM_K)?;
+        let point = super::shape_to_epsg4326_geojson(
+            &projection,
+            shapefile::Shape::Point(Point::new(1_000_000.0, 2_000_000.0)),
+        )?;
+        assert_eq!(point["type"], "Point");
+        let line = super::shape_to_epsg4326_geojson(
+            &projection,
+            shapefile::Shape::Polyline(shapefile::Polyline::with_parts(vec![
+                vec![
+                    Point::new(1_000_000.0, 2_000_000.0),
+                    Point::new(1_000_010.0, 2_000_010.0),
+                ],
+                vec![
+                    Point::new(1_000_020.0, 2_000_020.0),
+                    Point::new(1_000_030.0, 2_000_030.0),
+                ],
+            ])),
+        )?;
+        assert_eq!(line["type"], "MultiLineString");
+        assert_eq!(line["coordinates"].as_array().map(Vec::len), Some(2));
+        Ok(())
+    }
 
     #[test]
     fn central_belt_false_origin_maps_to_declared_longitude_and_latitude() -> anyhow::Result<()> {

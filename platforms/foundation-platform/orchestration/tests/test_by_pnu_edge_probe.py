@@ -169,6 +169,27 @@ class TheProbe(EdgeFixture):
                 Edge.routes[f"{prefix('parcel')}{PNU}"] = [answer]
                 self.assertEqual(self.run_probe(), 1)
 
+    def test_a_nearby_answer_whose_nearest_facilities_are_all_null_fails(self):
+        lane = "parcel-nearby"
+        fields = POLICY["content"][lane]["any_of"]
+        path = f"{prefix(lane)}{PNU}"
+        env = {**self.env, probe.sample_variable(lane): self.sample(lane, [PNU])}
+        empty = {field: None for field in fields} | {"commercial_store_count": 42}
+        Edge.routes[path] = [document({"pnu": PNU, "nearby": empty})]
+        self.assertEqual(self.run_probe(env), 1)
+        self.assertIn(f"GET {path} (read 1 of 2): every one of nearby.", self.output)
+        # One nearest facility is enough: a parcel far from a railway is still a parcel.
+        Edge.routes[path] = [document({"pnu": PNU, "nearby": empty | {"school": {"name": "학교", "distance_m": 420}}})]
+        self.assertEqual(self.run_probe(env), 0, self.output)
+        # A document with no section object fails too.
+        Edge.routes[path] = [document({"pnu": PNU})]
+        self.assertEqual(self.run_probe(env), 1)
+        self.assertIn("no 'nearby' object", self.output)
+
+    def test_a_lane_the_content_rule_does_not_name_is_held_to_a_non_empty_object_only(self):
+        self.assertNotIn("parcel", POLICY["content"])
+        self.assertEqual(self.run_probe(), 0, self.output)
+
     def test_an_ended_entry_is_passed_over_for_the_first_one_served(self):
         # The public auction sample's first PNU answers 404 (its auction ended): not a failure.
         self.assertEqual(self.run_probe(), 0, self.output)

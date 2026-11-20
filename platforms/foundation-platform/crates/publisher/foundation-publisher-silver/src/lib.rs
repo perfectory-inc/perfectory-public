@@ -136,6 +136,9 @@ pub mod parcel_nearby_stage;
 /// Stages 차세대 온비드 public sale Bronze objects as Silver rows (root ADR-0280, ADR-0340).
 pub mod onbid_silver_stage;
 
+/// Re-versions the Onbid rows whose minute times the Spark load misread (one-off).
+pub mod onbid_time_correction_stage;
+
 /// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
 pub mod place_identity_stage;
 
@@ -187,6 +190,16 @@ pub mod remote_lakehouse_job;
 )]
 pub mod land_use_silver_export;
 
+/// 주소정보 전자지도 base Silver handoff export (root ADR-0494 §6): one kind's layer of one 시도 zip.
+#[allow(
+    clippy::nursery,
+    clippy::pedantic,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    missing_docs
+)]
+#[cfg_attr(test, allow(clippy::panic, clippy::unwrap_used))]
+pub mod juso_electronic_map_base_silver_export;
 /// 용도지역지구 도형 Silver handoff export (root ADR-0362), run by the Silver refresh like the land
 /// CSV exports above.
 #[allow(

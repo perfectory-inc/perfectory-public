@@ -29,6 +29,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--gold-namespace", default="gold")
     parser.add_argument("--allow-non-smoke-write", action="store_true")
     parser.add_argument("--summary-output")
+    parser.add_argument("--handoff-output", help="the whole place_reference unit, as the steward database loads it")
     return parser.parse_args(argv)
 
 
@@ -118,6 +119,12 @@ def main(argv: list[str] | None = None) -> int:
             written[source] = found
             summary["read"][source] = snapshot
         summary["open"] = queue.summary(written)
+        if args.handoff_output:
+            rows = spark.sql(f"SELECT item_id, subject_code, status, candidates_json, evidence_etag, from_snapshot_id, "
+                             f"to_snapshot_id FROM {table} WHERE unit = '{queue.UNIT}' ORDER BY subject_code").collect()
+            document = handoff(rows, now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+            Path(args.handoff_output).write_text(json.dumps(document, ensure_ascii=False) + "\n", encoding="utf-8")
+            summary["handoff_items"] = document["item_count"]
     finally:
         spark.stop()
     summary["outcome"] = "written" if summary["read"] else "unchanged"
@@ -126,6 +133,18 @@ def main(argv: list[str] | None = None) -> int:
                                              encoding="utf-8")
     print("place-reference-queue-json " + json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return 0
+
+
+def handoff(rows: list[Any], published_at_utc: str) -> dict[str, Any]:
+    """The unit's whole queue, as `load-lineage-review-items` replaces it in the steward database: every
+    source's items, not only the ones this run rewrote (the load swaps the unit in one transaction)."""
+    import lineage_review_queue as q  # noqa: PLC0415
+
+    items = [q.ReviewItem(item_id=str(r["item_id"]), subject_code=r["subject_code"], status=r["status"],
+                          candidates_json=r["candidates_json"], evidence_etag=r["evidence_etag"],
+                          from_snapshot_id=r["from_snapshot_id"] or "", to_snapshot_id=r["to_snapshot_id"] or "")
+             for r in rows]
+    return q.handoff_document(items, queue.UNIT, published_at_utc)
 
 
 def _sql_type(logical: str) -> str:

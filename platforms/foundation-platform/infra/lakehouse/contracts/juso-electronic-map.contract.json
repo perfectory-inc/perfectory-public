@@ -65,6 +65,7 @@
     "page": "https://business.juso.go.kr/jst/jstAddressDownload",
     "item": {"rtl_dta_dtl_sn": 26, "name_ko": "도로명주소 전자지도", "region": "전국", "format": "SHP"},
     "layer_parts": [".shp", ".shx", ".dbf"],
+    "projection_member": "GRS80_UTMK.prj",
     "layers": {
       "building": "TL_SPBD_BULD",
       "building_entrance": "TL_SPBD_ENTRC",
@@ -77,7 +78,11 @@
       "legal_emd": "TL_SCCO_EMD",
       "legal_ri": "TL_SCCO_LI"
     },
-    "unmatched_layers": ["TL_SPBD_EQB"]
+    "unmatched_layers": ["TL_SPBD_EQB"],
+    "keys": {
+      "$comment": "The key of a kind's base rows where the layer does not carry the linkage key (kinds.*.key). Measured 2026-11-11 on the 202610 national set (W61c): every other kind's key is unique across its layer as it stands; TL_SPBD_BULD has no ADR_MNG_NO and its SIG_CD+RN_CD+BULD_SE_CD+BULD_MNNM+BULD_SLNO repeats 4,269,964 times (buildings sharing one road address), while BD_MGT_SN (건물관리번호) is unique over its 10,684,580 rows.",
+      "building": ["BD_MGT_SN"]
+    }
   },
   "request_codes": {
     "300001": {

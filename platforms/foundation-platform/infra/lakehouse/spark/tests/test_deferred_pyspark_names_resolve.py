@@ -13,6 +13,12 @@
 있거나, 내장이거나, `load_pyspark` 이 묶는 다섯 개 중 하나여야 한다. 그리고 `shared.X` 는
 공용 모듈에 X 가 실제로 있어야 한다.
 
+함수 안의 import 도 같은 눈으로 본다: 가져오는 모듈이 있어야 하고, 이 디렉터리의 모듈에서
+이름을 가져오면 그 이름이 그 모듈에 있어야 한다. 2026-11-19 에 #1469 가 `data_go_kr_onbid.py`
+를 지우며 `changed_only` 를 `silver_release_compare` 로 옮겼는데, `courtauction_go_kr` 의 한
+함수가 옛 모듈에서 가져오는 줄이 남았다. 함수 안의 import 는 "이름을 묶는다"고만 읽혀 통과했고,
+운영 법원경매 Silver 적재가 ModuleNotFoundError 로 멈췄다.
+
 자기 시험은 `test_the_check_catches_a_name_that_does_not_exist` 다 — 위반을 심어 잡히는
 것까지 본다. 통과만 본 검사는 이 저장소에서 여러 번 배신했다.
 """
@@ -22,6 +28,7 @@ from __future__ import annotations
 import ast
 import builtins
 import importlib
+import importlib.util
 import sys
 import unittest
 from pathlib import Path
@@ -34,6 +41,9 @@ sys.path.insert(0, str(JOBS_DIR))
 PYSPARK_BOUND = frozenset({"DataFrame", "SparkSession", "F", "T", "StorageLevel"})
 
 SHARED_MODULE = "spatial_silver_handoff"
+
+# CI 레인에 없어서 함수 안에서 가져오는 바깥 패키지. 여기 없는 모듈을 찾지 못하면 결함이다.
+DEFERRED_PACKAGES = frozenset({"pyspark"})
 
 # 확인 대상. 지연 import 를 쓰는 잡이 늘면 여기 더한다.
 MODULES = (
@@ -82,6 +92,44 @@ def bound_in(node: ast.AST) -> set[str]:
     return names
 
 
+def top_level_names(path: Path) -> set[str]:
+    """모듈 최상단에서 묶이는 이름: def·class·대입·import. 모듈을 실행하지 않고 읽는다."""
+    names: set[str] = set()
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        for child in ast.walk(node) if isinstance(node, (ast.If, ast.Try)) else [node]:
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(child.name)
+            elif isinstance(child, (ast.Import, ast.ImportFrom)):
+                names.update(alias.asname or alias.name.split(".")[0] for alias in child.names)
+            elif isinstance(child, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = child.targets if isinstance(child, ast.Assign) else [child.target]
+                for target in targets:
+                    names.update(n.id for n in ast.walk(target) if isinstance(n, ast.Name))
+    return names
+
+
+def unresolved_imports(module_name: str, function: ast.AST) -> list[str]:
+    """함수 안의 import 가운데 실행해야만 ImportError 로 드러날 것."""
+    problems: list[str] = []
+    for child in ast.walk(function):
+        if isinstance(child, ast.Import):
+            imported = [(alias.name, None) for alias in child.names]
+        elif isinstance(child, ast.ImportFrom) and child.level == 0 and child.module:
+            imported = [(child.module, alias.name) for alias in child.names]
+        else:
+            continue
+        for name, attribute in imported:
+            top = name.split(".")[0]
+            where = f"{module_name}.{getattr(function, 'name', '?')}:{child.lineno}"
+            job = JOBS_DIR / f"{top}.py"
+            if job.is_file():
+                if attribute not in (None, "*") and attribute not in top_level_names(job):
+                    problems.append(f"{where} -> from {name} import {attribute}")
+            elif top not in DEFERRED_PACKAGES and importlib.util.find_spec(top) is None:
+                problems.append(f"{where} -> import {name}")
+    return problems
+
+
 def unresolved(module_name: str, source: str | None = None) -> list[str]:
     """해석되지 않는 참조를 전부 돌려준다. 빈 목록이면 통과."""
     module = importlib.import_module(module_name)
@@ -106,6 +154,7 @@ def unresolved(module_name: str, source: str | None = None) -> list[str]:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or id(node) in nested:
             continue
         visible = bound_in(node) | known
+        problems.extend(unresolved_imports(module_name, node))
         for child in ast.walk(node):
             if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
                 if child.id not in visible:
@@ -183,6 +232,40 @@ class DeferredPysparkNamesResolveTest(unittest.TestCase):
 
         self.assertEqual(len(problems), 1, f"중첩 함수 안의 없는 이름을 잡지 못했다: {problems}")
         self.assertIn("a_name_that_does_not_exist", problems[0])
+
+    def test_the_check_catches_a_local_import_of_a_module_that_does_not_exist(self) -> None:
+        """#1469 가 남긴 줄 그대로: 지워진 모듈에서 가져오는 함수 안의 import."""
+        planted = (
+            "def a_planted_function(frame):\n"
+            "    from a_module_that_was_deleted import changed_only\n"
+            "    return changed_only(frame)\n"
+        )
+
+        problems = unresolved(SHARED_MODULE, planted)
+
+        self.assertEqual(len(problems), 1, f"없는 모듈의 import 를 잡지 못했다: {problems}")
+        self.assertIn("a_module_that_was_deleted", problems[0])
+
+    def test_the_check_catches_a_local_import_of_a_name_its_module_does_not_have(self) -> None:
+        planted = (
+            "def a_planted_function(frame):\n"
+            "    from silver_release_compare import a_name_it_does_not_have, release_changes\n"
+            "    return release_changes(frame, a_name_it_does_not_have)\n"
+        )
+
+        problems = unresolved(SHARED_MODULE, planted)
+
+        self.assertEqual(len(problems), 1, f"모듈에 없는 이름의 import 를 잡지 못했다: {problems}")
+        self.assertIn("a_name_it_does_not_have", problems[0])
+
+    def test_a_local_import_of_pyspark_is_not_a_problem(self) -> None:
+        planted = (
+            "def a_planted_function(column):\n"
+            "    from pyspark.sql import functions as F\n"
+            "    return F.col(column)\n"
+        )
+
+        self.assertEqual(unresolved(SHARED_MODULE, planted), [])
 
     def test_the_check_does_not_flag_the_deferred_pyspark_names(self) -> None:
         """`F` 를 결함으로 읽으면 이 검사는 매번 빨갛고 아무도 안 본다."""

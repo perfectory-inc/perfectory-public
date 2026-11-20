@@ -81,7 +81,6 @@ crate의 소유자 선언은 [`foundation-platform-boundary.v1.json`](./foundati
 
 - 사용자 노출 문자열은 typed i18n(`apps/web/lib/i18n/`)을 거친다.
 - public API 접근은 승인된 proxy/client 경로를 거친다.
-- Foundation Platform event receiver(`apps/web/app/foundation-platform/events/route.ts`)는 좁은 통합 route이지 일반 Catalog client가 아니다.
 
 ## 6. 정책·레지스트리 계층
 

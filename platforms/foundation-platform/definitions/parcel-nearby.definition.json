@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "주변 kind Gold (root ADR-0465, ADR-0564 §9 turn 2; scripts/ops/gold-versions-build.sh parcel-nearby → publisher build-parcel-nearby-versions): gold.parcel_nearby_versions, for every served parcel what is near its centroid — the nearest 공항, 철도역, 도시철도역, 초중등학교 and 대학 with the spheroid distance, the 상가(상권) stores in the H3 rings around it and the 고속도로 출입시설 of its 시군구 — computed by DuckDB inside the publisher (spatial, h3) one 시도 at a time and appended by the publisher as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of a facility file, the highway file or the code change table recomputes every 시도 (any parcel's nearest point may move; those files hold 14 to 12,004 rows and change a few times a year); a change of the parcels, the stores or the place ids recomputes only the 시도 it touches (parcel_nearby_stage.changed_sidos). The nearest is exact and an equal-distance tie goes to the facility's row_key (owner 2026-11-12, root ADR-0559 exception ⓑ). It was the Spark job parcel_nearby_silver_to_gold.py, which never committed (four 160-minute timeouts, 2026-11-12..13). by_pnu_parcel_nearby_bake bakes its commit.",
+      "description": "주변 kind Gold (root ADR-0465, ADR-0564 §9 turn 2; scripts/ops/gold-versions-build.sh parcel-nearby → publisher build-parcel-nearby-versions): gold.parcel_nearby_versions, for every served parcel what is near its centroid — the nearest 공항, 철도역, 도시철도역, 초중등학교 and 대학 with the spheroid distance, the 상가(상권) stores in the H3 rings around it and the 고속도로 출입시설 of its 시군구 — computed by DuckDB inside the publisher (spatial, h3) one 시도 at a time and appended by the publisher as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of a facility file, the highway file or the code change table recomputes every 시도 (any parcel's nearest point may move; those files hold 14 to 12,004 rows; the school file is published monthly, the university and subway files yearly, the airport, railway and highway files irregularly, and the 상가 file quarterly); a change of the parcels, the stores or the place ids recomputes only the 시도 it touches (parcel_nearby_stage.changed_sidos). The nearest is exact and an equal-distance tie goes to the facility's row_key (owner 2026-11-12, root ADR-0559 exception ⓑ). It was the Spark job parcel_nearby_silver_to_gold.py, which never committed (four 160-minute timeouts, 2026-11-12..13). by_pnu_parcel_nearby_bake bakes its commit.",
       "systemd_service": "foundation-gold-versions@parcel-nearby.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -22,11 +22,14 @@
         "unit": "run",
         "limits": [],
         "deadline": null,
-        "measured_run_seconds": null,
-        "unmeasured_reason": "Its four runs as the cut-over's gold step (2026-11-12..13) each ended at the 160-minute limit, so none measures a full build; off until its Gold is born on DuckDB (W81b, W83b), whose run is measured then.",
-        "first_run": {
-          "estimate_seconds": 900,
-          "estimated_from": "measured, not under this unit: the same SQL computed every served parcel (39,861,511) one 시도 at a time in 445.6 s with a 5.01 GiB peak at a 5 GB DuckDB limit and 4 threads (W81b, 2026-11-13, ai-server, read-only); the reads of the inputs, the diff against the head and the upload of about 40 million rows (one file per 시도) are about as much again, so 900 s, a quarter of the 60-minute limit"
+        "measured_run_seconds": {
+          "runs": 3,
+          "p50": 10,
+          "p90": 1502,
+          "max": 1502,
+          "timeouts": 0,
+          "from": "2026-11-19T15:26:15Z",
+          "to": "2026-11-20T05:49:59Z"
         }
       },
       "pool": "spark",

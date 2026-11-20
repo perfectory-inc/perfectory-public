@@ -110,8 +110,8 @@ fi
 #
 # xtask catches this at run time by reading the executed-test count back, which
 # is the stronger check because it observes reality. But it can only fire for a
-# lane that actually runs, and five lanes (foundation r2/lakehouse/data-go-kr,
-# intelligence kafka/redis) run in no CI job at all. For those, a wrong
+# lane that actually runs, and four lanes (foundation r2/lakehouse/data-go-kr,
+# intelligence redis) run in no CI job at all. For those, a wrong
 # declaration would sit undetected until someone finally provisioned the backend.
 #
 # Prior art for closing this statically: rust-lang/rust PR #108905 made unknown

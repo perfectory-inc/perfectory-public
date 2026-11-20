@@ -31,6 +31,9 @@ pub mod building_link_evidence;
 pub mod by_pnu_gateway_contract;
 pub mod compose_labels;
 pub mod free_space;
+// Generated from the schema registry, laid out by its generator (scripts/schema_registry.py).
+#[rustfmt::skip]
+pub mod host_document_schemas;
 pub mod industrial_complex_gold_profile_store;
 pub mod lakehouse_data_commit;
 pub mod lakehouse_snapshot_scan;

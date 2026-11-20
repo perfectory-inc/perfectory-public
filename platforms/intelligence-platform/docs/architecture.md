@@ -30,8 +30,6 @@ last_reviewed: 2026-11-05
 |   |-- knowledge-domain
 |   |-- knowledge-application
 |   `-- knowledge-infrastructure
-|-- crates/messaging/
-|   `-- messaging-infrastructure
 |-- crates/intelligence-contracts
 |-- crates/intelligence-workspace-hack
 |-- services/intelligence-api
@@ -40,10 +38,8 @@ last_reviewed: 2026-11-05
 
 - 도메인 크레이트는 업무 규칙과 값 타입을 담는다.
 - 응용 크레이트는 사용 사례와 포트를 담는다.
-- 인프라 크레이트는 HTTP·PostgreSQL·Kafka·모델 어댑터를 구현한다. 검색은 Postgres
+- 인프라 크레이트는 HTTP·PostgreSQL·모델 어댑터를 구현한다. 검색은 Postgres
   전문검색 어댑터(와 시험용 메모리 어댑터)뿐이며 벡터 저장소 어댑터는 아직 구현하지 않았다.
-- `messaging-infrastructure`는 기술 전달 어댑터다. 메시지 계약은 `intelligence-contracts`와
-  `schemas/`에 있으므로 도메인·응용 쌍을 일부러 두지 않는다.
 - `intelligence-workspace-hack`은 빌드 기능 통합용 크레이트이며 코드를 담지 않는다.
 - 서비스는 모듈을 조합하고 실행 경계를 드러낸다.
 

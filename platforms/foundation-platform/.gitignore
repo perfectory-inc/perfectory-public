@@ -45,7 +45,5 @@ map-edit.env
 .worktrees/
 __pycache__/
 *.py[cod]
-infra/lakehouse/dbt/target/
-infra/lakehouse/dbt/logs/
 # Docker volume override
 docker-compose.override.yml

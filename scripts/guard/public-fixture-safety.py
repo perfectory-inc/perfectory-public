@@ -24,10 +24,6 @@ RESERVED_LATITUDE = (36.123, 36.124)
 SYNTHETIC_TOKEN = "synthetic"
 RUNTIME_COORDINATE_LINE_MARKER = "public-repository-safety: reviewed-runtime-coordinate"
 RUNTIME_COORDINATE_FILE_MARKER = "public-repository-safety: reviewed-runtime-coordinate-inputs"
-SQL_FIXTURE_MARKER = "public-repository-safety: synthetic-fixture"
-SQL_FIXTURE_PATHS = {
-    "platforms/foundation-platform/infra/lakehouse/dbt/smoke/source-fixtures.sql",
-}
 LOAD_POLICY_PATHS = {
     "products/gongzzang/tests/load/scenarios.v1.json",
     "products/gongzzang/tests/load/README.md",
@@ -359,21 +355,6 @@ def validate_structured_fixtures(
             validate_fixture_document(relative, label, document, errors)
 
 
-def validate_sql_fixture_markers(
-    root: Path, paths: Iterable[PurePosixPath], errors: list[str]
-) -> None:
-    tracked = {path.as_posix(): path for path in paths}
-    for fixture_path in sorted(SQL_FIXTURE_PATHS & tracked.keys()):
-        relative = tracked[fixture_path]
-        try:
-            text = read_text(root, relative)
-        except (OSError, UnicodeDecodeError) as error:
-            errors.append(f"{relative}: cannot read SQL fixture: {error}")
-            continue
-        if SQL_FIXTURE_MARKER not in text:
-            errors.append(f"{relative}: requires the synthetic-fixture provenance marker")
-
-
 def validate_load_policy(root: Path, paths: Iterable[PurePosixPath], errors: list[str]) -> None:
     tracked = {path.as_posix(): path for path in paths}
     for policy_path in sorted(LOAD_POLICY_PATHS & tracked.keys()):
@@ -435,7 +416,6 @@ def main() -> int:
     scan_provider_file_ids(root, paths, errors)
     scan_code_namespaces(root, paths, errors)
     validate_structured_fixtures(root, paths, errors)
-    validate_sql_fixture_markers(root, paths, errors)
     validate_load_policy(root, paths, errors)
     if errors:
         for error in errors:

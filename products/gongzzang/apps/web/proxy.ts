@@ -26,13 +26,7 @@ import { sanitizeReturnTo } from "@/lib/url";
 // `/dev-x9-test` — ADR 0021 X9 path 시각 검증 page. dev 한정.
 // `/fonts` — Pretendard variable subset CSS + woff2 정적 자산 (모든 페이지에 필요).
 // production 빌드는 R2 직결이라 본 prefix 없음. dev 의 *X9 path 시각 검증* 용도.
-const PUBLIC_PATHS = [
-  ROUTES.login,
-  ROUTES.forbidden,
-  AUTH_PATH_PREFIX,
-  API.foundationPlatform.events,
-  "/fonts",
-];
+const PUBLIC_PATHS = [ROUTES.login, ROUTES.forbidden, AUTH_PATH_PREFIX, "/fonts"];
 const LISTING_MARKER_MASK_PREFIX = API.proxy.listingMarkerMasksPrefix;
 const DEV_ONLY_PUBLIC_PATHS = ["/dev-tiles", "/dev-x9-test", "/preview-floors"];
 

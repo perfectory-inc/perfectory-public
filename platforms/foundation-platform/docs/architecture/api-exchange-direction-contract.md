@@ -102,14 +102,6 @@ Foundation은 `catalog.outbox_event`와 outbox publisher를 통해 커밋된 이
 Outbox 이벤트는 커밋된 사실이나 내구성 있는 플랫폼 이벤트를 위한 것이다. 요청/응답 조회나 원천 수집이
 아니다.
 
-<!-- contract: dbt-modeling-pull -->
-### dbt/Trino 모델링은 가져오기/조회다
-
-dbt 모델은 Trino를 통해 레이크하우스 관계를 조회한다. dbt는 원천 데이터를 전달하거나 AI 모델을
-호출하거나 제안을 승인하거나 정본 상태를 단독으로 공개하지 않는다.
-
-dbt owns SQL modeling and SQL tests only.
-
 ## 경계 규칙
 
 <!-- contract: no-cross-service-db-access -->
@@ -131,13 +123,11 @@ dbt owns SQL modeling and SQL tests only.
 | Product artifact registration | Push | Foundation Platform registry | `POST /internal/lakehouse/artifacts` |
 | Staff review/apply/rollback | Command push | Foundation Platform | staff/admin APIs |
 | Event fan-out | Push | Foundation Platform | `catalog.outbox_event` -> Kafka 또는 webhook |
-| SQL modeling | Pull/query | Foundation Platform | dbt -> Trino |
 
 ## 금지 사항
 
 - 제품 서비스가 Foundation 내부 PostgreSQL 테이블을 폴링하는 것.
 - 제품 서비스가 Foundation 정본 테이블에 쓰는 것.
 - `intelligence-platform`이 정규화 제안을 직접 적용하는 것.
-- dbt가 관리자 명령을 내리거나 Gold 포인터를 공개하는 것.
 - Gongzzang이 공공 카탈로그 원천을 소유한 것처럼 제공기관 데이터를 Foundation으로 전달하는 것.
 - 내구성 있는 outbox 이벤트 대신 동기 콜백 체인을 사용하는 것.

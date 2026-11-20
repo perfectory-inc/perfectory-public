@@ -416,6 +416,47 @@ impl OnbidSource {
         Ok(known)
     }
 
+    /// The role's time columns the provider writes as twelve digits, by the inventory's label
+    /// (`…(yyyyMMddHHmm)`), in the table's column order.
+    ///
+    /// # Errors
+    /// Returns an error when the inventory has no fields for the role's API.
+    pub fn minute_time_columns(
+        &self,
+        role: Role,
+        contract: &LakehouseTableContract,
+    ) -> anyhow::Result<Vec<&'static str>> {
+        let mut claimed = std::collections::BTreeSet::new();
+        for field in self.fields(role.api())? {
+            let minutes = field
+                .get("label")
+                .and_then(Value::as_str)
+                .is_some_and(|label| label.contains("(yyyyMMddHHmm)"));
+            if !minutes {
+                continue;
+            }
+            for claim in field
+                .get("silver")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                if let Some((table, column)) = claim.rsplit_once('.') {
+                    if table == role.table() {
+                        claimed.insert(column.to_owned());
+                    }
+                }
+            }
+        }
+        Ok(contract
+            .columns
+            .iter()
+            .filter(|column| column.logical_type == "timestamp" && claimed.contains(column.name))
+            .map(|column| column.name)
+            .collect())
+    }
+
     /// (column, response key) for every column of the role's table the API's fields claim, in the
     /// table's column order.
     fn column_sources(

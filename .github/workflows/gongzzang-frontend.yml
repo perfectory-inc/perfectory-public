@@ -85,7 +85,6 @@ jobs:
       ZITADEL_REDIRECT_URI: https://gongzzang.invalid/api/auth/callback
       SESSION_SECRET: ci-production-session-secret-32-valid-x
       INTERNAL_AUTH_SECRET: ci-internal-auth-secret-32-valid-pad
-      FOUNDATION_PLATFORM_WEBHOOK_SECRET: ci-foundation-platform-webhook-secret-32-valid
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:
@@ -213,7 +212,6 @@ jobs:
           REDIS_URL: redis://localhost:6379
           SESSION_SECRET: ci-test-secret-32-bytes-or-more-padding-padding
           INTERNAL_AUTH_SECRET: ci-e2e-internal-auth-secret-32-valid
-          FOUNDATION_PLATFORM_WEBHOOK_SECRET: ci-e2e-foundation-platform-webhook-secret-32
           # Playwright runtime derives the local callback URL from its managed baseURL.
           # Do not override ZITADEL_REDIRECT_URI here; that can desync CI from the
           # isolated Playwright port and attach tests to the wrong local app.

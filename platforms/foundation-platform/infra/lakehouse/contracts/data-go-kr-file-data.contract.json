@@ -461,6 +461,124 @@
         "window_days": 7,
         "max_objects": 1
       }
+    },
+    "standard_land_price": {
+      "operation": "fileData15004246",
+      "name_ko": "국토교통부_표준지공시지가",
+      "institution_ko": "국토교통부",
+      "published": "yearly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15004246",
+        "publicDataDetailPk": "uddi:0a2867b6-d9a1-4241-8e6e-9ee7bc812a75",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "request_timeout_seconds": 900,
+      "encoding": "cp949",
+      "header": ["일련번호", "토지대장번호(PNU)", "시군구", "읍면동리", "지번구분", "본번지", "부번지", "시도명", "시군구명", "소재지", "지목", "면적", "용도지역1", "용도지역2", "용도지구1", "계획시설저촉여부", "계획시설", "기타제한1", "농지구분", "경지정리", "임야구분", "이용상황", "주위환경", "주위환경_기타", "지세", "형상", "방위", "도로거리", "도로교통", "철도거리", "하수거리", "전년지가", "공시지가", "지리적위치1", "지리적위치2", "특수제한1", "특수제한2", "대규모_사업_방식", "대규모_사업_단계", "도로구분", "위험시설접근성", "묘지소재불리여건", "중복지정용도지역"],
+      "bounds": {
+        "$comment": "min_rows is the 가격기준일 2026-01-01 판's 600,000 rows minus 10%; the ministry sets the 표준지 count each year (about 600,000).",
+        "min_rows": 540000,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["토지대장번호(PNU)"],
+        "$comment": "One 표준지 per lot in an edition: 600,000 of 600,000 filled and distinct (2026-11-11). An edition is one 가격기준일 (1월 1일), so next year's price is that key's newer row and a lot the ministry drops from the 표준지 set gets a removal marker."
+      },
+      "place_link": {
+        "kind": "place_identity",
+        "provider_pnu_column": "토지대장번호(PNU)",
+        "$comment": "The ministry's 19-digit lot code is resolved by the place-identity resolver (ADR-0288), never copied (ADR-0401 §4). 1,902 of 600,000 (0.32%) are not 19 digits (a 사업지구 block written with letters such as 편익·단독·상업), so they stay unresolved; of a random 2,994 numeric codes, 2,990 are in silver.parcel_boundaries (2026-11-11)."
+      },
+      "measured": "2026-11-11 (가격기준일 2026-01-01 판, portal updated 2026-10-14): 139,505,744 bytes, one CP949 CSV of 600,000 rows and 43 columns on every row; 토지대장번호(PNU) distinct on every row. One download was cut short at 37,748,736 bytes with HTTP 200; its Content-Length said 139,505,744.",
+      "silver_load": {
+        "$comment": "What one load of silver.standard_land_price may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "elevator_installation": {
+      "operation": "fileData15112638",
+      "name_ko": "한국승강기안전공단_승강기 설치 현황",
+      "institution_ko": "한국승강기안전공단",
+      "published": "irregularly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15112638",
+        "publicDataDetailPk": "uddi:35d82e90-102d-4a03-b0e0-bdda0896ce97",
+        "fileDetailSn": "1"
+      },
+      "format": "zip",
+      "request_timeout_seconds": 600,
+      "member": {
+        "$comment": "Both members are data: the elevators installed from 2016 and those before (`..._2016년 이후.csv`, `..._2015년 이전.csv`, UTF-8 names with the flag).",
+        "name_pattern": "^(?:.*/)?한국승강기안전공단_승강기 설치 현황_[^/]+\\.csv$",
+        "every_match": true,
+        "encoding": "utf-8-sig",
+        "header": ["건물명", "건물주소", "시도", "시군구", "승강기고유번호", "호기", "검사유효만료일자", "승강기구분", "승강기형식", "승강기세부형식", "승강기종류", "설치장소", "운행층수", "주행길이", "정격속도", "적재하중", "최대정원", "제조업체", "유지관리업체", "운행지상층수", "운행지하층수", "건물용도(대)", "건물용도(소)", "기계실유무", "최초설치일자", "설치일자", "승강기상태", "모델명", "검사결과이력조회코드"],
+        "bounds": {
+          "$comment": "min_rows is the 2026-06-30 판's 893,715 rows minus about 10%.",
+          "min_rows": 800000,
+          "max_shrink_share": 0.15
+        }
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["승강기고유번호", "검사결과이력조회코드"],
+        "$comment": "승강기고유번호 is distinct but empty on one row of 893,715 (a 1994 freight lift); 검사결과이력조회코드 is filled and distinct on every row, so the pair is filled and distinct on every row (2026-11-11)."
+      },
+      "place_link": {
+        "kind": "address_pnu",
+        "address_column": "건물주소",
+        "$comment": "건물주소 is a road address with the 법정동 in parentheses. A random 3,000 (2026-11-11): 2,910 read as a road address; of their 2,829 distinct (시도, 시군구, 도로명, 건물번호), 2,551 (90.2%) match titles of one PNU in silver.building_register_titles, 90 several, 188 none."
+      },
+      "measured": "2026-11-11 (2026-06-30 판, portal updated 2026-08-13): 32,981,572 bytes, a zip of two UTF-8 CSVs (477,886 and 415,829 rows, 29 columns on every row); 승강기종류 화물용·승객화물용·자동차용 and their combinations are 89,429 rows, 건물용도(대) 공장·창고시설 45,728.",
+      "silver_load": {
+        "$comment": "What one load of silver.elevator_installation may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "knowledge_industry_center": {
+      "operation": "fileData15117154",
+      "name_ko": "한국산업단지공단_전국지식산업센터현황",
+      "institution_ko": "한국산업단지공단",
+      "published": "irregularly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15117154",
+        "publicDataDetailPk": "uddi:a72ac85b-0dac-46a1-bfb6-eba4fc7895d7",
+        "fileDetailSn": "1"
+      },
+      "format": "zip",
+      "member": {
+        "$comment": "The data member is the CSV at the zip's root named _<기준일 YYYYMMDD>.csv; the dictionary and its notes sit in a folder beside it and are not data.",
+        "name_pattern": "^[^/]*_(\\d{8})\\.csv$",
+        "encoding": "cp949",
+        "header": ["시도", "시군구", "지식산업센터명", "입지구분", "회사명", "등록구분", "단지명", "관할기관", "산단구분", "상태", "지목", "용지면적(제곱미터)", "건축면적(제곱미터)", "제조면적(제곱미터)", "부대면적(제곱미터)", "공장대표주소(도로명)", "공장대표주소(지번)", "분양형태", "건축상태", "용도지역1", "용도지역2", "설치자"],
+        "bounds": {
+          "$comment": "min_rows is the 2025-06-30 판's 1,549 rows minus about 10%.",
+          "min_rows": 1390,
+          "max_shrink_share": 0.15
+        }
+      },
+      "row_key": {
+        "kind": "sha256_of_row",
+        "$comment": "No provider key: (지식산업센터명, 회사명) repeats on 15 rows of 1,549, and one row appears twice word for word, so a repeat stays one key's set (keep_ties)."
+      },
+      "place_link": {
+        "kind": "address_pnu",
+        "address_columns": ["공장대표주소(지번)", "공장대표주소(도로명)"],
+        "$comment": "공장대표주소(지번) is filled on every row (2025-06-30 판) and read first; 공장대표주소(도로명), empty on 190 rows, is read when the 지번 does not resolve."
+      },
+      "measured": "2026-11-11 (2025-06-30 판, portal updated 2026-09-28): 100,106 bytes, a zip of one CP949 CSV of 1,549 rows and 22 columns on every row, plus a data dictionary in a folder (UTF-8 names without the flag).",
+      "silver_load": {
+        "$comment": "What one load of silver.knowledge_industry_center may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     }
   }
 }

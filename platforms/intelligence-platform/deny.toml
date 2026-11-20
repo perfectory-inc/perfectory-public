@@ -47,16 +47,15 @@ multiple-versions = "warn"
 wildcards = "deny"
 allow-wildcard-paths = true
 highlight = "simplest-path"
-# openssl stays banned, with one accepted, tracked wrapper chain (2026-07-20):
-# schema_registry_converter 4.9 depends on reqwest 0.13 with default-tls, which
-# resolves to native-tls → openssl on Linux. The real fix is pointing
-# schema_registry_converter/reqwest at rustls features — a Cargo.lock change that
-# must be re-tested in the area container (Docker engine was down when this
-# policy landed). Any NEW dependent of openssl outside this chain still fails.
-# TODO: switch schema_registry_converter to rustls, then delete these wrappers.
+# openssl is banned outright (root ADR-0589): its one wrapper chain, schema_registry_converter →
+# reqwest default-tls → native-tls, left with the unused event backbone.
 deny = [
-    { crate = "openssl", use-instead = "rustls", wrappers = ["native-tls"] },
-    { crate = "openssl-sys", use-instead = "rustls", wrappers = ["native-tls", "openssl"] },
+    { crate = "openssl", use-instead = "rustls" },
+    { crate = "openssl-sys", use-instead = "rustls" },
+    { crate = "native-tls", use-instead = "rustls" },
+    # Root ADR-0589 Decision 5: Kafka comes back only with a producer, in the PR that brings the producer and lifts
+    # this line. Prevents: a consumer re-added for a topic no one writes, as the deleted backbone was.
+    { crate = "rdkafka", reason = "root ADR-0589: Kafka returns only with a producer (Decision 5)" },
     # Vector index / embedding provider crates (Intelligence ADR-0002). Prevents: the honest mistake of
     # pinning an unapproved embedding provider or vector index without the engine ADR that ADR-0002
     # makes its approval condition. Matches the resolved graph (direct, dev, build, transitive and

@@ -72,6 +72,7 @@ mod industrial_complex_gold_profile_export;
 mod industrial_complex_notice_collect;
 mod lakehouse_object_listing;
 mod onbid_silver_load;
+mod onbid_time_correction;
 mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
@@ -237,6 +238,7 @@ enum Command {
     ExportLandUsePlanSilverHandoff,
     ExportLandUseZoneCodeSilverHandoff,
     ExportLandUseZoneAreaSilverHandoff,
+    ExportJusoElectronicMapBaseSilverHandoff,
     ExportLandIndividualPriceSilverHandoff,
     ExportLandCharacteristicSilverHandoff,
     ExportLandForestSilverHandoff,
@@ -505,6 +507,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportLandUseZoneAreaSilverHandoff => {
             Box::pin(foundation_publisher_silver::land_use_zone_area_silver_export::run())
         }
+        Command::ExportJusoElectronicMapBaseSilverHandoff => Box::pin(
+            foundation_publisher_silver::juso_electronic_map_base_silver_export::run(),
+        ),
         Command::ExportLandRightRegistrationSilverHandoff => {
             Box::pin(land_use_silver_export::run_land_right_registration())
         }
@@ -916,6 +921,9 @@ where
         }
         Some("export-land-use-zone-area-silver-handoff") => {
             Ok(Command::ExportLandUseZoneAreaSilverHandoff)
+        }
+        Some("export-juso-electronic-map-base-silver-handoff") => {
+            Ok(Command::ExportJusoElectronicMapBaseSilverHandoff)
         }
         Some("export-land-right-registration-silver-handoff") => {
             Ok(Command::ExportLandRightRegistrationSilverHandoff)

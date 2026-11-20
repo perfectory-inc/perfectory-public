@@ -203,6 +203,22 @@ export interface components {
             /** @description The evidence it waits for, when awaiting data. */
             waiting_for: string;
         };
+        /** @description What the place-reference queue recorded for one (source, reason, 법정동 code). */
+        LineagePlaceReferenceEvidence: {
+            /** @description The rows' 10-digit 법정동 code, when the source has one. */
+            legal_dong_code?: string | null;
+            /** @description The rows' `pnu_unresolved_reason`. */
+            reason: string;
+            /**
+             * Format: int64
+             * @description How many current rows stand behind the item.
+             */
+            rows: number;
+            /** @description A few of those rows' keys, for a steward to look up. */
+            sample_row_keys: string[];
+            /** @description The Silver table, `silver.<name>`. */
+            source: string;
+        };
         /**
          * @description The fixed reasons a lineage-writing decision cites.
          * @enum {string}
@@ -247,9 +263,13 @@ export interface components {
             /** @description What the item decides. */
             kind: components["schemas"]["LineageReviewKind"];
             legal_dong?: null | components["schemas"]["LineageLegalDongEvidence"];
+            place_reference?: null | components["schemas"]["LineagePlaceReferenceEvidence"];
             /** @description Why it is on the queue. */
             status: components["schemas"]["LineageReviewStatus"];
-            /** @description The parcel (19-digit PNU) or the abolished 법정동 code (10 digits) to decide. */
+            /**
+             * @description The parcel (19-digit PNU), the abolished 법정동 code (10 digits), or the place reference
+             *     (`<source table>|<reason>|<법정동 code or ->`).
+             */
             subject_code: string;
         };
         /** @description A page of review items. */
@@ -263,7 +283,7 @@ export interface components {
          * @description What a review item decides.
          * @enum {string}
          */
-        LineageReviewKind: "parcel" | "legal_dong";
+        LineageReviewKind: "parcel" | "legal_dong" | "place_reference";
         /**
          * @description Why an item is on the review queue.
          * @enum {string}

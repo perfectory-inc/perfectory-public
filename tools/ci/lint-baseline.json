@@ -781,7 +781,7 @@
   "products/gongzzang/scripts/web-preview/deploy.sh": {
    "SC2016": 1,
    "SC2034": 2,
-   "SC2312": 3
+   "SC2312": 2
   },
   "products/gongzzang/scripts/web-preview/teardown.sh": {
    "SC2034": 1,

@@ -500,14 +500,6 @@
       "current_auth_env": "FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE"
     },
     {
-      "source_policy_id": "foundation_outbox_to_gongzzang_events",
-      "source_service": "foundation-outbox-publisher",
-      "target_service": "gongzzang-web",
-      "target_auth_method": "timestamped_hmac_sha256",
-      "service_identity": "foundation-outbox-publisher",
-      "current_auth_env": "FOUNDATION_PLATFORM_WEBHOOK_SECRET"
-    },
-    {
       "source_policy_id": "gongzzang_outbox_publisher_to_foundation_lakehouse_registry",
       "source_service": "gongzzang-outbox-publisher",
       "target_service": "foundation-api",

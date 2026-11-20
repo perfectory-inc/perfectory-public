@@ -19,16 +19,13 @@ Intelligence Platform에서 작업하는 AI 에이전트 공용 진입점. 모�
   (`/v1/chat/completions` · `/v1/models`)은 루트 ADR-0001 §6에 기록된 예외로
   생태계 표준 경로를 유지한다 — `/intelligence/v1` 밑으로 옮기지 말 것.
 - crates: normalization 3계층(intelligence-normalization-*) + knowledge 3계층 +
-  `messaging-infrastructure` + `intelligence-contracts`. jobs: `document_text`(Python 이미지 — 고시 첨부의 쪽·위치 텍스트, 계약은
+  `intelligence-contracts`. jobs: `document_text`(Python 이미지 — 고시 첨부의 쪽·위치 텍스트, 계약은
   `config/document-extraction.contract.json`, [루트 ADR-0477](../../docs/adr/0477-foundation-hands-intelligence-documents-and-place-ids-and-takes-back-cited-facts-in-tables-only-intelligence-writes.md)). services: `intelligence-api` ·
-  `intelligence-worker`(바이너리 4종 — drain worker, floor/unit normalization, knowledge consumer).
-- **C0-C1**(인바운드 인증·admission control·durable outbox) 구현 완료. **C2** 이벤트 백본은
-  코드(Kafka/Karapace 어댑터, Avro 스키마, `foundation_knowledge_consumer`)가 있으나
-  **선택적이며 prod 발행 미배선**: submission-requested 토픽을 발행하는 프로덕션 코드 없음,
-  Foundation 측 knowledge.source 프로듀서 부재. 그 토픽의 값 스키마는 Foundation이 소유한다
-  (`platforms/foundation-platform/schemas/foundation-platform.knowledge.source-upserted.v1.avsc`) —
-  이 영역은 `include_str!`로 읽고 레지스트리에서 조회만 하며, 스키마를 고치거나 등록하지 않는다.
-  C2를 "가동 중"으로 서술하지 말 것. `/metrics` 분리 리스너는 C3로 연기.
+  `intelligence-worker`(drain worker, floor/unit normalization, 지식 비계 CLI 둘).
+- **C0-C1**(인바운드 인증·admission control·durable outbox) 구현 완료. **C2** 이벤트 백본(Kafka·
+  Karapace 어댑터, 지식 원천 소비자)은 발행자가 없어 지웠다(2026-11-19, [루트 ADR-0589](../../docs/adr/0589-the-intelligence-event-backbone-with-no-producer-is-deleted-and-kafka-returns-with-its-library-when-a-producer-exists.md)). 두 플랫폼
+  사이는 표로만 주고받는다(루트 ADR-0477). Kafka 는 실제 발행자가 생길 때 그 라이브러리
+  (`schema_registry_converter`)와 함께 돌아온다. `/metrics` 분리 리스너는 C3로 연기.
 - knowledge retrieval은 **비계 수직 슬라이스만 구현**: Postgres 전문검색 색인(`ip_knowledge_chunk`),
   `KnowledgeIndexPort`, `tenant:scaffold` 전용 CLI 2종. HTTP route 없음.
   vector/embedding은 **여전히 미구현**이며 [ADR-0002](./docs/adr/0002-canonical-release-rag-design.md)가
@@ -52,10 +49,8 @@ Intelligence Platform에서 작업하는 AI 에이전트 공용 진입점. 모�
 # 모노레포 루트에서 — CI와 동일한 fmt+clippy+test (Docker 필요)
 bash scripts/verify/cargo-verify.sh platforms/intelligence-platform
 
-# 이 디렉토리에서 — 스키마 계약 테스트 / C2 라이브 검증(선택, compose 기동 후)
+# 이 디렉토리에서 — 스키마 계약 테스트
 cargo test -p intelligence-normalization-application --test event_schema_contract
-docker compose -f docker/c2-event-backbone.compose.yml up -d
-cargo test -p messaging-infrastructure --test live_kafka_karapace -- --nocapture
 ```
 
 ## 지식 검색을 건드리기 전에

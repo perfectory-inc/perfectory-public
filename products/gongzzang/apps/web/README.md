@@ -22,7 +22,6 @@ Gongzzang 웹 클라이언트다.
 
 - `/api/proxy/*`: Rust API 로 가는 같은 출처 프록시
 - `/api/auth/*`: 로그인·콜백·갱신·로그아웃
-- `/foundation-platform/events`: Foundation 웹훅 수신(POST)
 
 ## 경계
 

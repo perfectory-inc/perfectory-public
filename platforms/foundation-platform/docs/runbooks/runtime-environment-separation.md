@@ -78,7 +78,7 @@ Kafka/Avro 계약 작업을 할 때만 로컬 C2 fixture를 시작한다. 계약
 `cargo xtask live kafka`가 이 스택의 수명까지 맡는다([Kafka outbox 계약](./foundation-kafka-outbox-contract-test.md)).
 
 ```bash
-docker compose -f platforms/intelligence-platform/docker/c2-event-backbone.compose.yml up -d
+docker compose -f platforms/foundation-platform/docker/kafka-live.compose.yml up -d
 ```
 
 broker와 registry 환경 변수를 명시해 실시간 테스트를 실행한다. 이 작업은 Foundation 운영

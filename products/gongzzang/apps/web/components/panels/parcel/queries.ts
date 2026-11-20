@@ -79,7 +79,8 @@ export const parcelBuildingPermitsQuery = (pnu: string) => ({
 export const parcelNearbyQuery = (pnu: string) => ({
   queryKey: ["panel", "parcel", "nearby", pnu] as const,
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchNearby(pnu, signal),
-  // Computed in Gold from facility files that change a few times a year and monthly 상가 (ADR-0465).
+  // Computed in Gold from the facility files (the school file monthly, the others yearly or irregularly)
+  // and the quarterly 상가 file (ADR-0465).
   staleTime: 60 * 60_000,
 });
 

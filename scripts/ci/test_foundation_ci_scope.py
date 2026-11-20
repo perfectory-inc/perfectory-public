@@ -47,7 +47,7 @@ class FoundationCiScopeTest(unittest.TestCase):
             ),
             "kafka-integration": (
                 "tools/xtask/src/live.rs",
-                "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml",
+                "platforms/foundation-platform/docker/kafka-live.compose.yml",
                 "platforms/foundation-platform/crates/foundation-outbox/src/kafka_broadcaster.rs",
                 "platforms/foundation-platform/schemas/foundation-platform.catalog.collection-raw-written.v1.avsc",
             ),
@@ -337,7 +337,7 @@ class FoundationCiScopeTest(unittest.TestCase):
             (
                 "kafka-integration",
                 "exact",
-                "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml",
+                "platforms/foundation-platform/docker/kafka-live.compose.yml",
             ),
             (
                 "compose-smoke",

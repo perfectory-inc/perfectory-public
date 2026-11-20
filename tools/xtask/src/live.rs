@@ -4,7 +4,7 @@
 //! The lanes own WHICH targets run (`cargo xtask integration foundation <lane>`, root ADR-0011); these
 //! commands own what the lanes run against.
 //!
-//! - `kafka`: the pinned Redpanda/Karapace stack of `c2-event-backbone.compose.yml`: up, readiness,
+//! - `kafka`: the pinned Redpanda/Karapace stack of `platforms/foundation-platform/docker/kafka-live.compose.yml`: up, readiness,
 //!   the canonical raw-written topic, the test environment, and teardown whatever happens. The caller
 //!   supplies `DATABASE_URL` (CI's PostGIS service or a disposable local Postgres).
 //! - `r2-lakehouse`: the opt-in live Cloudflare R2 and R2 Data Catalog lanes. No emulator: R2 is the
@@ -19,7 +19,7 @@ use std::path::Path;
 use std::process::Command;
 
 const USAGE: &str = "usage: cargo xtask live <kafka | r2-lakehouse>";
-const KAFKA_COMPOSE: &str = "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml";
+const KAFKA_COMPOSE: &str = "platforms/foundation-platform/docker/kafka-live.compose.yml";
 
 pub(crate) fn run(root: &Path, args: &[String]) -> Result<(), String> {
     match args
@@ -52,9 +52,9 @@ fn kafka(root: &Path) -> Result<(), String> {
         .ok_or("DATABASE_URL must point at a migrated Postgres/PostGIS database")?;
     let topic = var("FOUNDATION_PLATFORM_KAFKA_RAW_WRITTEN_TOPIC")
         .unwrap_or_else(|| "foundation-platform.catalog.collection-raw-written.v1".to_owned());
-    let kafka_port = var("INTELLIGENCE_TEST_KAFKA_HOST_PORT").unwrap_or_else(|| "19092".to_owned());
+    let kafka_port = var("FOUNDATION_TEST_KAFKA_HOST_PORT").unwrap_or_else(|| "19092".to_owned());
     let karapace_port =
-        var("INTELLIGENCE_TEST_KARAPACE_HOST_PORT").unwrap_or_else(|| "18081".to_owned());
+        var("FOUNDATION_TEST_KARAPACE_HOST_PORT").unwrap_or_else(|| "18081".to_owned());
     let project = compose_project(&var("FOUNDATION_KAFKA_COMPOSE_PROJECT").unwrap_or_else(|| {
         format!(
             "foundation-kafka-live-{}-{}",
@@ -68,8 +68,8 @@ fn kafka(root: &Path) -> Result<(), String> {
             .args(["compose", "-p", &project, "-f"])
             .arg(&compose_file)
             .args(args);
-        command.env("INTELLIGENCE_TEST_KAFKA_HOST_PORT", &kafka_port);
-        command.env("INTELLIGENCE_TEST_KARAPACE_HOST_PORT", &karapace_port);
+        command.env("FOUNDATION_TEST_KAFKA_HOST_PORT", &kafka_port);
+        command.env("FOUNDATION_TEST_KARAPACE_HOST_PORT", &karapace_port);
         command
     };
     // Torn down whatever happens below, as the script's EXIT trap did.
