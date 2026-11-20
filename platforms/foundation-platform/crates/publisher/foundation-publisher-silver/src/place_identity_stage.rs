@@ -90,6 +90,22 @@ pub fn reference_from_loaded(connection: &duckdb::Connection) -> anyhow::Result<
         .context("DuckDB failed to build the place-identity reference tables")
 }
 
+/// The query of `(pnu, place_id)`: each parcel code's id in `bridge` (`gold.place_id_bridge` as a
+/// table expression), its open period's, else its latest closed one's.
+///
+/// A code-pair line (`legal-dong-code-change`) is a new code's form of an id, not a period the
+/// served PNU has (`place_id_join.place_ids`, root ADR-0483). Every parcel source's Gold joins by it.
+#[must_use]
+pub fn place_ids_query(bridge: &str) -> String {
+    format!(
+        "SELECT code AS pnu, place_id FROM ( \
+           SELECT code, place_id, row_number() OVER (PARTITION BY code \
+             ORDER BY valid_to IS NOT NULL, valid_to DESC, place_id) AS newest \
+           FROM {bridge} \
+           WHERE unit = 'parcel' AND valid_from <> 'legal-dong-code-change') WHERE newest = 1"
+    )
+}
+
 /// What the rows in `place_rows` offer and ask (`offers.sql`).
 ///
 /// # Errors
