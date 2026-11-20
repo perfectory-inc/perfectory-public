@@ -481,12 +481,12 @@ mod tests {
         r#"{"airport":{"name":"A","distance_m":9000},"commercial_store_count":5}"#;
     const LOSS: f64 = 0.1;
 
-    /// The head's row and the build's row of one parcel at (37.5, 127.0), as `versions::diff` leaves
+    /// The head's row and the build's row of one parcel at (37.5, 127.1235), as `versions::diff` leaves
     /// them. PNUs are synthetic (99999...).
     fn tables(built: &str, place_id: &str, attached_via: &str) -> anyhow::Result<Connection> {
         let connection = Connection::open_in_memory()?;
         connection.execute_batch(&format!(
-            "CREATE TABLE parcels AS SELECT '9999900000100000000' AS pnu, 37.5::DOUBLE AS lat, 127.0::DOUBLE AS lon; \
+            "CREATE TABLE parcels AS SELECT '9999900000100000000' AS pnu, 37.5::DOUBLE AS lat, 127.1235::DOUBLE AS lon; \
              CREATE TABLE current_rows AS SELECT '9999900000100000000' AS pnu, '{HEAD}' AS nearby_json, \
                NULL::VARCHAR AS attached_via, 'P1' AS place_id; \
              CREATE TABLE appended AS SELECT '9999900000100000000' AS pnu, '{built}' AS nearby_json, \
@@ -512,7 +512,7 @@ mod tests {
     fn moved_here(before: u64, after: u64) -> anyhow::Result<ChangedSidos> {
         Ok(ChangedSidos {
             sidos: BTreeSet::from(["99".to_owned()]),
-            store_cells: BTreeSet::from([store_cell(37.5, 127.0)?]),
+            store_cells: BTreeSet::from([store_cell(37.5, 127.1235)?]),
             located_stores: Some((before, after)),
         })
     }
@@ -602,7 +602,7 @@ mod tests {
             "a key came"
         );
         let elsewhere = ChangedSidos {
-            store_cells: BTreeSet::from([store_cell(35.1, 129.0)?]),
+            store_cells: BTreeSet::from([store_cell(38.0, 127.1235)?]),
             ..moved_here(100, 95)?
         };
         assert_eq!(
