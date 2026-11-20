@@ -3,7 +3,8 @@
 //! `fixtures/full_table.html` is a synthetic page in the shape code.go.kr serves (unclosed `<tr>`,
 //! nested layout tables, `&nbsp` without its semicolon, a `<table>` inside a script's text); the
 //! two JSON files beside it are what `code_go_kr_legal_dong.html_tables` and
-//! `parse_full_table_html` made of it before the job was removed. Codes under 99 only.
+//! `parse_full_table_html` made of it before the job was removed (the rows as arrays in the
+//! contract's header order). Codes under 99 only.
 
 use anyhow::Context as _;
 use chrono::NaiveDate;
@@ -56,19 +57,23 @@ fn every_table_of_the_page_is_read_as_python_read_it() -> anyhow::Result<()> {
 fn the_full_table_is_the_rows_python_read() -> anyhow::Result<()> {
     let expected: Vec<Value> = serde_json::from_str(&fixture("full_table.rows.json")?)?;
     let rows = FullTableContract::compiled()?.parse(&fixture("full_table.html")?)?;
-    let field = |row: &Value, name: &str| row[name].as_str().unwrap_or_default().to_owned();
+    // One array per code, in the contract's header order: code, name, status, parent, rank,
+    // created, abolished, last work, lowest name, 주민 code, 지적 code.
     let expected = expected
         .iter()
-        .map(|row| CodeRow {
-            region_cd: field(row, "region_cd"),
-            full_name: field(row, "full_name"),
-            status: field(row, "status"),
-            parent_cd: field(row, "parent_cd"),
-            created_date: field(row, "created_date"),
-            abolished_date: field(row, "abolished_date"),
-            lowest_name: field(row, "lowest_name"),
-            jumin_cd: field(row, "jumin_cd"),
-            jijuk_cd: field(row, "jijuk_cd"),
+        .map(|row| {
+            let cell = |at: usize| row[at].as_str().unwrap_or_default().to_owned();
+            CodeRow {
+                region_cd: cell(0),
+                full_name: cell(1),
+                status: cell(2),
+                parent_cd: cell(3),
+                created_date: cell(5),
+                abolished_date: cell(6),
+                lowest_name: cell(8),
+                jumin_cd: cell(9),
+                jijuk_cd: cell(10),
+            }
         })
         .collect::<Vec<_>>();
     assert_eq!(rows, expected);
@@ -90,7 +95,7 @@ fn refused(from: &str, to: &str, message: &str) -> anyhow::Result<()> {
 fn a_changed_shape_refuses_the_whole_table() -> anyhow::Result<()> {
     refused(">9999910100<", ">999991010<", "is not a 10-digit")?;
     refused(">9999910200<", ">9999910100<", "appears twice")?;
-    refused(">20240117<", ">20241317<", "is not a YYYYMMDD date")?;
+    refused(">20990117<", ">20991317<", "is not a YYYYMMDD date")?;
     refused(
         "<center>폐지</center>",
         "<center>없음</center>",
@@ -172,7 +177,7 @@ fn the_snapshot_is_staged_as_the_tables_columns_with_empty_fields_null() -> anyh
         (
             "9999910200".to_owned(),
             None,
-            Some("20240117".to_owned()),
+            Some("20990117".to_owned()),
             day
         )
     );
