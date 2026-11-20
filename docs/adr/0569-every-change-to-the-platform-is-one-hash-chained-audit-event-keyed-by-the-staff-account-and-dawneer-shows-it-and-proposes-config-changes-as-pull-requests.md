@@ -1,6 +1,6 @@
 # ADR 0569: 플랫폼의 모든 변경은 직원 계정을 열쇠로 한 해시 사슬 감사 사건 하나로 남는다 — 더니어가 보이고, 코드에 든 설정은 더니어가 PR 로 제안한다
 
-- Status: Accepted
+- Status: Accepted; §3 의 쓰는 이 잠금·READ COMMITTED 조건·503 길과 §4 의 줄마다 사슬(`prev_hash`·`row_hash`)·digest 모양, §7 의 `seq` 커서는 Superseded by [ADR-0584](./0584-the-audit-record-is-witnessed-by-its-hourly-digest-over-ordered-rows-not-chained-row-by-row.md) (2026-11-19, 소유자 승인). 나머지는 그대로다
 - Date: 2026-11-19
 - Revises: [ADR-0434](./0434-dawneer-is-served-from-the-data-host-behind-cloudflare-access-and-a-tunnel-and-relays-zitadels-sign-in-pages.md) §5
   ("승인·결정은 Foundation API 를 거쳐 그 주인의 append-only 기록에 남는다. 더니어는 기록을 갖지 않는다.")

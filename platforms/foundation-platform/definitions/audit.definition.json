@@ -1,0 +1,158 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "audit",
+  "jobs": [
+    {
+      "id": "audit_import",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Import the changes made outside Foundation into the audit chain audit.event (root ADR-0569 §6): every autodeploy state file, with one event per pull request a deploy shipped (first-parent commits since the deploy before it, from the host's git mirror), and the journal's root-written foundation-operator-start lines after the last cursor, keeping each command's action, subject and declared arguments only. Rows go through audit.append as foundation_audit_importer, 50 to a transaction with the source's cursor in the last; a row read twice is written once. `changed` when it appended a row, else `unchanged`. A journal cursor the journal no longer holds is recorded as audit.import_gap and fails the run. The GitHub sources wait for the App and are marked waiting_for_credential.",
+      "systemd_service": "foundation-audit-import.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "2,17,32,47 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 10,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 30,
+          "estimated_from": "computed (root ADR-0386): the first run, the declared exception, appends about 500 deploy files, one event per pull request they shipped (1,267 merged PRs since 07-23, about 440 deployed since 10-07) and 183 journal lines, about 1,200 rows in 25 transactions of 50, each a few milliseconds, plus one `git log` per deploy (about 440, each a few milliseconds); later runs append the few rows of the last 15 minutes"
+        }
+      },
+      "pool": "default_pool",
+      "pool_slots": 1,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "serving-audit-chain-to-dawneer-audit-page"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-19T00:00:00Z",
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "An operation, not a data producer: a quarter hour without a deploy or an operator start is `unchanged`. That it keeps finishing is the done bound."
+      }
+    },
+    {
+      "id": "audit_digest",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Digest the audit record every hour (root ADR-0569 §4, ADR-0584 §2): audit.make_digest keeps the next digest, the rows the current snapshot sees and the last digest's did not (its trigger checks it against the rows); root's audit-witness.sh signs the SHA-256 of every digest not yet witnessed with the witness key and the pinned cosign, which records it in the public Rekor log; audit.witness_digest keeps each bundle after checking it is for that digest's hash. Only the hash leaves the host. A failed upload leaves the digest pending for the next run. Every Monday 00:05 KST it first recomputes every digest from its rows (audit.verify_all) and checks every bundle against Rekor. `changed` when it kept a witness; `unchanged` with nothing to witness. A digest that does not match its rows fails the run.",
+      "systemd_service": "foundation-audit-digest.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "5 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 10,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 20,
+          "estimated_from": "computed (root ADR-0386): the first digest covers every row so far (about 1,200 after the first import), hashed in SQL in well under a second; one cosign signature and one Rekor upload, a few seconds; the weekly check rehashes every range (100 rows a day, root ADR-0569 §5) and verifies one bundle per hourly digest against Rekor"
+        }
+      },
+      "pool": "default_pool",
+      "pool_slots": 1,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "serving-audit-chain-to-rekor-audit-witness"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-19T00:00:00Z",
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "An operation, not a data producer: an hour without a new audit row is `unchanged`. The importer fails when a row has waited two hours for a witnessed digest, which bounds this job's silence."
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "serving-audit-chain",
+      "type": "serving_group",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "title": "감사 기록 사슬",
+      "description": "플랫폼의 모든 변경(더니어 동작·배포·호스트 명령·PR·지도 편집)을 직원 계정을 열쇠로 한 표 하나. 덧붙이기만 하고, 쓰는 문은 audit.append 하나다. 매시 digest 가 줄들을 해시한다(루트 ADR-0569, ADR-0584).",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/audit-log.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/migrations/20261118172000_every_change_is_one_hash_chained_audit_event.sql",
+        "platforms/foundation-platform/migrations/20261119054701_the_audit_chain_is_witnessed_by_its_digest_not_chained_row_by_row.sql",
+        "platforms/foundation-platform/config/audit-events.contract.json"
+      ],
+      "tables": [
+        "audit.event",
+        "audit.digest",
+        "audit.digest_witness",
+        "audit.import_cursor",
+        "audit.source"
+      ]
+    },
+    {
+      "id": "dawneer-audit-page",
+      "type": "serving_surface",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "title": "더니어 감사 기록 화면",
+      "description": "더니어 #/audit: 계정별·대상별·시간별 감사 기록과 JSONL·CSV 내보내기(루트 ADR-0569 §7).",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/audit-log.md",
+      "evidence_refs": [
+        "consoles/dawneer/web/src/pages/AuditPage.tsx"
+      ],
+      "surface_kind": "staff_console"
+    },
+    {
+      "id": "rekor-audit-witness",
+      "type": "serving_surface",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "title": "Rekor 감사 증인",
+      "description": "공개 Sigstore Rekor 투명성 기록에 올린 매시 감사 digest 의 서명. 호스트가 지울 수 없는 바깥 증인이다(루트 ADR-0569 §4). 해시와 서명만 올라간다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/audit-log.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/migrations/20261119140000_the_audit_digest_is_made_in_the_database_and_witnessed_after.sql"
+      ],
+      "surface_kind": "transparency_log"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "serving-audit-chain",
+      "to": "dawneer-audit-page",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/audit-import.sh",
+        "import-audit-events"
+      ],
+      "description": "가져온 배포·호스트 명령과 더니어 동작이 한 사슬로 화면에 보인다."
+    },
+    {
+      "from": "serving-audit-chain",
+      "to": "rekor-audit-witness",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/audit-digest.sh",
+        "platforms/foundation-platform/scripts/ops/audit-witness.sh"
+      ],
+      "description": "매시 새 줄의 digest 를 먼저 audit.digest 에 남기고, 그 해시를 서명해 Rekor 에 올린 뒤, 번들을 audit.digest_witness 에 남긴다."
+    }
+  ]
+}

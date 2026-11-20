@@ -11,6 +11,7 @@
     { "principal_kind": "staff", "resource": "foundation.lineage", "action": "adjudicate" },
     { "principal_kind": "staff", "resource": "foundation.lineage", "action": "review" },
     { "principal_kind": "staff", "resource": "foundation.metadata", "action": "read" },
+    { "principal_kind": "staff", "resource": "foundation.operations", "action": "audit_read" },
     { "principal_kind": "staff", "resource": "foundation.operations", "action": "operate" },
     { "principal_kind": "staff", "resource": "foundation.spatial", "action": "manifest_admin" },
     { "principal_kind": "staff", "resource": "foundation.spatial", "action": "map_edit" }

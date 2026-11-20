@@ -156,6 +156,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/data-catalog/v1/audit/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reads one page of the audit chain, newest first. */
+        get: operations["listAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-catalog/v1/audit/events/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Exports every event the filters select, oldest first, as JSON Lines or CSV. */
+        get: operations["exportAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/data-catalog/v1/audit/import-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Each importer's cursor and the newest digest: whether the chain is being fed and witnessed. */
+        get: operations["auditImportStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -923,6 +974,140 @@ export interface components {
             /** @description Why the checks' file could not be read, when it could not. */
             error?: string | null;
         };
+        /**
+         * @description One change in the audit chain (root ADR-0569 §2). Names and mail are not here: the console adds
+         *     them from the identity API when it shows a row.
+         */
+        AuditEventView: {
+            /**
+             * Format: int64
+             * @description Its place in the record's order; a rolled-back write leaves a gap.
+             */
+            seq: number;
+            /** @description The event's id. */
+            event_id: string;
+            /**
+             * Format: date-time
+             * @description When it happened.
+             */
+            occurred_at: string;
+            /**
+             * Format: date-time
+             * @description When the chain took it; later than `occurred_at` for an imported event.
+             */
+            recorded_at: string;
+            /**
+             * @description Where it came from: `dawneer`, `audit`, `github`, `merge_queue`, `deploy`, `host_command`,
+             *     `repo_settings` or `identity`.
+             */
+            source: string;
+            /** @description The one action's id inside its source. */
+            source_event_id: string;
+            /** @description `area.verb`, e.g. `operator_action.run_now`. */
+            action: string;
+            /** @description `create`, `modify`, `remove`, `execute` or `access`. */
+            operation: string;
+            /** @description `staff`, `service`, `system` or `unlinked`. */
+            actor_kind: string;
+            /** @description The staff account that acted, for a staff actor. */
+            actor_staff_id?: string | null;
+            /** @description The staff account's Zitadel subject, when the source knew it. */
+            actor_subject?: string | null;
+            /** @description The source's own immutable id of the actor: `github:<id>` or `unix:<uid>@<host>`. */
+            actor_external?: string | null;
+            /** @description Whether the source verified the actor. */
+            actor_verified: boolean;
+            /** @description Who ran it on the actor's behalf, e.g. `github-app:<id>`. */
+            on_behalf_of?: string | null;
+            /** @description What it changed: its kind, e.g. `job`, `lane`, `pull_request`, `commit`. */
+            object_type: string;
+            /** @description What it changed: its id. */
+            object_id: string;
+            /** @description The changed keys before. */
+            before?: Record<string, never> | null;
+            /** @description The changed keys after, or an execution's arguments. */
+            after?: Record<string, never> | null;
+            /** @description Why, as the person wrote it. */
+            reason?: string | null;
+            /** @description How it was applied: `pull_request`, `approval`, `host_command`, `deploy` or `api`. */
+            applied_via_kind?: string | null;
+            /** @description That way's number or id. */
+            applied_via_ref?: string | null;
+            /** @description `requested`, `succeeded`, `failed`, `refused` or `expired`. */
+            result: string;
+            /** @description Why it failed or was refused. */
+            error?: string | null;
+            /** @description The id every event of one change shares. */
+            change_id?: string | null;
+            /** @description The transaction that wrote it (`xid8`): the digest whose snapshot first sees it covers it. */
+            txid: string;
+        };
+        /** @description One page of the audit chain, newest first. */
+        AuditEventPage: {
+            /** @description Newest first, by `seq`. */
+            events: components["schemas"]["AuditEventView"][];
+            /**
+             * Format: int64
+             * @description The `before_seq` of the next page; absent on the last.
+             */
+            next_before_seq?: number | null;
+        };
+        /** @description Where one importer has read its source to (root ADR-0569 §6). */
+        AuditImportSource: {
+            /** @description The source. */
+            source: string;
+            /** @description The cursor, as the importer wrote it. */
+            cursor: string;
+            /** @description `running`, `waiting_for_credential` or `gap`. */
+            state: string;
+            /**
+             * Format: date-time
+             * @description When it last moved.
+             */
+            advanced_at: string;
+        };
+        /**
+         * @description One digest of the record and its public witness (root ADR-0584 §2): it covers the rows written
+         *     by transactions its `to_snapshot` sees and its `from_snapshot` did not.
+         */
+        AuditDigestView: {
+            /**
+             * Format: int64
+             * @description Its number; one more than the digest before.
+             */
+            digest_no: number;
+            /** @description The digest before's snapshot (`pg_snapshot`); absent for the first. */
+            from_snapshot?: string | null;
+            /** @description The snapshot it was made in. */
+            to_snapshot: string;
+            /**
+             * Format: int64
+             * @description How many rows it covers.
+             */
+            row_count: number;
+            /** @description The SHA-256 of those rows in `seq` order, lowercase hex. */
+            rows_sha256: string;
+            /** @description The digest before's `digest_sha256`; absent for the first. */
+            previous_digest_sha256?: string | null;
+            /** @description The digest's SHA-256, lowercase hex: what the public log holds. */
+            digest_sha256: string;
+            /**
+             * Format: int64
+             * @description Its entry in the public Rekor log, once witnessed.
+             */
+            rekor_log_index?: number | null;
+            /**
+             * Format: date-time
+             * @description When it was made.
+             */
+            made_at: string;
+        };
+        /** @description Each importer's cursor and the newest digest. */
+        AuditImportStatusPage: {
+            /** @description One per source an importer has written, by source. */
+            sources: components["schemas"]["AuditImportSource"][];
+            latest_digest?: null | components["schemas"]["AuditDigestView"];
+        };
     };
     responses: never;
     parameters: never;
@@ -1337,6 +1522,210 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listAuditEvents: {
+        parameters: {
+            query?: {
+                /** @description The staff account that acted: its id, or `me` for the signed-in account. */
+                actor?: string;
+                /** @description The source's id of the actor, e.g. `github:123` or `unix:1000@ai-server`. */
+                actor_external?: string;
+                /** @description The kind of what was changed, e.g. `job`. */
+                object_type?: string;
+                /** @description The start of the id of what was changed. */
+                object_id?: string;
+                /** @description Where the event came from, e.g. `dawneer`. */
+                source?: string;
+                /** @description The action, e.g. `operator_action.run_now`. */
+                action?: string;
+                /** @description The result, e.g. `failed`. */
+                result?: string;
+                /** @description The change every event of it shares. */
+                change_id?: string;
+                /** @description Happened at or after (RFC 3339). */
+                from?: string;
+                /** @description Happened before (RFC 3339). */
+                to?: string;
+                /** @description Only rows before this `seq`: the `next_before_seq` of the page before. */
+                before_seq?: number;
+                /** @description Rows per page, 1 to 500 (default 100). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditEventPage"];
+                };
+            };
+            /** @description A limit outside 1..=500, an actor or change id that is not a UUID (or `me`), a filter longer than one line of 300 bytes, or a `from` not before `to` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description No staff identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not read the audit chain */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The audit chain could not be read */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    exportAuditEvents: {
+        parameters: {
+            query?: {
+                /** @description `jsonl` (JSON Lines, the default) or `csv`. */
+                format?: string;
+                /** @description The staff account that acted: its id, or `me` for the signed-in account. */
+                actor?: string;
+                /** @description The source's id of the actor. */
+                actor_external?: string;
+                /** @description The kind of what was changed. */
+                object_type?: string;
+                /** @description The start of the id of what was changed. */
+                object_id?: string;
+                /** @description Where the event came from. */
+                source?: string;
+                /** @description The action. */
+                action?: string;
+                /** @description The result. */
+                result?: string;
+                /** @description The change every event of it shares. */
+                change_id?: string;
+                /** @description Happened at or after (RFC 3339). */
+                from?: string;
+                /** @description Happened before (RFC 3339). */
+                to?: string;
+                /** @description Only rows this snapshot did not see: the `cursor` of the export before. */
+                after?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description `application/x-ndjson` or `text/csv`, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-ndjson": string;
+                };
+            };
+            /** @description An unknown format, an actor or change id that is not a UUID (or `me`), an `after` that is not an export's cursor, a filter longer than one line of 300 bytes, or a `from` not before `to` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description No staff identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not read the audit chain */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description More than 50,000 events; narrow the filters */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description The audit chain could not be read, or the export could not be recorded */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    auditImportStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditImportStatusPage"];
+                };
+            };
+            /** @description No staff identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not read the audit chain */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The audit chain could not be read */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
             };
         };
     };

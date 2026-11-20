@@ -123,12 +123,17 @@ class FoundationCiScopeTest(unittest.TestCase):
             "boundary-slice",
             scope.selected_gates(event_name="pull_request", base="a" * 40, head="b" * 40, paths=boundary),
         )
-        # Only the deferred gate moves: the rest of a pull request's selection is unchanged.
-        everything = scope.selected_gates(
-            event_name="pull_request", base="a" * 40, head="b" * 40, paths=["Cargo.lock"]
+        # Root ADR-0580 (amended): a pull request leaves every gate to the merge queue, even when a
+        # lock change selects them all; the merge group still runs them all.
+        self.assertEqual(scope.MERGE_QUEUE_ONLY, set(scope.GATES))
+        self.assertEqual(
+            scope.selected_gates(event_name="pull_request", base="a" * 40, head="b" * 40, paths=["Cargo.lock"]),
+            set(),
         )
-        self.assertEqual(everything, set(scope.GATES) - scope.MERGE_QUEUE_ONLY)
-        self.assertEqual(scope.MERGE_QUEUE_ONLY, {"boundary-slice"})
+        self.assertEqual(
+            scope.selected_gates(event_name="merge_group", base="a" * 40, head="b" * 40, paths=["Cargo.lock"]),
+            set(scope.GATES),
+        )
 
     def run_selector(self, event_name: str, paths: set[str]) -> tuple[str, str]:
         with tempfile.TemporaryDirectory() as temporary:
@@ -166,13 +171,37 @@ class FoundationCiScopeTest(unittest.TestCase):
             selected=selected,
             paths=[crate],
             crates_answer="some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n",
-            suites_answer="some\tno suite reads it\n",
-        )
-        # The release dry run is left to the merge queue (root ADR-0580).
+            suites_answer="some\tno suite reads it\n", event_name="pull_request")
+        # A pull request keeps the Rust job and leaves the rest to the merge queue (root ADR-0580):
+        # every gate, the Postgres integration job and the release dry run.
         self.assertEqual(
             skipped,
-            ["boundary-slice", "compose-smoke", "dagster-observe", "release-image", "spark-runtime",
-             "static-release-toolchain-windows", "suites", "supply-chain"],
+            ["boundary-slice", "compose-smoke", "dagster-observe", "kafka-integration", "postgres-integration",
+             "release-image", "spark-runtime", "static-release-toolchain-windows", "suites", "supply-chain"],
+        )
+        self.assertNotIn("rust-quality", skipped)
+        # The merge group runs what the same change reaches: the Kafka gate and Postgres integration.
+        in_queue = scope.skipped_jobs(
+            selected=scope.selected_gates(event_name="merge_group", base="a" * 40, head="b" * 40, paths=[crate]),
+            paths=[crate],
+            crates_answer="some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n",
+            suites_answer="some\tno suite reads it\n", event_name="merge_group",
+        )
+        self.assertNotIn("kafka-integration", in_queue)
+        self.assertNotIn("postgres-integration", in_queue)
+        # And the pull request is told which jobs it left there.
+        self.assertEqual(
+            scope.left_to_the_queue(
+                paths=[crate],
+                crates_answer="some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n",
+                suites_answer="some\tno suite reads it\n",
+            ),
+            ["postgres-integration"],
+        )
+        self.assertEqual(
+            scope.left_to_the_queue(paths=["platforms/foundation-platform/README.md"],
+                                    crates_answer="some\t0 crate(s) changed\n", suites_answer="some\tnone\n"),
+            [],
         )
         queued = scope.skipped_jobs(
             selected=selected, paths=[crate],
@@ -183,8 +212,7 @@ class FoundationCiScopeTest(unittest.TestCase):
         # A document: no crate, so neither Rust job runs.
         doc = scope.skipped_jobs(
             selected=set(), paths=["platforms/foundation-platform/README.md"],
-            crates_answer="some\t0 crate(s) changed\n", suites_answer="some\tnone\n",
-        )
+            crates_answer="some\t0 crate(s) changed\n", suites_answer="some\tnone\n", event_name="pull_request")
         self.assertIn("rust-quality", doc)
         self.assertIn("postgres-integration", doc)
 
@@ -222,14 +250,21 @@ class FoundationCiScopeTest(unittest.TestCase):
         for crates, suites in (("", ""), ("all\tpush verifies every crate\n", "all\tx\n")):
             with self.subTest(crates=crates):
                 skipped = scope.skipped_jobs(
-                    selected=set(scope.GATES), paths=["x/y.md"], crates_answer=crates, suites_answer=suites
+                    selected=set(scope.GATES), paths=["x/y.md"], crates_answer=crates, suites_answer=suites,
+                    event_name="merge_group",
                 )
                 # A document starts no release build, whatever the crate answer (root ADR-0345).
                 self.assertEqual(skipped, [scope.RELEASE_JOB])
+                # On a pull request the same answer still leaves Postgres integration to the queue.
+                self.assertEqual(
+                    scope.skipped_jobs(selected=set(scope.GATES), paths=["x/y.md"], crates_answer=crates,
+                                       suites_answer=suites, event_name="pull_request"),
+                    ["postgres-integration", scope.RELEASE_JOB],
+                )
         # Unknown paths (no comparison): supply-chain runs.
         self.assertNotIn(
             "supply-chain",
-            scope.skipped_jobs(selected=set(), paths=None, crates_answer="some\tx\n", suites_answer="some\tx\n"),
+            scope.skipped_jobs(selected=set(), paths=None, crates_answer="some\tx\n", suites_answer="some\tx\n", event_name="pull_request"),
         )
 
     def test_a_manifest_or_policy_change_runs_supply_chain(self) -> None:
@@ -251,6 +286,45 @@ class FoundationCiScopeTest(unittest.TestCase):
                 scope.main(["--skipped-jobs", "--affected", "false", "--event-name", "pull_request",
                             "--github-output", str(output)])
             self.assertEqual(output.read_text(encoding="utf-8"), "skipped=[]\n")
+
+    def test_the_scope_job_tells_a_pull_request_what_it_left_to_the_merge_queue(self) -> None:
+        """Root ADR-0580: the gate jobs do not start on a pull request, so their own warning never
+        prints there. The scope job names every job the merge group will run for this change."""
+        crate = "platforms/foundation-platform/crates/foundation-outbox/src/kafka_broadcaster.rs"
+        answer = "some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n"
+
+        def run(event_name: str, paths: set[str] | None, failing: bool = False) -> tuple[str, list[str]]:
+            changed = mock.Mock(side_effect=OSError("no git")) if failing else mock.Mock(return_value=paths)
+            with tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary) / "out"
+                with mock.patch.object(scope, "git_changed_paths", changed), \
+                        mock.patch.object(scope, "_selector", return_value=answer), \
+                        redirect_stdout(io.StringIO()) as out:
+                    scope.main(["--skipped-jobs", "--affected", "true", "--event-name", event_name,
+                                "--base", "a" * 40, "--head", "b" * 40, "--github-output", str(output)])
+                return out.getvalue(), json.loads(output.read_text(encoding="utf-8").removeprefix("skipped="))
+
+        out, skipped = run("pull_request", {crate})
+        for job in ("kafka-integration", "postgres-integration"):
+            with self.subTest(job=job):
+                self.assertIn(f"::warning title={job} deferred to the merge queue::", out)
+                self.assertIn(job, skipped)
+        self.assertNotIn("rust-quality", skipped)
+        self.assertNotIn("title=spark-runtime", out, "a gate the change does not reach is not announced")
+
+        out, skipped = run("merge_group", {crate})
+        self.assertNotIn("::warning", out)
+        self.assertNotIn("kafka-integration", skipped)
+        self.assertNotIn("postgres-integration", skipped)
+
+        # No comparison: every gate counts as selected, and a pull request still leaves them all.
+        out, skipped = run("pull_request", None, failing=True)
+        for gate in scope.GATES:
+            with self.subTest(gate=gate):
+                self.assertIn(gate, skipped)
+                self.assertIn(f"::warning title={gate} deferred to the merge queue::", out)
+        out, skipped = run("merge_group", None, failing=True)
+        self.assertEqual([gate for gate in scope.GATES if gate in skipped], [])
 
     def test_removing_a_required_route_is_detected(self) -> None:
         mutations = (

@@ -799,11 +799,6 @@ verify_runtime_schema() {
   # rebuild, with nothing having said beforehand that the file was behind. Measured 2026-09-01
   # while repairing the schema gap: six variables were missing, and compose named one per
   # attempt, so the hole looked two deep until the whole file was compared (root ADR-0071).
-  # A password only the host's own services share (the contract's `generated` names) is written
-  # here when the file lacks it, before the check below would refuse the release for its absence:
-  # no person is asked for a value nobody needs to know (runtime_secrets.py generate).
-  python3 -I "${release_root}/current/scripts/deploy/runtime_secrets.py" --area "${release_root}/current" \
-    generate --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}"
   "${environment}" "${release_root}/current"
   verify_runtime_secrets
   "${checker}" "${release_root}/current"

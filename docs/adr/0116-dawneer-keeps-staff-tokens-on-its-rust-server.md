@@ -1,6 +1,6 @@
 # ADR 0116: 더니어는 직원의 토큰을 자기 Rust 서버에만 두고, 브라우저에는 세션 쿠키만 준다
 
-- Status: Accepted; §7(메모리 세션)은 Superseded by [ADR-0590](./0590-dawneer-staff-sessions-live-in-postgres-through-tower-sessions-and-the-host-generates-their-password.md) (2026-11-19)
+- Status: Accepted
 - Date: 2026-09-30
 - Builds on: [ADR-0114](./0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md)(더니어는 틀만, 서버는 Rust),
   [ADR-0115](./0115-stewards-decide-lineage-items-through-one-api-and-decisions-fold-into-the-lakehouse.md)(첫 기능: 필지 계보 검토),

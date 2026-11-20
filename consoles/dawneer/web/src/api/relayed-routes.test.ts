@@ -37,6 +37,9 @@ const CALLS: Record<string, (client: DawneerClient) => Promise<unknown>> = {
 	pipelineGraph: (c) => c.pipelineGraph(),
 	getComplex: (c) => c.getComplex(ID),
 	rule: (c) => c.rule(ID, {} as never),
+	auditEvents: (c) => c.auditEvents(new URLSearchParams()),
+	auditImportStatus: (c) => c.auditImportStatus(),
+	exportAudit: (c) => c.exportAudit(new URLSearchParams()),
 };
 
 describe("relayed routes", () => {

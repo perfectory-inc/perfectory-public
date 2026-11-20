@@ -10,8 +10,8 @@ use catalog_application::{
     RegisterIndustrialComplex, RollbackVectorTileManifest, UpdateIndustrialComplex,
 };
 use catalog_infrastructure::{
-    FileJobSwitchBoard, PgCatalogRepository, PgCatalogUnitOfWork, PgOperatorActionLedger,
-    PgRealEstateBrokerRoster, UnconfiguredJobSwitchBoard,
+    FileJobSwitchBoard, PgAuditEventStore, PgCatalogRepository, PgCatalogUnitOfWork,
+    PgOperatorActionLedger, PgRealEstateBrokerRoster, UnconfiguredJobSwitchBoard,
 };
 
 /// Where the host's operator switches live inside the container (root ADR-0282 §3).
@@ -304,10 +304,76 @@ pub struct AppState {
     pub lineage_stewardship: Arc<dyn LineageStewardshipStore>,
     /// Operator switches of scheduled jobs, into the append-only ledger (root ADR-0282).
     pub record_operator_action: RecordOperatorAction,
+    /// The audit chain of every change to the platform (root ADR-0569).
+    pub audit_events: Arc<dyn catalog_application::ports::AuditEventStore>,
     /// One person against the 부동산중개업 roster, then the live register (root ADR-0550).
     pub verify_real_estate_broker: VerifyRealEstateBroker,
     pub identity_authorization: Arc<dyn IdentityAuthorization>,
     runtime_manifest_publication: RuntimeManifestPublicationCapability,
+}
+
+/// The audit record route tests write to: appends are kept, reads answer nothing (root ADR-0569).
+#[cfg(test)]
+#[derive(Default)]
+pub struct MemoryAuditStore {
+    pub appended: std::sync::Mutex<Vec<catalog_application::ports::AuditAppend>>,
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl catalog_application::ports::AuditEventStore for MemoryAuditStore {
+    async fn page(
+        &self,
+        _filter: &catalog_application::ports::AuditEventFilter,
+    ) -> Result<
+        Vec<catalog_application::ports::AuditEvent>,
+        catalog_application::ports::AuditStoreError,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn append(
+        &self,
+        event: &catalog_application::ports::AuditAppend,
+    ) -> Result<Option<i64>, catalog_application::ports::AuditStoreError> {
+        let mut appended = self.appended.lock().map_err(|_| {
+            catalog_application::ports::AuditStoreError::Unavailable("poisoned".to_owned())
+        })?;
+        appended.push(event.clone());
+        Ok(i64::try_from(appended.len()).ok())
+    }
+
+    async fn import_status(
+        &self,
+    ) -> Result<
+        Vec<catalog_application::ports::AuditImportStatus>,
+        catalog_application::ports::AuditStoreError,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn export(
+        &self,
+        _filter: &catalog_application::ports::AuditEventFilter,
+        _max: u32,
+    ) -> Result<catalog_application::ports::AuditExport, catalog_application::ports::AuditStoreError>
+    {
+        Ok(catalog_application::ports::AuditExport {
+            events: Vec::new(),
+            cursor: "1:1:".to_owned(),
+            digests: Vec::new(),
+            uncovered: 0,
+        })
+    }
+
+    async fn latest_digest(
+        &self,
+    ) -> Result<
+        Option<catalog_application::ports::AuditDigest>,
+        catalog_application::ports::AuditStoreError,
+    > {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
@@ -531,7 +597,8 @@ impl AppState {
             pool,
             DatabaseBudgetConfig::default().max_connections,
             Arc::new(RejectingIdentityAuthorization),
-        ))
+        )
+        .with_audit_event_store(Arc::new(MemoryAuditStore::default())))
     }
 
     #[cfg(test)]
@@ -543,7 +610,8 @@ impl AppState {
             pool,
             DatabaseBudgetConfig::default().max_connections,
             identity_authorization,
-        ))
+        )
+        .with_audit_event_store(Arc::new(MemoryAuditStore::default())))
     }
 
     #[cfg(test)]
@@ -557,7 +625,8 @@ impl AppState {
             DatabaseBudgetConfig::default().max_connections,
             normalization_uow,
             identity_authorization,
-        ))
+        )
+        .with_audit_event_store(Arc::new(MemoryAuditStore::default())))
     }
 
     #[cfg(test)]
@@ -573,7 +642,8 @@ impl AppState {
             normalization_uow,
             lakehouse_uow,
             identity_authorization,
-        ))
+        )
+        .with_audit_event_store(Arc::new(MemoryAuditStore::default())))
     }
 
     async fn bootstrap_with_config(config: AppConfig) -> anyhow::Result<Self> {
@@ -651,6 +721,17 @@ impl AppState {
         switches: Arc<dyn JobSwitchBoard>,
     ) -> Self {
         self.record_operator_action = RecordOperatorAction::new(ledger, switches);
+        self
+    }
+
+    /// Reads and appends this audit chain instead of the database one (route tests).
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_audit_event_store(
+        mut self,
+        store: Arc<dyn catalog_application::ports::AuditEventStore>,
+    ) -> Self {
+        self.audit_events = store;
         self
     }
 
@@ -749,6 +830,7 @@ impl AppState {
             Arc::new(PgRealEstateBrokerRoster::new(pool.clone())),
             None,
         );
+        let audit_events = Arc::new(PgAuditEventStore::new(pool.clone()));
 
         Self {
             database_pool: pool,
@@ -772,6 +854,7 @@ impl AppState {
             rollback_normalization_application,
             lineage_stewardship,
             record_operator_action,
+            audit_events,
             verify_real_estate_broker,
             identity_authorization,
             // Fail closed. Only a deployment that says so turns publication on, so a test

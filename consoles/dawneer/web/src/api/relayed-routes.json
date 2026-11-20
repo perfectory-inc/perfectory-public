@@ -95,6 +95,21 @@
 			"method": "POST",
 			"api": "foundation",
 			"path": "lineage-review/items/00000000-0000-5000-8000-000000000001/release"
+		},
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "audit/events"
+		},
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "audit/events/export"
+		},
+		{
+			"method": "GET",
+			"api": "data-catalog",
+			"path": "audit/import-status"
 		}
 	]
 }

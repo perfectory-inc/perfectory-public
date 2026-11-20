@@ -22,7 +22,8 @@ export type Route =
   | { page: "review-item"; itemId: string }
   | { page: "flow"; tab: FlowTab; focus: FlowFocus | null }
   | { page: "tiles" }
-  | { page: "complexes" };
+  | { page: "complexes" }
+  | { page: "audit"; actor: string | null; objectType: string | null; objectId: string | null };
 
 /** Addresses that moved, and where they live now; an old link must still land somewhere. */
 const MOVED: Record<string, string> = {
@@ -47,7 +48,24 @@ export function resolveRoute(path: string): Route {
   }
   if (target === "/tiles") return { page: "tiles" };
   if (target === "/complexes") return { page: "complexes" };
+  if (target === "/audit") return { page: "audit", actor: null, objectType: null, objectId: null };
+  const actor = target.match(/^\/audit\/actor\/([0-9a-f-]{36}|me)$/)?.[1];
+  if (actor) return { page: "audit", actor, objectType: null, objectId: null };
+  const object = target.match(/^\/audit\/object\/([a-z_]+)\/(.+)$/);
+  if (object?.[1] && object[2]) {
+    const objectId = safeDecode(object[2]);
+    if (objectId) return { page: "audit", actor: null, objectType: object[1], objectId };
+  }
   return { page: "review-list" };
+}
+
+/** A path segment decoded, or null when it is not valid percent-encoding. */
+function safeDecode(segment: string): string | null {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
 }
 
 function flowFocus(params: URLSearchParams): FlowFocus | null {
@@ -63,4 +81,5 @@ export const MENU = [
   { href: "#/flow", label: "데이터 흐름", page: ["flow"] },
   { href: "#/tiles", label: "지도 타일 발행", page: ["tiles"] },
   { href: "#/complexes", label: "산업단지", page: ["complexes"] },
+  { href: "#/audit", label: "감사 기록", page: ["audit"] },
 ] as const;

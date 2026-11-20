@@ -58,6 +58,9 @@ pub const STAFF_ROLE_GRANTS: &[StaffRoleGrant] = &[
     // role starts with nobody: only MASTER_ADMIN, the owner, operates jobs until the owner grants
     // JOB_OPERATOR to a staff member (POST /identity/v1/staff/{staff_id}/roles).
     grant("JOB_OPERATOR", "foundation.operations", "operate"),
+    // Reading the audit chain of every change to the platform (Foundation root ADR-0569 §7): who
+    // changed what, when and why. Like JOB_OPERATOR it starts with nobody; MASTER_ADMIN reads it.
+    grant("AUDIT_READER", "foundation.operations", "audit_read"),
 ];
 
 /// Input required to evaluate an authorization policy decision.

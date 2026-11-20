@@ -76,18 +76,21 @@
     "render_timeout_seconds": 60
   },
   "document_text": {
-    "$comment": "첫 조각: PDF 는 텍스트 층(pdfplumber), 글자가 ocr_below_chars 보다 적은 쪽만 OCR(ocrmypdf --force-ocr --pages <그 쪽들>, Tesseract kor+eng, Tesseract 에 주는 그림은 ocr_downsample_above_px 로 묶는다). HWP·HWPX 는 LibreOffice + H2Orestart 로 PDF 로 바꾼 뒤 같은 길. 그 밖의 형식은 unsupported_format 으로 세고 남긴다(바이트는 저장소에 있어 나중에 다시 읽힌다). run 은 per_run_limit 건 또는 run_time_budget_seconds 가 지나면 새 문서를 시작하지 않는다: 실측(2026-11-11, 표본 97 개) 문서당 평균 65 초·최대 727 초(60 쪽 스캔)라 건수만으로는 run 시간이 묶이지 않는다. 못 읽은 문서는 결과가 없으므로 다음 run 이 고른다. 메모리 상한이 끊은 문서는 결과가 있어도 memory_kill 대로 다시 고른다(루트 ADR-0593).",
+    "$comment": "첫 조각: PDF 는 텍스트 층(pdfplumber), 글자가 ocr_below_chars 보다 적은 쪽만 OCR(그 쪽들만 Ghostscript 로 ocr_raster_dpi 에 그린 그림 PDF 를 ocrmypdf --force-ocr, Tesseract kor+eng, Tesseract 에 주는 그림은 ocr_downsample_above_px 로 묶는다). HWP·HWPX 는 LibreOffice + H2Orestart 로 PDF 로 바꾼 뒤 같은 길. 그 밖의 형식은 unsupported_format 으로 세고 남긴다(바이트는 저장소에 있어 나중에 다시 읽힌다). run 은 per_run_limit 건 또는 run_time_budget_seconds 가 지나면 새 문서를 시작하지 않는다: 실측(2026-11-11, 표본 97 개) 문서당 평균 65 초·최대 727 초(60 쪽 스캔)라 건수만으로는 run 시간이 묶이지 않는다. 못 읽은 문서는 결과가 없으므로 다음 run 이 고른다. 메모리 상한이 끊은 문서는 결과가 있어도 memory_kill 대로 다시 고른다(루트 ADR-0593).",
     "extractor_version": "document-text.v1",
     "pdf_formats": ["pdf"],
     "converted_formats": ["hwp", "hwpx"],
     "ocr_below_chars": 20,
     "ocr_languages": "kor+eng",
     "ocr_jobs": 4,
+    "ocr_raster_dpi": 300,
+    "ocr_raster_reason": "The pages that need OCR are drawn by Ghostscript at this resolution into an image-only PDF, and ocrmypdf OCRs that. OCRmyPDF 16.7.0 rasterizes a page at its densest embedded image with no cap (pdfinfo/info.py take_max; _pipeline get_canvas_square_dpi; only its preview is clamped to 300): on 2026-11-19 the first run under the 4000 px bound still lost 5 of 30 documents to the cap, their pages scanned at 1,134-1,200 dpi (110-125 Mpx a page), ocrmypdf itself at 2.1-2.5 GB. 300 dpi is Tesseract's working resolution. Measured on those 5 and 3 of the 2026-11-19 ten, every page OCR'd at a 2564m cap: peak 598-759 MiB, all finish, text within -4 %..+1.4 % of the unbounded or 4000 px reads (root ADR-0593, revision 2026-11-20).",
+    "raster_timeout_seconds_per_page": 30,
     "ocr_downsample_above_px": 4000,
     "ocr_downsample_reason": "ocrmypdf 16.7.0 --tesseract-downsample-above: the image handed to Tesseract only, never the page kept, is shrunk to fit this many pixels on its longer side (builtin_plugins/tesseract_ocr.py filter_ocr_image at the v16.7.0 tag). OCRmyPDF's own guidance: peak memory is about 15 bytes per pixel of the largest page per job, and --jobs multiplies it. An A4 page at 300 dpi is 3508 px long, so ordinary scans are untouched; the oversized scans the 2 GiB cap killed 185 times (2026-11-12..19) are what it bounds (root ADR-0593).",
     "memory_kill": {
       "$comment": "A document the image's memory cap ended is read again, up to `attempts` outcome rows (root ADR-0593): the kill is about the cap, not the document. `error_prefixes` names those outcomes: the run's own mark (the container's cgroup counted an OOM kill while the document was read) and the two errors the run wrote for them before it had one, 2026-11-12..19.",
-      "attempts": 3,
+      "attempts": 6,
       "error_prefixes": ["memory cap: ", "ocrmypdf exit -9:", "worker killed by signal 9 "]
     },
     "convert_timeout_seconds": 180,
@@ -100,8 +103,8 @@
     "document_text": {
       "image": "intelligence-document-text:local",
       "image_from": "the release's own build of jobs/document_text/Dockerfile (compose.document-jobs.yml), tagged by the release admission like every compose image (root ADR-0276 §13)",
-      "memory_limit": "2564m",
-      "memory_reason": "1.5 x the measured peak, rounded up (root ADR-0455 §3): 2026-11-19, the ten production PDFs the 2g cap had killed, every page OCR'd with the image's packages (ocrmypdf 16.7.0, Tesseract 5.5.0), ocr_jobs 4 and ocr_downsample_above_px 4000: highest container anon 1634 MiB, plus the run and worker processes (~75 MiB) = 1709 MiB -> x1.5 = 2564m. Unbounded, the same files peaked at 2.3-2.5 GiB (root ADR-0593). Raising ocr_jobs or the downsample bound means measuring again.",
+      "memory_limit": "1280m",
+      "memory_reason": "1.5 x the measured peak, rounded up (root ADR-0455 §3): 2026-11-20, with the pages drawn at ocr_raster_dpi 300 first, the 5 documents the 2564m cap still killed and 3 of the largest 2026-11-19 ones, every page OCR'd with the image's packages (ocrmypdf 16.7.0, Tesseract 5.5.0, Ghostscript 10.05.1), ocr_jobs 4: highest container anon 759 MiB; LibreOffice's largest 777 MiB (2026-11-11); plus the run and worker processes (~75 MiB) = 852 MiB -> x1.5 = 1278 -> 1280m. Raising ocr_jobs or ocr_raster_dpi means measuring again.",
       "cpus": 4,
       "cpus_reason": "ocr_jobs Tesseract processes; the text-layer pages need one."
     },

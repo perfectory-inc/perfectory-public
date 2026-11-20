@@ -48,6 +48,9 @@ export type ByPnuCutoverApproval = DataCatalogSchemas["ByPnuCutoverApproval"];
 export type ParcelEditionReadiness = DataCatalogSchemas["ParcelEditionReadiness"];
 export type EdgeHostCheck = DataCatalogSchemas["EdgeHostCheck"];
 export type CiWeek = DataCatalogSchemas["CiWeek"];
+export type AuditEvent = DataCatalogSchemas["AuditEventView"];
+export type AuditEventPage = DataCatalogSchemas["AuditEventPage"];
+export type AuditImportStatus = DataCatalogSchemas["AuditImportStatusPage"];
 
 /**
  * The parts of `GET /catalog/v1/pipeline-graph` this console reads. The document has no OpenAPI
@@ -271,6 +274,27 @@ export class DawneerClient {
   /** The by-PNU cut-overs operators approved and what the host did with each (root ADR-0433). */
   byPnuCutovers(): Promise<ByPnuCutovers> {
     return this.call("by-pnu-cutovers", {}, "data-catalog");
+  }
+
+  /** One page of the audit chain, newest first (root ADR-0569 §7); `query` is `auditQuery`'s. */
+  auditEvents(query: URLSearchParams): Promise<AuditEventPage> {
+    return this.call(`audit/events?${query.toString()}`, {}, "data-catalog");
+  }
+
+  /** Each importer's cursor and the newest digest of the chain. */
+  auditImportStatus(): Promise<AuditImportStatus> {
+    return this.call("audit/import-status", {}, "data-catalog");
+  }
+
+  /** The filtered chain as JSON Lines or CSV, oldest first; the export itself is recorded. */
+  async exportAudit(query: URLSearchParams): Promise<Blob> {
+    const response = await this.fetchImpl(`/api/data-catalog/audit/events/export?${query.toString()}`, {
+      method: "GET",
+      credentials: "same-origin",
+    });
+    if (response.status === 401) throw new NotSignedIn();
+    if (!response.ok) throw new ApiError(response.status, await readError(response));
+    return response.blob();
   }
 
   /** Every data contract with its checks' latest results (root ADR-0165). */

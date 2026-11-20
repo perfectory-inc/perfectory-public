@@ -66,3 +66,7 @@ PR 하나가 병합까지 약 45분을 기다렸다. 같은 날 성공한 PR 실
 - 머지 큐는 여전히 경계 슬라이스(약 15분)를 기다린다. 그것을 줄이는 일(컨테이너 빌드 캐시, 퍼블리셔 분할)은
   다음 단계다.
 - 경계 슬라이스만 깨뜨리는 PR 은 이제 머지 큐에서 처음 실패한다. 그때 드는 비용은 큐 한 바퀴다.
+
+---
+
+2026-11-20 개정 주: Foundation 의 PR 은 경로로 고르는 게이트 전부와 Postgres 통합 시험을 머지 큐에 맡긴다(큐·수동·야간 실행의 선택은 그대로다): [ADR-0580](./0580-a-runner-is-taken-only-by-a-job-whose-work-outweighs-its-setup-and-the-release-dry-run-runs-once-in-the-merge-queue.md) 3항.
