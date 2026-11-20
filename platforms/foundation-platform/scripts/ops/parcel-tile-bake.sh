@@ -335,8 +335,13 @@ fi
 # bake / rehearsal-bake
 # Root ADR-0490 §4: the bake half bakes the served Gold first; with none waiting, the candidate's rehearsal.
 # A rehearsal bake that failed waits for the next rehearsal Gold, not the next day.
+# A run that failed while its last line was still a deferral (root ADR-0493, ADR-0576: warming the
+# partitions or joining them) built no archive and passed through no gate, so it judged nothing: the
+# next start bakes the same Gold again (2026-11-20 04:52Z: the join run's time bound).
 if [[ "${MODE}" == bake && ! -s "${ready_file}" && -s "${STATE_ROOT}/rehearsal-ready" ]]; then
-  if [[ -s "${STATE_ROOT}/rehearsal-bake-failed" ]] \
+  rehearsal_log="$(cut -d' ' -f2 "${STATE_ROOT}/rehearsal-ready")/bake.log"
+  last_line="$(grep -oE 'lakehouse-tile-bake-[a-z-]+' "${rehearsal_log}" 2>/dev/null | tail -n 1 || true)"
+  if [[ -s "${STATE_ROOT}/rehearsal-bake-failed" && "${last_line}" != lakehouse-tile-bake-deferred ]] \
     && cmp -s "${STATE_ROOT}/rehearsal-ready" "${STATE_ROOT}/rehearsal-bake-failed"; then
     job_journal "${journal}" "nothing to do: the bake of the rehearsal Gold $(cut -d' ' -f1 "${STATE_ROOT}/rehearsal-ready") failed; the next rehearsal makes another"
     echo "foundation-job-outcome unchanged"; exit 0
