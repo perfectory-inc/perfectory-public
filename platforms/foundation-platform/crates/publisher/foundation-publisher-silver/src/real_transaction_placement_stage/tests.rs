@@ -103,10 +103,11 @@ fn inputs(
     Ok(connection)
 }
 
-/// `(row_key, pnu, place_identity_grade)` of every placed row, sorted.
-fn placed(
-    connection: &Connection,
-) -> anyhow::Result<Vec<(String, Option<String>, Option<String>)>> {
+/// `(row_key, pnu, place_identity_grade)` of one placed row.
+type Placed = (String, Option<String>, Option<String>);
+
+/// Every placed row, sorted.
+fn placed(connection: &Connection) -> anyhow::Result<Vec<Placed>> {
     Ok(connection
         .prepare("SELECT row_key, pnu, place_identity_grade FROM placed ORDER BY row_key, pnu NULLS LAST")?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
@@ -120,7 +121,7 @@ fn a_legal_dong_code_change_re_places_a_deal_already_loaded() -> anyhow::Result<
     let factory = pnu(NEW, 12, 0);
     let deals = [deal("a-1", OLD_NAME, "12", "2098-03-10", 1000.0)];
     let land = [(factory.clone(), "공장용지", 1000.0)];
-    let before = inputs(&deals, &[], &[factory.clone()], &land, &[])?;
+    let before = inputs(&deals, &[], std::slice::from_ref(&factory), &land, &[])?;
     place(&before, &inference(&json!([])))?;
     let rows = placed(&before)?;
     assert!(
@@ -128,7 +129,13 @@ fn a_legal_dong_code_change_re_places_a_deal_already_loaded() -> anyhow::Result<
             .all(|(_, at, _)| at.as_deref() != Some(factory.as_str())),
         "without the pair no row is on the factory parcel: {rows:?}"
     );
-    let after = inputs(&deals, &[(OLD, NEW)], &[factory.clone()], &land, &[])?;
+    let after = inputs(
+        &deals,
+        &[(OLD, NEW)],
+        std::slice::from_ref(&factory),
+        &land,
+        &[],
+    )?;
     place(&after, &inference(&json!([])))?;
     assert_eq!(
         placed(&after)?,
