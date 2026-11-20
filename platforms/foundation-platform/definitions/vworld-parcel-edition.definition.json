@@ -41,7 +41,7 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-16T01:00:00Z",
-      "dagster_stage": "shadow",
+      "dagster_stage": "dagster",
       "expected_outcome": {
         "changes_within_hours": 1104,
         "basis": "the VWorld parcel edition is released monthly (expected_cadence monthly, 1080 h) plus one daily turn."
