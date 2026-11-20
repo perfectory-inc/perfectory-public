@@ -20,9 +20,8 @@ services:
     # never built on the host.
     image: dawneer-console:local
     profiles: ["console"]
-    # A Rust BFF with its sessions in Postgres (root ADR-0116 §7): about 10 MiB, and a pool of at
-    # most four connections.
-    mem_limit: 48m
+    # A Rust BFF with sessions in memory (root ADR-0116 §7); about 10 MiB.
+    mem_limit: 32m
     restart: unless-stopped
     network_mode: "service:foundation-api"
     environment:
@@ -31,8 +30,6 @@ services:
       DAWNEER_ZITADEL_ISSUER_URL: ${ZITADEL_ISSUER_URL:-https://identity.example.test}
       DAWNEER_ZITADEL_PROJECT_ID: ${FOUNDATION_PLATFORM_ZITADEL_AUDIENCE:-foundation-api}
       DAWNEER_FOUNDATION_API_BASE_URL: http://127.0.0.1:8080
-      # Sessions survive a restart and a release; the role owns only tower_sessions.session.
-      DAWNEER_DATABASE_URL: postgres://dawneer_session:${DAWNEER_SESSION_DATABASE_PASSWORD:?set DAWNEER_SESSION_DATABASE_PASSWORD}@postgres:5432/foundation?application_name=dawneer
       RUST_LOG: ${RUST_LOG:-info}
     # OIDC_CLIENT_ID and OIDC_CLIENT_SECRET, as identity-platform's configure-zitadel.sh wrote them.
     env_file:

@@ -1,7 +1,6 @@
 \set ON_ERROR_STOP on
 \getenv foundation_migrator_password FOUNDATION_MIGRATOR_PASSWORD
 \getenv foundation_api_password FOUNDATION_API_PASSWORD
-\getenv dawneer_session_password DAWNEER_SESSION_DATABASE_PASSWORD
 
 SELECT 'CREATE ROLE foundation_migrator'
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'foundation_migrator')
@@ -25,36 +24,10 @@ WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'foundation_au
 ALTER ROLE foundation_audit_importer WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
     NOINHERIT NOREPLICATION NOBYPASSRLS;
 
--- The console's staff sessions (root ADR-0116 §7, tower-sessions-sqlx-store 0.16): one role that
--- owns one schema and its one table, and nothing else. The store's `migrate()` would run
--- `CREATE SCHEMA IF NOT EXISTS`, which Postgres refuses without CREATE on the database even when the
--- schema exists (measured on postgres:17, 2026-11-19), so the table is made here in the store's
--- shape and the console never migrates. Its password is generated on the host by the release
--- (runtime-secrets contract `generated`); where it is not set (the staging smoke) the role cannot
--- log in.
-SELECT 'CREATE ROLE dawneer_session'
-WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'dawneer_session')
-\gexec
-\if :{?dawneer_session_password}
-ALTER ROLE dawneer_session WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-    NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'dawneer_session_password';
-\else
-ALTER ROLE dawneer_session WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-    NOINHERIT NOREPLICATION NOBYPASSRLS;
-\endif
-CREATE SCHEMA IF NOT EXISTS tower_sessions AUTHORIZATION dawneer_session;
-CREATE TABLE IF NOT EXISTS tower_sessions.session (
-    id          text        PRIMARY KEY NOT NULL,
-    data        bytea       NOT NULL,
-    expiry_date timestamptz NOT NULL
-);
-ALTER TABLE tower_sessions.session OWNER TO dawneer_session;
-
 -- The database psql is connected to (PGDATABASE): `foundation` under compose, `foundation_staging`
 -- when the staging smoke bootstraps its own (root ADR-0177). One file, whichever database it is.
 REVOKE CONNECT ON DATABASE :"DBNAME" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"DBNAME" TO foundation_migrator, foundation_api, foundation_audit_importer,
-    dawneer_session;
+GRANT CONNECT ON DATABASE :"DBNAME" TO foundation_migrator, foundation_api, foundation_audit_importer;
 GRANT CREATE ON DATABASE :"DBNAME" TO foundation_migrator;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO foundation_migrator;
