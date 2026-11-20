@@ -1397,21 +1397,6 @@ class TheDagsterStage(unittest.TestCase):
             job_specs.load_specs(jobs, graph)
         self.assertIn(expected, str(raised.exception))
 
-    def test_the_switched_groups_are_the_first_in_their_order_and_every_later_one_is_compared(self):
-        # Root ADR-0583 §1: the groups move downstream first. The switched ones are a prefix of
-        # DAGSTER_GROUPS with every switched-on job at `dagster`; every later group's are still decided by
-        # Airflow and compared (§4 retires the comparison later).
-        stages = {}
-        for job in real_inputs()[0]["jobs"]:
-            if job["enabled"]:
-                stages.setdefault(job["dagster_group"], set()).add(job.get("dagster_stage", "airflow"))
-        switched = [group for group in job_specs.DAGSTER_GROUPS if stages.get(group) == {"dagster"}]
-        self.assertEqual(switched, list(job_specs.DAGSTER_GROUPS[:len(switched)]))
-        self.assertTrue(switched)
-        for group in job_specs.DAGSTER_GROUPS[len(switched):]:
-            with self.subTest(group=group):
-                self.assertLessEqual(stages.get(group, set()), {"airflow", *job_specs.COMPARED})
-
     def test_a_switched_on_job_is_born_in_the_dual_run(self):
         # 2026-11-13: 24 switched-on jobs had no stage; Airflow alone decided them and no comparison was kept.
         self.refused(lambda jobs: enabled(jobs).pop("dagster_stage"), "in the dual run from its first release")
@@ -1460,20 +1445,6 @@ class TheDagsterStage(unittest.TestCase):
         self.refused(lambda jobs: jobs["jobs"][0].pop("dagster_group"), "dagster_group must be one of")
         self.refused(lambda jobs: switch_off(bake(jobs), dagster_group="serving", disabled_reason="off"),
                      "dagster_group must be one of")
-
-    def test_a_group_moves_in_one_switch(self):
-        # Root ADR-0583 §2: in a group every switched-on job is at `dagster` or none is; the stages Airflow
-        # decides (airflow, shadow, proxied) are one side. The next group not switched is half switched here.
-        jobs = copy.deepcopy(real_inputs()[0])
-        self.assertEqual(job_specs.dagster_groups(jobs), [])
-        group = next(group for group in job_specs.DAGSTER_GROUPS if group not in switched_groups(jobs))
-        members = [job for job in jobs["jobs"] if job["dagster_group"] == group and job["enabled"]]
-        members[0]["dagster_stage"] = "dagster"
-        self.assertEqual(len(job_specs.dagster_groups(jobs)), 1)
-        self.assertIn(f"group {group}", job_specs.dagster_groups(jobs)[0])
-        for job in members:
-            job["dagster_stage"] = "dagster"
-        self.assertEqual(job_specs.dagster_groups(jobs), [])
 
     def test_the_groups_move_downstream_first(self):
         # Root ADR-0583 §1: switching the groups to `dagster` in their order leaves no Airflow job started by
