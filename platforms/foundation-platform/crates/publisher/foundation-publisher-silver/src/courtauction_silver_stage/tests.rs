@@ -72,9 +72,8 @@ fn object(directory: &std::path::Path, role: Role) -> anyhow::Result<PlannedObje
     })
 }
 
-/// The rows of a staged file as the fixture writes them: each column as text (a line break as `
-`),
-/// `NULL` for none, a time as UTC to the microsecond.
+/// The rows of a staged file as the fixture writes them: each column as text (a line break as
+/// `\n`), `NULL` for none, a time as UTC to the microsecond.
 fn lines(
     stage: &DuckDbParquetStage,
     table: &str,
@@ -211,7 +210,10 @@ fn a_notice_detail_without_its_key_refuses_the_object() -> anyhow::Result<()> {
         path,
     };
     let refused = read_object(&stage, &source, &object, chrono::Utc::now());
-    assert!(refused.is_err(), "a notice detail without its key is refused");
+    assert!(
+        refused.is_err(),
+        "a notice detail without its key is refused"
+    );
     Ok(())
 }
 

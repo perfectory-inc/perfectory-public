@@ -141,7 +141,12 @@ impl Role {
             )),
             Self::SaleNotices => Some((
                 "ca_notice_detail_lines",
-                &["court_office_code", "department_code", "sale_date", "bid_kind_code"],
+                &[
+                    "court_office_code",
+                    "department_code",
+                    "sale_date",
+                    "bid_kind_code",
+                ],
             )),
             Self::CommonCodes | Self::DividendNotices => None,
         }
@@ -473,7 +478,8 @@ pub fn appended(
         }
         Keep::Editions => {
             let out = format!("{}_changed", staged.staged);
-            let rows = silver_changes::changed_editions(stage, contract, head, &staged.staged, &out)?;
+            let rows =
+                silver_changes::changed_editions(stage, contract, head, &staged.staged, &out)?;
             Ok((out, rows))
         }
     }
