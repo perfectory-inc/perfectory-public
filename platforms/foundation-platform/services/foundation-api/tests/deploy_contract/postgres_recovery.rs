@@ -369,18 +369,9 @@ fn assert_postgres_backup_scheduler_contract() -> TestResult {
             "atomic release script is missing {required}"
         );
     }
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let release_test = Command::new("bash")
-        .arg("scripts/deploy/foundation-release-test.sh")
-        .current_dir(root)
-        .output()?;
-    assert!(
-        release_test.status.success(),
-        "release test failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&release_test.stdout),
-        String::from_utf8_lossy(&release_test.stderr)
-    );
-    assert!(String::from_utf8_lossy(&release_test.stdout).contains("foundation-release-test=pass"));
+    // The installer rehearsal itself (scripts/deploy/foundation-release-test.sh, 49-94 s on CI) runs
+    // in the Python suite (orchestration/tests/test_release_rehearsal.py): a contract test reads files.
+    // 2026-11-20 21:16Z it ran past this binary's slow limit in a merge group and dropped #1564.
     Ok(())
 }
 

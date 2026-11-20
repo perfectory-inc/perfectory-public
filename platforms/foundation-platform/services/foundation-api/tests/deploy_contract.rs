@@ -4,7 +4,6 @@ use std::error::Error;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 
 use sha2::{Digest, Sha256};
 

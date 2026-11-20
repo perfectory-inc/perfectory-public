@@ -109,7 +109,7 @@ platforms/foundation-platform/services/foundation-api/src/vworld_broker_register
 platforms/foundation-platform/services/foundation-api/tests/administrative_boundary_contract.rs:1
 platforms/foundation-platform/services/foundation-api/tests/catalog_openapi_contract.rs:1
 platforms/foundation-platform/services/foundation-api/tests/deploy_contract.rs:6
-platforms/foundation-platform/services/foundation-api/tests/deploy_contract/postgres_recovery.rs:2
+platforms/foundation-platform/services/foundation-api/tests/deploy_contract/postgres_recovery.rs:1
 platforms/foundation-platform/services/foundation-api/tests/local_vector_tile_seed_contract.rs:2
 platforms/foundation-platform/services/foundation-api/tests/tiles_slice_contract.rs:1
 platforms/foundation-platform/services/foundation-api/tests/tiles_slice_harness_contract.rs:3

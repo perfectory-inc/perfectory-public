@@ -8,17 +8,6 @@
 [profile.default]
 slow-timeout = { period = "20s", terminate-after = 3 }
 
-# The release-installer rehearsal (`scripts/deploy/foundation-release-test.sh`) runs the installer
-# about 270 times, each starting several Python processes; it is the one test that needs more. Its
-# limit is its own, so it cannot raise the limit of anything else. Measured 2026-11-19: 49-94 s on
-# CI in eight runs, then killed at 120 s in the merge queue (run 44504494632; alone on the retry it
-# still took 78 s). A third of that was one fixture: the 3000-file archive, installed three more
-# times where any release would do. Without it the same host takes 49-51 s, not 77-78 s. Before
-# raising this limit, time the rehearsal (`bash -x` with `PS4='+ $EPOCHREALTIME $LINENO: '`).
-[[profile.default.overrides]]
-filter = 'package(foundation-api) and binary(deploy_contract) and test(=postgres_recovery::postgres_recovery_contract_is_encrypted_bounded_and_rehearsable)'
-slow-timeout = { period = "30s", terminate-after = 4 }
-
 # The 차세대 온비드 stage's fixture tests, one per role: each plans the role's row SQL (dozens of nested
 # macros per column) in the bundled DuckDB, which the dev profile builds unoptimized. Measured on CI
 # 2026-11-19 (run 44565767978): 2.3-9.8 s for six roles, 23.8 s and 48.1 s for the two widest (item bid
