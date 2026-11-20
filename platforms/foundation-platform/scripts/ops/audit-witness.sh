@@ -20,6 +20,24 @@ control="${FOUNDATION_AUDIT_WITNESS_CONTROL:-/opt/perfectory-control/current}"
 cache="${FOUNDATION_AUDIT_WITNESS_PINNED:-/var/lib/perfectory/pinned}"
 owner="$(stat -c %U:%G "${dir}")"
 
+# cosign keeps Sigstore's trust root under $HOME/.sigstore/root (sigstore pkg/tuf, os.UserHomeDir).
+# A `+` step runs as root but keeps the unit's User= environment, so HOME is the job account's
+# /nonexistent: 2026-11-20 03:05Z the first run made /nonexistent (root, 0700), and every job
+# account's Docker CLI, which reads $HOME/.docker, lost its compose plugin ("unknown flag:
+# --project-directory") until it was gone. The witness's home is beside its key.
+install -d -m 0755 "${keys}"
+export HOME="${keys}/home"
+install -d -m 0700 "${HOME}"
+# What that first run left: only its trust-root cache, which rmdir proves.
+if [[ -d /nonexistent/.sigstore && -O /nonexistent ]]; then
+  rm -rf /nonexistent/.sigstore
+  if rmdir /nonexistent 2>/dev/null; then
+    log "removed the /nonexistent a run before this fix made"
+  else
+    log "left /nonexistent: it holds more than that run's .sigstore"
+  fi
+fi
+
 if [[ ! -d "${dir}/pending" && ! -d "${dir}/verify" ]]; then
   log "no digest to witness and no weekly check"
   exit 0
