@@ -37,6 +37,9 @@ pub enum Keep {
     Changed,
     /// Every row: a record of what was asked.
     Every,
+    /// Each group's whole list when it differs from the group's newest edition (the job's
+    /// `changed_editions`).
+    Editions,
 }
 
 /// What one object loads as.
@@ -50,14 +53,17 @@ pub enum Role {
     SaleSpecifications,
     /// 배당요구종기공고 lists and their 물건 lists (root ADR-0575 §6).
     DividendNotices,
+    /// 매각공고 lists and each notice's lists (root ADR-0575 §6).
+    SaleNotices,
 }
 
 /// Every role, in the order a run loads an object of each.
-pub const ROLES: [Role; 4] = [
+pub const ROLES: [Role; 5] = [
     Role::CommonCodes,
     Role::AppraisalReports,
     Role::SaleSpecifications,
     Role::DividendNotices,
+    Role::SaleNotices,
 ];
 
 impl Role {
@@ -69,6 +75,7 @@ impl Role {
             Self::AppraisalReports => "appraisal_reports",
             Self::SaleSpecifications => "sale_specifications",
             Self::DividendNotices => "dividend_notices",
+            Self::SaleNotices => "sale_notices",
         }
     }
 
@@ -88,6 +95,10 @@ impl Role {
                 ("silver.court_auction_dividend_notice", Keep::Changed),
                 ("silver.court_auction_dividend_object", Keep::Changed),
             ],
+            Self::SaleNotices => &[
+                ("silver.court_auction_sale_notice", Keep::Changed),
+                ("silver.court_auction_sale_notice_item", Keep::Editions),
+            ],
         }
     }
 
@@ -101,6 +112,7 @@ impl Role {
                 include_str!("courtauction_silver_stage/sale_specifications.sql")
             }
             Self::DividendNotices => include_str!("courtauction_silver_stage/dividend_notices.sql"),
+            Self::SaleNotices => include_str!("courtauction_silver_stage/sale_notices.sql"),
         }
     }
 
@@ -126,6 +138,10 @@ impl Role {
             Self::SaleSpecifications => Some((
                 "ca_spec_lines",
                 &["court_office_code", "case_no", "item_seq", "document_id"],
+            )),
+            Self::SaleNotices => Some((
+                "ca_notice_detail_lines",
+                &["court_office_code", "department_code", "sale_date", "bid_kind_code"],
             )),
             Self::CommonCodes | Self::DividendNotices => None,
         }
@@ -164,6 +180,18 @@ fn json_path(pointer: &str) -> anyhow::Result<String> {
         "{pointer:?} is not a plain JSON pointer"
     );
     Ok(format!("$.{}", parts.join(".")))
+}
+
+/// A name that goes into a JSON path: letters, digits and `_` only.
+fn plain_name(text: &str) -> anyhow::Result<&str> {
+    ensure!(
+        !text.is_empty()
+            && text
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+        "{text:?} is not a plain name"
+    );
+    Ok(text)
 }
 
 /// Text that goes into the SQL between single quotes: refused when it holds one.
@@ -237,6 +265,18 @@ impl CourtAuctionSource {
                     .replace(
                         "{objects_operation}",
                         literal(self.field(role, "objects_operation")?)?,
+                    );
+            }
+            Role::SaleNotices => {
+                sql = sql
+                    .replace("{list_operation}", literal(self.field(role, "operation")?)?)
+                    .replace(
+                        "{detail_operation}",
+                        literal(self.field(role, "detail_operation")?)?,
+                    )
+                    .replace(
+                        "{detail_request_object}",
+                        plain_name(self.field(role, "detail_request_object")?)?,
                     );
             }
             Role::AppraisalReports | Role::SaleSpecifications => {}
@@ -429,6 +469,11 @@ pub fn appended(
             compared.extend(content_columns(contract, &[])?);
             let rows =
                 silver_changes::changed(stage, contract, head, &staged.staged, &out, &compared)?;
+            Ok((out, rows))
+        }
+        Keep::Editions => {
+            let out = format!("{}_changed", staged.staged);
+            let rows = silver_changes::changed_editions(stage, contract, head, &staged.staged, &out)?;
             Ok((out, rows))
         }
     }

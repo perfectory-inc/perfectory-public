@@ -72,8 +72,9 @@ fn object(directory: &std::path::Path, role: Role) -> anyhow::Result<PlannedObje
     })
 }
 
-/// The rows of a staged file as the fixture writes them: each column as text, `NULL` for none, a
-/// time as UTC to the microsecond.
+/// The rows of a staged file as the fixture writes them: each column as text (a line break as `
+`),
+/// `NULL` for none, a time as UTC to the microsecond.
 fn lines(
     stage: &DuckDbParquetStage,
     table: &str,
@@ -91,7 +92,10 @@ fn lines(
                     column.name
                 )
             } else {
-                format!("coalesce(CAST({} AS VARCHAR), 'NULL')", column.name)
+                format!(
+                    "coalesce(replace(CAST({} AS VARCHAR), chr(10), '\\n'), 'NULL')",
+                    column.name
+                )
             }
         })
         .collect::<Vec<_>>()
@@ -172,6 +176,43 @@ fn the_staged_sale_specification_rows_are_the_rows_the_spark_job_built() -> anyh
 #[test]
 fn the_staged_dividend_notice_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
     the_staged_rows_are_the_rows_the_spark_job_built(Role::DividendNotices)
+}
+
+#[test]
+fn the_staged_sale_notice_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::SaleNotices)
+}
+
+#[test]
+fn a_notice_detail_without_its_key_refuses_the_object() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let source = CourtAuctionSource::compiled()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage
+        .connection()
+        .execute_batch(&CourtAuctionSource::values_sql())?;
+    let path = directory.path().join("keyless.gz");
+    let mut gzip = flate2::write::GzEncoder::new(
+        std::fs::File::create(&path)?,
+        flate2::Compression::default(),
+    );
+    let line = serde_json::json!({
+        "operation": "selectRletDspslPbancDtl",
+        "read_outcome": "read",
+        "request": {"dma_srchGnrlPbanc": {"cortOfcCd": "B999999"}},
+        "body": serde_json::json!({"data": {"result": {}}}).to_string(),
+    });
+    gzip.write_all(format!("{line}\n").as_bytes())?;
+    gzip.finish()?;
+    let object = PlannedObject {
+        object_key: OBJECT_KEY.to_owned(),
+        role: Role::SaleNotices,
+        source_snapshot_id: "20990102T030405Z".to_owned(),
+        path,
+    };
+    let refused = read_object(&stage, &source, &object, chrono::Utc::now());
+    assert!(refused.is_err(), "a notice detail without its key is refused");
+    Ok(())
 }
 
 #[test]
