@@ -148,6 +148,9 @@ pub mod onbid_silver_stage;
 
 /// The parcel matching gate (root ADR-0113 §7) before a cadastral edition is baked.
 pub mod parcel_matching_gate_stage;
+/// What a Silver load that left Spark appends of a newest-per-key table: its changed keys (root
+/// ADR-0311, ADR-0559).
+pub mod silver_changes;
 
 /// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
 pub mod place_identity_stage;

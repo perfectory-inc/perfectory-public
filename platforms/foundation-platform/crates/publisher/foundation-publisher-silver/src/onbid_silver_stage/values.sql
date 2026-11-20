@@ -4,9 +4,6 @@
 -- Parameter: {pnu_dialect} (`WHEN '<provider digit>' THEN '<standard digit>'`, one per entry of the
 -- source contract's pnu.provider_ledger_kind_digits), {ledger_kind_digits} (a list literal).
 
--- Full-width digits as ASCII ones, as Python's int() and float() read them.
-CREATE OR REPLACE MACRO onbid_ascii_digits(t) AS translate(t, '０１２３４５６７８９', '0123456789');
-
 -- whole: a whole number from a number or a string of digits (commas allowed); None for anything else.
 CREATE OR REPLACE MACRO onbid_whole(v) AS
   CASE
@@ -29,10 +26,6 @@ CREATE OR REPLACE MACRO onbid_decimal(v) AS
     ELSE TRY_CAST(v AS DOUBLE)
   END;
 
--- str(value or "").strip(): Python's text of a truthy value, "" for a falsy one.
-CREATE OR REPLACE MACRO onbid_or_blank(v) AS
-  CASE WHEN py_truthy(v) THEN trim(py_str(v), py_ws()) ELSE '' END;
-
 -- kst_minute: the provider's `yyyyMMddHHmm` (12 digits) or `yyyyMMddHHmmss` (14) in Korean time, the
 -- instant it names; None when it is neither or names no time. The instant, not a wall clock, so the
 -- stage's time zone does not enter it. The Spark load read it with `strptime` and the seconds format
@@ -48,21 +41,6 @@ CREATE OR REPLACE MACRO onbid_kst_text(t) AS
   END;
 CREATE OR REPLACE MACRO onbid_kst(v) AS
   to_timestamp(epoch(TRY_CAST(onbid_kst_text(onbid_or_blank(v)) AS TIMESTAMP)) - 32400);
-
--- `datetime.strptime(text, "%Y%m%d")` as CPython's _strptime reads it: the format's regex matched from
--- the start with its alternatives tried in order (RE2's leftmost-first matching is the same), and the
--- text refused when anything is left after the match or the fields are no date.
-CREATE OR REPLACE MACRO onbid_date_re() AS '^([0-9]{4})(1[0-2]|0[1-9]|[1-9])(3[01]|[12][0-9]|0[1-9]|[1-9]| [1-9])';
-
--- The date of a match's first three groups (year, month, day), or None when they name no date.
-CREATE OR REPLACE MACRO onbid_match_date(t, re) AS
-  TRY_CAST(regexp_extract(t, re, 1) || '-' || lpad(trim(regexp_extract(t, re, 2)), 2, '0') || '-'
-           || lpad(trim(regexp_extract(t, re, 3)), 2, '0') AS DATE);
-
--- ymd: `yyyyMMdd` as a date; None when it is not one.
-CREATE OR REPLACE MACRO onbid_ymd(v) AS
-  CASE WHEN onbid_or_blank(v) <> '' AND regexp_extract(onbid_or_blank(v), onbid_date_re(), 0) = onbid_or_blank(v)
-       THEN onbid_match_date(onbid_or_blank(v), onbid_date_re()) END;
 
 -- valid_pnu: the provider's ltnoPnu with its 11th digit read through the hub dialect, kept only when
 -- it is what Pnu::parse accepts (19 ASCII digits, a standard 대장구분 digit); None otherwise.
