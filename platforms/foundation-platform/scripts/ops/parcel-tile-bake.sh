@@ -170,14 +170,6 @@ on_error() {
   if [[ "${MODE}" == rehearsal-bake && -s "${STATE_ROOT}/rehearsal-ready" ]]; then
     cp -- "${STATE_ROOT}/rehearsal-ready" "${STATE_ROOT}/rehearsal-bake-failed" || true
   fi
-  # Root ADR-0490 §4: REHEARSAL_RETRY_DAYS waits out a rehearsal that reached its outcome (a verdict and
-  # a Gold). One that failed before it, a step crashing rather than the gate refusing, says nothing about
-  # the edition: it records that and the next start rehearses again (2026-11-20 03:15Z: the gate passed,
-  # then the served Gold's docker call broke and locked the edition's next rehearsal until 11-27).
-  if [[ "${MODE}" == rehearsal-gold && -n "${REHEARSED_BY_JOB:-}" ]]; then
-    rm -f -- "${attempted_file}"
-    job_journal "${journal}" "rehearsal-gold ${snapshot} failed before its outcome; the next start rehearses it again" >&2
-  fi
 }
 trap 'on_error ${LINENO}' ERR
 
@@ -240,7 +232,12 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
       edition="${plan[0]}"; snapshot="${plan[1]}"; sido="${plan[2]}"
       if [[ -s "${attempted_file}" ]]; then
         read -r tried tried_at <"${attempted_file}"
-        if [[ "${tried}" == "${snapshot}" ]] && (( $(date -u +%s) - tried_at < retry_seconds )); then
+        # Root ADR-0490 §4: the wait is for a rehearsal that reached its outcome (the gate's verdict and a
+        # Gold). The journal's last rehearsal line of the edition says which: one that FAILED, a step
+        # crashing rather than the gate refusing, judged nothing and is rehearsed at the next start
+        # (2026-11-20 03:15Z: the gate passed, then the served Gold's docker call broke).
+        last="$(grep -E "rehearsal-gold ${snapshot} FAILED|rehearsal-gold: served Gold of ${snapshot} "           "${journal}" 2>/dev/null | tail -n 1 || true)"
+        if [[ "${tried}" == "${snapshot}" && "${last}" != *" FAILED at line "* ]]           && (( $(date -u +%s) - tried_at < retry_seconds )); then
           job_journal "${journal}" "nothing to do: ${served_done}; ${snapshot} was rehearsed $(date -u -d "@${tried_at}" +%FT%TZ), again after ${REHEARSAL_RETRY_DAYS:-7} days"
           echo "foundation-job-outcome unchanged"; exit 0
         fi

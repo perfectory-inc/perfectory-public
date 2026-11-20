@@ -213,14 +213,17 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         failed, calls = self.run_half("gold", "pass", bootstrap=True)
         self.assertNotEqual(failed.returncode, 0)
         self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
-        self.assertFalse((self.state / "rehearsal-attempted").exists())
-        self.assertIn("failed before its outcome; the next start rehearses it again",
-                      (self.state / "journal.log").read_text())
+        self.assertIn("FAILED at line", (self.state / "journal.log").read_text())
+        self.assertTrue((self.state / "rehearsal-attempted").exists(), "the attempt is recorded as before")
         del self.env["FAKE_GOLD"]
         again, calls_after = self.run_half("gold", "pass", bootstrap=True)
         self.assertEqual(again.returncode, 0, again.stderr + again.stdout)
         self.assertEqual(len(calls_after), len(calls) + 2, "rehearsed again, gate and Gold")
         self.assertTrue((self.state / "rehearsal-ready").exists())
+        # Its outcome reached, the edition waits again.
+        waited, calls_waited = self.run_half("gold", "pass", bootstrap=True)
+        self.assertEqual(waited.returncode, 0, waited.stderr)
+        self.assertEqual(len(calls_waited), len(calls_after))
 
     def test_the_bake_half_bakes_the_rehearsal_when_no_served_gold_waits(self):
         self.wait_for_rehearsal()
