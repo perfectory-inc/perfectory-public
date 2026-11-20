@@ -477,41 +477,86 @@ fn has_table(connection: &duckdb::Connection, name: &str) -> anyhow::Result<bool
     )? > 0)
 }
 
-/// The code crosswalk as tables (`crosswalk`, `ambiguous`, `served_forms`) from `code_changes`.
+/// The code crosswalk as tables (`crosswalk`, `ambiguous`, `served_forms`) from `code_changes` and
+/// `code_names`: the one place-identity resolver's (`place_identity_stage::reference_from_loaded`,
+/// root ADR-0288 §1), read back for the address codes.
 fn crosswalk_tables(
     connection: &duckdb::Connection,
 ) -> anyhow::Result<(BTreeMap<String, String>, BTreeSet<String>)> {
-    connection.execute_batch(crate::legal_dong_code_change_stage::PAIR_ROWS_SQL)?;
-    let pairs: Vec<(String, String)> = connection
-        .prepare("SELECT old_code, new_code FROM pair_rows")?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<_, _>>()?;
-    let (remap, ambiguous) =
-        crate::place_identity::code_crosswalk(pairs.iter().map(|(a, b)| (a.as_str(), b.as_str())));
     connection.execute_batch(
-        "CREATE OR REPLACE TABLE crosswalk (old_code VARCHAR, current_code VARCHAR);
-         CREATE OR REPLACE TABLE ambiguous (amb_code VARCHAR);
-         CREATE OR REPLACE TABLE served_forms (_code10 VARCHAR, _form10 VARCHAR, _rank INTEGER);",
+        "CREATE OR REPLACE TEMP TABLE place_code_changes AS SELECT * FROM code_changes;
+         CREATE OR REPLACE TEMP TABLE place_dong_names AS SELECT * FROM code_names;",
     )?;
-    {
-        let mut appender = connection.appender("crosswalk")?;
-        for (old, current) in &remap {
-            appender.append_row(duckdb::params![old, current])?;
-        }
-    }
-    {
-        let mut appender = connection.appender("ambiguous")?;
-        for code in &ambiguous {
-            appender.append_row(duckdb::params![code])?;
-        }
-    }
-    {
-        let mut appender = connection.appender("served_forms")?;
-        for (code, form, rank) in crate::place_identity::served_forms(&remap) {
-            appender.append_row(duckdb::params![code, form, i32::from(rank)])?;
-        }
-    }
+    crate::place_identity_stage::reference_from_loaded(connection)?;
+    connection.execute_batch(
+        "CREATE OR REPLACE TABLE crosswalk AS SELECT old_code, current_code FROM place_remap;
+         CREATE OR REPLACE TABLE ambiguous AS SELECT code AS amb_code FROM place_ambiguous;
+         CREATE OR REPLACE TABLE served_forms AS
+           SELECT code10 AS _code10, form10 AS _form10, rank::INTEGER AS _rank FROM place_forms;",
+    )?;
+    let remap = connection
+        .prepare("SELECT old_code, current_code FROM crosswalk")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<BTreeMap<String, String>, _>>()?;
+    let ambiguous = connection
+        .prepare("SELECT amb_code FROM ambiguous")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<BTreeSet<String>, _>>()?;
     Ok((remap, ambiguous))
+}
+
+/// A 법정동's full name with its runs of whitespace made one space, the key an address is looked up by.
+fn address_key(name: &str) -> String {
+    name.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Full 법정동 name → code, from `(code, full name, status)` rows of one code snapshot.
+///
+/// `rt_molit_real_transaction.dong_index` (the 실거래 load's own reading of a deal's 시군구 and 법정동
+/// names, not `address_pnu`'s): a current (`존재`) code wins over an abolished one, and a name two
+/// codes of the same standing share is left out. 시도·시군구 rows (`…00000`) are not 법정동s.
+fn dong_index<'a>(
+    rows: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>,
+) -> BTreeMap<String, String> {
+    let mut by_rank: BTreeMap<String, BTreeMap<u8, BTreeSet<&str>>> = BTreeMap::new();
+    for (code, name, status) in rows {
+        let ten_digits = code.len() == 10 && code.bytes().all(|b| b.is_ascii_digit());
+        if !ten_digits || code.get(5..) == Some("00000") {
+            continue;
+        }
+        let rank = u8::from(status != "존재");
+        by_rank
+            .entry(address_key(name))
+            .or_default()
+            .entry(rank)
+            .or_default()
+            .insert(code);
+    }
+    by_rank
+        .into_iter()
+        .filter_map(|(key, ranks)| {
+            let codes = ranks.into_values().next()?;
+            (codes.len() == 1)
+                .then(|| (key, codes.into_iter().next().unwrap_or_default().to_owned()))
+        })
+        .collect()
+}
+
+/// `(address key, its code in the snapshot, its current code or None)` for every named 법정동: the code
+/// carried through the pairs in force; a code whose chain splits has no current code.
+fn address_codes(
+    index: &BTreeMap<String, String>,
+    remap: &BTreeMap<String, String>,
+    ambiguous: &BTreeSet<String>,
+) -> Vec<(String, String, Option<String>)> {
+    index
+        .iter()
+        .map(|(name, code)| {
+            let current =
+                (!ambiguous.contains(code)).then(|| remap.get(code).unwrap_or(code).clone());
+            (name.clone(), code.clone(), current)
+        })
+        .collect()
 }
 
 /// `address_codes` from `code_names` (`region_cd`, `full_name`, `status`: the newest code snapshot).
@@ -524,7 +569,7 @@ fn address_code_table(
         .prepare("SELECT region_cd, coalesce(full_name, ''), coalesce(status, '') FROM code_names")?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<_, _>>()?;
-    let index = crate::place_identity::dong_index(
+    let index = dong_index(
         names
             .iter()
             .map(|(c, n, s)| (c.as_str(), n.as_str(), s.as_str())),
@@ -533,7 +578,7 @@ fn address_code_table(
         "CREATE OR REPLACE TABLE address_codes (_address VARCHAR, source_legal_dong VARCHAR, legal_dong VARCHAR);",
     )?;
     let mut appender = connection.appender("address_codes")?;
-    for (name, code, current) in crate::place_identity::address_codes(&index, remap, ambiguous) {
+    for (name, code, current) in address_codes(&index, remap, ambiguous) {
         appender.append_row(duckdb::params![name, code, current])?;
     }
     Ok(())
@@ -729,20 +774,6 @@ pub const DEAL_COLUMNS: [&str; 27] = [
     "cancel_date",
 ];
 
-/// The `DuckDB` type of an Iceberg logical type a contract names, for a column a pinned snapshot lacks.
-fn duckdb_type(logical: &str) -> &'static str {
-    match logical {
-        "long" => "BIGINT",
-        "int" | "integer" => "INTEGER",
-        "double" => "DOUBLE",
-        "float" => "FLOAT",
-        "boolean" => "BOOLEAN",
-        "date" => "DATE",
-        "timestamp" | "timestamptz" => "TIMESTAMPTZ",
-        _ => "VARCHAR",
-    }
-}
-
 fn contract_of(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
     industrial_complex_lakehouse_contracts()
         .iter()
@@ -801,42 +832,9 @@ fn current_rows_into(
         .current_rows_sql_template()
         .with_context(|| format!("{table} keeps no versions per key"))?;
     let pinned = source.of(table)?;
-    let held: BTreeSet<String> = connection
-        .prepare(&format!("DESCRIBE SELECT * FROM {pinned}"))?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<Result<_, _>>()?;
-    let latest_columns = contract.current_row_latest().map(|latest| {
-        latest
-            .key
-            .iter()
-            .chain(latest.newest_first)
-            .chain(latest.removal_column.as_ref())
-            .copied()
-            .collect::<Vec<&str>>()
-    });
-    // A column the table gained after the pinned snapshot reads as NULL there, as Iceberg reads it
-    // from files written before it (`platform_contracts.with_contract_columns`).
-    let missing: Vec<String> = columns
-        .iter()
-        .copied()
-        .chain(latest_columns.into_iter().flatten())
-        .filter(|column| !held.contains(*column))
-        .collect::<BTreeSet<&str>>()
-        .into_iter()
-        .map(|column| {
-            let kind = contract
-                .columns
-                .iter()
-                .find(|c| c.name == column)
-                .map_or("VARCHAR", |c| duckdb_type(c.logical_type));
-            format!("CAST(NULL AS {kind}) AS {column}")
-        })
-        .collect();
-    let from = if missing.is_empty() {
-        pinned
-    } else {
-        format!("(SELECT *, {} FROM {pinned})", missing.join(", "))
-    };
+    // A column the table gained after the pinned snapshot reads as NULL there; a missing required
+    // one is refused (the one implementation, `duckdb_parquet_stage::with_contract_columns`).
+    let from = crate::duckdb_parquet_stage::with_contract_columns(connection, contract, &pinned)?;
     let latest = contract
         .current_row_latest()
         .with_context(|| format!("{table} keeps no versions per key"))?;
@@ -974,4 +972,56 @@ pub fn load_inputs(
         "edition {edition} holds no served parcel"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod address_tests {
+    //! The 실거래 load's address rule (`rt_molit_real_transaction.dong_index`), case for case.
+    use super::*;
+
+    fn map(rows: &[(&str, &str)]) -> BTreeMap<String, String> {
+        rows.iter()
+            .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn a_current_code_wins_and_a_shared_name_is_left_out() {
+        let index = dong_index([
+            ("9999910100", "Synth  City   Eastgu Adong", "존재"),
+            ("9999910200", "Synth City Eastgu Adong", "폐지"),
+            ("9999910300", "Synth City Eastgu Bdong", "존재"),
+            ("9999910400", "Synth City Eastgu Bdong", "존재"),
+            ("9999900000", "Synth City Eastgu", "존재"),
+            ("99999103", "Short", "존재"),
+        ]);
+        assert_eq!(index, map(&[("Synth City Eastgu Adong", "9999910100")]));
+    }
+
+    #[test]
+    fn an_address_takes_its_current_code_through_the_pairs_in_force() {
+        let index = map(&[
+            ("A", "9999910100"),
+            ("B", "9999920100"),
+            ("C", "9999930100"),
+        ]);
+        let remap = map(&[("9999910100", "9999940100")]);
+        let ambiguous = BTreeSet::from(["9999920100".to_owned()]);
+        assert_eq!(
+            address_codes(&index, &remap, &ambiguous),
+            vec![
+                (
+                    "A".to_owned(),
+                    "9999910100".to_owned(),
+                    Some("9999940100".to_owned())
+                ),
+                ("B".to_owned(), "9999920100".to_owned(), None),
+                (
+                    "C".to_owned(),
+                    "9999930100".to_owned(),
+                    Some("9999930100".to_owned())
+                ),
+            ]
+        );
+    }
 }

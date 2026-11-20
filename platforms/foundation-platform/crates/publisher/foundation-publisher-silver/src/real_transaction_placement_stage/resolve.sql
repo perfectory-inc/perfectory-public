@@ -1,9 +1,9 @@
 -- Each deal's source PNU carried to the CURRENT parcel (root ADR-0288 §1, ADR-0482 §1): the rules of
 -- `place_identity_resolver.resolve(…, keep_candidate=True)` and `held_forms`.
 --
--- `deals` (deals.sql), `crosswalk` (old_code → current_code, `place_identity::code_crosswalk`),
+-- `deals` (deals.sql), `crosswalk` (old_code → current_code, `place_identity_stage` reference.sql `place_remap`),
 -- `ambiguous` (amb_code: old codes whose chain splits), `served_forms` (_code10, _form10, _rank:
--- `place_identity::served_forms`), `parcels` (pnu: the served edition's parcels).
+-- `place_identity_stage` reference.sql `place_forms`), `parcels` (pnu: the served edition's parcels).
 --
 -- `pnu` becomes the current parcel or NULL; `pnu_candidate` keeps the current form a deal names when
 -- it is not served (the lineage may place it); `place_identity_grade` and `pnu_unresolved_reason` say how.
