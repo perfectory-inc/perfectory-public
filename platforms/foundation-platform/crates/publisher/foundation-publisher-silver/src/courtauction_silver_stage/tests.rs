@@ -286,7 +286,9 @@ fn the_contract_names_the_tables_the_roles_write() -> anyhow::Result<()> {
         .context("the media index tables")?;
     assert!(index.contains(&serde_json::json!(reports[0].0)));
     assert!(!index.contains(&serde_json::json!(Role::SaleSpecifications.tables()[0].0)));
-    let served = onbid["media"]["object_prefix"].as_str().context("the media prefix")?;
+    let served = onbid["media"]["object_prefix"]
+        .as_str()
+        .context("the media prefix")?;
     assert!(!contract["sale_specifications"]["object_prefix"]
         .as_str()
         .context("the specification prefix")?
