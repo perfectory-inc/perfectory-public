@@ -1338,9 +1338,8 @@
           },
           "foundation-lineage-stewardship.service": {
             "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 23 runs, highest 2026-11-08 (foundation-lineage-stewardship)"
+            "memory_max": "3G",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 23 runs, highest 308M on 2026-11-08, while its loads ran in the spark container outside this cap. Since root ADR-0559 the parcel-number-change load is the publisher's DuckDB inside this unit (the history's 1.37M events against a file of up to 356k rows): DuckDB spills past half the engine profile (2048 MiB), so the unit is sized as the onbid Silver load, the same stage (2.4G measured 2026-11-20); no such load has run under this cap yet; systemd logs the peak of every run"
           },
           "foundation-map-edit-fold@.service": {
             "class": "batch",

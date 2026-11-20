@@ -78,6 +78,8 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/p
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage/tests.rs:3
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage/tests.rs:2
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_number_change_history_stage.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_number_change_history_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_registry_stage.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_registry_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs:3

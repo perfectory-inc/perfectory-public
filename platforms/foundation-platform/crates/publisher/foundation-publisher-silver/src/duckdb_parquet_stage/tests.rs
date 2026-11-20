@@ -110,6 +110,7 @@ async fn catalog_partitioned(
             "int" => PrimitiveType::Int,
             "double" => PrimitiveType::Double,
             "date" => PrimitiveType::Date,
+            "boolean" => PrimitiveType::Boolean,
             "timestamp" => PrimitiveType::Timestamptz,
             other => anyhow::bail!("this test has no Iceberg type for {other}"),
         });
@@ -540,6 +541,7 @@ fn synthetic_row(contract: &LakehouseTableContract) -> anyhow::Result<String> {
                 (_, "int") => "CAST(1 AS INTEGER)",
                 (_, "double") => "CAST(1.5 AS DOUBLE)",
                 (_, "date") => "DATE '2099-01-01'",
+                (_, "boolean") => "true",
                 (_, "timestamp") => "to_timestamp(4071006245)",
                 (_, other) => anyhow::bail!("this test has no value for {other}"),
             };
@@ -742,6 +744,22 @@ async fn a_parcel_registry_step_is_the_first_append_into_the_empty_table() -> an
     let file = stage.write(&shape, &synthetic_row(table)?, "parcel-registry-first")?;
     let run = "parcel-registry-0123456789abcdef01234567";
     let first = first_append(&catalog, table, file, run).await?;
+    assert_eq!(first, (None, 1));
+    Ok(())
+}
+
+/// The official parcel number changes' first file into the empty table (root ADR-0389), as
+/// `load-parcel-number-change-history` appends it: a commit that records the file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parcel_number_change_file_is_the_first_append_into_the_empty_table() -> anyhow::Result<()>
+{
+    let table = contract("silver.parcel_number_change_history")?;
+    let root = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let (catalog, shape) = empty_table(root.path(), table).await?;
+    let file = stage.write(&shape, &synthetic_row(table)?, "parcel-number-change-first")?;
+    let object = "bronze/source=synthetic/30527-1--sha256-synthetic.zip";
+    let first = first_append(&catalog, table, file, object).await?;
     assert_eq!(first, (None, 1));
     Ok(())
 }

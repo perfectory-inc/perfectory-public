@@ -235,7 +235,8 @@
       "via": [
         "ingest-vworld-dataset-files",
         "platforms/foundation-platform/scripts/ops/parcel-number-change-collect.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_number_change_history.py"
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_number_change_history.py",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_number_change_history_stage.rs"
       ],
       "source_slugs": [
         "vworldkr__parcel_number_change_history"
