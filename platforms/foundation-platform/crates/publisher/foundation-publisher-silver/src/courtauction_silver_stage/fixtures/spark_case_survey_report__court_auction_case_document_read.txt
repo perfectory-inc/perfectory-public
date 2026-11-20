@@ -1,0 +1,4 @@
+B999999|20990130000001|case_survey_report|0|NULL|2099-01-03 00:00:00.500000|200|read|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|5|20990102T030405Z
+B999999|20990130000001|case_survey_report|1|NULL|2099-01-02 03:04:05.000000|200|read|f|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|4|20990102T030405Z
+B999999|20990130000001|case_survey_report|2|NULL|2099-01-02 03:04:05.000000|200|failed|f|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|2|20990102T030405Z
+B999999|20990130000002|case_survey_report|3|NULL|2099-01-02 03:04:05.000000|200|read|f|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|6|20990102T030405Z

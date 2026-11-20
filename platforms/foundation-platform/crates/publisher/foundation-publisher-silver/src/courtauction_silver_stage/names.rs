@@ -14,7 +14,7 @@ use serde_json::Value;
 const PARTICLES: [char; 10] = ['은', '는', '이', '가', '의', '에', '와', '과', '도', '로'];
 
 /// The contract's rules, compiled.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct NameMask {
     /// A name before a `before` word.
     before: Regex,

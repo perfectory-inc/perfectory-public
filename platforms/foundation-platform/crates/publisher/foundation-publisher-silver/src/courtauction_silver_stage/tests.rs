@@ -143,10 +143,10 @@ fn the_staged_rows_are_the_rows_the_spark_job_built(role: Role) -> anyhow::Resul
             OBJECT_KEY,
         )?
         .context("rows to stage")?;
-        let expected = fixture(&format!(
-            "spark_{}.txt",
-            table.table.split_once('.').context("a schema")?.1
-        ))?;
+        // A table more than one role writes has the rows of each role's object apart.
+        let short = table.table.split_once('.').context("a schema")?.1;
+        let expected = fixture(&format!("spark_{}__{short}.txt", role.name()))
+            .or_else(|_| fixture(&format!("spark_{short}.txt")))?;
         assert_eq!(
             lines(&stage, table.table, &file.local_path)?,
             expected.lines().map(str::to_owned).collect::<Vec<_>>(),
@@ -180,6 +180,65 @@ fn the_staged_dividend_notice_rows_are_the_rows_the_spark_job_built() -> anyhow:
 #[test]
 fn the_staged_sale_notice_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
     the_staged_rows_are_the_rows_the_spark_job_built(Role::SaleNotices)
+}
+
+#[test]
+fn the_staged_case_detail_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::CaseDetail)
+}
+
+#[test]
+fn the_staged_case_survey_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::CaseSurvey)
+}
+
+#[test]
+fn the_staged_case_appraisal_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::CaseAppraisal)
+}
+
+#[test]
+fn the_staged_case_filing_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::CaseFilings)
+}
+
+#[test]
+fn the_staged_case_survey_report_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
+    the_staged_rows_are_the_rows_the_spark_job_built(Role::CaseSurveyReport)
+}
+
+#[test]
+fn a_case_document_read_without_its_case_refuses_the_object() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let source = CourtAuctionSource::compiled()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage
+        .connection()
+        .execute_batch(&CourtAuctionSource::values_sql())?;
+    let path = directory.path().join("keyless.gz");
+    let mut gzip = flate2::write::GzEncoder::new(
+        std::fs::File::create(&path)?,
+        flate2::Compression::default(),
+    );
+    let line = serde_json::json!({
+        "operation": "selectAuctnCsSrchRslt",
+        "read_outcome": "failed",
+        "request": {"dma_srchCsDtlInf": {"cortOfcCd": "B999999"}},
+    });
+    gzip.write_all(format!("{line}\n").as_bytes())?;
+    gzip.finish()?;
+    let object = PlannedObject {
+        object_key: OBJECT_KEY.to_owned(),
+        role: Role::CaseDetail,
+        source_snapshot_id: "20990102T030405Z".to_owned(),
+        path,
+    };
+    let refused = read_object(&stage, &source, &object, chrono::Utc::now());
+    assert!(
+        refused.is_err(),
+        "a case document read without its case is refused"
+    );
+    Ok(())
 }
 
 #[test]
