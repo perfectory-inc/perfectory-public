@@ -386,6 +386,40 @@ fn a_plan_names_its_table_and_an_object_two_plans_name_is_loaded_once() -> anyho
 }
 
 #[test]
+fn a_plan_of_the_case_read_record_loads_each_object_as_its_sources_document() -> anyhow::Result<()>
+{
+    let directory = tempfile::tempdir()?;
+    let source = CourtAuctionSource::compiled()?;
+    let plan_dir = directory.path().join("cases");
+    std::fs::create_dir_all(&plan_dir)?;
+    let survey = OBJECT_KEY.replace("ca-2099", "survey-2099");
+    std::fs::write(
+        plan_dir.join("plan.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": PLAN_SCHEMA, "table": "silver.court_auction_case_document_read",
+            "objects": [
+                {"object_key": OBJECT_KEY, "source_slug": source.source_slug(Role::CaseDetail)?,
+                 "local_path": "objects/a.gz"},
+                {"object_key": survey, "source_slug": source.source_slug(Role::CaseSurvey)?,
+                 "local_path": "objects/b.gz"},
+            ],
+        }))?,
+    )?;
+    let objects = planned_objects(&[plan_dir], &source)?;
+    assert_eq!(
+        objects
+            .iter()
+            .map(|object| (object.object_key.as_str(), object.role))
+            .collect::<Vec<_>>(),
+        [
+            (OBJECT_KEY, Role::CaseDetail),
+            (survey.as_str(), Role::CaseSurvey)
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn the_contract_names_the_tables_the_roles_write() -> anyhow::Result<()> {
     let contract: serde_json::Value =
         serde_json::from_str(super::SOURCE_CONTRACT).context("the source contract")?;
