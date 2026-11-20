@@ -170,6 +170,14 @@ on_error() {
   if [[ "${MODE}" == rehearsal-bake && -s "${STATE_ROOT}/rehearsal-ready" ]]; then
     cp -- "${STATE_ROOT}/rehearsal-ready" "${STATE_ROOT}/rehearsal-bake-failed" || true
   fi
+  # Root ADR-0490 §4: REHEARSAL_RETRY_DAYS waits out a rehearsal that reached its outcome (a verdict and
+  # a Gold). One that failed before it, a step crashing rather than the gate refusing, says nothing about
+  # the edition: it records that and the next start rehearses again (2026-11-20 03:15Z: the gate passed,
+  # then the served Gold's docker call broke and locked the edition's next rehearsal until 11-27).
+  if [[ "${MODE}" == rehearsal-gold && -n "${REHEARSED_BY_JOB:-}" ]]; then
+    rm -f -- "${attempted_file}"
+    job_journal "${journal}" "rehearsal-gold ${snapshot} failed before its outcome; the next start rehearses it again" >&2
+  fi
 }
 trap 'on_error ${LINENO}' ERR
 

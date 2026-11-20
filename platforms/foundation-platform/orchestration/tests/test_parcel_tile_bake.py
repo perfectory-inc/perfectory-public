@@ -41,6 +41,8 @@ if script.endswith("parcel_matching_gate.py"):
         sys.exit(3)
     summary.write_text(json.dumps({"passed": os.environ["FAKE_GATE"] == "pass"}))
     sys.exit(0 if os.environ["FAKE_GATE"] == "pass" else 1)
+if os.environ.get("FAKE_GOLD") == "broken":  # 2026-11-20: docker exited 125 before the job ran
+    sys.exit(125)
 host(job_args[job_args.index("--output-dir") + 1]).mkdir(parents=True)
 summary.write_text("{}")
 '''
@@ -202,6 +204,23 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertEqual(len(calls_after), len(calls))
         self.assertIn("again after 7 days", (self.state / "journal.log").read_text())
+
+    def test_a_rehearsal_that_failed_before_its_outcome_is_rehearsed_again_at_the_next_start(self):
+        # 2026-11-20 03:15Z: the gate passed, the served Gold's docker call broke, and the 7-day wait
+        # held the edition's next rehearsal until 11-27 though nothing was judged.
+        self.wait_for_rehearsal()
+        self.env["FAKE_GOLD"] = "broken"
+        failed, calls = self.run_half("gold", "pass", bootstrap=True)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
+        self.assertFalse((self.state / "rehearsal-attempted").exists())
+        self.assertIn("failed before its outcome; the next start rehearses it again",
+                      (self.state / "journal.log").read_text())
+        del self.env["FAKE_GOLD"]
+        again, calls_after = self.run_half("gold", "pass", bootstrap=True)
+        self.assertEqual(again.returncode, 0, again.stderr + again.stdout)
+        self.assertEqual(len(calls_after), len(calls) + 2, "rehearsed again, gate and Gold")
+        self.assertTrue((self.state / "rehearsal-ready").exists())
 
     def test_the_bake_half_bakes_the_rehearsal_when_no_served_gold_waits(self):
         self.wait_for_rehearsal()
