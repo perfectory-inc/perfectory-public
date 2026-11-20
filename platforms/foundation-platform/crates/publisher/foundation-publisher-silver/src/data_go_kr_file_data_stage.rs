@@ -352,7 +352,7 @@ pub fn planned_files(
 // --- reading -------------------------------------------------------------------------------------
 
 /// Python's `str.isspace`: Unicode white space and the four information separators.
-const fn py_space(character: char) -> bool {
+pub(crate) const fn py_space(character: char) -> bool {
     character.is_whitespace() || matches!(character, '\u{1c}'..='\u{1f}')
 }
 
