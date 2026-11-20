@@ -34,10 +34,8 @@ building_register_floors_pipeline_hub_smoke
 building_register_floors_pipeline_full
 building_register_units_pipeline_smoke
 building_register_units_pipeline_full
-building_register_units_proposals_full
 building_register_unit_areas_pipeline_smoke
 building_register_unit_areas_pipeline_full
-building_register_unit_floor_resolutions_full
 ```
 
 ### `building_register_floors_smoke`

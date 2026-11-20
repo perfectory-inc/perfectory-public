@@ -13,7 +13,6 @@ import importlib.util
 import sys
 import tempfile
 import unittest
-from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -96,22 +95,6 @@ class SilverReadersCurrentRowsTest(unittest.TestCase):
         unversioned = {**contract, "current_row_latest": None}
         self.assertEqual(held(unversioned), [pnu(1), pnu(2), pnu(3)], "an unversioned table is read as it is")
 
-    def test_the_unit_proposal_export_reads_the_current_units(self):
-        import building_register_unit_proposal_context_export as job
-
-        name = "silver.building_register_units"
-        once = [{"mgm_bldrgst_pk": f"unit-{i}", "pnu": pnu(i), "ingested_at_utc": OLD} for i in range(1, 4)]
-        contract = self.table(name, once)
-        args = Namespace(input_parquet=None, catalog="spark_catalog", namespace="silver", table="building_register_units")
-
-        def units(rule):
-            with mock.patch("platform_contracts.load_lakehouse_contract", side_effect=lambda _: rule):
-                return sorted((r.mgm_bldrgst_pk, r.pnu) for r in job.read_source_frame(self.spark, args)[0].collect())
-
-        self.assertEqual(units(versioned(contract, ["mgm_bldrgst_pk"])), units(contract))
-        self.table(name, once + [{**once[2], "pnu": pnu(9), "ingested_at_utc": NEW}])
-        self.assertEqual(units(versioned(contract, ["mgm_bldrgst_pk"])),
-                         [("unit-1", pnu(1)), ("unit-2", pnu(2)), ("unit-3", pnu(9))])
 
 
 if __name__ == "__main__":

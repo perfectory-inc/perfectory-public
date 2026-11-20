@@ -6,7 +6,6 @@ use foundation_shared_kernel::ids::StaffId;
 use lakehouse_application::{RecordLakehouseBatchRun, RecordLakehouseBatchRunInput};
 use lakehouse_domain::{industrial_complex_lakehouse_contract_by_table_name, SparkRunSummary};
 use lakehouse_infrastructure::PgLakehouseBatchRunAudit;
-use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -283,10 +282,8 @@ enum RemoteLakehouseJob {
     PipelineFull,
     UnitPipelineSmoke,
     UnitPipelineFull,
-    UnitProposalContextFull,
     UnitAreaPipelineSmoke,
     UnitAreaPipelineFull,
-    UnitFloorResolutionsFull,
 }
 
 impl RemoteLakehouseJob {
@@ -299,10 +296,8 @@ impl RemoteLakehouseJob {
             "building_register_floors_pipeline_full" => Ok(Self::PipelineFull),
             "building_register_units_pipeline_smoke" => Ok(Self::UnitPipelineSmoke),
             "building_register_units_pipeline_full" => Ok(Self::UnitPipelineFull),
-            "building_register_units_proposals_full" => Ok(Self::UnitProposalContextFull),
             "building_register_unit_areas_pipeline_smoke" => Ok(Self::UnitAreaPipelineSmoke),
             "building_register_unit_areas_pipeline_full" => Ok(Self::UnitAreaPipelineFull),
-            "building_register_unit_floor_resolutions_full" => Ok(Self::UnitFloorResolutionsFull),
             other => bail!("unknown remote lakehouse job: {other}"),
         }
     }
@@ -316,10 +311,8 @@ impl RemoteLakehouseJob {
             Self::PipelineFull => "building_register_floors_pipeline_full",
             Self::UnitPipelineSmoke => "building_register_units_pipeline_smoke",
             Self::UnitPipelineFull => "building_register_units_pipeline_full",
-            Self::UnitProposalContextFull => "building_register_units_proposals_full",
             Self::UnitAreaPipelineSmoke => "building_register_unit_areas_pipeline_smoke",
             Self::UnitAreaPipelineFull => "building_register_unit_areas_pipeline_full",
-            Self::UnitFloorResolutionsFull => "building_register_unit_floor_resolutions_full",
         }
     }
 }
@@ -394,31 +387,6 @@ async fn finish_job(config: &RemoteLakehouseJobConfig, summary_json: String) -> 
             );
             return Ok(());
         }
-    }
-    if config.job == RemoteLakehouseJob::UnitProposalContextFull {
-        if !matches!(config.audit, RemoteLakehouseAuditConfig::Disabled) {
-            bail!("lakehouse batch audit is not supported for AI proposal input artifacts");
-        }
-        let proposal_count = validate_unit_proposal_context_summary(&summary_json)?;
-        println!(
-            "remote-lakehouse-job-ok job={} contract=ai_proposal_input row_count={} persisted_row_count=0",
-            config.job.as_str(),
-            proposal_count
-        );
-        return Ok(());
-    }
-    if config.job == RemoteLakehouseJob::UnitFloorResolutionsFull {
-        if !matches!(config.audit, RemoteLakehouseAuditConfig::Disabled) {
-            bail!("lakehouse batch audit is not supported for floor resolution artifacts");
-        }
-        let (conflict_rows, resolved) = validate_unit_floor_resolution_summary(&summary_json)?;
-        println!(
-            "remote-lakehouse-job-ok job={} contract=floor_resolution_table row_count={} resolved_count={} persisted_row_count=0",
-            config.job.as_str(),
-            conflict_rows,
-            resolved
-        );
-        return Ok(());
     }
     let summary = validate_spark_summary(&summary_json)?;
     let audit_recorded = record_lakehouse_batch_run_if_enabled(summary_json, &config.audit).await?;
@@ -528,9 +496,6 @@ fn build_remote_script(config: &RemoteLakehouseJobConfig) -> String {
             BuildingRegisterUnitPipelineSpec::full(),
             config.source_snapshot.unit(),
         ),
-        RemoteLakehouseJob::UnitProposalContextFull => {
-            build_building_register_unit_proposal_context_script(config)
-        }
         RemoteLakehouseJob::UnitAreaPipelineSmoke => {
             build_building_register_unit_area_pipeline_script(
                 config,
@@ -544,9 +509,6 @@ fn build_remote_script(config: &RemoteLakehouseJobConfig) -> String {
                 BuildingRegisterUnitAreaPipelineSpec::full(),
                 config.source_snapshot.unit_area(),
             )
-        }
-        RemoteLakehouseJob::UnitFloorResolutionsFull => {
-            build_building_register_unit_floor_resolution_script(config)
         }
     }
 }
@@ -668,12 +630,6 @@ impl RemoteLakehouseJob {
                 require_non_empty_input: true,
                 allow_non_smoke_overwrite: true,
             },
-            Self::UnitProposalContextFull => {
-                unreachable!("unit proposal context export is not a Silver scalar write")
-            }
-            Self::UnitFloorResolutionsFull => {
-                unreachable!("unit floor resolution export is not a Silver scalar write")
-            }
             Self::UnitAreaPipelineSmoke => SilverScalarRemoteJobSpec {
                 input_path: "target/lakehouse/silver_handoff/building_register_unit_areas_smoke.jsonl",
                 summary_path: "target/lakehouse/smoke/building_register_unit_areas-pipeline-summary.json",
@@ -1192,109 +1148,6 @@ mkdir -p 'target/remote-lakehouse/summaries'
     )
 }
 
-/// 층충돌 3증인 다수결 교정표 산출 스크립트. 원본 Silver 불변 — Iceberg 쓰기
-/// 없음. 산출물은 서빙 조인용 별도 parquet.
-fn build_building_register_unit_floor_resolution_script(
-    config: &RemoteLakehouseJobConfig,
-) -> String {
-    let root = shell_quote(&config.remote_root);
-    let env_file = shell_quote(&config.env_file);
-    let units_path = "target/lakehouse/silver_handoff/building_register_units_parquet";
-    let areas_path = "target/lakehouse/silver_handoff/building_register_unit_areas_parquet";
-    let output_path =
-        "target/remote-lakehouse/resolutions/building_register_unit_floor_resolutions";
-    let summary_path =
-        "target/remote-lakehouse/summaries/building_register_unit_floor_resolutions-summary.json";
-    format!(
-        "\
-set -euo pipefail
-cd {root}
-if [ ! -f {env_file} ]; then
-  echo 'missing remote lakehouse env file' >&2
-  exit 2
-fi
-for input in '{units_path}' '{areas_path}'; do
-  if [ -z \"$(find -L \"$input\" -type f -name '*.parquet' -size +0c -print -quit)\" ]; then
-    echo \"missing or empty Silver parquet handoff: $input\" >&2
-    exit 3
-  fi
-done
-lakehouse_uid=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}}\"
-lakehouse_gid=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}}\"
-docker run --rm --entrypoint sh \\
-  -v \"$PWD/target/remote-lakehouse:/remote-lakehouse\" \\
-  amazon/aws-cli:2.17.62 \\
-  -c \"mkdir -p /remote-lakehouse/resolutions /remote-lakehouse/summaries && chown -R \\\"${{lakehouse_uid}}:${{lakehouse_gid}}\\\" /remote-lakehouse\"
-{LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-batch run --rm \\
-  -v \"$PWD/target/remote-lakehouse:/workspace/target/remote-lakehouse\" \\
-  spark spark-submit \\
-  --master local[8,8] \\
-  --driver-memory 12g \\
-  --conf spark.jars.ivy=/tmp/.ivy2 \\
-  /workspace/infra/lakehouse/spark/jobs/building_register_unit_floor_resolution_export.py \\
-  --units-parquet /workspace/{units_path} \\
-  --areas-parquet /workspace/{areas_path} \\
-  --output /workspace/{output_path} \\
-  --summary-output /workspace/{summary_path} \\
-  --resolved-at \"$(date -u +%Y-%m-%d)\"
-echo '{SUMMARY_BEGIN_MARKER}'
-cat {summary_path}
-echo '{SUMMARY_END_MARKER}'
-"
-    )
-}
-
-fn build_building_register_unit_proposal_context_script(
-    config: &RemoteLakehouseJobConfig,
-) -> String {
-    let root = shell_quote(&config.remote_root);
-    let env_file = shell_quote(&config.env_file);
-    let input_path = "target/lakehouse/silver_handoff/building_register_units_parquet";
-    let output_path = "target/remote-lakehouse/ai/building_register_unit_proposals-full";
-    let summary_path =
-        "target/remote-lakehouse/summaries/building_register_unit_proposals-full-summary.json";
-    format!(
-        "\
-set -euo pipefail
-cd {root}
-if [ ! -f {env_file} ]; then
-  echo 'missing remote lakehouse env file' >&2
-  exit 2
-fi
-if [ -z \"$(find -L '{input_path}' -type f -name '*.parquet' -size +0c -print -quit)\" ]; then
-  echo 'missing or empty building-register unit Silver Parquet handoff' >&2
-  exit 3
-fi
-lakehouse_uid=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}}\"
-lakehouse_gid=\"${{FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}}\"
-host_uid=\"$(id -u)\"
-host_gid=\"$(id -g)\"
-mkdir -p 'target/remote-lakehouse/ai' 'target/remote-lakehouse/summaries'
-docker run --rm --entrypoint sh \\
-  -v \"$PWD/target/remote-lakehouse:/remote-lakehouse\" \\
-  amazon/aws-cli:2.17.62 \\
-  -c \"mkdir -p /remote-lakehouse/ai /remote-lakehouse/summaries && chown -R \\\"${{host_uid}}:${{host_gid}}\\\" /remote-lakehouse\"
-rm -rf '{output_path}'
-docker run --rm --entrypoint sh \\
-  -v \"$PWD/target/remote-lakehouse:/remote-lakehouse\" \\
-  amazon/aws-cli:2.17.62 \\
-  -c \"mkdir -p /remote-lakehouse/ai /remote-lakehouse/summaries && chown -R \\\"${{lakehouse_uid}}:${{lakehouse_gid}}\\\" /remote-lakehouse\"
-{LAKEHOUSE_COMPOSE_COMMAND} --profile lakehouse-batch run --rm \\
-  -v \"$PWD/target/remote-lakehouse:/workspace/target/remote-lakehouse\" \\
-  spark spark-submit \\
-  --master local[*,8] \\
-  --driver-memory 4g \\
-  /workspace/infra/lakehouse/spark/jobs/building_register_unit_proposal_context_export.py \\
-  --input-parquet /workspace/{input_path} \\
-  --output /workspace/{output_path} \\
-  --summary-output /workspace/{summary_path}
-echo '{SUMMARY_BEGIN_MARKER}'
-cat {summary_path}
-echo '{SUMMARY_END_MARKER}'
-"
-    )
-}
-
 fn extract_marked_summary_json(output: &str) -> anyhow::Result<String> {
     let Some((_, rest)) = output.split_once(SUMMARY_BEGIN_MARKER) else {
         bail!("remote lakehouse job output did not contain summary marker");
@@ -1318,61 +1171,6 @@ fn validate_spark_summary(raw: &str) -> anyhow::Result<SparkRunSummary> {
         .validate_for_contract(contract)
         .map_err(|error| anyhow::anyhow!("Spark summary failed contract validation: {error}"))?;
     Ok(summary)
-}
-
-/// 층 교정표 summary 검증: 스키마 버전 + 해소/미해소 합이 충돌 총수와 일치.
-/// 반환: `(conflict_rows, resolved_count)`.
-fn validate_unit_floor_resolution_summary(raw: &str) -> anyhow::Result<(u64, u64)> {
-    let value: JsonValue = serde_json::from_str(raw)
-        .map_err(|error| anyhow::anyhow!("invalid floor resolution summary JSON: {error}"))?;
-    let schema_version = value
-        .get("schema_version")
-        .and_then(JsonValue::as_str)
-        .unwrap_or_default();
-    if schema_version != "foundation-platform.building_register_unit_floor_resolution.v1" {
-        bail!("invalid floor resolution summary schema_version: {schema_version}");
-    }
-    let read_count = |key: &str| -> anyhow::Result<u64> {
-        value
-            .get(key)
-            .and_then(JsonValue::as_u64)
-            .ok_or_else(|| anyhow::anyhow!("floor resolution summary missing {key}"))
-    };
-    let conflict_rows = read_count("conflict_rows")?;
-    let resolved = read_count("resolved_count")?;
-    let unresolved = read_count("unresolved_count")?;
-    if resolved + unresolved != conflict_rows {
-        bail!(
-            "floor resolution summary counts inconsistent: {resolved} + {unresolved} != {conflict_rows}"
-        );
-    }
-    Ok((conflict_rows, resolved))
-}
-
-fn validate_unit_proposal_context_summary(raw: &str) -> anyhow::Result<u64> {
-    let value: JsonValue = serde_json::from_str(raw)
-        .map_err(|error| anyhow::anyhow!("invalid proposal context summary JSON: {error}"))?;
-    let schema_version = value
-        .get("schema_version")
-        .and_then(JsonValue::as_str)
-        .unwrap_or_default();
-    if schema_version
-        != "foundation-platform.building_register_unit_proposal_context_export_summary.v1"
-    {
-        bail!("invalid proposal context summary schema_version: {schema_version}");
-    }
-    let target_kind = value
-        .get("target")
-        .and_then(|target| target.get("kind"))
-        .and_then(JsonValue::as_str)
-        .unwrap_or_default();
-    if target_kind != "ai_proposal_input_jsonl" {
-        bail!("invalid proposal context summary target kind: {target_kind}");
-    }
-    value
-        .get("proposal_count")
-        .and_then(JsonValue::as_u64)
-        .ok_or_else(|| anyhow::anyhow!("proposal context summary missing proposal_count"))
 }
 
 fn build_audit_record_input(
