@@ -1,0 +1,67 @@
+[
+ {
+  "region_cd": "9900000000",
+  "full_name": "합성도",
+  "status": "존재",
+  "parent_cd": "0000000000",
+  "rank": "99",
+  "created_date": "20000101",
+  "abolished_date": "",
+  "last_work_date": "",
+  "lowest_name": "합성도",
+  "jumin_cd": "9900000000",
+  "jijuk_cd": "9900000000"
+ },
+ {
+  "region_cd": "9999900000",
+  "full_name": "합성도 가상시",
+  "status": "존재",
+  "parent_cd": "9900000000",
+  "rank": "01",
+  "created_date": "20000101",
+  "abolished_date": "",
+  "last_work_date": "20240118",
+  "lowest_name": "가상시",
+  "jumin_cd": "9999900000",
+  "jijuk_cd": "9999900000"
+ },
+ {
+  "region_cd": "9999910100",
+  "full_name": "합성도 가상시 가나동",
+  "status": "존재",
+  "parent_cd": "9999900000",
+  "rank": "00",
+  "created_date": "20000101",
+  "abolished_date": "",
+  "last_work_date": "",
+  "lowest_name": "가나동",
+  "jumin_cd": "0000000000",
+  "jijuk_cd": "9999910100"
+ },
+ {
+  "region_cd": "9999910200",
+  "full_name": "합성도 가상시 다라동",
+  "status": "폐지",
+  "parent_cd": "",
+  "rank": "00",
+  "created_date": "19880423",
+  "abolished_date": "20240117",
+  "last_work_date": "20240118",
+  "lowest_name": "다라동",
+  "jumin_cd": "",
+  "jijuk_cd": ""
+ },
+ {
+  "region_cd": "9999910300",
+  "full_name": "합성도 가상시 마바 & 사동",
+  "status": "존재",
+  "parent_cd": "99999",
+  "rank": "00",
+  "created_date": "",
+  "abolished_date": "",
+  "last_work_date": "",
+  "lowest_name": "마바 & 사동",
+  "jumin_cd": "0000000000",
+  "jijuk_cd": "9999910300"
+ }
+]

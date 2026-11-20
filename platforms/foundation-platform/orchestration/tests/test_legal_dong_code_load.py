@@ -25,11 +25,7 @@ SPARK = textwrap.dedent("""
     work, container, job, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
     opt = {args[i]: args[i + 1] for i in range(len(args) - 1) if args[i].startswith("--")}
     out = lambda key: pathlib.Path(opt[key].replace(container, work, 1))
-    if job == "legal_dong_code_snapshot_to_reference.py":
-        out("--latest-marker-output").write_text(json.dumps(
-            {"snapshot_date": opt["--snapshot-date"], "source_record_id": opt["--source-record-id"]}))
-        out("--summary-output").write_text("{}")
-    elif job == "legal_dong_code_change_pairs.py":
+    if job == "legal_dong_code_change_pairs.py":
         if os.environ.get("FAIL_PAIRING"):
             sys.exit("PairingConflict")
         out("--projection-output").write_text('{"projection": true}')
@@ -70,6 +66,13 @@ PUBLISHER = textwrap.dedent("""
     elif sys.argv[1] == "record-lineage-steward-folds":
         done = json.loads(pathlib.Path(os.environ["FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_SUMMARY"]).read_text())
         db.write_text(json.dumps([i for i in standing if i not in done["decision_ids"]]))
+    elif sys.argv[1] == "load-legal-dong-code-snapshot":
+        # The snapshot load (DuckDB inside the publisher, root ADR-0559): it reads the table file it is given.
+        prefix = "FOUNDATION_PLATFORM_LEGAL_DONG_SNAPSHOT_"
+        assert pathlib.Path(os.environ[prefix + "INPUT"]).is_file(), os.environ[prefix + "INPUT"]
+        pathlib.Path(os.environ[prefix + "LATEST_MARKER_OUTPUT"]).write_text(json.dumps(
+            {"snapshot_date": os.environ[prefix + "DATE"], "source_record_id": os.environ[prefix + "SOURCE_RECORD_ID"]}))
+        pathlib.Path(os.environ[prefix + "SUMMARY_OUTPUT"]).write_text("{}")
     elif sys.argv[1] == "load-lineage-review-items":
         json.loads(pathlib.Path(os.environ["FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT"]).read_text())
     else:
@@ -210,8 +213,8 @@ class PairingOwed(Harness):
         self.stage_legal_dong("table-20990701", "20990701")
         result = self.run_cycle()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.jobs(), ["vworld_parcel_number_change_history.py",
-                                       "legal_dong_code_snapshot_to_reference.py", "legal_dong_code_change_pairs.py"])
+        self.assertEqual(self.jobs(), ["vworld_parcel_number_change_history.py", "legal_dong_code_change_pairs.py"])
+        self.assertIn("load-legal-dong-code-snapshot", self.publisher(), "the snapshot is the publisher's load")
         self.assertIsNone(self.marker())
         paid = json.loads((self.legal / "last-pairing.json").read_text())
         self.assertEqual(paid["run"], "run1")

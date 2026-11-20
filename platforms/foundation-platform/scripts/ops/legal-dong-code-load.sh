@@ -253,16 +253,19 @@ load_legal_dong_code_handoffs() {
   for handoff in $(find "${pending}" -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null | sort); do
     name="$(basename "${handoff}")"
     cp -R "${handoff}" "${work}/legal-dong/${name}"
-    chmod -R a+rwX "${work}/legal-dong/${name}" # Spark 컨테이너(uid 185)가 요약과 표지를 쓴다.
+    chmod -R a+rwX "${work}/legal-dong/${name}" # 짝 맞추기의 Spark 컨테이너(uid 185)가 그 옆에 쓴다.
     read -r snapshot_date table_key table_file < <(python3 -I -c 'import json, sys
 h = json.load(open(sys.argv[1] + "/handoff.json", encoding="utf-8"))
 manifest = json.load(open(sys.argv[1] + "/manifest.json", encoding="utf-8"))
 table = [o for o in manifest["objects"] if o["role"] == "full_table"][0]
 print(h["snapshot_date"], h["table_object_key"], table["local_path"])' "${handoff}")
-    spark legal_dong_code_snapshot_to_reference.py --allow-non-smoke-write --input-format code-go-kr-html \
-      --input "${container_work}/legal-dong/${name}/${table_file}" --snapshot-date "${snapshot_date}" \
-      --source-record-id "${table_key}" --summary-output "${container_work}/legal-dong/${name}/snapshot-summary.json" \
-      --latest-marker-output "${container_work}/legal-dong/${name}/latest-legal-dong-snapshot.json"
+    # 스냅숏은 발행기 안의 DuckDB 가 쌓는다(루트 ADR-0559): Spark 를 띄우지 않는다.
+    FOUNDATION_PLATFORM_LEGAL_DONG_SNAPSHOT_INPUT="${work}/legal-dong/${name}/${table_file}" \
+    FOUNDATION_PLATFORM_LEGAL_DONG_SNAPSHOT_DATE="${snapshot_date}" \
+    FOUNDATION_PLATFORM_LEGAL_DONG_SNAPSHOT_SOURCE_RECORD_ID="${table_key}" \
+    FOUNDATION_PLATFORM_LEGAL_DONG_SNAPSHOT_SUMMARY_OUTPUT="${work}/legal-dong/${name}/snapshot-summary.json" \
+    FOUNDATION_PLATFORM_LEGAL_DONG_SNAPSHOT_LATEST_MARKER_OUTPUT="${work}/legal-dong/${name}/latest-legal-dong-snapshot.json" \
+      publisher load-legal-dong-code-snapshot >> "${run_log}" 2>&1
     legal_dong_install "${work}/legal-dong/${name}/latest-legal-dong-snapshot.json" \
       "${LEGAL_DONG_STATE_ROOT}/latest-legal-dong-snapshot.json"
     legal_dong_pair "${snapshot_date}" "${table_key}"
