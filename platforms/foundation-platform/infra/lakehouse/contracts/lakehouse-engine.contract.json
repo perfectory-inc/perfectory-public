@@ -137,7 +137,11 @@
         }
       },
       "data_go_kr_registered_factory": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1549,
+          "rows": 220705,
+          "fingerprint": null
+        }
       },
       "gold_rebuild": {
         "wave": 2

@@ -1,11 +1,12 @@
 """The registered-factory job's real command line (scripts/ops/registered-factory-cycle.sh, root ADR-0280).
 
 The script runs from an installed release layout (as in test_parcel_number_change_collect_command.py).
-The publisher and docker are stand-ins: the publisher answers the collect command and the plan command
-with a plan of FAKE_OWED zips; docker records its arguments. What runs for real is the script: a day
-nothing is owed ends `unchanged` without starting Spark, an owed edition is loaded from the plan
+The publisher is a stand-in: it answers the collect command, the plan command with a plan of
+FAKE_OWED zips, and the load command (load-registered-factory-silver, DuckDB inside the publisher,
+root ADR-0559) with a summary line, recording the plans it was given. What runs for real is the
+script: a day nothing is owed ends `unchanged` without a load, an owed edition is loaded from the plan
 directory and the copies are removed whether the load succeeds or not, and a missing variable stops
-the run before anything reaches the portal.
+the run before anything reaches the portal. No Spark and no docker.
 """
 
 import hashlib
@@ -44,6 +45,15 @@ if sys.argv[1] == "collect-data-go-kr-file-data":
     out = os.environ["FOUNDATION_PLATFORM_DATA_GO_KR_FILE_DATA_OUTPUT_DIR"]
     json.dump({"objects": []}, open(os.path.join(out, "manifest.json"), "w", encoding="utf-8"))
     sys.exit(0)
+if sys.argv[1] == "load-registered-factory-silver":
+    root = os.environ["FOUNDATION_PLATFORM_REGISTERED_FACTORY_PLAN_ROOT"]
+    plans = sorted(name for name in os.listdir(root) if os.path.isfile(os.path.join(root, name, "plan.json")))
+    with open(os.path.join(os.environ["FAKE_STATE"], "load.log"), "a", encoding="utf-8") as log:
+        log.write(" ".join(plans) + "\n")
+    if os.environ.get("FAKE_LOAD_FAIL") == "1":
+        sys.exit(1)
+    print('registered-factory-summary-json {"status": "loaded"}')
+    sys.exit(0)
 assert sys.argv[1] == "plan-silver-load-objects", sys.argv
 prefix = "FOUNDATION_PLATFORM_SILVER_LOAD_"
 assert os.environ[prefix + "TABLE"] == "silver.registered_factory"
@@ -66,10 +76,6 @@ json.dump({"schema_version": "foundation-platform.silver_load_objects.v1", "obje
 FAKE_DOCKER = r"""#!/usr/bin/env python3
 import os, sys
 open(os.path.join(os.environ["FAKE_STATE"], "docker.log"), "a").write(" ".join(sys.argv[1:]) + "\n")
-if os.environ.get("FAKE_DOCKER_FAIL") == "1":
-    sys.exit(1)
-if "spark-submit" in sys.argv:
-    print('registered-factory-summary-json {"status": "loaded"}')
 """
 
 
@@ -119,17 +125,17 @@ class RegisteredFactoryCommand(unittest.TestCase):
     def copies(self):
         return sorted(self.state.rglob("*.zip"))
 
-    def test_nothing_owed_ends_unchanged_without_spark_and_an_owed_edition_loads_from_its_plan(self):
+    def test_nothing_owed_ends_unchanged_without_a_load_and_an_owed_edition_loads_from_its_plan(self):
         same = self.run_job()
         self.assertEqual(same.returncode, 0, same.stderr + same.stdout)
         self.assertEqual(same.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
-        self.assertFalse((self.fake / "docker.log").exists(), "no Spark when the table records every zip")
+        self.assertFalse((self.fake / "load.log").exists(), "no load when the table records every zip")
         self.env["FAKE_OWED"] = "1"
         new = self.run_job()
         self.assertEqual(new.returncode, 0, new.stderr + new.stdout)
         self.assertEqual(new.stdout.splitlines()[-1], "foundation-job-outcome changed")
-        call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
-        self.assertEqual(call[call.index("--plan-dir") + 1].rsplit("/", 1)[1], "plan")
+        self.assertEqual((self.fake / "load.log").read_text(encoding="utf-8").splitlines(), ["plan"])
+        self.assertFalse((self.fake / "docker.log").exists(), "the load starts no container")
         self.assertEqual(self.copies(), [])
 
     def test_the_state_from_before_adr_0401_is_moved_once_so_the_landed_edition_is_not_fetched_again(self):
@@ -146,13 +152,13 @@ class RegisteredFactoryCommand(unittest.TestCase):
         self.env.update(FAKE_OWED="1", FAKE_LATE="1")
         result = self.run_job()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("spark-submit", (self.fake / "docker.log").read_text())
+        self.assertTrue((self.fake / "load.log").exists(), "the late edition is loaded")
         self.assertIn("LATE", (self.state / "journal.log").read_text(encoding="utf-8"))
         self.assertNotIn("foundation-job-outcome", result.stdout)
 
     def test_a_failed_load_removes_its_copy_and_leaves_nothing_to_hand_on(self):
         # The zip has no commit record, so the next run's plan fetches it again from R2.
-        self.env.update(FAKE_OWED="1", FAKE_DOCKER_FAIL="1")
+        self.env.update(FAKE_OWED="1", FAKE_LOAD_FAIL="1")
         failed = self.run_job()
         self.assertNotEqual(failed.returncode, 0)
         self.assertEqual(self.copies(), [])
