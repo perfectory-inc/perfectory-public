@@ -187,7 +187,8 @@ pub fn verdict(
     let connection = stage.connection();
     connection
         .execute_batch(&format!(
-            "CREATE OR REPLACE TEMP VIEW gate_edition_source AS \
+            "SET preserve_insertion_order = false;\n\
+             CREATE OR REPLACE TEMP VIEW gate_edition_source AS \
                SELECT pnu FROM {parcels} WHERE source_snapshot_id = {snapshot} AND valid_to_utc IS NULL;\n\
              CREATE OR REPLACE TEMP TABLE gate_sido AS SELECT * FROM (VALUES {sido_rows}) t(prefix);\n\
              CREATE OR REPLACE TEMP TABLE gate_official AS \

@@ -67,9 +67,17 @@ SELECT CAST(pnu AS UBIGINT) AS n, parcel_id, status,
        coalesce(nullif(valid_from, ''), valid_to, '') AS k
 FROM gate_registry WHERE regexp_full_match(pnu, '[0-9]{19}');
 
+-- Two hash aggregates rather than a window, as they spill within the unit: the newest key of each PNU's
+-- `current` rows, then the greatest id among its rows at that key (max skips a NULL id, as the order's
+-- DESC NULLS LAST did).
+CREATE OR REPLACE TEMP TABLE gate_newest AS
+SELECT n, max(k) AS k FROM gate_registry_rows WHERE status = 'current' GROUP BY n;
+
 CREATE OR REPLACE TEMP TABLE gate_last AS
-SELECT n, parcel_id, k FROM gate_registry_rows WHERE status = 'current'
-QUALIFY row_number() OVER (PARTITION BY n ORDER BY k DESC, parcel_id DESC NULLS LAST) = 1;
+SELECT r.n, max(r.parcel_id) AS parcel_id, r.k
+FROM gate_registry_rows r JOIN gate_newest m ON m.n = r.n AND m.k = r.k
+WHERE r.status = 'current'
+GROUP BY r.n, r.k;
 
 CREATE OR REPLACE TEMP TABLE gate_current AS
 SELECT l.n, l.parcel_id FROM gate_last l
