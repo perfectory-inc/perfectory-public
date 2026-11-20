@@ -236,8 +236,10 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
         # Gold). The journal's last rehearsal line of the edition says which: one that FAILED, a step
         # crashing rather than the gate refusing, judged nothing and is rehearsed at the next start
         # (2026-11-20 03:15Z: the gate passed, then the served Gold's docker call broke).
-        last="$(grep -E "rehearsal-gold ${snapshot} FAILED|rehearsal-gold: served Gold of ${snapshot} "           "${journal}" 2>/dev/null | tail -n 1 || true)"
-        if [[ "${tried}" == "${snapshot}" && "${last}" != *" FAILED at line "* ]]           && (( $(date -u +%s) - tried_at < retry_seconds )); then
+        last="$(grep -E "rehearsal-gold ${snapshot} FAILED|rehearsal-gold: served Gold of ${snapshot} " \
+          "${journal}" 2>/dev/null | tail -n 1 || true)"
+        if [[ "${tried}" == "${snapshot}" && "${last}" != *" FAILED at line "* ]] \
+          && (( $(date -u +%s) - tried_at < retry_seconds )); then
           job_journal "${journal}" "nothing to do: ${served_done}; ${snapshot} was rehearsed $(date -u -d "@${tried_at}" +%FT%TZ), again after ${REHEARSAL_RETRY_DAYS:-7} days"
           echo "foundation-job-outcome unchanged"; exit 0
         fi
