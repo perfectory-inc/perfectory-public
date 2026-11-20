@@ -165,6 +165,7 @@ impl Run {
                 "role": object.role.name(),
                 "rows": read.rows,
                 "unrepresented_fields": read.unrepresented_fields,
+                "unreadable_answers": read.unreadable_answers,
             });
             let staged = match object.role {
                 Role::ItemList => {

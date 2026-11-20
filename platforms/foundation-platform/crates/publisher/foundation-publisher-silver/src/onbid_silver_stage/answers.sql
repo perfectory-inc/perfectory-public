@@ -8,39 +8,46 @@
 -- holds one page.
 -- Parameters: {ok_code}, {no_data_code} (the source contract's result codes), {combos} (a VALUES list
 -- of every (prptDivCd, pvctTrgtYn) an item list pass asks), {line_number}.
+-- A 200 whose body is not JSON is not an answer (2026-11-17: the provider sent its "503 - Service
+-- Unavailable" HTML page with a 200, and the object stopped every hourly load): it is read as a
+-- request that was not answered, like any other status, and counted (`unreadable`).
 -- Output: onbid_answers (one row per line), onbid_items (one row per item of a 00 answer, in order),
 -- onbid_pass (one row: whether an item list object read every combination to its end).
 
 -- step: init
 CREATE OR REPLACE TEMP TABLE onbid_answers (line_number BIGINT, request JSON, http_ok BOOLEAN, code JSON,
-                                            items BIGINT, total_count JSON);
+                                            items BIGINT, total_count JSON, unreadable BOOLEAN);
 CREATE OR REPLACE TEMP TABLE onbid_items (line_number BIGINT, ordinal BIGINT, item JSON);
 
 -- step: line
--- The line's request, whether it is a 200, and (for a 200) the body's parts the load reads.
+-- The line's request, whether it is a 200 with a JSON body, and (for one) the body's parts the load reads.
 CREATE OR REPLACE TEMP TABLE onbid_line_parts AS
-SELECT line_number,
-       CASE WHEN py_truthy(parts[1]) THEN parts[1] ELSE '{}'::JSON END AS request,
-       -- `line.get("http_status") != 200`: a number equal to 200, whatever its JSON form.
-       coalesce(json_type(parts[2]) IN ('UBIGINT', 'BIGINT', 'DOUBLE') AND TRY_CAST(parts[2] AS DOUBLE) = 200, false) AS http_ok,
-       parts[3] AS body
-FROM (SELECT line_number, json_extract(line, ['$.request', '$.http_status', '$.body']) AS parts
-      FROM onbid_lines WHERE line_number = {line_number});
+SELECT line_number, request, is_200 AND is_json AS http_ok, is_200 AND NOT is_json AS unreadable, body
+FROM (
+  SELECT line_number,
+         CASE WHEN py_truthy(parts[1]) THEN parts[1] ELSE '{}'::JSON END AS request,
+         -- `line.get("http_status") != 200`: a number equal to 200, whatever its JSON form.
+         coalesce(json_type(parts[2]) IN ('UBIGINT', 'BIGINT', 'DOUBLE') AND TRY_CAST(parts[2] AS DOUBLE) = 200, false) AS is_200,
+         coalesce(json_valid(json_extract_string(parts[3], '$')), false) AS is_json,
+         parts[3] AS body
+  FROM (SELECT line_number, json_extract(line, ['$.request', '$.http_status', '$.body']) AS parts
+        FROM onbid_lines WHERE line_number = {line_number})
+);
 
 CREATE OR REPLACE TEMP TABLE onbid_body_parts AS
-SELECT line_number, request, http_ok,
+SELECT line_number, request, http_ok, unreadable,
        CASE WHEN http_ok THEN json_extract(json_extract_string(body, '$'), ['$.header', '$.result', '$.body.items.item', '$.body.totalCount']) END AS parts
 FROM onbid_line_parts;
 
 -- An error body carries its code under `result`, as the collector reads it. answer_items: the items
 -- of a 00 answer; [] for an empty (03) or quota answer.
 CREATE OR REPLACE TEMP TABLE onbid_line_items AS
-SELECT line_number, request, http_ok, code, total_count,
+SELECT line_number, request, http_ok, unreadable, code, total_count,
        CASE WHEN http_ok AND json_type(code) = 'VARCHAR' AND json_extract_string(code, '$') = '{ok_code}' THEN
          CASE json_type(item) WHEN 'OBJECT' THEN [item] WHEN 'ARRAY' THEN json_extract(item, '$[*]') END
        END AS items
 FROM (
-  SELECT line_number, request, http_ok,
+  SELECT line_number, request, http_ok, unreadable,
          CASE WHEN json_type(parts[1]) = 'OBJECT' THEN json_extract(parts[1], '$.resultCode')
               WHEN py_truthy(parts[2]) THEN json_extract(parts[2], '$.resultCode') END AS code,
          -- body.items.item, read only when body.items is an object (json_extract reaches into nothing else).
@@ -50,7 +57,7 @@ FROM (
 );
 
 INSERT INTO onbid_answers
-SELECT line_number, request, http_ok, code, coalesce(len(items), 0), total_count FROM onbid_line_items;
+SELECT line_number, request, http_ok, code, coalesce(len(items), 0), total_count, unreadable FROM onbid_line_items;
 
 INSERT INTO onbid_items
 SELECT l.line_number, i.ordinal, i.item
