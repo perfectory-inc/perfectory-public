@@ -778,6 +778,17 @@ activate_and_prune() {
   prune_after_activation "$1"
 }
 
+# A password only the host's own services share (the contract's `generated` names) is written when
+# the host file lacks it; one already there keeps its value, and only names are printed
+# (runtime_secrets.py generate, root ADR-0590). It must run before the first compose command of the
+# release: compose interpolates the whole file on every call, so a required name it cannot find stops
+# the deploy before anything starts. 2026-11-19 (ed0226b3) it ran only inside verify_runtime_schema,
+# after migrate_runtime's first `up`, and the deploy stopped at interpolation.
+generate_host_secrets() {
+  python3 -I "${release_root}/current/scripts/deploy/runtime_secrets.py" --area "${release_root}/current" \
+    generate --root "${FOUNDATION_PLATFORM_SECRETS_ROOT:-/}"
+}
+
 verify_runtime_schema() {
   assert_current_release
   # Deploying source cannot move the schema: the migrations are compiled into the runtime image
@@ -799,6 +810,7 @@ verify_runtime_schema() {
   # rebuild, with nothing having said beforehand that the file was behind. Measured 2026-09-01
   # while repairing the schema gap: six variables were missing, and compose named one per
   # attempt, so the hole looked two deep until the whole file was compared (root ADR-0071).
+  generate_host_secrets
   "${environment}" "${release_root}/current"
   verify_runtime_secrets
   "${checker}" "${release_root}/current"
@@ -885,6 +897,8 @@ migrate_runtime() {
     printf 'runtime compose wrapper is missing from the release: %s\n' "${runtime}" >&2
     exit 66
   }
+  # Before any compose command: it interpolates the generated names too.
+  generate_host_secrets
   # A release from the registry (root ADR-0276 §13) records the API and recovery images CI built and
   # admission checked against the signed manifest; they become the images compose names, unbuilt.
   local tagged=0 steps="${release_root}/current/scripts/deploy/deploy_steps.py"

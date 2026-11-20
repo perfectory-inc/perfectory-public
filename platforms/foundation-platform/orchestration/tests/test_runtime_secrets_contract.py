@@ -318,6 +318,38 @@ class TheHost(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
         return path
 
+    def test_generate_writes_a_missing_generated_name_once_and_prints_no_value(self):
+        recovery = self.root / "etc/foundation-platform/recovery.env"
+        recovery.write_text("FOUNDATION_API_PASSWORD=planted-api\n", encoding="utf-8")
+        recovery.chmod(0o600)
+        written = runtime_secrets.generate(self.area, self.root)
+        self.assertEqual(written, ["DAWNEER_SESSION_DATABASE_PASSWORD in recovery"])
+        lines = recovery.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[0], "FOUNDATION_API_PASSWORD=planted-api", "other lines are kept")
+        name, value = lines[1].split("=", 1)
+        self.assertEqual(name, "DAWNEER_SESSION_DATABASE_PASSWORD")
+        self.assertRegex(value, r"^[0-9a-f]{64}$")
+        self.assertNotIn(value, "\n".join(written))
+        self.assertEqual(recovery.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(runtime_secrets.generate(self.area, self.root), [], "a second run keeps the value")
+        self.assertEqual(recovery.read_text(encoding="utf-8").splitlines()[1], lines[1])
+
+    def test_generate_keeps_a_value_someone_already_set(self):
+        recovery = self.root / "etc/foundation-platform/recovery.env"
+        recovery.write_text("DAWNEER_SESSION_DATABASE_PASSWORD=planted-set\n", encoding="utf-8")
+        recovery.chmod(0o600)
+        self.assertEqual(runtime_secrets.generate(self.area, self.root), [])
+        self.assertEqual(recovery.read_text(encoding="utf-8"), "DAWNEER_SESSION_DATABASE_PASSWORD=planted-set\n")
+
+    def test_a_group_cannot_generate_a_name_it_does_not_hold(self):
+        contract = json.loads((self.area / "config/runtime-secrets.contract.json").read_text(encoding="utf-8"))
+        for group in contract["groups"]:
+            if group["name"] == "recovery":
+                group["generated"] = ["NOT_HELD_PASSWORD"]
+        (self.area / "config/runtime-secrets.contract.json").write_text(json.dumps(contract), encoding="utf-8")
+        with self.assertRaises(runtime_secrets.ContractError):
+            runtime_secrets.load(self.area)
+
     def test_set_writes_a_held_name_with_the_contracts_mode_and_prints_no_value(self):
         operations_map = self.root / "etc/foundation-platform/operations-map.env"
         self.assertFalse(operations_map.exists())

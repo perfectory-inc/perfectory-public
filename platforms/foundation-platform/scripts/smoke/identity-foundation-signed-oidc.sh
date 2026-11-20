@@ -310,6 +310,7 @@ identity_worker_password="$(random_hex 24)"
 foundation_admin_password="$(random_hex 24)"
 foundation_migrator_password="$(random_hex 24)"
 foundation_api_password="$(random_hex 24)"
+dawneer_session_password="$(random_hex 24)"
 
 printf '%s' "${human_password}" > "${temp_dir}/human-password"
 chmod 600 "${temp_dir}/human-password"
@@ -1065,6 +1066,7 @@ cat > "${temp_dir}/foundation.env" <<EOF
 FOUNDATION_ADMIN_PASSWORD=${foundation_admin_password}
 FOUNDATION_MIGRATOR_PASSWORD=${foundation_migrator_password}
 FOUNDATION_API_PASSWORD=${foundation_api_password}
+DAWNEER_SESSION_DATABASE_PASSWORD=${dawneer_session_password}
 FOUNDATION_DB_PORT=0
 FOUNDATION_API_PORT=${foundation_port}
 FOUNDATION_REDIS_PORT=0
