@@ -195,7 +195,7 @@
       "relation": "feeds",
       "status": "disabled",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/legal_dong_code_snapshot_stage.rs"
       ],
       "source_slugs": [
         "datagokr__legal_dong_code"
@@ -209,7 +209,7 @@
       "status": "implemented",
       "via": [
         "collect-code-go-kr-legal-dong",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/legal_dong_code_snapshot_stage.rs"
       ],
       "source_slugs": [
         "codegokr__legal_dong_code_table"

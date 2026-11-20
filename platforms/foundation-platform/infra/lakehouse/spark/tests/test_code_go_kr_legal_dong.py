@@ -25,7 +25,6 @@ import code_go_kr_legal_dong as cg  # noqa: E402
 import lakehouse_ingest  # noqa: E402
 import legal_dong_code_change_pairs as pairs_job  # noqa: E402
 import legal_dong_code_change_views as views  # noqa: E402
-import legal_dong_code_snapshot_to_reference as loader  # noqa: E402
 import vworld_parcel_editions as editions  # noqa: E402
 
 CONTRACT = cg.load_source_contract()
@@ -142,40 +141,6 @@ class FullTableTest(unittest.TestCase):
             cg.check_table_size(int(previous * 0.7), previous, CONTRACT)
         with self.assertRaisesRegex(cg.TableShrunk, "below the floor"):
             cg.check_table_size(bounds["min_rows"] - 1, None, CONTRACT)
-
-    def test_the_loader_refuses_a_shrunken_table_before_writing(self):
-        rows = merged_table(n_extra=CONTRACT["full_table"]["bounds"]["min_rows"])
-        with tempfile.TemporaryDirectory() as tmp:
-            page = Path(tmp) / "regcode.html"
-            page.write_text(table_html(rows), encoding="utf-8")
-            summary = Path(tmp) / "summary.json"
-            argv = ["--input", str(page), "--input-format", "code-go-kr-html", "--snapshot-date", "2099-07-02",
-                    "--source-record-id", loader.CODE_GO_KR_TABLE_PREFIX + "operation=regCodeL/regcode-x.html",
-                    "--validate-only", "--summary-output", str(summary)]
-            self.assertEqual(loader.main(argv + ["--previous-row-count", str(len(rows))]), 0)
-            written = json.loads(summary.read_text(encoding="utf-8"))
-            self.assertEqual((written["row_count"], written["input_format"]), (len(rows), "code-go-kr-html"))
-            summary.unlink()
-            with self.assertRaises(cg.TableShrunk):
-                loader.main(argv + ["--previous-row-count", str(int(len(rows) / 0.7))])
-            self.assertFalse(summary.exists(), "a refused table must leave no summary")
-            with self.assertRaisesRegex(ValueError, "source-record-id"):
-                loader.main(argv[:-4] + ["bronze/source=elsewhere/x.html", "--validate-only"])
-            dated = loader.code_go_kr_snapshot_rows(page.read_text(encoding="utf-8"), NOW.date(), "k", NOW, CONTRACT)
-            self.assertEqual(set(dated[0]) - set(loader.COLUMNS), set())
-            self.assertEqual(set(loader.COLUMNS) - set(dated[0]), set())
-
-    def test_the_shrink_baseline_is_one_snapshot_even_when_a_day_holds_two(self):
-        # 심은 함정: 마지막 날짜에 표가 둘(재시도) 적재됐다. 그날의 행을 모두 세면 기준이 두 배가 되어
-        # 다음 표가 모두 '줄었다'로 거부된다. 기준은 그날 마지막 적재 하나다.
-        d1, d2 = NOW.date().replace(day=1), NOW.date()
-        loads = [(d1, NOW, "bronze/k-1", 50_000), (d2, NOW, "bronze/k-2a", 51_000),
-                 (d2, NOW.replace(hour=5), "bronze/k-2b", 51_100)]
-        self.assertEqual(loader.latest_snapshot_row_count(loads), 51_100)
-        self.assertIsNone(loader.latest_snapshot_row_count([]))
-        cg.check_table_size(51_100, loader.latest_snapshot_row_count(loads), CONTRACT)
-        with self.assertRaises(cg.TableShrunk):  # what the double count would have done
-            cg.check_table_size(51_100, 51_000 + 51_100, CONTRACT)
 
 
 

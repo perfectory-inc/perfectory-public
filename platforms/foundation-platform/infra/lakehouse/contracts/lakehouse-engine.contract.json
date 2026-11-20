@@ -187,7 +187,11 @@
         "wave": 4
       },
       "legal_dong_code_snapshot_to_reference": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1551,
+          "rows": 53403,
+          "fingerprint": null
+        }
       },
       "lineage_review_queue_to_gold": {
         "wave": 3

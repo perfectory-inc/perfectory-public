@@ -129,6 +129,7 @@ pub use duckdb;
 
 /// The code change table's views a `DuckDB` stage reads (root ADR-0145, ADR-0329).
 pub mod legal_dong_code_change_stage;
+pub mod legal_dong_code_snapshot_stage;
 
 /// The parcel nearby kind's Gold in `DuckDB` (root ADR-0465, ADR-0564 §9).
 pub mod parcel_nearby_stage;
