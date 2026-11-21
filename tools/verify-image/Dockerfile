@@ -72,8 +72,8 @@ RUN apt-get update \
 #
 # `rustup toolchain install` with no arguments reads the file and installs exactly what it names, so
 # the pin keeps one home. Copying the list into this Dockerfile would make two, and they would drift.
-# The caller assembles the build context so this file can be copied without widening it to the
-# repository root.
+# The context is the repository root, narrowed by the root .dockerignore to the files this image
+# copies.
 COPY rust-toolchain.toml /toolchain/rust-toolchain.toml
 WORKDIR /toolchain
 RUN rustup toolchain install
@@ -95,7 +95,8 @@ WORKDIR /
 # sccache comes the same way: the version and SHA-256 CI's scripts/ci/sccache-setup.sh fetches live
 # only in tools/sccache.env. The image carries the binary and a cache directory; it does not set
 # RUSTC_WRAPPER, so cargo-verify.sh builds as before and a host test run opts in with
-# `-e RUSTC_WRAPPER=sccache -v perfectory-sccache:/sccache` (runbook: host crate tests).
+# `-e RUSTC_WRAPPER=sccache -e CARGO_INCREMENTAL=0 -v perfectory-sccache:/sccache` (runbook:
+# host-crate-tests.md).
 ENV PERFECTORY_PINNED_CACHE=/opt/perfectory-pinned
 COPY tools/actionlint.env tools/sccache.env tools/pinned-artifacts.json /warm/tools/
 COPY scripts/ci/actionlint.sh scripts/ci/fetch_pinned.py /warm/scripts/ci/

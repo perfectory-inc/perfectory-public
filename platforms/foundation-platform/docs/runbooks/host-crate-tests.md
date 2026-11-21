@@ -40,6 +40,13 @@ docker run --rm --network none \
 - 레지스트리가 비어 있으면 첫 실행만 `--network none` 을 빼고 `cargo fetch` 를 한 번 한다.
 - `SCCACHE_DIR=/sccache`, `SCCACHE_CACHE_SIZE=20G` 는 이미지가 싣는다. 캐시 크기는 `docker system df -v | grep perfectory-sccache`.
 
+## 이미지 입력을 바꾸는 브랜치
+
+`perfectory-verify:local` 은 배포된 main 의 환경이다. 브랜치가 `apt_deps`, `rust-toolchain.toml`, `tools/sccache.env`,
+`tools/container-images.env` 의 기반, `tools/verify-image/Dockerfile` 을 바꾸면 그 환경은 아직 없다. 그때만 자기 작업 트리에서
+임시 태그를 짓고(`docker build -f tools/verify-image/Dockerfile -t perfectory-verify:<작업 ID> .`), 시험이 끝나면
+`docker image rm perfectory-verify:<작업 ID>` 로 지운다.
+
 ## 바꾸기
 
 apt 목록은 `tools/xtask/src/main.rs` 의 `apt_deps`, 도구체인은 `rust-toolchain.toml`, 기반은 `tools/container-images.env`,
