@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{ensure, Context};
+use duckdb::Connection;
 use serde_json::{json, Map, Value};
 
 use crate::duckdb_parquet_stage::DuckDbParquetStage;
@@ -43,9 +44,10 @@ pub const REGISTRY_TABLE: &str = "silver.parcel_registry";
 pub const INPUT_ABSENT: i32 = 3;
 /// Items sampled per reason (`map_matching_gate.SAMPLE`).
 pub const SAMPLE: usize = 20;
-/// The national edition's bound on parcels whose legal dong nothing explains, like a dbt test's
-/// `error_if`: past it the gate refuses, within it the parcels are sampled. 2026-11-11: 2 of 202609's
-/// 39,876,546 (a 리 code no list ever held, an abolished 동 with no pair).
+/// The national edition's bound on parcels whose legal dong nothing explains.
+///
+/// Like a dbt test's `error_if`: past it the gate refuses, within it the parcels are sampled.
+/// 2026-11-11: 2 of 202609's 39,876,546 (a 리 code no list ever held, an abolished 동 with no pair).
 pub const UNEXPLAINED_LEGAL_DONG_BOUND: u64 = 100;
 
 /// The refusals and allowances, worded as `map_matching_gate.py` words them.
@@ -91,7 +93,7 @@ impl Registry {
     }
 }
 
-/// The table references the gate reads (a pinned `lakehouse.<table> AT (VERSION => n)`, or a test's
+/// The table references the gate reads (a lakehouse table pinned at its head snapshot, or a test's
 /// own table).
 pub struct GateSources {
     /// `silver.parcel_boundaries`.
@@ -161,8 +163,46 @@ pub fn verdict(
         "the 시도 are comma-separated two-digit prefixes, got {:?}",
         run.sido
     );
-    let snapshot = quoted(run.snapshot_id)?;
-    let registry = match (&sources.registry, run.registry) {
+    let registry = registry_read(sources, run)?;
+    let connection = stage.connection();
+    load_references(connection, sources)?;
+    let edition = format!(
+        "SELECT pnu FROM {parcels} WHERE source_snapshot_id = {snapshot} AND valid_to_utc IS NULL",
+        parcels = sources.parcels,
+        snapshot = quoted(run.snapshot_id)?,
+    );
+    let registry_checked = sources.registry.is_some() && run.registry == Registry::Checked;
+    run_each_sido(connection, &edition, &registry, registry_checked, &prefixes)?;
+    let totals = Totals { connection };
+    let parcels = parcels_report(&totals, run.registry == Registry::Checked)?;
+
+    let snapshot_parcel_count = totals.total("scanned")?;
+    let renumbered = totals.scalar("SELECT count(*) FROM renumbering")?;
+    let newest: Option<String> = connection
+        .prepare("SELECT snapshot_date FROM gate_official LIMIT 1")?
+        .query_map([], |row| row.get::<_, Option<String>>(0))?
+        .next()
+        .transpose()?
+        .flatten();
+    let passed = parcels["passed"] == true;
+    Ok(json!({
+        "schema_version": VERDICT_SCHEMA_VERSION,
+        "job": JOB_NAME,
+        "snapshot_id": run.snapshot_id,
+        "sido": run.sido,
+        "registry": run.registry.as_str(),
+        "snapshot_parcel_count": snapshot_parcel_count,
+        "renumbered_legal_dongs": renumbered,
+        "parcels": parcels,
+        "official_code_snapshot": newest,
+        "attributes": {},
+        "passed": passed,
+    }))
+}
+
+/// The registry rows as of the edition (check (b)), or an empty typed read when check (b) is skipped.
+fn registry_read(sources: &GateSources, run: &GateRun<'_>) -> anyhow::Result<String> {
+    Ok(match (&sources.registry, run.registry) {
         (Some(table), Registry::Checked) => {
             let through = run
                 .registry_through
@@ -180,8 +220,12 @@ pub fn verdict(
         _ => "SELECT NULL::VARCHAR AS pnu, NULL::VARCHAR AS parcel_id, NULL::VARCHAR AS status, \
               NULL::VARCHAR AS valid_from, NULL::VARCHAR AS valid_to WHERE false"
             .to_owned(),
-    };
-    let connection = stage.connection();
+    })
+}
+
+/// The small inputs every 시도's run shares (the code list, the boundaries, the renumberings) and the
+/// tables the runs add up into.
+fn load_references(connection: &Connection, sources: &GateSources) -> anyhow::Result<()> {
     connection
         .execute_batch(&format!(
             "SET preserve_insertion_order = false;\n\
@@ -206,17 +250,21 @@ pub fn verdict(
             admin = sources.admin,
             code_changes = sources.code_changes,
         ))
-        .context("DuckDB failed to read the parcel matching gate's reference inputs")?;
+        .context("DuckDB failed to read the parcel matching gate's reference inputs")
+}
 
-    // One run of gate.sql per 시도 checked, its prefix written into both reads so the Iceberg scan
-    // prunes to its files (2026-11-21, 시도 41 of 202609: 5,211,798 parcels in 97 s, peak 1.4 GiB at 2
-    // threads; the whole edition at once spilled past two hours in the unit's 2 GiB). The edition's
-    // other prefixes (a 시도 not checked, a malformed PNU's first characters, a NULL PNU) are only
-    // counted: `snapshot_parcel_count` is the whole edition's distinct PNUs, as Spark's distinct was.
-    let edition = format!(
-        "SELECT pnu FROM {parcels} WHERE source_snapshot_id = {snapshot} AND valid_to_utc IS NULL",
-        parcels = sources.parcels
-    );
+/// One run of gate.sql per 시도 checked, its prefix written into both reads so the Iceberg scan
+/// prunes to its files (2026-11-21, 시도 41 of 202609: 5,211,798 parcels in 97 s, peak 1.4 GiB at 2
+/// threads; the whole edition at once spilled past two hours in the unit's 2 GiB). The edition's
+/// other prefixes (a 시도 not checked, a malformed PNU's first characters, a NULL PNU) are only
+/// counted: `snapshot_parcel_count` is the whole edition's distinct PNUs, as Spark's distinct was.
+fn run_each_sido(
+    connection: &Connection,
+    edition: &str,
+    registry: &str,
+    registry_checked: bool,
+    prefixes: &[&str],
+) -> anyhow::Result<()> {
     let held: Vec<Option<String>> = connection
         .prepare(&format!(
             "SELECT DISTINCT substr(pnu, 1, 2) AS part FROM ({edition}) e ORDER BY part NULLS LAST"
@@ -238,21 +286,21 @@ pub fn verdict(
                 .context("DuckDB failed to count a prefix the gate does not check")?;
             continue;
         };
+        let registry_part = if registry_checked {
+            format!(" AND starts_with(pnu, '{part}')")
+        } else {
+            String::new()
+        };
         connection
             .execute_batch(&format!(
                 "CREATE OR REPLACE TEMP VIEW gate_edition_source AS {edition} AND starts_with(pnu, '{part}');\n\
                  CREATE OR REPLACE TEMP TABLE gate_sido AS SELECT '{part}' AS prefix;\n\
                  CREATE OR REPLACE TEMP VIEW gate_registry AS {registry}{registry_part};\n\
                  {GATE_SQL}\n{collect_sql}",
-                registry_part = if sources.registry.is_some() && run.registry == Registry::Checked {
-                    format!(" AND starts_with(pnu, '{part}')")
-                } else {
-                    String::new()
-                },
             ))
             .with_context(|| format!("DuckDB failed to run the parcel matching gate over 시도 {part}"))?;
     }
-    if run.registry == Registry::Checked {
+    if registry_checked {
         connection
             .execute_batch(
                 "CREATE OR REPLACE TEMP TABLE gate_shared_id AS \
@@ -260,46 +308,64 @@ pub fn verdict(
             )
             .context("DuckDB failed to find the ids two parcels share")?;
     }
+    Ok(())
+}
 
-    let scalar = |query: &str| -> anyhow::Result<u64> {
-        let value: i64 = connection.query_row(query, [], |row| row.get(0))?;
+/// Reads the added-up runs: totals, counts and samples.
+struct Totals<'a> {
+    connection: &'a Connection,
+}
+
+impl Totals<'_> {
+    fn scalar(&self, query: &str) -> anyhow::Result<u64> {
+        let value: i64 = self.connection.query_row(query, [], |row| row.get(0))?;
         Ok(u64::try_from(value)?)
-    };
-    let total = |column: &str| {
-        scalar(&format!(
+    }
+
+    fn total(&self, column: &str) -> anyhow::Result<u64> {
+        self.scalar(&format!(
             "SELECT CAST(coalesce(sum({column}), 0) AS BIGINT) FROM gate_acc_counts"
         ))
-    };
-    let sample = |query: &str| -> anyhow::Result<Vec<String>> {
-        Ok(connection
+    }
+
+    fn sample(&self, query: &str) -> anyhow::Result<Vec<String>> {
+        Ok(self
+            .connection
             .prepare(&format!("{query} LIMIT {SAMPLE}"))?
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?)
-    };
-    let pnus = |table: &str| {
-        sample(&format!(
+    }
+
+    fn pnus(&self, table: &str) -> anyhow::Result<Vec<String>> {
+        self.sample(&format!(
             "SELECT lpad(CAST(n AS VARCHAR), 19, '0') FROM {table} ORDER BY n"
         ))
-    };
-    let counted = |n: u64,
-                   items: &dyn Fn() -> anyhow::Result<Vec<String>>|
-     -> anyhow::Result<(u64, Vec<String>)> {
-        Ok((n, if n == 0 { Vec::new() } else { items()? }))
-    };
+    }
 
-    let checked = total("well")? + total("malformed")?;
-    let strays = total("strays")?;
+    /// `n` and, when there are any, the sample `items` reads.
+    fn counted(
+        n: u64,
+        items: impl FnOnce() -> anyhow::Result<Vec<String>>,
+    ) -> anyhow::Result<(u64, Vec<String>)> {
+        Ok((n, if n == 0 { Vec::new() } else { items()? }))
+    }
+}
+
+/// The verdict's `parcels`: the reasons found, the allowances, and the strays within the bound.
+fn parcels_report(totals: &Totals<'_>, registry_checked: bool) -> anyhow::Result<Value> {
+    let checked = totals.total("well")? + totals.total("malformed")?;
+    let strays = totals.total("strays")?;
     let over = strays > UNEXPLAINED_LEGAL_DONG_BOUND;
     let stray_sample = if strays == 0 {
         Vec::new()
     } else {
-        pnus("gate_acc_stray")?
+        totals.pnus("gate_acc_stray")?
     };
     let mut violations = BTreeMap::new();
     violations.insert(
         reasons::MALFORMED_PNU,
-        counted(total("malformed")?, &|| {
-            sample("SELECT pnu FROM gate_acc_malformed ORDER BY pnu")
+        Totals::counted(totals.total("malformed")?, || {
+            totals.sample("SELECT pnu FROM gate_acc_malformed ORDER BY pnu")
         })?,
     );
     violations.insert(
@@ -312,55 +378,37 @@ pub fn verdict(
     );
     violations.insert(
         reasons::NO_BOUNDARY,
-        counted(total("no_boundary")?, &|| pnus("gate_acc_no_boundary"))?,
+        Totals::counted(totals.total("no_boundary")?, || {
+            totals.pnus("gate_acc_no_boundary")
+        })?,
     );
-    if run.registry == Registry::Checked {
+    if registry_checked {
         violations.insert(
             reasons::NO_CURRENT_ID,
-            counted(total("no_current")?, &|| pnus("gate_acc_no_current"))?,
+            Totals::counted(totals.total("no_current")?, || {
+                totals.pnus("gate_acc_no_current")
+            })?,
         );
         violations.insert(
             reasons::ID_ON_TWO_PARCELS,
-            counted(scalar("SELECT count(*) FROM gate_shared_id")?, &|| {
-                sample("SELECT parcel_id FROM gate_shared_id ORDER BY parcel_id")
-            })?,
+            Totals::counted(
+                totals.scalar("SELECT count(*) FROM gate_shared_id")?,
+                || totals.sample("SELECT parcel_id FROM gate_shared_id ORDER BY parcel_id"),
+            )?,
         );
     }
     let mut allowed = BTreeMap::new();
-    allowed.insert(reasons::RENUMBERED_LEGAL_DONG, total("moved")?);
+    allowed.insert(reasons::RENUMBERED_LEGAL_DONG, totals.total("moved")?);
     allowed.insert(
         reasons::UNEXPLAINED_LEGAL_DONG,
         if over { 0 } else { strays },
     );
-    let parcels = report(
+    Ok(report(
         checked,
         &violations,
         &allowed,
         if over { &[] } else { &stray_sample },
-    );
-
-    let snapshot_parcel_count = total("scanned")?;
-    let renumbered = scalar("SELECT count(*) FROM renumbering")?;
-    let newest: Option<String> = connection
-        .prepare("SELECT snapshot_date FROM gate_official LIMIT 1")?
-        .query_map([], |row| row.get::<_, Option<String>>(0))?
-        .next()
-        .transpose()?
-        .flatten();
-    let passed = parcels["passed"] == true;
-    Ok(json!({
-        "schema_version": VERDICT_SCHEMA_VERSION,
-        "job": JOB_NAME,
-        "snapshot_id": run.snapshot_id,
-        "sido": run.sido,
-        "registry": run.registry.as_str(),
-        "snapshot_parcel_count": snapshot_parcel_count,
-        "renumbered_legal_dongs": renumbered,
-        "parcels": parcels,
-        "official_code_snapshot": newest,
-        "attributes": {},
-        "passed": passed,
-    }))
+    ))
 }
 
 /// `parcel_matching_gate.report`: the reasons found (count and sample), the allowances counted, and

@@ -38,7 +38,6 @@
     "test_section_coverage_spark.py": 6,
     "test_served_snapshot_pins_iceberg.py": 8,
     "test_silver_readback_batch_spark.py": 5,
-    "test_silver_readers_current_rows_spark.py": 10,
     "test_silver_release_compare_iceberg.py": 22,
     "test_silver_release_compare_lanes_spark.py": 95,
     "test_silver_release_compare_versions_iceberg.py": 28,

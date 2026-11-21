@@ -33,7 +33,7 @@ fn sources() -> GateSources {
     }
 }
 
-fn run<'a>(through: &'a [String], registry: Registry) -> GateRun<'a> {
+fn run(through: &[String], registry: Registry) -> GateRun<'_> {
     GateRun {
         snapshot_id: "edition-b",
         sido: "99",
@@ -185,7 +185,7 @@ fn verdict_with_sido(stage: &DuckDbParquetStage, sido: &str) -> anyhow::Result<V
 }
 
 /// The bytes `json.dumps(verdict, ensure_ascii=False, indent=2, sort_keys=True) + "\n"` gives for the
-/// same value (printed by CPython 3.13 for this fixture).
+/// same value (printed by `CPython` 3.13 for this fixture).
 #[test]
 fn the_verdict_file_is_written_as_the_spark_job_wrote_it() -> anyhow::Result<()> {
     let value = json!({
