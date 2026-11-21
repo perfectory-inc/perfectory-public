@@ -108,6 +108,10 @@
           "mode": "0755"
         },
         {
+          "path": "/var/lib/foundation-platform/industrial-complex-address-source",
+          "mode": "0755"
+        },
+        {
           "path": "/var/lib/foundation-platform/industrial-complex-notice",
           "mode": "0755"
         },
@@ -1303,6 +1307,11 @@
             "memory_max": "3G",
             "measured": "never run (root ADR-0475: new, waiting for the approval key); sized as the collector holds one ten-day answer's files in memory and one more copy while it commits each, against the provider's 2,000,000,000-byte file limit for the largest; systemd logs the peak of every run under this cap"
           },
+          "foundation-industrial-complex-address-source-collect.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured": "no run yet (new 2026-11-22, root ADR-0033); sized as the ILIS notice Silver load (512M), the largest thing it holds being the 13.5 MB notice list answer twice (raw bytes and parsed JSON) and the 412 KB profile workbook; systemd logs the peak of every run under this cap"
+          },
           "foundation-industrial-complex-notice-collect.service": {
             "class": "batch",
             "memory_max": "1G",
@@ -1633,6 +1642,7 @@
       "legal_dong_code_changes",
       "court_auction_collect",
       "court_auction_silver",
+      "industrial_complex_address_source_collect",
       "industrial_complex_notice_collect",
       "industrial_complex_notice_silver",
       "registered_factory",

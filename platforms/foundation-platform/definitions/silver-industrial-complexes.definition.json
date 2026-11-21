@@ -2,7 +2,63 @@
   "$schema": "scripts/catalog/definition.v1.schema.json",
   "definition": "foundation-platform.definition.v1",
   "group": "silver-industrial-complexes",
+  "jobs": [
+    {
+      "id": "industrial_complex_address_source_collect",
+      "dagster_group": "collect",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "산업입지정보시스템(ILIS) 산업단지 목록·고시 목록·상세, the address source of silver.industrial_complexes (root ADR-0033; scripts/ops/industrial-complex-address-source-collect.sh, the publisher's collect-industrial-complex-address-source): the complex list (il/danji/list.do) and the notice list (il/danref/list.do) in one request each, then one detail request (il/danji/det/info.do) for each complex of the newest vworldkr__sandan_profile workbook in Bronze that the list does not carry (four of 1,442 measured 2026-08-16), two seconds between requests, the count checked against the run's ceiling before the requests it counts. Each answer lands in Bronze once (write-once, deduplicated by content): an answer equal to the last one makes no object and the run reports unchanged. A new object starts the Silver load of the industrial complexes. No Spark.",
+      "systemd_service": "foundation-industrial-complex-address-source-collect.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-complex-address-source"
+      ],
+      "schedule": "40 4 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 15,
+      "per_run_cap": {
+        "unit": "request",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 60,
+          "estimated_from": "computed from its own bounds: two bulk requests (the notice list 13.5 MB measured 2026-11-09 in a few seconds, the complex list 1,473 rows) and about four detail requests, two seconds apart, plus one ledger read and the 412 KB profile workbook: under a minute, inside the 15-minute limit. The command refuses a run of more than eight requests (its DEFAULT_MAX_REQUESTS) before the first."
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "The provider changes its complex list and notices on no fixed day (endpoint catalog expected_cadence irregular for ILIS); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "ilis-address-source-collection-to-source-ilis"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "shadow",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    }
+  ],
   "assets": [
+    {
+      "id": "ilis-address-source-collection",
+      "type": "serving_surface",
+      "title": "산업단지 주소 근거 받기",
+      "description": "산업입지정보시스템(ILIS)의 산업단지 목록과 고시 목록을 한 번씩, 목록에 없는 단지의 상세를 하나씩 매일 받아 Bronze(industrylandorkr__industrial_complex_list·_notice·_detail)에 그대로 쌓는다. 같은 답은 새 객체를 만들지 않는다. 산업단지 Silver 의 주소 해석 근거다(루트 ADR-0033).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_address_source_collect.rs"
+      ],
+      "surface_kind": "scheduler"
+    },
     {
       "id": "silver-industrial-complexes",
       "type": "silver_table",
@@ -25,6 +81,16 @@
     }
   ],
   "dependencies": [
+    {
+      "from": "ilis-address-source-collection",
+      "to": "source-ilis",
+      "relation": "schedules",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/industrial-complex-address-source-collect.sh",
+        "collect-industrial-complex-address-source"
+      ]
+    },
     {
       "from": "source-ilis",
       "to": "silver-industrial-complexes",
