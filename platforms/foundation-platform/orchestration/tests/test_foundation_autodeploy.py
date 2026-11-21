@@ -1335,7 +1335,7 @@ class TheWholeDeploy(unittest.TestCase):
         # The staging smoke runs on the installed release before anything of it is activated (root
         # ADR-0177); a smoke that passed lets the deploy go on to the switch.
         self.assertEqual(self.released(),
-                         ["prepare", "floor-config", "staging-smoke", "activate", "migrate", "timers", "status",
+                         ["prepare", "floor-config", "staging-smoke", "activate", "units", "migrate", "timers", "status",
                           "observability", "datahub", "trino"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
@@ -1420,7 +1420,7 @@ class TheWholeDeploy(unittest.TestCase):
 
     def test_a_deploy_run_again_starts_at_the_step_that_failed(self):
         self.assertNotEqual(self.deploy(FIXTURE_FAIL_AT="migrate").returncode, 0)
-        self.assertEqual(self.released(), ["prepare", "floor-config", "staging-smoke", "activate", "migrate"])
+        self.assertEqual(self.released(), ["prepare", "floor-config", "staging-smoke", "activate", "units", "migrate"])
         (self.root / "release.log").unlink()
         self.as_a_first_attempt_left_it()
         result = self.deploy()
@@ -1428,7 +1428,7 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("finishing the deploy of", result.stdout)
         self.assertNotIn("prepare", self.released(), "an attempt does not prepare, configure or smoke again")
         self.assertNotIn("staging-smoke", self.released())
-        self.assertEqual(self.released()[:2], ["activate", "migrate"])
+        self.assertEqual(self.released()[:3], ["activate", "units", "migrate"])
         self.assertIn("DONE: production runs", result.stdout)
         self.assertEqual(list((self.root / "deploy-progress").iterdir()), [], "a finished deploy keeps no progress")
 
