@@ -106,10 +106,7 @@ release_trigger(document) if {
 	object.get(triggers(document), "workflow_dispatch", null) == null
 }
 
-extra_writes(path, document) := {"issues"} if {
-	file_name(path) == "dependency-advisories.yml"
-	schedule_only(document)
-} else := {"id-token", "attestations", "packages"} if {
+extra_writes(path, document) := {"id-token", "attestations", "packages"} if {
 	file_name(path) == "foundation-release-build.yml"
 	release_trigger(document)
 } else := {"actions"} if {

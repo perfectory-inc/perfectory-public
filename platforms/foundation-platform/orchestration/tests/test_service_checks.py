@@ -379,7 +379,7 @@ class MainHealth(unittest.TestCase):
                 return {"workflow_runs": list(runs)}, {}
             if path.endswith("/jobs?per_page=100"):
                 run_id = int(path.split("/runs/")[1].split("/")[0])
-                return {"jobs": [{"id": run_id * 10, "conclusion": "failure"}]}, {}
+                return {"jobs": [{"id": run_id * 10, "name": "Main health", "conclusion": "failure"}]}, {}
             if "/check-runs/" in path:
                 return (self.VERDICT if path.split("/check-runs/")[1].startswith("200") else self.UNREADABLE), {}
             raise AssertionError(path)
@@ -420,6 +420,42 @@ class MainHealth(unittest.TestCase):
         self.assertEqual((main["readable"], main["reason"]), (False, "no-verdict"))
 
 
+class RepositoryDrift(unittest.TestCase):
+    """The daily repository drift job's verdict (root ADR-0570): its own job, beside the Cargo check."""
+
+    REPOSITORY = "example-org/example-repo"
+    NOW = datetime(2026, 11, 21, 8, 41, tzinfo=timezone.utc)
+    DRIFT = [{"title": "repository-drift-count", "message": "1"},
+             {"title": "repository-drift", "message": "settings: has_issues is True, declared False"}]
+
+    def measure(self, cargo: str, drift: str, previous=None, run_conclusion: str = "failure"):
+        def ask(path, token):
+            if "/workflows/dependency-advisories.yml/runs" in path:
+                return {"workflow_runs": [{"id": 7, "event": "schedule", "conclusion": run_conclusion}]}, {}
+            if path.endswith("/jobs?per_page=100"):
+                return {"jobs": [{"id": 70, "name": "Cargo advisories", "conclusion": cargo},
+                                 {"id": 71, "name": "Repository drift and Renovate pulse", "conclusion": drift}]}, {}
+            if path.endswith("/check-runs/71/annotations?per_page=100"):
+                return self.DRIFT, {}
+            raise AssertionError(path)
+        return checks.measure_report(self.REPOSITORY, checks.REPORTS["repository"], previous, self.NOW, ask, lambda: 10**4)
+
+    def test_drift_is_named(self):
+        part = self.measure("success", "failure")
+        self.assertEqual((part["readable"], part["finding_count"], part["findings"]),
+                         (True, 1, ["settings: has_issues is True, declared False"]))
+        self.assertEqual(part["link"], "https://github.com/example-org/example-repo/actions/workflows/dependency-advisories.yml")
+
+    def test_an_advisory_alone_is_no_drift(self):
+        # The Cargo check failed (an advisory, the security source's business); the drift job passed.
+        part = self.measure("failure", "success")
+        self.assertEqual((part["readable"], part["finding_count"]), (True, 0))
+
+    def test_a_skipped_drift_job_is_no_verdict(self):
+        part = self.measure("success", "skipped")
+        self.assertEqual((part["readable"], part["reason"]), (False, "no-verdict"))
+
+
 class File(unittest.TestCase):
     def test_the_written_file_has_the_shape_foundation_api_reads(self):
         example = json.loads(EXAMPLE.read_text(encoding="utf-8"))
@@ -430,8 +466,9 @@ class File(unittest.TestCase):
                 ci = CiTrend("test_days_are_fetched_newest_first_and_a_week_is_reported_only_when_whole").measure(pathlib.Path(store), 60)[0]
             security = Security.measure(Security.github(cargo_fails=True), token="t")
             main = MainHealth().measure(MainHealth.RED)
+            repository = RepositoryDrift().measure("success", "failure")
             checks.write_atomically(out, {"schema_version": 1, "checked_at": edge["checked_at"], "edge": edge, "ci": ci,
-                                          "security": security, "main": main})
+                                          "security": security, "main": main, "repository": repository})
             written = json.loads(out.read_text(encoding="utf-8"))
             self.assertEqual(shape(written), shape(example))
             self.assertEqual(list(pathlib.Path(tmp).iterdir()), [out], "no temporary file is left")
