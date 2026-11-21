@@ -1529,15 +1529,15 @@
           },
           "foundation-intelligence-document-text.service": {
             "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "306M",
-            "measured": "not this unit's: never run (root ADR-0477 §6). The peak of foundation-court-auction-silver-load.service, the same shape (a job script, the Docker client and python3 -c reads; its containers have their own caps), journal `memory peak` 2026-10-18..11-08; its first run measures this one."
+            "memory_max": "1G",
+            "measured": "no run under this cap. Its Spark steps ran in a container outside the unit; since root ADR-0559 the plan and the append are the publisher's DuckDB inside it, held to 384 MiB by the loader (intelligence_documents_load STAGE_MEMORY_MIB) over tables of tens of thousands of rows, beside the job script, the Docker client and python3 (306M was the peak of the same shape without DuckDB, foundation-court-auction-silver-load.service). The image has its own cap. The job is paused (2026-11-20); its first run measures this one.",
+            "headroom_why": "Not 1.5 x a measured peak: none exists yet. 384 MiB of DuckDB plus the 306M shape is about 700M; 1G leaves a third above it."
           },
           "foundation-intelligence-document-fact.service": {
             "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "312M",
-            "measured": "journal `memory peak` 2026-11-12 20:55Z, its first run (311.2M: the job script, the Docker client and python3 -c reads; its containers and the model runtime have their own caps)"
+            "memory_max": "1G",
+            "measured": "no run under this cap. journal `memory peak` 2026-11-12 20:55Z was 311.2M with its Spark steps in a container outside the unit; since root ADR-0559 the plan, the append and the fold's reads are the publisher's DuckDB inside it, held to 384 MiB by the loader, and the fold rule is python3 over the run's files. The image and the model runtime have their own caps. The job is paused (2026-11-20); its first run measures this one.",
+            "headroom_why": "Not 1.5 x a measured peak: none exists yet. 384 MiB of DuckDB plus the 312M measured without it is about 700M; 1G leaves a third above it."
           },
           "foundation-gold-versions@.service": {
             "class": "batch",

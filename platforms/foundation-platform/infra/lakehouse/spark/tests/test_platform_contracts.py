@@ -298,13 +298,19 @@ def reaches_current_rows(path: Path, seen: set[Path]) -> bool:
     return any(reaches_current_rows(path.parent / f"{module}.py", seen) for module in imported)
 
 
+# Modules of the jobs folder that open no table. `platform_contracts.py` is the rule itself.
+# `intelligence_documents.py` is the fold rule on the files the publisher wrote (root ADR-0559): the
+# `document_fact` it names is a key of the intelligence contract, not the table.
+NOT_TABLE_READERS = {"platform_contracts.py", "intelligence_documents.py"}
+
+
 def readers_bypassing_current_rows(jobs: Path, graph: dict, tables: set[str]) -> list[tuple[str, str]]:
     """(job, table) for each job that names a versioned table it does not write, yet never selects
     that table's current rows through the contract: it would read every version (root ADR-0267)."""
     written = producers(graph, tables)
     found = []
     for path in sorted(jobs.glob("*.py")):
-        if path.name == "platform_contracts.py":
+        if path.name in NOT_TABLE_READERS:
             continue
         for table in sorted(named_tables(path.read_text(encoding="utf-8"), tables)):
             if (path.name, table) not in written and not reaches_current_rows(path, set()):
