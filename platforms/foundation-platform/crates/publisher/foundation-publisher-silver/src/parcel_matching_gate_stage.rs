@@ -11,7 +11,8 @@
 //! The Spark job's `--attribute` and `--lineage-from-snapshot-id` checks are not here: no caller
 //! passed them (the parcel tile bake passes the edition and its 시도), and `attributes` stays `{}`.
 //!
-//! `gate.sql` holds the joins; this module pins the inputs, runs it, and reads counts and samples.
+//! `gate.sql` holds the joins over one 시도; this module runs it per 시도 checked, adds each run up
+//! (`collect.sql`), checks the ids two parcels share over every run, and assembles the verdict.
 
 use std::collections::BTreeMap;
 
@@ -22,6 +23,7 @@ use crate::duckdb_parquet_stage::DuckDbParquetStage;
 use crate::legal_dong_code_change_stage::{PAIR_ROWS_SQL, RENUMBERED_INTO_SQL};
 
 const GATE_SQL: &str = include_str!("parcel_matching_gate_stage/gate.sql");
+const COLLECT_SQL: &str = include_str!("parcel_matching_gate_stage/collect.sql");
 
 /// The verdict schema the gate writes and the bake reads.
 pub const VERDICT_SCHEMA_VERSION: &str = "foundation-platform.parcel_matching_verdict.v1";
@@ -159,11 +161,6 @@ pub fn verdict(
         "the 시도 are comma-separated two-digit prefixes, got {:?}",
         run.sido
     );
-    let sido_rows = prefixes
-        .iter()
-        .map(|p| format!("('{p}')"))
-        .collect::<Vec<_>>()
-        .join(", ");
     let snapshot = quoted(run.snapshot_id)?;
     let registry = match (&sources.registry, run.registry) {
         (Some(table), Registry::Checked) => {
@@ -188,33 +185,90 @@ pub fn verdict(
     connection
         .execute_batch(&format!(
             "SET preserve_insertion_order = false;\n\
-             CREATE OR REPLACE TEMP VIEW gate_edition_source AS \
-               SELECT pnu FROM {parcels} WHERE source_snapshot_id = {snapshot} AND valid_to_utc IS NULL;\n\
-             CREATE OR REPLACE TEMP TABLE gate_sido AS SELECT * FROM (VALUES {sido_rows}) t(prefix);\n\
              CREATE OR REPLACE TEMP TABLE gate_official AS \
                SELECT region_cd, status, CAST(snapshot_date AS VARCHAR) AS snapshot_date FROM {code_list} \
                WHERE snapshot_date = (SELECT max(snapshot_date) FROM {code_list});\n\
              CREATE OR REPLACE TEMP TABLE gate_admin AS SELECT canonical_code FROM {admin};\n\
              CREATE OR REPLACE TEMP TABLE code_changes AS \
                SELECT kind, old_code, new_code, level, effective_date, source FROM {code_changes};\n\
-             CREATE OR REPLACE TEMP VIEW gate_registry AS {registry};\n\
              {PAIR_ROWS_SQL}\n\
              CREATE OR REPLACE TEMP TABLE served_codes AS \
                SELECT DISTINCT region_cd AS code FROM gate_official WHERE status = '존재';\n\
-             {RENUMBERED_INTO_SQL}\n{GATE_SQL}",
-            parcels = sources.parcels,
+             {RENUMBERED_INTO_SQL}\n\
+             CREATE OR REPLACE TEMP TABLE gate_acc_counts (scanned UBIGINT, well UBIGINT, malformed UBIGINT, \
+               strays UBIGINT, moved UBIGINT, no_boundary UBIGINT, no_current UBIGINT);\n\
+             CREATE OR REPLACE TEMP TABLE gate_acc_malformed (pnu VARCHAR);\n\
+             CREATE OR REPLACE TEMP TABLE gate_acc_stray (n UBIGINT);\n\
+             CREATE OR REPLACE TEMP TABLE gate_acc_no_boundary (n UBIGINT);\n\
+             CREATE OR REPLACE TEMP TABLE gate_acc_no_current (n UBIGINT);\n\
+             CREATE OR REPLACE TEMP TABLE gate_acc_ids (parcel_id VARCHAR);",
             code_list = sources.code_list,
             admin = sources.admin,
             code_changes = sources.code_changes,
         ))
-        .context("DuckDB failed to run the parcel matching gate")?;
+        .context("DuckDB failed to read the parcel matching gate's reference inputs")?;
 
-    let count = |table: &str| -> anyhow::Result<u64> {
-        let value: i64 =
-            connection.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
-                row.get(0)
-            })?;
+    // One run of gate.sql per 시도 checked, its prefix written into both reads so the Iceberg scan
+    // prunes to its files (2026-11-21, 시도 41 of 202609: 5,211,798 parcels in 97 s, peak 1.4 GiB at 2
+    // threads; the whole edition at once spilled past two hours in the unit's 2 GiB). The edition's
+    // other prefixes (a 시도 not checked, a malformed PNU's first characters, a NULL PNU) are only
+    // counted: `snapshot_parcel_count` is the whole edition's distinct PNUs, as Spark's distinct was.
+    let edition = format!(
+        "SELECT pnu FROM {parcels} WHERE source_snapshot_id = {snapshot} AND valid_to_utc IS NULL",
+        parcels = sources.parcels
+    );
+    let held: Vec<Option<String>> = connection
+        .prepare(&format!(
+            "SELECT DISTINCT substr(pnu, 1, 2) AS part FROM ({edition}) e ORDER BY part NULLS LAST"
+        ))?
+        .query_map([], |row| row.get::<_, Option<String>>(0))?
+        .collect::<Result<_, _>>()?;
+    let collect_sql = COLLECT_SQL.replace("{SAMPLE}", &SAMPLE.to_string());
+    for part in &held {
+        let Some(part) = part.as_deref().filter(|part| prefixes.contains(part)) else {
+            connection
+                .execute(
+                    &format!(
+                        "INSERT INTO gate_acc_counts (scanned) \
+                         SELECT count(DISTINCT pnu) + (count(*) FILTER (WHERE pnu IS NULL) > 0)::UBIGINT \
+                         FROM ({edition}) e WHERE substr(pnu, 1, 2) IS NOT DISTINCT FROM ?"
+                    ),
+                    [part],
+                )
+                .context("DuckDB failed to count a prefix the gate does not check")?;
+            continue;
+        };
+        connection
+            .execute_batch(&format!(
+                "CREATE OR REPLACE TEMP VIEW gate_edition_source AS {edition} AND starts_with(pnu, '{part}');\n\
+                 CREATE OR REPLACE TEMP TABLE gate_sido AS SELECT '{part}' AS prefix;\n\
+                 CREATE OR REPLACE TEMP VIEW gate_registry AS {registry}{registry_part};\n\
+                 {GATE_SQL}\n{collect_sql}",
+                registry_part = if sources.registry.is_some() && run.registry == Registry::Checked {
+                    format!(" AND starts_with(pnu, '{part}')")
+                } else {
+                    String::new()
+                },
+            ))
+            .with_context(|| format!("DuckDB failed to run the parcel matching gate over 시도 {part}"))?;
+    }
+    if run.registry == Registry::Checked {
+        connection
+            .execute_batch(
+                "CREATE OR REPLACE TEMP TABLE gate_shared_id AS \
+                 SELECT parcel_id FROM gate_acc_ids GROUP BY parcel_id HAVING count(*) > 1",
+            )
+            .context("DuckDB failed to find the ids two parcels share")?;
+    }
+
+    let scalar = |query: &str| -> anyhow::Result<u64> {
+        let value: i64 = connection.query_row(query, [], |row| row.get(0))?;
         Ok(u64::try_from(value)?)
+    };
+    let total = |column: &str| {
+        scalar(&format!(
+            "SELECT CAST(coalesce(sum({column}), 0) AS BIGINT) FROM gate_acc_counts"
+        ))
     };
     let sample = |query: &str| -> anyhow::Result<Vec<String>> {
         Ok(connection
@@ -227,26 +281,25 @@ pub fn verdict(
             "SELECT lpad(CAST(n AS VARCHAR), 19, '0') FROM {table} ORDER BY n"
         ))
     };
-    let counted = |table: &str,
+    let counted = |n: u64,
                    items: &dyn Fn() -> anyhow::Result<Vec<String>>|
      -> anyhow::Result<(u64, Vec<String>)> {
-        let n = count(table)?;
         Ok((n, if n == 0 { Vec::new() } else { items()? }))
     };
 
-    let checked = count("gate_well")? + count("gate_malformed")?;
-    let strays = count("gate_stray")?;
+    let checked = total("well")? + total("malformed")?;
+    let strays = total("strays")?;
     let over = strays > UNEXPLAINED_LEGAL_DONG_BOUND;
     let stray_sample = if strays == 0 {
         Vec::new()
     } else {
-        pnus("gate_stray")?
+        pnus("gate_acc_stray")?
     };
     let mut violations = BTreeMap::new();
     violations.insert(
         reasons::MALFORMED_PNU,
-        counted("gate_malformed", &|| {
-            sample("SELECT pnu FROM gate_malformed ORDER BY pnu")
+        counted(total("malformed")?, &|| {
+            sample("SELECT pnu FROM gate_acc_malformed ORDER BY pnu")
         })?,
     );
     violations.insert(
@@ -259,22 +312,22 @@ pub fn verdict(
     );
     violations.insert(
         reasons::NO_BOUNDARY,
-        counted("gate_no_boundary", &|| pnus("gate_no_boundary"))?,
+        counted(total("no_boundary")?, &|| pnus("gate_acc_no_boundary"))?,
     );
     if run.registry == Registry::Checked {
         violations.insert(
             reasons::NO_CURRENT_ID,
-            counted("gate_no_current", &|| pnus("gate_no_current"))?,
+            counted(total("no_current")?, &|| pnus("gate_acc_no_current"))?,
         );
         violations.insert(
             reasons::ID_ON_TWO_PARCELS,
-            counted("gate_shared_id", &|| {
+            counted(scalar("SELECT count(*) FROM gate_shared_id")?, &|| {
                 sample("SELECT parcel_id FROM gate_shared_id ORDER BY parcel_id")
             })?,
         );
     }
     let mut allowed = BTreeMap::new();
-    allowed.insert(reasons::RENUMBERED_LEGAL_DONG, count("gate_moved")?);
+    allowed.insert(reasons::RENUMBERED_LEGAL_DONG, total("moved")?);
     allowed.insert(
         reasons::UNEXPLAINED_LEGAL_DONG,
         if over { 0 } else { strays },
@@ -286,8 +339,8 @@ pub fn verdict(
         if over { &[] } else { &stray_sample },
     );
 
-    let snapshot_parcel_count = count("gate_scan")?;
-    let renumbered = count("renumbering")?;
+    let snapshot_parcel_count = total("scanned")?;
+    let renumbered = scalar("SELECT count(*) FROM renumbering")?;
     let newest: Option<String> = connection
         .prepare("SELECT snapshot_date FROM gate_official LIMIT 1")?
         .query_map([], |row| row.get::<_, Option<String>>(0))?

@@ -1,15 +1,17 @@
--- The parcel matching gate (root ADR-0113 §7) over one cadastral edition, as DuckDB tables. It was
--- `parcel_matching_gate.check_parcels` and `parcel_registry_frames.current_ids` (Spark joins).
+-- The parcel matching gate (root ADR-0113 §7) over one 시도 of a cadastral edition, as DuckDB tables.
+-- It was `parcel_matching_gate.check_parcels` and `parcel_registry_frames.current_ids` (Spark joins).
+-- The module runs it once per 시도 and collects each run (collect.sql): the checks of one parcel never
+-- reach another 시도, except an id two parcels share, which the module checks over every run's ids.
 --
--- Input: gate_edition_source(pnu): the edition's current rows of silver.parcel_boundaries;
--- gate_sido(prefix): the 시도 checked; gate_official(region_cd, status): the newest snapshot of the code
+-- Input: gate_edition_source(pnu): the edition's current rows of silver.parcel_boundaries, of this
+-- 시도; gate_sido(prefix): this 시도; gate_official(region_cd, status): the newest snapshot of the code
 -- list; gate_admin(canonical_code): the served administrative boundaries; gate_registry(pnu, parcel_id,
--- status, valid_from, valid_to): the registry as of the edition (empty when check (b) does not run);
--- renumbering(src, dst): legal_dong_code_change_stage's 1:1 renumberings into the existing codes.
+-- status, valid_from, valid_to): the registry as of the edition, of this 시도 (empty when check (b)
+-- does not run); renumbering(src, dst): legal_dong_code_change_stage's 1:1 renumberings into the
+-- existing codes.
 --
--- A well-shaped PNU (19 digits) is held as a UBIGINT: forty million of them fit the gold half's 2 GiB
--- unit, where the strings do not. The width is fixed, so the number orders as the text did and
--- lpad(n, 19, '0') gives the text back.
+-- A well-shaped PNU (19 digits) is held as a UBIGINT, smaller than its text. The width is fixed, so the
+-- number orders as the text did and lpad(n, 19, '0') gives the text back.
 
 -- One scan of the edition: every distinct PNU once, as a number when well shaped, as text otherwise,
 -- and one row for a NULL PNU (Spark's distinct counts it; it reaches no check).
@@ -65,7 +67,8 @@ WHERE (listed OR dst IS NOT NULL)
 CREATE OR REPLACE TEMP TABLE gate_registry_rows AS
 SELECT CAST(pnu AS UBIGINT) AS n, parcel_id, status,
        coalesce(nullif(valid_from, ''), valid_to, '') AS k
-FROM gate_registry WHERE regexp_full_match(pnu, '[0-9]{19}');
+FROM gate_registry
+WHERE regexp_full_match(pnu, '[0-9]{19}') AND substr(pnu, 1, 2) IN (SELECT prefix FROM gate_sido);
 
 -- Two hash aggregates rather than a window, as they spill within the unit: the newest key of each PNU's
 -- `current` rows, then the greatest id among its rows at that key (max skips a NULL id, as the order's
@@ -90,6 +93,3 @@ SELECT w.n, c.parcel_id FROM gate_well w LEFT JOIN gate_current c USING (n);
 
 CREATE OR REPLACE TEMP TABLE gate_no_current AS
 SELECT n FROM gate_held WHERE parcel_id IS NULL;
-
-CREATE OR REPLACE TEMP TABLE gate_shared_id AS
-SELECT parcel_id FROM gate_held WHERE parcel_id IS NOT NULL GROUP BY parcel_id HAVING count(*) > 1;
