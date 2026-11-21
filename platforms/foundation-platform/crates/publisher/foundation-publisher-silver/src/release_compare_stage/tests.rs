@@ -256,6 +256,8 @@ fn handoff_line(pnu: Option<&str>, zone: &str, release: &str) -> anyhow::Result<
             "pnu" => pnu.map_or(serde_json::Value::Null, Into::into),
             "zone_code" => zone.into(),
             "source_snapshot_id" => release.into(),
+            // The form the HUB exports wrote until 2026-11-21, on one row: the same instant.
+            "ingested_at_utc" if zone == "b1" => "2099-01-01T00:00:00.829434156+00:00".into(),
             "ingested_at_utc" => "2099-01-01T00:00:00Z".into(),
             "row_state" => serde_json::Value::Null,
             _ => "x".into(),
@@ -308,12 +310,22 @@ fn a_release_is_copied_from_its_handoffs_and_checked_before_it_is_compared() -> 
     assert_eq!(copy_release(&stage, contract, &urls, &copy)?, 3);
     assert!(!copy.with_extension("partial").exists());
     let release = release_relation(&copy)?;
-    let instant: i64 = stage.connection().query_row(
-        &format!("SELECT epoch_us(max(ingested_at_utc)) // 1000000 FROM {release}"),
+    let instant: (i64, i64) = stage.connection().query_row(
+        &format!(
+            "SELECT epoch_us(max(ingested_at_utc)) // 1000000, count(DISTINCT ingested_at_utc)              FROM {release}"
+        ),
         [],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
-    assert_eq!(instant, 4_070_908_800, "the instant is read as UTC");
+    assert_eq!(instant, (4_070_908_800, 1), "the instant is read as UTC");
+    // Planted: an instant in another zone is not read as if it were UTC.
+    let mut line: serde_json::Value =
+        serde_json::from_str(&handoff_line(Some("9999910100100010000"), "a1", "e2")?)?;
+    line["ingested_at_utc"] = "2099-01-01T00:00:00+09:00".into();
+    let other = work.join("c.jsonl.gz");
+    gzip(&[line.to_string()], &other)?;
+    let other = other.to_string_lossy().replace('\\', "/");
+    assert!(copy_release(&stage, contract, &[other], &work.join("other.parquet")).is_err());
     assert_eq!(check_release(&stage, contract, &release, "e2", Some(3))?, 3);
     // Planted: another count than the export said, another release's rows, no row at all.
     assert!(check_release(&stage, contract, &release, "e2", Some(4)).is_err());

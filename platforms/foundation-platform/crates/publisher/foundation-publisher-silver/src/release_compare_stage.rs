@@ -708,9 +708,11 @@ fn typed(name: &str, logical_type: &str) -> anyhow::Result<String> {
         // A list of text is read as one (`read_type`): a JSON array, its nulls kept.
         "string" | "array<string>" => name.to_owned(),
         // No time zone database is loaded in the stage (no ICU): the instant is UTC text, read
-        // as a plain timestamp and counted in microseconds. Any other form is refused.
+        // as a plain timestamp and counted to the second. Any other form is refused.
+        // A handoff already on R2 is read again by a retry, and the HUB exports wrote a fraction
+        // and `+00:00` until 2026-11-21: both are the same UTC instant, read to the second.
         "timestamp" => format!(
-            "CASE WHEN {name} IS NULL THEN NULL              WHEN regexp_full_match({name}, '[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}Z')              THEN to_timestamp(epoch_us(CAST(replace(replace({name}, 'T', ' '), 'Z', '') AS TIMESTAMP)) // 1000000)              ELSE error('{name} is not an instant like 2099-01-01T00:00:00Z: ' || {name}) END AS {name}"
+            "CASE WHEN {name} IS NULL THEN NULL              WHEN regexp_full_match({name}, '[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}([.][0-9]+)?(Z|[+]00:00)')              THEN to_timestamp(epoch_us(CAST(replace(substr({name}, 1, 19), 'T', ' ') AS TIMESTAMP)) // 1000000)              ELSE error('{name} is not an instant like 2099-01-01T00:00:00Z: ' || {name}) END AS {name}"
         ),
         "date" => format!("CAST({name} AS DATE) AS {name}"),
         "int" => format!("CAST({name} AS INTEGER) AS {name}"),
