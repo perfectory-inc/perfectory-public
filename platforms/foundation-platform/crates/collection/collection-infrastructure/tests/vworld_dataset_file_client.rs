@@ -55,6 +55,7 @@ fn parser_extracts_file_identity_and_download_kind_from_provider_detail_html() -
     let selector = VWorldDatasetFileInventorySelector {
         svc_cde: "MK".to_owned(),
         ds_id: "30563".to_owned(),
+        listed_from: None,
     };
 
     let page = parse_vworld_dataset_file_inventory_page(&selector, &html)?;
@@ -118,6 +119,7 @@ fn parser_keeps_provider_500mb_class_file_as_single_resource() -> TestResult {
     let selector = VWorldDatasetFileInventorySelector {
         svc_cde: "NA".to_owned(),
         ds_id: "14".to_owned(),
+        listed_from: None,
     };
 
     let page = parse_vworld_dataset_file_inventory_page(&selector, &html)?;
@@ -158,6 +160,7 @@ fn parser_preserves_provider_download_dataset_id_when_it_differs_from_detail_ds_
     let selector = VWorldDatasetFileInventorySelector {
         svc_cde: "NA".to_owned(),
         ds_id: "4".to_owned(),
+        listed_from: None,
     };
 
     let page = parse_vworld_dataset_file_inventory_page(&selector, &html)?;
@@ -227,12 +230,57 @@ async fn client_fetches_every_provider_file_inventory_page() -> TestResult {
         .fetch_dataset_file_inventory(&VWorldDatasetFileInventorySelector {
             svc_cde: "MK".to_owned(),
             ds_id: "30563".to_owned(),
+            listed_from: None,
         })
         .await?;
 
     assert_eq!(files.len(), 2);
     assert_eq!(files[0].file_no, "9101");
     assert_eq!(files[1].file_no, "9103");
+    Ok(())
+}
+
+#[tokio::test]
+async fn client_asks_the_listing_window_the_catalog_names() -> TestResult {
+    // An NA dataset's page lists the last year unless asked: NA/23 gave 542 of 4,468 files (2026-11-21).
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/dtmk/dtmk_ntads_s002.do"))
+        .and(query_param("svcCde", "NA"))
+        .and(query_param("dsId", "9923"))
+        .and(query_param("startDate", "2000-01-01"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(provider_detail_page_html(
+            r#"
+            <li>
+                <div class="check only"><input type="checkbox" id="chkDs" name="chkDs" value="9201"><label for="chkDs">select</label></div>
+                <div class="item row"><div class="less"><div class="format"><span class="shp">SHP</span></div><div class="tit min">old.zip</div></div><div class="txt"><span>size<em>1</em>MB</span><span>kind<em>change</em></span><span>base<em>2099-01-01</em></span><span>updated<em>2099-01-02</em></span></div></div>
+                <div class="btns"><button type="button" onClick="listFnc.download('20991231DS99995', '9201', '1000' );">download</button></div>
+            </li>
+            "#,
+            1,
+            1,
+            1,
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = VWorldDatasetFileClient::new(&VWorldDatasetFileConfig {
+        base_uri: server.uri(),
+        user_agent: "foundation-platform-test/1.0".to_owned(),
+        page_size: 100,
+        cookie_header: None,
+    })?;
+    let files = client
+        .fetch_dataset_file_inventory(&VWorldDatasetFileInventorySelector {
+            svc_cde: "NA".to_owned(),
+            ds_id: "9923".to_owned(),
+            listed_from: Some("2000-01-01".to_owned()),
+        })
+        .await?;
+
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].file_no, "9201");
     Ok(())
 }
 
@@ -581,6 +629,7 @@ async fn client_retries_transient_inventory_failures_until_success() -> TestResu
         .fetch_dataset_file_inventory(&VWorldDatasetFileInventorySelector {
             svc_cde: "MK".to_owned(),
             ds_id: "30563".to_owned(),
+            listed_from: None,
         })
         .await?;
 

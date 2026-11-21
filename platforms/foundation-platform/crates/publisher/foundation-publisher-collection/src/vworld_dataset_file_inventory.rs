@@ -46,6 +46,7 @@ pub async fn run() -> Result<()> {
             .fetch_dataset_file_inventory(&VWorldDatasetFileInventorySelector {
                 svc_cde: job.svc_cde.clone(),
                 ds_id: job.ds_id.clone(),
+                listed_from: job.listed_from.clone(),
             })
             .await
             .with_context(|| {
@@ -316,6 +317,9 @@ struct VWorldDatasetCollectionPlanJob {
     /// keep the old meaning.
     #[serde(default = "expected_counts_known_by_default")]
     expected_counts_known: bool,
+    /// The first 기준일 the listing asks for (the plan's `listed_from`).
+    #[serde(default)]
+    listed_from: Option<String>,
 }
 
 const fn expected_counts_known_by_default() -> bool {

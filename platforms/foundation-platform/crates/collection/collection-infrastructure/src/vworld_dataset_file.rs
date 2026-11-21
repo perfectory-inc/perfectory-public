@@ -62,6 +62,9 @@ pub struct VWorldDatasetFileInventorySelector {
     pub svc_cde: String,
     /// `VWorld` dataset id.
     pub ds_id: String,
+    /// The first 기준일 (`YYYY-MM-DD`) the listing asks for, through today. `None` is the page's own
+    /// window: an `NA` dataset lists the last year only (NA/23 on 2026-11-21: 542 of 4,468 files).
+    pub listed_from: Option<String>,
 }
 
 /// Download path kind implied by the official `VWorld` page script.
@@ -729,6 +732,17 @@ impl VWorldDatasetFileClient {
             .append_pair("dsId", selector.ds_id.as_str())
             .append_pair("datPageIndex", &page_index.to_string())
             .append_pair("datPageSize", &self.page_size.to_string());
+        if let Some(listed_from) = &selector.listed_from {
+            url.query_pairs_mut()
+                .append_pair("startDate", listed_from)
+                .append_pair(
+                    "endDate",
+                    &chrono::Utc::now()
+                        .date_naive()
+                        .format("%Y-%m-%d")
+                        .to_string(),
+                );
+        }
         let ctx = ResilienceCtx {
             breaker: None,
             policy: &VWORLD_FILE,

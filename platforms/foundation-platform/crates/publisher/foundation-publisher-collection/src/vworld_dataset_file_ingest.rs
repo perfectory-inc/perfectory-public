@@ -1342,9 +1342,6 @@ fn select_inventory_files(
             {
                 continue;
             }
-            if selected.len() >= file_limit {
-                return Ok(selected);
-            }
             let identity = (
                 job.source_slug.clone(),
                 job.operation.clone(),
@@ -1364,6 +1361,11 @@ fn select_inventory_files(
             });
         }
     }
+    // Newest provider update first, across every dataset, then the run's cap: a dataset's whole
+    // history (NA/23 listed 3,811 files, 384 GB on 2026-11-21) drains behind every dataset's new
+    // files instead of in front of the datasets after it in source order.
+    selected.sort_by(|left, right| right.file.updated_at.cmp(&left.file.updated_at));
+    selected.truncate(file_limit);
     Ok(selected)
 }
 

@@ -445,6 +445,40 @@ fn selected_files_share_their_job_instead_of_copying_it() -> TestResult {
 }
 
 #[test]
+fn every_datasets_newest_files_come_before_any_datasets_history() -> TestResult {
+    let mut history = test_job();
+    history.source_slug = "vworldkr__a_history".to_owned();
+    let mut old_file = test_inventory_file("30017", "20991231DS99994", "9001", "2016-02");
+    old_file.updated_at = "2016-02-26".to_owned();
+    let mut new_file = test_inventory_file("30017", "20991231DS99994", "9002", "2026-11");
+    new_file.updated_at = "2026-11-20".to_owned();
+    history.files = vec![old_file, new_file];
+    let mut later = test_job();
+    later.source_slug = "vworldkr__b_later".to_owned();
+    let mut later_file = test_inventory_file("30017", "20991231DS99994", "9003", "2026-11");
+    later_file.updated_at = "2026-11-19".to_owned();
+    later.files = vec![later_file];
+
+    let selected = select_inventory_files(&[history.clone(), later.clone()], None, None, false)?;
+    let order = selected
+        .iter()
+        .map(|file| file.file.file_no.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(order, ["9002", "9003", "9001"]);
+
+    // The run's cap keeps the newest, not the first in source order.
+    let capped = select_inventory_files(&[history, later], None, Some(2), false)?;
+    assert_eq!(
+        capped
+            .iter()
+            .map(|file| file.file.file_no.as_str())
+            .collect::<Vec<_>>(),
+        ["9002", "9003"]
+    );
+    Ok(())
+}
+
+#[test]
 fn select_inventory_files_can_exclude_selection_archives() -> TestResult {
     let mut job = test_job();
     let single = test_inventory_file("30017", "20991231DS99994", "9007", "2026-05");

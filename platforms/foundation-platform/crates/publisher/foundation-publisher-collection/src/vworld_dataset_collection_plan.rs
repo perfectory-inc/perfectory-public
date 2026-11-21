@@ -129,6 +129,7 @@ fn compile_vworld_dataset_collection_plan(
             continue;
         };
         let operation = endpoint.operation.clone();
+        let listed_from = selector.listed_from.clone();
         let plan_endpoint = endpoint.into_plan_endpoint(selector, base_uri, terms_url);
         let inventory = match &summary {
             Some(summary) => summary.clone(),
@@ -138,7 +139,7 @@ fn compile_vworld_dataset_collection_plan(
             Ok(plan) => jobs.extend(
                 plan.jobs
                     .into_iter()
-                    .map(|job| job_report(job, summary.is_some())),
+                    .map(|job| job_report(job, summary.is_some(), listed_from.clone())),
             ),
             Err(error) => blockers.push(error.to_string()),
         }
@@ -297,6 +298,8 @@ struct VWorldDatasetCollectionJobReport {
     /// Whether `file_count`/`large_file_count` come from a provider summary; when false they are
     /// zero and say nothing.
     pub expected_counts_known: bool,
+    /// The first 기준일 the inventory asks the provider for; `None` is the page's own window.
+    pub listed_from: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -357,6 +360,9 @@ impl EndpointCatalogEntry {
 struct EndpointCatalogDatasetSelector {
     svc_cde: String,
     ds_id: String,
+    /// The first 기준일 the provider listing is asked for (the catalog's `listed_from`).
+    #[serde(default)]
+    listed_from: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -367,6 +373,7 @@ struct EndpointCatalogBronze {
 fn job_report(
     job: collection_application::VWorldDatasetCollectionJob,
     expected_counts_known: bool,
+    listed_from: Option<String>,
 ) -> VWorldDatasetCollectionJobReport {
     VWorldDatasetCollectionJobReport {
         endpoint_slug: job.endpoint_slug,
@@ -384,6 +391,7 @@ fn job_report(
         large_file_count: job.large_file_count,
         listed_gib: job.listed_gib,
         expected_counts_known,
+        listed_from,
     }
 }
 
