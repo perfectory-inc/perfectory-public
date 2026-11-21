@@ -75,6 +75,13 @@ def own_lane_bakes():
     return sorted({job["id"] for lane in index["lanes"] for job in lane["bake_jobs"]} - {"by_pnu_serving_bake"})
 
 
+def publisher_gold_builds(jobs):
+    """The Gold builds the publisher runs (a table of appended row versions, root ADR-0564 §3), read from
+    the job list by their unit: a new lane's build joins every count below by itself."""
+    return sorted(job["id"] for job in jobs["jobs"]
+                  if (job.get("systemd_service") or "").startswith("foundation-gold-versions@"))
+
+
 def real_inputs():
     return (
         json.loads(job_specs.JOBS.read_text(encoding="utf-8")),
@@ -404,20 +411,22 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # (2 slots, 115 + 30; root ADR-0361) and every other lane's own bake; the bound reads no
         # takes_turns, so they count though they do not take turns. Each lane bake counts once at its own
         # hold, read from the job list for the lanes the index names (no count of lanes is written here).
-        # The parcel-nearby Gold the publisher builds (2 slots, 60 + 5; root ADR-0567) counts the same way.
+        # Each Gold the publisher builds (2 slots, 60 + 5: parcel-nearby, root ADR-0567, and the lanes
+        # the takeover path adds, ADR-0564 §6) counts the same way, read from the job list.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
         lane_bakes = [job for job in spark if job["id"] in own_lane_bakes()]
         self.assertEqual({job["id"] for job in lane_bakes}, set(own_lane_bakes()), "every lane bake is in the spark pool")
-        nearby = next(job for job in spark if job["id"] == "gold_parcel_nearby_rebuild")
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260 + 45 + job_specs.hold_minutes(nearby)
+        builds = [job for job in spark if job["id"] in publisher_gold_builds(jobs)]
+        self.assertIn("gold_parcel_nearby_rebuild", {job["id"] for job in builds})
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260 + 45
+                         + sum(job_specs.hold_minutes(job) for job in builds)
                          + sum(job_specs.hold_minutes(job) for job in lane_bakes))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
-                                         "by_pnu_serving_bake", "gold_parcel_nearby_rebuild",
-                                         "rt_molit_real_transaction_silver",
-                                         *own_lane_bakes()})
+                                         "by_pnu_serving_bake", "rt_molit_real_transaction_silver",
+                                         *publisher_gold_builds(jobs), *own_lane_bakes()})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
@@ -728,10 +737,10 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         cycles = job_specs.cycle_minutes(jobs, graph)
         for job_id in [*ALL_LANES, "gold_panel_rebuild", "by_pnu_serving_bake"]:
             self.assertEqual(cycles[job_id], 60, job_id)
-        # ... and their waits, counted in those cycles, starve (the bound did not move): every lane
-        # and the Gold rebuild may wait past 20 hourly runs.
+        # ... and the Gold rebuild's wait, counted in those cycles, starves (the bound did not move): it
+        # may wait past 20 hourly runs. The lanes hold no pool slot, so they wait for none.
         problems = job_specs.pool_starvation(jobs, graph)
-        for job_id in [LANES[0], LAND_LANES[0], "gold_panel_rebuild"]:
+        for job_id in ["gold_panel_rebuild"]:
             waits = [int(problem.split()[3]) for problem in problems if problem.startswith(f"{job_id} may wait ")]
             self.assertEqual(len(waits), 1, problems)
             self.assertGreater(waits[0], job_specs.STARVATION_CYCLES * 60)
@@ -742,7 +751,25 @@ class JobsStartedByTheirInputs(unittest.TestCase):
 
 
 class TheSilverLanesInTheSparkPool(unittest.TestCase):
-    """Five lanes of all three slots fit only because a lighter, as-wide job never jumps ahead."""
+    """The Silver lanes left the spark pool when their load left Spark (root ADR-0599): no lane holds
+    a spark slot, so none makes a fold wait and none waits for a Spark job."""
+
+    def test_no_lane_takes_a_spark_slot_and_each_claims_its_own_unit(self):
+        # One at a time in the one-slot claim pool, queued there instead of bounced off the lane lock
+        # (a `waiting` run is a run: the lane would lose its day), each admitted against the host's
+        # free memory by a claim on its own unit.
+        jobs = real_inputs()[0]
+        self.assertFalse({entry["id"] for entry in self.spark(jobs)} & set(ALL_LANES))
+        self.assertEqual(job_specs.declared_pools(jobs)["documents"], 1)
+        for lane in ALL_LANES:
+            entry = job(jobs, lane)
+            self.assertEqual((entry["pool"], job_specs.pool_slots(entry)), ("documents", 1), lane)
+            self.assertEqual(entry["memory_claim"], {"units": [entry["systemd_service"]]}, lane)
+        # Planted: a claimed unit name that is no service name.
+        broken = copy.deepcopy(jobs)
+        job(broken, ALL_LANES[0])["memory_claim"] = {"units": ["foundation-silver-refresh@.service"]}
+        with self.assertRaises(job_specs.JobListError):
+            job_specs.memory_claims(broken)
 
     def spark(self, jobs):
         return [entry for entry in jobs["jobs"] if entry["pool"] == "spark"]
@@ -761,32 +788,7 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5))
         self.assertLess(wait, job_specs.STARVATION_CYCLES * 60)
         self.assertFalse(set(ALL_LANES) & set(blockers))
-        # Counted the way the bound counted before root ADR-0171, the five lanes would add up.
-        self.assertEqual(wait + 5 * 160, 1835)
 
-    def test_a_lane_that_holds_its_slots_past_the_folds_room_starves_the_folds(self):
-        # The fold's bound has 430 minutes of room for whatever holds the pool when its turn comes
-        # (1,200 less FLOOR's 505 and the other fold's 265).
-        jobs = copy.deepcopy(real_inputs()[0])
-        job(jobs, LANES[2])["stop_grace_minutes"] = 435 - job(jobs, LANES[2])["time_limit_minutes"]
-        problems = job_specs.pool_starvation(jobs)
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1205 minutes")
-                            and LANES[2] in problem for problem in problems), problems)
-        jobs = copy.deepcopy(real_inputs()[0])
-        job(jobs, LANES[0])["retries"] = 2  # each retry holds the slots again: 3 x 160 + 2 x 5
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1260 minutes")
-                            for problem in job_specs.pool_starvation(jobs)))
-
-    def test_lanes_weighted_above_the_folds_starve_them(self):
-        # Heavier, every lane may start ahead of a waiting fold: five of them, then lineage.
-        jobs = copy.deepcopy(real_inputs()[0])
-        for lane in LANES:
-            job(jobs, lane)["priority_weight"] = 60
-        wait, blockers = self.wait(jobs, "map_edit_fold_admin")
-        self.assertEqual(wait, 1035 + 5 * 160)
-        self.assertLessEqual(set(LANES), set(blockers))
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1835 minutes")
-                            for problem in job_specs.pool_starvation(jobs)))
 
     def test_the_bound_is_the_one_every_group_of_running_jobs_gives(self):
         # The search stops at groups of `slots` jobs (2026-10-19: enumerating every size was 2^n, and
@@ -837,11 +839,11 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         # (1 slot, 60 + 30; root ADR-0333).
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "building_register_floor")
-        for job_id in ("by_pnu_serving_bake", "rt_molit_real_transaction_silver",
-                       "gold_parcel_nearby_rebuild", *own_lane_bakes()):
+        builds = publisher_gold_builds(jobs)
+        for job_id in ("by_pnu_serving_bake", "rt_molit_real_transaction_silver", *builds, *own_lane_bakes()):
             self.assertIn(job_id, blockers)
         by_id = {job["id"]: job for job in jobs["jobs"]}
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 45 + job_specs.hold_minutes(by_id["gold_parcel_nearby_rebuild"])
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 45 + sum(job_specs.hold_minutes(by_id[job_id]) for job_id in builds)
                          + sum(job_specs.hold_minutes(by_id[job_id]) for job_id in own_lane_bakes()))
 
     def test_the_real_list_fits(self):

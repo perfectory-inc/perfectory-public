@@ -68,5 +68,15 @@ for attempt in 1 2 3 4 5; do
   sleep "$wait_seconds"
 done
 rustup default "$channel"
+# The pinned toolchain is the only one left. Swatinem/rust-cache hashes every installed toolchain
+# into its key (v2.9.0, Swatinem/rust-cache#293), and the runner image's own `stable` changes when
+# GitHub rolls out a new image: on 2026-11-18 runners with stable 1.99.1 and 1.100.0 saved the
+# gongzzang dependency cache under two keys (2 x 1,108 MB), and the repository passed its cache cap.
+rustup toolchain list --quiet | awk '{print $1}' | while read -r toolchain; do
+  case "$toolchain" in
+    "$channel"-*) ;;
+    *) rustup toolchain uninstall "$toolchain" ;;
+  esac
+done
 rustc --version
 cargo --version

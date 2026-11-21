@@ -42,6 +42,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 # The lanes' work (staged ZIPs of gigabytes, the handoff, Spark's spill) is on the data disk, which
 # the release creates (foundation-release.sh timers); the unit names it in ReadWritePaths.
 export FOUNDATION_PLATFORM_SILVER_REFRESH_STATE_ROOT="${FOUNDATION_PLATFORM_SILVER_REFRESH_STATE_ROOT:-/data/foundation-platform/silver-refresh}"
+# DuckDB 로 싣는 레인(루트 ADR-0599)의 판 사본·임시 파일·준비 파일은 SSD 에 둔다. /data 는 느린 디스크다.
+export FOUNDATION_PLATFORM_SILVER_REFRESH_DUCKDB_ROOT="${FOUNDATION_PLATFORM_SILVER_REFRESH_DUCKDB_ROOT:-/var/lib/foundation-platform/silver-refresh-duckdb}"
 # The hub exports compose PNUs through the legal-dong pairing's 시군구 projection, which
 # lineage_stewardship writes here (root ADR-0143 §5, docs/runbooks/legal-dong-code-changes.md §2).
 export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION="${FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION:-/var/lib/foundation-platform/legal-dong-code/sigungu-crosswalk.projection.json}"

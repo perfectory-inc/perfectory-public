@@ -748,9 +748,9 @@ class QueuedStarts(unittest.TestCase):
             with self.subTest(**case):
                 self.assertEqual(self.owed(record, now=T0 + 300, **case)[0], [])
         wait = next(line for line in metrics if line.startswith("foundation_job_queue_wait_seconds{"))
-        self.assertIn(f'job="{self.JOB}",pool="spark",priority_class="default"', wait)
+        self.assertIn(f'job="{self.JOB}",pool="documents",priority_class="default"', wait)
         self.assertTrue(wait.endswith(" 7200"))
-        self.assertIn(f'foundation_job_queue_wait_budget_seconds{{job="{self.JOB}",pool="spark",priority_class="default"}} 21600',
+        self.assertIn(f'foundation_job_queue_wait_budget_seconds{{job="{self.JOB}",pool="documents",priority_class="default"}} 21600',
                       metrics)
 
     def test_the_backoff_doubles_to_an_hour(self):
@@ -763,7 +763,8 @@ class QueuedStarts(unittest.TestCase):
         self.assertIn("parcel_registry", spec.requeues)
         self.assertFalse(set(spec.requeues) & set(spec.reconciles))
         self.assertFalse([job["id"] for job in self.jobs["jobs"]
-                          if job["id"] in spec.requeues and (not job["enabled"] or job["pool"] != "spark")])
+                          if job["id"] in spec.requeues
+                          and (not job["enabled"] or job["pool"] not in ("spark", "documents"))])
 
     def test_the_wait_alert_compares_each_job_to_its_budget(self):
         rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
@@ -803,7 +804,8 @@ class CapacityClaims(unittest.TestCase):
         self.assertIn("foundation-gold-panel-rebuild-unconditional.service", patterns)
         self.assertIn("foundation-*-pack-bake-g*.service", patterns)
         self.assertIn("foundation-zoning-tile-bake.service", patterns, "a spark-pool job it waits for")
-        self.assertIn("foundation-silver-refresh@*.service", patterns)
+        # A Silver lane starts no Spark and holds no spark slot (root ADR-0599): not the claim's work.
+        self.assertNotIn("foundation-silver-refresh@*.service", patterns)
 
     def test_a_claim_with_no_work_running_reads_zero_and_alerts(self):
         metrics = asset_reconcile.claim_metrics(T0, self.jobs, [self.claim()], lambda patterns: {})

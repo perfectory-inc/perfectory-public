@@ -72,6 +72,8 @@ pub struct LaneState {
 /// The pack lane, as the manifest's `section_packs` block and the bucket's listing state it.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct PackLaneState {
+    /// The Gold table the packs were baked from; a takeover's switch moves it (root ADR-0564 §6).
+    gold_table: String,
     reflected_gold_iceberg_snapshot_id: String,
     /// The document schema the base generation was baked under.
     document_schema_version: String,
@@ -112,6 +114,10 @@ pub struct PublishedState {
     /// The base's document schema; read from its first object when a v1 manifest did not say.
     /// `None` only when the base holds no object at all.
     document_schema_version: Option<String>,
+    /// The Gold table the served state was baked from. When a lane's table is taken over by
+    /// another (root ADR-0564 §6) it differs from the lane's `gold_table`, and only a full bake
+    /// of the new one can follow: no change set spans two tables.
+    gold_table: String,
     gold_iceberg_snapshot_id: String,
     reflected_gold_iceberg_snapshot_id: String,
     patch_count: usize,
@@ -233,6 +239,7 @@ pub async fn read_state(
             base_generation: manifest.base_generation,
             base_object_count: manifest.base_object_count,
             document_schema_version: served_schema,
+            gold_table: manifest.gold_table.clone(),
             gold_iceberg_snapshot_id: manifest.gold_iceberg_snapshot_id.clone(),
             reflected_gold_iceberg_snapshot_id: manifest.reflected_gold_iceberg_snapshot_id.clone(),
             patch_count: manifest.patches.len(),
@@ -277,6 +284,7 @@ async fn pack_lane_state(
         .min()
         .unwrap_or(0);
     Ok(PackLaneState {
+        gold_table: packs.gold_table.clone(),
         reflected_gold_iceberg_snapshot_id: packs.reflected_gold_iceberg_snapshot_id.clone(),
         document_schema_version: packs.document_schema_version.clone(),
         newest_document_schema_version: packs.newest_document_schema_version().to_owned(),
@@ -397,6 +405,8 @@ mod tests {
         assert_eq!(value["published"]["manifest_schema_version"], 1);
         assert_eq!(value["published"]["base_generation"], 3);
         assert_eq!(value["published"]["document_schema_version"], "older.v0");
+        // The table the served state was baked from, as the manifest names it.
+        assert_eq!(value["published"]["gold_table"], "gold.building_panel");
         assert_eq!(
             value["published"]["reflected_gold_iceberg_snapshot_id"],
             "999990000000000001"
@@ -467,9 +477,13 @@ mod tests {
         std::fs::create_dir_all(root.join(&key).parent().context("a parent")?)?;
         std::fs::write(root.join(&key), b"pack")?;
 
+        let packs_table = manifest["section_packs"]["gold_table"].clone();
         let state = read_state(&store, Some("999990000000000002".to_owned())).await?;
         std::fs::remove_dir_all(&root)?;
         let value = serde_json::to_value(&state)?["section_packs"].clone();
+        // The table the packs were baked from, which a takeover's switch compares (ADR-0564 §6).
+        assert!(packs_table.is_string());
+        assert_eq!(value["gold_table"], packs_table);
         assert_eq!(
             value["reflected_gold_iceberg_snapshot_id"],
             "999990000000000001"

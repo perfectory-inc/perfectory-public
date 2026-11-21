@@ -20,6 +20,7 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
+use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
 use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     duckdb_extensions,
@@ -36,6 +37,7 @@ use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::{json, Value};
 
 use crate::{
+    by_pnu_gateway_contract::ByPnuLane,
     gold_versions_commit::{
         self as versions, Commit, CODE_VERSION_PROPERTY, CURRENT_RECORDS_PROPERTY,
         FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, RECORDED_EXPLANATION_PROPERTY,
@@ -46,6 +48,8 @@ use crate::{
 
 /// The table this command writes.
 pub(crate) const TABLE: &str = "gold.parcel_nearby_versions";
+/// Its by-PNU lane, whose served Gold says whether this run is a shadow (root ADR-0564 §6).
+const LANE: &str = "parcel-nearby";
 /// The table whose columns it carries (never created: root ADR-0564 §1).
 const REPLACED: &str = "gold.parcel_nearby";
 const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY";
@@ -55,14 +59,14 @@ const REBUILD_CONTRACT: &str =
     include_str!("../../../infra/lakehouse/contracts/gold-panel-rebuild.contract.json");
 /// Above this share of the current rows changed in one commit the run stops, unless the code or
 /// the served edition moved, which explains a change of any size (root ADR-0346, ADR-0564 §3-4).
-const MAX_CHANGED_KEY_FRACTION: f64 = 0.5;
+pub(crate) const MAX_CHANGED_KEY_FRACTION: f64 = 0.5;
 /// The document field a store-only commit may change, and nothing else (root ADR-0596).
 const STORE_COUNT_FIELD: &str = "commercial_store_count";
 /// The share of the memory left that the buffer manager takes; the rest is `DuckDB`'s own
 /// structures and the commit's uploads (W81b measured a 5.01 GiB peak at a 5 GB limit).
-const MEMORY_SHARE: (u64, u64) = (3, 5);
+pub(crate) const MEMORY_SHARE: (u64, u64) = (3, 5);
 
-fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
+pub(crate) fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
     industrial_complex_lakehouse_contracts()
         .iter()
         .find(|contract| contract.table_name == table)
@@ -71,7 +75,7 @@ fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
 
 /// The bound a by-PNU kind's Gold may lose rows by (`gold-panel-rebuild.contract.json`
 /// `kind_tables.max_row_loss_fraction`, the kinds' one value).
-fn max_row_loss_fraction() -> anyhow::Result<f64> {
+pub(crate) fn max_row_loss_fraction() -> anyhow::Result<f64> {
     let contract: Value = serde_json::from_str(REBUILD_CONTRACT)?;
     contract["kind_tables"]["max_row_loss_fraction"]
         .as_f64()
@@ -79,7 +83,7 @@ fn max_row_loss_fraction() -> anyhow::Result<f64> {
 }
 
 /// The served parcel edition's `silver.parcel_boundaries.source_snapshot_id`.
-fn served_edition() -> anyhow::Result<String> {
+pub(crate) fn served_edition() -> anyhow::Result<String> {
     let view = vworld_parcel_source_contract::served_edition_view(PARCEL_SOURCE_CONTRACT)?;
     let contract: Value = serde_json::from_str(PARCEL_SOURCE_CONTRACT)?;
     let prefix = contract["snapshot_id_prefix"]
@@ -91,7 +95,7 @@ fn served_edition() -> anyhow::Result<String> {
     Ok(format!("{prefix}{edition}"))
 }
 
-fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
+pub(crate) fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
     let catalog = LakehouseCatalogConfig::from_env()
         .context("failed to configure the lakehouse catalog for the nearby build")?;
     let storage = R2ObjectStorageConfig::from_env()
@@ -109,17 +113,7 @@ fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
     })
 }
 
-async fn head_of(catalog: &IcebergRestCatalog, table: &str) -> anyhow::Result<i64> {
-    catalog
-        .load_main_snapshot_history(table)
-        .await?
-        .with_context(|| format!("{table} does not exist"))?
-        .first()
-        .map(|snapshot| snapshot.snapshot_id)
-        .with_context(|| format!("{table} holds no snapshot"))
-}
-
-fn write_summary(path: &str, summary: &Value) -> anyhow::Result<()> {
+pub(crate) fn write_summary(path: &str, summary: &Value) -> anyhow::Result<()> {
     std::fs::write(path, serde_json::to_vec_pretty(summary)?)
         .with_context(|| format!("cannot write {path}"))
 }
@@ -223,11 +217,24 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .with_context(|| format!("{TABLE} does not exist after its creation"))?;
     let base = versions::base(&history)?;
     let head = history.first().map(|snapshot| snapshot.snapshot_id);
-    let mut pins = BTreeMap::new();
-    for input in inputs() {
-        pins.insert(input.to_owned(), head_of(&catalog, input).await?);
-    }
-    let edition = served_edition()?;
+    let lane =
+        ByPnuLane::named(LANE)?.with_context(|| format!("the contract names no {LANE} lane"))?;
+    let versions::Planned {
+        pins,
+        served_edition: edition,
+        shadow,
+    } = versions::planned_inputs(
+        &catalog,
+        TABLE,
+        by_pnu_serving_manifest_publish::gold_table(lane),
+        &inputs(),
+        served_edition()?,
+    )
+    .await?;
+    // A shadow names the replaced table's build it was built from (root ADR-0564 §6).
+    let shadow_build = shadow
+        .as_ref()
+        .map(|shadow| json!({"table": shadow.replaced, "build": shadow.build}));
     let code = code_version();
     if let Some(base) = &base {
         versions::pin(&catalog, TABLE, base.snapshot_id, &base.pins).await?;
@@ -243,7 +250,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     if unchanged {
         let summary = json!({
             "job": "build-parcel-nearby-versions", "engine": "duckdb", "table": TABLE,
-            "outcome": "unchanged", "pins": pins, "served_edition": edition,
+            "outcome": "unchanged", "pins": pins, "served_edition": edition, "shadow_of": shadow_build,
             "seconds": started.elapsed().as_secs_f64(),
         });
         write_summary(&summary_path, &summary)?;
@@ -445,7 +452,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         "job": "build-parcel-nearby-versions", "engine": "duckdb", "table": TABLE,
         "outcome": "committed", "created_table": created, "snapshot_id": snapshot,
         "parent_snapshot_id": head, "version_seq": version_seq, "run": run,
-        "pins": pins, "moved": moved, "served_edition": edition, "code_version": code,
+        "pins": pins, "moved": moved, "served_edition": edition, "shadow_of": shadow_build, "code_version": code,
         "every_sido": every_sido, "sidos": sidos, "seconds_by_sido": seconds_by_sido,
         "recorded_explanation": recorded_explanation,
         "inputs": read, "diff": diff, "current_records": current_records,

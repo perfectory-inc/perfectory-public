@@ -47,3 +47,4 @@ pub mod runtime_environment;
 pub mod schema_registry;
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod test_support;
+pub mod wkb_polygons;

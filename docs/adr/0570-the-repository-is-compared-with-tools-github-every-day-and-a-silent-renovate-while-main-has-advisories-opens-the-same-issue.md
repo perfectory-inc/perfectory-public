@@ -54,6 +54,16 @@
    이슈 열기·같은 발견은 쓰지 않음(CRLF 본문)·바뀐 발견은 고치고 댓글·깨끗하면 닫기·읽지 못함과 결과 없음은 그대로·이슈를
    못 써도 빨강, 신호 하나를 못 읽어도 다른 발견은 남음.
 
+6. **2026-11-21 개정(W83e): 이슈가 아니라 잡의 결론과 Slack 이다.** 4 의 이슈는 이것으로 대체된다. 저장소의 이슈는 꺼
+   둔 채로 두고 `tools/github/repository-settings.json` 도 `has_issues: false` 다(ADR-0554 5).
+   - `repository_drift.py report` 가 잡의 판정이다. 깨끗하면 초록이다. 발견이 있으면 실패하면서 `repository-drift-count`
+     주석과 발견마다 `repository-drift` 주석을 남긴다(단계마다 error 주석 10개 한도라 9개까지). 읽지 못함이나 결과 없음은
+     개수 주석 없이 실패하고, 그것은 판정이 아니다.
+   - 호스트의 서비스 점검이 main 위의 가장 새 판정을 `repository` 부분에 읽는다. 읽는 길은 main-health 와 같은 부품이다
+     (`REPORTS`). 그다음 foundation-api 의 `foundation_repository_drift{finding}` 과 `FoundationRepositoryDrift`(ticket)를
+     거쳐 Slack `#alerts` 로 간다. 판정 없이 이틀이면 `FoundationRepositoryDriftUnreadable` 이다.
+   - 이 파일의 `issues: write` 는 없어졌다. conftest 는 이제 어떤 워크플로의 `issues: write` 도 거부한다.
+
 실패가 막는 사고: 정본은 맞는데 실물이 다른 채 몇 주가 지나는 일(위 표의 넷 — 특히 Renovate 4주 침묵과, 병합된 ADR-0552 가
 실물에 없던 6일).
 

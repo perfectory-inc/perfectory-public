@@ -1,8 +1,9 @@
 """The parcel id registry's first registration and its regions' place-id release
 (scripts/ops/parcel-registry-cycle.sh, root ADR-0243, ADR-0481) on a fake docker.
 
-The Spark stand-in answers the probes with the regions the registry lacks and the regions whose
-release is stale, and records each region's bootstrap and release. The real script reads the served edition and its date from the release's source contract. The
+The publisher stand-in answers the registry's probes with the regions the registry lacks and records each
+region's step (probe-parcel-registry, load-parcel-registry: DuckDB inside the publisher, root ADR-0559); the Spark
+stand-in answers the release's probe with the regions whose release is stale and records each region's release. The real script reads the served edition and its date from the release's source contract. The
 release layout is the host's (root ADR-0134). Region codes are synthetic.
 """
 
@@ -32,13 +33,39 @@ with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"job": pathlib.Path(script).name, "args": job_args,
                           "service": args[args.index("spark-submit") - 1],
                           "memory": submit[submit.index("--driver-memory") + 1]}) + "\n")
-if "--probe-missing" in job_args:
-    print("parcel-registry-probe " + json.dumps({"to_snapshot_id": "x", "missing": json.loads(os.environ["FAKE_MISSING"])}))
-elif "--probe-advance" in job_args:
-    print("parcel-registry-advance-probe " + json.dumps({"to_snapshot_id": "x", "waiting": json.loads(os.environ.get("FAKE_ADVANCE", "[]"))}))
-elif "--probe-stale" in job_args:
+if "--probe-stale" in job_args:
     print("place-id-parcel-probe " + json.dumps({"stale": json.loads(os.environ.get("FAKE_STALE", "[]"))}))
 elif os.environ.get("FAKE_FAIL_REGION") and os.environ["FAKE_FAIL_REGION"] in job_args:
+    sys.exit("refusing to register")
+'''
+
+# The publisher's registry commands, recorded beside the Spark calls. What the script passes in
+# FOUNDATION_PLATFORM_PARCEL_REGISTRY_* is written as the flags it names, so a test reads one call shape.
+FAKE_PUBLISHER = r'''#!/usr/bin/env python3
+import json, os, sys
+if len(sys.argv) < 2 or sys.argv[1] not in ("probe-parcel-registry", "load-parcel-registry"):
+    sys.exit(0)
+prefix = "FOUNDATION_PLATFORM_PARCEL_REGISTRY_"
+given = {k[len(prefix):]: v for k, v in os.environ.items() if k.startswith(prefix)}
+assert given.get("STAGE_DIR"), given
+args = []
+for name, flag in (("TO_SNAPSHOT_ID", "--to-snapshot-id"), ("FROM_SNAPSHOT_ID", "--from-snapshot-id"), ("TO_SIDO", "--to-sido"),
+                   ("FROM_SIDO", "--from-sido"), ("TO_DATE", "--to-date")):
+    if name in given:
+        args += [flag, given[name]]
+if given.get("BOOTSTRAP") == "1":
+    args.append("--bootstrap")
+if given.get("ALLOW_NON_SERVED_EDITION") == "1":
+    args.append("--allow-non-served-edition")
+if "PROBE" in given:
+    args.append("--probe-" + given["PROBE"])
+with open(os.environ["FAKE_LOG"], "a") as log:
+    log.write(json.dumps({"job": sys.argv[1], "args": args, "service": "publisher", "memory": None}) + "\n")
+if given.get("PROBE") == "missing":
+    print("parcel-registry-probe " + json.dumps({"to_snapshot_id": "x", "missing": json.loads(os.environ["FAKE_MISSING"])}))
+elif given.get("PROBE") == "advance":
+    print("parcel-registry-advance-probe " + json.dumps({"to_snapshot_id": "x", "waiting": json.loads(os.environ.get("FAKE_ADVANCE", "[]"))}))
+elif os.environ.get("FAKE_FAIL_REGION") and os.environ["FAKE_FAIL_REGION"] in args:
     sys.exit("refusing to register")
 '''
 
@@ -60,7 +87,7 @@ class ParcelRegistryCycle(unittest.TestCase):
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
         publisher = artifacts / "foundation-outbox-publisher"
-        publisher.write_text("#!/bin/sh\n")
+        publisher.write_text(FAKE_PUBLISHER)
         publisher.chmod(0o555)
         (artifacts / "build.json").write_text(json.dumps({
             "source": RELEASE_ID, "publisher_image": "sha256:" + "a" * 64, "tippecanoe_image": "sha256:" + "d" * 64,
@@ -90,7 +117,7 @@ class ParcelRegistryCycle(unittest.TestCase):
         result, calls = self.run_job([["98", 10], ["99", 20]])
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("--probe-missing", calls[0]["args"])
-        boots = [c for c in calls[1:] if c["job"] == "parcel_registry_to_silver.py"]
+        boots = [c for c in calls[1:] if c["job"] == "load-parcel-registry"]
         self.assertEqual([c["args"][c["args"].index("--to-sido") + 1] for c in boots], ["98", "99"])
         cli = [sys.executable, str(PLATFORM / "infra/lakehouse/spark/jobs/vworld_parcel_editions.py")]
         served = subprocess.run([*cli, "served"], capture_output=True, text=True, check=True).stdout.strip()
@@ -98,10 +125,10 @@ class ParcelRegistryCycle(unittest.TestCase):
                               check=True).stdout.strip()[:10]
         for call in boots:
             self.assertIn("--bootstrap", call["args"])
-            self.assertIn("--allow-non-smoke-write", call["args"])
             self.assertEqual(call["args"][call["args"].index("--to-date") + 1], date)
-        # The largest region needs the 20g Spark, not the small one.
-        self.assertEqual({(c["service"], c["memory"]) for c in calls}, {("spark", "16g")})
+        # The registry's probes and steps start no Spark; the release's probe does.
+        self.assertEqual({(c["service"], c["memory"]) for c in calls}, {("publisher", None), ("spark", "16g")})
+        self.assertEqual({c["service"] for c in calls if "parcel-registry" in c["job"]}, {"publisher"})
         lines = result.stdout.strip().splitlines()
         self.assertEqual(lines[-1], "foundation-job-outcome changed")
         self.assertIn("registered=98,99 remaining=0", lines[-2])
@@ -127,7 +154,7 @@ class ParcelRegistryCycle(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         probe = next(c["args"] for c in calls if "--probe-advance" in c["args"])
         self.assertEqual(probe[probe.index("--to-snapshot-id") + 1], target)
-        steps = [c["args"] for c in calls if c["job"] == "parcel_registry_to_silver.py" and "--to-sido" in c["args"]]
+        steps = [c["args"] for c in calls if c["job"] == "load-parcel-registry"]
         self.assertEqual([(a[a.index("--to-sido") + 1], a[a.index("--from-sido") + 1]) for a in steps],
                          [("98", "98"), ("95", "95,96,97")])
         date = subprocess.run([*cli, "valid-from", "--edition", candidate], capture_output=True, text=True,
@@ -160,7 +187,7 @@ class ParcelRegistryCycle(unittest.TestCase):
     def test_nothing_missing_and_nothing_stale_is_unchanged(self):
         result, calls = self.run_job([])
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual([c["job"] for c in calls], ["parcel_registry_to_silver.py", "place_id_release_to_gold.py"])
+        self.assertEqual([c["job"] for c in calls], ["probe-parcel-registry", "place_id_release_to_gold.py"])
         self.assertIn("--probe-stale", calls[1]["args"])
         self.assertIn("outcome=unchanged reason=all_registered_and_released", result.stdout)
 

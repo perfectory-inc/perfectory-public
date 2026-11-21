@@ -186,3 +186,7 @@ dbt 의 `unit_official_price` 독자는 같은 판이 두 번 조인되면(2026-
   표현하지 못한다. 그런 표에 키별 최신을 억지로 적으면 틀린 행을 고른다.
 - **표마다 Trino·Iceberg 뷰로 현재를 내보내기**: 정의가 계약 밖 SQL 로 한 벌 더 생긴다. Spark 의 핀(스냅숏 id)
   읽기와도 맞지 않는다.
+
+---
+
+2026-11-20 각주: 결정 3 이 `Editions.per` 의 예로 든 `silver.parcel_number_change_history` 는 더 이상 `Editions` 가 아니다. [ADR-0318](./0318-the-remaining-silver-lanes-append-their-changed-keys-compared-bucket-by-bucket.md) §8 부터 적재가 표에 없는 행만 붙이므로 판 하나가 전체 이력이 아니다. 계약은 `Events` 로 선언하고 모든 행을 읽는다(ADR-0318 의 2026-11-20 각주). 필수 열 `source_region_code` 는 그대로 남는다.

@@ -35,5 +35,13 @@
     "airflow-api": "http://127.0.0.1:19080/api/v2/monitor/health",
     "datahub-gms": "http://127.0.0.1:18095/health"
   },
-  "readiness_reason": "What the owner looks at after the move, besides every container that ran before running again and every container that was healthy before being healthy again."
+  "readiness_reason": "What the owner looks at after the move, besides every container that ran before running again and every container that was healthy before being healthy again.",
+  "duckdb_stage_reserve_bytes": 32212254720,
+  "duckdb_stage_reserve_reason": "The system disk (the SSD) holds the runtime Postgres's data directory (postgres_data) and the work of every DuckDB stage that loads a Silver release (release copy, spill, staged files; root ADR-0599). Before it copies a release, and again once the copy's size is known, a stage refuses unless the disk's free bytes, less its own spill ceiling and the bytes it expects to write, still leave this reserve: 30 GiB. A reserve, not a lower ceiling, because two stages can run at once on the disk and each sees only its own plan.",
+  "postgres_data": {
+    "path": "/var/lib/foundation-postgres/data",
+    "moved_marker": "/var/lib/foundation-postgres/moved",
+    "volume": "foundation-platform-runtime_pgdata",
+    "reason": "Root ADR-0598. The runtime Postgres's data directory (pg_default and its WAL, 0.78 GB measured 2026-11-20) lives on the system disk, the SSD (sdb), not with Docker on the spinning data disk (sda, ROTA=1). On 2026-11-20 that disk was saturated (I/O pressure full avg300 47.5%, iowait 7.1 cores) and the same staging database step took 17 s to over 300 s; the API's first connection did not open within 500 ms. The 112 GB parcel_bulk tablespace stays on the data disk (FOUNDATION_PLATFORM_POSTGRES_TABLESPACE_ROOT): the SSD has about 101 GB free. The deploy copies the volume here once (scripts/deploy/postgres-data-move.sh) and writes moved_marker after the copy checked; from then on every compose caller of the runtime project binds path (scripts/deploy/postgres-data-source.sh), and before it, the named volume. The volume stays as the fallback until a later cleanup removes it."
+  }
 }

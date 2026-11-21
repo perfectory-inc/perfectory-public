@@ -24,7 +24,6 @@ CHECKS = PLATFORM / "scripts/deploy/release_checks.py"
 DEPLOY = PLATFORM / "scripts/deploy/foundation-deploy.sh"
 JOB_UNITS = PLATFORM / "scripts/deploy/job_units.py"
 START_ONCE = PLATFORM / "scripts/deploy/deploy-start-once.sh"
-JOBS = PLATFORM / "orchestration/jobs.v1.json"
 CURRENT = "a" * 40
 HEAD = "b" * 40
 PREFLIGHT = PLATFORM / "scripts/deploy/migration-approval-preflight.py"
@@ -41,8 +40,6 @@ def version(migration):
 
 sys.path.insert(0, str(CHECKS.parent))
 import release_checks  # noqa: E402
-sys.path.insert(0, str(PLATFORM / "orchestration/dags"))
-import job_specs  # noqa: E402
 
 
 def bash_assignment(name, value):
@@ -370,17 +367,65 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertIn("was refused or failed before", again.stdout)
         self.assertEqual(self.deployed(), [])
 
-    def test_a_failed_deploy_is_reported_once_and_not_retried(self):
+    def test_a_failed_deploy_is_reported_once_and_not_retried_before_its_wait(self):
         first = self.tick(FIXTURE_DEPLOY_EXIT="1")
         self.assertEqual(first.returncode, 1)
         self.assertTrue((self.state / "failed" / HEAD).exists())
         again = self.tick()
         self.assertEqual(again.returncode, 0)
-        self.assertEqual(self.deployed(), [HEAD], "a failed commit was deployed a second time")
+        self.assertEqual(self.deployed(), [HEAD], "a failed commit was deployed again before its wait")
         # A newer commit on main is the way past it.
         newer = "c" * 40
         self.assertEqual(self.tick(head=newer).returncode, 0)
         self.assertEqual(self.deployed(), [HEAD, newer])
+
+    def age(self, sha, minutes):
+        path = self.state / "failed" / sha
+        when = time.time() - minutes * 60
+        os.utime(path, (when, when))
+
+    def pacing_says(self, key):
+        return json.loads(self.pacing.read_text())[key]
+
+    def test_a_failed_deploy_is_tried_again_after_its_wait_at_most_its_attempts(self):
+        # Root ADR-0597: 3 of 27 staging smokes of 11-19..20 went over the database step's limit on
+        # the host's shared disk, and the next run of each passed.
+        attempts, wait = self.pacing_says("deploy_attempts_per_commit"), self.pacing_says("retry_after_minutes")
+        for attempt in range(1, attempts + 1):
+            self.assertEqual(self.tick(FIXTURE_DEPLOY_EXIT="1").returncode, 1)
+            self.assertEqual(len((self.state / "failed" / HEAD).read_text().splitlines()), attempt)
+            self.age(HEAD, wait + 1)
+        self.assertEqual(self.deployed(), [HEAD] * attempts)
+        self.assertEqual(self.tick().returncode, 0)
+        self.assertEqual(self.deployed(), [HEAD] * attempts, "a commit is tried at most its attempts")
+
+    def test_a_retried_deploy_that_passes_is_deployed(self):
+        self.assertEqual(self.tick(FIXTURE_DEPLOY_EXIT="1").returncode, 1)
+        self.age(HEAD, self.pacing_says("retry_after_minutes") + 1)
+        self.assertEqual(self.tick().returncode, 0)
+        self.assertTrue((self.state / "deployed" / HEAD).exists())
+
+    def test_a_deploy_that_did_not_finish_after_the_release_link_moved_is_finished(self):
+        # 2026-11-20 10:28Z: step 4 of 46ad8d1e failed after the link named it; every later tick saw
+        # the host on that commit and the DAGs it held stayed paused until the next commit.
+        (self.state / "failed").mkdir(parents=True)
+        (self.state / "failed" / CURRENT).write_text("2026-11-20T10:28:48Z\n")
+        self.age(CURRENT, self.pacing_says("retry_after_minutes") + 1)
+        result = self.tick(head=CURRENT)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("did not finish; finishing it", result.stdout)
+        self.assertEqual(self.deployed(), [CURRENT])
+        self.assertTrue((self.state / "deployed" / CURRENT).exists())
+        self.assertEqual(self.tick(head=CURRENT).returncode, 0)
+        self.assertEqual(self.deployed(), [CURRENT], "a finished deploy is not run again")
+
+    def test_an_unfinished_deploy_waits_for_its_retry(self):
+        (self.state / "failed").mkdir(parents=True)
+        (self.state / "failed" / CURRENT).write_text("2026-11-20T10:28:48Z\n")
+        result = self.tick(head=CURRENT)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.deployed(), [])
+        self.assertIn('reason="retry_wait"', self.metrics.read_text())
 
     def test_the_off_switch_stops_everything(self):
         self.off.touch()
@@ -667,7 +712,9 @@ class TheWholeDeploy(unittest.TestCase):
             '[[ ! -f "$FIXTURE_ROOT/deploy-hold" ]] || cp "$FIXTURE_ROOT/deploy-hold" "$FIXTURE_ROOT/hold-at-$1"\n'
             # And what its metrics say then (root ADR-0321 §5).
             'cp "$FIXTURE_ROOT/metrics/deploy.prom" "$FIXTURE_ROOT/metrics-at-$1"\n'
-            '[[ "$1" != "${FIXTURE_FAIL_AT:-}" ]]\n')
+            # It fails at FIXTURE_FAIL_AT with FIXTURE_FAIL_STATUS (77: a migration itself failed,
+            # foundation-release.sh's schema_not_applied, root ADR-0597).
+            '[[ "$1" != "${FIXTURE_FAIL_AT:-}" ]] || exit "${FIXTURE_FAIL_STATUS:-1}"\n')
         (new / "foundation-release.sh").chmod(0o755)
         # The host's release admission: here it refuses what the real one refuses first after a root
         # import, bytecode in the release (its own tests cover the rest).
@@ -686,7 +733,8 @@ class TheWholeDeploy(unittest.TestCase):
         text = text.replace('[[ ${EUID} == 0 ]] || { echo "foundation-deploy: run as root" >&2; exit 64; }\n', "", 1)
         for name, value in (("host_conf", conf), ("release_root", release_root), ("control_root", control_root),
                             ("mirror", root / "var/control-source.git"), ("deploy_hold", root / "deploy-hold"),
-                            ("deploy_metrics", root / "metrics/deploy.prom")):
+                            ("deploy_metrics", root / "metrics/deploy.prom"),
+                            ("progress_dir", root / "deploy-progress")):
             line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
             text = text.replace(line, bash_assignment(name, value), 1)
         text = text.replace("mktemp /var/lib/perfectory/", f"mktemp {root.as_posix()}/var/")
@@ -851,7 +899,7 @@ class TheWholeDeploy(unittest.TestCase):
         # Deploy D5 (root ADR-0270 §3): nothing is held, so a deploy that then stops while migrating
         # leaves every enabled job running, and says only the held ones (none) stay paused.
         self.commit_tells_what_it_changes()
-        result = self.deploy(FIXTURE_FAIL_AT="migrate")
+        result = self.deploy(FIXTURE_FAIL_AT="migrate", FIXTURE_FAIL_STATUS="77")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("jobs the deploy holds until the release is live: none", result.stdout)
         self.assertIn(f"unpaused {len(self.ENABLED)} DAGs; held until the release is live: none", result.stdout)
@@ -864,7 +912,7 @@ class TheWholeDeploy(unittest.TestCase):
         # silver.building_register_floors: its writer is not on this fixture host; media_reconcile and
         # outbox_publish name no table in the graph, so they are held; the fold writes another table.
         self.commit_tells_what_it_changes("silver.building_register_floors")
-        result = self.deploy(FIXTURE_FAIL_AT="migrate")
+        result = self.deploy(FIXTURE_FAIL_AT="migrate", FIXTURE_FAIL_STATUS="77")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.dags(), {"map_edit_fold_admin": "unpause", "media_reconcile": "pause",
                                        "outbox_publish": "pause", "vworld_parcel_edition": "pause"})
@@ -1165,7 +1213,7 @@ class TheWholeDeploy(unittest.TestCase):
 
     def test_dags_a_deploy_that_fails_during_the_switch_leaves_paused_keep_their_series(self):
         self.commit_tells_what_it_changes("silver.building_register_floors")
-        self.assertNotEqual(self.deploy(FIXTURE_FAIL_AT="migrate").returncode, 0)
+        self.assertNotEqual(self.deploy(FIXTURE_FAIL_AT="migrate", FIXTURE_FAIL_STATUS="77").returncode, 0)
         self.assertEqual(list(self.series("metrics/deploy.prom")),
                          ['foundation_deploy_dags_paused_since_timestamp_seconds{scope="held"}'])
 
@@ -1287,7 +1335,7 @@ class TheWholeDeploy(unittest.TestCase):
         # The staging smoke runs on the installed release before anything of it is activated (root
         # ADR-0177); a smoke that passed lets the deploy go on to the switch.
         self.assertEqual(self.released(),
-                         ["prepare", "floor-config", "staging-smoke", "activate", "migrate", "timers", "status",
+                         ["prepare", "floor-config", "staging-smoke", "activate", "units", "migrate", "timers", "status",
                           "observability", "datahub", "trino"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
@@ -1339,60 +1387,80 @@ class TheWholeDeploy(unittest.TestCase):
                                        **{job: "pause" for job in self.DISABLED}})
         self.assertIn("stopped (exit 1) before the release switch", result.stderr)
 
-    def test_a_deploy_that_stops_during_the_switch_keeps_the_dags_paused_and_says_so(self):
-        result = self.deploy(FIXTURE_FAIL_AT="migrate")
+    def test_a_migration_that_fails_during_the_switch_keeps_the_dags_paused_and_says_so(self):
+        result = self.deploy(FIXTURE_FAIL_AT="migrate", FIXTURE_FAIL_STATUS="77")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.dags(), {job: "pause" for job in self.ENABLED + self.DISABLED},
-                         "jobs must not run on a release that is activated but not migrated")
+                         "jobs must not run on a release whose migration failed half-way")
         self.assertIn("THE HELD DAGS STAY PAUSED", result.stderr)
+
+    def test_a_switch_that_fails_with_its_schema_applied_gives_the_schedule_back(self):
+        # 2026-11-20 10:28Z (root ADR-0597): every migration of 46ad8d1e had run, then the API's
+        # first connection timed out under the host's disk load, `up --wait foundation-api` exited 1
+        # and the 13 held DAGs stayed paused until the next commit deployed.
+        result = self.deploy(FIXTURE_FAIL_AT="migrate")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
+        self.assertIn("its DAGs are unpaused again and the next tick finishes the deploy", result.stderr)
+        self.assertEqual(self.series("metrics/deploy.prom"), {})
+
+    def as_a_first_attempt_left_it(self):
+        """Step 1 of the first attempt moved the control checkout to the commit's own, which on the host
+        carries everything the trusted one did; the fixture's commit checkout gets what the deploy reads."""
+        control = self.root / "opt/perfectory-control/releases"
+        head, trusted = control / HEAD, control / ("d" * 40)
+        for relative in ("tools/github/repository-identity.json", "scripts/github/safe-git-transport.sh"):
+            (head / relative).parent.mkdir(parents=True, exist_ok=True)
+            (head / relative).write_bytes((trusted / relative).read_bytes())
+        admission = head / "scripts/deploy/foundation-release-admission.py"
+        admission.write_text(admission.read_text().replace(
+            '[[ "$1" == verify-current ]] || exit 64\n',
+            '[[ "$1" != running-jobs ]] || exit 0\n[[ "$1" == verify-current ]] || exit 64\n'))
+
+    def test_a_deploy_run_again_starts_at_the_step_that_failed(self):
+        self.assertNotEqual(self.deploy(FIXTURE_FAIL_AT="migrate").returncode, 0)
+        self.assertEqual(self.released(), ["prepare", "floor-config", "staging-smoke", "activate", "units", "migrate"])
+        (self.root / "release.log").unlink()
+        self.as_a_first_attempt_left_it()
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("finishing the deploy of", result.stdout)
+        self.assertNotIn("prepare", self.released(), "an attempt does not prepare, configure or smoke again")
+        self.assertNotIn("staging-smoke", self.released())
+        self.assertEqual(self.released()[:3], ["activate", "units", "migrate"])
+        self.assertIn("DONE: production runs", result.stdout)
+        self.assertEqual(list((self.root / "deploy-progress").iterdir()), [], "a finished deploy keeps no progress")
+
+    def test_a_retry_holds_what_the_first_attempt_held_after_the_release_link_moved(self):
+        # The link names the new release after step 4 moved it; the replaced one is the progress's.
+        self.commit_tells_what_it_changes("silver.building_register_floors")
+        self.assertNotEqual(self.deploy(FIXTURE_FAIL_AT="migrate", FIXTURE_FAIL_STATUS="77").returncode, 0)
+        progress = (self.root / "deploy-progress" / HEAD).read_text().splitlines()
+        self.assertEqual(progress[0], "old " + "c" * 40)
+        self.assertIn("done 3b", progress)
+        (self.root / "airflow.log").unlink()
+        self.as_a_first_attempt_left_it()
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("pause foundation_media_reconcile", (self.root / "airflow.log").read_text())
+
+    def test_a_retry_after_the_schedule_came_back_pauses_nothing(self):
+        self.assertNotEqual(self.deploy(FIXTURE_FAIL_AT="datahub").returncode, 0)
+        (self.root / "airflow.log").unlink()
+        (self.root / "release.log").unlink()
+        self.as_a_first_attempt_left_it()
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.released(), ["datahub", "trino"])
+        log = self.root / "airflow.log"
+        self.assertNotIn("dags pause", log.read_text() if log.exists() else "", "nothing is paused again")
 
     def test_a_dag_that_cannot_be_unpaused_fails_the_deploy_loudly(self):
         result = self.deploy(FIXTURE_AIRFLOW_FAILS="unpause foundation_outbox_publish")
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("DONE: production runs", result.stdout)
         self.assertIn("DAGS MAY STILL BE PAUSED", result.stderr)
-
-
-class TheJobsADeployStartsOnce(unittest.TestCase):
-    def test_they_are_enabled_and_carry_the_limit_the_deploy_waits_for(self):
-        jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
-        once = [job for job in jobs if job.get("started_once_after_deploy")]
-        self.assertTrue(once, "a deploy that starts nothing proves nothing about the new release")
-        for job in once:
-            with self.subTest(job["id"]):
-                self.assertTrue(job["enabled"], "a disabled job is never started by the deploy")
-                # foundation-deploy.sh waits each one's own limit for one start.
-                self.assertGreater(job_specs.run_limit_minutes(job), job["time_limit_minutes"])
-
-    def test_the_deploy_waits_the_limit_job_specs_gives_each_start(self):
-        # foundation-deploy.sh adds time_limit_minutes and stop_grace_minutes itself (the release it
-        # reads from may not carry job_specs); it must add them as job_specs does (root ADR-0270 §1).
-        # The deploy starts the unit itself, so the start never waits: a run's limit, not the scheduler's.
-        script = (PLATFORM / "scripts/deploy/foundation-deploy.sh").read_text(encoding="utf-8")
-        program = script.split("jobs_of() {\n", 1)[1].split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
-        waited = subprocess.run([sys.executable, "-c", program, "started-once", str(JOBS)],
-                                capture_output=True, text=True, check=True).stdout.split()
-        jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
-        expected = []
-        for job in jobs:
-            if job["enabled"] and job.get("started_once_after_deploy"):
-                expected += [job["systemd_service"], str(job_specs.run_limit_minutes(job)), job["id"]]
-        self.assertTrue(expected)
-        self.assertEqual(waited, expected)
-
-    def test_systemd_never_stops_a_deploy_halfway(self):
-        jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
-        once = sum(job_specs.run_limit_minutes(job) + 1 for job in jobs if job.get("started_once_after_deploy"))
-        unit = (PLATFORM / "infra/systemd/foundation-autodeploy.service").read_text()
-        limit = next(line for line in unit.splitlines() if line.startswith("TimeoutStartSec="))
-        hours = int(limit.removeprefix("TimeoutStartSec=").removesuffix("h"))
-        # The staging smoke's own bound (root ADR-0177), read where foundation-release.sh reads it.
-        smoke = json.loads((PLATFORM / "config/staging-gate.contract.json").read_text(encoding="utf-8"))
-        smoke_minutes = -(-smoke["unit_limit_seconds"] // 60)
-        # 5h waiting for running jobs, the staging smoke, an hour to build and migrate, then the
-        # started jobs.
-        self.assertGreaterEqual(hours * 60, 5 * 60 + smoke_minutes + 60 + once,
-                                "a deploy can outlive its unit's limit")
 
 
 if __name__ == "__main__":

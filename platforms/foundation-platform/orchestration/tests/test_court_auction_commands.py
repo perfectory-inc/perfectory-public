@@ -48,6 +48,12 @@ if sys.argv[1] == "collect-courtauction-go-kr":
         sys.exit(1)
     print("foundation-job-outcome changed")
     sys.exit(0)
+if sys.argv[1] == "load-courtauction-go-kr-silver":
+    root = os.environ["FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT"]
+    with open(os.path.join(state, "duckdb.log"), "a", encoding="utf-8") as log:
+        log.write(" ".join(sorted(os.listdir(root))) + "\n")
+    print('courtauction-go-kr-duckdb-summary-json {"engine": "duckdb"}')
+    sys.exit(0)
 assert sys.argv[1] == "plan-silver-load-objects", sys.argv
 prefix = "FOUNDATION_PLATFORM_SILVER_LOAD_"
 table, slug = os.environ[prefix + "TABLE"], os.environ[prefix + "SOURCE_SLUGS"]
@@ -195,8 +201,11 @@ class CourtAuctionCommands(unittest.TestCase):
         # document table, so a new document table is filled from the window's objects (root ADR-0540).
         # The 공통코드 objects are planned against the code table (root ADR-0540 §5).
         # The 사건 문서 objects are planned against their read record, one plan per document (root ADR-0540 §3).
-        self.assertEqual(plans, ["items", "results", "details", "documents", "codes", "cases", "surveys", "appraisals",
-                                 "filings", "tenants", "reports", "specs", "notices", "dividends"])
+        self.assertEqual(plans, ["items", "results", "details", "documents", "cases", "surveys", "appraisals",
+                                 "filings", "tenants", "notices"])
+        # The 공통코드, 감정평가서, 매각물건명세서 and 배당요구종기공고 left Spark: the publisher loads their
+        # plans in DuckDB, before Spark loads the rest (root ADR-0559).
+        self.assertEqual((self.fake / "duckdb.log").read_text().splitlines()[-1], "codes dividends reports specs")
 
 
 if __name__ == "__main__":

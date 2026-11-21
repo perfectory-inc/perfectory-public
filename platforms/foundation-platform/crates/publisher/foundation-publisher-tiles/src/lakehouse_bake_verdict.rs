@@ -2,7 +2,7 @@
 //!
 //! A v2 served summary names the `silver.parcel_boundaries` snapshot its Gold was built from. The
 //! bake binds its new revision to that snapshot only with the ADR-0113 §7 verdict
-//! `parcel_matching_gate.py` wrote for the same snapshot, and only when it passed and checked every
+//! the matching gate (`run-parcel-matching-gate`) wrote for the same snapshot, and only when it passed and checked every
 //! parcel of it. This reads that verdict before the build is started; the build-row guard in the
 //! database refuses the same things, so a caller that skips this still cannot start the build.
 
@@ -12,7 +12,7 @@ use sha2::{Digest as _, Sha256};
 
 /// Path of the verdict JSON for the snapshot a v2 summary names.
 pub const MATCHING_VERDICT_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_MATCHING_VERDICT";
-/// The verdict schema `parcel_matching_gate.py` writes and the build-row guard reads.
+/// The verdict schema the matching gate writes and the build-row guard reads.
 pub const MATCHING_VERDICT_SCHEMA: &str = "foundation-platform.parcel_matching_verdict.v1";
 
 /// The Silver source to bind for a summary naming `source_snapshot_id`, or `None` for a v1 summary.

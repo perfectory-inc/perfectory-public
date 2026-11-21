@@ -56,6 +56,7 @@ mod canonical_release_proof;
 mod code_go_kr_legal_dong_collect;
 #[cfg(unix)]
 mod courtauction_go_kr_collect;
+mod courtauction_silver_load;
 mod data_go_kr_file_data_collect;
 mod data_go_kr_file_data_silver_load;
 mod data_go_kr_onbid_collect;
@@ -106,6 +107,7 @@ mod handoff_object_support;
 mod juso_electronic_map_base;
 mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
+mod gold_takeover_sides;
 mod gold_versions_change_set;
 mod gold_versions_commit;
 mod industrial_complex_notice_silver_load;
@@ -113,7 +115,9 @@ mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
 mod parcel_lineage_derive;
+mod parcel_matching_gate;
 mod parcel_nearby_versions_build;
+mod parcel_register_masters_versions_build;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;
@@ -160,7 +164,11 @@ use foundation_publisher_tiles::static_release_toolchain;
 use foundation_publisher_tiles::tile_derivative_object_storage;
 mod audit_digest;
 mod audit_import;
+mod intelligence_documents_load;
 mod legal_dong_code_snapshot_load;
+mod legal_dong_pairing_load;
+mod parcel_number_change_history_load;
+mod parcel_registry_load;
 mod real_estate_broker_lookup_load;
 mod registered_factory_silver_load;
 mod unit_official_price_projection_load;
@@ -186,8 +194,15 @@ enum Command {
     LoadDataGoKrFileDataSilver,
     LoadRegisteredFactorySilver,
     LoadLegalDongCodeSnapshot,
+    ProbeParcelRegistry,
+    LoadParcelRegistry,
+    LoadParcelNumberChangeHistory,
+    ExportLegalDongPairingInputs,
+    AppendLegalDongCodeChanges,
+    IntelligenceDocuments,
     CollectRtMolitRealTransaction,
     CollectCourtauctionGoKr,
+    LoadCourtauctionGoKrSilver,
     CollectDataGoKrFileData,
     CollectJusoElectronicMap,
     PlanSilverLoadObjects,
@@ -283,7 +298,12 @@ enum Command {
     DeriveParcelLineage,
     LoadIndustrialComplexNoticeSilver,
     BuildParcelNearbyVersions,
+    RunParcelMatchingGate,
+    BuildParcelRegisterMastersVersions,
     ExportGoldVersionsChangeSet,
+    ExportGoldTakeoverSides,
+    ShowGoldTakeoverSwitch,
+    QueryTakeoverSides,
     ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -391,6 +411,15 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::LoadRegisteredFactorySilver => Box::pin(registered_factory_silver_load::run()),
         Command::LoadLegalDongCodeSnapshot => Box::pin(legal_dong_code_snapshot_load::run()),
+        Command::ProbeParcelRegistry => Box::pin(parcel_registry_load::probe()),
+        Command::LoadParcelRegistry => Box::pin(parcel_registry_load::run()),
+        Command::LoadParcelNumberChangeHistory => {
+            Box::pin(parcel_number_change_history_load::run())
+        }
+        Command::ExportLegalDongPairingInputs => Box::pin(legal_dong_pairing_load::export()),
+        Command::AppendLegalDongCodeChanges => Box::pin(legal_dong_pairing_load::append_changes()),
+        Command::IntelligenceDocuments => Box::pin(intelligence_documents_load::run()),
+        Command::LoadCourtauctionGoKrSilver => Box::pin(courtauction_silver_load::run()),
         Command::CollectRtMolitRealTransaction => {
             Box::pin(rt_molit_real_transaction_collect::run())
         }
@@ -620,7 +649,14 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(industrial_complex_notice_silver_load::run())
         }
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
+        Command::RunParcelMatchingGate => Box::pin(parcel_matching_gate::run()),
+        Command::BuildParcelRegisterMastersVersions => {
+            Box::pin(parcel_register_masters_versions_build::run())
+        }
         Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
+        Command::ExportGoldTakeoverSides => Box::pin(gold_takeover_sides::export()),
+        Command::ShowGoldTakeoverSwitch => Box::pin(gold_takeover_sides::switch()),
+        Command::QueryTakeoverSides => Box::pin(async { gold_takeover_sides::query() }),
         Command::ExportLegalDongStewardDecisions => {
             Box::pin(lineage_steward_fold::export_legal_dong())
         }
@@ -784,7 +820,14 @@ where
             Ok(Command::LoadIndustrialComplexNoticeSilver)
         }
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
+        Some("run-parcel-matching-gate") => Ok(Command::RunParcelMatchingGate),
+        Some("build-parcel-register-masters-versions") => {
+            Ok(Command::BuildParcelRegisterMastersVersions)
+        }
         Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
+        Some("export-gold-takeover-sides") => Ok(Command::ExportGoldTakeoverSides),
+        Some("show-gold-takeover-switch") => Ok(Command::ShowGoldTakeoverSwitch),
+        Some("query-takeover-sides") => Ok(Command::QueryTakeoverSides),
         Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
@@ -821,8 +864,15 @@ where
         Some("load-data-go-kr-file-data-silver") => Ok(Command::LoadDataGoKrFileDataSilver),
         Some("load-registered-factory-silver") => Ok(Command::LoadRegisteredFactorySilver),
         Some("load-legal-dong-code-snapshot") => Ok(Command::LoadLegalDongCodeSnapshot),
+        Some("probe-parcel-registry") => Ok(Command::ProbeParcelRegistry),
+        Some("load-parcel-registry") => Ok(Command::LoadParcelRegistry),
+        Some("load-parcel-number-change-history") => Ok(Command::LoadParcelNumberChangeHistory),
+        Some("export-legal-dong-pairing-inputs") => Ok(Command::ExportLegalDongPairingInputs),
+        Some("append-legal-dong-code-changes") => Ok(Command::AppendLegalDongCodeChanges),
+        Some("intelligence-documents") => Ok(Command::IntelligenceDocuments),
         Some("collect-rt-molit-real-transaction") => Ok(Command::CollectRtMolitRealTransaction),
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
+        Some("load-courtauction-go-kr-silver") => Ok(Command::LoadCourtauctionGoKrSilver),
         Some("collect-data-go-kr-file-data") => Ok(Command::CollectDataGoKrFileData),
         Some("collect-juso-electronic-map") => Ok(Command::CollectJusoElectronicMap),
         Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),

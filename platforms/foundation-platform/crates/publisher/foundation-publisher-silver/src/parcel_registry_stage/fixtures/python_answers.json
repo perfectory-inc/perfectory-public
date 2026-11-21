@@ -1,0 +1,772 @@
+{
+ "ids": [
+  [
+   "9999910100100010000",
+   "2099-06-01",
+   "65e256b9-f884-50d3-9713-73700a188af0"
+  ],
+  [
+   "9999910100100010000",
+   "2099-09-01",
+   "bb524602-c042-579c-bb46-e80c1e49f86a"
+  ],
+  [
+   "9999920100100090000",
+   "2099-09-01",
+   "112c2399-768b-5994-998f-fd17869727e6"
+  ]
+ ],
+ "registry": [
+  [
+   "65e256b9-f884-50d3-9713-73700a188af0",
+   "9999910100100010000",
+   "current",
+   "2099-06-01",
+   null,
+   null
+  ],
+  [
+   "735f5fb2-0f7f-5580-bc88-c04ac24a5c8b",
+   "9999910100100020000",
+   "current",
+   "2099-06-01",
+   null,
+   null
+  ],
+  [
+   "a2a3ade3-ec43-5874-8e2b-66fd2f4839f3",
+   "9999910100100030000",
+   "current",
+   "2099-06-01",
+   null,
+   null
+  ],
+  [
+   "82671fc9-9c47-5377-b69c-b5242e1ff5ae",
+   "9999910100100040000",
+   "current",
+   "2099-06-01",
+   null,
+   null
+  ],
+  [
+   "bba04788-bea4-5d19-9012-2f7daa9b28f4",
+   "9999910100100050000",
+   "current",
+   "2099-06-01",
+   null,
+   null
+  ],
+  [
+   "be22f4f0-137b-5f59-936e-ff9f6b05cd9a",
+   "9999910100100060000",
+   "current",
+   "2099-06-01",
+   null,
+   null
+  ],
+  [
+   "29f9517a-dce1-5643-9ec2-889522246f40",
+   "9999910100100070000",
+   "current",
+   "2099-06-01",
+   null,
+   null
+  ],
+  [
+   "4df7b17a-c877-5b8e-8c30-2718866e495c",
+   "9999930100100010000",
+   "current",
+   "2099-06-01",
+   null,
+   null
+  ]
+ ],
+ "after": [
+  "9999920100100010000",
+  "9999920100100020000",
+  "9999920100100030000",
+  "9999920100100040000",
+  "9999920100100050000",
+  "9999920100100060000",
+  "9999910100100070000",
+  "9999920100100090000"
+ ],
+ "links": [
+  [
+   "9999910100100010000",
+   "9999920100100010000",
+   "code_change",
+   "code_derived",
+   "t"
+  ],
+  [
+   "9999910100100020000",
+   "9999920100100020000",
+   "code_change",
+   "code_derived",
+   "t"
+  ],
+  [
+   "9999910100100030000",
+   "9999920100100030000",
+   "code_change",
+   "code_derived",
+   "t"
+  ],
+  [
+   "9999910100100040000",
+   "9999920100100040000",
+   "jurisdiction_transfer",
+   "evidence_weak",
+   "t"
+  ],
+  [
+   "9999910100100050000",
+   "9999920100100050000",
+   "registration_conversion",
+   "official",
+   "t"
+  ],
+  [
+   "9999910100100050000",
+   "9999920100100060000",
+   "registration_conversion",
+   "official",
+   "t"
+  ]
+ ],
+ "advance": {
+  "rows": [
+   [
+    "65e256b9-f884-50d3-9713-73700a188af0",
+    "9999910100100010000",
+    "historic",
+    null,
+    "2099-09-01",
+    null
+   ],
+   [
+    "65e256b9-f884-50d3-9713-73700a188af0",
+    "9999920100100010000",
+    "current",
+    "2099-09-01",
+    null,
+    null
+   ],
+   [
+    "735f5fb2-0f7f-5580-bc88-c04ac24a5c8b",
+    "9999910100100020000",
+    "historic",
+    null,
+    "2099-09-01",
+    null
+   ],
+   [
+    "735f5fb2-0f7f-5580-bc88-c04ac24a5c8b",
+    "9999920100100020000",
+    "current",
+    "2099-09-01",
+    null,
+    null
+   ],
+   [
+    "a2a3ade3-ec43-5874-8e2b-66fd2f4839f3",
+    "9999910100100030000",
+    "historic",
+    null,
+    "2099-09-01",
+    null
+   ],
+   [
+    "a2a3ade3-ec43-5874-8e2b-66fd2f4839f3",
+    "9999920100100030000",
+    "current",
+    "2099-09-01",
+    null,
+    null
+   ],
+   [
+    "d68c31ee-5743-5951-a7d0-3a767e77fa42",
+    "9999920100100040000",
+    "current",
+    "2099-09-01",
+    null,
+    null
+   ],
+   [
+    "a42a42c7-3a73-5ec9-995c-ba6ad9d4bfd0",
+    "9999920100100050000",
+    "current",
+    "2099-09-01",
+    null,
+    null
+   ],
+   [
+    "72d6f840-3b4e-5aac-b624-adb6d3769fd3",
+    "9999920100100060000",
+    "current",
+    "2099-09-01",
+    null,
+    null
+   ],
+   [
+    "112c2399-768b-5994-998f-fd17869727e6",
+    "9999920100100090000",
+    "current",
+    "2099-09-01",
+    null,
+    null
+   ],
+   [
+    "82671fc9-9c47-5377-b69c-b5242e1ff5ae",
+    "9999910100100040000",
+    "historic",
+    null,
+    "2099-09-01",
+    null
+   ],
+   [
+    "bba04788-bea4-5d19-9012-2f7daa9b28f4",
+    "9999910100100050000",
+    "historic",
+    null,
+    "2099-09-01",
+    null
+   ],
+   [
+    "be22f4f0-137b-5f59-936e-ff9f6b05cd9a",
+    "9999910100100060000",
+    "historic",
+    null,
+    "2099-09-01",
+    null
+   ],
+   [
+    "4df7b17a-c877-5b8e-8c30-2718866e495c",
+    "9999930100100010000",
+    "historic",
+    null,
+    "2099-09-01",
+    null
+   ]
+  ],
+  "counts": [
+   1,
+   3,
+   4,
+   4,
+   0
+  ]
+ },
+ "advanced_fold": {
+  "current": [
+   [
+    "9999910100100070000",
+    "29f9517a-dce1-5643-9ec2-889522246f40"
+   ],
+   [
+    "9999920100100010000",
+    "65e256b9-f884-50d3-9713-73700a188af0"
+   ],
+   [
+    "9999920100100020000",
+    "735f5fb2-0f7f-5580-bc88-c04ac24a5c8b"
+   ],
+   [
+    "9999920100100030000",
+    "a2a3ade3-ec43-5874-8e2b-66fd2f4839f3"
+   ],
+   [
+    "9999920100100040000",
+    "d68c31ee-5743-5951-a7d0-3a767e77fa42"
+   ],
+   [
+    "9999920100100050000",
+    "a42a42c7-3a73-5ec9-995c-ba6ad9d4bfd0"
+   ],
+   [
+    "9999920100100060000",
+    "72d6f840-3b4e-5aac-b624-adb6d3769fd3"
+   ],
+   [
+    "9999920100100090000",
+    "112c2399-768b-5994-998f-fd17869727e6"
+   ]
+  ],
+  "closed": [
+   [
+    "9999910100100010000",
+    "65e256b9-f884-50d3-9713-73700a188af0"
+   ],
+   [
+    "9999910100100020000",
+    "735f5fb2-0f7f-5580-bc88-c04ac24a5c8b"
+   ],
+   [
+    "9999910100100030000",
+    "a2a3ade3-ec43-5874-8e2b-66fd2f4839f3"
+   ],
+   [
+    "9999910100100040000",
+    "82671fc9-9c47-5377-b69c-b5242e1ff5ae"
+   ],
+   [
+    "9999910100100050000",
+    "bba04788-bea4-5d19-9012-2f7daa9b28f4"
+   ],
+   [
+    "9999910100100060000",
+    "be22f4f0-137b-5f59-936e-ff9f6b05cd9a"
+   ],
+   [
+    "9999930100100010000",
+    "4df7b17a-c877-5b8e-8c30-2718866e495c"
+   ]
+  ]
+ },
+ "stronger_links": [
+  [
+   "9999910100100040000",
+   "9999920100100040000",
+   "jurisdiction_transfer",
+   "official",
+   "t"
+  ],
+  [
+   "9999910100100010000",
+   "9999920100100010000",
+   "code_change",
+   "code_derived",
+   "t"
+  ],
+  [
+   "9999910100100020000",
+   "9999920100100020000",
+   "code_change",
+   "code_derived",
+   "t"
+  ],
+  [
+   "9999910100100030000",
+   "9999920100100030000",
+   "code_change",
+   "code_derived",
+   "t"
+  ]
+ ],
+ "upgrade": {
+  "rows": [
+   [
+    "d68c31ee-5743-5951-a7d0-3a767e77fa42",
+    "9999920100100040000",
+    "redirected",
+    "2099-10-01",
+    null,
+    "82671fc9-9c47-5377-b69c-b5242e1ff5ae"
+   ],
+   [
+    "82671fc9-9c47-5377-b69c-b5242e1ff5ae",
+    "9999920100100040000",
+    "current",
+    "2099-10-01",
+    null,
+    null
+   ]
+  ],
+  "redirected": 1
+ },
+ "groups": {
+  "links": [
+   [
+    "97",
+    "95"
+   ],
+   [
+    "96",
+    "95"
+   ]
+  ],
+  "to": [
+   "95",
+   "98"
+  ],
+  "from": [
+   "96",
+   "97",
+   "98"
+  ],
+  "expected": [
+   [
+    "95",
+    "95,96,97"
+   ],
+   [
+    "98",
+    "98"
+   ]
+  ]
+ },
+ "steward": [
+  {
+   "what": "a standing decision replaces the derived rows",
+   "rows": [
+    [
+     "9999910100100030000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category, ownership differs",
+     "a \"quoted\" ref\tand a tab",
+     "s1",
+     "s2"
+    ],
+    [
+     "9999910100100050000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category, ownership differs",
+     "",
+     "s1",
+     "s2"
+    ],
+    [
+     "9999910100100030000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "official",
+     "steward",
+     "{\"decision_id\": \"d-2099-10-01\", \"decided_at\": \"2099-10-01\", \"evidence_etag\": \"fdffb7f621ed2a15bdb9645b1c8fcb73b4ae30efbc37ee90d9e03372f249d1c4\"}",
+     "s1",
+     "s2"
+    ]
+   ],
+   "resolved": [
+    [
+     "9999910100100030000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "official",
+     "steward",
+     "{\"decision_id\": \"d-2099-10-01\", \"decided_at\": \"2099-10-01\", \"evidence_etag\": \"fdffb7f621ed2a15bdb9645b1c8fcb73b4ae30efbc37ee90d9e03372f249d1c4\"}",
+     "s1",
+     "s2"
+    ]
+   ]
+  },
+  {
+   "what": "the latest standing decision wins",
+   "rows": [
+    [
+     "9999910100100030000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category, ownership differs",
+     "a \"quoted\" ref\tand a tab",
+     "s1",
+     "s2"
+    ],
+    [
+     "9999910100100050000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category, ownership differs",
+     "",
+     "s1",
+     "s2"
+    ],
+    [
+     "9999910100100030000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "official",
+     "steward",
+     "{\"decision_id\": \"d-2099-10-01\", \"decided_at\": \"2099-10-01\", \"evidence_etag\": \"fdffb7f621ed2a15bdb9645b1c8fcb73b4ae30efbc37ee90d9e03372f249d1c4\"}",
+     "s1",
+     "s2"
+    ],
+    [
+     "9999910100100050000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "official",
+     "steward",
+     "{\"decision_id\": \"d-2099-10-02\", \"decided_at\": \"2099-10-02\", \"evidence_etag\": \"fdffb7f621ed2a15bdb9645b1c8fcb73b4ae30efbc37ee90d9e03372f249d1c4\"}",
+     "s1",
+     "s2"
+    ]
+   ],
+   "resolved": [
+    [
+     "9999910100100050000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "official",
+     "steward",
+     "{\"decision_id\": \"d-2099-10-02\", \"decided_at\": \"2099-10-02\", \"evidence_etag\": \"fdffb7f621ed2a15bdb9645b1c8fcb73b4ae30efbc37ee90d9e03372f249d1c4\"}",
+     "s1",
+     "s2"
+    ]
+   ]
+  },
+  {
+   "what": "a decision that links nothing stands on its evidence",
+   "rows": [
+    [
+     null,
+     "9999920100100040000",
+     "jurisdiction_transfer",
+     "pending",
+     "no unique attribute match",
+     "",
+     "s1",
+     "s2"
+    ],
+    [
+     null,
+     "9999920100100040000",
+     "other",
+     "pending",
+     "steward",
+     "{\"decision_id\": \"d-2099-10-01\", \"decided_at\": \"2099-10-01\", \"evidence_etag\": \"012053e5d2845d033fa0c2799a9646e3367fc51fa516d45bb0e2f6b9a5a61a8f\"}",
+     "s1",
+     "s2"
+    ]
+   ],
+   "resolved": [
+    [
+     null,
+     "9999920100100040000",
+     "other",
+     "pending",
+     "steward",
+     "{\"decision_id\": \"d-2099-10-01\", \"decided_at\": \"2099-10-01\", \"evidence_etag\": \"012053e5d2845d033fa0c2799a9646e3367fc51fa516d45bb0e2f6b9a5a61a8f\"}",
+     "s1",
+     "s2"
+    ]
+   ]
+  },
+  {
+   "what": "new evidence after a decision lapses it",
+   "rows": [
+    [
+     null,
+     "9999920100100040000",
+     "jurisdiction_transfer",
+     "pending",
+     "no unique attribute match",
+     "",
+     "s1",
+     "s2"
+    ],
+    [
+     "9999910100100040000",
+     "9999920100100040000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category, ownership differs",
+     "",
+     "s1",
+     "s2"
+    ],
+    [
+     null,
+     "9999920100100040000",
+     "other",
+     "pending",
+     "steward",
+     "{\"decision_id\": \"d-2099-10-01\", \"decided_at\": \"2099-10-01\", \"evidence_etag\": \"012053e5d2845d033fa0c2799a9646e3367fc51fa516d45bb0e2f6b9a5a61a8f\"}",
+     "s1",
+     "s2"
+    ]
+   ],
+   "resolved": [
+    [
+     "9999910100100040000",
+     "9999920100100040000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category, ownership differs",
+     "",
+     "s1",
+     "s2"
+    ],
+    [
+     null,
+     "9999920100100040000",
+     "jurisdiction_transfer",
+     "pending",
+     "no unique attribute match",
+     "",
+     "s1",
+     "s2"
+    ]
+   ]
+  },
+  {
+   "what": "a sampled automatic link marks the link in effect",
+   "rows": [
+    [
+     "9999910100100060000",
+     "9999920100100060000",
+     "jurisdiction_transfer",
+     "evidence_strong",
+     "area+category",
+     "",
+     "s1",
+     "s2"
+    ],
+    [
+     "9999910100100070000",
+     "9999920100100060000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category",
+     "",
+     "s1",
+     "s2"
+    ],
+    [
+     "9999910100100070000",
+     "9999920100100060000",
+     "jurisdiction_transfer",
+     "official",
+     "steward",
+     "{\"decision_id\": \"d-2099-10-03\", \"decided_at\": \"2099-10-03\", \"evidence_etag\": \"18d4c13fde26e3c0e3793e7e1868b2dcbe6583cf53c13230fb48d2197abad27d\"}",
+     "s1",
+     "s2"
+    ]
+   ],
+   "resolved": [
+    [
+     "9999910100100070000",
+     "9999920100100060000",
+     "jurisdiction_transfer",
+     "official",
+     "steward",
+     "{\"decision_id\": \"d-2099-10-03\", \"decided_at\": \"2099-10-03\", \"evidence_etag\": \"18d4c13fde26e3c0e3793e7e1868b2dcbe6583cf53c13230fb48d2197abad27d\"}",
+     "s1",
+     "s2"
+    ]
+   ]
+  }
+ ],
+ "fingerprints": [
+  {
+   "rows": [
+    [
+     "9999910100100030000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category, ownership differs",
+     "a \"quoted\" ref\tand a tab",
+     "s1",
+     "s2"
+    ],
+    [
+     "9999910100100050000",
+     "9999920100100030000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category, ownership differs",
+     "",
+     "s1",
+     "s2"
+    ]
+   ],
+   "etag": "fdffb7f621ed2a15bdb9645b1c8fcb73b4ae30efbc37ee90d9e03372f249d1c4",
+   "candidates": "[{\"evidence_kind\": \"area+category, ownership differs\", \"evidence_ref\": \"a \\\"quoted\\\" ref\\tand a tab\", \"grade\": \"needs_review\", \"in_effect\": false, \"predecessor_pnu\": \"9999910100100030000\", \"relation\": \"jurisdiction_transfer\"}, {\"evidence_kind\": \"area+category, ownership differs\", \"evidence_ref\": \"\", \"grade\": \"needs_review\", \"in_effect\": false, \"predecessor_pnu\": \"9999910100100050000\", \"relation\": \"jurisdiction_transfer\"}]"
+  },
+  {
+   "rows": [
+    [
+     null,
+     "9999920100100040000",
+     "jurisdiction_transfer",
+     "pending",
+     "no unique attribute match",
+     "",
+     "s1",
+     "s2"
+    ]
+   ],
+   "etag": "012053e5d2845d033fa0c2799a9646e3367fc51fa516d45bb0e2f6b9a5a61a8f",
+   "candidates": "[]"
+  },
+  {
+   "rows": [
+    [
+     "9999910100100040000",
+     "9999920100100040000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category, ownership differs",
+     "",
+     "s1",
+     "s2"
+    ]
+   ],
+   "etag": "aeda4c2b5cff8e091710edb84a01d0f34f834098d8943945f97056d6e71c294b",
+   "candidates": "[{\"evidence_kind\": \"area+category, ownership differs\", \"evidence_ref\": \"\", \"grade\": \"needs_review\", \"in_effect\": false, \"predecessor_pnu\": \"9999910100100040000\", \"relation\": \"jurisdiction_transfer\"}]"
+  },
+  {
+   "rows": [
+    [
+     "9999910100100060000",
+     "9999920100100060000",
+     "jurisdiction_transfer",
+     "evidence_strong",
+     "area+category",
+     "",
+     "s1",
+     "s2"
+    ],
+    [
+     "9999910100100070000",
+     "9999920100100060000",
+     "jurisdiction_transfer",
+     "needs_review",
+     "area+category",
+     "",
+     "s1",
+     "s2"
+    ]
+   ],
+   "etag": "18d4c13fde26e3c0e3793e7e1868b2dcbe6583cf53c13230fb48d2197abad27d",
+   "candidates": "[{\"evidence_kind\": \"area+category\", \"evidence_ref\": \"\", \"grade\": \"evidence_strong\", \"in_effect\": true, \"predecessor_pnu\": \"9999910100100060000\", \"relation\": \"jurisdiction_transfer\"}, {\"evidence_kind\": \"area+category\", \"evidence_ref\": \"\", \"grade\": \"needs_review\", \"in_effect\": false, \"predecessor_pnu\": \"9999910100100070000\", \"relation\": \"jurisdiction_transfer\"}]"
+  }
+ ],
+ "run_ids": [
+  [
+   "synthetic__parcel-209909",
+   "synthetic__parcel-209906",
+   [
+    "95",
+    "96",
+    "97"
+   ],
+   "advance",
+   [
+    "lineage-run-a",
+    "lineage-run-b"
+   ],
+   1234,
+   "parcel-registry-b70495091735fdec543e4147"
+  ],
+  [
+   "synthetic__parcel-209909",
+   null,
+   [
+    "98"
+   ],
+   "bootstrap",
+   [],
+   0,
+   "parcel-registry-e193fbd7107c6456f78fa512"
+  ]
+ ]
+}

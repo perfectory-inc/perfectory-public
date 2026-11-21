@@ -371,7 +371,7 @@ pub struct StartLakehouseBakeCommand {
 pub struct LakehouseBakeSilverSource {
     /// `silver.parcel_boundaries` `source_snapshot_id` the served Gold was built from.
     pub source_snapshot_id: String,
-    /// The verdict JSON `parcel_matching_gate.py` wrote, verbatim.
+    /// The verdict JSON the matching gate (`run-parcel-matching-gate`) wrote, verbatim.
     pub matching_verdict: serde_json::Value,
     /// Lowercase hex SHA-256 of the verdict file's bytes.
     pub matching_verdict_sha256: String,

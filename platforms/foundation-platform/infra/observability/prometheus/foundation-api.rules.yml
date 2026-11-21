@@ -667,6 +667,64 @@ groups:
           summary: Docker 브리지 네트워크 수를 30분 넘게 못 셌어요. journalctl -u foundation-asset-reconcile.service 를 보세요
           runbook: docs/runbooks/asset-reconcile.md
 
+  # Main is red (root ADR-0554 5). Checked by promtool against foundation-main-health.rules.test.yml.
+  - name: foundation-main-health
+    rules:
+      # Main is red (root ADR-0554): main-health.yml decides every 10 minutes from the runs GitHub
+      # already made, and the hourly service checks read its newest verdict
+      # (services/foundation-api/src/routes/data_catalog/main_red.rs). One alert per red job; a verdict
+      # that cannot be read keeps the last one. Until 2026-11-21 it was a GitHub issue, and issues are
+      # off in this repository: 11-14..18 the red Foundation nightly reached no one.
+      - alert: FoundationMainRed
+        expr: foundation_main_red_job == 1
+        for: 1m
+        keep_firing_for: 15m
+        labels:
+          severity: ticket
+          service: ci
+        annotations:
+          summary: 'main 에서 {{ $labels.workflow }} / {{ $labels.job }} 이 실패하고 있어요 — 고치는 PR 에 hotfix:main-red 라벨을 붙이고 큐 앞에 세워요(ADR-0553). {{ $labels.link }}'
+          runbook: docs/runbooks/deploy-alerts.md
+      - alert: FoundationMainHealthUnreadable
+        # Six hours without a verdict (main-health failing before it decides, GitHub refusing the
+        # host, the service checks stopped) can miss a red main; what it last knew still alerts.
+        expr: foundation_main_health_readable == 0 or absent(foundation_main_health_readable)
+        for: 6h
+        labels:
+          severity: ticket
+          service: ci
+        annotations:
+          summary: 'main 이 빨간지 6시간째 못 읽어요{{ with $labels.reason }} ({{ . }}){{ end }} — main-health.yml 의 실행을 보세요'
+          runbook: docs/runbooks/deploy-alerts.md
+
+  # The repository against tools/github and Renovate's pulse (root ADR-0570): the daily drift job names
+  # each finding, and the hourly service checks read its newest verdict
+  # (services/foundation-api/src/routes/data_catalog/repository_drift.rs). Until 2026-11-21 it kept a
+  # GitHub issue, and issues are off in this repository. Checked by promtool against
+  # foundation-repository-drift.rules.test.yml.
+  - name: foundation-repository-drift
+    rules:
+      - alert: FoundationRepositoryDrift
+        expr: foundation_repository_drift == 1
+        for: 1m
+        keep_firing_for: 15m
+        labels:
+          severity: ticket
+          service: ci
+        annotations:
+          summary: '저장소가 tools/github 선언과 달라요, 또는 Renovate 가 조용해요: {{ $labels.finding }} — 관리자가 bash scripts/github/configure-public-repository.sh verify 로 전체를 봐요. {{ $labels.link }}'
+          runbook: docs/runbooks/deploy-alerts.md
+      - alert: FoundationRepositoryDriftUnreadable
+        # The job runs daily: two days without a verdict can miss a drift; what it last knew still alerts.
+        expr: foundation_repository_drift_readable == 0 or absent(foundation_repository_drift_readable)
+        for: 48h
+        labels:
+          severity: ticket
+          service: ci
+        annotations:
+          summary: '저장소 점검 결과를 이틀째 못 읽어요{{ with $labels.reason }} ({{ . }}){{ end }} — dependency-advisories.yml 의 Repository drift 작업을 보세요'
+          runbook: docs/runbooks/deploy-alerts.md
+
   # The host's own resources (root ADR-0385, ADR-0343 §6): disk, memory, the kernel's OOM kills and
   # each cap. node-exporter's filesystem, meminfo and vmstat collectors and cAdvisor's cgroup series
   # feed them; before them only the textfile collector ran, so none of this was a series and every

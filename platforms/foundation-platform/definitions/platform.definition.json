@@ -10,11 +10,11 @@
       "pools": {
         "spark": {
           "slots": 3,
-          "description": "The host's scheduled heavy work (root ADR-0138): FLOOR and lineage take all three slots (20g Spark) and run alone; a map-edit fold takes two, so the folds never overlap (their Spark runs share one init container name); the by-PNU bake takes one, so one fold can run beside it; the panel Gold rebuild and each hub Silver refresh lane take all three (20g Spark) and run alone. The host memory guard checks every combination these slots allow."
+          "description": "The host's scheduled heavy work (root ADR-0138): FLOOR and lineage take all three slots (20g Spark) and run alone; a map-edit fold takes two, so the folds never overlap (their Spark runs share one init container name); the by-PNU bake takes one, so one fold can run beside it; the panel Gold rebuild takes all three (20g Spark) and runs alone. The Silver refresh lanes left this pool when their load left Spark (root ADR-0599): they start no Spark and queue one at a time in the documents pool, each admitted by a memory_claim on its own unit, and no longer wait for a Spark job. The host memory guard checks every combination these slots allow."
         },
         "documents": {
           "slots": 1,
-          "description": "The intelligence platform's document jobs (root ADR-0477 §6, ADR-0563): the text job's CPU-bound OCR and HWP printing and the fact job's rules and local model, each in the intelligence image under its own cap, an hour at a time. They hold no Spark slot and so never wait for the spark pool or make its jobs wait; their plan and append steps are small Spark sessions (spark-small). One slot: one document job at a time, so one job on the GPU. The fact job's model memory is not a slot but its memory_claim (memory_claims_means)."
+          "description": "The intelligence platform's document jobs (root ADR-0477 §6, ADR-0563): the text job's CPU-bound OCR and HWP printing and the fact job's rules and local model, each in the intelligence image under its own cap, an hour at a time. They hold no Spark slot and so never wait for the spark pool or make its jobs wait; their plan and append steps are small Spark sessions (spark-small). One slot: one document job at a time, so one job on the GPU. The fact job's model memory is not a slot but its memory_claim (memory_claims_means). The Silver refresh lanes queue here too since their load left Spark (root ADR-0599): one lane at a time, each with a memory_claim on its own unit; the name of the pool is older than that use. It maps one to one to a Dagster pool when Dagster decides these jobs: it is the same queue, not a second mechanism."
         }
       },
       "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight is its tier in the order Airflow starts waiting jobs when slots free (FLOOR and the hourly Silver loads 100, the folds 50, the Silver refresh lanes 40, the panel Gold rebuild 30, the other Gold rebuilds 20, the bakes 10; 1 when absent), and job_specs.queue_weights raises it until the job is above every job of its pool that reads what it writes, from the pipeline graph's edges (root ADR-0558): a producer is never behind its consumer, and no weight is kept in step with the graph by hand. The tiers are ten apart so a chain of readers fits between two of them; lineage_stewardship names none and takes its place from the Gold rebuilds that read the code-change table it writes. retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
@@ -220,6 +220,10 @@
         {
           "path": "/data/foundation-platform/silver-refresh",
           "mode": "2770"
+        },
+        {
+          "path": "/var/lib/foundation-platform/silver-refresh-duckdb",
+          "mode": "0755"
         },
         {
           "path": "/data/foundation-platform/tile-bake",
@@ -1114,6 +1118,7 @@
             "share_below_26g": 0.01
           },
           "claimed_measured": {
+            "foundation-silver-refresh@.service": "journal `memory peak` 2026-10-18..11-08, 84 runs under the 16G cap the lanes had in the spark pool: highest 15,668M (building-register-unit-areas, 2026-10-20). The export sizes its workers to three quarters of what its cgroup has left, so the peak follows the cap; under the 8G cap of this claim no run is measured yet, and the first runs measure it.",
             "intelligence-model-runtime-ollama.service": "21.4 GB of RAM and 5.7 GB of VRAM with Qwen3.6-35B-A3B Q4 loaded and answering (2026-11-11, 16 ILIS notices, root ADR-0478; page cache of the mapped weights included). In production the model has not been asked yet: the one fact run (2026-11-12 20:49Z, one document) closed every table by rule and the runtime used 3.5 s of CPU."
           }
         }
@@ -1218,9 +1223,9 @@
           },
           "foundation-court-auction-silver-load.service": {
             "class": "batch",
-            "memory_max": "512M",
+            "memory_max": "3G",
             "measured_peak": "306M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 3 runs, highest 2026-11-06 (foundation-court-auction-silver-load)"
+            "measured": "journal `memory peak` 2026-10-18..11-08, 3 runs, highest 2026-11-06 (foundation-court-auction-silver-load), when the whole load ran in the Spark container (its own cap). Since root ADR-0559 the 공통코드, 감정평가서, 매각물건명세서 and 배당요구종기공고 objects are loaded by the publisher's DuckDB inside this unit: the stage's buffer is half the execution profile (2048 MiB, lakehouse-engine.contract.json), as the onbid load's; 3G holds the buffer and the process, and the first runs' memory_peak_bytes set it again (root ADR-0455)"
           },
           "foundation-data-go-kr-file-data.service": {
             "class": "batch",
@@ -1338,9 +1343,8 @@
           },
           "foundation-lineage-stewardship.service": {
             "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 23 runs, highest 2026-11-08 (foundation-lineage-stewardship)"
+            "memory_max": "3G",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 23 runs, highest 308M on 2026-11-08, while its loads ran in the spark container outside this cap. Since root ADR-0559 the parcel-number-change load is the publisher's DuckDB inside this unit (the history's 1.37M events against a file of up to 356k rows): DuckDB spills past half the engine profile (2048 MiB), so the unit is sized as the onbid Silver load, the same stage (2.4G measured 2026-11-20); no such load has run under this cap yet; systemd logs the peak of every run"
           },
           "foundation-map-edit-fold@.service": {
             "class": "batch",
@@ -1390,8 +1394,8 @@
           },
           "foundation-parcel-registry.service": {
             "class": "batch",
-            "memory_max": "2G",
-            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the cycle runs the publisher natively like the outbox publisher (770M measured); no run logged yet; systemd logs the peak of every run under this cap"
+            "memory_max": "3G",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting). Since root ADR-0559 the registry's step is the publisher's DuckDB inside this unit (it was the spark container, 16g driver): DuckDB spills past half the engine profile (2048 MiB), so the unit is sized as the onbid Silver load, the same stage (2.4G measured 2026-11-20); no registry step has run under this cap yet; systemd logs the peak of every run under this cap"
           },
           "foundation-parcel-tile-bake@.service": {
             "class": "batch",
@@ -1472,10 +1476,9 @@
           },
           "foundation-silver-refresh@.service": {
             "class": "batch",
-            "memory_max": "16G",
-            "measured_peak": "15668M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 84 runs, highest 2026-10-20 (foundation-silver-refresh@building-register-unit-areas)",
-            "headroom_why": "The export sizes its workers to three quarters of what its cgroup has left (process_memory.rs, which reads MemoryHigh too), so a national lane fills what it is given by design and its peak is near the cap; 16G is the bound root ADR-0138 counts under the spark pool."
+            "memory_max": "8G",
+            "measured": "no run under this cap. journal `memory peak` 2026-10-18..11-08, 84 runs, highest 15,668M on 2026-10-20 (foundation-silver-refresh@building-register-unit-areas) under the 16G cap, when a lane held the whole spark pool: the export sizes its workers to three quarters of what its cgroup has left (process_memory.rs), so its peak follows its cap, not its need. Since root ADR-0599 the load is DuckDB inside the unit (2 GiB before it spills) after the export, and the lanes left the spark pool for the one-slot claim pool (documents), so a lane runs beside Spark work, admitted against the host's free memory by its memory_claim on this unit, and is no longer counted by cap under a pool. The first runs measure this cap.",
+            "headroom_why": "Not 1.5 x a measured peak: the export fills what it is given. 8G is half the old cap: three quarters of it (6G) for the export's workers, and the 2 GiB DuckDB stage that runs after the export fits with the script and the Docker client. A lane the cap makes too slow says so in its run time, and the cap is then raised from that measurement."
           },
           "foundation-source-sweep.service": {
             "class": "batch",
@@ -1526,15 +1529,15 @@
           },
           "foundation-intelligence-document-text.service": {
             "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "306M",
-            "measured": "not this unit's: never run (root ADR-0477 §6). The peak of foundation-court-auction-silver-load.service, the same shape (a job script, the Docker client and python3 -c reads; its containers have their own caps), journal `memory peak` 2026-10-18..11-08; its first run measures this one."
+            "memory_max": "1G",
+            "measured": "no run under this cap. Its Spark steps ran in a container outside the unit; since root ADR-0559 the plan and the append are the publisher's DuckDB inside it, held to 384 MiB by the loader (intelligence_documents_load STAGE_MEMORY_MIB) over tables of tens of thousands of rows, beside the job script, the Docker client and python3 (306M was the peak of the same shape without DuckDB, foundation-court-auction-silver-load.service). The image has its own cap. The job is paused (2026-11-20); its first run measures this one.",
+            "headroom_why": "Not 1.5 x a measured peak: none exists yet. 384 MiB of DuckDB plus the 306M shape is about 700M; 1G leaves a third above it."
           },
           "foundation-intelligence-document-fact.service": {
             "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "312M",
-            "measured": "journal `memory peak` 2026-11-12 20:55Z, its first run (311.2M: the job script, the Docker client and python3 -c reads; its containers and the model runtime have their own caps)"
+            "memory_max": "1G",
+            "measured": "no run under this cap. journal `memory peak` 2026-11-12 20:55Z was 311.2M with its Spark steps in a container outside the unit; since root ADR-0559 the plan, the append and the fold's reads are the publisher's DuckDB inside it, held to 384 MiB by the loader, and the fold rule is python3 over the run's files. The image and the model runtime have their own caps. The job is paused (2026-11-20); its first run measures this one.",
+            "headroom_why": "Not 1.5 x a measured peak: none exists yet. 384 MiB of DuckDB plus the 312M measured without it is about 700M; 1G leaves a third above it."
           },
           "foundation-gold-versions@.service": {
             "class": "batch",
@@ -1605,6 +1608,10 @@
           "area": "intelligence",
           "path": "compose.document-jobs.yml",
           "why": "A job image's own compose file only builds it, in CI, into the signed release (root ADR-0477 §6); the host's job script runs it under the cap its contract states, counted in the job's host_memory."
+        },
+        {
+          "path_prefix": "compose.verify-image.yml",
+          "why": "The verification image's compose file only builds it, in CI, into the signed release (root ADR-0601); nothing the release starts runs it. A host crate test is a one-off docker run under the shared test slot, not a service of a host project."
         }
       ]
     },
@@ -2074,27 +2081,6 @@
       "parcel_served_gold",
       "parcel_tile_bake",
       "zoning_tile_bake",
-      "silver_refresh_building_register_titles",
-      "silver_refresh_building_register_units",
-      "silver_refresh_building_register_unit_areas",
-      "silver_refresh_building_register_apartment_price",
-      "silver_refresh_building_register_exclusive_unit",
-      "silver_refresh_building_permit_basis_outline",
-      "silver_refresh_building_register_master",
-      "silver_refresh_building_permit_demolition_loss",
-      "silver_refresh_building_energy_monthly_electricity",
-      "silver_refresh_building_energy_monthly_gas",
-      "silver_refresh_building_register_sub_parcel",
-      "silver_refresh_building_permit_parking",
-      "silver_refresh_land_characteristic",
-      "silver_refresh_land_forest_ledger",
-      "silver_refresh_land_individual_price",
-      "silver_refresh_land_ownership",
-      "silver_refresh_land_right_registration",
-      "silver_refresh_land_transfer_history",
-      "silver_refresh_land_use_plan",
-      "silver_refresh_land_use_zone_area",
-      "silver_refresh_land_use_zone_code",
       "admin_boundary_release",
       "complex_boundary_release",
       "map_edit_fold_admin",

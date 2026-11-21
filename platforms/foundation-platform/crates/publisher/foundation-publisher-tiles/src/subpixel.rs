@@ -10,94 +10,9 @@
 //! The geometry is the handoff's WKB, longitude/latitude (EPSG:4326). Only Polygon and MultiPolygon
 //! are read; anything else is an error, which the gate treats as an unexplained miss.
 
-use anyhow::{bail, ensure, Context as _};
+use anyhow::ensure;
 
-/// Polygons, each a list of rings (exterior first), each a list of (longitude, latitude).
-type Polygons = Vec<Vec<Vec<(f64, f64)>>>;
-
-struct Reader<'a> {
-    bytes: &'a [u8],
-    at: usize,
-}
-
-impl Reader<'_> {
-    fn take<const N: usize>(&mut self) -> anyhow::Result<[u8; N]> {
-        let end = self.at.checked_add(N).context("WKB offset overflow")?;
-        let slice = self.bytes.get(self.at..end).context("WKB ends early")?;
-        self.at = end;
-        let mut out = [0_u8; N];
-        out.copy_from_slice(slice);
-        Ok(out)
-    }
-
-    fn u32(&mut self, little: bool) -> anyhow::Result<u32> {
-        let raw = self.take::<4>()?;
-        Ok(if little {
-            u32::from_le_bytes(raw)
-        } else {
-            u32::from_be_bytes(raw)
-        })
-    }
-
-    fn f64(&mut self, little: bool) -> anyhow::Result<f64> {
-        let raw = self.take::<8>()?;
-        Ok(if little {
-            f64::from_le_bytes(raw)
-        } else {
-            f64::from_be_bytes(raw)
-        })
-    }
-
-    fn header(&mut self) -> anyhow::Result<(bool, u32)> {
-        let [order] = self.take::<1>()?;
-        ensure!(order <= 1, "WKB byte order {order} is neither 0 nor 1");
-        let little = order == 1;
-        Ok((little, self.u32(little)?))
-    }
-
-    fn polygon(&mut self, little: bool) -> anyhow::Result<Vec<Vec<(f64, f64)>>> {
-        let rings = self.u32(little)?;
-        let mut out = Vec::new();
-        for _ in 0..rings {
-            let points = self.u32(little)?;
-            ensure!(
-                usize::try_from(points)? <= self.bytes.len() / 16,
-                "WKB ring claims more points than bytes"
-            );
-            let mut ring = Vec::with_capacity(usize::try_from(points)?);
-            for _ in 0..points {
-                ring.push((self.f64(little)?, self.f64(little)?));
-            }
-            out.push(ring);
-        }
-        Ok(out)
-    }
-}
-
-/// Reads a 2D Polygon or MultiPolygon.
-pub(crate) fn polygons(wkb: &[u8]) -> anyhow::Result<Polygons> {
-    let mut reader = Reader { bytes: wkb, at: 0 };
-    let (little, kind) = reader.header()?;
-    let polygons = match kind {
-        3 => vec![reader.polygon(little)?],
-        6 => {
-            let count = reader.u32(little)?;
-            let mut out = Vec::new();
-            for _ in 0..count {
-                let (part_little, part_kind) = reader.header()?;
-                ensure!(
-                    part_kind == 3,
-                    "a MultiPolygon part is WKB type {part_kind}"
-                );
-                out.push(reader.polygon(part_little)?);
-            }
-            out
-        }
-        other => bail!("WKB type {other} is not a 2D Polygon or MultiPolygon"),
-    };
-    ensure!(reader.at == wkb.len(), "WKB has trailing bytes");
-    Ok(polygons)
-}
+pub(crate) use foundation_publisher_core::wkb_polygons::{polygons, Polygons};
 
 /// Web Mercator pixel coordinates at `zoom`, 256 pixels per tile.
 fn pixel((lon, lat): (f64, f64), zoom: u8) -> (f64, f64) {

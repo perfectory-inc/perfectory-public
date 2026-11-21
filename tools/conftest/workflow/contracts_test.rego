@@ -219,12 +219,11 @@ advisory := {
 	"jobs": {"issue": {"name": "Issue", "runs-on": "ubuntu-24.04", "permissions": {"contents": "read", "issues": "write"}, "steps": [{"run": "echo"}]}},
 }
 
-test_issue_write_only_in_the_advisory_workflow_on_schedule if {
-	accepted(array.concat(one(valid), named("dependency-advisories.yml", advisory)))
-	accepted(array.concat(one(valid), named("main-health.yml", advisory)))
-	refused(array.concat(one(valid), named("main-health.yml", object.union(advisory, {"true": {"push": {"branches": ["main"]}}}))))
+# Root ADR-0554 5, ADR-0570 (2026-11-21): issues are off in this repository; no workflow writes one.
+test_no_workflow_writes_issues if {
+	refused(array.concat(one(valid), named("dependency-advisories.yml", advisory)))
+	refused(array.concat(one(valid), named("main-health.yml", advisory)))
 	refused(array.concat(one(valid), named("other.yml", advisory)))
-	refused(array.concat(one(valid), named("dependency-advisories.yml", object.union(advisory, {"true": {"push": {"branches": ["main"]}}}))))
 }
 
 release := {

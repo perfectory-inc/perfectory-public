@@ -117,6 +117,8 @@
       "source": "hubgokr__building_permit_structure_ledger"
     },
     "export": "export-building-permit-structure-ledger-silver-handoff",
+    "engine": "duckdb",
+    "engine_reason": "root ADR-0599 §8 ②: compared by DuckDB inside the publisher from a local copy of the release, its changes one commit; the compare is the one verified on land_use_plan, the read on this kind of handoff",
     "spark": {
       "master": "local[8,8]",
       "driver_memory": "16g",

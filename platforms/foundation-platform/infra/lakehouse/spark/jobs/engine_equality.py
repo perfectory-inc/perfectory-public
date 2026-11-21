@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
+import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Sequence
@@ -206,15 +208,37 @@ def compare(run: Any, reference: str, candidate: str, keys: Sequence[str], engin
                       sampled_written_differently=written, samples=samples)
 
 
+# one-off: until the last Spark job is gone (engine_equality.py then has one engine left to prove against); the --runner-command bridge goes with it.
+def command_runner(command: str) -> Any:
+    """`run(sql)` through another process: `command` (shlex-split) reads the statement on stdin and
+    prints the rows as one JSON array, its last stdout line (the publisher's `query-takeover-sides`:
+    the release images have no Python duckdb)."""
+
+    def run(sql: str) -> list[dict[str, Any]]:
+        done = subprocess.run(shlex.split(command), input=sql, capture_output=True, text=True, check=False)
+        if done.returncode:
+            raise RuntimeError(f"the runner command exited {done.returncode}: {done.stderr.strip()[-2000:]}")
+        lines = [line for line in done.stdout.splitlines() if line.strip()]
+        if not lines:
+            raise RuntimeError("the runner command printed no rows")
+        return json.loads(lines[-1])
+    return run
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference", required=True, help="Parquet path or glob of the engine in production.")
-    parser.add_argument("--candidate", required=True, help="Parquet path or glob of the engine being proven.")
-    parser.add_argument("--key", action="append", required=True, help="An output key column; repeat for a composite key.")
+    parser.add_argument("--reference", help="Parquet path or glob of the engine in production.")
+    parser.add_argument("--candidate", help="Parquet path or glob of the engine being proven.")
+    parser.add_argument("--key", action="append", default=[], help="An output key column; repeat for a composite key.")
     parser.add_argument("--content", action="append", default=[],
                         help="A content column of the output, compared on every row; repeat for each.")
     parser.add_argument("--no-digest", action="store_true",
                         help="The table has no row_digest: compare the content columns alone.")
+    parser.add_argument("--sides", help="sides.json of `export-gold-takeover-sides`: its keys, content, digest "
+                                        "and pins stand for --key, --content, --no-digest and --pins.")
+    parser.add_argument("--runner-command",
+                        help="Run each statement through this command (SQL on stdin, a JSON array of rows out) "
+                             "over its own views `reference` and `candidate`, instead of the duckdb module.")
     parser.add_argument("--job", required=True, help="The transform compared, as the engine contract names it.")
     parser.add_argument("--reference-engine", required=True)
     parser.add_argument("--candidate-engine", required=True)
@@ -223,30 +247,41 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--memory-limit", help="DuckDB memory_limit for the comparison (for example 4GB); past it the join spills.")
     parser.add_argument("--temp-directory", help="Where the comparison spills.")
     args = parser.parse_args(argv)
-    if args.no_digest and not args.content:
-        parser.error("--no-digest needs the --content columns to compare")
+    sides = json.load(open(args.sides, encoding="utf-8")) if args.sides else {}
+    keys = list(sides.get("keys") or args.key)
+    content = list(sides.get("content") or args.content)
+    digest = (sides.get("digest") if args.sides else None if args.no_digest else gold_fingerprint.DIGEST)
+    if not keys:
+        parser.error("--key (or --sides) names the output's key columns")
+    if digest is None and not content:
+        parser.error("a comparison without a digest needs the --content columns to compare")
+    if not args.runner_command and not (args.reference and args.candidate):
+        parser.error("--reference and --candidate name the two Parquet outputs (or give --runner-command)")
 
-    import duckdb  # noqa: PLC0415  (only the command needs an engine; the module does not)
+    relations = ["reference", "candidate"]
+    if args.runner_command:
+        run = command_runner(args.runner_command)
+    else:
+        import duckdb  # noqa: PLC0415  (only the command needs an engine; the module does not)
 
-    connection = duckdb.connect()
-    for setting, value in (("memory_limit", args.memory_limit), ("temp_directory", args.temp_directory)):
-        if value:
-            connection.execute(f"SET {setting} = '{value.replace(chr(39), chr(39) * 2)}'")
+        connection = duckdb.connect()
+        for setting, value in (("memory_limit", args.memory_limit), ("temp_directory", args.temp_directory)):
+            if value:
+                connection.execute(f"SET {setting} = '{value.replace(chr(39), chr(39) * 2)}'")
 
-    def run(sql: str) -> list[dict[str, Any]]:
-        cursor = connection.execute(sql)
-        names = [column[0] for column in cursor.description]
-        return [dict(zip(names, row)) for row in cursor.fetchall()]
+        def run(sql: str) -> list[dict[str, Any]]:
+            cursor = connection.execute(sql)
+            names = [column[0] for column in cursor.description]
+            return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
 
-    relations = []
-    for name, path in (("reference", args.reference), ("candidate", args.candidate)):
-        quoted = path.replace("\\", "/").replace("'", "''")
-        connection.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{quoted}')")
-        relations.append(name)
-    found = compare(run, *relations, args.key, "duckdb", args.content, None if args.no_digest else gold_fingerprint.DIGEST)
-    pins = json.load(open(args.pins, encoding="utf-8")) if args.pins else None
+        for name, path in zip(relations, (args.reference, args.candidate), strict=True):
+            quoted = path.replace("\\", "/").replace("'", "''")
+            connection.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{quoted}')")
+    found = compare(run, *relations, keys, "duckdb", content, digest)
+    pins = json.load(open(args.pins, encoding="utf-8")) if args.pins else sides.get("pins")
+    snapshots = {name: sides[name] for name in ("table", "reference_snapshot", "candidate_snapshot") if name in sides}
     report = found.report(job=args.job, reference_engine=args.reference_engine, candidate_engine=args.candidate_engine,
-                          keys=list(args.key), content=list(args.content), input_pins=pins)
+                          keys=keys, content=content, input_pins=pins, **snapshots)
     text = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True, default=str)
     if args.report:
         with open(args.report, "w", encoding="utf-8") as out:

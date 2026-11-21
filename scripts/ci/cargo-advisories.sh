@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
-# Daily RUSTSEC check of every Cargo workspace on main, and the one issue that carries it (root ADR-0271).
+# Daily RUSTSEC check of every Cargo workspace on main (root ADR-0271). Each refused advisory is an
+# `advisory` annotation, which the host's service checks carry to Slack (root ADR-0278).
 # Prevents: a new advisory or yank reaching main without a commit and being found by an unrelated
 # pull request hours later (2026-10-16/17, zip twice).
 #
 #   check <summary.md> [workspace-dir...]
 #       cargo-deny check advisories in each workspace with its own deny.toml (default: every directory
 #       that holds a tracked Cargo.lock); writes a markdown summary; exits 1 when any workspace refuses.
-#   issue <check-result> <summary.md>
-#       keeps the one open issue titled below in step with the check: failure opens it or, when the
-#       findings changed, rewrites its body and comments; success closes it. Needs gh with GH_REPO.
 set -euo pipefail
-
-title="Cargo advisories on main"
 
 fail() {
   echo "FAIL cargo-advisories: $*" >&2
@@ -64,49 +60,7 @@ check() {
   return "$refused"
 }
 
-issue() {
-  [ "$#" -eq 2 ] || fail "usage: issue <check-result> <summary.md>"
-  local result="$1" summary="$2" number body current
-  : "${GH_REPO:?GH_REPO names the repository}"
-  local run="${RUN_URL:-the daily run}"
-  number="$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
-    --jq "map(select(.title == \"$title\")) | .[0].number // empty")"
-  case "$result" in
-    success)
-      if [ -n "$number" ]; then
-        gh issue close "$number" --comment "Cleared: every workspace passes cargo-deny advisories ($run)."
-      fi
-      ;;
-    failure)
-      body="$(mktemp)"
-      {
-        printf 'The daily `cargo-deny check advisories` on main refused (root ADR-0271). Latest run: %s\n\n' "$run"
-        if [ -s "$summary" ]; then
-          cat "$summary"
-        else
-          printf 'The check stopped before it wrote a finding; read the run.\n'
-        fi
-      } >"$body"
-      if [ -z "$number" ]; then
-        gh issue create --title "$title" --body-file "$body"
-      else
-        current="$(gh issue view "$number" --json body --jq .body)"
-        # The run link changes every day; only a change in the findings rewrites and notifies.
-        if [ "$(printf '%s\n' "$current" | sed 1d)" != "$(sed 1d "$body")" ]; then
-          gh issue edit "$number" --body-file "$body"
-          gh issue comment "$number" --body "The findings changed ($run)."
-        fi
-      fi
-      rm -f -- "$body"
-      ;;
-    *)
-      echo "cargo-advisories: check result '$result' leaves the issue as it is"
-      ;;
-  esac
-}
-
 case "${1:-}" in
   check) shift; check "$@" ;;
-  issue) shift; issue "$@" ;;
-  *) fail "usage: $0 check <summary.md> [workspace-dir...] | issue <check-result> <summary.md>" ;;
+  *) fail "usage: $0 check <summary.md> [workspace-dir...]" ;;
 esac

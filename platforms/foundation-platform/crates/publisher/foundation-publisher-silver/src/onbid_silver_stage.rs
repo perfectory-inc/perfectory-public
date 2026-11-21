@@ -26,20 +26,11 @@ use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::duckdb_parquet_stage::{
-    with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG, PYTHON_VALUES_SQL,
-};
+use crate::duckdb_parquet_stage::{DuckDbParquetStage, PYTHON_VALUES_SQL};
+use crate::silver_changes::{self, same, table_key, LOAD_COLUMNS};
 
 /// The plan file `plan-silver-load-objects` writes.
 pub const PLAN_SCHEMA: &str = "foundation-platform.silver_load_objects.v1";
-/// Columns a load writes, not the source: never compared.
-const LOAD_COLUMNS: [&str; 5] = [
-    "source_record_id",
-    "source_line_number",
-    "source_snapshot_id",
-    "ingested_at_utc",
-    "row_state",
-];
 /// The item condition every item-level answer carries.
 const KEY: [&str; 2] = ["cltr_mng_no", "pbct_cdtn_no"];
 /// Which round answered an item-level response: kept, but not content.
@@ -54,7 +45,6 @@ const FIELDS: &str =
 const VALUES_SQL: &str = include_str!("onbid_silver_stage/values.sql");
 const ANSWERS_SQL: &str = include_str!("onbid_silver_stage/answers.sql");
 const ITEM_CHANGES_SQL: &str = include_str!("onbid_silver_stage/item_changes.sql");
-const CHANGED_SQL: &str = include_str!("onbid_silver_stage/changed.sql");
 
 /// What one object loads into: the table, and how its rows are kept (root ADR-0340 §6).
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -254,15 +244,6 @@ impl Extraction {
     }
 }
 
-/// The table's key: its contract's `current_row_latest` key.
-fn table_key(contract: &LakehouseTableContract) -> anyhow::Result<Vec<&'static str>> {
-    Ok(contract
-        .current_row_latest()
-        .with_context(|| format!("{} keeps no versions per key", contract.table_name))?
-        .key
-        .to_vec())
-}
-
 /// The columns compared for a change: every column but the key, the item condition, the load's own
 /// and which round answered (`data_go_kr_onbid.content_columns`).
 #[must_use]
@@ -279,15 +260,6 @@ pub fn content_columns(contract: &LakehouseTableContract) -> Vec<&'static str> {
                 && !ASKED_THROUGH.contains(name)
         })
         .collect()
-}
-
-/// `c.x IS NOT DISTINCT FROM s.x AND …`.
-fn same(columns: &[&str]) -> String {
-    columns
-        .iter()
-        .map(|column| format!("c.{column} IS NOT DISTINCT FROM s.{column}"))
-        .collect::<Vec<_>>()
-        .join(" AND ")
 }
 
 impl OnbidSource {
@@ -920,33 +892,13 @@ pub fn read_object(
     })
 }
 
-// `{name}` is a placeholder of the SQL text, not a format argument.
-#[allow(clippy::literal_string_with_formatting_args)]
 fn current(
     stage: &DuckDbParquetStage,
     contract: &LakehouseTableContract,
     head: Option<i64>,
     columns: &[&str],
 ) -> anyhow::Result<String> {
-    let Some(head) = head else {
-        return Ok(format!(
-            "SELECT {} FROM onbid_rows WHERE false",
-            columns.join(", ")
-        ));
-    };
-    let pinned = format!(
-        "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-        contract.table_name
-    );
-    Ok(contract
-        .current_rows_sql_template()
-        .with_context(|| format!("{} keeps no versions per key", contract.table_name))?
-        .replace("{columns}", &columns.join(", "))
-        .replace(
-            "{source}",
-            &with_contract_columns(stage.connection(), contract, &pinned)?,
-        )
-        .replace("{filter}", "TRUE"))
+    silver_changes::current_rows(stage, contract, head, columns, "onbid_rows")
 }
 
 /// What an item list object appends.
@@ -1030,19 +982,16 @@ pub fn compared_changes(
     contract: &LakehouseTableContract,
     head: Option<i64>,
 ) -> anyhow::Result<u64> {
-    let columns = contract
-        .columns
-        .iter()
-        .map(|column| column.name)
-        .collect::<Vec<_>>();
     let mut compared = table_key(contract)?;
     compared.extend(content_columns(contract));
-    stage.connection().execute_batch(
-        &CHANGED_SQL
-            .replace("{current}", &current(stage, contract, head, &columns)?)
-            .replace("{matches}", &same(&compared)),
-    )?;
-    count(stage, "onbid_changed")
+    silver_changes::changed(
+        stage,
+        contract,
+        head,
+        "onbid_rows",
+        "onbid_changed",
+        &compared,
+    )
 }
 
 /// The name a staged file of `table` for `object_key` gets: the same object always names the same

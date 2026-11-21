@@ -14,7 +14,8 @@
       "check_service": "foundation-silver-refresh-plan@building-register-master.service",
       "systemd_timer": null,
       "state_paths": [
-        "/data/foundation-platform/silver-refresh"
+        "/data/foundation-platform/silver-refresh",
+        "/var/lib/foundation-platform/silver-refresh-duckdb"
       ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
@@ -35,9 +36,14 @@
           "to": "2026-11-03T15:50:32Z"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
-      "priority_weight": 40,
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@building-register-master.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-master"
@@ -89,16 +95,5 @@
       "description": "총괄표제부(mart_djy_02) 64칸을 관리건축물대장PK 마다 바뀐 대지만 append-only Silver 로 쌓는다(루트 ADR-0357).",
       "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; subdivision convergence tracked by ADR-0288"
     }
-  ],
-  "host_memory": {
-    "silver_refresh_building_register_master": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }

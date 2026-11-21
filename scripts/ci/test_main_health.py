@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import pathlib
 import unittest
 
@@ -65,47 +67,56 @@ class FailedJobsTest(unittest.TestCase):
 
 
 class RenderTest(unittest.TestCase):
-    def test_the_issue_names_each_job_and_its_runs(self) -> None:
+    def test_the_summary_names_each_job_and_its_runs(self) -> None:
         body = mh.render({("Foundation Platform CI", "Rust quality"): [seen(4, "fail", "pr-1"), seen(5, "fail", "pr-2")]})
         self.assertIn("| Foundation Platform CI | Rust quality | [pr-1](https://example.invalid/4), [pr-2](https://example.invalid/5) |", body)
         self.assertIn("hotfix:main-red", body)
 
+    def test_the_verdict_is_a_count_and_one_json_annotation_per_job(self) -> None:
+        found = {("CI", f"job {n:02d}%"): [seen(1, "fail", "main")] for n in range(12)}
+        lines = mh.verdict_lines(found)
+        self.assertEqual(lines[0], "::error title=main-red-count::12")
+        self.assertEqual(len(lines), 1 + mh.RED_ANNOTATIONS)  # GitHub keeps 10 error annotations a step
+        self.assertEqual(lines[1], '::error title=main-red::{"workflow": "CI", "job": "job 00%25"}')
 
-class ReportTest(unittest.TestCase):
-    """A red main that the issue cannot carry fails the run; a GitHub that cannot be read does not."""
 
-    def run_main(self, observed=None, unreadable_at: str = "") -> int:
+class MainTest(unittest.TestCase):
+    """The run's conclusion is the verdict: red fails it, green passes, unreadable fails without one."""
+
+    def run_main(self, observed=None, unreadable: bool = False) -> tuple[int, str]:
         def observe(*_args):
-            if unreadable_at == "observe":
+            if unreadable:
                 raise mh.GitHubUnreadable("gh api repos: HTTP 502")
             return observed or {}
 
-        def report(*_args):
-            if unreadable_at == "report":
-                raise mh.GitHubUnreadable("gh issue list --repo: the repository has disabled issues")
-
-        saved = (mh.observe, mh.report, mh.gating_workflows)
-        mh.observe, mh.report, mh.gating_workflows = observe, report, lambda: frozenset()
+        saved = (mh.observe, mh.gating_workflows)
+        mh.observe, mh.gating_workflows = observe, lambda: frozenset()
+        out = io.StringIO()
         try:
-            return mh.main(["--repository", "o/r"])
+            with contextlib.redirect_stdout(out):
+                code = mh.main(["--repository", "o/r"])
+            return code, out.getvalue()
         finally:
-            mh.observe, mh.report, mh.gating_workflows = saved
+            mh.observe, mh.gating_workflows = saved
 
-    def test_red_with_issues_disabled_fails_the_run(self) -> None:
+    def test_red_fails_the_run_and_names_the_jobs(self) -> None:
         # 2026-11-14..18: issues disabled, the nightly red five nights, every run green.
         observed = {("Foundation Platform CI", "Postgres integration tests"): [seen(1, "fail", "main")]}
-        self.assertEqual(self.run_main(observed, unreadable_at="report"), 1)
+        code, out = self.run_main(observed)
+        self.assertEqual(code, 1)
+        self.assertIn("::error title=main-red-count::1", out)
+        self.assertIn('"job": "Postgres integration tests"', out)
 
-    def test_green_with_the_issue_unreadable_passes(self) -> None:
-        self.assertEqual(self.run_main({}, unreadable_at="report"), 0)
+    def test_green_passes(self) -> None:
+        code, out = self.run_main({})
+        self.assertEqual(code, 0)
+        self.assertNotIn("main-red", out)
 
-    def test_github_unreadable_while_observing_is_no_verdict(self) -> None:
-        self.assertEqual(self.run_main(unreadable_at="observe"), 0)
-
-    def test_red_reported_passes(self) -> None:
-        observed = {("Foundation Platform CI", "Postgres integration tests"): [seen(1, "fail", "main")]}
-        self.assertEqual(self.run_main(observed), 0)
-
+    def test_github_unreadable_is_no_verdict(self) -> None:
+        code, out = self.run_main(unreadable=True)
+        self.assertEqual(code, 1)
+        self.assertIn("::warning title=main-health-unreadable::", out)
+        self.assertNotIn("main-red-count", out)
 
 if __name__ == "__main__":
     unittest.main()

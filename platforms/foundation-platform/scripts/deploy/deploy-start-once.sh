@@ -33,9 +33,14 @@
 #       before-switch  nothing of the new release is active, so the release that runs now gets its
 #                      schedule back: every enabled DAG is unpaused, and the line says so.
 #       switching      the new release is (being) activated, migrated or loaded into Airflow and did
-#                      not finish; running jobs on it could write through a half-applied schema, so
-#                      the DAGs stay paused and a line in capitals says so. The deploy's own failure
-#                      reaches Slack through foundation-autodeploy.service's OnFailure.
+#                      not finish (root ADR-0597). When its schema was applied, or never touched,
+#                      every enabled DAG is unpaused as before the switch, and the next tick finishes
+#                      the deploy from the step that failed (foundation-autodeploy.sh). Only when a
+#                      migration itself failed (exit SCHEMA_NOT_APPLIED from `foundation-release.sh
+#                      migrate`) could a running job write through a half-applied schema: then the
+#                      held DAGs stay paused until the retry, and a line in capitals says so. The
+#                      deploy's own failure reaches Slack through foundation-autodeploy.service's
+#                      OnFailure.
 #       after-switch   the release is live and steps 6–7 failed to unpause a DAG: the line says so.
 #     Returns non-zero when it leaves DAGs paused.
 #
@@ -268,6 +273,10 @@ start_once_then_unpause() {
   return 0
 }
 
+# `foundation-release.sh migrate` exits with this when a migration itself failed: the Postgres chain,
+# the schema check or the lakehouse migration (root ADR-0597). Any other exit of the switch leaves
+# the schema applied or untouched.
+SCHEMA_NOT_APPLIED=77
 deploy_paused_dags_on_exit() {
   local status="$1" phase="$2" sha="$3"
   ((status != 0)) || return 0
@@ -283,7 +292,12 @@ deploy_paused_dags_on_exit() {
       fi
       ;;
     switching)
-      printf 'foundation-deploy: THE HELD DAGS STAY PAUSED: the deploy of %s stopped (exit %s) while activating, migrating or loading the new release; the jobs it does not hold run on; fix it and deploy again, or unpause the enabled jobs of orchestration/jobs.v1.json by hand once the release is known good\n' \
+      if ((status != SCHEMA_NOT_APPLIED)) && deploy_unpause_enabled; then
+        printf 'foundation-deploy: the deploy of %s stopped (exit %s) during the switch, with its schema applied or untouched; its DAGs are unpaused again and the next tick finishes the deploy from the step that failed (root ADR-0597)\n' \
+          "${sha}" "${status}" >&2
+        return 0
+      fi
+      printf 'foundation-deploy: THE HELD DAGS STAY PAUSED: the deploy of %s stopped (exit %s) while migrating the new release, or unpausing failed; the jobs it does not hold run on; the next tick tries the migration again (root ADR-0597), and once its attempts are spent unpause the enabled jobs of orchestration/jobs.v1.json by hand when the release is known good\n' \
         "${sha}" "${status}" >&2
       return 1
       ;;

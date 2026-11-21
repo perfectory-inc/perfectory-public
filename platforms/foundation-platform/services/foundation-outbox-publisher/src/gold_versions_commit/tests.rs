@@ -180,3 +180,116 @@ fn only_changed_keys_are_appended_and_a_key_that_left_gets_a_marker() -> anyhow:
     assert_eq!(fingerprint_text((rows, sum)), "rows:3;digest_sum:14");
     Ok(())
 }
+
+fn build_tag(snapshot_id: i64) -> lakehouse_infrastructure::IcebergSnapshotRef {
+    lakehouse_infrastructure::IcebergSnapshotRef {
+        snapshot_id,
+        kind: "tag".to_owned(),
+    }
+}
+
+#[test]
+fn a_lane_serving_the_replaced_table_shadows_its_build_tags_inputs() -> anyhow::Result<()> {
+    let history = [
+        snapshot(9, &[("operation", "replace")]),
+        snapshot(
+            8,
+            &[
+                (
+                    SOURCE_SNAPSHOTS_PROPERTY,
+                    r#"{"silver.a":"11","silver.b":"12"}"#,
+                ),
+                (SERVED_EDITION_PROPERTY, "vworld-202611"),
+            ],
+        ),
+    ];
+    let found =
+        shadow("gold.x_versions", "gold.x", Some(&build_tag(8)), &history)?.context("a shadow")?;
+    assert_eq!(found.replaced, "gold.x");
+    assert_eq!(found.build, 8);
+    assert_eq!(
+        found.pins,
+        BTreeMap::from([("silver.a".to_owned(), 11), ("silver.b".to_owned(), 12)])
+    );
+    assert_eq!(found.served_edition.as_deref(), Some("vworld-202611"));
+    Ok(())
+}
+
+#[test]
+fn a_lane_serving_its_versions_table_has_no_shadow() -> anyhow::Result<()> {
+    assert_eq!(
+        shadow("gold.x_versions", "gold.x_versions", None, &[])?,
+        None
+    );
+    Ok(())
+}
+
+#[test]
+fn a_shadow_refuses_what_it_cannot_compare_with() {
+    let pinned = [snapshot(
+        8,
+        &[(SOURCE_SNAPSHOTS_PROPERTY, r#"{"silver.a":"11"}"#)],
+    )];
+    let unpinned = [snapshot(8, &[("operation", "append")])];
+    for (served, tag, history, says) in [
+        ("gold.y", Some(build_tag(8)), &pinned[..], "neither"),
+        ("gold.x", None, &pinned[..], "no foundation-gold-build tag"),
+        (
+            "gold.x",
+            Some(build_tag(7)),
+            &pinned[..],
+            "not in its main lineage",
+        ),
+        ("gold.x", Some(build_tag(8)), &unpinned[..], "records no"),
+    ] {
+        let error = shadow("gold.x_versions", served, tag.as_ref(), history)
+            .err()
+            .map(|error| error.to_string())
+            .unwrap_or_default();
+        assert!(error.contains(says), "{served} {tag:?}: {error}");
+    }
+}
+
+fn coverage(counts: &[(&str, u64)]) -> Coverage {
+    counts
+        .iter()
+        .map(|(region, present)| (("x_json".to_owned(), (*region).to_owned()), *present))
+        .collect()
+}
+
+const BOUND: CoverageBound = CoverageBound {
+    max_drop_fraction: 0.05,
+    min_region_pnus: 1000,
+};
+
+#[test]
+fn a_build_that_empties_one_sido_is_refused_though_the_whole_holds() {
+    let served = coverage(&[("11", 50_000), ("26", 2_000)]);
+    let built = coverage(&[("11", 50_000), ("26", 1_000)]);
+    let found = coverage_breaches(&served, &built, &[], BOUND);
+    assert_eq!(
+        found,
+        vec!["x_json in 시도 26: 2000 -> 1000 PNUs".to_owned()]
+    );
+}
+
+#[test]
+fn a_small_sido_is_judged_only_inside_the_whole() {
+    let served = coverage(&[("11", 50_000), ("36", 900)]);
+    let built = coverage(&[("11", 50_000), ("36", 0)]);
+    assert!(coverage_breaches(&served, &built, &[], BOUND).is_empty());
+}
+
+#[test]
+fn a_recorded_reorganization_moves_pnus_without_a_loss() {
+    // 29 and 46 served, 12 built: the code change table records both pairs.
+    let served = coverage(&[("29", 3_000), ("46", 4_000)]);
+    let built = coverage(&[("12", 7_000)]);
+    let pairs = [
+        ("29".to_owned(), "12".to_owned()),
+        ("46".to_owned(), "12".to_owned()),
+    ];
+    assert!(coverage_breaches(&served, &built, &pairs, BOUND).is_empty());
+    // Without the record the move is a loss of both 시도.
+    assert_eq!(coverage_breaches(&served, &built, &[], BOUND).len(), 2);
+}

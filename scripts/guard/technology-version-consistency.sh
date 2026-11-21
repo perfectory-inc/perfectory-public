@@ -152,7 +152,59 @@ if [ -f "$verify_dockerfile" ] && [ -f "$pin_file" ]; then
     echo "  $verify_dockerfile:  $verify_rust_base" >&2
     fail=1
   fi
+fi
 
+# Root ADR-0601: the verification image is also the data host's test image, so it must install the
+# packages CI installs — the union of `apt_deps` in tools/xtask/src/main.rs, which xtask hands to
+# scripts/ci/apt-install.sh — and no others. On 2026-11-21 a hand-built host test image carried its
+# own list (clang added, python3-pytest missing). The sccache pin lives in tools/sccache.env and the
+# image fetches it through scripts/ci/fetch_pinned.py, so a literal copy of it here is refused too.
+xtask_main=tools/xtask/src/main.rs
+if [ -f "$verify_dockerfile" ] && [ -f "$xtask_main" ]; then
+  if ! apt_problem=$(python3 - "$verify_dockerfile" "$xtask_main" tools/sccache.env <<'PY' | tr -d '\r'
+import pathlib
+import re
+import sys
+
+dockerfile = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+xtask = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+wanted = set()
+for block in re.findall(r"apt_deps:\s*&\[(.*?)\]", xtask, re.S):
+    wanted.update(re.findall(r'"([^"]+)"', block))
+logical = re.sub(r"\\\r?\n", " ", dockerfile)
+installed = set()
+installs = 0
+for line in logical.splitlines():
+    for command in re.split(r"&&|;", line):
+        words = command.split()
+        if "apt-get" in words and "install" in words:
+            installs += 1
+            installed.update(w for w in words[words.index("install") + 1:] if not w.startswith("-"))
+problems = []
+if installs != 1:
+    problems.append(f"expected one apt-get install, found {installs}")
+if installed != wanted:
+    missing, extra = sorted(wanted - installed), sorted(installed - wanted)
+    problems.append(f"apt packages differ from xtask apt_deps: missing {missing}, not in xtask {extra}")
+pins = pathlib.Path(sys.argv[3])
+if pins.is_file():
+    for line in pins.read_text(encoding="utf-8").splitlines():
+        if "=" in line and not line.lstrip().startswith("#"):
+            value = line.split("=", 1)[1].strip()
+            if value and value in dockerfile:
+                problems.append(f"restates {line.split('=', 1)[0]} from {pins} instead of fetching through fetch_pinned.py")
+print("; ".join(problems))
+PY
+  ); then
+    echo "FAIL technology-version: could not compare the verification image with tools/xtask apt_deps" >&2
+    fail=1
+  elif [ -n "$apt_problem" ]; then
+    echo "FAIL technology-version: $verify_dockerfile: $apt_problem" >&2
+    fail=1
+  fi
+fi
+
+if [ -f "$verify_dockerfile" ] && [ -f "$pin_file" ]; then
   pinned_node=$(sed -n 's/^NODE_VERIFY_IMAGE=//p' "$pin_file" | tr -d '\r')
   verify_node_base=$(sed -n 's/^FROM[[:space:]]\{1,\}\([^[:space:]]\{1,\}\).*/\1/p' "$verify_dockerfile" | grep '^node:' | sed -n 1p)
   if [ -z "$pinned_node" ] || [ -z "$verify_node_base" ]; then

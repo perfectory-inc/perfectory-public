@@ -24,7 +24,7 @@ use foundation_publisher_core::{
 use iceberg::{
     io::LocalFsStorageFactory,
     memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE},
-    spec::{NestedField, PrimitiveType, Schema, Transform, Type, UnboundPartitionSpec},
+    spec::{ListType, NestedField, PrimitiveType, Schema, Transform, Type, UnboundPartitionSpec},
     Catalog, CatalogBuilder, NamespaceIdent, TableCreation, TableIdent,
 };
 use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableContract};
@@ -105,11 +105,27 @@ async fn catalog_partitioned(
     for (index, column) in contract.columns.iter().enumerate() {
         let id = i32::try_from(index + 1)?;
         let kind = Type::Primitive(match column.logical_type {
+            "array<string>" => {
+                // Element ids follow the columns', as an engine that creates the table gives them.
+                let element = i32::try_from(contract.columns.len() + index + 1)?;
+                fields.push(Arc::new(NestedField::new(
+                    id,
+                    column.name,
+                    Type::List(ListType::new(Arc::new(NestedField::list_element(
+                        element,
+                        Type::Primitive(PrimitiveType::String),
+                        false,
+                    )))),
+                    column.required,
+                )));
+                continue;
+            }
             "string" => PrimitiveType::String,
             "long" => PrimitiveType::Long,
             "int" => PrimitiveType::Int,
             "double" => PrimitiveType::Double,
             "date" => PrimitiveType::Date,
+            "boolean" => PrimitiveType::Boolean,
             "timestamp" => PrimitiveType::Timestamptz,
             other => anyhow::bail!("this test has no Iceberg type for {other}"),
         });
@@ -526,6 +542,153 @@ async fn a_partitioned_file_is_one_partition_or_refused() -> anyhow::Result<()> 
     Ok(())
 }
 
+/// A hub table keeps every source column in `raw_columns`, a list of text, and is partitioned by
+/// its edition (`vintage`): one release's rows are one file of one partition (root ADR-0599).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_list_of_text_column_is_staged_and_appended() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let contract = contract("silver.building_register_master")?;
+    assert_eq!(contract.partition_spec, ["vintage"]);
+    let catalog = catalog_with(&root.path().join("warehouse"), contract).await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let shape = committer.table_shape(contract.table_name).await?;
+    let lists = shape
+        .fields
+        .iter()
+        .filter(|field| field.element_id.is_some())
+        .map(|field| field.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(lists, ["raw_columns"]);
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| match (column.name, column.logical_type) {
+            ("pnu", _) => "'99999' || lpad(CAST(i AS VARCHAR), 14, '0') AS pnu".to_owned(),
+            ("vintage", _) => "'209901' AS vintage".to_owned(),
+            // A null element and an empty list are values of the column; a null list is not.
+            (name, "array<string>") => format!(
+                "CASE WHEN i % 5 = 0 THEN []::VARCHAR[] ELSE ['a', NULL, CAST(i AS VARCHAR)] END AS {name}"
+            ),
+            (name, "long") => format!("CAST(i AS BIGINT) AS {name}"),
+            (name, "timestamp") => format!("to_timestamp(4070908800) AS {name}"),
+            (name, _) => format!("'{name}-' || CAST(i % 7 AS VARCHAR) AS {name}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let file = stage.write(
+        &shape,
+        &format!("SELECT {columns} FROM range(0, 40) t(i) ORDER BY pnu"),
+        "release",
+    )?;
+    let outcome = committer
+        .append(DataAppend {
+            table_name: contract.table_name,
+            contract,
+            files: &[file],
+            batch: &["release".to_owned()],
+            already_ingested: &BTreeSet::new(),
+            summary: BTreeMap::new(),
+        })
+        .await?;
+    let (_, _, added) = appended(outcome)?;
+    assert_eq!(added, 40);
+    Ok(())
+}
+
+/// The unit areas are partitioned by `bucket(32, mgm_bldrgst_pk)`: a release's changes are written
+/// one file set per bucket, and a file of two buckets is refused (its bounds cannot say so).
+#[tokio::test(flavor = "multi_thread")]
+async fn rows_of_a_hash_partitioned_table_are_staged_one_bucket_a_file() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let contract = contract("silver.building_register_unit_areas")?;
+    assert_eq!(contract.partition_spec, ["bucket(32, mgm_bldrgst_pk)"]);
+    let catalog = catalog_partitioned(
+        &root.path().join("warehouse"),
+        contract,
+        &[("mgm_bldrgst_pk", Transform::Bucket(32))],
+    )
+    .await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let shape = committer.table_shape(contract.table_name).await?;
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| match (column.name, column.logical_type) {
+            ("mgm_bldrgst_pk", _) => "'99999-' || CAST(i AS VARCHAR) AS mgm_bldrgst_pk".to_owned(),
+            ("pnu", _) => "'99999' || lpad(CAST(i AS VARCHAR), 14, '0') AS pnu".to_owned(),
+            (name, "long") => format!("CAST(i AS BIGINT) AS {name}"),
+            (name, "int") => format!("CAST(i % 9 AS INTEGER) AS {name}"),
+            (name, "double") => format!("CAST(i AS DOUBLE) AS {name}"),
+            (name, "timestamp") => format!("to_timestamp(4070908800) AS {name}"),
+            (name, _) => format!("'{name}-' || CAST(i % 7 AS VARCHAR) AS {name}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    stage.connection().execute_batch(&format!(
+        "CREATE TABLE unit_rows AS SELECT {columns} FROM range(0, 2000) t(i)"
+    ))?;
+    let append = |files: Vec<StagedFile>, batch: &'static str| {
+        let committer = committer.clone();
+        async move {
+            committer
+                .append(DataAppend {
+                    table_name: contract.table_name,
+                    contract,
+                    files: &files,
+                    batch: &[batch.to_owned()],
+                    already_ingested: &BTreeSet::new(),
+                    summary: BTreeMap::new(),
+                })
+                .await
+        }
+    };
+
+    // Planted: every bucket in one file.
+    let mixed = stage.write(&shape, "SELECT * FROM unit_rows", "mixed")?;
+    let message = format!(
+        "{:#}",
+        append(vec![mixed], "mixed")
+            .await
+            .err()
+            .context("refused")?
+    );
+    assert!(message.contains("is not one partition"), "{message}");
+
+    let files = stage.write_bucketed(
+        &shape,
+        "unit_rows",
+        "mgm_bldrgst_pk",
+        32,
+        "areas",
+        256 * 1024 * 1024,
+    )?;
+    // 2,000 keys over 32 buckets: every bucket holds some.
+    assert_eq!(files.len(), 32);
+    let (_, _, added) = appended(append(files, "release").await?)?;
+    assert_eq!(added, 2000);
+    Ok(())
+}
+
+#[test]
+fn a_stage_refuses_work_that_would_eat_the_disks_reserve() -> anyhow::Result<()> {
+    const GIB: u64 = 1 << 30;
+    let reserve = super::stage_reserve_bytes()?;
+    assert_eq!(reserve, 30 * GIB);
+    // 97 GiB free, a 32 GiB spill ceiling: 13 GiB of copy and staged files fit, 40 do not.
+    assert!(super::leaves_reserve(97 * GIB, 32 * GIB, 13 * GIB, reserve));
+    assert!(!super::leaves_reserve(
+        97 * GIB,
+        32 * GIB,
+        40 * GIB,
+        reserve
+    ));
+    // A disk already under the reserve refuses whatever the plan.
+    assert!(!super::leaves_reserve(20 * GIB, 0, 0, reserve));
+    Ok(())
+}
+
 /// One synthetic row of `contract` (PNU under the synthetic 99999 code, 2099 times), every column
 /// filled by its type.
 fn synthetic_row(contract: &LakehouseTableContract) -> anyhow::Result<String> {
@@ -540,6 +703,7 @@ fn synthetic_row(contract: &LakehouseTableContract) -> anyhow::Result<String> {
                 (_, "int") => "CAST(1 AS INTEGER)",
                 (_, "double") => "CAST(1.5 AS DOUBLE)",
                 (_, "date") => "DATE '2099-01-01'",
+                (_, "boolean") => "true",
                 (_, "timestamp") => "to_timestamp(4071006245)",
                 (_, other) => anyhow::bail!("this test has no value for {other}"),
             };
@@ -641,6 +805,59 @@ async fn an_onbid_object_is_the_first_append_into_each_empty_table() -> anyhow::
     Ok(())
 }
 
+/// The 법원경매정보 `DuckDB` load's first object into each of the six tables its 공통코드, 감정평가서,
+/// 매각물건명세서 and 배당요구종기공고 write, as `load-courtauction-go-kr-silver` appends it.
+///
+/// Into a catalog that holds none of them yet: the load makes each table before its first commit.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_court_auction_object_is_the_first_append_into_each_empty_table() -> anyhow::Result<()> {
+    let tables = [
+        contract("silver.court_auction_code")?,
+        contract("silver.court_auction_appraisal_report")?,
+        contract("silver.court_auction_appraisal_report_read")?,
+        contract("silver.court_auction_sale_specification_read")?,
+        contract("silver.court_auction_dividend_notice")?,
+        contract("silver.court_auction_dividend_object")?,
+    ];
+    let root = tempfile::tempdir()?;
+    let catalog: Arc<dyn Catalog> = Arc::new(
+        MemoryCatalogBuilder::default()
+            .with_storage_factory(Arc::new(LocalFsStorageFactory))
+            .load(
+                "memory",
+                HashMap::from([(
+                    MEMORY_CATALOG_WAREHOUSE.to_owned(),
+                    root.path()
+                        .join("warehouse")
+                        .to_str()
+                        .context("the warehouse path must be UTF-8")?
+                        .to_owned(),
+                )]),
+            )
+            .await?,
+    );
+    catalog
+        .create_namespace(&NamespaceIdent::new("silver".to_owned()), HashMap::new())
+        .await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    // One stage for the whole test: its files live as long as it does.
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    for table in tables {
+        assert!(
+            committer.create_table_if_absent(table).await?,
+            "{}",
+            table.table_name
+        );
+        let shape = committer.table_shape(table.table_name).await?;
+        let name = format!("{}-first", short_name(table)?);
+        let file = stage.write(&shape, &synthetic_row(table)?, &name)?;
+        let object = "bronze/source=synthetic/ca-20990102t030405z.gz";
+        let first = first_append(&catalog, table, file, object).await?;
+        assert_eq!(first, (None, 1), "{}", table.table_name);
+    }
+    Ok(())
+}
+
 /// The data.go.kr file data Silver load's first edition into each of its fourteen empty tables
 /// (root ADR-0389), as `load-data-go-kr-file-data-silver` appends it.
 #[tokio::test(flavor = "multi_thread")]
@@ -729,6 +946,146 @@ async fn a_load_makes_the_table_no_load_has_made_yet() -> anyhow::Result<()> {
     let first = first_append(&catalog, table, file, object).await?;
     assert_eq!(first, (None, 1));
     Ok(())
+}
+
+/// The parcel registry's first step into its empty table (root ADR-0389), as
+/// `load-parcel-registry` appends it: a commit that records the run's id.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parcel_registry_step_is_the_first_append_into_the_empty_table() -> anyhow::Result<()> {
+    let table = contract("silver.parcel_registry")?;
+    let root = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let (catalog, shape) = empty_table(root.path(), table).await?;
+    let file = stage.write(&shape, &synthetic_row(table)?, "parcel-registry-first")?;
+    let run = "parcel-registry-0123456789abcdef01234567";
+    let first = first_append(&catalog, table, file, run).await?;
+    assert_eq!(first, (None, 1));
+    Ok(())
+}
+
+/// The official parcel number changes' first file into the empty table (root ADR-0389), as
+/// `load-parcel-number-change-history` appends it: a commit that records the file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parcel_number_change_file_is_the_first_append_into_the_empty_table() -> anyhow::Result<()>
+{
+    let table = contract("silver.parcel_number_change_history")?;
+    let root = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let (catalog, shape) = empty_table(root.path(), table).await?;
+    let file = stage.write(&shape, &synthetic_row(table)?, "parcel-number-change-first")?;
+    let object = "bronze/source=synthetic/30527-1--sha256-synthetic.zip";
+    let first = first_append(&catalog, table, file, object).await?;
+    assert_eq!(first, (None, 1));
+    Ok(())
+}
+
+/// Root ADR-0599 §4: what must outlive a snapshot's summary (a release's edition, root ADR-0328 §3)
+/// is a table property written by the commit that appends the release's rows. An append refused
+/// before its commit (`main` is not where the rows were compared) records neither the rows nor
+/// the property, and uploads nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_append_records_its_table_properties_in_its_own_commit() -> anyhow::Result<()> {
+    let table = contract("silver.parcel_number_change_history")?;
+    let root = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let (catalog, shape) = empty_table(root.path(), table).await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    let ident = TableIdent::from_strs(["silver", short_name(table)?])?;
+    let none = BTreeSet::new();
+    let edition = |name: &str| {
+        BTreeMap::from([(format!("foundation.edition.{name}"), "recorded".to_owned())])
+    };
+
+    // Planted: the rows were compared with a head `main` is not at.
+    let early = stage.write(&shape, &synthetic_row(table)?, "release-early")?;
+    let object = "release-209901".to_owned();
+    let refused = committer
+        .append_at_head_recording(
+            release_append(table, &early, &object, &none),
+            Some(1),
+            edition("209901"),
+        )
+        .await;
+    assert!(refused.is_err(), "an append on a head main is not at");
+    let untouched = catalog.load_table(&ident).await?;
+    assert!(untouched.metadata().current_snapshot().is_none());
+    assert!(!untouched
+        .metadata()
+        .properties()
+        .contains_key("foundation.edition.209901"));
+    let data = root.path().join(short_name(table)?);
+    let uploaded = walk(&data)?
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|kind| kind == "parquet"))
+        .count();
+    assert_eq!(uploaded, 0, "a refused append uploads nothing");
+
+    let file = stage.write(&shape, &synthetic_row(table)?, "release-209901")?;
+    let (snapshot, parent, added) = appended(
+        committer
+            .append_at_head_recording(
+                release_append(table, &file, &object, &none),
+                None,
+                edition("209901"),
+            )
+            .await?,
+    )?;
+    assert_eq!((parent, added), (None, 1));
+    let loaded = catalog.load_table(&ident).await?;
+    let metadata = loaded.metadata();
+    assert_eq!(metadata.current_snapshot_id(), Some(snapshot.snapshot_id));
+    // One commit: the property is in the metadata the snapshot's commit wrote.
+    assert_eq!(
+        metadata
+            .properties()
+            .get("foundation.edition.209901")
+            .map(String::as_str),
+        Some("recorded")
+    );
+    assert_eq!(
+        metadata
+            .current_snapshot()
+            .context("a snapshot")?
+            .summary()
+            .additional_properties["foundation.edition"],
+        "209901"
+    );
+    assert_eq!(metadata.history().len(), 1, "one commit, not two");
+    Ok(())
+}
+
+/// A release's append of one file, recording the release and its edition.
+fn release_append<'a>(
+    table: &'static LakehouseTableContract,
+    file: &'a StagedFile,
+    object: &'a String,
+    none: &'a BTreeSet<String>,
+) -> DataAppend<'a> {
+    DataAppend {
+        table_name: table.table_name,
+        contract: table,
+        files: std::slice::from_ref(file),
+        batch: std::slice::from_ref(object),
+        already_ingested: none,
+        summary: BTreeMap::from([("foundation.edition".to_owned(), "209901".to_owned())]),
+    }
+}
+
+/// Every file under `root`.
+fn walk(root: &Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                found.push(path);
+            }
+        }
+    }
+    Ok(found)
 }
 
 /// One synthetic row of each ILIS notice table (notice `99…`, 2099 times), in contract order.

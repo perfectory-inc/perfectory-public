@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Say when main is red, and keep one issue open while it is (root ADR-0554).
+"""Say when main is red: the run fails and names each red job in an annotation (root ADR-0554).
 
-  main_health.py [--dry-run] [--as-of TIME] [--repository OWNER/NAME]   (GH_TOKEN; issues: write to report)
+  main_health.py [--dry-run] [--as-of TIME] [--repository OWNER/NAME]   (GH_TOKEN, read only)
 
 A pull request and the merge queue run only what a change reaches (root ADR-0313), and a push to
 main repeats nothing the queue passed. So a break that slipped past the selection shows nowhere on
@@ -20,8 +20,11 @@ This reads the runs GitHub already made and decides, per job, from what last hap
 - a later success of the same job anywhere on main's line (queue, push, nightly) clears it. A
   skipped job says nothing.
 
-While any job is red, one issue titled TITLE stays open with the jobs and their runs; it is edited
-when the set changes and closed when it empties.
+The verdict is the run itself: green when no job is red; failed, with a `main-red-count` annotation
+and one `main-red` annotation per job, when some are. The host's service checks read the newest
+verdict and Slack #alerts hears it through Alertmanager (scripts/ops/service-checks.py, the `main`
+part), the way the security advisories go. Until 2026-11-21 this kept a GitHub issue open; issues are
+off in this repository, so from 11-14 the red nightly jobs reached no one.
 """
 
 from __future__ import annotations
@@ -36,8 +39,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[2]
-TITLE = "main 이 깨졌어요 (main-red)"
-LABEL = "main-red"
+# The annotations the service checks read. GitHub keeps 10 error annotations of a step: the count,
+# then at most RED_ANNOTATIONS jobs.
+COUNT_TITLE = "main-red-count"
+JOB_TITLE = "main-red"
+RED_ANNOTATIONS = 9
 # Runs that speak for main's own tree, and the queue, which speaks for main plus one pull request.
 MAIN_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
 QUEUE_EVENT = "merge_group"
@@ -97,9 +103,23 @@ def red(observations: list[dict]) -> list[dict]:
     return []
 
 
+def annotate(message: str) -> str:
+    """A workflow-command message: GitHub reads `%`, CR and LF as escapes."""
+    return message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def verdict_lines(found: dict[tuple[str, str], list[dict]]) -> list[str]:
+    """The workflow commands that carry a red verdict: the count, then each job (JSON messages)."""
+    lines = [f"::error title={COUNT_TITLE}::{len(found)}"]
+    for workflow, job in sorted(found)[:RED_ANNOTATIONS]:
+        message = json.dumps({"workflow": workflow, "job": job}, ensure_ascii=False)
+        lines.append(f"::error title={JOB_TITLE}::{annotate(message)}")
+    return lines
+
+
 def render(found: dict[tuple[str, str], list[dict]]) -> str:
     lines = [
-        "main 에서 다음 작업이 실패하고 있어요(루트 ADR-0554). 이 이슈는 `main-health.yml` 이 열고, 같은 작업이 다시 통과하면 닫아요.",
+        "main 에서 다음 작업이 실패하고 있어요(루트 ADR-0554). 같은 작업이 다시 통과하면 이 실행이 초록으로 돌아와요.",
         "",
         "| 워크플로 | 작업 | 근거 |",
         "|---|---|---|",
@@ -117,7 +137,7 @@ def render(found: dict[tuple[str, str], list[dict]]) -> str:
 def gating_workflows(root: Path = ROOT) -> frozenset[str]:
     """The workflow files that gate a pull request (tools/ci/change-scope.json lists every one). A
     schedule-only report (the cache budget, the advisories) speaks about the repository at that hour
-    and keeps its own issue."""
+    on its own."""
     contract = json.loads((root / "tools/ci/change-scope.json").read_text(encoding="utf-8"))
     return frozenset(contract["workflows"]) | frozenset(contract["unscoped"])
 
@@ -186,21 +206,6 @@ def observe(repo: str, now: datetime, bounded: bool, gating: frozenset[str]) -> 
     return failures
 
 
-def report(repo: str, found: dict[tuple[str, str], list[dict]]) -> None:
-    listed = json.loads(gh("issue", "list", "--repo", repo, "--state", "open", "--label", LABEL, "--json", "number,title,body"))
-    current = next((issue for issue in listed if issue["title"] == TITLE), None)
-    if not found:
-        if current:
-            gh("issue", "close", str(current["number"]), "--repo", repo, "--comment", "실패하던 작업이 모두 다시 통과했어요.")
-        return
-    body = render(found)
-    if current is None:
-        gh("issue", "create", "--repo", repo, "--title", TITLE, "--label", LABEL, "--body", body)
-    elif current["body"].strip() != body.strip():
-        gh("issue", "edit", str(current["number"]), "--repo", repo, "--body", body)
-        gh("issue", "comment", str(current["number"]), "--repo", repo, "--body", "실패하는 작업이 바뀌었어요.")
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true")
@@ -212,28 +217,23 @@ def main(argv: list[str] | None = None) -> int:
     try:
         observed = observe(repo, now, bool(args.as_of), gating_workflows())
     except GitHubUnreadable as error:
-        # A 502 or a spent rate limit is not a verdict on main; the next run asks again.
-        print(f"main-health: GitHub could not be read, leaving the issue as it is: {error}", file=sys.stderr)
-        return 0
+        # A 502 or a spent rate limit is not a verdict on main. The run fails with no main-red-count,
+        # so the service checks keep the verdict before it; the next run asks again.
+        print(f"::warning title=main-health-unreadable::{annotate(str(error))}")
+        return 0 if args.dry_run or args.as_of else 1
     found = {key: streak for key, observations in observed.items() if (streak := red(observations))}
     for (workflow, job), streak in sorted(found.items()):
         print(f"main-health: RED {workflow} / {job}: {', '.join(o['source'] for o in streak)}")
     print(f"main-health: {len(found)} red job(s) as of {now.strftime(STAMP)}")
-    if args.dry_run or args.as_of:
+    if args.dry_run or args.as_of or not found:
         return 0
-    try:
-        report(repo, found)
-    except GitHubUnreadable as error:
-        # Main IS red and the issue could not say so. A run that stays green here is an alarm that
-        # rings nowhere: 2026-11-14..18 the repository had issues disabled, every run found the red
-        # Foundation nightly jobs, logged this line and passed, five nights unseen (root ADR-0554 4).
-        if not found:
-            print(f"main-health: the issue could not be read, leaving it as it is: {error}", file=sys.stderr)
-            return 0
-        print(f"::error title=main-health::{len(found)} red job(s) on main and the main-red issue could not be kept: {error}")
-        return 1
-    return 0
-
+    for line in verdict_lines(found):
+        print(line)
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8", newline="\n") as handle:
+            handle.write(render(found))
+    return 1
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -51,10 +51,19 @@ services:
       # tablespace on the spinning /data disk. `syncfs` asks each file system once (PostgreSQL 14+, Linux).
       - -c
       - recovery_init_sync_method=syncfs
+      # Read, write and fsync times in pg_stat_io and WAL write and sync times in pg_stat_wal (root
+      # ADR-0598): the deploy's 2026-11-20 failures came from the disk, and nothing in Postgres timed it.
+      # The docs warn of the clock's cost on some platforms and name pg_test_timing to measure it.
+      - -c
+      - track_io_timing=on
+      - -c
+      - track_wal_io_timing=on
     environment:
       <<: *foundation-recovery-writer-environment
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # The named volume until the deploy moved the data directory to the system disk's SSD; then the
+      # bind postgres-data-source.sh exports (config/host-layout.contract.json postgres_data, root ADR-0598).
+      - ${FOUNDATION_PLATFORM_POSTGRES_DATA:-pgdata}:/var/lib/postgresql/data
       - postgres_socket:/var/run/postgresql
       - pgbackrest_spool:/var/spool/pgbackrest
       - ./infra/postgres/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
@@ -77,7 +86,7 @@ services:
     environment:
       <<: *foundation-recovery-writer-environment
     volumes:
-      - pgdata:/var/lib/postgresql/data:ro
+      - ${FOUNDATION_PLATFORM_POSTGRES_DATA:-pgdata}:/var/lib/postgresql/data:ro
       # The tablespaces live outside pgdata (docker-compose.yml, root ADR-0082). pgBackRest follows
       # pg_tblspc into them, so a backup that cannot see this path aborts: it did, every night from
       # 2026-09-04 until 2026-10-02, after the parcel mirror moved to the bulk disk.

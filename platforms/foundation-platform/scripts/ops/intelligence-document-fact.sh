@@ -6,12 +6,12 @@
 # 모델의 메모리는 이 작업의 memory_claim 이다: 시작할 때 호스트에 그만큼 남아 있어야 승인된다(root ADR-0563).
 # 접기가 gold.complex_document_facts 를 바꾸면 `changed` 가 industrial_complex_edge_export 를 시작시켜 패널에 닿는다.
 #
-# 1. intelligence_documents.py plan-facts 가 텍스트 결과가 있고 이 사실 판의 결과가 없는 해시를 고르고, 그 결과·쪽을
+# 1. 퍼블리셔의 intelligence-documents plan-facts(DuckDB)가 텍스트 결과가 있고 이 사실 판의 결과가 없는 해시를 고르고, 그 결과·쪽을
 #    run 폴더에 낸다. OCR 쪽이 있는 PDF 의 바이트만 받는다(비전 재독이 쪽 그림을 그린다).
 # 2. intelligence 이미지의 fact_run 이 규칙 먼저, 규칙이 못 닫은 표만 모델에 묻는다. 엔진은 모른다: 관문
 #    MODEL_RUNTIME_* 만 읽는다(model-runtime.contract.json 의 serving).
-# 3. intelligence_documents.py append-facts 가 사실을 먼저, 결과를 나중에 쌓는다.
-# 4. intelligence_documents.py fold-complex-facts 가 이 run 에 사실이 쌓인 첨부의 단지만, 패널이 말해도 되는 사실을
+# 3. 퍼블리셔의 append-facts 가 사실을 먼저, 결과를 나중에 쌓는다.
+# 4. 접기(퍼블리셔의 fold-export → intelligence_documents.py 의 규칙 → 퍼블리셔의 fold-append)가 이 run 에 사실이 쌓인 첨부의 단지만, 패널이 말해도 되는 사실을
 #    gold.complex_document_facts 에 단지마다 한 줄 쌓는다(관문을 넘은 종류만, root ADR-0477 §1·§5). 빚이 없는 run 도
 #    접기는 돈다: 관문이나 사실 판이 바뀌었으면 그것이 전부 다시 접는 선언된 예외이고, 아니면 할 일 없이 끝난다.
 set -Eeuo pipefail
@@ -19,6 +19,11 @@ shopt -s inherit_errexit
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/intelligence-document-runtime.sh"
+
+# The release's publisher (root ADR-0263), for the lakehouse steps of the sourced runtime.
+publisher() {
+  "${PUBLISHER_BIN}" "$@"
+}
 
 STATE_ROOT="${FOUNDATION_INTELLIGENCE_DOCUMENTS_STATE_ROOT:-/data/foundation-platform/intelligence-documents}"
 journal="${STATE_ROOT}/journal.log"
@@ -28,12 +33,12 @@ trap 'job_journal "${journal}" "intelligence document fact FAILED at line ${LINE
 trap 'rm -rf "${work}/media"' EXIT
 
 intelligence_document_extraction_contract
-intelligence_document_spark plan-facts --out "${container_work}/plan"
+intelligence_document_lakehouse plan-facts
 owed="$(intelligence_document_summary owed)"
 planned="$(intelligence_document_summary planned)"
 # Foundation's read of the facts for the complex panel; prints "<complexes> <appended>".
 fold_complex_facts() {
-  intelligence_document_spark fold-complex-facts --run-id "${run_id}"
+  intelligence_document_fold
   folded="$(intelligence_document_summary complexes) $(intelligence_document_summary appended)"
 }
 
@@ -51,7 +56,7 @@ stopping=0
 trap 'stopping=1' TERM
 fact_rc=0
 intelligence_document_fact_run || fact_rc=$?
-intelligence_document_spark append-facts --run-dir "${container_work}/out" --run-id "${run_id}"
+intelligence_document_lakehouse append-facts
 trap - TERM
 if [ "${stopping}" = 1 ] || [ "${fact_rc}" != 0 ]; then
   job_journal "${journal}" "intelligence document fact $([ "${stopping}" = 1 ] && echo stopped || echo "FAILED: the image exited ${fact_rc}"); its finished documents were appended run=${run_id}" >&2

@@ -163,22 +163,7 @@ async fn compare_dong(
     dong: &str,
     documents: &[PackDocument],
 ) -> anyhow::Result<(u64, Vec<String>)> {
-    let mut bases = Vec::new();
-    for section in &view.sections {
-        for unit in section.parts.units_of_dong(dong)? {
-            let key =
-                by_pnu_packs::pack_key(view.lane, &section.name, section.generation, None, &unit)?;
-            if store.exists(&key).await? {
-                bases.push((section.name.clone(), unit));
-            }
-        }
-    }
-    let packs = read::load_unit(store, view, dong, &|section, unit| {
-        bases
-            .iter()
-            .any(|(name, known)| name == section && known == unit)
-    })
-    .await?;
+    let packs = load_served_dong(store, view, dong).await?;
     let mut differing = Vec::new();
     for document in documents {
         let same = match read::resolve(&packs, &document.pnu) {
@@ -198,9 +183,34 @@ async fn compare_dong(
     Ok((u64::try_from(documents.len())?, differing))
 }
 
+/// Every served pack of one dong: each section's base units that exist (one HEAD each) and the
+/// patches the view names. The switch of a takeover reads them too (`takeover`).
+pub(super) async fn load_served_dong(
+    store: &ByPnuServingStore,
+    view: &PackView,
+    dong: &str,
+) -> anyhow::Result<read::UnitPacks> {
+    let mut bases = Vec::new();
+    for section in &view.sections {
+        for unit in section.parts.units_of_dong(dong)? {
+            let key =
+                by_pnu_packs::pack_key(view.lane, &section.name, section.generation, None, &unit)?;
+            if store.exists(&key).await? {
+                bases.push((section.name.clone(), unit));
+            }
+        }
+    }
+    read::load_unit(store, view, dong, &|section, unit| {
+        bases
+            .iter()
+            .any(|(name, known)| name == section && known == unit)
+    })
+    .await
+}
+
 /// Whether two documents of the lane say the same, whatever version and snapshot stamped them: a
 /// null member is the field's absence (an optional field an older version never wrote).
-fn same_content(served: &[u8], rendered: &[u8]) -> anyhow::Result<bool> {
+pub(super) fn same_content(served: &[u8], rendered: &[u8]) -> anyhow::Result<bool> {
     Ok(content(served)? == content(rendered)?)
 }
 

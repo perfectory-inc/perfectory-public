@@ -180,5 +180,77 @@ class Command(unittest.TestCase):
         self.assertEqual((report["different"], report["same"], report["equal"]), (1, 1, False))
 
 
+# A runner process as the publisher's `query-takeover-sides` is one: a statement on stdin, log lines
+# and then the rows as one JSON array on stdout. SQLite answers it over the database file argv[1]
+# names; the fingerprint's hex-to-number words are DuckDB's, so it is computed as `runner` does.
+FAKE_RUNNER = """
+import json, sqlite3, sys
+sys.path.insert(0, sys.argv[2])
+import engine_equality
+connection = sqlite3.connect(sys.argv[1])
+connection.row_factory = sqlite3.Row
+sql = sys.stdin.read()
+if "digest_sum" in sql and "COUNT(*) AS rows" in sql:
+    table = sql.rsplit(" ", 1)[-1]
+    rows, total = engine_equality.fingerprint_of(
+        [row[0] for row in connection.execute(f"SELECT row_digest FROM {table}")]).replace("rows:", "").split(";digest_sum:")
+    answer = [{"rows": int(rows), "digest_sum": int(total)}]
+else:
+    answer = [dict(row) for row in connection.execute(sql)]
+print('{"level":"INFO","message":"a log line before the rows"}')
+print(json.dumps(answer))
+"""
+
+
+class RunnerCommand(unittest.TestCase):
+    def test_the_bridge_reaches_the_in_process_verdict(self):
+        import contextlib
+        import io
+        import json
+        import shlex
+        import tempfile
+
+        jobs = Path(engine_equality.__file__).resolve().parent
+        reference, candidate = rows_of({1: "a", 2: "b", 3: "c"}), rows_of({1: "a", 2: "x", 4: "d"})
+        expected = engine_equality.compare(runner(database(reference, candidate)), "reference", "candidate",
+                                           ("pnu",), "duckdb", ("document",))
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work, "sides.db")
+            on_disk = sqlite3.connect(path)
+            on_disk.executescript("".join(f"CREATE TABLE {name} (pnu TEXT, document TEXT, row_digest TEXT);"
+                                          for name in ("reference", "candidate")))
+            for name, rows in (("reference", reference), ("candidate", candidate)):
+                on_disk.executemany(f"INSERT INTO {name} VALUES (?, ?, ?)", rows)
+            on_disk.commit()
+            on_disk.close()
+            Path(work, "runner.py").write_text(FAKE_RUNNER, encoding="utf-8")
+            Path(work, "sides.json").write_text(json.dumps({
+                "table": "gold.example_versions", "replaced": "gold.example", "reference_snapshot": "1",
+                "candidate_snapshot": "2", "pins": {"silver.example": 7}, "keys": ["pnu"],
+                "content": ["document"], "digest": "row_digest"}), encoding="utf-8")
+            command = " ".join(shlex.quote(part) for part in (sys.executable, "-I", str(Path(work, "runner.py")),
+                                                               str(path), str(jobs)))
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = engine_equality.main(["--sides", str(Path(work, "sides.json")), "--runner-command", command,
+                                             "--job", "gold.example_versions", "--reference-engine", "spark",
+                                             "--candidate-engine", "duckdb", "--report", str(Path(work, "verdict.json"))])
+            report = json.loads(Path(work, "verdict.json").read_text(encoding="utf-8"))
+        self.assertEqual(code, 1)
+        for name, value in asdict_of(expected).items():
+            self.assertEqual(report[name], value, name)
+        self.assertEqual((report["input_pins"], report["candidate_snapshot"], report["keys"]),
+                         ({"silver.example": 7}, "2", ["pnu"]))
+
+    def test_a_failing_runner_is_an_error_not_a_verdict(self):
+        run = engine_equality.command_runner(f"{sys.executable} -I -c \"import sys; sys.exit('no such view')\"")
+        with self.assertRaisesRegex(RuntimeError, "no such view"):
+            run("SELECT 1")
+
+
+def asdict_of(verdict) -> dict:
+    import dataclasses
+    return {**dataclasses.asdict(verdict), "equal": verdict.equal}
+
+
 if __name__ == "__main__":
     unittest.main()

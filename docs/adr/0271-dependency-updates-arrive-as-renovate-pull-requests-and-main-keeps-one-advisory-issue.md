@@ -50,6 +50,9 @@
    `cargo-advisories-self-test.sh` 가 매일 먼저 심은 권고(RUSTSEC-2021-0003 을 가진 lockfile)를 거부하는지 본다 —
    거부하지 못하는 검사는 깨끗한 main 을 보고할 수 없다. 마지막 잡이 `issue` 로 제목 `Cargo advisories on main`
    인 열린 이슈 하나를 맞춘다: 실패면 열거나, 발견이 바뀌었을 때만 본문을 다시 쓰고 댓글로 알리며, 성공이면 닫는다.
+   - 2026-11-21 개정(W83e): 이슈 작업(`Advisory issue`)과 `cargo-advisories.sh issue` 는 지웠다. 저장소의 이슈가 꺼져
+     있어 쓰지 못했고, 같은 발견은 이미 ADR-0278 의 `cargo-advisories` 출처(검사가 남기는 `advisory` 주석 → 서비스 점검 →
+     `FoundationSecurityAdvisory` → Slack)로 간다. 7 의 `issues: write` 예외도 없어졌다.
 7. **쓰기 권한은 그 잡의 `issues: write` 하나뿐이다.** `check-workflow-policy.sh` 는 이 파일 이름 하나, 예약 전용일
    때, 잡 수준 권한 맵에 `contents: read` 와 함께인 경우에만 `issues: write` 를 받는다(자기시험이 다른 파일·다른
    트리거·최상위·다른 쓰기 권한을 각각 거부한다). 그 잡은 크레이트를 읽은 잡과 분리되어 main 에서만 돌고, 스크립트

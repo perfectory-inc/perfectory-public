@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import json
 import os
 import sys
@@ -15,7 +17,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import repository_drift as drift  # noqa: E402
-from repository_drift import POLICY, RULESETS, TITLE, Unreadable, renovate_silent, ruleset_drift, settings_drift  # noqa: E402
+from repository_drift import POLICY, RULESETS, Unreadable, renovate_silent, ruleset_drift, settings_drift  # noqa: E402
 
 NOW = datetime(2026, 11, 18, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -46,9 +48,10 @@ class SettingsTest(unittest.TestCase):
         settings = declared("repository-settings.json")
         return {key: settings[key] for key in drift.SETTINGS_READABLE}
 
-    def test_issues_turned_off_is_drift(self) -> None:
-        # 2026-10-22..11-18: has_issues false while repository-settings.json said true.
-        found = settings_drift(declared("repository-settings.json"), {**self.readable(), "has_issues": False})
+    def test_issues_turned_on_is_drift(self) -> None:
+        # 2026-10-22..11-18 the other way: has_issues false while repository-settings.json said true.
+        # Issues stay off since 2026-11-21 (root ADR-0554 5); either difference is drift.
+        found = settings_drift(declared("repository-settings.json"), {**self.readable(), "has_issues": True})
         self.assertEqual(len(found), 1)
         self.assertIn("has_issues", found[0])
 
@@ -106,69 +109,40 @@ class PulseTest(unittest.TestCase):
         self.assertIsNotNone(renovate_silent([{"state": "CLOSED", "createdAt": "2026-11-16T11:59:59Z"}], NOW))
 
 
-class FakeGh:
-    """Answers `gh` like GitHub would and records what was written."""
+class ReportTest(unittest.TestCase):
+    """The job's verdict, which the host's service checks carry to Slack (issues are off, 2026-11-21)."""
 
-    def __init__(self, open_issues: list[dict], fail: str = "") -> None:
-        self.open_issues = open_issues
-        self.fail = fail
-        self.calls: list[tuple[str, ...]] = []
-
-    def __call__(self, *args: str) -> str:
-        self.calls.append(args)
-        if self.fail and args[0] == self.fail:
-            raise Unreadable("planted")
-        if args[:2] == ("issue", "list"):
-            return json.dumps(self.open_issues)
-        return ""
-
-    def writes(self) -> list[str]:
-        return [args[1] for args in self.calls if args[0] == "issue" and args[1] != "list"]
-
-
-class IssueTest(unittest.TestCase):
-    def run_issue(self, result: str, findings: str, fake: FakeGh) -> int:
+    def run_report(self, result: str | None, findings: str) -> tuple[int, str]:
         with tempfile.TemporaryDirectory() as scratch:
             summary = Path(scratch) / "summary.md"
             summary.write_text(findings, encoding="utf-8")
-            summary.with_suffix(".result").write_text(result + "\n", encoding="utf-8")
-            with mock.patch.object(drift, "gh", fake), mock.patch.dict(os.environ, {"GH_REPO": "o/r", "RUN_URL": "run-2"}):
-                return drift.issue(summary)
+            if result is not None:
+                summary.with_suffix(".result").write_text(result + "\n", encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = drift.report(summary)
+            return code, out.getvalue()
 
-    def body(self, findings: str, run: str) -> str:
-        fake = FakeGh([])
-        self.run_issue("failure", findings, fake)
-        return next(args[args.index("--body") + 1] for args in fake.calls if args[1] == "create").replace("run-2", run)
+    def test_findings_fail_the_job_with_a_count_and_one_annotation_each(self) -> None:
+        code, out = self.run_report("failure", "- has_issues: 100% off\n- could not read rulesets: 502\n")
+        self.assertEqual(code, 1)
+        self.assertIn("::error title=repository-drift-count::1\n", out)
+        self.assertIn("::error title=repository-drift::has_issues: 100%25 off\n", out)
+        self.assertNotIn("title=repository-drift::could not read", out)
 
-    def test_findings_open_the_issue_and_the_run_is_red(self) -> None:
-        fake = FakeGh([])
-        self.assertEqual(self.run_issue("failure", "- x\n", fake), 1)
-        self.assertEqual(fake.writes(), ["create"])
+    def test_github_keeps_ten_error_annotations_a_step(self) -> None:
+        _, out = self.run_report("failure", "".join(f"- finding {n}\n" for n in range(12)))
+        self.assertEqual(out.count("::error title=repository-drift::"), drift.FINDING_ANNOTATIONS)
+        self.assertIn("::error title=repository-drift-count::12", out)
 
-    def test_the_same_findings_on_another_day_write_nothing(self) -> None:
-        current = {"number": 9, "title": TITLE, "body": self.body("- x\n", "run-1").replace("\n", "\r\n")}
-        fake = FakeGh([current])
-        self.assertEqual(self.run_issue("failure", "- x\n", fake), 1)
-        self.assertEqual(fake.writes(), [])
+    def test_clear_passes(self) -> None:
+        self.assertEqual(self.run_report("success", "")[0], 0)
 
-    def test_changed_findings_rewrite_and_comment(self) -> None:
-        fake = FakeGh([{"number": 9, "title": TITLE, "body": self.body("- x\n", "run-1")}])
-        self.run_issue("failure", "- y\n", fake)
-        self.assertEqual(fake.writes(), ["edit", "comment"])
-
-    def test_clear_closes_the_issue(self) -> None:
-        fake = FakeGh([{"number": 9, "title": TITLE, "body": "b"}])
-        self.assertEqual(self.run_issue("success", "", fake), 0)
-        self.assertEqual(fake.writes(), ["close"])
-
-    def test_unreadable_and_missing_leave_the_issue(self) -> None:
-        for result in ("unreadable", "missing"):
-            fake = FakeGh([{"number": 9, "title": TITLE, "body": "b"}])
-            self.assertEqual(self.run_issue(result, "", fake), 0)
-            self.assertEqual(fake.calls, [])
-
-    def test_issues_that_cannot_be_written_still_turn_the_run_red(self) -> None:
-        self.assertEqual(self.run_issue("failure", "- x\n", FakeGh([], fail="issue")), 1)
+    def test_unreadable_and_missing_are_no_verdict(self) -> None:
+        for result in ("unreadable", None):
+            code, out = self.run_report(result, "")
+            self.assertEqual(code, 1)
+            self.assertNotIn("repository-drift-count", out)
 
 
 class CheckTest(unittest.TestCase):

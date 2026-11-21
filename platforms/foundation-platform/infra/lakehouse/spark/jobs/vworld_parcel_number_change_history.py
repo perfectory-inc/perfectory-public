@@ -18,13 +18,17 @@ home (ADR-0145 §1); the pairing never reads the parcel lineage (ADR-0145 §2).
 
     vworld_parcel_number_change_history.py endpoint-catalog | changed-files | landed-objects   (collection, no Spark)
     vworld_parcel_number_change_history.py stage-handoff --inventory I --evidence E --download-dir D --state-dir S
-    vworld_parcel_number_change_history.py load --handoff-dir H [--validate-only]
+
+The load itself left Spark (root ADR-0559): the publisher's `load-parcel-number-change-history` reads a
+handoff by the same rules (`foundation_publisher_silver::parcel_number_change_history_stage`, held to this
+module's `parse_rows` by its fixture) and appends it. What stays here is the collection, which checks a file
+before it is handed off, and the readers of the rows.
 
 One file is one load: loading the same Bronze object twice is refused by the ingest registry. A
 file the provider uploads again repeats nearly every row the table already holds (1,370,351 rows
 appended again whole, 2026-10); only the rows the table does not hold yet (`EVENT_COLUMNS`, compared
 null-safe) are appended, and the object is recorded in the same commit even when none is
-(`append_source_object`, root ADR-0318). The table stays an append-only record of every link the
+(root ADR-0318). The table stays an append-only record of every link the
 provider ever published, as before: a link a later file leaves out is not removed.
 """
 
@@ -212,7 +216,8 @@ def table_rows(
 
 def official_links(rows: Iterable[Mapping[str, Any]], floor: date) -> list[tuple[str, str, str]]:
     """(old PNU, new PNU, 토지이동일자 YYYYMMDD) of the rows the pairing may read: dated on or after
-    `floor`, not quarantined, one link per distinct dated pair. The same link arrives from an old-name
+    `floor`, not quarantined, one link per distinct dated pair. The table's one reader (its contract's
+    `canonical_reader`): `rows` are every row of the table, never one edition of it (root ADR-0318 §8). The same link arrives from an old-name
     file and its renamed 시도's. The date says which change a link belongs to: the pairing holds a
     derived pair only against official rows of the same change (root ADR-0156)."""
 
@@ -465,84 +470,9 @@ def _landed(argv: Sequence[str]) -> int:
     return 0
 
 
-def _load(argv: Sequence[str]) -> int:
-    parser = argparse.ArgumentParser(prog="load")
-    parser.add_argument("--handoff-dir", required=True)
-    parser.add_argument("--summary-output")
-    parser.add_argument("--iceberg-catalog-name", default="lakehouse")
-    parser.add_argument("--iceberg-namespace", default="silver")
-    parser.add_argument("--iceberg-table", default="parcel_number_change_history")
-    parser.add_argument("--allow-non-smoke-write", action="store_true")
-    parser.add_argument("--validate-only", action="store_true")
-    args = parser.parse_args(argv)
-    for label in ("iceberg_catalog_name", "iceberg_namespace", "iceberg_table"):
-        if not IDENTIFIER.fullmatch(getattr(args, label)):
-            parser.error(f"{label} must be a plain SQL identifier")
-    if not args.validate_only and not args.iceberg_table.endswith("_smoke") and not args.allow_non_smoke_write:
-        parser.error(f"writing {args.iceberg_table} needs --allow-non-smoke-write")
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    loads = handoff_rows(Path(args.handoff_dir), load_source_contract(), now)
-    summary: dict[str, Any] = {
-        "job": JOB_NAME, "contract": TABLE_CONTRACT, "files": len(loads),
-        "rows": sum(len(rows) for _, rows in loads),
-        "dong_level_rows": sum(1 for _, rows in loads for row in rows if row["is_dong_level"]),
-        "quarantined_rows": sum(1 for _, rows in loads for row in rows if row["quarantine_reason"]),
-        "duplicate_rows_folded": sum(row["duplicate_count"] - 1 for _, rows in loads for row in rows),
-        "status": "validated" if args.validate_only else "ready", "appended_files": 0,
-    }
-    if not args.validate_only:
-        from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
-        from lakehouse_ingest import append_source_object  # noqa: PLC0415
-        from platform_contracts import (  # noqa: PLC0415
-            column_names, create_table_columns_sql, evolve_iceberg_table_to_contract, load_lakehouse_contract,
-            partition_clause_sql, spark_sql_type,
-        )
-        from pyspark.sql import SparkSession  # noqa: PLC0415
-        from pyspark.sql import functions as F  # noqa: PLC0415
-
-        assert_catalog_env()
-        contract = load_lakehouse_contract(TABLE_CONTRACT)
-        columns = column_names(contract)
-        builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}").config("spark.sql.session.timeZone", "UTC")
-        spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
-        try:
-            table = f"`{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`.`{args.iceberg_table}`"
-            spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`")
-            spark.sql(f"CREATE TABLE IF NOT EXISTS {table} ({create_table_columns_sql(contract)}) USING iceberg "
-                      f"{partition_clause_sql(contract)} TBLPROPERTIES ('format-version' = '2', 'write.parquet.compression-codec' = 'zstd')")
-            evolve_iceberg_table_to_contract(spark, table, contract)
-            schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
-            held = spark.table(table).select(*EVENT_COLUMNS).distinct()
-            summary["appended_rows"] = 0
-            for obj, rows in loads:  # one Bronze object is one load unit
-                frame = spark.createDataFrame([tuple(row.get(name) for name in columns) for row in rows], schema=schema)
-                fresh = unheld_rows(frame, held, F)
-                count = fresh.count()
-                if append_source_object(spark, fresh, columns, table, obj["object_key"], contract_table=TABLE_CONTRACT):
-                    summary["appended_files"] += 1
-                    summary["appended_rows"] += count
-        finally:
-            spark.stop()
-    if args.summary_output:
-        Path(args.summary_output).write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print("parcel-number-change-history-summary-json " + json.dumps(summary, ensure_ascii=False, sort_keys=True))
-    return 0
-
-
-def unheld_rows(frame: Any, held: Any, F: Any) -> Any:
-    """The rows of `frame` whose `EVENT_COLUMNS` the table does not hold, compared null-safe: a
-    quarantined row has no date and an ordinary one no reason, and a plain join never matches a null."""
-
-    same = None
-    for column in EVENT_COLUMNS:
-        match = frame[column].eqNullSafe(held[column])
-        same = match if same is None else same & match
-    return frame.join(held, same, "left_anti")
-
-
 COMMANDS = {
     "endpoint-catalog": _endpoint_catalog, "changed-files": _changed, "landed-objects": _landed,
-    "stage-handoff": _stage, "load": _load,
+    "stage-handoff": _stage,
 }
 
 

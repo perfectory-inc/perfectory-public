@@ -42,9 +42,11 @@ SCHEMA = "foundation-platform.release_manifest.v1"
 # Compose files whose `build:` entries are images the runtime starts; an image two files build from
 # one Dockerfile (the publisher) is built once.
 # The Dawneer console's (root ADR-0434) and the intelligence document jobs' (root ADR-0477 §6) sit with
-# their source, outside the platform tree.
+# their source, outside the platform tree; the verification image host crate tests run in (root
+# ADR-0601) at the repository root, beside the toolchain pin it copies.
 COMPOSE_FILES = ("docker-compose.yml", "compose.recovery.yml", "compose.lakehouse.yml", "compose.orchestration.yml",
-                 "../../consoles/dawneer/compose.yml", "../intelligence-platform/compose.document-jobs.yml")
+                 "../../consoles/dawneer/compose.yml", "../intelligence-platform/compose.document-jobs.yml",
+                 "../../compose.verify-image.yml")
 FILE_MODES = {"foundation-outbox-publisher": "0555"}
 JAR_MODE = "0444"
 EXTENSION_MODE = "0444"

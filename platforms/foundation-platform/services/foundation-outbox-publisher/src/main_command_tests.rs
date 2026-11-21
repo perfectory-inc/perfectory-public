@@ -220,6 +220,66 @@ fn load_legal_dong_code_snapshot_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn parcel_registry_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "probe-parcel-registry"])?,
+        Command::ProbeParcelRegistry
+    );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "load-parcel-registry"])?,
+        Command::LoadParcelRegistry
+    );
+    Ok(())
+}
+
+#[test]
+fn legal_dong_pairing_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-legal-dong-pairing-inputs"
+        ])?,
+        Command::ExportLegalDongPairingInputs
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "append-legal-dong-code-changes"
+        ])?,
+        Command::AppendLegalDongCodeChanges
+    );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "intelligence-documents"])?,
+        Command::IntelligenceDocuments
+    );
+    Ok(())
+}
+
+#[test]
+fn load_parcel_number_change_history_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-parcel-number-change-history"
+        ])?,
+        Command::LoadParcelNumberChangeHistory
+    );
+    Ok(())
+}
+
+#[test]
+fn load_courtauction_go_kr_silver_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-courtauction-go-kr-silver"
+        ])?,
+        Command::LoadCourtauctionGoKrSilver
+    );
+    Ok(())
+}
+
+#[test]
 fn load_data_go_kr_onbid_silver_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
@@ -253,6 +313,18 @@ fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-register-masters-versions"
+        ])?,
+        Command::BuildParcelRegisterMastersVersions
+    );
+    Ok(())
+}
+
+#[test]
 fn build_parcel_nearby_versions_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
@@ -262,11 +334,32 @@ fn build_parcel_nearby_versions_command_is_explicit() -> anyhow::Result<()> {
         Command::BuildParcelNearbyVersions
     );
     assert_eq!(
+        parse_command(["foundation-outbox-publisher", "run-parcel-matching-gate"])?,
+        Command::RunParcelMatchingGate
+    );
+    assert_eq!(
         parse_command([
             "foundation-outbox-publisher",
             "export-gold-versions-change-set"
         ])?,
         Command::ExportGoldVersionsChangeSet
+    );
+    Ok(())
+}
+
+#[test]
+fn gold_takeover_side_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "export-gold-takeover-sides"])?,
+        Command::ExportGoldTakeoverSides
+    );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "show-gold-takeover-switch"])?,
+        Command::ShowGoldTakeoverSwitch
+    );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "query-takeover-sides"])?,
+        Command::QueryTakeoverSides
     );
     Ok(())
 }

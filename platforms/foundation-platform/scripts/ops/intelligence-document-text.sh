@@ -2,12 +2,12 @@
 # 고시 첨부의 쪽·위치 텍스트 (root ADR-0477). 등록된 작업 intelligence_document_text(spark 1칸, 가중치 1)가 첨부 색인이
 # 바뀌었다고 알리면, 그리고 일정마다 돌린다.
 #
-# 1. 읽을 것은 표만 보고 정한다: intelligence_documents.py plan-text 가 색인의 해시 중 이 이미지의 추출기 판의 결과가
+# 1. 읽을 것은 표만 보고 정한다: 퍼블리셔의 intelligence-documents plan-text(DuckDB)가 색인의 해시 중 이 이미지의 추출기 판의 결과가
 #    없는 것을 새 고시부터 per_run_limit 까지 고른다(저장된 대기열 없음, ADR-0352). 판은 이미지가 담은 계약의 것이다.
 # 2. 그 바이트를 공용 내용주소 저장소에서 읽기 키로 받는다(읽기만).
 # 3. intelligence 이미지가 네트워크 없이, 계약의 메모리 상한 안에서 읽는다. 문서마다 결과를 바로 쓰므로 멈춘 run 도
 #    끝낸 문서를 잃지 않는다.
-# 4. intelligence_documents.py append-text 가 쪽을 먼저, 결과를 나중에 run 하나로 쌓는다. 결과가 없는 문서는 다음 run 이
+# 4. 퍼블리셔의 append-text 가 쪽을 먼저, 결과를 나중에 run 하나로 쌓는다. 결과가 없는 문서는 다음 run 이
 #    다시 고른다.
 #
 # 받은 바이트는 성공하든 실패하든 지운다. 쌓을 것이 없으면 이미지를 띄우지 않는다.
@@ -17,6 +17,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/intelligence-document-runtime.sh"
 
+# The release's publisher (root ADR-0263), for the lakehouse steps of the sourced runtime.
+publisher() {
+  "${PUBLISHER_BIN}" "$@"
+}
+
 STATE_ROOT="${FOUNDATION_INTELLIGENCE_DOCUMENTS_STATE_ROOT:-/data/foundation-platform/intelligence-documents}"
 journal="${STATE_ROOT}/journal.log"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -25,7 +30,7 @@ trap 'job_journal "${journal}" "intelligence document text FAILED at line ${LINE
 trap 'rm -rf "${work}/media"' EXIT
 
 intelligence_document_extraction_contract
-intelligence_document_spark plan-text --out "${container_work}/plan"
+intelligence_document_lakehouse plan-text
 owed="$(intelligence_document_summary owed)"
 planned="$(intelligence_document_summary planned)"
 # Memory kills that used every attempt (root ADR-0593 §2): no longer owed, so named in every line.
@@ -47,7 +52,7 @@ stopping=0
 trap 'stopping=1' TERM
 text_rc=0
 intelligence_document_text_run || text_rc=$?
-intelligence_document_spark append-text --run-dir "${container_work}/out" --run-id "${run_id}"
+intelligence_document_lakehouse append-text
 trap - TERM
 if [ "${stopping}" = 1 ]; then
   job_journal "${journal}" "intelligence document text stopped; its finished documents were appended run=${run_id}" >&2

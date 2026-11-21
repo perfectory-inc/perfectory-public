@@ -131,8 +131,14 @@ pub use duckdb;
 pub mod legal_dong_code_change_stage;
 pub mod legal_dong_code_snapshot_stage;
 
+/// The parcel 총괄표제부 kind's Gold in `DuckDB` (root ADR-0450, ADR-0564 §6).
+pub mod building_register_master_stage;
+pub mod intelligence_documents_stage;
+pub mod legal_dong_pairing_stage;
 /// The parcel nearby kind's Gold in `DuckDB` (root ADR-0465, ADR-0564 §9).
 pub mod parcel_nearby_stage;
+pub mod parcel_number_change_history_stage;
+pub mod parcel_registry_stage;
 
 /// Stages the data.go.kr bulk files as Silver rows, one table per file (root ADR-0401 §3–4).
 pub mod data_go_kr_file_data_stage;
@@ -140,13 +146,33 @@ pub mod data_go_kr_file_data_stage;
 /// Stages 차세대 온비드 public sale Bronze objects as Silver rows (root ADR-0280, ADR-0340).
 pub mod onbid_silver_stage;
 
+/// The parcel matching gate (root ADR-0113 §7) before a cadastral edition is baked.
+pub mod parcel_matching_gate_stage;
+/// What a Silver load that left Spark appends of a newest-per-key table: its changed keys (root
+/// ADR-0311, ADR-0559).
+pub mod silver_changes;
+
+/// Stages 법원경매정보 Bronze objects as Silver rows, the roles that left Spark (root ADR-0540,
+/// ADR-0575).
+pub mod courtauction_silver_stage;
+
 /// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
 pub mod place_identity_stage;
+
+/// The parcel lineage's carry walk every placing producer shares (root ADR-0113 §6).
+pub mod lineage_carry;
+
+/// The parcel lineage as every consumer reads it: steward decisions in force (root ADR-0115 §9).
+pub mod lineage_steward_read;
 
 /// The 실거래 Gold's transforms in `DuckDB` (root ADR-0559 §3, ADR-0564 §9).
 pub mod real_transaction_gold_stage;
 pub mod registered_factory_stage;
 
+/// Where each 실거래 deal belongs, in `DuckDB` (root ADR-0350 §1, ADR-0351, ADR-0405).
+pub mod real_transaction_placement_stage;
+
+pub mod release_compare_stage;
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
 /// keeps the executable's lint posture (root ADR-0200 §4).
 #[allow(

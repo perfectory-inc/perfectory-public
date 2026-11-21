@@ -168,7 +168,7 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
   쓴다. 후보는 같은 단계의 새 코드 중 옛 코드와 같은 시도(또는 시도 짝이 옮겨 간 시도)에 있고 폐지일이나 그 다음 날
   생긴 것뿐이다: 전국에서 바닥 날짜 뒤에 생긴 아무 코드나 재면, 본번 범위가 넓은 먼 리가 지번을 모두 덮어 진짜
   후계자를 이긴다. 번호가 같아도 같은 땅일 때만 센다: 지목이 같고 면적이 계약의 `pairing.land_match` 안이어야
-  한다(지목은 `jibun` 끝 글자, 면적은 경계에서 Spark 실행기가 잰다). 공식 필지 번호 이력이 들어오면 그것이 먼저
+  한다(지목은 `jibun` 끝 글자, 면적은 경계에서 규칙이 잰다: 발행기가 내보낸 필지 파일을 읽으면서). 공식 필지 번호 이력이 들어오면 그것이 먼저
   정하고, 지번 단계와 다르면 공식 답이 선다(진 지번 답은 `official_overruled_inferences`, 루트 ADR-0329).
   판이 계약에 없거나 표에 적재되지 않았으면 그 동은 `awaiting_data` 이고 `jibun` 칸이 필요한 판을 이름으로
   말한다. 판의 수집·적재는 [VWorld 연속지적도 판 런북](./vworld-parcel-editions.md)이다. 환경 변수
@@ -211,7 +211,7 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
 
 짝 맞추기를 바꾼 릴리스가 `current` 가 된 뒤, 정기 실행이 변경표에 쌓기 전에 같은 판단을 운영 데이터로 한 번 본다.
 최신 스냅숏·기록된 짝·`silver.parcel_boundaries` 의 판 PNU 를 정기 실행과 똑같이 읽고 아무것도 쓰지 않는다.
-`lineage_stewardship` 과 같은 spark 자리를 쓰므로 그 단위가 돌지 않을 때 돌린다(Airflow 화면에서 확인).
+규칙은 `lineage_stewardship` 과 같은 계산 컨테이너에서 돌므로(Spark 세션은 없다) 그 단위가 돌지 않을 때 돌린다(Airflow 화면에서 확인).
 
 ```bash
 # ai-server
@@ -228,7 +228,7 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 - 나뉜 동은 짝이 아니라 `steward-review.json` 의 `status = split` 이고 `split_into` 가 같은 시도의 새 동들이다.
 - 요약 줄의 `awaiting_by_sido`·`awaiting_by_evidence` 가 판단 대기를 시도별·기다리는 근거(어느 판, 또는 공식 이력)별로
   센다. 정기 실행의 `pairs-summary.json` 과 `steward-review.json` 에도 같은 칸이 있다.
-- `run.log` 에 Spark 오류가 없다. 실패하면 요약이 없어 마지막 python 이 `No such file` 로 끝난다.
+- `run.log` 에 오류가 없다(발행기의 내보내기 두 번과 규칙 한 번). 실패하면 `run.log` 의 끝 20줄이 화면에 나오고 요약은 없다.
 
 ## 4. 알림이 뜻하는 것
 

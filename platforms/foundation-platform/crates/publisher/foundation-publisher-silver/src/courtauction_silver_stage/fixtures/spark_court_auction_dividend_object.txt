@@ -1,0 +1,2 @@
+B999999|20990130000001|1|99999999999999|NULL|토지|열람|1-1|NULL|NULL|합성도 가나동 1-1|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|4|20990102T030405Z
+B999999|20990130000001|2|NULL|NULL|건물|NULL|NULL|NULL|1층|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|4|20990102T030405Z

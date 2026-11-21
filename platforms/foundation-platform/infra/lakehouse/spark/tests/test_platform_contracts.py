@@ -298,13 +298,19 @@ def reaches_current_rows(path: Path, seen: set[Path]) -> bool:
     return any(reaches_current_rows(path.parent / f"{module}.py", seen) for module in imported)
 
 
+# Modules of the jobs folder that open no table. `platform_contracts.py` is the rule itself.
+# `intelligence_documents.py` is the fold rule on the files the publisher wrote (root ADR-0559): the
+# `document_fact` it names is a key of the intelligence contract, not the table.
+NOT_TABLE_READERS = {"platform_contracts.py", "intelligence_documents.py"}
+
+
 def readers_bypassing_current_rows(jobs: Path, graph: dict, tables: set[str]) -> list[tuple[str, str]]:
     """(job, table) for each job that names a versioned table it does not write, yet never selects
     that table's current rows through the contract: it would read every version (root ADR-0267)."""
     written = producers(graph, tables)
     found = []
     for path in sorted(jobs.glob("*.py")):
-        if path.name == "platform_contracts.py":
+        if path.name in NOT_TABLE_READERS:
             continue
         for table in sorted(named_tables(path.read_text(encoding="utf-8"), tables)):
             if (path.name, table) not in written and not reaches_current_rows(path, set()):
@@ -579,16 +585,16 @@ class RowVersionsTest(unittest.TestCase):
                 self.assertIn(function, {node.name for node in tree.body if isinstance(node, ast.FunctionDef)})
 
     def test_a_contract_without_row_versions_or_naming_a_foreign_column_is_refused(self) -> None:
-        contract = dict(load_lakehouse_contract("silver.parcel_number_change_history"))
+        contract = dict(load_lakehouse_contract("silver.registered_factory"))
         missing = {key: value for key, value in contract.items() if key != "row_versions"}
         with self.assertRaisesRegex(ValueError, "must declare row_versions"):
             row_versions(missing)
         for broken in (
-            {"kind": "editions", "edition_column": "no_such_column", "newest_first": ["provider_updated_on"],
+            {"kind": "editions", "edition_column": "no_such_column", "newest_first": ["ingested_at_utc"],
              "per": [], "read": "newest"},
-            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["provider_updated_on"],
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["ingested_at_utc"],
              "per": ["no_such_column"], "read": "newest"},
-            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["provider_updated_on"],
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["ingested_at_utc"],
              "per": [], "read": "oldest"},
             {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": [], "per": [], "read": "newest"},
             {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["no_such_column"], "per": [],

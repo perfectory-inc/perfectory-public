@@ -230,6 +230,24 @@ measured_cost }` 하나를 적는다. 없으면 레인 계약 파서와 `append_
 main 을 덮어쓰지 못한다. 비교 커밋은 요약에 `foundation.change-record = silver-release-compare` 를 남겨 그 판의 변경
 기록이 된다. 소비자는 `changelog.changes_between` 으로 그 행만 읽는다.
 
+### DuckDB 로 싣는 레인 (루트 ADR-0599)
+
+레인 계약에 `"engine": "duckdb"` 가 있으면 그 레인은 Spark 와 가지를 쓰지 않는다. 54개 레인 모두 그렇다(HUB 계열 파일은 `defaults.engine` 한 줄). 전유부 면적은 표가 `bucket(32, mgm_bldrgst_pk)` 로 나뉘어, 릴리스의 변경분을 모아 Iceberg 의 버킷 변환으로 버킷마다 파일을 쓴다. 용도지역 도형은 체크섬만 다른 키의 두 도형을 0.1 m 허용 오차로 재서(`wkb_polygons::within_tolerance`) 같은 도형이면 변경으로 치지 않는다. 스테이지는 사본을 뜨기 전과 뜬 뒤에 디스크 여유를 확인한다: 여유에서 임시 상한과 쓸 바이트를 빼고도 `config/host-layout.contract.json` 의 `duckdb_stage_reserve_bytes`(30 GiB, Postgres 와 같은 디스크)가 남지 않으면 거부한다. 비교가 없는 공동주택가격은 릴리스를 통째로 한 번에 싣고, 표제부·전유부는 내보내기가 남긴 지역 파일(JSONL·Parquet)을 읽으며 싣기 전에 일반 대지의 PNU 빈값 비율을 계약의 상한과 견준다(`silver-release-pnu-null-share` 줄). HUB 표는 판 열(`vintage`)로 나뉘어 한 릴리스가 한 파티션이고, `raw_columns` 는 글자 목록으로 읽힌다.
+
+| 단계 | 무엇 | 로그의 줄 |
+|---|---|---|
+| 내보내기 | 전과 같다 (R2 의 gzip JSONL 넘김) | `region=… exporting` |
+| 사본 | 넘김을 한 번 읽어 SSD 의 `/var/lib/foundation-platform/silver-refresh-duckdb/<레인>/release-copy/release.parquet` 로 쓴다(임시 파일과 준비 파일도 그 폴더 아래다. `/data` 는 느린 디스크다). 완료 표지 `release.json` 이 같은 판이면 다시 만들지 않는다 | `the release copy … is whole` |
+| 검사 | 필수 열의 null·빈 값, 판 식별자, 기대 행 수, 판의 순서. 실패하면 아무것도 커밋하지 않는다 | 실패의 문장 그대로 |
+| 비교 | `main` 의 한 스냅숏과 묶음(시도)마다 | `bucket "41": N changed keys and M removal markers` |
+| 커밋 | 한 번. 판의 객체·변경 기록·판 기록이 그 커밋에 함께 간다 | `silver-release-append {json}` |
+
+`silver-release-append` 의 `outcome` 은 `appended` 이고, `changed_key_rows`·`removed_keys`·`copy_seconds`·`compare_seconds`·`commit_seconds`·`staged_bytes` 가 그 run 의 실측이다. 같은 요약이 증거 폴더에 `silver-release-append.json` 으로 남는다.
+
+- **`main` 이 비교 중에 움직였다**(`… moved from snapshot … since its rows were computed: nothing was appended`): 그 run 은 실패로 끝나고 올린 파일은 지워진다. 다음 run 이 남아 있는 사본으로 다시 비교한다. 손댈 것이 없다.
+- **검사 실패**: 사본은 남는다. 원인은 내보내기나 원천이다. 고친 뒤 `release-copy/` 를 지우고 다시 돌린다(사본이 낡은 넘김의 것일 수 있다).
+- **Spark 로 되돌리기**: 계약의 `engine` 줄을 지우는 PR 이고, 그 PR 이 배포된 뒤 `/var/lib/foundation-platform/silver-refresh-duckdb/<레인>/` 을 지운다.
+
 ### 첫 감독 실행 (레인마다)
 
 권하는 순서는 코드표 → 공시지가 → 토지이용계획 → 토지특성 → 임야대장 → 대지권등록 → 토지이동이력이다(작은 것부터).

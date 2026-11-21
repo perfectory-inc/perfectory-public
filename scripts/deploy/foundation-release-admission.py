@@ -505,9 +505,10 @@ COMPOSE_IMAGES = ("foundation-platform-runtime", "foundation-postgres-recovery")
 # ADR-0431 §5) is in every release since it: a release before it runs the stock apache/airflow its
 # own compose file names, so a rollback needs none (airflow-runtime.sh refuses a compose file that
 # names the image the release did not carry). The intelligence document jobs' image (root ADR-0477 §6)
-# is run only by their job scripts, which a release before it does not carry.
+# is run only by their job scripts, which a release before it does not carry. The verification image
+# (root ADR-0601) is run by nothing the release starts: host crate tests use the tag it gets.
 OPTIONAL_COMPOSE_IMAGES = ("foundation-platform-dagster", "dawneer-console", "foundation-platform-airflow",
-                           "intelligence-document-text")
+                           "intelligence-document-text", "perfectory-verify")
 
 
 def require_release_images(release_id: str, artifacts: Path) -> None:

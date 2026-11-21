@@ -2,8 +2,18 @@
 """Pair 법정동 code changes into the one record of them, and project the 시군구 crosswalk the hub
 loaders read (root ADR-0143, ADR-0144, ADR-0145).
 
+No Spark (root ADR-0559): the rules here are plain Python, and the lakehouse is read and written by
+the publisher's DuckDB, which exchanges files with this module in the run's work folder (`--inputs`):
+
+    publisher export-legal-dong-pairing-inputs   (tables)   snapshot.json, recorded.json, official-links.txt
+    legal_dong_code_change_pairs.py parcel-requests          parcel-requests.json: the editions and 동 to read
+    publisher export-legal-dong-pairing-inputs   (parcels)  parcels.json and one parcels-N.jsonl per request
+    legal_dong_code_change_pairs.py ... --inputs DIR         the plan: append.jsonl (the rows) and plan.json
+    publisher append-legal-dong-code-changes                 appends them; held.json, appended.json
+    legal_dong_code_change_pairs.py ... --emit-appended      the projection, the steward list, the summary
+
 One run reads one code.go.kr full-table snapshot (`reference.legal_dong_code_snapshot`, loaded by
-`legal_dong_code_snapshot_to_reference.py`) and the changes already recorded
+`load-legal-dong-code-snapshot`) and the changes already recorded
 (`reference.legal_dong_code_change`), optionally two parcel snapshots, then:
 
 1. pairs every change on or after the contract's floor from data only
@@ -28,8 +38,9 @@ The 코드변경안내 notice board is not a source (ADR-0144).
 
 `--validate-only` does all of it and writes nothing to the lakehouse, only the output files. With
 `--table-html` it reads a local full-table file (and `--edition-pnus` files for the parcel table);
-without it, it reads the lakehouse as a scheduled run does (the snapshot, the recorded changes and the
-parcel editions) — the real-data check (`scripts/ops/legal-dong-code-validate.sh`).
+with `--inputs` it reads the lakehouse as a scheduled run does (the snapshot, the recorded changes and
+the parcel editions, as the publisher exported them) — the real-data check
+(`scripts/ops/legal-dong-code-validate.sh`).
 
 The steward list reaches the people who decide it through the steward API (root ADR-0263): the run
 writes it as a review handoff (`--review-handoff-output`, unit `legal_dong`) that
@@ -47,6 +58,7 @@ A steward approval may still come staged as a file (`stage-steward-decision`, no
 from __future__ import annotations
 
 import argparse
+import base64
 import functools
 import hashlib
 import json
@@ -59,14 +71,13 @@ from typing import Any, Callable, Mapping, Sequence
 import code_go_kr_legal_dong as cg
 import legal_dong_code_change_views as views
 import lineage_review_queue as review_queue
+import parcel_land
 import vworld_parcel_editions as editions
-import vworld_parcel_number_change_history as pnch
 
 JOB_NAME = "legal_dong_code_change_pairs"
 CHANGE_CONTRACT = "reference.legal_dong_code_change"
 SNAPSHOT_CONTRACT = "reference.legal_dong_code_snapshot"
 PROJECTION_SCHEMA = "foundation-platform.sigungu_crosswalk_projection.v2"
-IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 STEWARD_ID = re.compile(r"^[A-Za-z0-9._@-]{1,64}$")
 DECISION_EXPORT_SCHEMA = "foundation-platform.legal_dong_steward_decisions.v1"
 REVIEW_UNIT = "legal_dong"
@@ -171,25 +182,6 @@ def pairing_run_id(table_source_record_id: str, now: datetime) -> str:
     """
 
     return f"code-go-kr-pairing:{table_source_record_id}:{now:%Y%m%dT%H%M%SZ}"
-
-
-def append_new_rows(append: Callable[[Sequence[Mapping[str, Any]]], bool], rows: Sequence[Mapping[str, Any]], what: str) -> bool:
-    """Appends rows the table does not hold yet, and refuses when the registry says it does.
-
-    The rows were already filtered against the table (by `change_key`, by crosswalk provenance),
-    so a registry that answers "already loaded" means their load unit collided with an earlier
-    run's: appending nothing would drop them silently.
-    """
-
-    if not rows:
-        return False
-    if not append(rows):
-        units = sorted({str(row.get("derivation_run_id") or row.get("provenance")) for row in rows})
-        raise ValueError(
-            f"the ingest registry already holds the load unit {units[:3]} of {len(rows)} {what} rows the table "
-            "does not hold; they would be dropped without a word. Each run must load under its own unit."
-        )
-    return True
 
 
 def change_row(kind: str, source: str, old: str, new: str, run_id: str, now: datetime, **fields: Any) -> dict[str, Any]:
@@ -364,7 +356,7 @@ def rules_version() -> str:
     official-history readers) and the two contracts it reads. A deploy that changes any of them owes a
     re-pairing (`scripts/ops/legal-dong-code-load.sh`), so a fixed rule reaches the record the same day,
     not only when new data arrives. Walked from this module's own top-level imports, so the host and
-    the Spark run compute the same value and a new import is covered by itself.
+    the compute container compute the same value and a new import is covered by itself.
     """
 
     here = Path(__file__).resolve().parent
@@ -623,25 +615,6 @@ def _read_link_file(path: str) -> list[tuple[str, str, str]]:
     return links
 
 
-def _official_links(spark, F, table: str, floor: str) -> list[tuple[str, str, str]]:
-    """The window's links, by the loader's one rule (`pnch.official_links`); the filter here only
-    keeps the rest of the country's history out of the driver.
-
-    Each 시도 file is a whole history, so the current rows are each 시도's newest edition
-    (`Editions per source_region_code`, root ADR-0286 §6); `distinct` folds the provider's repeated
-    lines within one edition, no longer the editions' overlap (2026-11-04: the 19 newest editions of
-    34 hold every one of the 590,490 distinct events).
-    """
-
-    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
-
-    floor_date = datetime.strptime(floor, "%Y%m%d").date()
-    history = current_rows(spark.table(table), load_lakehouse_contract("silver.parcel_number_change_history"))
-    frame = (history.filter(F.col("changed_on") >= F.lit(floor_date))
-             .select("old_pnu", "new_pnu", "changed_on", "quarantine_reason").distinct())
-    return pnch.official_links([row.asDict() for row in frame.collect()], floor_date)
-
-
 def _read_parcel_file(path: str) -> list[Parcel]:
     """`PNU<TAB>지목<TAB>area m²` per line, the columns `_snapshot_parcels` reads from the table."""
 
@@ -662,7 +635,92 @@ def _local_parcels(files: Mapping[str, str], edition: str, codes: set[str], lots
             if p[0][:10] in codes and (lots is None or (cg.pl.PNU_PATTERN.fullmatch(p[0]) and cg.pl.lot(p[0]) in lots))]
 
 
-# --- Spark ------------------------------------------------------------------------------------
+# --- the lakehouse, as the publisher exported it (root ADR-0559) --------------------------------
+
+SNAPSHOT_FILE, RECORDED_FILE, LINKS_FILE = "snapshot.json", "recorded.json", "official-links.txt"
+REQUESTS_FILE, PARCELS_FILE = "parcel-requests.json", "parcels.json"
+APPEND_FILE, PLAN_FILE, HELD_FILE, APPENDED_FILE = "append.jsonl", "plan.json", "held.json", "appended.json"
+SNAPSHOT_COLUMNS = ("region_cd", "full_name", "status", "parent_cd", "created_date", "abolished_date")
+
+
+def _load(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def exported_snapshot(inputs: Path, snapshot_date: str, record: str, contract: Mapping[str, Any]) -> list[dict[str, str]]:
+    """The full table's rows of one snapshot (`snapshot.json`), blanks for nulls."""
+
+    rows = [{name: (row.get(name) or "") for name in SNAPSHOT_COLUMNS} for row in _load(inputs / SNAPSHOT_FILE)]
+    if not rows:
+        raise ValueError(f"{SNAPSHOT_CONTRACT} holds no rows of {record} on {snapshot_date}")
+    cg.check_table_size(len(rows), None, contract)
+    return rows
+
+
+def _request_key(edition: str, codes: set[str], lots: set[str] | None) -> list[Any]:
+    return [edition, hashlib.sha256("\n".join(sorted(codes)).encode()).hexdigest(), lots is not None]
+
+
+def parcel_requests(rows: Sequence[Mapping[str, str]], floor: str, parcel_source: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The parcel reads `edition_evidence` will ask for, in its order (`parcel-requests.json`): the
+    edition, its snapshot id, the 동 codes, and for a later edition the request whose 지번 bound it
+    (`lots_of`). The publisher answers each with the parcels under those codes (a superset of the 지번
+    asked for is fine: `exported_parcels` applies the exact filter)."""
+
+    requests: list[dict[str, Any]] = []
+
+    def record(name: str, codes: set[str], lots: set[str] | None) -> list[Parcel]:
+        requests.append({"edition": name, "snapshot_id": editions.snapshot_id(parcel_source, name), "codes": sorted(codes),
+                         "key": _request_key(name, codes, lots), "lots_of": None if lots is None else len(requests) - 1})
+        return []
+
+    edition_evidence(rows, floor, parcel_source, record)
+    return requests
+
+
+def exported_parcels(inputs: Path, max_share: float, skipped: dict[str, int],
+                     name: str, codes: set[str], lots: set[str] | None) -> list[Parcel] | None:
+    """One edition's parcels as `edition_evidence` asks for them, from the publisher's answer to the
+    request of the same edition and codes: None when the parcel table holds no row of that edition (an
+    edition not loaded is not "no parcels"), else (PNU, 지목, area m²) of the rows under `codes` (and
+    with a 지번 in `lots` when given). The 지목 is read from `jibun` and the area from the boundary
+    (`parcel_land`), row by row as the file is read; a boundary that is not a polygon is skipped and
+    counted (`drop_non_polygons`)."""
+
+    key = _request_key(name, codes, lots)
+    requests, answers = _load(inputs / REQUESTS_FILE), _load(inputs / PARCELS_FILE)
+    found = [index for index, request in enumerate(requests) if request["key"] == key]
+    if not found or len(answers) != len(requests):
+        raise ValueError(f"the publisher exported no parcels of {name} for these {len(codes)} codes; export them again")
+    answer = answers[found[0]]
+    if not answer["present"]:
+        return None
+    if not codes or (lots is not None and not lots):
+        return []
+    read: list[tuple[str, str, float | None]] = []
+    with (inputs / answer["file"]).open(encoding="utf-8") as lines:
+        for line in lines:
+            row = json.loads(line)
+            pnu = row["pnu"]
+            if pnu[:10] in codes and (lots is None or (cg.pl.PNU_PATTERN.fullmatch(pnu) and cg.pl.lot(pnu) in lots)):
+                read.append((pnu, sys.intern(parcel_land.jimok_of(row["jibun"])),
+                             parcel_land.polygon_area_m2(base64.b64decode(row["wkb"]))))
+    return drop_non_polygons(read, name, max_share, skipped)
+
+
+def append_lines(steward: Sequence[Mapping[str, Any]], changes: Sequence[Mapping[str, Any]]) -> list[str]:
+    """`append.jsonl`: the rows to append, one per line in load order (each steward decision file is
+    its own load unit, then the run's changes), with which of the two it is and the instant as epoch microseconds."""
+
+    from platform_contracts import column_names, load_lakehouse_contract  # noqa: PLC0415
+
+    names = [name for name in column_names(load_lakehouse_contract(CHANGE_CONTRACT)) if name != "recorded_at_utc"]
+    ordered = ([("steward", row) for _, rows_of_one in _group_by_run(steward) for row in rows_of_one]
+               + [("change", row) for row in changes])
+    return [json.dumps({**{name: row.get(name) for name in names}, "seq": seq, "what": what,
+                        "recorded_at_us": int(row["recorded_at_utc"].timestamp()) * 1_000_000}, ensure_ascii=False)
+            for seq, (what, row) in enumerate(ordered)]
+
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -675,9 +733,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="editions: read each change across the parcel editions bracketing it (the source contract).")
     parser.add_argument("--edition-pnus", action="append", default=[], metavar="EDITION=FILE",
                         help="With --validate-only: PNU<TAB>지목<TAB>area m² per line of that edition, standing in for the parcel table.")
+    parser.add_argument("--inputs", help="The lakehouse's rows as the publisher exported them (the run's work folder).")
+    parser.add_argument("--emit-appended", action="store_true",
+                        help="With --inputs, after the publisher appended the plan: write the projection, the steward "
+                             "list and the summary from the table as it now stands.")
     parser.add_argument("--official-history-table",
                         help="The 필지고유번호변동연혁 table (namespace.table) whose links dated in the pairing window "
-                             "are the official step (root ADR-0150). Off without it.")
+                             "are the official step (root ADR-0150), exported as official-links.txt. Off without it.")
     parser.add_argument("--official-links", help="With --validate-only and --table-html: 'OLD_PNU NEW_PNU YYYYMMDD' per line, the window's links.")
     parser.add_argument("--steward-decisions", help="A directory of staged steward decision files to fold in.")
     parser.add_argument("--steward-decision-export",
@@ -688,21 +750,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--projection-output")
     parser.add_argument("--review-output")
     parser.add_argument("--summary-output")
-    parser.add_argument("--iceberg-catalog-name", default="lakehouse")
-    parser.add_argument("--iceberg-namespace", default="reference")
-    parser.add_argument("--snapshot-table", default="legal_dong_code_snapshot")
-    parser.add_argument("--change-table", default="legal_dong_code_change")
-    parser.add_argument("--parcel-table", default="silver.parcel_boundaries")
-    parser.add_argument("--allow-non-smoke-write", action="store_true")
     parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args(argv)
-    for label in ("iceberg_catalog_name", "iceberg_namespace", "snapshot_table", "change_table"):
-        if not IDENTIFIER.fullmatch(getattr(args, label)):
-            parser.error(f"{label} must be a plain SQL identifier")
-    for label in ("parcel_table", "official_history_table"):
-        value = getattr(args, label)
-        if value is not None and (value.count(".") != 1 or not all(IDENTIFIER.fullmatch(part) for part in value.split("."))):
-            parser.error(f"{label} must be namespace.table")
+    if bool(args.inputs) == bool(args.table_html):
+        parser.error("the run reads either --inputs (the publisher's export) or --table-html (a local table)")
+    if args.emit_appended and (args.validate_only or not args.inputs):
+        parser.error("--emit-appended follows the publisher's append: it needs --inputs and no --validate-only")
     if args.official_links and not (args.validate_only and args.table_html):
         parser.error("--official-links stands in for the history table: it needs --validate-only and --table-html")
     args.edition_pnu_files = {}
@@ -717,8 +770,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     date.fromisoformat(args.snapshot_date)
     if (args.table_html or args.recorded_changes) and not args.validate_only:
         parser.error("--table-html and --recorded-changes stand in for the lakehouse: they need --validate-only")
-    if not args.validate_only and not args.change_table.endswith("_smoke") and not args.allow_non_smoke_write:
-        parser.error(f"writing {args.change_table} needs --allow-non-smoke-write")
     return args
 
 
@@ -731,74 +782,6 @@ def _read_decisions(directory: str | None, export: str | None = None) -> list[tu
     staged = [(path.name, json.loads(path.read_text(encoding="utf-8")))
               for path in sorted(Path(directory).glob("*.json"))] if directory else []
     return staged + (db_decisions(json.loads(Path(export).read_text(encoding="utf-8"))) if export else [])
-
-
-def _schema(T, contract: Mapping[str, Any]):
-    types = {"string": T.StringType(), "timestamp": T.TimestampType()}
-    return T.StructType([T.StructField(c["name"], types[c["logical_type"]], not c["required"]) for c in contract["columns"]])
-
-
-def _ensure_table(spark, table: str, contract: Mapping[str, Any]) -> None:
-    from platform_contracts import create_table_columns_sql, evolve_iceberg_table_to_contract, partition_clause_sql  # noqa: PLC0415
-
-    spark.sql(f"CREATE TABLE IF NOT EXISTS {table} ({create_table_columns_sql(contract)}) USING iceberg {partition_clause_sql(contract)}")
-    evolve_iceberg_table_to_contract(spark, table, contract)
-
-
-def _append(spark, T, table: str, contract_name: str, rows: Sequence[Mapping[str, Any]]) -> bool:
-    from lakehouse_ingest import append_batch_once  # noqa: PLC0415
-    from platform_contracts import column_names, load_lakehouse_contract  # noqa: PLC0415
-
-    if not rows:
-        return False
-    contract = load_lakehouse_contract(contract_name)
-    names = column_names(contract)
-    frame = spark.createDataFrame([tuple(row.get(name) for name in names) for row in rows], schema=_schema(T, contract))
-    return bool(append_batch_once(spark, frame, names, table, contract_name)["appended"])
-
-
-def _qualified(catalog: str, name: str) -> str:
-    return ".".join(f"`{part}`" for part in [catalog, *name.split(".")])
-
-
-def _snapshot_parcels(spark, F, table: str, snapshot_id: str, codes: set[str], lots: set[str] | None = None) -> list[Parcel] | None:
-    """The parcels (PNU, 지목, area m²) of one parcel edition under `codes`, and with a 지번 in `lots`
-    when it is given, or None when the table holds no row of that edition at all: an edition not
-    loaded is not "no parcels". The 지목 is read from `jibun` and the area from the boundary on the
-    executors (`parcel_land.jimok_of`, `wkb_area_m2`); only those three values come back."""
-
-    from pyspark.sql import types as T  # noqa: PLC0415
-
-    edition = spark.table(table).filter(F.col("source_snapshot_id") == F.lit(snapshot_id))
-    if not edition.limit(1).collect():
-        return None
-    if not codes or (lots is not None and not lots):
-        return []
-    frame = edition.filter(F.substring(F.col("pnu"), 1, 10).isin(sorted(codes)))
-    if lots is not None:
-        wanted = spark.createDataFrame([(lot,) for lot in sorted(lots)], "lot string")
-        frame = frame.filter(F.col("pnu").rlike(r"^[0-9]{19}$")).join(
-            F.broadcast(wanted), F.substring(F.col("pnu"), 11, 9) == wanted["lot"], "left_semi")
-    # The executors' Python workers do not have this job's directory on their path; parcel_land is
-    # standard library only, so it can be shipped to them as it is.
-    import parcel_land  # noqa: PLC0415
-
-    spark.sparkContext.addPyFile(parcel_land.__file__)
-    jimok = F.udf(parcel_land.jimok_of, T.StringType())
-    # None for a boundary that is not a polygon: the caller skips and counts it (`drop_non_polygons`).
-    area = F.udf(parcel_land.polygon_area_m2, T.DoubleType())
-    rows = frame.where(F.col("geometry_wkb").isNotNull()).select(
-        "pnu", jimok("jibun").alias("jimok"), area("geometry_wkb").alias("area")).collect()
-    return [(row["pnu"], row["jimok"], row["area"]) for row in rows]
-
-
-def _edition_parcels(spark, F, table: str, parcel_source: Mapping[str, Any], max_share: float, skipped: dict[str, int],
-                     name: str, codes: set[str], lots: set[str] | None) -> list[Parcel] | None:
-    """One edition's parcels as `edition_evidence` asks for them, with the boundaries that are not
-    polygons skipped and counted (`drop_non_polygons`)."""
-
-    read = _snapshot_parcels(spark, F, table, editions.snapshot_id(parcel_source, name), codes, lots)
-    return None if read is None else drop_non_polygons(read, name, max_share, skipped)
 
 
 def _emit(args: argparse.Namespace, plan: Mapping[str, Any], snapshot_id: str, now: datetime, summary: dict[str, Any],
@@ -819,6 +802,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if argv[:1] == ["stage-steward-decision"]:
         return stage_steward_decision(argv[1:])
+    if argv[:1] == ["parcel-requests"]:  # parcel-requests INPUTS_DIR
+        inputs = Path(argv[1])
+        snapshot = [{name: (row.get(name) or "") for name in SNAPSHOT_COLUMNS} for row in _load(inputs / SNAPSHOT_FILE)]
+        _write_json(str(inputs / REQUESTS_FILE),
+                    parcel_requests(snapshot, cg.load_source_contract()["pairing"]["floor_date"], editions.load()))
+        return 0
     args = parse_args(argv)
     now = datetime.now(timezone.utc).replace(microsecond=0)
     contract = cg.load_source_contract()
@@ -845,92 +834,70 @@ def main(argv: list[str] | None = None) -> int:
                                                  "steward_decisions": verdicts, **plan["counts"]}, rows, official is not None)
         return 0
 
-    from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
-    from platform_contracts import load_lakehouse_contract  # noqa: PLC0415
-    from pyspark.sql import SparkSession, functions as F, types as T  # noqa: PLC0415
-
-    assert_catalog_env()
-    builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}").config("spark.sql.session.timeZone", "UTC")
-    spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
-    try:
-        prefix = f"`{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`"
-        snapshot_table = f"{prefix}.`{args.snapshot_table}`"
-        change_table = f"{prefix}.`{args.change_table}`"
-        if not args.validate_only:
-            _ensure_table(spark, change_table, load_lakehouse_contract(CHANGE_CONTRACT))
-        snapshot = spark.table(snapshot_table).filter(
-            (F.col("snapshot_date") == F.lit(date.fromisoformat(args.snapshot_date)))
-            & (F.col("source_record_id") == F.lit(args.table_source_record_id))
-        )
-        rows = [
-            {name: (row[name] or "") for name in ("region_cd", "full_name", "status", "parent_cd", "created_date", "abolished_date")}
-            for row in snapshot.collect()
-        ]
-        if not rows:
-            raise ValueError(f"{snapshot_table} holds no rows of {args.table_source_record_id} on {args.snapshot_date}")
-        cg.check_table_size(len(rows), None, contract)
-        jibun = None
-        skipped: dict[str, int] = {}
-        if args.jibun_evidence == "editions":
-            parcels = _qualified(args.iceberg_catalog_name, args.parcel_table)
-            max_share = float(contract["pairing"]["land_match"]["max_non_polygon_share"])
-            parcels_of = functools.partial(_edition_parcels, spark, F, parcels, parcel_source, max_share, skipped)
-            jibun = edition_evidence(rows, floor, parcel_source, parcels_of)
-        official = None
-        if args.official_history_table:
-            official = _official_links(spark, F, _qualified(args.iceberg_catalog_name, args.official_history_table), floor)
-        recorded = [row.asDict() for row in spark.table(change_table).collect()]
-        plan = plan_derivation(rows, recorded, contract, cadastral, run_id, now, jibun, official)
-        evidence_read = {"official_parcel_links": len(official) if official is not None else "off",
-                         "non_polygon_parcels_skipped": skipped}
-        # Steward decisions are judged against the list as it stands before them, then recorded,
-        # then the pairing runs again so today's projection already carries them.
-        steward, verdicts = fold_steward_decisions(decisions, plan["review"], {row["region_cd"] for row in rows}, now)
-        known = {row["change_key"] for row in recorded}
-        steward = [row for row in steward if row["change_key"] not in known]
-        if args.validate_only:  # the lakehouse as it stands, read and judged; nothing written to it
-            if steward:
-                plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun, official)
-            _emit(args, plan, "validate-only", now, {"job": JOB_NAME, "status": "validated", "reads": "lakehouse", "run_id": run_id,
-                                                     "steward_decisions": verdicts, **evidence_read, **plan["counts"],
-                                                     "would_append": [{k: row[k] for k in ("old_code", "new_code", "level", "source", "detail")}
-                                                                      for row in plan["fresh_changes"]]},
-                  rows, official is not None)
-            return 0
-        append_changes = functools.partial(_append, spark, T, change_table, CHANGE_CONTRACT)
-        steward_appended = False
-        for _, rows_of_one in _group_by_run(steward):
-            steward_appended |= append_new_rows(append_changes, rows_of_one, "steward")
-        if steward:
-            plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun, official)
-
-        changes_appended = append_new_rows(append_changes, plan["fresh_changes"], "change")
-        # The projection is the crosswalk view of the table as it now stands, read back, not the
-        # plan held in memory: the file can then only say what the table says.
-        held = [row.asDict() for row in spark.table(change_table).collect()]
-        crosswalk, crosswalk_review = views.sigungu_crosswalk_view(held, cadastral)
-        if crosswalk != plan["crosswalk"]:
-            raise ValueError(f"{change_table} read back a crosswalk other than the one this run planned; "
-                             "another writer appended to it meanwhile. Run the pairing again.")
-        # Always the table's current snapshot ("" while it has none): the hub exports compare it
-        # with the catalog's, so a projection the table has moved past is refused there.
-        change_snapshot = _main_snapshot(spark, change_table)
-        _emit(args, plan, change_snapshot, now, {
-            "job": JOB_NAME, "status": "ready", "run_id": run_id, "changes_appended": changes_appended,
-            "steward_decisions": verdicts, "steward_rows_appended": steward_appended,
-            "change_table_snapshot_id": change_snapshot, "crosswalk_review_items": len(crosswalk_review),
-            **evidence_read, **plan["counts"],
-        }, rows, official is not None)
+    inputs = Path(args.inputs)
+    if args.emit_appended:
+        return _emit_appended(args, inputs, cadastral)
+    rows = exported_snapshot(inputs, args.snapshot_date, args.table_source_record_id, contract)
+    jibun = None
+    skipped: dict[str, int] = {}
+    if args.jibun_evidence == "editions":
+        max_share = float(contract["pairing"]["land_match"]["max_non_polygon_share"])
+        jibun = edition_evidence(rows, floor, parcel_source, functools.partial(exported_parcels, inputs, max_share, skipped))
+    official = _read_link_file(str(inputs / LINKS_FILE)) if args.official_history_table else None
+    recorded = _load(inputs / RECORDED_FILE)
+    plan = plan_derivation(rows, recorded, contract, cadastral, run_id, now, jibun, official)
+    evidence_read = {"official_parcel_links": len(official) if official is not None else "off",
+                     "non_polygon_parcels_skipped": skipped}
+    # Steward decisions are judged against the list as it stands before them, then recorded,
+    # then the pairing runs again so today's projection already carries them.
+    steward, verdicts = fold_steward_decisions(decisions, plan["review"], {row["region_cd"] for row in rows}, now)
+    known = {row["change_key"] for row in recorded}
+    steward = [row for row in steward if row["change_key"] not in known]
+    if steward:
+        plan = plan_derivation(rows, recorded + steward, contract, cadastral, run_id, now, jibun, official)
+    if args.validate_only:  # the lakehouse as it stands, read and judged; nothing written to it
+        _emit(args, plan, "validate-only", now, {"job": JOB_NAME, "status": "validated", "reads": "lakehouse", "run_id": run_id,
+                                                 "steward_decisions": verdicts, **evidence_read, **plan["counts"],
+                                                 "would_append": [{k: row[k] for k in ("old_code", "new_code", "level", "source", "detail")}
+                                                                  for row in plan["fresh_changes"]]},
+              rows, official is not None)
         return 0
-    finally:
-        spark.stop()
+    # The publisher appends these (each steward decision file its own load, then the changes) and
+    # reads the table back; `--emit-appended` then writes what the table says.
+    (inputs / APPEND_FILE).write_text("".join(line + "\n" for line in append_lines(steward, plan["fresh_changes"])), encoding="utf-8")
+    _write_json(str(inputs / PLAN_FILE), {
+        "now": now.isoformat(), "run_id": run_id, "official_read": official is not None,
+        "plan": {name: plan[name] for name in ("crosswalk", "review", "counts")},
+        "summary": {"steward_decisions": verdicts, **evidence_read},
+    })
+    print(f"legal-dong-code-change-pairs-planned steward_rows={len(steward)} change_rows={len(plan['fresh_changes'])}")
+    return 0
 
 
-def _main_snapshot(spark, table: str) -> str:
-    """The snapshot the table's `main` branch points at, or "" for a table nothing was written to."""
+def _emit_appended(args: argparse.Namespace, inputs: Path, cadastral: Sequence[str]) -> int:
+    """The second half of a run, after `append-legal-dong-code-changes` appended the plan.
 
-    rows = spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'").collect()
-    return str(rows[0]["snapshot_id"]) if rows else ""
+    The projection is the crosswalk view of the table as it now stands (`held.json`), read back, not
+    the plan held in a file: the projection can then only say what the table says. It names the
+    table's current snapshot ("" while it has none): the hub exports compare it with the catalog's,
+    so a projection the table has moved past is refused there.
+    """
+
+    planned, appended = _load(inputs / PLAN_FILE), _load(inputs / APPENDED_FILE)
+    plan, now = planned["plan"], datetime.fromisoformat(planned["now"])
+    crosswalk, crosswalk_review = views.sigungu_crosswalk_view(_load(inputs / HELD_FILE), cadastral)
+    if json.loads(json.dumps(crosswalk)) != plan["crosswalk"]:
+        raise ValueError(f"{CHANGE_CONTRACT} read back a crosswalk other than the one this run planned; "
+                         "another writer appended to it meanwhile. Run the pairing again.")
+    rows = exported_snapshot(inputs, args.snapshot_date, args.table_source_record_id, cg.load_source_contract())
+    change_snapshot = appended["change_table_snapshot_id"]
+    _emit(args, plan, change_snapshot, now, {
+        "job": JOB_NAME, "status": "ready", "run_id": planned["run_id"], "changes_appended": appended["changes_appended"],
+        "steward_rows_appended": appended["steward_rows_appended"],
+        "change_table_snapshot_id": change_snapshot, "crosswalk_review_items": len(crosswalk_review),
+        **planned["summary"], **plan["counts"],
+    }, rows, planned["official_read"])
+    return 0
 
 
 def _group_by_run(rows: Sequence[Mapping[str, Any]]) -> list[tuple[str, list[Mapping[str, Any]]]]:

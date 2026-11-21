@@ -35,8 +35,9 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sqlx::{PgPool, Row};
 
 use super::{
+    duckdb_release,
     execute::{self, Runtime, SparkLoad},
-    lane::{ExportKind, LaneContract, WriteMode},
+    lane::{Engine, ExportKind, LaneContract, WriteMode},
     release::{self, LedgerObject},
     Decision,
 };
@@ -871,6 +872,37 @@ pub(in crate::remote_lakehouse_job) async fn load(
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
     )?;
     let evidence_name = format!("{lane}-{}", release.vintage);
+    if contract.engine == Engine::Duckdb {
+        // Root ADR-0599: no load branch and no Spark. The handoffs are read where they are, the
+        // release is compared from a local copy, and its changes are one commit.
+        let urls: Vec<String> = handoffs
+            .iter()
+            .map(|(key, _)| format!("s3://{bucket}/{key}"))
+            .collect();
+        let objects = release.object_keys();
+        let evidence: Vec<String> = release
+            .objects
+            .iter()
+            .map(|(region, _)| format!("export-summary-{region}.json"))
+            .collect();
+        let release_rows = super::append_on_duckdb(
+            contract,
+            runtime,
+            catalog,
+            &duckdb_release::Release {
+                identity: &identity,
+                objects: &objects,
+                handoffs: &urls,
+                // Known only when every handoff was converted by this run.
+                expected_rows: handoffs.iter().map(|(_, converted)| *converted).sum(),
+            },
+            &evidence_name,
+            evidence,
+        )
+        .await?;
+        runtime.reset_work()?;
+        return Ok((release_rows, Decision::ExportAndLoad));
+    }
     let branch = super::stage_load(catalog, &contract.table, &identity).await?;
     let batch_size = usize::try_from(contract.spark.input_file_batch_size.max(1)).unwrap_or(1);
     let staged = catalog

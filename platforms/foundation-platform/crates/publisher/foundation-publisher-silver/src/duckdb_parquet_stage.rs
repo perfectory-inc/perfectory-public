@@ -72,6 +72,34 @@ impl LakehouseRead {
             s3_secret_access_key: storage.secret_access_key,
         })
     }
+
+    /// [`Self::from_env`] with the read-only key pair for the data files
+    /// (`R2ObjectStorageConfig::lakehouse_reader_from_env`, root ADR-0152): a command that only
+    /// reads never needs the writer pair beside it. The catalog token is the one
+    /// `LakehouseCatalogConfig` reads, as for every other catalog read of the unit.
+    ///
+    /// # Errors
+    /// Returns an error when a setting is missing; the error never carries a credential.
+    pub fn with_reader_keys_from_env() -> anyhow::Result<Self> {
+        let catalog = lakehouse_infrastructure::LakehouseCatalogConfig::from_env()
+            .context("failed to configure the lakehouse catalog for a DuckDB read")?;
+        let storage =
+            foundation_outbox::object_storage::R2ObjectStorageConfig::lakehouse_reader_from_env()
+                .context(
+                "failed to configure lakehouse R2 reads with the reader pair for a DuckDB read",
+            )?;
+        Ok(Self {
+            extensions: crate::duckdb_extensions::release_directory()?,
+            catalog_uri: catalog.catalog_uri,
+            warehouse: catalog.warehouse,
+            catalog_token: catalog
+                .catalog_token
+                .context("the lakehouse catalog token is required")?,
+            s3_endpoint: storage.endpoint,
+            s3_access_key_id: storage.access_key_id,
+            s3_secret_access_key: storage.secret_access_key,
+        })
+    }
 }
 
 /// One transform's `DuckDB` and the directory its staged files and spill live in.
@@ -217,7 +245,7 @@ impl DuckDbParquetStage {
     /// numbered from 1, as Python's text reader split them (a `\r\n` ends a line like `\n`).
     ///
     /// # Errors
-    /// Returns an error when the file is not gzip UTF-8 text, `table` is not a plain identifier, or
+    /// Returns an error when the file is neither gzip nor plain UTF-8 text, `table` is not a plain identifier, or
     /// `DuckDB` refuses a row.
     pub fn load_lines(&self, path: &Path, table: &str) -> anyhow::Result<u64> {
         use std::io::Read as _;
@@ -229,12 +257,18 @@ impl DuckDbParquetStage {
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
             "{table:?} is not a plain table name"
         );
-        let mut text = String::new();
-        flate2::read::GzDecoder::new(
-            std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?,
-        )
-        .read_to_string(&mut text)
-        .with_context(|| format!("{} is not gzip UTF-8 text", path.display()))?;
+        let raw = std::fs::read(path).with_context(|| format!("cannot open {}", path.display()))?;
+        // gzip by its magic bytes, plain text otherwise (a run file an image wrote).
+        let text = if raw.starts_with(&[0x1f, 0x8b]) {
+            let mut text = String::new();
+            flate2::read::GzDecoder::new(raw.as_slice())
+                .read_to_string(&mut text)
+                .with_context(|| format!("{} is not gzip UTF-8 text", path.display()))?;
+            text
+        } else {
+            String::from_utf8(raw)
+                .with_context(|| format!("{} is not UTF-8 text", path.display()))?
+        };
         self.connection.execute_batch(&format!(
             "CREATE OR REPLACE TABLE {table} (line_number BIGINT NOT NULL, line VARCHAR NOT NULL)"
         ))?;
@@ -256,6 +290,27 @@ impl DuckDbParquetStage {
     #[must_use]
     pub const fn connection(&self) -> &Connection {
         &self.connection
+    }
+
+    /// Refuses work that would eat the reserve of the stage's disk (`config/host-layout.contract.json`
+    /// `duckdb_stage_reserve_bytes`: the disk also holds the runtime Postgres).
+    ///
+    /// `expected_bytes` is what the caller is about to write beside the stage (a release copy, its
+    /// staged files); the stage's own spill may reach its ceiling on top of it.
+    ///
+    /// # Errors
+    /// The free space, less the spill ceiling and `expected_bytes`, is under the reserve, or it
+    /// cannot be measured.
+    pub fn require_room(&self, expected_bytes: u64) -> anyhow::Result<()> {
+        let free = foundation_publisher_core::free_space::free_bytes(self.directory.path())?;
+        let spill = serving_scratch::configured_maximum_bytes()?;
+        ensure!(
+            leaves_reserve(free, spill, expected_bytes, stage_reserve_bytes()?),
+            "the disk of {} has {free} bytes free; this stage may spill {spill} and expects to write {expected_bytes} more, which would leave less than the {} bytes reserved on that disk (host-layout duckdb_stage_reserve_bytes). Free space or wait for the other stage to finish",
+            self.directory.path().display(),
+            stage_reserve_bytes()?
+        );
+        Ok(())
     }
 
     /// Lowers the memory `DuckDB` may hold before it spills to `mib`, for a reader whose unit is capped
@@ -336,36 +391,7 @@ impl DuckDbParquetStage {
     /// # Errors
     /// Returns an error when a column name is not a plain identifier or `DuckDB` fails the copy.
     pub fn write(&self, shape: &TableShape, query: &str, name: &str) -> anyhow::Result<StagedFile> {
-        ensure!(
-            !name.is_empty()
-                && name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'),
-            "staged file name {name:?} must be ASCII letters, digits, '-' or '_'"
-        );
-        for field in &shape.fields {
-            ensure!(
-                !field.name.is_empty()
-                    && field
-                        .name
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
-                "column {:?} is not a plain identifier",
-                field.name
-            );
-        }
-        let columns = shape
-            .fields
-            .iter()
-            .map(|field| format!("\"{}\"", field.name))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let field_ids = shape
-            .fields
-            .iter()
-            .map(|field| format!("\"{}\": {}", field.name, field.id))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let (columns, field_ids) = copy_columns(shape, name)?;
         let local_path = self.directory.path().join(format!("{name}.parquet"));
         let target = sql_path(&local_path)?;
         self.connection
@@ -379,6 +405,160 @@ impl DuckDbParquetStage {
             name: name.to_owned(),
         })
     }
+}
+
+impl DuckDbParquetStage {
+    /// [`Self::write`] into files of about `max_bytes` each, named `name-0000`, `name-0001`, …:
+    /// one pass over `query`, for rows too many for one file (the commit reads a file whole
+    /// into memory, root ADR-0599 §4). The split falls on row-group boundaries, so a file may
+    /// run over `max_bytes` by one group. A query of no row writes no file.
+    ///
+    /// # Errors
+    /// What [`Self::write`] refuses, or the files cannot be listed.
+    pub fn write_split(
+        &self,
+        shape: &TableShape,
+        query: &str,
+        name: &str,
+        max_bytes: u64,
+    ) -> anyhow::Result<Vec<StagedFile>> {
+        let (columns, field_ids) = copy_columns(shape, name)?;
+        let directory = self.directory.path().join(format!("{name}.parts"));
+        let target = sql_path(&directory)?;
+        self.connection
+            .execute_batch(&format!(
+                "COPY (SELECT {columns} FROM ({query})) TO '{target}' \
+                 (FORMAT parquet, COMPRESSION zstd, FIELD_IDS {{{field_ids}}}, FILE_SIZE_BYTES {max_bytes})"
+            ))
+            .with_context(|| format!("DuckDB failed to stage {name}"))?;
+        let mut parts = std::fs::read_dir(&directory)
+            .with_context(|| format!("cannot list {}", directory.display()))?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<Result<Vec<_>, _>>()?;
+        parts.sort();
+        let mut files = Vec::with_capacity(parts.len());
+        for local_path in parts {
+            let rows: i64 = self.connection.query_row(
+                &format!(
+                    "SELECT count(*) FROM read_parquet('{}')",
+                    sql_path(&local_path)?
+                ),
+                [],
+                |row| row.get(0),
+            )?;
+            // A query of no row still leaves one empty file: it is not a file to commit.
+            if rows > 0 {
+                files.push(StagedFile {
+                    name: format!("{name}-{:04}", files.len()),
+                    local_path,
+                });
+            }
+        }
+        Ok(files)
+    }
+
+    /// [`Self::write_split`] of the table `rows`, one set of files per hash bucket of its text
+    /// column `key` (a table partitioned by `bucket(buckets, key)`): named `name-pNN-0000`, ….
+    ///
+    /// The bucket of each key is Iceberg's own transform, computed here and joined back, for
+    /// `DuckDB` has no such function; the committer asks the same transform of every value.
+    ///
+    /// # Errors
+    /// What [`Self::write_split`] refuses, a null key, or `DuckDB` fails the mapping.
+    pub fn write_bucketed(
+        &self,
+        shape: &TableShape,
+        rows: &str,
+        key: &str,
+        buckets: u32,
+        name: &str,
+        max_bytes: u64,
+    ) -> anyhow::Result<Vec<StagedFile>> {
+        let bucket_of = foundation_publisher_core::lakehouse_data_commit::text_bucket(buckets)?;
+        self.connection.execute_batch(
+            "CREATE OR REPLACE TABLE stage_bucket_of (stage_key VARCHAR, stage_bucket INTEGER)",
+        )?;
+        // A second connection appends while this one reads the keys.
+        let writer = self.connection.try_clone()?;
+        let mut found = std::collections::BTreeSet::new();
+        {
+            let mut appender = writer.appender("stage_bucket_of")?;
+            let mut statement = self
+                .connection
+                .prepare(&format!("SELECT DISTINCT {key} FROM {rows}"))?;
+            let mut keys = statement.query([])?;
+            while let Some(row) = keys.next()? {
+                let text: Option<String> = row.get(0)?;
+                let text = text.with_context(|| format!("{rows} holds a null {key}"))?;
+                let bucket = bucket_of(&text)?;
+                found.insert(bucket);
+                appender.append_row(duckdb::params![text, bucket])?;
+            }
+            appender.flush()?;
+        }
+        let mut files = Vec::new();
+        for bucket in found {
+            files.extend(self.write_split(
+                shape,
+                &format!(
+                    "SELECT r.* FROM {rows} r JOIN stage_bucket_of b ON r.{key} = b.stage_key \
+                     WHERE b.stage_bucket = {bucket}"
+                ),
+                &format!("{name}-p{bucket:02}"),
+                max_bytes,
+            )?);
+        }
+        self.connection
+            .execute_batch("DROP TABLE stage_bucket_of")?;
+        Ok(files)
+    }
+}
+
+/// The projection and the field ids of a staged file of `shape`, after `name` and the columns are
+/// checked to be plain identifiers.
+fn copy_columns(shape: &TableShape, name: &str) -> anyhow::Result<(String, String)> {
+    ensure!(
+        !name.is_empty()
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'),
+        "staged file name {name:?} must be ASCII letters, digits, '-' or '_'"
+    );
+    for field in &shape.fields {
+        ensure!(
+            !field.name.is_empty()
+                && field
+                    .name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+            "column {:?} is not a plain identifier",
+            field.name
+        );
+    }
+    let columns = shape
+        .fields
+        .iter()
+        .map(|field| format!("\"{}\"", field.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let field_ids = shape
+        .fields
+        .iter()
+        .map(|field| {
+            field.element_id.map_or_else(
+                || format!("\"{}\": {}", field.name, field.id),
+                // A list: its own id, and its elements' (Parquet's three-level list).
+                |element| {
+                    format!(
+                        "\"{}\": {{__duckdb_field_id: {}, element: {element}}}",
+                        field.name, field.id
+                    )
+                },
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok((columns, field_ids))
 }
 
 /// A pinned table reference with the nullable contract columns it lacks read as NULL.
@@ -435,11 +615,24 @@ pub fn with_contract_columns(
     Ok(format!("(SELECT *, {} FROM {source})", added.join(", ")))
 }
 
+/// The bytes a stage's disk keeps free of stage work, from the host layout contract.
+fn stage_reserve_bytes() -> anyhow::Result<u64> {
+    const HOST_LAYOUT: &str = include_str!("../../../../config/host-layout.contract.json");
+    serde_json::from_str::<serde_json::Value>(HOST_LAYOUT)?["duckdb_stage_reserve_bytes"]
+        .as_u64()
+        .context("host-layout.contract.json declares no duckdb_stage_reserve_bytes")
+}
+
+/// Whether `free` bytes, less a stage's spill ceiling and what it expects to write, keep `reserve`.
+const fn leaves_reserve(free: u64, spill: u64, expected: u64, reserve: u64) -> bool {
+    free.saturating_sub(spill).saturating_sub(expected) >= reserve
+}
+
 #[cfg(test)]
 mod tests;
 
 /// A path as `DuckDB` SQL text: forward slashes, and no quote that would end the literal.
-fn sql_path(path: &Path) -> anyhow::Result<String> {
+pub(crate) fn sql_path(path: &Path) -> anyhow::Result<String> {
     let text = path
         .to_str()
         .context("the stage path must be UTF-8")?

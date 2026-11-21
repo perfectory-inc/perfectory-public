@@ -119,3 +119,5 @@ ADR-0311 은 토지 레인 다섯을 비교 후 추가로 옮기고, 아직 판 
 ---
 
 2026-10-29 각주: §4 의 허브 대장 최신 순서(`source_snapshot_id`), §5 의 "버전이 없는 표는 그 판의 행을 그대로 읽는다", §7 의 전유부 다리 최신 순서(`vintage`)는 [ADR-0328](./0328-a-compared-silver-table-orders-versions-by-edition-then-commit-instant.md) 이 고쳤다: 비교로 쌓는 표는 `[판, ingested_at_utc]` 로 정렬하고, `rows_as_of` 는 버전 없는 표를 거부한다.
+
+2026-11-20 각주: §8 이 "표의 뜻은 그대로다"라고 적었지만 표의 선언은 그대로일 수 없었다. 표가 갖지 않은 행만 붙이면 한 시도의 가장 새 파일이 붙인 행은 그 달의 몇 건뿐인데, 계약은 여전히 `Editions`(시도마다 가장 새 판을 읽는다)였다. 2026-11-15 적재 뒤 7개 시도의 가장 새 판이 2~30 행이 되어, 짝 맞추기 창의 연결 3,702 건 중 1,669 건이 독자에게 가려졌다(잃은 행은 없다). `silver.parcel_number_change_history` 는 이제 `Events` 다: 모든 행이 현재이고, 독자는 `vworld_parcel_number_change_history.official_links` 하나로 접어 읽는다.

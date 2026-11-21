@@ -35,6 +35,7 @@ use iceberg::{
     },
     table::Table,
     transaction::{ApplyTransactionAction, Transaction},
+    transform::create_transform_function,
     Catalog, CatalogBuilder, Namespace, NamespaceIdent, TableCommit, TableCreation, TableIdent,
 };
 use iceberg_catalog_rest::RestCatalogBuilder;
@@ -43,6 +44,7 @@ use lakehouse_domain::LakehouseTableContract;
 use lakehouse_infrastructure::{IcebergSnapshotManifestList, LakehouseCatalogConfig};
 use parquet::{
     basic::{ConvertedType, LogicalType, TimeUnit, Type as PhysicalType},
+    column::reader::ColumnReader,
     file::{
         metadata::ParquetMetaData,
         reader::{FileReader, SerializedFileReader},
@@ -70,6 +72,9 @@ pub struct TableField {
     pub name: String,
     /// Whether the table refuses a null in it.
     pub required: bool,
+    /// The field id of the elements, when the column is a list of plain values (`array<string>`):
+    /// a staged file carries it on the list's `element`.
+    pub element_id: Option<i32>,
 }
 
 /// Where a table's data files go and which columns they carry.
@@ -399,15 +404,22 @@ impl LakehouseDataCommitter {
         let table = self.load(table_name).await?;
         let mut fields = Vec::new();
         for field in table.metadata().current_schema().as_struct().fields() {
-            ensure!(
-                matches!(*field.field_type, Type::Primitive(_)),
-                "{table_name}.{} is not a plain column: a nested column has no staging rule yet",
-                field.name
-            );
+            let element_id = match &*field.field_type {
+                Type::Primitive(_) => None,
+                // A list of plain values is staged as Parquet's three-level list.
+                Type::List(list) if matches!(*list.element_field.field_type, Type::Primitive(_)) => {
+                    Some(list.element_field.id)
+                }
+                _ => bail!(
+                    "{table_name}.{} is neither a plain column nor a list of plain values: it has no staging rule yet",
+                    field.name
+                ),
+            };
             fields.push(TableField {
                 id: field.id,
                 name: field.name.clone(),
                 required: field.required,
+                element_id,
             });
         }
         Ok(TableShape {
@@ -430,7 +442,7 @@ impl LakehouseDataCommitter {
             "an append to {} names no staged file",
             request.table_name
         );
-        self.append_on(request, None).await
+        self.append_on(request, None, BTreeMap::new()).await
     }
 
     /// [`Self::append`], only while `main` is still at `expected_head` (the snapshot the staged
@@ -446,20 +458,61 @@ impl LakehouseDataCommitter {
     /// # Errors
     /// Everything [`Self::append`] refuses, and [`HeadMoved`] (downcast it) when `main` is at
     /// another snapshot before the upload, at the commit, or because another commit won the race:
-    /// nothing is committed, and files already uploaded are named by no snapshot.
+    /// nothing is committed, and the files this call uploaded are deleted unless `main` names them
+    /// (an earlier attempt's commit that landed with its response lost).
     pub async fn append_at_head(
         &self,
         request: DataAppend<'_>,
         expected_head: Option<i64>,
     ) -> anyhow::Result<AppendOutcome> {
-        self.append_on(request, Some(expected_head)).await
+        self.append_on(request, Some(expected_head), BTreeMap::new())
+            .await
+    }
+
+    /// [`Self::append_at_head`], setting `table_properties` on the table in the same catalog
+    /// commit as the snapshot (root ADR-0599 §4): a record that must outlive the snapshot's
+    /// summary, such as a release's edition (`foundation.edition.<edition>`, root ADR-0328 §3),
+    /// is written with the rows or not at all.
+    ///
+    /// # Errors
+    /// What [`Self::append_at_head`] returns.
+    pub async fn append_at_head_recording(
+        &self,
+        request: DataAppend<'_>,
+        expected_head: Option<i64>,
+        table_properties: BTreeMap<String, String>,
+    ) -> anyhow::Result<AppendOutcome> {
+        self.append_on(request, Some(expected_head), table_properties)
+            .await
+    }
+
+    /// Deletes the objects of `uploaded` that `main` names in no snapshot: what an append refused
+    /// at the commit left in the table's location. `main` may name them when an earlier attempt's
+    /// commit landed and its response was lost; those stay. Nothing here fails the caller: an
+    /// object that cannot be deleted is one more orphan, as before.
+    async fn delete_unnamed(&self, table_name: &str, uploaded: &[String]) {
+        let Ok(table) = self.load(table_name).await else {
+            return;
+        };
+        let targets: BTreeSet<&str> = uploaded.iter().map(String::as_str).collect();
+        let Ok(named) = referenced_by_main(&table, &targets).await else {
+            return;
+        };
+        for target in uploaded {
+            if !named.contains(target) {
+                // An orphan left is not a failure of the append.
+                let _ = table.file_io().delete(target).await;
+            }
+        }
     }
 
     /// `pinned`: the head the append is valid on, when it is valid on one head only.
+    /// `table_properties`: set on the table in the same commit.
     async fn append_on(
         &self,
         request: DataAppend<'_>,
         pinned: Option<Option<i64>>,
+        table_properties: BTreeMap<String, String>,
     ) -> anyhow::Result<AppendOutcome> {
         let table_name = request.table_name;
         let batch = batch_identities(request.batch)?;
@@ -552,6 +605,17 @@ impl LakehouseDataCommitter {
             .add_data_files(data_files)
             .set_snapshot_properties(summary)
             .apply(transaction)?;
+        let transaction = if table_properties.is_empty() {
+            transaction
+        } else {
+            table_properties
+                .into_iter()
+                .fold(
+                    transaction.update_table_properties(),
+                    |action, (key, value)| action.set(key, value),
+                )
+                .apply(transaction)?
+        };
         let committed = match pinned {
             None => transaction.commit(self.catalog.as_ref()).await,
             Some(expected) => {
@@ -566,6 +630,7 @@ impl LakehouseDataCommitter {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner);
                 if let (Err(_), Some(found)) = (&committed, moved_to) {
+                    self.delete_unnamed(table_name, &locations).await;
                     return Err(HeadMoved {
                         table_name: table_name.to_owned(),
                         expected,
@@ -640,7 +705,18 @@ fn contract_layout(
     let mut ids = HashMap::new();
     for (index, column) in contract.columns.iter().enumerate() {
         let id = i32::try_from(index + 1)?;
-        let kind = Type::Primitive(iceberg_type(column.logical_type)?);
+        let kind = if column.logical_type == "array<string>" {
+            // A list's elements take an id after the columns'.
+            Type::List(iceberg::spec::ListType::new(Arc::new(
+                NestedField::list_element(
+                    i32::try_from(contract.columns.len() + index + 1)?,
+                    Type::Primitive(PrimitiveType::String),
+                    false,
+                ),
+            )))
+        } else {
+            Type::Primitive(iceberg_type(column.logical_type)?)
+        };
         fields.push(Arc::new(if column.required {
             NestedField::required(id, column.name, kind)
         } else {
@@ -806,6 +882,9 @@ struct ColumnFacts {
     /// `None` once any row group omits a bound.
     bounds: Option<(Datum, Datum)>,
     row_groups: usize,
+    /// The column is the elements of a list: its counts are of elements, empty lists and null
+    /// lists together, so they say nothing about the list column itself.
+    repeated: bool,
 }
 
 /// The manifest entry of one Parquet file another engine wrote: counts, sizes and bounds from its
@@ -827,6 +906,21 @@ fn manifest_entry(
     let facts = column_facts(footer, fields, local)?;
 
     for field in fields {
+        let Type::Primitive(_) = &*field.field_type else {
+            // A list column: its leaf is its elements. Whether a list itself is null is not in the
+            // footer (the leaf counts null elements, empty lists and null lists as one), so a
+            // required list is the stager's to check before it writes (`check_release`).
+            let Type::List(list) = &*field.field_type else {
+                bail!("{}: {} is not a plain column", local.display(), field.name);
+            };
+            ensure!(
+                facts.contains_key(&list.element_field.id),
+                "{}: column {} is missing",
+                local.display(),
+                field.name
+            );
+            continue;
+        };
         let fact = facts
             .get(&field.id)
             .with_context(|| format!("{}: column {} is missing", local.display(), field.name))?;
@@ -857,6 +951,16 @@ fn manifest_entry(
     let spec = table.metadata().default_partition_spec();
     let mut partition = Vec::with_capacity(spec.fields().len());
     for part in spec.fields() {
+        if matches!(part.transform, Transform::Bucket(_)) {
+            // A hash keeps no order: the bounds say nothing, so every value is asked.
+            partition.push(Some(Literal::Primitive(one_bucket(
+                &reader,
+                part.source_id,
+                part.transform,
+                local,
+            )?)));
+            continue;
+        }
         let fact = facts
             .get(&part.source_id)
             .with_context(|| format!("partition {} names a column the file lacks", part.name))?;
@@ -874,7 +978,7 @@ fn manifest_entry(
             partition_value(part.transform, high),
         ) else {
             bail!(
-                "{}: partition {} is {}, and only identity and text truncate partitions are appended here (root ADR-0560 §2, ADR-0564 §2)",
+                "{}: partition {} is {}, and only identity, text truncate and text bucket partitions are appended here (root ADR-0560 §2, ADR-0564 §2)",
                 local.display(),
                 part.name,
                 part.transform
@@ -896,6 +1000,10 @@ fn manifest_entry(
     let mut upper_bounds = HashMap::new();
     for (id, fact) in facts {
         column_sizes.insert(id, fact.compressed_bytes);
+        if fact.repeated {
+            // No count and no bound of a repeated field: they are not the column's.
+            continue;
+        }
         value_counts.insert(id, fact.values);
         if let Some(nulls) = fact.nulls {
             null_value_counts.insert(id, nulls);
@@ -927,6 +1035,83 @@ fn manifest_entry(
         .build()?)
 }
 
+/// The bucket a text falls in among `buckets`, by Iceberg's own transform (`bucket(N, column)`):
+/// what a stager splits its rows by, and what [`one_bucket`] asks of every value it wrote.
+///
+/// # Errors
+/// The transform cannot be made.
+pub fn text_bucket(buckets: u32) -> anyhow::Result<impl Fn(&str) -> anyhow::Result<i32>> {
+    let function = create_transform_function(&Transform::Bucket(buckets))?;
+    Ok(move |text: &str| {
+        match function
+            .transform_literal_result(&Datum::string(text))?
+            .literal()
+        {
+            PrimitiveLiteral::Int(bucket) => Ok(*bucket),
+            other => bail!("a bucket is a number, not {other:?}"),
+        }
+    })
+}
+
+/// The one bucket every value of a text column of the file falls in, by Iceberg's own transform.
+///
+/// # Errors
+/// The column is not text, holds a null, or holds values of more than one bucket.
+fn one_bucket(
+    reader: &SerializedFileReader<File>,
+    source_id: i32,
+    transform: Transform,
+    local: &Path,
+) -> anyhow::Result<PrimitiveLiteral> {
+    let descriptor = reader.metadata().file_metadata().schema_descr();
+    let leaf = (0..descriptor.num_columns())
+        .find(|index| {
+            let column = descriptor.column(*index);
+            let info = column.self_type().get_basic_info();
+            info.has_id() && info.id() == source_id
+        })
+        .with_context(|| format!("{}: no column of field id {source_id}", local.display()))?;
+    let function = create_transform_function(&transform)?;
+    let mut bucket: Option<Datum> = None;
+    let mut values = Vec::new();
+    for index in 0..reader.num_row_groups() {
+        let group = reader.get_row_group(index)?;
+        let ColumnReader::ByteArrayColumnReader(mut column) = group.get_column_reader(leaf)? else {
+            bail!(
+                "{}: a bucket partition is appended for a text column only",
+                local.display()
+            );
+        };
+        loop {
+            values.clear();
+            let (records, read, _) = column.read_records(8192, None, None, &mut values)?;
+            if records == 0 {
+                break;
+            }
+            ensure!(
+                read == records,
+                "{}: the bucket partition's column holds a null",
+                local.display()
+            );
+            for value in &values {
+                let found = function.transform_literal_result(&Datum::string(value.as_utf8()?))?;
+                match &bucket {
+                    None => bucket = Some(found),
+                    Some(held) => ensure!(
+                        *held == found,
+                        "{}: holds values of buckets {held} and {found}, so it is not one partition",
+                        local.display()
+                    ),
+                }
+            }
+        }
+    }
+    Ok(bucket
+        .with_context(|| format!("{}: holds no row", local.display()))?
+        .literal()
+        .clone())
+}
+
 /// The partition value `transform` gives a column value, for the transforms a staged file may be
 /// partitioned by: the value itself, or the first `width` characters of a text (Iceberg truncates
 /// text by Unicode code points; a 시도 is `truncate(2, pnu)`, root ADR-0564 §2). `None` for any other
@@ -949,8 +1134,17 @@ fn column_facts(
     fields: &[Arc<NestedField>],
     local: &Path,
 ) -> anyhow::Result<BTreeMap<i32, ColumnFacts>> {
-    let by_id: HashMap<i32, &Arc<NestedField>> =
-        fields.iter().map(|field| (field.id, field)).collect();
+    // The leaf of a plain column carries the column's id; the leaf of a list, its element's.
+    let by_id: HashMap<i32, (&Arc<NestedField>, &Type, bool)> = fields
+        .iter()
+        .map(|field| match &*field.field_type {
+            Type::List(list) => (
+                list.element_field.id,
+                (field, &*list.element_field.field_type, true),
+            ),
+            other => (field.id, (field, other, false)),
+        })
+        .collect();
     let descriptor = footer.file_metadata().schema_descr();
     ensure!(
         descriptor.num_columns() == fields.len(),
@@ -970,7 +1164,7 @@ fn column_facts(
             local.display(),
             column.name()
         );
-        let field = by_id.get(&info.id()).with_context(|| {
+        let (field, leaf_type, repeated) = *by_id.get(&info.id()).with_context(|| {
             format!(
                 "{}: field id {} ({}) is not in the table schema",
                 local.display(),
@@ -978,15 +1172,18 @@ fn column_facts(
                 column.name()
             )
         })?;
+        // A list's leaf is named `element`; the column's name is the root of its path.
+        let named = column.path().parts().first().map(String::as_str);
         ensure!(
-            field.name == column.name(),
+            named == Some(field.name.as_str())
+                && column.path().parts().len() == if repeated { 3 } else { 1 },
             "{}: field id {} is {} in the file and {} in the table",
             local.display(),
-            field.id,
-            column.name(),
+            info.id(),
+            column.path().string(),
             field.name
         );
-        let Type::Primitive(primitive) = &*field.field_type else {
+        let Type::Primitive(primitive) = leaf_type else {
             bail!("{}: {} is not a plain column", local.display(), field.name);
         };
         ensure!(
@@ -999,12 +1196,20 @@ fn column_facts(
             column.converted_type()
         );
         ensure!(
-            facts.insert(field.id, ColumnFacts::default()).is_none(),
+            facts
+                .insert(
+                    info.id(),
+                    ColumnFacts {
+                        repeated,
+                        ..ColumnFacts::default()
+                    }
+                )
+                .is_none(),
             "{}: field id {} appears twice",
             local.display(),
-            field.id
+            info.id()
         );
-        primitives.insert(index, (field.id, primitive.clone()));
+        primitives.insert(index, (info.id(), primitive.clone()));
     }
     for row_group in footer.row_groups() {
         for (index, chunk) in row_group.columns().iter().enumerate() {

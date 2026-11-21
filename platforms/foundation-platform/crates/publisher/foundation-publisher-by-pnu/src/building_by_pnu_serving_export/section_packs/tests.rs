@@ -1463,3 +1463,4 @@ mod bake_runs;
 mod document_schema_record;
 mod equality_gate;
 mod rollback;
+mod takeover;

@@ -2,8 +2,9 @@
 # 필지 ID 원장의 첫 등록을 시도마다 이어 가고, 그 ID 를 지역마다 발행한다 (root ADR-0243, ADR-0481). 예약 작업 parcel_registry.
 #
 #   1. 확인 — 지도가 쓰는 필지 판의 시도 중 silver.parcel_registry 에 아무것도 없는 곳을 작은 것부터 묻는다
-#             (parcel_registry_to_silver.py --probe-missing). 없으면 할 일 없음(unchanged).
-#   2. 등록 — 그 시도마다 bootstrap 한 번(시도 하나 = Spark 한 번). 시도마다 걸린 시간을 journal 에 남긴다.
+#             (발행기의 probe-parcel-registry). 없으면 할 일 없음(unchanged).
+#   2. 등록 — 그 시도마다 bootstrap 한 번(발행기의 load-parcel-registry: 발행기 안의 DuckDB 가 걸음을 짓고 발행기가
+#             Iceberg 에 덧붙인다, 루트 ADR-0559; Spark 를 띄우지 않는다). 시도마다 걸린 시간을 journal 에 남긴다.
 #             시작한 지 START_BUDGET 분이 지나면 새 시도를 시작하지 않는다: 유닛의 시간 상한 안에서 끝나고, 남은
 #             시도는 다음 실행이 잇는다(이미 등록된 시도는 1 이 고르지 않는다).
 #   2b. 후보 — 판정(parcel-edition-readiness.sh)이 다음 서빙판으로 꼽은 후보 판(서빙판보다 새, source·silver 통과)의
@@ -31,6 +32,7 @@ STATE_ROOT="${FOUNDATION_PARCEL_REGISTRY_STATE_ROOT:-$(job_state_root parcel_reg
 LAKEHOUSE_STATE_ROOT="${FOUNDATION_PARCEL_REGISTRY_LAKEHOUSE_ROOT:-$(job_state_root parcel_registry)/lakehouse}"
 # 가장 큰 시도(약 600만 필지)도 이 뒤에 시작해서 유닛 상한(150 분) 안에 끝나야 한다.
 START_BUDGET_MINUTES="${FOUNDATION_PARCEL_REGISTRY_START_BUDGET_MINUTES:-100}"
+# place-id 발행(3)의 Spark 가 쓴다. 등록부의 확인과 걸음(1·2·2b)은 Spark 를 쓰지 않는다.
 DRIVER_MEMORY="${FOUNDATION_PARCEL_REGISTRY_DRIVER_MEMORY:-16g}"
 
 mkdir -p "${STATE_ROOT}"
@@ -61,6 +63,13 @@ spark() {
     --jars "${SPARK_RELEASE_JARS}" "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >> "${run_log}" 2>&1
 }
 
+# The registry's probes and steps: the release's publisher, DuckDB inside it (root ADR-0559). Its
+# variables are FOUNDATION_PLATFORM_PARCEL_REGISTRY_*; the stage's files live under this run's folder.
+registry() {
+  lakehouse_run_log "${run_log}"
+  FOUNDATION_PLATFORM_PARCEL_REGISTRY_STAGE_DIR="${work}/stage" "${PUBLISHER_BIN}" "$@" >> "${run_log}" 2>&1
+}
+
 finish() {
   job_journal "${journal}" "parcel registry $1 run=${run_id} $2"
   printf 'parcel-registry-outcome outcome=%s %s\n' "$1" "$2"
@@ -73,7 +82,7 @@ to_date="$(python3 -I "${editions}" valid-from --edition "${edition}")"
 to_date="${to_date%%T*}"
 
 # 1. 등록되지 않은 시도.
-spark parcel_registry_to_silver.py --probe-missing
+FOUNDATION_PLATFORM_PARCEL_REGISTRY_PROBE=missing registry probe-parcel-registry
 missing="$(grep -a '^parcel-registry-probe ' "${run_log}" | tail -1 | cut -d' ' -f2-)"
 [[ -n "${missing}" ]]
 # One line per region and none when nothing is missing (a lone empty line would be a region named "").
@@ -87,8 +96,10 @@ for entry in "${regions[@]}"; do
     break
   fi
   region_started="${SECONDS}"
-  spark parcel_registry_to_silver.py --to-sido "${sido}" --to-date "${to_date}" --bootstrap --allow-non-smoke-write \
-    --summary-output "${container_work}/summary-${sido}.json"
+  FOUNDATION_PLATFORM_PARCEL_REGISTRY_TO_SIDO="${sido}" FOUNDATION_PLATFORM_PARCEL_REGISTRY_TO_DATE="${to_date}" \
+  FOUNDATION_PLATFORM_PARCEL_REGISTRY_BOOTSTRAP=1 \
+  FOUNDATION_PLATFORM_PARCEL_REGISTRY_SUMMARY_OUTPUT="${work}/summary-${sido}.json" \
+    registry load-parcel-registry
   job_journal "${journal}" "parcel registry region=${sido} parcels=${parcels} seconds=$((SECONDS - region_started)) run=${run_id}"
   done_regions+=("${sido}")
 done
@@ -103,7 +114,10 @@ if [[ "${candidate}" != "-" ]] && (((SECONDS - started) / 60 < START_BUDGET_MINU
   candidate_snapshot="$(python3 -I "${editions}" snapshot-id --edition "${candidate}")"
   candidate_date="$(python3 -I "${editions}" valid-from --edition "${candidate}")"
   candidate_date="${candidate_date%%T*}"
-  spark parcel_registry_to_silver.py --to-snapshot-id "${candidate_snapshot}" --allow-non-served-edition --probe-advance
+  FOUNDATION_PLATFORM_PARCEL_REGISTRY_PROBE=advance \
+  FOUNDATION_PLATFORM_PARCEL_REGISTRY_TO_SNAPSHOT_ID="${candidate_snapshot}" \
+  FOUNDATION_PLATFORM_PARCEL_REGISTRY_ALLOW_NON_SERVED_EDITION=1 \
+    registry probe-parcel-registry
   waiting="$(grep -a '^parcel-registry-advance-probe ' "${run_log}" | tail -1 | cut -d' ' -f2-)"
   [[ -n "${waiting}" ]]
   mapfile -t advance_regions < <(python3 -I -c 'import json, sys; sys.stdout.write("".join(f"{t} {r} {s} {n}\n" for t, r, s, n in json.loads(sys.argv[1])["waiting"]))' "${waiting}")
@@ -113,7 +127,13 @@ if [[ "${candidate}" != "-" ]] && (((SECONDS - started) / 60 < START_BUDGET_MINU
       break
     fi
     region_started="${SECONDS}"
-    spark parcel_registry_to_silver.py --to-snapshot-id "${candidate_snapshot}" --allow-non-served-edition       --from-snapshot-id "${from_snapshot}" --to-sido "${to_sido}" --from-sido "${from_sido}" --to-date "${candidate_date}"       --allow-non-smoke-write --summary-output "${container_work}/advance-${to_sido//,/-}.json"
+    FOUNDATION_PLATFORM_PARCEL_REGISTRY_TO_SNAPSHOT_ID="${candidate_snapshot}" \
+    FOUNDATION_PLATFORM_PARCEL_REGISTRY_ALLOW_NON_SERVED_EDITION=1 \
+    FOUNDATION_PLATFORM_PARCEL_REGISTRY_FROM_SNAPSHOT_ID="${from_snapshot}" \
+    FOUNDATION_PLATFORM_PARCEL_REGISTRY_TO_SIDO="${to_sido}" FOUNDATION_PLATFORM_PARCEL_REGISTRY_FROM_SIDO="${from_sido}" \
+    FOUNDATION_PLATFORM_PARCEL_REGISTRY_TO_DATE="${candidate_date}" \
+    FOUNDATION_PLATFORM_PARCEL_REGISTRY_SUMMARY_OUTPUT="${work}/advance-${to_sido//,/-}.json" \
+      registry load-parcel-registry
     job_journal "${journal}" "parcel registry advance edition=${candidate} region=${to_sido} from=${from_snapshot}:${from_sido} parcels=${parcels} seconds=$((SECONDS - region_started)) run=${run_id}"
     advanced+=("${to_sido}")
   done

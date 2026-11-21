@@ -98,12 +98,6 @@
       "building_register_master_silver_to_gold": {
         "wave": 3
       },
-      "building_register_unit_floor_resolution_export": {
-        "wave": 4
-      },
-      "building_register_unit_proposal_context_export": {
-        "wave": 4
-      },
       "building_sub_parcel_silver_to_gold": {
         "wave": 3
       },
@@ -168,9 +162,6 @@
           "fingerprint": null
         }
       },
-      "intelligence_documents": {
-        "wave": 4
-      },
       "lakehouse_maintenance": {
         "stays": "maintenance"
       },
@@ -184,7 +175,11 @@
         "wave": 5
       },
       "legal_dong_code_change_pairs": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1564,
+          "rows": 312,
+          "fingerprint": null
+        }
       },
       "legal_dong_code_snapshot_to_reference": {
         "moved": {
@@ -223,9 +218,6 @@
           "fingerprint": null
         }
       },
-      "parcel_matching_gate": {
-        "wave": 4
-      },
       "parcel_nearby_silver_to_gold": {
         "moved": {
           "pull_request": 1407,
@@ -237,7 +229,11 @@
         "wave": 2
       },
       "parcel_registry_to_silver": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1557,
+          "rows": 52881152,
+          "fingerprint": null
+        }
       },
       "place_id_release_to_gold": {
         "wave": 3
@@ -279,7 +275,11 @@
         "wave": 5
       },
       "vworld_parcel_number_change_history": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1558,
+          "rows": 78,
+          "fingerprint": null
+        }
       }
     }
   }

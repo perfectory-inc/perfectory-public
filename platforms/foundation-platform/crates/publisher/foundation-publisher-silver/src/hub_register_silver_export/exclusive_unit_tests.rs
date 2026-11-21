@@ -68,8 +68,10 @@ fn exclusive_unit_stream_preserves_labels_raw_fields_and_invalid_pnus() -> anyho
         assert_eq!(emitted["source_record_id"], report["input_object_key"]);
         assert_eq!(emitted["source_part_id"], parts[index / 2]["object_key"]);
         assert_eq!(emitted["source_snapshot_id"], "SYNTHETIC-test");
-        assert!(chrono::DateTime::parse_from_rfc3339(
-            emitted["ingested_at_utc"].as_str().context("timestamp")?
+        // The one form the load takes (`release_compare_stage::typed`).
+        assert!(chrono::NaiveDateTime::parse_from_str(
+            emitted["ingested_at_utc"].as_str().context("timestamp")?,
+            "%Y-%m-%dT%H:%M:%SZ"
         )
         .is_ok());
         let names: std::collections::BTreeSet<_> = emitted

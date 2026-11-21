@@ -2,7 +2,7 @@
   "$comment": "Root ADR-0177. What the staging smoke runs on a new release before production switches to it, and how long each step may take. scripts/ops/staging-smoke.sh is the only reader; scripts/deploy/foundation-release.sh `staging-smoke` starts it (between the admission build and the release switch of scripts/deploy/foundation-deploy.sh) and bounds the whole run by unit_limit_seconds. The staging key prefix lives in the R2 client (R2KeyNamespace, crates/foundation-outbox) and the staging database name in scripts/ops/database-url.sh; neither is restated here.",
   "schema_version": 1,
   "unit_limit_seconds": 4500,
-  "unit_limit_reason": "The migrator image build (up to an hour on a cold cache, the same build the release's `migrate` step runs a few minutes later and then finds cached) plus the smoke itself (target under ten minutes) plus margin. orchestration/tests/test_foundation_autodeploy.py holds foundation-autodeploy.service's TimeoutStartSec above the deploy's waits plus this.",
+  "unit_limit_reason": "The migrator image build (up to an hour on a cold cache, the same build the release's `migrate` step runs a few minutes later and then finds cached) plus the smoke itself (target under ten minutes) plus margin. orchestration/tests/test_deploy_started_once.py holds foundation-autodeploy.service's TimeoutStartSec above the deploy's waits plus this.",
   "unit_memory_max": "4G",
   "unit_memory_reason": "The publisher's plan, inventory, streaming ingest and ranged member reads, measured in production at well under 1 GiB; no Spark, DuckDB or tile work runs here. The host's budget (tools/host-memory-budget.contract.json) counts this as host_reserved, and the deploy runs it while every registered job is drained.",
   "steps": {

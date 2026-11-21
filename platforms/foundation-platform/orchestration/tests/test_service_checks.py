@@ -354,6 +354,108 @@ class SecurityGateBeyondTheDailyRun(unittest.TestCase):
         self.assertFalse(any("dependency-advisories.yml/runs?status=failure" in path for path, _ in calls))
 
 
+class MainHealth(unittest.TestCase):
+    """Main's newest verdict (root ADR-0554): 2026-11-14..18 the red nightly reached no one."""
+
+    REPOSITORY = "example-org/example-repo"
+    NOW = datetime(2026, 11, 21, 8, 41, tzinfo=timezone.utc)
+    GREEN = {"id": 30, "event": "schedule", "conclusion": "success"}
+    RED = {"id": 20, "event": "schedule", "conclusion": "failure"}
+    BLIND = {"id": 40, "event": "schedule", "conclusion": "failure"}
+    VERDICT = [{"title": "main-red-count", "message": "2"},
+               {"title": "main-red", "message": '{"workflow": "Foundation Platform CI", "job": "Postgres integration tests"}'},
+               {"title": "main-red", "message": '{"workflow": "CI", "job": "Rust"}'},
+               {"title": "main-red", "message": "not json"}]
+    UNREADABLE = [{"title": "main-health-unreadable", "message": "gh api repos: HTTP 502"}]
+
+    def measure(self, *runs, previous=None, calls=None, remaining=10**4, fails=False):
+        def ask(path, token):
+            self.assertIsNone(token)
+            if calls is not None:
+                calls.append(path)
+            if fails:
+                raise OSError("timed out")
+            if "/workflows/main-health.yml/runs" in path:
+                return {"workflow_runs": list(runs)}, {}
+            if path.endswith("/jobs?per_page=100"):
+                run_id = int(path.split("/runs/")[1].split("/")[0])
+                return {"jobs": [{"id": run_id * 10, "name": "Main health", "conclusion": "failure"}]}, {}
+            if "/check-runs/" in path:
+                return (self.VERDICT if path.split("/check-runs/")[1].startswith("200") else self.UNREADABLE), {}
+            raise AssertionError(path)
+        return checks.measure_main(self.REPOSITORY, previous, self.NOW, ask, lambda: remaining)
+
+    def test_a_green_run_is_nothing_red_in_one_request(self):
+        calls = []
+        main = self.measure(self.GREEN, self.RED, calls=calls)
+        self.assertEqual((main["readable"], main["red_jobs"], main["jobs"], main["run_id"]), (True, 0, [], 30))
+        self.assertEqual(len(calls), 1)
+
+    def test_a_red_run_names_its_count_and_jobs(self):
+        main = self.measure(self.RED)
+        self.assertEqual(main["red_jobs"], 2)
+        self.assertEqual(main["jobs"], [{"workflow": "CI", "job": "Rust"},
+                                        {"workflow": "Foundation Platform CI", "job": "Postgres integration tests"}])
+        self.assertEqual(main["link"], "https://github.com/example-org/example-repo/actions/workflows/main-health.yml")
+
+    def test_a_run_without_a_verdict_keeps_what_was_known(self):
+        known = self.measure(self.RED)
+        main = self.measure(self.BLIND, self.RED, previous=known)
+        self.assertEqual((main["readable"], main["reason"], main["red_jobs"]), (False, "no-verdict", 2))
+
+    def test_a_run_already_read_is_not_read_again(self):
+        known = self.measure(self.RED)
+        calls = []
+        main = self.measure(self.RED, previous=known, calls=calls)
+        self.assertEqual((main["red_jobs"], len(calls)), (2, 1))
+
+    def test_github_unreadable_or_no_budget_keeps_what_was_known(self):
+        known = self.measure(self.RED)
+        for main in (self.measure(self.GREEN, previous=known, fails=True),
+                     self.measure(self.GREEN, previous=known, remaining=checks.API_RESERVE)):
+            self.assertEqual((main["readable"], main["reason"], main["red_jobs"]), (False, "github-error", 2))
+
+    def test_a_pull_request_run_says_nothing(self):
+        main = self.measure({"id": 50, "event": "pull_request", "conclusion": "success"})
+        self.assertEqual((main["readable"], main["reason"]), (False, "no-verdict"))
+
+
+class RepositoryDrift(unittest.TestCase):
+    """The daily repository drift job's verdict (root ADR-0570): its own job, beside the Cargo check."""
+
+    REPOSITORY = "example-org/example-repo"
+    NOW = datetime(2026, 11, 21, 8, 41, tzinfo=timezone.utc)
+    DRIFT = [{"title": "repository-drift-count", "message": "1"},
+             {"title": "repository-drift", "message": "settings: has_issues is True, declared False"}]
+
+    def measure(self, cargo: str, drift: str, previous=None, run_conclusion: str = "failure"):
+        def ask(path, token):
+            if "/workflows/dependency-advisories.yml/runs" in path:
+                return {"workflow_runs": [{"id": 7, "event": "schedule", "conclusion": run_conclusion}]}, {}
+            if path.endswith("/jobs?per_page=100"):
+                return {"jobs": [{"id": 70, "name": "Cargo advisories", "conclusion": cargo},
+                                 {"id": 71, "name": "Repository drift and Renovate pulse", "conclusion": drift}]}, {}
+            if path.endswith("/check-runs/71/annotations?per_page=100"):
+                return self.DRIFT, {}
+            raise AssertionError(path)
+        return checks.measure_report(self.REPOSITORY, checks.REPORTS["repository"], previous, self.NOW, ask, lambda: 10**4)
+
+    def test_drift_is_named(self):
+        part = self.measure("success", "failure")
+        self.assertEqual((part["readable"], part["finding_count"], part["findings"]),
+                         (True, 1, ["settings: has_issues is True, declared False"]))
+        self.assertEqual(part["link"], "https://github.com/example-org/example-repo/actions/workflows/dependency-advisories.yml")
+
+    def test_an_advisory_alone_is_no_drift(self):
+        # The Cargo check failed (an advisory, the security source's business); the drift job passed.
+        part = self.measure("failure", "success")
+        self.assertEqual((part["readable"], part["finding_count"]), (True, 0))
+
+    def test_a_skipped_drift_job_is_no_verdict(self):
+        part = self.measure("success", "skipped")
+        self.assertEqual((part["readable"], part["reason"]), (False, "no-verdict"))
+
+
 class File(unittest.TestCase):
     def test_the_written_file_has_the_shape_foundation_api_reads(self):
         example = json.loads(EXAMPLE.read_text(encoding="utf-8"))
@@ -363,8 +465,10 @@ class File(unittest.TestCase):
             with tempfile.TemporaryDirectory() as store:
                 ci = CiTrend("test_days_are_fetched_newest_first_and_a_week_is_reported_only_when_whole").measure(pathlib.Path(store), 60)[0]
             security = Security.measure(Security.github(cargo_fails=True), token="t")
+            main = MainHealth().measure(MainHealth.RED)
+            repository = RepositoryDrift().measure("success", "failure")
             checks.write_atomically(out, {"schema_version": 1, "checked_at": edge["checked_at"], "edge": edge, "ci": ci,
-                                          "security": security})
+                                          "security": security, "main": main, "repository": repository})
             written = json.loads(out.read_text(encoding="utf-8"))
             self.assertEqual(shape(written), shape(example))
             self.assertEqual(list(pathlib.Path(tmp).iterdir()), [out], "no temporary file is left")

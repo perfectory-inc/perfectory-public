@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # What the two intelligence document jobs share (root ADR-0477): the run directory, the intelligence
-# image's own contract, the Spark steps, the media fetch and the image run. Sourced after
+# image's own contract, the lakehouse steps, the media fetch and the image run. Sourced after
 # admitted-writer-runtime.sh and job-journal.sh, with STATE_ROOT, journal and run_id set.
 
 # The image the release built from platforms/intelligence-platform/compose.document-jobs.yml and
@@ -10,17 +10,15 @@ INTELLIGENCE_DOCUMENT_IMAGE="intelligence-document-text:local"
 # collector's same image); the release subtree does not carry tools/.
 INTELLIGENCE_MEDIA_FETCH_IMAGE="amazon/aws-cli:2.17.0@sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73"
 
-# work: the run's directory on the host; container_work: the same directory in the Spark container
-# (compose.lakehouse.yml mounts FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT at /workspace/target/lakehouse).
+# work: the run's directory on the host.
 intelligence_document_run_dir() {
   export FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
   work="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT}/runs/$1-${run_id}"
-  container_work="/workspace/target/lakehouse/runs/$1-${run_id}"
   # The job makes its own lakehouse directory: the release cannot, because systemd-tmpfiles refuses
   # to step from /data/foundation-platform (the operator's) into STATE_ROOT (ours), and that refusal
   # stopped every deploy from 2026-11-11 15:34Z (exit 73).
   install -d -m 0777 "${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT}"
-  # The Spark container (uid 185) writes the plan; the image (uid 10001) writes its rows.
+  # The publisher (this unit's user) writes the plan; the image (uid 10001) writes its rows.
   mkdir -p -m 0777 "${work}" "${work}/plan" "${work}/out"
   chmod 0777 "${work}" "${work}/plan" "${work}/out"
   run_log="${work}/run.log"
@@ -46,21 +44,34 @@ r = c["runtimes"][c["serving"]]
 print("http://" + r["listen"], r["chat_path"], r["model"])'
 }
 
-intelligence_document_spark() {
-  local command="$1"
-  shift
-  lakehouse_run_log "${run_log}"
-  FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-  lakehouse_spark_run foundation-platform-compute \
-    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-    -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-    spark-small spark-submit --master 'local[2,8]' --driver-memory 1500m \
-    --jars "${SPARK_RELEASE_JARS}" \
-    /workspace/infra/lakehouse/spark/jobs/intelligence_documents.py "${command}" \
-    --extraction "${container_work}/extraction.json" "$@" >> "${run_log}" 2>&1
+# One step of the lakehouse half: the publisher's `intelligence-documents` command, DuckDB inside
+# the publisher (root ADR-0559). It reads and writes the run's directory: plan/ and out/.
+# `publisher` is the job script's: the release's binary, from the admitted writer runtime it sources.
+intelligence_document_lakehouse() {
+  FOUNDATION_PLATFORM_INTELLIGENCE_DOCUMENTS_STEP="$1" \
+  FOUNDATION_PLATFORM_INTELLIGENCE_DOCUMENTS_EXTRACTION="${work}/extraction.json" \
+  FOUNDATION_PLATFORM_INTELLIGENCE_DOCUMENTS_DIR="${work}" \
+  FOUNDATION_PLATFORM_INTELLIGENCE_DOCUMENTS_RUN_ID="${run_id}" \
+  FOUNDATION_PLATFORM_INTELLIGENCE_DOCUMENTS_PLATFORM_DIR="${RELEASE_ROOT}" \
+    publisher intelligence-documents >> "${run_log}" 2>&1
 }
 
-# A value of the last summary line a Spark step printed.
+# The fold rule (what a complex's panel may state), plain Python on the run's files.
+intelligence_document_rule() {
+  python3 -I "${RELEASE_ROOT}/infra/lakehouse/spark/jobs/intelligence_documents.py" "$1" \
+    --extraction "${work}/extraction.json" --dir "${work}" >> "${run_log}" 2>&1
+}
+
+# Foundation's read of the facts for the complex panel: the gate, the publisher's read, the rule,
+# the publisher's append. The last summary line is the append's (complexes, appended).
+intelligence_document_fold() {
+  intelligence_document_rule gate
+  intelligence_document_lakehouse fold-export
+  intelligence_document_rule fold-rows
+  intelligence_document_lakehouse fold-append
+}
+
+# A value of the last summary line a step printed.
 intelligence_document_summary() {
   local line
   line="$(grep '^intelligence-documents-summary-json ' "${run_log}" | tail -1)"

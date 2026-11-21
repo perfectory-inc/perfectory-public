@@ -14,7 +14,8 @@
       "check_service": "foundation-silver-refresh-plan@land-use-zone-area.service",
       "systemd_timer": null,
       "state_paths": [
-        "/data/foundation-platform/silver-refresh"
+        "/data/foundation-platform/silver-refresh",
+        "/var/lib/foundation-platform/silver-refresh-duckdb"
       ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
@@ -35,9 +36,14 @@
           "to": "2026-11-03T15:50:32Z"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
-      "priority_weight": 40,
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@land-use-zone-area.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-use-zone-area"
@@ -90,17 +96,6 @@
       "description": "전체데이터 AL_D<층>_00 SHP 의 목록 층만 연결한다. 변동데이터 CH_D* 와 목록 밖 172개 층은 Bronze 에 남는다."
     }
   ],
-  "host_memory": {
-    "silver_refresh_land_use_zone_area": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  },
   "asset_checks": [
     {
       "asset": "silver-land-use-zone-area",

@@ -184,3 +184,7 @@ HUB 계열 레인 작업(`silver_refresh_hub_lane_family`, ADR-0551)은 새 Spar
   그 속성에 기대므로, Gold 의 `MERGE` 를 DuckDB 로 대신하면 그 독자들을 전부 다른 기록으로 옮겨야 한다.
 - **DuckDB 가 쓴 파일을 iceberg-rust 의 Parquet writer 로 다시 쓴다.** 등록 함수가 공개가 아니라는 이유만으로 모든 행을 한 번 더 쓴다.
 - **pyiceberg 로 커밋한다.** 발행기 밖에 Python 실행기를 하나 더 둔다. 독자와 카탈로그 클라이언트가 이미 Rust 다.
+
+---
+
+2026-11-21 각주: §4 의 둘째 문장(여러 run 에 걸친 적재·비교 적재·묶음마다 되읽는 적재는 가지 그대로)은 [ADR-0599](./0599-a-silver-release-is-compared-by-duckdb-from-a-local-copy-and-appended-in-one-commit-so-the-lanes-need-no-branch-and-no-spark.md) 가 Silver 갱신 레인에 대해 대신한다: 판은 로컬 사본에서 비교해 한 번의 추가 커밋으로 싣고, 가지를 쓰지 않는다. §3 의 판 기록과 §7 의 고아는 거기 4 번·5 번이 채운다. 이 탐침이 재지 않았던 비교 적재의 모양은 거기서 쟀다.

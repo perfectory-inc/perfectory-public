@@ -11,7 +11,9 @@
 # release are those it marks `started_once_after_deploy`. Before the switch the new release runs the
 # staging smoke (root ADR-0177); a smoke that fails refuses the release like any step before the
 # switch. Stops at the first failure; every step is
-# safe to re-run. A job that does not succeed after the switch does not fail the deploy or keep the
+# safe to re-run, and a run of the same commit again starts at the step that failed: each step that
+# passed is one line of ${progress} (root ADR-0597), with the release it replaces, so the retry holds
+# the jobs the first attempt held. A job that does not succeed after the switch does not fail the deploy or keep the
 # DAGs paused (root ADR-0173): its unit's OnFailure alerts, the next scheduled run tries again, and
 # the deploy's log names it. A deploy that stops before the release switch unpauses the DAGs again;
 # one that stops during the switch leaves them paused and says so in capitals.
@@ -125,6 +127,26 @@ mapfile -t disabled < <(jobs_of disabled)
 # checkout it came from admits by. 0 nothing runs, 75 something does (listed), anything else: no answer.
 admission="${control_root}/current/scripts/deploy/foundation-release-admission.py"
 old="$(readlink -f "${release_root}/current")"; old="${old##*/}"
+# What a deploy of ${sha} already did (root ADR-0597): `old <commit>`, the release it replaces, then
+# `done <step>` for each step that passed. A retry after the release link moved reads the replaced
+# release here, not the link. Removed when the deploy is done; a stale one is any other commit's.
+progress_dir=/var/lib/perfectory/deploy-progress
+progress="${progress_dir}/${sha}"
+mkdir -p "${progress_dir}"
+find "${progress_dir}" -maxdepth 1 -type f ! -name "${sha}" -delete
+if [[ -s "${progress}" ]]; then
+  recorded="$(sed -n 's/^old \([0-9a-f]\{40\}\)$/\1/p' "${progress}" | tail -1)"
+  if [[ -n "${recorded}" && -d "${release_root}/releases/${recorded}" ]]; then
+    old="${recorded}"
+    done_before="$(sed -n 's/^done //p' "${progress}" | tr '\n' ' ')"
+    printf 'foundation-deploy: finishing the deploy of %s over %s; done before: %s\n' "${sha}" "${old}" "${done_before}"
+  else
+    : >"${progress}"
+  fi
+fi
+[[ -s "${progress}" ]] || printf 'old %s\n' "${old}" >"${progress}"
+passed() { grep -qx "done $1" "${progress}"; }
+mark() { printf 'done %s\n' "$1" >>"${progress}"; }
 
 log "pre-flight: the approval settings ${sha}'s pending migrations wait for are set (root ADR-0259 §4)"
 # Before step 0: a migration that would refuse in step 4 stops the deploy here, with no DAG paused
@@ -175,7 +197,7 @@ print("\n".join(sys.argv[2] + "/" + item for item in json.load(open(sys.argv[1])
   git --git-dir="${mirror}" archive "${sha}" ${inputs} >"${changes}/inputs.tar" || return 1
   tar -x -C "${changes}" -f "${changes}/inputs.tar" || return 1
   python3 -I -B "${changes}/${platform}/scripts/deploy/release_changes.py" \
-    "${release_root}/current" "${changes}/${platform}" --hold-file "${changes}/hold" --host || return 1
+    "${release_root}/releases/${old}" "${changes}/${platform}" --hold-file "${changes}/hold" --host || return 1
   mapfile -t hold <"${changes}/hold"
 }
 release_changes \
@@ -188,6 +210,8 @@ drain=("${hold[@]}")
 artifacts_from="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["artifacts_from"])' \
   "${changes}/tools/release-build.contract.json" 2>/dev/null)" || artifacts_from=""
 [[ "${artifacts_from}" == registry ]] || drain=("*")
+# A retry after step 7 gave the schedule back (it failed in step 8, 9 or 10) holds nothing again.
+if passed 7; then hold=() drain=(); fi
 : >"${changes}.hold"
 ((${#hold[@]} == 0)) || printf '%s\n' "${hold[@]}" >"${changes}.hold"
 rm -rf "${changes}"
@@ -353,7 +377,12 @@ archive="$(mktemp /var/lib/perfectory/foundation-XXXXXX.tar.gz)"
 committed_at="$(git --git-dir="${mirror}" show -s --format=%ct "${sha}")"
 git --git-dir="${mirror}" archive --format=tar.gz --mtime="@${committed_at}" \
   -o "${archive}" "${sha}:platforms/foundation-platform"
-"${release}" prepare "${sha}" "${archive}"
+if passed 2; then
+  echo "prepared by an earlier attempt"
+else
+  "${release}" prepare "${sha}" "${archive}"
+  mark 2
+fi
 rm -f "${archive}"
 
 log "2b. the schedule comes back for every job ${sha} does not hold (root ADR-0270 §3, deploy D5)"
@@ -379,24 +408,34 @@ image="$(python3 -I -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["
 sed -i -e "s|^FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=.*|FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT=${release_root}/releases/${sha}|" \
   -e "s|^FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=.*|FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE=${image}|" "${floor}"
 chown root:root "${floor}"; chmod 0644 "${floor}"
-"${release}" floor-config "${sha}" "${floor}"
+if passed 3; then echo "configured by an earlier attempt"; else "${release}" floor-config "${sha}" "${floor}"; mark 3; fi
 rm -f "${floor}"
 
 log "3b. staging smoke of ${sha}: a few real inputs under staging/ and foundation_staging (root ADR-0177)"
 # Still before the switch: a smoke that fails stops the deploy here, nothing of the new release is
 # active, and the EXIT trap gives the running release its schedule back.
-"${release}" staging-smoke "${sha}"
+if passed 3b; then echo "passed in an earlier attempt"; else "${release}" staging-smoke "${sha}"; mark 3b; fi
 
 log "4. activate, migrate, timers"
 phase=switching
 deploy_metric_phase switch
-"${release}" activate "${sha}"
-"${release}" migrate --skip-unchanged
-"${release}" timers "${deployer_home}/airflow-state/scheduler_ed25519.pub"
-"${release}" status | tail -3
+if passed 4; then
+  echo "activated and migrated by an earlier attempt"
+else
+  "${release}" activate "${sha}"
+  # The unit files follow `current` at once, not after the migration (2026-11-21: 16G past 11:13Z).
+  "${release}" units
+  "${release}" migrate --skip-unchanged
+  "${release}" timers "${deployer_home}/airflow-state/scheduler_ed25519.pub"
+  "${release}" status | tail -3
+  mark 4
+fi
 
 log "5. Airflow picks up the release's DAGs and pools"
-as_deployer bash "${release_root}/current/scripts/deploy/airflow-runtime.sh" up -d
+if passed 5; then echo "done by an earlier attempt"; else
+  as_deployer bash "${release_root}/current/scripts/deploy/airflow-runtime.sh" up -d
+  mark 5
+fi
 
 # The release is live: it holds nothing any more. Cleared before step 6 and 7 start what is owed, since
 # the host's forced command makes a start of a held job wait and owe itself (root ADR-0565 §5).
@@ -406,7 +445,7 @@ log "6. start once, under the new release, each job its registry marks started_o
 # Then 7: unpause the enabled DAGs, whatever those runs did (deploy-start-once.sh, root ADR-0173).
 phase=after-switch
 deploy_metric_phase start-once
-start_once_then_unpause "${sha}"
+if passed 7; then echo "the schedule came back in an earlier attempt"; else start_once_then_unpause "${sha}"; mark 7; fi
 deploy_metric_paused none
 rm -f "${deploy_hold}"
 phase=done
@@ -423,19 +462,20 @@ log "8. the monitoring containers follow the release (only those whose files cha
 # `migrate` and left every held DAG paused; one that fails here fails the deploy and alerts, and
 # no job waits on it.
 deploy_metric_phase observability
-"${release}" observability
+if passed 8; then echo "done by an earlier attempt"; else "${release}" observability; mark 8; fi
 
 log "9. the data catalog's containers follow the release (only services whose config changed)"
 # After the DAGs are back: a catalog that fails to come up fails the deploy and alerts, and no job
 # waits on it.
 deploy_metric_phase datahub
-"${release}" datahub
+if passed 9; then echo "done by an earlier attempt"; else "${release}" datahub; mark 9; fi
 
 log "10. the query engine follows the release (only when its compose config or a mounted file changed)"
 # After the DAGs are back, as the catalog: a recreate drops the queries in flight, which retry, and a
 # Trino that does not answer fails the deploy and alerts (root ADR-0504).
 deploy_metric_phase trino
-"${release}" trino
+if passed 10; then echo "done by an earlier attempt"; else "${release}" trino; mark 10; fi
 
+rm -f "${progress}"
 log "DONE: production runs ${sha}"
 readlink "${release_root}/current"

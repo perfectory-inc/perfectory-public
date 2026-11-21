@@ -2,10 +2,13 @@
 """Say when the repository is not what tools/github declares, or Renovate is silent (root ADR-0570).
 
   repository_drift.py check <summary.md> [--advisories OUTCOME] [--as-of TIME]   (GH_TOKEN, GH_REPO)
-  repository_drift.py issue <summary.md>                                          (issues: write)
+  repository_drift.py report <summary.md>
 
-`check` writes the findings to summary.md and success|failure|unreadable to summary.result; `issue`
-reads both, keeps the one issue in step, and exits 1 on findings so the run is red too.
+`check` writes the findings to summary.md and success|failure|unreadable to summary.result; `report`
+reads both and is the job's verdict: green when clear; on findings it fails with a
+`repository-drift-count` annotation and one `repository-drift` annotation per finding, which the
+host's service checks carry to Slack #alerts (the `repository` part, the way root ADR-0278 carries
+advisories). Until 2026-11-21 this kept a GitHub issue; issues are off in this repository.
 
 Two things went unseen for weeks because nothing looked:
 
@@ -31,7 +34,8 @@ checks the part of `verify` that token can see, and the symptom of the part it c
    correctly: nothing is moving it (the way out is an ADR-0414 allow-list entry).
 
 Each signal is read on its own: one that cannot be read is reported as unreadable and the others still
-count. Only when nothing could be read does the issue stay as it is (like ADR-0554).
+count. Only when nothing could be read is there no verdict: the job fails without a count, and the
+verdict before it stands (like ADR-0554).
 """
 
 from __future__ import annotations
@@ -50,7 +54,11 @@ ROOT = Path(__file__).resolve().parents[2]
 POLICY = ROOT / "tools" / "github"
 SETTINGS_READABLE = ("description", "has_discussions", "has_issues", "has_projects", "has_wiki")
 RULESETS = ("main-ruleset.json", "non-main-branch-firewall.json", "tag-firewall.json")
-TITLE = "Repository drift or Renovate silence"
+# The annotations the service checks read. GitHub keeps 10 error annotations of a step: the count,
+# then at most FINDING_ANNOTATIONS findings.
+COUNT_TITLE = "repository-drift-count"
+FINDING_TITLE = "repository-drift"
+FINDING_ANNOTATIONS = 9
 # Renovate's hosted app runs several times a day, and a vulnerability fix ignores its schedule and hourly
 # limit (Renovate's vulnerabilityAlerts). Two days is two missed daily checks.
 PULSE_HOURS = 48
@@ -217,43 +225,26 @@ def check(summary: Path, cargo_outcome: str, now: datetime) -> int:
     return 0
 
 
-def normalized(text: str) -> str:
-    return "\n".join(line.rstrip() for line in text.replace("\r\n", "\n").strip().split("\n"))
+def annotate(message: str) -> str:
+    """A workflow-command message: GitHub reads `%`, CR and LF as escapes."""
+    return message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
-def issue(summary: Path) -> int:
-    repo = os.environ["GH_REPO"]
+def report(summary: Path) -> int:
     marker = summary.with_suffix(".result")
     result = marker.read_text(encoding="utf-8").strip() if marker.exists() else "missing"
-    findings = summary.read_text(encoding="utf-8") if summary.exists() else ""
-    if result not in {"success", "failure"}:
-        print(f"repository-drift: check result '{result}' leaves the issue as it is")
-        print(findings, end="")
+    lines = summary.read_text(encoding="utf-8").splitlines() if summary.exists() else []
+    print("\n".join(lines) if lines else "repository-drift: none")
+    if result == "success":
         return 0
-    run = os.environ.get("RUN_URL", "the daily run")
-    try:
-        listed = read_json("issue", "list", "--repo", repo, "--state", "open", "--search", f'"{TITLE}" in:title',
-                           "--json", "number,title,body")
-        current = next((entry for entry in listed if entry["title"] == TITLE), None)
-        if result == "success":
-            if current:
-                gh("issue", "close", str(current["number"]), "--repo", repo, "--comment", f"Cleared ({run}).")
-            return 0
-        head = (
-            "The daily repository check (root ADR-0570) found the repository unlike `tools/github`, or Renovate "
-            "silent. An administrator runs `bash scripts/github/configure-public-repository.sh verify` for the full picture."
-        )
-        body = f"{head}\n\n{findings or 'The check stopped before it wrote a finding; read the run.'}\n\nLatest run: {run}\n"
-        if current is None:
-            gh("issue", "create", "--repo", repo, "--title", TITLE, "--body", body)
-        elif normalized(current["body"]).rsplit("\n", 1)[0] != normalized(body).rsplit("\n", 1)[0]:
-            # The run link (last line) changes every day; only a change in the findings rewrites and notifies.
-            gh("issue", "edit", str(current["number"]), "--repo", repo, "--body", body)
-            gh("issue", "comment", str(current["number"]), "--repo", repo, "--body", f"The findings changed ({run}).")
-    except Unreadable as error:
-        print(f"::warning title=repository-drift::the issue could not be kept in step ({error})")
-    print(findings, end="")
-    return 1 if result == "failure" else 0
+    if result != "failure":
+        print(f"::warning title=repository-drift-unreadable::check result '{result}': no verdict")
+        return 1
+    findings = [line[2:] for line in lines if line.startswith("- ") and not line.startswith("- could not read ")]
+    print(f"::error title={COUNT_TITLE}::{len(findings)}")
+    for finding in findings[:FINDING_ANNOTATIONS]:
+        print(f"::error title={FINDING_TITLE}::{annotate(finding)}")
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -263,13 +254,13 @@ def main(argv: list[str] | None = None) -> int:
     checking.add_argument("summary", type=Path)
     checking.add_argument("--advisories", default="", help="the outcome of the daily Cargo advisories step")
     checking.add_argument("--as-of")
-    issuing = sub.add_parser("issue")
-    issuing.add_argument("summary", type=Path)
+    reporting = sub.add_parser("report")
+    reporting.add_argument("summary", type=Path)
     args = parser.parse_args(argv)
     if args.command == "check":
         now = stamp(args.as_of) if args.as_of else datetime.now(timezone.utc).replace(microsecond=0)
         return check(args.summary, args.advisories, now)
-    return issue(args.summary)
+    return report(args.summary)
 
 
 if __name__ == "__main__":

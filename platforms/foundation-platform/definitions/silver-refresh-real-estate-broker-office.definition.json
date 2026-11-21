@@ -14,7 +14,8 @@
       "check_service": "foundation-silver-refresh-plan@real-estate-broker-office.service",
       "systemd_timer": null,
       "state_paths": [
-        "/data/foundation-platform/silver-refresh"
+        "/data/foundation-platform/silver-refresh",
+        "/var/lib/foundation-platform/silver-refresh-duckdb"
       ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
@@ -31,9 +32,14 @@
           "estimated_from": "computed, on the same template unit (root ADR-0386): silver_refresh_building_permit_demolition_loss 161 s for a 15 MB release and _parking 251 s for 59 MB; this lane's newest object is 5.3 MB (23 MB unzipped, 106,429 rows) in R2 (2026-11-11), and its compare splits into 17 시도 buckets"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
-      "priority_weight": 40,
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@real-estate-broker-office.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-real-estate-broker-office"
@@ -84,16 +90,5 @@
       ],
       "description": "AL_D171 CSV 15칸만 연결한다. 같은 원천의 소속 인원 AL_D172 는 자기 레인, 위치 AL_D170 SHP 는 Bronze 에 남는다. 따옴표 안 쉼표는 RFC 4180 으로 한 칸이다."
     }
-  ],
-  "host_memory": {
-    "silver_refresh_real_estate_broker_office": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }

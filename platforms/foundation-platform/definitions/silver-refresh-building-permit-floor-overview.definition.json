@@ -14,7 +14,8 @@
       "check_service": "foundation-silver-refresh-plan@building-permit-floor-overview.service",
       "systemd_timer": null,
       "state_paths": [
-        "/data/foundation-platform/silver-refresh"
+        "/data/foundation-platform/silver-refresh",
+        "/var/lib/foundation-platform/silver-refresh-duckdb"
       ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",
@@ -31,9 +32,14 @@
           "estimated_from": "computed, about 2.5x the nearest larger measured neighbours on the same template unit (root ADR-0386): silver_refresh_building_permit_basis_outline 357 s for a 438 MB release, _parking 251 s for 59 MB, _demolition_loss 161 s for 15 MB; this lane's newest release is about 429 MB in the Bronze ledger (2026-11-09)"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
-      "priority_weight": 40,
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@building-permit-floor-overview.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-permit-floor-overview"
@@ -85,16 +91,5 @@
       "description": "건축인허가 층별개요(mart_kcy_03) 24칸을 관리층별개요PK 마다 바뀐 층만 append-only Silver 로 쌓는다(루트 ADR-0402).",
       "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; HUB 대지구분 2 (블록) composes none (FP-ADR-0023); merged, split or recoded parcels are carried to the current pnu by the consumer through the place-identity resolver and views.changed_codes (ADR-0288, ADR-0329, ADR-0402)"
     }
-  ],
-  "host_memory": {
-    "silver_refresh_building_permit_floor_overview": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }
