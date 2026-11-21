@@ -8,8 +8,8 @@ use lakehouse_domain::{
 };
 
 use super::{
-    buckets, check_release, compare_bucket, copy_release, release_relation, Bucket, BucketChanges,
-    CompareRule, Stamp,
+    buckets, check_pnu_null_share, check_release, compare_bucket, copy_release, edition_text,
+    release_relation, Bucket, BucketChanges, CompareRule, Stamp,
 };
 use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
@@ -327,6 +327,176 @@ fn a_release_is_copied_from_its_handoffs_and_checked_before_it_is_compared() -> 
     assert!(
         format!("{error:#}").contains("pnu must not be null"),
         "{error:#}"
+    );
+    Ok(())
+}
+
+// ---- the register tables: an instant edition, a Parquet handoff, the PNU null-share gate --------
+
+const TITLES: &str = "silver.building_register_titles";
+
+/// Rows of the titles table: `(key, dong name, edition seconds, load seconds, row state)`, every
+/// other column one fixed value of its type.
+fn titles(rows: &str) -> anyhow::Result<String> {
+    let contract = industrial_complex_lakehouse_contract_by_table_name(TITLES).context("titles")?;
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| match (column.name, column.logical_type) {
+            ("mgm_bldrgst_pk", _) => "v.k AS mgm_bldrgst_pk".to_owned(),
+            ("dong_name_raw", _) => "v.dong AS dong_name_raw".to_owned(),
+            ("row_state", _) => "v.state AS row_state".to_owned(),
+            ("valid_from_utc", _) => "to_timestamp(v.edition) AS valid_from_utc".to_owned(),
+            ("ingested_at_utc", _) => "to_timestamp(v.loaded) AS ingested_at_utc".to_owned(),
+            ("source_snapshot_id", _) => "'old' AS source_snapshot_id".to_owned(),
+            (name, "double") => format!("CAST(1 AS DOUBLE) AS {name}"),
+            (name, "int") => format!("CAST(1 AS INTEGER) AS {name}"),
+            (name, "long") => format!("CAST(1 AS BIGINT) AS {name}"),
+            (name, _) => format!("'x' AS {name}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "(SELECT {columns} FROM (VALUES {rows}) v(k, dong, edition, loaded, state))"
+    ))
+}
+
+#[test]
+fn a_table_ordered_by_an_instant_edition_gets_the_releases_instant_on_every_row(
+) -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    let contract = industrial_complex_lakehouse_contract_by_table_name(TITLES).context("titles")?;
+    let rule = CompareRule::of(contract, &["dong_name_raw".to_owned()])?;
+    assert_eq!(rule.edition_column, Some("valid_from_utc"));
+    // 2099-01-01 holds A and B; the 2099-02-01 release changes A and has no B.
+    let main = titles(
+        "('A', 'one', 4070908800, 4070908800, NULL), ('B', 'two', 4070908800, 4070908800, NULL)",
+    )?;
+    let release = titles("('A', 'uno', 4073587200, 4073587200, NULL)")?;
+    let text: String = stage.connection().query_row(
+        &format!(
+            "SELECT DISTINCT {} FROM {release}",
+            edition_text(contract, "valid_from_utc")?
+        ),
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(text, "2099-02-01 00:00:00");
+    let stamp = Stamp {
+        source_snapshot_id: "new",
+        edition: Some(&text),
+        run_at: DateTime::from_timestamp(4_073_600_000, 0).context("an instant")?,
+    };
+    let found = compare_bucket(&stage, contract, &rule, &release, &main, "TRUE", stamp)?;
+    assert_eq!(
+        found,
+        BucketChanges {
+            changed_keys: 1,
+            removed_keys: 1
+        }
+    );
+    let rows: Vec<(String, Option<String>, i64, i64)> = stage
+        .connection()
+        .prepare(
+            "SELECT mgm_bldrgst_pk, row_state, epoch_us(valid_from_utc) // 1000000, \
+             epoch_us(ingested_at_utc) // 1000000 FROM rc_changes ORDER BY mgm_bldrgst_pk",
+        )?
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?
+        .collect::<Result<_, _>>()?;
+    assert_eq!(
+        rows,
+        [
+            ("A".to_owned(), None, 4_073_587_200, 4_073_600_000),
+            // The marker carries the release's edition, so it outranks the row it removes.
+            (
+                "B".to_owned(),
+                Some("removed".to_owned()),
+                4_073_587_200,
+                4_073_600_000
+            ),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_parquet_handoff_is_copied_with_the_tables_types() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    let contract = industrial_complex_lakehouse_contract_by_table_name(TITLES).context("titles")?;
+    let work = directory.path().join(
+        std::fs::read_dir(directory.path())?
+            .next()
+            .context("the stage directory")??
+            .file_name(),
+    );
+    let url = work
+        .join("part-0000.parquet")
+        .to_string_lossy()
+        .replace('\\', "/");
+    stage.connection().execute_batch(&format!(
+        "COPY (SELECT * FROM {}) TO '{url}' (FORMAT parquet)",
+        titles(
+            "('A', 'one', 4070908800, 4070908800, NULL), ('B', 'two', 4070908800, 4070908800, NULL)"
+        )?
+    ))?;
+    let copy = work.join("release.parquet");
+    assert_eq!(copy_release(&stage, contract, &[url], &copy)?, 2);
+    let (kind, edition): (String, i64) = stage.connection().query_row(
+        &format!(
+            "SELECT typeof(valid_from_utc), epoch_us(max(valid_from_utc)) // 1000000 FROM {} GROUP BY 1",
+            release_relation(&copy)?
+        ),
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!(
+        (kind.as_str(), edition),
+        ("TIMESTAMP WITH TIME ZONE", 4_070_908_800)
+    );
+    Ok(())
+}
+
+#[test]
+fn a_release_that_lost_ordinary_land_parcels_is_refused_before_it_is_staged() -> anyhow::Result<()>
+{
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    let contract = industrial_complex_lakehouse_contract_by_table_name(TITLES).context("titles")?;
+    // 10,000 rows; `kind` is the 11th character of the register parcel key (0 = ordinary land),
+    // `nulls` of them without a PNU.
+    let rows = |kind: char, nulls: u32| {
+        format!(
+            "(SELECT 'k' || i AS mgm_bldrgst_pk, to_timestamp(4070908800) AS valid_from_utc, \
+             to_timestamp(4070908800) AS ingested_at_utc, CAST(NULL AS VARCHAR) AS row_state, \
+             '9999999999{kind}' || lpad(CAST(i AS VARCHAR), 8, '0') AS register_parcel_key, \
+             CASE WHEN i < {nulls} THEN NULL ELSE '99999' || lpad(CAST(i AS VARCHAR), 14, '0') END AS pnu \
+             FROM range(10000) t(i))"
+        )
+    };
+    let outcome = |release: &str, main: Option<&str>| {
+        check_pnu_null_share(&stage, contract, release, main).map(Option::unwrap_or_default)
+    };
+    assert!(outcome(&rows('0', 0), None)?.contains("no_baseline"));
+    // 4 of 10,000 is under the ceiling (0.0005) and rises by less than the tolerance (0.001).
+    assert!(outcome(&rows('0', 4), Some(&rows('0', 0)))?.contains("within_bounds"));
+    // Planted: one row in a hundred lost its parcel.
+    let Err(error) = outcome(&rows('0', 100), Some(&rows('0', 0))) else {
+        anyhow::bail!("a release that lost parcels passed");
+    };
+    assert!(
+        format!("{error:#}").contains("above the contract ceiling"),
+        "{error:#}"
+    );
+    // A block parcel (대지구분 1) has no PNU by nature: it is not counted.
+    assert!(outcome(&rows('1', 100), None)?.contains("no_baseline"));
+    // A table that declares no gate is not judged.
+    assert_eq!(
+        check_pnu_null_share(&stage, self::contract()?, &rows('0', 100), None)?,
+        None
     );
     Ok(())
 }

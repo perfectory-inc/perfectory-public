@@ -265,15 +265,8 @@ fn a_lane_runs_on_the_engine_its_contract_names_and_spark_when_it_names_none() -
             Err(error) => Some(Err(error)),
         })
         .collect::<anyhow::Result<_>>()?;
-    // Still on Spark: the plain lane, the geometry tolerance, the PNU null-share gate (and the
-    // unit areas' bucket partition).
-    let stay = [
-        "building-register-apartment-price",
-        "building-register-titles",
-        "building-register-unit-areas",
-        "building-register-units",
-        "land-use-zone-area",
-    ];
+    // Still on Spark: the unit areas' bucket partition and the geometry tolerance.
+    let stay = ["building-register-unit-areas", "land-use-zone-area"];
     for lane in Lane::all() {
         let contract = lane.contract()?;
         assert_eq!(

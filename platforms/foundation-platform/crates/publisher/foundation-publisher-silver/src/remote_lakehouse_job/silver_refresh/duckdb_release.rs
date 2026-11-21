@@ -36,7 +36,8 @@ use crate::{
         with_contract_columns, DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
     },
     release_compare_stage::{
-        buckets, check_release, compare_bucket, copy_release, release_relation, CompareRule, Stamp,
+        buckets, check_pnu_null_share, check_release, compare_bucket, copy_release, edition_text,
+        release_relation, CompareRule, Stamp,
     },
 };
 
@@ -163,11 +164,13 @@ fn release_copy(
 /// The one edition the copy is, for a table ordered by one.
 fn release_edition(
     stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
     release: &str,
     column: &str,
 ) -> anyhow::Result<String> {
     let mut statement = stage.connection().prepare(&format!(
-        "SELECT DISTINCT CAST({column} AS VARCHAR) FROM {release} LIMIT 2"
+        "SELECT DISTINCT {} FROM {release} LIMIT 2",
+        edition_text(contract, column)?
     ))?;
     let found = statement
         .query_map([], |row| row.get::<_, Option<String>>(0))?
@@ -182,12 +185,13 @@ fn release_edition(
 /// one `main` holds, or a `main` that holds a row loaded at or after this run's instant.
 fn refuse_out_of_order(
     stage: &DuckDbParquetStage,
-    table: &str,
+    contract: &LakehouseTableContract,
     main: &str,
     edition: Option<(&str, &str)>,
     recorded: &BTreeSet<String>,
     run_at: DateTime<Utc>,
 ) -> anyhow::Result<()> {
+    let table = contract.table_name;
     let later: i64 = stage.connection().query_row(
         &format!(
             "SELECT count(*) FROM (SELECT 1 FROM {main} WHERE ingested_at_utc >= {} LIMIT 1)",
@@ -204,7 +208,10 @@ fn refuse_out_of_order(
         return Ok(());
     };
     let newest: Option<String> = stage.connection().query_row(
-        &format!("SELECT CAST(max({column}) AS VARCHAR) FROM {main}"),
+        &format!(
+            "SELECT max({}) FROM {main}",
+            edition_text(contract, column)?
+        ),
         [],
         |row| row.get(0),
     )?;
@@ -228,42 +235,45 @@ fn staged_name(table: &str, identity: &str, bucket: usize) -> String {
     format!("{short}-{}-b{bucket:04}", &digest[..16])
 }
 
-/// The lane's table contract and compare rule, when this path can load the lane.
+/// The lane's table contract and its compare rule (`None` for a lane that declares no compare: its
+/// release is appended whole), when this path can load the lane.
 ///
 /// # Errors
-/// The lane declares no compare, or one this path does not do yet: a geometry tolerance, a
-/// partition other than the edition, the PNU null-share gate.
+/// The lane declares a compare this path does not do yet: a geometry tolerance, a partition
+/// other than the edition.
 pub(in crate::remote_lakehouse_job) fn fits(
     contract: &LaneContract,
-) -> anyhow::Result<(&'static LakehouseTableContract, CompareRule)> {
+) -> anyhow::Result<(&'static LakehouseTableContract, Option<CompareRule>)> {
     let table = contract.table.as_str();
     let table_contract = industrial_complex_lakehouse_contract_by_table_name(table)
         .with_context(|| format!("no contract for {table}"))?;
-    let content = contract
-        .compare_content
-        .as_ref()
-        .with_context(|| format!("{table}: the DuckDB engine appends a release as its changes; the lane declares no compare"))?;
     ensure!(
         contract.compare_geometry_tolerance.is_none(),
         "{table}: the geometry tolerance is not compared on DuckDB yet (root ADR-0599 §7)"
     );
-    let rule = CompareRule::of(table_contract, content)?;
+    let rule = contract
+        .compare_content
+        .as_ref()
+        .map(|content| CompareRule::of(table_contract, content))
+        .transpose()?;
     // A release is one edition, so a table partitioned by its edition column gets one partition
-    // per release; the committer refuses a file that is not (`manifest_entry`).
+    // per release; the committer refuses a file that is not (`manifest_entry`), which is also
+    // what holds a release appended whole to one partition.
     ensure!(
-        table_contract
+        rule.as_ref().is_none_or(|rule| table_contract
             .partition_spec
             .iter()
-            .all(|part| Some(*part) == rule.edition_column),
+            .all(|part| Some(*part) == rule.edition_column)),
         "{table} is partitioned by {:?}: a staged file must be one partition, and this path splits by none but the edition",
         table_contract.partition_spec
     );
     ensure!(
-        !table_contract
-            .quality_gates
-            .iter()
-            .any(|gate| gate.contains("ordinary_land_pnu_null_share")),
-        "{table} declares the PNU null-share gate, which this path does not check yet"
+        rule.is_some()
+            || !table_contract
+                .quality_gates
+                .iter()
+                .any(|gate| gate.contains("ordinary_land_pnu_null_share")),
+        "{table} declares the PNU null-share gate, which a release appended whole is not judged by"
     );
     Ok((table_contract, rule))
 }
@@ -351,6 +361,42 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
         "the release copy of {table} changed after it was made"
     );
 
+    let Some(rule) = rule else {
+        // No compare: the release is appended whole, as its handoff holds it.
+        let started = Instant::now();
+        let files = stage.write_split(
+            &shape,
+            &format!("SELECT * FROM {copied}"),
+            &staged_name(table, release.identity, 0),
+            STAGED_FILE_BYTES,
+        )?;
+        report.staged_files = files.len();
+        for file in &files {
+            report.staged_bytes += std::fs::metadata(&file.local_path)?.len();
+        }
+        report.changed_key_rows = report.release_rows;
+        report.compare_seconds = seconds(started);
+        let started = Instant::now();
+        let outcome = committer
+            .append_at_head_recording(
+                DataAppend {
+                    table_name: table,
+                    contract: table_contract,
+                    files: &files,
+                    batch: release.objects,
+                    already_ingested: &ingested,
+                    summary: BTreeMap::new(),
+                },
+                head,
+                BTreeMap::new(),
+            )
+            .await?;
+        drop(stage);
+        report.commit_seconds = seconds(started);
+        let rows = report.release_rows;
+        return committed(report, outcome, rows, &copies);
+    };
+
     let main = match head {
         Some(head) => with_contract_columns(
             stage.connection(),
@@ -360,16 +406,22 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
         // A table with no snapshot holds no row: every key of the release is new.
         None => format!("(SELECT * FROM {copied} WHERE false)"),
     };
+    // Before anything of the release is staged (the Spark load judged it before its first batch).
+    if let Some(outcome) =
+        check_pnu_null_share(&stage, table_contract, &copied, head.map(|_| main.as_str()))?
+    {
+        println!("silver-refresh {table}: silver-release-pnu-null-share {outcome}");
+    }
     // One instant for the run, on every appended row (root ADR-0328).
     let run_at = DateTime::from_timestamp(Utc::now().timestamp(), 0)
         .context("the clock names no instant")?;
     let edition = rule
         .edition_column
-        .map(|column| release_edition(&stage, &copied, column))
+        .map(|column| release_edition(&stage, table_contract, &copied, column))
         .transpose()?;
     refuse_out_of_order(
         &stage,
-        table,
+        table_contract,
         &main,
         rule.edition_column.zip(edition.as_deref()),
         &recorded,
@@ -481,6 +533,17 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
         .await?;
     drop(stage);
     report.commit_seconds = seconds(started);
+    committed(report, outcome, staged_rows, &copies)
+}
+
+/// The report of a release whose one commit returned `outcome`; its copy is removed, for the
+/// release is in `main`.
+fn committed(
+    mut report: ReleaseAppend,
+    outcome: AppendOutcome,
+    staged_rows: u64,
+    copies: &Path,
+) -> anyhow::Result<ReleaseAppend> {
     if let AppendOutcome::Appended {
         snapshot,
         added_records,
@@ -489,14 +552,14 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
     {
         ensure!(
             added_records == staged_rows,
-            "the commit of {table} added {added_records} rows, not the {staged_rows} staged"
+            "the commit of {} added {added_records} rows, not the {staged_rows} staged",
+            report.table
         );
         report.outcome = "appended";
         report.snapshot_id = Some(snapshot.snapshot_id);
     }
-    // The release is in `main`: its copy is not needed again.
     if copies.exists() {
-        std::fs::remove_dir_all(&copies)
+        std::fs::remove_dir_all(copies)
             .with_context(|| format!("cannot remove {}", copies.display()))?;
     }
     Ok(report)

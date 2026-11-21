@@ -232,7 +232,7 @@ main 을 덮어쓰지 못한다. 비교 커밋은 요약에 `foundation.change-r
 
 ### DuckDB 로 싣는 레인 (루트 ADR-0599)
 
-레인 계약에 `"engine": "duckdb"` 가 있으면 그 레인은 Spark 와 가지를 쓰지 않는다. 54개 레인 중 49개가 그렇다(HUB 계열 파일은 `defaults.engine` 한 줄). Spark 에 남은 것은 공동주택가격·표제부·전유부·전유부 면적·용도지역 도형 다섯이다. HUB 표는 판 열(`vintage`)로 나뉘어 한 릴리스가 한 파티션이고, `raw_columns` 는 글자 목록으로 읽힌다.
+레인 계약에 `"engine": "duckdb"` 가 있으면 그 레인은 Spark 와 가지를 쓰지 않는다. 54개 레인 중 52개가 그렇다(HUB 계열 파일은 `defaults.engine` 한 줄). Spark 에 남은 것은 전유부 면적(버킷 파티션)과 용도지역 도형(도형 허용 오차) 둘이다. 비교가 없는 공동주택가격은 릴리스를 통째로 한 번에 싣고, 표제부·전유부는 내보내기가 남긴 지역 파일(JSONL·Parquet)을 읽으며 싣기 전에 일반 대지의 PNU 빈값 비율을 계약의 상한과 견준다(`silver-release-pnu-null-share` 줄). HUB 표는 판 열(`vintage`)로 나뉘어 한 릴리스가 한 파티션이고, `raw_columns` 는 글자 목록으로 읽힌다.
 
 | 단계 | 무엇 | 로그의 줄 |
 |---|---|---|
