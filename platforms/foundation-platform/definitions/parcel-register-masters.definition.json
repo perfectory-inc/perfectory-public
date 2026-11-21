@@ -50,7 +50,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "총괄표제부 kind Gold as a table of appended row versions (root ADR-0450, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-register-masters → publisher build-parcel-register-masters-versions): gold.parcel_register_masters_versions, computed by DuckDB inside the publisher (building_register_master_stage) and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the lane serves gold.parcel_register_masters it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict (gold-takeover-verdict.sh) compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise only the PNUs whose current sites or served parcels changed (building_register_master_stage.changed_pnus). Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
+      "description": "총괄표제부 kind Gold as a table of appended row versions (root ADR-0450, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-register-masters → publisher build-parcel-register-masters-versions): gold.parcel_register_masters_versions, computed by DuckDB inside the publisher (record_kind_stage::REGISTER_MASTERS) and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the lane serves gold.parcel_register_masters it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict (gold-takeover-verdict.sh) compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise only the PNUs whose current sites or served parcels changed (KindVersionsStage::changed_pnus). Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
       "systemd_service": "foundation-gold-versions@parcel-register-masters.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -163,8 +163,8 @@
       "owner": "foundation-platform",
       "evidence_refs": [
         "platforms/foundation-platform/config/r2-connections.contract.json",
-        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_master_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_register_masters_versions_build.rs"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/record_kind_stage.rs",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "table_name": "gold.parcel_register_masters_versions",
       "runtime_bindings": [
@@ -216,7 +216,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_master_stage.rs"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/record_kind_stage.rs"
       ],
       "description": "현재 총괄표제부 행(관리건축물대장PK 마다)을 서빙 법정동 코드로 다시 매겨 서빙 필지판의 PNU 에 접는다(DuckDB, 루트 ADR-0450). 행이 바뀐 PNU 만, 양쪽 모두(옮긴 대지는 옛 PNU 를 떠난다) 다시 짓는다."
     },
@@ -226,7 +226,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_master_stage.rs"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/record_kind_stage.rs"
       ],
       "description": "서빙 필지판의 PNU 가 문서의 전체 집합이다(루트 ADR-0292). 들고 난 필지만 다시 짓는다."
     },
@@ -236,7 +236,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_master_stage.rs"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/record_kind_stage.rs"
       ],
       "description": "재편으로 바뀐 코드의 행을 서빙 코드로 읽는다(루트 ADR-0329 §3). 이 표가 바뀌면 모든 PNU 를 다시 짓는다."
     },
@@ -246,7 +246,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_master_stage.rs"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/record_kind_stage.rs"
       ],
       "description": "그림자인 동안 옛 표의 foundation-gold-build 태그 커밋이 적은 입력 핀과 서빙 에디션으로 짓는다(루트 ADR-0564 §6): 옛 표의 데이터가 아니라 그 빌드의 핀을 읽는다."
     },

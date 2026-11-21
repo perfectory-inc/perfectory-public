@@ -7,11 +7,15 @@
 # 붙인다. Spark 세션을 열지 않는다. 입력·판·코드가 기준 커밋의 것과 같으면 아무것도 쓰지 않고 `unchanged`.
 # 레인과 그 명령: parcel-nearby → build-parcel-nearby-versions (root ADR-0465, ADR-0564 §9 차례 2).
 # parcel-register-masters → build-parcel-register-masters-versions (root ADR-0450, ADR-0564 §6: 옛 표의 그림자).
+# parcel-demolitions → build-parcel-demolitions-versions, parcel-energy → build-parcel-energy-versions
+# (root ADR-0399·0398, 같은 그림자 길).
 set -Eeuo pipefail
 lane="${1:?usage: gold-versions-build.sh <lane>}"
 case "${lane}" in
   parcel-nearby) command=build-parcel-nearby-versions ;;
   parcel-register-masters) command=build-parcel-register-masters-versions ;;
+  parcel-demolitions) command=build-parcel-demolitions-versions ;;
+  parcel-energy) command=build-parcel-energy-versions ;;
   *) echo "gold-versions-build: ${lane} has no table of appended row versions the publisher builds" >&2; exit 64 ;;
 esac
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
