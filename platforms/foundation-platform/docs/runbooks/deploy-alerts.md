@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-21
 ---
 
 # 배포 경보 — 드레인·배포·DAG 멈춤이 길 때
@@ -71,6 +71,16 @@ release yet" 만 남겼고, 호스트는 약 11시간 a879a889 에 머물렀으�
 
 - `curl -s localhost:19090/api/v1/query --data-urlencode 'query=up{job="node-exporter"}'` 가 1.
 - 배포 중 `deploy.prom` 에 `phase="drain"` 등 한 줄이 보이고, 끝나면 HELP/TYPE 줄만 남는다.
+
+## main 이 빨갈 때 ([루트 ADR-0554](../../../../docs/adr/0554-main-says-when-it-is-red-from-the-runs-github-already-made.md) 5)
+
+`main-health.yml` 이 10분마다 판정한다. 빨강이 있으면 그 실행이 실패하고 작업마다 `main-red` 주석을 남긴다.
+서비스 점검(`foundation-service-checks.timer`, 매시 41분)이 가장 새 판정을 읽어 foundation-api 의 `/metrics` 로 내보낸다.
+
+| 경보 | 뜻 | 할 일 |
+|---|---|---|
+| `FoundationMainRed` | 작업 하나(`workflow`·`job`)가 main 에서, 또는 큐에서 PR 둘에 연달아 실패한다 | `link` 의 가장 새 실패 실행에서 그 작업을 본다. 고치는 PR 에 `hotfix:main-red` 를 붙이고 `python3 scripts/github/merge_queue_enqueue.py <PR>` |
+| `FoundationMainHealthUnreadable` | 6시간째 판정을 못 읽는다(`reason`: `no-verdict` 는 main-health 가 GitHub 을 못 읽음, `github-error` 는 호스트가 못 읽음, `stale` 은 점검이 멈춤) | main-health 실행 로그, `journalctl -u foundation-service-checks.service` |
 
 ## 실패한 채 남은 유닛 ([루트 ADR-0445](../../../../docs/adr/0445-a-failed-host-unit-names-its-owner-and-runbook-and-a-unit-that-stays-failed-calls-its-owner.md))
 

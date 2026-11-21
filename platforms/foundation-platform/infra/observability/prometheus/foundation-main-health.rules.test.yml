@@ -1,0 +1,50 @@
+# promtool unit tests for the main-health rules (root ADR-0554): each red job is one alert, and a
+# verdict the service checks cannot read for six hours is reported. Run by the guard
+# prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # 2026-11-14..18: the Foundation nightly's Postgres integration tests red on main.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_main_red_job{workflow="Foundation Platform CI",job="Postgres integration tests",link="https://github.com/example-org/example-repo/actions/workflows/main-health.yml"}'
+        values: '1x30'
+      - series: 'foundation_main_health_readable{reason=""}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: FoundationMainRed
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: ci
+              workflow: Foundation Platform CI
+              job: Postgres integration tests
+              link: https://github.com/example-org/example-repo/actions/workflows/main-health.yml
+            exp_annotations:
+              summary: 'main 에서 Foundation Platform CI / Postgres integration tests 이 실패하고 있어요 — 고치는 PR 에 hotfix:main-red 라벨을 붙이고 큐 앞에 세워요(ADR-0553). https://github.com/example-org/example-repo/actions/workflows/main-health.yml'
+              runbook: docs/runbooks/deploy-alerts.md
+      - eval_time: 5m
+        alertname: FoundationMainHealthUnreadable
+        exp_alerts: []
+
+  # The service checks stopped writing a main part: unreadable after six hours, not before.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_main_red_jobs'
+        values: '_x420'
+    alert_rule_test:
+      - eval_time: 5h59m
+        alertname: FoundationMainHealthUnreadable
+        exp_alerts: []
+      - eval_time: 6h1m
+        alertname: FoundationMainHealthUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: ci
+            exp_annotations:
+              summary: 'main 이 빨간지 6시간째 못 읽어요 — main-health.yml 의 실행을 보세요'
+              runbook: docs/runbooks/deploy-alerts.md

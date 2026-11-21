@@ -644,6 +644,8 @@ async fn metrics(State(state): State<Arc<AppState>>) -> ([(HeaderName, &'static 
     body.push_str(&data_catalog::scheduled_job_problem_metrics().await);
     // The repository's open security advisories, for the same Alertmanager (root ADR-0278).
     body.push_str(&data_catalog::security_advisory_metrics());
+    // Whether main is red, from main-health's newest verdict, for the same Alertmanager (root ADR-0554).
+    body.push_str(&data_catalog::main_red_metrics());
     // Each source's bounds from its provider's release schedule, for the ingestion rules (root ADR-0443).
     body.push_str(&source_cadence::source_cadence_metrics());
     ([(header::CONTENT_TYPE, PROMETHEUS_TEXT_CONTENT_TYPE)], body)

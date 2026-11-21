@@ -93,5 +93,20 @@
         "findings": []
       }
     }
+  },
+  "main": {
+    "checked_at": "2026-10-13T02:17:00+00:00",
+    "readable": true,
+    "reason": null,
+    "error": null,
+    "link": "https://github.com/example-org/example-repo/actions/workflows/main-health.yml",
+    "run_id": 7,
+    "red_jobs": 1,
+    "jobs": [
+      {
+        "workflow": "Foundation Platform CI",
+        "job": "Postgres integration tests"
+      }
+    ]
   }
 }

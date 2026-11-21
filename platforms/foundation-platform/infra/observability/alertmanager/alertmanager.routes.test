@@ -15,6 +15,7 @@ slack-ticket alertname=FoundationTileUnitUnmeasured service=serving-freshness se
 slack-ticket alertname=FoundationPlatformApiDbPoolExhausted service=foundation-api severity=ticket
 slack-ticket alertname=FoundationHostOomKill service=host severity=ticket
 slack-ticket alertname=FoundationReleaseMissing service=deploy severity=ticket
+slack-ticket alertname=FoundationMainRed service=ci severity=ticket workflow=CI job=Rust
 # The security advisories: one notice per advisory, no reminder (root ADR-0278), tickets though they are.
 slack-security alertname=FoundationSecurityAdvisory service=security severity=ticket source=osv-ratchet advisory=RUSTSEC-0000-0000 package=example
 slack-security alertname=FoundationSecurityAdvisoriesUnreadable service=security severity=ticket
