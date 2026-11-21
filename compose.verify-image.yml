@@ -1,0 +1,15 @@
+# The one build of the verification image as the data host gets it (root ADR-0601). The release build
+# (scripts/deploy/foundation-release-build.py) reads it and puts the image in the signed release; the
+# deploy pulls it by digest and tags it perfectory-verify:local (foundation-release-admission.py
+# tag-compose-images), the tag host crate tests run in. It sits at the repository root because the
+# image copies rust-toolchain.toml, the one toolchain pin, and the root .dockerignore narrows the
+# context to the files the Dockerfile names. Nothing starts it from here.
+services:
+  verify:
+    image: perfectory-verify:local
+    build:
+      context: .
+      dockerfile: tools/verify-image/Dockerfile
+    profiles: ["build-only"]
+    network_mode: none
+    mem_limit: 2g

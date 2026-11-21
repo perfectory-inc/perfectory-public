@@ -43,6 +43,7 @@ last_reviewed: 2026-07-29
 - [더니어 엣지 설정 — Access·Tunnel·DNS 를 호스트가 코드로 맞춘다](./edge-settings.md)
 - [배포 경보 — 드레인·배포·DAG 멈춤이 길 때](./deploy-alerts.md)
 - [호스트 자원 경보 — 디스크·메모리·OOM·상한](./host-resources.md)
+- [호스트 크레이트 시험 — 하나뿐인 시험 이미지·공유 컴파일 캐시](./host-crate-tests.md)
 
 ## 주제별 런북
 

@@ -147,5 +147,25 @@ expect_refused "a pnpm/action-setup version other than the pnpm pin"
 sed -i "s/version: 0.0.1/version: $pnpm_pin/" "$fixture/.github/workflows/a.yml"
 sed -i "s/pnpm@$pnpm_pin/pnpm@0.0.1/" "$fixture/tools/verify-image/Dockerfile"
 expect_refused "a corepack prepare of a pnpm other than the pin"
+sed -i "s/pnpm@0.0.1/pnpm@$pnpm_pin/" "$fixture/tools/verify-image/Dockerfile"
+
+# Root ADR-0601: the verification image installs exactly xtask's apt_deps and fetches sccache
+# through the pinned downloader rather than restating its pin.
+mkdir -p "$fixture/tools/xtask/src"
+printf '%s\n' 'const A: Area = Area { apt_deps: &["cmake", "python3"], };' \
+  'const B: Area = Area { apt_deps: &[ "zlib1g-dev", ], };' 'const C: Area = Area { apt_deps: &[], };' \
+  > "$fixture/tools/xtask/src/main.rs"
+printf '%s\n' 'SCCACHE_VERSION=9.9.9' 'SCCACHE_LINUX_X86_64_SHA256=abc123' > "$fixture/tools/sccache.env"
+printf '%s\n' 'RUN apt-get update \' '  && apt-get install -y --no-install-recommends \' '    cmake \' \
+  '    python3 zlib1g-dev \' '  && rm -rf /var/lib/apt/lists/*' >> "$fixture/tools/verify-image/Dockerfile"
+git -C "$fixture" add .
+bash "$checker" "$fixture" >/dev/null
+sed -i 's/    python3 zlib1g-dev/    python3 zlib1g-dev clang/' "$fixture/tools/verify-image/Dockerfile"
+expect_refused "a verification image apt package xtask does not declare"
+sed -i 's/    python3 zlib1g-dev clang/    zlib1g-dev/' "$fixture/tools/verify-image/Dockerfile"
+expect_refused "a verification image missing an xtask apt dependency"
+sed -i 's/    zlib1g-dev/    python3 zlib1g-dev/' "$fixture/tools/verify-image/Dockerfile"
+printf '%s\n' 'ARG SCCACHE_SHA256=abc123' >> "$fixture/tools/verify-image/Dockerfile"
+expect_refused "a verification image restating the sccache pin"
 
 echo 'OK technology-version-consistency-self-test'
