@@ -21,9 +21,6 @@
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py": {
    "B007": 1
   },
-  "platforms/foundation-platform/infra/lakehouse/spark/jobs/engine_equality.py": {
-   "B905": 1
-  },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/geometry_tolerance.py": {
    "B905": 3
   },

@@ -638,7 +638,11 @@ async fn base(
                 baked.clone_into(&mut next.document_schema_version);
                 next.document_schema_revision =
                     manifest_publish::document_schema_revision(config.lane);
+                // A whole generation is of the lane's table: after a takeover's switch the packs
+                // name the versions table, so the next bake patches it (root ADR-0564 §6).
+                gold_table(config.lane).clone_into(&mut next.gold_table);
             } else {
+                same_table(config.lane, current)?;
                 ensure!(
                     baked == current.document_schema_version,
                     "a section re-baked alone under {baked} would serve beside {} documents; a new \
@@ -907,6 +911,21 @@ fn change_set(
     Ok((change, upserts, deletes))
 }
 
+/// Refuses to patch, reflect or re-bake one section of packs baked from another table than the
+/// lane's: no change set spans two tables, so only a whole generation follows a takeover's switch
+/// (root ADR-0564 §6).
+pub(super) fn same_table(lane: ByPnuLane, current: &SectionPacksState) -> anyhow::Result<()> {
+    ensure!(
+        current.gold_table == gold_table(lane),
+        "the {} packs serve documents of {}; only a whole generation of {} follows them (a \
+         takeover's switch, root ADR-0564 §6)",
+        lane.unit(),
+        current.gold_table,
+        gold_table(lane)
+    );
+    Ok(())
+}
+
 /// An empty change set: nothing to bake, the packs now reflect the new snapshot.
 fn reflected(config: &PublishConfig, live: &ServedManifest) -> anyhow::Result<SectionPacksState> {
     let current = live
@@ -922,6 +941,7 @@ fn reflected(config: &PublishConfig, live: &ServedManifest) -> anyhow::Result<Se
         deletes.len(),
         config.lane.env("PACK_SUMMARY_DIR")
     );
+    same_table(config.lane, current)?;
     let mut next = current.clone();
     next.reflected_gold_iceberg_snapshot_id = config.expected_gold_snapshot.clone();
     next.reflected_gold_snapshot_tag = None;
@@ -1017,6 +1037,7 @@ async fn patched(
         )
         .await?;
     }
+    same_table(config.lane, current)?;
     let mut next = current.clone();
     next.patches.insert(
         0,

@@ -251,6 +251,7 @@ pub(crate) fn diff(
         "the build holds {} keys more than once",
         built - built_keys
     );
+    assert_coverage(connection, commit)?;
     connection.execute_batch(&appended_sql(commit)?)?;
     Ok(Diff {
         built,
@@ -259,6 +260,214 @@ pub(crate) fn diff(
         removed: count("SELECT count(*) FROM appended WHERE change = 'removed'")?,
         current_in_range: rows,
     })
+}
+
+/// `section_coverage` of `gold-panel-rebuild.contract.json` (root ADR-0272), the one bound for
+/// every table that carries served sections.
+const REBUILD_CONTRACT: &str =
+    include_str!("../../../infra/lakehouse/contracts/gold-panel-rebuild.contract.json");
+/// A section column holding one of these is empty (`section_coverage.EMPTY_VALUES`).
+const EMPTY_SECTION_VALUES: &str = "'[]', '{}', 'null', ''";
+/// The whole range, beside its 시도.
+const WHOLE: &str = "all";
+
+/// The coverage bound: the share a section's PNU count may fall by, and the 시도 size below which
+/// a 시도 is judged only inside the whole.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct CoverageBound {
+    pub max_drop_fraction: f64,
+    pub min_region_pnus: u64,
+}
+
+fn coverage_bound() -> anyhow::Result<CoverageBound> {
+    let contract: Value = serde_json::from_str(REBUILD_CONTRACT)?;
+    let declared = &contract["section_coverage"];
+    let max_drop_fraction = declared["max_share_drop_fraction"]
+        .as_f64()
+        .filter(|drop| (0.0..1.0).contains(drop))
+        .context("section_coverage.max_share_drop_fraction must be a number from 0 up to 1")?;
+    let min_region_pnus = declared["min_region_pnus"]
+        .as_u64()
+        .context("section_coverage.min_region_pnus must be a non-negative integer")?;
+    Ok(CoverageBound {
+        max_drop_fraction,
+        min_region_pnus,
+    })
+}
+
+/// (section, 시도) -> PNUs whose section is non-empty.
+pub(crate) type Coverage = BTreeMap<(String, String), u64>;
+
+/// The region `region` is compared as, following `parent` to its root.
+fn root_of(parent: &BTreeMap<String, String>, region: &str) -> String {
+    let mut region = region.to_owned();
+    while let Some(up) = parent.get(&region).filter(|up| **up != region) {
+        region.clone_from(up);
+    }
+    region
+}
+
+/// Region -> the region it is compared as (`section_coverage.merged_regions`): a recorded 시도 pair
+/// whose old side only the served rows hold and whose new side the build holds (or the reverse)
+/// joins the two, so moving PNUs to a new code is not a loss; every other region is itself.
+fn merged_regions(
+    served: &BTreeSet<String>,
+    built: &BTreeSet<String>,
+    pairs: &[(String, String)],
+) -> BTreeMap<String, String> {
+    let mut parent: BTreeMap<String, String> = served
+        .union(built)
+        .map(|region| (region.clone(), region.clone()))
+        .collect();
+    let only_served = |region: &String| served.contains(region) && !built.contains(region);
+    for (old, new) in pairs {
+        if old == new || !parent.contains_key(old) || !parent.contains_key(new) {
+            continue;
+        }
+        if (only_served(old) && built.contains(new)) || (only_served(new) && built.contains(old)) {
+            let (old_root, new_root) = (root_of(&parent, old), root_of(&parent, new));
+            parent.insert(old_root, new_root);
+        }
+    }
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for region in parent.keys() {
+        groups
+            .entry(root_of(&parent, region))
+            .or_default()
+            .push(region.clone());
+    }
+    parent
+        .keys()
+        .map(|region| {
+            let group = groups
+                .get(&root_of(&parent, region))
+                .map_or_else(|| region.clone(), |group| group.join("+"));
+            (region.clone(), group)
+        })
+        .collect()
+}
+
+fn regrouped(coverage: &Coverage, regions: &BTreeMap<String, String>) -> Coverage {
+    let mut out = Coverage::new();
+    for ((section, region), present) in coverage {
+        let grouped = regions.get(region).unwrap_or(region).clone();
+        for slot in [grouped, WHOLE.to_owned()] {
+            *out.entry((section.clone(), slot)).or_default() += present;
+        }
+    }
+    out
+}
+
+/// Every (section, region) whose PNU count fell by more than the bound, as readable lines
+/// (`section_coverage.breaches` of a kind table, whose rows are its PNUs).
+pub(crate) fn coverage_breaches(
+    served: &Coverage,
+    built: &Coverage,
+    pairs: &[(String, String)],
+    bound: CoverageBound,
+) -> Vec<String> {
+    let regions_of =
+        |coverage: &Coverage| coverage.keys().map(|(_, region)| region.clone()).collect();
+    let regions = merged_regions(&regions_of(served), &regions_of(built), pairs);
+    let (before, after) = (regrouped(served, &regions), regrouped(built, &regions));
+    let mut found = Vec::new();
+    for ((section, region), present) in &before {
+        // Spark judged the whole table always; here the whole is only the recomputed range, so a
+        // range too small for a share to mean anything is not judged either (a partial run of a few
+        // PNUs may lose some of them by right).
+        if *present < bound.min_region_pnus {
+            continue;
+        }
+        let now = after
+            .get(&(section.clone(), region.clone()))
+            .copied()
+            .unwrap_or(0);
+        // PNU counts are far below 2^52, so the floats are exact.
+        #[allow(clippy::cast_precision_loss)]
+        let fell = (now as f64) < (*present as f64) * (1.0 - bound.max_drop_fraction);
+        if *present > 0 && fell {
+            let place = if region == WHOLE {
+                "the whole recomputed range".to_owned()
+            } else {
+                format!("시도 {region}")
+            };
+            found.push(format!("{section} in {place}: {present} -> {now} PNUs"));
+        }
+    }
+    found
+}
+
+/// (section, 시도) counts of `relation`'s rows whose section column is non-empty.
+fn coverage_of(
+    connection: &Connection,
+    relation: &str,
+    key: &str,
+    sections: &[&str],
+) -> anyhow::Result<Coverage> {
+    let mut coverage = Coverage::new();
+    for section in sections {
+        let mut statement = connection.prepare(&format!(
+            "SELECT substr({key}, 1, 2), count(*) FROM {relation} \
+             WHERE coalesce({section}, '') NOT IN ({EMPTY_SECTION_VALUES}) GROUP BY 1"
+        ))?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (region, present) = row?;
+            coverage.insert(((*section).to_owned(), region), u64::try_from(present)?);
+        }
+    }
+    Ok(coverage)
+}
+
+/// The 시도 pairs (old 시도, new 시도) of the code change table, when the stage read it: every
+/// `DuckDB` stage that reads `reference.legal_dong_code_change` leaves its pairs in `pair_rows`
+/// (`legal_dong_code_change_stage`); a stage that does not has none.
+fn region_pairs(connection: &Connection) -> anyhow::Result<Vec<(String, String)>> {
+    let present: i64 = connection.query_row(
+        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'pair_rows'",
+        [],
+        |row| row.get(0),
+    )?;
+    if present == 0 {
+        return Ok(Vec::new());
+    }
+    let mut statement = connection.prepare(
+        "SELECT DISTINCT substr(old_code, 1, 2), substr(new_code, 1, 2) FROM pair_rows \
+         WHERE substr(old_code, 1, 2) <> substr(new_code, 1, 2) ORDER BY 1, 2",
+    )?;
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Refuses, before anything is appended, a build whose served sections lost a 시도's coverage
+/// against the head's current rows over the same recomputed range (root ADR-0272): on 2026-10-16 a
+/// panel lost one 시도's section with every row still present. The sections are the content
+/// columns that hold documents (`*_json`); a 시도 outside the range is unchanged by this commit.
+fn assert_coverage(connection: &Connection, commit: &Commit<'_>) -> anyhow::Result<()> {
+    let sections: Vec<&str> = commit
+        .content_columns
+        .iter()
+        .copied()
+        .filter(|column| column.ends_with("_json"))
+        .collect();
+    if sections.is_empty() || commit.head.is_none() {
+        return Ok(());
+    }
+    let served = coverage_of(connection, "current_rows", commit.key, &sections)?;
+    let built = coverage_of(connection, "built", commit.key, &sections)?;
+    let bound = coverage_bound()?;
+    let found = coverage_breaches(&served, &built, &region_pairs(connection)?, bound);
+    ensure!(
+        found.is_empty(),
+        "{}: section coverage fell by more than {:.0}% against the head \
+         (contracts/gold-panel-rebuild.contract.json section_coverage): {}; nothing was appended",
+        commit.table,
+        bound.max_drop_fraction * 100.0,
+        found.join("; ")
+    );
+    Ok(())
 }
 
 /// The statement that leaves in `appended` the rows `built` adds over `current_rows`: a new or
@@ -473,6 +682,142 @@ pub(crate) async fn pin(
         move_tag(catalog, input, &input_tag, *snapshot).await?;
     }
     Ok(json!({"build": build, "input_tag": input_tag, "inputs": pins.len()}))
+}
+
+// one-off: until the last served Gold has moved to its `_versions` table (no lane line says
+// `versions_table` while it serves the replaced table): `Shadow`, `shadow`, `shadow_of` and the
+// shadow branch of `planned_inputs` go with it.
+/// What a versions table is built from while its lane still serves the table it replaces (root
+/// ADR-0564 §6): the inputs that table's newest build read, so the takeover verdict compares two
+/// engines over one set of inputs, and so that every key is built the first time.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Shadow {
+    /// The served table it replaces (`gold.<x>` of `gold.<x>_versions`).
+    pub replaced: String,
+    /// The replaced table's commit its build tag names.
+    pub build: i64,
+    /// The input pins that commit records: the only inputs the shadow reads; an input that build
+    /// did not read is absent here too.
+    pub pins: BTreeMap<String, i64>,
+    /// The served parcel edition that commit was built from, if it records one.
+    pub served_edition: Option<String>,
+}
+
+/// The replaced table of a versions table.
+fn replaced_of(versions: &str) -> anyhow::Result<&str> {
+    versions
+        .strip_suffix("_versions")
+        .with_context(|| format!("{versions} is not a versions table (gold.<x>_versions)"))
+}
+
+/// The shadow of `versions` while its lane serves `served`, from the replaced table's build tag and
+/// `main` lineage; `None` once the lane serves `versions` itself (its pins are the input heads).
+///
+/// # Errors
+/// Refuses a lane that serves neither table, and a replaced table whose build tag names no commit
+/// of its `main` lineage or one that records no input pins: there is nothing to compare with.
+pub(crate) fn shadow(
+    versions: &str,
+    served: &str,
+    build_tag: Option<&lakehouse_infrastructure::IcebergSnapshotRef>,
+    history: &[IcebergSnapshotSummary],
+) -> anyhow::Result<Option<Shadow>> {
+    if served == versions {
+        return Ok(None);
+    }
+    let replaced = replaced_of(versions)?;
+    ensure!(
+        served == replaced,
+        "the lane serves {served}, neither {versions} nor the {replaced} it replaces"
+    );
+    let tag = build_tag
+        .filter(|tag| tag.kind == "tag")
+        .with_context(|| format!("{replaced} has no {BUILD_TAG} tag: no build to shadow"))?;
+    let commit = history
+        .iter()
+        .find(|snapshot| snapshot.snapshot_id == tag.snapshot_id)
+        .with_context(|| {
+            format!(
+                "{replaced}'s {BUILD_TAG} names snapshot {}, not in its main lineage",
+                tag.snapshot_id
+            )
+        })?;
+    let pins = commit.source_snapshots();
+    ensure!(
+        !pins.is_empty(),
+        "{replaced} snapshot {} records no {SOURCE_SNAPSHOTS_PROPERTY}",
+        commit.snapshot_id
+    );
+    Ok(Some(Shadow {
+        replaced: replaced.to_owned(),
+        build: commit.snapshot_id,
+        pins,
+        served_edition: commit.summary.get(SERVED_EDITION_PROPERTY).cloned(),
+    }))
+}
+
+/// [`shadow`], read from the catalog: the replaced table's refs and `main` lineage.
+pub(crate) async fn shadow_of(
+    catalog: &IcebergRestCatalog,
+    versions: &str,
+    served: &str,
+) -> anyhow::Result<Option<Shadow>> {
+    if served == versions {
+        return Ok(None);
+    }
+    let replaced = replaced_of(versions)?;
+    let refs = catalog
+        .load_snapshot_refs(replaced)
+        .await?
+        .with_context(|| format!("{replaced} does not exist"))?;
+    let history = catalog
+        .load_main_snapshot_history(replaced)
+        .await?
+        .with_context(|| format!("{replaced} does not exist"))?;
+    shadow(versions, served, refs.refs.get(BUILD_TAG), &history)
+}
+
+/// The pins and served edition one run of `versions` builds from, and its shadow, if any: while
+/// its lane serves the replaced table, the replaced table's build-tag commit's (the edition when it
+/// records none is `edition_now`); otherwise every input at its head and `edition_now`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Planned {
+    pub pins: BTreeMap<String, i64>,
+    pub served_edition: String,
+    pub shadow: Option<Shadow>,
+}
+
+/// [`Planned`] of `versions` whose lane serves `served`.
+pub(crate) async fn planned_inputs(
+    catalog: &IcebergRestCatalog,
+    versions: &str,
+    served: &str,
+    inputs: &[&str],
+    edition_now: String,
+) -> anyhow::Result<Planned> {
+    if let Some(shadow) = shadow_of(catalog, versions, served).await? {
+        return Ok(Planned {
+            pins: shadow.pins.clone(),
+            served_edition: shadow.served_edition.clone().unwrap_or(edition_now),
+            shadow: Some(shadow),
+        });
+    }
+    let mut pins = BTreeMap::new();
+    for input in inputs {
+        let head = catalog
+            .load_main_snapshot_history(input)
+            .await?
+            .with_context(|| format!("{input} does not exist"))?
+            .first()
+            .map(|snapshot| snapshot.snapshot_id)
+            .with_context(|| format!("{input} holds no snapshot"))?;
+        pins.insert((*input).to_owned(), head);
+    }
+    Ok(Planned {
+        pins,
+        served_edition: edition_now,
+        shadow: None,
+    })
 }
 
 /// The inputs whose pin moved from `base`'s, and every input `base` does not pin.
