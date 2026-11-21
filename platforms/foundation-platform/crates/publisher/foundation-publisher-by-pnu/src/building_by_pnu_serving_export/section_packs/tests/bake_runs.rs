@@ -52,6 +52,7 @@ impl Lane {
             &pack_provenance(snapshot),
             rows,
             &Renderer::Building(ApprovedBuildingLinks::default()),
+            None,
         )
         .await
     }

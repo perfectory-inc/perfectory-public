@@ -316,6 +316,23 @@ fn build_parcel_nearby_versions_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn gold_takeover_side_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "export-gold-takeover-sides"])?,
+        Command::ExportGoldTakeoverSides
+    );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "show-gold-takeover-switch"])?,
+        Command::ShowGoldTakeoverSwitch
+    );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "query-takeover-sides"])?,
+        Command::QueryTakeoverSides
+    );
+    Ok(())
+}
+
+#[test]
 fn lineage_steward_fold_commands_are_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "export-lineage-steward-fold"])?,

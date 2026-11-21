@@ -20,6 +20,7 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
+use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
 use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     duckdb_extensions,
@@ -36,6 +37,7 @@ use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::{json, Value};
 
 use crate::{
+    by_pnu_gateway_contract::ByPnuLane,
     gold_versions_commit::{
         self as versions, Commit, CODE_VERSION_PROPERTY, CURRENT_RECORDS_PROPERTY,
         FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, RECORDED_EXPLANATION_PROPERTY,
@@ -46,6 +48,8 @@ use crate::{
 
 /// The table this command writes.
 pub(crate) const TABLE: &str = "gold.parcel_nearby_versions";
+/// Its by-PNU lane, whose served Gold says whether this run is a shadow (root ADR-0564 §6).
+const LANE: &str = "parcel-nearby";
 /// The table whose columns it carries (never created: root ADR-0564 §1).
 const REPLACED: &str = "gold.parcel_nearby";
 const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY";
@@ -107,16 +111,6 @@ fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
         s3_access_key_id: storage.access_key_id,
         s3_secret_access_key: storage.secret_access_key,
     })
-}
-
-async fn head_of(catalog: &IcebergRestCatalog, table: &str) -> anyhow::Result<i64> {
-    catalog
-        .load_main_snapshot_history(table)
-        .await?
-        .with_context(|| format!("{table} does not exist"))?
-        .first()
-        .map(|snapshot| snapshot.snapshot_id)
-        .with_context(|| format!("{table} holds no snapshot"))
 }
 
 fn write_summary(path: &str, summary: &Value) -> anyhow::Result<()> {
@@ -223,11 +217,24 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .with_context(|| format!("{TABLE} does not exist after its creation"))?;
     let base = versions::base(&history)?;
     let head = history.first().map(|snapshot| snapshot.snapshot_id);
-    let mut pins = BTreeMap::new();
-    for input in inputs() {
-        pins.insert(input.to_owned(), head_of(&catalog, input).await?);
-    }
-    let edition = served_edition()?;
+    let lane =
+        ByPnuLane::named(LANE)?.with_context(|| format!("the contract names no {LANE} lane"))?;
+    let versions::Planned {
+        pins,
+        served_edition: edition,
+        shadow,
+    } = versions::planned_inputs(
+        &catalog,
+        TABLE,
+        by_pnu_serving_manifest_publish::gold_table(lane),
+        &inputs(),
+        served_edition()?,
+    )
+    .await?;
+    // A shadow names the replaced table's build it was built from (root ADR-0564 §6).
+    let shadow_build = shadow
+        .as_ref()
+        .map(|shadow| json!({"table": shadow.replaced, "build": shadow.build}));
     let code = code_version();
     if let Some(base) = &base {
         versions::pin(&catalog, TABLE, base.snapshot_id, &base.pins).await?;
@@ -243,7 +250,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     if unchanged {
         let summary = json!({
             "job": "build-parcel-nearby-versions", "engine": "duckdb", "table": TABLE,
-            "outcome": "unchanged", "pins": pins, "served_edition": edition,
+            "outcome": "unchanged", "pins": pins, "served_edition": edition, "shadow_of": shadow_build,
             "seconds": started.elapsed().as_secs_f64(),
         });
         write_summary(&summary_path, &summary)?;
@@ -445,7 +452,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         "job": "build-parcel-nearby-versions", "engine": "duckdb", "table": TABLE,
         "outcome": "committed", "created_table": created, "snapshot_id": snapshot,
         "parent_snapshot_id": head, "version_seq": version_seq, "run": run,
-        "pins": pins, "moved": moved, "served_edition": edition, "code_version": code,
+        "pins": pins, "moved": moved, "served_edition": edition, "shadow_of": shadow_build, "code_version": code,
         "every_sido": every_sido, "sidos": sidos, "seconds_by_sido": seconds_by_sido,
         "recorded_explanation": recorded_explanation,
         "inputs": read, "diff": diff, "current_records": current_records,

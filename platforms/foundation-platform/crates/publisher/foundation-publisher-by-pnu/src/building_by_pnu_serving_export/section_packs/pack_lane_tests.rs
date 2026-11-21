@@ -278,6 +278,7 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         &provenance,
         &rows,
         &Renderer::load(lane).await?,
+        None,
     )
     .await?;
     assert_eq!(summary.exported_row_count, 3);

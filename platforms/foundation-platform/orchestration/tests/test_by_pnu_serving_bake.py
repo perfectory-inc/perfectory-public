@@ -67,13 +67,14 @@ elif command.startswith("show-"):
     with open(os.environ["FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH"], "w") as out:
         json.dump({"schema_version": "foundation-platform.by_pnu_serving_state.v2",
                    "gold_iceberg_snapshot_id": os.environ["FAKE_GOLD"] or None,
-                   "document_schema_version": "doc.v2",
+                   "document_schema_version": "doc.v2", "gold_table": os.environ.get("FAKE_LANE_GOLD_TABLE", "gold.lane"),
                    "readable_document_schema_versions": json.loads(os.environ.get("FAKE_READABLE", '["doc.v2"]')),
                    "document_schema_revision": json.loads(os.environ.get("FAKE_REVISION", "null")),
                    "published": {"manifest_schema_version": 2,
                                  "base_generation": int(os.environ["FAKE_PUBLISHED_GENERATION"]),
                                  "base_object_count": int(os.environ.get("FAKE_BASE_OBJECTS", "100")),
                                  "document_schema_version": os.environ.get("FAKE_SERVED_SCHEMA", "doc.v1"),
+                                 "gold_table": os.environ.get("FAKE_SERVED_GOLD_TABLE", "gold.lane"),
                                  "gold_iceberg_snapshot_id": os.environ["FAKE_PUBLISHED_SNAPSHOT"],
                                  "reflected_gold_iceberg_snapshot_id": os.environ.get(
                                      "FAKE_REFLECTED", os.environ["FAKE_PUBLISHED_SNAPSHOT"]),
@@ -1235,7 +1236,6 @@ class ByPnuServingBake(unittest.TestCase):
         [export] = self.exports(calls)
         self.assertEqual(export["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_TARGET_PATCH"], "2")
         self.assertEqual(export["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_FRESH_GENERATION"], "false")
-
 
 
 def packs_state(**overrides):

@@ -427,7 +427,7 @@ if python3 -I -c 'import json, sys; sys.exit(json.load(open(sys.argv[1])).get("c
 fi
 read -r gold base base_objects reflected patch_count newest_patch cumulative served_schema \
   schema_now highest_listed highest_patch_listed max_patches max_ratio max_delta_fraction \
-  served_prefix_length prefix_length < <(python3 -I - "${state}" <<'PY'
+  served_prefix_length prefix_length served_gold_table lane_gold_table < <(python3 -I - "${state}" <<'PY'
 import json, sys
 state = json.load(open(sys.argv[1]))
 if state.get("schema_version") != "foundation-platform.by_pnu_serving_state.v2":
@@ -444,10 +444,11 @@ print(state["gold_iceberg_snapshot_id"] or "-", published["base_generation"],
       max(state["generations_with_objects"], default=0),
       max(state["patches_with_objects"], default=0),
       policy["max_patches"], policy["max_cumulative_change_ratio"], policy["max_delta_fraction"],
-      published["pnu_prefix_length"] or "-", policy["pnu_prefix_length"])
+      published["pnu_prefix_length"] or "-", policy["pnu_prefix_length"],
+      published.get("gold_table") or "-", state["gold_table"])
 PY
 )
-[[ -n "${prefix_length:-}" ]] || { log "refused: cannot read the lane state ${state}"; exit 65; }
+[[ -n "${lane_gold_table:-}" ]] || { log "refused: cannot read the lane state ${state}"; exit 65; }
 # Does the lane serve from section packs (root ADR-0147)? Then every choice below is made against
 # the packs: their reflected snapshot, document schema and count, the patches some section still
 # reads, the highest section generation, and every generation and patch number holding a pack.
@@ -460,13 +461,13 @@ PY
 # one major share one name, so `schemas` alone says `same`: 2026-10-29..11-04 the 공매 lane's
 # revision 2 -> 3 re-rendered every document and the change set was refused as unexplained.
 read -r packs packs_reflected packs_schema packs_count packs_newest packs_live packs_cumulative \
-  packs_generation packs_listed packs_patch_listed packs_served packs_schemas packs_revisions \
+  packs_generation packs_listed packs_patch_listed packs_served packs_schemas packs_revisions packs_table \
   < <(python3 -I - "${state}" <<'PY'
 import json, sys
 state = json.load(open(sys.argv[1]))
 packs = state.get("section_packs")
 if packs is None:
-    print("no", *["-"] * 12)
+    print("no", *["-"] * 13)
 else:
     for name in ("generations_with_packs", "patches_with_packs"):
         listed = packs[name]
@@ -492,10 +493,10 @@ else:
           packs["document_count"], packs["newest_patch"], packs["max_live_patches"],
           packs["cumulative_changes"], max(s["generation"] for s in packs["sections"]),
           max(packs["generations_with_packs"], default=0), max(packs["patches_with_packs"], default=0),
-          ",".join(sorted(served)), verdict, revisions)
+          ",".join(sorted(served)), verdict, revisions, packs.get("gold_table") or "-")
 PY
 )
-[[ -n "${packs_schemas:-}" ]] || { log "refused: cannot read the section packs of the lane state ${state}"; exit 65; }
+[[ -n "${packs_table:-}" ]] || { log "refused: cannot read the section packs of the lane state ${state}"; exit 65; }
 LANE_SERVES=objects
 # An object base holds one document schema; only packs carry patches of an expanding one.
 schemas=same
@@ -511,6 +512,30 @@ if [[ "${packs}" == yes ]]; then
   highest_listed="${packs_listed}" highest_patch_listed="${packs_patch_listed}"
   # Pack patches name legal dongs, not the object lane's prefixes: the prefix rule does not apply.
   served_prefix_length="${prefix_length}"
+  # The table the packs were baked from (a takeover's switch moves it, root ADR-0564 §6).
+  [[ "${packs_table}" == - ]] || served_gold_table="${packs_table}"
+fi
+# A takeover's switch (root ADR-0564 §6-5): the lane now bakes another table than the one it serves
+# from. The switch is baked from the build pair the verdict compared and nothing else: the packs must
+# reflect the replaced table's build, and the full bake is pinned to the versions table's shadow
+# commit of the same input pins. The bake then refuses any document that differs from the served
+# one; what changed after the pair comes by the next run's patch. Only packs are held to what they
+# serve, and every lane that takes a table over serves packs (the kinds of root ADR-0190): an object
+# lane's takeover is refused, not baked unchecked.
+takeover=false
+[[ "${served_gold_table}" == - || "${served_gold_table}" == "${lane_gold_table}" ]] || takeover=true
+if [[ "${takeover}" == true ]]; then
+  [[ "${LANE_SERVES}" == packs ]] ||
+    { log "refused: the ${UNIT} lane serves objects baked from ${served_gold_table}; a takeover's switch is checked only for section packs (root ADR-0564 §6)"; exit 64; }
+  switch_json="$(FOUNDATION_PLATFORM_GOLD_TAKEOVER_TABLE="${lane_gold_table}" \
+    "${PUBLISHER_BIN}" show-gold-takeover-switch 2>"${STATE_ROOT}/takeover-switch.log" | tail -n 1)" ||
+    { log "refused: no build pair to switch ${served_gold_table} to ${lane_gold_table} from; see ${STATE_ROOT}/takeover-switch.log (root ADR-0564 §6-5)"; exit 1; }
+  read -r replaced_build shadow_build < <(python3 -I -c 'import json, sys; pair = json.loads(sys.argv[1]); print(pair["replaced_build"], pair["shadow_build"])' "${switch_json}") ||
+    { log "refused: show-gold-takeover-switch printed no build pair: ${switch_json}"; exit 1; }
+  [[ "${reflected}" == "${replaced_build}" ]] ||
+    { log "refused: the packs reflect ${served_gold_table} snapshot ${reflected}, not its build ${replaced_build} the verdict compared; bake the lane to that build before the switch (root ADR-0564 §6-5)"; exit 1; }
+  log "the switch from ${served_gold_table} bakes ${lane_gold_table} at its shadow commit ${shadow_build} (Gold is at ${gold}); the next run patches it forward"
+  gold="${shadow_build}"
 fi
 if [[ "${gold}" == - ]]; then
   log "nothing to do: the Gold table has no snapshot"
@@ -647,6 +672,11 @@ PY
 mode="" reason=""
 if [[ -n "${pinned}" ]]; then
   mode=full reason="finishing the full bake pinned to Gold snapshot ${pinned} (Gold is now at ${gold_now}); the next run patches it forward (root ADR-0310)"
+elif [[ "${takeover}" == true ]]; then
+  # A takeover (root ADR-0564 §6): the lane now bakes another table than the one its served state
+  # was baked from, and no change set spans two tables. The verdict before the switch said the two
+  # hold the same rows; this full bake re-bases once, resumable per dong (#1520).
+  mode=full reason="the served state was baked from ${served_gold_table}, the lane now bakes ${lane_gold_table} (a takeover, root ADR-0564 §6)"
 elif [[ "${FORCE_FULL}" == true ]]; then
   mode=full reason="forced by the operator: ${FORCE_FULL_REASON}"
   # The console's request re-bases once: this full bake is it, and a resumed one keeps its pin (root
@@ -957,6 +987,7 @@ if [[ "${LANE_SERVES}" == packs ]]; then
   export_command="export-${UNIT}-by-pnu-section-packs" summary_dir="${run}/summaries"
   export_env=("${ENV_PREFIX}_CONFIRM_PACK_EXPORT=true")
   [[ "${mode}" != full ]] || export_env+=("${ENV_PREFIX}_PACK_GENERATION=${generation}")
+  [[ "${takeover}" == false ]] || summary[takeover_from]="${served_gold_table}"
 else
   export_command="export-${UNIT}-by-pnu-serving" summary_dir="${run}"
   export_env=("${ENV_PREFIX}_CONFIRM_EXPORT=true" "${ENV_PREFIX}_TARGET_GENERATION=${generation}")

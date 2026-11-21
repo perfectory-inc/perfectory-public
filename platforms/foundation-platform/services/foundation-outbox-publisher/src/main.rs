@@ -106,6 +106,7 @@ mod handoff_object_support;
 mod juso_electronic_map_base;
 mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
+mod gold_takeover_sides;
 mod gold_versions_change_set;
 mod gold_versions_commit;
 mod industrial_complex_notice_silver_load;
@@ -292,6 +293,9 @@ enum Command {
     LoadIndustrialComplexNoticeSilver,
     BuildParcelNearbyVersions,
     ExportGoldVersionsChangeSet,
+    ExportGoldTakeoverSides,
+    ShowGoldTakeoverSwitch,
+    QueryTakeoverSides,
     ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -636,6 +640,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
         Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
+        Command::ExportGoldTakeoverSides => Box::pin(gold_takeover_sides::export()),
+        Command::ShowGoldTakeoverSwitch => Box::pin(gold_takeover_sides::switch()),
+        Command::QueryTakeoverSides => Box::pin(async { gold_takeover_sides::query() }),
         Command::ExportLegalDongStewardDecisions => {
             Box::pin(lineage_steward_fold::export_legal_dong())
         }
@@ -800,6 +807,9 @@ where
         }
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
         Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
+        Some("export-gold-takeover-sides") => Ok(Command::ExportGoldTakeoverSides),
+        Some("show-gold-takeover-switch") => Ok(Command::ShowGoldTakeoverSwitch),
+        Some("query-takeover-sides") => Ok(Command::QueryTakeoverSides),
         Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),

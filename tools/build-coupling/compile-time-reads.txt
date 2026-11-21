@@ -120,6 +120,7 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauct
 platforms/foundation-platform/services/foundation-outbox-publisher/src/data_go_kr_file_data_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/data_go_kr_onbid_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_versions_change_set.rs:1
+platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_versions_commit.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_address_source_collect/tests.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_notice_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/juso_electronic_map_collect.rs:1

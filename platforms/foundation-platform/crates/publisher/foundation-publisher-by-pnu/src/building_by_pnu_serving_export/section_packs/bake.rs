@@ -44,6 +44,7 @@ use super::super::{
 };
 use super::expansion::{self, ExpansionProbe, Probe};
 use super::sections::{self, PackDocument, PackProvenance, Renderer};
+use super::takeover::{Takeover, TakeoverCheck};
 use super::{gate, read};
 use crate::by_pnu_gateway_contract::ByPnuLane;
 use crate::by_pnu_pack::{self, Pack, PackIdentity, PackWriter};
@@ -89,48 +90,8 @@ pub struct BakeConfig {
     pub progress: Option<DongProgress>,
 }
 
-/// Where a bake records each dong it finished, and the build whose records it may reuse.
-///
-/// A shard is resumed whole or not at all (its summary), and a re-run used to render and check
-/// every dong again before finding its packs already written. A first shard longer than the unit's
-/// time limit then made no progress at all: the real-transaction lane's full bake was stopped at
-/// 1 h 55 three times (2026-11-18..19) without one shard finishing. A dong's record holds what its
-/// write produced: the packs (keys and sha256), the gate's counts and its cut. A re-run of the
-/// same build, snapshot, generations and sections takes the record instead of rendering the dong:
-/// the build renders a dong to the same bytes every time (create-only reports `reused`), so the
-/// record is what the render would give.
-#[derive(Clone, Debug)]
-pub struct DongProgress {
-    pub dir: PathBuf,
-    /// The publisher's identity (the sha256 of its binary): another build may render otherwise.
-    pub build: String,
-}
-
-/// One finished dong, as `DongProgress` keeps it.
-#[derive(Debug, Deserialize, Serialize)]
-struct DongRecord {
-    identity: DongIdentity,
-    packs: Vec<PackEntry>,
-    compared: u64,
-    equal: u64,
-    candidates: Vec<String>,
-    paged: u64,
-    withheld: Vec<WithheldDocument>,
-    cut: Cut,
-}
-
-/// What a record must match to stand in for rendering its dong.
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
-struct DongIdentity {
-    build: String,
-    document_schema_version: String,
-    gold_iceberg_snapshot_id: String,
-    generations: BTreeMap<String, u64>,
-    patch: Option<u64>,
-    sections: Vec<String>,
-    rows: u64,
-    deleted: u64,
-}
+pub use super::dong_records::DongProgress;
+use super::dong_records::{read_dong_record, write_dong_record, DongIdentity, DongRecord};
 
 impl BakeConfig {
     fn from_env(lane: ByPnuLane) -> anyhow::Result<Self> {
@@ -270,6 +231,10 @@ pub struct PackExportSummary {
     /// sampled and found served with the content it renders (root ADR-0320).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expansion_probe: Option<ExpansionProbe>,
+    /// The switch of a takeover: every document held to the one the replaced table's packs serve
+    /// (root ADR-0564 §6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub takeover: Option<TakeoverCheck>,
     /// Per section, the dongs this base bake cut into more than one part (root ADR-0163); empty
     /// for a patch, which follows the served generation's parts.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -442,6 +407,15 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
         Some(_) => Probe::needed(lane, served_state(lane, &store).await?),
         None => None,
     };
+    // Packs baked from another table: this is a takeover's switch (root ADR-0564 §6).
+    let takeover = Takeover::needed(
+        lane,
+        table,
+        served_state_if_any(lane, &store).await?,
+        config.patch.is_some(),
+        &store,
+    )
+    .await?;
     let (rows, gold_record_count, shard_read) =
         scan(&config, &renderer, &lakehouse, &snapshot, probe.as_ref()).await?;
     let provenance = snapshot_provenance(&snapshot);
@@ -463,7 +437,15 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     };
     // A small lane draws its candidates at a rate that still yields gate (나)'s sample.
     config.sample_candidates_per_million = Some(gate::candidate_rate(gold_record_count)?);
-    let mut summary = bake(&config, &store, &provenance, &rows, &renderer).await?;
+    let mut summary = bake(
+        &config,
+        &store,
+        &provenance,
+        &rows,
+        &renderer,
+        takeover.as_ref(),
+    )
+    .await?;
     summary.gold_record_count = Some(gold_record_count);
     summary.expansion_probe = expansion_probe;
     summary.read = Some(shard_read);
@@ -616,6 +598,20 @@ async fn served_state(
         .section_packs)
 }
 
+/// [`served_state`], or `None` before the lane's first publish.
+async fn served_state_if_any(
+    lane: ByPnuLane,
+    store: &ByPnuServingStore,
+) -> anyhow::Result<Option<SectionPacksState>> {
+    if !store
+        .exists(crate::r2_layout::by_pnu::manifest_key(lane)?)
+        .await?
+    {
+        return Ok(None);
+    }
+    served_state(lane, store).await
+}
+
 /// Each section's generation: a whole base bake writes `PACK_GENERATION`; a patch writes each
 /// section under the generation the lane serves it from; a section re-baked alone writes a new
 /// generation of the reflected snapshot and is joined with the served sections beside it.
@@ -726,6 +722,7 @@ struct Run<'a> {
     provenance: &'a PackProvenance,
     renderer: &'a Renderer,
     plan: &'a Plan,
+    takeover: Option<&'a Takeover>,
 }
 
 /// Builds and writes the packs of the kept rows.
@@ -739,6 +736,7 @@ pub async fn bake(
     provenance: &PackProvenance,
     rows: &[JsonMap<String, JsonValue>],
     renderer: &Renderer,
+    takeover: Option<&Takeover>,
 ) -> anyhow::Result<PackExportSummary> {
     let started = Instant::now();
     // By key: a lane keyed narrower than a PNU (root ADR-0204) has several rows per PNU, and its
@@ -801,6 +799,11 @@ pub async fn bake(
             );
         }
     }
+    // The switch of a takeover holds every PNU the replaced table's packs serve, also in a dong
+    // the new table holds no row of.
+    if let Some(takeover) = takeover {
+        all_units.extend(takeover.served_dongs(store, &in_shard).await?);
+    }
     let (no_rows, no_deletes) = (Vec::new(), Vec::new());
     let run = Run {
         config,
@@ -808,6 +811,7 @@ pub async fn bake(
         provenance,
         renderer,
         plan: &plan,
+        takeover,
     };
     // Futures are built in a loop, not in a `map` closure: a closure over borrowed rows makes
     // the command's future fail the higher-ranked `Send` check of the command table.
@@ -828,7 +832,9 @@ pub async fn bake(
     };
     let mut parts: BTreeMap<String, BTreeMap<String, u32>> = BTreeMap::new();
     let (mut paged_documents, mut withheld) = (0, Vec::new());
+    let mut takeover_compared = 0;
     for (unit_packs, check, cut) in written {
+        takeover_compared += check.takeover_compared;
         packs.extend(unit_packs);
         for (section, (dong, count)) in cut {
             parts.entry(section).or_default().insert(dong, count);
@@ -908,6 +914,7 @@ pub async fn bake(
         packs,
         equality,
         expansion_probe: None,
+        takeover: takeover.map(|takeover| takeover.record(takeover_compared)),
         parts,
         paged_documents,
         withheld,
@@ -953,6 +960,8 @@ pub(super) struct UnitCheck {
     /// Documents of the dong served as pages, and the ones withheld (root ADR-0325).
     pub(super) paged: u64,
     pub(super) withheld: Vec<WithheldDocument>,
+    /// The switch of a takeover: documents held to their served answer, every one equal.
+    pub(super) takeover_compared: u64,
 }
 
 impl UnitCheck {
@@ -996,7 +1005,7 @@ pub(super) struct LaidOut {
 }
 
 /// The dongs a base bake cut into parts, as `(section, (dong, count))`.
-type Cut = Vec<(String, (String, u32))>;
+pub(super) type Cut = Vec<(String, (String, u32))>;
 
 /// `write_unit`, or the record of the same dong an earlier run of this build finished
 /// (`DongProgress`); a dong it writes is recorded once its packs are written.
@@ -1031,6 +1040,7 @@ async fn write_or_resume(
             candidates: record.candidates,
             paged: record.paged,
             withheld: record.withheld,
+            takeover_compared: record.takeover_compared,
         };
         let packs = record
             .packs
@@ -1052,28 +1062,10 @@ async fn write_or_resume(
         paged: check.paged,
         withheld: check.withheld.clone(),
         cut: cut.clone(),
+        takeover_compared: check.takeover_compared,
     };
-    std::fs::create_dir_all(&progress.dir)
-        .with_context(|| format!("failed to create {}", progress.dir.display()))?;
-    // Written whole and renamed: a record is either all there or absent.
-    let partial = path.with_extension("json.partial");
-    std::fs::write(&partial, serde_json::to_vec(&record)?)
-        .with_context(|| format!("failed to write {}", partial.display()))?;
-    std::fs::rename(&partial, &path)
-        .with_context(|| format!("failed to record {}", path.display()))?;
+    write_dong_record(progress, &path, &record)?;
     Ok((packs, check, cut))
-}
-
-fn read_dong_record(path: &std::path::Path) -> anyhow::Result<Option<DongRecord>> {
-    match std::fs::read(path) {
-        Ok(bytes) => {
-            Ok(Some(serde_json::from_slice(&bytes).with_context(|| {
-                format!("{} is not a dong record", path.display())
-            })?))
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).with_context(|| format!("failed to read {}", path.display())),
-    }
 }
 
 async fn write_unit(
@@ -1126,6 +1118,9 @@ async fn write_unit(
         run.config.sample_candidates_per_million,
     )?;
     check.require_equal(dong)?;
+    if let Some(takeover) = run.takeover {
+        check.takeover_compared = takeover.check_dong(run.store, dong, &documents).await?;
+    }
     for document in &documents {
         check.paged += u64::from(!document.more_pages.is_empty());
         if let Some(reason) = &document.withheld {
