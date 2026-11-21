@@ -19,16 +19,6 @@ CREATE OR REPLACE MACRO notice_whole(v) AS
 CREATE OR REPLACE MACRO notice_ymd(v) AS
   CASE WHEN py_truthy(v) THEN CAST(try_strptime(trim(py_str(v), py_ws()), '%Y-%m-%d') AS DATE) END;
 
--- rfc3339_utc: an RFC 3339 time (fraction cut or padded to microseconds, no zone read as UTC).
-CREATE OR REPLACE MACRO notice_utc(v) AS
-  CASE WHEN py_truthy(v) THEN (
-    SELECT CASE WHEN m.seconds <> '' THEN TRY_CAST(
-             replace(m.seconds, ' ', 'T') || '.' || rpad(left(m.fraction, 6), 6, '0')
-             || CASE WHEN m.zone IN ('', 'Z', 'z') THEN '+00:00' ELSE m.zone END AS TIMESTAMPTZ) END
-    FROM (SELECT unnest(regexp_extract(trim(py_str(v), py_ws()),
-            '^([0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]+))?(Z|z|[+-][0-9]{2}:[0-9]{2})?$',
-            ['seconds', 'fraction', 'zone'])) ) m) END;
-
 -- Each line that names a notice and when it was asked; the others are not reads (rows_of skips them).
 CREATE OR REPLACE TEMP TABLE notice_parsed AS
 SELECT line_number, j,

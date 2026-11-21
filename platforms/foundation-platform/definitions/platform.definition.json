@@ -1223,9 +1223,9 @@
           },
           "foundation-court-auction-silver-load.service": {
             "class": "batch",
-            "memory_max": "512M",
+            "memory_max": "3G",
             "measured_peak": "306M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 3 runs, highest 2026-11-06 (foundation-court-auction-silver-load)"
+            "measured": "journal `memory peak` 2026-10-18..11-08, 3 runs, highest 2026-11-06 (foundation-court-auction-silver-load), when the whole load ran in the Spark container (its own cap). Since root ADR-0559 the 공통코드, 감정평가서, 매각물건명세서 and 배당요구종기공고 objects are loaded by the publisher's DuckDB inside this unit: the stage's buffer is half the execution profile (2048 MiB, lakehouse-engine.contract.json), as the onbid load's; 3G holds the buffer and the process, and the first runs' memory_peak_bytes set it again (root ADR-0455)"
           },
           "foundation-data-go-kr-file-data.service": {
             "class": "batch",

@@ -76,3 +76,38 @@ CREATE OR REPLACE MACRO py_json_dumps(v, drop) AS
         lambda e: to_json(e.key)::VARCHAR || ':' || py_json_level1(e.value, drop)), ',') || '}'
     ELSE py_json_leaf(v)
   END;
+
+-- The readers below are shared by more than one stage; each keeps the name of the load that
+-- needed it first (the onbid and ILIS notice row SQL calls them by these names).
+
+-- Full-width digits as ASCII ones, as Python's int() and float() read them.
+CREATE OR REPLACE MACRO onbid_ascii_digits(t) AS translate(t, '０１２３４５６７８９', '0123456789');
+
+-- str(value or "").strip(): Python's text of a truthy value, "" for a falsy one.
+CREATE OR REPLACE MACRO onbid_or_blank(v) AS
+  CASE WHEN py_truthy(v) THEN trim(py_str(v), py_ws()) ELSE '' END;
+
+-- `datetime.strptime(text, "%Y%m%d")` as CPython's _strptime reads it: the format's regex matched from
+-- the start with its alternatives tried in order (RE2's leftmost-first matching is the same), and the
+-- text refused when anything is left after the match or the fields are no date.
+CREATE OR REPLACE MACRO onbid_date_re() AS '^([0-9]{4})(1[0-2]|0[1-9]|[1-9])(3[01]|[12][0-9]|0[1-9]|[1-9]| [1-9])';
+
+-- The date of a match's first three groups (year, month, day), or None when they name no date.
+CREATE OR REPLACE MACRO onbid_match_date(t, re) AS
+  TRY_CAST(regexp_extract(t, re, 1) || '-' || lpad(trim(regexp_extract(t, re, 2)), 2, '0') || '-'
+           || lpad(trim(regexp_extract(t, re, 3)), 2, '0') AS DATE);
+
+-- ymd: `yyyyMMdd` as a date; None when it is not one.
+CREATE OR REPLACE MACRO onbid_ymd(v) AS
+  CASE WHEN onbid_or_blank(v) <> '' AND regexp_extract(onbid_or_blank(v), onbid_date_re(), 0) = onbid_or_blank(v)
+       THEN onbid_match_date(onbid_or_blank(v), onbid_date_re()) END;
+
+-- rfc3339_utc: an RFC 3339 time (fraction cut or padded to microseconds, no zone read as UTC).
+CREATE OR REPLACE MACRO notice_utc(v) AS
+  CASE WHEN py_truthy(v) THEN (
+    SELECT CASE WHEN m.seconds <> '' THEN TRY_CAST(
+             replace(m.seconds, ' ', 'T') || '.' || rpad(left(m.fraction, 6), 6, '0')
+             || CASE WHEN m.zone IN ('', 'Z', 'z') THEN '+00:00' ELSE m.zone END AS TIMESTAMPTZ) END
+    FROM (SELECT unnest(regexp_extract(trim(py_str(v), py_ws()),
+            '^([0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]+))?(Z|z|[+-][0-9]{2}:[0-9]{2})?$',
+            ['seconds', 'fraction', 'zone'])) ) m) END;

@@ -26,16 +26,11 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
   `silver.court_auction_item_spec` the rows whose content changed, the lists (기일내역, 목록내역,
   제시외건물, 감정요항표) a whole edition per property or case whose list changed. A field that names a
   person is not read; free text has its names masked (the contract's `personal_names`);
-- for a 공통코드 object (root ADR-0540 §5): appends to `silver.court_auction_code` the codes whose
-  name changed, the site's name for each code the documents carry;
 - for a 사건상세, 현황조사 or 감정평가 object (root ADR-0540 §1, §4): its document tables (the case
   basics into `silver.court_auction_case`, the related cases, the 목록 with their 종국결과 and the
   당사자 kinds; a 현황조사 round and its 목록; a 감정평가 round), then one read row per request in
   `silver.court_auction_case_document_read`, the record the collector's next case frontier is
   computed from. A person's name is never read; free text is masked as the 물건상세's is;
-- for a 감정평가서 object (root ADR-0540 §1): the reports it stored into
-  `silver.court_auction_appraisal_report` (the media reconcile's index: only stored ones), then every
-  request, CAPTCHA skips included, into `silver.court_auction_appraisal_report_read`;
 - for a 현황조사서 object (root ADR-0575 §6): a whole edition per (case, round) of its 임대차 list
   (`silver.court_auction_survey_tenant`), never the lessee's name or resident number field; then
   one read row per request;
@@ -45,14 +40,10 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
   masked name; then one read row per request in `silver.court_auction_case_document_read`;
 - for a 매각공고 object (root ADR-0575 §6): each listed notice into `silver.court_auction_sale_notice`
   (newest per notice, the rows whose content changed), then a whole edition per notice of its lists
-  (its properties, 정정공고 and 취소·변경공고) into `silver.court_auction_sale_notice_item`;
-- for a 배당요구종기공고 object (root ADR-0575 §6): each listed case into
-  `silver.court_auction_dividend_notice` and each property of a case's 물건 list (its address and 등기
-  고유번호) into `silver.court_auction_dividend_object`, the rows whose content changed; the list's
-  creditor, debtor and owner names are never read;
-- for a 매각물건명세서 object (root ADR-0575): every version asked, CAPTCHA skips included, into
-  `silver.court_auction_sale_specification_read`, the record the collector's next frontier reads. The
-  PDF stays under the collector's own prefix; no row names a person.
+  (its properties, 정정공고 and 취소·변경공고) into `silver.court_auction_sale_notice_item`.
+
+The 공통코드, 감정평가서, 매각물건명세서 and 배당요구종기공고 objects are not this job's: the publisher's
+`load-courtauction-go-kr-silver` loads them in DuckDB (root ADR-0559).
 
 `parse` reads the plan directories without Spark. The last stdout line is `court-auction-summary-json {json}`.
 """
@@ -103,28 +94,12 @@ DOCUMENT_TABLES = (*LATEST_KEYS, *EDITION_PER)
 # What one 물건상세 object commits, in order: its photos, its documents, then the read record the
 # collector's next frontier is computed from, so an object the record holds has everything else.
 DETAIL_TABLES = (PHOTO_TABLE, *DOCUMENT_TABLES, DETAIL_TABLE)
-CODES_ROLE = "common_codes"
-REPORTS_ROLE = "appraisal_reports"
-REPORT_TABLE = "silver.court_auction_appraisal_report"
-REPORT_READ_TABLE = "silver.court_auction_appraisal_report_read"
-REPORT_KEY = ("court_office_code", "case_no", "round_seq", "appraisal_no", "written_date")
-# A report object's tables, in commit order, the read record last.
-REPORT_TABLES = (REPORT_TABLE, REPORT_READ_TABLE)
-SPECS_ROLE = "sale_specifications"
 NOTICES_ROLE = "sale_notices"
 NOTICE_TABLE = "silver.court_auction_sale_notice"
 NOTICE_ITEM_TABLE = "silver.court_auction_sale_notice_item"
 NOTICE_KEY = ("court_office_code", "department_code", "sale_date", "bid_kind_code")
 # A notice object's tables, in commit order, the lists last (the plan's table).
 NOTICE_TABLES = (NOTICE_TABLE, NOTICE_ITEM_TABLE)
-DIVIDENDS_ROLE = "dividend_notices"
-DIVIDEND_TABLE = "silver.court_auction_dividend_notice"
-DIVIDEND_OBJECT_TABLE = "silver.court_auction_dividend_object"
-DIVIDEND_OBJECT_KEY = (*CASE, "object_seq")
-# A 배당요구종기공고 object's tables, in commit order, the 물건 lists last (the plan's table).
-DIVIDEND_TABLES = (DIVIDEND_TABLE, DIVIDEND_OBJECT_TABLE)
-SPEC_READ_TABLE = "silver.court_auction_sale_specification_read"
-SPEC_TABLES = (SPEC_READ_TABLE,)
 CASE_READ_TABLE = "silver.court_auction_case_document_read"
 CASE_READ_KEY = ("court_office_code", "case_no", "document", "asked_round")
 RELATED_TABLE = "silver.court_auction_case_related"
@@ -150,11 +125,9 @@ CASE_DOCUMENT_TABLES = {
 # their objects fell through to the search path, a KeyError on the first night they were collected).
 CASE_ROLES = tuple(CASE_DOCUMENT_TABLES)
 CASE_LATEST_KEYS = {CASE_TABLE: CASE, SURVEY_TABLE: ROUND, APPRAISAL_TABLE: ROUND, CASE_READ_TABLE: CASE_READ_KEY,
-                    NOTICE_TABLE: NOTICE_KEY, DIVIDEND_TABLE: CASE, DIVIDEND_OBJECT_TABLE: DIVIDEND_OBJECT_KEY}
+                    NOTICE_TABLE: NOTICE_KEY}
 CASE_EDITION_PER = {RELATED_TABLE: CASE, CASE_OBJECT_TABLE: CASE, PARTY_TABLE: CASE, SURVEY_OBJECT_TABLE: ROUND,
                     FILING_TABLE: CASE, DELIVERY_TABLE: CASE, TENANT_TABLE: ROUND, NOTICE_ITEM_TABLE: NOTICE_KEY}
-CODE_TABLE = "silver.court_auction_code"
-CODE_KEY = ("system_code", "owner_code", "group_code", "code")
 
 
 def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
@@ -368,7 +341,7 @@ def search_roles(contract: Mapping[str, Any]) -> dict[str, str]:
     """Source slug → the search its objects hold (root ADR-0014 `{provider}__{dataset}`)."""
 
     roles = {f"courtauctiongokr__{contract[role]['dataset_slug']}": role
-             for role in (*ROLE_TABLE, DETAIL_ROLE, CODES_ROLE, REPORTS_ROLE, SPECS_ROLE, NOTICES_ROLE, DIVIDENDS_ROLE)}
+             for role in (*ROLE_TABLE, DETAIL_ROLE, NOTICES_ROLE)}
     for document in contract["case_documents"]["documents"]:
         roles[f"courtauctiongokr__{document['dataset_slug']}"] = document["role"]
     return roles
@@ -414,28 +387,10 @@ def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], prefixes:
 
     with gzip.open(entry["path"], "rt", encoding="utf-8") as handle:
         lines = [json.loads(line) for line in handle if line.strip()]
-    if entry["role"] == CODES_ROLE:
-        return {"object_key": entry["object_key"], "complete": True,
-                "rows": code_rows_of(lines, contract[CODES_ROLE], entry["object_key"], entry["source_snapshot_id"],
-                                     ingested_at)}
-    if entry["role"] == REPORTS_ROLE:
-        tables = report_rows_of(lines, entry["object_key"], entry["source_snapshot_id"], ingested_at)
-        return {"object_key": entry["object_key"], "complete": True, "rows": tables[REPORT_READ_TABLE],
-                "tables": tables}
-    if entry["role"] == DIVIDENDS_ROLE:
-        tables = dividend_rows_of(lines, contract[DIVIDENDS_ROLE], entry["object_key"], entry["source_snapshot_id"],
-                                  ingested_at)
-        return {"object_key": entry["object_key"], "complete": True, "rows": tables[DIVIDEND_OBJECT_TABLE],
-                "tables": tables}
     if entry["role"] == NOTICES_ROLE:
         tables = notice_rows_of(lines, contract[NOTICES_ROLE], entry["object_key"], entry["source_snapshot_id"],
                                 ingested_at)
         return {"object_key": entry["object_key"], "complete": True, "rows": tables[NOTICE_ITEM_TABLE],
-                "tables": tables}
-    if entry["role"] == SPECS_ROLE:
-        tables = {SPEC_READ_TABLE: spec_read_rows_of(lines, entry["object_key"], entry["source_snapshot_id"],
-                                                     ingested_at)}
-        return {"object_key": entry["object_key"], "complete": True, "rows": tables[SPEC_READ_TABLE],
                 "tables": tables}
     if entry["role"] in CASE_ROLES:
         tables = case_document_rows(lines, contract["case_documents"], entry["role"], entry["object_key"],
@@ -509,37 +464,6 @@ def detail_rows_of(lines: Sequence[Mapping[str, Any]], detail: Mapping[str, Any]
                           for table, rows in documents.items()}}
 
 
-def code_rows_of(lines: Sequence[Mapping[str, Any]], codes: Mapping[str, Any], object_key: str, snapshot_id: str,
-                 ingested_at: datetime) -> list[dict[str, Any]]:
-    """A 공통코드 object's rows: one per (system, owner, group, code) a read answer lists
-    (`common_codes.result_pointer`), the last naming it winning. A failed read gives none."""
-
-    found: dict[tuple, dict[str, Any]] = {}
-    for number, line in enumerate(lines, start=1):
-        if line.get("read_outcome") != "read":
-            continue
-        try:
-            listed: Any = json.loads(line.get("body") or "")
-        except ValueError:
-            continue
-        for part in codes["result_pointer"].strip("/").split("/"):
-            listed = listed.get(part) if isinstance(listed, dict) else None
-        for item in _list(listed):
-            system, group, code = (text_or_none(item.get(f)) for f in ("systmCd", "intgGrpCd", "intgCd"))
-            if not system or not group or code is None:
-                continue
-            row = {"system_code": system, "owner_code": text_or_none(item.get("intgCdOnrIdntId")) or system,
-                   "group_code": group, "code": code, "name": text_or_none(item.get("intgCdNm")),
-                   "owner_kind_code": text_or_none(item.get("intgCdOnrDvsCd")),
-                   "listed_codes_raw": text_or_none(item.get("intgInscrtMtjrCdLstCtt")),
-                   "first_extra_raw": text_or_none(item.get("fstmIntgCdAddCtt")),
-                   "second_extra_raw": text_or_none(item.get("scntmIntgCdAddCtt")),
-                   "source_record_id": object_key, "source_line_number": number, "source_snapshot_id": snapshot_id,
-                   "ingested_at_utc": ingested_at}
-            found[tuple(row[k] for k in CODE_KEY)] = row
-    return list(found.values())
-
-
 def case_document_rows(lines: Sequence[Mapping[str, Any]], documents: Mapping[str, Any], role: str, object_key: str,
                        snapshot_id: str, ingested_at: datetime) -> dict[str, list[dict[str, Any]]]:
     """A 사건상세, 현황조사 or 감정평가 object's rows (root ADR-0540 §1, §4), per table of
@@ -591,36 +515,6 @@ def case_document_rows(lines: Sequence[Mapping[str, Any]], documents: Mapping[st
                     tables[table][tuple(owner[k] for k in group)] = stamped
     return {table: [row for value in rows.values() for row in (value if isinstance(value, list) else [value])]
             for table, rows in tables.items()}
-
-
-def report_rows_of(lines: Sequence[Mapping[str, Any]], object_key: str, snapshot_id: str,
-                   ingested_at: datetime) -> dict[str, list[dict[str, Any]]]:
-    """A 감정평가서 object's rows: one read row per line, and one report row per line that stored a
-    file (its outcome `stored` with a hash), the last naming a round key winning."""
-
-    tables: dict[str, dict[tuple, dict[str, Any]]] = {REPORT_TABLE: {}, REPORT_READ_TABLE: {}}
-    for number, line in enumerate(lines, start=1):
-        asked = line.get("request") or {}
-        key = {"court_office_code": text_or_none(asked.get("court_office_code")),
-               "case_no": text_or_none(asked.get("case_no")), "round_seq": whole(asked.get("round_seq")),
-               "appraisal_no": text_or_none(asked.get("appraisal_no")), "written_date": ymd(asked.get("written_date"))}
-        if any(value is None for value in key.values()):
-            raise ValueError(f"{object_key} line {number}: a report read without its key")
-        load = {"source_record_id": object_key, "source_line_number": number, "source_snapshot_id": snapshot_id,
-                "ingested_at_utc": ingested_at}
-        facts = line.get("facts") or {}
-        requested = _utc(line.get("requested_at_utc")) or ingested_at
-        sha256 = text_or_none(line.get("sha256"))
-        outcome = text_or_none(line.get("outcome")) or "failed"
-        read = {**key, "outcome": outcome, "http_status": whole(facts.get("http_status")),
-                "file_http_status": whole(facts.get("file_http_status")), "sha256": sha256,
-                "requested_at_utc": requested, **load}
-        tables[REPORT_READ_TABLE][tuple(key.values())] = read
-        if outcome == "stored" and sha256 and text_or_none(line.get("media_format")):
-            tables[REPORT_TABLE][tuple(key.values())] = {
-                **key, "sha256": sha256, "media_format": line["media_format"],
-                "size_bytes": whole(line.get("size_bytes")), "requested_at_utc": requested, **load}
-    return {table: list(rows.values()) for table, rows in tables.items()}
 
 
 HTML_TAG = re.compile(r"<[^>]+>")
@@ -714,85 +608,6 @@ def notice_rows_of(lines: Sequence[Mapping[str, Any]], notices: Mapping[str, Any
         lists[tuple(key.values())] = rows
     return {NOTICE_TABLE: list(notices_by_key.values()),
             NOTICE_ITEM_TABLE: [row for rows in lists.values() for row in rows]}
-
-
-def dividend_rows_of(lines: Sequence[Mapping[str, Any]], notices: Mapping[str, Any], object_key: str,
-                     snapshot_id: str, ingested_at: datetime) -> dict[str, list[dict[str, Any]]]:
-    """A 배당요구종기공고 object's rows (root ADR-0575 §6): one notice row per listed case and one row per
-    property of each case's 물건 list, the last line naming a key winning. The list's creditor,
-    debtor and owner fields (`rprs*Nm`, `real*`) name people and are never read."""
-
-    notice_rows: dict[tuple, dict[str, Any]] = {}
-    object_rows: dict[tuple, dict[str, Any]] = {}
-    for number, line in enumerate(lines, start=1):
-        if line.get("read_outcome") != "read":
-            continue
-        try:
-            data = (json.loads(line.get("body") or "") or {}).get("data")
-        except (ValueError, AttributeError):
-            continue
-        if not isinstance(data, Mapping):
-            continue
-        load = {"source_record_id": object_key, "source_line_number": number, "source_snapshot_id": snapshot_id,
-                "ingested_at_utc": ingested_at}
-        if line.get("operation") == notices["operation"]:
-            for row in _list(data.get("dlt_lstprdPbancCorOfc")):
-                key = {"court_office_code": text_or_none(row.get("cortOfcCd")), "case_no": text_or_none(row.get("csNo"))}
-                if any(v is None for v in key.values()):
-                    continue
-                notice_rows[tuple(key.values())] = {
-                    **key, "user_case_no": text_or_none(row.get("userCsNo")),
-                    "department_code": text_or_none(row.get("jdbnCd")),
-                    "department_name": text_or_none(row.get("cortAuctnJdbnNm")),
-                    "order_kind_code": text_or_none(row.get("orddcsDvsCd")),
-                    "commencement_date": ymd(row.get("csCmdcYmd")), "notice_date": ymd(row.get("dstrtDemnLstprdPbancYmd")),
-                    "deadline_date": ymd(row.get("dstrtDemnLstprdYmd")), "object_count": whole(row.get("dspslObjctCnt")),
-                    "list_kind_code": text_or_none(row.get("auctnLstDvsCd")),
-                    "lot_raw": text_or_none(row.get("rprsLtnoAddr")), "building_name": text_or_none(row.get("bldNm")),
-                    "print_address_raw": text_or_none(row.get("realSt")), **load}
-        elif line.get("operation") == notices["objects_operation"]:
-            for row in _list(data.get("dlt_dstrtDemnLstDts")):
-                key = {"court_office_code": text_or_none(row.get("cortOfcCd")), "case_no": text_or_none(row.get("csNo")),
-                       "object_seq": whole(row.get("dspslObjctSeq"))}
-                if any(v is None for v in key.values()):
-                    continue
-                object_rows[tuple(key.values())] = {
-                    **key, "registry_unique_no": text_or_none(row.get("objctRletCarUnqNo")),
-                    "list_kind_code": text_or_none(row.get("auctnLstDvsCd")), "usage_name": text_or_none(row.get("usgNm")),
-                    "register_record": text_or_none(row.get("rgstRcrd")), "lot_raw": text_or_none(row.get("rprsLtnoAddr")),
-                    "building_name": text_or_none(row.get("bldNm")), "building_unit_raw": text_or_none(row.get("bldDtlDts")),
-                    "print_address_raw": text_or_none(row.get("realSt")), **load}
-    return {DIVIDEND_TABLE: list(notice_rows.values()), DIVIDEND_OBJECT_TABLE: list(object_rows.values())}
-
-
-def spec_read_rows_of(lines: Sequence[Mapping[str, Any]], object_key: str, snapshot_id: str,
-                      ingested_at: datetime) -> list[dict[str, Any]]:
-    """A 매각물건명세서 object's rows: one per version asked, the last naming a version winning. The
-    line carries no name; the row keeps the document's name and written date, never a person's."""
-
-    rows: dict[tuple, dict[str, Any]] = {}
-    for number, line in enumerate(lines, start=1):
-        asked = line.get("request") or {}
-        key = {"court_office_code": text_or_none(asked.get("court_office_code")),
-               "case_no": text_or_none(asked.get("case_no")), "item_seq": text_or_none(asked.get("item_seq")),
-               "document_id": text_or_none(asked.get("document_id"))}
-        if any(value is None for value in key.values()):
-            raise ValueError(f"{object_key} line {number}: a specification read without its key")
-        facts = line.get("facts") or {}
-        rows[tuple(key.values())] = {
-            **key, "spec_written_date": ymd(asked.get("written_date")),
-            "document_name": text_or_none(facts.get("document_name")),
-            "document_written_date": ymd(facts.get("document_written_ymd")),
-            "outcome": text_or_none(line.get("outcome")) or "failed",
-            "log_http_status": whole(facts.get("log_http_status")),
-            "info_http_status": whole(facts.get("info_http_status")),
-            "file_http_status": whole(facts.get("file_http_status")),
-            "sha256": text_or_none(line.get("sha256")), "media_format": text_or_none(line.get("media_format")),
-            "size_bytes": whole(line.get("size_bytes")),
-            "requested_at_utc": _utc(line.get("requested_at_utc")) or ingested_at,
-            "source_record_id": object_key, "source_line_number": number, "source_snapshot_id": snapshot_id,
-            "ingested_at_utc": ingested_at}
-    return list(rows.values())
 
 
 def case_answer_rows(role: str, data: Mapping[str, Any], case_key: Mapping[str, Any],
@@ -1222,34 +1037,6 @@ def load_detail_object(spark: Any, args: argparse.Namespace, entry: Mapping[str,
     return counts
 
 
-def load_code_object(spark: Any, args: argparse.Namespace, entry: Mapping[str, Any],
-                     search: Mapping[str, Any]) -> dict[str, Any]:
-    """Commits one 공통코드 object: the codes whose name (or extra fields) changed, empty if none, so
-    the table records it (root ADR-0540 §5)."""
-
-    from silver_release_compare import changed_only  # noqa: PLC0415 - the same changed-key compare
-    from lakehouse_ingest import append_source_object  # noqa: PLC0415
-    from platform_contracts import (  # noqa: PLC0415
-        column_names, current_rows, ensure_contract_table, load_lakehouse_contract, spark_sql_type,
-    )
-
-    contract = load_lakehouse_contract(CODE_TABLE)
-    table = f"`{args.iceberg_catalog_name}`.`silver`.`{CODE_TABLE.split('.', 1)[1]}{args.table_suffix}`"
-    ensure_contract_table(spark, table, contract)
-    columns = list(column_names(contract))
-    ddl = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
-    staged = spark.createDataFrame([tuple(row.get(c) for c in columns) for row in search["rows"]], ddl)
-    content = [c for c in columns if c not in (*CODE_KEY, *LOAD_COLUMNS)]
-    staged = changed_only(staged, current_rows(spark.table(table), contract), CODE_KEY, content)
-    staged = staged.select(*columns).cache()
-    counts = {"object": entry["object_key"], "role": CODES_ROLE, "rows": len(search["rows"]),
-              "appended_rows": staged.count()}
-    counts["appended"] = append_source_object(spark, staged, columns, table, entry["object_key"],
-                                              contract_table=CODE_TABLE)
-    staged.unpersist()
-    return counts
-
-
 def load_case_document_object(spark: Any, args: argparse.Namespace, entry: Mapping[str, Any],
                               search: Mapping[str, Any]) -> dict[str, Any]:
     """Commits one 사건상세, 현황조사 or 감정평가 object, table by table in `CASE_DOCUMENT_TABLES` order:
@@ -1264,9 +1051,7 @@ def load_case_document_object(spark: Any, args: argparse.Namespace, entry: Mappi
 
     role = entry["role"]
     counts: dict[str, Any] = {"object": entry["object_key"], "role": role, "rows": len(search["rows"])}
-    tables = ({REPORTS_ROLE: REPORT_TABLES, SPECS_ROLE: SPEC_TABLES, NOTICES_ROLE: NOTICE_TABLES,
-               DIVIDENDS_ROLE: DIVIDEND_TABLES}.get(role)
-              or CASE_DOCUMENT_TABLES[role])
+    tables = NOTICE_TABLES if role == NOTICES_ROLE else CASE_DOCUMENT_TABLES[role]
     for name in tables:
         contract = load_lakehouse_contract(name)
         table = f"`{args.iceberg_catalog_name}`.`silver`.`{name.split('.', 1)[1]}{args.table_suffix}`"
@@ -1278,10 +1063,7 @@ def load_case_document_object(spark: Any, args: argparse.Namespace, entry: Mappi
             per = CASE_EDITION_PER[name]
             content = [c for c in columns if c not in (*per, *LOAD_COLUMNS)]
             staged = changed_editions(staged, current_rows(spark.table(table), contract), per, content)
-        elif name == REPORT_TABLE:
-            content = [c for c in columns if c not in (*REPORT_KEY, *LOAD_COLUMNS)]
-            staged = changed_only(staged, current_rows(spark.table(table), contract), REPORT_KEY, content)
-        elif name not in (CASE_READ_TABLE, REPORT_READ_TABLE, SPEC_READ_TABLE):
+        elif name != CASE_READ_TABLE:
             key = CASE_LATEST_KEYS[name]
             content = [c for c in columns if c not in (*key, *LOAD_COLUMNS)]
             staged = changed_only(staged, current_rows(spark.table(table), contract), key, content)
@@ -1414,10 +1196,7 @@ def _load(argv: Sequence[str]) -> int:
             if role == DETAIL_ROLE:
                 summary["objects"].append(load_detail_object(spark, args, entry, search))
                 continue
-            if role == CODES_ROLE:
-                summary["objects"].append(load_code_object(spark, args, entry, search))
-                continue
-            if role in (*CASE_ROLES, REPORTS_ROLE, SPECS_ROLE, NOTICES_ROLE, DIVIDENDS_ROLE):
+            if role in (*CASE_ROLES, NOTICES_ROLE):
                 summary["objects"].append(load_case_document_object(spark, args, entry, search))
                 continue
             contract_table = ROLE_TABLE[role]

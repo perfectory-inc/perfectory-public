@@ -59,6 +59,8 @@ REGISTRY_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/du
                        "a_parcel_registry_step_is_the_first_append_into_the_empty_table")
 HISTORY_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
                       "a_parcel_number_change_file_is_the_first_append_into_the_empty_table")
+COURT_AUCTION_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
+                            "a_court_auction_object_is_the_first_append_into_each_empty_table")
 # A table whose job writes it its own way: the test that loads its empty table, as module.Class.method.
 OWN_WRITERS = {
     "silver.administrative_boundaries": "test_silver_first_load_iceberg.AdministrativeBoundariesFirstLoadTest."
@@ -107,6 +109,13 @@ OWN_WRITERS = {
     "silver.parcel_registry": REGISTRY_FIRST_LOAD,
     # The official parcel number changes, appended by the publisher the same way (root ADR-0559).
     "silver.parcel_number_change_history": HISTORY_FIRST_LOAD,
+    # The 법원경매정보 tables the publisher's DuckDB load appends (root ADR-0559).
+    "silver.court_auction_code": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_appraisal_report": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_appraisal_report_read": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_sale_specification_read": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_dividend_notice": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_dividend_object": COURT_AUCTION_FIRST_LOAD,
 }
 RUST_TEST = "rust:"
 

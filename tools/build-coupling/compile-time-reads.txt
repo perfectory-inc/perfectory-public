@@ -59,6 +59,8 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/b
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_master_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_sub_parcel_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/code_go_kr_legal_dong_contract.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs:7
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage/tests.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/data_go_kr_file_data_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_extensions.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage.rs:2
@@ -73,7 +75,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/l
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/legal_dong_pairing_stage.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage/tests.rs:2
-platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs:6
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs:5
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_schedule.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs:2
@@ -95,6 +97,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/r
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/silver_refresh/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/tests.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/sigungu_crosswalk.rs:3
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/silver_changes.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/vworld_cadastral_shapefile_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/lakehouse_tile_bake.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/lakehouse_tile_patch.rs:1

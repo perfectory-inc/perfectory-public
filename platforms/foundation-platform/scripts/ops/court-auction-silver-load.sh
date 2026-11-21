@@ -37,7 +37,7 @@ work="${LAKEHOUSE_STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "court-auction silver load FAILED at line ${LINENO} run=${run_id}" >&2; job_run_log_tail "${run_log}"' ERR
-trap 'rm -rf "${work}/items" "${work}/results" "${work}/details" "${work}/documents" "${work}/codes" "${work}/cases" "${work}/surveys" "${work}/appraisals" "${work}/filings" "${work}/tenants" "${work}/reports" "${work}/specs" "${work}/notices" "${work}/dividends"' EXIT
+trap 'rm -rf "${work}/items" "${work}/results" "${work}/details" "${work}/documents" "${work}/codes" "${work}/cases" "${work}/surveys" "${work}/appraisals" "${work}/filings" "${work}/tenants" "${work}/notices" "${work}/duckdb"' EXIT
 
 read -r window_days max_objects item_slug result_slug detail_slug code_slug case_slug survey_slug appraisal_slug filing_slug tenant_slug report_slug spec_slug notice_slug dividend_slug < <(python3 -I -c '
 import json, sys
@@ -64,22 +64,33 @@ owed_items="$(plan silver.court_auction_item "${item_slug}" "${work}/items")"
 owed_results="$(plan silver.court_auction_sale_result "${result_slug}" "${work}/results")"
 owed_details="$(plan silver.court_auction_item_detail "${detail_slug}" "${work}/details")"
 owed_documents="$(plan silver.court_auction_appraisal_point "${detail_slug}" "${work}/documents")"
-owed_codes="$(plan silver.court_auction_code "${code_slug}" "${work}/codes")"
+owed_codes="$(plan silver.court_auction_code "${code_slug}" "${work}/duckdb/codes")"
 owed_cases="$(plan silver.court_auction_case_document_read "${case_slug}" "${work}/cases")"
 owed_surveys="$(plan silver.court_auction_case_document_read "${survey_slug}" "${work}/surveys")"
 owed_appraisals="$(plan silver.court_auction_case_document_read "${appraisal_slug}" "${work}/appraisals")"
 owed_filings="$(plan silver.court_auction_case_document_read "${filing_slug}" "${work}/filings")"
 owed_tenants="$(plan silver.court_auction_case_document_read "${tenant_slug}" "${work}/tenants")"
-owed_reports="$(plan silver.court_auction_appraisal_report_read "${report_slug}" "${work}/reports")"
-owed_specs="$(plan silver.court_auction_sale_specification_read "${spec_slug}" "${work}/specs")"
+owed_reports="$(plan silver.court_auction_appraisal_report_read "${report_slug}" "${work}/duckdb/reports")"
+owed_specs="$(plan silver.court_auction_sale_specification_read "${spec_slug}" "${work}/duckdb/specs")"
 owed_notices="$(plan silver.court_auction_sale_notice_item "${notice_slug}" "${work}/notices")"
-owed_dividends="$(plan silver.court_auction_dividend_object "${dividend_slug}" "${work}/dividends")"
-owed_case_documents=$((owed_cases + owed_surveys + owed_appraisals + owed_filings + owed_tenants + owed_reports + owed_specs + owed_notices + owed_dividends))
-if [ "${owed_items}" = 0 ] && [ "${owed_results}" = 0 ] && [ "${owed_details}" = 0 ] && [ "${owed_documents}" = 0 ]   && [ "${owed_codes}" = 0 ] && [ "${owed_case_documents}" = 0 ]; then
+owed_dividends="$(plan silver.court_auction_dividend_object "${dividend_slug}" "${work}/duckdb/dividends")"
+owed_case_documents=$((owed_cases + owed_surveys + owed_appraisals + owed_filings + owed_tenants + owed_notices))
+# The documents that left Spark: 공통코드, 감정평가서, 매각물건명세서, 배당요구종기공고 (root ADR-0559).
+owed_duckdb=$((owed_codes + owed_reports + owed_specs + owed_dividends))
+if [ "${owed_items}" = 0 ] && [ "${owed_results}" = 0 ] && [ "${owed_details}" = 0 ] && [ "${owed_documents}" = 0 ]   && [ "${owed_duckdb}" = 0 ] && [ "${owed_case_documents}" = 0 ]; then
   job_journal "${journal}" "court-auction silver load: nothing owed run=${run_id}"
   printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
+duckdb_summary=""
+if [ "${owed_duckdb}" != 0 ]; then
+  FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT="${work}/duckdb" \
+    "${PUBLISHER_BIN}" load-courtauction-go-kr-silver >> "${run_log}" 2>&1
+  duckdb_summary="$(grep '^courtauction-go-kr-duckdb-summary-json ' "${run_log}" | tail -1)"
+fi
+summary=""
+if [ "${owed_items}" != 0 ] || [ "${owed_results}" != 0 ] || [ "${owed_details}" != 0 ] || [ "${owed_documents}" != 0 ] \
+   || [ "${owed_case_documents}" != 0 ]; then
 chmod -R a+rX "${work}" # Spark 컨테이너는 uid 185 로 읽는다.
 
 lakehouse_run_log "${run_log}"
@@ -94,26 +105,25 @@ lakehouse_spark_run foundation-platform-compute \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/items" \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/results" \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/details" \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/documents"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/codes"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/cases"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/surveys"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/appraisals" \
+  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/documents"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/cases"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/surveys"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/appraisals" \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/filings" \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/tenants" \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/reports"   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/specs" \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/notices" \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/dividends" \
   --allow-non-smoke-write >> "${run_log}" 2>&1
 
 summary="$(grep '^court-auction-summary-json ' "${run_log}" | tail -1)"
+fi
 # An object no load recorded for longer than the window means loads have been failing: it is loaded
 # now, and the run fails so the gap raises an alert (the plan names it `late`).
 late="$(python3 -I -c '
 import json, sys
 print(sum(len(json.load(open(p, encoding="utf-8")).get("selection", {}).get("late", [])) for p in sys.argv[1:]))
-' "${work}/items/plan.json" "${work}/results/plan.json" "${work}/details/plan.json" "${work}/documents/plan.json"   "${work}/codes/plan.json" "${work}/cases/plan.json" "${work}/surveys/plan.json" "${work}/appraisals/plan.json" "${work}/filings/plan.json" "${work}/tenants/plan.json" \
-  "${work}/reports/plan.json" "${work}/specs/plan.json" "${work}/notices/plan.json" "${work}/dividends/plan.json")"
+' "${work}/items/plan.json" "${work}/results/plan.json" "${work}/details/plan.json" "${work}/documents/plan.json"   "${work}/duckdb/codes/plan.json" "${work}/cases/plan.json" "${work}/surveys/plan.json" "${work}/appraisals/plan.json" "${work}/filings/plan.json" "${work}/tenants/plan.json" \
+  "${work}/duckdb/reports/plan.json" "${work}/duckdb/specs/plan.json" "${work}/notices/plan.json" "${work}/duckdb/dividends/plan.json")"
 if [ "${late}" != 0 ]; then
   job_journal "${journal}" "court-auction silver load LATE run=${run_id}: loaded ${late} object(s) older than ${window_days} days that no load had recorded ${summary}" >&2
   echo "court-auction silver load: ${late} Bronze object(s) waited more than ${window_days} days unloaded; they are loaded now, and this run fails so the gap is seen" >&2
   exit 1
 fi
-job_journal "${journal}" "court-auction silver load ok run=${run_id} owed=${owed_items}+${owed_results}+${owed_details}+${owed_documents}+${owed_codes}+${owed_case_documents} ${summary}"
+job_journal "${journal}" "court-auction silver load ok run=${run_id} owed=${owed_items}+${owed_results}+${owed_details}+${owed_documents}+${owed_duckdb}+${owed_case_documents} ${duckdb_summary} ${summary}"
 printf 'foundation-job-outcome changed\n'

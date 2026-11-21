@@ -805,6 +805,59 @@ async fn an_onbid_object_is_the_first_append_into_each_empty_table() -> anyhow::
     Ok(())
 }
 
+/// The 법원경매정보 `DuckDB` load's first object into each of the six tables its 공통코드, 감정평가서,
+/// 매각물건명세서 and 배당요구종기공고 write, as `load-courtauction-go-kr-silver` appends it.
+///
+/// Into a catalog that holds none of them yet: the load makes each table before its first commit.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_court_auction_object_is_the_first_append_into_each_empty_table() -> anyhow::Result<()> {
+    let tables = [
+        contract("silver.court_auction_code")?,
+        contract("silver.court_auction_appraisal_report")?,
+        contract("silver.court_auction_appraisal_report_read")?,
+        contract("silver.court_auction_sale_specification_read")?,
+        contract("silver.court_auction_dividend_notice")?,
+        contract("silver.court_auction_dividend_object")?,
+    ];
+    let root = tempfile::tempdir()?;
+    let catalog: Arc<dyn Catalog> = Arc::new(
+        MemoryCatalogBuilder::default()
+            .with_storage_factory(Arc::new(LocalFsStorageFactory))
+            .load(
+                "memory",
+                HashMap::from([(
+                    MEMORY_CATALOG_WAREHOUSE.to_owned(),
+                    root.path()
+                        .join("warehouse")
+                        .to_str()
+                        .context("the warehouse path must be UTF-8")?
+                        .to_owned(),
+                )]),
+            )
+            .await?,
+    );
+    catalog
+        .create_namespace(&NamespaceIdent::new("silver".to_owned()), HashMap::new())
+        .await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    // One stage for the whole test: its files live as long as it does.
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    for table in tables {
+        assert!(
+            committer.create_table_if_absent(table).await?,
+            "{}",
+            table.table_name
+        );
+        let shape = committer.table_shape(table.table_name).await?;
+        let name = format!("{}-first", short_name(table)?);
+        let file = stage.write(&shape, &synthetic_row(table)?, &name)?;
+        let object = "bronze/source=synthetic/ca-20990102t030405z.gz";
+        let first = first_append(&catalog, table, file, object).await?;
+        assert_eq!(first, (None, 1), "{}", table.table_name);
+    }
+    Ok(())
+}
+
 /// The data.go.kr file data Silver load's first edition into each of its fourteen empty tables
 /// (root ADR-0389), as `load-data-go-kr-file-data-silver` appends it.
 #[tokio::test(flavor = "multi_thread")]

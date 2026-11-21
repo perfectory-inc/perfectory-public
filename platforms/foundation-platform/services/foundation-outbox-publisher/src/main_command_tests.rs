@@ -268,6 +268,18 @@ fn load_parcel_number_change_history_command_is_explicit() -> anyhow::Result<()>
 }
 
 #[test]
+fn load_courtauction_go_kr_silver_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-courtauction-go-kr-silver"
+        ])?,
+        Command::LoadCourtauctionGoKrSilver
+    );
+    Ok(())
+}
+
+#[test]
 fn load_data_go_kr_onbid_silver_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
