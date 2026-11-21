@@ -78,6 +78,8 @@ const DOCUMENT_SETUP_SQL: &str = include_str!("real_transaction_gold_stage/docum
 const DOCUMENT_SQL: &str = include_str!("real_transaction_gold_stage/document.sql");
 /// The values `region_stats.sql` takes from its caller.
 const AS_OF: &str = "{as_of}";
+/// The 시군구 (a PNU's first five digits) `document.sql` builds.
+const CHUNK: &str = "{chunk}";
 const TRAILING_FROM: &str = "{trailing_from}";
 const AS_OF_MONTH: &str = "{as_of_month}";
 
@@ -364,7 +366,7 @@ pub fn gold_rows(
             "a PNU prefix {chunk:?} is not digits"
         );
         connection
-            .execute_batch(&per_chunk.replace("{chunk}", &chunk))
+            .execute_batch(&per_chunk.replace(CHUNK, &chunk))
             .with_context(|| format!("DuckDB failed to build the 실거래 Gold rows of {chunk}"))?;
     }
     let rows: i64 = connection.query_row("SELECT count(*) FROM gold_rows", [], |row| row.get(0))?;
