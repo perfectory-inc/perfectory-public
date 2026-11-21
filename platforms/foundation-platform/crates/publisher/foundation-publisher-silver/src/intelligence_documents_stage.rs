@@ -72,7 +72,7 @@ pub fn relation(
                 .columns
                 .iter()
                 .map(|column| Ok(format!(
-                    "CAST(NULL AS {}) AS {}",
+                    "CAST(NULL AS {}) AS \"{}\"",
                     duckdb_type(column.logical_type)?,
                     column.name
                 )))
@@ -476,16 +476,18 @@ pub fn stage_run_rows(
                 return Ok(format!("{} AS run_id", literal(run_id)));
             }
             let raw = format!("json_extract_string(line, '$.{name}')");
+            // Quoted: a column may be a word SQL keeps (`check`).
+            let quoted = format!("\"{name}\"");
             Ok(match column.logical_type {
-                "string" => format!("{raw} AS {name}"),
-                "int" => format!("CAST({raw} AS INTEGER) AS {name}"),
-                "long" => format!("CAST({raw} AS BIGINT) AS {name}"),
+                "string" => format!("{raw} AS {quoted}"),
+                "int" => format!("CAST({raw} AS INTEGER) AS {quoted}"),
+                "long" => format!("CAST({raw} AS BIGINT) AS {quoted}"),
                 // No time zone database is loaded: the instant is UTC text, counted in microseconds.
                 "timestamp" => format!(
                     "CASE WHEN {raw} IS NULL THEN NULL \
                      WHEN regexp_full_match({raw}, '[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}Z') \
                      THEN to_timestamp(epoch_us(CAST(replace(replace({raw}, 'T', ' '), 'Z', '') AS TIMESTAMP)) // 1000000) \
-                     ELSE error('{name} is not an instant like 2099-01-01T00:00:00Z: ' || {raw}) END AS {name}"
+                     ELSE error('{name} is not an instant like 2099-01-01T00:00:00Z: ' || {raw}) END AS {quoted}"
                 ),
                 other => bail!("{table}.{name}: a run file column of type {other} has no reader"),
             })
@@ -516,10 +518,12 @@ pub const FOLD_ROWS_FILE: &str = "fold-rows.jsonl";
 
 /// `fold-complex-facts`, the read: the complexes in scope and their joined fact rows.
 ///
-/// In scope are the complexes whose attachments got facts in run `run_id`; every complex with
-/// `all`, or when the table holds rows folded under another gate or fact version (the declared
-/// full refold, root ADR-0477 §3). Each fact is joined to its attachment, its notice and the page
-/// it was read on.
+/// In scope are the complexes whose attachments got facts in run `run_id`, and every complex
+/// whose newest panel fact is of a later run than the run that folded it (or that no run folded):
+/// a fold covers what changed and leaves nothing behind (2026-11-21: 32 complexes had facts of
+/// runs whose fold was skipped, and no row at all). Every complex with `all`, or when the table
+/// holds rows folded under another gate or fact version (the declared full refold, root ADR-0477
+/// §3). Each fact is joined to its attachment, its notice and the page it was read on.
 ///
 /// `gate_json` is the admitted `(fact_kind, method, page_method)` list as the fold writes it.
 ///
@@ -541,6 +545,11 @@ pub fn export_fold_inputs(
     let [held, attachments, facts, details, pages] = relations;
     let version = text(extraction, &["document_fact", "extractor_version"])?;
     let kinds = in_list(&PANEL_KINDS.map(str::to_owned));
+    let quoted_facts: Vec<String> = fact_contract
+        .columns
+        .iter()
+        .map(|column| format!("\"{}\"", column.name))
+        .collect();
     stage.connection().execute_batch(&format!(
         "CREATE OR REPLACE TEMP TABLE id_held AS {held_now};
          CREATE OR REPLACE TEMP TABLE id_attachments AS {attachments_now};
@@ -549,17 +558,18 @@ pub fn export_fold_inputs(
         held_now = current(
             held_contract,
             held,
-            &["official_complex_code", "accuracy_gate_json", "fact_extractor_version"]
+            &["official_complex_code", "accuracy_gate_json", "fact_extractor_version", "run_id"]
         )?,
         attachments_now = current(
             attachment_contract,
             attachments,
             &["official_complex_code", "notice_sequence", "sha256", "file_sequence", "file_title", "media_format"]
         )?,
+        // Quoted: the facts have a column named `check`, a word SQL keeps.
         facts_now = current(
             fact_contract,
             facts,
-            &fact_contract.columns.iter().map(|column| column.name).collect::<Vec<_>>()
+            &quoted_facts.iter().map(String::as_str).collect::<Vec<_>>()
         )?,
         version = literal(&version),
     ))?;
@@ -578,9 +588,18 @@ pub fn export_fold_inputs(
          UNION SELECT official_complex_code FROM id_held"
             .to_owned()
     } else {
+        // This run's, and every complex left behind: one whose newest fact is of a later run than
+        // the run that folded it, or that no run folded. A fold that was skipped (the image failed
+        // and the fold waited) is made up by the next one, with nothing to ask for by hand.
         format!(
             "SELECT official_complex_code FROM id_attachments WHERE sha256 IN \
-             (SELECT sha256 FROM {facts} WHERE run_id = {})",
+             (SELECT sha256 FROM {facts} WHERE run_id = {}) \
+             UNION \
+             SELECT a.official_complex_code FROM id_attachments a \
+             JOIN id_fact_rows f ON f.sha256 = a.sha256 \
+             LEFT JOIN id_held h ON h.official_complex_code = a.official_complex_code \
+             GROUP BY a.official_complex_code, h.run_id \
+             HAVING h.run_id IS NULL OR max(f.run_id) > h.run_id",
             literal(run_id)
         )
     };
