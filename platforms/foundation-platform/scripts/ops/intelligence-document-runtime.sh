@@ -46,13 +46,14 @@ print("http://" + r["listen"], r["chat_path"], r["model"])'
 
 # One step of the lakehouse half: the publisher's `intelligence-documents` command, DuckDB inside
 # the publisher (root ADR-0559). It reads and writes the run's directory: plan/ and out/.
+# `publisher` is the job script's: the release's binary, from the admitted writer runtime it sources.
 intelligence_document_lakehouse() {
   FOUNDATION_PLATFORM_INTELLIGENCE_DOCUMENTS_STEP="$1" \
   FOUNDATION_PLATFORM_INTELLIGENCE_DOCUMENTS_EXTRACTION="${work}/extraction.json" \
   FOUNDATION_PLATFORM_INTELLIGENCE_DOCUMENTS_DIR="${work}" \
   FOUNDATION_PLATFORM_INTELLIGENCE_DOCUMENTS_RUN_ID="${run_id}" \
   FOUNDATION_PLATFORM_INTELLIGENCE_DOCUMENTS_PLATFORM_DIR="${RELEASE_ROOT}" \
-    "${PUBLISHER_BIN}" intelligence-documents >> "${run_log}" 2>&1
+    publisher intelligence-documents >> "${run_log}" 2>&1
 }
 
 # The fold rule (what a complex's panel may state), plain Python on the run's files.

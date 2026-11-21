@@ -280,8 +280,7 @@
       "status": "partial",
       "via": [
         "platforms/foundation-platform/scripts/ops/intelligence-document-fact.sh",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/intelligence_documents_load.rs",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/intelligence_documents.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/intelligence_documents_load.rs"
       ],
       "description": "인용 달린 사실 가운데 관문이 들인 (종류, 방법, 쪽 방법)만 단지의 패널 문서로 접는다(루트 ADR-0477 §1·§5). 첫 run 전이라 아직 흐르지 않는다."
     },
@@ -292,8 +291,7 @@
       "status": "partial",
       "via": [
         "platforms/foundation-platform/scripts/ops/intelligence-document-fact.sh",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/intelligence_documents_load.rs",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/intelligence_documents.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/intelligence_documents_load.rs"
       ],
       "description": "사실의 첨부 해시를 그 단지 코드와 첨부 순서로 잇는다. 첫 run 전이라 아직 흐르지 않는다."
     },
@@ -304,8 +302,7 @@
       "status": "partial",
       "via": [
         "platforms/foundation-platform/scripts/ops/intelligence-document-fact.sh",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/intelligence_documents_load.rs",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/intelligence_documents.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/intelligence_documents_load.rs"
       ],
       "description": "고시 번호·제목·고시일: 종류마다 가장 새 고시를 고르고 출처로 적는다. 첫 run 전이라 아직 흐르지 않는다."
     }

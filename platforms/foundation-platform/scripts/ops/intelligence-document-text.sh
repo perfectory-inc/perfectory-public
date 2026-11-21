@@ -17,6 +17,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/intelligence-document-runtime.sh"
 
+# The release's publisher (root ADR-0263), for the lakehouse steps of the sourced runtime.
+publisher() {
+  "${PUBLISHER_BIN}" "$@"
+}
+
 STATE_ROOT="${FOUNDATION_INTELLIGENCE_DOCUMENTS_STATE_ROOT:-/data/foundation-platform/intelligence-documents}"
 journal="${STATE_ROOT}/journal.log"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
