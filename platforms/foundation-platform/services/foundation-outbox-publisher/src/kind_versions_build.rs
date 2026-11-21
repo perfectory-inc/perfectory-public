@@ -175,9 +175,9 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let stage = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
-    let memory_limit = stage.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
-    let connection = stage.connection();
+    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
+    let memory_limit = duck.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
+    let connection = duck.connection();
     let new_pins = NearbyPins(pins.clone());
     let read = stage.load_inputs(
         connection,
@@ -242,7 +242,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     // Diff and check.
     let version_seq = base.as_ref().map_or(1, |base| base.version_seq + 1);
     let commit = Commit {
-        table: table,
+        table,
         versions: versions_contract,
         content_columns,
         key: "pnu",
@@ -292,7 +292,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     // Commit.
     let run = versions::run_id(table, &pins, &code, &edition);
     let shape = committer.table_shape(table).await?;
-    let files = versions::stage(&stage, &shape, &run, "pnu")?;
+    let files = versions::stage(&duck, &shape, &run, "pnu")?;
     let mut properties = std::collections::BTreeMap::from([
         (VERSION_SEQ_PROPERTY.to_owned(), version_seq.to_string()),
         (
@@ -316,7 +316,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     }
     let snapshot =
         versions::append(&committer, &catalog, &commit, &files, &run, properties).await?;
-    drop(stage);
+    drop(duck);
     let tags = versions::pin(&catalog, table, snapshot, &pins).await?;
     write_summary(
         &summary_path,
