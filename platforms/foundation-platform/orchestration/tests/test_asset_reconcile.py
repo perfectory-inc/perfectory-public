@@ -823,14 +823,14 @@ class MissedStarts(unittest.TestCase):
     was the next day's 11:40Z. A slot no start followed is owed one start, whatever kept it away.
 
     That load has since left Spark and its pool (root ADR-0559), and so have the registered factories
-    the replay ran on next, and parcel_registry after them is decided by Dagster, whose sensor keeps its own
-    missed ticks (root ADR-0583); it runs on building_register_floor, a daily Silver job still started from
-    the spark pool's queue."""
+    the replay ran on next, and the Gold and Silver jobs after them are decided by Dagster, whose sensor
+    keeps its own missed ticks (root ADR-0583); it runs on lakehouse_maintenance, the daily job Airflow still
+    decides in the spark pool's queue."""
 
-    JOB = "building_register_floor"
-    # 2026-11-09 16:20Z, the measurement of W30f; the job's slot is 08:20Z daily.
+    JOB = "lakehouse_maintenance"
+    # 2026-11-09 16:20Z, the measurement of W30f; the job's slot is 04:30Z daily.
     NOW = 1794241200
-    SLOT = 1794212400
+    SLOT = 1794198600
 
     @classmethod
     def setUpClass(cls):
@@ -843,8 +843,8 @@ class MissedStarts(unittest.TestCase):
         return [line for line in owed if line.split()[1] == self.JOB], metrics
 
     def test_the_slot_is_the_newest_daily_start_before_the_grace(self):
-        self.assertEqual(job_specs.previous_slot("20 8 * * *", self.NOW), self.SLOT)
-        self.assertEqual(job_specs.previous_slot("20 8 * * *", self.SLOT - 1), self.SLOT - 86400)
+        self.assertEqual(job_specs.previous_slot("30 4 * * *", self.NOW), self.SLOT)
+        self.assertEqual(job_specs.previous_slot("30 4 * * *", self.SLOT - 1), self.SLOT - 86400)
         self.assertEqual(job_specs.previous_slot("55 * * * *", self.NOW), self.NOW - 25 * 60)
         self.assertEqual(job_specs.previous_slot("0,30 * * * *", 86400 * 10 + 10), 86400 * 10)
         self.assertEqual(job_specs.previous_slot("0 7 * * *", 86400 * 10 + 10), 86400 * 9 + 7 * 3600)
@@ -872,7 +872,7 @@ class MissedStarts(unittest.TestCase):
         started = {self.JOB: self.SLOT - 86400 + 30}
         self.assertEqual(self.owed(started, now=self.SLOT + 60)[0], [], "Airflow may not have asked yet")
         since = job_specs._instant(next(job for job in self.jobs["jobs"] if job["id"] == self.JOB)["enabled_since"])
-        before = job_specs.previous_slot("20 8 * * *", since.timestamp()) + asset_reconcile.MISSED_START_GRACE
+        before = job_specs.previous_slot("30 4 * * *", since.timestamp()) + asset_reconcile.MISSED_START_GRACE
         self.assertEqual(self.owed({}, now=before)[0], [])
 
     def test_a_takes_turns_job_is_never_started_for_a_slot(self):

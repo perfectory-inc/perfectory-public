@@ -64,13 +64,18 @@ class TheOrderOfTheReconcilerAndWhatItStarts(unittest.TestCase):
         # start") and would have had its refused starts dropped; the deploy's "owed by inputs" question
         # (root ADR-0337) is Airflow's, and such a job's sensor keeps the events itself.
         jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        # The list before any group switched (root ADR-0583 §1), so the first requeued job is Airflow's.
+        for job in jobs["jobs"]:
+            if job.get("dagster_stage") == "dagster":
+                job["dagster_stage"] = "shadow"
         reconciler = next(job for job in jobs["jobs"] if job.get("requeues_refused_starts_in"))
         requeued = job_specs.requeued(jobs, reconciler)
         self.assertTrue(requeued)
         next(job for job in jobs["jobs"] if job["id"] == requeued[0])["dagster_stage"] = "dagster"
         self.assertEqual(job_specs.requeued(jobs, reconciler), requeued)
 
-        spec = next(spec for spec in job_specs.load_specs() if spec.started_by == "inputs" and spec.enabled)
+        spec = next(dataclasses.replace(spec, dagster_stage="shadow") for spec in job_specs.load_specs()
+                    if spec.started_by == "inputs" and spec.enabled)
         changed = {job_specs.asset_uri(dataset): datetime.datetime(2099, 1, 1, tzinfo=datetime.UTC)
                    for dataset in spec.starting_inputs}
         self.assertEqual(job_specs.owed_by_inputs([spec], changed, {}, set()), [spec.job_id])

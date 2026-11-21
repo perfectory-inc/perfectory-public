@@ -25,8 +25,23 @@ def bake(jobs):
 
 
 def enabled(jobs):
-    """The first switched-on job of the list: a stage past `airflow` is only a switched-on job's."""
-    return next(job for job in jobs["jobs"] if job["enabled"])
+    """The first switched-on job of a group not yet switched (root ADR-0583): a stage past `airflow` is only
+    a switched-on job's, and a switched group's jobs all stay at `dagster`."""
+    return next(job for job in jobs["jobs"] if job["enabled"] and job["dagster_group"] not in switched_groups(jobs))
+
+
+def switched_groups(jobs):
+    """The groups whose switched-on jobs Dagster decides (root ADR-0583 §2: all of them or none)."""
+    return {job["dagster_group"] for job in jobs["jobs"] if job["enabled"] and job.get("dagster_stage") == "dagster"}
+
+
+def before_any_switch(jobs):
+    """The job list as it was before a group switched: every job Dagster decides back at `shadow`, so a test
+    can move one job alone (root ADR-0583 §1)."""
+    for job in jobs["jobs"]:
+        if job.get("dagster_stage") == "dagster":
+            job["dagster_stage"] = "shadow"
+    return jobs
 
 
 def entry_script(spec):
@@ -949,9 +964,10 @@ class ThePoolsTheSchedulerHas(unittest.TestCase):
                   re.findall(r"- key: (\S+)\n\s+value: (\S+)\n\s+limit: (\d+)", queue)}
         pools = job_specs.declared_pools(real_inputs()[0])
         decided = limits.pop((job_specs.DECIDED_TAG, "dagster"))
-        self.assertEqual(decided, sum(pools.values()))
+        # A default-pool run Dagster decides starts beside full pools; a proxied run always finds a place.
+        self.assertEqual(decided, sum(pools.values()) + 1)
         job_runs = limits.pop((job_specs.JOB_RUN_TAG, "job"))
-        self.assertEqual(job_runs, decided + 2)
+        self.assertEqual(job_runs, decided + 1)
         self.assertLessEqual(job_runs, int(parallelism) + decided)
         self.assertEqual(int(most), job_runs + 1)
         # The code server's cap counts every run (compose.orchestration.yml): 100 + 2 x 169 + runs x 169.
@@ -1383,19 +1399,6 @@ class TheDagsterStage(unittest.TestCase):
             job_specs.load_specs(jobs, graph)
         self.assertIn(expected, str(raised.exception))
 
-    def test_the_gold_group_is_decided_by_dagster_and_every_later_group_is_compared(self):
-        # Root ADR-0583 §1: the groups move downstream first, Gold first. Its switched-on jobs are at `dagster`;
-        # every other group's are still decided by Airflow and compared (§4 retires the comparison later).
-        stages = {}
-        for job in real_inputs()[0]["jobs"]:
-            if job["enabled"]:
-                stages.setdefault(job["dagster_group"], set()).add(job.get("dagster_stage", "airflow"))
-        self.assertEqual(stages.pop("gold"), {"dagster"})
-        for group, found in stages.items():
-            with self.subTest(group=group):
-                self.assertLessEqual(found, {"airflow", *job_specs.COMPARED})
-        self.assertIn("proxied", set().union(*stages.values()))
-
     def test_a_switched_on_job_is_born_in_the_dual_run(self):
         # 2026-11-13: 24 switched-on jobs had no stage; Airflow alone decided them and no comparison was kept.
         self.refused(lambda jobs: enabled(jobs).pop("dagster_stage"), "in the dual run from its first release")
@@ -1445,19 +1448,6 @@ class TheDagsterStage(unittest.TestCase):
         self.refused(lambda jobs: switch_off(bake(jobs), dagster_group="serving", disabled_reason="off"),
                      "dagster_group must be one of")
 
-    def test_a_group_moves_in_one_switch(self):
-        # Root ADR-0583 §2: in a group every switched-on job is at `dagster` or none is; the stages Airflow
-        # decides (airflow, shadow, proxied) are one side. Gold has switched; Silver, the next, is half switched here.
-        jobs = copy.deepcopy(real_inputs()[0])
-        self.assertEqual(job_specs.dagster_groups(jobs), [])
-        silver = [job for job in jobs["jobs"] if job["dagster_group"] == "silver" and job["enabled"]]
-        silver[0]["dagster_stage"] = "dagster"
-        self.assertEqual(len(job_specs.dagster_groups(jobs)), 1)
-        self.assertIn("group silver", job_specs.dagster_groups(jobs)[0])
-        for job in silver:
-            job["dagster_stage"] = "dagster"
-        self.assertEqual(job_specs.dagster_groups(jobs), [])
-
     def test_the_groups_move_downstream_first(self):
         # Root ADR-0583 §1: switching the groups to `dagster` in their order leaves no Airflow job started by
         # the outputs of a job Dagster decides, at every step. The reconciler moves last, with its group.
@@ -1472,6 +1462,7 @@ class TheDagsterStage(unittest.TestCase):
 
     def test_a_dagster_job_feeds_only_dagster_jobs(self):
         jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        before_any_switch(jobs)
         feeders = job_specs.producers(jobs, graph)
         by_id = {job["id"]: job for job in jobs["jobs"]}
         consumer = next(job_id for job_id, found in feeders.items()

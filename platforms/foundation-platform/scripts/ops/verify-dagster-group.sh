@@ -9,12 +9,12 @@
 #   (orchestration/dagster/verify_group.py of the current release): each job's runs since the switch,
 #   launch failures, a decision started twice, and the expected runs no run answered (the stop rule: a
 #   job that missed two opens the rollback PR first, §3);
-# - Airflow: none of the group's jobs still has a DAG;
+# - Airflow: none of the group's jobs has a DAG it may run (an unpaused one);
 # - the daemon's and the code server's memory against their caps (§8);
 # - for Gold, Prometheus: each by-PNU lane and tile unit's `behind` series (asset_reconcile.py) now and the
 #   same hour a week before. Root ADR-0583 §6 named the manifests' age; `behind` is what ADR-0444 measures
 #   serving by (a monthly tile edition's age only grows), and the tiles have it where they have no age.
-# Exit 1 when the stop rule trips, a job of the group is not at `dagster`, or Airflow still lists its DAG.
+# Exit 1 when the stop rule trips, a job of the group is not at `dagster`, or Airflow lists its DAG unpaused.
 set -euo pipefail
 
 group="${1:?group}" since="${2:?switched at}"
@@ -53,16 +53,18 @@ fi
 printf '%s' "${serving}" | docker exec -i "${CODE_SERVER}" python -I "${RELEASE}/orchestration/dagster/verify_group.py" \
   "${group}" "${since}" || status=1
 
-# Airflow builds no DAG for a job Dagster decides (orchestration/dags/foundation_jobs.py).
+# Airflow builds no DAG for a job Dagster decides (orchestration/dags/foundation_jobs.py); none may be unpaused.
 still="$(docker exec "${SCHEDULER}" airflow dags list -o json 2>/dev/null | python3 -I -c '
 import json, sys
 group = sys.argv[2]
 jobs = json.load(open(sys.argv[1], encoding="utf-8"))
 ids = {jobs["dag_id_prefix"] + job["id"] for job in jobs["jobs"] if job.get("dagster_group") == group and job["enabled"]}
-print(" ".join(sorted(ids & {row["dag_id"] for row in json.load(sys.stdin)})))
+# A DAG the new release stops building stays listed (stale), paused since step 0 of the switch: it decides
+# nothing. One still unpaused would.
+print(" ".join(sorted(ids & {row["dag_id"] for row in json.load(sys.stdin) if str(row["is_paused"]).lower() != "true"})))
 ' "${RELEASE}/orchestration/jobs.v1.json" "${group}")"
 if [[ -n "${still}" ]]; then
-  echo "verify-dagster-group: Airflow still lists ${still}" >&2
+  echo "verify-dagster-group: Airflow lists unpaused ${still}" >&2
   status=1
 fi
 echo "{\"airflow_dags_left\": \"${still}\"}"

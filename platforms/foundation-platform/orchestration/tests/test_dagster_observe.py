@@ -267,7 +267,6 @@ class AirliftParityTest(unittest.TestCase):
         defs = definitions.build(self.instance, jobs, graph)
         repository = defs.get_repository_def()
         self.assertTrue(repository.has_job("foundation_job__onbid_public_auction_collect"))
-        self.assertFalse(repository.has_job("foundation_job__onbid_public_auction_silver"))
         mapped = {}
         for spec in observe_assets.observed_assets(jobs, graph):
             for handle in spec.metadata.get(TASK_MAPPING_METADATA_KEY, []):
@@ -276,7 +275,14 @@ class AirliftParityTest(unittest.TestCase):
         (collector,) = [spec for spec in observe_assets.job_specs.load_specs(jobs, graph)
                         if spec.job_id == "onbid_public_auction_collect"]
         collected = {observe_assets.asset_key(dataset) for dataset in collector.outputs}
-        self.assertTrue(collected & mapped[prefix + "onbid_public_auction_silver"])
+        # Its Silver load keeps airlift's mapping to the same tables while Airflow decides it; once the Silver
+        # group is switched (root ADR-0583) it is a Dagster job itself and has no DAG to map.
+        if by_id["onbid_public_auction_silver"].get("dagster_stage") == "dagster":
+            self.assertTrue(repository.has_job("foundation_job__onbid_public_auction_silver"))
+            self.assertNotIn(prefix + "onbid_public_auction_silver", mapped)
+        else:
+            self.assertFalse(repository.has_job("foundation_job__onbid_public_auction_silver"))
+            self.assertTrue(collected & mapped[prefix + "onbid_public_auction_silver"])
         # Its decisions are still compared: Airflow decides a proxied job (root ADR-0458 §4).
         checked = {key.asset_key for key in defs.resolve_asset_graph().asset_check_keys}
         self.assertIn(definitions.dual_run.dag_key(collector), checked)

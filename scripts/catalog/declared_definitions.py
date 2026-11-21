@@ -484,7 +484,7 @@ def family_definitions(contracts):
             "pipeline_graph_edges": edges,
             "enabled": True,
             "enabled_since": shared["enabled_since"],
-            "dagster_stage": "shadow",
+            "dagster_stage": "dagster",
             "dagster_group": "silver",
             "expected_outcome": dict(shared["expected_outcome"]),
         }],

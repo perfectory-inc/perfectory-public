@@ -59,7 +59,8 @@ class TheSwitchCheck(unittest.TestCase):
                 {"name": "fell", "now": 30 * HOUR, "week_before": 2 * HOUR, "interval": 12 * HOUR},
                 {"name": "new", "now": 13 * HOUR, "week_before": None, "interval": 12 * HOUR},
                 {"name": "unmeasured", "now": None, "week_before": 2 * HOUR, "interval": 12 * HOUR}]
-        self.assertEqual([row["name"] for row in self.verify.behind(rows)], ["fell", "new"])
+        # 2026-11-20 14:2xZ: parcel-court-auction had no series a week before; it is not behind its week.
+        self.assertEqual([row["name"] for row in self.verify.behind(rows)], ["fell"])
 
 
 if __name__ == "__main__":

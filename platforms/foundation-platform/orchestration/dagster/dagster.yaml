@@ -16,10 +16,12 @@ storage:
 # for them) and the runs of jobs Dagster runs (run_jobs.py, tagged foundation/run=job by
 # job_specs.JobSpec.dagster_tags). Airflow's parallelism (compose.orchestration.yml
 # AIRFLOW__CORE__PARALLELISM, 5) bounds the runs it hands Dagster (proxied). The runs of jobs Dagster decides
-# (the Gold group since root ADR-0583, tagged foundation/decided-by=dagster) are held to the pools' slots
-# together (spark 3 + documents 1 = 4): a pool's run waits on its slots anyway, and Gold's spark runs take
-# hours. The queue admits those four and two more job runs, so a proxied run (the asset reconciler's, every
-# few minutes) always finds a place, and keeps one place free for a check run, so a check never waits
+# (the Gold and Silver groups since root ADR-0583, tagged foundation/decided-by=dagster) are held to the
+# pools' slots together and one more (spark 3 + documents 1 + 1 = 5): a pool's run waits on its slots anyway,
+# Gold's spark runs take hours, and the one more lets a default-pool load (the hourly onbid and notice Silver)
+# start beside full pools. The queue admits six job runs (the code server's memory, compose), so a proxied
+# run (the asset reconciler's, every few minutes) always finds a place, and keeps one place free for a check
+# run, so a check never waits
 # behind an hours-long job run and a job run never waits behind checks. A pool's runs never outnumber its
 # slots (jobs.v1.json pools: spark 3, documents 1); the host's start (job_units.py pool-full) still decides by
 # priority class and slots, whoever starts. The queue starts higher `dagster/priority` first (the job's
@@ -31,13 +33,21 @@ run_coordinator:
   class: QueuedRunCoordinator
   config:
     max_concurrent_runs: 7
+    # A launch the code server does not answer in time goes back into the queue, up to three times a minute
+    # apart, instead of failing (dagster 1.13.27 QueuedRunCoordinatorDaemon: DagsterUserCodeUnreachableError,
+    # which a gRPC timeout raises). 2026-11-20 15:35Z, load in the 20s-40s, map_edit_fold_admin's tick run
+    # was failed on "Unexpected error in IPC client"; its worker started later and was ignored, so the tick
+    # was lost (the next one ran). A re-queued run is QUEUED, so such a late worker is still ignored and
+    # the retry launches it once.
+    max_user_code_failure_retries: 3
+    user_code_failure_retry_delay: 60
     tag_concurrency_limits:
       - key: foundation/run
         value: job
         limit: 6
       - key: foundation/decided-by
         value: dagster
-        limit: 4
+        limit: 5
       - key: foundation/pool
         value: spark
         limit: 3

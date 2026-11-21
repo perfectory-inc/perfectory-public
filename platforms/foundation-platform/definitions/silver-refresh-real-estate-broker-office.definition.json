@@ -46,7 +46,7 @@
       ],
       "enabled": true,
       "enabled_since": "2026-11-12T03:00:00Z",
-      "dagster_stage": "shadow",
+      "dagster_stage": "dagster",
       "expected_outcome": {
         "changes_within_hours": 72,
         "basis": "the provider publishes a new national file every day (expected_cadence daily, max_age_hours 72, in the endpoint catalog; one per day 2026-10-28..11-09 in the Bronze ledger) and offices register and close every day; this lane has not run yet, so its first change is its first load (root ADR-0457)."
