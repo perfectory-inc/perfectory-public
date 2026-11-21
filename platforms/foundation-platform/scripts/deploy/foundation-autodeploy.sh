@@ -144,12 +144,14 @@ deploy_target() {
   # No wait for an operator's unit here (root ADR-0441): a run keeps the release it started with. The
   # deploy itself waits for one only when its release holds jobs (foundation-deploy.sh, exit 75).
   reason=systemd_unreadable # until it answers
-  # A Worker deploy and an edge apply read the control checkout and the release this deploy is about to
-  # replace.
-  running="$(running_units "${worker_unit}" "${edge_unit}")"
+  # An edge apply reads the control checkout and the release this deploy is about to replace. A Worker
+  # deploy does not hold it: it reads the trees it pinned at its start, which the prune refuses while it
+  # holds them (worker_autodeploy.py run). 2026-11-21 one generated contract flag (r2-connections
+  # versions_table) redeployed all six Workers at ~30 min each, and every host deploy waited for them.
+  running="$(running_units "${edge_unit}")"
   if [[ -n "${running}" ]]; then
     reason=worker_deploy
-    log "${target}: waiting for the Worker deploy and the edge settings (${worker_unit} ${edge_unit})"
+    log "${target}: waiting for the edge settings (${edge_unit})"
     exit 0
   fi
 

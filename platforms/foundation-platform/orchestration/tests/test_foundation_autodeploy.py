@@ -248,19 +248,19 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(self.tick(FIXTURE_DEPLOY_EXIT="1").returncode, 1)
         self.assertEqual(self.started(), [])
 
-    def test_a_worker_deploy_under_way_holds_the_next_host_deploy(self):
+    def test_a_worker_deploy_under_way_does_not_hold_the_next_host_deploy(self):
+        # It reads the trees it pinned at its start (worker_autodeploy.py run). 2026-11-21 one generated
+        # contract flag redeployed all six Workers at ~30 min each and every host deploy waited.
         result = self.tick(FIXTURE_WORKER_STATE="activating")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("waiting for the Worker deploy", result.stdout)
-        self.assertEqual(self.deployed(), [])
-        self.assertEqual(self.tick().returncode, 0)
+        self.assertNotIn("waiting for", result.stdout)
         self.assertEqual(self.deployed(), [HEAD])
 
     def test_an_edge_apply_under_way_holds_the_next_host_deploy(self):
         # Root ADR-0436: it reads the control checkout the deploy is about to move.
         result = self.tick(FIXTURE_UNITS="foundation-edge-settings.service:no:activating")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("waiting for the Worker deploy and the edge settings", result.stdout)
+        self.assertIn("waiting for the edge settings", result.stdout)
         self.assertEqual(self.deployed(), [])
 
     def test_a_new_commit_whose_checks_passed_is_deployed_once(self):
