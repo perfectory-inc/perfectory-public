@@ -223,18 +223,26 @@ pub fn render(
                 .iter()
                 .find(|declared| declared.name == column)
                 .map(|declared| declared.logical_type);
-            ensure!(
-                kind == Some("string"),
-                "{}: the edition column {column} is {kind:?}; this compare stamps a text edition",
-                contract.table_name
-            );
             let Some(edition) = stamp.edition.filter(|edition| !edition.is_empty()) else {
                 bail!(
                     "a release of a table ordered by {column} names its edition ({})",
                     contract.table_name
                 );
             };
-            Some((column, literal(edition)))
+            let value = match kind {
+                Some("string") => literal(edition),
+                // The edition's text is UTC `yyyy-MM-dd HH:mm:ss` (`edition_text`); no time zone
+                // database is loaded, so it goes back through a plain timestamp's microseconds.
+                Some("timestamp") => format!(
+                    "to_timestamp(epoch_us(CAST({} AS TIMESTAMP)) // 1000000)",
+                    literal(edition)
+                ),
+                other => bail!(
+                    "{}: the edition column {column} is {other:?}; a compare stamps a text or an instant edition",
+                    contract.table_name
+                ),
+            };
+            Some((column, value))
         }
     };
     let same = |left: &str, right: &str| {
@@ -402,6 +410,130 @@ pub fn compare_bucket(
     })
 }
 
+/// An edition column as the text an edition is recorded and compared by.
+///
+/// A text edition is itself; an instant is UTC `yyyy-MM-dd HH:mm:ss` (what the Spark compare
+/// recorded: its cast of a timestamp to a string).
+///
+/// # Errors
+/// The table has no such column.
+pub fn edition_text(contract: &LakehouseTableContract, column: &str) -> anyhow::Result<String> {
+    let kind = contract
+        .columns
+        .iter()
+        .find(|declared| declared.name == column)
+        .map(|declared| declared.logical_type)
+        .with_context(|| format!("{} has no column {column}", contract.table_name))?;
+    Ok(if kind == "timestamp" {
+        format!("strftime(make_timestamp(epoch_us({column})), '%Y-%m-%d %H:%M:%S')")
+    } else {
+        format!("CAST({column} AS VARCHAR)")
+    })
+}
+
+/// The bounds of the contract's `ordinary_land_pnu_null_share <= <ceiling> and increase <= <rise>`
+/// gate, when it declares one.
+fn pnu_null_share_bounds(contract: &LakehouseTableContract) -> anyhow::Result<Option<(f64, f64)>> {
+    const GATE: &str = "ordinary_land_pnu_null_share";
+    let Some(gate) = contract
+        .quality_gates
+        .iter()
+        .find(|gate| gate.trim().starts_with(GATE))
+    else {
+        return Ok(None);
+    };
+    let bound = |text: &str| {
+        text.trim()
+            .strip_prefix("<=")
+            .and_then(|value| value.trim().parse::<f64>().ok())
+            .filter(|value| (0.0..=1.0).contains(value))
+    };
+    gate.trim()
+        .strip_prefix(GATE)
+        .and_then(|rest| rest.split_once(" and increase"))
+        .and_then(|(ceiling, rise)| Some((bound(ceiling)?, bound(rise)?)))
+        .map(Some)
+        .with_context(|| format!("{}: cannot read the gate {gate:?}", contract.table_name))
+}
+
+/// Refuses a release whose ordinary-land PNU null share breaks the contract's gate.
+///
+/// It was `pnu_null_share_guard.py`: a hub register parcel key whose 11th character is `0` is ordinary
+/// land, which always has a PNU, so a null there is a derivation that lost the parcel (2026-09-27:
+/// 916,461 rows of one 시도). The share has a ceiling, judged on the release alone, and a bound on
+/// its rise over the table's current rows (`main`; `None` for a table with no snapshot). Returns
+/// the outcome as JSON, `None` when the table declares no gate.
+///
+/// # Errors
+/// Either bound is broken, the gate cannot be read, or `DuckDB` fails.
+pub fn check_pnu_null_share(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    release: &str,
+    main: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    let Some((ceiling, rise)) = pnu_null_share_bounds(contract)? else {
+        return Ok(None);
+    };
+    let table = contract.table_name;
+    let measure = |relation: &str| -> anyhow::Result<(i64, i64)> {
+        Ok(stage.connection().query_row(
+            &format!(
+                "SELECT count(*) FILTER (WHERE substr(register_parcel_key, 11, 1) = '0'),                  count(*) FILTER (WHERE substr(register_parcel_key, 11, 1) = '0' AND pnu IS NULL)                  FROM {relation}"
+            ),
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?)
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let share = |(rows, nulls): (i64, i64)| {
+        if rows == 0 {
+            0.0
+        } else {
+            nulls as f64 / rows as f64
+        }
+    };
+    let candidate = measure(release)?;
+    ensure!(
+        share(candidate) <= ceiling,
+        "refusing the release of {table}: its ordinary-land PNU null share is {:.6} ({}/{}), above the contract ceiling {ceiling}; a derivation lost parcels",
+        share(candidate),
+        candidate.1,
+        candidate.0
+    );
+    let baseline = match (main, contract.current_row_latest()) {
+        (Some(main), Some(latest)) => Some(measure(&format!(
+            "({})",
+            latest.current_rows_sql(main, &["register_parcel_key", "pnu"], "TRUE")
+        ))?),
+        _ => None,
+    };
+    let mut outcome = serde_json::json!({
+        "table": table, "ceiling": ceiling, "tolerance": rise,
+        "candidate_rows": candidate.0, "candidate_nulls": candidate.1, "candidate_share": share(candidate),
+        "outcome": "no_baseline",
+    });
+    if let Some(baseline) = baseline.filter(|baseline| baseline.0 > 0) {
+        let increase = share(candidate) - share(baseline);
+        ensure!(
+            increase <= rise,
+            "refusing the release of {table}: its ordinary-land PNU null share rises from {:.6} ({}/{}) to {:.6} ({}/{}), more than the contract tolerance {rise}; a derivation lost parcels",
+            share(baseline),
+            baseline.1,
+            baseline.0,
+            share(candidate),
+            candidate.1,
+            candidate.0
+        );
+        outcome["baseline_rows"] = baseline.0.into();
+        outcome["baseline_nulls"] = baseline.1.into();
+        outcome["baseline_share"] = share(baseline).into();
+        outcome["increase"] = increase.into();
+        outcome["outcome"] = "within_bounds".into();
+    }
+    Ok(Some(outcome.to_string()))
+}
+
 /// A handoff column read as text and cast to the table's type: what the Spark load's
 /// `cast_handoff_frame` did (an instant is `yyyy-MM-ddTHH:mm:ssZ`, a binary column lowercase hex).
 fn typed(name: &str, logical_type: &str) -> anyhow::Result<String> {
@@ -426,9 +558,31 @@ fn typed(name: &str, logical_type: &str) -> anyhow::Result<String> {
     })
 }
 
+/// Whether a handoff's name ends with `.extension`.
+fn named(url: &str, extension: &str) -> bool {
+    Path::new(url)
+        .extension()
+        .is_some_and(|found| found.eq_ignore_ascii_case(extension))
+}
+
+/// A column of a Parquet handoff as the table holds it: the export wrote the table's types, and an
+/// instant is taken by its microseconds, whichever of the two timestamp types the file names.
+fn typed_parquet(name: &str, logical_type: &str) -> anyhow::Result<String> {
+    Ok(match logical_type {
+        "string" | "array<string>" => name.to_owned(),
+        "timestamp" => format!("to_timestamp(epoch_us({name}) // 1000000) AS {name}"),
+        "date" => format!("CAST({name} AS DATE) AS {name}"),
+        "int" => format!("CAST({name} AS INTEGER) AS {name}"),
+        "long" => format!("CAST({name} AS BIGINT) AS {name}"),
+        "double" => format!("CAST({name} AS DOUBLE) AS {name}"),
+        "boolean" => format!("CAST({name} AS BOOLEAN) AS {name}"),
+        other => bail!("a Parquet handoff column of type {other} has no reader"),
+    })
+}
+
 /// Copies a release's handoffs into one local Parquet file; returns its row count.
 ///
-/// `urls` are gzip JSON Lines objects the stage's keys may read; the copy has the table's columns
+/// `urls` are JSON Lines (gzip when named `.gz`) or Parquet (`.parquet`), on R2 or local; the copy has the table's columns
 /// and types (root ADR-0599 §1). Every bucket of the compare reads this copy, never the handoffs
 /// again. It is written under a temporary name and renamed, so a file at `copy` is a whole copy.
 ///
@@ -466,14 +620,37 @@ pub fn copy_release(
         .collect::<Vec<_>>()
         .join(", ");
     let partial = copy.with_extension("partial");
+    let source = if named(&urls[0], "parquet") {
+        let columns = contract
+            .columns
+            .iter()
+            .map(|column| typed_parquet(column.name, column.logical_type))
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .join(", ");
+        format!("SELECT {columns} FROM read_parquet([{handoffs}])")
+    } else {
+        let compression = if named(&urls[0], "gz") {
+            "gzip"
+        } else {
+            "none"
+        };
+        format!(
+            "SELECT {columns} FROM read_json([{handoffs}], format = 'newline_delimited', \
+             compression = '{compression}', columns = {{{read}}})"
+        )
+    };
     stage
         .connection()
         .execute_batch(&format!(
-            "COPY (SELECT {columns} FROM read_json([{handoffs}], format = 'newline_delimited', \
-             compression = 'gzip', columns = {{{read}}})) TO '{}' (FORMAT parquet, COMPRESSION zstd)",
+            "COPY ({source}) TO '{}' (FORMAT parquet, COMPRESSION zstd)",
             sql_path(&partial)?
         ))
-        .with_context(|| format!("DuckDB failed to copy the release of {}", contract.table_name))?;
+        .with_context(|| {
+            format!(
+                "DuckDB failed to copy the release of {}",
+                contract.table_name
+            )
+        })?;
     std::fs::rename(&partial, copy).with_context(|| format!("cannot finish {}", copy.display()))?;
     let rows: i64 = stage.connection().query_row(
         &format!("SELECT count(*) FROM read_parquet('{}')", sql_path(copy)?),

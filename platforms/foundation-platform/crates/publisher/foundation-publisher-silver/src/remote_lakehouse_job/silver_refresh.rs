@@ -386,6 +386,37 @@ async fn refresh_run(
     if decision != Decision::ExportAndLoad || plan {
         return Ok((decision, identity, None));
     }
+    if contract.engine == Engine::Duckdb {
+        // Root ADR-0599: the export's local handoff is read where it is, no branch and no Spark.
+        println!(
+            "silver-refresh lane={} release={} identity={identity}: exporting",
+            contract.lane.id(),
+            release.vintage()
+        );
+        runtime.reset_work()?;
+        let work = runtime.work();
+        execute::stage(release, &work).await?;
+        let environment = execute::export_environment(contract, release, &identity, &work)?;
+        execute::export(runtime, contract, &environment)?;
+        let handoffs = local_handoffs(&work.join(execute::HANDOFF), contract.kind)?;
+        let objects = vec![identity.clone()];
+        let rows = append_on_duckdb(
+            contract,
+            runtime,
+            catalog,
+            &duckdb_release::Release {
+                identity: &identity,
+                objects: &objects,
+                handoffs: &handoffs,
+                expected_rows: None,
+            },
+            &identity,
+            Vec::new(),
+        )
+        .await?;
+        runtime.reset_work()?;
+        return Ok((decision, identity, Some(rows)));
+    }
     let mut load = SparkLoad::local(contract);
     // A comparing lane stages the release on its load branch and appends only its changes to
     // main (root ADR-0275, ADR-0318); a run that stopped after staging it does not export again.
@@ -904,6 +935,36 @@ async fn publish_load(
         println!("silver-refresh {table}: published branch {branch} as main (snapshot {head})");
     }
     confirm_recorded(catalog, table, identities).await
+}
+
+/// The files a one-run export left in `handoff`: the titles' `rows.jsonl`, or every Parquet part of
+/// the units, in name order.
+fn local_handoffs(handoff: &std::path::Path, kind: ExportKind) -> anyhow::Result<Vec<String>> {
+    let text = |path: std::path::PathBuf| {
+        path.to_str()
+            .map(str::to_owned)
+            .with_context(|| format!("{} is not UTF-8", path.display()))
+    };
+    if kind == ExportKind::Title {
+        return Ok(vec![text(handoff.join("rows.jsonl"))?]);
+    }
+    let mut parts = std::fs::read_dir(handoff)
+        .with_context(|| format!("the export left no {}", handoff.display()))?
+        .map(|entry| Ok(entry?.path()))
+        .filter(|path: &anyhow::Result<std::path::PathBuf>| {
+            path.as_ref().map_or(true, |path| {
+                path.extension().is_some_and(|e| e == "parquet")
+            })
+        })
+        .map(|path| text(path?))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    ensure!(
+        !parts.is_empty(),
+        "the export left no Parquet part in {}",
+        handoff.display()
+    );
+    parts.sort();
+    Ok(parts)
 }
 
 /// What the DuckDB append of a release did, kept as the run's evidence (root ADR-0599).
