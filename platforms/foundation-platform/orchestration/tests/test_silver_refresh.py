@@ -59,16 +59,22 @@ class TheUnit(unittest.TestCase):
     def test_the_export_it_runs_is_memory_bounded(self):
         self.assertRegex(" ".join(unit_lines("MemoryMax")), r"^[1-9][0-9]*G$")
 
-    def test_the_lanes_state_is_one_path_on_the_data_disk(self):
-        # The script's default, the unit's only writable path and the directory the release makes
+    def test_the_lanes_state_is_one_path_on_the_data_disk_and_duckdb_works_on_the_ssd(self):
+        # The script's defaults, the unit's writable paths and the directories the release makes
         # are one fact in three places; a drift is a unit systemd refuses to start, or a run that
         # writes where the unit cannot.
-        script = re.search(r"SILVER_REFRESH_STATE_ROOT:-([^}]+)\}", SCRIPT.read_text(encoding="utf-8")).group(1)
+        text = SCRIPT.read_text(encoding="utf-8")
+        script = re.search(r"SILVER_REFRESH_STATE_ROOT:-([^}]+)\}", text).group(1)
         self.assertTrue(script.startswith("/data/"), "the root disk is small")
-        self.assertEqual(unit_lines("ReadWritePaths"), [script])
-        # The release makes it from the job list's state_directories (test_job_state_directories).
+        # A lane loaded by DuckDB keeps its release copy, its spill and its staged files on the SSD
+        # (root ADR-0599): /data is the slow disk, and a compare spills gigabytes.
+        duckdb = re.search(r"SILVER_REFRESH_DUCKDB_ROOT:-([^}]+)\}", text).group(1)
+        self.assertTrue(duckdb.startswith("/var/lib/foundation-platform/"), "the DuckDB work is on the SSD")
+        self.assertEqual(unit_lines("ReadWritePaths"), [f"{script} {duckdb}"])
+        # The release makes them from the job list's state_directories (test_job_state_directories).
         made = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))["state_directories"]
         self.assertIn({"path": script, "mode": "2770"}, made)
+        self.assertIn({"path": duckdb, "mode": "0755"}, made)
 
     def test_the_release_admits_the_unit_because_its_lanes_are_jobs(self):
         # foundation-release.sh installs the release admission of every listed job's service,

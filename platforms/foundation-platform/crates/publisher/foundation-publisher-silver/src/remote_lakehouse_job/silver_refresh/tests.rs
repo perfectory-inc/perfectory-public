@@ -5,7 +5,7 @@ use anyhow::Context;
 use chrono::NaiveDate;
 
 use super::execute::{self, Runtime, SparkLoad};
-use super::lane::{ExportKind, Lane, LaneContract, WriteMode};
+use super::lane::{Engine, ExportKind, Lane, LaneContract, WriteMode};
 use super::release::{self, LedgerObject, Release};
 use super::*;
 
@@ -251,6 +251,27 @@ fn the_run_identity_names_the_lane_month_and_exact_bytes() -> anyhow::Result<()>
 }
 
 // ---- lanes and their contracts ------------------------------------------------------------
+
+/// Root ADR-0599 §8: a lane's contract says which engine loads it, and the lanes move one verdict
+/// at a time. Planted: an engine nobody runs.
+#[test]
+fn a_lane_runs_on_the_engine_its_contract_names_and_spark_when_it_names_none() -> anyhow::Result<()>
+{
+    let moved: BTreeSet<&str> = Lane::all()
+        .into_iter()
+        .filter_map(|lane| match lane.contract() {
+            Ok(contract) if contract.engine == Engine::Duckdb => Some(Ok(lane.id())),
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
+        .collect::<anyhow::Result<_>>()?;
+    assert_eq!(moved, BTreeSet::from(["land-use-plan"]));
+    let (_, text) = Lane::LandUsePlan.contract_source();
+    let unknown = text.replacen("\"engine\": \"duckdb\"", "\"engine\": \"flink\"", 1);
+    assert_ne!(unknown, text);
+    assert!(LaneContract::parse(Lane::LandUsePlan, &unknown).is_err());
+    Ok(())
+}
 
 #[test]
 fn every_lane_parses_by_its_instance_name_and_its_contract_is_valid() -> anyhow::Result<()> {

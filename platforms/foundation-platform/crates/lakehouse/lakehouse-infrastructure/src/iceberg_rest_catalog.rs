@@ -584,6 +584,34 @@ impl IcebergRestCatalog {
         }))
     }
 
+    /// Every edition `main` records as loaded: the `foundation.edition` of the commits in its
+    /// lineage and the table's durable copy of them (`foundation.edition.<edition>` properties,
+    /// root ADR-0328 §3), as `lakehouse_ingest.read_editions` reads them. A release older than one
+    /// of these is refused. Returns `Ok(None)` when the table does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the catalog cannot be reached.
+    pub async fn load_recorded_editions(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<std::collections::BTreeSet<String>>, LakehouseError> {
+        Ok(self.load_table_response(table_name).await?.map(|payload| {
+            let metadata = &payload.metadata;
+            lineage(metadata, main_head(metadata))
+                .filter_map(|snapshot| snapshot.summary.get(EDITION_KEY)?.as_str())
+                .chain(
+                    metadata
+                        .properties
+                        .keys()
+                        .filter_map(|key| key.strip_prefix(EDITION_PROPERTY_PREFIX)),
+                )
+                .filter(|edition| !edition.is_empty())
+                .map(str::to_owned)
+                .collect()
+        }))
+    }
+
     /// The load identities branch `branch` records: what a resumed load has already staged on it
     /// (root ADR-0183). A branch not made yet stages from `main`, so `main`'s are its answer.
     ///

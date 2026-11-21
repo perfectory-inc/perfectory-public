@@ -336,36 +336,7 @@ impl DuckDbParquetStage {
     /// # Errors
     /// Returns an error when a column name is not a plain identifier or `DuckDB` fails the copy.
     pub fn write(&self, shape: &TableShape, query: &str, name: &str) -> anyhow::Result<StagedFile> {
-        ensure!(
-            !name.is_empty()
-                && name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'),
-            "staged file name {name:?} must be ASCII letters, digits, '-' or '_'"
-        );
-        for field in &shape.fields {
-            ensure!(
-                !field.name.is_empty()
-                    && field
-                        .name
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
-                "column {:?} is not a plain identifier",
-                field.name
-            );
-        }
-        let columns = shape
-            .fields
-            .iter()
-            .map(|field| format!("\"{}\"", field.name))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let field_ids = shape
-            .fields
-            .iter()
-            .map(|field| format!("\"{}\": {}", field.name, field.id))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let (columns, field_ids) = copy_columns(shape, name)?;
         let local_path = self.directory.path().join(format!("{name}.parquet"));
         let target = sql_path(&local_path)?;
         self.connection
@@ -379,6 +350,93 @@ impl DuckDbParquetStage {
             name: name.to_owned(),
         })
     }
+}
+
+impl DuckDbParquetStage {
+    /// [`Self::write`] into files of about `max_bytes` each, named `name-0000`, `name-0001`, …:
+    /// one pass over `query`, for rows too many for one file (the commit reads a file whole
+    /// into memory, root ADR-0599 §4). The split falls on row-group boundaries, so a file may
+    /// run over `max_bytes` by one group. A query of no row writes no file.
+    ///
+    /// # Errors
+    /// What [`Self::write`] refuses, or the files cannot be listed.
+    pub fn write_split(
+        &self,
+        shape: &TableShape,
+        query: &str,
+        name: &str,
+        max_bytes: u64,
+    ) -> anyhow::Result<Vec<StagedFile>> {
+        let (columns, field_ids) = copy_columns(shape, name)?;
+        let directory = self.directory.path().join(format!("{name}.parts"));
+        let target = sql_path(&directory)?;
+        self.connection
+            .execute_batch(&format!(
+                "COPY (SELECT {columns} FROM ({query})) TO '{target}' \
+                 (FORMAT parquet, COMPRESSION zstd, FIELD_IDS {{{field_ids}}}, FILE_SIZE_BYTES {max_bytes})"
+            ))
+            .with_context(|| format!("DuckDB failed to stage {name}"))?;
+        let mut parts = std::fs::read_dir(&directory)
+            .with_context(|| format!("cannot list {}", directory.display()))?
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<Result<Vec<_>, _>>()?;
+        parts.sort();
+        let mut files = Vec::with_capacity(parts.len());
+        for local_path in parts {
+            let rows: i64 = self.connection.query_row(
+                &format!(
+                    "SELECT count(*) FROM read_parquet('{}')",
+                    sql_path(&local_path)?
+                ),
+                [],
+                |row| row.get(0),
+            )?;
+            // A query of no row still leaves one empty file: it is not a file to commit.
+            if rows > 0 {
+                files.push(StagedFile {
+                    name: format!("{name}-{:04}", files.len()),
+                    local_path,
+                });
+            }
+        }
+        Ok(files)
+    }
+}
+
+/// The projection and the field ids of a staged file of `shape`, after `name` and the columns are
+/// checked to be plain identifiers.
+fn copy_columns(shape: &TableShape, name: &str) -> anyhow::Result<(String, String)> {
+    ensure!(
+        !name.is_empty()
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'),
+        "staged file name {name:?} must be ASCII letters, digits, '-' or '_'"
+    );
+    for field in &shape.fields {
+        ensure!(
+            !field.name.is_empty()
+                && field
+                    .name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+            "column {:?} is not a plain identifier",
+            field.name
+        );
+    }
+    let columns = shape
+        .fields
+        .iter()
+        .map(|field| format!("\"{}\"", field.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let field_ids = shape
+        .fields
+        .iter()
+        .map(|field| format!("\"{}\": {}", field.name, field.id))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok((columns, field_ids))
 }
 
 /// A pinned table reference with the nullable contract columns it lacks read as NULL.
@@ -439,7 +497,7 @@ pub fn with_contract_columns(
 mod tests;
 
 /// A path as `DuckDB` SQL text: forward slashes, and no quote that would end the literal.
-fn sql_path(path: &Path) -> anyhow::Result<String> {
+pub(crate) fn sql_path(path: &Path) -> anyhow::Result<String> {
     let text = path
         .to_str()
         .context("the stage path must be UTF-8")?

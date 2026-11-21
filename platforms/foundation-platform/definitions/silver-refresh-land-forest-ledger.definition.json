@@ -14,7 +14,8 @@
       "check_service": "foundation-silver-refresh-plan@land-forest-ledger.service",
       "systemd_timer": null,
       "state_paths": [
-        "/data/foundation-platform/silver-refresh"
+        "/data/foundation-platform/silver-refresh",
+        "/var/lib/foundation-platform/silver-refresh-duckdb"
       ],
       "schedule": "0 7 * * *",
       "started_by": "inputs",

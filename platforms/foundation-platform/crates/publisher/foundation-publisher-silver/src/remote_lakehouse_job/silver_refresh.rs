@@ -26,6 +26,7 @@ use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde::Deserialize;
 use sqlx::PgPool;
 
+mod duckdb_release;
 mod execute;
 mod land;
 #[cfg(test)]

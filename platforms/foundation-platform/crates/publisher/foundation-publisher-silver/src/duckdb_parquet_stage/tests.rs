@@ -764,6 +764,115 @@ async fn a_parcel_number_change_file_is_the_first_append_into_the_empty_table() 
     Ok(())
 }
 
+/// Root ADR-0599 §4: what must outlive a snapshot's summary (a release's edition, root ADR-0328 §3)
+/// is a table property written by the commit that appends the release's rows. An append refused
+/// before its commit (`main` is not where the rows were compared) records neither the rows nor
+/// the property, and uploads nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_append_records_its_table_properties_in_its_own_commit() -> anyhow::Result<()> {
+    let table = contract("silver.parcel_number_change_history")?;
+    let root = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let (catalog, shape) = empty_table(root.path(), table).await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    let ident = TableIdent::from_strs(["silver", short_name(table)?])?;
+    let none = BTreeSet::new();
+    let edition = |name: &str| {
+        BTreeMap::from([(format!("foundation.edition.{name}"), "recorded".to_owned())])
+    };
+
+    // Planted: the rows were compared with a head `main` is not at.
+    let early = stage.write(&shape, &synthetic_row(table)?, "release-early")?;
+    let object = "release-209901".to_owned();
+    let refused = committer
+        .append_at_head_recording(
+            release_append(table, &early, &object, &none),
+            Some(1),
+            edition("209901"),
+        )
+        .await;
+    assert!(refused.is_err(), "an append on a head main is not at");
+    let untouched = catalog.load_table(&ident).await?;
+    assert!(untouched.metadata().current_snapshot().is_none());
+    assert!(!untouched
+        .metadata()
+        .properties()
+        .contains_key("foundation.edition.209901"));
+    let data = root.path().join(short_name(table)?);
+    let uploaded = walk(&data)?
+        .into_iter()
+        .filter(|path| path.extension().is_some_and(|kind| kind == "parquet"))
+        .count();
+    assert_eq!(uploaded, 0, "a refused append uploads nothing");
+
+    let file = stage.write(&shape, &synthetic_row(table)?, "release-209901")?;
+    let (snapshot, parent, added) = appended(
+        committer
+            .append_at_head_recording(
+                release_append(table, &file, &object, &none),
+                None,
+                edition("209901"),
+            )
+            .await?,
+    )?;
+    assert_eq!((parent, added), (None, 1));
+    let loaded = catalog.load_table(&ident).await?;
+    let metadata = loaded.metadata();
+    assert_eq!(metadata.current_snapshot_id(), Some(snapshot.snapshot_id));
+    // One commit: the property is in the metadata the snapshot's commit wrote.
+    assert_eq!(
+        metadata
+            .properties()
+            .get("foundation.edition.209901")
+            .map(String::as_str),
+        Some("recorded")
+    );
+    assert_eq!(
+        metadata
+            .current_snapshot()
+            .context("a snapshot")?
+            .summary()
+            .additional_properties["foundation.edition"],
+        "209901"
+    );
+    assert_eq!(metadata.history().len(), 1, "one commit, not two");
+    Ok(())
+}
+
+/// A release's append of one file, recording the release and its edition.
+fn release_append<'a>(
+    table: &'static LakehouseTableContract,
+    file: &'a StagedFile,
+    object: &'a String,
+    none: &'a BTreeSet<String>,
+) -> DataAppend<'a> {
+    DataAppend {
+        table_name: table.table_name,
+        contract: table,
+        files: std::slice::from_ref(file),
+        batch: std::slice::from_ref(object),
+        already_ingested: none,
+        summary: BTreeMap::from([("foundation.edition".to_owned(), "209901".to_owned())]),
+    }
+}
+
+/// Every file under `root`.
+fn walk(root: &Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                found.push(path);
+            }
+        }
+    }
+    Ok(found)
+}
+
 /// One synthetic row of each ILIS notice table (notice `99…`, 2099 times), in contract order.
 const NOTICE_READ: &str = "SELECT CAST(99001 AS BIGINT) AS notice_sequence, to_timestamp(4071006245) AS requested_at_utc, \
      200 AS http_status, 'read' AS read_outcome, '999990' AS official_complex_code, \

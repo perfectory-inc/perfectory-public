@@ -455,7 +455,10 @@ def family_definitions(contracts):
             "systemd_service": "foundation-silver-refresh@hub-lane-family.service",
             "check_service": "foundation-silver-refresh-plan@hub-lane-family.service",
             "systemd_timer": None,
-            "state_paths": ["/data/foundation-platform/silver-refresh"],
+            # The unit's two write paths, as every lane of the unit states them: the lanes' state on the data
+            # disk, and the SSD folder a lane loaded by DuckDB works in (root ADR-0599).
+            "state_paths": ["/data/foundation-platform/silver-refresh",
+                            "/var/lib/foundation-platform/silver-refresh-duckdb"],
             "schedule": shared["schedule"],
             "started_by": "inputs",
             "stop_grace_minutes": shared["stop_grace_minutes"],
