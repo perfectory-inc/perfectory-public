@@ -6,15 +6,12 @@
 -- {ingested_at_epoch_seconds}.
 CREATE OR REPLACE TEMP TABLE ca_court_auction_code AS
 WITH lists AS (
-  SELECT line_number, json_extract(ca_body(j), '{result_pointer}') AS list
+  SELECT line_number, json_extract(body, '{result_pointer}') AS list
   FROM ca_parsed
-  WHERE read AND json_type(ca_body(j)) = 'OBJECT' AND json_type(json_extract(ca_body(j), '{result_pointer}')) = 'ARRAY'
+  WHERE read AND json_type(body) = 'OBJECT' AND json_type(json_extract(body, '{result_pointer}')) = 'ARRAY'
 ), listed AS (
-  SELECT l.line_number, i.ordinal, i.item
-  FROM lists l,
-  LATERAL (SELECT unnest(range(CAST(json_array_length(l.list) AS BIGINT))) AS ordinal,
-                 unnest(json_extract(l.list, '$[*]')) AS item) i
-  WHERE json_type(i.item) = 'OBJECT'
+  SELECT line_number, unnest(l) AS item, generate_subscripts(l, 1) AS ordinal
+  FROM (SELECT line_number, ca_objects(list) AS l FROM lists)
 ), codes AS (
   SELECT line_number, ordinal,
          py_text(json_extract(item, '$.systmCd')) AS system_code,

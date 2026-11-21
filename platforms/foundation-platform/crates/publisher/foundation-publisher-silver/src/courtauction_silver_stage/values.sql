@@ -8,10 +8,13 @@ CREATE OR REPLACE MACRO ca_whole(v) AS
   CASE WHEN regexp_full_match(onbid_ascii_digits(replace(onbid_or_blank(v), ',', '')), '-?[0-9]+')
        THEN TRY_CAST(onbid_ascii_digits(replace(onbid_or_blank(v), ',', '')) AS BIGINT) END;
 
--- `(json.loads(line.get("body") or "") or {}).get("data")`, kept only when it is an object: the
--- answer's data of a read line, None for any other body.
-CREATE OR REPLACE MACRO ca_body(line) AS
-  TRY_CAST(CASE WHEN py_truthy(json_extract(line, '$.body')) THEN json_extract_string(line, '$.body') END AS JSON);
-CREATE OR REPLACE MACRO ca_data(line) AS
-  CASE WHEN json_type(ca_body(line)) = 'OBJECT' AND json_type(json_extract(ca_body(line), '$.data')) = 'OBJECT'
-       THEN json_extract(ca_body(line), '$.data') END;
+-- `(json.loads(line.get("body") or "") or {}).get("data")` of a line's parsed body (`ca_parsed.body`),
+-- kept only when it is an object: the answer's data of a read line, None for any other body.
+CREATE OR REPLACE MACRO ca_data(body) AS
+  CASE WHEN json_type(body) = 'OBJECT' AND json_type(json_extract(body, '$.data')) = 'OBJECT'
+       THEN json_extract(body, '$.data') END;
+
+-- `_list(value)`'s objects as a DuckDB list of JSON, in order; empty for any other value.
+CREATE OR REPLACE MACRO ca_objects(v) AS
+  CASE WHEN json_type(v) = 'ARRAY'
+       THEN list_filter(json_extract(v, '$[*]'), lambda x: json_type(x) = 'OBJECT') ELSE [] END;

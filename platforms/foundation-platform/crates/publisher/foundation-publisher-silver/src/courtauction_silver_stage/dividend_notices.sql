@@ -5,9 +5,9 @@
 -- Parameters: {list_operation}, {objects_operation}, {object_key}, {snapshot_id},
 -- {ingested_at_epoch_seconds}.
 CREATE OR REPLACE TEMP TABLE ca_dividend_answers AS
-SELECT line_number, json_extract_string(j, '$.operation') AS operation, ca_data(j) AS data
+SELECT line_number, json_extract_string(j, '$.operation') AS operation, ca_data(body) AS data
 FROM ca_parsed
-WHERE read AND ca_data(j) IS NOT NULL;
+WHERE read AND ca_data(body) IS NOT NULL;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_dividend_notice AS
 WITH lists AS (
@@ -15,11 +15,8 @@ WITH lists AS (
   FROM ca_dividend_answers
   WHERE operation = '{list_operation}' AND json_type(json_extract(data, '$.dlt_lstprdPbancCorOfc')) = 'ARRAY'
 ), listed AS (
-  SELECT l.line_number, i.ordinal, i.item
-  FROM lists l,
-  LATERAL (SELECT unnest(range(CAST(json_array_length(l.list) AS BIGINT))) AS ordinal,
-                 unnest(json_extract(l.list, '$[*]')) AS item) i
-  WHERE json_type(i.item) = 'OBJECT'
+  SELECT line_number, unnest(l) AS item, generate_subscripts(l, 1) AS ordinal
+  FROM (SELECT line_number, ca_objects(list) AS l FROM lists)
 )
 SELECT py_text(json_extract(item, '$.cortOfcCd')) AS court_office_code,
        py_text(json_extract(item, '$.csNo')) AS case_no,
@@ -47,11 +44,8 @@ WITH lists AS (
   FROM ca_dividend_answers
   WHERE operation = '{objects_operation}' AND json_type(json_extract(data, '$.dlt_dstrtDemnLstDts')) = 'ARRAY'
 ), listed AS (
-  SELECT l.line_number, i.ordinal, i.item
-  FROM lists l,
-  LATERAL (SELECT unnest(range(CAST(json_array_length(l.list) AS BIGINT))) AS ordinal,
-                 unnest(json_extract(l.list, '$[*]')) AS item) i
-  WHERE json_type(i.item) = 'OBJECT'
+  SELECT line_number, unnest(l) AS item, generate_subscripts(l, 1) AS ordinal
+  FROM (SELECT line_number, ca_objects(list) AS l FROM lists)
 )
 SELECT py_text(json_extract(item, '$.cortOfcCd')) AS court_office_code,
        py_text(json_extract(item, '$.csNo')) AS case_no,
