@@ -85,7 +85,7 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
         checked += 1;
     }
 
-    // Guardrail: the in-scope / out-of-scope split must stay as authored (162 in-scope, 10 mixed).
+    // Guardrail: the in-scope / out-of-scope split must stay as authored (174 in-scope).
     // The three ILIS entries joined when the industrial-complex address source got a collector;
     // the 124th is the data.go.kr getStanReginCdList 법정동코드 endpoint (ADR-0103 Wave 1); the
     // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board); the
@@ -112,8 +112,9 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // the 169th is its 매각공고, every court's this month and next (root ADR-0575 §6);
     // the 170th is its 배당요구종기공고, every court department's (root ADR-0575 §6);
     // the 171st–173rd are three more data.go.kr files the same collector lands: 표준지공시지가,
-    // 승강기 설치 현황 and 전국지식산업센터현황.
-    assert_eq!(checked, 173, "expected 173 in-scope catalog entries");
+    // 승강기 설치 현황 and 전국지식산업센터현황; the 174th is VWorld 일별 연속지적도형정보 (NA/23), the
+    // provider's daily parcel change files and monthly full sets, Bronze only for now.
+    assert_eq!(checked, 174, "expected 174 in-scope catalog entries");
     assert_eq!(
         skipped, 0,
         "expected no skipped mixed_public_source entries"

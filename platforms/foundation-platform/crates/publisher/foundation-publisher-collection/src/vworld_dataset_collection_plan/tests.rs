@@ -204,7 +204,7 @@ const DAILY_CATALOG: &str = r#"
       "operation": "synthetic_a",
       "source_acquisition_lane": "provider_dataset_file",
       "national_collection_allowed": true,
-      "provider_dataset_selector": { "svc_cde": "NA", "ds_id": "9991" },
+      "provider_dataset_selector": { "svc_cde": "NA", "ds_id": "9991", "listed_from": "2000-01-01" },
       "daily_collection": "source_sweep",
       "bronze": { "source_slug": "vworldkr__synthetic_a" }
     },
@@ -262,6 +262,9 @@ fn a_daily_collection_plans_only_its_marked_endpoints_without_a_summary() -> Tes
     assert!(report.jobs.iter().all(|job| !job.expected_counts_known));
     assert_eq!(report.jobs[1].svc_cde, "MK");
     assert_eq!(report.jobs[1].ds_id, "99992");
+    // The listing window the catalog names reaches the inventory step; one it does not name stays the page's.
+    assert_eq!(report.jobs[0].listed_from.as_deref(), Some("2000-01-01"));
+    assert_eq!(report.jobs[1].listed_from, None);
     Ok(())
 }
 
