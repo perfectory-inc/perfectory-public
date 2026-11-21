@@ -596,6 +596,99 @@ async fn a_list_of_text_column_is_staged_and_appended() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The unit areas are partitioned by `bucket(32, mgm_bldrgst_pk)`: a release's changes are written
+/// one file set per bucket, and a file of two buckets is refused (its bounds cannot say so).
+#[tokio::test(flavor = "multi_thread")]
+async fn rows_of_a_hash_partitioned_table_are_staged_one_bucket_a_file() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let contract = contract("silver.building_register_unit_areas")?;
+    assert_eq!(contract.partition_spec, ["bucket(32, mgm_bldrgst_pk)"]);
+    let catalog = catalog_partitioned(
+        &root.path().join("warehouse"),
+        contract,
+        &[("mgm_bldrgst_pk", Transform::Bucket(32))],
+    )
+    .await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let shape = committer.table_shape(contract.table_name).await?;
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| match (column.name, column.logical_type) {
+            ("mgm_bldrgst_pk", _) => "'99999-' || CAST(i AS VARCHAR) AS mgm_bldrgst_pk".to_owned(),
+            ("pnu", _) => "'99999' || lpad(CAST(i AS VARCHAR), 14, '0') AS pnu".to_owned(),
+            (name, "long") => format!("CAST(i AS BIGINT) AS {name}"),
+            (name, "int") => format!("CAST(i % 9 AS INTEGER) AS {name}"),
+            (name, "double") => format!("CAST(i AS DOUBLE) AS {name}"),
+            (name, "timestamp") => format!("to_timestamp(4070908800) AS {name}"),
+            (name, _) => format!("'{name}-' || CAST(i % 7 AS VARCHAR) AS {name}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    stage.connection().execute_batch(&format!(
+        "CREATE TABLE unit_rows AS SELECT {columns} FROM range(0, 2000) t(i)"
+    ))?;
+    let append = |files: Vec<StagedFile>, batch: &'static str| {
+        let committer = committer.clone();
+        async move {
+            committer
+                .append(DataAppend {
+                    table_name: contract.table_name,
+                    contract,
+                    files: &files,
+                    batch: &[batch.to_owned()],
+                    already_ingested: &BTreeSet::new(),
+                    summary: BTreeMap::new(),
+                })
+                .await
+        }
+    };
+
+    // Planted: every bucket in one file.
+    let mixed = stage.write(&shape, "SELECT * FROM unit_rows", "mixed")?;
+    let message = format!(
+        "{:#}",
+        append(vec![mixed], "mixed")
+            .await
+            .err()
+            .context("refused")?
+    );
+    assert!(message.contains("is not one partition"), "{message}");
+
+    let files = stage.write_bucketed(
+        &shape,
+        "unit_rows",
+        "mgm_bldrgst_pk",
+        32,
+        "areas",
+        256 * 1024 * 1024,
+    )?;
+    // 2,000 keys over 32 buckets: every bucket holds some.
+    assert_eq!(files.len(), 32);
+    let (_, _, added) = appended(append(files, "release").await?)?;
+    assert_eq!(added, 2000);
+    Ok(())
+}
+
+#[test]
+fn a_stage_refuses_work_that_would_eat_the_disks_reserve() -> anyhow::Result<()> {
+    const GIB: u64 = 1 << 30;
+    let reserve = super::stage_reserve_bytes()?;
+    assert_eq!(reserve, 30 * GIB);
+    // 97 GiB free, a 32 GiB spill ceiling: 13 GiB of copy and staged files fit, 40 do not.
+    assert!(super::leaves_reserve(97 * GIB, 32 * GIB, 13 * GIB, reserve));
+    assert!(!super::leaves_reserve(
+        97 * GIB,
+        32 * GIB,
+        40 * GIB,
+        reserve
+    ));
+    // A disk already under the reserve refuses whatever the plan.
+    assert!(!super::leaves_reserve(20 * GIB, 0, 0, reserve));
+    Ok(())
+}
+
 /// One synthetic row of `contract` (PNU under the synthetic 99999 code, 2099 times), every column
 /// filled by its type.
 fn synthetic_row(contract: &LakehouseTableContract) -> anyhow::Result<String> {

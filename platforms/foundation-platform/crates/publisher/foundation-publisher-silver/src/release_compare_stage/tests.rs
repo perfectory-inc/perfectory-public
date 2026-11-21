@@ -9,7 +9,7 @@ use lakehouse_domain::{
 
 use super::{
     buckets, check_pnu_null_share, check_release, compare_bucket, copy_release, edition_text,
-    release_relation, Bucket, BucketChanges, CompareRule, Stamp,
+    release_relation, tolerate, Bucket, BucketChanges, CompareRule, GeometryTolerance, Stamp,
 };
 use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
@@ -498,5 +498,126 @@ fn a_release_that_lost_ordinary_land_parcels_is_refused_before_it_is_staged() ->
         check_pnu_null_share(&stage, self::contract()?, &rows('0', 100), None)?,
         None
     );
+    Ok(())
+}
+
+// ---- the geometry tolerance (the zone areas) ----------------------------------------------------
+
+const ZONES: &str = "silver.land_use_zone_area";
+
+/// Hex of a little-endian WKB `MultiPolygon` of one square of about 100 m at a synthetic place,
+/// moved `metres` north.
+fn zone_shape(metres: f64) -> String {
+    let degree = 1.0 / 111_320.0;
+    let (x, y, side) = (99.0, metres.mul_add(degree, 9.0), 100.0 * degree);
+    let mut wkb = vec![1_u8];
+    wkb.extend(6_u32.to_le_bytes());
+    wkb.extend(1_u32.to_le_bytes());
+    wkb.push(1);
+    wkb.extend(3_u32.to_le_bytes());
+    wkb.extend(1_u32.to_le_bytes());
+    wkb.extend(5_u32.to_le_bytes());
+    for (px, py) in [
+        (x, y),
+        (x + side, y),
+        (x + side, y + side),
+        (x, y + side),
+        (x, y),
+    ] {
+        wkb.extend(px.to_le_bytes());
+        wkb.extend(py.to_le_bytes());
+    }
+    wkb.iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<Vec<_>>()
+        .concat()
+}
+
+/// Rows of the zone table: `(feature id, zone name, checksum, shape hex, edition, load seconds)`.
+fn zones(rows: &[(&str, &str, &str, String, &str, i64)]) -> anyhow::Result<String> {
+    let contract = industrial_complex_lakehouse_contract_by_table_name(ZONES).context("zones")?;
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| match (column.name, column.logical_type) {
+            ("zone_feature_id", _) => "v.id AS zone_feature_id".to_owned(),
+            ("zone_name", _) => "v.name AS zone_name".to_owned(),
+            ("geometry_checksum_sha256", _) => "v.checksum AS geometry_checksum_sha256".to_owned(),
+            ("geometry_wkb", _) => "from_hex(v.shape) AS geometry_wkb".to_owned(),
+            ("source_snapshot_id", _) => "v.edition AS source_snapshot_id".to_owned(),
+            ("ingested_at_utc", _) => "to_timestamp(v.loaded) AS ingested_at_utc".to_owned(),
+            ("row_state", _) => "CAST(NULL AS VARCHAR) AS row_state".to_owned(),
+            (name, "double") => format!("CAST(1 AS DOUBLE) AS {name}"),
+            (name, "int") => format!("CAST(4326 AS INTEGER) AS {name}"),
+            (name, _) => format!("'x' AS {name}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let values = rows
+        .iter()
+        .map(|(id, name, checksum, shape, edition, loaded)| {
+            format!("('{id}', '{name}', '{checksum}', '{shape}', '{edition}', {loaded})")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "(SELECT {columns} FROM (VALUES {values}) v(id, name, checksum, shape, edition, loaded))"
+    ))
+}
+
+#[test]
+fn a_geometry_moved_within_the_tolerance_is_not_a_change() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    let contract = industrial_complex_lakehouse_contract_by_table_name(ZONES).context("zones")?;
+    let rule = CompareRule::of(
+        contract,
+        &[
+            "zone_name".to_owned(),
+            "geometry_checksum_sha256".to_owned(),
+        ],
+    )?;
+    let tolerance =
+        GeometryTolerance::parse("geometry_wkb,geometry_checksum_sha256,0.1", contract, &rule)?;
+    // Planted: a tolerance nobody would measure, and one over a content column.
+    assert!(
+        GeometryTolerance::parse("geometry_wkb,geometry_checksum_sha256,5", contract, &rule)
+            .is_err()
+    );
+    assert!(
+        GeometryTolerance::parse("zone_name,geometry_checksum_sha256,0.1", contract, &rule)
+            .is_err()
+    );
+    let main = zones(&[
+        ("near", "a", "c1", zone_shape(0.0), "e1", 4_070_908_800),
+        ("far", "a", "c1", zone_shape(0.0), "e1", 4_070_908_800),
+        ("renamed", "a", "c1", zone_shape(0.0), "e1", 4_070_908_800),
+        ("same", "a", "c1", zone_shape(0.0), "e1", 4_070_908_800),
+    ])?;
+    let release = zones(&[
+        // 5 cm: the provider's re-projection. 20 cm: a boundary change.
+        ("near", "a", "c2", zone_shape(0.05), "e2", 4_073_587_200),
+        ("far", "a", "c2", zone_shape(0.2), "e2", 4_073_587_200),
+        // The name changed too: not the checksum alone.
+        ("renamed", "b", "c2", zone_shape(0.05), "e2", 4_073_587_200),
+        ("same", "a", "c1", zone_shape(0.0), "e2", 4_073_587_200),
+    ])?;
+    let stamp = Stamp {
+        source_snapshot_id: "e2",
+        edition: Some("e2"),
+        run_at: DateTime::from_timestamp(4_073_600_000, 0).context("an instant")?,
+    };
+    let found = compare_bucket(&stage, contract, &rule, &release, &main, "TRUE", stamp)?;
+    assert_eq!(found.changed_keys, 3);
+    assert_eq!(
+        tolerate(&stage, contract, &rule, &release, &main, "TRUE", &tolerance)?,
+        1
+    );
+    let appended: Vec<String> = stage
+        .connection()
+        .prepare("SELECT zone_feature_id FROM rc_changes ORDER BY 1")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    assert_eq!(appended, ["far", "renamed"]);
     Ok(())
 }

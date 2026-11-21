@@ -37,7 +37,7 @@ use crate::{
     },
     release_compare_stage::{
         buckets, check_pnu_null_share, check_release, compare_bucket, copy_release, edition_text,
-        release_relation, CompareRule, Stamp,
+        release_relation, tolerate, BucketChanges, CompareRule, GeometryTolerance, Stamp,
     },
 };
 
@@ -66,6 +66,8 @@ pub(in crate::remote_lakehouse_job) struct ReleaseAppend {
     pub buckets: usize,
     pub changed_key_rows: u64,
     pub removed_keys: u64,
+    /// Changed keys the lane's geometry tolerance kept unchanged.
+    pub tolerated_keys: u64,
     pub staged_files: usize,
     pub staged_bytes: u64,
     pub copy_seconds: f64,
@@ -235,22 +237,36 @@ fn staged_name(table: &str, identity: &str, bucket: usize) -> String {
     format!("{short}-{}-b{bucket:04}", &digest[..16])
 }
 
+/// `N`, when the table is partitioned by `bucket(N, key)` alone, its key one column: a release's
+/// changes are then written one file set per bucket (`write_bucketed`).
+fn key_buckets(contract: &LakehouseTableContract, rule: &CompareRule) -> Option<u32> {
+    let [part] = contract.partition_spec else {
+        return None;
+    };
+    let [key] = rule.key.as_slice() else {
+        return None;
+    };
+    let (buckets, column) = part
+        .strip_prefix("bucket(")?
+        .strip_suffix(')')?
+        .split_once(',')?;
+    (column.trim() == *key)
+        .then(|| buckets.trim().parse().ok())
+        .flatten()
+}
+
 /// The lane's table contract and its compare rule (`None` for a lane that declares no compare: its
 /// release is appended whole), when this path can load the lane.
 ///
 /// # Errors
-/// The lane declares a compare this path does not do yet: a geometry tolerance, a partition
-/// other than the edition.
+/// The lane declares a compare this path does not do: a partition other than the edition or one
+/// hash bucket of the key, or a release appended whole on a table with the PNU null-share gate.
 pub(in crate::remote_lakehouse_job) fn fits(
     contract: &LaneContract,
 ) -> anyhow::Result<(&'static LakehouseTableContract, Option<CompareRule>)> {
     let table = contract.table.as_str();
     let table_contract = industrial_complex_lakehouse_contract_by_table_name(table)
         .with_context(|| format!("no contract for {table}"))?;
-    ensure!(
-        contract.compare_geometry_tolerance.is_none(),
-        "{table}: the geometry tolerance is not compared on DuckDB yet (root ADR-0599 §7)"
-    );
     let rule = contract
         .compare_content
         .as_ref()
@@ -263,7 +279,8 @@ pub(in crate::remote_lakehouse_job) fn fits(
         rule.as_ref().is_none_or(|rule| table_contract
             .partition_spec
             .iter()
-            .all(|part| Some(*part) == rule.edition_column)),
+            .all(|part| Some(*part) == rule.edition_column)
+            || key_buckets(table_contract, rule).is_some()),
         "{table} is partitioned by {:?}: a staged file must be one partition, and this path splits by none but the edition",
         table_contract.partition_spec
     );
@@ -312,6 +329,7 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
         buckets: 0,
         changed_key_rows: 0,
         removed_keys: 0,
+        tolerated_keys: 0,
         staged_files: 0,
         staged_bytes: 0,
         copy_seconds: 0.0,
@@ -346,8 +364,12 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
     // The staged files live as long as the stage: it is kept until the append is done.
     let stage = DuckDbParquetStage::open_reading_lakehouse(&stages, &LakehouseRead::from_env()?)?;
     let started = Instant::now();
+    // The copy's size is not known before it is made; its spill ceiling is.
+    stage.require_room(0)?;
     let (copy, rows) = release_copy(&stage, table_contract, release, &copies)?;
     report.copy_seconds = seconds(started);
+    // The staged files hold at most the copy's rows; a bucketed table gathers them once more.
+    stage.require_room(std::fs::metadata(&copy)?.len().saturating_mul(2))?;
     let copied = release_relation(&copy)?;
     report.release_rows = check_release(
         &stage,
@@ -442,6 +464,13 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
     let every = buckets(&stage, &rule, &sides, length)?;
     report.buckets = every.len();
     let mut files: Vec<StagedFile> = Vec::new();
+    let tolerance = contract
+        .compare_geometry_tolerance
+        .as_deref()
+        .map(|raw| GeometryTolerance::parse(raw, table_contract, &rule))
+        .transpose()?;
+    let hash_buckets = key_buckets(table_contract, &rule);
+    let mut gathered = false;
     for (index, bucket) in every.iter().enumerate() {
         let in_bucket = bucket.predicate(rule.key[0], length);
         let found = compare_bucket(
@@ -453,14 +482,41 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
             &in_bucket,
             stamp,
         )?;
+        let tolerated = match &tolerance {
+            Some(tolerance) => tolerate(
+                &stage,
+                table_contract,
+                &rule,
+                &format!("(SELECT * FROM {copied} WHERE {in_bucket})"),
+                &main,
+                &in_bucket,
+                tolerance,
+            )?,
+            None => 0,
+        };
+        report.tolerated_keys += tolerated;
+        let found = BucketChanges {
+            changed_keys: found.changed_keys - tolerated,
+            ..found
+        };
         println!(
-            "silver-refresh {table} bucket {}: {} changed keys and {} removal markers",
+            "silver-refresh {table} bucket {}: {} changed keys ({tolerated} more within the geometry tolerance) and {} removal markers",
             bucket.label(),
             found.changed_keys,
             found.removed_keys
         );
         report.removed_keys += found.removed_keys;
         if found.changed_keys + found.removed_keys == 0 {
+            continue;
+        }
+        if hash_buckets.is_some() {
+            // Split by hash bucket once, after the last compare bucket: per compare bucket it
+            // would be thirty-two small files each.
+            stage.connection().execute_batch(
+                "CREATE TABLE IF NOT EXISTS rc_all AS SELECT * FROM rc_changes WITH NO DATA; \
+                 INSERT INTO rc_all SELECT * FROM rc_changes",
+            )?;
+            gathered = true;
             continue;
         }
         let staged = stage.write_split(
@@ -470,6 +526,16 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
             STAGED_FILE_BYTES,
         )?;
         files.extend(staged);
+    }
+    if let (Some(buckets), true) = (hash_buckets, gathered) {
+        files = stage.write_bucketed(
+            &shape,
+            "rc_all",
+            rule.key[0],
+            buckets,
+            &staged_name(table, release.identity, 0),
+            STAGED_FILE_BYTES,
+        )?;
     }
     let mut staged_rows = 0_u64;
     for file in &files {

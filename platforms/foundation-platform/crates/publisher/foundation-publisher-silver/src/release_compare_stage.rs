@@ -410,6 +410,173 @@ pub fn compare_bucket(
     })
 }
 
+/// A lane's `compare.geometry_tolerance`: a key whose only differing content is the geometry's
+/// checksum is unchanged when the two geometries are one shape within `metres`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeometryTolerance {
+    /// The WKB column, outside the content.
+    pub geometry: String,
+    /// Its checksum, a content column.
+    pub checksum: String,
+    /// The tolerance, above 0 and at most 1.
+    pub metres: f64,
+}
+
+impl GeometryTolerance {
+    /// `GEOMETRY,CHECKSUM,METRES`, as the lane contract renders it.
+    ///
+    /// # Errors
+    /// The text is not that, the metres are not above 0 and at most 1 (a wider tolerance would
+    /// hide real boundary changes), the checksum is not a content column of `rule`, or the
+    /// geometry is a content column or no column of `contract`.
+    pub fn parse(
+        raw: &str,
+        contract: &LakehouseTableContract,
+        rule: &CompareRule,
+    ) -> anyhow::Result<Self> {
+        let parts: Vec<&str> = raw.split(',').collect();
+        let [geometry, checksum, metres] = parts.as_slice() else {
+            bail!("a geometry tolerance is GEOMETRY,CHECKSUM,METRES, not {raw:?}");
+        };
+        let metres: f64 = metres
+            .parse()
+            .with_context(|| format!("the tolerance of {raw:?} is not a number"))?;
+        ensure!(
+            metres > 0.0 && metres <= 1.0,
+            "a geometry tolerance of {metres} m is not above 0 and at most 1"
+        );
+        ensure!(
+            rule.content.iter().any(|column| column == checksum)
+                && !rule.content.iter().any(|column| column == geometry)
+                && column_names(contract).contains(geometry),
+            "{}: the geometry tolerance compares {geometry}, a column outside the content, when {checksum}, a content column, is the only difference",
+            contract.table_name
+        );
+        Ok(Self {
+            geometry: (*geometry).to_owned(),
+            checksum: (*checksum).to_owned(),
+            metres,
+        })
+    }
+}
+
+/// Takes out of `rc_changed` the keys `tolerance` keeps unchanged; returns how many.
+///
+/// Called after [`compare_bucket`], with its relations. A candidate is a changed key with one row
+/// in the release and one current row whose content differs in the checksum alone; the
+/// geometries are read only for those, and the rule is
+/// `foundation_publisher_core::wkb_polygons::within_tolerance`.
+///
+/// # Errors
+/// `DuckDB` fails.
+pub fn tolerate(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    rule: &CompareRule,
+    release: &str,
+    main: &str,
+    in_bucket: &str,
+    tolerance: &GeometryTolerance,
+) -> anyhow::Result<u64> {
+    let latest = contract
+        .current_row_latest()
+        .context("a compared table keeps a newest row per key")?;
+    let same = |left: &str, right: &str| {
+        rule.key
+            .iter()
+            .map(|key| format!("{left}.{key} IS NOT DISTINCT FROM {right}.{key}"))
+            .collect::<Vec<_>>()
+            .join(" AND ")
+    };
+    let keys = rule.key.join(", ");
+    let others: Vec<&String> = rule
+        .content
+        .iter()
+        .filter(|column| **column != tolerance.checksum)
+        .collect();
+    let geometry = &tolerance.geometry;
+    let side = others
+        .iter()
+        .map(|column| format!(", {column}"))
+        .collect::<Vec<_>>()
+        .concat();
+    let changed_in_main = format!(
+        "(SELECT * FROM {main} g WHERE {in_bucket} AND EXISTS (SELECT 1 FROM rc_changed k WHERE {})) rc_was",
+        same("k", "g")
+    );
+    let mut current_columns: Vec<&str> = rule.key.clone();
+    current_columns.extend(others.iter().map(|column| column.as_str()));
+    current_columns.push(geometry);
+    let current = latest.current_rows_sql(&changed_in_main, &current_columns, "TRUE");
+    let same_others = others
+        .iter()
+        .map(|column| format!(" AND n.{column} IS NOT DISTINCT FROM o.{column}"))
+        .collect::<Vec<_>>()
+        .concat();
+    let mut kept: Vec<Vec<Option<String>>> = Vec::new();
+    {
+        // One row on each side, everything but the checksum equal: the pair to measure.
+        let mut statement = stage.connection().prepare(&format!(
+            "SELECT {}, n.{geometry}, o.{geometry} FROM              (SELECT {keys}{side}, {geometry} FROM {release} r               WHERE EXISTS (SELECT 1 FROM rc_changed k WHERE {})               QUALIFY count(*) OVER (PARTITION BY {keys}) = 1) n              JOIN (SELECT * FROM ({current}) QUALIFY count(*) OVER (PARTITION BY {keys}) = 1) o              ON {}{same_others}",
+            rule.key
+                .iter()
+                .map(|key| format!("CAST(n.{key} AS VARCHAR)"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            same("k", "r"),
+            same("n", "o"),
+        ))?;
+        let width = rule.key.len();
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
+            let (new, old): (Option<Vec<u8>>, Option<Vec<u8>>) =
+                (row.get(width)?, row.get(width + 1)?);
+            let (Some(new), Some(old)) = (new, old) else {
+                continue;
+            };
+            if foundation_publisher_core::wkb_polygons::within_tolerance(
+                &old,
+                &new,
+                tolerance.metres,
+            ) {
+                kept.push(
+                    (0..width)
+                        .map(|index| row.get(index))
+                        .collect::<Result<_, _>>()?,
+                );
+            }
+        }
+    }
+    if kept.is_empty() {
+        return Ok(0);
+    }
+    let columns = rule
+        .key
+        .iter()
+        .map(|key| format!("{key} VARCHAR"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    stage
+        .connection()
+        .execute_batch(&format!("CREATE OR REPLACE TEMP TABLE rc_kept ({columns})"))?;
+    {
+        let mut appender = stage.connection().appender("rc_kept")?;
+        for key in &kept {
+            appender.append_row(duckdb::appender_params_from_iter(key.iter()))?;
+        }
+        appender.flush()?;
+    }
+    stage.connection().execute_batch(&format!(
+        "DELETE FROM rc_changed k WHERE EXISTS (SELECT 1 FROM rc_kept t WHERE {})",
+        rule.key
+            .iter()
+            .map(|key| format!("t.{key} IS NOT DISTINCT FROM CAST(k.{key} AS VARCHAR)"))
+            .collect::<Vec<_>>()
+            .join(" AND ")
+    ))?;
+    Ok(u64::try_from(kept.len())?)
+}
+
 /// An edition column as the text an edition is recorded and compared by.
 ///
 /// A text edition is itself; an instant is UTC `yyyy-MM-dd HH:mm:ss` (what the Spark compare

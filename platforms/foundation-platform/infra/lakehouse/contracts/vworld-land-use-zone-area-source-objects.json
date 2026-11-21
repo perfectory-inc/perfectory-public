@@ -23,6 +23,8 @@
       "regions": ["032", "036", "124", "126", "127", "142", "143", "144", "145", "146", "147", "148", "327", "335", "336"]
     },
     "export": "export-land-use-zone-area-silver-handoff",
+    "engine": "duckdb",
+    "engine_reason": "root ADR-0599 §8 ④: compared by DuckDB inside the publisher from a local copy; a key whose only differing content is the geometry checksum is measured by the publisher's WKB reader under the same rule the Spark kernel had (foundation_publisher_core::wkb_polygons::within_tolerance)",
     "spark": {
       "master": "local[8,8]",
       "driver_memory": "16g",

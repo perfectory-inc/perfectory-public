@@ -258,6 +258,27 @@ impl DuckDbParquetStage {
         &self.connection
     }
 
+    /// Refuses work that would eat the reserve of the stage's disk (`config/host-layout.contract.json`
+    /// `duckdb_stage_reserve_bytes`: the disk also holds the runtime Postgres).
+    ///
+    /// `expected_bytes` is what the caller is about to write beside the stage (a release copy, its
+    /// staged files); the stage's own spill may reach its ceiling on top of it.
+    ///
+    /// # Errors
+    /// The free space, less the spill ceiling and `expected_bytes`, is under the reserve, or it
+    /// cannot be measured.
+    pub fn require_room(&self, expected_bytes: u64) -> anyhow::Result<()> {
+        let free = foundation_publisher_core::free_space::free_bytes(self.directory.path())?;
+        let spill = serving_scratch::configured_maximum_bytes()?;
+        ensure!(
+            leaves_reserve(free, spill, expected_bytes, stage_reserve_bytes()?),
+            "the disk of {} has {free} bytes free; this stage may spill {spill} and expects to write {expected_bytes} more, which would leave less than the {} bytes reserved on that disk (host-layout duckdb_stage_reserve_bytes). Free space or wait for the other stage to finish",
+            self.directory.path().display(),
+            stage_reserve_bytes()?
+        );
+        Ok(())
+    }
+
     /// Lowers the memory `DuckDB` may hold before it spills to `mib`, for a reader whose unit is capped
     /// below the engine contract's execution profile (half of it is the default): `DuckDB` must spill
     /// before the kernel's limit, not after.
@@ -401,6 +422,62 @@ impl DuckDbParquetStage {
         }
         Ok(files)
     }
+
+    /// [`Self::write_split`] of the table `rows`, one set of files per hash bucket of its text
+    /// column `key` (a table partitioned by `bucket(buckets, key)`): named `name-pNN-0000`, ….
+    ///
+    /// The bucket of each key is Iceberg's own transform, computed here and joined back, for
+    /// `DuckDB` has no such function; the committer asks the same transform of every value.
+    ///
+    /// # Errors
+    /// What [`Self::write_split`] refuses, a null key, or `DuckDB` fails the mapping.
+    pub fn write_bucketed(
+        &self,
+        shape: &TableShape,
+        rows: &str,
+        key: &str,
+        buckets: u32,
+        name: &str,
+        max_bytes: u64,
+    ) -> anyhow::Result<Vec<StagedFile>> {
+        let bucket_of = foundation_publisher_core::lakehouse_data_commit::text_bucket(buckets)?;
+        self.connection.execute_batch(
+            "CREATE OR REPLACE TABLE stage_bucket_of (stage_key VARCHAR, stage_bucket INTEGER)",
+        )?;
+        // A second connection appends while this one reads the keys.
+        let writer = self.connection.try_clone()?;
+        let mut found = std::collections::BTreeSet::new();
+        {
+            let mut appender = writer.appender("stage_bucket_of")?;
+            let mut statement = self
+                .connection
+                .prepare(&format!("SELECT DISTINCT {key} FROM {rows}"))?;
+            let mut keys = statement.query([])?;
+            while let Some(row) = keys.next()? {
+                let text: Option<String> = row.get(0)?;
+                let text = text.with_context(|| format!("{rows} holds a null {key}"))?;
+                let bucket = bucket_of(&text)?;
+                found.insert(bucket);
+                appender.append_row(duckdb::params![text, bucket])?;
+            }
+            appender.flush()?;
+        }
+        let mut files = Vec::new();
+        for bucket in found {
+            files.extend(self.write_split(
+                shape,
+                &format!(
+                    "SELECT r.* FROM {rows} r JOIN stage_bucket_of b ON r.{key} = b.stage_key \
+                     WHERE b.stage_bucket = {bucket}"
+                ),
+                &format!("{name}-p{bucket:02}"),
+                max_bytes,
+            )?);
+        }
+        self.connection
+            .execute_batch("DROP TABLE stage_bucket_of")?;
+        Ok(files)
+    }
 }
 
 /// The projection and the field ids of a staged file of `shape`, after `name` and the columns are
@@ -502,6 +579,19 @@ pub fn with_contract_columns(
         return Ok(source.to_owned());
     }
     Ok(format!("(SELECT *, {} FROM {source})", added.join(", ")))
+}
+
+/// The bytes a stage's disk keeps free of stage work, from the host layout contract.
+fn stage_reserve_bytes() -> anyhow::Result<u64> {
+    const HOST_LAYOUT: &str = include_str!("../../../../config/host-layout.contract.json");
+    serde_json::from_str::<serde_json::Value>(HOST_LAYOUT)?["duckdb_stage_reserve_bytes"]
+        .as_u64()
+        .context("host-layout.contract.json declares no duckdb_stage_reserve_bytes")
+}
+
+/// Whether `free` bytes, less a stage's spill ceiling and what it expects to write, keep `reserve`.
+const fn leaves_reserve(free: u64, spill: u64, expected: u64, reserve: u64) -> bool {
+    free.saturating_sub(spill).saturating_sub(expected) >= reserve
 }
 
 #[cfg(test)]

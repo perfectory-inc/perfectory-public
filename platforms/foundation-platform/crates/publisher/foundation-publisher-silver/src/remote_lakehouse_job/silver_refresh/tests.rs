@@ -265,8 +265,8 @@ fn a_lane_runs_on_the_engine_its_contract_names_and_spark_when_it_names_none() -
             Err(error) => Some(Err(error)),
         })
         .collect::<anyhow::Result<_>>()?;
-    // Still on Spark: the unit areas' bucket partition and the geometry tolerance.
-    let stay = ["building-register-unit-areas", "land-use-zone-area"];
+    // Every lane has moved; the engine line goes with the Spark jobs.
+    let stay: [&str; 0] = [];
     for lane in Lane::all() {
         let contract = lane.contract()?;
         assert_eq!(
