@@ -256,9 +256,28 @@ class RegistryTest(unittest.TestCase):
     def test_a_ci_runner_resolves_every_tool_and_the_static_release_contract(self) -> None:
         registry = fetch_pinned.load_registry()
         names = {name for name, _, _ in fetch_pinned.all_pins(registry, "linux", "x86_64")}
-        ci_tools = {name for name, spec in registry["tools"].items() if spec.get("ci", True) is not False}
+        ci_tools = {name for name, spec in registry["tools"].items() if fetch_pinned.used_by_ci(spec, "linux")}
         self.assertTrue(ci_tools <= names)
         self.assertGreater(len(names), len(ci_tools))
+
+    def test_the_windows_runner_prefetches_only_the_static_release_toolchain(self) -> None:
+        # Its one job (static-release-toolchain-windows) runs only the contract's tools; the cache
+        # held every tool, 350 MB of a 300 MB budget shared with Linux (2026-11-21).
+        registry = fetch_pinned.load_registry()
+        names = {name for name, _, _ in fetch_pinned.all_pins(registry, "windows", "x86_64")}
+        contract = {fetch_pinned._asset_name(url) for url, _ in fetch_pinned.contract_pins(registry, "windows", "x86_64")}
+        self.assertEqual(names, contract)
+        self.assertTrue(contract)
+
+    def test_ci_names_only_systems_the_tool_is_pinned_for(self) -> None:
+        spec = {"os": {"linux": "linux"}}
+        self.assertTrue(fetch_pinned.used_by_ci({**spec, "ci": ["linux"]}, "linux"))
+        self.assertFalse(fetch_pinned.used_by_ci({**spec, "ci": ["linux"]}, "windows"))
+        self.assertFalse(fetch_pinned.used_by_ci({**spec, "ci": False}, "linux"))
+        self.assertTrue(fetch_pinned.used_by_ci(spec, "linux"))
+        for bad in (["windows"], "linux", [1]):
+            with self.assertRaises(fetch_pinned.FetchError):
+                fetch_pinned.used_by_ci({**spec, "ci": bad}, "linux")
 
     def test_the_saved_cache_key_names_every_file_that_pins_a_download(self) -> None:
         # The cache main fills is saved under a key hashed from the pin files (root ADR-0197). A

@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "description": "Where each checksum-pinned release binary CI uses is downloaded from. The versions and SHA-256 values stay in the env file each entry names; this file only says how to spell the asset URL for a platform. scripts/ci/fetch_pinned.py is the only reader and the only downloader (root ADR-0197).",
+  "description": "Where each checksum-pinned release binary CI uses is downloaded from. The versions and SHA-256 values stay in the env file each entry names; this file only says how to spell the asset URL for a platform, and (ci) which CI runner systems prefetch it: false for a tool only the server fetches, a list for the systems whose jobs run it, absent for every system it is pinned for. scripts/ci/fetch_pinned.py is the only reader and the only downloader (root ADR-0197).",
   "tools": {
     "actionlint": {
+      "ci": ["linux"],
       "pins": "tools/actionlint.env",
       "version_variable": "ACTIONLINT_VERSION",
       "sha256_variable": "ACTIONLINT_{OS}_{ARCH}_SHA256",
@@ -12,6 +13,7 @@
       "url": "https://github.com/rhysd/actionlint/releases/download/v{version}/actionlint_{version}_{os}_{arch}.{extension}"
     },
     "promtool": {
+      "ci": ["linux"],
       "pins": "tools/promtool.env",
       "version_variable": "PROMTOOL_VERSION",
       "sha256_variable": "PROMTOOL_{OS}_{ARCH}_SHA256",
@@ -21,6 +23,7 @@
       "url": "https://github.com/prometheus/prometheus/releases/download/v{version}/prometheus-{version}.{os}-{arch}.{extension}"
     },
     "amtool": {
+      "ci": ["linux"],
       "pins": "tools/amtool.env",
       "version_variable": "AMTOOL_VERSION",
       "sha256_variable": "AMTOOL_{OS}_{ARCH}_SHA256",
@@ -30,6 +33,7 @@
       "url": "https://github.com/prometheus/alertmanager/releases/download/v{version}/alertmanager-{version}.{os}-{arch}.{extension}"
     },
     "gitleaks": {
+      "ci": ["linux"],
       "pins": "tools/gitleaks.env",
       "version_variable": "GITLEAKS_VERSION",
       "sha256_variable": "GITLEAKS_{OS}_{ARCH}_SHA256",
@@ -39,6 +43,7 @@
       "url": "https://github.com/gitleaks/gitleaks/releases/download/v{version}/gitleaks_{version}_{os}_{arch}.{extension}"
     },
     "osv-scanner": {
+      "ci": ["linux"],
       "pins": "tools/osv-scanner.env",
       "version_variable": "OSV_SCANNER_VERSION",
       "sha256_variable": "OSV_SCANNER_{OS}_{ARCH}_SHA256",
@@ -48,6 +53,7 @@
       "url": "https://github.com/google/osv-scanner/releases/download/v{version}/osv-scanner_{os}_{arch}{extension}"
     },
     "opengrep": {
+      "ci": ["linux"],
       "pins": "tools/opengrep.env",
       "version_variable": "OPENGREP_VERSION",
       "sha256_variable": "OPENGREP_{OS}_{ARCH}_SHA256",
@@ -57,6 +63,7 @@
       "url": "https://github.com/opengrep/opengrep/releases/download/v{version}/opengrep_{os}_{arch}{extension}"
     },
     "docker-compose": {
+      "ci": ["linux"],
       "pins": "tools/docker-compose.env",
       "version_variable": "DOCKER_COMPOSE_VERSION",
       "sha256_variable": "DOCKER_COMPOSE_{OS}_{ARCH}_SHA256",
@@ -66,6 +73,7 @@
       "url": "https://github.com/docker/compose/releases/download/v{version}/docker-compose-{os}-{arch}{extension}"
     },
     "conftest": {
+      "ci": ["linux"],
       "pins": "tools/conftest.env",
       "version_variable": "CONFTEST_VERSION",
       "sha256_variable": "CONFTEST_{OS}_{ARCH}_SHA256",
@@ -94,6 +102,7 @@
       "url": "https://github.com/mozilla/sccache/releases/download/v{version}/sccache-v{version}-{target}.{extension}"
     },
     "cargo-nextest": {
+      "ci": ["linux"],
       "pins": "tools/cargo-nextest.env",
       "version_variable": "CARGO_NEXTEST_VERSION",
       "sha256_variable": "CARGO_NEXTEST_{OS}_{ARCH}_SHA256",
@@ -104,6 +113,7 @@
       "url": "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-{version}/cargo-nextest-{version}-{target}.{extension}"
     },
     "cargo-hakari": {
+      "ci": ["linux"],
       "pins": "tools/cargo-hakari.env",
       "version_variable": "CARGO_HAKARI_VERSION",
       "sha256_variable": "CARGO_HAKARI_{OS}_{ARCH}_SHA256",
@@ -114,6 +124,7 @@
       "url": "https://github.com/guppy-rs/guppy/releases/download/cargo-hakari-{version}/cargo-hakari-{version}-{target}.{extension}"
     },
     "zizmor": {
+      "ci": ["linux"],
       "pins": "tools/zizmor.env",
       "version_variable": "ZIZMOR_VERSION",
       "sha256_variable": "ZIZMOR_{OS}_{ARCH}_SHA256",
@@ -152,6 +163,7 @@
       "url": "https://github.com/koalaman/shellcheck/releases/download/v{version}/shellcheck-v{version}.{os}.{arch}.{extension}"
     },
     "ruff": {
+      "ci": ["linux"],
       "pins": "tools/ruff.env",
       "version_variable": "RUFF_VERSION",
       "sha256_variable": "RUFF_{OS}_{ARCH}_SHA256",

@@ -188,6 +188,17 @@ nextest 의 `rdeps()` 가 같은 그래프로 시험을 고른다. 남는 문제
       지운다. 그 잡 하나에만 `actions: write` 를 허용한다(`check-workflow-policy.sh`, 자기시험이 다른 파일·트리거·최상위·다른
       쓰기를 거부).
     - 남은 옛 pinned 키 둘(245 MB)은 손으로 지웠다.
+- 2026-11-21 (캐시 초과의 원인 둘): 11-17 부터 매일 붉었다(합 9,063/9,000 MB, gongzzang 의존 2,217/1,500, pinned 859/300).
+  - gongzzang 의존: 같은 lockfile 해시(`2a6f3db2`)에 환경 해시가 다른 키 둘(1,108 MB 씩)이 main 에 있었다.
+    Swatinem/rust-cache 는 v2.9.0(#293) 부터 설치된 모든 툴체인을 키에 넣는데, 러너 이미지의 `stable` 이 이미지 배포 중
+    1.99.1 과 1.100.0 으로 갈렸다. 두 갈래가 각자 저장됐고 둘 다 계속 복원됐다.
+  - pinned: Windows 묶음이 모든 도구(350 MB)를 담았지만 그 OS 의 잡 하나는 정적 릴리스 도구만 쓴다. Linux 묶음 509 MB 는
+    #997·#1060·#1090·#1378 이 고정한 도구(promtool·opengrep·docker-compose·DuckDB 확장 등)이고 모두 부르는 곳이 있다.
+  - 고친 것:
+    - `scripts/ci/rust-setup.sh` 가 고정 툴체인 말고는 지워 키가 이미지와 상관없게 했다.
+    - Rust 항목도 `one_key` 다. 갈래는 키 끝의 해시들(환경·lockfile)을 뗀 것이고 최신 하나는 남으므로 protected 항목도 비지 않는다.
+    - `tools/pinned-artifacts.json` 의 `ci` 가 도구를 받는 CI 러너 OS 목록을 적는다. Windows 는 정적 릴리스 도구만 받는다.
+    - pinned 예산은 실측(Linux 509 + Windows 정적 릴리스 46 MB 내려받기)으로 650 MB 다.
 
 ## Measurements
 
