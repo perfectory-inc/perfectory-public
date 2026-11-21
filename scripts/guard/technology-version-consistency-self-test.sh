@@ -156,8 +156,13 @@ printf '%s\n' 'const A: Area = Area { apt_deps: &["cmake", "python3"], };' \
   'const B: Area = Area { apt_deps: &[ "zlib1g-dev", ], };' 'const C: Area = Area { apt_deps: &[], };' \
   > "$fixture/tools/xtask/src/main.rs"
 printf '%s\n' 'SCCACHE_VERSION=9.9.9' 'SCCACHE_LINUX_X86_64_SHA256=abc123' > "$fixture/tools/sccache.env"
-printf '%s\n' 'RUN apt-get update \' '  && apt-get install -y --no-install-recommends \' '    cmake \' \
-  '    python3 zlib1g-dev \' '  && rm -rf /var/lib/apt/lists/*' >> "$fixture/tools/verify-image/Dockerfile"
+cat >> "$fixture/tools/verify-image/Dockerfile" <<'DOCKERFILE'
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    cmake \
+    python3 zlib1g-dev \
+  && rm -rf /var/lib/apt/lists/*
+DOCKERFILE
 git -C "$fixture" add .
 bash "$checker" "$fixture" >/dev/null
 sed -i 's/    python3 zlib1g-dev/    python3 zlib1g-dev clang/' "$fixture/tools/verify-image/Dockerfile"
