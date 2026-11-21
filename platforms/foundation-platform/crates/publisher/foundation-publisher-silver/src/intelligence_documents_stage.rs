@@ -72,7 +72,7 @@ pub fn relation(
                 .columns
                 .iter()
                 .map(|column| Ok(format!(
-                    "CAST(NULL AS {}) AS {}",
+                    "CAST(NULL AS {}) AS \"{}\"",
                     duckdb_type(column.logical_type)?,
                     column.name
                 )))
@@ -476,16 +476,18 @@ pub fn stage_run_rows(
                 return Ok(format!("{} AS run_id", literal(run_id)));
             }
             let raw = format!("json_extract_string(line, '$.{name}')");
+            // Quoted: a column may be a word SQL keeps (`check`).
+            let quoted = format!("\"{name}\"");
             Ok(match column.logical_type {
-                "string" => format!("{raw} AS {name}"),
-                "int" => format!("CAST({raw} AS INTEGER) AS {name}"),
-                "long" => format!("CAST({raw} AS BIGINT) AS {name}"),
+                "string" => format!("{raw} AS {quoted}"),
+                "int" => format!("CAST({raw} AS INTEGER) AS {quoted}"),
+                "long" => format!("CAST({raw} AS BIGINT) AS {quoted}"),
                 // No time zone database is loaded: the instant is UTC text, counted in microseconds.
                 "timestamp" => format!(
                     "CASE WHEN {raw} IS NULL THEN NULL \
                      WHEN regexp_full_match({raw}, '[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}T[0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}Z') \
                      THEN to_timestamp(epoch_us(CAST(replace(replace({raw}, 'T', ' '), 'Z', '') AS TIMESTAMP)) // 1000000) \
-                     ELSE error('{name} is not an instant like 2099-01-01T00:00:00Z: ' || {raw}) END AS {name}"
+                     ELSE error('{name} is not an instant like 2099-01-01T00:00:00Z: ' || {raw}) END AS {quoted}"
                 ),
                 other => bail!("{table}.{name}: a run file column of type {other} has no reader"),
             })
@@ -543,6 +545,11 @@ pub fn export_fold_inputs(
     let [held, attachments, facts, details, pages] = relations;
     let version = text(extraction, &["document_fact", "extractor_version"])?;
     let kinds = in_list(&PANEL_KINDS.map(str::to_owned));
+    let quoted_facts: Vec<String> = fact_contract
+        .columns
+        .iter()
+        .map(|column| format!("\"{}\"", column.name))
+        .collect();
     stage.connection().execute_batch(&format!(
         "CREATE OR REPLACE TEMP TABLE id_held AS {held_now};
          CREATE OR REPLACE TEMP TABLE id_attachments AS {attachments_now};
@@ -558,10 +565,11 @@ pub fn export_fold_inputs(
             attachments,
             &["official_complex_code", "notice_sequence", "sha256", "file_sequence", "file_title", "media_format"]
         )?,
+        // Quoted: the facts have a column named `check`, a word SQL keeps.
         facts_now = current(
             fact_contract,
             facts,
-            &fact_contract.columns.iter().map(|column| column.name).collect::<Vec<_>>()
+            &quoted_facts.iter().map(String::as_str).collect::<Vec<_>>()
         )?,
         version = literal(&version),
     ))?;

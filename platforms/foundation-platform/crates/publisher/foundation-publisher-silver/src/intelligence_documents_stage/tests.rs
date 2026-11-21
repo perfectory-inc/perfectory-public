@@ -537,3 +537,54 @@ fn a_fold_makes_up_the_complexes_an_earlier_run_left_behind() -> anyhow::Result<
     assert_eq!(inputs.complexes, 4);
     Ok(())
 }
+
+/// The facts have a column named `check`, a word SQL keeps: a run's fact file is still loaded.
+#[test]
+fn a_runs_facts_are_loaded_though_one_column_is_a_word_sql_keeps() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let (stage, work) = stage_and_work(root.path())?;
+    let table = contract(FACT)?;
+    assert!(table.columns.iter().any(|column| column.name == "check"));
+    let mut columns: Vec<String> = extraction()?["outputs"]["document_fact"]["columns"]
+        .as_array()
+        .context("the output's columns")?
+        .iter()
+        .filter_map(|column| column.as_str().map(str::to_owned))
+        .collect();
+    let mut row = serde_json::Map::new();
+    for name in &columns {
+        let kind = table
+            .columns
+            .iter()
+            .find(|column| column.name == name)
+            .map(|column| column.logical_type)
+            .context("a column of the table")?;
+        row.insert(
+            name.clone(),
+            match kind {
+                "int" | "long" => json!(1),
+                "timestamp" => json!("2099-01-01T00:00:00Z"),
+                _ => json!(format!("{name}-value")),
+            },
+        );
+    }
+    columns.push("run_id".to_owned());
+    let path = work.join("document_fact.jsonl");
+    // The image writes the columns in the contract's order: so does this line.
+    let line = format!(
+        "{{{}}}\n",
+        columns[..columns.len() - 1]
+            .iter()
+            .map(|name| format!("{}: {}", json!(name), row[name]))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    std::fs::write(&path, line)?;
+    assert_eq!(stage_run_rows(&stage, table, &columns, &path, "r1")?, 1);
+    let check: String =
+        stage
+            .connection()
+            .query_row("SELECT \"check\" FROM id_run_rows", [], |row| row.get(0))?;
+    assert_eq!(check, "check-value");
+    Ok(())
+}
