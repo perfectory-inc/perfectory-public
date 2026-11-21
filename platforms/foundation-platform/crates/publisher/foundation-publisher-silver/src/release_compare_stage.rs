@@ -285,7 +285,7 @@ pub fn render(
         narrow.join(", ")
     );
     let full_source = format!(
-        "(SELECT * FROM {main} g WHERE {in_bucket} AND EXISTS (SELECT 1 FROM rc_removed k WHERE {})) rc_gone",
+        "(SELECT * FROM (SELECT * FROM {main}) g WHERE {in_bucket} AND EXISTS (SELECT 1 FROM rc_removed k WHERE {})) rc_gone",
         same("k", "g")
     );
     let key_and_fingerprint: Vec<&str> = rule
@@ -501,7 +501,7 @@ pub fn tolerate(
         .collect::<Vec<_>>()
         .concat();
     let changed_in_main = format!(
-        "(SELECT * FROM {main} g WHERE {in_bucket} AND EXISTS (SELECT 1 FROM rc_changed k WHERE {})) rc_was",
+        "(SELECT * FROM (SELECT * FROM {main}) g WHERE {in_bucket} AND EXISTS (SELECT 1 FROM rc_changed k WHERE {})) rc_was",
         same("k", "g")
     );
     let mut current_columns: Vec<&str> = rule.key.clone();
@@ -747,6 +747,21 @@ fn typed_parquet(name: &str, logical_type: &str) -> anyhow::Result<String> {
     })
 }
 
+/// The `DuckDB` type of a table column a Parquet handoff does not write (it is read as null).
+fn absent_type(logical_type: &str) -> anyhow::Result<&'static str> {
+    Ok(match logical_type {
+        "string" => "VARCHAR",
+        "array<string>" => "VARCHAR[]",
+        "timestamp" => "TIMESTAMPTZ",
+        "date" => "DATE",
+        "int" => "INTEGER",
+        "long" => "BIGINT",
+        "double" => "DOUBLE",
+        "boolean" => "BOOLEAN",
+        other => bail!("a column of type {other} a Parquet handoff does not write has no null"),
+    })
+}
+
 /// Copies a release's handoffs into one local Parquet file; returns its row count.
 ///
 /// `urls` are JSON Lines (gzip when named `.gz`) or Parquet (`.parquet`), on R2 or local; the copy has the table's columns
@@ -788,10 +803,43 @@ pub fn copy_release(
         .join(", ");
     let partial = copy.with_extension("partial");
     let source = if named(&urls[0], "parquet") {
+        // An export writes the columns it derives. A column of the table it does not write (the
+        // removal column, set only by a compare's marker) is null, as a JSON Lines handoff's
+        // missing key is; a required one that is missing is refused. 2026-11-21: the units'
+        // Parquet has no `row_state`, and the lane's first run here failed on it.
+        let mut statement = stage
+            .connection()
+            .prepare(&format!(
+                "DESCRIBE SELECT * FROM read_parquet([{handoffs}])"
+            ))
+            .with_context(|| {
+                format!(
+                    "DuckDB could not describe the handoff of {}",
+                    contract.table_name
+                )
+            })?;
+        let written = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
         let columns = contract
             .columns
             .iter()
-            .map(|column| typed_parquet(column.name, column.logical_type))
+            .map(|column| {
+                if written.contains(column.name) {
+                    return typed_parquet(column.name, column.logical_type);
+                }
+                ensure!(
+                    !column.required,
+                    "the handoff of {} lacks its required column {}",
+                    contract.table_name,
+                    column.name
+                );
+                Ok(format!(
+                    "CAST(NULL AS {}) AS {}",
+                    absent_type(column.logical_type)?,
+                    column.name
+                ))
+            })
             .collect::<anyhow::Result<Vec<_>>>()?
             .join(", ");
         format!("SELECT {columns} FROM read_parquet([{handoffs}])")
