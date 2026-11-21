@@ -60,6 +60,13 @@ def own_lane_bakes():
     return sorted({job["id"] for lane in index["lanes"] for job in lane["bake_jobs"]} - {"by_pnu_serving_bake"})
 
 
+def publisher_gold_builds(jobs):
+    """The Gold builds the publisher runs (a table of appended row versions, root ADR-0564 §3), read from
+    the job list by their unit: a new lane's build joins every count below by itself."""
+    return sorted(job["id"] for job in jobs["jobs"]
+                  if (job.get("systemd_service") or "").startswith("foundation-gold-versions@"))
+
+
 def real_inputs():
     return (
         json.loads(job_specs.JOBS.read_text(encoding="utf-8")),
@@ -389,20 +396,22 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # (2 slots, 115 + 30; root ADR-0361) and every other lane's own bake; the bound reads no
         # takes_turns, so they count though they do not take turns. Each lane bake counts once at its own
         # hold, read from the job list for the lanes the index names (no count of lanes is written here).
-        # The parcel-nearby Gold the publisher builds (2 slots, 60 + 5; root ADR-0567) counts the same way.
+        # Each Gold the publisher builds (2 slots, 60 + 5: parcel-nearby, root ADR-0567, and the lanes
+        # the takeover path adds, ADR-0564 §6) counts the same way, read from the job list.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
         lane_bakes = [job for job in spark if job["id"] in own_lane_bakes()]
         self.assertEqual({job["id"] for job in lane_bakes}, set(own_lane_bakes()), "every lane bake is in the spark pool")
-        nearby = next(job for job in spark if job["id"] == "gold_parcel_nearby_rebuild")
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260 + 45 + job_specs.hold_minutes(nearby)
+        builds = [job for job in spark if job["id"] in publisher_gold_builds(jobs)]
+        self.assertIn("gold_parcel_nearby_rebuild", {job["id"] for job in builds})
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260 + 45
+                         + sum(job_specs.hold_minutes(job) for job in builds)
                          + sum(job_specs.hold_minutes(job) for job in lane_bakes))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
-                                         "by_pnu_serving_bake", "gold_parcel_nearby_rebuild",
-                                         "rt_molit_real_transaction_silver",
-                                         *own_lane_bakes()})
+                                         "by_pnu_serving_bake", "rt_molit_real_transaction_silver",
+                                         *publisher_gold_builds(jobs), *own_lane_bakes()})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
@@ -815,11 +824,11 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         # (1 slot, 60 + 30; root ADR-0333).
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "building_register_floor")
-        for job_id in ("by_pnu_serving_bake", "rt_molit_real_transaction_silver",
-                       "gold_parcel_nearby_rebuild", *own_lane_bakes()):
+        builds = publisher_gold_builds(jobs)
+        for job_id in ("by_pnu_serving_bake", "rt_molit_real_transaction_silver", *builds, *own_lane_bakes()):
             self.assertIn(job_id, blockers)
         by_id = {job["id"]: job for job in jobs["jobs"]}
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 45 + job_specs.hold_minutes(by_id["gold_parcel_nearby_rebuild"])
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 45 + sum(job_specs.hold_minutes(by_id[job_id]) for job_id in builds)
                          + sum(job_specs.hold_minutes(by_id[job_id]) for job_id in own_lane_bakes()))
 
     def test_the_real_list_fits(self):
