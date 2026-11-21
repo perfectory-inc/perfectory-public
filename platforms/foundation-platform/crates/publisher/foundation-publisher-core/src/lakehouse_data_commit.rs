@@ -35,6 +35,7 @@ use iceberg::{
     },
     table::Table,
     transaction::{ApplyTransactionAction, Transaction},
+    transform::create_transform_function,
     Catalog, CatalogBuilder, Namespace, NamespaceIdent, TableCommit, TableCreation, TableIdent,
 };
 use iceberg_catalog_rest::RestCatalogBuilder;
@@ -43,6 +44,7 @@ use lakehouse_domain::LakehouseTableContract;
 use lakehouse_infrastructure::{IcebergSnapshotManifestList, LakehouseCatalogConfig};
 use parquet::{
     basic::{ConvertedType, LogicalType, TimeUnit, Type as PhysicalType},
+    column::reader::ColumnReader,
     file::{
         metadata::ParquetMetaData,
         reader::{FileReader, SerializedFileReader},
@@ -949,6 +951,16 @@ fn manifest_entry(
     let spec = table.metadata().default_partition_spec();
     let mut partition = Vec::with_capacity(spec.fields().len());
     for part in spec.fields() {
+        if matches!(part.transform, Transform::Bucket(_)) {
+            // A hash keeps no order: the bounds say nothing, so every value is asked.
+            partition.push(Some(Literal::Primitive(one_bucket(
+                &reader,
+                part.source_id,
+                part.transform,
+                local,
+            )?)));
+            continue;
+        }
         let fact = facts
             .get(&part.source_id)
             .with_context(|| format!("partition {} names a column the file lacks", part.name))?;
@@ -966,7 +978,7 @@ fn manifest_entry(
             partition_value(part.transform, high),
         ) else {
             bail!(
-                "{}: partition {} is {}, and only identity and text truncate partitions are appended here (root ADR-0560 §2, ADR-0564 §2)",
+                "{}: partition {} is {}, and only identity, text truncate and text bucket partitions are appended here (root ADR-0560 §2, ADR-0564 §2)",
                 local.display(),
                 part.name,
                 part.transform
@@ -1021,6 +1033,83 @@ fn manifest_entry(
         .upper_bounds(upper_bounds)
         .split_offsets(Some(split_offsets))
         .build()?)
+}
+
+/// The bucket a text falls in among `buckets`, by Iceberg's own transform (`bucket(N, column)`):
+/// what a stager splits its rows by, and what [`one_bucket`] asks of every value it wrote.
+///
+/// # Errors
+/// The transform cannot be made.
+pub fn text_bucket(buckets: u32) -> anyhow::Result<impl Fn(&str) -> anyhow::Result<i32>> {
+    let function = create_transform_function(&Transform::Bucket(buckets))?;
+    Ok(move |text: &str| {
+        match function
+            .transform_literal_result(&Datum::string(text))?
+            .literal()
+        {
+            PrimitiveLiteral::Int(bucket) => Ok(*bucket),
+            other => bail!("a bucket is a number, not {other:?}"),
+        }
+    })
+}
+
+/// The one bucket every value of a text column of the file falls in, by Iceberg's own transform.
+///
+/// # Errors
+/// The column is not text, holds a null, or holds values of more than one bucket.
+fn one_bucket(
+    reader: &SerializedFileReader<File>,
+    source_id: i32,
+    transform: Transform,
+    local: &Path,
+) -> anyhow::Result<PrimitiveLiteral> {
+    let descriptor = reader.metadata().file_metadata().schema_descr();
+    let leaf = (0..descriptor.num_columns())
+        .find(|index| {
+            let column = descriptor.column(*index);
+            let info = column.self_type().get_basic_info();
+            info.has_id() && info.id() == source_id
+        })
+        .with_context(|| format!("{}: no column of field id {source_id}", local.display()))?;
+    let function = create_transform_function(&transform)?;
+    let mut bucket: Option<Datum> = None;
+    let mut values = Vec::new();
+    for index in 0..reader.num_row_groups() {
+        let group = reader.get_row_group(index)?;
+        let ColumnReader::ByteArrayColumnReader(mut column) = group.get_column_reader(leaf)? else {
+            bail!(
+                "{}: a bucket partition is appended for a text column only",
+                local.display()
+            );
+        };
+        loop {
+            values.clear();
+            let (records, read, _) = column.read_records(8192, None, None, &mut values)?;
+            if records == 0 {
+                break;
+            }
+            ensure!(
+                read == records,
+                "{}: the bucket partition's column holds a null",
+                local.display()
+            );
+            for value in &values {
+                let found = function.transform_literal_result(&Datum::string(value.as_utf8()?))?;
+                match &bucket {
+                    None => bucket = Some(found),
+                    Some(held) => ensure!(
+                        *held == found,
+                        "{}: holds values of buckets {held} and {found}, so it is not one partition",
+                        local.display()
+                    ),
+                }
+            }
+        }
+    }
+    Ok(bucket
+        .with_context(|| format!("{}: holds no row", local.display()))?
+        .literal()
+        .clone())
 }
 
 /// The partition value `transform` gives a column value, for the transforms a staged file may be
