@@ -172,6 +172,12 @@ import json, os, pathlib, sys
 args = sys.argv[1:]
 root = pathlib.Path(os.environ["FIXTURE_ROOT"])
 line = " ".join(args)
+moved = root / "opt/releases" / ("b" * 40)
+if os.environ.get("FIXTURE_MOVE_CURRENT") and not moved.exists():
+    # The host deploy switches `current` while this run is under way.
+    moved.mkdir(parents=True)
+    (root / "opt/current").unlink()
+    (root / "opt/current").symlink_to(pathlib.Path("releases") / ("b" * 40))
 if "by-pnu-edge-probe.py" in line:
     # The edge probe (root ADR-0327): FIXTURE_PROBE_FAILS hostnames answer a cache hit with 500.
     host = args[args.index("--base-url") + 1].removeprefix("https://")
@@ -699,6 +705,13 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         (self.root / "opt/current").symlink_to(pathlib.Path("releases") / ("b" * 40))
         self.assertEqual(self.tick(), 0)
         self.assertEqual(self.calls(), [])
+
+    def test_a_run_keeps_the_release_it_started_from_when_current_moves(self):
+        # The host deploy no longer waits for this run (foundation-autodeploy.sh, 2026-11-21).
+        self.assertEqual(self.tick(FIXTURE_MOVE_CURRENT="1"), 0)
+        smoked = (self.root / "probe.log").read_text() + (self.root / "monitor.log").read_text()
+        self.assertIn(str(self.root / "opt/releases" / COMMIT), smoked)
+        self.assertNotIn("b" * 40, smoked)
 
     def test_a_config_that_names_another_worker_is_refused_before_anything_runs(self):
         entry = next(e for e in CONTRACT["workers"] if e["id"] == "tile-gateway")

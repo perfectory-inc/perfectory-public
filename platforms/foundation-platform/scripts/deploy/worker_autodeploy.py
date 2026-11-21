@@ -375,8 +375,11 @@ def unit_environment(unit: str) -> list[str]:
 class Deploy:
     """One Worker's deploy from one workspace."""
 
-    def __init__(self, host: Host, worker: Worker, commit: str, workspace: pathlib.Path):
+    def __init__(self, host: Host, worker: Worker, commit: str, workspace: pathlib.Path,
+                 release: pathlib.Path | None = None):
         self.host, self.worker, self.commit, self.workspace = host, worker, commit, workspace
+        # The release the run started from (run_locked pins it): the host deploy may move `current` meanwhile.
+        self.release = release or (host.release_root / "current").resolve()
         self.service = f"{PLATFORM}/{worker.service_dir}"
         # The config Wrangler is given; resolve_d1_ids() swaps in a derived copy in the workspace.
         self.config = worker.wrangler_config
@@ -603,9 +606,9 @@ class Deploy:
         a single read miss the edge copy's path: 2026-10-29 every cached photo answered 500."""
 
         result = command(["systemd-run", "--wait", "--collect", "--pipe", "--quiet", "-p", "User=foundation-platform",
-                          "-p", f"WorkingDirectory={self.host.release_root / 'current'}",
+                          "-p", f"WorkingDirectory={self.release}",
                           *unit_environment(PROBE_UNIT), "python3", "-I",
-                          str(self.host.release_root / "current/scripts/ops/by-pnu-edge-probe.py"),
+                          str(self.release / "scripts/ops/by-pnu-edge-probe.py"),
                           "--base-url", f"https://{target.hostname}", lane], check=False)
         if result.returncode != 0:
             tail = (result.stdout + result.stderr).strip().splitlines()[-20:]
@@ -620,11 +623,11 @@ class Deploy:
             command(["chown", "foundation-platform", directory])
             report = pathlib.Path(directory) / "report.json"
             result = command(["systemd-run", "--wait", "--collect", "--pipe", "--quiet", "-p", "User=foundation-platform",
-                              "-p", f"WorkingDirectory={self.host.release_root / 'current'}",
+                              "-p", f"WorkingDirectory={self.release}",
                               *unit_environment(f"foundation-by-pnu-serving-monitor@{lane}.service"),
                               "-E", f"{prefix}_MONITOR_BASE_URL=https://{hostname}",
                               "-E", f"{prefix}_MONITOR_REPORT_PATH={report}",
-                              str(self.host.release_root / "current/scripts/ops/by-pnu-serving-monitor.sh"), lane],
+                              str(self.release / "scripts/ops/by-pnu-serving-monitor.sh"), lane],
                              check=False)
             if not report.exists():
                 # It stopped before it read anything (inputs, the manifest): a failure, whatever its status.
@@ -730,12 +733,20 @@ def run(host: Host) -> int:
         except BlockingIOError:
             log("a Worker deploy is already running")
             return 0
-        return run_locked(host, tree, credential)
+        # The host deploy does not wait for this run (foundation-autodeploy.sh): the two trees it reads stay
+        # open here, so the release prune refuses them by name (process_references) while it runs.
+        pins = [os.open(path, os.O_RDONLY) for path in (tree, (host.release_root / "current").resolve())]
+        try:
+            return run_locked(host, tree, credential)
+        finally:
+            for pin in pins:
+                os.close(pin)
 
 
 def run_locked(host: Host, tree: pathlib.Path, credential: pathlib.Path) -> int:
     commit = (tree / ".perfectory-control-commit").read_text(encoding="utf-8").strip()
-    running = (host.release_root / "current").resolve().name
+    release = (host.release_root / "current").resolve()
+    running = release.name
     if commit != running:
         log(f"the host runs {running} and the control checkout is {commit}; waiting for the host deploy")
         return 0
@@ -780,7 +791,7 @@ def run_locked(host: Host, tree: pathlib.Path, credential: pathlib.Path) -> int:
     failures = 0
     for worker, digest, failed in behind:
         try:
-            record = Deploy(host, worker, commit, stage(host, tree, worker)).run()
+            record = Deploy(host, worker, commit, stage(host, tree, worker), release).run()
         except Failed as failure:
             failures += 1
             attempts = (failed or {}).get("attempts", 0) + 1

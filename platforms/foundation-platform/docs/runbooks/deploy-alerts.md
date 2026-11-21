@@ -50,7 +50,7 @@ release yet" 만 남겼고, 호스트는 약 11시간 a879a889 에 머물렀으�
 | `checks_failed` | 체크가 실패해 그 커밋은 영구 거부 | 새 커밋이 길이다 |
 | `deploy_failed` / `every_newer_commit_refused_or_failed` | 배포가 실패했거나 뒤의 커밋이 전부 거부·실패 | `journalctl -u foundation-autodeploy.service` 의 배포 로그 |
 | `deploying` | 배포 중 | `FoundationDeployLong` 이 함께 본다 |
-| `quiet_window` / `operator_unit` / `worker_deploy` | 조용한 창, 운영자 유닛(bake 등), Worker 배포를 기다림 | 운영자 유닛이 오래면 그 작업을 본다 |
+| `quiet_window` / `operator_unit` / `worker_deploy` | 조용한 창, 운영자 유닛(bake 등), 콘솔 엣지 설정(`foundation-edge-settings.service`)을 기다림. Worker 배포는 기다리지 않는다(2026-11-21: 시작할 때 고정한 트리를 읽는다) | 운영자 유닛이 오래면 그 작업을 본다 |
 | `off` | `/etc/foundation-platform/autodeploy.off` 가 있다 | 의도한 것인지 확인 |
 | `main_unreadable` / `releases_unreadable` / `systemd_unreadable` | GitHub·레지스트리·systemd 를 못 읽는다 | 네트워크·systemd 상태 |
 
