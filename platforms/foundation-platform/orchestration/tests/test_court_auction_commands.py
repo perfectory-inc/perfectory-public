@@ -51,8 +51,7 @@ if sys.argv[1] == "collect-courtauction-go-kr":
 if sys.argv[1] == "load-courtauction-go-kr-silver":
     root = os.environ["FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT"]
     with open(os.path.join(state, "duckdb.log"), "a", encoding="utf-8") as log:
-        log.write(" ".join(sorted(os.listdir(root))) + "
-")
+        log.write(" ".join(sorted(os.listdir(root))) + "\n")
     print('courtauction-go-kr-duckdb-summary-json {"engine": "duckdb"}')
     sys.exit(0)
 assert sys.argv[1] == "plan-silver-load-objects", sys.argv
