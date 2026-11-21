@@ -713,10 +713,10 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         cycles = job_specs.cycle_minutes(jobs, graph)
         for job_id in [*ALL_LANES, "gold_panel_rebuild", "by_pnu_serving_bake"]:
             self.assertEqual(cycles[job_id], 60, job_id)
-        # ... and their waits, counted in those cycles, starve (the bound did not move): every lane
-        # and the Gold rebuild may wait past 20 hourly runs.
+        # ... and the Gold rebuild's wait, counted in those cycles, starves (the bound did not move): it
+        # may wait past 20 hourly runs. The lanes hold no pool slot, so they wait for none.
         problems = job_specs.pool_starvation(jobs, graph)
-        for job_id in [LANES[0], LAND_LANES[0], "gold_panel_rebuild"]:
+        for job_id in ["gold_panel_rebuild"]:
             waits = [int(problem.split()[3]) for problem in problems if problem.startswith(f"{job_id} may wait ")]
             self.assertEqual(len(waits), 1, problems)
             self.assertGreater(waits[0], job_specs.STARVATION_CYCLES * 60)
@@ -727,7 +727,25 @@ class JobsStartedByTheirInputs(unittest.TestCase):
 
 
 class TheSilverLanesInTheSparkPool(unittest.TestCase):
-    """Five lanes of all three slots fit only because a lighter, as-wide job never jumps ahead."""
+    """The Silver lanes left the spark pool when their load left Spark (root ADR-0599): no lane holds
+    a spark slot, so none makes a fold wait and none waits for a Spark job."""
+
+    def test_no_lane_takes_a_spark_slot_and_each_claims_its_own_unit(self):
+        # One at a time in the one-slot claim pool, queued there instead of bounced off the lane lock
+        # (a `waiting` run is a run: the lane would lose its day), each admitted against the host's
+        # free memory by a claim on its own unit.
+        jobs = real_inputs()[0]
+        self.assertFalse({entry["id"] for entry in self.spark(jobs)} & set(ALL_LANES))
+        self.assertEqual(job_specs.declared_pools(jobs)["documents"], 1)
+        for lane in ALL_LANES:
+            entry = job(jobs, lane)
+            self.assertEqual((entry["pool"], job_specs.pool_slots(entry)), ("documents", 1), lane)
+            self.assertEqual(entry["memory_claim"], {"units": [entry["systemd_service"]]}, lane)
+        # Planted: a claimed unit name that is no service name.
+        broken = copy.deepcopy(jobs)
+        job(broken, ALL_LANES[0])["memory_claim"] = {"units": ["foundation-silver-refresh@.service"]}
+        with self.assertRaises(job_specs.JobListError):
+            job_specs.memory_claims(broken)
 
     def spark(self, jobs):
         return [entry for entry in jobs["jobs"] if entry["pool"] == "spark"]
@@ -746,32 +764,7 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5))
         self.assertLess(wait, job_specs.STARVATION_CYCLES * 60)
         self.assertFalse(set(ALL_LANES) & set(blockers))
-        # Counted the way the bound counted before root ADR-0171, the five lanes would add up.
-        self.assertEqual(wait + 5 * 160, 1835)
 
-    def test_a_lane_that_holds_its_slots_past_the_folds_room_starves_the_folds(self):
-        # The fold's bound has 430 minutes of room for whatever holds the pool when its turn comes
-        # (1,200 less FLOOR's 505 and the other fold's 265).
-        jobs = copy.deepcopy(real_inputs()[0])
-        job(jobs, LANES[2])["stop_grace_minutes"] = 435 - job(jobs, LANES[2])["time_limit_minutes"]
-        problems = job_specs.pool_starvation(jobs)
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1205 minutes")
-                            and LANES[2] in problem for problem in problems), problems)
-        jobs = copy.deepcopy(real_inputs()[0])
-        job(jobs, LANES[0])["retries"] = 2  # each retry holds the slots again: 3 x 160 + 2 x 5
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1260 minutes")
-                            for problem in job_specs.pool_starvation(jobs)))
-
-    def test_lanes_weighted_above_the_folds_starve_them(self):
-        # Heavier, every lane may start ahead of a waiting fold: five of them, then lineage.
-        jobs = copy.deepcopy(real_inputs()[0])
-        for lane in LANES:
-            job(jobs, lane)["priority_weight"] = 60
-        wait, blockers = self.wait(jobs, "map_edit_fold_admin")
-        self.assertEqual(wait, 1035 + 5 * 160)
-        self.assertLessEqual(set(LANES), set(blockers))
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1835 minutes")
-                            for problem in job_specs.pool_starvation(jobs)))
 
     def test_the_bound_is_the_one_every_group_of_running_jobs_gives(self):
         # The search stops at groups of `slots` jobs (2026-10-19: enumerating every size was 2^n, and

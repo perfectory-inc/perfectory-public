@@ -36,9 +36,14 @@
           "to": "2026-11-05T02:34:05Z"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
-      "priority_weight": 40,
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@building-register-sub-parcel.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-sub-parcel"
@@ -90,16 +95,5 @@
       "description": "부속지번(mart_djy_05) 33칸을 관리건축물대장PK 마다 바뀐 대장의 행 묶음만 append-only Silver 로 쌓는다(루트 ADR-0395).",
       "pnu_resolution": "pnu and sub_pnu composed at Silver by the Rust hub export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; sub_pnu is null where the 시군구 crosswalk refuses a retired code and its raw codes stay for the place-identity resolver at the consumer (ADR-0288, ADR-0395 §3)"
     }
-  ],
-  "host_memory": {
-    "silver_refresh_building_register_sub_parcel": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }

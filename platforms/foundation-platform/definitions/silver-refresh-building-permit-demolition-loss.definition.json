@@ -36,9 +36,14 @@
           "to": "2026-11-05T02:34:05Z"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
-      "priority_weight": 40,
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@building-permit-demolition-loss.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-permit-demolition-loss"
@@ -90,16 +95,5 @@
       "description": "철거멸실관리대장(mart_kcy_07) 34칸을 행마다 새 행·사라진 행만 append-only Silver 로 쌓는다(루트 ADR-0397).",
       "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; a demolished building's 지번 often names a parcel since merged or split, which the consumer carries to the current pnu through the place-identity resolver (ADR-0288, ADR-0397)"
     }
-  ],
-  "host_memory": {
-    "silver_refresh_building_permit_demolition_loss": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }

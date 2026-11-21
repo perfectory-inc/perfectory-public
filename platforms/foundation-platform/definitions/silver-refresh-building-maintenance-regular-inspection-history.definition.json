@@ -32,9 +32,14 @@
           "estimated_from": "computed, about 2.5x the nearest larger measured neighbours on the same template unit (root ADR-0386): silver_refresh_building_permit_basis_outline 357 s for a 438 MB release, _parking 251 s for 59 MB, _demolition_loss 161 s for 15 MB; this lane's newest release is about 2 MB in the Bronze ledger (2026-11-09)"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
-      "priority_weight": 40,
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@building-maintenance-regular-inspection-history.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-maintenance-regular-inspection-history"
@@ -86,16 +91,5 @@
       ],
       "description": "건축물 정기점검이력(mart_ll_02) 11칸을 행 글자 키로 새 행·사라진 행만 append-only Silver 로 쌓는다. pnu 칸은 없다: 필지는 관리건축물대장PK 를 표제부 현재 행에 읽을 때 이어 얻는다(표제부 키 = <네 자리 기관 코드>||'1'||<일련번호>, 같은 시군구 또는 같은 법정동·번·지; 표본 2,000 행 94.7%) — 적재 때 고정하지 않으므로 표제부 pnu 의 재조합·코드 변경을 따라간다(루트 ADR-0404, ADR-0329)."
     }
-  ],
-  "host_memory": {
-    "silver_refresh_building_maintenance_regular_inspection_history": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }

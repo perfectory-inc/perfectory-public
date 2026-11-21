@@ -599,7 +599,9 @@ def memory_claims(jobs):
         claim = job["memory_claim"]
         units = claim.get("units") if isinstance(claim, dict) else None
         named = isinstance(units, list) and units and all(
-            isinstance(unit, str) and re.fullmatch(r"[a-z0-9-]+\.service", unit) for unit in units)
+            # A template instance too (`foundation-silver-refresh@<lane>.service`): a Silver lane claims
+            # its own unit (root ADR-0599). Part of the hand-written admission the Dagster pool/memory-tag change deletes after the ops bundle.
+            isinstance(unit, str) and re.fullmatch(r"[a-z0-9-]+(@[a-z0-9-]+)?\.service", unit) for unit in units)
         if not named or set(claim) != {"units"}:
             raise JobListError(f"{job['id']}: memory_claim must be an object with only `units`, systemd service names")
         if (jobs.get("pools") or {}).get(job["pool"], {}).get("slots") != 1:

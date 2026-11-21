@@ -36,9 +36,14 @@
           "to": "2026-11-05T02:34:05Z"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
-      "priority_weight": 40,
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@building-energy-monthly-electricity.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-energy-monthly-electricity"
@@ -90,16 +95,5 @@
       "description": "월별 전기 사용량(eais_elcty_{YYYYMM}.txt) 17칸을 사용 월마다, 그 달의 바뀐 지번만 append-only Silver 로 쌓는다(루트 ADR-0396).",
       "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; the consumer carries a retired legal-dong code to the current pnu through the place-identity resolver and follows views.changed_codes (ADR-0288, ADR-0329, ADR-0396)"
     }
-  ],
-  "host_memory": {
-    "silver_refresh_building_energy_monthly_electricity": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }
