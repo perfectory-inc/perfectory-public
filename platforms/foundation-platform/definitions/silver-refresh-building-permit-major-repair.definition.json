@@ -32,8 +32,8 @@
           "estimated_from": "computed, about 2.5x the nearest larger measured neighbours on the same template unit (root ADR-0386): silver_refresh_building_permit_basis_outline 357 s for a 438 MB release, _parking 251 s for 59 MB, _demolition_loss 161 s for 15 MB; this lane's newest release is about 3 MB in the Bronze ledger (2026-11-09)"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
+      "pool": "default_pool",
+      "pool_slots": 1,
       "priority_weight": 40,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -86,16 +86,5 @@
       "description": "대수선(mart_kcy_05) 16칸을 행마다 새 행·사라진 행만 append-only Silver 로 쌓는다(루트 ADR-0402).",
       "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; parcels since merged, split or recoded are carried to the current pnu by the consumer through the place-identity resolver and views.changed_codes (ADR-0288, ADR-0329, ADR-0402)"
     }
-  ],
-  "host_memory": {
-    "silver_refresh_building_permit_major_repair": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }

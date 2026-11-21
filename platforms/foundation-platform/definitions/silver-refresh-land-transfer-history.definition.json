@@ -40,8 +40,8 @@
           "tracked_by": "root ADR-0386 §5: the refresh lanes take a per-run bucket cap and a deadline (root ADR-0318, #914)"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
+      "pool": "default_pool",
+      "pool_slots": 1,
       "priority_weight": 40,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -93,16 +93,5 @@
       "description": "AL_D157 전체 사건을 PNU·이력순번으로 보존한다. 폐쇄·말소 사건도 연혁에 남는다.",
       "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; subdivision convergence tracked by ADR-0288"
     }
-  ],
-  "host_memory": {
-    "silver_refresh_land_transfer_history": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }

@@ -40,8 +40,8 @@
           "tracked_by": "root ADR-0391 addendum (2026-11-04): the lane loads its release part by part, 20 parts a step under run_budget.step_seconds_max 2,805 s, and resumes after its deadline; dropped once the first part release (the November hub release) is measured. Root ADR-0386 §5 for the per-run vocabulary"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
+      "pool": "default_pool",
+      "pool_slots": 1,
       "priority_weight": 40,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -93,16 +93,5 @@
       ],
       "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; subdivision convergence tracked by ADR-0288"
     }
-  ],
-  "host_memory": {
-    "silver_refresh_building_register_unit_areas": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }

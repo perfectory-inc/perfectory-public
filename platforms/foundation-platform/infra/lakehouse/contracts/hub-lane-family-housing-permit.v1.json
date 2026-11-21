@@ -18,7 +18,7 @@
       "schedule": "0 7 * * *",
       "stop_grace_minutes": 10,
       "time_limit_minutes": 150,
-      "pool_slots": 3,
+      "pool_slots": 1,
       "priority_weight": 4,
       "enabled_since": "2026-11-13T03:00:00Z",
       "first_run_cap_seconds": 8100,

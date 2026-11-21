@@ -36,8 +36,8 @@
           "to": "2026-11-03T15:50:32Z"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
+      "pool": "default_pool",
+      "pool_slots": 1,
       "priority_weight": 40,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -89,16 +89,5 @@
       "description": "AL_D006 PIPE CSV의 PNU·대지권일련번호별 등록과 폐쇄 행, 명칭·비율 원문을 보존한다.",
       "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; subdivision convergence tracked by ADR-0288"
     }
-  ],
-  "host_memory": {
-    "silver_refresh_land_right_registration": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
-  }
+  ]
 }

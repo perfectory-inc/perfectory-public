@@ -476,7 +476,7 @@ def family_definitions(contracts):
                                        f"over about {-(-total // one_run)} runs"),
                 },
             },
-            "pool": "spark",
+            "pool": "default_pool",
             "pool_slots": shared["pool_slots"],
             "priority_weight": shared["priority_weight"],
             "retries": 0,
@@ -487,8 +487,6 @@ def family_definitions(contracts):
             "dagster_group": "silver",
             "expected_outcome": dict(shared["expected_outcome"]),
         }],
-        "host_memory": {job_id: [{"unit": "MemoryMax"},
-                                 {"project": "foundation-platform-compute", "service": "spark"}]},
     }
     return definitions
 
