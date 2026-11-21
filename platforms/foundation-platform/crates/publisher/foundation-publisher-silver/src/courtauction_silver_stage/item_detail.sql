@@ -15,9 +15,9 @@ SELECT line_number, j,
          AS court_office_code,
        CASE WHEN py_truthy(json_extract(asked, '$.csNo')) THEN py_str(json_extract(asked, '$.csNo')) END AS case_no,
        ca_whole(json_extract(asked, '$.dspslGdsSeq')) AS property_seq,
-       CASE WHEN read AND json_type(json_extract(ca_body(j), '{result_path}')) = 'OBJECT'
-            THEN json_extract(ca_body(j), '{result_path}') END AS result
-FROM (SELECT line_number, j, read,
+       CASE WHEN read AND json_type(json_extract(body, '{result_path}')) = 'OBJECT'
+            THEN json_extract(body, '{result_path}') END AS result
+FROM (SELECT line_number, j, read, body,
              coalesce(CASE WHEN py_truthy(json_extract(j, '$.request'))
                            THEN json_extract(j, '$.request."{request_object}"') END, '{}'::JSON) AS asked
       FROM ca_parsed);

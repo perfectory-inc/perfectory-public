@@ -7,9 +7,9 @@
 -- Parameters: {list_operation}, {detail_operation}, {detail_request_object}, {object_key},
 -- {snapshot_id}, {ingested_at_epoch_seconds}.
 CREATE OR REPLACE TEMP TABLE ca_notice_answers AS
-SELECT line_number, json_extract_string(j, '$.operation') AS operation, ca_data(j) AS data, j
+SELECT line_number, json_extract_string(j, '$.operation') AS operation, ca_data(body) AS data, j
 FROM ca_parsed
-WHERE read AND ca_data(j) IS NOT NULL;
+WHERE read AND ca_data(body) IS NOT NULL;
 
 -- Each detail line's key, read back from its request.
 CREATE OR REPLACE TEMP TABLE ca_notice_detail_lines AS
@@ -30,11 +30,8 @@ WITH lists AS (
   FROM ca_notice_answers
   WHERE operation = '{list_operation}' AND json_type(json_extract(data, '$.dlt_rletDspslPbancLst')) = 'ARRAY'
 ), listed AS (
-  SELECT l.line_number, i.ordinal, i.item
-  FROM lists l,
-  LATERAL (SELECT unnest(range(CAST(json_array_length(l.list) AS BIGINT))) AS ordinal,
-                 unnest(json_extract(l.list, '$[*]')) AS item) i
-  WHERE json_type(i.item) = 'OBJECT'
+  SELECT line_number, unnest(l) AS item, generate_subscripts(l, 1) AS ordinal
+  FROM (SELECT line_number, ca_objects(list) AS l FROM lists)
 )
 SELECT line_number, ordinal, item,
        py_text(json_extract(item, '$.cortOfcCd')) AS court_office_code,
@@ -92,19 +89,19 @@ WITH chosen AS (
   QUALIFY row_number() OVER (PARTITION BY court_office_code, department_code, sale_date, bid_kind_code
                              ORDER BY line_number DESC) = 1
 ), lists AS (
-  SELECT c.*, l.list_name, l.list_order, l.list
-  FROM chosen c,
-  LATERAL (SELECT * FROM (VALUES
-     ('sale', 1, json_extract(ca_object(ca_object(ca_object(c.data, '$.result'), '$.dspslPbanc'), '$.pbancInfo'), '$.lst')),
-     ('correction', 2, json_extract(ca_object(c.data, '$.result'), '$.crrctPbancLst')),
-     ('cancellation', 3, json_extract(ca_object(c.data, '$.result'), '$.rtrcnPbancLst'))) v(list_name, list_order, list)) l
-  WHERE json_type(l.list) = 'ARRAY'
+  SELECT *, 'sale' AS list_name,
+         ca_objects(json_extract(ca_object(ca_object(ca_object(data, '$.result'), '$.dspslPbanc'), '$.pbancInfo'), '$.lst')) AS l
+  FROM chosen
+  UNION ALL
+  SELECT *, 'correction' AS list_name, ca_objects(json_extract(ca_object(data, '$.result'), '$.crrctPbancLst')) AS l
+  FROM chosen
+  UNION ALL
+  SELECT *, 'cancellation' AS list_name, ca_objects(json_extract(ca_object(data, '$.result'), '$.rtrcnPbancLst')) AS l
+  FROM chosen
 ), items AS (
-  SELECT s.*, i.ordinal, i.item
-  FROM lists s,
-  LATERAL (SELECT unnest(range(CAST(json_array_length(s.list) AS BIGINT))) AS ordinal,
-                 unnest(json_extract(s.list, '$[*]')) AS item) i
-  WHERE json_type(i.item) = 'OBJECT'
+  SELECT court_office_code, department_code, sale_date, bid_kind_code, line_number, list_name,
+         unnest(l) AS item, generate_subscripts(l, 1) AS ordinal
+  FROM lists
 )
 SELECT court_office_code, department_code, sale_date, bid_kind_code,
        list_name AS list,

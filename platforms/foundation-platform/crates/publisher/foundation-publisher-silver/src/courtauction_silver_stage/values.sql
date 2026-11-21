@@ -38,11 +38,6 @@ CREATE OR REPLACE MACRO ca_amount(v) AS
   TRY_CAST(onbid_ascii_digits(replace(nullif(regexp_extract(
     regexp_replace(coalesce(py_text(v), ''), '<[^>]+>', ' ', 'g'), '(\p{Nd}[\p{Nd},]*)', 1), ''), ',', '')) AS BIGINT);
 
--- `_list(value)`'s objects as a DuckDB list of JSON, in order; empty for any other value.
-CREATE OR REPLACE MACRO ca_objects(v) AS
-  CASE WHEN json_type(v) = 'ARRAY'
-       THEN list_filter(json_extract(v, '$[*]'), lambda x: json_type(x) = 'OBJECT') ELSE [] END;
-
 -- case_rows: the case row the 사건 기본 states (물건상세 `csBaseInfo`, 사건상세 `dma_csBasInf`), with
 -- the latest 배당요구종기 of its list; None for a base that is no object or empty. The 사법보좌관
 -- (`jdgeAojAsstnNm`) is never read.

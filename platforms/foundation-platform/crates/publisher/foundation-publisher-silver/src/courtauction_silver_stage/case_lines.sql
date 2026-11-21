@@ -19,7 +19,7 @@ SELECT line_number, j,
 FROM (SELECT line_number, j,
              coalesce(CASE WHEN py_truthy(json_extract(j, '$.request'))
                            THEN json_extract(j, '$.request."{request_object}"') END, '{}'::JSON) AS asked,
-             CASE WHEN read THEN coalesce(ca_data(j), '{}'::JSON) ELSE '{}'::JSON END AS data
+             CASE WHEN read THEN coalesce(ca_data(body), '{}'::JSON) ELSE '{}'::JSON END AS data
       FROM ca_parsed);
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_case_document_read AS
