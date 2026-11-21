@@ -130,7 +130,7 @@ def fold_rows(directory: Path, extraction: Mapping[str, Any], now: datetime) -> 
     folded = complex_fact_rows(documents, codes, extraction, gate, "", now)
     with (directory / FOLD_APPEND_FILE).open("w", encoding="utf-8") as handle:
         for row in folded:
-            values = dict(zip(FOLD_COLUMNS, row))
+            values = dict(zip(FOLD_COLUMNS, row[:len(FOLD_COLUMNS)], strict=True))
             values["folded_at_utc"] = values["folded_at_utc"].strftime("%Y-%m-%dT%H:%M:%SZ")
             handle.write(json.dumps(values, ensure_ascii=False) + "\n")
     return {"step": "fold-rows", "admitted": [list(g) for g in gate], "complexes": len(folded),

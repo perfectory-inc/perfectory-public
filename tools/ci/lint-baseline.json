@@ -610,7 +610,7 @@
    "SC2312": 1
   },
   "platforms/foundation-platform/scripts/ops/intelligence-document-fact.sh": {
-   "SC2154": 3,
+   "SC2154": 2,
    "SC2312": 3
   },
   "platforms/foundation-platform/scripts/ops/intelligence-document-runtime.sh": {
@@ -619,7 +619,7 @@
    "SC2312": 6
   },
   "platforms/foundation-platform/scripts/ops/intelligence-document-text.sh": {
-   "SC2154": 3
+   "SC2154": 2
   },
   "platforms/foundation-platform/scripts/ops/juso-electronic-map-cycle.sh": {
    "SC2312": 1
