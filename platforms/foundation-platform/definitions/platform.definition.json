@@ -1608,6 +1608,10 @@
           "area": "intelligence",
           "path": "compose.document-jobs.yml",
           "why": "A job image's own compose file only builds it, in CI, into the signed release (root ADR-0477 §6); the host's job script runs it under the cap its contract states, counted in the job's host_memory."
+        },
+        {
+          "path_prefix": "compose.verify-image.yml",
+          "why": "The verification image's compose file only builds it, in CI, into the signed release (root ADR-0601); nothing the release starts runs it. A host crate test is a one-off docker run under the shared test slot, not a service of a host project."
         }
       ]
     },
