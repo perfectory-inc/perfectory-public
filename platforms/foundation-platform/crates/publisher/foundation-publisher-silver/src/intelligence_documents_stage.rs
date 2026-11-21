@@ -494,7 +494,7 @@ pub fn stage_run_rows(
         .join(", ");
     stage.connection().execute_batch(&format!(
         "CREATE TEMP TABLE id_run_rows AS SELECT {selected} FROM id_run_lines \
-         WHERE length(trim(line)) > 0 ORDER BY number"
+         WHERE length(trim(line)) > 0 ORDER BY line_number"
     ))?;
     count(stage, "SELECT count(*) FROM id_run_rows")
 }

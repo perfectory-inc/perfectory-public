@@ -217,7 +217,7 @@ impl DuckDbParquetStage {
     /// numbered from 1, as Python's text reader split them (a `\r\n` ends a line like `\n`).
     ///
     /// # Errors
-    /// Returns an error when the file is not gzip UTF-8 text, `table` is not a plain identifier, or
+    /// Returns an error when the file is neither gzip nor plain UTF-8 text, `table` is not a plain identifier, or
     /// `DuckDB` refuses a row.
     pub fn load_lines(&self, path: &Path, table: &str) -> anyhow::Result<u64> {
         use std::io::Read as _;
@@ -229,12 +229,18 @@ impl DuckDbParquetStage {
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
             "{table:?} is not a plain table name"
         );
-        let mut text = String::new();
-        flate2::read::GzDecoder::new(
-            std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?,
-        )
-        .read_to_string(&mut text)
-        .with_context(|| format!("{} is not gzip UTF-8 text", path.display()))?;
+        let raw = std::fs::read(path).with_context(|| format!("cannot open {}", path.display()))?;
+        // gzip by its magic bytes, plain text otherwise (a run file an image wrote).
+        let text = if raw.starts_with(&[0x1f, 0x8b]) {
+            let mut text = String::new();
+            flate2::read::GzDecoder::new(raw.as_slice())
+                .read_to_string(&mut text)
+                .with_context(|| format!("{} is not gzip UTF-8 text", path.display()))?;
+            text
+        } else {
+            String::from_utf8(raw)
+                .with_context(|| format!("{} is not UTF-8 text", path.display()))?
+        };
         self.connection.execute_batch(&format!(
             "CREATE OR REPLACE TABLE {table} (line_number BIGINT NOT NULL, line VARCHAR NOT NULL)"
         ))?;
