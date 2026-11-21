@@ -1,7 +1,7 @@
 use super::{
     assert_records_present, detail_complex_codes, live_write_enabled, planned_request_count,
-    request_spacing, IlisDataset, ILIS_DATASETS, ILIS_DETAIL_DATASET, MIN_REQUEST_SPACING,
-    PROVIDER,
+    request_spacing, unlisted_profile_codes, IlisDataset, ILIS_DATASETS, ILIS_DETAIL_DATASET,
+    MIN_REQUEST_SPACING, PROVIDER,
 };
 
 use collection_domain::{provider_id, source_slug};
@@ -190,4 +190,23 @@ fn the_dataset_table_is_not_empty() {
     // The table is the collection scope. An empty one would make every assertion above vacuous.
     assert!(!ILIS_DATASETS.is_empty());
     let _: &IlisDataset = &ILIS_DATASETS[0];
+}
+
+/// The detail requests a live run makes are the profile's complexes the bulk list lacks: each once,
+/// in profile order, and none for a code the list carries (codes are synthetic).
+#[test]
+fn detail_codes_are_the_profile_codes_the_bulk_list_lacks() {
+    let profile = ["99999A", "99999B", " ", "99999C", "99999B"].map(str::to_owned);
+    let list = json!({ "result": { "dataList": [
+        { "danji_cd": "99999A" }, { "danji_cd": " 99999C " }, { "danji_cd": null }
+    ] } });
+    assert_eq!(
+        unlisted_profile_codes(&profile, &list),
+        vec!["99999B".to_owned()]
+    );
+    // A list without its records array lacks every profile code.
+    assert_eq!(
+        unlisted_profile_codes(&profile[..1], &json!({})),
+        vec!["99999A".to_owned()]
+    );
 }

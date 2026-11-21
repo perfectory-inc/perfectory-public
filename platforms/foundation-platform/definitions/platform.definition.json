@@ -108,7 +108,11 @@
           "mode": "0755"
         },
         {
+<<<<<<< HEAD
           "path": "/var/lib/foundation-platform/industrial-complex-silver",
+=======
+          "path": "/var/lib/foundation-platform/industrial-complex-address-source",
+>>>>>>> 1bfaa5aa (feat(collection): 산업단지 주소 근거(ILIS 목록·고시 목록·상세)를 매일 Bronze 로 받는다 — 목록에 없는 단지는 Bronze 의 최신 프로필에서 골라 상세로 묻는다 (root ADR-0033, W91))
           "mode": "0755"
         },
         {
@@ -1308,10 +1312,17 @@
             "memory_max": "3G",
             "measured": "never run (root ADR-0475: new, waiting for the approval key); sized as the collector holds one ten-day answer's files in memory and one more copy while it commits each, against the provider's 2,000,000,000-byte file limit for the largest; systemd logs the peak of every run under this cap"
           },
+<<<<<<< HEAD
           "foundation-industrial-complex-silver-load.service": {
             "class": "batch",
             "memory_max": "1G",
             "measured": "no run yet (new 2026-11-22, root ADR-0033); sized as the ILIS notice Silver load (512M), the same DuckDB stage reading the lakehouse, and twice that for the 98 MB district boundary archive the address resolution reads whole; systemd logs the peak of every run under this cap"
+=======
+          "foundation-industrial-complex-address-source-collect.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured": "no run yet (new 2026-11-22, root ADR-0033); sized as the ILIS notice Silver load (512M), the largest thing it holds being the 13.5 MB notice list answer twice (raw bytes and parsed JSON) and the 412 KB profile workbook; systemd logs the peak of every run under this cap"
+>>>>>>> 1bfaa5aa (feat(collection): 산업단지 주소 근거(ILIS 목록·고시 목록·상세)를 매일 Bronze 로 받는다 — 목록에 없는 단지는 Bronze 의 최신 프로필에서 골라 상세로 묻는다 (root ADR-0033, W91))
           },
           "foundation-industrial-complex-notice-collect.service": {
             "class": "batch",
@@ -1643,7 +1654,11 @@
       "legal_dong_code_changes",
       "court_auction_collect",
       "court_auction_silver",
+<<<<<<< HEAD
       "silver_industrial_complexes",
+=======
+      "industrial_complex_address_source_collect",
+>>>>>>> 1bfaa5aa (feat(collection): 산업단지 주소 근거(ILIS 목록·고시 목록·상세)를 매일 Bronze 로 받는다 — 목록에 없는 단지는 Bronze 의 최신 프로필에서 골라 상세로 묻는다 (root ADR-0033, W91))
       "industrial_complex_notice_collect",
       "industrial_complex_notice_silver",
       "registered_factory",

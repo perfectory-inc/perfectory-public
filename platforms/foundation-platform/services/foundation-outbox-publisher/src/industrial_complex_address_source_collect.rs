@@ -108,9 +108,10 @@ pub(crate) const ILIS_DATASETS: &[IlisDataset] = &[
 
 /// The per-complex fallback for the complexes the bulk list does not carry.
 ///
-/// It costs one request per complex, so it is never run over the whole set: the resolution build
-/// names the exact codes it could not resolve, and the operator passes those back here. That loop
-/// is why `..._DETAIL_COMPLEX_CODES` is an explicit input rather than something this command infers.
+/// It costs one request per complex, so it is never run over the whole set. A live run asks for
+/// the complexes of the newest profile workbook in Bronze that the bulk list it just fetched does
+/// not carry ([`unlisted_profile_codes`]); `..._DETAIL_COMPLEX_CODES` replaces that set when an
+/// operator names the codes.
 pub(crate) const ILIS_DETAIL_DATASET: IlisDataset = IlisDataset {
     dataset_slug: "industrial_complex_detail",
     operation: "danjiDetInfo",
@@ -167,16 +168,34 @@ struct AddressSourceDatasetReport {
 /// Returns an error when the request budget cannot cover the datasets, a provider request fails,
 /// the response does not carry the expected records array, or the Bronze commit fails.
 pub async fn run() -> anyhow::Result<()> {
-    let config = AddressSourceCollectConfig::from_env()?;
+    let mut config = AddressSourceCollectConfig::from_env()?;
     let client = IlisIndustrialComplexApiClient::new(&IlisIndustrialComplexApiConfig {
         base_uri: config.base_uri.clone(),
         user_agent: config.user_agent.clone(),
     })?;
     let run_id = IngestionRunId::new(Uuid::new_v4());
     let started_at = Utc::now();
-    let fetched = fetch_datasets(&config, &client).await?;
+    // A live run opens its ledger and store before the first request: the detail codes are read
+    // off the newest profile in Bronze, and a run that could not write must not ask first.
+    let target = if config.live_write {
+        Some(LiveTarget::open().await?)
+    } else {
+        None
+    };
+    let mut fetched = fetch_bulk_datasets(&config, &client).await?;
+    if let (Some(target), true) = (target.as_ref(), config.detail_complex_codes.is_empty()) {
+        if let Some(list) = fetched
+            .iter()
+            .find(|item| item.dataset.dataset_slug == COMPLEX_LIST_DATASET_SLUG)
+        {
+            let profile_codes = newest_profile_codes(&target.pool, target.storage.as_ref()).await?;
+            config.detail_complex_codes = unlisted_profile_codes(&profile_codes, &list.payload);
+        }
+    }
+    let sent = fetched.len();
+    fetched.extend(fetch_detail_datasets(&config, &client, sent).await?);
 
-    if !config.live_write {
+    let Some(target) = target else {
         tracing::info!(
             requests_sent = fetched.len(),
             datasets = fetched.len(),
@@ -185,9 +204,18 @@ pub async fn run() -> anyhow::Result<()> {
             PREFIX
         );
         return Ok(());
-    }
+    };
 
-    let report = persist(&config, run_id, started_at, &fetched).await?;
+    let uow = PgBronzeIngestUnitOfWork::new(target.pool.clone());
+    let report = persist_with_adapters(
+        &config,
+        run_id,
+        started_at,
+        &fetched,
+        &uow,
+        target.storage.as_ref(),
+    )
+    .await?;
     if let Some(summary_path) = config.summary_path.as_ref() {
         write_json_file(summary_path, &summary_json(&config, &report))?;
     }
@@ -196,7 +224,101 @@ pub async fn run() -> anyhow::Result<()> {
         objects = report.datasets.len(),
         "ILIS industrial-complex address-source Bronze collection succeeded"
     );
+    // A new object is what starts the industrial-complex Silver load (root ADR-0565 §5); an
+    // answer identical to the last one commits nothing and starts nothing.
+    let changed = report.datasets.iter().any(|dataset| dataset.written);
+    println!(
+        "foundation-job-outcome {}",
+        if changed { "changed" } else { "unchanged" }
+    );
     Ok(())
+}
+
+/// The bulk list's dataset slug: the complexes it carries need no detail request.
+const COMPLEX_LIST_DATASET_SLUG: &str = "industrial_complex_list";
+
+/// The profile source whose complexes the address resolution covers (the producer's default).
+const PROFILE_SOURCE_SLUG: &str = "vworldkr__sandan_profile";
+
+/// The ledger and the Bronze store a live run writes to.
+struct LiveTarget {
+    pool: PgPool,
+    storage: Box<dyn ObjectStorageService>,
+}
+
+impl LiveTarget {
+    async fn open() -> anyhow::Result<Self> {
+        crate::bronze_object_storage::live_write_target_preflight()
+            .context("ILIS industrial-complex address-source live-write target preflight failed")?;
+        let database_url = required_env_value("DATABASE_URL")?;
+        let pool = PgPool::connect(&database_url)
+            .await
+            .context("failed to connect to database for ILIS address-source Bronze collection")?;
+        let storage = live_write_bronze_object_storage_from_env().await.context(
+            "failed to configure object storage for ILIS address-source Bronze collection",
+        )?;
+        Ok(Self { pool, storage })
+    }
+}
+
+/// The complex codes of the newest profile workbook in Bronze (the ledger's newest `.zip` by the
+/// provider's date, then by collection).
+///
+/// The workbook is a few hundred kilobytes; it is read whole and decoded by the producer's own
+/// decoder, so the codes asked for are the codes the export will resolve.
+async fn newest_profile_codes(
+    pool: &PgPool,
+    storage: &dyn ObjectStorageService,
+) -> anyhow::Result<Vec<String>> {
+    let key = sqlx::query_scalar::<_, String>(
+        "SELECT b.object_key FROM catalog.bronze_object b \
+         JOIN catalog.source_catalog s ON s.id = b.source_catalog_id \
+         WHERE s.slug = $1 AND b.object_key LIKE '%.zip' \
+         ORDER BY b.provider_updated_at DESC NULLS LAST, b.collected_at DESC, b.id DESC LIMIT 1",
+    )
+    .bind(PROFILE_SOURCE_SLUG)
+    .fetch_optional(pool)
+    .await
+    .context("failed to read the newest industrial-complex profile from the Bronze ledger")?
+    .with_context(|| format!("the Bronze ledger holds no {PROFILE_SOURCE_SLUG} workbook"))?;
+    let bytes = storage
+        .read_object_bytes(&key)
+        .await
+        .with_context(|| format!("failed to read the Bronze object {key}"))?;
+    let mut file = tempfile::NamedTempFile::new()?;
+    std::io::Write::write_all(&mut file, &bytes)?;
+    let sheet =
+        crate::industrial_complex_bronze_raw_jsonl_export::decode_profile_rows_from_bronze_zip(
+            file.path(),
+            None,
+            None,
+        )?;
+    Ok(sheet
+        .records
+        .iter()
+        .map(|record| record.official_complex_code.trim().to_owned())
+        .collect())
+}
+
+/// The profile's complex codes the bulk list does not carry, in profile order, each once: the
+/// complexes only the detail endpoint answers (measured 2026-08-16: four of 1,442).
+pub(crate) fn unlisted_profile_codes(profile_codes: &[String], list: &JsonValue) -> Vec<String> {
+    let listed: std::collections::BTreeSet<&str> = list
+        .pointer(ILIS_DATASETS[0].logical_items_pointer)
+        .and_then(JsonValue::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|record| record.get("danji_cd").and_then(JsonValue::as_str))
+        .map(str::trim)
+        .collect();
+    let mut seen = std::collections::BTreeSet::new();
+    profile_codes
+        .iter()
+        .map(|code| code.trim())
+        .filter(|code| !code.is_empty() && !listed.contains(code))
+        .filter(|code| seen.insert(*code))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// One fetched dataset, planned but not yet committed.
@@ -221,12 +343,12 @@ pub(crate) fn planned_request_count(
     bulk + detail_complex_codes.len()
 }
 
-async fn fetch_datasets(
-    config: &AddressSourceCollectConfig,
-    client: &IlisIndustrialComplexApiClient,
-) -> anyhow::Result<Vec<FetchedDataset>> {
-    // The budget is checked BEFORE the first request, not counted down during the run: a run that
-    // cannot finish inside the operator's ceiling must not spend half of it first.
+/// Refuses a run whose requests the operator's ceiling cannot cover, before the requests it counts.
+fn within_budget(config: &AddressSourceCollectConfig) -> anyhow::Result<usize> {
+    // The budget is checked BEFORE the requests, not counted down during the run: a run that
+    // cannot finish inside the operator's ceiling must not spend half of it first. A live run
+    // that derives its detail codes is checked again, before the first detail request, once the
+    // bulk list has said which codes it lacks.
     let planned = planned_request_count(
         config.collect_bulk_datasets,
         config.detail_complex_codes.as_slice(),
@@ -243,7 +365,14 @@ async fn fetch_datasets(
             config.max_requests
         );
     }
+    Ok(planned)
+}
 
+async fn fetch_bulk_datasets(
+    config: &AddressSourceCollectConfig,
+    client: &IlisIndustrialComplexApiClient,
+) -> anyhow::Result<Vec<FetchedDataset>> {
+    let planned = within_budget(config)?;
     let mut fetched = Vec::with_capacity(planned);
     let mut request_index = 0_usize;
     if config.collect_bulk_datasets {
@@ -272,7 +401,24 @@ async fn fetch_datasets(
             )?);
         }
     }
-    for code in &config.detail_complex_codes {
+    Ok(fetched)
+}
+
+async fn fetch_detail_datasets(
+    config: &AddressSourceCollectConfig,
+    client: &IlisIndustrialComplexApiClient,
+    already_sent: usize,
+) -> anyhow::Result<Vec<FetchedDataset>> {
+    if config.detail_complex_codes.is_empty() {
+        return Ok(Vec::new());
+    }
+    within_budget(config)?;
+    // Derived codes come from a workbook, not the operator: held to the operator's rule all the
+    // same, since each is a path segment of a provider request.
+    let codes = detail_complex_codes(Some(&config.detail_complex_codes.join(",")))?;
+    let mut fetched = Vec::with_capacity(codes.len());
+    let mut request_index = already_sent;
+    for code in &codes {
         config
             .request_spacing
             .wait_before_request(request_index)
@@ -358,26 +504,6 @@ fn collect_array_pointers(prefix: &str, value: &JsonValue, found: &mut Vec<Strin
         }
         _ => {}
     }
-}
-
-async fn persist(
-    config: &AddressSourceCollectConfig,
-    run_id: IngestionRunId,
-    started_at: chrono::DateTime<Utc>,
-    fetched: &[FetchedDataset],
-) -> anyhow::Result<AddressSourceCollectReport> {
-    crate::bronze_object_storage::live_write_target_preflight()
-        .context("ILIS industrial-complex address-source live-write target preflight failed")?;
-    let database_url = required_env_value("DATABASE_URL")?;
-    let pool = PgPool::connect(&database_url)
-        .await
-        .context("failed to connect to database for ILIS address-source Bronze collection")?;
-    let uow = PgBronzeIngestUnitOfWork::new(pool);
-    let storage = live_write_bronze_object_storage_from_env()
-        .await
-        .context("failed to configure object storage for ILIS address-source Bronze collection")?;
-
-    persist_with_adapters(config, run_id, started_at, fetched, &uow, storage.as_ref()).await
 }
 
 async fn persist_with_adapters<Uow, Storage>(
