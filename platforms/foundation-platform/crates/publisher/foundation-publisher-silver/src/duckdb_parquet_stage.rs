@@ -433,7 +433,18 @@ fn copy_columns(shape: &TableShape, name: &str) -> anyhow::Result<(String, Strin
     let field_ids = shape
         .fields
         .iter()
-        .map(|field| format!("\"{}\": {}", field.name, field.id))
+        .map(|field| {
+            field.element_id.map_or_else(
+                || format!("\"{}\": {}", field.name, field.id),
+                // A list: its own id, and its elements' (Parquet's three-level list).
+                |element| {
+                    format!(
+                        "\"{}\": {{__duckdb_field_id: {}, element: {element}}}",
+                        field.name, field.id
+                    )
+                },
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ");
     Ok((columns, field_ids))

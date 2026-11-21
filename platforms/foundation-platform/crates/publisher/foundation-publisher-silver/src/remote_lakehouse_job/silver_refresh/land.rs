@@ -49,8 +49,6 @@ pub(in crate::remote_lakehouse_job) const MEASURE_COMMAND: &str =
     "scripts/ops/bronze-object-members.sh";
 /// The region of a national lane's one object.
 const NATIONAL: &str = "national";
-/// What the DuckDB append of a release did, kept beside the export summaries (root ADR-0599).
-const DUCKDB_SUMMARY: &str = "silver-release-append.json";
 
 /// What makes a release.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -882,8 +880,14 @@ pub(in crate::remote_lakehouse_job) async fn load(
             .map(|(key, _)| format!("s3://{bucket}/{key}"))
             .collect();
         let objects = release.object_keys();
-        let appended = duckdb_release::append_release(
+        let evidence: Vec<String> = release
+            .objects
+            .iter()
+            .map(|(region, _)| format!("export-summary-{region}.json"))
+            .collect();
+        let release_rows = super::append_on_duckdb(
             contract,
+            runtime,
             catalog,
             &duckdb_release::Release {
                 identity: &identity,
@@ -892,37 +896,12 @@ pub(in crate::remote_lakehouse_job) async fn load(
                 // Known only when every handoff was converted by this run.
                 expected_rows: handoffs.iter().map(|(_, converted)| *converted).sum(),
             },
+            &evidence_name,
+            evidence,
         )
         .await?;
-        let summary = serde_json::to_string(&appended)?;
-        println!(
-            "silver-refresh {}: silver-release-append {summary}",
-            contract.table
-        );
-        std::fs::write(work.join(DUCKDB_SUMMARY), &summary)
-            .with_context(|| format!("cannot write {DUCKDB_SUMMARY}"))?;
-        let mut evidence: Vec<String> = release
-            .objects
-            .iter()
-            .map(|(region, _)| format!("export-summary-{region}.json"))
-            .collect();
-        evidence.push(DUCKDB_SUMMARY.to_owned());
-        execute::keep_files(runtime, &evidence_name, &evidence)?;
-        // `main` moved past whatever a Spark run of this release left: its branches are stale.
-        for branch in [
-            execute::load_branch(&identity),
-            execute::changes_branch(&identity),
-        ] {
-            if catalog
-                .remove_stale_branch(&contract.table, &branch)
-                .await?
-            {
-                println!("silver-refresh {}: dropped branch {branch}", contract.table);
-            }
-        }
-        super::confirm_recorded(catalog, &contract.table, &objects).await?;
         runtime.reset_work()?;
-        return Ok((appended.release_rows, Decision::ExportAndLoad));
+        return Ok((release_rows, Decision::ExportAndLoad));
     }
     let branch = super::stage_load(catalog, &contract.table, &identity).await?;
     let batch_size = usize::try_from(contract.spark.input_file_batch_size.max(1)).unwrap_or(1);

@@ -75,6 +75,10 @@ struct Defaults {
     rows_per_part: u64,
     max_row_bytes: u64,
     spark: Value,
+    /// Which engine loads the file's lanes; absent, Spark (root ADR-0599 §8, a line of the
+    /// migration).
+    #[serde(default)]
+    engine: Option<String>,
     /// The Silver refresh job every lane of the file shares; `declared_definitions.py` reads it.
     #[serde(rename = "job")]
     _job: IgnoredAny,
@@ -390,6 +394,9 @@ fn source_document(
             },
         },
     });
+    if let Some(engine) = &file.defaults.engine {
+        document["silver_refresh"]["engine"] = json!(engine);
+    }
     if entry.key == Key::Sha256OfRow {
         document["row_key"] = json!("sha256_of_row");
     }

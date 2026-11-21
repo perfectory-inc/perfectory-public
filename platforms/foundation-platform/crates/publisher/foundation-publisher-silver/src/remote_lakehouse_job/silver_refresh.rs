@@ -38,7 +38,7 @@ mod tests;
 
 use super::invocation_cleanup::{self, Job};
 use execute::{Runtime, SparkLoad};
-use lane::{ExportKind, Lane, LaneContract};
+use lane::{Engine, ExportKind, Lane, LaneContract};
 use release::Release;
 
 /// The publisher command every lane's contract names as its export. The executable owns the
@@ -763,6 +763,34 @@ async fn refresh_parts(
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
     )?;
     let evidence_name = release.run_identity(contract.lane.id());
+    if contract.engine == Engine::Duckdb {
+        let urls: Vec<String> = manifest
+            .parts
+            .iter()
+            .map(|part| format!("s3://{bucket}/{}", part.object_key))
+            .collect();
+        let objects: Vec<String> = manifest
+            .parts
+            .iter()
+            .map(|part| part.object_key.clone())
+            .collect();
+        let rows = append_on_duckdb(
+            contract,
+            runtime,
+            catalog,
+            &duckdb_release::Release {
+                identity: &evidence_name,
+                objects: &objects,
+                handoffs: &urls,
+                expected_rows: Some(manifest.parts.iter().map(|part| part.rows).sum()),
+            },
+            &evidence_name,
+            Vec::new(),
+        )
+        .await?;
+        runtime.reset_work()?;
+        return Ok((decision, key, Some(rows)));
+    }
     let branch = stage_load(catalog, &contract.table, &evidence_name).await?;
     let staged = catalog
         .load_staged_batch_objects(&contract.table, &branch)
@@ -876,6 +904,46 @@ async fn publish_load(
         println!("silver-refresh {table}: published branch {branch} as main (snapshot {head})");
     }
     confirm_recorded(catalog, table, identities).await
+}
+
+/// What the DuckDB append of a release did, kept as the run's evidence (root ADR-0599).
+const DUCKDB_SUMMARY: &str = "silver-release-append.json";
+
+/// Appends `release` on DuckDB (root ADR-0599): no load branch and no Spark, the handoffs read
+/// where they are, the release compared from a local copy, its changes one commit. Prints and
+/// keeps the summary with `evidence`, and drops the branches a Spark run of the release left
+/// (`main` moved past them). Returns the release's row count.
+async fn append_on_duckdb(
+    contract: &LaneContract,
+    runtime: &Runtime,
+    catalog: &IcebergRestCatalog,
+    release: &duckdb_release::Release<'_>,
+    evidence_name: &str,
+    mut evidence: Vec<String>,
+) -> anyhow::Result<u64> {
+    let appended = duckdb_release::append_release(contract, catalog, release).await?;
+    let summary = serde_json::to_string(&appended)?;
+    println!(
+        "silver-refresh {}: silver-release-append {summary}",
+        contract.table
+    );
+    std::fs::write(runtime.work().join(DUCKDB_SUMMARY), &summary)
+        .with_context(|| format!("cannot write {DUCKDB_SUMMARY}"))?;
+    evidence.push(DUCKDB_SUMMARY.to_owned());
+    execute::keep_files(runtime, evidence_name, &evidence)?;
+    for branch in [
+        execute::load_branch(release.identity),
+        execute::changes_branch(release.identity),
+    ] {
+        if catalog
+            .remove_stale_branch(&contract.table, &branch)
+            .await?
+        {
+            println!("silver-refresh {}: dropped branch {branch}", contract.table);
+        }
+    }
+    confirm_recorded(catalog, &contract.table, release.objects).await?;
+    Ok(appended.release_rows)
 }
 
 async fn confirm_recorded(

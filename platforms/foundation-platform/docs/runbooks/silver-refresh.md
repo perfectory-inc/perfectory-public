@@ -232,7 +232,7 @@ main 을 덮어쓰지 못한다. 비교 커밋은 요약에 `foundation.change-r
 
 ### DuckDB 로 싣는 레인 (루트 ADR-0599)
 
-레인 계약에 `"engine": "duckdb"` 가 있으면 그 레인은 Spark 와 가지를 쓰지 않는다. 지금은 `land-use-plan` 하나다.
+레인 계약에 `"engine": "duckdb"` 가 있으면 그 레인은 Spark 와 가지를 쓰지 않는다. 54개 레인 중 49개가 그렇다(HUB 계열 파일은 `defaults.engine` 한 줄). Spark 에 남은 것은 공동주택가격·표제부·전유부·전유부 면적·용도지역 도형 다섯이다. HUB 표는 판 열(`vintage`)로 나뉘어 한 릴리스가 한 파티션이고, `raw_columns` 는 글자 목록으로 읽힌다.
 
 | 단계 | 무엇 | 로그의 줄 |
 |---|---|---|

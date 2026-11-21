@@ -41,6 +41,7 @@ fn shape(table: &str) -> anyhow::Result<TableShape> {
                     id: i32::try_from(index + 1)?,
                     name: column.name.to_owned(),
                     required: column.required,
+                    element_id: None,
                 })
             })
             .collect::<anyhow::Result<_>>()?,

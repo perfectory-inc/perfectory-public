@@ -70,6 +70,9 @@ pub struct TableField {
     pub name: String,
     /// Whether the table refuses a null in it.
     pub required: bool,
+    /// The field id of the elements, when the column is a list of plain values (`array<string>`):
+    /// a staged file carries it on the list's `element`.
+    pub element_id: Option<i32>,
 }
 
 /// Where a table's data files go and which columns they carry.
@@ -399,15 +402,22 @@ impl LakehouseDataCommitter {
         let table = self.load(table_name).await?;
         let mut fields = Vec::new();
         for field in table.metadata().current_schema().as_struct().fields() {
-            ensure!(
-                matches!(*field.field_type, Type::Primitive(_)),
-                "{table_name}.{} is not a plain column: a nested column has no staging rule yet",
-                field.name
-            );
+            let element_id = match &*field.field_type {
+                Type::Primitive(_) => None,
+                // A list of plain values is staged as Parquet's three-level list.
+                Type::List(list) if matches!(*list.element_field.field_type, Type::Primitive(_)) => {
+                    Some(list.element_field.id)
+                }
+                _ => bail!(
+                    "{table_name}.{} is neither a plain column nor a list of plain values: it has no staging rule yet",
+                    field.name
+                ),
+            };
             fields.push(TableField {
                 id: field.id,
                 name: field.name.clone(),
                 required: field.required,
+                element_id,
             });
         }
         Ok(TableShape {
@@ -693,7 +703,18 @@ fn contract_layout(
     let mut ids = HashMap::new();
     for (index, column) in contract.columns.iter().enumerate() {
         let id = i32::try_from(index + 1)?;
-        let kind = Type::Primitive(iceberg_type(column.logical_type)?);
+        let kind = if column.logical_type == "array<string>" {
+            // A list's elements take an id after the columns'.
+            Type::List(iceberg::spec::ListType::new(Arc::new(
+                NestedField::list_element(
+                    i32::try_from(contract.columns.len() + index + 1)?,
+                    Type::Primitive(PrimitiveType::String),
+                    false,
+                ),
+            )))
+        } else {
+            Type::Primitive(iceberg_type(column.logical_type)?)
+        };
         fields.push(Arc::new(if column.required {
             NestedField::required(id, column.name, kind)
         } else {
@@ -859,6 +880,9 @@ struct ColumnFacts {
     /// `None` once any row group omits a bound.
     bounds: Option<(Datum, Datum)>,
     row_groups: usize,
+    /// The column is the elements of a list: its counts are of elements, empty lists and null
+    /// lists together, so they say nothing about the list column itself.
+    repeated: bool,
 }
 
 /// The manifest entry of one Parquet file another engine wrote: counts, sizes and bounds from its
@@ -880,6 +904,21 @@ fn manifest_entry(
     let facts = column_facts(footer, fields, local)?;
 
     for field in fields {
+        let Type::Primitive(_) = &*field.field_type else {
+            // A list column: its leaf is its elements. Whether a list itself is null is not in the
+            // footer (the leaf counts null elements, empty lists and null lists as one), so a
+            // required list is the stager's to check before it writes (`check_release`).
+            let Type::List(list) = &*field.field_type else {
+                bail!("{}: {} is not a plain column", local.display(), field.name);
+            };
+            ensure!(
+                facts.contains_key(&list.element_field.id),
+                "{}: column {} is missing",
+                local.display(),
+                field.name
+            );
+            continue;
+        };
         let fact = facts
             .get(&field.id)
             .with_context(|| format!("{}: column {} is missing", local.display(), field.name))?;
@@ -949,6 +988,10 @@ fn manifest_entry(
     let mut upper_bounds = HashMap::new();
     for (id, fact) in facts {
         column_sizes.insert(id, fact.compressed_bytes);
+        if fact.repeated {
+            // No count and no bound of a repeated field: they are not the column's.
+            continue;
+        }
         value_counts.insert(id, fact.values);
         if let Some(nulls) = fact.nulls {
             null_value_counts.insert(id, nulls);
@@ -1002,8 +1045,17 @@ fn column_facts(
     fields: &[Arc<NestedField>],
     local: &Path,
 ) -> anyhow::Result<BTreeMap<i32, ColumnFacts>> {
-    let by_id: HashMap<i32, &Arc<NestedField>> =
-        fields.iter().map(|field| (field.id, field)).collect();
+    // The leaf of a plain column carries the column's id; the leaf of a list, its element's.
+    let by_id: HashMap<i32, (&Arc<NestedField>, &Type, bool)> = fields
+        .iter()
+        .map(|field| match &*field.field_type {
+            Type::List(list) => (
+                list.element_field.id,
+                (field, &*list.element_field.field_type, true),
+            ),
+            other => (field.id, (field, other, false)),
+        })
+        .collect();
     let descriptor = footer.file_metadata().schema_descr();
     ensure!(
         descriptor.num_columns() == fields.len(),
@@ -1023,7 +1075,7 @@ fn column_facts(
             local.display(),
             column.name()
         );
-        let field = by_id.get(&info.id()).with_context(|| {
+        let (field, leaf_type, repeated) = *by_id.get(&info.id()).with_context(|| {
             format!(
                 "{}: field id {} ({}) is not in the table schema",
                 local.display(),
@@ -1031,15 +1083,18 @@ fn column_facts(
                 column.name()
             )
         })?;
+        // A list's leaf is named `element`; the column's name is the root of its path.
+        let named = column.path().parts().first().map(String::as_str);
         ensure!(
-            field.name == column.name(),
+            named == Some(field.name.as_str())
+                && column.path().parts().len() == if repeated { 3 } else { 1 },
             "{}: field id {} is {} in the file and {} in the table",
             local.display(),
-            field.id,
-            column.name(),
+            info.id(),
+            column.path().string(),
             field.name
         );
-        let Type::Primitive(primitive) = &*field.field_type else {
+        let Type::Primitive(primitive) = leaf_type else {
             bail!("{}: {} is not a plain column", local.display(), field.name);
         };
         ensure!(
@@ -1052,12 +1107,20 @@ fn column_facts(
             column.converted_type()
         );
         ensure!(
-            facts.insert(field.id, ColumnFacts::default()).is_none(),
+            facts
+                .insert(
+                    info.id(),
+                    ColumnFacts {
+                        repeated,
+                        ..ColumnFacts::default()
+                    }
+                )
+                .is_none(),
             "{}: field id {} appears twice",
             local.display(),
-            field.id
+            info.id()
         );
-        primitives.insert(index, (field.id, primitive.clone()));
+        primitives.insert(index, (info.id(), primitive.clone()));
     }
     for row_group in footer.row_groups() {
         for (index, chunk) in row_group.columns().iter().enumerate() {

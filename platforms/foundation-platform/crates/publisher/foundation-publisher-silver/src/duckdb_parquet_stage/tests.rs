@@ -24,7 +24,7 @@ use foundation_publisher_core::{
 use iceberg::{
     io::LocalFsStorageFactory,
     memory::{MemoryCatalogBuilder, MEMORY_CATALOG_WAREHOUSE},
-    spec::{NestedField, PrimitiveType, Schema, Transform, Type, UnboundPartitionSpec},
+    spec::{ListType, NestedField, PrimitiveType, Schema, Transform, Type, UnboundPartitionSpec},
     Catalog, CatalogBuilder, NamespaceIdent, TableCreation, TableIdent,
 };
 use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableContract};
@@ -105,6 +105,21 @@ async fn catalog_partitioned(
     for (index, column) in contract.columns.iter().enumerate() {
         let id = i32::try_from(index + 1)?;
         let kind = Type::Primitive(match column.logical_type {
+            "array<string>" => {
+                // Element ids follow the columns', as an engine that creates the table gives them.
+                let element = i32::try_from(contract.columns.len() + index + 1)?;
+                fields.push(Arc::new(NestedField::new(
+                    id,
+                    column.name,
+                    Type::List(ListType::new(Arc::new(NestedField::list_element(
+                        element,
+                        Type::Primitive(PrimitiveType::String),
+                        false,
+                    )))),
+                    column.required,
+                )));
+                continue;
+            }
             "string" => PrimitiveType::String,
             "long" => PrimitiveType::Long,
             "int" => PrimitiveType::Int,
@@ -524,6 +539,60 @@ async fn a_partitioned_file_is_one_partition_or_refused() -> anyhow::Result<()> 
     let scanned = scan_snapshot_rows(contract, &LocalFiles, &snapshot).await?;
     scanned.ensure_complete()?;
     assert_eq!((scanned.rows.len(), scanned.data_file_count), (1500, 2));
+    Ok(())
+}
+
+/// A hub table keeps every source column in `raw_columns`, a list of text, and is partitioned by
+/// its edition (`vintage`): one release's rows are one file of one partition (root ADR-0599).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_list_of_text_column_is_staged_and_appended() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let contract = contract("silver.building_register_master")?;
+    assert_eq!(contract.partition_spec, ["vintage"]);
+    let catalog = catalog_with(&root.path().join("warehouse"), contract).await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let shape = committer.table_shape(contract.table_name).await?;
+    let lists = shape
+        .fields
+        .iter()
+        .filter(|field| field.element_id.is_some())
+        .map(|field| field.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(lists, ["raw_columns"]);
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| match (column.name, column.logical_type) {
+            ("pnu", _) => "'99999' || lpad(CAST(i AS VARCHAR), 14, '0') AS pnu".to_owned(),
+            ("vintage", _) => "'209901' AS vintage".to_owned(),
+            // A null element and an empty list are values of the column; a null list is not.
+            (name, "array<string>") => format!(
+                "CASE WHEN i % 5 = 0 THEN []::VARCHAR[] ELSE ['a', NULL, CAST(i AS VARCHAR)] END AS {name}"
+            ),
+            (name, "long") => format!("CAST(i AS BIGINT) AS {name}"),
+            (name, "timestamp") => format!("to_timestamp(4070908800) AS {name}"),
+            (name, _) => format!("'{name}-' || CAST(i % 7 AS VARCHAR) AS {name}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let file = stage.write(
+        &shape,
+        &format!("SELECT {columns} FROM range(0, 40) t(i) ORDER BY pnu"),
+        "release",
+    )?;
+    let outcome = committer
+        .append(DataAppend {
+            table_name: contract.table_name,
+            contract,
+            files: &[file],
+            batch: &["release".to_owned()],
+            already_ingested: &BTreeSet::new(),
+            summary: BTreeMap::new(),
+        })
+        .await?;
+    let (_, _, added) = appended(outcome)?;
+    assert_eq!(added, 40);
     Ok(())
 }
 

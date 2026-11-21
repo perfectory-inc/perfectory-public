@@ -228,6 +228,46 @@ fn staged_name(table: &str, identity: &str, bucket: usize) -> String {
     format!("{short}-{}-b{bucket:04}", &digest[..16])
 }
 
+/// The lane's table contract and compare rule, when this path can load the lane.
+///
+/// # Errors
+/// The lane declares no compare, or one this path does not do yet: a geometry tolerance, a
+/// partition other than the edition, the PNU null-share gate.
+pub(in crate::remote_lakehouse_job) fn fits(
+    contract: &LaneContract,
+) -> anyhow::Result<(&'static LakehouseTableContract, CompareRule)> {
+    let table = contract.table.as_str();
+    let table_contract = industrial_complex_lakehouse_contract_by_table_name(table)
+        .with_context(|| format!("no contract for {table}"))?;
+    let content = contract
+        .compare_content
+        .as_ref()
+        .with_context(|| format!("{table}: the DuckDB engine appends a release as its changes; the lane declares no compare"))?;
+    ensure!(
+        contract.compare_geometry_tolerance.is_none(),
+        "{table}: the geometry tolerance is not compared on DuckDB yet (root ADR-0599 §7)"
+    );
+    let rule = CompareRule::of(table_contract, content)?;
+    // A release is one edition, so a table partitioned by its edition column gets one partition
+    // per release; the committer refuses a file that is not (`manifest_entry`).
+    ensure!(
+        table_contract
+            .partition_spec
+            .iter()
+            .all(|part| Some(*part) == rule.edition_column),
+        "{table} is partitioned by {:?}: a staged file must be one partition, and this path splits by none but the edition",
+        table_contract.partition_spec
+    );
+    ensure!(
+        !table_contract
+            .quality_gates
+            .iter()
+            .any(|gate| gate.contains("ordinary_land_pnu_null_share")),
+        "{table} declares the PNU null-share gate, which this path does not check yet"
+    );
+    Ok((table_contract, rule))
+}
+
 /// Appends `release` to the lane's table as its changes, in one commit; returns what it did.
 ///
 /// # Errors
@@ -240,28 +280,7 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
     release: &Release<'_>,
 ) -> anyhow::Result<ReleaseAppend> {
     let table = contract.table.as_str();
-    let table_contract = industrial_complex_lakehouse_contract_by_table_name(table)
-        .with_context(|| format!("no contract for {table}"))?;
-    let content = contract
-        .compare_content
-        .as_ref()
-        .with_context(|| format!("{table}: the DuckDB engine appends a release as its changes; the lane declares no compare"))?;
-    ensure!(
-        contract.compare_geometry_tolerance.is_none(),
-        "{table}: the geometry tolerance is not compared on DuckDB yet (root ADR-0599 §7)"
-    );
-    ensure!(
-        table_contract.partition_spec.is_empty(),
-        "{table} is partitioned: a staged file must be one partition, and this path does not split by partition yet"
-    );
-    ensure!(
-        !table_contract
-            .quality_gates
-            .iter()
-            .any(|gate| gate.contains("ordinary_land_pnu_null_share")),
-        "{table} declares the PNU null-share gate, which this path does not check yet"
-    );
-    let rule = CompareRule::of(table_contract, content)?;
+    let (table_contract, rule) = fits(contract)?;
     let committer = LakehouseDataCommitter::from_env().await?;
     // A table is born on its first commit (root ADR-0564 §1).
     committer.create_table_if_absent(table_contract).await?;
