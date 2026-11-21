@@ -149,7 +149,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .and_then(|path| Path::new(path).parent())
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let stage = DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)?;
+    let stage = DuckDbParquetStage::open_reading_lakehouse(
+        work,
+        &LakehouseRead::with_reader_keys_from_env()?,
+    )?;
     stage.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
     let made = verdict(
         &stage,

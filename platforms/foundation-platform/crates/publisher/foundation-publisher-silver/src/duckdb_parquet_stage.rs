@@ -72,6 +72,34 @@ impl LakehouseRead {
             s3_secret_access_key: storage.secret_access_key,
         })
     }
+
+    /// [`Self::from_env`] with the read-only key pair for the data files
+    /// (`R2ObjectStorageConfig::lakehouse_reader_from_env`, root ADR-0152): a command that only
+    /// reads never needs the writer pair beside it. The catalog token is the one
+    /// `LakehouseCatalogConfig` reads, as for every other catalog read of the unit.
+    ///
+    /// # Errors
+    /// Returns an error when a setting is missing; the error never carries a credential.
+    pub fn with_reader_keys_from_env() -> anyhow::Result<Self> {
+        let catalog = lakehouse_infrastructure::LakehouseCatalogConfig::from_env()
+            .context("failed to configure the lakehouse catalog for a DuckDB read")?;
+        let storage =
+            foundation_outbox::object_storage::R2ObjectStorageConfig::lakehouse_reader_from_env()
+                .context(
+                "failed to configure lakehouse R2 reads with the reader pair for a DuckDB read",
+            )?;
+        Ok(Self {
+            extensions: crate::duckdb_extensions::release_directory()?,
+            catalog_uri: catalog.catalog_uri,
+            warehouse: catalog.warehouse,
+            catalog_token: catalog
+                .catalog_token
+                .context("the lakehouse catalog token is required")?,
+            s3_endpoint: storage.endpoint,
+            s3_access_key_id: storage.access_key_id,
+            s3_secret_access_key: storage.secret_access_key,
+        })
+    }
 }
 
 /// One transform's `DuckDB` and the directory its staged files and spill live in.
