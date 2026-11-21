@@ -516,10 +516,12 @@ pub const FOLD_ROWS_FILE: &str = "fold-rows.jsonl";
 
 /// `fold-complex-facts`, the read: the complexes in scope and their joined fact rows.
 ///
-/// In scope are the complexes whose attachments got facts in run `run_id`; every complex with
-/// `all`, or when the table holds rows folded under another gate or fact version (the declared
-/// full refold, root ADR-0477 §3). Each fact is joined to its attachment, its notice and the page
-/// it was read on.
+/// In scope are the complexes whose attachments got facts in run `run_id`, and every complex
+/// whose newest panel fact is of a later run than the run that folded it (or that no run folded):
+/// a fold covers what changed and leaves nothing behind (2026-11-21: 32 complexes had facts of
+/// runs whose fold was skipped, and no row at all). Every complex with `all`, or when the table
+/// holds rows folded under another gate or fact version (the declared full refold, root ADR-0477
+/// §3). Each fact is joined to its attachment, its notice and the page it was read on.
 ///
 /// `gate_json` is the admitted `(fact_kind, method, page_method)` list as the fold writes it.
 ///
@@ -549,7 +551,7 @@ pub fn export_fold_inputs(
         held_now = current(
             held_contract,
             held,
-            &["official_complex_code", "accuracy_gate_json", "fact_extractor_version"]
+            &["official_complex_code", "accuracy_gate_json", "fact_extractor_version", "run_id"]
         )?,
         attachments_now = current(
             attachment_contract,
@@ -578,9 +580,18 @@ pub fn export_fold_inputs(
          UNION SELECT official_complex_code FROM id_held"
             .to_owned()
     } else {
+        // This run's, and every complex left behind: one whose newest fact is of a later run than
+        // the run that folded it, or that no run folded. A fold that was skipped (the image failed
+        // and the fold waited) is made up by the next one, with nothing to ask for by hand.
         format!(
             "SELECT official_complex_code FROM id_attachments WHERE sha256 IN \
-             (SELECT sha256 FROM {facts} WHERE run_id = {})",
+             (SELECT sha256 FROM {facts} WHERE run_id = {}) \
+             UNION \
+             SELECT a.official_complex_code FROM id_attachments a \
+             JOIN id_fact_rows f ON f.sha256 = a.sha256 \
+             LEFT JOIN id_held h ON h.official_complex_code = a.official_complex_code \
+             GROUP BY a.official_complex_code, h.run_id \
+             HAVING h.run_id IS NULL OR max(f.run_id) > h.run_id",
             literal(run_id)
         )
     };

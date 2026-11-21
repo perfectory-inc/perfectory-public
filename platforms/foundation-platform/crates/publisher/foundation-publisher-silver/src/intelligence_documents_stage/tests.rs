@@ -10,8 +10,9 @@ use lakehouse_domain::{
 use serde_json::{json, Value};
 
 use super::{
-    media_key, plan_facts, plan_text, stage_run_rows, ATTACHMENT_TABLE, COMPLEX_FACTS, FACT,
-    FACT_OUTCOME, INDEX_FILE, MEDIA_FILE, TEXT_OUTCOME, TEXT_PAGE,
+    export_fold_inputs, media_key, plan_facts, plan_text, relation, stage_run_rows,
+    ATTACHMENT_TABLE, COMPLEX_FACTS, DETAIL_TABLE, FACT, FACT_OUTCOME, FOLD_CODES_FILE,
+    FOLD_ROWS_FILE, INDEX_FILE, MEDIA_FILE, TEXT_OUTCOME, TEXT_PAGE,
 };
 use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
@@ -402,5 +403,137 @@ fn every_output_table_is_the_intelligence_columns_then_the_run() -> anyhow::Resu
             .map(|column| column.name),
         Some("run_id")
     );
+    Ok(())
+}
+
+/// Rows of `table`: the `named` columns from `values`, every other column one fixed value of its type.
+fn rows_of(table: &str, named: &[&str], values: &str) -> anyhow::Result<String> {
+    let columns = contract(table)?
+        .columns
+        .iter()
+        .map(|column| {
+            let name = column.name;
+            if named.contains(&name) {
+                return format!("v.\"{name}\" AS \"{name}\"");
+            }
+            match column.logical_type {
+                "int" => format!("CAST(1 AS INTEGER) AS \"{name}\""),
+                "long" => format!("CAST(1 AS BIGINT) AS \"{name}\""),
+                "date" => format!("DATE '2099-01-01' AS \"{name}\""),
+                "timestamp" => format!("to_timestamp(4070908800) AS \"{name}\""),
+                _ => format!("'x' AS \"{name}\""),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let aliases = named
+        .iter()
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "(SELECT {columns} FROM (VALUES {values}) v({aliases}))"
+    ))
+}
+
+/// A fold covers what changed and leaves nothing behind: a complex whose facts are of a later run
+/// than the run that folded it, or that no run folded, is folded by the next run, whatever that
+/// run read (2026-11-21: 32 complexes had facts of runs whose fold was skipped, and no row).
+#[test]
+fn a_fold_makes_up_the_complexes_an_earlier_run_left_behind() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let (stage, work) = stage_and_work(root.path())?;
+    let extraction = extraction()?;
+    let version = extraction["document_fact"]["extractor_version"]
+        .as_str()
+        .context("the fact version")?;
+    let (a, b, c, d) = (hash('a'), hash('b'), hash('c'), hash('d'));
+    let attachments = rows_of(
+        ATTACHMENT_TABLE,
+        &["notice_sequence", "sha256", "official_complex_code"],
+        &format!(
+            "(CAST(99001 AS BIGINT), '{a}', '999991'), (99002, '{b}', '999992'), \
+             (99003, '{c}', '999993'), (99004, '{d}', '999994')"
+        ),
+    )?;
+    // 999991: facts of r2, folded by r1 (the fold of r2 was skipped). 999992: facts, never folded.
+    // 999993: folded after its facts. 999994: folded by the run of its facts.
+    let facts = rows_of(
+        FACT,
+        &["sha256", "extractor_version", "fact_kind", "run_id"],
+        &format!(
+            "('{a}', '{version}', 'land_use_area', 'r2'), ('{b}', '{version}', 'land_use_area', 'r1'), \
+             ('{c}', '{version}', 'land_use_area', 'r1'), ('{d}', '{version}', 'land_use_area', 'r5')"
+        ),
+    )?;
+    let held = rows_of(
+        COMPLEX_FACTS,
+        &[
+            "official_complex_code",
+            "fact_extractor_version",
+            "accuracy_gate_json",
+            "run_id",
+        ],
+        &format!(
+            "('999991', '{version}', '[]', 'r1'), ('999993', '{version}', '[]', 'r3'), \
+             ('999994', '{version}', '[]', 'r5')"
+        ),
+    )?;
+    let details = relation(&stage, contract(DETAIL_TABLE)?, None)?;
+    let pages = relation(&stage, contract(TEXT_PAGE)?, None)?;
+    // Run r9 read nothing: its own scope is empty.
+    let inputs = export_fold_inputs(
+        &stage,
+        [
+            contract(COMPLEX_FACTS)?,
+            contract(ATTACHMENT_TABLE)?,
+            contract(FACT)?,
+            contract(DETAIL_TABLE)?,
+            contract(TEXT_PAGE)?,
+        ],
+        [&held, &attachments, &facts, &details, &pages],
+        &extraction,
+        "[]",
+        "r9",
+        false,
+        &work,
+    )?;
+    assert!(!inputs.whole);
+    assert_eq!(
+        lines(&work.join(FOLD_CODES_FILE))?,
+        ["999991", "999992"],
+        "the two left behind, and neither of the two that are folded"
+    );
+    assert_eq!((inputs.complexes, inputs.rows), (2, 2));
+    let folded: Vec<Value> = lines(&work.join(FOLD_ROWS_FILE))?
+        .iter()
+        .map(|line| serde_json::from_str(line))
+        .collect::<Result<_, _>>()?;
+    assert_eq!(
+        folded
+            .iter()
+            .map(|row| row["official_complex_code"].as_str())
+            .collect::<Vec<_>>(),
+        [Some("999991"), Some("999992")]
+    );
+    // A gate the held rows were not folded under is the declared full refold: every complex.
+    let inputs = export_fold_inputs(
+        &stage,
+        [
+            contract(COMPLEX_FACTS)?,
+            contract(ATTACHMENT_TABLE)?,
+            contract(FACT)?,
+            contract(DETAIL_TABLE)?,
+            contract(TEXT_PAGE)?,
+        ],
+        [&held, &attachments, &facts, &details, &pages],
+        &extraction,
+        "[[\"land_use_area\", \"rule\", \"text_layer\"]]",
+        "r9",
+        false,
+        &work,
+    )?;
+    assert!(inputs.whole);
+    assert_eq!(inputs.complexes, 4);
     Ok(())
 }
