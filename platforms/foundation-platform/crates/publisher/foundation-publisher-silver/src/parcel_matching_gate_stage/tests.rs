@@ -156,11 +156,18 @@ fn strays_past_the_bound_are_refused_as_unlisted_dongs() -> anyhow::Result<()> {
 fn only_the_sido_asked_for_are_checked_but_the_whole_edition_is_counted() -> anyhow::Result<()> {
     let (_dir, stage) = stage(
         "INSERT INTO parcels VALUES ('9999910100100010000', 'edition-b', NULL),
-           ('9899910100100010000', 'edition-b', NULL);",
+           ('9999910100100020000', 'edition-b', NULL);",
     )?;
-    let verdict = verdict(&stage, &sources(), &run(&[], Registry::Skipped))?;
-    assert_eq!(verdict["snapshot_parcel_count"], 2);
-    assert_eq!(verdict["parcels"]["checked"], 1);
+    // Fixtures hold the reserved 99999 range only, so the 시도 not asked for is the edition's own.
+    let asked = verdict(&stage, &sources(), &run(&[], Registry::Skipped))?;
+    assert_eq!(asked["snapshot_parcel_count"], 2);
+    assert_eq!(asked["parcels"]["checked"], 2);
+    let other = verdict_with_sido(&stage, "98")?;
+    assert_eq!(
+        other["snapshot_parcel_count"], 2,
+        "a 시도 not checked is still counted"
+    );
+    assert_eq!(other["parcels"]["checked"], 0);
     assert!(verdict_with_sido(&stage, "9").is_err());
     assert!(verdict_with_sido(&stage, "99,'1").is_err());
     Ok(())
