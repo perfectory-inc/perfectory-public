@@ -77,6 +77,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/o
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_schedule.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage/tests.rs:3
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_matching_gate_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage/tests.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_number_change_history_stage.rs:1
@@ -126,6 +127,7 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/industria
 platforms/foundation-platform/services/foundation-outbox-publisher/src/juso_electronic_map_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/media_renditions.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/onbid_silver_load.rs:1
+platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_matching_gate.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_nearby_versions_build.rs:2
 platforms/foundation-platform/services/foundation-outbox-publisher/src/silver_load_objects.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/tests/administrative_boundary_publication.rs:1
