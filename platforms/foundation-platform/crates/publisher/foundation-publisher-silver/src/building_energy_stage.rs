@@ -31,7 +31,7 @@ pub const GAS_SOURCE: &str = "silver.building_energy_monthly_gas";
 pub const ENERGIES: [(&str, &str); 2] = [(ELECTRICITY_SOURCE, "electricity"), (GAS_SOURCE, "gas")];
 /// A year of months: the panel's chart.
 pub const MONTH_BOUND: u32 = 12;
-/// data.go.kr 15135963 (건축HUB 건물에너지정보 서비스): 제공단위 KWh for 전기 사용량.
+/// data.go.kr 15135963 (건축HUB 건물에너지정보 서비스): 제공단위 `KWh` for 전기 사용량.
 pub const ELECTRICITY_UNIT: &str = "kWh";
 /// A 사용량 the provider writes as digits with an optional fraction (Spark's `NUMBER`).
 pub const NUMBER: &str = r"^\s*-?[0-9]+(\.[0-9]+)?\s*$";

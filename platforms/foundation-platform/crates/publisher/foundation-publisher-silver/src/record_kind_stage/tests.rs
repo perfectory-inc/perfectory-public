@@ -94,7 +94,7 @@ fn a_document_is_spark_s_bytes_newest_first_with_blanks_null() -> anyhow::Result
     load(&connection, &sites())?;
     let read = REGISTER_MASTERS.load_inputs(&connection, &Source::Local, EDITION, "")?;
     assert_eq!((read.served_parcels, read.rows), (2, 3));
-    build(
+    REGISTER_MASTERS.build(
         &connection,
         true,
         "999990000000000001",
@@ -139,7 +139,7 @@ fn a_parcel_keeps_the_newest_sites_up_to_the_bound_and_counts_all() -> anyhow::R
         .collect();
     load(&connection, &many)?;
     REGISTER_MASTERS.load_inputs(&connection, &Source::Local, EDITION, "")?;
-    build(
+    REGISTER_MASTERS.build(
         &connection,
         true,
         "999990000000000001",
@@ -177,7 +177,7 @@ fn a_partial_run_names_the_pnus_whose_sites_or_parcels_changed() -> anyhow::Resu
     load(&connection, &moved)?;
     REGISTER_MASTERS.load_inputs(&connection, &Source::Local, EDITION, "")?;
     assert_eq!(REGISTER_MASTERS.changed_pnus(&connection)?, 2);
-    build(
+    REGISTER_MASTERS.build(
         &connection,
         false,
         "999990000000000002",
