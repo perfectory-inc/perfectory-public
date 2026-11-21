@@ -33,7 +33,7 @@ use super::lane::LaneContract;
 use crate::{
     data_go_kr_file_data_stage::{epoch, literal},
     duckdb_parquet_stage::{
-        with_contract_columns, DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
+        sql_path, with_contract_columns, DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
     },
     release_compare_stage::{
         buckets, check_pnu_null_share, check_release, compare_bucket, copy_release, edition_text,
@@ -161,6 +161,49 @@ fn release_copy(
     std::fs::rename(&partial, &marker)
         .with_context(|| format!("cannot finish {}", marker.display()))?;
     Ok((copy, rows))
+}
+
+/// `main` as it stands at snapshot `head`, copied once into `directory` and read from there
+/// (root ADR-0599 §2: the compare reads `main` once per pass). Returns the copy as a relation.
+///
+/// For a table whose files hold every compare bucket's keys (it is partitioned by a hash of the
+/// key), a bucket's read of `main` prunes nothing: every pass of every bucket read all of it from
+/// R2 again. 2026-11-21, `silver.building_register_unit_areas` (32 files, 8 GiB, 28 buckets): 24
+/// minutes for the first bucket while R2 range requests from the host stalled for up to 171
+/// seconds each; the run could not end inside its limit. A snapshot never changes, so a whole copy
+/// of the same snapshot is read again by a retry; a copy of another snapshot is removed.
+fn main_copy(
+    stage: &DuckDbParquetStage,
+    main: &str,
+    head: i64,
+    directory: &Path,
+) -> anyhow::Result<String> {
+    let copy = directory.join(format!("main-{head}.parquet"));
+    for entry in std::fs::read_dir(directory)
+        .with_context(|| format!("cannot list {}", directory.display()))?
+    {
+        let path = entry?.path();
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if name.starts_with("main-") && path != copy {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("cannot remove {}", path.display()))?;
+        }
+    }
+    if !copy.is_file() {
+        // The copy's size is not known before it is made; the stage's spill ceiling is.
+        stage.require_room(0)?;
+        let partial = copy.with_extension("partial");
+        stage
+            .connection()
+            .execute_batch(&format!(
+                "COPY (SELECT * FROM {main}) TO '{}' (FORMAT parquet, COMPRESSION zstd)",
+                sql_path(&partial)?
+            ))
+            .with_context(|| format!("DuckDB failed to copy main at snapshot {head}"))?;
+        std::fs::rename(&partial, &copy)
+            .with_context(|| format!("cannot finish {}", copy.display()))?;
+    }
+    release_relation(&copy)
 }
 
 /// The one edition the copy is, for a table ordered by one.
@@ -428,6 +471,18 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
         // A table with no snapshot holds no row: every key of the release is new.
         None => format!("(SELECT * FROM {copied} WHERE false)"),
     };
+    let main = match head {
+        Some(head) if key_buckets(table_contract, &rule).is_some() => {
+            let started = Instant::now();
+            let local = main_copy(&stage, &main, head, &copies)?;
+            println!(
+                "silver-refresh {table}: main at snapshot {head} copied once in {:.1} s; every bucket compares with the copy",
+                seconds(started)
+            );
+            local
+        }
+        _ => main,
+    };
     // Before anything of the release is staged (the Spark load judged it before its first batch).
     if let Some(outcome) =
         check_pnu_null_share(&stage, table_contract, &copied, head.map(|_| main.as_str()))?
@@ -638,7 +693,7 @@ mod tests {
     use anyhow::Context as _;
     use lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name;
 
-    use super::{release_copy, staged_name, Release, COPY_MARKER};
+    use super::{main_copy, release_copy, staged_name, Release, COPY_MARKER};
     use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
     #[test]
@@ -661,6 +716,44 @@ mod tests {
             name,
             staged_name("silver.land_use_plan", "vworldkr-land-use-plan:20991209", 7)
         );
+    }
+
+    /// `main` is read once: a copy of the snapshot is made, a whole copy of the same snapshot is
+    /// read again without touching `main`, and another snapshot's copy is removed.
+    #[test]
+    fn main_is_copied_once_per_snapshot_and_another_snapshots_copy_is_removed() -> anyhow::Result<()>
+    {
+        let root = tempfile::tempdir()?;
+        let stage = DuckDbParquetStage::open(root.path())?;
+        // Inside the stage's own directory: the only place this stage may read and write.
+        let work = std::fs::read_dir(root.path())?
+            .next()
+            .context("the stage directory")??
+            .path();
+        let count = |relation: &str| -> anyhow::Result<i64> {
+            Ok(stage.connection().query_row(
+                &format!("SELECT count(*) FROM {relation}"),
+                [],
+                |row| row.get(0),
+            )?)
+        };
+        stage
+            .connection()
+            .execute_batch("CREATE TABLE main_rows AS SELECT 1 AS k UNION ALL SELECT 2")?;
+        let first = main_copy(&stage, "main_rows", 7, &work)?;
+        assert_eq!(count(&first)?, 2);
+        // Planted: the source moves; the same snapshot's copy is what is read.
+        stage
+            .connection()
+            .execute_batch("INSERT INTO main_rows VALUES (3)")?;
+        assert_eq!(main_copy(&stage, "main_rows", 7, &work)?, first);
+        assert_eq!(count(&first)?, 2);
+        // The next snapshot: its own copy, and the old one is gone.
+        let second = main_copy(&stage, "main_rows", 8, &work)?;
+        assert_eq!(count(&second)?, 3);
+        assert!(!work.join("main-7.parquet").exists());
+        assert!(!work.join("main-8.partial").exists());
+        Ok(())
     }
 
     /// Root ADR-0599 §1: a whole copy of this release is not made again (a run whose commit was
