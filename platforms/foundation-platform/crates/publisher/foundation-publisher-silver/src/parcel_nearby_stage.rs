@@ -269,7 +269,7 @@ fn field(header: &str) -> anyhow::Result<String> {
 /// The pinned table is read once: a table that must not tie is refused, on `into`, when two current
 /// rows of a key do. Until 2026-11-19 the tie check rendered the rule a second time and the first
 /// production run read every such input from R2 twice (46 minutes of a one-hour start, root ADR-0564).
-fn current_rows(
+pub(crate) fn current_rows(
     connection: &Connection,
     source: &Source<'_>,
     table: &str,
