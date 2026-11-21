@@ -59,7 +59,8 @@
       "enabled_since": "2026-10-29T12:00:00Z",
       "dagster_stage": "proxied",
       "requeues_refused_starts_in": [
-        "spark"
+        "spark",
+        "documents"
       ],
       "expected_outcome": {
         "changes_within_hours": null,

@@ -275,7 +275,7 @@ class PackOperator(OperatorHarness):
             for unit, args in (("foundation-gold-panel-rebuild.service", ("parcel", "bake", "1")),
                                ("foundation-building-pack-bake-g7.service", ("parcel", "gold-rebuild")),
                                ("foundation-parcel-pack-equality-g1.service", ("parcel", "equality", "1")),
-                               ("foundation-silver-refresh@land-use-plan.service",
+                               ("foundation-lineage-stewardship.service",
                                 ("parcel-tiles", "rehearse", "bake"))):
                 with self.subTest(state=state, unit=unit):
                     self.log.unlink(missing_ok=True)
@@ -382,7 +382,7 @@ class PackOperator(OperatorHarness):
                                  [["start", "--no-block", unit]])
         for active in (["foundation-parcel-tile-bake@rehearsal-gold-202609.service"],
                        ["foundation-parcel-tile-bake@gold.service"], ["foundation-gold-panel-rebuild.service"],
-                       ["foundation-silver-refresh@land-use-plan.service"]):
+                       ["foundation-lineage-stewardship.service"]):
             with self.subTest(active=active):
                 self.log.unlink(missing_ok=True)
                 result, calls = self.run_operator("parcel-tiles", "rehearse", "bake", activating=active)
