@@ -40,6 +40,7 @@ usage:
   foundation-release.sh install <40-char-git-sha> <source.tar.gz>
   foundation-release.sh activate <40-char-git-sha>
   foundation-release.sh migrate [--skip-unchanged]
+  foundation-release.sh units
   foundation-release.sh verify
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
   foundation-release.sh datahub
@@ -1062,6 +1063,36 @@ prepare_job_state_directories() {
   done
 }
 
+# Every unit file the release `current` names ships, and the admission drop-in of every unit a job
+# runs: `units` (right after activation) and `timers` both call this, so no path installs a subset.
+# Sets floor_unit and floor_status for the caller's report.
+install_release_units() {
+  local unit service jobs_file="${release_root}/current/orchestration/jobs.v1.json"
+  # No unit is installed whose environment files the host does not have (root ADR-0153).
+  verify_runtime_secrets
+  # FLOOR's unit is installed only with a valid FLOOR config and state, and nothing else waits on
+  # them: an invalid FLOOR config used to stop this step before it installed any unit, retired
+  # any timer, regenerated the scheduler's sudoers or enabled the backup timer.
+  floor_unit=foundation-building-register-floor.service
+  floor_status=0
+  prepare_floor_state || floor_status=$?
+  # Every unit the release ships, not a list of them here: a job's service added to infra/systemd
+  # is installed by the same release that lists it in orchestration/jobs.v1.json.
+  for unit in "${release_root}"/current/infra/systemd/*.service \
+    "${release_root}"/current/infra/systemd/*.timer "${release_root}"/current/infra/systemd/*.path; do
+    [[ "${unit##*/}" != "${floor_unit}" || "${floor_status}" == 0 ]] || continue
+    install -o root -g root -m 0644 -t /etc/systemd/system "${unit}"
+  done
+  # systemd owns every scheduled entry point, including a direct `systemctl start`; a check in
+  # the SSH dispatcher alone would leave that path open. The migration unit is not scheduled,
+  # so it is named here too.
+  install_lakehouse_migration_unit
+  while read -r service; do
+    [[ -n "${service}" ]] || continue
+    install_release_admission "${service}"
+  done < <(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" services "${jobs_file}")
+}
+
 install_lakehouse_migration_unit() {
   install -o root -g root -m 0644 -t /etc/systemd/system \
     "${release_root}/current/infra/systemd/foundation-lakehouse-migrate.service"
@@ -1288,6 +1319,23 @@ case "${command}" in
     assert_current_release
     start_console "${release_root}/current/scripts/deploy/foundation-runtime.sh"
     ;;
+  units)
+    # Right after `activate` (foundation-deploy.sh step 4): the unit files of the release `current`
+    # now names, before the lakehouse migration. 2026-11-21 b6ec2b68 (#1575, silver refresh 16G -> 8G)
+    # was current from 10:54Z while /etc/systemd/system still held 16G past 11:13Z, because only
+    # `timers`, after a long migration, installed the files: every job started meanwhile ran the new
+    # release's code and admission under the old release's units.
+    [[ "$#" == 1 ]] || usage
+    assert_current_release
+    install_release_units
+    systemctl daemon-reload
+    if [[ "${floor_status}" != 0 ]]; then
+      printf 'units incomplete: %s was not installed; its FLOOR config or state is invalid\n' \
+        "${floor_unit}" >&2
+      exit 65
+    fi
+    printf 'units-ok\n'
+    ;;
   timers)
     # The release installs and enables its own systemd timers (root ADR-0077). The unit files
     # ship inside the release, so "which timers exist" has exactly one home; installing them by
@@ -1295,33 +1343,11 @@ case "${command}" in
     # Idempotent: reinstalling the same files and re-enabling an enabled timer are no-ops.
     [[ "$#" == 1 || "$#" == 2 ]] || usage
     assert_current_release
-    # No unit is installed whose environment files the host does not have (root ADR-0153).
-    verify_runtime_secrets
-    # FLOOR's unit is installed only with a valid FLOOR config and state, and nothing else waits on
-    # them: an invalid FLOOR config used to stop this step before it installed any unit, retired
-    # any timer, regenerated the scheduler's sudoers or enabled the backup timer.
-    floor_unit=foundation-building-register-floor.service
-    floor_status=0
-    prepare_floor_state || floor_status=$?
-    # Every unit the release ships, not a list of them here: a job's service added to infra/systemd
-    # is installed by the same release that lists it in orchestration/jobs.v1.json.
-    for unit in "${release_root}"/current/infra/systemd/*.service \
-      "${release_root}"/current/infra/systemd/*.timer "${release_root}"/current/infra/systemd/*.path; do
-      [[ "${unit##*/}" != "${floor_unit}" || "${floor_status}" == 0 ]] || continue
-      install -o root -g root -m 0644 -t /etc/systemd/system "${unit}"
-    done
+    install_release_units
     # A job Airflow runs (orchestration/jobs.v1.json `enabled`) loses its timer in the release that
     # switches its DAG on (root ADR-0122 §4), so it runs in exactly one place. Its service stays:
     # systemd still runs it, Airflow only starts it.
     jobs_file="${release_root}/current/orchestration/jobs.v1.json"
-    # systemd owns every scheduled entry point, including a direct `systemctl start`; a check in
-    # the SSH dispatcher alone would leave that path open. The migration unit is not scheduled,
-    # so it is named here too.
-    install_lakehouse_migration_unit
-    while read -r service; do
-      [[ -n "${service}" ]] || continue
-      install_release_admission "${service}"
-    done < <(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" services "${jobs_file}")
     while read -r timer; do
       [[ -n "${timer}" ]] || continue
       if [[ -e "/etc/systemd/system/${timer}" ]]; then

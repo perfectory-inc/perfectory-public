@@ -423,6 +423,8 @@ if passed 4; then
   echo "activated and migrated by an earlier attempt"
 else
   "${release}" activate "${sha}"
+  # The unit files follow `current` at once, not after the migration (2026-11-21: 16G past 11:13Z).
+  "${release}" units
   "${release}" migrate --skip-unchanged
   "${release}" timers "${deployer_home}/airflow-state/scheduler_ed25519.pub"
   "${release}" status | tail -3
