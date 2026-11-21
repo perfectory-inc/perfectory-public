@@ -82,6 +82,15 @@ release yet" 만 남겼고, 호스트는 약 11시간 a879a889 에 머물렀으�
 | `FoundationMainRed` | 작업 하나(`workflow`·`job`)가 main 에서, 또는 큐에서 PR 둘에 연달아 실패한다 | `link` 의 가장 새 실패 실행에서 그 작업을 본다. 고치는 PR 에 `hotfix:main-red` 를 붙이고 `python3 scripts/github/merge_queue_enqueue.py <PR>` |
 | `FoundationMainHealthUnreadable` | 6시간째 판정을 못 읽는다(`reason`: `no-verdict` 는 main-health 가 GitHub 을 못 읽음, `github-error` 는 호스트가 못 읽음, `stale` 은 점검이 멈춤) | main-health 실행 로그, `journalctl -u foundation-service-checks.service` |
 
+## 저장소가 선언과 다를 때 ([루트 ADR-0570](../../../../docs/adr/0570-the-repository-is-compared-with-tools-github-every-day-and-a-silent-renovate-while-main-has-advisories-opens-the-same-issue.md) 6)
+
+`dependency-advisories.yml` 의 `Repository drift and Renovate pulse` 작업이 매일 21:41Z 에 판정하고, 같은 서비스 점검이 읽는다.
+
+| 경보 | 뜻 | 할 일 |
+|---|---|---|
+| `FoundationRepositoryDrift` | 발견 하나(`finding`): 설정·규칙 집합이 `tools/github` 와 다르거나, main 에 권고가 있는데 Renovate 가 48시간 조용하다 | 관리자가 `bash scripts/github/configure-public-repository.sh verify` 로 전체를 보고 `apply` 하거나 정본을 고친다 |
+| `FoundationRepositoryDriftUnreadable` | 이틀째 판정을 못 읽는다 | 그 작업의 실행 로그, `journalctl -u foundation-service-checks.service` |
+
 ## 실패한 채 남은 유닛 ([루트 ADR-0445](../../../../docs/adr/0445-a-failed-host-unit-names-its-owner-and-runbook-and-a-unit-that-stays-failed-calls-its-owner.md))
 
 자산 조정기가 5분마다 실패한 유닛을 `/var/lib/foundation-jobs/metrics/foundation-units.prom` 에 주인·런북과 함께 쓴다.

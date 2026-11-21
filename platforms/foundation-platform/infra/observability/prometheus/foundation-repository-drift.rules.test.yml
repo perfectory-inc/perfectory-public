@@ -1,0 +1,49 @@
+# promtool unit tests for the repository drift rules (root ADR-0570): each finding is one alert, and a
+# verdict the service checks cannot read for two days is reported. Run by the guard
+# prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # 2026-10-22..11-18: has_issues differed from tools/github/repository-settings.json.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_repository_drift{finding="settings: has_issues is True, declared False",link="https://github.com/example-org/example-repo/actions/workflows/dependency-advisories.yml"}'
+        values: '1x30'
+      - series: 'foundation_repository_drift_readable{reason=""}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: FoundationRepositoryDrift
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: ci
+              finding: 'settings: has_issues is True, declared False'
+              link: https://github.com/example-org/example-repo/actions/workflows/dependency-advisories.yml
+            exp_annotations:
+              summary: '저장소가 tools/github 선언과 달라요, 또는 Renovate 가 조용해요: settings: has_issues is True, declared False — 관리자가 bash scripts/github/configure-public-repository.sh verify 로 전체를 봐요. https://github.com/example-org/example-repo/actions/workflows/dependency-advisories.yml'
+              runbook: docs/runbooks/deploy-alerts.md
+      - eval_time: 5m
+        alertname: FoundationRepositoryDriftUnreadable
+        exp_alerts: []
+
+  # The service checks stopped writing a repository part: unreadable after two days, not before.
+  - interval: 10m
+    input_series:
+      - series: 'foundation_repository_drift_findings'
+        values: '_x300'
+    alert_rule_test:
+      - eval_time: 47h50m
+        alertname: FoundationRepositoryDriftUnreadable
+        exp_alerts: []
+      - eval_time: 48h10m
+        alertname: FoundationRepositoryDriftUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: ci
+            exp_annotations:
+              summary: '저장소 점검 결과를 이틀째 못 읽어요 — dependency-advisories.yml 의 Repository drift 작업을 보세요'
+              runbook: docs/runbooks/deploy-alerts.md

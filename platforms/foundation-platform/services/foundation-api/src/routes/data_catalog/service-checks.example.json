@@ -108,5 +108,17 @@
         "job": "Postgres integration tests"
       }
     ]
+  },
+  "repository": {
+    "checked_at": "2026-10-13T02:17:00+00:00",
+    "readable": true,
+    "reason": null,
+    "error": null,
+    "link": "https://github.com/example-org/example-repo/actions/workflows/dependency-advisories.yml",
+    "run_id": 8,
+    "finding_count": 1,
+    "findings": [
+      "settings: has_issues is True, declared False"
+    ]
   }
 }

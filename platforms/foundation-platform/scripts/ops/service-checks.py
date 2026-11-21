@@ -30,6 +30,10 @@
   that failed without them (GitHub unreadable from the runner) is no verdict, and the one before it
   stands. Until 2026-11-21 main-health kept a GitHub issue, and issues are off in this repository:
   11-14..18 the red Foundation nightly reached no one. Not on the console's panel.
+- repository: whether the repository is what tools/github declares and Renovate has a pulse (root
+  ADR-0570), the same way: the daily dependency-advisories.yml job `Repository drift and Renovate pulse`
+  fails with `repository-drift-count` and one `repository-drift` annotation per finding. Until
+  2026-11-21 that job kept a GitHub issue, which could not be written either.
 
 Each part records its own error. Exits 1 only when no hostname could be measured: the unit's
 OnFailure reports that to Slack. foundation-api serves the file at /data-catalog/v1/service-checks.
@@ -47,7 +51,9 @@ import sys
 import time
 import urllib.request
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 CONTRACT = PLATFORM / "config" / "r2-connections.contract.json"
@@ -88,13 +94,32 @@ MAIN_RUNS_READ = 3
 RUN_REQUESTS = 3
 # What a ratchet needs to start: its two run lists and one new run.
 SECURITY_REQUESTS = 2 + RUN_REQUESTS
-# Main's health (root ADR-0554): the workflow that decides it and the annotations that carry a red
-# verdict (scripts/ci/main_health.py COUNT_TITLE, JOB_TITLE).
-MAIN_HEALTH_WORKFLOW = "main-health.yml"
-MAIN_RED_COUNT_TITLE = "main-red-count"
-MAIN_RED_JOB_TITLE = "main-red"
-# Its runs list, and the jobs and annotations of one failed run.
-MAIN_REQUESTS = 3
+# The reports a GitHub job hands the host as its verdict (root ADR-0554 5, ADR-0570): the job passes
+# when there is nothing to say, or fails with a count annotation and one annotation per item (the
+# writers: scripts/ci/main_health.py, scripts/ci/repository_drift.py). A failed job without the count
+# is no verdict.
+class Report(NamedTuple):
+    workflow: str
+    job: str
+    count_title: str
+    item_title: str
+    count_key: str
+    items_key: str
+    parse: Callable[[str], object]
+
+
+def red_job(message: str) -> dict:
+    named = json.loads(message)
+    return {"workflow": str(named["workflow"]), "job": str(named["job"])}
+
+
+REPORTS = {
+    "main": Report("main-health.yml", "Main health", "main-red-count", "main-red", "red_jobs", "jobs", red_job),
+    "repository": Report("dependency-advisories.yml", "Repository drift and Renovate pulse",
+                         "repository-drift-count", "repository-drift", "finding_count", "findings", str),
+}
+# A report's runs list, and the jobs and annotations of one failed run.
+REPORT_REQUESTS = 3
 
 
 def hostnames(contract: pathlib.Path = CONTRACT) -> list[str]:
@@ -356,73 +381,84 @@ def ratchet(repository: str, workflow: str, token: str | None, previous: dict | 
             "run_id": base["id"], "verdicts": [{"run_id": run_id, "findings": found} for run_id, found in verdicts.items()]}
 
 
-def main_verdict(repository: str, run: dict, ask=github) -> dict | None:
-    """What one completed main-health run said: None when it failed without a verdict."""
+def report_verdict(repository: str, run: dict, report: Report, ask=github) -> tuple[int, list] | None:
+    """What one completed run of the report's workflow said: None when its job failed without a verdict."""
     if run["conclusion"] == "success":
-        return {"red_jobs": 0, "jobs": []}
+        return 0, []
     jobs, _ = ask(f"/repos/{repository}/actions/runs/{run['id']}/jobs?per_page=100", None)
-    count, red = None, []
-    for job in jobs["jobs"]:
-        if job["conclusion"] != "failure":
-            continue
-        notes, _ = ask(f"/repos/{repository}/check-runs/{job['id']}/annotations?per_page=100", None)
-        for note in notes:
-            message = (note.get("message") or "").strip()
-            if note.get("title") == MAIN_RED_COUNT_TITLE and message.isdigit():
-                count = int(message)
-            elif note.get("title") == MAIN_RED_JOB_TITLE:
-                try:
-                    named = json.loads(message)
-                    red.append({"workflow": str(named["workflow"]), "job": str(named["job"])})
-                except (ValueError, KeyError, TypeError):
-                    continue
-        break  # main-health has one job
-    if count is None:
+    job = next((job for job in jobs["jobs"] if job["name"] == report.job), None)
+    if job is None or job["conclusion"] in ("skipped", "cancelled", None):
         return None
-    return {"red_jobs": count, "jobs": sorted(red, key=lambda job: (job["workflow"], job["job"]))}
+    if job["conclusion"] == "success":
+        return 0, []
+    notes, _ = ask(f"/repos/{repository}/check-runs/{job['id']}/annotations?per_page=100", None)
+    count, items = None, []
+    for note in notes:
+        message = (note.get("message") or "").strip()
+        if note.get("title") == report.count_title and message.isdigit():
+            count = int(message)
+        elif note.get("title") == report.item_title:
+            try:
+                items.append(report.parse(message))
+            except (ValueError, KeyError, TypeError):
+                continue
+    return None if count is None else (count, sorted(items, key=lambda item: json.dumps(item, ensure_ascii=False)))
 
 
-def measure_main(repository: str, previous: dict | None, now: datetime, ask=github,
-                 remaining=remaining_requests) -> dict:
-    """Main's newest verdict (root ADR-0554). One that cannot be read keeps what was last known, so
-    a red job is not announced as fixed and then as red again."""
-    link = f"https://github.com/{repository}/actions/workflows/{MAIN_HEALTH_WORKFLOW}"
-    kept = {key: (previous or {}).get(key, default) for key, default in (("red_jobs", 0), ("jobs", []), ("run_id", None))}
+def measure_report(repository: str, report: Report, previous: dict | None, now: datetime, ask=github,
+                   remaining=remaining_requests) -> dict:
+    """The report's newest verdict on main. One that cannot be read keeps what was last known, so an
+    item is not announced as gone and then as new again."""
+    link = f"https://github.com/{repository}/actions/workflows/{report.workflow}"
+    previous = previous or {}
+    kept = {report.count_key: previous.get(report.count_key, 0), report.items_key: previous.get(report.items_key, []),
+            "run_id": previous.get("run_id")}
 
     def unread(reason: str, error: Exception | str) -> dict:
         detail = error if isinstance(error, str) else f"{type(error).__name__}: {error}"
         return {"checked_at": now.isoformat(), "readable": False, "reason": reason, "error": detail[:300], "link": link, **kept}
 
     try:
-        if remaining() < API_RESERVE + MAIN_REQUESTS:
+        if remaining() < API_RESERVE + REPORT_REQUESTS:
             return unread("github-error", "no anonymous budget left")
-        listed, _ = ask(f"/repos/{repository}/actions/workflows/{MAIN_HEALTH_WORKFLOW}/runs"
+        listed, _ = ask(f"/repos/{repository}/actions/workflows/{report.workflow}/runs"
                         "?branch=main&status=completed&per_page=5", None)
         for run in listed["workflow_runs"]:
             if run.get("event") not in MAIN_EVENTS or run.get("conclusion") not in ("success", "failure"):
                 continue
-            if run["id"] == kept["run_id"] and previous and previous.get("readable"):
+            if run["id"] == kept["run_id"] and previous.get("readable"):
                 return {**previous, "checked_at": now.isoformat()}  # read already
-            found = main_verdict(repository, run, ask)
+            found = report_verdict(repository, run, report, ask)
             if found is not None:
-                return {"checked_at": now.isoformat(), "readable": True, "reason": None, "error": None,
-                        "link": link, "run_id": run["id"], **found}
+                return {"checked_at": now.isoformat(), "readable": True, "reason": None, "error": None, "link": link,
+                        "run_id": run["id"], report.count_key: found[0], report.items_key: found[1]}
             if run["conclusion"] == "failure":
                 break  # one failed run without a verdict costs two requests: older ones wait for next hour
-        return unread("no-verdict", f"{MAIN_HEALTH_WORKFLOW}'s newest runs on main carry no verdict")
+        return unread("no-verdict", f"{report.workflow}'s newest runs on main carry no verdict")
     except Exception as error:
         return unread("github-error", error)
 
 
-def measure_main_from_control(previous: dict | None, now: datetime, root: pathlib.Path = CONTROL_ROOT) -> dict:
+def measure_main(repository: str, previous: dict | None, now: datetime, ask=github,
+                 remaining=remaining_requests) -> dict:
+    """Main's newest verdict (root ADR-0554)."""
+    return measure_report(repository, REPORTS["main"], previous, now, ask, remaining)
+
+
+def measure_reports_from_control(last: dict, now: datetime, root: pathlib.Path = CONTROL_ROOT) -> dict:
+    """Each report's part of the file, keyed as REPORTS is."""
     try:
         repository = json.loads((root / "tools" / "github" / "repository-identity.json").read_text(encoding="utf-8"))["full_name"]
     except Exception as error:
-        return {"checked_at": now.isoformat(), "readable": False, "reason": "github-error",
-                "error": f"{type(error).__name__}: {error}"[:300], "link": None,
-                "red_jobs": (previous or {}).get("red_jobs", 0), "jobs": (previous or {}).get("jobs", []),
-                "run_id": (previous or {}).get("run_id")}
-    return measure_main(repository, previous, now)
+        parts = {}
+        for name, report in REPORTS.items():
+            previous = last.get(name) or {}
+            parts[name] = {"checked_at": now.isoformat(), "readable": False, "reason": "github-error",
+                           "error": f"{type(error).__name__}: {error}"[:300], "link": None,
+                           report.count_key: previous.get(report.count_key, 0),
+                           report.items_key: previous.get(report.items_key, []), "run_id": previous.get("run_id")}
+        return parts
+    return {name: measure_report(repository, report, last.get(name), now) for name, report in REPORTS.items()}
 
 
 def measure_security(repository: str, token: str | None, previous: dict | None, now: datetime,
@@ -483,10 +519,11 @@ def main() -> int:
         last = {}
     last = last if isinstance(last, dict) else {}
     security = measure_security_from_control(last.get("security"), now)
-    main_health = measure_main_from_control(last.get("main"), now)
+    reports = measure_reports_from_control(last, now)
     write_atomically(out, {"schema_version": 1, "checked_at": now.isoformat(), "edge": edge, "ci": ci,
-                           "security": security, "main": main_health})
-    print(f"main: red_jobs={main_health['red_jobs']} reason={main_health['reason']}")
+                           "security": security, **reports})
+    for name, report in REPORTS.items():
+        print(f"{name}: {report.count_key}={reports[name][report.count_key]} reason={reports[name]['reason']}")
     for name, source in security["sources"].items():
         print(f"security {name}: findings={len(source['findings'])} reason={source['reason']}")
     for host in edge["hosts"]:

@@ -43,12 +43,14 @@ mod main_red;
 mod operations;
 mod operator_actions;
 mod parcel_editions;
+mod repository_drift;
 mod security_alerts;
 mod service_checks;
 mod snapshots;
 
 pub(super) use alerts::problem_metrics as scheduled_job_problem_metrics;
 pub(super) use main_red::main_red_metrics;
+pub(super) use repository_drift::repository_drift_metrics;
 pub(super) use security_alerts::advisory_metrics as security_advisory_metrics;
 
 const GMS_URL_ENV: &str = "FOUNDATION_PLATFORM_DATAHUB_GMS_URL";
