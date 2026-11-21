@@ -794,8 +794,8 @@
    "SC2016": 1
   },
   "scripts/ci/cargo-advisories.sh": {
-   "SC2016": 2,
-   "SC2312": 5
+   "SC2016": 1,
+   "SC2312": 3
   },
   "scripts/ci/conftest.sh": {
    "SC2034": 1,
