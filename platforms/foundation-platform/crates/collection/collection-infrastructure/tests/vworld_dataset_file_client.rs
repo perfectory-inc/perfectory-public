@@ -254,7 +254,7 @@ async fn client_asks_the_listing_window_the_catalog_names() -> TestResult {
             <li>
                 <div class="check only"><input type="checkbox" id="chkDs" name="chkDs" value="9201"><label for="chkDs">select</label></div>
                 <div class="item row"><div class="less"><div class="format"><span class="shp">SHP</span></div><div class="tit min">old.zip</div></div><div class="txt"><span>size<em>1</em>MB</span><span>kind<em>change</em></span><span>base<em>2099-01-01</em></span><span>updated<em>2099-01-02</em></span></div></div>
-                <div class="btns"><button type="button" onClick="listFnc.download('20991231DS99923', '9201', '1000' );">download</button></div>
+                <div class="btns"><button type="button" onClick="listFnc.download('20991231DS99995', '9201', '1000' );">download</button></div>
             </li>
             "#,
             1,
