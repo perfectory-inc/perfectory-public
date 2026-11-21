@@ -406,7 +406,8 @@ pub fn compare_bucket(
 /// `cast_handoff_frame` did (an instant is `yyyy-MM-ddTHH:mm:ssZ`, a binary column lowercase hex).
 fn typed(name: &str, logical_type: &str) -> anyhow::Result<String> {
     Ok(match logical_type {
-        "string" => name.to_owned(),
+        // A list of text is read as one (`read_type`): a JSON array, its nulls kept.
+        "string" | "array<string>" => name.to_owned(),
         // No time zone database is loaded in the stage (no ICU): the instant is UTC text, read
         // as a plain timestamp and counted in microseconds. Any other form is refused.
         "timestamp" => format!(
@@ -443,7 +444,14 @@ pub fn copy_release(
     let read = contract
         .columns
         .iter()
-        .map(|column| format!("{}: 'VARCHAR'", column.name))
+        .map(|column| {
+            let read_type = if column.logical_type == "array<string>" {
+                "VARCHAR[]"
+            } else {
+                "VARCHAR"
+            };
+            format!("{}: '{read_type}'", column.name)
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let columns = contract

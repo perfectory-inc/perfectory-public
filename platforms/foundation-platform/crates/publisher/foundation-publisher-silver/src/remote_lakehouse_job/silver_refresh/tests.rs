@@ -265,7 +265,32 @@ fn a_lane_runs_on_the_engine_its_contract_names_and_spark_when_it_names_none() -
             Err(error) => Some(Err(error)),
         })
         .collect::<anyhow::Result<_>>()?;
-    assert_eq!(moved, BTreeSet::from(["land-use-plan"]));
+    // Still on Spark: the plain lane, the geometry tolerance, the PNU null-share gate (and the
+    // unit areas' bucket partition).
+    let stay = [
+        "building-register-apartment-price",
+        "building-register-titles",
+        "building-register-unit-areas",
+        "building-register-units",
+        "land-use-zone-area",
+    ];
+    for lane in Lane::all() {
+        let contract = lane.contract()?;
+        assert_eq!(
+            contract.engine == Engine::Duckdb,
+            !stay.contains(&lane.id()),
+            "{}",
+            lane.id()
+        );
+        assert_eq!(
+            duckdb_release::fits(&contract).is_ok(),
+            contract.engine == Engine::Duckdb,
+            "{}: {:?}",
+            lane.id(),
+            duckdb_release::fits(&contract).err()
+        );
+    }
+    assert_eq!(moved.len(), Lane::all().len() - stay.len());
     let (_, text) = Lane::LandUsePlan.contract_source();
     let unknown = text.replacen("\"engine\": \"duckdb\"", "\"engine\": \"flink\"", 1);
     assert_ne!(unknown, text);
