@@ -301,6 +301,18 @@ fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-register-masters-versions"
+        ])?,
+        Command::BuildParcelRegisterMastersVersions
+    );
+    Ok(())
+}
+
+#[test]
 fn build_parcel_nearby_versions_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

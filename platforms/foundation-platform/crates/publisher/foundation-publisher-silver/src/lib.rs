@@ -131,6 +131,8 @@ pub use duckdb;
 pub mod legal_dong_code_change_stage;
 pub mod legal_dong_code_snapshot_stage;
 
+/// The parcel 총괄표제부 kind's Gold in `DuckDB` (root ADR-0450, ADR-0564 §6).
+pub mod building_register_master_stage;
 pub mod intelligence_documents_stage;
 pub mod legal_dong_pairing_stage;
 /// The parcel nearby kind's Gold in `DuckDB` (root ADR-0465, ADR-0564 §9).

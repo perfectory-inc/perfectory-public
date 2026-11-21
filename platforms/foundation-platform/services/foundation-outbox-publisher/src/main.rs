@@ -116,6 +116,7 @@ mod map_edit_handoff_export;
 mod parcel_lineage_derive;
 mod parcel_matching_gate;
 mod parcel_nearby_versions_build;
+mod parcel_register_masters_versions_build;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;
@@ -296,6 +297,7 @@ enum Command {
     LoadIndustrialComplexNoticeSilver,
     BuildParcelNearbyVersions,
     RunParcelMatchingGate,
+    BuildParcelRegisterMastersVersions,
     ExportGoldVersionsChangeSet,
     ExportGoldTakeoverSides,
     ShowGoldTakeoverSwitch,
@@ -645,6 +647,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
         Command::RunParcelMatchingGate => Box::pin(parcel_matching_gate::run()),
+        Command::BuildParcelRegisterMastersVersions => {
+            Box::pin(parcel_register_masters_versions_build::run())
+        }
         Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
         Command::ExportGoldTakeoverSides => Box::pin(gold_takeover_sides::export()),
         Command::ShowGoldTakeoverSwitch => Box::pin(gold_takeover_sides::switch()),
@@ -813,6 +818,9 @@ where
         }
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
         Some("run-parcel-matching-gate") => Ok(Command::RunParcelMatchingGate),
+        Some("build-parcel-register-masters-versions") => {
+            Ok(Command::BuildParcelRegisterMastersVersions)
+        }
         Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
         Some("export-gold-takeover-sides") => Ok(Command::ExportGoldTakeoverSides),
         Some("show-gold-takeover-switch") => Ok(Command::ShowGoldTakeoverSwitch),

@@ -59,14 +59,14 @@ const REBUILD_CONTRACT: &str =
     include_str!("../../../infra/lakehouse/contracts/gold-panel-rebuild.contract.json");
 /// Above this share of the current rows changed in one commit the run stops, unless the code or
 /// the served edition moved, which explains a change of any size (root ADR-0346, ADR-0564 §3-4).
-const MAX_CHANGED_KEY_FRACTION: f64 = 0.5;
+pub(crate) const MAX_CHANGED_KEY_FRACTION: f64 = 0.5;
 /// The document field a store-only commit may change, and nothing else (root ADR-0596).
 const STORE_COUNT_FIELD: &str = "commercial_store_count";
 /// The share of the memory left that the buffer manager takes; the rest is `DuckDB`'s own
 /// structures and the commit's uploads (W81b measured a 5.01 GiB peak at a 5 GB limit).
-const MEMORY_SHARE: (u64, u64) = (3, 5);
+pub(crate) const MEMORY_SHARE: (u64, u64) = (3, 5);
 
-fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
+pub(crate) fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
     industrial_complex_lakehouse_contracts()
         .iter()
         .find(|contract| contract.table_name == table)
@@ -75,7 +75,7 @@ fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
 
 /// The bound a by-PNU kind's Gold may lose rows by (`gold-panel-rebuild.contract.json`
 /// `kind_tables.max_row_loss_fraction`, the kinds' one value).
-fn max_row_loss_fraction() -> anyhow::Result<f64> {
+pub(crate) fn max_row_loss_fraction() -> anyhow::Result<f64> {
     let contract: Value = serde_json::from_str(REBUILD_CONTRACT)?;
     contract["kind_tables"]["max_row_loss_fraction"]
         .as_f64()
@@ -83,7 +83,7 @@ fn max_row_loss_fraction() -> anyhow::Result<f64> {
 }
 
 /// The served parcel edition's `silver.parcel_boundaries.source_snapshot_id`.
-fn served_edition() -> anyhow::Result<String> {
+pub(crate) fn served_edition() -> anyhow::Result<String> {
     let view = vworld_parcel_source_contract::served_edition_view(PARCEL_SOURCE_CONTRACT)?;
     let contract: Value = serde_json::from_str(PARCEL_SOURCE_CONTRACT)?;
     let prefix = contract["snapshot_id_prefix"]
@@ -95,7 +95,7 @@ fn served_edition() -> anyhow::Result<String> {
     Ok(format!("{prefix}{edition}"))
 }
 
-fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
+pub(crate) fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
     let catalog = LakehouseCatalogConfig::from_env()
         .context("failed to configure the lakehouse catalog for the nearby build")?;
     let storage = R2ObjectStorageConfig::from_env()
@@ -113,7 +113,7 @@ fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
     })
 }
 
-fn write_summary(path: &str, summary: &Value) -> anyhow::Result<()> {
+pub(crate) fn write_summary(path: &str, summary: &Value) -> anyhow::Result<()> {
     std::fs::write(path, serde_json::to_vec_pretty(summary)?)
         .with_context(|| format!("cannot write {path}"))
 }
