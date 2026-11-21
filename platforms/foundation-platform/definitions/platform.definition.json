@@ -1118,7 +1118,7 @@
             "share_below_26g": 0.01
           },
           "claimed_measured": {
-            "foundation-silver-refresh@.service": "journal `memory peak` 2026-10-18..11-08, 84 runs under the 16G cap the lanes had in the spark pool: highest 15,668M (building-register-unit-areas, 2026-10-20). The export sizes its workers to three quarters of what its cgroup has left, so the peak follows the cap; under the 8G cap of this claim no run is measured yet, and the first runs measure it.",
+            "foundation-silver-refresh@.service": "journal `memory peak` 2026-10-18..11-08, 84 runs under the 16G cap the lanes had in the spark pool: highest 15,668M (building-register-unit-areas, 2026-10-20). The export sizes its workers to three quarters of what its cgroup has left, so the peak follows the cap; the first runs under an 8G cap (2026-11-21) measured it: building-register-units took 61 minutes throttled at MemoryHigh, against ten minutes under 16G, so the cap and the claim are 16G again.",
             "intelligence-model-runtime-ollama.service": "21.4 GB of RAM and 5.7 GB of VRAM with Qwen3.6-35B-A3B Q4 loaded and answering (2026-11-11, 16 ILIS notices, root ADR-0478; page cache of the mapped weights included). In production the model has not been asked yet: the one fact run (2026-11-12 20:49Z, one document) closed every table by rule and the runtime used 3.5 s of CPU."
           }
         }
@@ -1476,9 +1476,9 @@
           },
           "foundation-silver-refresh@.service": {
             "class": "batch",
-            "memory_max": "8G",
-            "measured": "no run under this cap. journal `memory peak` 2026-10-18..11-08, 84 runs, highest 15,668M on 2026-10-20 (foundation-silver-refresh@building-register-unit-areas) under the 16G cap, when a lane held the whole spark pool: the export sizes its workers to three quarters of what its cgroup has left (process_memory.rs), so its peak follows its cap, not its need. Since root ADR-0599 the load is DuckDB inside the unit (2 GiB before it spills) after the export, and the lanes left the spark pool for the one-slot claim pool (documents), so a lane runs beside Spark work, admitted against the host's free memory by its memory_claim on this unit, and is no longer counted by cap under a pool. The first runs measure this cap.",
-            "headroom_why": "Not 1.5 x a measured peak: the export fills what it is given. 8G is half the old cap: three quarters of it (6G) for the export's workers, and the 2 GiB DuckDB stage that runs after the export fits with the script and the Docker client. A lane the cap makes too slow says so in its run time, and the cap is then raised from that measurement."
+            "memory_max": "16G",
+            "measured": "2026-11-21, building-register-units. Under 16G: three runs, export 6m47s-7m00s CPU and about 10 minutes of wall time, `memory peak` 13.3-13.4G. Under the 8G this cap was for one day: one run, 61 minutes (17:37:58-18:39:25Z), 10m35s CPU, `memory peak` 7.2G - the export child held 6.68G resident and the cgroup sat at MemoryHigh with 18,933 `high` events and no OOM kill: throttled, not killed. journal `memory peak` 2026-10-18..11-08, 84 runs under 16G: highest 15,668M on 2026-10-20 (building-register-unit-areas). The other lanes measured on the DuckDB path the same day: 0.3G-7.1G.",
+            "headroom_why": "A measured working point, not 1.5 x a peak: the export sizes its workers to three quarters of what its cgroup has left, so its peak follows the cap, but about 7G of it does not shrink - at 8G nothing was left for it to work in. 16G is the cap under which the largest export is measured to finish in ten minutes. One number for all 54 lanes, because they share one unit template: it over-reserves for the small lanes (1-7G), and a request per lane comes with the Dagster resource tags that replace this admission (root ADR-0583 follow-up)."
           },
           "foundation-source-sweep.service": {
             "class": "batch",
