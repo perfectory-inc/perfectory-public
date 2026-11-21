@@ -53,7 +53,7 @@ sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/b
 - advance 는 조인으로 돈다. 두 판이 같이 가진 필지는 행을 쓰지 않고 드라이버에도 오지 않는다.
 - 서빙판을 읽는 place-id 발행은 서빙판까지 접으므로 승격 전에는 그대로다. 승격되면 그 판의 행이 승격 시각부터 보이는
   것으로 세어(`visible_at_utc`) 바뀐 지역만 다시 발행한다.
-- 후보의 대조 관문(`parcel_matching_gate.py --snapshot-id <후보>`)은 후보까지 접어 (b) 를 본다.
+- 후보의 대조 관문(`run-parcel-matching-gate`, `..._SNAPSHOT_ID=<후보>`)은 후보까지 접어 (b) 를 본다.
 
 확인: `journal.log` 의 `parcel registry advance edition=… region=… from=… parcels=… seconds=…` 줄, 그리고
 

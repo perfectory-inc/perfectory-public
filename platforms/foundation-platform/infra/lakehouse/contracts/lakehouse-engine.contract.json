@@ -218,9 +218,6 @@
           "fingerprint": null
         }
       },
-      "parcel_matching_gate": {
-        "wave": 4
-      },
       "parcel_nearby_silver_to_gold": {
         "moved": {
           "pull_request": 1407,

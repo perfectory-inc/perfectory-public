@@ -58,7 +58,6 @@ MODULES = (
     "land_use_zone_area_tile_handoff",
     "legal_dong_code_snapshot_to_reference",
     "parcel_registry_frames",
-    "parcel_matching_gate",
     "place_id_release_to_gold",
     "lineage_review_queue_to_gold",
     "vworld_parcel_number_change_history",

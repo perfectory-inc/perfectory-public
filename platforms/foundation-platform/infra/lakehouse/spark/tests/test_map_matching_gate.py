@@ -112,15 +112,6 @@ class AttributeGateTest(unittest.TestCase):
         self.assertEqual(report.as_dict()["allowed"], {"land price: no source value": 1})
 
 
-class ParcelGateArgsTest(unittest.TestCase):
-    def test_attribute_specs_are_validated_before_any_sql(self):
-        from parcel_matching_gate import parse_args, validate_args
-
-        for spec in ("land_individual_price", "silver.x; DROP", "silver.land_individual_price:base_year='2026'"):
-            args = parse_args(["--snapshot-id", "s", "--allow-non-served-edition", "--sido", "99", "--attribute", spec])
-            with self.subTest(spec=spec), self.assertRaises(ValueError):
-                validate_args(args)
-
 
 if __name__ == "__main__":
     unittest.main()

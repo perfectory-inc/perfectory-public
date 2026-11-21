@@ -15,7 +15,7 @@
 #    (infra/lakehouse/contracts/vworld-parcel-source-objects.json, root ADR-0148 §1). When it is the
 #    one last baked, or the one whose Gold already waits for the bake: "nothing to do" (ADR-0133 §7).
 #    --force runs it again and logs the reason.
-# 2. The matching gate (parcel_matching_gate.py, root ADR-0113 §7) over every 시도 of the edition.
+# 2. The matching gate (`run-parcel-matching-gate`, root ADR-0113 §7) over every 시도 of the edition.
 #    A refusal stops the run before anything is written: a build binds only to a passing verdict
 #    (ADR-0133 §5). Its input silver.parcel_registry is the parcel_registry job's (ADR-0243); until
 #    that table exists the gate exits 3 and this half (a rehearsal's too) waits: `unchanged`,
@@ -306,8 +306,13 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
   # a crash exits 1 too, with no verdict — stops the run, a rehearsal's included.
   gate_status=0
   verdict="${work}/matching-verdict.json"
-  spark parcel_matching_gate.py --snapshot-id "${snapshot}" --sido "${sido}" "${allow[@]}" \
-    --summary-output "${container_work}/matching-verdict.json" || gate_status=$?
+  # In DuckDB inside the publisher (root ADR-0559): the verdict file and exit codes the Spark job had.
+  lakehouse_run_log "${run_log}"
+  FOUNDATION_PLATFORM_PARCEL_MATCHING_GATE_SNAPSHOT_ID="${snapshot}" \
+  FOUNDATION_PLATFORM_PARCEL_MATCHING_GATE_SIDO="${sido}" \
+  FOUNDATION_PLATFORM_PARCEL_MATCHING_GATE_SUMMARY="${verdict}" \
+  FOUNDATION_PLATFORM_PARCEL_MATCHING_GATE_ALLOW_NON_SERVED_EDITION="${allow[*]:+1}" \
+    "${PUBLISHER_BIN}" run-parcel-matching-gate >>"${run_log}" 2>&1 || gate_status=$?
   if ((gate_status == 3)); then
     # ADR-0265: the gate's input does not exist yet; nothing is written and the next run retries.
     job_journal "${journal}" "waiting: the matching gate's input silver.parcel_registry does not exist yet (job parcel_registry, root ADR-0243)"

@@ -144,6 +144,9 @@ pub mod data_go_kr_file_data_stage;
 /// Stages 차세대 온비드 public sale Bronze objects as Silver rows (root ADR-0280, ADR-0340).
 pub mod onbid_silver_stage;
 
+/// The parcel matching gate (root ADR-0113 §7) before a cadastral edition is baked.
+pub mod parcel_matching_gate_stage;
+
 /// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
 pub mod place_identity_stage;
 

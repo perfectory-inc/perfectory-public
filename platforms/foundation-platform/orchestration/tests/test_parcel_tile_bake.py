@@ -1,7 +1,8 @@
 """The parcel tile bake's Gold half and its rehearsal (scripts/ops/parcel-tile-bake.sh, root ADR-0253).
 
-A fake docker stands in for `docker compose ... spark-submit`: the matching gate refuses (exit 1 with a
-verdict that did not pass) or crashes (exit 1, no verdict), and the served Gold writes its summary. The
+A fake docker stands in for `docker compose ... spark-submit`: the served Gold writes its summary. A fake
+publisher stands in for `run-parcel-matching-gate`, which refuses (exit 1 with a verdict that did not pass)
+or crashes (exit 1, no verdict), and for `bake-lakehouse-tiles`. The
 release layout is the host's (root ADR-0134); its tile-bake contract points the work disk at a temporary
 directory. Edition ids come from the real source contract.
 """
@@ -33,19 +34,39 @@ with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"job": pathlib.Path(script).name, "args": job_args}) + "\n")
 host = lambda path: pathlib.Path(path.replace(os.environ["FAKE_CONTAINER_ROOT"], os.environ["FAKE_HOST_ROOT"], 1))
 summary = host(job_args[job_args.index("--summary-output") + 1])
-if script.endswith("parcel_matching_gate.py"):
-    if os.environ["FAKE_GATE"] == "crash":
-        sys.exit(1)
-    if os.environ["FAKE_GATE"] == "no-registry":
-        summary.write_text(json.dumps({"passed": False, "registry": "wait", "inputs_absent": ["silver.parcel_registry"]}))
-        sys.exit(3)
-    summary.write_text(json.dumps({"passed": os.environ["FAKE_GATE"] == "pass"}))
-    sys.exit(0 if os.environ["FAKE_GATE"] == "pass" else 1)
 if os.environ.get("FAKE_GOLD") == "broken":  # 2026-11-20: docker exited 125 before the job ran
     sys.exit(125)
 host(job_args[job_args.index("--output-dir") + 1]).mkdir(parents=True)
 summary.write_text("{}")
 '''
+
+
+FAKE_PUBLISHER = r"""#!/usr/bin/env python3
+import json, os, sys
+if sys.argv[1] == "run-parcel-matching-gate":
+    gate = "FOUNDATION_PLATFORM_PARCEL_MATCHING_GATE_"
+    args = ["--snapshot-id", os.environ[gate + "SNAPSHOT_ID"], "--sido", os.environ[gate + "SIDO"]]
+    if os.environ.get(gate + "ALLOW_NON_SERVED_EDITION") == "1":
+        args.append("--allow-non-served-edition")
+    with open(os.environ["FAKE_LOG"], "a") as log:
+        log.write(json.dumps({"job": "run-parcel-matching-gate", "args": args}) + "\n")
+    summary = os.environ[gate + "SUMMARY"]
+    if os.environ["FAKE_GATE"] == "crash":
+        sys.exit(1)
+    if os.environ["FAKE_GATE"] == "no-registry":
+        with open(summary, "w") as out:
+            json.dump({"passed": False, "registry": "wait", "inputs_absent": ["silver.parcel_registry"]}, out)
+        sys.exit(3)
+    with open(summary, "w") as out:
+        json.dump({"passed": os.environ["FAKE_GATE"] == "pass"}, out)
+    sys.exit(0 if os.environ["FAKE_GATE"] == "pass" else 1)
+if os.environ.get("FAKE_PUBLISHER_FAIL"):
+    sys.exit(1)
+if os.environ.get("FAKE_PUBLISHER_DEFER"):
+    print("lakehouse-tile-bake-deferred unit=parcels gold_snapshot=1 baked= remaining=tile-join")
+    sys.exit(0)
+print("lakehouse-tile-bake-rehearsal synthetic")
+"""
 
 
 @unittest.skipIf(sys.platform == "win32", "runs the job's bash with a fake docker, as the host does")
@@ -73,10 +94,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
         publisher = artifacts / "foundation-outbox-publisher"
-        publisher.write_text("#!/bin/sh\n[ -z \"$FAKE_PUBLISHER_FAIL\" ] || exit 1\n"
-                             "[ -z \"$FAKE_PUBLISHER_DEFER\" ] || { echo lakehouse-tile-bake-deferred unit=parcels"
-                             " gold_snapshot=1 baked= remaining=tile-join; exit 0; }\n"
-                             "echo lakehouse-tile-bake-rehearsal synthetic\nexit 0\n")
+        publisher.write_text(FAKE_PUBLISHER)
         publisher.chmod(0o555)
         (artifacts / "build.json").write_text(json.dumps({
             "source": RELEASE_ID, "publisher_image": "sha256:" + "a" * 64, "tippecanoe_image": "sha256:" + "d" * 64,
@@ -126,7 +144,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
     def test_a_rehearsal_records_the_gates_refusal_and_builds_the_newest_editions_gold(self):
         result, calls = self.run_half(f"rehearsal-gold-{self.rehearsed}", "refuse")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
+        self.assertEqual([c["job"] for c in calls], ["run-parcel-matching-gate", "parcel_boundary_served_gold.py"])
         for call in calls:
             self.assertIn("--allow-non-served-edition", call["args"], call["job"])
         self.assertEqual(calls[0]["args"][calls[0]["args"].index("--snapshot-id") + 1], self.newest)
@@ -138,13 +156,13 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         # 2026-10-15: the gate refused its arguments with exit 1 and no verdict, and was read as a refusal.
         result, calls = self.run_half(f"rehearsal-gold-{self.rehearsed}", "crash")
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py"])
+        self.assertEqual([c["job"] for c in calls], ["run-parcel-matching-gate"])
         self.assertFalse((self.state / "rehearsal-ready").exists())
 
     def test_the_jobs_gold_half_stops_at_a_refusal_and_reads_only_the_served_edition(self):
         result, calls = self.run_half("gold", "refuse")
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py"])
+        self.assertEqual([c["job"] for c in calls], ["run-parcel-matching-gate"])
         self.assertNotIn("--allow-non-served-edition", calls[0]["args"])
         self.assertEqual(calls[0]["args"][calls[0]["args"].index("--snapshot-id") + 1], self.served)
 
@@ -152,7 +170,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         # Root ADR-0265: the gate exits 3 before it reads anything; nothing is built or readied.
         result, calls = self.run_half("gold", "no-registry")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py"])
+        self.assertEqual([c["job"] for c in calls], ["run-parcel-matching-gate"])
         self.assertFalse((self.state / "ready").exists())
         self.assertEqual(result.stdout.strip().splitlines()[-1], "foundation-job-outcome unchanged")
         self.assertIn("silver.parcel_registry", (self.state / "journal.log").read_text())
@@ -160,7 +178,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
     def test_a_rehearsal_waits_for_the_registry_like_the_job(self):
         result, calls = self.run_half(f"rehearsal-gold-{self.rehearsed}", "no-registry")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py"])
+        self.assertEqual([c["job"] for c in calls], ["run-parcel-matching-gate"])
         self.assertFalse((self.state / "rehearsal-ready").exists())
 
     def test_a_rehearsal_of_an_edition_the_contract_does_not_hold_is_refused(self):
@@ -171,7 +189,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
     def test_the_jobs_gold_half_readies_the_bake_when_the_gate_passes(self):
         result, calls = self.run_half("gold", "pass")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
+        self.assertEqual([c["job"] for c in calls], ["run-parcel-matching-gate", "parcel_boundary_served_gold.py"])
         self.assertEqual((self.state / "ready").read_text().split()[0], self.served)
         self.assertEqual(result.stdout.strip().splitlines()[-1], "foundation-job-outcome changed")
 
@@ -227,7 +245,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         (self.state / "baked-edition").write_text(self.served[: -len(self.served_name)] + self.candidate + "\n")
         result, calls = self.run_half("gold", "pass", bootstrap=True)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
+        self.assertEqual([c["job"] for c in calls], ["run-parcel-matching-gate", "parcel_boundary_served_gold.py"])
         self.assertEqual(calls[0]["args"][calls[0]["args"].index("--snapshot-id") + 1], self.served)
         self.assertEqual((self.state / "ready").read_text().split()[0], self.served)
 
@@ -235,7 +253,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.wait_for_rehearsal()
         result, calls = self.run_half("gold", "pass", bootstrap=True)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
+        self.assertEqual([c["job"] for c in calls], ["run-parcel-matching-gate", "parcel_boundary_served_gold.py"])
         candidate = calls[0]["args"][calls[0]["args"].index("--snapshot-id") + 1]
         self.assertTrue(candidate.endswith(self.candidate), candidate)
         for call in calls:
@@ -256,7 +274,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.env["FAKE_GOLD"] = "broken"
         failed, calls = self.run_half("gold", "pass", bootstrap=True)
         self.assertNotEqual(failed.returncode, 0)
-        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
+        self.assertEqual([c["job"] for c in calls], ["run-parcel-matching-gate", "parcel_boundary_served_gold.py"])
         self.assertIn("FAILED at line", (self.state / "journal.log").read_text())
         self.assertTrue((self.state / "rehearsal-attempted").exists(), "the attempt is recorded as before")
         del self.env["FAKE_GOLD"]

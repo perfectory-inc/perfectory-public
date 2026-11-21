@@ -430,7 +430,6 @@ class ParcelReadersDefaultToTheServedEditionTest(unittest.TestCase):
 
     READERS = {  # job: (its served-id flag, the attribute, its other required arguments, its earlier-endpoint flag)
         "parcel_boundary_served_gold": ("--source-snapshot-id", "source_snapshot_id", ["--output-dir", "p"], None),
-        "parcel_matching_gate": ("--snapshot-id", "snapshot_id", ["--sido", "97"], "--lineage-from-snapshot-id"),
     }
 
     def test_each_reader_reads_the_served_edition_and_refuses_another_without_the_flag(self):

@@ -114,6 +114,7 @@ mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
 mod parcel_lineage_derive;
+mod parcel_matching_gate;
 mod parcel_nearby_versions_build;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
@@ -294,6 +295,7 @@ enum Command {
     DeriveParcelLineage,
     LoadIndustrialComplexNoticeSilver,
     BuildParcelNearbyVersions,
+    RunParcelMatchingGate,
     ExportGoldVersionsChangeSet,
     ExportGoldTakeoverSides,
     ShowGoldTakeoverSwitch,
@@ -642,6 +644,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(industrial_complex_notice_silver_load::run())
         }
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
+        Command::RunParcelMatchingGate => Box::pin(parcel_matching_gate::run()),
         Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
         Command::ExportGoldTakeoverSides => Box::pin(gold_takeover_sides::export()),
         Command::ShowGoldTakeoverSwitch => Box::pin(gold_takeover_sides::switch()),
@@ -809,6 +812,7 @@ where
             Ok(Command::LoadIndustrialComplexNoticeSilver)
         }
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
+        Some("run-parcel-matching-gate") => Ok(Command::RunParcelMatchingGate),
         Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
         Some("export-gold-takeover-sides") => Ok(Command::ExportGoldTakeoverSides),
         Some("show-gold-takeover-switch") => Ok(Command::ShowGoldTakeoverSwitch),
