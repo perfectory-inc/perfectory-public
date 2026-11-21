@@ -344,7 +344,9 @@ fn convert<R: Read + Seek>(
     let mut report = Report::new(config, layout);
     report.sigungu_crosswalk = sigungu_crosswalk.provenance().clone();
     let attempt = format!("{}/attempt={}", config.object_stem()?, Uuid::new_v4());
-    let ingested_at = Utc::now().to_rfc3339();
+    // To the second and `Z`, as every other export writes it: the load refuses any other form
+    // (2026-11-21: nine lanes failed on `...829434156+00:00`).
+    let ingested_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let mut chunks = ChunkReader::new(member.decoder, layout)?;
     // The first chunk is cut before the workers start: its size is what sizes them.
     let first = chunks.next_chunk(layout, &mut report)?;
