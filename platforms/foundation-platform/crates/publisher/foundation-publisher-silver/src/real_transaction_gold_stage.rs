@@ -74,6 +74,7 @@ const COMPARABLE_FIELDS: [&str; 12] = [
 ];
 
 const REGION_STATS_SQL: &str = include_str!("real_transaction_gold_stage/region_stats.sql");
+const DOCUMENT_SETUP_SQL: &str = include_str!("real_transaction_gold_stage/document_setup.sql");
 const DOCUMENT_SQL: &str = include_str!("real_transaction_gold_stage/document.sql");
 /// The values `region_stats.sql` takes from its caller.
 const AS_OF: &str = "{as_of}";
@@ -336,14 +337,36 @@ pub fn gold_rows(
             coverage_json(coverage)?.replace('\'', "''"),
         ),
     ];
-    let mut sql = DOCUMENT_SQL.to_owned();
-    for (name, value) in &values {
-        ensure!(sql.contains(name), "document.sql takes no {name}");
-        sql = sql.replace(name, value);
+    let fill = |text: &str| -> String {
+        values.iter().fold(text.to_owned(), |sql, (name, value)| {
+            sql.replace(name, value)
+        })
+    };
+    for (name, _) in &values {
+        ensure!(
+            DOCUMENT_SETUP_SQL.contains(name) || DOCUMENT_SQL.contains(name),
+            "the document SQL takes no {name}"
+        );
     }
     connection
-        .execute_batch(&sql)
-        .context("DuckDB failed to build the 실거래 Gold rows")?;
+        .execute_batch(&fill(DOCUMENT_SETUP_SQL))
+        .context("DuckDB failed to build the 실거래 comparables and region documents")?;
+    // One 시군구 at a time: a document's every part is keyed by its 법정동 (2026-11-21: 부산 whole
+    // ran past a 12 GB limit and its 4 GB spill).
+    let chunks = connection
+        .prepare("SELECT chunk FROM rt_chunks ORDER BY chunk")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let per_chunk = fill(DOCUMENT_SQL);
+    for chunk in chunks {
+        ensure!(
+            chunk.bytes().all(|b| b.is_ascii_digit()),
+            "a PNU prefix {chunk:?} is not digits"
+        );
+        connection
+            .execute_batch(&per_chunk.replace("{chunk}", &chunk))
+            .with_context(|| format!("DuckDB failed to build the 실거래 Gold rows of {chunk}"))?;
+    }
     let rows: i64 = connection.query_row("SELECT count(*) FROM gold_rows", [], |row| row.get(0))?;
     Ok(u64::try_from(rows)?)
 }

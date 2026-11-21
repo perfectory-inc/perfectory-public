@@ -3,6 +3,10 @@
 -- `place_id_join.with_place_ids`, written so `real_transaction_json` and `row_digest` are byte for byte
 -- what that job writes.
 --
+-- One 시군구's rows (`{chunk}`, the PNU's first five digits): every part of a document is keyed by
+-- the PNU's 법정동, so a 시군구 is built alone and memory stays one 시군구's. `document_setup.sql`
+-- builds the comparables and region documents (`rt_comparables`, `rt_region_doc`) and `gold_rows`.
+--
 -- Inputs: `placed` (real_transaction_placement_stage: every deal, its PNU or NULL), `parcels(pnu)`,
 -- `land(pnu, land_category, …)`, `region` (region_stats.sql's rows), `place_ids(pnu, place_id)`.
 -- The stage fills: the build month's first day, COMPARABLE_MONTHS and REGION_MONTHS before it, the
@@ -13,51 +17,15 @@
 -- value null, a double as Java writes it (`spark_double_text`). `DuckDB`'s own `to_json` writes a
 -- string as Jackson does and is used for strings and string lists only. Spark's `length` is a count of
 -- characters, as `length` is.
-CREATE OR REPLACE TABLE gold_rows AS
+INSERT INTO gold_rows
 WITH own AS (
   SELECT pnu, row_id, deal_date, dataset_slug, main_lot_group_key, {transaction} AS _entry
-  FROM placed WHERE pnu IS NOT NULL
-),
--- Comparables: one row per deal (the lowest PNU it is placed on, if any), newest first.
-by_deal AS (
-  SELECT * FROM placed QUALIFY row_number() OVER (PARTITION BY row_id ORDER BY pnu ASC NULLS LAST) = 1
-),
-ranked AS (
-  SELECT *, row_number() OVER (PARTITION BY legal_dong ORDER BY deal_date DESC, row_id) AS _n
-  FROM by_deal
-  WHERE dataset_slug = 'real_transaction_industrial_trade' AND legal_dong IS NOT NULL
-    AND NOT coalesce(cancelled, false)
-    AND deal_date >= DATE '{comparables_from}' AND deal_date < DATE '{next_month}'
-),
-comparables AS (
-  -- A 본번 group deal is one comparable: its group's key and size, no one PNU (root ADR-0405).
-  SELECT legal_dong, '[' || string_agg({comparable}, ',' ORDER BY _n) || ']' AS comparables
-  FROM ranked WHERE _n <= {comparable_count} GROUP BY legal_dong
-),
--- Region: the 법정동's 공장창고 and 토지 rows of the trailing 12 months, m² prices in 만원.
-region_doc AS (
-  SELECT region_code AS legal_dong,
-         '[' || string_agg('{"dataset_slug":' || to_json(dataset_slug)::VARCHAR
-           || ',"deal_count":' || deal_count || ',"cancelled_count":' || cancelled_count
-           || ',"land_price_per_m2_10k_krw":' || CASE WHEN land_price_per_m2_median IS NOT NULL
-                THEN '{"p25":' || spark_double_text(land_price_per_m2_p25)
-                  || ',"median":' || spark_double_text(land_price_per_m2_median)
-                  || ',"p75":' || spark_double_text(land_price_per_m2_p75) || '}' ELSE 'null' END
-           || ',"building_price_per_m2_10k_krw":' || CASE WHEN dataset_slug = 'real_transaction_industrial_trade'
-                  AND building_price_per_m2_median IS NOT NULL
-                THEN '{"p25":' || spark_double_text(building_price_per_m2_p25)
-                  || ',"median":' || spark_double_text(building_price_per_m2_median)
-                  || ',"p75":' || spark_double_text(building_price_per_m2_p75) || '}' ELSE 'null' END
-           || '}', ',' ORDER BY dataset_slug) || ']' AS datasets
-  FROM region
-  WHERE period_kind = 'trailing_12_months' AND region_level = 'legal_dong'
-    AND dataset_slug IN ('real_transaction_industrial_trade', 'real_transaction_land_trade')
-  GROUP BY region_code
+  FROM placed WHERE pnu IS NOT NULL AND substr(pnu, 1, 5) = '{chunk}'
 ),
 -- Which PNUs carry comparables: 지목 공장용지·창고용지, or a 공장창고 deal of their own.
 eligible AS (
   SELECT DISTINCT e.pnu FROM (
-    SELECT pnu FROM land WHERE land_category IN ('공장용지', '창고용지')
+    SELECT pnu FROM land WHERE land_category IN ('공장용지', '창고용지') AND substr(pnu, 1, 5) = '{chunk}'
     UNION ALL
     SELECT pnu FROM own WHERE dataset_slug = 'real_transaction_industrial_trade'
   ) e SEMI JOIN parcels p ON p.pnu = e.pnu
@@ -79,7 +47,7 @@ keys AS (SELECT DISTINCT pnu, main_lot_group_key FROM own WHERE main_lot_group_k
 groups AS (
   SELECT substr(pnu, 1, 15) AS main_lot_group_key, list_sort(list(DISTINCT pnu)) AS _group
   FROM parcels
-  WHERE substr(pnu, 1, 15) IN (SELECT main_lot_group_key FROM keys)
+  WHERE substr(pnu, 1, 5) = '{chunk}' AND substr(pnu, 1, 15) IN (SELECT main_lot_group_key FROM keys)
   GROUP BY 1
 ),
 group_of AS (SELECT k.pnu, g._group FROM keys k JOIN groups g USING (main_lot_group_key)),
@@ -90,8 +58,8 @@ joined AS (
   FROM pnus p
   LEFT JOIN listed l USING (pnu)
   LEFT JOIN group_of g USING (pnu)
-  LEFT JOIN comparables c ON c.legal_dong = substr(p.pnu, 1, 10)
-  LEFT JOIN region_doc r ON r.legal_dong = substr(p.pnu, 1, 10)
+  LEFT JOIN rt_comparables c ON c.legal_dong = substr(p.pnu, 1, 10)
+  LEFT JOIN rt_region_doc r ON r.legal_dong = substr(p.pnu, 1, 10)
   LEFT JOIN eligible e USING (pnu)
   WHERE l._all IS NOT NULL OR (e.pnu IS NOT NULL AND c.comparables IS NOT NULL)
 ),
