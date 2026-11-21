@@ -286,8 +286,8 @@
 
 ## Revision 2026-11-20: 넘겨받기의 공통 길 하나 (결정 6 의 구현, W84)
 
-서빙 중인 Gold 를 쌓는 표로 넘길 레인(등기·건축물대장 계열 일곱, 실거래, 경매)은 이 길 하나를 쓰게 된다. 레인마다 다른 것은 자기 단계(stage)와
-빌드 명령뿐이다. 지금 이 길(`planned_inputs`)을 부르는 빌드는 `parcel_nearby_versions_build` 하나다 — 그 레인은 이미 쌓는 표를 서빙하므로 그림자 갈래를
+서빙 중인 Gold 를 쌓는 표로 넘길 레인(등기·건축물대장 계열 일곱, 실거래, 경매)은 이 길 하나를 쓰게 된다. 레인마다 다른 것은 자기 단계(`kind_versions_stage::KindVersionsStage` 의 구현)와
+그 한 줄(`kind_versions_build::KindBuild`: 표·레인·옛 표·명령 이름)뿐이다 — 계획·차분·관문·커밋은 한 벌(`kind_versions_build::run`)이다. 지금 이 길(`planned_inputs`)을 부르는 빌드는 `parcel_nearby_versions_build` 하나다 — 그 레인은 이미 쌓는 표를 서빙하므로 그림자 갈래를
 타지 않는다. 각 레인의 빌드는 자기 넘겨받기 PR 과 함께 온다.
 
 - **그림자인지는 설정이 아니라 사실이다.** 종류 줄이 `versions_table` 을 말하고 레인이 아직 옛 표(`gold.<x>`)를 굽는 동안 `gold.<x>_versions` 는
