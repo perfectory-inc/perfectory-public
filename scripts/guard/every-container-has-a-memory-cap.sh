@@ -393,6 +393,11 @@ def scheduled_load(section: dict) -> tuple[int, str]:
         if job["pool"] not in pools:
             continue  # default_pool jobs run the publisher natively: host_reserved covers them
         sources = memory.get(job_id)
+        if sources is None and job["systemd_service"] in (job.get("memory_claim") or {}).get("units", ()):
+            # Its own unit is its memory and it claims it: admitted against the host's free memory when
+            # it starts (memory_claim_problems holds the claim), not counted by cap here (root ADR-0599:
+            # a Silver lane; by cap it fits beside nothing). Part of the hand-written admission the Dagster pool/memory-tag change deletes after the ops bundle.
+            continue
         if not isinstance(sources, list) or not sources:
             errors.append(f"{CONTRACT}: scheduled job {job_id!r} in pool {job['pool']!r} names no memory sources")
             continue
@@ -464,6 +469,12 @@ def memory_claim_problems(section: dict) -> list[str]:
         return [f"{CONTRACT}: memory claims need jobs.v1.json memory_claims.keep_available and scheduled_jobs.memory_claims.available.p05 as sizes"]
     unit_files = (contract.get("systemd_units") or {}).get("unit_files") or {}
     measured = declared.get("claimed_measured") or {}
+
+    def unit_file(unit: str) -> str:
+        """The unit file of `unit`: a template instance `x@<name>.service` is `x@.service`."""
+        return unit[: unit.index("@") + 1] + ".service" if "@" in unit else unit
+
+    claiming = {job_id: sorted({unit_file(unit) for unit in units}) for job_id, units in claiming.items()}
     for job_id, units in sorted(claiming.items()):
         caps = []
         for unit in units:

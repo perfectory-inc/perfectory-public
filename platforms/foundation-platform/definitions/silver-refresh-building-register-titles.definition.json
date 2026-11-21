@@ -36,9 +36,14 @@
           "to": "2026-11-03T15:50:32Z"
         }
       },
-      "pool": "default_pool",
+      "pool": "documents",
       "pool_slots": 1,
-      "priority_weight": 40,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@building-register-titles.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-titles"

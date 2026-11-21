@@ -32,9 +32,14 @@
           "estimated_from": "computed, on the same template unit (root ADR-0386): silver_refresh_building_permit_demolition_loss 161 s for a 15 MB release and _parking 251 s for 59 MB; this lane's newest object is 3.8 MB (21.8 MB unzipped, 179,124 rows) in R2 (2026-11-11), and its compare splits into 17 시도 buckets"
         }
       },
-      "pool": "default_pool",
+      "pool": "documents",
       "pool_slots": 1,
-      "priority_weight": 40,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@real-estate-broker-member.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-real-estate-broker-member"

@@ -472,4 +472,22 @@ expect_fail "a job with a memory claim and no measured availability in the contr
 write_claim_fixture 1G 3g batch fixture-other.service
 expect_fail "a claimed unit whose measured memory is not stated"
 
+# A pooled job is counted by its cap sources, unless its own unit is its memory and it claims it: then
+# the claim admits it against free memory (a Silver lane, root ADR-0599). $1: the job's own service.
+pooled_claimant() {
+  write_claim_fixture 1G 3g
+  python3 - "$fixture" "$1" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1]) / "unit-memory/jobs.json"
+jobs = json.loads(path.read_text())
+jobs["pools"] = {"claims": {"slots": 1}}
+jobs["jobs"][0].update(pool="claims", systemd_service=sys.argv[2])
+path.write_text(json.dumps(jobs))
+PY
+}
+pooled_claimant fixture-model.service
+expect_pass "a pooled job that claims its own unit and names no cap sources"
+pooled_claimant fixture-job.service
+expect_fail "a pooled job with no cap sources whose claim is another unit"
+
 echo "OK $name"

@@ -728,13 +728,24 @@ class JobsStartedByTheirInputs(unittest.TestCase):
 
 class TheSilverLanesInTheSparkPool(unittest.TestCase):
     """The Silver lanes left the spark pool when their load left Spark (root ADR-0599): no lane holds
-    a slot, so none makes a fold wait and none waits for a Spark job."""
+    a spark slot, so none makes a fold wait and none waits for a Spark job."""
 
-    def test_no_lane_takes_a_spark_slot(self):
+    def test_no_lane_takes_a_spark_slot_and_each_claims_its_own_unit(self):
+        # One at a time in the one-slot claim pool, queued there instead of bounced off the lane lock
+        # (a `waiting` run is a run: the lane would lose its day), each admitted against the host's
+        # free memory by a claim on its own unit.
         jobs = real_inputs()[0]
         self.assertFalse({entry["id"] for entry in self.spark(jobs)} & set(ALL_LANES))
+        self.assertEqual(job_specs.declared_pools(jobs)["documents"], 1)
         for lane in ALL_LANES:
-            self.assertEqual((job(jobs, lane)["pool"], job_specs.pool_slots(job(jobs, lane))), ("default_pool", 1), lane)
+            entry = job(jobs, lane)
+            self.assertEqual((entry["pool"], job_specs.pool_slots(entry)), ("documents", 1), lane)
+            self.assertEqual(entry["memory_claim"], {"units": [entry["systemd_service"]]}, lane)
+        # Planted: a claimed unit name that is no service name.
+        broken = copy.deepcopy(jobs)
+        job(broken, ALL_LANES[0])["memory_claim"] = {"units": ["foundation-silver-refresh@.service"]}
+        with self.assertRaises(job_specs.JobListError):
+            job_specs.memory_claims(broken)
 
     def spark(self, jobs):
         return [entry for entry in jobs["jobs"] if entry["pool"] == "spark"]

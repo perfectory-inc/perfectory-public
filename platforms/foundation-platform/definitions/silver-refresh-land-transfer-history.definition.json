@@ -40,9 +40,14 @@
           "tracked_by": "root ADR-0386 §5: the refresh lanes take a per-run bucket cap and a deadline (root ADR-0318, #914)"
         }
       },
-      "pool": "default_pool",
+      "pool": "documents",
       "pool_slots": 1,
-      "priority_weight": 40,
+      "memory_claim": {
+        "units": [
+          "foundation-silver-refresh@land-transfer-history.service"
+        ]
+      },
+      "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-vworld-dataset-to-silver-land-transfer-history"
