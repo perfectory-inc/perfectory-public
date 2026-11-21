@@ -20,9 +20,11 @@ ADR-0478(로컬 모델 런타임)의 운영 절차다. 값(추출기 판·쪽 �
 | `intelligence_document_fact` | `foundation-intelligence-document-fact.service` | `documents` 1칸 + 모델 유닛의 메모리 claim, 텍스트가 쪽을 쌓으면·매시 | 위 두 표, OCR 쪽이 있는 PDF 의 바이트 | `intelligence.document_fact` → `intelligence.document_fact_outcome` → `gold.complex_document_facts` |
 | `industrial_complex_edge_export` | `foundation-industrial-complex-edge-export.service` | 풀 없음(Spark 안 씀), Gold 나 문서 사실이 바뀌면·매일 | `gold.complex_catalog`, `gold.complex_document_facts`, 엣지 목록 | 바뀐 단지의 프로필, 목록의 새 세대 |
 
-문서 작업 둘의 한 run 은 순서가 같다: Spark 로 계획(`infra/lakehouse/spark/jobs/intelligence_documents.py plan-*`) → 읽기 키로 바이트 받기
-→ intelligence 이미지(`intelligence-document-text:local`)가 로컬 파일만 읽고 씀 → Spark 로 쌓기(`append-*`). 이미지는 레이크하우스에
-닿지 않는다. 표는 이 Spark 단계만 쓴다.
+문서 작업 둘의 한 run 은 순서가 같다: 퍼블리셔의 `intelligence-documents` 로 계획(`plan-*`, 퍼블리셔 안의 DuckDB 가 표를
+읽는다) → 읽기 키로 바이트 받기 → intelligence 이미지(`intelligence-document-text:local`)가 로컬 파일만 읽고 씀 → 퍼블리셔로
+쌓기(`append-*`, run 하나가 한 번의 Iceberg 커밋). 이미지는 레이크하우스에 닿지 않는다. 표는 이 퍼블리셔 단계만 쓴다. 단지
+패널로 접는 규칙만 Python 이다(`infra/lakehouse/spark/jobs/intelligence_documents.py gate`·`fold-rows`): 퍼블리셔가 읽어 run
+폴더에 낸 파일을 받아 쌓을 줄을 쓰고, 퍼블리셔가 그것을 쌓는다(`fold-export` → 규칙 → `fold-append`). Spark 는 쓰지 않는다.
 
 - **왜 텍스트 작업은 spark 풀이 아닌가.** OCR 은 CPU 만 쓰고 한 run 이 한 시간 가까이 걸린다(실측 문서당 평균 65 초, 2026-11-11).
   spark 풀에 1칸으로 두면 그 풀의 굶주림 한도(STARVATION_CYCLES × 주기)를 매시 run 으로는 넘을 수 없다(최악 대기 9,305 분 > 1,200).

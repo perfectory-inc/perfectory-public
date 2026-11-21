@@ -1,8 +1,7 @@
-"""The lakehouse half of the intelligence document jobs (root ADR-0477), without Spark.
+"""The fold rule of the intelligence document jobs (root ADR-0477): the gate and what a panel states.
 
-The intelligence platform's contract names the columns its image writes; the lakehouse contract
-artifact names the columns the tables hold. Two files, two writers: if they drift, a run of a
-newer image is refused at append (run_rows) — this holds them equal before that.
+The lakehouse half (the plans, the run rows and their parity with the intelligence contract) is the
+publisher's and is tested there (`intelligence_documents_stage`).
 """
 
 from __future__ import annotations
@@ -22,64 +21,6 @@ PLATFORM = Path(__file__).resolve().parents[4]
 EXTRACTION_PATH = PLATFORM.parent / "intelligence-platform" / "config" / "document-extraction.contract.json"
 ARTIFACT = PLATFORM / "infra" / "lakehouse" / "contracts" / "industrial_complex_lakehouse_contracts.json"
 SHA = "a" * 64
-
-
-class ContractParityTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.extraction = d.load_extraction(EXTRACTION_PATH)
-        self.contracts = json.loads(ARTIFACT.read_text(encoding="utf-8"))["contracts"]
-
-    def test_every_output_table_is_the_intelligence_columns_then_the_run(self) -> None:
-        for table in d.TABLES:
-            with self.subTest(table=table):
-                held = [c["name"] for c in self.contracts[table]["columns"]]
-                self.assertEqual(held, d.table_columns(self.extraction, table))
-
-    def test_every_output_of_the_intelligence_contract_has_a_table(self) -> None:
-        outputs = {v["table"] for k, v in self.extraction["outputs"].items() if not k.startswith("$")}
-        self.assertEqual(outputs, set(d.TABLES))
-
-    def test_the_tables_key_is_the_intelligence_key_and_the_run_orders_a_repeat(self) -> None:
-        for table in d.TABLES:
-            output, _ = d.OUTPUTS[table]
-            latest = self.contracts[table]["current_row_latest"]
-            self.assertEqual(latest["key"], self.extraction["outputs"][output]["key"])
-            self.assertEqual(latest["newest_first"], [d.RUN_COLUMN])
-            self.assertEqual(self.contracts[table]["load"], {"unit": "run", "column": d.RUN_COLUMN})
-
-    def test_the_media_prefix_is_read_through_the_pointer(self) -> None:
-        self.assertEqual(d.media_prefix(PLATFORM, self.extraction), "onbid/media")
-
-
-class PlanTest(unittest.TestCase):
-    def test_a_media_key_is_the_content_address(self) -> None:
-        self.assertEqual(d.media_key("onbid/media/", SHA, "pdf"), f"onbid/media/sha256/{SHA}.pdf")
-        with self.assertRaises(ValueError):
-            d.media_key("onbid/media", "../" + SHA[3:], "pdf")
-        with self.assertRaises(ValueError):
-            d.media_key("onbid/media", SHA, "p/df")
-
-    def test_only_the_formats_the_text_job_reads_are_fetched(self) -> None:
-        self.assertEqual(set(d.readable_formats(d.load_extraction(EXTRACTION_PATH))), {"pdf", "hwp", "hwpx"})
-
-
-class RunRowsTest(unittest.TestCase):
-    def test_rows_are_stamped_with_the_run_in_the_table_order(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "x.jsonl"
-            path.write_text(json.dumps({"sha256": SHA, "n": 1, "at": "2026-11-11T01:02:03Z"}) + "\n\n", encoding="utf-8")
-            rows = d.run_rows(path, ["sha256", "n", "at", "run_id"], "20261111T010000Z", ["at"])
-        self.assertEqual(rows, [(SHA, 1, datetime(2026, 11, 11, 1, 2, 3), "20261111T010000Z")])
-
-    def test_a_row_the_contract_does_not_name_is_refused(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "x.jsonl"
-            path.write_text(json.dumps({"sha256": SHA, "extra": 1}) + "\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "x.jsonl:1"):
-                d.run_rows(path, ["sha256", "run_id"], "r", [])
-
-    def test_a_run_that_wrote_no_file_has_no_rows(self) -> None:
-        self.assertEqual(d.run_rows(Path(tempfile.gettempdir()) / "absent-intelligence.jsonl", ["run_id"], "r", []), [])
 
 
 def fact(code="999990", notice=99001, kind="land_use_area", index=0, sha=SHA, page_method="text_layer", method="rule",
@@ -135,9 +76,25 @@ class ComplexFactsTest(unittest.TestCase):
         self.assertEqual([(r[0], r[2]) for r in rows], [("999990", 1), ("999991", 0)])
         self.assertEqual(json.loads(rows[1][1]), {"schema": d.COMPLEX_FACTS_SCHEMA, "kinds": {}})
         self.assertEqual(json.loads(rows[0][4]), [list(g) for g in GATE])
-        contract = json.loads(ARTIFACT.read_text(encoding="utf-8"))["contracts"][d.COMPLEX_FACTS]
-        self.assertEqual(len(rows[0]), len(contract["columns"]))
-        self.assertEqual(contract["load"], {"unit": "run", "column": d.RUN_COLUMN})
+        contract = json.loads(ARTIFACT.read_text(encoding="utf-8"))["contracts"]["gold.complex_document_facts"]
+        # The rule writes the table's columns but the run, which the publisher stamps.
+        self.assertEqual([*d.FOLD_COLUMNS, "run_id"], [c["name"] for c in contract["columns"]])
+        self.assertEqual(contract["load"], {"unit": "run", "column": "run_id"})
+
+    def test_the_fold_reads_the_publishers_files_and_writes_the_rows_to_append(self) -> None:
+        extraction = d.load_extraction(EXTRACTION_PATH)
+        with tempfile.TemporaryDirectory() as raw:
+            work = Path(raw)
+            row = dict(fact(), notice_date="2099-01-01")
+            (work / d.FOLD_ROWS_FILE).write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+            (work / d.FOLD_CODES_FILE).write_text("999990\n999991\n", encoding="utf-8")
+            summary = d.fold_rows(work, extraction, datetime(2099, 12, 31))
+            written = [json.loads(line) for line in (work / d.FOLD_APPEND_FILE).read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([list(r) for r in written], [list(d.FOLD_COLUMNS)] * 2)
+        self.assertEqual([r["official_complex_code"] for r in written], ["999990", "999991"])
+        self.assertEqual(written[0]["folded_at_utc"], "2099-12-31T00:00:00Z")
+        self.assertEqual(written[0]["accuracy_gate_json"], d.gate_json(d.admitted(extraction)))
+        self.assertEqual(summary["complexes"], 2)
 
 
 if __name__ == "__main__":

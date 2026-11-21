@@ -162,9 +162,6 @@
           "fingerprint": null
         }
       },
-      "intelligence_documents": {
-        "wave": 4
-      },
       "lakehouse_maintenance": {
         "stays": "maintenance"
       },

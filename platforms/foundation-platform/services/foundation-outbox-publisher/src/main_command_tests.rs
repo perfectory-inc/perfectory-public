@@ -248,6 +248,10 @@ fn legal_dong_pairing_commands_are_explicit() -> anyhow::Result<()> {
         ])?,
         Command::AppendLegalDongCodeChanges
     );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "intelligence-documents"])?,
+        Command::IntelligenceDocuments
+    );
     Ok(())
 }
 
