@@ -100,7 +100,9 @@ fn a_bucket_appends_the_changed_keys_rows_and_one_marker_per_vanished_key() -> a
         contract,
         &rule,
         &format!("(SELECT * FROM release_rows WHERE {in_bucket})"),
-        "main_rows",
+        // As the run names main: a table with a clause after it (`AT (VERSION => n)` there), which
+        // takes no alias. 2026-11-21: the first production runs failed on `... g`.
+        "main_rows TABLESAMPLE (100 PERCENT)",
         &in_bucket,
         stamp,
     )?;
@@ -456,6 +458,52 @@ fn a_parquet_handoff_is_copied_with_the_tables_types() -> anyhow::Result<()> {
     assert_eq!(
         (kind.as_str(), edition),
         ("TIMESTAMP WITH TIME ZONE", 4_070_908_800)
+    );
+    Ok(())
+}
+
+/// An export writes the columns it derives: the units' Parquet has no `row_state` (2026-11-21, the
+/// lane's first run on this path failed on it). A column the table lets be null is read as null;
+/// a required one that is missing is refused.
+#[test]
+fn a_parquet_handoff_without_a_nullable_column_reads_it_as_null() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    let contract = industrial_complex_lakehouse_contract_by_table_name(TITLES).context("titles")?;
+    let work = directory.path().join(
+        std::fs::read_dir(directory.path())?
+            .next()
+            .context("the stage directory")??
+            .file_name(),
+    );
+    let rows = titles("('A', 'one', 4070908800, 4070908800, NULL)")?;
+    let write = |name: &str, without: &str| -> anyhow::Result<String> {
+        let url = work.join(name).to_string_lossy().replace('\\', "/");
+        stage.connection().execute_batch(&format!(
+            "COPY (SELECT * EXCLUDE ({without}) FROM {rows}) TO '{url}' (FORMAT parquet)"
+        ))?;
+        Ok(url)
+    };
+    let copy = work.join("release.parquet");
+    let url = write("no-row-state.parquet", "row_state")?;
+    assert_eq!(copy_release(&stage, contract, &[url], &copy)?, 1);
+    let (kind, marker): (String, Option<String>) = stage.connection().query_row(
+        &format!(
+            "SELECT typeof(row_state), row_state FROM {}",
+            release_relation(&copy)?
+        ),
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!((kind.as_str(), marker), ("VARCHAR", None));
+    // Planted: the key itself is missing.
+    let url = write("no-key.parquet", "mgm_bldrgst_pk")?;
+    let Err(error) = copy_release(&stage, contract, &[url], &copy) else {
+        anyhow::bail!("a handoff without its key was copied");
+    };
+    assert!(
+        format!("{error:#}").contains("lacks its required column mgm_bldrgst_pk"),
+        "{error:#}"
     );
     Ok(())
 }
