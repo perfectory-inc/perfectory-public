@@ -23,6 +23,13 @@
   annotations (anonymous; a run already read is not read again): main's newest run of any event,
   and newer pull request or merge-queue runs whose change touches no lockfile (root ADR-0388). Each source records
   whether it could be read, with a fixed reason when not. This part is not on the console's panel.
+- main: whether main is red (root ADR-0554), for foundation-api's /metrics and so Alertmanager and
+  #alerts: main-health.yml decides every 10 minutes from the runs GitHub already made, and its newest
+  run with a verdict is read here (anonymous, at most three requests): a green run is "nothing red";
+  a failed one names the count and each red job in `main-red-count` and `main-red` annotations. A run
+  that failed without them (GitHub unreadable from the runner) is no verdict, and the one before it
+  stands. Until 2026-11-21 main-health kept a GitHub issue, and issues are off in this repository:
+  11-14..18 the red Foundation nightly reached no one. Not on the console's panel.
 
 Each part records its own error. Exits 1 only when no hostname could be measured: the unit's
 OnFailure reports that to Slack. foundation-api serves the file at /data-catalog/v1/service-checks.
@@ -81,6 +88,13 @@ MAIN_RUNS_READ = 3
 RUN_REQUESTS = 3
 # What a ratchet needs to start: its two run lists and one new run.
 SECURITY_REQUESTS = 2 + RUN_REQUESTS
+# Main's health (root ADR-0554): the workflow that decides it and the annotations that carry a red
+# verdict (scripts/ci/main_health.py COUNT_TITLE, JOB_TITLE).
+MAIN_HEALTH_WORKFLOW = "main-health.yml"
+MAIN_RED_COUNT_TITLE = "main-red-count"
+MAIN_RED_JOB_TITLE = "main-red"
+# Its runs list, and the jobs and annotations of one failed run.
+MAIN_REQUESTS = 3
 
 
 def hostnames(contract: pathlib.Path = CONTRACT) -> list[str]:
@@ -342,6 +356,75 @@ def ratchet(repository: str, workflow: str, token: str | None, previous: dict | 
             "run_id": base["id"], "verdicts": [{"run_id": run_id, "findings": found} for run_id, found in verdicts.items()]}
 
 
+def main_verdict(repository: str, run: dict, ask=github) -> dict | None:
+    """What one completed main-health run said: None when it failed without a verdict."""
+    if run["conclusion"] == "success":
+        return {"red_jobs": 0, "jobs": []}
+    jobs, _ = ask(f"/repos/{repository}/actions/runs/{run['id']}/jobs?per_page=100", None)
+    count, red = None, []
+    for job in jobs["jobs"]:
+        if job["conclusion"] != "failure":
+            continue
+        notes, _ = ask(f"/repos/{repository}/check-runs/{job['id']}/annotations?per_page=100", None)
+        for note in notes:
+            message = (note.get("message") or "").strip()
+            if note.get("title") == MAIN_RED_COUNT_TITLE and message.isdigit():
+                count = int(message)
+            elif note.get("title") == MAIN_RED_JOB_TITLE:
+                try:
+                    named = json.loads(message)
+                    red.append({"workflow": str(named["workflow"]), "job": str(named["job"])})
+                except (ValueError, KeyError, TypeError):
+                    continue
+        break  # main-health has one job
+    if count is None:
+        return None
+    return {"red_jobs": count, "jobs": sorted(red, key=lambda job: (job["workflow"], job["job"]))}
+
+
+def measure_main(repository: str, previous: dict | None, now: datetime, ask=github,
+                 remaining=remaining_requests) -> dict:
+    """Main's newest verdict (root ADR-0554). One that cannot be read keeps what was last known, so
+    a red job is not announced as fixed and then as red again."""
+    link = f"https://github.com/{repository}/actions/workflows/{MAIN_HEALTH_WORKFLOW}"
+    kept = {key: (previous or {}).get(key, default) for key, default in (("red_jobs", 0), ("jobs", []), ("run_id", None))}
+
+    def unread(reason: str, error: Exception | str) -> dict:
+        detail = error if isinstance(error, str) else f"{type(error).__name__}: {error}"
+        return {"checked_at": now.isoformat(), "readable": False, "reason": reason, "error": detail[:300], "link": link, **kept}
+
+    try:
+        if remaining() < API_RESERVE + MAIN_REQUESTS:
+            return unread("github-error", "no anonymous budget left")
+        listed, _ = ask(f"/repos/{repository}/actions/workflows/{MAIN_HEALTH_WORKFLOW}/runs"
+                        "?branch=main&status=completed&per_page=5", None)
+        for run in listed["workflow_runs"]:
+            if run.get("event") not in MAIN_EVENTS or run.get("conclusion") not in ("success", "failure"):
+                continue
+            if run["id"] == kept["run_id"] and previous and previous.get("readable"):
+                return {**previous, "checked_at": now.isoformat()}  # read already
+            found = main_verdict(repository, run, ask)
+            if found is not None:
+                return {"checked_at": now.isoformat(), "readable": True, "reason": None, "error": None,
+                        "link": link, "run_id": run["id"], **found}
+            if run["conclusion"] == "failure":
+                break  # one failed run without a verdict costs two requests: older ones wait for next hour
+        return unread("no-verdict", f"{MAIN_HEALTH_WORKFLOW}'s newest runs on main carry no verdict")
+    except Exception as error:
+        return unread("github-error", error)
+
+
+def measure_main_from_control(previous: dict | None, now: datetime, root: pathlib.Path = CONTROL_ROOT) -> dict:
+    try:
+        repository = json.loads((root / "tools" / "github" / "repository-identity.json").read_text(encoding="utf-8"))["full_name"]
+    except Exception as error:
+        return {"checked_at": now.isoformat(), "readable": False, "reason": "github-error",
+                "error": f"{type(error).__name__}: {error}"[:300], "link": None,
+                "red_jobs": (previous or {}).get("red_jobs", 0), "jobs": (previous or {}).get("jobs", []),
+                "run_id": (previous or {}).get("run_id")}
+    return measure_main(repository, previous, now)
+
+
 def measure_security(repository: str, token: str | None, previous: dict | None, now: datetime,
                      ask=github, remaining=remaining_requests) -> dict:
     """Every source on its own: one that cannot be read says so and the others still report."""
@@ -395,11 +478,15 @@ def main() -> int:
     edge = measure_edge(hostnames(), now=now)
     ci = measure_ci_from_control(out.parent / "ci-runs", now)
     try:
-        previous = json.loads(out.read_text(encoding="utf-8")).get("security")
-    except (OSError, ValueError, AttributeError):
-        previous = None
-    security = measure_security_from_control(previous, now)
-    write_atomically(out, {"schema_version": 1, "checked_at": now.isoformat(), "edge": edge, "ci": ci, "security": security})
+        last = json.loads(out.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        last = {}
+    last = last if isinstance(last, dict) else {}
+    security = measure_security_from_control(last.get("security"), now)
+    main_health = measure_main_from_control(last.get("main"), now)
+    write_atomically(out, {"schema_version": 1, "checked_at": now.isoformat(), "edge": edge, "ci": ci,
+                           "security": security, "main": main_health})
+    print(f"main: red_jobs={main_health['red_jobs']} reason={main_health['reason']}")
     for name, source in security["sources"].items():
         print(f"security {name}: findings={len(source['findings'])} reason={source['reason']}")
     for host in edge["hosts"]:

@@ -45,6 +45,17 @@ main 에 병합할 때마다 전체를 다시 돌리는 방법은 쓰지 않는�
      판정이 아니지만, 빨강을 찾고 알리지 못한 실행이 초록이면 아무 데서도 울리지 않는 경보다. 2026-11-14..18 저장소의
      이슈가 꺼져 있어(`tools/github/repository-settings.json` 은 `has_issues: true`) 매 실행이 main 의 빨강(Foundation
      밤 실행 넷 포함, 11-18 에 여섯)을 찾고도 `gh issue list` 실패를 이 줄로 넘기고 통과했다. 밤 실행은 닷새 빨갛게 아무에게도 닿지 않았다.
+5. **2026-11-21 개정(W83e): 이슈가 아니라 실행 자신과 Slack 이다.** 저장소의 이슈는 꺼 둔 채로 둔다
+   (`tools/github/repository-settings.json` 도 `has_issues: false`). 위 2·3·4 의 이슈 부분은 이것으로 대체된다.
+   - 판정은 실행의 결론이다. 빨강이 없으면 초록이다. 빨강이 있으면 실패하고, `main-red-count` 주석(개수)과 작업마다
+     `main-red` 주석(JSON `{"workflow","job"}`)을 남긴다. GitHub 은 단계마다 error 주석을 10개까지 남기므로 작업은 9개까지 적는다.
+     GitHub 을 읽지 못한 실행은 `main-health-unreadable` 경고와 함께 실패하고 개수 주석이 없다. 그것은 판정이 아니다.
+   - 호스트의 서비스 점검(`scripts/ops/service-checks.py`, 매시)이 main 위의 가장 새 판정을 익명으로 읽는다(요청 최대 3).
+     보안 권고(ADR-0278)와 같은 길이다. 그 판정을 파일의 `main` 부분에 쓰고, foundation-api 가
+     `foundation_main_red_job{workflow,job}` 으로 내보내며, `FoundationMainRed`(ticket) 가 Alertmanager 를 거쳐
+     Slack `#alerts` 로 간다. 판정을 못 읽으면 마지막 판정이 남고, 6시간째면 `FoundationMainHealthUnreadable` 이 운다.
+   - 워크플로는 `issues: write` 를 잃는다. conftest 허용 목록에서 빠졌고, 자기 시험은 이제 이 파일의 `issues: write` 를 거부한다.
+   - 지연: 판정 10분 + 점검 최대 1시간 + 묶음 5분. 이슈 알림보다 느리지만 닿는다. 이전에는 닷새 동안 아무에게도 닿지 않았다.
 
 ## 재현 (2026-11-11 의 실행들에 `--as-of` 로)
 

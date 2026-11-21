@@ -221,8 +221,8 @@ advisory := {
 
 test_issue_write_only_in_the_advisory_workflow_on_schedule if {
 	accepted(array.concat(one(valid), named("dependency-advisories.yml", advisory)))
-	accepted(array.concat(one(valid), named("main-health.yml", advisory)))
-	refused(array.concat(one(valid), named("main-health.yml", object.union(advisory, {"true": {"push": {"branches": ["main"]}}}))))
+	# Root ADR-0554 (2026-11-21): main-health reports through its run and its annotations, not an issue.
+	refused(array.concat(one(valid), named("main-health.yml", advisory)))
 	refused(array.concat(one(valid), named("other.yml", advisory)))
 	refused(array.concat(one(valid), named("dependency-advisories.yml", object.union(advisory, {"true": {"push": {"branches": ["main"]}}}))))
 }

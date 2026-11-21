@@ -46,9 +46,10 @@ class SettingsTest(unittest.TestCase):
         settings = declared("repository-settings.json")
         return {key: settings[key] for key in drift.SETTINGS_READABLE}
 
-    def test_issues_turned_off_is_drift(self) -> None:
-        # 2026-10-22..11-18: has_issues false while repository-settings.json said true.
-        found = settings_drift(declared("repository-settings.json"), {**self.readable(), "has_issues": False})
+    def test_issues_turned_on_is_drift(self) -> None:
+        # 2026-10-22..11-18 the other way: has_issues false while repository-settings.json said true.
+        # Issues stay off since 2026-11-21 (root ADR-0554 5); either difference is drift.
+        found = settings_drift(declared("repository-settings.json"), {**self.readable(), "has_issues": True})
         self.assertEqual(len(found), 1)
         self.assertIn("has_issues", found[0])
 
