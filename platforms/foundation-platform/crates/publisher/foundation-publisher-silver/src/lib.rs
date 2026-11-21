@@ -131,14 +131,18 @@ pub use duckdb;
 pub mod legal_dong_code_change_stage;
 pub mod legal_dong_code_snapshot_stage;
 
-/// The parcel 총괄표제부 kind's Gold in `DuckDB` (root ADR-0450, ADR-0564 §6).
-pub mod building_register_master_stage;
+/// The building energy kind's Gold in `DuckDB` (root ADR-0398).
+pub mod building_energy_stage;
 pub mod intelligence_documents_stage;
+/// What every parcel kind Gold of appended row versions shares (root ADR-0564 §6).
+pub mod kind_versions_stage;
 pub mod legal_dong_pairing_stage;
 /// The parcel nearby kind's Gold in `DuckDB` (root ADR-0465, ADR-0564 §9).
 pub mod parcel_nearby_stage;
 pub mod parcel_number_change_history_stage;
 pub mod parcel_registry_stage;
+/// The register kinds' Gold in `DuckDB`: 총괄표제부, 철거·멸실 (root ADR-0450, ADR-0399).
+pub mod record_kind_stage;
 
 /// Stages the data.go.kr bulk files as Silver rows, one table per file (root ADR-0401 §3–4).
 pub mod data_go_kr_file_data_stage;

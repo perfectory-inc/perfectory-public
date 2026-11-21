@@ -321,6 +321,20 @@ fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Resul
         ])?,
         Command::BuildParcelRegisterMastersVersions
     );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-demolitions-versions"
+        ])?,
+        Command::BuildParcelDemolitionsVersions
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-energy-versions"
+        ])?,
+        Command::BuildParcelEnergyVersions
+    );
     Ok(())
 }
 

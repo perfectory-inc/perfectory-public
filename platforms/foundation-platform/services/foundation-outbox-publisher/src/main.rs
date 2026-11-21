@@ -111,13 +111,13 @@ mod gold_takeover_sides;
 mod gold_versions_change_set;
 mod gold_versions_commit;
 mod industrial_complex_notice_silver_load;
+mod kind_versions_build;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
 mod parcel_lineage_derive;
 mod parcel_matching_gate;
 mod parcel_nearby_versions_build;
-mod parcel_register_masters_versions_build;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;
@@ -300,6 +300,8 @@ enum Command {
     BuildParcelNearbyVersions,
     RunParcelMatchingGate,
     BuildParcelRegisterMastersVersions,
+    BuildParcelDemolitionsVersions,
+    BuildParcelEnergyVersions,
     ExportGoldVersionsChangeSet,
     ExportGoldTakeoverSides,
     ShowGoldTakeoverSwitch,
@@ -651,7 +653,13 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
         Command::RunParcelMatchingGate => Box::pin(parcel_matching_gate::run()),
         Command::BuildParcelRegisterMastersVersions => {
-            Box::pin(parcel_register_masters_versions_build::run())
+            Box::pin(kind_versions_build::run(&kind_versions_build::REGISTER_MASTERS_BUILD))
+        }
+        Command::BuildParcelDemolitionsVersions => {
+            Box::pin(kind_versions_build::run(&kind_versions_build::DEMOLITIONS_BUILD))
+        }
+        Command::BuildParcelEnergyVersions => {
+            Box::pin(kind_versions_build::run(&kind_versions_build::ENERGY_BUILD))
         }
         Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
         Command::ExportGoldTakeoverSides => Box::pin(gold_takeover_sides::export()),
@@ -824,6 +832,8 @@ where
         Some("build-parcel-register-masters-versions") => {
             Ok(Command::BuildParcelRegisterMastersVersions)
         }
+        Some("build-parcel-demolitions-versions") => Ok(Command::BuildParcelDemolitionsVersions),
+        Some("build-parcel-energy-versions") => Ok(Command::BuildParcelEnergyVersions),
         Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
         Some("export-gold-takeover-sides") => Ok(Command::ExportGoldTakeoverSides),
         Some("show-gold-takeover-switch") => Ok(Command::ShowGoldTakeoverSwitch),
