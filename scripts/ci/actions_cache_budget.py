@@ -6,8 +6,8 @@
              $GITHUB_STEP_SUMMARY), and exit 1 when the total passes the cap, an entry passes its
              max_mb, a protected entry is missing, or a key belongs to no entry.
     prune    delete what a newer key replaced: for an entry marked one_key, every main entry but
-             the newest of its family (the key without its trailing content hash). Needs a token
-             that may delete caches (the scheduled cleanup job's actions: write).
+             the newest of its family (the key without its trailing hashes). Needs a token that
+             may delete caches (the scheduled cleanup job's actions: write).
 
 The cap is cap_percent_of_limit of max_cache_size_gb in tools/github/actions-cache-policy.json, the
 one place the limit is written. Standard library only.
@@ -52,8 +52,8 @@ def check(data: dict) -> list[str]:
         size = entry.get("max_mb")
         if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
             errors.append(f"{entry.get('key_prefix')}: max_mb must be a positive integer")
-        if not isinstance(entry.get("one_key", False), bool) or (entry.get("one_key") and entry.get("protected")):
-            errors.append(f"{entry.get('key_prefix')}: one_key is true or false, and never on a protected entry")
+        if not isinstance(entry.get("one_key", False), bool):
+            errors.append(f"{entry.get('key_prefix')}: one_key is true or false")
     if not any(entry.get("protected") for entry in data.get("entries", [])):
         errors.append("at least one entry is protected")
     return errors
@@ -65,15 +65,19 @@ def owner(entries: list[dict], key: str) -> dict | None:
     return max(matches, key=lambda entry: len(entry["key_prefix"])) if matches else None
 
 
-# A key's content hash: what a new lockfile or pin set changes while the family stays the same.
-CONTENT_HASH = re.compile(r"-[0-9a-f]{40,}$")
+# A key's trailing hashes: what a new lockfile, pin set or toolchain changes while the family stays
+# the same. actions/cache keys end in one hashFiles digest (64 hex); Swatinem/rust-cache keys end in
+# an environment hash and a lockfile hash (8 hex each), `v0-rust-<shared-key>-Linux-x64-<env>-<lock>`.
+CONTENT_HASH = re.compile(r"(?:-[0-9a-f]{8,})+$")
 
 
 def superseded(data: dict, caches: list[dict]) -> list[dict]:
     """main's entries a newer key of the same family replaced, for entries marked one_key.
 
     A new pin set or lockfile saves a new key and leaves the old one, which nothing restores again
-    (2026-10-19: two pinned sets, 571 MB against 400). The newest by creation stays.
+    (2026-10-19: two pinned sets, 571 MB against 400; 2026-11-18: two gongzzang dependency caches,
+    2 x 1,108 MB, one per runner-image toolchain). The newest by creation stays, so a protected
+    entry is never left empty.
     """
     families: dict[str, list[dict]] = {}
     for cache in caches:

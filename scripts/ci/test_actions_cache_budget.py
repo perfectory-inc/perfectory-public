@@ -92,17 +92,26 @@ class PruneTest(unittest.TestCase):
 
     def test_an_entry_not_marked_one_key_and_other_refs_are_never_pruned(self) -> None:
         caches = [
-            self.entry("v0-rust-rust-quality-dependencies-Linux-" + "a" * 64, "2026-10-17T00:00:00Z"),
-            self.entry("v0-rust-rust-quality-dependencies-Linux-" + "b" * 64, "2026-10-18T00:00:00Z"),
+            self.entry("sqlx-cli-0.8.6-Linux-" + "a" * 64, "2026-10-17T00:00:00Z"),
+            self.entry("sqlx-cli-0.8.6-Linux-" + "b" * 64, "2026-10-18T00:00:00Z"),
             self.entry("pinned-release-binaries-v1-Linux-" + "a" * 64, "2026-10-17T00:00:00Z", "refs/pull/1/merge"),
             self.entry("pinned-release-binaries-v1-Linux-" + "b" * 64, "2026-10-18T00:00:00Z"),
         ]
         self.assertEqual(acb.superseded(self.CONTRACT, caches), [])
 
-    def test_one_key_on_a_protected_entry_is_refused(self) -> None:
-        bad = {**CONTRACT, "entries": [{**CONTRACT["entries"][0], "one_key": True}] + CONTRACT["entries"][1:]}
-        self.assertTrue(any("one_key" in error for error in acb.check(bad)))
-
+    def test_a_rust_cache_family_is_its_prefix_os_and_arch(self) -> None:
+        # 2026-11-18: runners with two image toolchains saved two environment hashes of one lockfile.
+        contract = {**CONTRACT, "entries": [{**CONTRACT["entries"][0], "one_key": True}] + CONTRACT["entries"][1:]}
+        self.assertEqual(acb.check(contract), [])
+        prefix = "v0-rust-rust-quality-dependencies-"
+        caches = [
+            self.entry(f"{prefix}Linux-x64-c99a6493-2a6f3db2", "2026-11-18T21:35:00Z"),
+            self.entry(f"{prefix}Linux-x64-deca26dd-2a6f3db2", "2026-11-18T23:23:00Z"),
+            self.entry(f"{prefix}Windows-x64-c99a6493-2a6f3db2", "2026-11-18T21:00:00Z"),
+        ]
+        self.assertEqual([cache["key"] for cache in acb.superseded(contract, caches)], [f"{prefix}Linux-x64-c99a6493-2a6f3db2"])
+        breaches, _ = acb.judge(contract, 10**12, caches[1:])
+        self.assertFalse(any("missing" in breach for breach in breaches))
 
 if __name__ == "__main__":
     unittest.main()

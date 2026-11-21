@@ -287,11 +287,25 @@ def unpack_pinned_file(archive: pathlib.Path, file: Mapping[str, Any], output: p
         staging.unlink(missing_ok=True)
 
 
+def used_by_ci(spec: Mapping[str, Any], system: str) -> bool:
+    """Whether a CI runner of `system` prefetches the tool into its cache (root ADR-0197).
+
+    `ci` is false for a tool only the server fetches (cosign, root ADR-0276 §3), or the list of
+    runner systems whose jobs run it. Absent, every system the tool is pinned for. On 2026-11-21 the
+    Windows cache held every tool (350 MB) though its one job runs only the static-release toolchain.
+    """
+    ci = spec.get("ci", True)
+    if ci is True or ci is False:
+        return ci
+    if not isinstance(ci, list) or not all(isinstance(item, str) and item in spec["os"] for item in ci):
+        raise FetchError(f"ci must be true, false or a list of the systems the tool is pinned for, found {ci!r}")
+    return system in ci
+
+
 def all_pins(registry: Mapping[str, Any], system: str, machine: str, root: pathlib.Path = ROOT) -> list[tuple[str, str, str]]:
     result: list[tuple[str, str, str]] = []
     for name in sorted(registry["tools"]):
-        # A tool only the server fetches (cosign, root ADR-0276 §3) is not prefetched into CI's cache.
-        if registry["tools"][name].get("ci", True) is False:
+        if not used_by_ci(registry["tools"][name], system):
             continue
         pin = tool_pin(registry, name, system, machine, root)
         if pin is not None:
