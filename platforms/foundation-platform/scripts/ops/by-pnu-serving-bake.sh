@@ -527,11 +527,14 @@ takeover=false
 if [[ "${takeover}" == true ]]; then
   [[ "${LANE_SERVES}" == packs ]] ||
     { log "refused: the ${UNIT} lane serves objects baked from ${served_gold_table}; a takeover's switch is checked only for section packs (root ADR-0564 §6)"; exit 64; }
-  switch_json="$(FOUNDATION_PLATFORM_GOLD_TAKEOVER_TABLE="${lane_gold_table}" \
-    "${PUBLISHER_BIN}" show-gold-takeover-switch 2>"${STATE_ROOT}/takeover-switch.log" | tail -n 1)" ||
+  FOUNDATION_PLATFORM_GOLD_TAKEOVER_TABLE="${lane_gold_table}" \
+    "${PUBLISHER_BIN}" show-gold-takeover-switch >"${STATE_ROOT}/takeover-switch.out" 2>"${STATE_ROOT}/takeover-switch.log" ||
     { log "refused: no build pair to switch ${served_gold_table} to ${lane_gold_table} from; see ${STATE_ROOT}/takeover-switch.log (root ADR-0564 §6-5)"; exit 1; }
-  read -r replaced_build shadow_build < <(python3 -I -c 'import json, sys; pair = json.loads(sys.argv[1]); print(pair["replaced_build"], pair["shadow_build"])' "${switch_json}") ||
+  switch_json="$(tail -n 1 "${STATE_ROOT}/takeover-switch.out")"
+  python3 -I -c 'import json, sys; pair = json.loads(sys.argv[1]); print(pair["replaced_build"], pair["shadow_build"])' \
+    "${switch_json}" >"${STATE_ROOT}/takeover-switch.pair" 2>>"${STATE_ROOT}/takeover-switch.log" ||
     { log "refused: show-gold-takeover-switch printed no build pair: ${switch_json}"; exit 1; }
+  read -r replaced_build shadow_build <"${STATE_ROOT}/takeover-switch.pair"
   [[ "${reflected}" == "${replaced_build}" ]] ||
     { log "refused: the packs reflect ${served_gold_table} snapshot ${reflected}, not its build ${replaced_build} the verdict compared; bake the lane to that build before the switch (root ADR-0564 §6-5)"; exit 1; }
   log "the switch from ${served_gold_table} bakes ${lane_gold_table} at its shadow commit ${shadow_build} (Gold is at ${gold}); the next run patches it forward"

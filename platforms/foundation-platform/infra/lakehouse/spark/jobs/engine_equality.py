@@ -272,9 +272,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         def run(sql: str) -> list[dict[str, Any]]:
             cursor = connection.execute(sql)
             names = [column[0] for column in cursor.description]
-            return [dict(zip(names, row)) for row in cursor.fetchall()]
+            return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
 
-        for name, path in zip(relations, (args.reference, args.candidate)):
+        for name, path in zip(relations, (args.reference, args.candidate), strict=True):
             quoted = path.replace("\\", "/").replace("'", "''")
             connection.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{quoted}')")
     found = compare(run, *relations, keys, "duckdb", content, digest)
