@@ -96,8 +96,8 @@ pub use data_go_kr_file_data::{
 };
 pub use errors::LakehouseError;
 pub use gold_versions_table::{
-    gold_versions_table, GOLD_VERSIONS_PNU_PARTITION, GOLD_VERSIONS_REMOVAL_COLUMN,
-    GOLD_VERSIONS_TABLE_SUFFIX, GOLD_VERSION_SEQ_COLUMN,
+    gold_versions_table, GOLD_VERSIONS_DIGEST_COLUMN, GOLD_VERSIONS_PNU_PARTITION,
+    GOLD_VERSIONS_REMOVAL_COLUMN, GOLD_VERSIONS_TABLE_SUFFIX, GOLD_VERSION_SEQ_COLUMN,
 };
 pub use housing_permit_basis_outline::SILVER_HOUSING_PERMIT_BASIS_OUTLINE;
 pub use hub_lane_family::{

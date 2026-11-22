@@ -118,6 +118,7 @@ mod kind_versions_build;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
+mod parcel_boundary_served_build;
 mod parcel_lineage_derive;
 mod parcel_matching_gate;
 mod parcel_nearby_versions_build;
@@ -303,6 +304,8 @@ enum Command {
     LoadIndustrialComplexSilver,
     CheckBuildingRegisterFloorHistory,
     LoadBuildingRegisterFloorSilver,
+    BuildParcelBoundaryServed,
+    BuildParcelBoundaryServedVersions,
     BuildParcelNearbyVersions,
     RunParcelMatchingGate,
     BuildParcelRegisterMastersVersions,
@@ -667,6 +670,10 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadBuildingRegisterFloorSilver => {
             Box::pin(building_register_floor_silver_load::run())
         }
+        Command::BuildParcelBoundaryServed => Box::pin(parcel_boundary_served_build::run()),
+        Command::BuildParcelBoundaryServedVersions => {
+            Box::pin(parcel_boundary_served_build::run_shadow())
+        }
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
         Command::RunParcelMatchingGate => Box::pin(parcel_matching_gate::run()),
         Command::BuildParcelRegisterMastersVersions => {
@@ -857,6 +864,10 @@ where
             Ok(Command::CheckBuildingRegisterFloorHistory)
         }
         Some("load-building-register-floor-silver") => Ok(Command::LoadBuildingRegisterFloorSilver),
+        Some("build-parcel-boundary-served") => Ok(Command::BuildParcelBoundaryServed),
+        Some("build-parcel-boundary-served-versions") => {
+            Ok(Command::BuildParcelBoundaryServedVersions)
+        }
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
         Some("run-parcel-matching-gate") => Ok(Command::RunParcelMatchingGate),
         Some("build-parcel-register-masters-versions") => {

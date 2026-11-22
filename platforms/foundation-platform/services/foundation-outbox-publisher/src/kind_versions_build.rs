@@ -403,7 +403,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
 }
 
 /// The key range of one 시도, as a predicate on `pnu` that skips the files outside it.
-fn sido_range(sido: &str) -> anyhow::Result<String> {
+pub(crate) fn sido_range(sido: &str) -> anyhow::Result<String> {
     let number: u8 = sido
         .parse()
         .ok()
@@ -417,7 +417,7 @@ fn sido_range(sido: &str) -> anyhow::Result<String> {
 }
 
 /// The 시도 the head's rows lie in (a removal marker's too: a superset of its current rows').
-fn head_sidos(
+pub(crate) fn head_sidos(
     connection: &foundation_publisher_silver::duckdb::Connection,
     table: &str,
     head: i64,

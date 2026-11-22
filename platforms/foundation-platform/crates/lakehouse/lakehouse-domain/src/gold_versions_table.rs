@@ -1,8 +1,8 @@
 //! The table of appended row versions a Gold is born as, beside the table a `MERGE` replaces rows
 //! of (root ADR-0564 §1, §2).
 //!
-//! `gold.<t>_versions` carries every column of `gold.<t>` as it is, then `version_seq` and
-//! `row_state`. A commit appends the rows of the keys it changed, all with one `version_seq` (the
+//! `gold.<t>_versions` carries every column of `gold.<t>` as it is, then `row_digest` when `gold.<t>`
+//! has none, then `version_seq` and `row_state`. A commit appends the rows of the keys it changed, all with one `version_seq` (the
 //! table's commit number, which the publisher assigns), and a key that left appends a row marked
 //! `removed`. The current rows are the newest per key that are not removal markers
 //! ([`LakehouseTableContract::current_row_latest`]). Nothing of the shape is written by hand: it
@@ -31,6 +31,11 @@ pub const GOLD_VERSIONS_REMOVAL_COLUMN: &str = "row_state";
 pub const GOLD_VERSIONS_PNU_PARTITION: &str = "truncate(2, pnu)";
 /// The partition column a replaced Gold has per commit, which its versions table drops.
 const PER_COMMIT_PARTITION: &str = "source_snapshot_id";
+/// The digest of a row's content a commit diffs by: a key is appended when it moved (root ADR-0564
+/// §3, ADR-0099).
+pub const GOLD_VERSIONS_DIGEST_COLUMN: &str = "row_digest";
+/// The gate a digest the versions table adds holds of its current rows.
+const ADDED_DIGEST_GATE: &str = "of the current rows: row_digest contains content only";
 
 fn leak_str(text: String) -> &'static str {
     Box::leak(text.into_boxed_str())
@@ -69,6 +74,21 @@ pub fn gold_versions_table(
         ));
     }
     let mut columns = replaced.columns.to_vec();
+    // A commit appends the keys whose digest moved. A replaced table whose producer writes no
+    // digest (the served parcel boundaries, which a Spark job overwrites whole every edition) gets
+    // one here, after its own columns: the versions table's producer computes it, and the replaced
+    // table's producer and readers are untouched while it is still served.
+    let digest_added = !replaced
+        .columns
+        .iter()
+        .any(|column| column.name == GOLD_VERSIONS_DIGEST_COLUMN);
+    if digest_added {
+        columns.push(LakehouseColumn {
+            name: GOLD_VERSIONS_DIGEST_COLUMN,
+            logical_type: "string",
+            required: true,
+        });
+    }
     columns.extend([
         LakehouseColumn {
             name: GOLD_VERSION_SEQ_COLUMN,
@@ -111,6 +131,9 @@ pub fn gold_versions_table(
             .iter()
             .map(|gate| leak_str(format!("of the current rows: {gate}"))),
     );
+    if digest_added {
+        quality_gates.push(ADDED_DIGEST_GATE);
+    }
     Ok(LakehouseTableContract {
         table_name: leak_str(format!("{name}{GOLD_VERSIONS_TABLE_SUFFIX}")),
         layer: LakehouseLayer::Gold,
@@ -134,9 +157,12 @@ pub fn gold_versions_table(
 
 /// The Golds outside the by-PNU lanes that have a versions table. Root ADR-0564 §6-9: the 실거래
 /// region statistics are read by their producer alone, so the versions table is born with the
-/// producer that appends to it and nothing switches over.
-const VERSIONED_OUTSIDE_THE_LANES: &[&LakehouseTableContract] =
-    &[&crate::real_transaction_region_stats::GOLD_REAL_TRANSACTION_REGION_STATS];
+/// producer that appends to it and nothing switches over. The served parcel boundaries are read by
+/// the parcel tile bake through its handoff (row 6 of the ADR's waves, with the geometry handoff).
+const VERSIONED_OUTSIDE_THE_LANES: &[&LakehouseTableContract] = &[
+    &crate::real_transaction_region_stats::GOLD_REAL_TRANSACTION_REGION_STATS,
+    &crate::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED,
+];
 
 /// The versions tables of the Golds outside the by-PNU lanes; empty when one cannot be derived
 /// (the test below refuses that).
@@ -274,6 +300,43 @@ mod tests {
                 .as_slice()
             )
         );
+    }
+
+    #[test]
+    fn the_served_parcel_boundaries_have_their_versions_table_with_a_digest_added(
+    ) -> Result<(), String> {
+        let tables = gold_versions_tables_outside_the_lanes();
+        let table = tables
+            .iter()
+            .find(|table| table.table_name == "gold.parcel_boundary_served_versions")
+            .ok_or("the served parcel boundaries have no versions table")?;
+        let replaced = crate::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED.columns;
+        assert!(
+            !replaced
+                .iter()
+                .any(|column| column.name == GOLD_VERSIONS_DIGEST_COLUMN),
+            "the Spark job writes the replaced table's columns, and it computes no digest"
+        );
+        let names: Vec<_> = table.columns.iter().map(|column| column.name).collect();
+        let mut expected: Vec<_> = replaced.iter().map(|column| column.name).collect();
+        expected.extend(["row_digest", "version_seq", "row_state"]);
+        assert_eq!(names, expected);
+        assert_eq!(table.partition_spec, [GOLD_VERSIONS_PNU_PARTITION]);
+        assert!(table.quality_gates.contains(&ADDED_DIGEST_GATE));
+        Ok(())
+    }
+
+    #[test]
+    fn a_table_with_a_digest_keeps_it_and_adds_none() -> Result<(), String> {
+        let table = gold_versions_table(&replaced(&["pnu"], BY_PNU, &["source_snapshot_id"]))?;
+        let digests = table
+            .columns
+            .iter()
+            .filter(|column| column.name == GOLD_VERSIONS_DIGEST_COLUMN)
+            .count();
+        assert_eq!(digests, 1);
+        assert!(!table.quality_gates.contains(&ADDED_DIGEST_GATE));
+        Ok(())
     }
 
     #[test]
