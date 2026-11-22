@@ -142,8 +142,11 @@ class TheImagePrune(unittest.TestCase):
             image("pinned-digest", digests=[f"apache/airflow@sha256:{PINNED_DIGEST}"]),
             image("leftover", tags=["perfectory-verify:task74"]),
             image("untagged", digests=[f"redis@sha256:{'c' * 64}"]),
+            # Root ADR-0607: a host-built repository's newest stays at any age; its older inputs go.
+            image("raon-current", tags=["foundation-platform/raon-batch-1111111111111111:local"]),
+            image("raon-former", tags=["foundation-platform/raon-batch-2222222222222222:local"], created=OLD - DAY),
         )
-        self.assertEqual(chosen, ["sha256:leftover", "sha256:untagged"])
+        self.assertEqual(chosen, ["sha256:leftover", "sha256:untagged", "sha256:raon-former"])
 
     def test_references_come_from_the_deployed_tree(self):
         with tempfile.TemporaryDirectory() as temporary:

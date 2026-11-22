@@ -29,6 +29,8 @@ import job_specs  # noqa: E402
 PLATFORM = job_specs.PLATFORM_ROOT
 sys.path.insert(0, str(PLATFORM / "scripts/deploy"))
 import runtime_secrets  # noqa: E402
+sys.path.insert(0, str(PLATFORM / "scripts/ops"))
+import host_retention  # noqa: E402
 
 RUN = "raon-large-files"
 SCRIPT = PLATFORM / "scripts/ops/raon-large-files.sh"
@@ -277,6 +279,8 @@ class RaonLargeFiles(unittest.TestCase):
         tag = build["args"][build["args"].index("-t") + 1]
         self.assertEqual(run["image"], tag)
         self.assertRegex(tag, r"^foundation-platform/raon-batch-[0-9a-f]{16}:local$")
+        # Named by its inputs in a family the host retention keeps the newest of (root ADR-0607).
+        self.assertTrue(any(tag.startswith(prefix) for prefix in host_retention.HOST_BUILT), tag)
         self.assertIn(f"{self.publisher}:/usr/local/bin/foundation-outbox-publisher:ro", run["args"],
                       "the release's own publisher, read-only")
         self.assertIn("host", run["args"][run["args"].index("--network") + 1])

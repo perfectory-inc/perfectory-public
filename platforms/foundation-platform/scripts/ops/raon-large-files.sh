@@ -125,7 +125,9 @@ if [ -z "${DATABASE_URL:-}" ]; then
 fi
 
 # The image is named after the content of its build context (the worker, the Dockerfile, the
-# naming contract) and the pinned package. A release that changes none of them reuses it.
+# naming contract) and the pinned package. A release that changes none of them reuses it, and the
+# host retention keeps the newest image of that name family at any age (root ADR-0607): aged out at 7 days,
+# the same image was built again, 85 minutes before the first file (2026-11-22).
 image_inputs=(
   "${WORKER}/Dockerfile.raon-batch"
   "${WORKER}/pyproject.toml"
