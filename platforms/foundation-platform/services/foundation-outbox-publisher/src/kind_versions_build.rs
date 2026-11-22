@@ -518,6 +518,7 @@ mod tests {
             &SUB_PARCELS_BUILD,
             &BUILDING_PERMITS_BUILD,
             &PARCEL_PANEL_BUILD,
+            &OWNERSHIP_BUILD,
             &FACTORIES_BUILD,
         ] {
             let has = contract(kind.replaced)?
