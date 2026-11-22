@@ -1,5 +1,6 @@
-//! `load-building-register-floor-silver`: one FLOOR edition appended whole to
-//! `silver.building_register_floors` by the publisher (root ADR-0559, ADR-0599). It was
+//! `load-building-register-floor-silver`: one FLOOR edition appended whole (root ADR-0559).
+//!
+//! The publisher appends it to `silver.building_register_floors` (root ADR-0599). It was
 //! `silver_scalar_handoff_to_lakehouse.py` (Spark), the script's last user.
 //!
 //! The native export left the edition as Parquet files (`parquet_row_writer`). `DuckDB` reads them
@@ -47,6 +48,8 @@ pub struct FloorLoad {
     pub summary: Value,
     /// Whether this run appended (false: the edition was already recorded).
     pub appended: bool,
+    /// The snapshot the append committed, when it did.
+    pub snapshot_id: Option<i64>,
 }
 
 fn contract() -> anyhow::Result<&'static LakehouseTableContract> {
@@ -159,6 +162,14 @@ fn quality_metrics(
 ///
 /// # Errors
 /// A check refuses the rows, the table records part of the batch, or the commit fails.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one edition's load in order; to be split by the handoff"
+)]
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "the stage is locked once for the check, the metrics and the staging"
+)]
 pub async fn load(
     handoff: &Path,
     work: &Path,
@@ -179,6 +190,7 @@ pub async fn load(
         return Ok(FloorLoad {
             summary: json!({"status": "already_appended", "source_snapshot_ids": [source_snapshot_id]}),
             appended: false,
+            snapshot_id: None,
         });
     }
     let head = catalog
@@ -313,11 +325,9 @@ pub async fn load(
     {
         object.insert("bytes_written".to_owned(), json!(bytes));
     }
-    if let Some(snapshot) = snapshot {
-        println!(
-            "building-register-floor-load committed snapshot={snapshot} rows={rows} files={}",
-            files.len()
-        );
-    }
-    Ok(FloorLoad { summary, appended })
+    Ok(FloorLoad {
+        summary,
+        appended,
+        snapshot_id: snapshot,
+    })
 }
