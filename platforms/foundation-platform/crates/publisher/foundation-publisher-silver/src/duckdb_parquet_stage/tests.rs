@@ -1143,6 +1143,9 @@ const SALE_NOTICE_ATTACHMENT: &str = "SELECT 'ilis' AS notice_source, '99001' AS
 /// on the head the rows were computed against (none yet). An object with no row of a table is
 /// recorded too (an empty commit), and an object `main` records is not appended again.
 #[tokio::test(flavor = "multi_thread")]
+// One loop over the four tables; the first-load guard reads the append from this body itself
+// (test_silver_first_load_iceberg.py), so it is not split into a helper.
+#[allow(clippy::too_many_lines)]
 async fn a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_no_row_is_recorded(
 ) -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
@@ -1173,103 +1176,89 @@ async fn a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_
             serde_json::json!("99001"),
         ),
     ] {
-        first_append_into_an_empty_table(root.path(), &stage, table, rows, key, &value).await?;
-    }
-    Ok(())
-}
+        let short = table
+            .table_name
+            .split_once('.')
+            .context("namespace.table")?
+            .1;
+        let catalog = catalog_with(&root.path().join(short), table).await?;
+        let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+        let shape = committer.table_shape(table.table_name).await?;
+        let file = stage.write(&shape, rows, &format!("{short}-first"))?;
+        let first = "bronze/source=synthetic/detail-20990102t030405z-000.gz".to_owned();
+        let (snapshot, parent, added) = appended(
+            committer
+                .append_at_head(
+                    DataAppend {
+                        table_name: table.table_name,
+                        contract: table,
+                        files: std::slice::from_ref(&file),
+                        batch: std::slice::from_ref(&first),
+                        already_ingested: &BTreeSet::new(),
+                        summary: BTreeMap::new(),
+                    },
+                    None,
+                )
+                .await?,
+        )?;
+        assert_eq!((parent, added), (None, 1), "{short}");
+        let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
+        scanned.ensure_complete()?;
+        assert_eq!(scanned.rows.len(), 1, "{short}");
+        assert_eq!(scanned.rows[0][key], value, "{short}");
 
-/// One table's first append into its empty table, an empty commit that only records the next
-/// object, and the refused repeat of a recorded one (the test above, per table).
-async fn first_append_into_an_empty_table(
-    root: &std::path::Path,
-    stage: &DuckDbParquetStage,
-    table: &'static LakehouseTableContract,
-    rows: &str,
-    key: &str,
-    value: &serde_json::Value,
-) -> anyhow::Result<()> {
-    let short = table
-        .table_name
-        .split_once('.')
-        .context("namespace.table")?
-        .1;
-    let catalog = catalog_with(&root.join(short), table).await?;
-    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
-    let shape = committer.table_shape(table.table_name).await?;
-    let file = stage.write(&shape, rows, &format!("{short}-first"))?;
-    let first = "bronze/source=synthetic/detail-20990102t030405z-000.gz".to_owned();
-    let (snapshot, parent, added) = appended(
-        committer
-            .append_at_head(
-                DataAppend {
-                    table_name: table.table_name,
-                    contract: table,
-                    files: std::slice::from_ref(&file),
-                    batch: std::slice::from_ref(&first),
-                    already_ingested: &BTreeSet::new(),
-                    summary: BTreeMap::new(),
-                },
-                None,
-            )
-            .await?,
-    )?;
-    assert_eq!((parent, added), (None, 1), "{short}");
-    let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
-    scanned.ensure_complete()?;
-    assert_eq!(scanned.rows.len(), 1, "{short}");
-    assert_eq!(scanned.rows[0][key], *value, "{short}");
+        // The next object holds no row of this table: its commit only records it.
+        let second = "bronze/source=synthetic/detail-20990102t030405z-001.gz".to_owned();
+        let held = BTreeSet::from([first.clone()]);
+        let (empty, parent, added) = appended(
+            committer
+                .append_at_head(
+                    DataAppend {
+                        table_name: table.table_name,
+                        contract: table,
+                        files: &[],
+                        batch: std::slice::from_ref(&second),
+                        already_ingested: &held,
+                        summary: BTreeMap::new(),
+                    },
+                    Some(snapshot.snapshot_id),
+                )
+                .await?,
+        )?;
+        assert_eq!((parent, added), (Some(snapshot.snapshot_id), 0), "{short}");
+        let loaded = catalog
+            .load_table(&TableIdent::from_strs(["silver", short])?)
+            .await?;
+        let recorded = &loaded
+            .metadata()
+            .current_snapshot()
+            .context("a current snapshot")?
+            .summary()
+            .additional_properties;
+        assert_eq!(
+            recorded["foundation.ingest-batch-objects"], second,
+            "{short}"
+        );
+        let still = scan_snapshot_rows(table, &LocalFiles, &empty).await?;
+        assert_eq!(still.rows.len(), 1, "{short}: the empty commit adds no row");
 
-    // The next object holds no row of this table: its commit only records it.
-    let second = "bronze/source=synthetic/detail-20990102t030405z-001.gz".to_owned();
-    let held = BTreeSet::from([first.clone()]);
-    let (empty, parent, added) = appended(
-        committer
+        // Recorded objects are not appended again.
+        let both = BTreeSet::from([first.clone(), second.clone()]);
+        let again = committer
             .append_at_head(
                 DataAppend {
                     table_name: table.table_name,
                     contract: table,
                     files: &[],
                     batch: std::slice::from_ref(&second),
-                    already_ingested: &held,
+                    already_ingested: &both,
                     summary: BTreeMap::new(),
                 },
-                Some(snapshot.snapshot_id),
+                Some(empty.snapshot_id),
             )
-            .await?,
-    )?;
-    assert_eq!((parent, added), (Some(snapshot.snapshot_id), 0), "{short}");
-    let loaded = catalog
-        .load_table(&TableIdent::from_strs(["silver", short])?)
-        .await?;
-    let recorded = &loaded
-        .metadata()
-        .current_snapshot()
-        .context("a current snapshot")?
-        .summary()
-        .additional_properties;
-    assert_eq!(
-        recorded["foundation.ingest-batch-objects"], second,
-        "{short}"
-    );
-    let still = scan_snapshot_rows(table, &LocalFiles, &empty).await?;
-    assert_eq!(still.rows.len(), 1, "{short}: the empty commit adds no row");
-
-    // Recorded objects are not appended again.
-    let both = BTreeSet::from([first.clone(), second.clone()]);
-    let again = committer
-        .append_at_head(
-            DataAppend {
-                table_name: table.table_name,
-                contract: table,
-                files: &[],
-                batch: std::slice::from_ref(&second),
-                already_ingested: &both,
-                summary: BTreeMap::new(),
-            },
-            Some(empty.snapshot_id),
-        )
-        .await?;
-    assert_eq!(again, AppendOutcome::AlreadyIngested, "{short}");
+            .await?;
+        assert_eq!(again, AppendOutcome::AlreadyIngested, "{short}");
+    }
     Ok(())
 }
 
