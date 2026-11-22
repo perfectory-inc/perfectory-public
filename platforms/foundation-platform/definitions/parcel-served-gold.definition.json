@@ -191,6 +191,16 @@
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs"
       ],
       "description": "그림자인 동안 옛 표의 압축이 아닌 가장 새 커밋을 따른다(루트 ADR-0564 §6): 그 커밋 시각의 입력과 그 행이 가진 판으로 짓는다. 옛 표의 데이터는 판 이름만 읽는다."
+    },
+    {
+      "from": "gold-parcel-boundary-served-versions",
+      "to": "parcel-tiles",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0602-the-served-parcel-boundaries-are-built-in-duckdb-inside-the-publisher-one-sido-at-a-time-and-kept-as-row-versions.md"
+      ],
+      "description": "전환 PR 이 굽기의 Gold 쪽 3단계를 이 표의 생산자로 바꾸면(넘겨받기 판정 takeover_equal 통과 뒤, 루트 ADR-0602 §8) 굽기가 이 표가 쓴 인계를 굽는다. 그때까지 아무도 읽지 않는 그림자다."
     }
   ],
   "host_memory": {
