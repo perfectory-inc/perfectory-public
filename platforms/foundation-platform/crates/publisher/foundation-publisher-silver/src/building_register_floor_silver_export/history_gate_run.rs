@@ -1,5 +1,6 @@
-//! `check-building-register-floor-history`: the FLOOR history gate, run before an export (root
-//! ADR-0338). It was the Spark job `building_register_floor_history.py`; its decisions are
+//! `check-building-register-floor-history`: the FLOOR history gate (root ADR-0338).
+//!
+//! It runs before an export. It was the Spark job `building_register_floor_history.py`; its decisions are
 //! [`super::history_gate`], its reads are the catalog's snapshot register and, for the rows' lineage,
 //! the publisher's `DuckDB` reading the table at a snapshot.
 //!
@@ -33,7 +34,7 @@ pub const OUTCOME_SCHEMA: &str = "foundation-platform.floor-history-check.v1";
 /// The exit code that tells the pipeline to run the export.
 pub const EXPORT_REQUIRED: i32 = 10;
 const TABLE: &str = "silver.building_register_floors";
-/// The reader pin of the witness snapshot (lakehouse-maintenance.contract.json reader_pins).
+/// The reader pin of the witness snapshot (`lakehouse-maintenance.contract.json` `reader_pins`).
 pub const WITNESS_TAG: &str = "foundation-floor-history-witness";
 const MAX_RECEIPT_BYTES: u64 = 65_536;
 
@@ -59,7 +60,7 @@ struct Lineage {
     ingested_at_us: i64,
 }
 
-fn micros(at: DateTime<Utc>) -> i64 {
+const fn micros(at: DateTime<Utc>) -> i64 {
     at.timestamp_micros()
 }
 
@@ -253,6 +254,14 @@ fn read_receipt(path: &Path) -> anyhow::Result<(Receipt, Value)> {
 ///
 /// # Errors
 /// The witness, the receipt or the table's history does not authenticate, or a read fails.
+#[expect(
+    clippy::too_many_lines,
+    reason = "ported in the order of the Spark job's main; to be split by the handoff"
+)]
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "the stage is locked once for every lineage read of the gate"
+)]
 pub async fn run(
     receipt_path: &Path,
     summary: &Path,
@@ -290,8 +299,8 @@ pub async fn run(
             authenticate_witness(&stage, witness)?;
         }
         if binding.is_none() || derivation.is_some() {
-            match registered_append(&identity, &registry)? {
-                Some(record) => {
+            if let Some(record) = registered_append(&identity, &registry)? {
+                {
                     let groups = added_by(
                         &stage,
                         &registry,
@@ -325,7 +334,8 @@ pub async fn run(
                         "derivation": derivation,
                     }));
                 }
-                None => {
+            } else {
+                {
                     // Snapshot expiry may remove the registry without removing the rows: a missing
                     // record never means unprocessed.
                     let current = lineage_at(&stage, head, Some(&receipt.source_snapshot_id))?;
