@@ -308,10 +308,13 @@ class CodeLocationTest(unittest.TestCase):
         import observe_assets
 
         jobs, graph = observe_assets.contracts()
-        (spec,) = [spec for spec in observe_assets.job_specs.load_specs(jobs, graph) if spec.job_id == "data_go_kr_file_data"]
+        specs = observe_assets.job_specs.load_specs(jobs, graph)
+        (spec,) = [spec for spec in specs if spec.job_id == "data_go_kr_file_data"]
         job = next(job for job in jobs["jobs"] if job["id"] == "data_go_kr_file_data")
         by_key = {asset.key: asset for asset in observe_assets.observed_assets(jobs, graph)}
-        written = [by_key[observe_assets.asset_key(dataset)] for dataset in spec.outputs]
+        # An asset several jobs write carries the digest of all of theirs (code_versions); its own Silver tables are its alone.
+        shared = {dataset for other in specs if other.job_id != spec.job_id for dataset in other.outputs}
+        written = [by_key[observe_assets.asset_key(dataset)] for dataset in spec.outputs if dataset not in shared]
         self.assertTrue(written)
         self.assertEqual({asset.code_version for asset in written}, {job_code_version.version(job)})
 

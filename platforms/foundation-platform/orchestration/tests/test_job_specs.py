@@ -76,10 +76,10 @@ def own_lane_bakes():
 
 
 def publisher_gold_builds(jobs):
-    """The Gold builds the publisher runs (a table of appended row versions, root ADR-0564 §3), read from
-    the job list by their unit: a new lane's build joins every count below by itself."""
-    return sorted(job["id"] for job in jobs["jobs"]
-                  if (job.get("systemd_service") or "").startswith("foundation-gold-versions@"))
+    """The Gold builds the publisher runs in the spark pool (root ADR-0564 §3), read from the job list by their
+    unit: a new lane's build joins every count below by itself; one on a memory_claim holds no spark slot."""
+    return sorted(job["id"] for job in jobs["jobs"] if job["pool"] == "spark"
+                  and (job.get("systemd_service") or "").startswith("foundation-gold-versions@"))
 
 
 def real_inputs():
@@ -221,6 +221,15 @@ class AnEventAPausedReaderMissedIsOwed(unittest.TestCase):
         self.assertEqual(job_specs.owed_by_inputs(decided, everything, runs, set()), [])
 
 
+def whole_pool_job(jobs):
+    """Plants the job FLOOR was in the spark pool until root ADR-0599 (3 slots, tier 100, 240 + 10)."""
+    heavy = {**copy.deepcopy(job(jobs, "building_register_floor")), "id": "a_whole_pool_job", "pool": "spark",
+             "pool_slots": 3, "priority_weight": 100, "time_limit_minutes": 240, "retries": 1}
+    heavy.pop("memory_claim", None)
+    jobs["jobs"].append(heavy)
+    return heavy
+
+
 class TheRealJobList(unittest.TestCase):
     def setUp(self):
         self.specs = job_specs.load_specs()
@@ -256,11 +265,13 @@ class TheRealJobList(unittest.TestCase):
                     self.assertFalse(job["interruptible"], "a job that commits at the end must not be interruptible")
         self.assertTrue([job for job in jobs if job["commits"] == "at_end"], "the collectors that commit at the end say so")
 
-    def test_floor_cycle_owns_one_complete_spark_job_and_only_its_real_edge(self):
+    def test_floor_cycle_owns_one_complete_job_and_only_its_real_edge(self):
         jobs, _ = real_inputs()
         floor = next(job for job in jobs["jobs"] if job["id"] == "building_register_floor")
         self.assertTrue(floor["enabled"])
-        self.assertEqual(floor["pool"], "spark")
+        # Root ADR-0599: no Spark; one slot of the documents pool, admitted by its unit's memory.
+        self.assertEqual((floor["pool"], floor["pool_slots"]), ("documents", 1))
+        self.assertEqual(floor["memory_claim"], {"units": [floor["systemd_service"]]})
         self.assertEqual(floor["pipeline_graph_edges"], [
             "source-building-hub-bulk-to-silver-building-register-floors"
         ])
@@ -273,6 +284,7 @@ class TheRealJobList(unittest.TestCase):
             "/etc/foundation-platform/recovery.env",
             "/etc/foundation-platform/source-sweep.env",
             "/etc/foundation-platform/map-edit-fold.env",
+            "/etc/foundation-platform/lakehouse-reader.env",
         ]:
             self.assertIn(f"EnvironmentFile={environment_file}\n", unit)
         self.assertIn("ProtectSystem=strict\n", unit)
@@ -389,10 +401,11 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # The bake runs up to 21 hours. Taking two of the three slots, the hourly folds (two each)
         # would wait behind it as well; with one, a fold always fits beside it (root ADR-0138).
         # Lighter and as wide as a fold, it never starts ahead of one, but one run of it can already
-        # hold the pool when a fold's turn comes: FLOOR and the other fold, then the bake.
+        # hold the pool when a fold's turn comes: a whole-pool job and the other fold, then the bake.
         def both_slots(jobs):
             bake(jobs)["pool_slots"] = 2
         jobs = copy.deepcopy(real_inputs()[0])
+        whole_pool_job(jobs)
         both_slots(jobs)
         problems = job_specs.pool_starvation(jobs)
         self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2030 minutes for pool 'spark'")
@@ -400,7 +413,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(both_slots)
 
     def test_the_starvation_bound_counts_every_job_that_can_hold_it_back(self):
-        # FLOOR (3 slots, tier 100) can be held back once by each lighter job narrower than it, which
+        # A whole-pool job (3 slots, tier 100: FLOOR until root ADR-0599) can be held back once by each lighter job narrower than it, which
         # may start in room FLOOR does not fit (both folds, each 1-slot bake run), and by what already
         # holds the pool when its turn comes: lineage (lighter and as wide since root ADR-0558, retried
         # once), whose 265 minutes outlast the panel Gold rebuild's 165 and any one Silver lane's 160.
@@ -411,11 +424,11 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # (2 slots, 115 + 30; root ADR-0361) and every other lane's own bake; the bound reads no
         # takes_turns, so they count though they do not take turns. Each lane bake counts once at its own
         # hold, read from the job list for the lanes the index names (no count of lanes is written here).
-        # Each Gold the publisher builds (2 slots, 60 + 5: parcel-nearby, root ADR-0567, and the lanes
-        # the takeover path adds, ADR-0564 §6) counts the same way, read from the job list.
+        # Each Gold the publisher builds in this pool (2 slots, 60 + 5: parcel-nearby, root ADR-0567, and
+        # the lanes the takeover path adds, ADR-0564 §6) counts the same way, read from the job list.
         jobs = copy.deepcopy(real_inputs()[0])
+        floor = whole_pool_job(jobs)
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
-        floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
         lane_bakes = [job for job in spark if job["id"] in own_lane_bakes()]
         self.assertEqual({job["id"] for job in lane_bakes}, set(own_lane_bakes()), "every lane bake is in the spark pool")
@@ -431,8 +444,8 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
         self.assertNotIn("by_pnu_serving_bake", blockers)
-        # Lineage takes all three slots: a fold waits for FLOOR, the other fold and one run of
-        # lineage, inside its limit (20 x 60 minutes).
+        # Lineage takes all three slots: a fold waits for the whole-pool job, the other fold and one
+        # run of lineage, inside its limit (20 x 60 minutes).
         self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5))
         self.assertLess(wait, job_specs.STARVATION_CYCLES * 60)
 
@@ -441,10 +454,10 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         floor = {"id": "f", "time_limit_minutes": 240, "stop_grace_minutes": 10, "wait_limit_minutes": 0, "retries": 1}
         self.assertEqual(job_specs.hold_minutes(floor), 505)
         self.assertEqual(job_specs.hold_minutes({**floor, "retries": 0}), 250)
-        # Planted: FLOOR retried three times would keep the hourly folds waiting past the limit,
-        # although its timeout alone would not.
+        # Planted: a whole-pool job retried three times would keep the hourly folds waiting past the
+        # limit, although its timeout alone would not.
         def retried(jobs):
-            next(job for job in jobs["jobs"] if job["id"] == "building_register_floor")["retries"] = 3
+            whole_pool_job(jobs)["retries"] = 3
         jobs = copy.deepcopy(real_inputs()[0])
         retried(jobs)
         self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1545 minutes")
@@ -452,13 +465,13 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(retried)
 
     def test_the_bake_is_not_retried_and_takes_turns(self):
-        # A retried bake would hold its slot for another 21 hours; a turn-taking one defers to
-        # FLOOR and lineage between runs (start-scheduled-job.sh).
+        # A retried bake would hold its slot for another 21 hours; a turn-taking one defers to the
+        # heavier Silver loads and lineage between runs (start-scheduled-job.sh).
         spec = next(spec for spec in job_specs.load_specs() if spec.job_id == "by_pnu_serving_bake")
         self.assertEqual(spec.retries, 0)
         self.assertTrue(bake(real_inputs()[0])["takes_turns"])
         weights = {spec.job_id: spec.priority_weight for spec in job_specs.load_specs() if spec.pool == "spark"}
-        self.assertGreater(weights["building_register_floor"],
+        self.assertGreater(weights["rt_molit_real_transaction_silver"],
                            max(weights["map_edit_fold_admin"], weights["map_edit_fold_complex"]))
         # Lineage names no tier: its place is just above the Gold rebuilds that read what it writes
         # (root ADR-0558), below the folds.
@@ -516,43 +529,6 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
     def test_an_enabled_job_that_still_carries_a_disabled_reason(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(disabled_reason="stale"))
-
-
-class AProducerOutranksItsConsumers(unittest.TestCase):
-    """Root ADR-0558. 2026-11-11 12:15Z..: data_go_kr_file_data (weight 1) waited over 16 hours in the
-    spark pool's queue while gold_parcel_nearby_rebuild (weight 2), which reads the Silver tables only
-    it loads, ran ahead of it and failed on tables that did not exist yet."""
-
-    def test_no_job_of_the_real_list_waits_behind_a_job_that_reads_what_it_writes(self):
-        jobs, graph = real_inputs()
-        feeders = job_specs.producers(jobs, graph)
-        by_id = {entry["id"]: entry for entry in jobs["jobs"]}
-        weights = job_specs.queue_weights(jobs, feeders)
-        circles = [{"map_edit_fold_admin", "map_edit_fold_complex"},  # they share one ledger
-                   # The collector asks the read records which notices are settled; the Silver load reads what it wrote.
-                   {"industrial_complex_notice_collect", "industrial_complex_notice_silver"}]
-        pairs = [(writer, reader) for reader, writers in feeders.items() for writer in writers
-                 if by_id[writer]["pool"] == by_id[reader]["pool"] and {writer, reader} not in circles]
-        self.assertGreater(len(pairs), 100)
-        self.assertEqual([pair for pair in pairs if weights[pair[0]] <= weights[pair[1]]], [])
-        self.assertEqual(weights["map_edit_fold_admin"], weights["map_edit_fold_complex"])
-        # The incident's pair no longer shares a pool (the file data load left Spark, root ADR-0559): the
-        # rule above holds for every pair that does. What Airflow is handed:
-        specs = {spec.job_id: spec.priority_weight for spec in job_specs.load_specs()}
-        self.assertEqual(specs, weights)
-
-    def test_a_weight_is_the_jobs_own_tier_until_a_reader_in_its_pool_raises_it(self):
-        def listed(job_id, weight, pool="spark"):
-            return {"id": job_id, "pool": pool, "priority_weight": weight}
-
-        jobs = {"jobs": [listed("load", 1), listed("gold", 20), listed("bake", 10), listed("alone", 40),
-                         listed("elsewhere", 90, "default_pool"), listed("fold_a", 50), listed("fold_b", 5),
-                         listed("after_folds", 70)]}
-        feeders = {"load": [], "gold": ["load"], "bake": ["gold"], "alone": [], "elsewhere": ["load", "alone"],
-                   "fold_a": ["fold_b"], "fold_b": ["fold_a"], "after_folds": ["fold_b"]}
-        self.assertEqual(job_specs.queue_weights(jobs, feeders),
-                         {"load": 21, "gold": 20, "bake": 10, "alone": 40, "elsewhere": 90,
-                          "fold_a": 71, "fold_b": 71, "after_folds": 70})
 
 
 def switch_off(entry, **fields):
@@ -782,10 +758,10 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
     def test_the_fold_waits_for_one_lane_at_most_and_still_fits_its_bound(self):
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "map_edit_fold_admin")
-        # FLOOR (heavier) and the other fold (as heavy) once each, then whatever holds the pool when
-        # its turn comes: lineage's 265 minutes (retried once), longer than the Gold rebuild's 165 and
-        # a lane's 160.
-        self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5))
+        # The other fold (as heavy) once, then whatever holds the pool when its turn comes: lineage's
+        # 265 minutes (retried once), longer than the Gold rebuild's 165. FLOOR, heavier, counted
+        # once more until it left the pool (root ADR-0599).
+        self.assertEqual(wait, (2 * 130 + 5) + (2 * 130 + 5))
         self.assertLess(wait, job_specs.STARVATION_CYCLES * 60)
         self.assertFalse(set(ALL_LANES) & set(blockers))
 
@@ -833,12 +809,12 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
                     self.assertEqual(total, every_group(starved, others, slots))
 
     def test_a_lighter_narrower_job_still_counts_every_time(self):
-        # The bake (1 slot) is lighter than FLOOR but fits where FLOOR (3) does not, so Airflow may
+        # The bake (1 slot) is lighter than a whole-pool job but fits where it (3) does not, so Airflow may
         # start it ahead: it stays among the jobs counted ahead, as does the hourly Onbid load and
         # the own-producer public-auction bake (1 slot, 115 + 30; root ADR-0303) and the unit price bake
         # (1 slot, 60 + 30; root ADR-0333).
         jobs = copy.deepcopy(real_inputs()[0])
-        wait, blockers = self.wait(jobs, "building_register_floor")
+        wait, blockers = self.wait(jobs, whole_pool_job(jobs)["id"])
         builds = publisher_gold_builds(jobs)
         for job_id in ("by_pnu_serving_bake", "rt_molit_real_transaction_silver", *builds, *own_lane_bakes()):
             self.assertIn(job_id, blockers)
@@ -1130,7 +1106,7 @@ class FloorCycleOutcome(unittest.TestCase):
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH": "/fixture/history.json",
                 "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE": "sha256:" + "a" * 64,
                 "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": "/fixture/state",
-                "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE": "/fixture/ivy",
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT": "/fixture/duckdb",
             }
             result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -1265,7 +1241,7 @@ class FloorCycleAdapter(unittest.TestCase):
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH": "/fixture/history.json",
                 "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE": "sha256:" + "a" * 64,
                 "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": "/fixture/state",
-                "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE": "/fixture/ivy",
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT": "/fixture/duckdb",
             }
             result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -1298,7 +1274,7 @@ class FloorCycleAdapter(unittest.TestCase):
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH": "/fixture/history.json",
                 "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE": "sha256:" + "a" * 64,
                 "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": str(root / "state"),
-                "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE": str(root / "ivy"),
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT": str(root / "duckdb"),
                 "FOUNDATION_BUILDING_REGISTER_FLOOR_PUBLISHER_BIN": str(stale),
                 "PUBLISHER_BIN": str(stale),
             }
@@ -1341,7 +1317,7 @@ class FloorCycleAdapter(unittest.TestCase):
             "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH": "/fixture/history.json",
             "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE": "sha256:" + "a" * 64,
             "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": "/fixture/state",
-            "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE": "/fixture/ivy",
+            "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT": "/fixture/duckdb",
         }
         with tempfile.TemporaryDirectory() as directory:
             script, release = self.release_wrapper(pathlib.Path(directory), '#!/usr/bin/env bash\n[[ "$#" == 1 && "$1" == run-building-register-floor-cycle ]] || exit 99\nprintf "%s" "$DATABASE_URL"\nexit 23\n')

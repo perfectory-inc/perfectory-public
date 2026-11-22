@@ -1,0 +1,4 @@
+B999999|20990130000001|1|01|채권자|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+B999999|20990130000001|2|05|임차인|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+B999999|20990130000002|1|01|채권자|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z
+B999999|20990130000002|2|05|임차인|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z

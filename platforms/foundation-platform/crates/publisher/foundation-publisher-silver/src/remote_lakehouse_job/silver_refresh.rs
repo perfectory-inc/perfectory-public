@@ -9,8 +9,8 @@
 //!    `foundation.ingest-batch-objects` record `append_batch_once` commits with the rows. If it is,
 //!    or a newer release of the lane is, the run ends `unchanged` in seconds and writes nothing;
 //! 3. otherwise stages the release's Bronze (verified against the ledger's bytes), runs the lane's
-//!    export, loads the handoff with `silver_scalar_handoff_to_lakehouse.py`, and reads the table's
-//!    record again to see the release in it: `changed`.
+//!    export, and appends the release in one commit with the publisher's `DuckDB`
+//!    (`duckdb_release`, root ADR-0599), recording it: `changed`.
 //!
 //! The last line of every successful run is `silver-refresh-outcome lane=… outcome=changed|unchanged
 //! …` (ADR-0169 §4). The lane's runner values are its contract's (`lane.rs`); this file holds none.
@@ -18,7 +18,7 @@
 //! The VWorld land lanes (step 3) differ only in step 1 and in what one release is: the newest
 //! vintage whose objects, read by their ZIP member names, cover the contract's regions
 //! (`land.rs`). Steps 2 and 3 are the same: the table's own record, the lane's existing export,
-//! the same Spark load.
+//! the same load.
 use std::collections::BTreeSet;
 
 use anyhow::{ensure, Context};
@@ -37,8 +37,8 @@ mod release;
 mod tests;
 
 use super::invocation_cleanup::{self, Job};
-use execute::{Runtime, SparkLoad};
-use lane::{Engine, ExportKind, Lane, LaneContract};
+use execute::Runtime;
+use lane::{ExportKind, Lane, LaneContract};
 use release::Release;
 
 /// The publisher command every lane's contract names as its export. The executable owns the
@@ -61,26 +61,10 @@ pub(super) const UNIT_TIME_LIMIT_MINUTES: i64 = 150;
 /// measured 2026-10-28), is about 31 minutes at the 2026-10-21 rate (131,664,668 rows in 87 minutes),
 /// so the 40 minutes left hold it and the publish.
 pub(super) const LAST_BUCKET_START_MINUTES: i64 = UNIT_TIME_LIMIT_MINUTES - LARGEST_BUCKET_MINUTES;
-/// What the deadline leaves for the bucket that starts last and the publish (see above), for a
-/// lane whose contract measures no `run_budget`.
+/// What the deadline leaves for the lane that starts last (see above). The lanes' measured
+/// `run_budget` was the slowest Spark step (root ADR-0391); a lane's release is now one `DuckDB`
+/// commit (root ADR-0599), and no run reads a per-lane step any more.
 const LARGEST_BUCKET_MINUTES: i64 = 40;
-/// A measured run ends inside this share of its unit's limit, the margin #988 left rt-molit's
-/// Silver load and ADR-0386's guard holds every job to (root ADR-0391).
-pub(super) const FIT_SHARE_PERCENT: i64 = 90;
-/// A budget that leaves less than this to start a step would let a run do nothing but export.
-pub(super) const MIN_STEP_START_SECONDS: i64 = 30 * 60;
-
-/// How far into a run the last step may start: the unit's fit less the lane's measured slowest
-/// step (a load batch or a compare bucket, `run_budget.step_seconds_max`), so the step that starts
-/// last still ends inside the fit; without a measured step, the 40-minute default (root ADR-0391).
-/// On 2026-11-03 bucket 41 of `silver.land_transfer_history` took 2,779s, past the default's 40
-/// minutes: started at 110 minutes it would have run into the 150-minute kill.
-pub(super) fn last_step_start_seconds(step_seconds_max: Option<u32>) -> i64 {
-    match step_seconds_max {
-        Some(step) => UNIT_TIME_LIMIT_MINUTES * 60 * FIT_SHARE_PERCENT / 100 - i64::from(step),
-        None => LAST_BUCKET_START_MINUTES * 60,
-    }
-}
 
 /// What the run found, and what it reports on its last line.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,22 +75,17 @@ pub(super) enum Decision {
     ExportAndLoad,
     /// A part lane's complete handoff exists in R2 and some of its parts are not in the table.
     LoadOnly,
-    /// The release is staged and part of its compare is done; the run's time ran out before the
-    /// rest, and `main` is unchanged until the next run finishes it (root ADR-0318).
-    CompareInProgress,
-    /// Part of the release is staged on its load branch; the run's time ran out before the next
-    /// batch, and the next run stages the rest without reading the staged batches again (ADR-0391).
-    LoadInProgress,
 }
 
-/// `ExecStopPost`: remove the Spark container a killed run left (the Compose project of this
-/// invocation, nothing else).
+/// `ExecStopPost`: remove any container of this invocation's Compose project a killed run left
+/// (nothing else). A lane starts none since its load left Spark (root ADR-0599); the cleanup stays
+/// the unit's guarantee, not the lane's.
 pub(super) fn stop() -> anyhow::Result<()> {
     invocation_cleanup::run(Job::SilverRefresh)
 }
 
-/// The instance that runs every HUB family lane in one run (root ADR-0551 §2): one job holds the
-/// spark pool once for the family, not once per lane.
+/// The instance that runs every HUB family lane in one run (root ADR-0551 §2): one job holds its
+/// pool slot once for the family, not once per lane.
 pub(super) const FAMILY_INSTANCE: &str = "hub-lane-family";
 
 pub(super) async fn run() -> anyhow::Result<()> {
@@ -117,7 +96,7 @@ pub(super) async fn run() -> anyhow::Result<()> {
     if instance == FAMILY_INSTANCE {
         return run_family(&mut lookup, plan, started).await;
     }
-    let line = run_lane(Lane::parse(&instance)?, &mut lookup, plan, started)
+    let line = run_lane(Lane::parse(&instance)?, &mut lookup, plan)
         .await?
         .0;
     println!("{}", if plan { as_plan(&line) } else { line });
@@ -125,9 +104,8 @@ pub(super) async fn run() -> anyhow::Result<()> {
 }
 
 /// Every family lane in name order, each read from its own ledger and table record: one whose
-/// release the table holds ends in seconds; the first that runs out of the run's time ends the run,
-/// and the next run starts there again (its staged work is kept, root ADR-0318, ADR-0391). The
-/// run's line is `changed` when any lane changed.
+/// release the table holds ends in seconds; the first that would start too late into the run ends
+/// it, and the next run starts there. The run's line is `changed` when any lane changed.
 async fn run_family(
     lookup: &mut impl FnMut(&str) -> Option<String>,
     plan: bool,
@@ -141,7 +119,15 @@ async fn run_family(
     let mut changed = Vec::new();
     let mut resumes = None;
     for lane in lanes {
-        let (line, decision) = run_lane(lane, lookup, plan, started).await?;
+        // A lane that would start too late to end inside the unit waits for the next run: a
+        // release is one commit, so a lane killed half way would have done nothing.
+        if !plan
+            && chrono::Utc::now() >= started + chrono::Duration::minutes(LAST_BUCKET_START_MINUTES)
+        {
+            resumes = Some(lane.id());
+            break;
+        }
+        let (line, decision) = run_lane(lane, lookup, plan).await?;
         // A lane's line is not the run's: the script reads the last `silver-refresh-outcome`.
         println!(
             "{}",
@@ -150,10 +136,6 @@ async fn run_family(
         match decision {
             Decision::Unchanged(_) => {}
             Decision::ExportAndLoad | Decision::LoadOnly => changed.push(lane.id()),
-            Decision::CompareInProgress | Decision::LoadInProgress => {
-                resumes = Some(lane.id());
-                break;
-            }
         }
     }
     let outcome = if changed.is_empty() {
@@ -176,31 +158,27 @@ pub(super) fn family_lane_line(line: &str) -> String {
         .replacen("silver-refresh-plan ", "silver-refresh-lane-plan ", 1)
 }
 
-/// One lane's refresh: its outcome line and its decision. `started` is when the run started: every
-/// lane of a family run shares the run's deadline.
+/// One lane's refresh: its outcome line and its decision.
 async fn run_lane(
     lane: Lane,
     lookup: &mut impl FnMut(&str) -> Option<String>,
     plan: bool,
-    started: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<(String, Decision)> {
     let contract = lane.contract()?;
     let runtime = runtime(lane, lookup)?;
     let pool = PgPool::connect(&super::required_lookup(lookup, "DATABASE_URL")?)
         .await
         .context("cannot connect to the Bronze ledger")?;
-    let deadline =
-        started + chrono::Duration::seconds(last_step_start_seconds(contract.step_seconds_max));
     if let Some(rule) = &contract.land {
         let measured = land::read_measured(&pool, &rule.source).await;
         pool.close().await;
-        return refresh_land(&contract, rule, &measured?, &runtime, plan, deadline).await;
+        return refresh_land(&contract, rule, &measured?, &runtime, plan).await;
     }
     let ledger = release::read_ledger(&pool, &contract.roles).await;
     pool.close().await;
     let ledger = ledger?;
     if contract.releases_each_object {
-        return refresh_each_object(&contract, &ledger, &runtime, plan, deadline).await;
+        return refresh_each_object(&contract, &ledger, &runtime, plan).await;
     }
     let release = release::select(&contract.roles, &ledger)?;
     for month in &release.skipped_incomplete {
@@ -216,15 +194,9 @@ async fn run_lane(
         .await?
         .unwrap_or_default();
     let (decision, identity, rows) = if contract.kind.loads_as_one_run() {
-        refresh_run(
-            &contract, &release, &runtime, &catalog, &ingested, plan, deadline,
-        )
-        .await?
+        refresh_run(&contract, &release, &runtime, &catalog, &ingested, plan).await?
     } else {
-        refresh_parts(
-            &contract, &release, &runtime, &catalog, &ingested, plan, deadline,
-        )
-        .await?
+        refresh_parts(&contract, &release, &runtime, &catalog, &ingested, plan).await?
     };
     let line = outcome_line(lane, &release.vintage(), &decision, &identity, rows);
     Ok((line, decision))
@@ -245,7 +217,6 @@ async fn refresh_land(
     measured: &[land::MeasuredObject],
     runtime: &Runtime,
     plan: bool,
-    deadline: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<(String, Decision)> {
     let lane = contract.lane.id();
     let export = crate::land_use_silver_export::export_command(&contract.export)
@@ -276,8 +247,7 @@ async fn refresh_land(
         .unwrap_or_default();
     let mut decision = land::decide(&release, &candidates.found, &ingested);
     let rows = if decision == Decision::ExportAndLoad && !plan {
-        let (rows, state) =
-            land::load(contract, rule, &release, runtime, &catalog, deadline).await?;
+        let (rows, state) = land::load(contract, rule, &release, runtime, &catalog).await?;
         decision = state;
         Some(rows)
     } else {
@@ -312,24 +282,9 @@ fn runtime(lane: Lane, lookup: &mut impl FnMut(&str) -> Option<String>) -> anyho
         !state_root.starts_with(&release_root),
         "the Silver refresh state must live outside the immutable release"
     );
-    let gid = super::required_lookup(lookup, "FOUNDATION_PLATFORM_LAKEHOUSE_GID")?;
-    ensure!(
-        !gid.is_empty() && gid.bytes().all(|b| b.is_ascii_digit()),
-        "FOUNDATION_PLATFORM_LAKEHOUSE_GID must be a numeric group id"
-    );
     Ok(Runtime {
         release_root,
         lane_root: state_root.join(lane.id()),
-        spark_jars: super::required_lookup(
-            lookup,
-            "FOUNDATION_PLATFORM_SILVER_REFRESH_SPARK_JARS",
-        )?,
-        jars_dir: absolute(
-            super::required_lookup(lookup, "FOUNDATION_PLATFORM_SILVER_REFRESH_JARS_DIR")?,
-            "the release jars directory",
-        )?,
-        project: invocation_cleanup::project_id(Job::SilverRefresh, lookup)?,
-        gid,
         publisher: std::env::current_exe().context("cannot locate the running publisher")?,
     })
 }
@@ -346,8 +301,6 @@ pub(super) fn outcome_line(
         Decision::Unchanged(reason) => ("unchanged", *reason),
         Decision::ExportAndLoad => ("changed", "exported_and_loaded"),
         Decision::LoadOnly => ("changed", "loaded_existing_handoff"),
-        Decision::CompareInProgress => ("unchanged", "compare_resumes_next_run"),
-        Decision::LoadInProgress => ("unchanged", "load_resumes_next_run"),
     };
     format!(
         "silver-refresh-outcome lane={} outcome={outcome} reason={reason} release={release} identity={identity} rows={}",
@@ -379,181 +332,41 @@ async fn refresh_run(
     catalog: &IcebergRestCatalog,
     ingested: &BTreeSet<String>,
     plan: bool,
-    deadline: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<(Decision, String, Option<u64>)> {
     let identity = release.run_identity(contract.lane.id());
     let decision = decide_run(contract.lane, release, ingested);
     if decision != Decision::ExportAndLoad || plan {
         return Ok((decision, identity, None));
     }
-    if contract.engine == Engine::Duckdb {
-        // Root ADR-0599: the export's local handoff is read where it is, no branch and no Spark.
-        println!(
-            "silver-refresh lane={} release={} identity={identity}: exporting",
-            contract.lane.id(),
-            release.vintage()
-        );
-        runtime.reset_work()?;
-        let work = runtime.work();
-        execute::stage(release, &work).await?;
-        let environment = execute::export_environment(contract, release, &identity, &work)?;
-        execute::export(runtime, contract, &environment)?;
-        let handoffs = local_handoffs(&work.join(execute::HANDOFF), contract.kind)?;
-        let objects = vec![identity.clone()];
-        let rows = append_on_duckdb(
-            contract,
-            runtime,
-            catalog,
-            &duckdb_release::Release {
-                identity: &identity,
-                objects: &objects,
-                handoffs: &handoffs,
-                expected_rows: None,
-            },
-            &identity,
-            Vec::new(),
-        )
-        .await?;
-        runtime.reset_work()?;
-        return Ok((decision, identity, Some(rows)));
-    }
-    let mut load = SparkLoad::local(contract);
-    // A comparing lane stages the release on its load branch and appends only its changes to
-    // main (root ADR-0275, ADR-0318); a run that stopped after staging it does not export again.
-    let mut staged = false;
-    if contract.compare_content.is_some() {
-        let branch = stage_load(catalog, &contract.table, &identity).await?;
-        staged = catalog
-            .load_staged_batch_objects(&contract.table, &branch)
-            .await?
-            .contains(&identity);
-        load.branch = Some(branch);
-    }
-    let mut rows = None;
-    if staged {
-        println!(
-            "silver-refresh lane={} release={} identity={identity}: already staged; comparing",
-            contract.lane.id(),
-            release.vintage()
-        );
-    } else {
-        println!(
-            "silver-refresh lane={} release={} identity={identity}: exporting",
-            contract.lane.id(),
-            release.vintage()
-        );
-        runtime.reset_work()?;
-        let work = runtime.work();
-        execute::stage(release, &work).await?;
-        let environment = execute::export_environment(contract, release, &identity, &work)?;
-        execute::export(runtime, contract, &environment)?;
-        let summary = execute::spark(runtime, contract, &load)?;
-        let evidence = execute::keep_evidence(runtime, &identity, 0)?;
-        println!("silver-refresh evidence={}", evidence.display());
-        rows = summary.persisted_row_count;
-    }
-    let published = match (&contract.compare_content, load.branch) {
-        (Some(content), Some(branch)) => {
-            let compare = execute::ReleaseCompare {
-                branch,
-                changes_branch: execute::changes_branch(&identity),
-                source_snapshot_id: identity.clone(),
-                objects: vec![identity.clone()],
-                content_columns: content.clone(),
-                bucket_prefix_length: contract.compare_bucket_prefix_length,
-                release_buckets_only: contract.compare_release_buckets_only,
-                deadline_utc: Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
-            };
-            append_changes(contract, runtime, catalog, &compare).await?
-        }
-        _ => {
-            confirm_recorded(catalog, &contract.table, std::slice::from_ref(&identity)).await?;
-            true
-        }
-    };
-    if !published {
-        return Ok((Decision::CompareInProgress, identity, rows));
-    }
+    // Root ADR-0599: the export's local handoff is read where it is, no branch and no Spark.
+    println!(
+        "silver-refresh lane={} release={} identity={identity}: exporting",
+        contract.lane.id(),
+        release.vintage()
+    );
     runtime.reset_work()?;
-    Ok((decision, identity, rows))
-}
-
-/// Appends a staged release's changes to `main` instead of publishing its load branch (root
-/// ADR-0275): the compare stages them on the changes branch bucket by bucket, and that branch is
-/// published as `main` in one fast-forward once every bucket is in (root ADR-0318), so `main` keeps
-/// every row it held and a reader never sees half a release. Returns whether `main` holds the
-/// release; false when the run's time ran out with buckets left, which the next run compares. A
-/// load with no branch (one already one commit) wrote `main` directly; there is nothing to compare.
-/// A new table stages too: its branch grows from an empty commit (`append_batch_once`).
-async fn append_changes(
-    contract: &LaneContract,
-    runtime: &Runtime,
-    catalog: &IcebergRestCatalog,
-    compare: &execute::ReleaseCompare,
-) -> anyhow::Result<bool> {
-    let table = &contract.table;
-    let staged = catalog
-        .load_snapshot_refs(table)
-        .await?
-        .is_some_and(|refs| refs.refs.contains_key(&compare.branch));
-    if staged && past(compare.deadline_utc.as_deref())? {
-        // A compare started past the deadline only reads both sides to find it has no time for a
-        // bucket; the next run starts it with the whole budget (root ADR-0391).
-        println!(
-            "silver-refresh {table}: the run's deadline passed after staging; comparing next run"
-        );
-        return Ok(false);
-    }
-    if staged {
-        // Buckets compared against an older main would be published over it: start them again.
-        if catalog
-            .remove_stale_branch(table, &compare.changes_branch)
-            .await?
-        {
-            println!(
-                "silver-refresh {table}: branch {} no longer follows main; comparing again",
-                compare.changes_branch
-            );
-        }
-        let (outcome, summary) = execute::compare(runtime, contract, compare)?;
-        println!(
-            "silver-refresh {table}: compared the release staged on {}: {summary}",
-            compare.branch
-        );
-        match outcome {
-            execute::CompareOutcome::Deadline => return Ok(false),
-            execute::CompareOutcome::Staged => {
-                let head = catalog
-                    .publish_branch(table, &compare.changes_branch)
-                    .await?;
-                println!(
-                    "silver-refresh {table}: published branch {} as main (snapshot {head})",
-                    compare.changes_branch
-                );
-            }
-            execute::CompareOutcome::AlreadyAppended => {}
-        }
-        // main moved past both branches' base, so whatever is left of them is stale now.
-        for branch in [&compare.branch, &compare.changes_branch] {
-            if catalog.remove_stale_branch(table, branch).await? {
-                println!("silver-refresh {table}: dropped branch {branch}");
-            }
-        }
-    }
-    confirm_recorded(catalog, table, &compare.objects).await?;
-    Ok(true)
-}
-
-/// Whether an RFC 3339 deadline has passed; no deadline never has.
-fn past(deadline: Option<&str>) -> anyhow::Result<bool> {
-    Ok(match deadline {
-        Some(deadline) => {
-            chrono::DateTime::parse_from_rfc3339(deadline)
-                .with_context(|| format!("{deadline} is not an RFC 3339 deadline"))?
-                <= chrono::Utc::now()
-        }
-        None => false,
-    })
+    let work = runtime.work();
+    execute::stage(release, &work).await?;
+    let environment = execute::export_environment(contract, release, &identity, &work)?;
+    execute::export(runtime, contract, &environment)?;
+    let handoffs = local_handoffs(&work.join(execute::HANDOFF), contract.kind)?;
+    let objects = vec![identity.clone()];
+    let rows = append_on_duckdb(
+        contract,
+        runtime,
+        catalog,
+        &duckdb_release::Release {
+            identity: &identity,
+            objects: &objects,
+            handoffs: &handoffs,
+            expected_rows: None,
+        },
+        &identity,
+        Vec::new(),
+    )
+    .await?;
+    runtime.reset_work()?;
+    Ok((decision, identity, Some(rows)))
 }
 
 /// The R2 manifest the hub export publishes after its last part (root ADR-0092).
@@ -662,7 +475,6 @@ async fn refresh_each_object(
     ledger: &[release::LedgerObject],
     runtime: &Runtime,
     plan: bool,
-    deadline: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<(String, Decision)> {
     let releases = release::select_each(&contract.roles, ledger)?;
     let catalog = lakehouse_catalog()?;
@@ -672,10 +484,8 @@ async fn refresh_each_object(
         .unwrap_or_default();
     let mut last = None;
     for release in &releases {
-        let (decision, identity, rows) = refresh_parts(
-            contract, release, runtime, &catalog, &ingested, plan, deadline,
-        )
-        .await?;
+        let (decision, identity, rows) =
+            refresh_parts(contract, release, runtime, &catalog, &ingested, plan).await?;
         let line = outcome_line(
             contract.lane,
             &release.vintage(),
@@ -740,7 +550,6 @@ async fn refresh_parts(
     catalog: &IcebergRestCatalog,
     ingested: &BTreeSet<String>,
     plan: bool,
-    deadline: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<(Decision, String, Option<u64>)> {
     let prefix = contract
         .handoff_prefix
@@ -794,147 +603,32 @@ async fn refresh_parts(
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
     )?;
     let evidence_name = release.run_identity(contract.lane.id());
-    if contract.engine == Engine::Duckdb {
-        let urls: Vec<String> = manifest
-            .parts
-            .iter()
-            .map(|part| format!("s3://{bucket}/{}", part.object_key))
-            .collect();
-        let objects: Vec<String> = manifest
-            .parts
-            .iter()
-            .map(|part| part.object_key.clone())
-            .collect();
-        let rows = append_on_duckdb(
-            contract,
-            runtime,
-            catalog,
-            &duckdb_release::Release {
-                identity: &evidence_name,
-                objects: &objects,
-                handoffs: &urls,
-                expected_rows: Some(manifest.parts.iter().map(|part| part.rows).sum()),
-            },
-            &evidence_name,
-            Vec::new(),
-        )
-        .await?;
-        runtime.reset_work()?;
-        return Ok((decision, key, Some(rows)));
-    }
-    let branch = stage_load(catalog, &contract.table, &evidence_name).await?;
-    let staged = catalog
-        .load_staged_batch_objects(&contract.table, &branch)
-        .await?;
-    let mut rows = 0;
-    for (index, batch) in part_batches(&manifest, contract.spark.input_file_batch_size)
-        .into_iter()
-        .enumerate()
-    {
-        // A batch the branch already records is not read again: a resumed 40M-row batch spent ten
-        // minutes in Spark only to be skipped (2026-10-11). append_batch_once still refuses a
-        // second copy of anything this check lets through.
-        if batch.iter().all(|part| staged.contains(&part.object_key)) {
-            println!(
-                "silver-refresh lane={} batch={index}: already staged on {branch}; not read again",
-                contract.lane.id()
-            );
-            rows += batch.iter().map(|part| part.rows).sum::<u64>();
-            continue;
-        }
-        // The batches staged so far stay on the branch; the next run stages the rest (ADR-0391).
-        if chrono::Utc::now() >= deadline {
-            println!(
-                "silver-refresh lane={} batch={index}: the run's deadline passed; staging resumes next run",
-                contract.lane.id()
-            );
-            return Ok((Decision::LoadInProgress, key, Some(rows)));
-        }
-        let load = SparkLoad {
-            input: batch
-                .iter()
-                .map(|part| format!("s3a://{bucket}/{}", part.object_key))
-                .collect::<Vec<_>>()
-                .join(","),
-            input_format: "jsonl",
-            expected_count: Some(batch.iter().map(|part| part.rows).sum()),
-            reads_r2: true,
-            write_mode: contract.spark.iceberg_write_mode,
-            branch: Some(branch.clone()),
-        };
-        // A batch the table already holds is reported and skipped by append_batch_once.
-        let summary = execute::spark(runtime, contract, &load)?;
-        execute::keep_evidence(runtime, &evidence_name, index)?;
-        rows += summary.row_count;
-    }
-    let parts: Vec<String> = manifest
+    let urls: Vec<String> = manifest
+        .parts
+        .iter()
+        .map(|part| format!("s3://{bucket}/{}", part.object_key))
+        .collect();
+    let objects: Vec<String> = manifest
         .parts
         .iter()
         .map(|part| part.object_key.clone())
         .collect();
-    if let Some(content) = &contract.compare_content {
-        // The parts are the release; main gets only its changed keys (root ADR-0318).
-        let compare = execute::ReleaseCompare {
-            branch: branch.clone(),
-            changes_branch: execute::changes_branch(&evidence_name),
-            source_snapshot_id: evidence_name.clone(),
-            objects: parts,
-            content_columns: content.clone(),
-            bucket_prefix_length: contract.compare_bucket_prefix_length,
-            release_buckets_only: contract.compare_release_buckets_only,
-            deadline_utc: Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
-        };
-        if !append_changes(contract, runtime, catalog, &compare).await? {
-            return Ok((Decision::CompareInProgress, key, Some(rows)));
-        }
-    } else {
-        publish_load(catalog, &contract.table, &branch, &parts).await?;
-    }
+    let rows = append_on_duckdb(
+        contract,
+        runtime,
+        catalog,
+        &duckdb_release::Release {
+            identity: &evidence_name,
+            objects: &objects,
+            handoffs: &urls,
+            expected_rows: Some(manifest.parts.iter().map(|part| part.rows).sum()),
+        },
+        &evidence_name,
+        Vec::new(),
+    )
+    .await?;
     runtime.reset_work()?;
     Ok((decision, key, Some(rows)))
-}
-
-/// The manifest's parts in load batches of `size`, in manifest order (a resumed load regroups
-/// them the same way, which `append_batch_once` requires).
-pub(super) fn part_batches(manifest: &HubManifest, size: u32) -> Vec<&[HubPart]> {
-    manifest
-        .parts
-        .chunks(usize::try_from(size.max(1)).unwrap_or(1))
-        .collect()
-}
-
-/// Prepares the branch the batches of load `identity` stage on (root ADR-0183): a branch left by
-/// an earlier attempt continues while `main` is still in its lineage, and is removed when `main`
-/// moved since, so the batches are staged again on the current `main`.
-async fn stage_load(
-    catalog: &IcebergRestCatalog,
-    table: &str,
-    identity: &str,
-) -> anyhow::Result<String> {
-    let branch = execute::load_branch(identity);
-    if catalog.remove_stale_branch(table, &branch).await? {
-        println!("silver-refresh {table}: branch {branch} no longer follows main; staging again");
-    }
-    Ok(branch)
-}
-
-/// Publishes the staged batches as `main` in one commit, then confirms `main` records every one
-/// (root ADR-0183). A load with no branch wrote `main` directly; then there is nothing to publish.
-async fn publish_load(
-    catalog: &IcebergRestCatalog,
-    table: &str,
-    branch: &str,
-    identities: &[String],
-) -> anyhow::Result<()> {
-    let staged = catalog
-        .load_snapshot_refs(table)
-        .await?
-        .is_some_and(|refs| refs.refs.contains_key(branch));
-    if staged {
-        let head = catalog.publish_branch(table, branch).await?;
-        println!("silver-refresh {table}: published branch {branch} as main (snapshot {head})");
-    }
-    confirm_recorded(catalog, table, identities).await
 }
 
 /// The files a one-run export left in `handoff`: the titles' `rows.jsonl`, or every Parquet part of

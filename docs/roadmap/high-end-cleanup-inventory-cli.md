@@ -39,7 +39,7 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs�
 | 24 | `run-silver-refresh` | 956 | `remote_lakehouse_job` (9808) | doc=1 runbook=1 script=1 test=1 | silver-refresh.sh ← foundation-silver-refresh@.service | a |
 | 25 | `stop-silver-refresh` | 957 | `remote_lakehouse_job` (9808) | script=1 | silver-refresh.sh | a |
 | 26 | `stop-parcel-tile-bake` | 958 | `remote_lakehouse_job` (9808) | script=1 | parcel-tile-bake.sh | a |
-| 27 | `run-remote-lakehouse-job` | 959 | `remote_lakehouse_job` (9808) | doc=1 runbook=1 | 런북 remote-lakehouse-job-runner | b |
+| 27 | ~~`run-remote-lakehouse-job`~~ | 959 | `remote_lakehouse_job` (9808) | doc=1 runbook=1 | 2026-11-22 없앰(W92): 실행은 FLOOR 주기뿐, 런북 building-register-floor-cycle | b |
 | 28 | `collect-building-hub-bronze-catalog-recovery-inventory` | 960 | `building_hub_bronze_catalog_recovery` (1023) | test=1 | bronze 카탈로그 복구(일회성); 테스트뿐 | c |
 | 29 | `collect-vworld-bronze-catalog-recovery-inventory` | 963 | `vworld_bronze_catalog_recovery` (1097) | test=1 | bronze 카탈로그 복구; 테스트뿐 | c |
 | 30 | `compile-national-data-collection-plan` | 966 | `national_data_collection_plan_compile` (1251) | none | 국가 API 패밀리; 호출자 0 | c |

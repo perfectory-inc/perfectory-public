@@ -303,6 +303,26 @@ fn load_industrial_complex_notice_silver_command_is_explicit() -> anyhow::Result
     Ok(())
 }
 
+/// The two halves of the industrial land sale notice lane (root ADR-0603).
+#[test]
+fn industrial_land_sale_notice_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "collect-industrial-land-sale-notices"
+        ])?,
+        Command::CollectIndustrialLandSaleNotices
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-industrial-land-sale-notice-silver"
+        ])?,
+        Command::LoadIndustrialLandSaleNoticeSilver
+    );
+    Ok(())
+}
+
 #[test]
 fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
@@ -334,6 +354,64 @@ fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Resul
             "build-parcel-energy-versions"
         ])?,
         Command::BuildParcelEnergyVersions
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-sub-parcels-versions"
+        ])?,
+        Command::BuildParcelSubParcelsVersions
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-building-permits-versions"
+        ])?,
+        Command::BuildParcelBuildingPermitsVersions
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-lineage-review-queue-versions"
+        ])?,
+        Command::BuildLineageReviewQueueVersions
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-ownership-versions"
+        ])?,
+        Command::BuildParcelOwnershipVersions
+    );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "build-parcel-panel-versions"])?,
+        Command::BuildParcelPanelVersions
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-factories-versions"
+        ])?,
+        Command::BuildParcelFactoriesVersions
+    );
+    Ok(())
+}
+
+#[test]
+fn build_parcel_boundary_served_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-boundary-served"
+        ])?,
+        Command::BuildParcelBoundaryServed
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-boundary-served-versions"
+        ])?,
+        Command::BuildParcelBoundaryServedVersions
     );
     Ok(())
 }
@@ -726,15 +804,6 @@ fn verify_lakehouse_registry_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "verify-lakehouse-registry"])?,
         Command::VerifyLakehouseRegistry
-    );
-    Ok(())
-}
-
-#[test]
-fn run_remote_lakehouse_job_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command(["foundation-outbox-publisher", "run-remote-lakehouse-job",])?,
-        Command::RunRemoteLakehouseJob
     );
     Ok(())
 }
@@ -1398,6 +1467,25 @@ fn industrial_complex_silver_commands_are_explicit() -> anyhow::Result<()> {
             "load-industrial-complex-silver"
         ])?,
         Command::LoadIndustrialComplexSilver
+    );
+    Ok(())
+}
+
+#[test]
+fn parses_the_floor_history_check_and_the_floor_load() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "check-building-register-floor-history"
+        ])?,
+        Command::CheckBuildingRegisterFloorHistory
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-building-register-floor-silver"
+        ])?,
+        Command::LoadBuildingRegisterFloorSilver
     );
     Ok(())
 }

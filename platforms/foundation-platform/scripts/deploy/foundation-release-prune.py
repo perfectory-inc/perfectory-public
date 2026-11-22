@@ -190,13 +190,47 @@ def holder(paths, images, held):
     return None
 
 
-def recorded_images(release_id):
-    """Image IDs this release's build.json names."""
+def recorded_images(release_id, strict=False):
+    """Image IDs this release's build.json names (strict: an unreadable one is Unanswered, not none)."""
     try:
         build = json.loads((release_root / "artifacts" / release_id / "build.json").read_text(encoding="utf-8"))
         return {value for key, value in build.items() if key.endswith("_image") and isinstance(value, str)}
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError) as error:
+        if strict:
+            raise Unanswered(f"what {release_id} records is unknown: {error!r}") from error
         return set()
+
+
+# Root ADR-0276: admission pulls each image of a registry release by digest, and that reference holds
+# the image after the release's own tag goes (in the containerd image store this host uses, it is one
+# of the image's tags). So removing a release never freed its images: every prune to 2026-11-22
+# printed images=0, and 118 of them were on /data, about 39GB by Docker's sizes. An image pulled from
+# the registry that no release still here records goes; Docker keeps one a container uses, and an
+# install pulls by digest again. None goes while an admission pulls, nor when what a release records
+# cannot be read.
+def registry_leftovers():
+    """{image ID: its references into the release registry} for each image no release here records."""
+    artifacts = release_root / "artifacts"
+    pulling = sorted(artifacts.glob(".registry-*")) + sorted(artifacts.glob(".verify-*"))
+    if pulling:
+        print(f"prune kept the registry's images: an admission is pulling into {pulling[0].name}")
+        return {}
+    recorded = set().union(*(recorded_images(release_id, strict=True) for release_id in ids_in(artifacts)))
+    try:
+        repository = f"{admission.REGISTRY_HOST}/{admission.registry_settings()['repository']}"
+    except (OSError, ValueError, KeyError, AttributeError) as error:
+        raise Unanswered(f"the release registry is unknown: {error!r}") from error
+    listed = docker("image", "ls", "--no-trunc", "--format", "{{.ID}}", repository)
+    if listed.returncode != 0:
+        raise Unanswered(f"docker image ls {repository} answered {listed.stderr.strip()[:200]!r}")
+    leftovers = {}
+    for image_id in sorted(set(listed.stdout.split()) - recorded):
+        found = docker("image", "inspect", "--format",
+                       "{{range .RepoTags}}{{println .}}{{end}}{{range .RepoDigests}}{{println .}}{{end}}", image_id)
+        if found.returncode != 0:
+            raise Unanswered(f"docker image inspect {image_id} answered {found.stderr.strip()[:200]!r}")
+        leftovers[image_id] = sorted({value for value in found.stdout.split() if value.startswith(f"{repository}@")})
+    return leftovers
 
 
 releases = release_root / "releases"
@@ -274,6 +308,22 @@ for release_id in sorted(present):
     freed += sum(sizes.values())
     removed += 1
     print(f"prune removed {release_id} " + " ".join(f"{key}={value}" for key, value in sizes.items()))
+
+try:
+    leftovers = registry_leftovers()
+except Unanswered as error:
+    print(f"prune refused the registry's images: {error}", file=sys.stderr)
+    refused += 1
+    leftovers = {}
+for image_id, references in leftovers.items():
+    found = image_or_none(image_id)
+    for reference in references:
+        gone = docker("image", "rm", reference)
+        if gone.returncode != 0:
+            print(f"prune kept image {reference}: {gone.stderr.strip()}", file=sys.stderr)
+    if found and image_or_none(image_id) is None:
+        freed += found[1]
+        print(f"prune removed image {image_id} images={found[1]}")
 
 for release_id in sorted(control_present):
     if release_id in control_keep:

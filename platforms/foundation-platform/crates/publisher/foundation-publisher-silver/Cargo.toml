@@ -28,6 +28,7 @@ collection-domain = { workspace = true }
 collection-infrastructure = { workspace = true }
 duckdb = { workspace = true }
 encoding_rs = { workspace = true }
+fancy-regex = { workspace = true }
 flate2 = { workspace = true }
 h3o = { workspace = true }
 foundation-normalization-domain = { workspace = true }

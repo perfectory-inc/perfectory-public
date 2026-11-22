@@ -20,6 +20,9 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 40,
+      "memory_max": "3G",
+      "memory_measured_peak": "542M",
+      "memory_measured": "journal `memory peak` 2026-10-18..11-08, 433 runs, highest 2026-10-29 (foundation-onbid-silver-load), when the load ran in the spark-small container (2560m, its own cap). Since root ADR-0559 the load is the publisher's DuckDB inside this unit: the stage's buffer is half the execution profile (2048 MiB, lakehouse-engine.contract.json), and the engine-equality harness on ai-server peaked at 1795 MiB anonymous over three production item list objects (62,235 conditions each, R2 reads and the place-identity inputs included); 3G holds the buffer and the process, and is under the 2560m container plus 1G unit it replaces",
       "per_run_cap": {
         "unit": "object",
         "limits": [

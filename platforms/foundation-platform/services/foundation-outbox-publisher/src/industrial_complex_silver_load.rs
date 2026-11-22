@@ -15,8 +15,11 @@
 //!    build the export from that directory, unchanged.
 //! 3. `load-industrial-complex-silver` stages the export in `DuckDB`
 //!    (`foundation_publisher_silver::industrial_complex_silver_stage`) and appends the complexes that
-//!    are new or changed, in one commit that records every input object, even when no complex
-//!    changed. The next plan reads that record.
+//!    are new or changed, in one commit that records every input object the table did not record
+//!    yet, even when no complex changed. An input an earlier load recorded (the profile workbook
+//!    stays the same for months) stays recorded there: a batch is appended whole or not at all, and
+//!    one that named it again was refused (2026-11-22, the first run of this load). The next plan
+//!    reads the record of every commit.
 //!
 //! The whole input is one workbook of 1,442 complexes and four answers of a few megabytes and one
 //! 98 MB boundary archive: one pass, no regional split (the declared exception: kilobytes of rows).
@@ -35,11 +38,11 @@ use foundation_publisher_core::lakehouse_data_commit::{
     AppendOutcome, DataAppend, LakehouseDataCommitter, TableField, TableShape,
 };
 use foundation_publisher_silver::{
-    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
+    duckdb_parquet_stage::{read_catalog_config, DuckDbParquetStage, LakehouseRead},
     industrial_complex_silver_stage::{stage_export, TABLE},
 };
 use lakehouse_domain::SILVER_INDUSTRIAL_COMPLEXES;
-use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
+use lakehouse_infrastructure::IcebergRestCatalog;
 use serde_json::{json, Value};
 
 use crate::public_data_control_support::{required_env_value, write_json_file};
@@ -194,7 +197,7 @@ pub(crate) async fn plan() -> anyhow::Result<()> {
             chosen.push((input.source_slug, key));
         }
     }
-    let catalog = IcebergRestCatalog::new(catalog_config()?)?;
+    let catalog = IcebergRestCatalog::new(read_catalog_config()?)?;
     let recorded = catalog
         .load_ingested_batch_objects(TABLE)
         .await?
@@ -265,16 +268,18 @@ pub(crate) fn planned_keys(plan: &Value) -> anyhow::Result<Vec<String>> {
     Ok(keys.into_iter().collect())
 }
 
-/// The catalog settings a step reads with: the read-only token when the environment holds one (a
-/// verdict run with the reader key alone), the unit's own otherwise.
-fn catalog_config() -> anyhow::Result<LakehouseCatalogConfig> {
-    Ok(
-        if std::env::var_os("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN").is_some() {
-            LakehouseCatalogConfig::reader_from_env()?
-        } else {
-            LakehouseCatalogConfig::from_env()?
-        },
-    )
+/// The planned inputs `recorded` does not hold, in plan order: what this load's commit records.
+///
+/// The export is built from every planned input, but an input an earlier commit recorded is not
+/// recorded again. The commit's batch is appended whole or not at all, so naming the profile
+/// workbook a second time refused the whole load; and the union of every commit's record, which the
+/// next plan reads, names it already.
+pub(crate) fn unrecorded_inputs(planned: &[String], recorded: &BTreeSet<String>) -> Vec<String> {
+    planned
+        .iter()
+        .filter(|key| !recorded.contains(*key))
+        .cloned()
+        .collect()
 }
 
 /// The table's shape as its contract numbers it: what a dry run stages with, having no writer to
@@ -324,8 +329,7 @@ pub(crate) async fn load() -> anyhow::Result<()> {
         Some(committer) => committer.table_shape(TABLE).await?,
         None => contract_shape()?,
     };
-    let catalog_settings = catalog_config()?;
-    let catalog = IcebergRestCatalog::new(catalog_settings.clone())?;
+    let catalog = IcebergRestCatalog::new(read_catalog_config()?)?;
     let head = catalog
         .load_main_snapshot_history(TABLE)
         .await?
@@ -333,20 +337,7 @@ pub(crate) async fn load() -> anyhow::Result<()> {
         .first()
         .map(|snapshot| snapshot.snapshot_id);
     // The data files are read with the reader pair, the catalog with the step's token.
-    let storage = R2ObjectStorageConfig::lakehouse_reader_from_env().context(
-        "the industrial-complex Silver load reads the table with the lakehouse reader key",
-    )?;
-    let read = LakehouseRead {
-        extensions: foundation_publisher_silver::duckdb_extensions::release_directory()?,
-        catalog_uri: catalog_settings.catalog_uri,
-        warehouse: catalog_settings.warehouse,
-        catalog_token: catalog_settings
-            .catalog_token
-            .context("the lakehouse catalog token is required")?,
-        s3_endpoint: storage.endpoint,
-        s3_access_key_id: storage.access_key_id,
-        s3_secret_access_key: storage.secret_access_key,
-    };
+    let read = LakehouseRead::read_only_from_env()?;
     let stage = Mutex::new(DuckDbParquetStage::open_reading_lakehouse(&work, &read)?);
     let staged = {
         let stage = stage
@@ -386,20 +377,25 @@ pub(crate) async fn load() -> anyhow::Result<()> {
                 .load_ingested_batch_objects(TABLE)
                 .await?
                 .with_context(|| format!("{TABLE} does not exist"))?;
-            let outcome = committer
-                .append_at_head(
-                    DataAppend {
-                        table_name: TABLE,
-                        contract: &SILVER_INDUSTRIAL_COMPLEXES,
-                        files: staged.file.as_slice(),
-                        batch: &batch,
-                        already_ingested: &already_ingested,
-                        summary: BTreeMap::new(),
-                    },
-                    head,
-                )
-                .await?;
-            matches!(outcome, AppendOutcome::Appended { .. })
+            let unrecorded = unrecorded_inputs(&batch, &already_ingested);
+            if unrecorded.is_empty() {
+                false
+            } else {
+                let outcome = committer
+                    .append_at_head(
+                        DataAppend {
+                            table_name: TABLE,
+                            contract: &SILVER_INDUSTRIAL_COMPLEXES,
+                            files: staged.file.as_slice(),
+                            batch: &unrecorded,
+                            already_ingested: &already_ingested,
+                            summary: BTreeMap::new(),
+                        },
+                        head,
+                    )
+                    .await?;
+                matches!(outcome, AppendOutcome::Appended { .. })
+            }
         }
     };
     drop(stage);

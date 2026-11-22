@@ -167,8 +167,14 @@ def run_job(spec, transport=None, lineage_client=None):
         if spec.reconciles or spec.requeues:
             tags[job_specs.OWED_TAG] = json.dumps([list(owed) for owed in result.owed])
         context.instance.add_run_tags(context.run_id, tags)
-        for materialization in result.materializations(keys):
+        # Read both before logging either: a report the run may not make fails it with nothing logged.
+        materializations = result.materializations(keys)
+        evaluations = result.check_evaluations(keys, reported_checks(keys))
+        for materialization in materializations:
             context.log_event(materialization)
+        # After the materializations: a check the unit reported judges the head it just built or kept.
+        for evaluation in evaluations:
+            context.log_event(evaluation)
 
     def runs_the_unit():
         run.alias("run")()
@@ -177,6 +183,21 @@ def run_job(spec, transport=None, lineage_client=None):
     return job(name=spec.dagster_job, tags={key: value for key, value in spec.dagster_tags().items()
                                              if key != job_specs.RUN_KIND_TAG},
                description=spec.description)(runs_the_unit)
+
+
+def reported_checks(keys, graph=None):
+    """(asset key, check name) -> declared severity, of every declared check on `keys` that the job's
+    unit reports itself (takeover_checks.REPORTED, load_checks.REPORTED): what
+    systemd_pipes.SystemdRun.check_evaluations takes from the journal."""
+    import asset_checks
+    import load_checks
+    import takeover_checks
+
+    if graph is None:
+        graph = observe_assets.contracts()[1]
+    wanted = set(keys)
+    return {(item.key(), item.check): item.severity for item in asset_checks.declared(graph)
+            if item.check in takeover_checks.REPORTED | load_checks.REPORTED and item.key() in wanted}
 
 
 def run_jobs(jobs=None, graph=None, transport=None, lineage_client=None):

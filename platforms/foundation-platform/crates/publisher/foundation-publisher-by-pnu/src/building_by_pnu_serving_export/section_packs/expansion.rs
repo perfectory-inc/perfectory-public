@@ -208,8 +208,12 @@ pub(super) async fn load_served_dong(
     .await
 }
 
-/// Whether two documents of the lane say the same, whatever version and snapshot stamped them: a
-/// null member is the field's absence (an optional field an older version never wrote).
+/// Whether two documents of the lane say the same, whatever version and snapshot stamped them.
+///
+/// The documents are read as the values they say (`foundation_publisher_core::json_values`, the one
+/// reading the takeover verdict also holds the Gold to; rules.txt "no Spark byte emulation", root
+/// ADR-0564 §6-5): a null member is the field's absence, a number its value, an instant its time;
+/// text, members and the order of a list stay as written.
 pub(super) fn same_content(served: &[u8], rendered: &[u8]) -> anyhow::Result<bool> {
     Ok(content(served)? == content(rendered)?)
 }
@@ -221,19 +225,8 @@ fn content(bytes: &[u8]) -> anyhow::Result<JsonValue> {
         fields.remove("schema_version");
         fields.remove("source");
     }
-    drop_nulls(&mut document);
+    foundation_publisher_core::json_values::canonical(&mut document);
     Ok(document)
-}
-
-fn drop_nulls(value: &mut JsonValue) {
-    match value {
-        JsonValue::Object(fields) => {
-            fields.retain(|_, field| !field.is_null());
-            fields.values_mut().for_each(drop_nulls);
-        }
-        JsonValue::Array(items) => items.iter_mut().for_each(drop_nulls),
-        _ => {}
-    }
 }
 
 #[cfg(test)]
@@ -259,6 +252,27 @@ mod tests {
                 .as_slice(),
         ] {
             assert!(!same_content(served, rendered)?);
+        }
+        Ok(())
+    }
+
+    /// Two engines write one value differently: Spark's `1.0E7` and `19.500`, `DuckDB`'s
+    /// `10000000.0` and `19.5`, an instant with or without its zero fraction or in another offset.
+    #[test]
+    fn content_compares_numbers_and_instants_as_values_not_as_written() -> anyhow::Result<()> {
+        let spark = br#"{"pnu":"9999900000100000000","area_m2":1.0E7,"usage":19.500,"rows":3,
+            "at":"2099-01-02T03:04:05.000Z","months":[{"use_ym":"209901"}]}"#;
+        let duckdb = br#"{"pnu":"9999900000100000000","area_m2":10000000.0,"usage":19.5,"rows":3.0,
+            "at":"2099-01-02T12:04:05+09:00","months":[{"use_ym":"209901"}]}"#;
+        assert!(same_content(spark, duckdb)?);
+        for rendered in [
+            // Another value, a number written as text, another instant, and a list in another order.
+            br#"{"pnu":"9999900000100000000","area_m2":10000000.5,"usage":19.5,"rows":3,"at":"2099-01-02T03:04:05Z","months":[{"use_ym":"209901"}]}"#.as_slice(),
+            br#"{"pnu":"9999900000100000000","area_m2":"10000000","usage":19.5,"rows":3,"at":"2099-01-02T03:04:05Z","months":[{"use_ym":"209901"}]}"#.as_slice(),
+            br#"{"pnu":"9999900000100000000","area_m2":1.0E7,"usage":19.5,"rows":3,"at":"2099-01-02T03:04:06Z","months":[{"use_ym":"209901"}]}"#.as_slice(),
+            br#"{"pnu":"9999900000100000000","area_m2":1.0E7,"usage":19.5,"rows":3,"at":"2099-01-02T03:04:05Z","months":[{"use_ym":"209902"},{"use_ym":"209901"}]}"#.as_slice(),
+        ] {
+            assert!(!same_content(spark, rendered)?);
         }
         Ok(())
     }

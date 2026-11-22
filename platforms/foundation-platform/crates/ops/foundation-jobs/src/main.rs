@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use foundation_jobs::{
-    check, check_tmpfiles, render, render_tmpfiles, JobList, TMPFILES, UNIT_DIR,
+    check, check_tmpfiles, committed_dropins, render, render_tmpfiles, stale_dropins, JobList,
+    TMPFILES, UNIT_DIR,
 };
 
 fn main() -> ExitCode {
@@ -28,9 +29,10 @@ fn main() -> ExitCode {
     let units = root.join(UNIT_DIR);
     let read =
         |file: &str| std::fs::read_to_string(units.join(file)).map_err(|error| error.to_string());
+    let committed = committed_dropins(&units);
     match args.first().map(String::as_str) {
         Some("check") => {
-            let mut problems = check(&list, &read);
+            let mut problems = check(&list, &read, &committed);
             problems.extend(check_tmpfiles(
                 &list,
                 std::fs::read_to_string(root.join(TMPFILES)).map_err(|error| error.to_string()),
@@ -53,11 +55,28 @@ fn main() -> ExitCode {
             }
             Ok(rendered) => {
                 for unit in rendered.iter().filter(|unit| unit.current != unit.rendered) {
-                    if let Err(error) = std::fs::write(units.join(&unit.file), &unit.rendered) {
+                    let path = units.join(&unit.file);
+                    let written = path
+                        .parent()
+                        .map_or(Ok(()), std::fs::create_dir_all)
+                        .and_then(|()| std::fs::write(&path, &unit.rendered));
+                    if let Err(error) = written {
                         let _ = writeln!(err, "{}: {error}", unit.file);
                         return ExitCode::FAILURE;
                     }
                     let _ = writeln!(err, "rendered {}", unit.file);
+                }
+                for file in stale_dropins(&rendered, &committed) {
+                    let path = units.join(&file);
+                    if let Err(error) = std::fs::remove_file(&path) {
+                        let _ = writeln!(err, "{file}: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                    // The directory goes with its last drop-in.
+                    if let Some(directory) = path.parent() {
+                        let _ = std::fs::remove_dir(directory);
+                    }
+                    let _ = writeln!(err, "removed {file}");
                 }
                 match render_tmpfiles(&list) {
                     Ok(rendered) => {

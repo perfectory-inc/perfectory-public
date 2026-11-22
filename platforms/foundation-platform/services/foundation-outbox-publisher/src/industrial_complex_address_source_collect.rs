@@ -9,7 +9,10 @@
 //! this is not a scratch download into a temporary directory: the raw responses land as Bronze
 //! objects with a canonical `source_slug`, a `sha256`, a `catalog.bronze_object` ledger row, and
 //! the write-once `CreateOnly` policy the [`BronzeCommitter`](collection_application::BronzeCommitter)
-//! enforces.
+//! enforces. Every object is content-qualified (`page-000001--sha256-<hex>.json`, root ADR-0152): the
+//! provider answers the same request with new bytes from one day to the next, so a new answer lands
+//! beside the earlier ones and the same answer again is the same object. A run reports `changed`
+//! only when it recorded an answer the ledger did not hold.
 //!
 //! Two datasets, one bulk request each:
 //!
@@ -530,9 +533,10 @@ where
             IngestionRunId::new(Uuid::new_v4())
         };
         let plan = compile_plan(item, dataset_run_id, started_at)?;
+        let entry = source_catalog_entry(config, item, started_at);
         let report = collect_planned_pages(
             &IlisLane,
-            source_catalog_entry(config, item, started_at),
+            entry.clone(),
             ingestion_run(
                 SourceCatalogId::new(Uuid::nil()),
                 dataset_run_id,
@@ -551,19 +555,47 @@ where
             storage,
         )
         .await?;
+        let written = recorded_by_run(uow, &entry, plan.object_key.as_str(), report.run_id).await?;
         datasets.push(AddressSourceDatasetReport {
             source_slug: item.source_slug.clone(),
             object_key: plan.object_key.as_str().to_owned(),
             checksum_sha256: plan.checksum_sha256.clone(),
             size_bytes: plan.size_bytes,
             logical_record_count: plan.logical_record_count,
-            written: report.objects_written > 0,
+            written,
         });
     }
     Ok(AddressSourceCollectReport {
         requests_sent: fetched.len(),
         datasets,
     })
+}
+
+/// Whether this run recorded the ledger row of `object_key`: the answer is new to Bronze.
+///
+/// The committer succeeds without writing when Bronze already holds the answer (the same bytes have
+/// the same content-qualified key), and the collector's commit count counts that success all the
+/// same. Only the row says which run first recorded the answer, so an answer equal to an earlier
+/// one reports `unchanged` and starts no Silver load.
+async fn recorded_by_run<Uow>(
+    uow: &Uow,
+    entry: &SourceCatalogEntry,
+    object_key: &str,
+    run_id: IngestionRunId,
+) -> anyhow::Result<bool>
+where
+    Uow: BronzeIngestUnitOfWork + ?Sized,
+{
+    let source = uow
+        .upsert_source_catalog_entry(entry)
+        .await
+        .with_context(|| format!("failed to read the {} source catalog entry", entry.slug))?;
+    let row = uow
+        .find_bronze_object_by_object_key(source.id, object_key)
+        .await
+        .with_context(|| format!("failed to read the ledger row of {object_key}"))?
+        .with_context(|| format!("the ledger holds no row for the committed {object_key}"))?;
+    Ok(row.ingestion_run_id == run_id)
 }
 
 fn compile_plan(

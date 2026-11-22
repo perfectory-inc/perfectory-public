@@ -150,6 +150,17 @@ pub fn subject_of_lane(lane: &str) -> anyhow::Result<Option<&'static Subject>> {
     }))
 }
 
+/// The JSON Schema of `lane`'s documents at its subject's current revision, as the registry's file
+/// holds it (compiled in by `scripts/schema_registry.py generate`); `None` for a lane the registry
+/// does not list.
+#[must_use]
+pub fn lane_document_schema(lane: &str) -> Option<&'static str> {
+    crate::host_document_schemas::LANE_DOCUMENT_SCHEMAS
+        .iter()
+        .find(|(name, _)| *name == lane)
+        .map(|(_, schema)| *schema)
+}
+
 /// What a gateway that reads every major the registry lists for `lane` answers in its
 /// capabilities' `document_schemas` (the Worker's `documentSchemas`): the subject's name to its
 /// majors, empty for a lane the registry does not list.
@@ -206,6 +217,26 @@ mod tests {
         assert_eq!(subject.written_revision(), Some(4));
         // A host lane keeps its own document schema until it moves (root ADR-0336).
         assert!(subject_of_lane("building")?.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn every_listed_lane_has_its_current_schema_compiled_in() -> anyhow::Result<()> {
+        for subject in &registry()?.subjects {
+            let (Some(lane), None) = (&subject.owner.lane, &subject.owner.part) else {
+                continue;
+            };
+            let schema: serde_json::Value = serde_json::from_str(
+                lane_document_schema(lane)
+                    .ok_or_else(|| anyhow::anyhow!("no schema compiled in for {lane}"))?,
+            )?;
+            let title = schema["title"].as_str().unwrap_or_default();
+            assert!(
+                title.starts_with(subject.subject.as_str()),
+                "{lane}: {title}"
+            );
+        }
+        assert!(lane_document_schema("building").is_none());
         Ok(())
     }
 }

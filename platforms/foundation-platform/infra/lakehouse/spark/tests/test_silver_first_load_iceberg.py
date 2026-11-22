@@ -13,7 +13,7 @@ case its writer needs:
 
 | case | lanes | first load must |
 |---|---|---|
-| staged | every `silver_refresh` lane (`*-source-objects.json`) | stage every batch on the load branch; main holds none of it until one publish |
+| release | every `silver_refresh` lane (`*-source-objects.json`) | be one append of the whole release by the publisher's DuckDB load, compared against an empty main when the table has no snapshot (root ADR-0599) |
 | object | a job that writes through `append_source_object` | commit each object once, recording it, even with no rows |
 | batch | a job that writes through `append_batch_once` on main | commit the batch once; the same batch again writes nothing |
 | own | `OWN_WRITERS`: a writer of its own, with the test that loads its empty table | (that test) |
@@ -79,6 +79,12 @@ OWN_WRITERS = {
     # The ILIS notice Silver load's two tables, appended by the publisher the same way (root ADR-0559).
     "silver.industrial_complex_notice_detail": NOTICE_FIRST_LOAD,
     "silver.industrial_complex_notice_attachment": NOTICE_FIRST_LOAD,
+    # The industrial land sale notice Silver load's two tables, the same test (root ADR-0603).
+    "silver.industrial_land_sale_notice_read": NOTICE_FIRST_LOAD,
+    "silver.industrial_land_sale_notice_attachment": NOTICE_FIRST_LOAD,
+    # The FLOOR cycle's whole-edition load (run-building-register-floor-cycle), appended by the publisher (root ADR-0599).
+    "silver.building_register_floors": ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
+                                        "a_floor_edition_is_the_first_append_into_the_empty_table"),
     # The industrial-complex Silver load (load-industrial-complex-silver), appended by the publisher (root ADR-0559).
     "silver.industrial_complexes": ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
                                     "an_industrial_complex_export_is_the_first_append_into_the_empty_table"),
@@ -119,16 +125,43 @@ OWN_WRITERS = {
     "silver.court_auction_sale_specification_read": COURT_AUCTION_FIRST_LOAD,
     "silver.court_auction_dividend_notice": COURT_AUCTION_FIRST_LOAD,
     "silver.court_auction_dividend_object": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_sale_notice": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_sale_notice_item": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_case": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_case_related": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_case_object": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_case_party": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_case_document_read": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_survey": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_survey_object": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_appraisal": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_case_filing": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_case_delivery": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_survey_tenant": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_item_photo": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_item_spec": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_item_schedule": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_item_object": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_item_annex": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_appraisal_point": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_item_detail": COURT_AUCTION_FIRST_LOAD,
 }
 RUST_TEST = "rust:"
 
 
 def silver_refresh_lanes(contracts_dir=CONTRACTS):
+    """{table: silver_refresh block} of every lane: a hand lane's contract and a HUB family's entries
+    (root ADR-0551: `silver.<id>`, the family's load)."""
     lanes = {}
     for path in sorted(contracts_dir.glob("*-source-objects.json")):
         block = json.loads(path.read_text(encoding="utf-8")).get("silver_refresh") or {}
         if block.get("table"):
             lanes[block["table"]] = block
+    for path in sorted(contracts_dir.glob("hub-lane-family-*.v1.json")):
+        family = json.loads(path.read_text(encoding="utf-8"))
+        for lane, entry in family["lanes"].items():
+            table = "silver." + lane.replace("-", "_")
+            lanes[table] = {"table": table, "load": entry.get("load", family["defaults"]["load"])}
     return lanes
 
 
@@ -145,7 +178,7 @@ def first_load_cases(contracts, graph, refresh_lanes, read_job, own=OWN_WRITERS)
                        for via in edge.get("via", []) if via.startswith(JOBS) and via.endswith(".py")})
         sources = [read_job(job) for job in jobs]
         if table in refresh_lanes:
-            cases[table] = "staged"
+            cases[table] = "release"
         elif table in own:
             cases[table] = "own"
         elif shared := next((case for case, call in SHARED_WRITERS if any(call in s for s in sources)), None):
@@ -172,8 +205,19 @@ class FirstLoadCaseTableTest(unittest.TestCase):
     def test_every_silver_lane_has_a_first_load_case(self):
         cases = the_cases()
         self.assertGreaterEqual(len(cases), 42)
-        self.assertEqual({t for t, c in cases.items() if c == "staged"}, set(silver_refresh_lanes()))
-        self.assertIn("silver.land_ownership", {t for t, c in cases.items() if c == "staged"})
+        self.assertEqual({t for t, c in cases.items() if c == "release"}, set(silver_refresh_lanes()))
+        self.assertIn("silver.land_ownership", {t for t, c in cases.items() if c == "release"})
+
+    def test_a_lane_release_is_one_append_that_creates_its_table_and_compares_with_an_empty_main(self):
+        """#986 put a new table's first batch on main before its release was whole. A lane's release is now
+        one commit of the publisher (root ADR-0599): the table is created on that commit, and a table with no
+        snapshot is compared as empty, so every key of the release is new. The commit itself appends into an
+        empty table in the Rust first-append tests OWN_WRITERS names."""
+        release = (AREA / "crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/silver_refresh/"
+                   "duckdb_release.rs").read_text(encoding="utf-8")
+        self.assertIn("committer.create_table_if_absent(table_contract)", release)
+        self.assertIn('None => format!("(SELECT * FROM {copied} WHERE false)")', release)
+        self.assertIn(".append_at_head_recording(", release)
 
     def test_each_own_writer_names_a_runtime_test_that_exists(self):
         import ast
@@ -298,80 +342,6 @@ def main_snapshots(spark, table):
     return ingest.ref_lineage(spark, table, ingest.MAIN)
 
 
-def stage_with_the_lane_writer(spark, table, contract_name, contract, batch, index, branch):
-    """The lane's own write (`write_silver_iceberg`, the table created by it), as silver-refresh runs it."""
-    from pyspark.sql import functions as F
-
-    import silver_scalar_handoff_to_lakehouse as job
-
-    lane = silver_refresh_lanes()[contract_name]
-    name = contract_name.split(".", 1)[1]
-    args = SimpleNamespace(contract=contract_name, iceberg_catalog_name="proof", iceberg_namespace="silver",
-                           iceberg_table=name, iceberg_write_mode="append", derivation=None, iceberg_branch=branch)
-    # The first batch writes as the lane declares, the rest append (land.rs batch_write_mode).
-    mode = lane["spark"]["iceberg_write_mode"] if index == 0 else "append"
-    return job.write_silver_iceberg(spark, batch, args, contract, F, iceberg_write_mode=mode)
-
-
-def assert_first_release_is_staged(test, spark, contract_name, write=stage_with_the_lane_writer):
-    """Every batch of the first release stages; main shows none of it, then all of it in one publish."""
-    import lakehouse_ingest as ingest
-    from platform_contracts import load_lakehouse_contract
-
-    table, unquoted = target(contract_name)
-    contract = load_lakehouse_contract(contract_name)
-    branch = "load_first"
-    spark.sql(f"DROP TABLE IF EXISTS {table}")
-    objects = {"bronze/first-a.zip": [1, 2], "bronze/first-b.zip": [3]}
-    recorded = set()
-    for index, (obj, numbers) in enumerate(objects.items()):
-        outcome = write(spark, table, contract_name, contract, frame(spark, contract, obj, numbers), index, branch)
-        test.assertTrue(outcome["appended"], obj)
-        test.assertEqual(outcome["ref"], branch, f"{obj} of a new table's first release stages on its branch")
-        recorded |= set(outcome["record_ids"])
-    test.assertEqual(spark.table(table).count(), 0, "main shows none of a staged release")
-    test.assertEqual(set(ingest.read_ingested_objects(spark, table, unquoted)), set(), "main records none of it")
-    base = main_snapshots(spark, table)
-    test.assertLessEqual(len(base), 1, "main holds at most the empty commit the branch grew from")
-    spark.sql(f"CALL proof.system.fast_forward('silver.{contract_name.split('.', 1)[1]}', 'main', '{branch}')")
-    test.assertEqual(set(ingest.read_ingested_objects(spark, table, unquoted)), recorded)
-    test.assertEqual(spark.table(table).count(), sum(len(n) for n in objects.values()))
-    test.assertEqual(main_snapshots(spark, table), ingest.ref_lineage(spark, table, branch))
-
-
-@unittest.skipUnless(os.getenv("RUN_ICEBERG_TESTS") == "1", "requires the pinned Iceberg runtime")
-class StagedFirstLoadTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.spark, cls.directory = session("silver-first-load-staged")
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.spark.stop()
-        cls.directory.cleanup()
-
-    def test_every_silver_refresh_lane_stages_its_first_release(self):
-        lanes = tables_of("staged")
-        self.assertIn("silver.land_ownership", lanes)
-        for table in lanes:
-            with self.subTest(table=table):
-                assert_first_release_is_staged(self, self.spark, table)
-
-    def test_a_writer_that_puts_a_new_tables_first_batch_on_main_fails(self):
-        """The writer before #986: no main snapshot to branch from, so batch 0 went to main."""
-
-        def straight_to_main(spark, table, contract_name, contract, batch, index, branch):
-            import lakehouse_ingest as ingest
-            from platform_contracts import column_names, ensure_contract_table
-
-            ensure_contract_table(spark, table, contract)
-            return ingest.append_batch_once(spark, batch, column_names(contract), table, contract_name,
-                                            branch=branch if index else None)
-
-        with self.assertRaises(AssertionError):
-            assert_first_release_is_staged(self, self.spark, "silver.land_ownership", write=straight_to_main)
-
-
 @unittest.skipUnless(os.getenv("RUN_ICEBERG_TESTS") == "1", "requires the pinned Iceberg runtime")
 class ObjectFirstLoadTest(unittest.TestCase):
     @classmethod
@@ -388,7 +358,7 @@ class ObjectFirstLoadTest(unittest.TestCase):
         from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract
 
         lanes = tables_of("object")
-        self.assertIn("silver.court_auction_appraisal", lanes)
+        self.assertIn("silver.court_auction_item", lanes)
         for contract_name in lanes:
             with self.subTest(table=contract_name):
                 table, unquoted = target(contract_name)

@@ -5,9 +5,8 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
-from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 JOBS_DIR = Path(__file__).resolve().parents[1] / "jobs"
 sys.path.insert(0, str(JOBS_DIR))
@@ -17,11 +16,6 @@ from platform_contracts import (  # noqa: E402
     OrdinaryLandPnuNullShareBounds,
     declared_ordinary_land_pnu_null_share_bounds,
     load_lakehouse_contract,
-)
-from silver_scalar_handoff_to_lakehouse import (  # noqa: E402
-    enforce_ordinary_land_pnu_null_share,
-    main,
-    run_batched_input,
 )
 
 HUB_REGISTER_TABLES = (
@@ -137,83 +131,6 @@ def iceberg_args(**overrides: object) -> MagicMock:
         setattr(args, key, value)
     return args
 
-
-class LoaderWiringTest(unittest.TestCase):
-    def test_enforce_measures_the_current_table_and_raises_on_regression(self) -> None:
-        contract = load_lakehouse_contract("silver.building_register_titles")
-        with patch.object(guard, "measure", return_value=guard.OrdinaryLandPnuNulls(100, 50)), \
-                patch.object(guard, "table_baseline",
-                             return_value=guard.OrdinaryLandPnuNulls(100, 0)) as baseline:
-            with self.assertRaisesRegex(ValueError, "Refusing the Silver load"):
-                enforce_ordinary_land_pnu_null_share(MagicMock(), MagicMock(), iceberg_args(), contract, MagicMock())
-        self.assertEqual(baseline.call_args.args[1], "`r2`.`silver`.`building_register_titles`")
-
-    def test_enforce_is_a_no_op_for_tables_without_the_gate(self) -> None:
-        contract = load_lakehouse_contract("silver.building_register_floors")
-        with patch.object(guard, "measure") as measure:
-            self.assertIsNone(enforce_ordinary_land_pnu_null_share(
-                MagicMock(), MagicMock(), iceberg_args(), contract, MagicMock()))
-        measure.assert_not_called()
-
-    def test_single_load_refusal_happens_before_any_write(self) -> None:
-        args = iceberg_args(
-            input="/tmp/input", input_format="jsonl", input_file_batch_size=0,
-            contract="silver.building_register_titles", iceberg_write_mode="append",
-            validate_only=False, expected_count=None, summary_output=None,
-            defer_iceberg_readback_validation=False, derivation=None,
-        )
-        frame = MagicMock()
-        frame.persist.return_value = frame
-        with ExitStack() as stack:
-            for name, value in {
-                "parse_args": args,
-                "validate_args": None,
-                "load_lakehouse_contract": load_lakehouse_contract(args.contract),
-                "validate_scalar_contract": None,
-                "load_pyspark": (object(), MagicMock(), object(), MagicMock()),
-                "build_spark_session": MagicMock(),
-                "read_handoff": frame,
-                "cast_handoff_frame": frame,
-                "validate_frame": (2, {"row_count": 2}),
-                "collect_source_snapshot_summary": {"source_snapshot_ids": ["s"]},
-            }.items():
-                stack.enter_context(
-                    patch(f"silver_scalar_handoff_to_lakehouse.{name}", return_value=value))
-            stack.enter_context(patch(
-                "silver_scalar_handoff_to_lakehouse.enforce_ordinary_land_pnu_null_share",
-                side_effect=ValueError("Refusing the Silver load: planted"),
-            ))
-            write = stack.enter_context(patch("silver_scalar_handoff_to_lakehouse.write_silver_iceberg"))
-            with self.assertRaisesRegex(ValueError, "planted"):
-                main()
-        write.assert_not_called()
-
-    def test_batched_load_judges_every_batch_before_the_first_write(self) -> None:
-        args = iceberg_args(
-            input="/tmp/input", input_format="jsonl", input_file_batch_size=1,
-            contract="silver.building_register_titles", iceberg_write_mode="append",
-            validate_only=False, expected_count=None,
-        )
-        contract = load_lakehouse_contract(args.contract)
-        read = MagicMock(return_value=MagicMock())
-        with ExitStack() as stack:
-            stack.enter_context(patch("silver_scalar_handoff_to_lakehouse.collect_input_batches",
-                                      return_value=[["/tmp/a.jsonl"], ["/tmp/b.jsonl"]]))
-            stack.enter_context(patch("silver_scalar_handoff_to_lakehouse.read_handoff", read))
-            stack.enter_context(patch("silver_scalar_handoff_to_lakehouse.cast_handoff_frame",
-                                      side_effect=lambda frame, *_: frame))
-            stack.enter_context(patch(
-                "silver_scalar_handoff_to_lakehouse.enforce_ordinary_land_pnu_null_share",
-                side_effect=ValueError("Refusing the Silver load: planted"),
-            ))
-            preflight = stack.enter_context(
-                patch("silver_scalar_handoff_to_lakehouse.preflight_file_batches"))
-            write = stack.enter_context(patch("silver_scalar_handoff_to_lakehouse.write_silver_iceberg"))
-            with self.assertRaisesRegex(ValueError, "planted"):
-                run_batched_input(MagicMock(), args, contract, MagicMock(), MagicMock(), MagicMock())
-        self.assertEqual(read.call_args.args[1], ["/tmp/a.jsonl", "/tmp/b.jsonl"])
-        preflight.assert_not_called()
-        write.assert_not_called()
 
 
 @unittest.skipUnless(has_pyspark(), "requires pyspark")

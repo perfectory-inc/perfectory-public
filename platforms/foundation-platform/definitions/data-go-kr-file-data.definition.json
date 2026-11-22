@@ -20,6 +20,8 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 90,
+      "memory_max": "3G",
+      "memory_measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting). Since root ADR-0559 the Silver load is the publisher's DuckDB inside this unit (it was the spark container, 8g driver): sized as the onbid Silver load, the same stage (2.1G measured 2026-11-20 on 48 objects); the largest edition (상가 2,753,778 rows, quarterly) has not run under this cap yet; systemd logs the peak of every run and the load prints memory_peak_bytes",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

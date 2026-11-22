@@ -226,8 +226,14 @@ def instances(job: dict) -> list[str]:
             if (match := SERVICE.fullmatch(service)) and match.group(2) is not None]
 
 
+# The drop-ins an instance gets its own limits from (root ADR-0574 §8): foundation-jobs writes the time
+# limit, scripts/ci/unit_memory.py the memory. A change to either is a change to the job.
+INSTANCE_DROPINS = ("50-time-limit.conf", "50-memory.conf")
+
+
 def unit_files(job: dict, platform: pathlib.Path = PLATFORM) -> list[str]:
-    """The unit files of `job`'s services, platform-relative (a template for `name@instance`)."""
+    """The unit files of `job`'s services, platform-relative (a template for `name@instance`, and the
+    instance's limit drop-ins when it has them)."""
     found = []
     for service in filter(None, (job.get("systemd_service"), job.get("check_service"))):
         match = SERVICE.fullmatch(service)
@@ -235,6 +241,11 @@ def unit_files(job: dict, platform: pathlib.Path = PLATFORM) -> list[str]:
             raise ValueError(f"{job['id']}: {service!r} is not a foundation-*.service name")
         name = f"{match.group(1)}@.service" if match.group(2) is not None else service
         found.append((platform / "infra" / "systemd" / name).relative_to(platform).as_posix())
+        if match.group(2) is not None:
+            for dropin in INSTANCE_DROPINS:
+                path = platform / "infra" / "systemd" / f"{service}.d" / dropin
+                if path.is_file():
+                    found.append(path.relative_to(platform).as_posix())
     return found
 
 

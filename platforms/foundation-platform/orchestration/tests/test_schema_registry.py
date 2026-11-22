@@ -82,7 +82,8 @@ class Fixture:
         return registry_tool.current(self.registry()["subjects"][0])["revision"]
 
     def register(self, schema: dict, **revision) -> None:
-        """Adds the subject's next revision: `schema` under the canonical string unless told otherwise."""
+        """Adds the subject's next revision: `schema` under the canonical string unless told otherwise,
+        and regenerates the compiled-in schemas as the change's author does (`generate`)."""
         registry = self.registry()
         entry = registry["subjects"][0]
         number = self.current() + 1
@@ -90,6 +91,8 @@ class Fixture:
                                    "decision": "docs/adr/0336-x.md", "reason": "a test revision", **revision})
         self.write("contracts/schema-registry/registry.json", registry)
         self.write(f"contracts/schema-registry/parcel_public_auction_by_pnu/{entry['revisions'][-1]['major']}/{number}.schema.json", schema)
+        (self.platform / registry_tool.HOST_SCHEMAS).write_text(
+            registry_tool.host_schemas(registry_tool.load(self.platform)), encoding="utf-8", newline="\n")
 
     def check(self, base: str | None = None) -> list[str]:
         return registry_tool.check(self.platform, base)
@@ -256,6 +259,18 @@ class Compatibility(unittest.TestCase):
         hosts = self.fixture.platform / registry_tool.HOST_SCHEMAS
         self.assertIn("pub const PARCEL_DOCUMENT_SCHEMA_VERSION", hosts.read_text(encoding="utf-8"))
         hosts.write_text("// edited by hand\n", encoding="utf-8")
+        self.assertRefused(self.fixture.check(), "is not what the registry generates")
+
+    def test_a_lane_s_new_revision_is_compiled_in_for_the_verdict(self):
+        # A takeover verdict validates every document against its lane's current revision, compiled
+        # in from the registry (LANE_DOCUMENT_SCHEMAS): a revision added without regenerating fails.
+        hosts = self.fixture.platform / registry_tool.HOST_SCHEMAS
+        before = hosts.read_text(encoding="utf-8")
+        self.assertIn('("parcel-public-auction", include_str!(', before)
+        self.fixture.register(revision_three(self.fixture.schema(self.fixture.current())))
+        after = hosts.read_text(encoding="utf-8")
+        self.assertIn(f"parcel_public_auction_by_pnu/1/{self.fixture.current()}.schema.json", after)
+        hosts.write_text(before, encoding="utf-8")
         self.assertRefused(self.fixture.check(), "is not what the registry generates")
 
     def test_only_a_host_lane_has_parts_and_one_subject_each(self):

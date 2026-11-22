@@ -23,6 +23,9 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 300,
+      "memory_max": "2G",
+      "memory_measured_peak": "1024M",
+      "memory_measured": "journal `memory peak` 2026-10-18..11-12: 534M on 2026-11-11 (lists + 1,800 물건상세), then 1,023.9M and oom-kill at the 1G cap on 2026-11-12 after 2 h 9 min, the first night that asked every in-progress property (root ADR-0540 §2) while holding its lines as text; the lines are now held gzipped (GzLines), and the cap leaves the lists (~0.5G) plus the night's compressed lines and in-flight answers room (foundation-court-auction-collect)",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -658,7 +661,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs"
       ],
       "source_slugs": [
         "courtauctiongokr__auction_item_detail"
@@ -674,7 +678,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs"
       ],
       "source_slugs": [
         "courtauctiongokr__auction_item_detail"
@@ -700,7 +705,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs"
       ],
       "source_slugs": [
         "courtauctiongokr__auction_item_detail"
@@ -716,7 +722,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs"
       ],
       "source_slugs": [
         "courtauctiongokr__auction_item_detail"
@@ -732,7 +739,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs"
       ],
       "source_slugs": [
         "courtauctiongokr__auction_item_detail"
@@ -748,7 +756,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs"
       ],
       "source_slugs": [
         "courtauctiongokr__auction_item_detail"
@@ -764,7 +773,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs"
       ],
       "source_slugs": [
         "courtauctiongokr__auction_item_detail"
@@ -780,7 +790,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs"
       ],
       "source_slugs": [
         "courtauctiongokr__auction_item_detail"
@@ -814,7 +825,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "source_slugs": [
@@ -833,7 +845,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "source_slugs": [
@@ -850,7 +863,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "source_slugs": [
@@ -867,7 +881,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "source_slugs": [
@@ -884,7 +899,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/notices.rs"
       ],
       "source_slugs": [
@@ -937,7 +953,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/notices.rs"
       ],
       "source_slugs": [
@@ -954,7 +971,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "source_slugs": [
@@ -971,7 +989,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "source_slugs": [
@@ -988,7 +1007,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "source_slugs": [
@@ -1005,7 +1025,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "source_slugs": [
@@ -1022,7 +1043,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "source_slugs": [
@@ -1039,7 +1061,8 @@
         "collect-courtauction-go-kr",
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs",
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs"
       ],
       "source_slugs": [
@@ -1172,6 +1195,474 @@
     {
       "asset": "silver-court-auction-sale-result",
       "check": "parcel_source_resolution",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-code",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-code",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-code",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report-read",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report-read",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report-read",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-specification-read",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-specification-read",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-specification-read",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-notice",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-notice",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-notice",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-object",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-object",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-object",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice-item",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice-item",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice-item",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-related",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-related",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-related",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-object",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-object",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-object",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-party",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-party",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-party",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-document-read",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-document-read",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-document-read",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-object",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-object",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-object",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-tenant",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-tenant",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-tenant",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-filing",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-filing",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-filing",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-delivery",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-delivery",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-delivery",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-photo",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-photo",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-photo",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-spec",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-spec",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-spec",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-schedule",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-schedule",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-schedule",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-object",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-object",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-object",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-annex",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-annex",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-annex",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-point",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-point",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-point",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-detail",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-detail",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-detail",
+      "check": "silver_load_required_present",
       "blocking": false,
       "reads": []
     }

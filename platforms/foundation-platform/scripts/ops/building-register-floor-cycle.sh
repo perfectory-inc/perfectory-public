@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Airflow의 spark pool이 전체 stage/history/native/scalar 실행을 소유한다.
+# 한 번의 FLOOR 주기: 입력 준비·내보내기는 제어 컨테이너, 이력 검사·DuckDB 적재는 발행기 프로세스가 한다(root ADR-0599).
 set -euo pipefail
 
 # The publisher is this release's trusted build output outside the release (root ADR-0134 §3).
@@ -28,7 +28,7 @@ esac
 : "${FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH:?protected history witness is required}"
 : "${FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE:?pinned local control image is required}"
 : "${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT:?absolute mutable state root is required}"
-: "${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:?absolute Ivy cache is required}"
+: "${FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT:?absolute DuckDB work directory is required}"
 
 # systemd supplies the existing runtime credentials. Compose owns the API role,
 # database and published host port; do not store another DATABASE_URL or use admin.

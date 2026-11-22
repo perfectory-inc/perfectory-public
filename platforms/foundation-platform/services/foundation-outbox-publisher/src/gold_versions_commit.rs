@@ -17,7 +17,7 @@ use foundation_publisher_silver::duckdb::Connection;
 use foundation_publisher_silver::duckdb_parquet_stage::{
     with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG,
 };
-use lakehouse_domain::LakehouseTableContract;
+use lakehouse_domain::{LakehouseTableContract, GOLD_VERSIONS_PNU_PARTITION};
 use lakehouse_infrastructure::{IcebergRestCatalog, IcebergSnapshotSummary};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -171,6 +171,16 @@ pub(crate) struct Diff {
     pub current_in_range: u64,
 }
 
+impl std::ops::AddAssign for Diff {
+    fn add_assign(&mut self, other: Self) {
+        self.built += other.built;
+        self.added += other.added;
+        self.changed += other.changed;
+        self.removed += other.removed;
+        self.current_in_range += other.current_in_range;
+    }
+}
+
 impl Diff {
     pub(crate) const fn keys(&self) -> u64 {
         self.added + self.changed + self.removed
@@ -183,8 +193,6 @@ pub(crate) struct Commit<'a> {
     pub versions: &'a LakehouseTableContract,
     /// The replaced table's columns: what `built` holds, in the table's order.
     pub content_columns: Vec<&'static str>,
-    /// The key (the first content column).
-    pub key: &'static str,
     /// `main`'s head the diff reads (`None`: the table has no snapshot).
     pub head: Option<i64>,
     pub base: Option<Base>,
@@ -194,8 +202,27 @@ pub(crate) struct Commit<'a> {
     pub published_at_utc: String,
 }
 
+/// The columns each build stamps on the rows it writes: the replaced table's per-commit partition
+/// and the run's start (`appended_sql` stamps both on a removal marker). They differ on every commit
+/// and say nothing of the content, so neither a digest nor a takeover verdict reads them.
+pub(crate) const PER_COMMIT_STAMPS: [&str; 2] = ["source_snapshot_id", "published_at_utc"];
+
+impl Commit<'_> {
+    /// The key: the versions table's current-row key (`pnu` for a by-PNU table).
+    ///
+    /// # Errors
+    /// The versions table keeps no versions per key.
+    pub(crate) fn key(&self) -> anyhow::Result<&'static [&'static str]> {
+        Ok(self
+            .versions
+            .current_row_latest()
+            .context("the versions table has no current-row rule")?
+            .key)
+    }
+}
+
 /// Diffs `built` against the current rows of the head among the keys `range` keeps (a predicate
-/// on the key column) and leaves the rows to append in `appended`.
+/// on the key columns) and leaves the rows to append in `appended`.
 ///
 /// # Errors
 /// Refuses two current rows of one key at the head (the SQL rule keeps ties; the write path must
@@ -205,7 +232,7 @@ pub(crate) fn diff(
     commit: &Commit<'_>,
     range: &str,
 ) -> anyhow::Result<Diff> {
-    let key = commit.key;
+    let key = commit.key()?.join(", ");
     let content = commit.content_columns.join(", ");
     let current = match commit.head {
         Some(head) => commit
@@ -235,7 +262,7 @@ pub(crate) fn diff(
     };
     let (rows, keys) = (
         count("SELECT count(*) FROM current_rows")?,
-        count(&format!("SELECT count(DISTINCT {key}) FROM current_rows"))?,
+        count(&format!("SELECT count(DISTINCT ({key})) FROM current_rows"))?,
     );
     ensure!(
         rows == keys,
@@ -244,7 +271,7 @@ pub(crate) fn diff(
     );
     let (built, built_keys) = (
         count("SELECT count(*) FROM built")?,
-        count(&format!("SELECT count(DISTINCT {key}) FROM built"))?,
+        count(&format!("SELECT count(DISTINCT ({key})) FROM built"))?,
     );
     ensure!(
         built == built_keys,
@@ -452,11 +479,13 @@ fn assert_coverage(connection: &Connection, commit: &Commit<'_>) -> anyhow::Resu
         .copied()
         .filter(|column| column.ends_with("_json"))
         .collect();
-    if sections.is_empty() || commit.head.is_none() {
+    // The sections are a by-PNU table's: a table whose key does not start with the PNU serves no
+    // parcel a section.
+    if sections.is_empty() || commit.head.is_none() || commit.key()?.first() != Some(&"pnu") {
         return Ok(());
     }
-    let served = coverage_of(connection, "current_rows", commit.key, &sections)?;
-    let built = coverage_of(connection, "built", commit.key, &sections)?;
+    let served = coverage_of(connection, "current_rows", "pnu", &sections)?;
+    let built = coverage_of(connection, "built", "pnu", &sections)?;
     let bound = coverage_bound()?;
     let found = coverage_breaches(&served, &built, &region_pairs(connection)?, bound);
     ensure!(
@@ -474,7 +503,21 @@ fn assert_coverage(connection: &Connection, commit: &Commit<'_>) -> anyhow::Resu
 /// changed key's row with this commit's `version_seq`, and for a key `built` no longer holds its
 /// last current row, marked `removed` and stamped with this commit's lineage (root ADR-0564 §2).
 pub(crate) fn appended_sql(commit: &Commit<'_>) -> anyhow::Result<String> {
-    let key = commit.key;
+    let keys = commit.key()?;
+    let (first, key) = (keys[0], keys.join(", "));
+    // A removal marker's stamp, as the column's type holds it.
+    let stamped = |column: &str, value: &str| {
+        let timestamp = commit
+            .versions
+            .columns
+            .iter()
+            .any(|known| known.name == column && known.logical_type == "timestamp");
+        if timestamp {
+            format!("CAST('{value}' AS TIMESTAMPTZ) AS {column}")
+        } else {
+            format!("'{value}' AS {column}")
+        }
+    };
     let stamps = [&commit.source_snapshot_id, &commit.published_at_utc];
     ensure!(
         stamps.iter().all(|stamp| !stamp.contains(['\'', '\\'])),
@@ -484,10 +527,8 @@ pub(crate) fn appended_sql(commit: &Commit<'_>) -> anyhow::Result<String> {
         .content_columns
         .iter()
         .map(|column| match *column {
-            "source_snapshot_id" => {
-                format!("'{}' AS source_snapshot_id", commit.source_snapshot_id)
-            }
-            "published_at_utc" => format!("'{}' AS published_at_utc", commit.published_at_utc),
+            "source_snapshot_id" => stamped("source_snapshot_id", &commit.source_snapshot_id),
+            "published_at_utc" => stamped("published_at_utc", &commit.published_at_utc),
             other => format!("c.{other}"),
         })
         .collect::<Vec<_>>()
@@ -502,37 +543,57 @@ pub(crate) fn appended_sql(commit: &Commit<'_>) -> anyhow::Result<String> {
     Ok(format!(
         "CREATE OR REPLACE TABLE appended AS \
          SELECT {built_columns}, CAST({sequence} AS BIGINT) AS version_seq, CAST(NULL AS VARCHAR) AS row_state, \
-                CASE WHEN c.{key} IS NULL THEN 'added' ELSE 'changed' END AS change \
+                CASE WHEN c.{first} IS NULL THEN 'added' ELSE 'changed' END AS change \
          FROM built b LEFT JOIN current_rows c USING ({key}) \
-         WHERE c.{key} IS NULL OR c.row_digest IS DISTINCT FROM b.row_digest \
+         WHERE c.{first} IS NULL OR c.row_digest IS DISTINCT FROM b.row_digest \
          UNION ALL \
          SELECT {removed_columns}, CAST({sequence} AS BIGINT) AS version_seq, 'removed' AS row_state, 'removed' AS change \
          FROM current_rows c ANTI JOIN built b USING ({key});"
     ))
 }
 
-/// The fingerprint and the current rows after the commit, from the base's and the rows the commit
-/// adds and hides (root ADR-0564 §5: the fingerprint sums, so it is updated by adding and
-/// subtracting).
-pub(crate) fn after(
-    connection: &Connection,
-    commit: &Commit<'_>,
-    diff: &Diff,
-) -> anyhow::Result<((u64, u128), u64)> {
-    let key = commit.key;
+/// The digest sums one range's diff moves: what its appended rows add and the head rows they hide.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Digests {
+    pub added: u128,
+    pub hidden: u128,
+}
+
+impl std::ops::AddAssign for Digests {
+    fn add_assign(&mut self, other: Self) {
+        self.added += other.added;
+        self.hidden += other.hidden;
+    }
+}
+
+/// The digest sums of the range [`diff`] last left in `appended` and `current_rows`.
+pub(crate) fn digests(connection: &Connection, commit: &Commit<'_>) -> anyhow::Result<Digests> {
+    let key = commit.key()?.join(", ");
     let number =
         format!("CAST(('0x' || substr(row_digest, 1, {FINGERPRINT_HEX_DIGITS})) AS HUGEINT)");
     let sum = |sql: &str| -> anyhow::Result<u128> {
         let value: String = connection.query_row(sql, [], |row| row.get(0))?;
         Ok(value.parse()?)
     };
-    let added = sum(&format!(
-        "SELECT CAST(coalesce(sum({number}), 0) AS VARCHAR) FROM appended WHERE change <> 'removed'"
-    ))?;
-    let hidden = sum(&format!(
-        "SELECT CAST(coalesce(sum({number}), 0) AS VARCHAR) FROM current_rows \
-         WHERE {key} IN (SELECT {key} FROM appended)"
-    ))?;
+    Ok(Digests {
+        added: sum(&format!(
+            "SELECT CAST(coalesce(sum({number}), 0) AS VARCHAR) FROM appended WHERE change <> 'removed'"
+        ))?,
+        hidden: sum(&format!(
+            "SELECT CAST(coalesce(sum({number}), 0) AS VARCHAR) FROM current_rows \
+             SEMI JOIN (SELECT {key} FROM appended) USING ({key})"
+        ))?,
+    })
+}
+
+/// The fingerprint and the current rows after the commit, from the base's, the diff of every range
+/// and their summed [`Digests`] (root ADR-0564 §5: the fingerprint sums, so it is updated by adding
+/// and subtracting).
+pub(crate) fn after_digests(
+    commit: &Commit<'_>,
+    diff: &Diff,
+    digests: Digests,
+) -> anyhow::Result<((u64, u128), u64)> {
     let (rows, total, current) = commit.base.as_ref().map_or((0, 0, 0), |base| {
         (base.fingerprint.0, base.fingerprint.1, base.current_records)
     });
@@ -543,40 +604,111 @@ pub(crate) fn after(
     let rows = (rows + diff.added)
         .checked_sub(diff.removed)
         .context("the commit removes more keys than the table holds")?;
-    let total = (total + added)
-        .checked_sub(hidden)
+    let total = (total + digests.added)
+        .checked_sub(digests.hidden)
         .context("the commit hides digests the base fingerprint does not hold")?;
     Ok(((rows, total), rows))
 }
 
-/// Stages `appended` as one file per 시도 (the table's partition, root ADR-0564 §2), each sorted by
-/// the key.
+/// [`after_digests`] of one range: the fingerprint and the current rows after the commit.
+pub(crate) fn after(
+    connection: &Connection,
+    commit: &Commit<'_>,
+    diff: &Diff,
+) -> anyhow::Result<((u64, u128), u64)> {
+    after_digests(commit, diff, digests(connection, commit)?)
+}
+
+/// The SQL a partition entry of a versions table splits rows by: the 시도 of a table keyed by PNU
+/// (`truncate(2, pnu)`), or an identity column of any other (root ADR-0564 §2).
+fn partition_expression(spec: &str) -> anyhow::Result<String> {
+    if spec == GOLD_VERSIONS_PNU_PARTITION {
+        return Ok("substr(pnu, 1, 2)".to_owned());
+    }
+    ensure!(
+        !spec.is_empty()
+            && spec
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'),
+        "the partition {spec:?} is neither the 시도 of the PNU nor an identity column"
+    );
+    Ok(spec.to_owned())
+}
+
+/// Stages `appended` as one file per value of the versions table's partition (root ADR-0564 §2: the
+/// 시도 of a table keyed by PNU, the identity columns of any other), each sorted by the key.
 pub(crate) fn stage(
     stage: &DuckDbParquetStage,
     shape: &foundation_publisher_core::lakehouse_data_commit::TableShape,
     run: &str,
-    key: &str,
+    versions: &LakehouseTableContract,
 ) -> anyhow::Result<Vec<StagedFile>> {
     let connection = stage.connection();
-    let prefixes = connection
-        .prepare(&format!(
-            "SELECT DISTINCT substr({key}, 1, 2) FROM appended ORDER BY 1"
-        ))?
-        .query_map([], |row| row.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    prefixes
+    let key = versions
+        .current_row_latest()
+        .context("the versions table has no current-row rule")?
+        .key
+        .join(", ");
+    let parts = versions
+        .partition_spec
         .iter()
-        .map(|prefix| {
-            ensure!(
-                prefix.bytes().all(|byte| byte.is_ascii_digit()),
-                "a key starts with {prefix:?}, not a 시도"
-            );
+        .map(|spec| partition_expression(spec))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    ensure!(
+        !parts.is_empty(),
+        "{} has no partition to split its files by",
+        versions.table_name
+    );
+    let select = parts
+        .iter()
+        .enumerate()
+        .map(|(at, part)| format!("CAST({part} AS VARCHAR) AS part_{at}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let values = connection
+        .prepare(&format!(
+            "SELECT DISTINCT {select} FROM appended ORDER BY ALL"
+        ))?
+        .query_map([], |row| {
+            (0..parts.len())
+                .map(|at| row.get::<_, Option<String>>(at))
+                .collect::<Result<Vec<_>, _>>()
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    values
+        .iter()
+        .map(|values| {
+            let mut filter = Vec::with_capacity(parts.len());
+            let mut name = Vec::with_capacity(parts.len());
+            for ((part, spec), value) in parts.iter().zip(versions.partition_spec).zip(values) {
+                let value = value
+                    .as_deref()
+                    .with_context(|| format!("a row of {} has no {spec}", versions.table_name))?;
+                if *spec == GOLD_VERSIONS_PNU_PARTITION {
+                    ensure!(
+                        value.bytes().all(|byte| byte.is_ascii_digit()),
+                        "a key starts with {value:?}, not a 시도"
+                    );
+                } else {
+                    ensure!(
+                        !value.is_empty()
+                            && value.bytes().all(|byte| {
+                                byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.')
+                            }),
+                        "the {spec} {value:?} of {} is not a plain value",
+                        versions.table_name
+                    );
+                }
+                filter.push(format!("{part} = '{value}'"));
+                name.push(value);
+            }
             stage.write(
                 shape,
                 &format!(
-                    "SELECT * EXCLUDE (change) FROM appended WHERE substr({key}, 1, 2) = '{prefix}' ORDER BY {key}"
+                    "SELECT * EXCLUDE (change) FROM appended WHERE {} ORDER BY {key}",
+                    filter.join(" AND ")
                 ),
-                &format!("{run}-{prefix}"),
+                &format!("{run}-{}", name.join("-")),
             )
         })
         .collect()
@@ -685,8 +817,8 @@ pub(crate) async fn pin(
 }
 
 // one-off: until the last served Gold has moved to its `_versions` table (no lane line says
-// `versions_table` while it serves the replaced table): `Shadow`, `shadow`, `shadow_of` and the
-// shadow branch of `planned_inputs` go with it.
+// `versions_table` while it serves the replaced table): `Shadow`, `shadow`, `shadow_of`,
+// `UNTAGGED_BUILDS`, `untagged_shadow` and the shadow branch of `planned_inputs` go with it.
 /// What a versions table is built from while its lane still serves the table it replaces (root
 /// ADR-0564 §6): the inputs that table's newest build read, so the takeover verdict compares two
 /// engines over one set of inputs, and so that every key is built the first time.
@@ -756,7 +888,79 @@ pub(crate) fn shadow(
     }))
 }
 
-/// [`shadow`], read from the catalog: the replaced table's refs and `main` lineage.
+// one-off: until gold.parcel_boundary_served is replaced (its switch deletes the Spark job and this).
+/// The replaced tables whose builds carry no build tag and record no input pins, with the inputs
+/// their builds read: the Spark served-boundary job (root ADR-0133 §2) overwrites
+/// `gold.parcel_boundary_served` with plain Iceberg commits. It reads each input at its head (the
+/// ledger after appending the edits it was handed) and commits within the same run, under the bake's
+/// lock, so the inputs it read are each input as of its commit: Iceberg's time travel by commit
+/// time, taken here from the catalog's snapshot log.
+const UNTAGGED_BUILDS: &[(&str, &[&str])] = &[(
+    "gold.parcel_boundary_served",
+    &["silver.parcel_boundaries", "silver.map_edit_ledger"],
+)];
+
+/// The commit operation of a compaction, which rewrites files and keeps the rows.
+const COMPACTION_OPERATION: &str = "replace";
+
+/// The shadow of `versions` whose replaced table's builds are untagged ([`UNTAGGED_BUILDS`]): the
+/// build is the newest commit of the replaced table's `main` that is not a compaction, and each
+/// input is pinned at its newest snapshot committed by then; an input that had no snapshot yet (an
+/// empty ledger) is absent, as the build read none of it. The served edition is the build's rows'
+/// (the caller reads it), so it is `None` here.
+///
+/// # Errors
+/// Refuses a lane that serves neither table, a replaced table whose every kept commit is a
+/// compaction or whose build has no commit time, and a build no input had a snapshot before.
+pub(crate) fn untagged_shadow(
+    versions: &str,
+    served: &str,
+    history: &[IcebergSnapshotSummary],
+    inputs: &BTreeMap<String, Vec<IcebergSnapshotSummary>>,
+) -> anyhow::Result<Shadow> {
+    let replaced = replaced_of(versions)?;
+    ensure!(
+        served == replaced,
+        "the lane serves {served}, neither {versions} nor the {replaced} it replaces"
+    );
+    let build = history
+        .iter()
+        .find(|snapshot| {
+            snapshot.summary.get("operation").map(String::as_str) != Some(COMPACTION_OPERATION)
+        })
+        .with_context(|| {
+            format!("{replaced} keeps no build in its main lineage, only compactions: no build to shadow")
+        })?;
+    let at = build.timestamp_ms.with_context(|| {
+        format!(
+            "{replaced} snapshot {} has no commit time",
+            build.snapshot_id
+        )
+    })?;
+    let pins: BTreeMap<String, i64> = inputs
+        .iter()
+        .filter_map(|(input, history)| {
+            history
+                .iter()
+                .find(|snapshot| snapshot.timestamp_ms.is_some_and(|ms| ms <= at))
+                .map(|snapshot| (input.clone(), snapshot.snapshot_id))
+        })
+        .collect();
+    ensure!(
+        !pins.is_empty(),
+        "no input of {replaced} had a snapshot when its build {} committed",
+        build.snapshot_id
+    );
+    Ok(Shadow {
+        replaced: replaced.to_owned(),
+        build: build.snapshot_id,
+        pins,
+        served_edition: None,
+    })
+}
+
+/// [`shadow`], read from the catalog: the replaced table's refs and `main` lineage (and, for an
+/// untagged build, its inputs' lineages, [`untagged_shadow`]).
 pub(crate) async fn shadow_of(
     catalog: &IcebergRestCatalog,
     versions: &str,
@@ -766,6 +970,21 @@ pub(crate) async fn shadow_of(
         return Ok(None);
     }
     let replaced = replaced_of(versions)?;
+    if let Some((_, inputs)) = UNTAGGED_BUILDS.iter().find(|(table, _)| *table == replaced) {
+        let history = catalog
+            .load_main_snapshot_history(replaced)
+            .await?
+            .with_context(|| format!("{replaced} does not exist"))?;
+        let mut lineages = BTreeMap::new();
+        for input in *inputs {
+            let lineage = catalog
+                .load_main_snapshot_history(input)
+                .await?
+                .unwrap_or_default();
+            lineages.insert((*input).to_owned(), lineage);
+        }
+        return untagged_shadow(versions, served, &history, &lineages).map(Some);
+    }
     let refs = catalog
         .load_snapshot_refs(replaced)
         .await?

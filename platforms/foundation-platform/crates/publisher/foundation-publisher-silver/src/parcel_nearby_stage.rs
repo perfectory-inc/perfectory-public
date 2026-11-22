@@ -28,6 +28,7 @@ use duckdb::Connection;
 
 use crate::duckdb_parquet_stage::with_contract_columns;
 use crate::legal_dong_code_change_stage::{PAIR_ROWS_SQL, RENUMBERED_INTO_SQL};
+use crate::place_id_join::place_ids_sql;
 
 const NEAREST_SQL: &str = include_str!("parcel_nearby_stage/nearest.sql");
 const DOCUMENT_SQL: &str = include_str!("parcel_nearby_stage/document.sql");
@@ -43,7 +44,7 @@ pub const HIGHWAY_SOURCE: &str = "silver.highway_access_point";
 /// The code change table: a code under a reorganization is read under the served code.
 pub const CODE_CHANGE_SOURCE: &str = "reference.legal_dong_code_change";
 /// Each parcel's stable place id (root ADR-0483).
-pub const BRIDGE_SOURCE: &str = "gold.place_id_bridge";
+pub use crate::place_id_join::BRIDGE_SOURCE;
 
 /// A point file: its table, the document key, its latitude and longitude headers, and its
 /// `(document field, header)` pairs, as `data-go-kr-file-data.contract.json` names the headers.
@@ -638,15 +639,10 @@ pub fn load_inputs(
     ))?;
 
     let at = Instant::now();
-    // The parcel place ids: each code's open period, else its latest closed one; a code-pair line
-    // is a new code's form of an id, not a period (place_id_join.place_ids).
+    // The parcel place ids (`place_id_join`, the one rule every kind reads them by).
     connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE place_ids AS SELECT code AS pnu, place_id FROM ( \
-           SELECT code, place_id, row_number() OVER (PARTITION BY code \
-             ORDER BY valid_to IS NOT NULL, valid_to DESC, place_id) AS newest \
-           FROM {bridge} \
-           WHERE unit = 'parcel' AND valid_from <> 'legal-dong-code-change') WHERE newest = 1;",
-        bridge = source.of(BRIDGE_SOURCE)?
+        "CREATE OR REPLACE TABLE place_ids AS {};",
+        place_ids_sql(source, "TRUE")?
     ))?;
     timed(BRIDGE_SOURCE, at);
     connection.execute_batch(BUILT_TABLE)?;
@@ -725,12 +721,8 @@ pub fn changed_sidos(
         ));
     }
     if moved.contains(BRIDGE_SOURCE) {
-        let side = |source: &Source<'_>| -> anyhow::Result<String> {
-            Ok(format!(
-                "SELECT code AS pnu, place_id FROM (SELECT code, place_id, row_number() OVER (PARTITION BY code                  ORDER BY valid_to IS NOT NULL, valid_to DESC, place_id) AS newest FROM {}                  WHERE unit = 'parcel' AND valid_from <> 'legal-dong-code-change') WHERE newest = 1",
-                source.of(BRIDGE_SOURCE)?
-            ))
-        };
+        let side =
+            |source: &Source<'_>| -> anyhow::Result<String> { place_ids_sql(source, "TRUE") };
         let (before, after) = (side(old)?, side(new)?);
         parts.push(format!(
             "SELECT substr(pnu, 1, 2) FROM (({after}) EXCEPT ({before}))              UNION SELECT substr(pnu, 1, 2) FROM (({before}) EXCEPT ({after}))"

@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 토지특성 lane `land-characteristic` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_characteristic already records it or a newer one (`unchanged`), export each object, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed keys' rows and a removal marker per vanished key (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 토지특성 lane `land-characteristic` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_characteristic already records it or a newer one (`unchanged`), export each object, compare it, in the publisher's DuckDB, with the table's current rows key bucket by key bucket and append to main only the changed keys' rows and a removal marker per vanished key (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
       "systemd_service": "foundation-silver-refresh@land-characteristic.service",
       "check_service": "foundation-silver-refresh-plan@land-characteristic.service",
       "systemd_timer": null,
@@ -22,6 +22,9 @@
       "stop_grace_minutes": 10,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 150,
+      "memory_max": "16G",
+      "memory_measured": "2026-11-21, building-register-units. Under 16G: three runs, export 6m47s-7m00s CPU and about 10 minutes of wall time, `memory peak` 13.3-13.4G. Under the 8G this cap was for one day: one run, 61 minutes (17:37:58-18:39:25Z), 10m35s CPU, `memory peak` 7.2G - the export child held 6.68G resident and the cgroup sat at MemoryHigh with 18,933 `high` events and no OOM kill: throttled, not killed. journal `memory peak` 2026-10-18..11-08, 84 runs under 16G: highest 15,668M on 2026-10-20 (building-register-unit-areas). The other lanes measured on the DuckDB path the same day: 0.3G-7.1G.",
+      "memory_headroom_why": "A measured working point, not 1.5 x a peak: the export sizes its workers to three quarters of what its cgroup has left, so its peak follows the cap, but about 7G of it does not shrink - at 8G nothing was left for it to work in. 16G is the cap under which the largest export is measured to finish in ten minutes. One number for all 54 lanes, because they share one unit template: it over-reserves for the small lanes (1-7G), and a request per lane comes with the Dagster resource tags that replace this admission (root ADR-0583 follow-up).",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -85,8 +88,7 @@
       "status": "implemented",
       "via": [
         "export-land-characteristic-silver-handoff",
-        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh"
       ],
       "source_slugs": [
         "vworldkr__land_characteristic"

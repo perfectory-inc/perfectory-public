@@ -125,6 +125,8 @@ pub mod parcel_lineage_schedule;
 pub mod industrial_complex_notice_stage;
 /// Stages one industrial-complex profile export as `silver.industrial_complexes` rows (root ADR-0033).
 pub mod industrial_complex_silver_stage;
+/// Stages industrial land sale notice reads and their stored attachments as Silver rows (root ADR-0603).
+pub mod industrial_land_sale_notice_stage;
 /// The `DuckDB` the stages run in, for the caller that diffs and commits a stage's rows (root
 /// ADR-0564 §3): one build of it in the executable.
 pub use duckdb;
@@ -135,14 +137,24 @@ pub mod legal_dong_code_snapshot_stage;
 
 /// The building energy kind's Gold in `DuckDB` (root ADR-0398).
 pub mod building_energy_stage;
+pub mod building_permit_stage;
+pub mod building_sub_parcel_stage;
+/// The registered-factory kind's Gold in `DuckDB` (root ADR-0449).
+pub mod factory_kind_stage;
 pub mod intelligence_documents_stage;
 /// What every parcel kind Gold of appended row versions shares (root ADR-0564 §6).
 pub mod kind_versions_stage;
+/// The parcel ownership kind's Gold in `DuckDB` (root ADR-0361).
+pub mod land_ownership_stage;
 pub mod legal_dong_pairing_stage;
 /// The parcel nearby kind's Gold in `DuckDB` (root ADR-0465, ADR-0564 §9).
 pub mod parcel_nearby_stage;
 pub mod parcel_number_change_history_stage;
+/// The parcel panel's Gold in `DuckDB` (root ADR-0096, ADR-0564 §9 차례 5).
+pub mod parcel_panel_stage;
 pub mod parcel_registry_stage;
+/// The parcel place ids every kind row carries, by one rule (root ADR-0483).
+pub mod place_id_join;
 /// The register kinds' Gold in `DuckDB`: 총괄표제부, 철거·멸실 (root ADR-0450, ADR-0399).
 pub mod record_kind_stage;
 
@@ -162,11 +174,16 @@ pub mod silver_changes;
 /// ADR-0575).
 pub mod courtauction_silver_stage;
 
+/// The served parcel boundaries and the fold of staff edits (root ADR-0133 §2, ADR-0375 §2).
+pub mod parcel_boundary_served_stage;
+
 /// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
 pub mod place_identity_stage;
 
 /// The parcel lineage's carry walk every placing producer shares (root ADR-0113 §6).
 pub mod lineage_carry;
+/// The steward queue's items (root ADR-0113 §10, ADR-0483 §5).
+pub mod lineage_review_queue_stage;
 
 /// The parcel lineage as every consumer reads it: steward decisions in force (root ADR-0115 §9).
 pub mod lineage_steward_read;

@@ -10,7 +10,10 @@ use std::{
 mod blocking;
 mod committed_inputs;
 mod completed_handoff;
+pub mod floor_load;
 mod floor_scratch;
+pub mod history_gate;
+pub mod history_gate_run;
 mod history_witness;
 #[cfg(test)]
 mod hub_bulk_decoder;

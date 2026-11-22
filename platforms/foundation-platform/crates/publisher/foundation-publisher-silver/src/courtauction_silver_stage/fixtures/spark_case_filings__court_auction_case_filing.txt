@@ -1,0 +1,6 @@
+B999999|20990130000001|1|2099-02-02|채권자 소송대리인|보정서|제출|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+B999999|20990130000001|2|2099-02-11|감정인|회보서|제출|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+B999999|20990130000001|3|2099-02-12|NULL|NULL|제출|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+B999999|20990130000002|1|2099-02-02|채권자 소송대리인|보정서|제출|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z
+B999999|20990130000002|2|2099-02-11|감정인|회보서|제출|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z
+B999999|20990130000002|3|2099-02-12|NULL|NULL|제출|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z

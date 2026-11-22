@@ -89,12 +89,18 @@ croner = { version = "4", default-features = false, features = ["chrono"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 regex = "1"
+# Look-around for the 법원경매정보 name mask the Spark job ran on Python `re` (root ADR-0540 §4).
+fancy-regex = "0.20.2"
 rustix = { version = "=1.1.6", features = ["fs"] }
 sha2 = "0.10"
 # RFC 2104 HMAC over sha2 (RustCrypto, the same family as sha2) instead of hand-written ipad/opad.
 hmac = "0.12"
 tempfile = "3.27"
 duckdb = { version = "=1.20000.1", default-features = false }
+# A takeover verdict holds every document it renders to the schema registry's JSON Schema (root
+# ADR-0564 Revision 2026-11-22, second): draft 2020-12, the registry's files compiled in. No default features:
+# no reference is fetched over HTTP or from files, and no IDNA formats (the registry admits none).
+jsonschema = { version = "=0.62.0", default-features = false }
 futures-util = "0.3"
 bytes = "1"
 http-body = "1"
@@ -166,6 +172,8 @@ sqlx = { version = "0.8", default-features = false, features = [
 
 # HTTP 클라이언트 (Zitadel JWKS / outbound)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+# HTML 문서에서 요소 찾기 (root ADR-0603): 한국산업단지공단 게시판의 글 번호·첨부 버튼. Servo 의 html5ever·selectors 위. 명령줄 도구(main)는 끈다.
+scraper = { version = "0.29.0", default-features = false, features = ["errors"] }
 # 법원경매 브라우저 세션 (root ADR-0289 §1): BoringSSL 위의 브라우저 지문. collection-infrastructure 의
 # `court-auction-browser` 기능으로만 빌드된다(cmake·libclang 필요).
 wreq = { version = "0.16.3", features = ["cookies"] }

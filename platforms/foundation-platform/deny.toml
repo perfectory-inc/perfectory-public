@@ -58,8 +58,12 @@ allow = [
 # libfuzzer-sys (NCSA, OSI approved) is a `cfg(fuzzing)` dependency of rav1e, the AVIF encoder of
 # the photo ladder (root ADR-0427): it is never compiled into any of our builds, but cargo-deny
 # reads every target. The exception names that one crate; NCSA is not allowed anywhere else.
+# borrow-or-share (MIT-0, OSI approved: MIT without the attribution clause) is a dependency of
+# fluent-uri under jsonschema's `referencing`, the validator the takeover verdict holds each document
+# to the schema registry with (root ADR-0564 Revision 2026-11-22, second). MIT-0 asks less than MIT.
 exceptions = [
     { crate = "libfuzzer-sys", allow = ["NCSA"] },
+    { crate = "borrow-or-share", allow = ["MIT-0"] },
 ]
 
 [bans]

@@ -1,0 +1,4 @@
+B999999|20990130000001|1|2099-01-28|2099-01-30|도달|채권자대리인|보정명령등본|발송|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+B999999|20990130000001|2|2099-02-04|2099-02-11|폐문부재|채무자겸소유자|개시결정정본|발송|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+B999999|20990130000002|1|2099-01-28|2099-01-30|도달|채권자대리인|보정명령등본|발송|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z
+B999999|20990130000002|2|2099-02-04|2099-02-11|폐문부재|채무자겸소유자|개시결정정본|발송|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z

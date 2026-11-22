@@ -10,9 +10,11 @@
 //!
 //! So the switch is baked from that pair and nothing else: the bake script pins the full bake to
 //! the shadow commit and refuses unless the packs reflect the replaced table's build
-//! (`show-gold-takeover-switch`). Then every document must answer exactly as the served one: its
-//! content (the version stamp and the source set aside, a null read as absent, as the expansion
-//! probe reads it, root ADR-0320) equal, and no served PNU left without a document. One difference
+//! (`show-gold-takeover-switch`). Then every document must say what the served one says: its
+//! content (the version stamp and the source set aside, a null read as absent, numbers and instants
+//! compared as values, not as either engine writes them, as the expansion probe reads it, root
+//! ADR-0320; rules.txt "no Spark byte emulation") equal, and no served PNU left without a document.
+//! The served format changes once, at this bake; what it says does not. One difference
 //! is the switch changing documents no Gold change explains (a renderer or a current-row rule that
 //! reads the new table otherwise than the old) and refuses its dong before anything of it is
 //! written, so nothing is published. Changes after the pair come by the next run's patch, through

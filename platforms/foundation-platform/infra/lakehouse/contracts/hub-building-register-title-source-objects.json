@@ -10,9 +10,7 @@
     "table": "silver.building_register_titles",
     "roles": {"title": "hubgokr__building_register_main"},
     "export": "export-building-register-title-silver-handoff",
-    "engine": "duckdb",
-    "engine_reason": "root ADR-0599 §8 ③: the export's local handoff is read by DuckDB inside the publisher, the release compared from a local copy and its changes one commit; the PNU null-share gate is judged before anything is staged",
-    "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0},
+    "load": {"write_mode": "overwrite", "input_file_batch_size": 0},
     "compare": {"content_columns": ["pnu", "register_parcel_key", "dong_name_raw", "main_or_annex_kind", "main_or_annex_name_raw", "register_kind_name_raw", "register_type_name_raw", "jibun_address_raw", "road_address_raw", "structure_code_raw", "structure_name_raw", "purpose_code_raw", "purpose_name_raw", "purpose_detail_raw", "roof_code_raw", "roof_name_raw", "building_area_m2", "floor_area_m2", "ground_floor_count", "basement_floor_count", "title_unit_count", "approval_date_raw", "approval_year", "normalization_status", "normalization_reason"], "bucket_prefix_length": 2}
   }
 }

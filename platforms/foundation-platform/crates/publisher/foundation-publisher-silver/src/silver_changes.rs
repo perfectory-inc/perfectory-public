@@ -4,8 +4,8 @@
 //! table's current rows at the head it pinned. The Spark loads called it `changed_only`; the
 //! `DuckDB` stages share it here.
 
-use anyhow::Context;
-use lakehouse_domain::LakehouseTableContract;
+use anyhow::{ensure, Context};
+use lakehouse_domain::{LakehouseRowVersions, LakehouseTableContract};
 
 use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG};
 
@@ -19,6 +19,7 @@ pub const LOAD_COLUMNS: [&str; 5] = [
 ];
 
 const CHANGED_SQL: &str = include_str!("silver_changes/changed.sql");
+const EDITIONS_SQL: &str = include_str!("silver_changes/editions.sql");
 
 /// The table's key: its contract's `current_row_latest` key.
 ///
@@ -139,4 +140,167 @@ pub fn changed(
             .connection()
             .query_row(&format!("SELECT count(*) FROM {out}"), [], |row| row.get(0))?;
     Ok(u64::try_from(count)?)
+}
+
+/// Builds `out` from `staged` of an editions table: every staged row of each group (`per`) whose
+/// list is new or differs from the rows of the group's newest edition at `head`. Returns how many.
+///
+/// # Errors
+/// Refuses a table that does not append editions and a group whose newest editions tie; returns a
+/// `DuckDB` failure.
+// `{name}` is a placeholder of the SQL text, not a format argument.
+#[allow(clippy::literal_string_with_formatting_args)]
+pub fn changed_editions(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    head: Option<i64>,
+    staged: &str,
+    out: &str,
+) -> anyhow::Result<u64> {
+    let LakehouseRowVersions::Editions {
+        edition_column,
+        newest_first,
+        per,
+        ..
+    } = contract.row_versions
+    else {
+        anyhow::bail!("{} does not append editions", contract.table_name);
+    };
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
+    let content = columns
+        .iter()
+        .copied()
+        .filter(|name| !per.contains(name) && !LOAD_COLUMNS.contains(name))
+        .collect::<Vec<_>>();
+    let source = match head {
+        Some(head) => with_contract_columns(
+            stage.connection(),
+            contract,
+            &format!(
+                "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
+                contract.table_name
+            ),
+        )?,
+        None => format!("(SELECT {} FROM {staged} WHERE false)", columns.join(", ")),
+    };
+    let per_match = per
+        .iter()
+        .map(|column| format!("r.{column} IS NOT DISTINCT FROM s.{column}"))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    let maxima = (0..newest_first.len())
+        .map(|index| format!("max({}) AS m{index}", newest_first[index]))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let order = (0..newest_first.len())
+        .map(|index| format!("m{index} DESC NULLS LAST"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    stage
+        .connection()
+        .execute_batch(
+            &EDITIONS_SQL
+                .replace("{source}", &source)
+                .replace("{staged}", staged)
+                .replace("{out}", out)
+                .replace("{per}", &per.join(", "))
+                .replace("{edition}", edition_column)
+                .replace("{maxima}", &maxima)
+                .replace("{order}", &order)
+                .replace("{content}", &content.join(", "))
+                .replace("{per_match}", &per_match)
+                .replace("{columns}", &columns.join(", ")),
+        )
+        .with_context(|| {
+            format!(
+                "DuckDB failed to compare the editions of {}",
+                contract.table_name
+            )
+        })?;
+    let tied: i64 = stage.connection().query_row(
+        &format!(
+            "SELECT count(*) FROM (SELECT {} FROM {out}_editions GROUP BY ALL HAVING count(*) > 1)",
+            per.join(", ")
+        ),
+        [],
+        |row| row.get(0),
+    )?;
+    ensure!(
+        tied == 0,
+        "{} holds editions tied on {newest_first:?} in {tied} group(s), so none is the newest",
+        contract.table_name
+    );
+    let count: i64 =
+        stage
+            .connection()
+            .query_row(&format!("SELECT count(*) FROM {out}"), [], |row| row.get(0))?;
+    Ok(u64::try_from(count)?)
+}
+
+/// The result checks of the rows a load appends of one object (root ADR-0559).
+///
+/// Its unit reports them to Dagster: how many rows there are, how many repeat a key of the table's
+/// `(…) unique` quality gate, and how many miss a required column.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ResultChecks {
+    /// The rows.
+    pub rows: u64,
+    /// The rows beyond the first of each key the unique gate names.
+    pub duplicate_keys: u64,
+    /// The rows with a required column null.
+    pub missing_required: u64,
+}
+
+/// The columns of the table's `(a, b, …) unique` quality gate.
+///
+/// # Errors
+/// Refuses a table that declares none.
+pub fn unique_gate(contract: &LakehouseTableContract) -> anyhow::Result<Vec<&'static str>> {
+    contract
+        .quality_gates
+        .iter()
+        .find_map(|gate| {
+            gate.strip_suffix(" unique")
+                .and_then(|columns| columns.strip_prefix('('))
+                .and_then(|columns| columns.strip_suffix(')'))
+        })
+        .map(|columns| columns.split(", ").collect())
+        .with_context(|| format!("{} declares no unique gate", contract.table_name))
+}
+
+/// The result checks of `rows`, a staging table of rows of `contract`'s table.
+///
+/// # Errors
+/// Refuses a table that declares no unique gate; returns a `DuckDB` failure.
+pub fn result_checks(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    rows: &str,
+) -> anyhow::Result<ResultChecks> {
+    let key = unique_gate(contract)?.join(", ");
+    let required = contract
+        .columns
+        .iter()
+        .filter(|column| column.required)
+        .map(|column| format!("{} IS NULL", column.name))
+        .collect::<Vec<_>>();
+    let missing = if required.is_empty() {
+        "0".to_owned()
+    } else {
+        format!("count(*) FILTER (WHERE {})", required.join(" OR "))
+    };
+    let (rows, duplicate_keys, missing_required): (i64, i64, i64) = stage.connection().query_row(
+        &format!("SELECT count(*), count(*) - count(DISTINCT ({key})), {missing} FROM {rows}"),
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    Ok(ResultChecks {
+        rows: u64::try_from(rows)?,
+        duplicate_keys: u64::try_from(duplicate_keys)?,
+        missing_required: u64::try_from(missing_required)?,
+    })
 }

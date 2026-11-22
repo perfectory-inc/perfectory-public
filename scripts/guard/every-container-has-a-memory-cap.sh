@@ -352,10 +352,18 @@ def repository_file(relative: str, what: str) -> pathlib.Path:
 
 
 def unit_memory_max(units: pathlib.Path, service: str) -> int:
-    """MemoryMax of the unit file a job's service is installed from (a template for name@x)."""
+    """MemoryMax of a job's service: its instance's own memory drop-in when it has one (root ADR-0574 §8:
+    an instance whose job holds less than its template), else the unit file it is installed from (a
+    template for name@x)."""
     match = re.fullmatch(r"([a-z0-9-]+)(@[a-z0-9-]+)?\.service", service)
     if not match:
         raise ValueError(f"{service!r} is not a service name")
+    dropin = units / f"{service}.d" / unit_memory.DROPIN
+    if match.group(2) and dropin.is_file():
+        own = UNIT_MEMORY.findall(dropin.read_text(encoding="utf-8"))
+        if len(own) != 1:
+            raise ValueError(f"{dropin.relative_to(ROOT).as_posix()} states MemoryMax {len(own)} times, not once")
+        return int(own[0][0]) * UNIT[own[0][1].lower()]
     unit = units / (match.group(1) + ("@" if match.group(2) else "") + ".service")
     found = UNIT_MEMORY.findall(unit.read_text(encoding="utf-8")) if unit.is_file() else None
     if not found:
@@ -468,17 +476,21 @@ def memory_claim_problems(section: dict) -> list[str]:
     if keep is None or usual is None:
         return [f"{CONTRACT}: memory claims need jobs.v1.json memory_claims.keep_available and scheduled_jobs.memory_claims.available.p05 as sizes"]
     unit_files = (contract.get("systemd_units") or {}).get("unit_files") or {}
+    # An instance whose job holds less than its template claims its own cap (root ADR-0574 §8).
+    instances = (contract.get("systemd_units") or {}).get("instances") or {}
     measured = declared.get("claimed_measured") or {}
 
     def unit_file(unit: str) -> str:
         """The unit file of `unit`: a template instance `x@<name>.service` is `x@.service`."""
         return unit[: unit.index("@") + 1] + ".service" if "@" in unit else unit
 
+    claimed_units = claiming
     claiming = {job_id: sorted({unit_file(unit) for unit in units}) for job_id, units in claiming.items()}
     for job_id, units in sorted(claiming.items()):
         caps = []
+        own = {unit_file(unit): instances[unit] for unit in claimed_units[job_id] if unit in instances}
         for unit in units:
-            entry = unit_files.get(unit)
+            entry = own.get(unit) or unit_files.get(unit)
             cap = size_of(str((entry or {}).get("memory_max", "")))
             if entry is None or cap is None:
                 found.append(f"{CONTRACT}: {job_id} claims {unit}, which has no systemd_units entry with a memory_max")

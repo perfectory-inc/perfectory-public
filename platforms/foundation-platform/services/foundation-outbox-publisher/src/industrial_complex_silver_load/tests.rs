@@ -1,7 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde_json::json;
 
-use super::{complex_of, mirror_path, newest, planned_keys, Listed, INPUTS, PLAN_SCHEMA};
+use super::{
+    complex_of, mirror_path, newest, planned_keys, unrecorded_inputs, Listed, INPUTS, PLAN_SCHEMA,
+};
 
 fn at(text: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(text)
@@ -101,4 +103,25 @@ fn a_plan_names_each_input_once() -> anyhow::Result<()> {
     assert!(planned_keys(&plan(json!([]))).is_err());
     assert!(planned_keys(&json!({"schema_version": "other", "objects": []})).is_err());
     Ok(())
+}
+
+/// 2026-11-22, the first run of this load: the batch named every input, the profile workbook among
+/// them, which the 2026-09-01 and 2026-10-01 loads had already recorded, and the commit refused the
+/// whole batch ("a batch is appended whole or not at all"). The commit records only what the table
+/// does not hold yet; with nothing new it records nothing.
+#[test]
+fn the_commit_records_only_the_inputs_the_table_does_not_hold() {
+    let profile = "bronze/source=vworldkr__sandan_profile/20991231DS99999-6.zip".to_owned();
+    let list = "bronze/source=industrylandorkr__industrial_complex_list/operation=danjiList/scope=national/page-000001--sha256-aa.json".to_owned();
+    let notice = "bronze/source=industrylandorkr__industrial_complex_notice/operation=danrefList/scope=national/page-000001--sha256-bb.json".to_owned();
+    let planned = vec![profile.clone(), list.clone(), notice.clone()];
+    let recorded: std::collections::BTreeSet<String> = [
+        profile.clone(),
+        format!("{profile}@development-stage-2099-01"),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(unrecorded_inputs(&planned, &recorded), [list, notice]);
+    let everything: std::collections::BTreeSet<String> = planned.iter().cloned().collect();
+    assert!(unrecorded_inputs(&planned, &everything).is_empty());
 }

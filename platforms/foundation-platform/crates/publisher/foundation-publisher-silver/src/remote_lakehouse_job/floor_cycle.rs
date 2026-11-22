@@ -1,4 +1,9 @@
-//! Host scheduling adapter: select committed inputs and run the existing full pipeline.
+//! Host scheduling adapter: select committed inputs, then gate, export and load them.
+//!
+//! The export runs in the pinned control container (it reads the database through its network);
+//! the history gate and the `DuckDB` load run here, where the release's `DuckDB` extensions are
+//! (root ADR-0599). Their work directory is on the system disk (`DUCKDB_ROOT_ENV`), never on the
+//! data disk the handoff is on.
 use std::{
     fs::File,
     io::Read as _,
@@ -6,27 +11,33 @@ use std::{
     process::{Command, Stdio},
 };
 
-use crate::building_register_floor_silver_export::{select_inputs, FloorInputSelection};
+use crate::building_register_floor_silver_export::{
+    floor_load, history_gate_run, select_inputs, FloorInputSelection,
+};
 use anyhow::{ensure, Context};
 use chrono::{DateTime, Utc};
 
-use super::{floor_source::FloorSource, RemoteLakehouseJob, RemoteLakehouseJobConfig};
+use super::{floor_source::FloorSource, FloorPipelineConfig};
 
 mod native_runtime;
 
 use super::invocation_cleanup::{self, Job};
 
 const MAX_OUTCOME_BYTES: u64 = 256 * 1024;
+/// Where the cycle's `DuckDB` stages work: the system disk (`config/host-layout.contract.json`
+/// `duckdb_stage_reserve_bytes`), as the Silver refresh lanes' (`silver-refresh.sh`).
+const DUCKDB_ROOT_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct LocalExecution {
     pub state_root: PathBuf,
-    pub ivy_cache: PathBuf,
+    pub duckdb_root: PathBuf,
     pub image: String,
     pub database_network: String,
     pub database_endpoint: String,
     pub project: String,
-    pub outcome: PathBuf,
+    /// This attempt's own directory: the gate's outcome and the Compose override.
+    pub attempt: PathBuf,
 }
 
 impl LocalExecution {
@@ -35,26 +46,26 @@ impl LocalExecution {
         release: &Path,
     ) -> anyhow::Result<Self> {
         let state_root = absolute_directory(lookup, "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT")?;
-        let ivy_cache = absolute_directory(lookup, "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE")?;
+        let duckdb_root = absolute_directory(lookup, DUCKDB_ROOT_ENV)?;
         ensure!(
-            !state_root.starts_with(release) && !ivy_cache.starts_with(release),
+            !state_root.starts_with(release) && !duckdb_root.starts_with(release),
             "FLOOR work directories must be outside the release"
         );
         ensure!(
-            state_root != ivy_cache,
-            "FLOOR state and dependency cache must be separate directories"
+            state_root != duckdb_root,
+            "FLOOR state and DuckDB work must be separate directories"
         );
         let image = super::required_lookup(lookup, "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE")?;
         validate_image(&image)?;
         let (database_network, database_endpoint) = native_runtime::configuration(lookup)?;
         Ok(Self {
             state_root,
-            ivy_cache,
+            duckdb_root,
             image,
             database_network,
             database_endpoint,
             project: invocation_cleanup::project_id(Job::Floor, lookup)?,
-            outcome: PathBuf::new(),
+            attempt: PathBuf::new(),
         })
     }
 }
@@ -134,6 +145,21 @@ pub(super) async fn run() -> anyhow::Result<()> {
     }
 }
 
+/// Runs one container step of the cycle; logs stream to systemd.
+fn run_script(script: &str, native_database_url: &str, step: &str) -> anyhow::Result<()> {
+    let status = Command::new("/bin/bash")
+        .args(["-c", script])
+        // Only this child uses Docker DNS. Keep the host URL and audit connection unchanged.
+        .env("DATABASE_URL", native_database_url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .with_context(|| format!("cannot run the FLOOR {step}"))?;
+    ensure!(status.success(), "the FLOOR {step} failed: {status}");
+    Ok(())
+}
+
 async fn run_inner() -> anyhow::Result<()> {
     ensure!(
         cfg!(target_os = "linux"),
@@ -165,50 +191,97 @@ async fn run_inner() -> anyhow::Result<()> {
     );
     let selection = select_inputs().await?;
     let floor_source = source(&selection, derivation, Utc::now())?;
-    // This file carries only the current subprocess result, never the next run's skip decision.
+    // This directory carries only the current attempt's files, never the next run's skip decision.
     let attempt = tempfile::Builder::new()
         .prefix("floor-cycle-")
         .tempdir_in(&local.state_root)?;
-    local.outcome = attempt.path().join("outcome.json");
+    attempt.path().clone_into(&mut local.attempt);
     native_runtime::write_override(&local, &floor_source.history)?;
-    let config = RemoteLakehouseJobConfig {
-        ssh_target: String::new(),
-        ssh_path: String::new(),
-        env_file: String::new(),
-        remote_root: release
+    let config = FloorPipelineConfig {
+        release_root: release
             .to_str()
             .context("release path is not UTF-8")?
             .to_owned(),
-        execute: true,
-        job: RemoteLakehouseJob::PipelineFull,
-        input_path_override: None,
-        input_file_batch_size_override: None,
-        source_snapshot: super::BuildingRegisterSourceSnapshotConfig::NotRequired,
-        floor_source: Some(floor_source),
-        local: Some(local.clone()),
+        floor_source,
+        local,
         audit,
-        iceberg_packages: crate::lakehouse_engine_contract::iceberg_packages()?.to_owned(),
         native_execution_profile: crate::lakehouse_engine_contract::execution_profile()?,
     };
-    let script = super::build_remote_script(&config);
-    // Logs stream to systemd, so an hours-long Spark run cannot accumulate output in Rust RAM.
-    let status = Command::new("/bin/bash")
-        .args(["-c", &script])
-        // Only this child uses Docker DNS. Keep the host URL and audit connection unchanged.
-        .env("DATABASE_URL", native_database_url)
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .context("cannot run scheduled FLOOR pipeline")?;
-    ensure!(
-        status.success(),
-        "scheduled FLOOR pipeline failed: {status}"
-    );
-    let summary = read_outcome(&local.outcome)?;
+    let summary = gate_export_and_load(&config, &native_database_url).await?;
     let value: serde_json::Value = serde_json::from_str(&summary)?;
     validate_selected_outcome(&value, &selection.source_snapshot_id)?;
     super::finish_job(&config, summary).await
+}
+
+/// The cycle's three steps: the inspected receipt goes through the history gate; an edition the
+/// table already retains ends there, any other is exported and appended whole. Returns the
+/// outcome the cycle finishes with: the gate's, or the load's run summary.
+async fn gate_export_and_load(
+    config: &FloorPipelineConfig,
+    native_database_url: &str,
+) -> anyhow::Result<String> {
+    let source = &config.floor_source;
+    let run_root = source.root();
+    let host_root = PathBuf::from(host_path(config, &run_root));
+    std::fs::create_dir_all(&host_root)
+        .with_context(|| format!("cannot create {}", host_root.display()))?;
+    let check = tempfile::Builder::new()
+        .prefix("source-check.")
+        .tempdir_in(&host_root)?;
+    let check_name = check
+        .path()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("the source check directory is not UTF-8")?;
+    let receipt = format!("{run_root}/{check_name}/source.json");
+    run_script(
+        &super::build_floor_inspection_script(config, &receipt),
+        native_database_url,
+        "input staging and source inspection",
+    )?;
+    let outcome = config.local.attempt.join("history.json");
+    let gate = history_gate_run::run(
+        &source.history,
+        &check.path().join("source.json"),
+        &outcome,
+        source.derivation.as_deref(),
+        &config.local.duckdb_root,
+    )
+    .await?;
+    if gate == 0 {
+        return read_outcome(&outcome);
+    }
+    ensure!(
+        gate == history_gate_run::EXPORT_REQUIRED,
+        "the FLOOR history gate ended with {gate}"
+    );
+    run_script(
+        &super::build_floor_export_script(config),
+        native_database_url,
+        "export",
+    )?;
+    let export_summary = PathBuf::from(host_path(
+        config,
+        &format!("{run_root}/export-summary.json"),
+    ));
+    let edition =
+        floor_load::ready_edition(&serde_json::from_str(&read_outcome(&export_summary)?)?)?;
+    let load = floor_load::load(
+        Path::new(&host_path(config, &format!("{run_root}/handoff"))),
+        &config.local.duckdb_root,
+        &edition.source_snapshot_id,
+        source.derivation.as_deref(),
+        Some(edition.row_count),
+        true,
+    )
+    .await?;
+    ensure!(
+        load.appended,
+        "the FLOOR load committed nothing for {}; the history gate retains a recorded edition \
+         before its export runs",
+        edition.source_snapshot_id
+    );
+    Ok(load.summary.to_string())
 }
 
 fn read_outcome(path: &Path) -> anyhow::Result<String> {
@@ -227,38 +300,14 @@ fn read_outcome(path: &Path) -> anyhow::Result<String> {
     String::from_utf8(bytes).context("FLOOR outcome is not UTF-8")
 }
 
-pub(super) fn host_path(config: &RemoteLakehouseJobConfig, relative: &str) -> String {
-    config.local.as_ref().map_or_else(
-        || relative.to_owned(),
-        |local| {
-            // Only generated FloorSource paths enter this formatter. Local execution rejects
-            // externally supplied input paths before constructing its configuration.
-            relative.replacen(
-                "target/lakehouse/",
-                &format!("{}/", local.state_root.display()),
-                1,
-            )
-        },
+/// The host path of a run file the container names under `target/lakehouse/`.
+pub(super) fn host_path(config: &FloorPipelineConfig, relative: &str) -> String {
+    // Only generated FloorSource paths enter this formatter: the cycle accepts no input path.
+    relative.replacen(
+        "target/lakehouse/",
+        &format!("{}/", config.local.state_root.display()),
+        1,
     )
-}
-
-pub(super) fn environment_script(config: &RemoteLakehouseJobConfig) -> String {
-    if let Some(local) = &config.local {
-        format!("export COMPOSE_PROJECT_NAME={}\nexport FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT={}\nexport FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE={}\nexport FOUNDATION_PLATFORM_LAKEHOUSE_UID=185\nexport FOUNDATION_PLATFORM_LAKEHOUSE_GID=\"$(id -g)\"\n",
-            super::shell_quote(&local.project), super::shell_quote(&local.state_root.to_string_lossy()), super::shell_quote(&local.ivy_cache.to_string_lossy()))
-    } else {
-        let env_file = super::shell_quote(&config.env_file);
-        format!("if [ ! -f {env_file} ]; then\n  echo 'missing remote lakehouse env file' >&2\n  exit 2\nfi\nset -a\n. {env_file}\nset +a\nexport FOUNDATION_PLATFORM_LAKEHOUSE_GID=\"$(id -g)\"\n")
-    }
-}
-
-pub(super) fn capture_outcome(config: &RemoteLakehouseJobConfig, quoted_source: &str) -> String {
-    config.local.as_ref().map_or_else(String::new, |local| {
-        format!(
-            "(set -C; cat {quoted_source} > {})\n",
-            super::shell_quote(&local.outcome.to_string_lossy())
-        )
-    })
 }
 
 fn validate_selected_outcome(value: &serde_json::Value, selected: &str) -> anyhow::Result<()> {
@@ -275,35 +324,12 @@ fn validate_selected_outcome(value: &serde_json::Value, selected: &str) -> anyho
     Ok(())
 }
 
-pub(super) fn runtime_setup(config: &RemoteLakehouseJobConfig) -> String {
-    if let Some(local) = &config.local {
-        let image = super::shell_quote(&local.image);
-        let remote_state = super::shell_quote(&local.state_root.join("remote").to_string_lossy());
-        format!("export FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_STATE_ROOT={remote_state}\nmkdir -p {remote_state}\ndocker image inspect {image} >/dev/null\n{compose} --profile lakehouse-batch config --images | while IFS= read -r image; do docker image inspect \"$image\" >/dev/null; done\n{compose} --profile lakehouse-batch run --rm --no-deps --pull never lakehouse-target-init\n", compose=super::LAKEHOUSE_COMPOSE_COMMAND)
-    } else {
-        format!("mkdir -p 'target/remote-lakehouse/ai' 'target/remote-lakehouse/summaries'\n{} -f compose.lakehouse-native.yml --profile lakehouse-control build lakehouse-control\n", super::LAKEHOUSE_COMPOSE_COMMAND)
-    }
-}
-
-pub(super) fn native_compose(config: &RemoteLakehouseJobConfig) -> String {
-    let base = format!(
-        "{} -f compose.lakehouse-native.yml",
-        super::LAKEHOUSE_COMPOSE_COMMAND
-    );
-    config.local.as_ref().map_or(base.clone(), |local| {
-        format!(
-            "{base} -f {}",
-            super::shell_quote(&native_runtime::override_path(local).to_string_lossy())
-        )
-    })
-}
-
-pub(super) fn spark_compose(config: &RemoteLakehouseJobConfig) -> String {
-    if config.local.is_some() {
-        native_compose(config)
-    } else {
-        super::LAKEHOUSE_COMPOSE_COMMAND.to_owned()
-    }
+pub(super) fn native_compose(config: &FloorPipelineConfig) -> String {
+    format!(
+        "{} -f compose.lakehouse-native.yml -f {}",
+        super::LAKEHOUSE_COMPOSE_COMMAND,
+        super::shell_quote(&native_runtime::override_path(&config.local).to_string_lossy())
+    )
 }
 
 fn execution_time(
@@ -312,7 +338,7 @@ fn execution_time(
     now: DateTime<Utc>,
 ) -> anyhow::Result<DateTime<Utc>> {
     let time = if derived { None } else { retained }.unwrap_or(now);
-    // Match the precision that Parquet and Spark persist.
+    // Match the microsecond precision Parquet and Iceberg persist.
     DateTime::from_timestamp_micros(time.timestamp_micros()).context("invalid FLOOR execution time")
 }
 

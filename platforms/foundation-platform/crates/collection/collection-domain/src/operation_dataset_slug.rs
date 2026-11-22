@@ -110,6 +110,22 @@ pub fn onbid_dataset_slug(operation: &str) -> Option<&'static str> {
     }
 }
 
+/// Resolves a data.go.kr LH 분양임대공고 `operation` (B552555) to its `dataset_slug` (root ADR-0603).
+///
+/// The land notice list is kept as answered; each notice's detail and supply list are kept together
+/// as one read.
+///
+/// Returns `None` for any operation outside the three LH services; callers must treat `None` as a
+/// hard error rather than inventing a slug.
+#[must_use]
+pub fn lh_land_notice_dataset_slug(operation: &str) -> Option<&'static str> {
+    match operation {
+        "lhLeaseNoticeInfo1" => Some("lh_land_notice_list"),
+        "getLeaseNoticeDtlInfo1" | "getLeaseNoticeSplInfo1" => Some("lh_land_notice_detail"),
+        _ => None,
+    }
+}
+
 /// Resolves a data.go.kr file-data `operation` (`fileData<공공데이터 번호>`, or `stdData<공공데이터 번호>`
 /// for a 표준데이터) to its canonical
 /// `dataset_slug` (root ADR-0280).
@@ -135,6 +151,9 @@ pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
         "fileData15004246" => Some("standard_land_price"),
         "fileData15112638" => Some("elevator_installation"),
         "fileData15117154" => Some("knowledge_industry_center"),
+        // Two workplace registers, every edition the portal still offers (root ADR-0604).
+        "fileData15083277" => Some("pension_workplace"),
+        "fileData15002150" => Some("employment_insurance_workplace"),
         // The three 표준데이터 the same collector asks through the dataset page's keyless download
         // (`stdData<공공데이터 번호>`, root ADR-0453).
         "stdData15021148" => Some("school_location"),
@@ -201,13 +220,14 @@ pub fn operation_collapses_into_slug(operation: &str, source_slug: &str) -> bool
 }
 
 /// Resolves a provider operation to its canonical `dataset_slug` through any of the curated maps
-/// (building-register, real-transaction, 행정표준코드, 온비드, file data, V-World NED), or `None` if no map covers it.
+/// (building-register, real-transaction, 행정표준코드, 온비드, LH 분양임대공고, file data, V-World NED), or `None` if no map covers it.
 /// Used by [`operation_collapses_into_slug`] after the byte-equality fast path.
 fn resolve_collapsible_dataset_slug(operation: &str) -> Option<&'static str> {
     building_register_dataset_slug(operation)
         .or_else(|| real_transaction_dataset_slug(operation))
         .or_else(|| standard_code_dataset_slug(operation))
         .or_else(|| onbid_dataset_slug(operation))
+        .or_else(|| lh_land_notice_dataset_slug(operation))
         .or_else(|| file_data_dataset_slug(operation))
         .or_else(|| vworld_ned_dataset_slug(operation))
 }

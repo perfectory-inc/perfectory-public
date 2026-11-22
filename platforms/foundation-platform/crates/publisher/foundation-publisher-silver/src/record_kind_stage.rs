@@ -23,10 +23,9 @@ use sha2::{Digest, Sha256};
 use duckdb::Connection;
 
 use crate::kind_versions_stage::{
-    elapsed, fill, is_plain, load_current, load_served_and_renumbering, renumbering_join,
-    served_pnu, KindInputs, KindVersionsStage, CODE_CHANGE_SOURCE, PARCEL_SOURCE, SHARED_SQL,
+    elapsed, fill, is_plain, KindVersionsStage, RowSet, CODE_CHANGE_SOURCE, PARCEL_SOURCE,
+    SHARED_SQL,
 };
-use crate::parcel_nearby_stage::Source;
 
 /// One register kind: its Silver, its record fields and how its Spark job folds them.
 #[derive(Clone, Copy, Debug)]
@@ -102,13 +101,6 @@ pub const DEMOLITIONS: RecordKind = RecordKind {
     total_column: "demolition_total",
 };
 
-/// `rows<suffix>`: the current rows, re-keyed to the served code, of served PNUs only, distinct.
-const ROWS_SQL: &str = "\
-CREATE OR REPLACE TABLE rows@suffix@ AS \
-SELECT DISTINCT * FROM ( \
-  SELECT @pnu@ AS pnu, @columns@ FROM current_rows@suffix@ m @join@ WHERE m.pnu IS NOT NULL) \
-WHERE pnu IN (SELECT pnu FROM served@suffix@)";
-
 /// `rows`' rows ranked and folded into one row per PNU of `targets`, inserted into `built`.
 const DOCUMENT_SQL: &str = "\
 INSERT INTO built \
@@ -126,8 +118,9 @@ SELECT pnu, @json@, @total@, CAST(NULL AS VARCHAR) AS attached_via, \
   '@source_snapshot_id@' AS source_snapshot_id, '@published_at_utc@' AS published_at_utc \
 FROM documents";
 
-/// A field as the document writes it: trimmed, an empty one null.
-fn text(field: &str) -> String {
+/// A field as the document writes it: trimmed, an empty one null (the 건축인허가 kind writes its
+/// fields the same way).
+pub(crate) fn text(field: &str) -> String {
     format!("CASE WHEN trim({field}, ' ') = '' THEN NULL ELSE trim({field}, ' ') END")
 }
 
@@ -153,7 +146,7 @@ impl KindVersionsStage for RecordKind {
     fn code_version(&self) -> String {
         let mut hash = Sha256::new();
         let spec = format!("{self:?}");
-        for text in [self.rules_version, &spec, ROWS_SQL, DOCUMENT_SQL]
+        for text in [self.rules_version, &spec, DOCUMENT_SQL]
             .into_iter()
             .chain(SHARED_SQL)
         {
@@ -163,77 +156,51 @@ impl KindVersionsStage for RecordKind {
         format!("{:x}", hash.finalize())
     }
 
-    fn load_inputs(
-        &self,
-        connection: &Connection,
-        source: &Source<'_>,
-        edition: &str,
-        suffix: &str,
-    ) -> anyhow::Result<KindInputs> {
-        let mut read_millis = std::collections::BTreeMap::new();
-        let served_parcels =
-            load_served_and_renumbering(connection, source, edition, suffix, &mut read_millis)?;
-        let mut columns = vec!["pnu"];
-        columns.extend(self.kept());
-        let millis = load_current(
-            connection,
-            source,
-            self.source,
-            &columns,
-            &format!("current_rows{suffix}"),
-        )?;
-        read_millis.insert(self.source.to_owned(), millis);
-        let kept = self
+    fn row_sets(&self) -> Vec<RowSet> {
+        let columns = self
             .kept()
             .into_iter()
             .map(|column| {
                 let value = format!("m.{column}");
                 if self.trim_before_rank && Some(column) != self.key {
-                    format!("{} AS {column}", text(&value))
+                    (text(&value), column)
                 } else {
-                    format!("{value} AS {column}")
+                    (value, column)
                 }
             })
-            .collect::<Vec<_>>()
-            .join(", ");
-        connection.execute_batch(&fill(
-            ROWS_SQL,
-            &[
-                ("suffix", suffix),
-                ("pnu", &served_pnu("m")),
-                ("columns", &kept),
-                ("join", &renumbering_join("m", suffix)),
-            ],
+            .collect();
+        vec![RowSet {
+            name: "rows",
+            source: self.source,
+            pnu: "pnu",
+            reads: self.kept(),
+            columns,
+            joins: Vec::new(),
+            prepared: false,
+            distinct: true,
+        }]
+    }
+
+    fn create_built(&self, connection: &Connection) -> anyhow::Result<()> {
+        let mut built = vec![
+            "pnu VARCHAR".to_owned(),
+            format!("{} VARCHAR", self.json_column),
+            format!("{} BIGINT", self.total_column),
+        ];
+        built.extend(
+            [
+                "attached_via",
+                "row_digest",
+                "source_snapshot_id",
+                "published_at_utc",
+            ]
+            .map(|column| format!("{column} VARCHAR")),
+        );
+        connection.execute_batch(&format!(
+            "CREATE OR REPLACE TABLE built ({});",
+            built.join(", ")
         ))?;
-        let rows: i64 =
-            connection.query_row(&format!("SELECT count(*) FROM rows{suffix}"), [], |row| {
-                row.get(0)
-            })?;
-        if suffix.is_empty() {
-            let mut built = vec![
-                "pnu VARCHAR".to_owned(),
-                format!("{} VARCHAR", self.json_column),
-                format!("{} BIGINT", self.total_column),
-            ];
-            built.extend(
-                [
-                    "attached_via",
-                    "row_digest",
-                    "source_snapshot_id",
-                    "published_at_utc",
-                ]
-                .map(|column| format!("{column} VARCHAR")),
-            );
-            connection.execute_batch(&format!(
-                "CREATE OR REPLACE TABLE built ({});",
-                built.join(", ")
-            ))?;
-        }
-        Ok(KindInputs {
-            served_parcels,
-            rows: u64::try_from(rows)?,
-            read_millis,
-        })
+        Ok(())
     }
 
     fn changed_pnus(&self, connection: &Connection) -> anyhow::Result<u64> {

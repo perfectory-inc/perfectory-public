@@ -66,13 +66,9 @@
       "source": "hubgokr__building_energy_monthly_gas"
     },
     "export": "export-building-energy-monthly-gas-silver-handoff",
-    "engine": "duckdb",
-    "engine_reason": "root ADR-0599 §8 ②: compared by DuckDB inside the publisher from a local copy of the release, its changes one commit; the compare is the one verified on land_use_plan, the read on this kind of handoff",
     "release_unit": "object",
-    "spark": {
-      "master": "local[8,8]",
-      "driver_memory": "16g",
-      "iceberg_write_mode": "append",
+    "load": {
+      "write_mode": "append",
       "input_file_batch_size": 40
     },
     "compare": {

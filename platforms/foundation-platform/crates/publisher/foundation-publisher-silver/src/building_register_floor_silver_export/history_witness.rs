@@ -183,7 +183,7 @@ fn open_regular(path: &Path) -> anyhow::Result<File> {
 pub(super) fn fixture() -> anyhow::Result<HistoryWitness> {
     HistoryWitness::load(
         &Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../infra/lakehouse/spark/tests/fixtures/building_register_floor_history.json")
+            .join("src/building_register_floor_silver_export/history_witness/fixture.json")
             .canonicalize()?,
         None,
     )

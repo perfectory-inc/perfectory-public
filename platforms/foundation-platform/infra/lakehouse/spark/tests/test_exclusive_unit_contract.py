@@ -3,15 +3,12 @@
 import json
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 
 import unittest
 
 SPARK = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SPARK / "jobs"))
 from platform_contracts import load_lakehouse_contract
-from silver_scalar_handoff_to_lakehouse import write_silver_iceberg
-
 
 class ExclusiveUnitContractTest(unittest.TestCase):
     def test_measured_exclusive_unit_layout(self):
@@ -31,8 +28,8 @@ class ExclusiveUnitContractTest(unittest.TestCase):
         assert source["silver_refresh"]["table"] == "silver.building_register_exclusive_unit"
         assert source["silver_refresh"]["roles"] == {"source": "hubgokr__building_register_exclusive_unit"}
         assert source["handoff_layout"] == "manifest_parts"
-        # One Spark batch holds at most what the measured hand load held (4 parts of 10M rows).
-        assert source["rows_per_part"] * source["silver_refresh"]["spark"]["input_file_batch_size"] <= 40_000_000
+        # One load batch holds at most what the measured hand load held (4 parts of 10M rows).
+        assert source["rows_per_part"] * source["silver_refresh"]["load"]["input_file_batch_size"] <= 40_000_000
         contract = load_lakehouse_contract("silver.building_register_exclusive_unit")
         columns = {c["name"]: c for c in contract["columns"]}
         assert set(columns) == set(source["columns"]) | {
@@ -50,8 +47,3 @@ class ExclusiveUnitContractTest(unittest.TestCase):
         ))
 
 
-    def test_exclusive_observations_refuse_overwrite_before_opening_spark(self):
-        contract = load_lakehouse_contract("silver.building_register_exclusive_unit")
-        for configured, override in [("overwrite", None), ("append", "overwrite")]:
-            with self.assertRaisesRegex(ValueError, "append.only"):
-                write_silver_iceberg(None, None, SimpleNamespace(iceberg_write_mode=configured), contract, None, override)

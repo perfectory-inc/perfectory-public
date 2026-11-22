@@ -1,0 +1,126 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "data-go-kr-workplace-files",
+  "assets": [
+    {
+      "id": "data-go-kr-workplace-file-collection",
+      "type": "serving_surface",
+      "title": "사업장 명부 두 파일과 그 모든 지난 판 받기",
+      "description": "국민연금 가입 사업장 내역(15083277, 매월)과 고용·산재보험 가입 현황(15002150, 매년)을 파일마다 자기 작업이 하루 한 번 받는다: 포털의 메타데이터가 이름 짓는 지금 파일이 새것이면 받고, 데이터셋 쪽의 주기성 과거 데이터 목록에서 아직 묻지 않은 지난 판을 오래된 것부터 실행마다 상한까지 받아 Bronze(datagokr__<dataset_slug>)에 받은 그대로 한 번 쓴다(루트 ADR-0604). Silver 는 아직 없다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json",
+        "docs/adr/0604-the-workplace-registers-are-collected-from-the-data-go-kr-file-pages-with-every-earlier-edition-the-portal-still-offers.md"
+      ],
+      "surface_kind": "scheduler"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "data-go-kr-workplace-file-collection",
+      "to": "source-data-go-kr-file-data",
+      "relation": "schedules",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-collect.sh",
+        "collect-data-go-kr-file-data"
+      ]
+    }
+  ],
+  "jobs": [
+    {
+      "id": "pension_workplace_collect",
+      "dagster_group": "collect",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "국민연금공단 국민연금 가입 사업장 내역 (data.go.kr 15083277; root ADR-0604; scripts/ops/data-go-kr-file-collect.sh pension-workplace, the publisher's collect-data-go-kr-file-data): the month's file when the portal's metadata names a new one, and the earlier months the dataset page still lists, oldest first, at most past_editions.max_per_run (20) a run, each landed in Bronze (datagokr__pension_workplace) as received and recorded as it is asked. Measured 2026-11-22: the current file is one CP949 CSV of about 115 MB (589,413 workplaces) and 130 earlier months are listed (2015-12..2026-09, 81 MB to 121 MB, 12,984 MB together), so the history lands in seven runs; after it, a run is two requests (the metadata and the list) and one file a month. Bronze only: no Silver table yet.",
+      "systemd_service": "foundation-data-go-kr-file-collect@pension-workplace.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/data-go-kr-file-collect"
+      ],
+      "schedule": "50 12 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 60,
+      "memory_max": "2G",
+      "memory_measured": "no run yet (new 2026-11-23, root ADR-0604); sized as the collector holds one file in memory and one more copy while it commits it: the largest edition of the two files this unit collects is 526 MB (the 2021 고용·산재 zip, measured 2026-11-22), so about 1.1 GB at the most, and an NPS month about 115 MB; systemd logs the peak of every run under this cap",
+      "per_run_cap": {
+        "unit": "object",
+        "limits": [
+          "infra/lakehouse/contracts/data-go-kr-file-data.contract.json#/files/pension_workplace/past_editions/max_per_run"
+        ],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1500,
+          "estimated_from": "computed from the 2026-11-22 measurement and the file collector's own: 21 files of at most 121 MB (the current one and 20 earlier months, 2.5 GB at the most), each downloaded at about 6 MB/s (the 349 MB 상가 zip in 59 s, ADR-0401) and written to Bronze at about the same, plus two requests' 5 s spacing each: about 21 x 50 s = 1,050 s, rounded up to 1,500 s"
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "the file is released monthly (expected_cadence monthly, 1,080 h) plus one daily turn; until the history is landed every run lands earlier months."
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "data-go-kr-workplace-file-collection-to-source-data-go-kr-file-data"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "shadow",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    },
+    {
+      "id": "employment_insurance_workplace_collect",
+      "dagster_group": "collect",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "근로복지공단 고용·산재보험 가입 현황 (data.go.kr 15002150; root ADR-0604; scripts/ops/data-go-kr-file-collect.sh employment-insurance-workplace, the publisher's collect-data-go-kr-file-data): the year's file when the portal's metadata names a new one, and the earlier editions the dataset page still lists, oldest registered first, at most past_editions.max_per_run (4) a run, each landed in Bronze (datagokr__employment_insurance_workplace) as received, a zip or a CSV as it arrives, and recorded as it is asked. Measured 2026-11-22: the current file is a zip of 134 MB (three CSVs, 2,607,699 workplaces, the full business number) and 16 earlier editions are listed (14 zips and 2 CSVs, 14 MB to 526 MB, 2,756 MB together), so the history lands in four runs; after it, a run is two requests and one file a year. Bronze only: no Silver table yet.",
+      "systemd_service": "foundation-data-go-kr-file-collect@employment-insurance-workplace.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/data-go-kr-file-collect"
+      ],
+      "schedule": "20 13 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 60,
+      "memory_max": "2G",
+      "memory_measured": "no run yet (new 2026-11-23, root ADR-0604); sized as the collector holds one file in memory and one more copy while it commits it: the largest edition is 526 MB (the 2021 zip, measured 2026-11-22), so about 1.1 GB at the most; systemd logs the peak of every run under this cap",
+      "per_run_cap": {
+        "unit": "object",
+        "limits": [
+          "infra/lakehouse/contracts/data-go-kr-file-data.contract.json#/files/employment_insurance_workplace/past_editions/max_per_run"
+        ],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 900,
+          "estimated_from": "computed from the 2026-11-22 measurement and the file collector's own: the current 134 MB zip and four earlier editions (at most the four largest, 1,614 MB together), each downloaded at about 6 MB/s (the 349 MB 상가 zip in 59 s, ADR-0401) and written to Bronze at about the same: at most about 1,750 MB x 2 / 6 MB/s = 583 s plus the spacing, rounded up to 900 s"
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": 10224,
+        "basis": "the file is released yearly (expected_cadence yearly, 10,200 h) plus one daily turn; until the history is landed every run lands earlier editions."
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "data-go-kr-workplace-file-collection-to-source-data-go-kr-file-data"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "shadow",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    }
+  ]
+}

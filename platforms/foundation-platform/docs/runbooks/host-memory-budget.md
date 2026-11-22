@@ -80,8 +80,7 @@ Spark는 `compose run --rm`으로 작업할 때만 실행한다. 기본 명령�
 
 상한은 컨테이너를 다시 만들어야 걸린다. 묶음마다 해당 배포 경로로 `up -d` 한다. PostgreSQL 이 다시 만들어지는 동안 API 가
 잠깐 멈추므로 타이머가 돌지 않는 시간에 한다. Trino·Spark 의 compose 는 원격 적재 뿌리
-`/home/perfectory/foundation-platform-compute` 에 따로 복사돼 있으니([remote-lakehouse-job-runner](./remote-lakehouse-job-runner.md))
-그 사본도 같은 판으로 맞춘다.
+`/home/perfectory/foundation-platform-compute` 에 따로 복사돼 있으니 그 사본도 같은 판으로 맞춘다.
 
 Spark 정의를 반영할 때는 실행 중인 적재가 없는지 확인한 뒤 기존 `spark` 서비스를 새 정의로
 재생성한다. 기본 `spark-submit --version`은 종료돼야 하며 `sleep infinity` 컨테이너가 남으면

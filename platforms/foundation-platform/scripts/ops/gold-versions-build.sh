@@ -8,7 +8,19 @@
 # 레인과 그 명령: parcel-nearby → build-parcel-nearby-versions (root ADR-0465, ADR-0564 §9 차례 2).
 # parcel-register-masters → build-parcel-register-masters-versions (root ADR-0450, ADR-0564 §6: 옛 표의 그림자).
 # parcel-demolitions → build-parcel-demolitions-versions, parcel-energy → build-parcel-energy-versions
-# (root ADR-0399·0398, 같은 그림자 길).
+# (root ADR-0399·0398, 같은 그림자 길). parcel-sub-parcels → build-parcel-sub-parcels-versions (root ADR-0399),
+# parcel-building-permits → build-parcel-building-permits-versions (root ADR-0451, 같은 길).
+# parcel-boundary-served → build-parcel-boundary-served-versions (root ADR-0602: 필지 타일 굽기가 Spark 의
+# gold.parcel_boundary_served 를 읽는 동안 그 표의 그림자 — 태그 없는 빌드라 가장 새 커밋과 그 시각의 입력을 따른다,
+# 굽기에 넘기는 것도 원장에 더하는 것도 없다).
+# parcel → build-parcel-panel-versions (root ADR-0096, ADR-0564 §9 차례 5: 필지 레인의 호스트 패널, 같은 그림자 길).
+# parcel-ownership → build-parcel-ownership-versions (root ADR-0361, 같은 그림자 길).
+# parcel-factories → build-parcel-factories-versions (root ADR-0449, 같은 그림자 길).
+# lineage-review-queue → build-lineage-review-queue-versions (root ADR-0113 §10·0483 §5, 레인 밖 표: 스튜어드 큐,
+# ADR-0564 §6-9; 선언된 판정 검사가 없다).
+# 그림자 커밋 뒤에는(그리고 그 머리의 판정이 끝까지 돌 때까지 다음 실행마다) 같은 유닛이 넘겨받기 판정
+# (gold-takeover-verdict.sh)을 선언된 시도에서 돌려 Dagster 의 자산 검사 `takeover_equal` 로 알린다(journal 의
+# Pipes 줄, orchestration/dagster/takeover_checks.py; ADR-0564 §6-3). 판정의 실패는 검사의 것이고 빌드의 커밋은 선다.
 set -Eeuo pipefail
 lane="${1:?usage: gold-versions-build.sh <lane>}"
 case "${lane}" in
@@ -16,6 +28,13 @@ case "${lane}" in
   parcel-register-masters) command=build-parcel-register-masters-versions ;;
   parcel-demolitions) command=build-parcel-demolitions-versions ;;
   parcel-energy) command=build-parcel-energy-versions ;;
+  parcel-sub-parcels) command=build-parcel-sub-parcels-versions ;;
+  parcel-building-permits) command=build-parcel-building-permits-versions ;;
+  parcel-boundary-served) command=build-parcel-boundary-served-versions ;;
+  parcel) command=build-parcel-panel-versions ;;
+  parcel-ownership) command=build-parcel-ownership-versions ;;
+  parcel-factories) command=build-parcel-factories-versions ;;
+  lineage-review-queue) command=build-lineage-review-queue-versions ;;
   *) echo "gold-versions-build: ${lane} has no table of appended row versions the publisher builds" >&2; exit 64 ;;
 esac
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
@@ -39,6 +58,33 @@ on_error() {
 }
 trap 'on_error ${LINENO}' ERR
 
+# The `takeover_equal` check of a shadow build (root ADR-0564 §6-3): after a commit, and on each later
+# run until one verdict of that head has run to its end, the verdict runs here, with this unit's keys
+# and pool, and its outcome is reported through the journal as the check its definition declares.
+# It is called after the build's own journal line and before its outcome line, and its failure is
+# only the check's: the build's commit stands, and its outcome line is the build's.
+TAKEOVER_SECONDS=1800          # of the unit's hour; the build itself takes minutes
+TAKEOVER_MEMORY_LIMIT=4GB      # DuckDB's, under the unit's MemoryHigh (foundation-gold-versions@.service)
+takeover_check() {
+  local run_dir="$1" check state declared table sido status=0
+  check="$(dirname "${BASH_SOURCE[0]}")/gold_takeover_check.py"
+  state="${STATE_ROOT}/takeover-verdict.json"
+  declared="$(python3 -I -B "${check}" declared "${run_dir}/summary.json" "${RELEASE_ROOT}/definitions" "${state}")" ||
+    return 1
+  [ -n "${declared}" ] || return 0
+  read -r table sido <<<"${declared}"
+  FOUNDATION_PLATFORM_GOLD_TAKEOVER_MEMORY_LIMIT="${TAKEOVER_MEMORY_LIMIT}" \
+    timeout "${TAKEOVER_SECONDS}" bash "$(dirname "${BASH_SOURCE[0]}")/gold-takeover-verdict.sh" \
+    "${table}" "${sido}" "${run_dir}/verdict" >> "${run_dir}/verdict.log" 2>&1 || status=$?
+  python3 -I -B "${check}" report "${table}" "${sido}" "${status}" "${run_dir}/verdict" "${state}" || return 1
+  job_journal "${journal}" "gold versions ${lane} takeover verdict ${table} sido=${sido} exit=${status} run=${run_id}"
+  if [ "${status}" -ne 0 ]; then
+    job_run_log_tail "${run_dir}/verdict.log"
+  fi
+  # The record stays (verdict.json, checks.json, sides.json); the 시도's two sides and the spill go.
+  rm -rf -- "${run_dir}/verdict/reference.parquet" "${run_dir}/verdict/candidate.parquet" "${run_dir}/verdict/spill"
+}
+
 FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY="${work}/summary.json" \
   "${PUBLISHER_BIN}" "${command}" >> "${run_log}" 2>&1
 
@@ -52,6 +98,8 @@ print(s["outcome"], s.get("version_seq", "-"), sum(diff.get(k, 0) for k in ("add
 # The publisher's own last line: what the cut-over's gold step quotes.
 tail -n 1 "${run_log}"
 job_journal "${journal}" "gold versions ${lane} ${outcome} version_seq=${sequence} keys_changed=${keys} seconds=${seconds} run=${run_id}"
+takeover_check "${work}" ||
+  job_journal "${journal}" "gold versions ${lane} takeover verdict could not be reported run=${run_id}"
 # Every scheduled job's last line (root ADR-0171): a commit is `changed`, even one of no row (its
 # new pins are what the next run plans from and what the bake reads).
 if [ "${outcome}" = committed ]; then

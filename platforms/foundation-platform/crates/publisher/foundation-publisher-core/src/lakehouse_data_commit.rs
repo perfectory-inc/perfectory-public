@@ -19,6 +19,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fs::File,
+    io::{BufReader, Read},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, PoisonError},
 };
@@ -28,6 +29,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
 use iceberg::{
+    io::FileWrite,
     spec::{
         DataContentType, DataFile, DataFileBuilder, DataFileFormat, Datum, Literal, NestedField,
         NullOrder, PrimitiveLiteral, PrimitiveType, Schema, SortDirection, SortField, SortOrder,
@@ -53,6 +55,15 @@ use parquet::{
     schema::types::ColumnDescriptor,
 };
 use sha2::{Digest, Sha256};
+
+/// The most one upload request carries. OpenDAL sends each `write` as one request, and
+/// iceberg-storage-opendal 0.11 bounds every request by OpenDAL's default 10 s IO timeout, with no
+/// property to raise it: the `opendal.io-timeout-ms` and `s3.multipart.part-size-bytes` properties
+/// (apache/iceberg-rust#3263, #3179, issue #2977) are on its `main`, after 0.11.0. A whole staged
+/// file in one `write` timed out on every retry (`silver.elevator_installation`, 2026-11-21 and
+/// 11-22); 8 MiB is over S3's 5 MiB part minimum and takes about 1.5 s at the 6 MB/s the
+/// collectors measure against R2.
+const UPLOAD_PART_BYTES: u64 = 8 * 1024 * 1024;
 
 /// The summary property that names the batch for a reader of the snapshot log, and the one the
 /// re-run guard reads (`lakehouse_ingest.py`: `INGEST_BATCH_TOKEN_KEY`, `INGEST_BATCH_OBJECTS_KEY`;
@@ -580,12 +591,10 @@ impl LakehouseDataCommitter {
         );
         let mut locations = Vec::with_capacity(uploads.len());
         for (local, target) in uploads {
-            let body = std::fs::read(local)
+            let staged = File::open(local)
                 .with_context(|| format!("failed to read staged file {}", local.display()))?;
-            table
-                .file_io()
-                .new_output(&target)?
-                .write(Bytes::from(body))
+            let mut writer = table.file_io().new_output(&target)?.writer().await?;
+            upload_in_parts(writer.as_mut(), BufReader::new(staged), UPLOAD_PART_BYTES)
                 .await
                 .with_context(|| format!("failed to write {target}"))?;
             locations.push(target);
@@ -693,6 +702,7 @@ fn iceberg_type(logical_type: &str) -> anyhow::Result<PrimitiveType> {
         "boolean" => PrimitiveType::Boolean,
         "date" => PrimitiveType::Date,
         "timestamp" => PrimitiveType::Timestamptz,
+        "binary" => PrimitiveType::Binary,
         other => match decimal_type(other) {
             Some((precision, scale)) => PrimitiveType::Decimal { precision, scale },
             None => bail!("no Iceberg type here for the contract type {other}"),
@@ -860,6 +870,11 @@ fn holds(column: &ColumnDescriptor, primitive: &PrimitiveType) -> bool {
                         converted,
                         ConvertedType::NONE | ConvertedType::INT_32 | ConvertedType::INT_64
                     ))
+        }
+        // Bytes with no annotation (`DuckDB` writes a BLOB so): an annotated byte array is text or
+        // another type, not the table's bytes.
+        (PrimitiveType::Binary, PhysicalType::BYTE_ARRAY) => {
+            logical.is_none() && converted == ConvertedType::NONE
         }
         (PrimitiveType::Date, PhysicalType::INT32) => {
             matches!(logical, Some(LogicalType::Date)) || converted == ConvertedType::DATE
@@ -1281,7 +1296,14 @@ fn column_facts(
 /// A decimal is the exception: Parquet's statistic is the little-endian integer of its physical type
 /// and Iceberg's is the big-endian two's complement of the unscaled value (iceberg 0.11
 /// `Datum::try_from_bytes`), so its bytes are turned around first.
+///
+/// A binary column records none: its values are whole objects (a parcel's WKB geometry runs to
+/// kilobytes), which would sit in every manifest entry and narrow no read; Iceberg's bounds are
+/// optional, and Spark's default metrics keep 16 bytes of them at most.
 fn bounds_of(statistics: &Statistics, primitive: &PrimitiveType) -> Option<(Datum, Datum)> {
+    if *primitive == PrimitiveType::Binary {
+        return None;
+    }
     let low = statistic_datum(statistics.min_bytes_opt()?, primitive)?;
     let high = statistic_datum(statistics.max_bytes_opt()?, primitive)?;
     (!low.is_nan() && !high.is_nan()).then_some((low, high))
@@ -1300,9 +1322,96 @@ fn statistic_datum(bytes: &[u8], primitive: &PrimitiveType) -> Option<Datum> {
     Datum::try_from_bytes(bytes, primitive.clone()).ok()
 }
 
+/// Writes a staged file through `writer` in requests of `part_bytes`: every one but the last is
+/// exactly that long (R2's multipart rule), so each finishes inside the IO timeout and one part, not
+/// the file, is held in memory. Returns the bytes written.
+async fn upload_in_parts(
+    writer: &mut dyn FileWrite,
+    mut staged: impl Read,
+    part_bytes: u64,
+) -> anyhow::Result<u64> {
+    let mut written = 0_u64;
+    loop {
+        let mut part = Vec::with_capacity(usize::try_from(part_bytes)?);
+        staged.by_ref().take(part_bytes).read_to_end(&mut part)?;
+        let length = u64::try_from(part.len())?;
+        if length > 0 {
+            writer.write(Bytes::from(part)).await?;
+            written += length;
+        }
+        if length < part_bytes {
+            break;
+        }
+    }
+    writer.close().await?;
+    Ok(written)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `FileWrite` that keeps the size of every request it was handed.
+    #[derive(Default)]
+    struct Requests {
+        sizes: Vec<usize>,
+        body: Vec<u8>,
+        closed: bool,
+    }
+
+    #[async_trait]
+    impl FileWrite for Requests {
+        async fn write(&mut self, bs: Bytes) -> iceberg::Result<()> {
+            self.sizes.push(bs.len());
+            self.body.extend_from_slice(&bs);
+            Ok(())
+        }
+
+        async fn close(&mut self) -> iceberg::Result<iceberg::io::FileMetadata> {
+            self.closed = true;
+            Ok(iceberg::io::FileMetadata {
+                size: u64::try_from(self.body.len()).unwrap_or(u64::MAX),
+            })
+        }
+    }
+
+    fn payload(length: usize) -> Vec<u8> {
+        (0..length)
+            .map(|at| u8::try_from(at % 251).unwrap_or(0))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_file_larger_than_a_part_goes_up_in_equal_parts_and_a_short_last_one(
+    ) -> anyhow::Result<()> {
+        for (length, sizes) in [
+            (2_560, vec![1_024_usize, 1_024, 512]),
+            (2_048, vec![1_024, 1_024]),
+            (100, vec![100]),
+        ] {
+            let mut requests = Requests::default();
+            let written = upload_in_parts(&mut requests, payload(length).as_slice(), 1_024).await?;
+            assert_eq!(written, u64::try_from(length)?);
+            assert_eq!(
+                requests.sizes, sizes,
+                "no request is longer than a part, none empty"
+            );
+            assert_eq!(requests.body, payload(length));
+            assert!(requests.closed);
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_parts_make_the_whole_file_through_the_file_io() -> anyhow::Result<()> {
+        let file_io = iceberg::io::FileIO::new_with_memory();
+        let target = "memory://staged/elevator-installation-synthetic.parquet";
+        let body = payload(5 * 1_024 + 7);
+        let mut writer = file_io.new_output(target)?.writer().await?;
+        upload_in_parts(writer.as_mut(), body.as_slice(), 1_024).await?;
+        assert_eq!(file_io.new_input(target)?.read().await?.to_vec(), body);
+        Ok(())
+    }
 
     #[test]
     fn the_batch_record_is_what_the_spark_path_writes() -> anyhow::Result<()> {
@@ -1345,6 +1454,46 @@ mod tests {
             .context("a decimal(5,2) bound")?;
         assert_eq!(percent.literal(), &PrimitiveLiteral::Int128(-1));
         assert!(statistic_datum(&[0; 3], &decimal(5, 2)).is_none());
+        Ok(())
+    }
+
+    /// `gold.parcel_boundary_served_versions` keeps each parcel's geometry as WKB bytes
+    /// (`binary`): the table is created with an Iceberg binary column, a staged `DuckDB` BLOB
+    /// (bytes with no annotation) holds it and a text column does not, and no bound is recorded.
+    #[test]
+    fn a_binary_column_is_bytes_with_no_annotation_and_records_no_bounds() -> anyhow::Result<()> {
+        use parquet::data_type::ByteArray;
+        use parquet::schema::{parser::parse_message_type, types::SchemaDescriptor};
+
+        let schema = parse_message_type(
+            "message staged { required binary geometry_wkb; optional binary pnu (UTF8); }",
+        )?;
+        let descriptor = SchemaDescriptor::new(Arc::new(schema));
+        assert_eq!(iceberg_type("binary")?, PrimitiveType::Binary);
+        assert!(holds(&descriptor.column(0), &PrimitiveType::Binary));
+        assert!(!holds(&descriptor.column(1), &PrimitiveType::Binary));
+        assert!(!holds(&descriptor.column(0), &PrimitiveType::String));
+
+        let statistics = Statistics::new(
+            Some(ByteArray::from(vec![1_u8, 2])),
+            Some(ByteArray::from(vec![9_u8; 4_096])),
+            None,
+            Some(0),
+            false,
+        );
+        assert!(bounds_of(&statistics, &PrimitiveType::Binary).is_none());
+        assert!(bounds_of(&statistics, &PrimitiveType::String).is_some());
+
+        // The creation the first shadow build refused (2026-11-22 18:11Z).
+        let served = lakehouse_domain::industrial_complex_lakehouse_contracts()
+            .iter()
+            .find(|contract| contract.table_name == "gold.parcel_boundary_served_versions")
+            .context("the served parcel boundaries' versions contract")?;
+        let (schema, _, _) = contract_layout(served)?;
+        let geometry = schema
+            .field_by_name("geometry_wkb")
+            .context("its geometry column")?;
+        assert_eq!(*geometry.field_type, Type::Primitive(PrimitiveType::Binary));
         Ok(())
     }
 }

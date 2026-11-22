@@ -72,6 +72,7 @@ mod industrial_complex_canonical_load;
 mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
 mod industrial_complex_notice_collect;
+mod industrial_land_sale_notice_collect;
 mod lakehouse_object_listing;
 mod onbid_silver_load;
 mod silver_load_objects;
@@ -107,15 +108,21 @@ mod handoff_object_support;
 mod juso_electronic_map_base;
 mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
+mod building_register_floor_history_check;
+mod building_register_floor_silver_load;
+mod gold_takeover_documents;
 mod gold_takeover_sides;
 mod gold_versions_change_set;
 mod gold_versions_commit;
 mod industrial_complex_notice_silver_load;
 mod industrial_complex_silver_load;
+mod industrial_land_sale_notice_silver_load;
 mod kind_versions_build;
 mod lineage_review_items_load;
+mod lineage_review_queue_versions_build;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
+mod parcel_boundary_served_build;
 mod parcel_lineage_derive;
 mod parcel_matching_gate;
 mod parcel_nearby_versions_build;
@@ -213,6 +220,7 @@ enum Command {
     MediaLadderBacklog,
     CollectIndustrialComplexAddressSource,
     CollectIndustrialComplexNoticeAttachments,
+    CollectIndustrialLandSaleNotices,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
     StageBuildingRegisterFloorInputs,
@@ -275,7 +283,6 @@ enum Command {
     PlanProviderAcquisitionJobs,
     PlanVWorldDatasetCollection,
     CheckR2RuntimeTarget,
-    RunRemoteLakehouseJob,
     PublishAdministrativeBoundaryPostgis,
     PublishAdministrativeBoundaryStaticRelease,
     PublishIndustrialComplexBoundaryPostgis,
@@ -298,13 +305,24 @@ enum Command {
     AppendLineageStewardFold,
     DeriveParcelLineage,
     LoadIndustrialComplexNoticeSilver,
+    LoadIndustrialLandSaleNoticeSilver,
     PlanIndustrialComplexSilverInputs,
     LoadIndustrialComplexSilver,
+    CheckBuildingRegisterFloorHistory,
+    LoadBuildingRegisterFloorSilver,
+    BuildParcelBoundaryServed,
+    BuildParcelBoundaryServedVersions,
     BuildParcelNearbyVersions,
     RunParcelMatchingGate,
     BuildParcelRegisterMastersVersions,
     BuildParcelDemolitionsVersions,
     BuildParcelEnergyVersions,
+    BuildParcelSubParcelsVersions,
+    BuildParcelBuildingPermitsVersions,
+    BuildLineageReviewQueueVersions,
+    BuildParcelPanelVersions,
+    BuildParcelOwnershipVersions,
+    BuildParcelFactoriesVersions,
     ExportGoldVersionsChangeSet,
     ExportGoldTakeoverSides,
     ShowGoldTakeoverSwitch,
@@ -446,6 +464,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::CollectIndustrialComplexNoticeAttachments => {
             Box::pin(industrial_complex_notice_collect::run())
+        }
+        Command::CollectIndustrialLandSaleNotices => {
+            Box::pin(industrial_land_sale_notice_collect::run())
         }
         Command::DeleteR2Candidates => Box::pin(r2_delete_candidates::run()),
         Command::ExportBuildingRegisterFloorSilverHandoff => {
@@ -614,7 +635,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::StopUnitPriceVersions => {
             Box::pin(async { remote_lakehouse_job::stop_unit_price_versions() })
         }
-        Command::RunRemoteLakehouseJob => Box::pin(remote_lakehouse_job::run()),
         Command::PublishAdministrativeBoundaryPostgis => {
             Box::pin(administrative_boundary_postgis_publish::run())
         }
@@ -653,10 +673,23 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadIndustrialComplexNoticeSilver => {
             Box::pin(industrial_complex_notice_silver_load::run())
         }
+        Command::LoadIndustrialLandSaleNoticeSilver => {
+            Box::pin(industrial_land_sale_notice_silver_load::run())
+        }
         Command::PlanIndustrialComplexSilverInputs => {
             Box::pin(industrial_complex_silver_load::plan())
         }
         Command::LoadIndustrialComplexSilver => Box::pin(industrial_complex_silver_load::load()),
+        Command::CheckBuildingRegisterFloorHistory => {
+            Box::pin(building_register_floor_history_check::run())
+        }
+        Command::LoadBuildingRegisterFloorSilver => {
+            Box::pin(building_register_floor_silver_load::run())
+        }
+        Command::BuildParcelBoundaryServed => Box::pin(parcel_boundary_served_build::run()),
+        Command::BuildParcelBoundaryServedVersions => {
+            Box::pin(parcel_boundary_served_build::run_shadow())
+        }
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
         Command::RunParcelMatchingGate => Box::pin(parcel_matching_gate::run()),
         Command::BuildParcelRegisterMastersVersions => {
@@ -667,6 +700,24 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::BuildParcelEnergyVersions => {
             Box::pin(kind_versions_build::run(&kind_versions_build::ENERGY_BUILD))
+        }
+        Command::BuildParcelSubParcelsVersions => {
+            Box::pin(kind_versions_build::run(&kind_versions_build::SUB_PARCELS_BUILD))
+        }
+        Command::BuildParcelBuildingPermitsVersions => Box::pin(kind_versions_build::run(
+            &kind_versions_build::BUILDING_PERMITS_BUILD,
+        )),
+        Command::BuildLineageReviewQueueVersions => {
+            Box::pin(lineage_review_queue_versions_build::run())
+        }
+        Command::BuildParcelPanelVersions => Box::pin(kind_versions_build::run(
+            &kind_versions_build::PARCEL_PANEL_BUILD,
+        )),
+        Command::BuildParcelOwnershipVersions => {
+            Box::pin(kind_versions_build::run(&kind_versions_build::OWNERSHIP_BUILD))
+        }
+        Command::BuildParcelFactoriesVersions => {
+            Box::pin(kind_versions_build::run(&kind_versions_build::FACTORIES_BUILD))
         }
         Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
         Command::ExportGoldTakeoverSides => Box::pin(gold_takeover_sides::export()),
@@ -797,7 +848,6 @@ where
         Some("stop-silver-refresh") => Ok(Command::StopSilverRefresh),
         Some("stop-parcel-tile-bake") => Ok(Command::StopParcelTileBake),
         Some("stop-unit-price-versions") => Ok(Command::StopUnitPriceVersions),
-        Some("run-remote-lakehouse-job") => Ok(Command::RunRemoteLakehouseJob),
         Some("publish-administrative-boundary-postgis") => {
             Ok(Command::PublishAdministrativeBoundaryPostgis)
         }
@@ -834,10 +884,21 @@ where
         Some("load-industrial-complex-notice-silver") => {
             Ok(Command::LoadIndustrialComplexNoticeSilver)
         }
+        Some("load-industrial-land-sale-notice-silver") => {
+            Ok(Command::LoadIndustrialLandSaleNoticeSilver)
+        }
         Some("plan-industrial-complex-silver-inputs") => {
             Ok(Command::PlanIndustrialComplexSilverInputs)
         }
         Some("load-industrial-complex-silver") => Ok(Command::LoadIndustrialComplexSilver),
+        Some("check-building-register-floor-history") => {
+            Ok(Command::CheckBuildingRegisterFloorHistory)
+        }
+        Some("load-building-register-floor-silver") => Ok(Command::LoadBuildingRegisterFloorSilver),
+        Some("build-parcel-boundary-served") => Ok(Command::BuildParcelBoundaryServed),
+        Some("build-parcel-boundary-served-versions") => {
+            Ok(Command::BuildParcelBoundaryServedVersions)
+        }
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
         Some("run-parcel-matching-gate") => Ok(Command::RunParcelMatchingGate),
         Some("build-parcel-register-masters-versions") => {
@@ -845,6 +906,14 @@ where
         }
         Some("build-parcel-demolitions-versions") => Ok(Command::BuildParcelDemolitionsVersions),
         Some("build-parcel-energy-versions") => Ok(Command::BuildParcelEnergyVersions),
+        Some("build-parcel-sub-parcels-versions") => Ok(Command::BuildParcelSubParcelsVersions),
+        Some("build-parcel-building-permits-versions") => {
+            Ok(Command::BuildParcelBuildingPermitsVersions)
+        }
+        Some("build-lineage-review-queue-versions") => Ok(Command::BuildLineageReviewQueueVersions),
+        Some("build-parcel-panel-versions") => Ok(Command::BuildParcelPanelVersions),
+        Some("build-parcel-ownership-versions") => Ok(Command::BuildParcelOwnershipVersions),
+        Some("build-parcel-factories-versions") => Ok(Command::BuildParcelFactoriesVersions),
         Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
         Some("export-gold-takeover-sides") => Ok(Command::ExportGoldTakeoverSides),
         Some("show-gold-takeover-switch") => Ok(Command::ShowGoldTakeoverSwitch),
@@ -906,6 +975,9 @@ where
         }
         Some("collect-industrial-complex-notice-attachments") => {
             Ok(Command::CollectIndustrialComplexNoticeAttachments)
+        }
+        Some("collect-industrial-land-sale-notices") => {
+            Ok(Command::CollectIndustrialLandSaleNotices)
         }
         Some("export-industrial-complex-boundary-silver-handoff") => {
             Ok(Command::ExportIndustrialComplexBoundarySilverHandoff)

@@ -816,8 +816,8 @@ async fn an_onbid_object_is_the_first_append_into_each_empty_table() -> anyhow::
     Ok(())
 }
 
-/// The 법원경매정보 `DuckDB` load's first object into each of the six tables its 공통코드, 감정평가서,
-/// 매각물건명세서 and 배당요구종기공고 write, as `load-courtauction-go-kr-silver` appends it.
+/// The 법원경매정보 `DuckDB` load's first object into each of the tables its documents write, as
+/// `load-courtauction-go-kr-silver` appends it.
 ///
 /// Into a catalog that holds none of them yet: the load makes each table before its first commit.
 #[tokio::test(flavor = "multi_thread")]
@@ -829,6 +829,26 @@ async fn a_court_auction_object_is_the_first_append_into_each_empty_table() -> a
         contract("silver.court_auction_sale_specification_read")?,
         contract("silver.court_auction_dividend_notice")?,
         contract("silver.court_auction_dividend_object")?,
+        contract("silver.court_auction_sale_notice")?,
+        contract("silver.court_auction_sale_notice_item")?,
+        contract("silver.court_auction_case")?,
+        contract("silver.court_auction_case_related")?,
+        contract("silver.court_auction_case_object")?,
+        contract("silver.court_auction_case_party")?,
+        contract("silver.court_auction_case_document_read")?,
+        contract("silver.court_auction_survey")?,
+        contract("silver.court_auction_survey_object")?,
+        contract("silver.court_auction_appraisal")?,
+        contract("silver.court_auction_case_filing")?,
+        contract("silver.court_auction_case_delivery")?,
+        contract("silver.court_auction_survey_tenant")?,
+        contract("silver.court_auction_item_photo")?,
+        contract("silver.court_auction_item_spec")?,
+        contract("silver.court_auction_item_schedule")?,
+        contract("silver.court_auction_item_object")?,
+        contract("silver.court_auction_item_annex")?,
+        contract("silver.court_auction_appraisal_point")?,
+        contract("silver.court_auction_item_detail")?,
     ];
     let root = tempfile::tempdir()?;
     let catalog: Arc<dyn Catalog> = Arc::new(
@@ -1113,23 +1133,47 @@ const NOTICE_ATTACHMENT: &str = "SELECT CAST(99001 AS BIGINT) AS notice_sequence
      to_timestamp(4071006246) AS fetched_at_utc, 'bronze/source=synthetic/detail-20990102t030405z-000.gz' AS source_record_id, \
      1 AS source_line_number, '20990102T030405Z' AS source_snapshot_id, to_timestamp(4071006245) AS ingested_at_utc";
 
+/// One synthetic row of each industrial land sale notice table (root ADR-0603), in contract order.
+const SALE_NOTICE_READ: &str = "SELECT 'ilis' AS notice_source, '99001' AS notice_id, repeat('f', 64) AS list_fingerprint,      to_timestamp(4071006245) AS requested_at_utc, 200 AS http_status, 'read' AS read_outcome, 1 AS file_count,      1 AS files_stored, 'bronze/source=synthetic/detail-20990102t030405z-000.gz' AS source_record_id,      1 AS source_line_number, '20990102T030405Z' AS source_snapshot_id, to_timestamp(4071006245) AS ingested_at_utc";
+const SALE_NOTICE_ATTACHMENT: &str = "SELECT 'ilis' AS notice_source, '99001' AS notice_id, repeat('a', 64) AS sha256,      1 AS file_sequence, 'synthetic file' AS file_title, 'f1' AS provider_file_id, CAST(1234 AS BIGINT) AS provider_file_size,      'https://example.invalid/f1' AS source_url, 'pdf' AS media_format, CAST(1234 AS BIGINT) AS size_bytes,      to_timestamp(4071006246) AS fetched_at_utc, 'bronze/source=synthetic/detail-20990102t030405z-000.gz' AS source_record_id,      1 AS source_line_number, '20990102T030405Z' AS source_snapshot_id, to_timestamp(4071006245) AS ingested_at_utc";
+
 /// The ILIS notice Silver load's first object into each of its empty tables (root ADR-0389), as
-/// `load-industrial-complex-notice-silver` appends it: a commit that records the object, pinned
+/// `load-industrial-complex-notice-silver` appends it, and the industrial land sale notice load's
+/// (`load-industrial-land-sale-notice-silver`, root ADR-0603) the same way: a commit that records the object, pinned
 /// on the head the rows were computed against (none yet). An object with no row of a table is
 /// recorded too (an empty commit), and an object `main` records is not appended again.
 #[tokio::test(flavor = "multi_thread")]
+// One loop over the four tables; the first-load guard reads the append from this body itself
+// (test_silver_first_load_iceberg.py), so it is not split into a helper.
+#[allow(clippy::too_many_lines)]
 async fn a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_no_row_is_recorded(
 ) -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
-    for (table, rows) in [
+    for (table, rows, key, value) in [
         (
             contract("silver.industrial_complex_notice_detail")?,
             NOTICE_READ,
+            "notice_sequence",
+            serde_json::json!(99001),
         ),
         (
             contract("silver.industrial_complex_notice_attachment")?,
             NOTICE_ATTACHMENT,
+            "notice_sequence",
+            serde_json::json!(99001),
+        ),
+        (
+            contract("silver.industrial_land_sale_notice_read")?,
+            SALE_NOTICE_READ,
+            "notice_id",
+            serde_json::json!("99001"),
+        ),
+        (
+            contract("silver.industrial_land_sale_notice_attachment")?,
+            SALE_NOTICE_ATTACHMENT,
+            "notice_id",
+            serde_json::json!("99001"),
         ),
     ] {
         let short = table
@@ -1161,7 +1205,7 @@ async fn a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_
         let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
         scanned.ensure_complete()?;
         assert_eq!(scanned.rows.len(), 1, "{short}");
-        assert_eq!(scanned.rows[0]["notice_sequence"], 99001, "{short}");
+        assert_eq!(scanned.rows[0][key], value, "{short}");
 
         // The next object holds no row of this table: its commit only records it.
         let second = "bronze/source=synthetic/detail-20990102t030405z-001.gz".to_owned();
@@ -1300,6 +1344,104 @@ async fn an_industrial_complex_export_is_the_first_append_into_the_empty_table(
     assert_eq!(
         codes,
         BTreeSet::from(["99999A".to_owned(), "99999B".to_owned()])
+    );
+    Ok(())
+}
+
+/// The FLOOR cycle's load (`floor_load`, root ADR-0599): a synthetic edition written as the native
+/// export writes it (instants as zone-less milliseconds) is checked, staged one file per bucket of
+/// the table's `bucket(16, mgm_bldrgst_pk)`, and is the first append into the empty table, recorded
+/// under the edition.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_floor_edition_is_the_first_append_into_the_empty_table() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let table = contract("silver.building_register_floors")?;
+    let catalog = catalog_partitioned(
+        &root.path().join("building_register_floors"),
+        table,
+        &[("mgm_bldrgst_pk", Transform::Bucket(16))],
+    )
+    .await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    let shape = committer.table_shape(table.table_name).await?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    // The stage reads and writes only its own directory: the handoff is put there.
+    let handoff = std::fs::read_dir(root.path().join("stage"))?
+        .next()
+        .context("the stage directory")??
+        .path()
+        .join("handoff");
+    std::fs::create_dir_all(&handoff)?;
+    let edition = format!("building-register-floor-content-v1-{}", "9".repeat(64));
+    stage.connection().execute_batch(&format!(
+        "COPY (SELECT 'floor-' || i AS floor_row_id, '99999-' || CAST(i % 7 AS VARCHAR) AS mgm_bldrgst_pk, \
+         NULL::VARCHAR AS floor_type_code_raw, NULL::VARCHAR AS floor_type_name_raw, \
+         NULL::VARCHAR AS floor_number_raw, NULL::VARCHAR AS floor_label_raw, 'above_ground' AS floor_kind, \
+         CAST(i AS INTEGER) AS floor_number, CAST(i AS INTEGER) AS floor_index, \
+         NULL::VARCHAR AS floor_display_ko, 'accepted' AS normalization_status, \
+         'synthetic' AS normalization_reason, 'record-' || i AS source_record_id, \
+         '{edition}' AS source_snapshot_id, 'bronze/source=synthetic/20991231.zip' AS bronze_object_key, \
+         CAST(i AS BIGINT) AS source_line_number, \
+         CAST(TIMESTAMP '2099-12-01 00:00:00' AS TIMESTAMP_MS) AS valid_from_utc, \
+         NULL::TIMESTAMP_MS AS valid_to_utc, \
+         CAST(TIMESTAMP '2099-12-31 12:00:00' AS TIMESTAMP_MS) AS ingested_at_utc, \
+         sha256('row-' || i) AS row_checksum_sha256 FROM range(40) t(i)) \
+         TO '{}/part-00000.parquet' (FORMAT parquet)",
+        super::sql_path(&handoff)?
+    ))?;
+    let staged = crate::building_register_floor_silver_export::floor_load::stage_edition(
+        &stage,
+        table,
+        &shape,
+        &handoff,
+        &edition,
+        Some(40),
+    )?;
+    assert_eq!(staged.rows, 40);
+    // Seven keys: at most seven of the sixteen buckets hold rows, one file each.
+    assert!(
+        (1..=7).contains(&staged.files.len()),
+        "{}",
+        staged.files.len()
+    );
+    let (snapshot, parent, added) = appended(
+        committer
+            .append_at_head(
+                DataAppend {
+                    table_name: table.table_name,
+                    contract: table,
+                    files: &staged.files,
+                    batch: std::slice::from_ref(&edition),
+                    already_ingested: &BTreeSet::new(),
+                    summary: BTreeMap::new(),
+                },
+                None,
+            )
+            .await?,
+    )?;
+    assert_eq!(
+        (parent, added),
+        (None, 40),
+        "the edition is the table's first commit"
+    );
+    let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
+    scanned.ensure_complete()?;
+    assert_eq!(scanned.rows.len(), 40);
+    assert!(scanned
+        .rows
+        .iter()
+        .all(|row| row["source_snapshot_id"] == edition.as_str()));
+    // A release check refuses an edition of another identity before anything is staged.
+    assert!(
+        crate::building_register_floor_silver_export::floor_load::stage_edition(
+            &stage,
+            table,
+            &shape,
+            &handoff,
+            "building-register-floor-content-v1-other",
+            Some(40),
+        )
+        .is_err()
     );
     Ok(())
 }

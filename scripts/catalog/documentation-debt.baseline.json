@@ -20,7 +20,6 @@
     "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md",
     "platforms/foundation-platform/docs/runbooks/postgres-jobbus-contract-test.md",
     "platforms/foundation-platform/docs/runbooks/provider-acquisition-fargate.md",
-    "platforms/foundation-platform/docs/runbooks/remote-lakehouse-job-runner.md",
     "platforms/foundation-platform/docs/runbooks/runtime-environment-separation.md",
     "platforms/foundation-platform/docs/runbooks/security-advisories.md",
     "platforms/foundation-platform/docs/runbooks/vworld-dataset-file-bronze-ingest.md"

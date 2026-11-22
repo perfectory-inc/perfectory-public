@@ -1,6 +1,6 @@
 {
-  "$comment": "Root ADR-0280 §4, ADR-0401 §1. The data.go.kr file data the platform collects: where each file is asked for, what it must look like, how its rows are keyed and how they reach a parcel or a 법정동. The collector (`collect-data-go-kr-file-data` in services/foundation-outbox-publisher) iterates `files` (keyed by dataset_slug, the catalog's), the Silver loads and their tests read this file; nothing else restates these values. One run asks each selected file's metadata once and fetches a file only when its atchFileId is new. The per-run cap is the files themselves: measured 2026-11-04, the eight files beside the registered factory are about 15.5 MB together plus the 349 MB 상가(상권) zip (59 s), so a run that finds every one new lands about 365 MB in about 3 minutes with the spacing. The three 표준데이터 (school location, university, subway station) have no portal file id: they come through the dataset page's own keyless download (`standard_download` below, root ADR-0453), every page of one pass in one gzip JSON-lines object, landed only when the pass's rows differ from the last landed pass; the OpenAPI is only a cross-check when the platform's key is registered.",
-  "version": 4,
+  "$comment": "Root ADR-0280 §4, ADR-0401 §1. The data.go.kr file data the platform collects: where each file is asked for, what it must look like, how its rows are keyed and how they reach a parcel or a 법정동. The collector (`collect-data-go-kr-file-data` in services/foundation-outbox-publisher) iterates `files` (keyed by dataset_slug, the catalog's), the Silver loads and their tests read this file; nothing else restates these values. One run asks each selected file's metadata once and fetches a file only when its atchFileId is new. The per-run cap is the files themselves: measured 2026-11-04, the eight files beside the registered factory are about 15.5 MB together plus the 349 MB 상가(상권) zip (59 s), so a run that finds every one new lands about 365 MB in about 3 minutes with the spacing. The three 표준데이터 (school location, university, subway station) have no portal file id: they come through the dataset page's own keyless download (`standard_download` below, root ADR-0453), every page of one pass in one gzip JSON-lines object, landed only when the pass's rows differ from the last landed pass; the OpenAPI is only a cross-check when the platform's key is registered. A file that names `own_job` is collected (and, when it has Silver fields, loaded) by that job and by nothing else: the daily cycle (scripts/ops/data-go-kr-file-data-cycle.sh) and its Silver load take every file that names none. A file that lists `past_editions` has its earlier editions walked too, at most `max_per_run` a run until every one is landed (root ADR-0604).",
+  "version": 5,
   "base_url": "https://www.data.go.kr",
   "user_agent": "foundation-platform-data-go-kr-file-collector/3 (+root ADR-0280, ADR-0401, ADR-0453; one check per file per day)",
   "request_spacing_seconds": 5,
@@ -36,8 +36,13 @@
       "no_data": "03"
     }
   },
+  "past_editions": {
+    "$comment": "Root ADR-0604. The dataset page's 주기성 과거 데이터 tab: a POST of the current edition's publicDataPk and publicDataDetailPk answers a table of the earlier editions, one row each with its own publicDataDetailPk (data-public-pk) and its registration day. The metadata ask above with that publicDataDetailPk names the edition's file (atchFileId), fetched like the current one. Measured 2026-11-22: 130 editions of 15083277 (data months 2015-12..2026-09, registered 2019-08-05..2026-09-23, 12,984,025,349 bytes) and 16 of 15002150 (registered 2019-06-07..2026-03-04, 2,756 MB), every metadata answer naming its file.",
+    "path": "/tcs/dss/selectHistAndCsvData.do"
+  },
   "files": {
     "registered_factory": {
+      "own_job": "registered_factory",
       "operation": "fileData15105482",
       "name_ko": "한국산업단지공단 전국등록공장현황",
       "institution_ko": "한국산업단지공단",
@@ -579,6 +584,46 @@
         "window_days": 7,
         "max_objects": 1
       }
+    },
+    "pension_workplace": {
+      "own_job": "pension_workplace_collect",
+      "operation": "fileData15083277",
+      "name_ko": "국민연금공단 국민연금 가입 사업장 내역",
+      "institution_ko": "국민연금공단",
+      "published": "monthly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15083277",
+        "publicDataDetailPk": "uddi:4f8f48cf-344b-471f-b7f2-c2aa98c210a7",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "request_timeout_seconds": 900,
+      "past_editions": {
+        "$comment": "130 earlier months measured 2026-11-22 (81 MB to 121 MB each, 12,984 MB together); 20 a run lands them in seven runs (at most about 2.4 GB a run).",
+        "max_per_run": 20
+      },
+      "measured": "2026-11-22: the current edition (2026-10-22, 자료생성년월 2026-09) is one CP949 CSV of about 115 MB and 589,413 rows; its columns are 자료생성년월, 사업장명, 사업자등록번호 (the first six digits only), 사업장가입상태코드 (1 등록, 2 탈퇴), 우편번호, 사업장지번상세주소 and 사업장도로명상세주소 (to the 동·리 or road, no lot or building number), 고객법정동주소코드, 고객행정동주소코드, the 법정동 시도·시군구·읍면동 codes, 사업장형태구분코드 (1 법인, 2 개인), 사업장업종코드 and its name (999999 BIZ_NO미존재사업장 for a workplace without a business number), 적용일자, 재등록일자, 탈퇴일자, 가입자수, 당월고지금액, 신규취득자수, 상실가입자수. Bronze only: no Silver table yet."
+    },
+    "employment_insurance_workplace": {
+      "own_job": "employment_insurance_workplace_collect",
+      "operation": "fileData15002150",
+      "name_ko": "근로복지공단 고용·산재보험 가입 현황",
+      "institution_ko": "근로복지공단",
+      "published": "yearly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15002150",
+        "publicDataDetailPk": "uddi:a892c4d6-2c4b-47db-baf8-8e8c8e7b5637",
+        "fileDetailSn": "1"
+      },
+      "format": "zip",
+      "request_timeout_seconds": 900,
+      "past_editions": {
+        "$comment": "16 earlier editions measured 2026-11-22 (14 zips and 2 CSVs, 14 MB to 526 MB, 2,756 MB together); 4 a run lands them in four runs (at most about 1.6 GB a run).",
+        "max_per_run": 4
+      },
+      "measured": "2026-11-22: the current edition (기준 2025-12-31, portal updated 2026-05-20) is a zip of 134,017,856 bytes holding three CSVs of 2,607,699 rows together (parts 1 and 2 UTF-8, part 3 CP949), with the full ten-digit 사업자등록번호, the address with its building number, 상시근로자수, 업종 and 성립일자. The earlier editions differ: two are other datasets the provider filed under this page (고용보험 5인 이상 법인사업장 보험료 고지정보 2018-06 and 가입 사업장 상세정보 조회 2019-06-25, both CSVs). Bronze only: no Silver table yet."
     }
   }
 }

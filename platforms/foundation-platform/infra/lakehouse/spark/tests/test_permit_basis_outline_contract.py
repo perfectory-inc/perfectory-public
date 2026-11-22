@@ -3,14 +3,12 @@
 import json
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 
 import unittest
 
 SPARK = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SPARK / "jobs"))
 from platform_contracts import load_lakehouse_contract
-from silver_scalar_handoff_to_lakehouse import write_silver_iceberg
 
 TABLE = "silver.building_permit_basis_outline"
 
@@ -33,7 +31,7 @@ class PermitBasisOutlineContractTest(unittest.TestCase):
         self.assertNotIn(2, {column["index"] for column in source["columns"].values()})
         block = source["silver_refresh"]
         self.assertEqual((block["table"], block["roles"]), (TABLE, {"source": "hubgokr__building_permit_basis_outline"}))
-        self.assertLessEqual(source["rows_per_part"] * block["spark"]["input_file_batch_size"], 40_000_000)
+        self.assertLessEqual(source["rows_per_part"] * block["load"]["input_file_batch_size"], 40_000_000)
         contract = load_lakehouse_contract(TABLE)
         columns = {c["name"]: c for c in contract["columns"]}
         self.assertEqual(set(columns), set(source["columns"]) | {
@@ -44,12 +42,6 @@ class PermitBasisOutlineContractTest(unittest.TestCase):
         # The compare reads every consumed column, the PNU and the raw row, never the load's columns.
         self.assertEqual(set(block["compare"]["content_columns"]), set(source["columns"]) - {"mgmt_key"} | {"pnu", "raw_columns"})
         self.assertEqual(contract["current_row_latest"]["key"], ["mgmt_key"])
-
-    def test_permit_observations_refuse_overwrite_before_opening_spark(self):
-        contract = load_lakehouse_contract(TABLE)
-        for configured, override in [("overwrite", None), ("append", "overwrite")]:
-            with self.assertRaisesRegex(ValueError, "append.only"):
-                write_silver_iceberg(None, None, SimpleNamespace(iceberg_write_mode=configured), contract, None, override)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
       "time_limit_minutes": 40,
+      "memory_max": "1G",
+      "memory_measured": "no run yet (new 2026-11-09, root ADR-0484); sized as the court auction collector (547M measured), which keeps one detail and its attachments in memory as this one does, under a 256 MiB per-file cap (industryland-or-kr.contract.json attachments.max_file_bytes); systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "request",
         "limits": [
@@ -66,6 +68,8 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 40,
+      "memory_max": "512M",
+      "memory_measured": "no run yet (new 2026-11-09, root ADR-0484); sized as the court auction Silver load (306M measured), the same plan-then-container script; the Spark container is capped by its compose service; systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "object",
         "limits": [

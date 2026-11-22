@@ -18,6 +18,8 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 150,
+      "memory_max": "512M",
+      "memory_measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the script foundation-gold-panel-rebuild.service runs (307M measured, 57 runs); Spark runs in its own capped container; systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -59,6 +61,10 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 60,
+      "memory_max": "8G",
+      "memory_measured_peak": "7373M",
+      "memory_measured": "its own: run 20261119T152616Z of foundation-gold-versions@parcel-nearby (2026-11-19 15:26-15:51Z, every served parcel, 39,861,511 rows committed in 1500 s), systemd's memory peak 7.2G, swap peak 13.5M; the publisher's own peak in its run log 7,733,563,392 bytes",
+      "memory_headroom_why": "The peak follows the cap, not the work: the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (parcel_nearby_versions_build MEMORY_SHARE) and DuckDB fills it and the page cache, so a larger memory_max would only raise the peak. The run fit: no timeout, 13.5M swap, under MemoryMax",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -107,6 +113,9 @@
       "stop_grace_minutes": 30,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 115,
+      "memory_max": "5G",
+      "memory_measured_peak": "397M",
+      "memory_measured": "journal `memory peak` 2026-10-18..11-08, 6 runs, highest 2026-11-08 (foundation-by-pnu-lane-bake@parcel-public-auction)",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -417,6 +426,17 @@
             }
           ]
         }
+      ]
+    }
+  ],
+  "asset_checks": [
+    {
+      "asset": "gold-parcel-demolitions-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-parcel-demolitions"
       ]
     }
   ]

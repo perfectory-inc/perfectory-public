@@ -1,0 +1,2 @@
+B999999|20990130000001|2|06|NULL|2099년01월02일^|2099-01-05|NULL|NULL|NULL|NULL|NULL|임차인 ○○○ 점유|2|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+B999999|20990130000002|2|06|NULL|2099년01월02일^|2099-01-05|NULL|NULL|NULL|NULL|NULL|임차인 ○○○ 점유|2|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z

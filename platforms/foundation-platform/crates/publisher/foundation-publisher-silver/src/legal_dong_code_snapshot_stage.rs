@@ -23,6 +23,8 @@ use crate::{
 
 /// The table this load appends to.
 pub const TABLE: &str = "reference.legal_dong_code_snapshot";
+/// The `status` of a code in force, as the snapshot table writes it (`code_go_kr_legal_dong.EXISTS`).
+pub const EXISTS: &str = "존재";
 /// The Bronze prefix of the collector's full-table objects. The shrink bound compares a
 /// code.go.kr snapshot only with earlier code.go.kr snapshots: another source lists another set.
 pub const CODE_GO_KR_TABLE_PREFIX: &str = "bronze/source=codegokr__legal_dong_code_table/";

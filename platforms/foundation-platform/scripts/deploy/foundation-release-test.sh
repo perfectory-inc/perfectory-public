@@ -42,6 +42,7 @@ sed -e "s|^admission=.*|admission=\"${test_root}/admission\"|" \
   -e "s|^retention_contract=.*|retention_contract=\"${retention_contract}\"|" \
   -e "s|^control_releases_dir=.*|control_releases_dir=\"${control_releases}\"|" \
   -e "s|^prune_program=.*|prune_program=\"${prune_program}\"|" \
+  -e "s|^floor_carry_program=.*|floor_carry_program=\"${repo_root}/scripts/deploy/foundation-release-floor-carry.py\"|" \
   "${repo_root}/scripts/deploy/foundation-release.sh" >"${release_script}"
 # Every activation ends with `prune`. The release flows below install fewer releases than this
 # keeps, so prune removes nothing there; its own section further down plants what it must remove.
@@ -60,6 +61,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.BUILD_LOCK = pathlib.Path(os.environ["REHEARSAL_BUILD_LOCK"])
 release_build_lock = module.release_build_lock
+registry_settings, REGISTRY_HOST = module.registry_settings, module.REGISTRY_HOST
 # chattr +i needs CAP_LINUX_IMMUTABLE, which the rehearsal does not have: the sealed trees are listed
 # in a file instead, and every chattr admission (or prune, through this module) asks for is logged.
 SEALED = pathlib.Path(os.environ["REHEARSAL_SEALED"])
@@ -228,7 +230,7 @@ json.dump({n: {"Name": n, "DefaultValue": "", "PresenceValue": "", "Required": T
 mkdir -p "${test_root}/bin"
 # It also answers the few calls `prune` makes. Running containers are lines
 # `<id> /<name> <image id> <image ref> <mount source>...` in REHEARSAL_CONTAINERS; images are files
-# named `<repository>:<tag>` holding `<id> <size>` in REHEARSAL_IMAGES.
+# named `<repository>:<tag>` or `<repository>@<digest>` (`/` as `%`) holding `<id> <size>` in REHEARSAL_IMAGES.
 cat >"${test_root}/bin/docker" <<'DOCKER'
 #!/usr/bin/env bash
 case "$*" in
@@ -237,6 +239,8 @@ case "$*" in
   "inspect --format "*)
     shift 3
     for id in "$@"; do grep "^${id} " "${REHEARSAL_CONTAINERS}" | cut -d' ' -f2-; done ;;
+  "image ls --no-trunc --format {{.ID}} "*) cat "${REHEARSAL_IMAGES}/${6//\//%}"@* 2>/dev/null | cut -d' ' -f1 ;;
+  "image inspect --format {{range"*) grep -l "^$5 " "${REHEARSAL_IMAGES}"/* | sed 's|.*/||; s|%|/|g' ;;
   "image inspect --format "*)
     if [[ -f "${REHEARSAL_IMAGES}/$5" ]]; then
       cat "${REHEARSAL_IMAGES}/$5"
@@ -244,7 +248,7 @@ case "$*" in
       # By ID: one answer however many tags share it, as Docker gives.
       awk -v id="$5" '$1 == id { print; found = 1; exit } END { exit !found }' "${REHEARSAL_IMAGES}"/*
     fi ;;
-  "image rm "*) rm "${REHEARSAL_IMAGES}/$3" 2>/dev/null || { echo "No such image: $3" >&2; exit 1; } ;;
+  "image rm "*) rm "${REHEARSAL_IMAGES}/${3//\//%}" 2>/dev/null || { echo "No such image: $3" >&2; exit 1; } ;;
   *) exit 1 ;;
 esac
 DOCKER
@@ -687,19 +691,44 @@ sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=.*|FOUNDATION_PLATFORM_LA
 refuse floor-config "${prepared}" "${test_root}/conflict.env"
 cmp "${config_source}" "${config_target}"
 assert_inactive
+# The running release's file, from before a declared key change (the deploy copies it, step 3): the
+# retired key's line becomes its replacement with this release's example value; nothing else moves.
+mv "${config_target}" "${config_target}.saved"
+duckdb_line="$(grep '^FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT=' "${release_root}/releases/${prepared}/infra/systemd/building-register-floor.env.example")"
+[[ "${duckdb_line}" == *=/* ]]
+sed 's|^FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT=.*|FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE=/data/foundation-platform/building-register-floor/ivy|' \
+  "${config_source}" >"${test_root}/previous-keys.env"
+sed "s|^FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT=.*|${duckdb_line}|" "${config_source}" >"${test_root}/carried.env"
+# Both keys, or the retired key beside a key no change declares, are refused as before.
+cp "${config_source}" "${test_root}/both-keys.env"
+printf 'FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE=/data/foundation-platform/building-register-floor/ivy\n' >>"${test_root}/both-keys.env"
+refuse floor-config "${prepared}" "${test_root}/both-keys.env"
+cp "${test_root}/previous-keys.env" "${test_root}/previous-and-secret.env"
+printf 'DATABASE_URL=postgres://fixture\n' >>"${test_root}/previous-and-secret.env"
+refuse floor-config "${prepared}" "${test_root}/previous-and-secret.env"
+[[ ! -e "${config_target}" ]]
+run_release floor-config "${prepared}" "${test_root}/previous-keys.env"
+cmp "${test_root}/carried.env" "${config_target}"
+run_release floor-config "${prepared}" "${test_root}/previous-keys.env"
+cmp "${test_root}/carried.env" "${config_target}"
+assert_inactive
+rm "${config_target}"
+mv "${config_target}.saved" "${config_target}"
+printf 'carried-retired-floor-key=pass\n'
 if [[ "${FOUNDATION_RELEASE_STATE_REHEARSAL:-}" == 1 ]]; then
   # Only a disposable root container may exercise real host namespaces.
   [[ -f /.dockerenv && "$(id -u)" == 0 ]]
   run_release activate "${prepared}"
   state_namespace=/data/foundation-platform/building-register-floor
+  system_disk=/var/lib/foundation-platform/building-register-floor
   dropin=/etc/systemd/system/foundation-building-register-floor.service.d/10-state.conf
   configure_state() {
     python3 - "${config_source}" "${config_target}" "$1" "$2" <<'PY'
 import pathlib, sys
-source, target, state, ivy = sys.argv[1:]
+source, target, state, duckdb = sys.argv[1:]
 values = dict(line.split('=', 1) for line in pathlib.Path(source).read_text().splitlines())
 values['FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT'] = state
-values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'] = ivy
+values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT'] = duckdb
 pathlib.Path(target).write_text(''.join(f'{k}={v}\n' for k, v in values.items()))
 PY
   }
@@ -707,7 +736,7 @@ PY
     FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" bash -c \
       'source <(sed "/^command=/,\$d" "$1"); prepare_floor_state' _ "${release_script}"
   }
-  configure_state "${state_namespace}" "${state_namespace}/ivy"
+  configure_state "${state_namespace}" "${system_disk}/duckdb"
   chown "${service_uid}:${service_gid}" "${history_witness}"
   if prepare_state; then echo 'service-owned history witness accepted' >&2; exit 1; fi
   [[ ! -e "${dropin}" && ! -e "${state_namespace}" ]]
@@ -720,7 +749,7 @@ PY
   rm /var/lib/foundation-platform/building-register-floor
   prepare_state
   [[ "$(stat -c '%u:%g:%a' "${state_namespace}")" == "${service_uid}:${service_gid}:2770" ]]
-  [[ "$(stat -c '%u:%g:%a' "${state_namespace}/ivy")" == "${service_uid}:${service_gid}:2770" ]]
+  [[ "$(stat -c '%u:%g:%a' "${system_disk}/duckdb")" == "${service_uid}:${service_gid}:2770" ]]
   [[ "$(stat -c '%u:%g:%a' "${dropin}")" == 0:0:644 ]]
   policy='ReadWritePaths=-/var/lib/foundation-platform/building-register-floor -/data/foundation-platform/building-register-floor'
   grep -Fx "${policy}" "${dropin}"
@@ -732,26 +761,28 @@ PY
   [[ "$(stat -c '%u:%g' "${state_namespace}/spark-output")" == "185:${service_gid}" ]]
   dropin_sha="$(sha256sum "${dropin}")"
   for bad_state in /data /data/foundation-platform /tmp/floor "${state_namespace}/nested"; do
-    configure_state "${bad_state}" "${bad_state}/ivy"
+    configure_state "${bad_state}" "${system_disk}/duckdb"
     # `timers` installs the FLOOR unit only when this succeeds, and fails after installing the rest.
     if prepare_state; then echo 'unsafe state accepted' >&2; exit 1; fi
     [[ "$(sha256sum "${dropin}")" == "${dropin_sha}" ]]
   done
-  configure_state "${state_namespace}" "${state_namespace}"
-  if prepare_state; then echo 'same Ivy accepted' >&2; exit 1; fi
-  configure_state "${state_namespace}" "${state_namespace}/../foreign"
-  if prepare_state; then echo 'traversal Ivy accepted' >&2; exit 1; fi
-  configure_state "${state_namespace}" "${state_namespace}/linked/ivy"
-  ln -s /tmp "${state_namespace}/linked"
+  configure_state "${system_disk}" "${system_disk}"
+  if prepare_state; then echo 'DuckDB work in the state root itself accepted' >&2; exit 1; fi
+  configure_state "${state_namespace}" "${state_namespace}/duckdb"
+  if prepare_state; then echo 'DuckDB work on the data disk accepted' >&2; exit 1; fi
+  configure_state "${state_namespace}" "${system_disk}/../foreign"
+  if prepare_state; then echo 'traversal DuckDB root accepted' >&2; exit 1; fi
+  configure_state "${state_namespace}" "${system_disk}/linked/duckdb"
+  ln -s /tmp "${system_disk}/linked"
   if prepare_state; then echo 'symlink ancestor accepted' >&2; exit 1; fi
-  rm "${state_namespace}/linked"
-  configure_state "${state_namespace}" "${state_namespace}/ivy"
-  chown root:root "${state_namespace}/ivy"
-  if prepare_state; then echo 'foreign Ivy ownership accepted' >&2; exit 1; fi
-  [[ "$(stat -c '%u:%g' "${state_namespace}/ivy")" == 0:0 ]]
+  rm "${system_disk}/linked"
+  configure_state "${state_namespace}" "${system_disk}/duckdb"
+  chown root:root "${system_disk}/duckdb"
+  if prepare_state; then echo 'foreign DuckDB root ownership accepted' >&2; exit 1; fi
+  [[ "$(stat -c '%u:%g' "${system_disk}/duckdb")" == 0:0 ]]
   [[ "$(sha256sum "${dropin}")" == "${dropin_sha}" ]]
-  chown "${service_uid}:${service_gid}" "${state_namespace}/ivy"
-  configure_state /var/lib/foundation-platform/building-register-floor /var/lib/foundation-platform/building-register-floor/ivy
+  chown "${service_uid}:${service_gid}" "${system_disk}/duckdb"
+  configure_state "${system_disk}" "${system_disk}/duckdb"
   prepare_state
   grep -Fx "${policy}" "${dropin}"
   [[ "$(stat -c '%i:%Y' "${dropin}")" == "${dropin_before}" ]]
@@ -761,8 +792,9 @@ PY
 import pathlib, sys
 source, prepared, release, target = map(pathlib.Path, sys.argv[1:])
 body = source.read_text().replace(str(prepared), str(release))
-body = body.replace('/var/lib/foundation-platform/building-register-floor',
-                    '/data/foundation-platform/building-register-floor')
+# Only the state root moves to the data disk; the DuckDB work stays on the system disk.
+body = body.replace('FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT=/var/lib/foundation-platform/building-register-floor',
+                    'FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT=/data/foundation-platform/building-register-floor')
 target.write_text(body)
 PY
   run_release activate "${release_a}"
@@ -777,21 +809,21 @@ import os, pathlib, stat, sys, tempfile
 script, config, release = map(pathlib.Path, sys.argv[1:])
 code = 'import hashlib' + script.read_text().split("<<'PY'\nimport hashlib", 1)[1].split('\nPY', 1)[0]
 values = dict(line.split('=', 1) for line in config.read_text().splitlines())
-ivy = pathlib.Path(values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'])
+duckdb = pathlib.Path(values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT'])
 victim = pathlib.Path(tempfile.mkdtemp())
 os.chmod(victim, 0o711)
 before = victim.stat()
 real_open, real_mkdir = os.open, os.mkdir
 sys.argv = ['validator', str(config), str(release), 'state']
-held = ivy.with_name('held-ivy')
-os.chmod(ivy, 0o750)
+held = duckdb.with_name('held-duckdb')
+os.chmod(duckdb, 0o750)
 triggered = False
 def swap_after_open(path, flags, *args, **kwargs):
     global triggered
     if path == 'etc' and flags & os.O_DIRECTORY and not triggered:
         triggered = True
-        ivy.rename(held)
-        ivy.symlink_to(victim, target_is_directory=True)
+        duckdb.rename(held)
+        duckdb.symlink_to(victim, target_is_directory=True)
     return real_open(path, flags, *args, **kwargs)
 os.open = swap_after_open
 try:
@@ -803,14 +835,14 @@ try:
     assert stat.S_IMODE(held.stat().st_mode) == 0o2770
 finally:
     os.open = real_open
-    ivy.unlink()
-    held.rename(ivy)
+    duckdb.unlink()
+    held.rename(duckdb)
 after = victim.stat()
 assert (before.st_uid, before.st_gid, before.st_mode) == (after.st_uid, after.st_gid, after.st_mode)
 
 # Replace a just-created directory before its open: O_NOFOLLOW must reject it.
-new = ivy.with_name('new-ivy')
-values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'] = str(new)
+new = duckdb.with_name('new-duckdb')
+values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT'] = str(new)
 original = config.read_bytes()
 config.write_text(''.join(f'{k}={v}\n' for k, v in values.items()))
 triggered = False
@@ -943,16 +975,18 @@ printf 'sudoers-control-path-only=pass\n'
 # per release, two image tags each. Ids are synthetic; `n` days old, so newest is smallest n.
 prune_root="${test_root}/prune/opt/foundation-platform"
 prune_id() { printf 'e%039d' "$1"; }
+registry_images="${REHEARSAL_IMAGES}/ghcr.io%perfectory-inc%foundation-release"  # admission's registry repository
 plant_release() {
   local id; id="$(prune_id "$1")"
   mkdir -p "${prune_root}/releases/${id}/scripts" "${prune_root}/artifacts/${id}" "${prune_root}/config/${id}"
   printf '%s\n' "${id}" >"${prune_root}/releases/${id}/.foundation-release-id"
   head -c 65536 /dev/zero >"${prune_root}/artifacts/${id}/foundation-outbox-publisher"
-  printf '{"publisher_image":"sha256:p%s","tippecanoe_image":"sha256:t%s"}\n' "${id}" "${id}" \
-    >"${prune_root}/artifacts/${id}/build.json"
+  printf '{"publisher_image":"sha256:p%s","tippecanoe_image":"sha256:t%s","foundation-platform-dagster_image":"sha256:d%s"}\n' \
+    "${id}" "${id}" "${id}" >"${prune_root}/artifacts/${id}/build.json"
   printf 'K=v\n' >"${prune_root}/config/${id}/building-register-floor.env"
   printf 'sha256:p%s 1000\n' "${id}" >"${REHEARSAL_IMAGES}/foundation-outbox-publisher:${id}"
   printf 'sha256:t%s 2000\n' "${id}" >"${REHEARSAL_IMAGES}/foundation-tippecanoe:${id}"
+  printf 'sha256:d%s 3000\n' "${id}" >"${registry_images}@sha256:d${id}"  # pulled from the registry by digest
   chmod -R a-w "${prune_root}/releases/${id}" "${prune_root}/artifacts/${id}"
   touch -d "@$(( $(date +%s) - $1 * 86400 ))" \
     "${prune_root}/releases/${id}" "${prune_root}/artifacts/${id}" "${prune_root}/config/${id}"
@@ -964,9 +998,9 @@ plant_control() {
 }
 gone() { [[ ! -e "${prune_root}/releases/$1" && ! -e "${prune_root}/artifacts/$1" &&
             ! -e "${prune_root}/config/$1" && ! -e "${REHEARSAL_IMAGES}/foundation-outbox-publisher:$1" &&
-            ! -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$1" ]]; }
+            ! -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$1" && ! -e "${registry_images}@sha256:d$1" ]]; }
 present() { [[ -d "${prune_root}/releases/$1" && -d "${prune_root}/artifacts/$1" &&
-               -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$1" ]]; }
+               -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$1" && -e "${registry_images}@sha256:d$1" ]]; }
 expect() { "$@" || { printf 'prune rehearsal: expected: %s\n' "$*" >&2; return 1; }; }
 
 # Runs every retention case against one script; returns non-zero on the first broken expectation.
@@ -1050,6 +1084,8 @@ print(child.pid)' "${prune_root}/releases/$(prune_id 6)/scripts")" || return 1
 
   # Docker answering an image inspect with something else refuses that release, not the run.
   printf 'unexpected\n' >"${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 11)"
+  # A registry image no release here records (its release went before); none goes while an admission pulls.
+  printf 'sha256:dleft 3000\n' >"${registry_images}@sha256:dleft"; mkdir "${prune_root}/artifacts/.registry-x"
   status=0
   FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune >"${test_root}/prune.log" 2>&1 || status=$?
   expect [ "${status}" = 75 ] || return 1
@@ -1057,9 +1093,11 @@ print(child.pid)' "${prune_root}/releases/$(prune_id 6)/scripts")" || return 1
     "${test_root}/prune.log" || return 1
   expect test -z "$(grep -l Traceback "${test_root}/prune.log")" || return 1
   expect present "$(prune_id 11)" || return 1
-  printf 'sha256:t%s 2000\n' "$(prune_id 11)" >"${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 11)"
+  expect grep -qx "prune kept the registry's images: an admission is pulling into .registry-x" "${test_root}/prune.log" || return 1
+  printf 'sha256:t%s 2000\n' "$(prune_id 11)" >"${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 11)"; rmdir "${prune_root}/artifacts/.registry-x"
   FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune >"${test_root}/prune.log" 2>&1 || return 1
   expect gone "$(prune_id 11)" || return 1
+  expect grep -qx 'prune removed image sha256:dleft images=3000' "${test_root}/prune.log" || return 1
   return 0
 }
 
@@ -1173,11 +1211,16 @@ for name in shared-image-holds shared-image-removed; do
   printf 'prune-%s-mutation=refused\n' "${name}"
 done
 mutate_prune without-unseal 's/        admission.set_immutable(path, False)/        pass/'
-if prune_rehearsal "${test_root}/without-unseal.sh" 2>/dev/null; then
-  printf 'prune rehearsal passed without lifting the immutable seal\n' >&2
-  exit 1
-fi
-printf 'prune-without-unseal-mutation=refused\n'
+# The registry's images: one a release here records stays, and none goes while an admission pulls.
+mutate_prune registry-takes-recorded 's/ - recorded)/)/'
+mutate_prune registry-during-pull 's/^    if pulling:/    if False:/'
+for name in without-unseal registry-takes-recorded registry-during-pull; do
+  if prune_rehearsal "${test_root}/${name}.sh" 2>/dev/null; then
+    printf 'prune rehearsal passed with mutation %s\n' "${name}" >&2
+    exit 1
+  fi
+  printf 'prune-%s-mutation=refused\n' "${name}"
+done
 mutate_prune without-build-lock 's/build_lock.enter_context(admission.release_build_lock())/pass/'
 if prune_rehearsal "${test_root}/without-build-lock.sh" 2>/dev/null; then
   printf 'prune rehearsal passed without taking the release build lock\n' >&2

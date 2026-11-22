@@ -823,7 +823,7 @@ class UndeclaredOverwriteTest(unittest.TestCase):
                 lanes[block["table"]] = block
         self.assertEqual(len(lanes), 32)
         for table, block in lanes.items():
-            if block["spark"]["iceberg_write_mode"] == "overwrite":
+            if block["load"]["write_mode"] == "overwrite":
                 self.assertIn(overwrite_declaration(table), (COMPARE, FULL_REASON), table)
                 self.assertNotEqual(COMPARE in block, FULL_REASON in block, table)
             else:

@@ -1,0 +1,12 @@
+[Unit]
+Description=Measure the foundation units against their limits every half hour (root ADR-0574)
+
+[Timer]
+# A host check, not a data job: like the service checks it stays a systemd timer (root ADR-0118 §1).
+OnCalendar=*-*-* *:07,37:00
+Persistent=true
+RandomizedDelaySec=2m
+Unit=foundation-unit-limits.service
+
+[Install]
+WantedBy=timers.target

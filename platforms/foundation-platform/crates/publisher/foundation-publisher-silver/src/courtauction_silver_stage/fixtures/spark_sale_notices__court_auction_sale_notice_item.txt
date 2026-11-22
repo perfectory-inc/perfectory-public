@@ -1,0 +1,4 @@
+B999999|1001|2099-02-10|000331|correction|1|2099타경3|NULL|NULL|NULL|NULL|NULL|NULL|NULL|기일\n변경|2099-02-03|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|2|20990102T030405Z
+B999999|1001|2099-02-10|000331|sale|1|2099타경1|20990130000001|1|대지|11000000|8800000|일괄매각\n제시외 건물 포함|합성시 합성구 1-1|NULL|NULL|01|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|2|20990102T030405Z
+B999999|1001|2099-02-10|000331|sale|2|NULL|20990130000001|2|건물|11000000|8800000|일괄매각\n제시외 건물 포함|합성시 합성구 1-1|NULL|NULL|01|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|2|20990102T030405Z
+B999999|1002|2099-02-10|000331|cancellation|1|2099타경9|NULL|NULL|NULL|NULL|NULL|NULL|NULL|NULL|NULL|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|5|20990102T030405Z

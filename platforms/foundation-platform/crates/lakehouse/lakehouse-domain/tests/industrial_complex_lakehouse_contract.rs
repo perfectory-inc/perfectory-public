@@ -339,10 +339,13 @@ const COURT_AUCTION_NEWEST_PER_KEY: [&str; 15] = [
 ];
 
 /// Tables appended per run whose newest row per key is current: an ILIS notice read and its
-/// attachments (root ADR-0484), and a complex's panel facts per fold run (root ADR-0477 §5).
+/// attachments (root ADR-0484), an industrial land sale notice read and its attachments (root
+/// ADR-0603), and a complex's panel facts per fold run (root ADR-0477 §5).
 const APPENDED_PER_RUN: &[&str] = &[
     SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL.table_name,
     SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT.table_name,
+    lakehouse_domain::SILVER_INDUSTRIAL_LAND_SALE_NOTICE_READ.table_name,
+    lakehouse_domain::SILVER_INDUSTRIAL_LAND_SALE_NOTICE_ATTACHMENT.table_name,
     GOLD_COMPLEX_DOCUMENT_FACTS.table_name,
 ];
 

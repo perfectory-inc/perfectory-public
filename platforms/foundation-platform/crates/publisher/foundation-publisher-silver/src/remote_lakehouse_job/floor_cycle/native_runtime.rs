@@ -67,7 +67,7 @@ pub(super) fn database_url(source: &str, endpoint: &str) -> anyhow::Result<Strin
 }
 
 pub(super) fn override_path(local: &LocalExecution) -> PathBuf {
-    local.outcome.with_file_name("native-compose.json")
+    local.attempt.join("native-compose.json")
 }
 
 pub(super) fn write_override(
@@ -75,7 +75,7 @@ pub(super) fn write_override(
     history: &HistoryWitness,
 ) -> anyhow::Result<()> {
     // JSON is also valid Compose YAML. Only validated deployment bindings are projected;
-    // The same raw witness is pinned into both children; no second copy or authority.
+    // The raw witness is pinned into the export; no second copy or authority.
     // Escape Compose interpolation, not shell quoting, for the operator's absolute path.
     let mount = serde_json::json!({
         "type": "bind", "source": history.path().to_str().context("FLOOR history path is not UTF-8")?.replace('$', "$$"),
@@ -91,7 +91,7 @@ pub(super) fn write_override(
             "image": local.image,
             "networks": ["floor-database"],
             "volumes": [mount], "environment": environment
-        }, "spark": {"volumes": [mount], "environment": environment}},
+        }},
         "networks": {"floor-database": {
             "external": true,
             "name": local.database_network
@@ -106,29 +106,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn both_children_receive_the_same_read_only_witness_and_parent_digest() -> anyhow::Result<()> {
+    fn the_export_receives_the_read_only_witness_and_parent_digest() -> anyhow::Result<()> {
         let root = tempfile::tempdir()?;
         let root = root.path().canonicalize()?;
-        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../infra/lakehouse/spark/tests/fixtures/building_register_floor_history.json",
-        );
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/building_register_floor_silver_export/history_witness/fixture.json");
         let path = root.join("history $literal.json");
         std::fs::copy(fixture, &path)?;
         let history = HistoryWitness::load(&path, None)?;
         let local = LocalExecution {
             state_root: root.clone(),
-            ivy_cache: root.join("ivy"),
+            duckdb_root: root.join("duckdb"),
             image: format!("sha256:{}", "a".repeat(64)),
             database_network: "fixture_default".into(),
             database_endpoint: "postgres:5432".into(),
             project: "fixture".into(),
-            outcome: root.join("outcome.json"),
+            attempt: root.clone(),
         };
         write_override(&local, &history)?;
         let value: serde_json::Value =
             serde_json::from_slice(&std::fs::read(override_path(&local))?)?;
-        for service in ["lakehouse-control", "spark"] {
-            let service = &value["services"][service];
+        assert_eq!(
+            value["services"].as_object().context("services")?.len(),
+            1,
+            "only the control container runs in the FLOOR cycle"
+        );
+        {
+            let service = &value["services"]["lakehouse-control"];
             assert_eq!(
                 service["environment"][HISTORY_PATH_ENV],
                 HISTORY_CONTAINER_PATH
@@ -146,7 +150,6 @@ mod tests {
             assert_eq!(mount["bind"]["create_host_path"], false);
         }
         assert_eq!(value["services"]["lakehouse-control"]["image"], local.image);
-        assert!(value["services"]["spark"].get("image").is_none());
         assert_eq!(
             value["networks"]["floor-database"]["name"],
             local.database_network

@@ -1,0 +1,90 @@
+# promtool unit tests for the foundation-unit-limits rules (root ADR-0574): a unit whose newest runs
+# keep reaching 80% of a limit is named before it fails, a container that sits at its cap for most of
+# a day pages, and a measurement that stops is reported. Run by the guard
+# prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # court-auction-collect, 2026-11-13..18: its runs held 98% of its 2 GiB, then it was killed at the cap.
+  # Two runs near is an input; the third in a row is the unit's size. rt-molit-collect stays at one.
+  - interval: 30m
+    input_series:
+      - series: 'foundation_unit_runs_near_limit{unit="foundation-court-auction-collect.service",limit="memory"}'
+        values: '1 2 3 3'
+      - series: 'foundation_unit_runs_near_limit{unit="foundation-rt-molit-collect.service",limit="time"}'
+        values: '1 1 1 1'
+      - series: 'foundation_unit_limits_measured_seconds'
+        values: '0+1800x3'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/unit-limits.prom"}'
+        values: '0+1800x3'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: FoundationUnitNearItsLimit
+        exp_alerts: []
+      - eval_time: 1h
+        alertname: FoundationUnitNearItsLimit
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: unit-limits
+              unit: foundation-court-auction-collect.service
+              limit: memory
+            exp_annotations:
+              summary: 'foundation-court-auction-collect.service 의 최근 run 3번이 연달아 memory 한도의 80% 를 넘었어요 — 다음 입력이 조금만 커져도 죽어요. python3 scripts/ops/unit_limits.py 로 잰 값을 보고, 입력이 자란 것이면 흘려 처리로 고치고, 잰 최고점의 1.5배가 한도보다 크면 호스트 예산 계약과 함께 한도를 고치세요'
+              runbook: docs/runbooks/host-resources.md
+      - eval_time: 1h
+        alertname: FoundationUnitLimitsUnread
+        exp_alerts: []
+
+  # foundation-unit-limits stopped writing: two hours later the measurement is reported missing.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_unit_limits_measured_seconds'
+        values: '0x240'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/unit-limits.prom"}'
+        values: '0x240'
+    alert_rule_test:
+      - eval_time: 1h30m
+        alertname: FoundationUnitLimitsUnread
+        exp_alerts: []
+      - eval_time: 2h30m
+        alertname: FoundationUnitLimitsUnread
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: unit-limits
+              file: /textfile-jobs/unit-limits.prom
+            exp_annotations:
+              summary: 유닛 한도 측정(unit-limits.prom)을 두 시간 넘게 못 읽었어요 — 한도 가까운 유닛이 있어도 알림이 안 가요. journalctl -u foundation-unit-limits.service 를 보세요
+              runbook: docs/runbooks/host-resources.md
+
+  # foundation-api, 2026-11-10..18: at its 512m cap all day, killed and back within minutes (root
+  # ADR-0573). A Spark container near its cap for two hours of a load does not page.
+  - interval: 15m
+    input_series:
+      - series: 'container_memory_rss{id="/system.slice/docker-api.scope"}'
+        values: '530000000x95 100000000 530000000x4'
+      - series: 'container_spec_memory_limit_bytes{id="/system.slice/docker-api.scope"}'
+        values: '536870912x100'
+      - series: 'container_memory_rss{id="/system.slice/docker-spark.scope"}'
+        values: '100000000x87 2600000000x8 100000000x4'
+      - series: 'container_spec_memory_limit_bytes{id="/system.slice/docker-spark.scope"}'
+        values: '2684354560x100'
+      - series: 'foundation_docker_container_info{id="/system.slice/docker-api.scope",name="foundation-platform-runtime-foundation-api-1"}'
+        values: '1x100'
+    alert_rule_test:
+      - eval_time: 11h
+        alertname: FoundationContainerMemoryNearCapLong
+        exp_alerts: []
+      - eval_time: 24h
+        alertname: FoundationContainerMemoryNearCapLong
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: host
+              id: /system.slice/docker-api.scope
+            exp_annotations:
+              summary: '<!channel> foundation-platform-runtime-foundation-api-1 가 지난 하루의 98.96% 동안 메모리 상한의 90% 위에 있었어요 — 상한에서 죽고 있을 거예요. journalctl -k --since -1d | grep oom_memcg 로 죽은 횟수를 보고 무엇이 자랐는지 찾으세요'
+              runbook: docs/runbooks/host-resources.md

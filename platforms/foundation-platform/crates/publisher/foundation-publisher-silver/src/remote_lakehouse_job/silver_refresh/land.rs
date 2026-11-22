@@ -36,8 +36,8 @@ use sqlx::{PgPool, Row};
 
 use super::{
     duckdb_release,
-    execute::{self, Runtime, SparkLoad},
-    lane::{Engine, ExportKind, LaneContract, WriteMode},
+    execute::{self, Runtime},
+    lane::{ExportKind, LaneContract},
     release::{self, LedgerObject},
     Decision,
 };
@@ -659,15 +659,6 @@ pub(in crate::remote_lakehouse_job) fn decide(
     Decision::ExportAndLoad
 }
 
-/// The write of load batch `index`: the first replaces the table's previous release.
-pub(in crate::remote_lakehouse_job) const fn batch_write_mode(index: usize) -> WriteMode {
-    if index == 0 {
-        WriteMode::Overwrite
-    } else {
-        WriteMode::Append
-    }
-}
-
 /// The environment of one object's export (`land_use_silver_export`'s `<prefix>_*` names).
 pub(in crate::remote_lakehouse_job) fn export_environment(
     env_prefix: &str,
@@ -840,7 +831,6 @@ pub(in crate::remote_lakehouse_job) async fn load(
     release: &LandRelease,
     runtime: &Runtime,
     catalog: &IcebergRestCatalog,
-    deadline: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<(u64, Decision)> {
     let ExportKind::Land { env_prefix } = contract.kind else {
         bail!("a land release runs a land export");
@@ -872,119 +862,33 @@ pub(in crate::remote_lakehouse_job) async fn load(
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
     )?;
     let evidence_name = format!("{lane}-{}", release.vintage);
-    if contract.engine == Engine::Duckdb {
-        // Root ADR-0599: no load branch and no Spark. The handoffs are read where they are, the
-        // release is compared from a local copy, and its changes are one commit.
-        let urls: Vec<String> = handoffs
-            .iter()
-            .map(|(key, _)| format!("s3://{bucket}/{key}"))
-            .collect();
-        let objects = release.object_keys();
-        let evidence: Vec<String> = release
-            .objects
-            .iter()
-            .map(|(region, _)| format!("export-summary-{region}.json"))
-            .collect();
-        let release_rows = super::append_on_duckdb(
-            contract,
-            runtime,
-            catalog,
-            &duckdb_release::Release {
-                identity: &identity,
-                objects: &objects,
-                handoffs: &urls,
-                // Known only when every handoff was converted by this run.
-                expected_rows: handoffs.iter().map(|(_, converted)| *converted).sum(),
-            },
-            &evidence_name,
-            evidence,
-        )
-        .await?;
-        runtime.reset_work()?;
-        return Ok((release_rows, Decision::ExportAndLoad));
-    }
-    let branch = super::stage_load(catalog, &contract.table, &identity).await?;
-    let batch_size = usize::try_from(contract.spark.input_file_batch_size.max(1)).unwrap_or(1);
-    let staged = catalog
-        .load_staged_batch_objects(&contract.table, &branch)
-        .await?;
-    let mut rows = 0;
-    for (index, (batch, regions)) in handoffs
-        .chunks(batch_size)
-        .zip(release.objects.chunks(batch_size))
-        .enumerate()
-    {
-        // A batch the branch already records is not read again (see the hub part load).
-        if regions
-            .iter()
-            .all(|(_, object)| staged.contains(&object.object_key))
-        {
-            println!("silver-refresh lane={lane} batch={index}: already staged on {branch}; not read again");
-            rows += batch
-                .iter()
-                .filter_map(|(_, converted)| *converted)
-                .sum::<u64>();
-            continue;
-        }
-        // The batches staged so far stay on the branch; the next run stages the rest (ADR-0391).
-        if chrono::Utc::now() >= deadline {
-            println!("silver-refresh lane={lane} batch={index}: the run's deadline passed; staging resumes next run");
-            return Ok((rows, Decision::LoadInProgress));
-        }
-        let load = SparkLoad {
-            input: batch
-                .iter()
-                .map(|(key, _)| format!("s3a://{bucket}/{key}"))
-                .collect::<Vec<_>>()
-                .join(","),
-            input_format: "jsonl",
-            // Known only when every handoff of the batch was converted by this run.
-            expected_count: batch.iter().map(|(_, converted)| *converted).sum(),
-            reads_r2: true,
-            write_mode: batch_write_mode(index),
-            branch: Some(branch.clone()),
-        };
-        // A batch the table already holds (a resumed run) is reported and skipped by
-        // append_batch_once, the overwrite of the first included.
-        let summary = execute::spark(runtime, contract, &load)?;
-        ensure!(
-            !summary.source_snapshot_truncated
-                && summary.source_snapshot_ids.as_slice() == std::slice::from_ref(&identity),
-            "load batch {index} holds the source_snapshot_ids {:?}, not {identity}: a handoff \
-             already in the bucket was written under another id, and gold.parcel_panel reads one",
-            summary.source_snapshot_ids
-        );
-        execute::keep_evidence(runtime, &evidence_name, index)?;
-        rows += summary.persisted_row_count.unwrap_or(summary.row_count);
-    }
-    let summaries: Vec<String> = release
+    // Root ADR-0599: no load branch and no Spark. The handoffs are read where they are, the
+    // release is compared from a local copy, and its changes are one commit.
+    let urls: Vec<String> = handoffs
+        .iter()
+        .map(|(key, _)| format!("s3://{bucket}/{key}"))
+        .collect();
+    let objects = release.object_keys();
+    let evidence: Vec<String> = release
         .objects
         .iter()
         .map(|(region, _)| format!("export-summary-{region}.json"))
         .collect();
-    execute::keep_files(runtime, &evidence_name, &summaries)?;
-    let published = match &contract.compare_content {
-        Some(content) => {
-            let compare = execute::ReleaseCompare {
-                branch: branch.clone(),
-                changes_branch: execute::changes_branch(&identity),
-                source_snapshot_id: identity.clone(),
-                objects: release.object_keys(),
-                content_columns: content.clone(),
-                bucket_prefix_length: contract.compare_bucket_prefix_length,
-                release_buckets_only: contract.compare_release_buckets_only,
-                deadline_utc: Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
-            };
-            super::append_changes(contract, runtime, catalog, &compare).await?
-        }
-        None => {
-            super::publish_load(catalog, &contract.table, &branch, &release.object_keys()).await?;
-            true
-        }
-    };
-    if !published {
-        return Ok((rows, Decision::CompareInProgress));
-    }
+    let release_rows = super::append_on_duckdb(
+        contract,
+        runtime,
+        catalog,
+        &duckdb_release::Release {
+            identity: &identity,
+            objects: &objects,
+            handoffs: &urls,
+            // Known only when every handoff was converted by this run.
+            expected_rows: handoffs.iter().map(|(_, converted)| *converted).sum(),
+        },
+        &evidence_name,
+        evidence,
+    )
+    .await?;
     runtime.reset_work()?;
-    Ok((rows, Decision::ExportAndLoad))
+    Ok((release_rows, Decision::ExportAndLoad))
 }

@@ -3,14 +3,12 @@
 import json
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 
 import unittest
 
 SPARK = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SPARK / "jobs"))
 from platform_contracts import current_row_latest, load_lakehouse_contract
-from silver_scalar_handoff_to_lakehouse import write_silver_iceberg
 
 TABLE = "silver.building_register_sub_parcel"
 SOURCE = SPARK.parent / "contracts/hub-building-register-sub-parcel-source-objects.json"
@@ -46,12 +44,6 @@ class RegisterSubParcelContractTest(unittest.TestCase):
         # One register has many rows (measured up to 774); its version is all of its newest rows.
         latest = current_row_latest(load_lakehouse_contract(TABLE))
         self.assertEqual((latest.key, latest.keep_ties, latest.removal_column), (("mgmt_key",), True, "row_state"))
-
-    def test_sub_parcel_observations_refuse_overwrite_before_opening_spark(self):
-        contract = load_lakehouse_contract(TABLE)
-        for configured, override in [("overwrite", None), ("append", "overwrite")]:
-            with self.assertRaisesRegex(ValueError, "append.only"):
-                write_silver_iceberg(None, None, SimpleNamespace(iceberg_write_mode=configured), contract, None, override)
 
 
 if __name__ == "__main__":

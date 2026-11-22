@@ -20,6 +20,8 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
       "time_limit_minutes": 15,
+      "memory_max": "512M",
+      "memory_measured": "no run yet (new 2026-11-22, root ADR-0033); sized as the ILIS notice Silver load (512M), the largest thing it holds being the 13.5 MB notice list answer twice (raw bytes and parsed JSON) and the 412 KB profile workbook; systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -62,6 +64,8 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 30,
+      "memory_max": "1G",
+      "memory_measured": "no run yet (new 2026-11-22, root ADR-0033); sized as the ILIS notice Silver load (512M), the same DuckDB stage reading the lakehouse, and twice that for the 98 MB district boundary archive the address resolution reads whole; systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

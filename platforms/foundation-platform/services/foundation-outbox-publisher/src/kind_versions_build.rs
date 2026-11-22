@@ -1,9 +1,11 @@
 //! The publisher's one build of a parcel kind's Gold as a table of appended row versions (root
 //! ADR-0564 §3, §6): `build-parcel-register-masters-versions`, `build-parcel-demolitions-versions`,
-//! `build-parcel-energy-versions`. `DuckDB` inside the publisher computes the kind
-//! (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the publisher appends
-//! the keys that changed (`gold_versions_commit`). A new lane is a stage, a [`KindBuild`], a kind line
-//! and a job.
+//! `build-parcel-energy-versions`, `build-parcel-sub-parcels-versions`,
+//! `build-parcel-building-permits-versions`, `build-parcel-panel-versions`,
+//! `build-parcel-ownership-versions`, `build-parcel-factories-versions`. `DuckDB` inside the publisher
+//! computes the kind (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the
+//! publisher appends the keys that changed (`gold_versions_commit`). A new lane is a stage, a
+//! [`KindBuild`], a kind line and a job.
 //!
 //! While a lane serves the Spark table its versions table replaces, the versions table is its shadow:
 //! its inputs are pinned to that table's build-tag commit (`planned_inputs`), so the takeover verdict
@@ -21,9 +23,16 @@ use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
 use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     building_energy_stage::ENERGY,
+    building_permit_stage::BUILDING_PERMITS,
+    building_sub_parcel_stage::SUB_PARCELS,
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
-    kind_versions_stage::{KindVersionsStage, PARCEL_SOURCE},
+    factory_kind_stage::FACTORIES,
+    kind_versions_stage::{
+        ensure_no_commit_tables, load_region, spool, KindVersionsStage, PARCEL_SOURCE,
+    },
+    land_ownership_stage::OWNERSHIP,
     parcel_nearby_stage::{NearbyPins, Source},
+    parcel_panel_stage::PANEL,
     process_memory,
     record_kind_stage::{DEMOLITIONS, REGISTER_MASTERS},
 };
@@ -33,12 +42,12 @@ use serde_json::json;
 use crate::{
     by_pnu_gateway_contract::ByPnuLane,
     gold_versions_commit::{
-        self as versions, Commit, CODE_VERSION_PROPERTY, CURRENT_RECORDS_PROPERTY,
+        self as versions, Commit, Diff, Digests, CODE_VERSION_PROPERTY, CURRENT_RECORDS_PROPERTY,
         FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, RECORDED_EXPLANATION_PROPERTY,
         SERVED_EDITION_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY, VERSION_SEQ_PROPERTY,
     },
     parcel_nearby_versions_build::{
-        contract, lakehouse_read, max_row_loss_fraction, served_edition, write_summary,
+        contract, lakehouse_read, max_row_loss_fraction_of, served_edition, write_summary,
         MAX_CHANGED_KEY_FRACTION, MEMORY_SHARE,
     },
     public_data_control_support::required_env_value,
@@ -84,6 +93,53 @@ pub(crate) const ENERGY_BUILD: KindBuild = KindBuild {
     stage: &ENERGY,
 };
 
+/// Lane 4: the 부속지번, read from both of a link's parcels (root ADR-0399).
+pub(crate) const SUB_PARCELS_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_sub_parcels_versions",
+    lane: "parcel-sub-parcels",
+    replaced: "gold.parcel_sub_parcels",
+    job: "build-parcel-sub-parcels-versions",
+    stage: &SUB_PARCELS,
+};
+
+/// Lane 5: the 건축인허가 and the other files of the permit family (root ADR-0451, ADR-0464).
+pub(crate) const BUILDING_PERMITS_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_building_permits_versions",
+    lane: "parcel-building-permits",
+    replaced: "gold.parcel_building_permits",
+    job: "build-parcel-building-permits-versions",
+    stage: &BUILDING_PERMITS,
+};
+
+/// The parcel lane's host panel (root ADR-0096, ADR-0564 §9 차례 5): its lane is the host lane, whose
+/// Gold is the panel's constant (`by_pnu_serving_manifest_publish::gold_table`), so while that lane
+/// bakes `gold.parcel_panel` this table is its shadow.
+pub(crate) const PARCEL_PANEL_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_panel_versions",
+    lane: "parcel",
+    replaced: "gold.parcel_panel",
+    job: "build-parcel-panel-versions",
+    stage: &PANEL,
+};
+
+/// Lane 6: the owners (root ADR-0361).
+pub(crate) const OWNERSHIP_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_ownership_versions",
+    lane: "parcel-ownership",
+    replaced: "gold.parcel_ownership",
+    job: "build-parcel-ownership-versions",
+    stage: &OWNERSHIP,
+};
+
+/// Lane 7: the registered factories (root ADR-0449).
+pub(crate) const FACTORIES_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_factories_versions",
+    lane: "parcel-factories",
+    replaced: "gold.parcel_factories",
+    job: "build-parcel-factories-versions",
+    stage: &FACTORIES,
+};
+
 /// Builds and appends `kind`'s changed keys.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
@@ -97,6 +153,18 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         .iter()
         .map(|column| column.name)
         .collect();
+    // The kind line's `place_identity` gave the table its place id; the stage must carry it.
+    ensure!(
+        content_columns.contains(&"place_id") == stage.carries_place_id(),
+        "{} has {}a place_id column but its stage {} it",
+        kind.replaced,
+        if stage.carries_place_id() { "no " } else { "" },
+        if stage.carries_place_id() {
+            "carries"
+        } else {
+            "does not carry"
+        }
+    );
     let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
     let committer = LakehouseDataCommitter::from_env().await?;
     let created = committer.create_table_if_absent(versions_contract).await?;
@@ -170,16 +238,23 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         }
     });
 
-    // Compute.
+    // Compute, one 시도 at a time (rules.txt "DuckDB ports are regional, one pass"): every input is
+    // read once into a local spool split by 시도, then each 시도 is loaded, built, diffed and staged
+    // before the next replaces it; one append commits them all.
     let work = Path::new(&summary_path)
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
+    // Asked before the DuckDB session opens: the session is not `Send` across an await.
+    let shape = committer.table_shape(table).await?;
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
     let memory_limit = duck.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
+    duck.require_room(0)?;
     let connection = duck.connection();
+    let spool_dir = Spool::new(work.join("spool"))?;
     let new_pins = NearbyPins(pins.clone());
-    let read = stage.load_inputs(
+    let read = spool(
+        stage,
         connection,
         &Source::Pinned {
             catalog: LAKEHOUSE_CATALOG,
@@ -187,17 +262,18 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         },
         &edition,
         "",
+        spool_dir.path(),
     )?;
-    let targets = if every_pnu {
-        None
-    } else {
+    let mut sidos = read.sidos.clone();
+    if !every_pnu {
         let base = base.as_ref().context("a partial run has a base")?;
         let old_pins = NearbyPins(base.pins.clone());
         let old_edition = base
             .served_edition
             .clone()
             .context("a partial run's base names its served edition")?;
-        stage.load_inputs(
+        let old = spool(
+            stage,
             connection,
             &Source::Pinned {
                 catalog: LAKEHOUSE_CATALOG,
@@ -205,71 +281,97 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             },
             &old_edition,
             "_old",
+            spool_dir.path(),
         )?;
-        Some(stage.changed_pnus(connection)?)
-    };
+        sidos.extend(old.sidos);
+    }
+    // A 시도 the head holds and the served edition no longer does (a merged 시도) is diffed too: its
+    // keys get removal markers.
+    if let Some(head) = head {
+        sidos.extend(head_sidos(connection, table, head)?);
+    }
+    duck.require_room(0)?;
     let parcels_snapshot = pins
         .get(PARCEL_SOURCE)
         .context("the parcels are pinned")?
         .to_string();
-    stage.build(
-        connection,
-        targets.is_none(),
-        &parcels_snapshot,
-        &published_at_utc,
-    )?;
-    println!(
-        "gold-versions {table} built {} PNUs of {} served ({} rows) in {:.1}s (memory peak {:?} bytes)",
-        targets.map_or_else(|| "every".to_owned(), |count| count.to_string()),
-        read.served_parcels,
-        read.rows,
-        started.elapsed().as_secs_f64(),
-        process_memory::cgroup_peak_bytes()
-    );
-    let invalid: i64 = connection.query_row(
-        &format!(
-            "SELECT count(*) FROM built WHERE NOT regexp_full_match(pnu, '[0-9]{{19}}') OR {} IS NULL",
-            stage.section_column()
-        ),
-        [],
-        |row| row.get(0),
-    )?;
-    ensure!(
-        invalid == 0,
-        "{invalid} built rows have a malformed PNU or no section: nothing was appended"
-    );
-
-    // Diff and check.
     let version_seq = base.as_ref().map_or(1, |base| base.version_seq + 1);
     let commit = Commit {
         table,
         versions: versions_contract,
         content_columns,
-        key: "pnu",
         head,
         base: base.clone(),
         version_seq,
         source_snapshot_id: parcels_snapshot.clone(),
         published_at_utc: published_at_utc.clone(),
     };
-    let range = match targets {
-        None => "TRUE",
-        // A partial run that names no PNU diffs nothing and records the new pins.
-        Some(0) => "FALSE",
-        Some(_) => "pnu IN (SELECT pnu FROM targets)",
-    };
-    let diff = versions::diff(connection, &commit, range)?;
-    let (fingerprint, current_records) = versions::after(connection, &commit, &diff)?;
+    let run = versions::run_id(table, &pins, &code, &edition);
+    let (mut diff, mut digests, mut files) = (Diff::default(), Digests::default(), Vec::new());
+    let (mut rows, mut targets) = (0, (!every_pnu).then_some(0));
+    for sido in &sidos {
+        rows += load_region(stage, connection, spool_dir.path(), "", sido)?;
+        let named = if every_pnu {
+            None
+        } else {
+            load_region(stage, connection, spool_dir.path(), "_old", sido)?;
+            Some(stage.changed_pnus(connection)?)
+        };
+        stage.build(
+            connection,
+            named.is_none(),
+            &parcels_snapshot,
+            &published_at_utc,
+        )?;
+        ensure_no_commit_tables(connection)?;
+        let invalid: i64 = connection.query_row(
+            &format!(
+                "SELECT count(*) FROM built WHERE NOT regexp_full_match(pnu, '[0-9]{{19}}') \
+                 OR substr(pnu, 1, 2) <> '{sido}' OR {} IS NULL",
+                stage.section_column()
+            ),
+            [],
+            |row| row.get(0),
+        )?;
+        ensure!(
+            invalid == 0,
+            "{invalid} built rows of 시도 {sido} have a malformed PNU, another 시도's or no section: \
+             nothing was appended"
+        );
+        let in_sido = sido_range(sido)?;
+        let range = match named {
+            None => in_sido,
+            // A partial run that names no PNU here diffs nothing.
+            Some(0) => "FALSE".to_owned(),
+            Some(_) => format!("{in_sido} AND pnu IN (SELECT pnu FROM targets)"),
+        };
+        diff += versions::diff(connection, &commit, &range)?;
+        digests += versions::digests(connection, &commit)?;
+        files.extend(versions::stage(&duck, &shape, &run, versions_contract)?);
+        if let (Some(total), Some(count)) = (targets.as_mut(), named) {
+            *total += count;
+        }
+    }
+    drop(spool_dir);
+    println!(
+        "gold-versions {table} built {} PNUs of {} served ({rows} rows) in {} 시도 in {:.1}s (memory peak {:?} bytes)",
+        targets.map_or_else(|| "every".to_owned(), |count: u64| count.to_string()),
+        read.served_parcels,
+        sidos.len(),
+        started.elapsed().as_secs_f64(),
+        process_memory::cgroup_peak_bytes()
+    );
+    let (fingerprint, current_records) = versions::after_digests(&commit, &diff, digests)?;
     let mut recorded_explanation = None;
     if let Some(base) = &base {
-        let max_loss = max_row_loss_fraction()?;
+        let max_loss = max_row_loss_fraction_of(kind.replaced)?;
         #[allow(clippy::cast_precision_loss)]
         let floor = (1.0 - max_loss) * base.current_records as f64;
         #[allow(clippy::cast_precision_loss)]
         if (current_records as f64) < floor {
             bail!(
                 "{table} would hold {current_records} current rows, fewer than the {floor:.0} its \
-                 {} allow (gold-panel-rebuild.contract.json kind_tables.max_row_loss_fraction): \
+                 {} allow (gold-panel-rebuild.contract.json max_row_loss_fraction): \
                  nothing was appended",
                 base.current_records
             );
@@ -290,9 +392,6 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     }
 
     // Commit.
-    let run = versions::run_id(table, &pins, &code, &edition);
-    let shape = committer.table_shape(table).await?;
-    let files = versions::stage(&duck, &shape, &run, "pnu")?;
     let mut properties = std::collections::BTreeMap::from([
         (VERSION_SEQ_PROPERTY.to_owned(), version_seq.to_string()),
         (
@@ -326,7 +425,8 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             "version_seq": version_seq, "run": run, "pins": pins, "moved": moved,
             "served_edition": edition, "shadow_of": shadow_build, "code_version": code,
             "every_pnu": every_pnu, "targets": targets, "recorded_explanation": recorded_explanation,
-            "served_parcels": read.served_parcels, "rows": read.rows, "read_millis": read.read_millis,
+            "served_parcels": read.served_parcels, "rows": rows, "read_millis": read.read_millis,
+            "sidos": sidos,
             "diff": diff, "current_records": current_records,
             "content_fingerprint": versions::fingerprint_text(fingerprint),
             "files": files.len(), "tags": tags, "duckdb_memory_limit_bytes": memory_limit,
@@ -344,4 +444,113 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+/// The key range of one 시도, as a predicate on `pnu` that skips the files outside it.
+pub(crate) fn sido_range(sido: &str) -> anyhow::Result<String> {
+    let number: u8 = sido
+        .parse()
+        .ok()
+        .filter(|_| sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()))
+        .with_context(|| format!("the 시도 {sido:?} is not two digits"))?;
+    Ok(if number == 99 {
+        format!("(pnu >= '{sido}')")
+    } else {
+        format!("(pnu >= '{sido}' AND pnu < '{:02}')", number + 1)
+    })
+}
+
+/// The 시도 the head's rows lie in (a removal marker's too: a superset of its current rows').
+pub(crate) fn head_sidos(
+    connection: &foundation_publisher_silver::duckdb::Connection,
+    table: &str,
+    head: i64,
+) -> anyhow::Result<BTreeSet<String>> {
+    connection
+        .prepare(&format!(
+            "SELECT DISTINCT substr(pnu, 1, 2) FROM {LAKEHOUSE_CATALOG}.{table} AT (VERSION => {head})"
+        ))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<BTreeSet<_>, _>>()
+        .context("DuckDB failed to read the head's 시도")
+}
+
+/// The run's spool directory, removed when the run ends, failed or not (the runs a disk keeps hold
+/// summaries and logs, not spools).
+struct Spool(std::path::PathBuf);
+
+impl Spool {
+    fn new(path: std::path::PathBuf) -> anyhow::Result<Self> {
+        if path.exists() {
+            std::fs::remove_dir_all(&path)
+                .with_context(|| format!("cannot clear {}", path.display()))?;
+        }
+        std::fs::create_dir_all(&path)
+            .with_context(|| format!("cannot create {}", path.display()))?;
+        Ok(Self(path))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Spool {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A kind line that names `place_identity` gives its table a `place_id` column (by_pnu_kind
+    /// derive); a stage that did not carry it would write every row's id as null, and the takeover
+    /// verdict would fail on every row (the factories are the first lane that carries it).
+    #[test]
+    fn every_lane_s_stage_carries_the_place_id_its_table_has() -> anyhow::Result<()> {
+        for kind in [
+            &REGISTER_MASTERS_BUILD,
+            &DEMOLITIONS_BUILD,
+            &ENERGY_BUILD,
+            &SUB_PARCELS_BUILD,
+            &BUILDING_PERMITS_BUILD,
+            &PARCEL_PANEL_BUILD,
+            &OWNERSHIP_BUILD,
+            &FACTORIES_BUILD,
+        ] {
+            let has = contract(kind.replaced)?
+                .columns
+                .iter()
+                .any(|column| column.name == "place_id");
+            assert_eq!(has, kind.stage.carries_place_id(), "{}", kind.table);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_sido_s_range_bounds_its_keys_and_the_last_one_is_open() -> anyhow::Result<()> {
+        assert_eq!(sido_range("41")?, "(pnu >= '41' AND pnu < '42')");
+        assert_eq!(sido_range("09")?, "(pnu >= '09' AND pnu < '10')");
+        assert_eq!(sido_range("99")?, "(pnu >= '99')");
+        for bad in ["4", "411", "4'", "+1"] {
+            assert!(sido_range(bad).is_err(), "{bad} was taken");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_spool_is_removed_when_its_run_ends() -> anyhow::Result<()> {
+        let work = tempfile::tempdir()?;
+        let path = work.path().join("spool");
+        std::fs::create_dir_all(path.join("stale"))?;
+        {
+            let spool = Spool::new(path.clone())?;
+            assert!(!spool.path().join("stale").exists());
+            std::fs::write(spool.path().join("part.parquet"), b"x")?;
+        }
+        assert!(!path.exists());
+        Ok(())
+    }
 }

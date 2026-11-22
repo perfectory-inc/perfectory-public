@@ -38,7 +38,7 @@ pub enum SourceSlugError {
 ///
 /// This is the only manually maintained provider-identity list. A canonical `providerid` is always
 /// derived by removing `.` from one of these labels, so a label and its id cannot drift apart.
-pub const APPROVED_PROVIDER_DOMAINS: [&str; 10] = [
+pub const APPROVED_PROVIDER_DOMAINS: [&str; 11] = [
     "vworld.kr",
     "data.go.kr",
     "rt.molit.go.kr",
@@ -51,6 +51,9 @@ pub const APPROVED_PROVIDER_DOMAINS: [&str; 10] = [
     "code.go.kr",
     // 법원경매정보: the owner decided to collect it, openly and politely (root ADR-0280, ADR-0281).
     "courtauction.go.kr",
+    // 한국산업단지공단: its sale board carries the notices of the complexes it develops itself, which
+    // the ILIS registry does not (owner approval 2026-11-22, root ADR-0603).
+    "kicox.or.kr",
 ];
 
 /// Maps a catalog-native `provider` label to its canonical, engine-portable `providerid`.
@@ -229,6 +232,11 @@ mod tests {
             provider_id("industryland.or.kr").as_deref(),
             Some("industrylandorkr")
         );
+    }
+
+    #[test]
+    fn provider_id_derives_the_industrial_complex_corporation_domain() {
+        assert_eq!(provider_id("kicox.or.kr").as_deref(), Some("kicoxorkr"));
     }
 
     #[test]
