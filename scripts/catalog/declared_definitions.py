@@ -438,7 +438,7 @@ def family_definitions(contracts):
     Each lane is a group of its own: its Silver table (asset) and the edge from the building HUB source
     (dependency). The family is one more group, `silver-refresh-hub-lane-family`: the one Silver
     refresh job that runs every lane in one run (`foundation-silver-refresh@hub-lane-family`), so the
-    family holds its documents pool slot once, not once per lane. What the lanes share is each file's
+    family holds its duckdb pool slot once, not once per lane. What the lanes share is each file's
     `defaults.job`, the same in every file.
     """
     definitions = {}
@@ -507,8 +507,8 @@ def family_definitions(contracts):
                 "current rows and append to main only the changed rows and a removal marker per row it no "
                 "longer holds (root ADR-0318). The first lane that runs out of the run's time ends the run and "
                 "the next run resumes it. `changed` when any lane changed. Started when a source_sweep run lands "
-                "new files, and daily as the fallback (root ADR-0171); it holds one slot of the documents pool and a "
-                "memory_claim on its unit (root ADR-0599)."),
+                "new files, and daily as the fallback (root ADR-0171); it holds one slot of the duckdb pool and a "
+                "memory_claim on its unit (root ADR-0599, ADR-0605)."),
             "systemd_service": "foundation-silver-refresh@hub-lane-family.service",
             "check_service": "foundation-silver-refresh-plan@hub-lane-family.service",
             "systemd_timer": None,
@@ -534,8 +534,7 @@ def family_definitions(contracts):
                                        f"over about {-(-total // one_run)} runs"),
                 },
             },
-            "pool": "documents",
-            "pool_slots": shared["pool_slots"],
+            "pool": "duckdb",
             "memory_claim": {"units": ["foundation-silver-refresh@hub-lane-family.service"]},
             "priority_weight": shared["priority_weight"],
             "retries": 0,

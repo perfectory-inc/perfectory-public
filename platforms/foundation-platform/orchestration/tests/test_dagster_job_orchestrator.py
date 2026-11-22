@@ -126,21 +126,30 @@ class TheJobsDagsterDecides(unittest.TestCase):
             with self.subTest(job_id), self.assertRaises(job_orchestrator.Refused):
                 job_orchestrator.pause(listed(), [job_id], self.dagster())
         with self.assertRaises(job_orchestrator.Refused):
-            job_orchestrator.start(listed(), "old", "triggered", self.dagster())
+            job_orchestrator.start(listed(), "old", "triggered", self.dagster(), {})
 
     def test_start_launches_the_jobs_dagster_job_with_the_tags_every_run_of_it_carries(self):
         dagster = self.dagster()
-        self.assertEqual(job_orchestrator.start(listed(), "nightly", f"requested {REQUEST}", dagster), "run-1")
+        self.assertEqual(job_orchestrator.start(listed(), "nightly", f"requested {REQUEST}", dagster, job_specs.run_tags(300, f"requested {REQUEST}", 60 * 55)), "run-1")
         ((_, params),) = dagster.told
         self.assertEqual(params["selector"], {**job_orchestrator.REPOSITORY, "pipelineName": "foundation_job__nightly"})
         tags = {tag["key"]: tag["value"] for tag in params["executionMetadata"]["tags"]}
-        self.assertEqual(tags, job_specs.run_tags("spark", 300, f"requested {REQUEST}", 60 * 55))
+        self.assertEqual(tags, job_specs.run_tags(300, f"requested {REQUEST}", 60 * 55))
         self.assertEqual(tags["foundation/run-kind"], f"requested {REQUEST}")
+
+    def test_a_start_carries_the_tags_its_sensor_runs_carry(self):
+        # Root ADR-0605: the class and the queue weight, and the decided-by tag, read from the real list.
+        jobs = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))
+        spec = next(spec for spec in job_specs.load_specs(jobs) if spec.job_id == "gold_panel_rebuild")
+        tags = job_orchestrator.launch_tags(jobs, "gold_panel_rebuild", "triggered")
+        self.assertEqual(tags, spec.dagster_tags("triggered"))
+        self.assertEqual(tags[job_specs.PRIORITY_TAG], str(spec.priority * job_specs.QUEUE_WEIGHT_SPAN + spec.priority_weight))
+        self.assertEqual(tags[job_specs.DECIDED_TAG], "dagster")
 
     def test_start_takes_only_a_kind_the_forced_command_reads(self):
         for kind in ("", "check", "triggered; reboot", "requested x"):
             with self.subTest(kind), self.assertRaises(job_orchestrator.Refused):
-                job_orchestrator.start(listed(), "nightly", kind, self.dagster())
+                job_orchestrator.start(listed(), "nightly", kind, self.dagster(), {})
 
     def test_an_answer_that_is_not_the_expected_one_fails(self):
         def refuses(query, variables):
@@ -185,10 +194,10 @@ class TheJobsDagsterDecides(unittest.TestCase):
             server.close()
             self.assertTrue(asked[0].startswith(b"POST /graphql HTTP/1.1"))
 
-    def run_main(self, *argv, dagster=None):
+    def run_main(self, *argv, dagster=None, listing=None):
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "jobs.v1.json"
-            path.write_text(json.dumps(listed()), encoding="utf-8")
+            path.write_text(json.dumps(listing or listed()), encoding="utf-8")
             out, err = io.StringIO(), io.StringIO()
             with redirect_stdout(out), redirect_stderr(err):
                 status = job_orchestrator.main([argv[0], str(path), *argv[1:]], post=dagster or self.dagster())
@@ -203,10 +212,12 @@ class TheJobsDagsterDecides(unittest.TestCase):
         self.assertEqual((status, out), (0, "job-orchestrator: unpaused 2 of 2 sensors: nightly hourly\n"))
         # Nothing named asks Dagster nothing: a release with no such job never needs it to answer.
         self.assertEqual(self.run_main("pause", dagster=lambda *_: self.fail("asked"))[0], 0)
-        status, out, _ = self.run_main("start", "nightly", dagster=dagster)
-        self.assertEqual((status, out), (0, "job-orchestrator: started nightly as Dagster run run-1\n"))
+        # A start reads its tags from the release's whole list (launch_tags), so it names a real job.
+        real = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))
+        status, out, _ = self.run_main("start", "gold_panel_rebuild", dagster=dagster, listing=real)
+        self.assertEqual((status, out), (0, "job-orchestrator: started gold_panel_rebuild as Dagster run run-1\n"))
         self.assertEqual(dagster.told[-1][1]["executionMetadata"]["tags"][0], {"key": "foundation/run-kind", "value": "triggered"})
-        status, _, _ = self.run_main("start", "nightly", "requested", REQUEST, dagster=dagster)
+        status, _, _ = self.run_main("start", "gold_panel_rebuild", "requested", REQUEST, dagster=dagster, listing=real)
         self.assertEqual(status, 0)
         self.assertEqual(self.run_main("pause", "old")[0], 64)
         self.assertEqual(self.run_main("unpause", "nightly", dagster=Dagster({}))[0], 1)
@@ -270,16 +281,24 @@ class AgainstDagster(unittest.TestCase):
                 # Dagster has no sensor for the other job: releasing it fails, loudly.
                 with self.assertRaises(job_orchestrator.Unanswered):
                     job_orchestrator.unpause(jobs, ["hourly"], post)
-                run_id = job_orchestrator.start(jobs, "nightly", f"requested {REQUEST}", post)
+                run_id = job_orchestrator.start(jobs, "nightly", f"requested {REQUEST}", post, job_specs.run_tags(300, f"requested {REQUEST}", 60 * 55))
                 run = instance.get_run_by_id(run_id)
                 self.assertEqual(run.job_name, "foundation_job__nightly")
-                for key, value in job_specs.run_tags("spark", 300, f"requested {REQUEST}", 60 * 55).items():
+                for key, value in job_specs.run_tags(300, f"requested {REQUEST}", 60 * 55).items():
                     self.assertEqual(run.tags[key], value)
                 # What the deploy asks after a release (airflow-runtime.sh through writer_gate.py ask).
                 self.assertEqual(post(dagster_writes.RELOAD_LOCATION, None)["reloadRepositoryLocation"]["__typename"],
                                  "WorkspaceLocationEntry")
                 entries = post(dagster_writes.LOCATION_ERRORS, None)["workspaceOrError"]["locationEntries"]
                 self.assertEqual([entry["locationOrLoadError"]["__typename"] for entry in entries], ["RepositoryLocation"])
+                # Root ADR-0605 §6: the pool limit documents as Dagster 1.13 answers them, through the gate.
+                self.assertTrue(post(dagster_writes.SET_POOL_LIMIT, {"concurrencyKey": "duckdb", "limit": 2})["setConcurrencyLimit"])
+                limits = {entry["concurrencyKey"]: entry for entry in
+                          post(dagster_writes.POOL_LIMITS, None)["instance"]["concurrencyLimits"]}
+                self.assertEqual((limits["duckdb"]["limit"], limits["duckdb"]["usingDefaultLimit"]), (2, False))
+                self.assertTrue(post(dagster_writes.DELETE_POOL_LIMIT, {"concurrencyKey": "duckdb"})["deleteConcurrencyLimit"])
+                self.assertNotIn("duckdb", {entry["concurrencyKey"] for entry in
+                                            post(dagster_writes.POOL_LIMITS, None)["instance"]["concurrencyLimits"]})
 
 
 if __name__ == "__main__":

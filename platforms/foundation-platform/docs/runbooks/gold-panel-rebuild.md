@@ -39,7 +39,7 @@ Silver 적재(FLOOR·계보·Silver 레인·수동 적재·백필)  행을 바�
   그날 08:45 에 반영된다. 급하면 Airflow 화면에서 그 Silver 자산(`iceberg://silver.<표>`)에 이벤트를 만들거나
   `airflow-runtime.sh trigger gold_panel_rebuild` 로 시작한다.
 - Gold 작업은 무게가 굽기보다 크다(3 > 1): 둘이 함께 기다리면 Gold 가 먼저 돈다.
-- 굽기는 `takes_turns` 다. 이 작업이 켜진 뒤에는 Gold 작업이 한 번 시작한 뒤에야 굽기가 다시 시작한다.
+- 굽기는 루트 ADR-0605 뒤로 차례(`takes_turns`)를 지키지 않는다(두 칸 `duckdb` 풀). 그 전에는 `takes_turns` 였다. 이 작업이 켜진 뒤에는 Gold 작업이 한 번 시작한 뒤에야 굽기가 다시 시작한다.
 - 할 일이 없으면 둘 다 `nothing to do` 로 성공한다.
 
 ## 2. 한 번의 실행
@@ -158,4 +158,4 @@ ADR-0310). Gold 작업을 멈춰 굽기를 기다릴 필요는 없다. 각 샤�
 (`scripts/guard/every-container-has-a-memory-cap.sh`)를 통과하는 범위에서 compose `spark` 상한을 올리거나 driver 를
 줄이는 결정을 먼저 한 뒤 계약에서 그 항목을 지운다.
 
-Airflow 시간 상한 165분(systemd 는 160분)은 매시 접기의 굶김 상한이 한도(1,200분 = 주기 20번)에 닿는 값이다(`job_specs.pool_starvation`).
+Airflow 시간 상한 165분(systemd 는 160분). 이 값이 매시 접기의 굶김 상한(1,200분 = 주기 20번)에 닿는 값이던 계산은 루트 ADR-0605 가 지웠다: spark 풀은 한 번에 run 하나이고, 줄에서 기다린 시간이 등급 예산을 넘으면 `FoundationJobQueueWaitOverBudget` 이 울린다.

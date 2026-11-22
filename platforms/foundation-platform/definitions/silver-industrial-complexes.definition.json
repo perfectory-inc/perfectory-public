@@ -80,8 +80,7 @@
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when an input changed what a complex says: the profile workbook (last new 2026-04-20 by the provider), or an ILIS answer that moves an address; that it is not behind its inputs is the asset reconciler's lag (root ADR-0333)."
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-industrial-complex-silver-load.service"

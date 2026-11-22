@@ -81,8 +81,30 @@ query LocationErrors {
   }
 }
 """
+# Dagster's own pool limits (root ADR-0605): the deploy reads them, sets each pool of the job list and deletes
+# a pool the list no longer names (writer_gate.py ask pools). `limit` is the set limit, null for one Dagster
+# took from `concurrency.pools.default_limit`.
+POOL_LIMITS = """
+query PoolLimits {
+  instance { concurrencyLimits { concurrencyKey limit usingDefaultLimit } }
+}
+"""
+SET_POOL_LIMIT = """
+mutation SetPoolLimit($concurrencyKey: String!, $limit: Int!) {
+  setConcurrencyLimit(concurrencyKey: $concurrencyKey, limit: $limit)
+}
+"""
+DELETE_POOL_LIMIT = """
+mutation DeletePoolLimit($concurrencyKey: String!) {
+  deleteConcurrencyLimit(concurrencyKey: $concurrencyKey)
+}
+"""
+# A pool's limit the gate lets the host set: a job list pool's slots (job_specs.declared_pools), never 0,
+# which would stop every run of the pool.
+MAX_POOL_LIMIT = 16
 
 JOB_ID = re.compile(r"[a-z][a-z0-9_]*")
+POOL = re.compile(r"[a-z][a-z0-9_]*")
 RUN_ID = re.compile(r"[0-9a-f-]{8,64}")
 # A sensor's state id as Dagster's GraphQL gives it: `<origin id>::<selector id>` (1.13.27
 # dagster/_core/remote_representation/handle.py CompoundID.to_string, delimiter "::"), or one hex id.
@@ -135,6 +157,15 @@ def _start(variables) -> str | None:
     return None
 
 
+def _pool_limit(variables) -> str | None:
+    key, limit = (variables or {}).get("concurrencyKey"), (variables or {}).get("limit")
+    if set(variables or {}) != {"concurrencyKey", "limit"} or not isinstance(key, str) or not POOL.fullmatch(key):
+        return "a pool limit without one pool name"
+    if type(limit) is not int or not 1 <= limit <= MAX_POOL_LIMIT:
+        return f"a pool limit outside 1..{MAX_POOL_LIMIT}"
+    return None
+
+
 def _launch(key):
     def check(variables) -> str | None:
         if set(variables or {}) != {key}:
@@ -150,6 +181,9 @@ HOST = {
     normal(LAUNCH_RUN): _launch("params"),
     normal(RELOAD_LOCATION): _no_variables,
     normal(LOCATION_ERRORS): _no_variables,
+    normal(POOL_LIMITS): _no_variables,
+    normal(SET_POOL_LIMIT): _pool_limit,
+    normal(DELETE_POOL_LIMIT): _one("concurrencyKey", POOL),
 }
 
 

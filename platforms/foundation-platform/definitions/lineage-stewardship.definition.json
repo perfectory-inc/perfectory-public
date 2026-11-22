@@ -39,7 +39,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "pipeline_graph_edges": [
         "source-code-go-kr-to-reference-legal-dong-code-snapshot",
         "reference-legal-dong-code-snapshot-to-reference-legal-dong-code-change",
@@ -82,7 +81,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "스튜어드 검토 큐 as a table of appended row versions (root ADR-0113 §10, ADR-0483 §5, ADR-0564 §6-9; scripts/ops/gold-versions-build.sh lineage-review-queue → publisher build-lineage-review-queue-versions): gold.lineage_review_queue_versions, the parcel unit from silver.parcel_lineage and the place_reference unit from every parcel source Silver the resolver placed, computed by DuckDB inside the publisher and appended as the items whose content changed (a removal marker for an item that left), each commit one version_seq. Partial as the Spark jobs: the parcel unit only when the lineage moved, a source's items only when that source moved, everything when the code moved; a place_reference item whose evidence is unchanged keeps its row. Nothing to do when its inputs and code are the base commit's. It starts no Spark session, so it queues in the documents pool on its own unit's memory_claim. While lineage_stewardship's Spark steps still write gold.lineage_review_queue and load the steward database, it is their shadow: nothing reads it until the takeover PR has the cycle load its handoff.",
+      "description": "스튜어드 검토 큐 as a table of appended row versions (root ADR-0113 §10, ADR-0483 §5, ADR-0564 §6-9; scripts/ops/gold-versions-build.sh lineage-review-queue → publisher build-lineage-review-queue-versions): gold.lineage_review_queue_versions, the parcel unit from silver.parcel_lineage and the place_reference unit from every parcel source Silver the resolver placed, computed by DuckDB inside the publisher and appended as the items whose content changed (a removal marker for an item that left), each commit one version_seq. Partial as the Spark jobs: the parcel unit only when the lineage moved, a source's items only when that source moved, everything when the code moved; a place_reference item whose evidence is unchanged keeps its row. Nothing to do when its inputs and code are the base commit's. It starts no Spark session, so it queues in the duckdb pool on its own unit's memory_claim. While lineage_stewardship's Spark steps still write gold.lineage_review_queue and load the steward database, it is their shadow: nothing reads it until the takeover PR has the cycle load its handoff.",
       "systemd_service": "foundation-gold-versions@lineage-review-queue.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -105,8 +104,7 @@
           "estimated_from": "computed, not measured: the first build reads every input once: the lineage rows of the parcels that ever had a review grade (22,068 open items in gold.lineage_review_queue on 2026-11-19) and the current rows without a pnu of each of the place reference sources, the largest silver.real_transaction (a window over its current rows by key, grouped to a few thousand items), the way the Spark jobs read them. About 900 s, inside the 3,240 s share of the 60-minute limit. Later runs read only the inputs that moved."
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-gold-versions@lineage-review-queue.service"

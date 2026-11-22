@@ -31,7 +31,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -86,8 +85,12 @@
           "estimated_from": "computed, not measured: the first shadow build holds every key. It reads each input once into a local spool split by 시도: the served parcel edition's PNUs (about 40 million), the 건축인허가 basis outline (6,572,660 rows of every vintage, Trino 2026-11-22) with its parking (2,835,072 rows, measured 2026-11-09) joined by key, the eight detail files (the largest the 층별개요, 15,130,151 rows, and the 동별개요, 8,590,150), the 65,482 inspections and the 표제부 they name, and folds the about 4.32 million PNUs gold.parcel_building_permits holds. parcel-nearby read 39,861,511 rows and committed them in 1500 s under the same 8G cap (2026-11-19); this reads about 45 million input rows. About 1500 s, inside the 60-minute limit. Later runs rebuild the changed PNUs only."
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-gold-versions@parcel-building-permits.service"
+        ]
+      },
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -148,8 +151,13 @@
           "estimated_from": "computed from the lane's own bakes measured in its cut-over's bake step (by-pnu-pack-operator.sh parcel-building-permits bake, the same by-pnu-serving-bake.sh): 163 s, 68 s and 159 s on 2026-11-09 for 3,416,149 documents; the eight lists of root ADR-0464 make each document longer, not more of them, so 900 s, about five times the longest"
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-by-pnu-lane-bake@parcel-building-permits.service"
+        ],
+        "beside": "2560m"
+      },
       "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
@@ -541,20 +549,6 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark"
-      }
-    ],
-    "by_pnu_parcel_building_permits_bake": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
-      }
-    ],
-    "gold_parcel_building_permits_versions_build": [
-      {
-        "unit": "MemoryMax"
       }
     ]
   },

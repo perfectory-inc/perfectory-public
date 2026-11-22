@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # VWorld 연속지적도(MK/30563)의 새 판을 받는다 (root ADR-0148). 등록된 작업(ADR-0122, default_pool)이
-# 매일 돌린다. Spark 는 쓰지 않는다: spark 풀은 더 받을 자리가 없다(ADR-0138 의 굶주림 한도).
+# 매일 돌린다. Spark 는 쓰지 않는다: 받기만 하므로 Spark 단계가 없다.
 #
 #   1. 확인 — 제공자 목록을 받아(plan-vworld-dataset-collection → inventory-vworld-dataset-files, 필지
 #             데이터셋 하나만) 가장 새 기준월을 원천 계약의 판과 비교한다(vworld_parcel_editions.py

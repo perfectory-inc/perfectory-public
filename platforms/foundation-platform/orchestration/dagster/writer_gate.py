@@ -2,6 +2,8 @@
 
     writer_gate.py <dagster-webserver arguments>     serve, as `dagster-webserver` would
     writer_gate.py ask ready|reload|location-errors  the deploy's three questions, over the host's socket
+    writer_gate.py ask pools [--prune] < {"<pool>": <slots>}  sets Dagster's pool limits to the job list's
+                                                    (root ADR-0605); --prune also deletes the pools it does not name
 
 Dagster OSS's webserver has no sign-in, and its GraphQL launches, terminates and stops. This runs the
 same webserver (its own CLI, so every option and the workspace are Dagster's) and puts a gate in front
@@ -130,7 +132,57 @@ def ask(question):
     return 0
 
 
+def graphql(document, variables=None):
+    """One host document over the writer socket: its `data`, or OSError/ValueError with what went wrong."""
+    status, body = dagster_writes.ask("POST", "/graphql", {"query": document, "variables": variables})
+    answer = json.loads(body)
+    if status != 200 or answer.get("errors") or not answer.get("data"):
+        raise ValueError(f"answered {status}: {str(answer.get('errors') or body[:200])[:300]}")
+    return answer["data"]
+
+
+def pool_limits():
+    """Pool name -> the limit set on it, None where Dagster took its default."""
+    found = graphql(dagster_writes.POOL_LIMITS)["instance"]["concurrencyLimits"]
+    return {entry["concurrencyKey"]: None if entry.get("usingDefaultLimit") else entry.get("limit") for entry in found}
+
+
+def pools(declared, prune=False):
+    """Makes Dagster's pool limits the job list's `declared` ({pool: slots}): each pool set to its slots, then
+    read back. With `prune` (after the code location reloaded, so no loaded op names it any more) a pool the
+    list does not name is deleted too. Exit 0 when Dagster holds the list's (exactly, when pruned)."""
+    try:
+        if not isinstance(declared, dict) or not all(
+                isinstance(name, str) and dagster_writes.POOL.fullmatch(name) and type(slots) is int
+                and 1 <= slots <= dagster_writes.MAX_POOL_LIMIT for name, slots in declared.items()):
+            raise ValueError(f"not a job list's pools: {str(declared)[:200]}")
+        held = pool_limits()
+        for name, slots in sorted(declared.items()):
+            if held.get(name) != slots:
+                graphql(dagster_writes.SET_POOL_LIMIT, {"concurrencyKey": name, "limit": slots})
+        for name in sorted(set(held) - set(declared)) if prune else ():
+            graphql(dagster_writes.DELETE_POOL_LIMIT, {"concurrencyKey": name})
+        now = pool_limits()
+        if not prune:
+            now = {name: limit for name, limit in now.items() if name in declared}
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f"writer-gate: pools: {error}", file=sys.stderr)
+        return 1
+    if now != declared:
+        print(f"writer-gate: pools: Dagster holds {now}, the job list says {declared}", file=sys.stderr)
+        return 1
+    print("pools: " + " ".join(f"{name}={slots}" for name, slots in sorted(now.items())))
+    return 0
+
+
 def main(argv):
+    if argv in (["ask", "pools"], ["ask", "pools", "--prune"]):
+        try:
+            declared = json.load(sys.stdin)
+        except ValueError as error:
+            print(f"writer-gate: pools: stdin is not JSON: {error}", file=sys.stderr)
+            return 64
+        return pools(declared, prune=argv[2:] == ["--prune"])
     if argv[:1] == ["ask"]:
         if len(argv) != 2 or argv[1] not in ("ready", *ASKS):
             print(__doc__.split("\n\n")[1], file=sys.stderr)

@@ -110,7 +110,7 @@ class TheProxiedRunInAirflow(unittest.TestCase):
 
         task = self.dag.get_task("run")
         self.assertIsInstance(task, BaseProxyTaskToDagsterOperator)
-        self.assertEqual((task.pool, task.pool_slots, task.priority_weight), (self.spec.pool, self.spec.pool_slots,
+        self.assertEqual((task.pool, task.pool_slots, task.priority_weight), (self.spec.pool, 1,
                                                                             self.spec.priority_weight))
         self.assertEqual(sorted(self.dag.task_dict), sorted(["check", "run", "publish_outputs"]
                                                             if self.spec.check_service else ["run", "publish_outputs"]))

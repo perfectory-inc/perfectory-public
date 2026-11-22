@@ -102,12 +102,12 @@ class EveryStartTakesThePoolsSlots(unittest.TestCase):
         # The incident: a disabled one-off holding every spark slot, then FLOOR came due (2026-10-18).
         # FLOOR has left the spark pool (root ADR-0599); a Silver load still in it stands for it.
         jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
-        whole = next(job for job in jobs if job["pool"] == "spark" and job.get("pool_slots", 1) == 3
-                     and job["id"] != "rt_molit_real_transaction_silver")
+        # A run takes one slot (root ADR-0605), so any other spark job holds the pool's one.
+        whole = next(job for job in jobs if job["pool"] == "spark" and job["id"] != "rt_molit_real_transaction_silver")
         result = self.pool_full("rt_molit_real_transaction_silver", {whole["systemd_service"]: "activating"})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("no room for foundation-rt-molit-silver-load.service", result.stdout)
-        self.assertIn(f"{whole['systemd_service']} holds 3", result.stdout)
+        self.assertIn(f"{whole['systemd_service']} holds 1", result.stdout)
 
     def test_room_is_an_empty_answer_and_a_stopped_unit_holds_nothing(self):
         for units in ({}, {"foundation-gold-panel-rebuild.service": "failed"},
@@ -323,7 +323,7 @@ class AMemoryClaimWaitsForMemoryNotForAnEmptyPool(unittest.TestCase):
         (self.root / "systemctl").write_text(FAKE_SYSTEMCTL_WITH_MEMORY)
         (self.root / "systemctl").chmod(0o755)
 
-    def pool_full(self, available_gib, units=None, held_gib=None, cap=None):
+    def pool_full(self, available_gib, units=None, held_gib=None, cap=None, beside=""):
         meminfo = self.root / "meminfo"
         meminfo.write_text(f"MemTotal:       65651712 kB\nMemAvailable:   {int(available_gib * (1 << 20))} kB\n")
         current = "[not set]" if held_gib is None else str(int(held_gib * self.GIB))
@@ -333,7 +333,7 @@ class AMemoryClaimWaitsForMemoryNotForAnEmptyPool(unittest.TestCase):
                  "FAKE_LOG": str(self.root / "systemctl.log"), "FOUNDATION_HOST_MEMINFO": str(meminfo),
                  "FOUNDATION_CAPACITY_CLAIMS_DIR": str(self.root / "capacity"),
                  "FOUNDATION_START_QUEUE_DIR": str(self.root / "queue"),
-                 "FAKE_MEMORY": f"{self.MODEL}={cap or 24 * self.GIB}:{current}",
+                 "FAKE_MEMORY": f"{self.MODEL}={cap or 24 * self.GIB}:{current}" + (f",{beside}" if beside else ""),
                  "FAKE_UNITS": ",".join(f"{unit}=activating" for unit in units or ())},
             capture_output=True, text=True, timeout=30)
 
@@ -341,7 +341,7 @@ class AMemoryClaimWaitsForMemoryNotForAnEmptyPool(unittest.TestCase):
         listing = json.loads(JOBS.read_text(encoding="utf-8"))
         job = next(job for job in listing["jobs"] if job["id"] == "intelligence_document_fact")
         self.assertEqual(job["memory_claim"], {"units": [self.MODEL]})
-        self.assertEqual((job["pool"], listing["pools"][job["pool"]]["slots"]), ("documents", 1))
+        self.assertEqual((job["pool"], listing["pools"][job["pool"]]["slots"]), ("gpu", 1))
         self.assertRegex(listing["memory_claims"]["keep_available"], r"^[0-9]+g$")
         unit = (PLATFORM / "infra/systemd/foundation-intelligence-document-fact.service").read_text(encoding="utf-8")
         self.assertIn(f"Requires={self.MODEL}", unit)
@@ -375,7 +375,34 @@ class AMemoryClaimWaitsForMemoryNotForAnEmptyPool(unittest.TestCase):
 
     def test_the_other_document_job_still_holds_the_one_slot(self):
         result = self.pool_full(60, units=["foundation-intelligence-document-text.service"])
-        self.assertIn("the documents pool has no room", result.stdout)
+        self.assertIn("the gpu pool has no room", result.stdout)
+
+    def test_a_running_claim_keeps_what_it_may_still_take(self):
+        # Root ADR-0605 §3: claims share pools of two slots. Beside the running serving bake (duckdb, its own
+        # 14 GiB unit, 4 GiB held) the model's claim also leaves what the bake may still take (10 GiB), its
+        # spark-small side container (2.5 GiB) and the idle spark pool's reserve (20 GiB; gpu is the model's own
+        # pool): 24 + 32.5 + 6 free.
+        bake = "foundation-by-pnu-serving-bake.service"
+        beside = f"{bake}={14 * self.GIB}:{4 * self.GIB}"
+        refused = self.pool_full(62, units=[bake], beside=beside)
+        self.assertEqual(refused.returncode, 0, refused.stderr)
+        self.assertIn(f"32.5 GiB more is reserved for {bake} and the static pools", refused.stdout)
+        self.assertEqual(self.pool_full(63, units=[bake], beside=beside).stdout.strip(), "")
+        # A spark run going holds its memory in MemAvailable already: its reserve is not taken twice.
+        spark = "foundation-gold-panel-rebuild.service"
+        self.assertEqual(self.pool_full(43, units=[bake, spark], beside=beside).stdout.strip(), "")
+        # Stopped, it reserves nothing, and the first claim alone is admitted as before (ADR-0563).
+        self.assertEqual(self.pool_full(30, beside=beside).stdout.strip(), "")
+
+    def test_a_cut_overs_transient_bake_is_counted_though_it_claims_nothing(self):
+        # A capacity claimant's work units (the cut-over's pack bakes) are no job and state no claim: what
+        # they may still take is reserved, though no other claim runs, so no static reserve is added.
+        pack = "foundation-parcel-pack-bake-g1.service"
+        beside = f"{pack}={10 * self.GIB}:{2 * self.GIB}"
+        refused = self.pool_full(37, units=[pack], beside=beside)
+        self.assertIn(f"8.0 GiB more is reserved for {pack},", refused.stdout)
+        self.assertNotIn("static pools", refused.stdout)
+        self.assertEqual(self.pool_full(38, units=[pack], beside=beside).stdout.strip(), "")
 
 
 class TheOneDefinition(unittest.TestCase):

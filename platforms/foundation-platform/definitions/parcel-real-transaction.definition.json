@@ -34,12 +34,11 @@
           "to": "2026-11-12T15:28:13Z"
         },
         "open_exception": {
-          "why": "The first full build did not fit one unit and its growth will not either. Measured 2026-11-12 (12,094,440 rows from 13.5 million Silver deals): 17 시도 shards 8,309 s (the longest 963 s) after 233 s of inputs, then the commit 2,447 s (overwrite-diff 1,180 s, overwrite 1,268 s): about 11,000 s against the 9,000 s limit. The run of 10:23Z staged every shard and was stopped at 9,008 s in its commit; the next (13:01Z, the cut-over's gold step) read the stages back in 406 s and committed at 14:00:40Z. The build is staged by its plan (Stages, root ADR-0440), so a stopped run loses only the step in flight; but after the lane's first publish nothing starts the second unit before the next day's schedule (a retry would hold the whole spark pool twice in every other job's wait bound, job_specs.pool_starvation), and the first unit ends as a timeout. The four earlier runs (1,921 s to 2,994 s) failed on driver memory before #1346 and #1361. No changed-keys run has been measured yet: the first is the schedule's of 2026-11-13 09:50Z.",
+          "why": "The first full build did not fit one unit and its growth will not either. Measured 2026-11-12 (12,094,440 rows from 13.5 million Silver deals): 17 시도 shards 8,309 s (the longest 963 s) after 233 s of inputs, then the commit 2,447 s (overwrite-diff 1,180 s, overwrite 1,268 s): about 11,000 s against the 9,000 s limit. The run of 10:23Z staged every shard and was stopped at 9,008 s in its commit; the next (13:01Z, the cut-over's gold step) read the stages back in 406 s and committed at 14:00:40Z. The build is staged by its plan (Stages, root ADR-0440), so a stopped run loses only the step in flight; but after the lane's first publish nothing starts the second unit before the next day's schedule (a retry would hold the whole spark pool twice in every other job's wait bound, job_specs.pool_starvation) (root ADR-0605 removed that bound; the limit stays), and the first unit ends as a timeout. The four earlier runs (1,921 s to 2,994 s) failed on driver memory before #1346 and #1361. No changed-keys run has been measured yet: the first is the schedule's of 2026-11-13 09:50Z.",
           "tracked_by": "docs/roadmap/production-readiness.md (수집 run 당 상한): the build ends at a stage boundary by itself (a deadline pointer, as ADR-0391's Silver refresh) or leaves Spark with the Gold that moves to DuckDB (root ADR-0559); measure the changed-keys run after 2026-11-13 09:50Z and state it here"
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -97,8 +96,13 @@
           "estimated_from": "computed from the parcel-ownership bake, the same by-pnu-serving-bake.sh: 636 s for 39,396,906 documents (2026-11-05, its cut-over's bake step); the lane bakes at most one document per served parcel (39,861,511), so 1,500 s, more than twice it; before the lane's first publish, which waits for whole history (root ADR-0350 §6), a run is `nothing to do: not cut over yet`"
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-by-pnu-lane-bake@parcel-real-transaction.service"
+        ],
+        "beside": "2560m"
+      },
       "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
@@ -375,15 +379,6 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark"
-      }
-    ],
-    "by_pnu_parcel_real_transaction_bake": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
       }
     ]
   },

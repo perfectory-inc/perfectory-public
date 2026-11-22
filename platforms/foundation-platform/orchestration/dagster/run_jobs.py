@@ -124,9 +124,12 @@ def run_job(spec, transport=None, lineage_client=None):
     # definitions of one name (2026-11-13 22:40Z, five jobs proxied at once: the code location stopped
     # loading and every proxied run, the dual run and the observer stopped with it). The node is `run`
     # in each job (the alias below), so a step and its logs are named as before.
+    # Its pool is Dagster's own (root ADR-0605): with run granularity (dagster.yaml `concurrency.pools`) a run
+    # of this op holds one slot of it from dequeue to its end, and the deploy sets each pool's limit from the
+    # job list (writer_gate.py ask pools). default_pool is Airflow's name for no pool.
     @op(name=f"run__{spec.job_id}",
         description=f"Runs systemd service {spec.systemd_service} through the host's forced command.",
-        retry_policy=retry)
+        retry_policy=retry, pool=None if spec.pool == job_specs.DEFAULT_POOL else spec.pool)
     def run(context: OpExecutionContext):
         # A proxied job's runs are reported by its DAG (foundation_jobs.py); one Dagster decides, by its op.
         lineage = lineage_of(context) if decided_here else None

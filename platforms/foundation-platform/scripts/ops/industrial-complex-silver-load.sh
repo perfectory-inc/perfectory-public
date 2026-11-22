@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 산업단지 기본 정보의 Silver 적재 (root ADR-0033, ADR-0559). 등록된 작업 silver_industrial_complexes(documents 풀)를
+# 산업단지 기본 정보의 Silver 적재 (root ADR-0033, ADR-0559). 등록된 작업 silver_industrial_complexes(duckdb 풀)를
 # 입력(산업단지 프로필 통합본·ILIS 목록·고시·상세·시군구 경계)의 새 Bronze 객체가 깨운다. Spark 는 쓰지 않는다.
 #
 # 1. plan-industrial-complex-silver-inputs 가 R2 에서 입력마다 가장 새 객체를 고르고, silver.industrial_complexes 의

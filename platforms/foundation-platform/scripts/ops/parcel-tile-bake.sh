@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The national parcel tile bake from the lakehouse (root ADR-0133 §7, ADR-0194 5, ADR-0253), in two
-# halves that each fit the spark pool's starvation bound:
+# halves that each fit the spark pool's starvation bound (root ADR-0605 removed it; the halves stay):
 #
 #   parcel-tile-bake.sh gold [--force <reason>]   job parcel_served_gold
 #   parcel-tile-bake.sh bake                      job parcel_tile_bake (started when gold changed)

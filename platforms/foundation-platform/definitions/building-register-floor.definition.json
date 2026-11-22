@@ -38,8 +38,7 @@
           "to": "2026-11-03T15:50:32Z"
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-building-register-floor.service"

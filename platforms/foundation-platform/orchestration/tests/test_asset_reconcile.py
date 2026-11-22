@@ -687,8 +687,38 @@ class Reconciler(unittest.TestCase):
         self.assertNotIn("foundation_dagster_run_overdue_seconds{", quiet, "no unfinished run, no series")
         rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
         for name in ("alert: FoundationDagsterDecidesNothing", "alert: FoundationDagsterSensorStopped",
-                     "alert: FoundationDagsterSensorTickFailing", "alert: FoundationDagsterRunOverdue"):
+                     "alert: FoundationDagsterSensorTickFailing", "alert: FoundationDagsterRunOverdue",
+                     "alert: FoundationDagsterRunQueuedOverBudget"):
             self.assertIn(name, rules)
+
+    def test_a_run_waiting_in_dagsters_queue_is_measured_against_its_class(self):
+        # Root ADR-0605 §5: the wait for a pool's slot is measured, not computed from the job list. Only a
+        # QUEUED run counts, the oldest of a job's, from when it was made. Job ids are synthetic.
+        jobs = {"priority_classes": {"default": {"value": 100, "queue_wait_budget_minutes": 360},
+                                     "publish": {"value": 1000, "queue_wait_budget_minutes": 120}},
+                "jobs": [{"id": "synthetic_lane", "pool": "duckdb"},
+                         {"id": "synthetic_bake", "pool": "duckdb", "priority_class": "publish"}]}
+        now = 1_800_000_000.0
+        text = asset_reconcile.run_queued(jobs, [
+            {"jobName": "foundation_job__synthetic_lane", "creationTime": now - 600, "status": "QUEUED"},
+            {"jobName": "foundation_job__synthetic_lane", "creationTime": now - 7200, "status": "QUEUED"},
+            {"jobName": "foundation_job__synthetic_bake", "creationTime": now - 90000, "status": "STARTED"},
+            {"jobName": "__ASSET_JOB", "creationTime": now - 99999, "status": "QUEUED"}], now)
+        self.assertEqual(text, 'foundation_dagster_run_queued_seconds{job_id="synthetic_lane",pool="duckdb",priority_class="default"} 7200\n'
+                               'foundation_dagster_run_queue_budget_seconds{job_id="synthetic_lane",pool="duckdb",priority_class="default"} 21600\n')
+        self.assertEqual(asset_reconcile.run_queued(jobs, [], now), "")
+
+    def test_a_pool_whose_dagster_limit_is_not_the_lists_is_said(self):
+        # Root ADR-0605 §6: unset, Dagster's default, or another number is a 0; the list's slots a 1.
+        jobs = {"pools": {"spark": {"slots": 1}, "duckdb": {"slots": 2}, "gpu": {"slots": 1}}}
+        held = [{"concurrencyKey": "spark", "limit": 1, "usingDefaultLimit": False},
+                {"concurrencyKey": "duckdb", "limit": 1, "usingDefaultLimit": True},
+                {"concurrencyKey": "documents", "limit": 1, "usingDefaultLimit": False}]
+        self.assertEqual(asset_reconcile.pool_limits(jobs, held),
+                         'foundation_dagster_pool_limit_matches{pool="duckdb"} 0\n'
+                         'foundation_dagster_pool_limit_matches{pool="gpu"} 0\n'
+                         'foundation_dagster_pool_limit_matches{pool="spark"} 1\n')
+        self.assertEqual(asset_reconcile.pool_limits(jobs, None), "", "Dagster did not say")
 
     def test_the_dual_run_check_is_named_as_the_code_location_names_it(self):
         # The host has no Dagster to import dual_run from; its names are read from the file.
@@ -748,9 +778,9 @@ class QueuedStarts(unittest.TestCase):
             with self.subTest(**case):
                 self.assertEqual(self.owed(record, now=T0 + 300, **case)[0], [])
         wait = next(line for line in metrics if line.startswith("foundation_job_queue_wait_seconds{"))
-        self.assertIn(f'job="{self.JOB}",pool="documents",priority_class="default"', wait)
+        self.assertIn(f'job="{self.JOB}",pool="duckdb",priority_class="default"', wait)
         self.assertTrue(wait.endswith(" 7200"))
-        self.assertIn(f'foundation_job_queue_wait_budget_seconds{{job="{self.JOB}",pool="documents",priority_class="default"}} 21600',
+        self.assertIn(f'foundation_job_queue_wait_budget_seconds{{job="{self.JOB}",pool="duckdb",priority_class="default"}} 21600',
                       metrics)
 
     def test_the_backoff_doubles_to_an_hour(self):
@@ -764,7 +794,7 @@ class QueuedStarts(unittest.TestCase):
         self.assertFalse(set(spec.requeues) & set(spec.reconciles))
         self.assertFalse([job["id"] for job in self.jobs["jobs"]
                           if job["id"] in spec.requeues
-                          and (not job["enabled"] or job["pool"] not in ("spark", "documents"))])
+                          and (not job["enabled"] or job["pool"] not in ("spark", "duckdb", "gpu"))])
 
     def test_the_wait_alert_compares_each_job_to_its_budget(self):
         rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")

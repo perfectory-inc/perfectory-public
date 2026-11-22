@@ -177,3 +177,7 @@ ADR-0431·0458 은 작업을 하나씩, 이중 실행의 일치 결정을 세어
   run(작업의 Dagster job 이나 그 목적의 Dagster job)으로 가면, 셋을 **한 PR 로** 지운다: 슬롯은 Dagster 의 풀 태그 한도가, claim 은
   Dagster run 의 우선순위가, 메모리 허가는 run 태그의 메모리 종류 풀이 맡는다. 그 PR 은 운영 묶음 스위치 뒤, Airflow 삭제와 같은 주다.
   손 `systemctl start` 는 그때 강제 명령이 Dagster run 이 아닌 시작을 거부하는 것으로 닫는다.
+
+## 개정 각주 — 2026-11-23, ADR-0605
+
+§7 의 "풀을 메모리 종류로 나눈다" 는 [ADR-0605](./0605-scheduled-job-pools-are-cut-by-the-resource-they-guard-and-counted-by-dagsters-own-pools-and-a-jobs-wait-is-measured-not-computed.md) 가 자원으로 나눴다(spark 1·duckdb 2·gpu 1, Dagster 의 풀). 메모리 허가에는 ADR-0605 §3 의 셈이 더해졌고, 그 끝 조건은 ADR-0605 §3 의 부등식이다. `pool_full`·용량 claim 의 끝 조건과 노화·선점은 그대로다.

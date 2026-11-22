@@ -157,5 +157,94 @@ class TheGate(unittest.TestCase):
         self.assertEqual(writer_gate.main(["ask", "anything"]), 64)
 
 
+class DagstersPoolLimitsAreTheJobLists(unittest.TestCase):
+    """Root ADR-0605: the deploy sets Dagster's own pool limits from jobs.v1.json pools and reads them back."""
+
+    def test_the_gate_sets_every_limit_the_job_list_may_declare(self):
+        sys.path.insert(0, str(PLATFORM / "orchestration" / "dags"))
+        import job_specs  # noqa: PLC0415
+        self.assertEqual(dagster_writes.MAX_POOL_LIMIT, job_specs.MAX_POOL_SLOTS)
+
+    def test_the_host_may_read_set_and_delete_a_pool_limit_and_nothing_wider(self):
+        self.assertIsNone(host(body(dagster_writes.POOL_LIMITS)))
+        self.assertIsNone(host(body(dagster_writes.SET_POOL_LIMIT, {"concurrencyKey": "duckdb", "limit": 2})))
+        self.assertIsNone(host(body(dagster_writes.DELETE_POOL_LIMIT, {"concurrencyKey": "documents"})))
+        for variables in ({"concurrencyKey": "duckdb", "limit": 0},  # 0 would stop every run of the pool
+                          {"concurrencyKey": "duckdb", "limit": dagster_writes.MAX_POOL_LIMIT + 1},
+                          {"concurrencyKey": "Duck-DB", "limit": 2},
+                          {"concurrencyKey": "duckdb", "limit": "2"},
+                          {"concurrencyKey": "duckdb", "limit": 2, "extra": 1}):
+            with self.subTest(variables):
+                self.assertIsNotNone(host(body(dagster_writes.SET_POOL_LIMIT, variables)))
+        self.assertIsNotNone(host(body(dagster_writes.DELETE_POOL_LIMIT, {"concurrencyKey": "../x"})))
+        self.assertIsNotNone(host(body(dagster_writes.POOL_LIMITS, {"x": 1})))
+
+    def dagster(self, held, refuse_set=False):
+        """A stand-in for the writer socket: each document must pass the host's gate, as the real one does."""
+        told = []
+
+        def graphql(document, variables=None):
+            self.assertIsNone(host(body(document, variables)))
+            told.append((document, variables))
+            if document == dagster_writes.POOL_LIMITS:
+                return {"instance": {"concurrencyLimits": [
+                    {"concurrencyKey": key, "limit": limit, "usingDefaultLimit": limit is None} for key, limit in held.items()]}}
+            if document == dagster_writes.SET_POOL_LIMIT and not refuse_set:
+                held[variables["concurrencyKey"]] = variables["limit"]
+            if document == dagster_writes.DELETE_POOL_LIMIT:
+                held.pop(variables["concurrencyKey"])
+            return {}
+        return graphql, told
+
+    def test_the_list_is_set_an_undeclared_pool_deleted_and_both_read_back(self):
+        held = {"spark": 3, "documents": 1, "duckdb": None}
+        graphql, told = self.dagster(held)
+        original, writer_gate.graphql = writer_gate.graphql, graphql
+        try:
+            # Before the reload: the list's pools are set, an undeclared one stays (a loaded op may still name it).
+            self.assertEqual(writer_gate.pools({"spark": 1, "duckdb": 2, "gpu": 1}), 0)
+            self.assertEqual(held, {"spark": 1, "documents": 1, "duckdb": 2, "gpu": 1})
+            # After it: pruned, and read back exactly.
+            self.assertEqual(writer_gate.pools({"spark": 1, "duckdb": 2, "gpu": 1}, prune=True), 0)
+        finally:
+            writer_gate.graphql = original
+        self.assertEqual(held, {"spark": 1, "duckdb": 2, "gpu": 1})
+        sets = [variables for document, variables in told if document == dagster_writes.SET_POOL_LIMIT]
+        # A pool Dagster gave its default limit is set too: the default is not the list's.
+        self.assertEqual(sorted(sets, key=lambda v: v["concurrencyKey"]),
+                         [{"concurrencyKey": "duckdb", "limit": 2}, {"concurrencyKey": "gpu", "limit": 1},
+                          {"concurrencyKey": "spark", "limit": 1}])
+        # Already the list's: nothing is written.
+        graphql, told = self.dagster(held)
+        original, writer_gate.graphql = writer_gate.graphql, graphql
+        try:
+            self.assertEqual(writer_gate.pools({"spark": 1, "duckdb": 2, "gpu": 1}), 0)
+        finally:
+            writer_gate.graphql = original
+        self.assertEqual([document for document, _ in told], [dagster_writes.POOL_LIMITS] * 2)
+
+    def test_the_rollback_prunes_every_pool(self):
+        # Root ADR-0605 §8: before a revert deploys, `echo '{}' | ... ask pools --prune` leaves Dagster no limit.
+        held = {"spark": 1, "duckdb": 2, "gpu": 1}
+        graphql, _ = self.dagster(held)
+        original, writer_gate.graphql = writer_gate.graphql, graphql
+        try:
+            self.assertEqual(writer_gate.pools({}, prune=True), 0)
+        finally:
+            writer_gate.graphql = original
+        self.assertEqual(held, {})
+
+    def test_a_limit_dagster_does_not_hold_after_the_deploy_or_a_bad_list_fails(self):
+        graphql, _ = self.dagster({"spark": 3}, refuse_set=True)
+        original, writer_gate.graphql = writer_gate.graphql, graphql
+        try:
+            self.assertEqual(writer_gate.pools({"spark": 1}), 1)
+            for declared in ({"spark": 0}, {"Spark": 1}, ["spark"], {"spark": "1"}):
+                with self.subTest(declared):
+                    self.assertEqual(writer_gate.pools(declared), 1)
+        finally:
+            writer_gate.graphql = original
+
+
 if __name__ == "__main__":
     unittest.main()

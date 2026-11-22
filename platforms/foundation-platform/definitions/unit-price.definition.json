@@ -40,8 +40,13 @@
           "to": "2026-11-03T15:50:32Z"
         }
       },
-      "pool": "spark",
-      "pool_slots": 1,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-by-pnu-unit-price-bake.service"
+        ],
+        "beside": "2560m"
+      },
       "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
@@ -189,17 +194,6 @@
       },
       "spark_held_test": "infra/lakehouse/spark/tests/test_unit_price_panel_iceberg.py"
     }
-  },
-  "host_memory": {
-    "by_pnu_unit_price_bake": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
-      }
-    ]
   },
   "asset_checks": [
     {

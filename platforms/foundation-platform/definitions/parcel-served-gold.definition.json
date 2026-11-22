@@ -37,7 +37,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "priority_weight": 31,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -64,7 +63,7 @@
       "systemd_timer": null,
       "state_paths": [],
       "schedule": "30 11 * * *",
-      "started_by": "schedule",
+      "started_by": "inputs",
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 60,
@@ -82,8 +81,12 @@
           "estimated_from": "computed, not measured: the first shadow build holds every parcel, so it reads the replaced build's edition (39,876,546 parcels of 202609, about 7.5 GB of silver.parcel_boundaries in one partition ordered by PNU) once, 시도 by 시도, and stages about 6 GB of Parquet (the served table's 58 files hold 6,053,964,102 bytes, 2026-11-22). W86's first DuckDB port diffed the same parcels in 4,277 s at 2 threads and 2 GiB; this unit gives DuckDB 3/5 of up to 8 GiB and every core, so about 1,800 s, inside the 60-minute limit with the takeover verdict after it. Later runs do nothing until that table's build moves, and then append the parcels whose content changed."
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-gold-versions@parcel-boundary-served.service"
+        ]
+      },
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -216,11 +219,6 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark"
-      }
-    ],
-    "gold_parcel_boundary_served_versions_build": [
-      {
-        "unit": "MemoryMax"
       }
     ]
   },

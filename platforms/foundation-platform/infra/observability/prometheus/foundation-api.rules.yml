@@ -1012,6 +1012,30 @@ groups:
         annotations:
           summary: 'Dagster 작업 {{ $labels.run_job }} 의 run 이 한도를 {{ $value | humanizeDuration }} 넘겨 열려 있어요 — run monitoring 이 닫지 못했어요. 그 run 의 프로세스가 살아 있는지 보고, 아니면 Dagster UI 에서 끝내세요(유닛은 systemd 의 것이라 따로 돌아요)'
           runbook: docs/runbooks/production-orchestrator-cutover.md
+      - alert: FoundationDagsterRunQueuedOverBudget
+        # Root ADR-0605 §5: a run waits in Dagster's queue for its pool's slot (spark 1, duckdb 2, gpu 1); past
+        # its class's budget it is starving. The wait is measured, where job_specs once computed a bound and
+        # put jobs started by their inputs on the clock to pass it.
+        expr: >-
+          foundation_dagster_run_queued_seconds > on(job_id, pool, priority_class) foundation_dagster_run_queue_budget_seconds
+        for: 10m
+        labels:
+          severity: ticket
+          service: orchestration
+        annotations:
+          summary: '{{ $labels.job_id }} 의 Dagster run 이 {{ $labels.pool }} 풀 자리를 {{ humanizeDuration $value }}째 기다려요({{ $labels.priority_class }} 예산 넘음). Dagster UI 의 Deployment → Concurrency 에서 그 풀을 무엇이 쥐고 있는지 보세요'
+          runbook: docs/runbooks/production-orchestrator-cutover.md
+      - alert: FoundationDagsterPoolLimitDrift
+        # Root ADR-0605 §6: the deploy sets each pool's limit from the job list (writer_gate.py ask pools); a
+        # pool left at Dagster's default runs one at a time, one with another number runs more or fewer.
+        expr: foundation_dagster_pool_limit_matches == 0
+        for: 30m
+        labels:
+          severity: ticket
+          service: orchestration
+        annotations:
+          summary: 'Dagster 의 {{ $labels.pool }} 풀 한도가 작업 목록의 칸과 달라요 — 배포가 쓰지 못했거나 손으로 바뀌었어요. airflow-runtime 로그의 pools 줄을 보고, 같은 명령(writer_gate.py ask pools)으로 다시 쓰세요'
+          runbook: docs/runbooks/production-orchestrator-cutover.md
       - alert: FoundationDualRunSilent
         # A check compares after every Airflow run of its job; eight of the jobs run more than once a
         # day, so a day without any comparison is a dual run that stopped. 26 hours, the dual run's

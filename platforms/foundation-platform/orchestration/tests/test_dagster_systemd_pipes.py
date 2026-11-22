@@ -190,7 +190,13 @@ class AJobDagsterRunsTest(unittest.TestCase):
         self.assertEqual(set(materialized), self.keys(spec))
         self.assertEqual(materialized[first].metadata["rows"].value, 7)
         self.assertEqual(tags["foundation/job-outcome"], "changed")
-        self.assertEqual((tags["foundation/run"], tags["foundation/pool"]), ("job", spec.pool))
+        self.assertEqual(tags["foundation/run"], "job")
+        # Root ADR-0605: the pool is the op's own Dagster pool, not a tag (default_pool is no pool).
+        import observe_assets  # noqa: PLC0415
+        import run_jobs  # noqa: PLC0415
+        self.assertNotIn("foundation/pool", tags)
+        pool = run_jobs.run_job(spec, transport=Stand([])).graph.node_defs[0].pool
+        self.assertEqual(pool, None if spec.pool == observe_assets.job_specs.DEFAULT_POOL else spec.pool)
 
     def test_a_withheld_run_materializes_nothing_and_says_so(self):
         for outcome in ("unchanged", "waiting a release build is running", "skipped paused"):

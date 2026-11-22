@@ -270,16 +270,36 @@ sync_dagster() {
     printf 'airflow-runtime: WARN dagster: the writable webserver did not answer on its socket after 5 minutes\n' >&2
     return 0
   fi
-  dagster_ask reload ||
+  # Dagster's own pool limits are the job list's (root ADR-0605), set as soon as the writable webserver answers.
+  # `up` above may already have recreated the code server with the release's pooled ops: until a pool is set it
+  # starts one run at a time (dagster.yaml default_limit), never more. A pool no job names any more is deleted
+  # only after the reload below, when no loaded op names it. The reconciler says when a pool's limit is not the
+  # list's (FoundationDagsterPoolLimitDrift), so a warning here is not the only sign.
+  dagster_pools
+  local reloaded=1
+  dagster_ask reload || {
+    reloaded=""
     printf 'airflow-runtime: WARN dagster: the code location did not reload; it serves the release it loaded last\n' >&2
+  }
   # The UI answers while the code location fails to load: from 2026-11-06 21:16Z to 11-09 every load
   # failed and this said "observing", and the dual run recorded no comparison (root ADR-0431).
   if ! load_error="$(dagster_ask location-errors 2>&1)"; then
     printf 'airflow-runtime: WARN dagster: the code location could not be read (%s); Dagster is not observing\n' "${load_error}" >&2
     return 0
   fi
+  # Only after a reload: before it, the location still loaded may name a pool the list no longer has.
+  [[ -z "${reloaded}" ]] || dagster_pools --prune
   [[ -z "${load_error}" ]] && { printf 'dagster: observing; read-only UI on 127.0.0.1:19085\n'; return 0; }
   printf 'airflow-runtime: WARN dagster: the code location does not load (%s); Dagster is not observing\n' "${load_error}" >&2
+}
+
+# Dagster's pool limits from the job list's pools (writer_gate.py ask pools [--prune], root ADR-0605).
+dagster_pools() {
+  python3 -I -B -c '
+import json, sys
+print(json.dumps({name: pool["slots"] for name, pool in json.load(open(sys.argv[1]))["pools"].items()}))
+' "${jobs_file}" | compose exec -T dagster-webserver python -I -B /opt/dagster/gate/writer_gate.py ask pools "$@" ||
+    printf 'airflow-runtime: WARN dagster: its pool limits are not the job list'"'"'s (%s); a pool not set starts one run at a time\n' "${*:-set}" >&2
 }
 
 # One of the deploy's questions to the writable webserver (orchestration/dagster/writer_gate.py ask).

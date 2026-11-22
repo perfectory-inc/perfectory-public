@@ -27,8 +27,8 @@ ADR-0478(로컬 모델 런타임)의 운영 절차다. 값(추출기 판·쪽 �
 폴더에 낸 파일을 받아 쌓을 줄을 쓰고, 퍼블리셔가 그것을 쌓는다(`fold-export` → 규칙 → `fold-append`). Spark 는 쓰지 않는다.
 
 - **왜 텍스트 작업은 spark 풀이 아닌가.** OCR 은 CPU 만 쓰고 한 run 이 한 시간 가까이 걸린다(실측 문서당 평균 65 초, 2026-11-11).
-  spark 풀에 1칸으로 두면 그 풀의 굶주림 한도(STARVATION_CYCLES × 주기)를 매시 run 으로는 넘을 수 없다(최악 대기 9,305 분 > 1,200).
-  그래서 자기 풀 `documents`(1칸)에서 돌고, 계획·쌓기만 작은 Spark(`spark-small`)다. 메모리 예산은 두 풀이 동시에 찬 경우를 센다
+  spark 풀에 두면 몇 시간짜리 Spark run 뒤에서 기다린다(그 계산 한도 STARVATION_CYCLES 는 루트 ADR-0605 가 지웠다).
+  그래서 자기 풀 `gpu`(1칸, 루트 ADR-0605 전 이름 `documents`)에서 돌고, 계획·쌓기만 작은 Spark(`spark-small`)다. 메모리 예산은 두 풀이 동시에 찬 경우를 센다
   (`every-container-has-a-memory-cap.sh`: 61.34g / 62g).
 - **왜 사실 작업은 spark 풀이 아닌가(루트 ADR-0563).** 모델 런타임을 `Requires=` 하므로 그 run 동안 런타임이 뜨고, 첫 질문에서
   모델이 메모리에 오른다. 그 메모리는 풀의 칸이 아니라 작업의 `memory_claim`(모델 유닛의 `MemoryMax`)이다: 시작할 때

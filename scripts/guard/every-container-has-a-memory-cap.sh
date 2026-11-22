@@ -22,12 +22,13 @@
 # reads; `one_shot_contracts` names that contract and where its containers are, and this guard
 # counts each as a one-shot job. A container there without a `memory_limit` is a failure.
 #
-# Scheduled jobs that share an Airflow pool can run together as far as its slots allow (root
-# ADR-0138). `scheduled_jobs` names the job list, the systemd units and, for every job in a declared
+# Scheduled jobs that share a pool can run together as far as its slots allow, a run taking one slot
+# (root ADR-0605). `scheduled_jobs` names the job list, the systemd units and, for every job in a declared
 # pool, what it runs: compose services, contract containers, or its unit's MemoryMax (a unit that
 # should have one and does not is a failure). A job holds the largest of its sources at a time; a
-# pool holds the sum over every set of its jobs whose slots fit; the pools together are the
-# scheduled load, which counts instead of the largest one-shot job when it is larger. The release
+# pool holds its `slots` largest jobs together, a job its own unit's memory_claim admits counting none;
+# the pools together are the scheduled load, which counts instead of the largest one-shot job when it is
+# larger, and which jobs.v1.json memory_claims.static_reserve is at least. The release
 # build refuses to start while a registered job runs, and manual loads run with the DAGs paused,
 # so neither ever adds to it.
 #
@@ -59,7 +60,6 @@ command -v python3 >/dev/null 2>&1 || {
 python3 - "$root" "$name" "$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd -P; })" <<'PY'
 from __future__ import annotations
 
-import itertools
 import json
 import os
 import pathlib
@@ -384,6 +384,9 @@ def contract_containers_cap(entry: dict) -> int:
     return max(caps)
 
 
+pool_worst: dict[str, int] = {}  # pool -> the most its static members hold together (scheduled_load)
+
+
 def scheduled_load(section: dict) -> tuple[int, str]:
     """The most memory the pooled scheduled jobs can hold at once, and which jobs that is."""
     jobs_list = json.loads(repository_file(section["jobs"], "jobs").read_text(encoding="utf-8"))
@@ -430,18 +433,13 @@ def scheduled_load(section: dict) -> tuple[int, str]:
     worst_total, worst_label = 0, []
     for pool, spec in pools.items():
         members = [job for job in jobs.values() if job["pool"] == pool and job["id"] in peaks]
-        worst, worst_set = 0, ()
-        # Every job takes at least one slot, so a group larger than the pool's slots never fits: not
-        # enumerating them keeps this polynomial, not 2^n (30 spark jobs took 16 minutes on CI,
-        # 2026-10-28), as job_specs.longest_wait_minutes does.
-        for size in range(1, min(len(members), spec["slots"]) + 1):
-            for group in itertools.combinations(members, size):
-                if sum(job.get("pool_slots", 1) for job in group) > spec["slots"]:
-                    continue
-                held = sum(peaks[job["id"]] for job in group)
-                if held > worst:
-                    worst, worst_set = held, group
+        # A run takes one slot (root ADR-0605, a Dagster pool of run granularity), so the most the pool holds
+        # at once is its `slots` largest members together. A member admitted by its memory_claim was left
+        # out above: the host's available memory admits it, not these caps.
+        worst_set = tuple(sorted(members, key=lambda job: (-peaks[job["id"]], job["id"]))[: spec["slots"]])
+        worst = sum(peaks[job["id"]] for job in worst_set)
         worst_total += worst
+        pool_worst[pool] = worst
         if worst_set:
             worst_label.append(f"{pool}: " + " + ".join(f"{job['id']} {gib(peaks[job['id']])}" for job in worst_set))
     return worst_total, "; ".join(worst_label)
@@ -465,6 +463,7 @@ def memory_claim_problems(section: dict) -> list[str]:
     or a protected class is memory nothing bounds or the OOM killer spares."""
     jobs_list = json.loads(repository_file(section["jobs"], "jobs").read_text(encoding="utf-8"))
     claiming = {job["id"]: job["memory_claim"]["units"] for job in jobs_list["jobs"] if "memory_claim" in job}
+    jobs_by_id = {job["id"]: job for job in jobs_list["jobs"]}
     declared = section.get("memory_claims")
     if not claiming:
         return [f"{CONTRACT}: scheduled_jobs.memory_claims is stated but no job states a memory_claim"] if declared else []
@@ -500,11 +499,24 @@ def memory_claim_problems(section: dict) -> list[str]:
             if unit not in measured:
                 found.append(f"{CONTRACT}: {job_id} claims {unit}, whose measured memory scheduled_jobs.memory_claims.claimed_measured does not state")
             caps.append(cap)
+        beside = size_of(str(jobs_by_id[job_id]["memory_claim"].get("beside", "0m")))
+        caps.append(beside or 0)
         if sum(caps) + keep > usual:
             found.append(
                 f"{CONTRACT}: {job_id} claims {gib(sum(caps))} and keeps {gib(keep)} free, over the {gib(usual)} the host had"
                 f" available for 95% of the measured period: it would wait as the fact job did on 2026-11-13"
             )
+    # Root ADR-0605 §3: a claim beside another leaves each static pool its reserve, so each pool's reserve is at
+    # least the most that pool's static members hold together (scheduled_load).
+    reserve = (jobs_list.get("memory_claims") or {}).get("static_reserve")
+    if not isinstance(reserve, dict):
+        found.append(f"{CONTRACT}: jobs state a memory_claim but jobs.v1.json memory_claims.static_reserve is not a pool -> size map")
+    else:
+        for pool, worst in sorted(pool_worst.items()):
+            held = size_of(str(reserve.get(pool, "")))
+            if worst and (held is None or held < worst):
+                found.append(f"{CONTRACT}: memory_claims.static_reserve of pool {pool} is {gib(held or 0)}, under the {gib(worst)}"
+                             " its static jobs hold together; two claims would count on the OOM killer to make room for them")
     stale = sorted(set(measured) - {unit for units in claiming.values() for unit in units})
     if stale:
         found.append(f"{CONTRACT}: scheduled_jobs.memory_claims.claimed_measured names units no job claims: {', '.join(stale)}")

@@ -31,7 +31,6 @@
         }
       },
       "pool": "default_pool",
-      "pool_slots": 1,
       "priority_weight": 2,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -73,7 +72,6 @@
         }
       },
       "pool": "default_pool",
-      "pool_slots": 1,
       "priority_weight": 2,
       "retries": 0,
       "pipeline_graph_edges": [

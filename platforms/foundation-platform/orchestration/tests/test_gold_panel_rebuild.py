@@ -549,7 +549,7 @@ class Registration(unittest.TestCase):
         # Switched on after its supervised first run (2026-10-07, runbook gold-panel-rebuild.md 4).
         self.assertTrue(job["enabled"])
         self.assertNotIn("disabled_reason", job)
-        self.assertEqual((job["pool"], job["pool_slots"], job["retries"]), ("spark", 3, 0))
+        self.assertEqual((job["pool"], job.get("pool_slots"), job["retries"]), ("spark", None, 0))
         bake = jobs["by_pnu_serving_bake"]
         # Waiting together, Airflow starts the heavier: the Gold first, then the bake.
         self.assertGreater(job["priority_weight"], bake["priority_weight"])
@@ -561,17 +561,9 @@ class Registration(unittest.TestCase):
         self.assertIn("gold-panel-rebuild.sh all", unit)
         # A timeout kills the client, not the daemon's Spark container: ExecStopPost removes it.
         self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh$")
-        # systemd stops it before Airflow would (test_job_specs checks every job); a longer
-        # timeout pushes the hourly folds past their starvation bound.
+        # systemd stops it before Airflow would (test_job_specs checks every job).
         self.assertIn("TimeoutStartSec=160m", unit)
         self.assertEqual(job_specs.scheduler_timeout_minutes(job), 165)
-        stretched = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
-        rebuild = next(j for j in stretched["jobs"] if j["id"] == "gold_panel_rebuild")
-        # The fold's bound has 935 minutes of room behind the other fold (root ADR-0558; FLOOR's 505
-        # left the spark pool with root ADR-0599).
-        rebuild["stop_grace_minutes"] = 936 - rebuild["time_limit_minutes"]
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1201 minutes")
-                            for problem in job_specs.pool_starvation(stretched)))
 
     def test_the_job_carries_out_every_silver_edge_into_the_panel_golds(self):
         graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
@@ -596,7 +588,7 @@ class Registration(unittest.TestCase):
         self.assertEqual(set(job["pipeline_graph_edges"]),
                          {edge["id"] for edge in graph["edges"] if edge["to"] == "gold-unit-price-panel"})
         self.assertIn("gold-building-panel-to-gold-unit-price-panel", job["pipeline_graph_edges"])
-        self.assertEqual((job["started_by"], job["pool"], job["pool_slots"], job["retries"]), ("inputs", "spark", 3, 0))
+        self.assertEqual((job["started_by"], job["pool"], job.get("pool_slots"), job["retries"]), ("inputs", "spark", None, 0))
         self.assertLess(job["priority_weight"], jobs["gold_panel_rebuild"]["priority_weight"])
         self.assertEqual(job_specs.writer_of("gold-unit-price-panel"), "gold_unit_price_rebuild")
         self.assertIn("gold_panel_rebuild", {spec.job_id: spec for spec in job_specs.load_specs()}["gold_unit_price_rebuild"].producers)
@@ -672,7 +664,7 @@ class Registration(unittest.TestCase):
     def test_the_kind_job_runs_the_kinds_after_the_panels_in_the_spark_pool(self):
         job = next(job for job in json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]
                    if job["id"] == "gold_kind_rebuild")
-        self.assertEqual((job["started_by"], job["pool"], job["pool_slots"], job["retries"]), ("inputs", "spark", 3, 0))
+        self.assertEqual((job["started_by"], job["pool"], job.get("pool_slots"), job["retries"]), ("inputs", "spark", None, 0))
         unit = job_specs.service_unit_text(job["systemd_service"])
         self.assertIn("gold-panel-rebuild.sh kinds", unit)
         self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh$")

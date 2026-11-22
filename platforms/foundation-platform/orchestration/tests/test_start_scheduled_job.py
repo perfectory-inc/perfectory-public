@@ -18,15 +18,21 @@ PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = PLATFORM / "scripts/ops/start-scheduled-job.sh"
 
 JOBS = {
-    "pools": {"spark": {"slots": 3, "description": "fixture"}},
+    # A run takes one slot (root ADR-0605): floor, the bake and the paused job share a one-slot pool, so each
+    # keeps the others out; the fold is in a pool of two beside them.
+    "pools": {"spark": {"slots": 1, "description": "fixture"}, "duckdb": {"slots": 2, "description": "fixture"}},
     "jobs": [
-        {"id": "floor", "pool": "spark", "pool_slots": 3, "systemd_service": "foundation-floor.service", "enabled": True,
+        {"id": "floor", "pool": "spark", "systemd_service": "foundation-floor.service", "enabled": True,
          "wait_limit_minutes": 2},
-        {"id": "fold", "pool": "spark", "pool_slots": 2, "systemd_service": "foundation-fold.service", "enabled": True,
+        {"id": "fold", "pool": "duckdb", "systemd_service": "foundation-fold.service", "enabled": True,
          "wait_limit_minutes": 0},
-        {"id": "bake", "pool": "spark", "pool_slots": 1, "takes_turns": True,
+        # A second member, so the duckdb pool's question names several units (SYSTEMCTL tells a pool's
+        # question from a run's by that).
+        {"id": "lane", "pool": "duckdb", "systemd_service": "foundation-lane.service", "enabled": False,
+         "wait_limit_minutes": 0},
+        {"id": "bake", "pool": "spark", "takes_turns": True,
          "systemd_service": "foundation-bake.service", "enabled": True, "wait_limit_minutes": 0},
-        {"id": "paused", "pool": "spark", "pool_slots": 3, "systemd_service": "foundation-paused.service", "enabled": False,
+        {"id": "paused", "pool": "spark", "systemd_service": "foundation-paused.service", "enabled": False,
          "wait_limit_minutes": 0},
     ],
 }
@@ -167,7 +173,7 @@ class EveryStartTakesThePoolsSlots(HostFixture):
         self.assertEqual(asked, "", "a job started beside a full pool")
         self.assertIn("foundation-job-outcome waiting the spark pool has no room for foundation-floor.service",
                       result.stdout)
-        self.assertIn("foundation-paused.service holds 3", result.stdout)
+        self.assertIn("foundation-paused.service holds 1", result.stdout)
         self.assertFalse((self.starts / "floor").exists(), "a start that did not happen was recorded")
 
     def test_a_refused_start_is_queued_and_its_next_start_takes_it_off_with_its_wait(self):
@@ -182,7 +188,7 @@ class EveryStartTakesThePoolsSlots(HostFixture):
             self.assertIn(f"refused {attempt} times; started again when its pool has room", result.stdout)
         record = json.loads((queue / "floor.json").read_text())
         self.assertEqual(record["attempts"], 2)
-        self.assertIn("foundation-paused.service holds 3", record["reason"])
+        self.assertIn("foundation-paused.service holds 1", record["reason"])
         result, asked = self.start("floor triggered")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("systemctl start --no-block foundation-floor.service", asked)
@@ -247,7 +253,7 @@ class NoStartIsHeldByTheClock(HostFixture):
     def setUp(self):
         super().setUp()
         listing = json.loads((self.root / "jobs.json").read_text())
-        listing["jobs"].append({"id": "migration", "pool": "spark", "pool_slots": 3, "enabled": True,
+        listing["jobs"].append({"id": "migration", "pool": "spark", "enabled": True,
                                 "systemd_service": "foundation-migration.service", "wait_limit_minutes": 0,
                                 "schedule": "45 18 * * *", "started_by": "schedule", "time_limit_minutes": 160,
                                 "stop_grace_minutes": 5})
@@ -410,7 +416,7 @@ class TakingTurns(HostFixture):
         self.assertIn("foundation-bake.service", asked)
 
     def test_jobs_that_can_run_beside_it_or_are_switched_off_do_not_hold_it(self):
-        # The fold (2 slots) fits beside the bake (1 of 3); the paused job is not enabled.
+        # The fold runs in another pool; the paused job is not enabled.
         self.record("bake", 2000)
         self.record("floor", 3000)
         result, asked = self.start("bake")

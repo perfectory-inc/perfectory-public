@@ -31,7 +31,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -83,8 +82,13 @@
           "estimated_from": "computed (root ADR-0457): the same lane bake as by_pnu_public_auction_bake (p90 60 s, max 82 s, 42 runs 2026-10-28..11-03); its first run after the 1.4 revision is a new generation of about 44,000 small documents (gold.parcel_court_auction rows, 2026-11-18), about ten times the public-auction max: 900 s, inside the 6,210 s share of its 115-minute limit."
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-by-pnu-lane-bake@parcel-court-auction.service"
+        ],
+        "beside": "2560m"
+      },
       "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
@@ -432,15 +436,6 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark"
-      }
-    ],
-    "by_pnu_court_auction_bake": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
       }
     ]
   },

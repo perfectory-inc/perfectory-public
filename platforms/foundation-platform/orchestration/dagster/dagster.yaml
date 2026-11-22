@@ -17,14 +17,16 @@ storage:
 # job_specs.JobSpec.dagster_tags). Airflow's parallelism (compose.orchestration.yml
 # AIRFLOW__CORE__PARALLELISM, 5) bounds the runs it hands Dagster (proxied). The runs of jobs Dagster decides
 # (the Gold and Silver groups since root ADR-0583, tagged foundation/decided-by=dagster) are held to the
-# pools' slots together and one more (spark 3 + documents 1 + 1 = 5): a pool's run waits on its slots anyway,
+# pools' slots together and one more (spark 1 + duckdb 2 + gpu 1 + 1 = 5): a pool's run waits on its slots anyway,
 # Gold's spark runs take hours, and the one more lets a default-pool load (the hourly onbid and notice Silver)
 # start beside full pools. The queue admits six job runs (the code server's memory, compose), so a proxied
 # run (the asset reconciler's, every few minutes) always finds a place, and keeps one place free for a check
 # run, so a check never waits
 # behind an hours-long job run and a job run never waits behind checks. A pool's runs never outnumber its
-# slots (jobs.v1.json pools: spark 3, documents 1); the host's start (job_units.py pool-full) still decides by
-# priority class and slots, whoever starts. The queue starts higher `dagster/priority` first (the job's
+# slots: each job's op names its Dagster pool (run_jobs.py) and `concurrency.pools` below counts runs, with
+# the limits the deploy sets from jobs.v1.json pools (spark 1, duckdb 2, gpu 1; writer_gate.py ask pools,
+# root ADR-0605). The host's start (job_units.py pool-full) counts the same slots for a start outside
+# Dagster until root ADR-0583's last PR. The queue starts higher `dagster/priority` first (the job's
 # priority class, then its queue weight: job_specs.dagster_priority). test_dagster_observe.py holds these
 # numbers to the job list and compose.
 # Every run's process is a child of the daemon: its cap counts them (compose.orchestration.yml).
@@ -48,12 +50,14 @@ run_coordinator:
       - key: foundation/decided-by
         value: dagster
         limit: 5
-      - key: foundation/pool
-        value: spark
-        limit: 3
-      - key: foundation/pool
-        value: documents
-        limit: 1
+
+# Dagster's own pools (root ADR-0605): a run holds one slot of its op's pool from dequeue to its end
+# (granularity run; op granularity would start runs whose one op then waits, each a 170 MiB process). A
+# pool's limit is the job list's, set by the deploy; a pool it has not set yet starts one run at a time.
+concurrency:
+  pools:
+    granularity: run
+    default_limit: 1
 
 # The default run launcher cannot tell whether a run's process is alive (dagster 1.13.27: no worker
 # health check), so a run whose process died stays STARTED until its max runtime: a job's run says its
@@ -62,6 +66,9 @@ run_coordinator:
 run_monitoring:
   enabled: true
   max_runtime_seconds: 3600
+  # A cancelled or failed run's pool slot is freed this long after it ends: Dagster frees none by itself,
+  # so one cancelled run would hold a one-slot pool for good (dagster 1.13 docs, concurrency pools).
+  free_slots_after_run_end_seconds: 300
 
 local_artifact_storage:
   module: dagster._core.storage.root

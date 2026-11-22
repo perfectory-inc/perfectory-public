@@ -95,3 +95,7 @@
 - 굽기는 Gold 가 커밋하면 곧 시작되지만 `takes_turns` 로 미뤄질 수 있다. 그때는 10:15 대체 시각에 돈다.
 - 검사: `orchestration/tests/test_job_specs.py`(셈법·거부·결과 줄), `test_job_dags.py`(DAG 배선은 대역으로 늘
   돌고, Airflow 가 있는 곳에서는 실제 직렬화까지 확인한다), 각 스크립트 시험(마지막 줄).
+
+## 개정 각주 — 2026-11-23, ADR-0605
+
+§5 의 입력 시작 작업 주기는 굶김 상한에만 쓰였고, 그 상한은 [ADR-0605](./0605-scheduled-job-pools-are-cut-by-the-resource-they-guard-and-counted-by-dagsters-own-pools-and-a-jobs-wait-is-measured-not-computed.md) 가 지웠다. 서로를 시작하는 원의 거부는 `job_specs.start_circles` 로 남는다.

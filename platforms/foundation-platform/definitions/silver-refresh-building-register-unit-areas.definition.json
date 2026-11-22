@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 전유공용면적 lane `building-register-unit-areas` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_unit_areas already records it or a newer one (`unchanged`), export it, compare it, in the publisher's DuckDB, with the table's current rows key bucket by key bucket and append to main only the changed keys' rows and a removal marker per vanished key (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
+      "description": "Silver refresh of the 전유공용면적 lane `building-register-unit-areas` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_unit_areas already records it or a newer one (`unchanged`), export it, compare it, in the publisher's DuckDB, with the table's current rows key bucket by key bucket and append to main only the changed keys' rows and a removal marker per vanished key (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). Two of the duckdb pool's runs go at a time, lanes or other in-process work: each holds one of its slots and a memory_claim on its unit (root ADR-0599, ADR-0605).",
       "systemd_service": "foundation-silver-refresh@building-register-unit-areas.service",
       "check_service": "foundation-silver-refresh-plan@building-register-unit-areas.service",
       "systemd_timer": null,
@@ -43,8 +43,7 @@
           "tracked_by": "root ADR-0391 addendum (2026-11-04): the lane loads its release part by part, 20 parts a step under run_budget.step_seconds_max 2,805 s, and resumes after its deadline; dropped once the first part release (the November hub release) is measured. Root ADR-0386 §5 for the per-run vocabulary"
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-silver-refresh@building-register-unit-areas.service"
