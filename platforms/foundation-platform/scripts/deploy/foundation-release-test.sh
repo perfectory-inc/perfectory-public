@@ -61,6 +61,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.BUILD_LOCK = pathlib.Path(os.environ["REHEARSAL_BUILD_LOCK"])
 release_build_lock = module.release_build_lock
+registry_settings, REGISTRY_HOST = module.registry_settings, module.REGISTRY_HOST
 # chattr +i needs CAP_LINUX_IMMUTABLE, which the rehearsal does not have: the sealed trees are listed
 # in a file instead, and every chattr admission (or prune, through this module) asks for is logged.
 SEALED = pathlib.Path(os.environ["REHEARSAL_SEALED"])
@@ -229,7 +230,7 @@ json.dump({n: {"Name": n, "DefaultValue": "", "PresenceValue": "", "Required": T
 mkdir -p "${test_root}/bin"
 # It also answers the few calls `prune` makes. Running containers are lines
 # `<id> /<name> <image id> <image ref> <mount source>...` in REHEARSAL_CONTAINERS; images are files
-# named `<repository>:<tag>` holding `<id> <size>` in REHEARSAL_IMAGES.
+# named `<repository>:<tag>` or `<repository>@<digest>` (`/` as `%`) holding `<id> <size>` in REHEARSAL_IMAGES.
 cat >"${test_root}/bin/docker" <<'DOCKER'
 #!/usr/bin/env bash
 case "$*" in
@@ -238,6 +239,8 @@ case "$*" in
   "inspect --format "*)
     shift 3
     for id in "$@"; do grep "^${id} " "${REHEARSAL_CONTAINERS}" | cut -d' ' -f2-; done ;;
+  "image ls --no-trunc --format {{.ID}} "*) cat "${REHEARSAL_IMAGES}/${6//\//%}"@* 2>/dev/null | cut -d' ' -f1 ;;
+  "image inspect --format {{range"*) grep -l "^$5 " "${REHEARSAL_IMAGES}"/* | sed 's|.*/||; s|%|/|g' ;;
   "image inspect --format "*)
     if [[ -f "${REHEARSAL_IMAGES}/$5" ]]; then
       cat "${REHEARSAL_IMAGES}/$5"
@@ -245,7 +248,7 @@ case "$*" in
       # By ID: one answer however many tags share it, as Docker gives.
       awk -v id="$5" '$1 == id { print; found = 1; exit } END { exit !found }' "${REHEARSAL_IMAGES}"/*
     fi ;;
-  "image rm "*) rm "${REHEARSAL_IMAGES}/$3" 2>/dev/null || { echo "No such image: $3" >&2; exit 1; } ;;
+  "image rm "*) rm "${REHEARSAL_IMAGES}/${3//\//%}" 2>/dev/null || { echo "No such image: $3" >&2; exit 1; } ;;
   *) exit 1 ;;
 esac
 DOCKER
@@ -972,16 +975,18 @@ printf 'sudoers-control-path-only=pass\n'
 # per release, two image tags each. Ids are synthetic; `n` days old, so newest is smallest n.
 prune_root="${test_root}/prune/opt/foundation-platform"
 prune_id() { printf 'e%039d' "$1"; }
+registry_images="${REHEARSAL_IMAGES}/ghcr.io%perfectory-inc%foundation-release"  # admission's registry repository
 plant_release() {
   local id; id="$(prune_id "$1")"
   mkdir -p "${prune_root}/releases/${id}/scripts" "${prune_root}/artifacts/${id}" "${prune_root}/config/${id}"
   printf '%s\n' "${id}" >"${prune_root}/releases/${id}/.foundation-release-id"
   head -c 65536 /dev/zero >"${prune_root}/artifacts/${id}/foundation-outbox-publisher"
-  printf '{"publisher_image":"sha256:p%s","tippecanoe_image":"sha256:t%s"}\n' "${id}" "${id}" \
-    >"${prune_root}/artifacts/${id}/build.json"
+  printf '{"publisher_image":"sha256:p%s","tippecanoe_image":"sha256:t%s","foundation-platform-dagster_image":"sha256:d%s"}\n' \
+    "${id}" "${id}" "${id}" >"${prune_root}/artifacts/${id}/build.json"
   printf 'K=v\n' >"${prune_root}/config/${id}/building-register-floor.env"
   printf 'sha256:p%s 1000\n' "${id}" >"${REHEARSAL_IMAGES}/foundation-outbox-publisher:${id}"
   printf 'sha256:t%s 2000\n' "${id}" >"${REHEARSAL_IMAGES}/foundation-tippecanoe:${id}"
+  printf 'sha256:d%s 3000\n' "${id}" >"${registry_images}@sha256:d${id}"  # pulled from the registry by digest
   chmod -R a-w "${prune_root}/releases/${id}" "${prune_root}/artifacts/${id}"
   touch -d "@$(( $(date +%s) - $1 * 86400 ))" \
     "${prune_root}/releases/${id}" "${prune_root}/artifacts/${id}" "${prune_root}/config/${id}"
@@ -993,9 +998,9 @@ plant_control() {
 }
 gone() { [[ ! -e "${prune_root}/releases/$1" && ! -e "${prune_root}/artifacts/$1" &&
             ! -e "${prune_root}/config/$1" && ! -e "${REHEARSAL_IMAGES}/foundation-outbox-publisher:$1" &&
-            ! -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$1" ]]; }
+            ! -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$1" && ! -e "${registry_images}@sha256:d$1" ]]; }
 present() { [[ -d "${prune_root}/releases/$1" && -d "${prune_root}/artifacts/$1" &&
-               -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$1" ]]; }
+               -e "${REHEARSAL_IMAGES}/foundation-tippecanoe:$1" && -e "${registry_images}@sha256:d$1" ]]; }
 expect() { "$@" || { printf 'prune rehearsal: expected: %s\n' "$*" >&2; return 1; }; }
 
 # Runs every retention case against one script; returns non-zero on the first broken expectation.
@@ -1079,6 +1084,8 @@ print(child.pid)' "${prune_root}/releases/$(prune_id 6)/scripts")" || return 1
 
   # Docker answering an image inspect with something else refuses that release, not the run.
   printf 'unexpected\n' >"${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 11)"
+  # A registry image no release here records (its release went before); none goes while an admission pulls.
+  printf 'sha256:dleft 3000\n' >"${registry_images}@sha256:dleft"; mkdir "${prune_root}/artifacts/.registry-x"
   status=0
   FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune >"${test_root}/prune.log" 2>&1 || status=$?
   expect [ "${status}" = 75 ] || return 1
@@ -1086,9 +1093,11 @@ print(child.pid)' "${prune_root}/releases/$(prune_id 6)/scripts")" || return 1
     "${test_root}/prune.log" || return 1
   expect test -z "$(grep -l Traceback "${test_root}/prune.log")" || return 1
   expect present "$(prune_id 11)" || return 1
-  printf 'sha256:t%s 2000\n' "$(prune_id 11)" >"${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 11)"
+  expect grep -qx "prune kept the registry's images: an admission is pulling into .registry-x" "${test_root}/prune.log" || return 1
+  printf 'sha256:t%s 2000\n' "$(prune_id 11)" >"${REHEARSAL_IMAGES}/foundation-tippecanoe:$(prune_id 11)"; rmdir "${prune_root}/artifacts/.registry-x"
   FOUNDATION_PLATFORM_RELEASE_ROOT="${prune_root}" "${script}" prune >"${test_root}/prune.log" 2>&1 || return 1
   expect gone "$(prune_id 11)" || return 1
+  expect grep -qx 'prune removed image sha256:dleft images=3000' "${test_root}/prune.log" || return 1
   return 0
 }
 
@@ -1202,11 +1211,16 @@ for name in shared-image-holds shared-image-removed; do
   printf 'prune-%s-mutation=refused\n' "${name}"
 done
 mutate_prune without-unseal 's/        admission.set_immutable(path, False)/        pass/'
-if prune_rehearsal "${test_root}/without-unseal.sh" 2>/dev/null; then
-  printf 'prune rehearsal passed without lifting the immutable seal\n' >&2
-  exit 1
-fi
-printf 'prune-without-unseal-mutation=refused\n'
+# The registry's images: one a release here records stays, and none goes while an admission pulls.
+mutate_prune registry-takes-recorded 's/ - recorded)/)/'
+mutate_prune registry-during-pull 's/^    if pulling:/    if False:/'
+for name in without-unseal registry-takes-recorded registry-during-pull; do
+  if prune_rehearsal "${test_root}/${name}.sh" 2>/dev/null; then
+    printf 'prune rehearsal passed with mutation %s\n' "${name}" >&2
+    exit 1
+  fi
+  printf 'prune-%s-mutation=refused\n' "${name}"
+done
 mutate_prune without-build-lock 's/build_lock.enter_context(admission.release_build_lock())/pass/'
 if prune_rehearsal "${test_root}/without-build-lock.sh" 2>/dev/null; then
   printf 'prune rehearsal passed without taking the release build lock\n' >&2
