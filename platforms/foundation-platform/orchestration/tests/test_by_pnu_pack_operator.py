@@ -368,7 +368,7 @@ class PackOperator(OperatorHarness):
                 self.log.unlink(missing_ok=True)
                 result, calls = self.run_operator(*args, activating=["foundation-lineage-stewardship.service"])
                 self.assertEqual(result.returncode, 75, result.stderr)
-                self.assertIn("foundation-lineage-stewardship.service holds 3", result.stderr)
+                self.assertIn("foundation-lineage-stewardship.service holds 1", result.stderr)  # a run takes one slot (root ADR-0605)
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
 
     def test_a_parcel_tile_rehearsal_starts_its_half_and_never_beside_spark_work(self):

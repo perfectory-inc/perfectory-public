@@ -169,7 +169,7 @@ class EveryStartTakesThePoolsSlots(HostFixture):
         self.assertEqual(asked, "", "a job started beside a full pool")
         self.assertIn("foundation-job-outcome waiting the spark pool has no room for foundation-floor.service",
                       result.stdout)
-        self.assertIn("foundation-paused.service holds 3", result.stdout)
+        self.assertIn("foundation-paused.service holds 1", result.stdout)
         self.assertFalse((self.starts / "floor").exists(), "a start that did not happen was recorded")
 
     def test_a_refused_start_is_queued_and_its_next_start_takes_it_off_with_its_wait(self):
@@ -184,7 +184,7 @@ class EveryStartTakesThePoolsSlots(HostFixture):
             self.assertIn(f"refused {attempt} times; started again when its pool has room", result.stdout)
         record = json.loads((queue / "floor.json").read_text())
         self.assertEqual(record["attempts"], 2)
-        self.assertIn("foundation-paused.service holds 3", record["reason"])
+        self.assertIn("foundation-paused.service holds 1", record["reason"])
         result, asked = self.start("floor triggered")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("systemctl start --no-block foundation-floor.service", asked)
