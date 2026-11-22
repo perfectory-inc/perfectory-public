@@ -3,7 +3,7 @@
 //! The national verdict (module docs) is what moved the transform; this keeps the binary on the
 //! rules that verdict could only cover by the data it met: the quartile interpolation and its
 //! `HALF_UP` rounding, a cancelled deal counted but not priced, no building price for 토지, the
-//! trailing window's bounds, the 시군구 level, and Java's text of a double past 10⁷ in the digest.
+//! trailing window's bounds, the 시군구 level, and a double past 10⁷ in the digest as `DuckDB` writes it.
 
 use chrono::NaiveDate;
 
@@ -186,10 +186,10 @@ fn the_statistics_are_the_spark_jobs() -> anyhow::Result<()> {
 }
 
 #[test]
-fn the_digest_is_sparks_to_json_of_the_content() -> anyhow::Result<()> {
+fn the_digest_is_the_json_of_the_content() -> anyhow::Result<()> {
     let connection = connection()?;
     let query = region_stats_query(NaiveDate::from_ymd_opt(2026, 11, 1).unwrap_or_default())?;
-    // Spark's to_json: contract order, nulls left out, a double as Java writes it.
+    // Contract order, nulls left out, a double as `DuckDB` writes it (no exponent below 10¹⁵).
     for (period, text) in [
         (
             "2026-10",
@@ -197,7 +197,7 @@ fn the_digest_is_sparks_to_json_of_the_content() -> anyhow::Result<()> {
         ),
         (
             "2025-10",
-            r#"{"dataset_slug":"real_transaction_industrial_trade","region_level":"legal_dong","region_code":"9999910100","period_kind":"month","period":"2025-10","deal_count":1,"cancelled_count":0,"land_price_per_m2_p25":1.2E8,"land_price_per_m2_median":1.2E8,"land_price_per_m2_p75":1.2E8}"#,
+            r#"{"dataset_slug":"real_transaction_industrial_trade","region_level":"legal_dong","region_code":"9999910100","period_kind":"month","period":"2025-10","deal_count":1,"cancelled_count":0,"land_price_per_m2_p25":120000000.0,"land_price_per_m2_median":120000000.0,"land_price_per_m2_p75":120000000.0}"#,
         ),
     ] {
         let (digest, expected): (String, String) = connection.query_row(
@@ -214,19 +214,21 @@ fn the_digest_is_sparks_to_json_of_the_content() -> anyhow::Result<()> {
 }
 
 #[test]
-fn the_double_text_is_javas() -> anyhow::Result<()> {
+fn a_double_is_duckdbs_own_text_and_json() -> anyhow::Result<()> {
     let connection = duckdb::Connection::open_in_memory()?;
     define_macros(&connection)?;
     for (value, text) in [
         (0.0, "0.0"),
         (12.5, "12.5"),
         (9_999_999.9, "9999999.9"),
-        (10_000_000.0, "1.0E7"),
-        (12_345_678.9, "1.23456789E7"),
-        (120_000_000.0, "1.2E8"),
+        (10_000_000.0, "10000000.0"),
+        (12_345_678.9, "12345678.9"),
+        (120_000_000.0, "120000000.0"),
+        (f64::NAN, "\"NaN\""),
+        (f64::INFINITY, "\"Infinity\""),
     ] {
         let found: String = connection.query_row(
-            "SELECT spark_double_text(CAST(? AS DOUBLE))",
+            "SELECT json_double(CAST(? AS DOUBLE))",
             [value],
             |row| row.get(0),
         )?;

@@ -13,10 +13,9 @@
 -- month after it, COMPARABLE_COUNT, the document bound less its envelope, `history_coverage` as JSON,
 -- and a deal's and a comparable's JSON object over `placed`'s columns.
 --
--- The JSON is Spark's `to_json(…, ignoreNullFields=false)` as text, field by field: every key, a missing
--- value null, a double as Java writes it (`spark_double_text`). `DuckDB`'s own `to_json` writes a
--- string as Jackson does and is used for strings and string lists only. Spark's `length` is a count of
--- characters, as `length` is.
+-- The JSON is text built field by field: every key, a missing value null, a double as `json_double`
+-- writes it. `DuckDB`'s own `to_json` is used for strings and string lists only. The bound counts
+-- characters, as `length` does: the Spark job's bound, kept, since it decides which deals are left out.
 INSERT INTO gold_rows
 WITH own AS (
   SELECT pnu, row_id, deal_date, dataset_slug, main_lot_group_key, {transaction} AS _entry
@@ -91,7 +90,7 @@ members AS (
 )
 SELECT d.pnu, d.real_transaction_json, d.transaction_total, CAST(NULL AS VARCHAR) AS attached_via,
        i.place_id, m.main_lot_group_place_ids,
-       -- Spark's default to_json of the content columns: a null field left out.
+       -- The content columns as JSON, a null field left out.
        sha256('{"pnu":' || to_json(d.pnu)::VARCHAR
               || ',"real_transaction_json":' || to_json(d.real_transaction_json)::VARCHAR
               || ',"transaction_total":' || d.transaction_total

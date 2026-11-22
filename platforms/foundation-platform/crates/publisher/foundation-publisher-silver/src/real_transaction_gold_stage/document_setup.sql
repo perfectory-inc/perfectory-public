@@ -23,14 +23,14 @@ CREATE OR REPLACE TEMP TABLE rt_region_doc AS
          '[' || string_agg('{"dataset_slug":' || to_json(dataset_slug)::VARCHAR
            || ',"deal_count":' || deal_count || ',"cancelled_count":' || cancelled_count
            || ',"land_price_per_m2_10k_krw":' || CASE WHEN land_price_per_m2_median IS NOT NULL
-                THEN '{"p25":' || spark_double_text(land_price_per_m2_p25)
-                  || ',"median":' || spark_double_text(land_price_per_m2_median)
-                  || ',"p75":' || spark_double_text(land_price_per_m2_p75) || '}' ELSE 'null' END
+                THEN '{"p25":' || json_double(land_price_per_m2_p25)
+                  || ',"median":' || json_double(land_price_per_m2_median)
+                  || ',"p75":' || json_double(land_price_per_m2_p75) || '}' ELSE 'null' END
            || ',"building_price_per_m2_10k_krw":' || CASE WHEN dataset_slug = 'real_transaction_industrial_trade'
                   AND building_price_per_m2_median IS NOT NULL
-                THEN '{"p25":' || spark_double_text(building_price_per_m2_p25)
-                  || ',"median":' || spark_double_text(building_price_per_m2_median)
-                  || ',"p75":' || spark_double_text(building_price_per_m2_p75) || '}' ELSE 'null' END
+                THEN '{"p25":' || json_double(building_price_per_m2_p25)
+                  || ',"median":' || json_double(building_price_per_m2_median)
+                  || ',"p75":' || json_double(building_price_per_m2_p75) || '}' ELSE 'null' END
            || '}', ',' ORDER BY dataset_slug) || ']' AS datasets
   FROM region
   WHERE period_kind = 'trailing_12_months' AND region_level = 'legal_dong'

@@ -9,7 +9,7 @@
 -- `deals`: dataset_slug, legal_dong (the deal's CURRENT 법정동, or NULL), deal_date (DATE),
 -- deal_amount_10k_krw (BIGINT), land_area_m2, building_area_m2 (DOUBLE), cancelled (BOOLEAN).
 -- `{as_of}` is the build month's first day, `{trailing_from}` the month REGION_MONTHS before it,
--- `{as_of_month}` the build month as YYYY-MM. `spark_percentile` and `spark_double_text` are the
+-- `{as_of_month}` the build month as YYYY-MM. `spark_percentile` and `json_double` are the
 -- macros `real_transaction_gold_stage.rs` defines.
 WITH base AS (
   SELECT dataset_slug, legal_dong, deal_date, NOT coalesce(cancelled, false) AS live,
@@ -52,16 +52,16 @@ quartiles AS (
   FROM grouped
 )
 SELECT *,
-       -- Spark's to_json of the content columns in contract order, nulls left out.
+       -- The content columns as JSON in contract order, nulls left out.
        sha256('{"dataset_slug":"' || dataset_slug || '","region_level":"' || region_level
               || '","region_code":"' || region_code || '","period_kind":"' || period_kind
               || '","period":"' || period || '","deal_count":' || deal_count
               || ',"cancelled_count":' || cancelled_count
-              || coalesce(',"land_price_per_m2_p25":' || spark_double_text(land_price_per_m2_p25), '')
-              || coalesce(',"land_price_per_m2_median":' || spark_double_text(land_price_per_m2_median), '')
-              || coalesce(',"land_price_per_m2_p75":' || spark_double_text(land_price_per_m2_p75), '')
-              || coalesce(',"building_price_per_m2_p25":' || spark_double_text(building_price_per_m2_p25), '')
-              || coalesce(',"building_price_per_m2_median":' || spark_double_text(building_price_per_m2_median), '')
-              || coalesce(',"building_price_per_m2_p75":' || spark_double_text(building_price_per_m2_p75), '')
+              || coalesce(',"land_price_per_m2_p25":' || json_double(land_price_per_m2_p25), '')
+              || coalesce(',"land_price_per_m2_median":' || json_double(land_price_per_m2_median), '')
+              || coalesce(',"land_price_per_m2_p75":' || json_double(land_price_per_m2_p75), '')
+              || coalesce(',"building_price_per_m2_p25":' || json_double(building_price_per_m2_p25), '')
+              || coalesce(',"building_price_per_m2_median":' || json_double(building_price_per_m2_median), '')
+              || coalesce(',"building_price_per_m2_p75":' || json_double(building_price_per_m2_p75), '')
               || '}') AS row_digest
 FROM quartiles

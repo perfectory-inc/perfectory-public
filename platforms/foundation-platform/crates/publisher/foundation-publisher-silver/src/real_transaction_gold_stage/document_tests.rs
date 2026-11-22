@@ -1,7 +1,7 @@
 //! The document's rules on the Spark job's own cases (`test_real_transaction_gold.py`,
 //! `DocumentSparkTest` and `history_coverage`), synthetic codes and PNUs (prefix 99999) only. The
 //! national verdict against the served Gold is what moves the transform; these hold the rules one
-//! day's data may not exercise, and the exact text Spark's `to_json` writes.
+//! day's data may not exercise, and the exact text the document is.
 
 use std::collections::BTreeMap;
 
@@ -285,10 +285,10 @@ fn a_main_lot_group_deal_shows_on_every_parcel_of_the_group() -> anyhow::Result<
 }
 
 #[test]
-fn the_document_is_the_text_spark_writes_and_the_digest_holds_content_only() -> anyhow::Result<()> {
+fn the_document_is_its_fields_in_order_and_the_digest_holds_content_only() -> anyhow::Result<()> {
     let factory = pnu(OTHER, 5, 0);
     let mut big = Deal::new("o-1", OTHER_NAME, "5", "2098-02-01").land(1000.0);
-    // Java writes a double past 10⁷ with an exponent.
+    // A double past 10⁷ is `DuckDB`'s plain text, not Java's exponent.
     big.building = Some(12_345_678.5);
     let deals = rows(&[big]);
     let land = [(factory.clone(), "공장용지", 1000.0)];
@@ -312,13 +312,13 @@ fn the_document_is_the_text_spark_writes_and_the_digest_holds_content_only() -> 
     )?;
     let deal =
         "\"deal_date\":\"2098-02-01\",\"deal_amount_10k_krw\":50000,\"land_area_m2\":1000.0,\
-         \"building_area_m2\":1.23456785E7,\"land_use\":\"계획관리\",\"building_use\":\"공장\",\
+         \"building_area_m2\":12345678.5,\"land_use\":\"계획관리\",\"building_use\":\"공장\",\
          \"build_year\":2001,\"jibun_raw\":\"5\"";
     let expected = format!(
         "{{\"as_of_month\":\"2098-05-01\",\"transactions\":[{{\"dataset_slug\":\"{INDUSTRIAL}\",\
          \"deal_date\":\"2098-02-01\",\"deal_amount_10k_krw\":50000,\"deposit_10k_krw\":null,\
          \"monthly_rent_10k_krw\":null,\"rent_kind\":null,\"building_type\":\"일반\",\"building_use\":\"공장\",\
-         \"building_name\":null,\"building_area_m2\":1.23456785E7,\"building_area_kind\":\"total_floor\",\
+         \"building_name\":null,\"building_area_m2\":12345678.5,\"building_area_kind\":\"total_floor\",\
          \"land_area_m2\":1000.0,\"land_area_kind\":\"plottage\",\"floor\":null,\"build_year\":2001,\
          \"land_use\":\"계획관리\",\"jimok\":null,\"jibun_raw\":\"5\",\"share_dealing_type\":null,\
          \"dealing_gbn\":\"중개거래\",\"cancelled\":false,\"cancel_date\":null,\

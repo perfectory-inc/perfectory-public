@@ -2,7 +2,10 @@
 //!
 //! They were the Spark job `real_transaction_silver_to_gold.py`. Each part moves on an
 //! engine-equality verdict against the rows the job wrote (ADR-0559 §3); the SQL here is that
-//! job's rules, written so the rows and their `row_digest` are byte for byte the job's:
+//! job's rules and values. Its text is `DuckDB`'s own, not Spark's or Java's (a double is
+//! `json_double`'s): the verdict reads the JSON columns as values and does not compare
+//! `row_digest` (root ADR-0564 Revision 2026-11-22, the second), and the switch bakes every
+//! document once. The verdicts below were judged on the job's text, before that rule:
 //!
 //! - `region_stats.sql`: the region statistics (`region_rows`, `region_gold_rows`). Judged
 //!   nationally on 2026-11-14 against the served `gold.real_transaction_region_stats` at the pins
@@ -97,30 +100,12 @@ const SPARK_PERCENTILE: &str = "CREATE OR REPLACE MACRO spark_percentile(l, p) A
            + ((len(l) - 1) * p - floor((len(l) - 1) * p)) * l[CAST(ceil((len(l) - 1) * p) AS BIGINT) + 1] \
         END) AS VARCHAR) AS DECIMAL(38, 18)), 1) AS DOUBLE) END";
 
-/// How Spark's `to_json` writes a double (Java's `Double.toString`), from `DuckDB`'s shortest text:
-/// plain from 10⁻³ to below 10⁷, else one digit, the rest without trailing zeros, `E` and the
-/// exponent; `NaN` and the infinities as Jackson quotes them. `DuckDB`'s `to_json` writes a JSON
-/// value's numbers again its own way, so the documents are text built field by field.
-const SPARK_DOUBLE: &str = "CREATE OR REPLACE MACRO spark_double_digits(s) AS \
-    CASE WHEN contains(s, 'e') THEN \
-      CASE WHEN contains(split_part(s, 'e', 1), '.') THEN split_part(s, 'e', 1) \
-           ELSE split_part(s, 'e', 1) || '.0' END \
-      || 'E' || CAST(CAST(split_part(s, 'e', 2) AS INTEGER) AS VARCHAR) \
-    WHEN CAST(s AS DOUBLE) >= 1e7 THEN \
-      substr(split_part(s, '.', 1), 1, 1) || '.' \
-      || coalesce(nullif(rtrim(substr(split_part(s, '.', 1), 2) || split_part(s, '.', 2), '0'), ''), '0') \
-      || 'E' || CAST(length(split_part(s, '.', 1)) - 1 AS VARCHAR) \
-    WHEN CAST(s AS DOUBLE) > 0 AND CAST(s AS DOUBLE) < 1e-3 THEN \
-      substr(ltrim(split_part(s, '.', 2), '0'), 1, 1) || '.' \
-      || coalesce(nullif(substr(ltrim(split_part(s, '.', 2), '0'), 2), ''), '0') \
-      || 'E-' || CAST(length(split_part(s, '.', 2)) - length(ltrim(split_part(s, '.', 2), '0')) + 1 AS VARCHAR) \
-    ELSE s END; \
-  CREATE OR REPLACE MACRO spark_double_text(v) AS \
-    CASE WHEN v IS NULL THEN NULL \
-      WHEN isnan(v) THEN '\"NaN\"' WHEN isinf(v) AND v > 0 THEN '\"Infinity\"' \
-      WHEN isinf(v) THEN '\"-Infinity\"' \
-      ELSE (CASE WHEN v < 0 OR (v = 0 AND signbit(v)) THEN '-' ELSE '' END) \
-           || spark_double_digits(CAST(abs(v) AS VARCHAR)) END";
+/// A double as JSON text: `DuckDB`'s own shortest text, which is a JSON number, and `NaN` and the
+/// infinities, which JSON has no number for, as strings. The document is text built field by
+/// field, so its numbers are written here once.
+const JSON_DOUBLE: &str = "CREATE OR REPLACE MACRO json_double(v) AS \
+    CASE WHEN isnan(v) THEN '\"NaN\"' WHEN isinf(v) AND v > 0 THEN '\"Infinity\"' \
+      WHEN isinf(v) THEN '\"-Infinity\"' ELSE CAST(v AS VARCHAR) END";
 
 /// The document's rules as text, for a build's code version: its SQL, the fields it writes and its
 /// bounds. A change of any of them changes every document.
@@ -131,7 +116,7 @@ pub fn code_texts() -> Vec<String> {
         DOCUMENT_SETUP_SQL.to_owned(),
         DOCUMENT_SQL.to_owned(),
         SPARK_PERCENTILE.to_owned(),
-        SPARK_DOUBLE.to_owned(),
+        JSON_DOUBLE.to_owned(),
         TRANSACTION_FIELDS.join(","),
         COMPARABLE_FIELDS.join(","),
         format!("{REGION_MONTHS},{COMPARABLE_MONTHS},{COMPARABLE_COUNT},{DOCUMENT_BUDGET}"),
@@ -154,7 +139,7 @@ fn add_months(month: NaiveDate, months: i32) -> anyhow::Result<NaiveDate> {
 /// # Errors
 /// Returns `DuckDB`'s error.
 pub fn define_macros(connection: &duckdb::Connection) -> anyhow::Result<()> {
-    connection.execute_batch(&format!("{SPARK_PERCENTILE}; {SPARK_DOUBLE};"))?;
+    connection.execute_batch(&format!("{SPARK_PERCENTILE}; {JSON_DOUBLE};"))?;
     Ok(())
 }
 
@@ -276,9 +261,9 @@ fn coverage_json(coverage: &[Coverage]) -> anyhow::Result<String> {
     Ok(format!("[{}]", entries.join(",")))
 }
 
-/// The JSON object Spark's `to_json(struct(fields), ignoreNullFields=false)` writes, as a `DuckDB`
-/// text expression over `placed`'s columns (`types`: name → `DuckDB` type), in order: every key, a
-/// missing value null, a date as its ISO text, a double as Java writes it, and a comparable's `pnu`
+/// The JSON object of `fields`, as a `DuckDB` text expression over `placed`'s columns (`types`:
+/// name → `DuckDB` type), in their order: every key, a missing value null, a date as its ISO
+/// text, a double as `json_double` writes it, and a comparable's `pnu`
 /// none for a 본번 group deal (root ADR-0405).
 fn entry_sql(types: &BTreeMap<String, String>, fields: &[&str]) -> anyhow::Result<String> {
     let parts = fields
@@ -293,7 +278,7 @@ fn entry_sql(types: &BTreeMap<String, String>, fields: &[&str]) -> anyhow::Resul
                 }
                 "VARCHAR" => format!("to_json({field})"),
                 "DATE" => format!("'\"' || CAST({field} AS VARCHAR) || '\"'"),
-                "DOUBLE" => format!("spark_double_text({field})"),
+                "DOUBLE" => format!("json_double({field})"),
                 "BIGINT" | "INTEGER" | "SMALLINT" | "TINYINT" | "HUGEINT" | "BOOLEAN" => {
                     format!("CAST({field} AS VARCHAR)")
                 }
