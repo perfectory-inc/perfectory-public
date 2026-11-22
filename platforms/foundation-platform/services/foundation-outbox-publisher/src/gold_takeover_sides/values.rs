@@ -217,13 +217,13 @@ mod tests {
         connection.execute_batch(
             r#"CREATE TABLE t (pnu VARCHAR, n BIGINT, d_json VARCHAR);
                INSERT INTO t VALUES ('9999910100100010000', 1, '{"x":1.0E7}'),
-                 ('9999920100100010000', 2, '[1]'), ('4199910100100010000', 3, NULL);"#,
+                 ('9999920100100010000', 2, '[1]'), ('9999930100100010000', 3, NULL);"#,
         )?;
         let side = |filter: &str| format!("SELECT pnu, n, d_json FROM t WHERE {filter}");
         let columns = ["pnu", "n", "d_json"];
         let found = prefixes(&connection, &["t"], "pnu")?;
-        assert_eq!(found, ["41999", "99999"]);
-        let pass = pass(
+        assert_eq!(found, ["99999"]);
+        let written = pass(
             &connection,
             &side,
             "pnu",
@@ -232,19 +232,20 @@ mod tests {
             "99",
             "side_reference",
         )?;
-        assert_eq!(pass.sido_rows, 2);
-        let written: Vec<(String, String)> = connection
+        assert_eq!(written.sido_rows, 3);
+        let rows: Vec<(String, Option<String>)> = connection
             .prepare("SELECT n, d_json FROM side_reference ORDER BY pnu")?
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<_, _>>()?;
         assert_eq!(
-            written,
+            rows,
             [
-                ("1".to_owned(), r#"{"x":10000000}"#.to_owned()),
-                ("2".to_owned(), "[1]".to_owned())
+                ("1".to_owned(), Some(r#"{"x":10000000}"#.to_owned())),
+                ("2".to_owned(), Some("[1]".to_owned())),
+                ("3".to_owned(), None)
             ]
         );
-        // Every row of the side is summed, the 시도's and the others'.
+        // Every row of the side is summed, whether its 시도 is written or not.
         let cells = |pnu: &str, n: &str, document: Option<&str>| {
             [
                 Some(pnu.to_owned()),
@@ -253,15 +254,25 @@ mod tests {
             ]
         };
         let expected = [
-            cells("4199910100100010000", "3", None),
             cells("9999910100100010000", "1", Some(r#"{"x":10000000.0}"#)),
             cells("9999920100100010000", "2", Some("[1]")),
+            cells("9999930100100010000", "3", None),
         ]
         .iter()
         .fold(0_u128, |sum, row| {
             sum.wrapping_add(u128::from(row_hash(row)))
         });
-        assert_eq!(pass.hash_sum, expected);
+        assert_eq!(written.hash_sum, expected);
+        let elsewhere = pass(
+            &connection,
+            &side,
+            "pnu",
+            &found,
+            &columns,
+            "98",
+            "side_candidate",
+        )?;
+        assert_eq!((elsewhere.sido_rows, elsewhere.hash_sum), (0, expected));
         Ok(())
     }
 }

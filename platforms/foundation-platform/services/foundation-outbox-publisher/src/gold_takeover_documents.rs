@@ -126,10 +126,13 @@ impl DocumentRules {
             .map_err(|error| format!("{pnu}: the renderer refuses the row: {error:#}"))?;
         let value: JsonValue = serde_json::from_slice(&document.bytes)
             .map_err(|error| format!("{pnu}: the document is not JSON: {error}"))?;
-        match self.validator.iter_errors(&value).next() {
-            None => Ok(()),
-            Some(error) => Err(format!("{pnu}: {error} at {}", error.instance_path())),
-        }
+        // The first error, as text, before `value` goes: an error borrows the value it is about.
+        let refused = self
+            .validator
+            .iter_errors(&value)
+            .next()
+            .map(|error| format!("{pnu}: {error} at {}", error.instance_path()));
+        refused.map_or(Ok(()), Err)
     }
 }
 
