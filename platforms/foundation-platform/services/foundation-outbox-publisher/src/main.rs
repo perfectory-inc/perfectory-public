@@ -110,6 +110,7 @@ mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
 mod building_register_floor_history_check;
 mod building_register_floor_silver_load;
+mod complex_catalog_versions_build;
 mod gold_takeover_documents;
 mod gold_takeover_sides;
 mod gold_versions_change_set;
@@ -315,6 +316,7 @@ enum Command {
     LoadBuildingRegisterFloorSilver,
     BuildParcelBoundaryServed,
     BuildParcelBoundaryServedVersions,
+    BuildComplexCatalogVersions,
     BuildParcelNearbyVersions,
     BuildParcelRealTransactionVersions,
     RunParcelMatchingGate,
@@ -696,6 +698,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelBoundaryServedVersions => {
             Box::pin(parcel_boundary_served_build::run_shadow())
         }
+        Command::BuildComplexCatalogVersions => Box::pin(complex_catalog_versions_build::run()),
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
         Command::BuildParcelRealTransactionVersions => {
             Box::pin(parcel_real_transaction_versions_build::run())
@@ -912,6 +915,7 @@ where
         Some("build-parcel-boundary-served-versions") => {
             Ok(Command::BuildParcelBoundaryServedVersions)
         }
+        Some("build-complex-catalog-versions") => Ok(Command::BuildComplexCatalogVersions),
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
         Some("build-parcel-real-transaction-versions") => {
             Ok(Command::BuildParcelRealTransactionVersions)

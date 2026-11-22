@@ -49,17 +49,21 @@ use crate::{
 };
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_GOLD_TAKEOVER_";
-// one-off: with gold.parcel_boundary_served's switch, which deletes its Spark job.
+// one-off: with each table's switch, which deletes its Spark job and its line here.
 /// The lineage a replaced table's build stamps on the rows it writes besides [`PER_COMMIT_STAMPS`]:
 /// the Spark served-boundary job writes the Silver snapshot and the ledger position it read on every
 /// row of a full build, while its versions table keeps a row's stamps from the build that last
 /// changed the row's content (`row_digest`: the PNU, the geometry, its CRS and its origin). They name
 /// a build, not the parcel, so after the first shadow build they differ on every row neither build
 /// changed.
-const BUILD_STAMPS: &[(&str, &[&str])] = &[(
-    "gold.parcel_boundary_served",
-    &["silver_iceberg_snapshot_id", "edits_through_change_seq"],
-)];
+const BUILD_STAMPS: &[(&str, &[&str])] = &[
+    (
+        "gold.parcel_boundary_served",
+        &["silver_iceberg_snapshot_id", "edits_through_change_seq"],
+    ),
+    // The Silver snapshot the industrial-complex catalog's build read, on every row it wrote.
+    ("gold.complex_catalog", &["iceberg_snapshot_id"]),
+];
 /// The row digest (root ADR-0099): a hash of the bytes a build wrote, which two engines need not
 /// write alike. The verdict compares the content it stands for, as values, and not the digest.
 const DIGEST: &str = "row_digest";
@@ -68,25 +72,33 @@ pub(crate) const DEFAULT_SIDO: &str = "41";
 /// The key columns a 시도 is read from, in order: both begin with the 시도 code (a PNU; a region
 /// code of every level the region stats hold, `legal_dong` and `sigungu`).
 const SIDO_COLUMNS: [&str; 2] = ["pnu", "region_code"];
+/// The column a table keyed by neither states its 시도 in (the industrial-complex catalog, keyed by
+/// complex): a compared column, carried to the current code alike by both builds.
+const SIDO_CODE_COLUMN: &str = "sido_code";
 
-/// The first of [`SIDO_COLUMNS`] the key holds: the column a side's rows are read by.
-fn sido_column(keys: &[&str]) -> anyhow::Result<&'static str> {
+/// The first of [`SIDO_COLUMNS`] the key holds, else [`SIDO_CODE_COLUMN`] when it is compared: the
+/// column a side's rows are read by.
+fn sido_column(keys: &[&str], columns: &[&str]) -> anyhow::Result<&'static str> {
     SIDO_COLUMNS
         .into_iter()
         .find(|column| keys.contains(column))
-        .with_context(|| format!("no key of {keys:?} holds a 시도 code ({SIDO_COLUMNS:?})"))
+        .or_else(|| columns.contains(&SIDO_CODE_COLUMN).then_some(SIDO_CODE_COLUMN))
+        .with_context(|| {
+            format!(
+                "no key of {keys:?} holds a 시도 code ({SIDO_COLUMNS:?}) and no                  {SIDO_CODE_COLUMN} is compared"
+            )
+        })
 }
 
-/// The predicate that keeps the rows of `sido` (two digits) by [`sido_column`], as a range so
-/// `DuckDB` skips the files whose bounds lie outside it.
-fn sido_predicate(keys: &[&str], sido: &str) -> anyhow::Result<String> {
+/// The predicate that keeps the rows of `sido` (two digits) by `column`, as a range so `DuckDB`
+/// skips the files whose bounds lie outside it.
+fn sido_predicate(column: &str, sido: &str) -> anyhow::Result<String> {
     let number: u8 = sido
         .parse()
         .ok()
         .filter(|_| sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()))
         .with_context(|| format!("the 시도 {sido:?} is not a two-digit code"))?;
     ensure!(number < 99, "the 시도 {sido} has no next code to bound it");
-    let column = sido_column(keys)?;
     Ok(format!(
         "({column} >= '{sido}' AND {column} < '{:02}')",
         number + 1
@@ -292,9 +304,9 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         "{replaced_name}'s columns lack its key {:?}",
         latest.key
     );
-    let column = sido_column(latest.key)?;
+    let column = sido_column(latest.key, &columns)?;
     // A 시도 that is not two digits, or the last code, is refused before anything is read.
-    sido_predicate(latest.key, &sido)?;
+    sido_predicate(column, &sido)?;
     // Loaded before the DuckDB session opens: the session is not `Send` across an await.
     let rules = DocumentRules::load(replaced_name).await?;
     let work = Path::new(&work);
@@ -600,17 +612,30 @@ mod tests {
     #[test]
     fn a_verdict_reads_one_sido_by_the_key_that_holds_it() -> anyhow::Result<()> {
         assert_eq!(
-            sido_predicate(&["pnu"], "41")?,
+            sido_predicate(sido_column(&["pnu"], &["pnu"])?, "41")?,
             "(pnu >= '41' AND pnu < '42')"
         );
+        let region_key = ["dataset_slug", "region_level", "region_code"];
         assert_eq!(
-            sido_predicate(&["dataset_slug", "region_level", "region_code"], "09")?,
+            sido_predicate(sido_column(&region_key, &region_key)?, "09")?,
             "(region_code >= '09' AND region_code < '10')"
         );
-        assert!(sido_predicate(&["complex_id"], "41").is_err());
         for bad in ["4", "411", "4'", "ab", "+1", "99"] {
-            assert!(sido_predicate(&["pnu"], bad).is_err(), "{bad} was taken");
+            assert!(sido_predicate("pnu", bad).is_err(), "{bad} was taken");
         }
+        Ok(())
+    }
+
+    /// A table keyed by neither (the industrial-complex catalog, by complex) is read by its compared
+    /// `sido_code`; one that compares no 시도 at all is refused.
+    #[test]
+    fn a_table_keyed_by_neither_is_read_by_its_sido_code() -> anyhow::Result<()> {
+        let versions = contract("gold.complex_catalog_versions")?;
+        let replaced = contract("gold.complex_catalog")?;
+        let columns = compared_columns(replaced, versions);
+        assert!(!columns.contains(&"iceberg_snapshot_id"));
+        assert_eq!(sido_column(&["complex_id"], &columns)?, "sido_code");
+        assert!(sido_column(&["complex_id"], &["complex_id", "name"]).is_err());
         Ok(())
     }
 
@@ -633,7 +658,7 @@ mod tests {
                ('d', 'legal_dong', '4199900000', 'month', '209901', 3, 2, 'removed'), \
                ('d', 'sigungu', '11999', 'month', '209901', 4, 1, NULL);",
         )?;
-        let predicate = sido_predicate(latest.key, "41")?;
+        let predicate = sido_predicate(sido_column(latest.key, latest.key)?, "41")?;
         let mut columns: Vec<&str> = latest.key.to_vec();
         columns.push("n");
         let query = latest.current_rows_sql("v", &columns, &predicate);
@@ -642,7 +667,7 @@ mod tests {
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<_, _>>()?;
         assert_eq!(kept, [("41999".to_owned(), 2)]);
-        assert_eq!(sido_column(latest.key)?, "region_code");
+        assert_eq!(sido_column(latest.key, latest.key)?, "region_code");
         Ok(())
     }
 

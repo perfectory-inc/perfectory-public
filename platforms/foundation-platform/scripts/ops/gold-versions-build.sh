@@ -22,6 +22,8 @@
 # parcel-real-transaction → build-parcel-real-transaction-versions (root ADR-0350·0371, 같은 그림자 길: 거래는
 # 주소로 놓이므로 종류 단계가 아닌 자기 단계 real_transaction_versions_stage 가 놓임이 넘지 않는 시군구 묶음마다 짓는다).
 # unit-price → build-unit-price-versions (root ADR-0190·0204, ADR-0564 §9 차례 4: 호 공시가격 레인의 Gold, 같은 그림자 길).
+# complex-catalog → build-complex-catalog-versions (root ADR-0426: 산업단지 목록, 1,442행이라 시도 고리 없이 한 번에;
+# 손으로 지은 옛 표라 태그가 없어 같은 길로 가장 새 커밋과 그 시각의 입력을 따른다).
 # 그림자 커밋 뒤에는(그리고 그 머리의 판정이 끝까지 돌 때까지 다음 실행마다) 같은 유닛이 넘겨받기 판정
 # (gold-takeover-verdict.sh)을 선언된 시도에서 돌려 Dagster 의 자산 검사 `takeover_equal` 로 알린다(journal 의
 # Pipes 줄, orchestration/dagster/takeover_checks.py; ADR-0564 §6-3). 판정의 실패는 검사의 것이고 빌드의 커밋은 선다.
@@ -42,6 +44,7 @@ case "${lane}" in
   parcel-public-auction) command=build-parcel-public-auction-versions ;;
   parcel-real-transaction) command=build-parcel-real-transaction-versions ;;
   unit-price) command=build-unit-price-versions ;;
+  complex-catalog) command=build-complex-catalog-versions ;;
   *) echo "gold-versions-build: ${lane} has no table of appended row versions the publisher builds" >&2; exit 64 ;;
 esac
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current

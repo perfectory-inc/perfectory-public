@@ -62,6 +62,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/b
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_sub_parcel_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_unit_placement.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/code_go_kr_legal_dong_contract.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/complex_catalog_stage.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage.rs:17
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage/names/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage/tests.rs:2

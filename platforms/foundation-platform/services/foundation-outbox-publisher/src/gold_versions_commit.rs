@@ -894,17 +894,29 @@ pub(crate) fn shadow(
     }))
 }
 
-// one-off: until gold.parcel_boundary_served is replaced (its switch deletes the Spark job and this).
+// one-off: until both tables are replaced (each switch deletes its Spark job and its line here).
 /// The replaced tables whose builds carry no build tag and record no input pins, with the inputs
 /// their builds read: the Spark served-boundary job (root ADR-0133 §2) overwrites
-/// `gold.parcel_boundary_served` with plain Iceberg commits. It reads each input at its head (the
-/// ledger after appending the edits it was handed) and commits within the same run, under the bake's
-/// lock, so the inputs it read are each input as of its commit: Iceberg's time travel by commit
-/// time, taken here from the catalog's snapshot log.
-const UNTAGGED_BUILDS: &[(&str, &[&str])] = &[(
-    "gold.parcel_boundary_served",
-    &["silver.parcel_boundaries", "silver.map_edit_ledger"],
-)];
+/// `gold.parcel_boundary_served` with plain Iceberg commits, and `gold.complex_catalog` was written
+/// by hand (`industrial_complex_silver_to_gold.py`, then its `--follow-region-codes` merges). Each
+/// reads every input at its head and commits within the same run (the served-boundary job after
+/// appending the edits it was handed, under the bake's lock), so the inputs it read are each input
+/// as of its commit: Iceberg's time travel by commit time, taken here from the catalog's snapshot
+/// log.
+const UNTAGGED_BUILDS: &[(&str, &[&str])] = &[
+    (
+        "gold.parcel_boundary_served",
+        &["silver.parcel_boundaries", "silver.map_edit_ledger"],
+    ),
+    (
+        "gold.complex_catalog",
+        &[
+            "silver.industrial_complexes",
+            "reference.legal_dong_code_change",
+            "reference.legal_dong_code_snapshot",
+        ],
+    ),
+];
 
 /// The commit operation of a compaction, which rewrites files and keeps the rows.
 const COMPACTION_OPERATION: &str = "replace";

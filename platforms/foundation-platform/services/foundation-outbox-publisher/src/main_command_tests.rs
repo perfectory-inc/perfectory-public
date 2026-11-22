@@ -406,6 +406,18 @@ fn build_parcel_boundary_served_commands_are_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn build_complex_catalog_versions_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-complex-catalog-versions"
+        ])?,
+        Command::BuildComplexCatalogVersions
+    );
+    Ok(())
+}
+
+#[test]
 fn build_parcel_nearby_versions_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
