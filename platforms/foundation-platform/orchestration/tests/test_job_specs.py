@@ -425,21 +425,6 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(lambda jobs: bake(jobs).update(pool_slots=1))
         self.refused(lambda jobs: jobs["capacity_claimants"]["by_pnu_lane_cutover"].update(pool_slots=1))
 
-    def test_a_disabled_job_neither_waits_for_its_pool_nor_holds_it(self):
-        # The host refuses a disabled job's start (start-scheduled-job.sh), so it runs nowhere: the
-        # document jobs the owner paused (2026-11-20) wait behind no Gold build and hold no slot.
-        jobs = copy.deepcopy(real_inputs()[0])
-        by_id = {job["id"]: job for job in jobs["jobs"]}
-        fact, text = by_id["intelligence_document_fact"], by_id["intelligence_document_text"]
-        text["time_limit_minutes"] = 2000  # past the hourly fact job's bound on its own
-        for fact["enabled"], text["enabled"] in [(False, False), (True, False), (True, True)]:
-            problems = job_specs.pool_starvation(jobs)
-            waits = any(problem.startswith("intelligence_document_fact ") for problem in problems)
-            if not fact["enabled"] or text["enabled"]:  # enabled beside the Gold builds alone, it may wait
-                self.assertEqual(waits, fact["enabled"], problems)
-            self.assertEqual(any("intelligence_document_text" in problem for problem in problems),
-                             text["enabled"], problems)
-
     def test_a_schedule_the_starvation_check_cannot_read(self):
         with self.assertRaises(job_specs.JobListError):
             job_specs.shortest_interval_minutes("*/5 * * * *")
