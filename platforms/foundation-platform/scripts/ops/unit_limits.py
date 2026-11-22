@@ -8,7 +8,7 @@ peak`, the cgroup v2 `memory.peak` systemd logs when a unit stops) and the limit
 `--json`), and `--write DIR` writes its textfile (`textfile()`) for the FoundationUnitNearItsLimit
 rule: foundation-unit-limits.timer runs that every half hour.
 
-  python3 scripts/ops/unit_limits.py [--since -14d] [--table | --json]   # on the host
+  python3 scripts/ops/unit_limits.py [--since=-14d] [--table | --json]   # on the host
 
 It runs `journalctl` (systemd's own lines, six message kinds) and `systemctl show` itself;
 `--journal FILE` and `--declared FILE` read saved output instead (tests, a copy taken elsewhere).
@@ -53,6 +53,14 @@ PREFIX = "foundation-"
 SCOPE = "docker-"
 # A run at or above this share of a limit is near it (root ADR-0574 §1).
 NEAR = 0.8
+# The kernel charges a cgroup MEMCG_CHARGE_BATCH pages at a time per CPU and reclaims what a task holds
+# over memory.high when it returns to user space, so a peak may pass MemoryHigh by up to that much while
+# the kernel is giving page cache back (include/linux/memcontrol.h, mm/memcontrol.c try_charge_memcg and
+# mem_cgroup_handle_over_high, Linux v6.8, the host's kernel; cgroup-v2.rst: "the limit may be breached").
+# systemd's memory peak counts page cache, so a peak within that of MemoryHigh is not memory the unit holds
+# (root ADR-0574 §4). 2026-11-22: 20 units' peaks sat 0.5-3.4 MiB above their MemoryHigh, 90% of MemoryMax,
+# on every run, and would have raised the near alert forever.
+MEMCG_CHARGE_BATCH = 64
 # Consecutive newest runs near a limit before the rule raises it (root ADR-0574 §4).
 NEAR_RUNS = 3
 DURATION = re.compile(r"([0-9]+(?:\.[0-9]+)?)(us|ms|min|s|h|d|w)?")
@@ -193,6 +201,21 @@ def time_limit(unit: dict) -> float | None:
     return runtime
 
 
+def reclaim_slack(cpus: int | None = None, page: int | None = None) -> int:
+    """How far past MemoryHigh a peak goes while the kernel reclaims: one charge batch per CPU."""
+    if page is None:
+        page = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
+    return MEMCG_CHARGE_BATCH * page * (cpus or os.cpu_count() or 1)
+
+
+def held(run: Run, memory_high: int | None, slack: int) -> bool:
+    """Whether the run held its peak: killed at its cap, past MemoryHigh by more than reclaim lets a
+    peak pass it, or with no MemoryHigh to reclaim at."""
+    if run.outcome == "oom-kill":
+        return True
+    return run.peak is not None and (memory_high is None or run.peak > memory_high + slack)
+
+
 def near_streak(ratios: list[float | None]) -> int:
     """How many of the newest runs, back from the last, were at or above NEAR."""
     streak = 0
@@ -203,22 +226,30 @@ def near_streak(ratios: list[float | None]) -> int:
     return streak
 
 
-def row(name: str, unit_runs: list[Run], unit: dict) -> dict:
-    """One unit's line: declared limits, measured peak and run time, the failures, and its state."""
+def row(name: str, unit_runs: list[Run], unit: dict, slack: int | None = None) -> dict:
+    """One unit's line: declared limits, measured peak and run time, the failures, and its state.
+
+    A memory peak is near its limit only when the run held it (`held`): a peak the kernel was reclaiming
+    at MemoryHigh is page cache, and `memory_share` shows it all the same.
+    """
+    slack = reclaim_slack() if slack is None else slack
     memory_max = limit_bytes(unit.get("MemoryMax"))
+    memory_high = limit_bytes(unit.get("MemoryHigh"))
     seconds_limit = time_limit(unit)
     finished = [run for run in unit_runs if run.end is not None]
     peaks = [run.peak for run in finished if run.peak is not None]
     times = [run.seconds for run in finished]
     container_peaks = [peak for run in finished for peak, _ in run.containers]
     outcomes = [run.outcome for run in finished]
-    memory_ratios = [run.peak / memory_max if memory_max and run.peak is not None else None for run in finished]
+    memory_ratios = [run.peak / memory_max if memory_max and run.peak is not None and held(run, memory_high, slack)
+                     else None for run in finished]
+    held_peaks = [run.peak for run in finished if run.peak is not None and held(run, memory_high, slack)]
     time_ratios = [run.seconds / seconds_limit if seconds_limit else None for run in finished]
     line = {
         "unit": name,
         "runs": len(finished),
         "memory_max": memory_max,
-        "memory_high": limit_bytes(unit.get("MemoryHigh")),
+        "memory_high": memory_high,
         "time_limit_seconds": seconds_limit,
         "peak_p95": rank(peaks, 0.95) if peaks else None,
         "peak_max": max(peaks) if peaks else None,
@@ -234,16 +265,18 @@ def row(name: str, unit_runs: list[Run], unit: dict) -> dict:
         "last_run": finished[-1].end if finished else None,
     }
     line["memory_share"] = line["peak_max"] / memory_max if memory_max and line["peak_max"] else None
+    line["held_memory_share"] = max(held_peaks) / memory_max if memory_max and held_peaks else None
     line["time_share"] = line["seconds_max"] / seconds_limit if seconds_limit and line["seconds_max"] else None
     line["state"] = state(line)
     return line
 
 
 def state(line: dict) -> str:
-    """failing: a run died at a limit in the window; near: a run reached NEAR of one; else fits."""
+    """failing: a run died at a limit in the window; near: a run reached NEAR of one (of memory, a peak it
+    held); else fits."""
     if line["oom"] or line["timeout"]:
         return "failing"
-    if max(line["memory_share"] or 0, line["time_share"] or 0) >= NEAR:
+    if max(line["held_memory_share"] or 0, line["time_share"] or 0) >= NEAR:
         return "near"
     if not line["runs"]:
         return "unmeasured"
@@ -340,11 +373,18 @@ def measure(now: float, since: str = "-14d") -> str:
     return textfile(rows, by_unit, now)
 
 
-def journal(since: str = "-14d", journalctl: str = "journalctl") -> list[str]:
-    """The journal lines this reads: systemd's own (PID 1), its six message kinds only."""
+def journal(since: str = "-14d", journalctl: str = "journalctl"):
+    """The journal lines this reads, one at a time: systemd's own (PID 1), its six message kinds only.
+
+    Streamed, never held: 2026-11-22 the 14-day window was 324k lines, and holding journalctl's output
+    and its split lines took this script to 780 MB, past its own unit's 512M cap.
+    """
     arguments = [journalctl, "_PID=1", f"--since={since}", "-o", "json", f"--output-fields={JOURNAL_FIELDS}"]
     arguments += [f"MESSAGE_ID={kind}" for kind in MESSAGE_IDS]
-    return subprocess.run(arguments, check=True, capture_output=True, text=True).stdout.splitlines()
+    with subprocess.Popen(arguments, stdout=subprocess.PIPE, text=True, encoding="utf-8", errors="replace") as process:
+        yield from process.stdout
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, arguments)
 
 
 OOM_CGROUP = re.compile(r"oom_memcg=/system\.slice/docker-([0-9a-f]{64})\.scope")
@@ -393,8 +433,9 @@ def containers(url: str, since: str) -> list[dict]:
     scope = '{id=~"/system.slice/docker-.+"}'
     peaks = prometheus_vector(url, f"max_over_time(container_memory_working_set_bytes{scope}[{days}])")
     caps = prometheus_vector(url, f"container_spec_memory_limit_bytes{scope}")
+    # `--grep` exits 1 when no line matches: a window with no kill is an answer, not a failure.
     kernel = subprocess.run(["journalctl", "-k", f"--since={since}", "-o", "cat", "--grep=oom-kill:"],
-                            capture_output=True, text=True).stdout.splitlines()
+                            capture_output=True, text=True, check=False).stdout.splitlines()
     return container_rows(running, peaks, caps, container_kills(kernel))
 
 
@@ -419,13 +460,12 @@ def main(argv=None) -> int:
         write(args.write, time.time(), args.since)
         return 0
     if args.journal == "-":
-        lines = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace").readlines()
+        by_unit = attribute_scopes(runs(io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")))
     elif args.journal:
         with open(args.journal, encoding="utf-8", errors="replace") as handle:
-            lines = handle.readlines()
+            by_unit = attribute_scopes(runs(handle))
     else:
-        lines = journal(args.since)
-    by_unit = attribute_scopes(runs(lines))
+        by_unit = attribute_scopes(runs(journal(args.since)))
     if args.declared:
         with open(args.declared, encoding="utf-8") as handle:
             shown = declared(handle.read())

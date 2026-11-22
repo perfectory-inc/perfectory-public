@@ -86,25 +86,56 @@ class RunsAreReadFromSystemdsLines(unittest.TestCase):
         self.assertEqual([run.containers for run in units[UNIT] + units[other]], [[], []])
 
 
+# One charge batch per CPU on a 20-CPU host with 4 KiB pages: how far past MemoryHigh reclaim lets a peak go.
+SLACK = unit_limits.reclaim_slack(cpus=20, page=4096)
+
+
 class NearIsMeasured(unittest.TestCase):
-    def test_three_newest_runs_at_eighty_percent_are_a_streak_an_older_low_one_is_not(self):
-        lines = ok_run(0, 60, 100) + ok_run(100, 60, 420) + ok_run(200, 60, 430) + ok_run(300, 60, 440)
-        line = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT])
+    def test_three_newest_runs_held_past_memory_high_are_a_streak_an_older_low_one_is_not(self):
+        lines = ok_run(0, 60, 100) + ok_run(100, 60, 470) + ok_run(200, 60, 480) + ok_run(300, 60, 490)
+        line = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT], SLACK)
         self.assertEqual((line["near_memory_runs"], line["state"]), (3, "near"))
 
     def test_a_low_newest_run_ends_the_streak(self):
-        lines = ok_run(0, 60, 420) + ok_run(100, 60, 430) + ok_run(200, 60, 100)
-        line = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT])
+        lines = ok_run(0, 60, 470) + ok_run(100, 60, 480) + ok_run(200, 60, 100)
+        line = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT], SLACK)
         self.assertEqual(line["near_memory_runs"], 0)
 
+    def test_a_peak_the_kernel_was_reclaiming_at_memory_high_is_not_near(self):
+        # 2026-11-22: 20 units' peaks sat 0.5-3.4 MiB above MemoryHigh on every run: page cache given back.
+        lines = ok_run(0, 60, 461) + ok_run(100, 60, 462) + ok_run(200, 60, 463)
+        line = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT], SLACK)
+        self.assertEqual((line["near_memory_runs"], line["state"]), (0, "fits"))
+        self.assertGreater(line["memory_share"], 0.9)
+        self.assertIsNone(line["held_memory_share"])
+        self.assertEqual(SLACK, 5 * MIB)
+
     def test_the_textfile_names_each_limit_with_its_streak_and_newest_share(self):
-        by_unit = unit_limits.runs(ok_run(0, 1200, 420) + ok_run(2000, 1200, 430) + ok_run(4000, 2100, 440))
-        rows = [unit_limits.row(UNIT, by_unit[UNIT], DECLARED[UNIT])]
+        by_unit = unit_limits.runs(ok_run(0, 1200, 470) + ok_run(2000, 1200, 480) + ok_run(4000, 2100, 490))
+        rows = [unit_limits.row(UNIT, by_unit[UNIT], DECLARED[UNIT], SLACK)]
         text = unit_limits.textfile(rows, by_unit, 5000)
         self.assertIn(f'foundation_unit_runs_near_limit{{unit="{UNIT}",limit="memory"}} 3\n', text)
         self.assertIn(f'foundation_unit_runs_near_limit{{unit="{UNIT}",limit="time"}} 1\n', text)
-        self.assertIn(f'foundation_unit_limit_share{{unit="{UNIT}",limit="memory"}} 0.8594\n', text)
+        self.assertIn(f'foundation_unit_limit_share{{unit="{UNIT}",limit="memory"}} 0.9570\n', text)
         self.assertIn("foundation_unit_limits_measured_seconds 5000\n", text)
+
+
+@unittest.skipUnless(os.name == "posix", "a fake journalctl is a shell script")
+class TheJournalIsStreamed(unittest.TestCase):
+    def test_lines_arrive_one_at_a_time_and_a_failed_journalctl_fails(self):
+        # 2026-11-22: holding 324k journal lines took the script to 780 MB, past its unit's 512M cap.
+        with tempfile.TemporaryDirectory() as directory:
+            fake = pathlib.Path(directory) / "journalctl"
+            fake.write_text("#!/bin/sh\nprintf '%s\\n' one two three\n", encoding="utf-8")
+            fake.chmod(0o755)
+            lines = unit_limits.journal("-1d", str(fake))
+            self.assertNotIsInstance(lines, list)
+            self.assertEqual([line.strip() for line in lines], ["one", "two", "three"])
+            broken = pathlib.Path(directory) / "broken"
+            broken.write_text("#!/bin/sh\nexit 3\n", encoding="utf-8")
+            broken.chmod(0o755)
+            with self.assertRaises(unit_limits.subprocess.CalledProcessError):
+                list(unit_limits.journal("-1d", str(broken)))
 
 
 class LimitsAreReadAsSystemdPrintsThem(unittest.TestCase):

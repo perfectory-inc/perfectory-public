@@ -43,7 +43,7 @@ OOM 의 `limit` 이 `2621440kB`(2.5GiB) 면 공매 Silver 적재(`foundation-onb
 표를 다시 만든다(호스트에서, 읽기만; 14일 저널 몇 초):
 
 ```sh
-python3 /opt/foundation-platform/current/scripts/ops/unit_limits.py --since -14d --table --prometheus http://127.0.0.1:19090
+python3 /opt/foundation-platform/current/scripts/ops/unit_limits.py --since=-14d --table --prometheus http://127.0.0.1:19090
 ```
 
 `peak` 는 systemd 가 유닛이 끝날 때 남기는 cgroup `memory.peak` 이고 페이지 캐시를 포함한다. 최고점이 `MemoryHigh`
