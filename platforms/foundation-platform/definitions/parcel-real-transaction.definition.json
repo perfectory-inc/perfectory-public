@@ -77,15 +77,15 @@
       "started_by": "inputs",
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
-      "time_limit_minutes": 240,
+      "time_limit_minutes": 60,
       "per_run_cap": {
         "unit": "run",
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
         "first_run": {
-          "estimate_seconds": 10800,
-          "estimated_from": "computed, not measured: W81c's 2026-11-21 4-thread verdict placed and wrote the documents of 세종·대전·울산·제주·대구 (1,570,597 deals, 769,542 rows) in 750 s; scaled by deals to the nation's 19,936,743 that is about 9,500 s, plus the spool's one read of each input. The first shadow build is whole and is the one to measure; it needs the unit's start timeout raised past the template's hour."
+          "estimate_seconds": 1500,
+          "estimated_from": "computed, not measured: the first shadow build is whole, about 9,500 s of placing and writing (W81c's 2026-11-21 4-thread verdict: 세종·대전·울산·제주·대구, 1,570,597 deals, 769,542 rows in 750 s, scaled by deals to the nation's 19,936,743) plus the spool's one read of each input. It goes on across runs (gold_versions_resume): no unit group starts past 25 minutes, the run ends partial and the next resumes, so a run is bounded by 25 minutes and its last group, and the first build takes about seven runs. Later runs build only the groups whose 시군구 changed."
         }
       },
       "pool": "documents",
