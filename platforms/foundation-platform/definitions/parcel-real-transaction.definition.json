@@ -516,6 +516,16 @@
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
       ],
       "description": "the replaced table: while the lane serves it, the shadow is built at the pins its build tag recorded (root ADR-0564 §6)"
+    },
+    {
+      "from": "gold-parcel-real-transaction-versions",
+      "to": "parcel-real-transaction-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md"
+      ],
+      "description": "레인의 넘겨받기 PR 이 종류 줄의 gold_table 을 이 표로 바꾸면(판정 equal 뒤, 루트 ADR-0564 §6) 레인의 굽기가 이 표의 현재 행을 읽는다. 그때까지 아무도 읽지 않는 그림자다."
     }
   ],
   "by_pnu_lanes": {

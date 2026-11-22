@@ -99,7 +99,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/p
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_registry_stage.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_registry_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs:4
-platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_gold_stage.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_gold_stage.rs:3
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_placement_stage.rs:4
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/release_compare_stage.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/floor_cycle/native_runtime.rs:1
@@ -147,6 +147,7 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/onbid_sil
 platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_matching_gate.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_nearby_versions_build.rs:2
+platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/silver_load_objects.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/tests/administrative_boundary_publication.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/tests/industrial_complex_boundary_publication.rs:1
