@@ -250,6 +250,85 @@ fn a_shadow_refuses_what_it_cannot_compare_with() {
     }
 }
 
+fn at(id: i64, ms: i64, operation: &str) -> IcebergSnapshotSummary {
+    IcebergSnapshotSummary {
+        timestamp_ms: Some(ms),
+        ..snapshot(id, &[("operation", operation)])
+    }
+}
+
+/// The Spark served-boundary job tags no build: the shadow follows its newest commit that is not a
+/// compaction, with each input as of that commit, and an input with no snapshot by then is absent.
+#[test]
+fn an_untagged_build_is_its_newest_commit_but_compactions_with_its_inputs_as_of_then(
+) -> anyhow::Result<()> {
+    let history = [
+        at(30, 3_000, "replace"),
+        at(20, 2_000, "overwrite"),
+        at(10, 1_000, "overwrite"),
+    ];
+    let inputs = BTreeMap::from([
+        (
+            "silver.parcel_boundaries".to_owned(),
+            vec![
+                at(7, 2_500, "append"),
+                at(6, 1_500, "replace"),
+                at(5, 500, "append"),
+            ],
+        ),
+        (
+            "silver.map_edit_ledger".to_owned(),
+            vec![at(9, 2_100, "append")],
+        ),
+    ]);
+    let found = untagged_shadow(
+        "gold.parcel_boundary_served_versions",
+        "gold.parcel_boundary_served",
+        &history,
+        &inputs,
+    )?;
+    assert_eq!(found.replaced, "gold.parcel_boundary_served");
+    assert_eq!(found.build, 20, "the compaction after it is not a build");
+    assert_eq!(
+        found.pins,
+        BTreeMap::from([("silver.parcel_boundaries".to_owned(), 6)]),
+        "the parcels as of the build; the ledger had no snapshot yet"
+    );
+    assert_eq!(found.served_edition, None);
+    Ok(())
+}
+
+#[test]
+fn an_untagged_shadow_refuses_what_it_cannot_follow() {
+    let inputs = BTreeMap::from([(
+        "silver.parcel_boundaries".to_owned(),
+        vec![at(5, 500, "append")],
+    )]);
+    let compactions = [at(30, 3_000, "replace")];
+    let built = [at(20, 2_000, "overwrite")];
+    let early = [at(20, 100, "overwrite")];
+    for (served, history, says) in [
+        ("gold.y", &built[..], "neither"),
+        (
+            "gold.parcel_boundary_served",
+            &compactions[..],
+            "only compactions",
+        ),
+        ("gold.parcel_boundary_served", &early[..], "no input"),
+    ] {
+        let error = untagged_shadow(
+            "gold.parcel_boundary_served_versions",
+            served,
+            history,
+            &inputs,
+        )
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+        assert!(error.contains(says), "{served}: {error}");
+    }
+}
+
 fn coverage(counts: &[(&str, u64)]) -> Coverage {
     counts
         .iter()

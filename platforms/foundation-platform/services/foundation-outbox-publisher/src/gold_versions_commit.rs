@@ -723,8 +723,8 @@ pub(crate) async fn pin(
 }
 
 // one-off: until the last served Gold has moved to its `_versions` table (no lane line says
-// `versions_table` while it serves the replaced table): `Shadow`, `shadow`, `shadow_of` and the
-// shadow branch of `planned_inputs` go with it.
+// `versions_table` while it serves the replaced table): `Shadow`, `shadow`, `shadow_of`,
+// `UNTAGGED_BUILDS`, `untagged_shadow` and the shadow branch of `planned_inputs` go with it.
 /// What a versions table is built from while its lane still serves the table it replaces (root
 /// ADR-0564 §6): the inputs that table's newest build read, so the takeover verdict compares two
 /// engines over one set of inputs, and so that every key is built the first time.
@@ -794,7 +794,79 @@ pub(crate) fn shadow(
     }))
 }
 
-/// [`shadow`], read from the catalog: the replaced table's refs and `main` lineage.
+// one-off: until gold.parcel_boundary_served is replaced (its switch deletes the Spark job and this).
+/// The replaced tables whose builds carry no build tag and record no input pins, with the inputs
+/// their builds read: the Spark served-boundary job (root ADR-0133 §2) overwrites
+/// gold.parcel_boundary_served with plain Iceberg commits. It reads each input at its head (the
+/// ledger after appending the edits it was handed) and commits within the same run, under the bake's
+/// lock, so the inputs it read are each input as of its commit: Iceberg's time travel by commit
+/// time, taken here from the catalog's snapshot log.
+const UNTAGGED_BUILDS: &[(&str, &[&str])] = &[(
+    "gold.parcel_boundary_served",
+    &["silver.parcel_boundaries", "silver.map_edit_ledger"],
+)];
+
+/// The commit operation of a compaction, which rewrites files and keeps the rows.
+const COMPACTION_OPERATION: &str = "replace";
+
+/// The shadow of `versions` whose replaced table's builds are untagged ([`UNTAGGED_BUILDS`]): the
+/// build is the newest commit of the replaced table's `main` that is not a compaction, and each
+/// input is pinned at its newest snapshot committed by then; an input that had no snapshot yet (an
+/// empty ledger) is absent, as the build read none of it. The served edition is the build's rows'
+/// (the caller reads it), so it is `None` here.
+///
+/// # Errors
+/// Refuses a lane that serves neither table, a replaced table whose every kept commit is a
+/// compaction or whose build has no commit time, and a build no input had a snapshot before.
+pub(crate) fn untagged_shadow(
+    versions: &str,
+    served: &str,
+    history: &[IcebergSnapshotSummary],
+    inputs: &BTreeMap<String, Vec<IcebergSnapshotSummary>>,
+) -> anyhow::Result<Shadow> {
+    let replaced = replaced_of(versions)?;
+    ensure!(
+        served == replaced,
+        "the lane serves {served}, neither {versions} nor the {replaced} it replaces"
+    );
+    let build = history
+        .iter()
+        .find(|snapshot| {
+            snapshot.summary.get("operation").map(String::as_str) != Some(COMPACTION_OPERATION)
+        })
+        .with_context(|| {
+            format!("{replaced} keeps no build in its main lineage, only compactions: no build to shadow")
+        })?;
+    let at = build.timestamp_ms.with_context(|| {
+        format!(
+            "{replaced} snapshot {} has no commit time",
+            build.snapshot_id
+        )
+    })?;
+    let pins: BTreeMap<String, i64> = inputs
+        .iter()
+        .filter_map(|(input, history)| {
+            history
+                .iter()
+                .find(|snapshot| snapshot.timestamp_ms.is_some_and(|ms| ms <= at))
+                .map(|snapshot| (input.clone(), snapshot.snapshot_id))
+        })
+        .collect();
+    ensure!(
+        !pins.is_empty(),
+        "no input of {replaced} had a snapshot when its build {} committed",
+        build.snapshot_id
+    );
+    Ok(Shadow {
+        replaced: replaced.to_owned(),
+        build: build.snapshot_id,
+        pins,
+        served_edition: None,
+    })
+}
+
+/// [`shadow`], read from the catalog: the replaced table's refs and `main` lineage (and, for an
+/// untagged build, its inputs' lineages, [`untagged_shadow`]).
 pub(crate) async fn shadow_of(
     catalog: &IcebergRestCatalog,
     versions: &str,
@@ -804,6 +876,21 @@ pub(crate) async fn shadow_of(
         return Ok(None);
     }
     let replaced = replaced_of(versions)?;
+    if let Some((_, inputs)) = UNTAGGED_BUILDS.iter().find(|(table, _)| *table == replaced) {
+        let history = catalog
+            .load_main_snapshot_history(replaced)
+            .await?
+            .with_context(|| format!("{replaced} does not exist"))?;
+        let mut lineages = BTreeMap::new();
+        for input in *inputs {
+            let lineage = catalog
+                .load_main_snapshot_history(input)
+                .await?
+                .unwrap_or_default();
+            lineages.insert((*input).to_owned(), lineage);
+        }
+        return untagged_shadow(versions, served, &history, &lineages).map(Some);
+    }
     let refs = catalog
         .load_snapshot_refs(replaced)
         .await?

@@ -417,7 +417,7 @@ pub(crate) fn sido_range(sido: &str) -> anyhow::Result<String> {
 }
 
 /// The 시도 the head's rows lie in (a removal marker's too: a superset of its current rows').
-fn head_sidos(
+pub(crate) fn head_sidos(
     connection: &foundation_publisher_silver::duckdb::Connection,
     table: &str,
     head: i64,

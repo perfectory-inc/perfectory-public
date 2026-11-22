@@ -39,6 +39,17 @@ const PREFIX: &str = "FOUNDATION_PLATFORM_GOLD_TAKEOVER_";
 /// and the run's start (`gold_versions_commit::appended_sql` stamps the same two). The two engines
 /// commit at different times, so these differ on every row and say nothing of the content.
 const PER_COMMIT_STAMPS: [&str; 2] = ["source_snapshot_id", "published_at_utc"];
+// one-off: with gold.parcel_boundary_served's switch, which deletes its Spark job.
+/// The lineage a replaced table's build stamps on the rows it writes besides [`PER_COMMIT_STAMPS`]:
+/// the Spark served-boundary job writes the Silver snapshot and the ledger position it read on every
+/// row of a full build, while its versions table keeps a row's stamps from the build that last
+/// changed the row's content (`row_digest`: the PNU, the geometry, its CRS and its origin). They name
+/// a build, not the parcel, so after the first shadow build they differ on every row neither build
+/// changed.
+const BUILD_STAMPS: &[(&str, &[&str])] = &[(
+    "gold.parcel_boundary_served",
+    &["silver_iceberg_snapshot_id", "edits_through_change_seq"],
+)];
 /// The row digest of content only (root ADR-0099); the verdict compares it apart from the content.
 const DIGEST: &str = "row_digest";
 /// The 시도 compared when the verdict names none: 경기도, the largest (ADR-0559's measurements).
@@ -191,17 +202,22 @@ fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
 
 /// The columns both sides are compared on: the replaced table's that the versions table keeps
 /// (every one: it adds `version_seq` and `row_state`, which the replaced table has no counterpart
-/// of), less the per-commit stamps.
+/// of), less the per-commit stamps and the build's ([`BUILD_STAMPS`]).
 fn compared_columns(
     replaced: &LakehouseTableContract,
     versions: &LakehouseTableContract,
 ) -> Vec<&'static str> {
+    let build_stamps = BUILD_STAMPS
+        .iter()
+        .find(|(table, _)| *table == replaced.table_name)
+        .map_or(&[][..], |(_, stamps)| *stamps);
     replaced
         .columns
         .iter()
         .map(|column| column.name)
         .filter(|name| {
             !PER_COMMIT_STAMPS.contains(name)
+                && !build_stamps.contains(name)
                 && versions.columns.iter().any(|column| column.name == *name)
         })
         .collect()
@@ -461,6 +477,27 @@ mod tests {
         ] {
             assert!(!columns.contains(&absent), "{absent} is compared");
         }
+        Ok(())
+    }
+
+    #[test]
+    fn the_served_parcel_boundaries_compare_their_content_and_not_the_build_stamps(
+    ) -> anyhow::Result<()> {
+        let columns = compared_columns(
+            contract("gold.parcel_boundary_served")?,
+            contract("gold.parcel_boundary_served_versions")?,
+        );
+        assert_eq!(
+            columns,
+            [
+                "pnu",
+                "geometry_wkb",
+                "geometry_srid",
+                "geometry_checksum_sha256",
+                "origin"
+            ],
+            "the replaced table has no digest, so none is compared"
+        );
         Ok(())
     }
 

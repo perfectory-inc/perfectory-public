@@ -353,6 +353,25 @@ fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Resul
 }
 
 #[test]
+fn build_parcel_boundary_served_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-boundary-served"
+        ])?,
+        Command::BuildParcelBoundaryServed
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-boundary-served-versions"
+        ])?,
+        Command::BuildParcelBoundaryServedVersions
+    );
+    Ok(())
+}
+
+#[test]
 fn build_parcel_nearby_versions_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

@@ -303,14 +303,13 @@ mod tests {
     }
 
     #[test]
-    fn the_served_parcel_boundaries_have_their_versions_table_with_a_digest_added() {
+    fn the_served_parcel_boundaries_have_their_versions_table_with_a_digest_added(
+    ) -> Result<(), String> {
         let tables = gold_versions_tables_outside_the_lanes();
         let table = tables
             .iter()
-            .find(|table| table.table_name == "gold.parcel_boundary_served_versions");
-        let Some(table) = table else {
-            panic!("the served parcel boundaries have no versions table");
-        };
+            .find(|table| table.table_name == "gold.parcel_boundary_served_versions")
+            .ok_or("the served parcel boundaries have no versions table")?;
         let replaced = crate::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED.columns;
         assert!(
             !replaced
@@ -324,6 +323,7 @@ mod tests {
         assert_eq!(names, expected);
         assert_eq!(table.partition_spec, [GOLD_VERSIONS_PNU_PARTITION]);
         assert!(table.quality_gates.contains(&ADDED_DIGEST_GATE));
+        Ok(())
     }
 
     #[test]
