@@ -419,5 +419,16 @@
         }
       ]
     }
+  ],
+  "asset_checks": [
+    {
+      "asset": "gold-parcel-demolitions-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-parcel-demolitions"
+      ]
+    }
   ]
 }

@@ -428,5 +428,16 @@
         }
       ]
     }
+  ],
+  "asset_checks": [
+    {
+      "asset": "gold-parcel-energy-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-parcel-energy"
+      ]
+    }
   ]
 }
