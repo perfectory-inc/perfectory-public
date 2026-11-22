@@ -438,9 +438,6 @@
   "scripts/ci/test_osv_reads_every_lockfile_document.py": {
    "PLW1510": 2
   },
-  "scripts/ci/unit_memory.py": {
-   "F841": 1
-  },
   "scripts/github/merge_queue_enqueue.py": {
    "PLW1510": 1
   },

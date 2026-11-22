@@ -9,25 +9,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use foundation_jobs::{
-    check, check_tmpfiles, render, render_tmpfiles, stale_dropins, JobList, TIME_LIMIT_DROPIN,
+    check, check_tmpfiles, committed_dropins, render, render_tmpfiles, stale_dropins, JobList,
     TMPFILES, UNIT_DIR,
 };
-
-/// The time-limit drop-ins committed beside the units, relative to the unit directory.
-fn committed_dropins(units: &std::path::Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(units) else {
-        return Vec::new();
-    };
-    let mut found: Vec<String> = entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|name| name.ends_with(".service.d"))
-        .filter(|name| units.join(name).join(TIME_LIMIT_DROPIN).is_file())
-        .map(|name| format!("{name}/{TIME_LIMIT_DROPIN}"))
-        .collect();
-    found.sort();
-    found
-}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

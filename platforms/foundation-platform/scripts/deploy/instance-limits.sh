@@ -4,6 +4,7 @@
 # drop-ins (root ADR-0574 §8), generated from its job by foundation-jobs and scripts/ci/unit_memory.py.
 # Installed as the release ships them, and ours that the release no longer ships are removed, so an
 # instance whose job now holds the template's limit goes back to it; a drop-in we did not write stays.
+# shellcheck disable=SC2154 # release_root is set by foundation-release.sh, which sources this file
 install_instance_limits() {
   local shipped=" " dropin dir name
   for dropin in "${release_root}"/current/infra/systemd/foundation-*@*.service.d/50-time-limit.conf \

@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use foundation_jobs::{check, check_tmpfiles, JobList, TMPFILES, UNIT_DIR};
+use foundation_jobs::{check, check_tmpfiles, committed_dropins, JobList, TMPFILES, UNIT_DIR};
 
 #[test]
 fn every_job_unit_says_its_time_limit() -> Result<(), String> {
@@ -15,7 +15,7 @@ fn every_job_unit_says_its_time_limit() -> Result<(), String> {
     let units = root.join(UNIT_DIR);
     let read =
         |file: &str| std::fs::read_to_string(units.join(file)).map_err(|error| error.to_string());
-    let problems = check(&list, &read);
+    let problems = check(&list, &read, &committed_dropins(&units));
     assert!(problems.is_empty(), "{}", problems.join("\n"));
     assert!(!list.jobs.is_empty(), "the job list names no job");
     Ok(())

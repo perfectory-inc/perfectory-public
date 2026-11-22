@@ -140,6 +140,23 @@ pub fn unit_file_name(service: &str) -> String {
     }
 }
 
+/// The time-limit drop-ins committed beside the units in `units`, relative to it, sorted.
+#[must_use]
+pub fn committed_dropins(units: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(units) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| name.ends_with(".service.d"))
+        .filter(|name| units.join(name).join(TIME_LIMIT_DROPIN).is_file())
+        .map(|name| format!("{name}/{TIME_LIMIT_DROPIN}"))
+        .collect();
+    found.sort();
+    found
+}
+
 /// The drop-in of an instance service (`a@b.service`), relative to the unit directory.
 #[must_use]
 pub fn time_limit_dropin(service: &str) -> String {
@@ -405,9 +422,10 @@ pub struct Unit {
     pub rendered: String,
 }
 
-/// Every job unit, rendered from the list, and the time-limit drop-in of every job that runs an
-/// instance of a template. `read` returns a unit file's text by its file name; a drop-in it cannot
-/// read is one not written yet.
+/// Every job unit and every instance time-limit drop-in, rendered from the list.
+///
+/// A drop-in belongs to a job that runs an instance of a template. `read` returns a unit file's text
+/// by its file name; a drop-in it cannot read is one not written yet.
 ///
 /// Instances of one template may state different limits (root ADR-0574 §8): the template holds
 /// the longest of them, so an instance no job names is held to no more than any job's, and an
@@ -512,9 +530,10 @@ pub fn render(
     }
 }
 
-/// Every way the committed units differ from the job list: each [`render`] problem, each unit
-/// whose file is not its rendering, and each committed time-limit drop-in (`committed`, paths
-/// relative to the unit directory) no job renders. Empty is a pass.
+/// Every way the committed units differ from the job list. Empty is a pass.
+///
+/// Each [`render`] problem, each unit whose file is not its rendering, and each committed
+/// time-limit drop-in (`committed`, paths relative to the unit directory) no job renders.
 #[must_use]
 pub fn check(
     list: &JobList,
@@ -542,8 +561,9 @@ pub fn check(
     }
 }
 
-/// The committed time-limit drop-ins (`committed`) that no rendered unit is: what `generate`
-/// removes. Another drop-in in the same directory is not this crate's.
+/// The committed time-limit drop-ins (`committed`) that no rendered unit is.
+///
+/// What `generate` removes. Another drop-in in the same directory is not this crate's.
 #[must_use]
 pub fn stale_dropins(units: &[Unit], committed: &[String]) -> Vec<String> {
     let rendered: BTreeSet<&str> = units.iter().map(|unit| unit.file.as_str()).collect();
@@ -897,7 +917,7 @@ TimeoutStartSec=150m
             })
         })
         .map_err(|problems| problems.join("; "))?;
-        let committed = vec![
+        let committed = [
             "foundation-x@a.service.d/50-time-limit.conf".to_owned(),
             "foundation-x@gone.service.d/50-time-limit.conf".to_owned(),
             "foundation-x@gone.service.d/10-other.conf".to_owned(),
