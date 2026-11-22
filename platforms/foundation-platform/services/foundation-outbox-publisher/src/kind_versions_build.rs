@@ -1,7 +1,8 @@
 //! The publisher's one build of a parcel kind's Gold as a table of appended row versions (root
 //! ADR-0564 §3, §6): `build-parcel-register-masters-versions`, `build-parcel-demolitions-versions`,
 //! `build-parcel-energy-versions`, `build-parcel-sub-parcels-versions`,
-//! `build-parcel-building-permits-versions`. `DuckDB` inside the publisher computes the kind
+//! `build-parcel-building-permits-versions`, `build-parcel-panel-versions`. `DuckDB` inside the
+//! publisher computes the kind
 //! (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the publisher appends
 //! the keys that changed (`gold_versions_commit`). A new lane is a stage, a [`KindBuild`], a kind line
 //! and a job.
@@ -29,6 +30,7 @@ use foundation_publisher_silver::{
         ensure_no_commit_tables, load_region, spool, KindVersionsStage, PARCEL_SOURCE,
     },
     parcel_nearby_stage::{NearbyPins, Source},
+    parcel_panel_stage::PANEL,
     process_memory,
     record_kind_stage::{DEMOLITIONS, REGISTER_MASTERS},
 };
@@ -43,7 +45,7 @@ use crate::{
         SERVED_EDITION_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY, VERSION_SEQ_PROPERTY,
     },
     parcel_nearby_versions_build::{
-        contract, lakehouse_read, max_row_loss_fraction, served_edition, write_summary,
+        contract, lakehouse_read, max_row_loss_fraction_of, served_edition, write_summary,
         MAX_CHANGED_KEY_FRACTION, MEMORY_SHARE,
     },
     public_data_control_support::required_env_value,
@@ -105,6 +107,17 @@ pub(crate) const BUILDING_PERMITS_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_building_permits",
     job: "build-parcel-building-permits-versions",
     stage: &BUILDING_PERMITS,
+};
+
+/// The parcel lane's host panel (root ADR-0096, ADR-0564 §9 차례 5): its lane is the host lane, whose
+/// Gold is the panel's constant (`by_pnu_serving_manifest_publish::gold_table`), so while that lane
+/// bakes `gold.parcel_panel` this table is its shadow.
+pub(crate) const PARCEL_PANEL_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_panel_versions",
+    lane: "parcel",
+    replaced: "gold.parcel_panel",
+    job: "build-parcel-panel-versions",
+    stage: &PANEL,
 };
 
 /// Builds and appends `kind`'s changed keys.
@@ -320,14 +333,14 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let (fingerprint, current_records) = versions::after_digests(&commit, &diff, digests)?;
     let mut recorded_explanation = None;
     if let Some(base) = &base {
-        let max_loss = max_row_loss_fraction()?;
+        let max_loss = max_row_loss_fraction_of(kind.replaced)?;
         #[allow(clippy::cast_precision_loss)]
         let floor = (1.0 - max_loss) * base.current_records as f64;
         #[allow(clippy::cast_precision_loss)]
         if (current_records as f64) < floor {
             bail!(
                 "{table} would hold {current_records} current rows, fewer than the {floor:.0} its \
-                 {} allow (gold-panel-rebuild.contract.json kind_tables.max_row_loss_fraction): \
+                 {} allow (gold-panel-rebuild.contract.json max_row_loss_fraction): \
                  nothing was appended",
                 base.current_records
             );

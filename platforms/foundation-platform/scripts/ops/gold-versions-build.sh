@@ -13,6 +13,7 @@
 # parcel-boundary-served → build-parcel-boundary-served-versions (root ADR-0602: 필지 타일 굽기가 Spark 의
 # gold.parcel_boundary_served 를 읽는 동안 그 표의 그림자 — 태그 없는 빌드라 가장 새 커밋과 그 시각의 입력을 따른다,
 # 굽기에 넘기는 것도 원장에 더하는 것도 없다).
+# parcel → build-parcel-panel-versions (root ADR-0096, ADR-0564 §9 차례 5: 필지 레인의 호스트 패널, 같은 그림자 길).
 # 그림자 커밋 뒤에는(그리고 그 머리의 판정이 끝까지 돌 때까지 다음 실행마다) 같은 유닛이 넘겨받기 판정
 # (gold-takeover-verdict.sh)을 선언된 시도에서 돌려 Dagster 의 자산 검사 `takeover_equal` 로 알린다(journal 의
 # Pipes 줄, orchestration/dagster/takeover_checks.py; ADR-0564 §6-3). 판정의 실패는 검사의 것이고 빌드의 커밋은 선다.
@@ -26,6 +27,7 @@ case "${lane}" in
   parcel-sub-parcels) command=build-parcel-sub-parcels-versions ;;
   parcel-building-permits) command=build-parcel-building-permits-versions ;;
   parcel-boundary-served) command=build-parcel-boundary-served-versions ;;
+  parcel) command=build-parcel-panel-versions ;;
   *) echo "gold-versions-build: ${lane} has no table of appended row versions the publisher builds" >&2; exit 64 ;;
 esac
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current

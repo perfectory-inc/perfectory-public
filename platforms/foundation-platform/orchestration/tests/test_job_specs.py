@@ -76,10 +76,10 @@ def own_lane_bakes():
 
 
 def publisher_gold_builds(jobs):
-    """The Gold builds the publisher runs (a table of appended row versions, root ADR-0564 §3), read from
-    the job list by their unit: a new lane's build joins every count below by itself."""
-    return sorted(job["id"] for job in jobs["jobs"]
-                  if (job.get("systemd_service") or "").startswith("foundation-gold-versions@"))
+    """The Gold builds the publisher runs in the spark pool (root ADR-0564 §3), read from the job list by their
+    unit: a new lane's build joins every count below by itself; one on a memory_claim holds no spark slot."""
+    return sorted(job["id"] for job in jobs["jobs"] if job["pool"] == "spark"
+                  and (job.get("systemd_service") or "").startswith("foundation-gold-versions@"))
 
 
 def real_inputs():
@@ -424,8 +424,8 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # (2 slots, 115 + 30; root ADR-0361) and every other lane's own bake; the bound reads no
         # takes_turns, so they count though they do not take turns. Each lane bake counts once at its own
         # hold, read from the job list for the lanes the index names (no count of lanes is written here).
-        # Each Gold the publisher builds (2 slots, 60 + 5: parcel-nearby, root ADR-0567, and the lanes
-        # the takeover path adds, ADR-0564 §6) counts the same way, read from the job list.
+        # Each Gold the publisher builds in this pool (2 slots, 60 + 5: parcel-nearby, root ADR-0567, and
+        # the lanes the takeover path adds, ADR-0564 §6) counts the same way, read from the job list.
         jobs = copy.deepcopy(real_inputs()[0])
         floor = whole_pool_job(jobs)
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
