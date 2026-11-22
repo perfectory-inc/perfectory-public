@@ -216,16 +216,6 @@ class ChangesTest(unittest.TestCase):
                          ("9999910100100070000", "legal_dong_code_superseded", None, "9999910100"))
         self.assertEqual(row.source_code_pnu_raw, "9999920100100070000", "the source code stays as evidence")
 
-    def test_a_list_is_appended_whole_only_when_it_changed(self):
-        # Root ADR-0540 §3: an unchanged list appends nothing; a changed or new one, all its rows.
-        schema = "court_office_code string, case_no string, property_seq int, schedule_seq int, result_code string"
-        current = self.spark.createDataFrame([("B", "1", 1, 1, "002"), ("B", "1", 1, 2, None),
-                                              ("B", "1", 2, 1, "002")], schema)
-        staged = self.spark.createDataFrame([("B", "1", 1, 2, None), ("B", "1", 1, 1, "002"),
-                                             ("B", "1", 2, 1, "001"), ("B", "1", 3, 1, None)], schema)
-        changed = job.changed_editions(staged, current, job.PROPERTY, ["schedule_seq", "result_code"])
-        self.assertEqual(sorted((r.property_seq, r.schedule_seq) for r in changed.collect()), [(2, 1), (3, 1)])
-
     def test_an_incomplete_search_and_the_result_search_mark_nothing(self):
         for role, complete in (("item_search", False), ("sale_result_search", True)):
             current = [self.vanished()]

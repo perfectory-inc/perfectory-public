@@ -355,7 +355,7 @@ class ObjectFirstLoadTest(unittest.TestCase):
         from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract
 
         lanes = tables_of("object")
-        self.assertIn("silver.court_auction_appraisal", lanes)
+        self.assertIn("silver.court_auction_item", lanes)
         for contract_name in lanes:
             with self.subTest(table=contract_name):
                 table, unquoted = target(contract_name)
