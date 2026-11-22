@@ -5,8 +5,10 @@
 //! the file itself is fetched by that id. A run asks each file's metadata once and fetches the file
 //! only when its id differs from the last one landed (`<dataset_slug>/accepted.json` in the state
 //! directory), so one file is fetched once, and a new edition is a new object. The file lands in
-//! Bronze as received, under its own source (`datagokr__<dataset_slug>`): the Silver loads open it
-//! and check its rows. Nothing here reads the CSV.
+//! Bronze as received, under its own source (`datagokr__<dataset_slug>`), keyed by its bytes (root
+//! ADR-0152, ADR-0604: `<dataset-slug>--sha256-<hex>.<ext>`; the portal's file id is the ledger
+//! row's provenance), so the same bytes filed again under a new id are one object. The Silver loads
+//! open it and check its rows. Nothing here reads the CSV.
 //!
 //! The three 표준데이터 (`format: standard_pages`) have no portal file id: their rows come through the
 //! dataset page's own keyless download (`standard_download`, root ADR-0453). A run asks the current
@@ -42,8 +44,8 @@ use collection_application::{
     PublicDataBulkFileIdentity, PublicDataBulkFilePlan, PublicDataBulkFilePlanInput,
 };
 use collection_domain::{
-    source_slug, BronzeObject, IngestionRun, IngestionRunStatus, IngestionTrigger, SourceAuthKind,
-    SourceCatalogEntry, SourcePayloadFormat,
+    build_bronze_content_object_key, source_slug, BronzeObject, IngestionRun, IngestionRunStatus,
+    IngestionTrigger, SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat,
 };
 use collection_infrastructure::PgBronzeIngestUnitOfWork;
 use foundation_outbox::ObjectStorageService;
@@ -818,16 +820,18 @@ pub(crate) async fn fetch_past(
     Ok((announced, Some(bytes)))
 }
 
+/// Plans one file's Bronze object. The key names the dataset and the bytes (root ADR-0152:
+/// `<dataset>--sha256-<hex>.<ext>`), not the portal's file id, so a file the portal files again under
+/// a new id is the same object; the id stays in the ledger row (`provider_file_id`) as provenance.
 pub(crate) fn plan(
     file: &ContractFile,
-    announced: &Announced,
     bytes: Vec<u8>,
     run_id: IngestionRunId,
     at: DateTime<Utc>,
 ) -> anyhow::Result<PublicDataBulkFilePlan> {
-    let file_id = provider_file_id(file, announced);
+    let leaf = file.dataset_slug.replace('_', "-");
     let format = arrived(file, &bytes);
-    plan_public_data_bulk_file(PublicDataBulkFilePlanInput {
+    let mut plan = plan_public_data_bulk_file(PublicDataBulkFilePlanInput {
         source_slug: &source_slug(PROVIDER, &file.dataset_slug)?,
         ingest_date: at.date_naive(),
         ingestion_run_id: run_id,
@@ -835,14 +839,17 @@ pub(crate) fn plan(
             operation: file.operation.clone(),
             provider_file_period: None,
             provider_snapshot_date: Some(at.date_naive()),
-            provider_file_name: format!("{file_id}.{}", extension(format)),
-            provider_file_id: file_id,
+            provider_file_name: format!("{leaf}.{}", extension(format)),
+            provider_file_id: leaf,
             provider_updated_at: None,
         },
         raw_payload: bytes,
         content_type: content_type(format).to_owned(),
     })
-    .with_context(|| format!("failed to plan the Bronze object for {}", file.dataset_slug))
+    .with_context(|| format!("failed to plan the Bronze object for {}", file.dataset_slug))?;
+    plan.object_key = build_bronze_content_object_key(&plan.object_key, &plan.checksum_sha256)
+        .with_context(|| format!("failed to content-qualify {}", plan.object_key.as_str()))?;
+    Ok(plan)
 }
 
 fn content_type(format: FileFormat) -> &'static str {
@@ -894,7 +901,7 @@ where
         .create_ingestion_run(&ingestion_run(source.id, file, at))
         .await
         .with_context(|| format!("failed to create the {} run", file.dataset_slug))?;
-    let mut plan = plan(file, announced, bytes, run.id, at)?;
+    let mut plan = plan(file, bytes, run.id, at)?;
     // The local copy first, so the payload moves into the commit instead of being copied (the
     // 상가(상권) zip is about 350 MB).
     let local = write_local_copy(output_dir, &plan)?;
@@ -964,13 +971,12 @@ fn bronze_object_record(
         snapshot_date: plan.snapshot_date,
         snapshot_granularity: plan.snapshot_granularity,
         snapshot_basis: plan.snapshot_basis,
-        // The key's leaf is `<file id>.<the extension of what arrived>`.
+        // The portal's file id, and the extension of what arrived (the key's).
         provider_file_name: plan
             .object_key
             .as_str()
-            .rsplit('/')
-            .next()
-            .map(str::to_owned),
+            .rsplit_once('.')
+            .map(|(_, extension)| format!("{file_id}.{extension}")),
         provider_file_id: Some(file_id),
         provider_updated_at: None,
         effective_date: None,
@@ -1124,9 +1130,8 @@ async fn collect_past(
     let mut asked = past_asked(&config.state_dir, file)?;
     let current = last_accepted(&config.state_dir, file)?;
     for edition in owed_past(&listed, &asked, past.max_per_run) {
-        // shortcut: last month's current file comes back in the list under a key of its own and is
-        // known by its file id; if the portal gives it a new id, it lands once more (the same bytes
-        // under a second key), so compare checksums if the first month's move shows that.
+        // Last month's current file comes back in the list under a key of its own: known by its file
+        // id, it is not fetched again; under a new id it is, and its bytes name the same object.
         let known = asked
             .values()
             .cloned()
@@ -1183,13 +1188,7 @@ async fn land(
         .await?;
         json!({"object_key": key, "checksum_sha256": checksum, "local_path": local, "written": true})
     } else {
-        let plan = plan(
-            file,
-            announced,
-            bytes,
-            IngestionRunId::new(Uuid::new_v4()),
-            now,
-        )?;
+        let plan = plan(file, bytes, IngestionRunId::new(Uuid::new_v4()), now)?;
         let local = write_local_copy(&config.output_dir, &plan)?;
         json!({"object_key": plan.object_key.as_str(), "checksum_sha256": plan.checksum_sha256, "local_path": local, "written": false})
     };

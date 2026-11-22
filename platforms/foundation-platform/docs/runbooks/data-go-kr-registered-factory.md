@@ -152,6 +152,8 @@ last_reviewed: 2026-11-22
 `pension_workplace_collect`·`employment_insurance_workplace_collect` 가 하루 한 번
 `foundation-data-go-kr-file-collect@pension-workplace.service`·`@employment-insurance-workplace.service`
 (`scripts/ops/data-go-kr-file-collect.sh`)로 같은 수집기를 그 파일 하나로 돌린다. Silver 는 아직 없다: Bronze 만 쌓인다.
+이 수집기의 Bronze 키는 모든 파일이 루트 ADR-0152 의 내용 주소다(루트 ADR-0604 부터): `<dataset-slug>--sha256-<hex>.<ext>`,
+포털 파일 id 는 원장의 `provider_file_id` 에. 그 전에 받은 판은 `<dataset-slug>-<atchFileId>.<ext>` 그대로 있다.
 
 - 실행마다: 지금 판의 메타데이터 한 번(새 `atchFileId` 면 받는다), 데이터셋 쪽의 주기성 과거 데이터 목록 한 번
   (`POST /tcs/dss/selectHistAndCsvData.do`), 아직 묻지 않은 지난 판을 등록일이 오래된 것부터 `past_editions.max_per_run`
@@ -159,6 +161,6 @@ last_reviewed: 2026-11-22
 - 진행: `/var/lib/foundation-platform/data-go-kr-file-collect/collector/<dataset_slug>/past.json`(물은 판 키 → 파일 id)과
   `accepted.json`(지금 판), 저널 `journal.log` 의 `ok run=... landed=<n> past=<n> bytes=<n>`. 첫 채우기는 국민연금 일곱 실행,
   고용·산재 네 실행(2026-11-22 잼: 130 판 12,984 MB·16 판 2,756 MB).
-- 한 판을 다시 받게 하려면 `past.json` 에서 그 키 줄을 지운다(Bronze 는 덮지 않는다: 같은 파일 id 에 같은 바이트면 원장만 맞춘다).
+- 한 판을 다시 받게 하려면 `past.json` 에서 그 키 줄을 지운다(Bronze 는 덮지 않는다: 키가 바이트의 SHA-256 이라 같은 바이트면 같은 객체이고 원장만 맞춘다).
 - 실패: 목록 쪽이 판을 하나도 이름 짓지 않거나(점검 쪽), 판의 키·등록일이 이상하거나, 내려받은 것이 zip 도 CSV 도 아니면(로그인·
   안내 쪽) 그 파일은 실패하고 run 이 실패로 끝난다. 그때까지 받은 판은 커밋되고 `past.json` 에 적혀 있다.

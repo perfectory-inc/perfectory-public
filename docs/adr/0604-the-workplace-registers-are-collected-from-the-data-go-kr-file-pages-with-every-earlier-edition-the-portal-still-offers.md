@@ -7,6 +7,8 @@
   [ADR-0406](./0406-the-factory-operating-signal-comes-from-pension-workplaces-and-kicox-complex-statistics-not-electricity.md)(공장 가동 신호 원천 조사, 국민연금 사업장),
   [ADR-0574](./0574-every-limit-is-set-from-measurement-and-a-unit-near-its-limit-is-named-before-it-fails.md) §8(작업이 메모리를 적는다),
   [ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md)(collect 묶음)
+- Amends: [ADR-0401](./0401-other-public-bulk-files-are-collected-by-the-data-go-kr-file-collector-and-land-as-changed-rows.md) §1
+  (그 수집기의 Bronze 키: 포털 파일 id 대신 [ADR-0152](./0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md) 의 내용 주소 키)
 
 ## Context
 
@@ -42,11 +44,15 @@
    (`<dataset_slug>/past.json`: 판 키 → 파일 id)에 적어, 중간에 멈춘 실행도 물은 것을 잃지 않는다. 이미 받은 파일(지금 판이나
    다른 판의 파일 id)을 이름 짓는 판은 내려받지 않고 적기만 한다: 지난달의 지금 판이 목록에 새 키로 돌아오는 경우다. 전체
    이력은 국민연금 일곱 실행, 고용·산재 네 실행에 들어오고, 그 뒤 실행은 메타데이터와 목록 두 요청이다.
-4. **받은 그대로, 한 번.** 판마다 Bronze 객체 하나: `bronze/source=datagokr__<dataset_slug>/<dataset_slug>-<atchFileId>.<zip|csv>`.
-   확장자와 내용 형식은 도착한 바이트가 정한다(zip 머리면 zip, 아니면 표지가 아닌 CSV 여야 한다; 로그인·안내 쪽은 거부).
-   키는 포털의 파일 id 이고 포털은 올릴 때마다 새 id 를 준다([ADR-0152](./0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md) 의 번호 재사용이 없다): 같은 키에 같은 바이트는
-   회복 경로로 성공하고, 다른 바이트는 거부된다. 원장(`catalog.bronze_object`)이 판마다 SHA-256 과 크기를 적는다. 덮어쓰는 것은
-   없다. Silver 표는 아직 없다(다음 ADR).
+4. **받은 그대로, 한 번, 바이트로 이름 짓는다.** 판마다 Bronze 객체 하나이고, 키는 ADR-0152 의 내용 주소 규칙 하나를 따른다
+   (`build_bronze_content_object_key`): `bronze/source=datagokr__<dataset_slug>/<dataset-slug>--sha256-<hex>.<zip|csv>`. ILIS 와 다른
+   다시 올리는 전국 파일과 같은 규칙이다. 포털 파일 id(`atchFileId`)는 키에 넣지 않고 원장(`catalog.bronze_object` 의
+   `provider_file_id`·`provider_file_name`)에 출처로 남긴다. 그래서 포털이 같은 바이트를 새 id 로 다시 올려도 객체는 하나다(원장은
+   그 키의 줄을 맞춘다). 확장자와 내용 형식은 도착한 바이트가 정한다(zip 머리면 zip, 아니면 표지가 아닌 CSV 여야 한다; 로그인·안내
+   쪽은 거부). 같은 키에 같은 바이트는 회복 경로로 성공하고 덮어쓰는 것은 없다. **이 키는 이 수집기의 모든 파일에 쓴다**: 지금까지
+   ADR-0401 의 파일 15 개는 `<dataset-slug>-<atchFileId>.<ext>` 였다. 이미 받은 판은 그 키 그대로 두고(덧붙이기만), 다음 새 판부터
+   새 키로 쌓인다. Silver 의 `source_snapshot_id`(키의 잎)도 그 판부터 새 모양이다 — 판을 가르는 값일 뿐 해석하는 곳은 없다.
+   Silver 표는 아직 없다(다음 ADR).
 5. **작업 둘, 유닛 하나.** `pension_workplace_collect`(매일 12:50 UTC)와 `employment_insurance_workplace_collect`(매일 13:20 UTC)가
    템플릿 `foundation-data-go-kr-file-collect@<dataset-slug>.service`(`scripts/ops/data-go-kr-file-collect.sh`; 인스턴스 이름에는 `_` 가 못 들어가 `-` 로 쓴다)로 돈다.
    스크립트는 `own_job` 을 적고 `silver_load` 가 없는 파일만 받는다. 둘 다 `dagster_group: collect`, `dagster_stage: shadow`
@@ -61,9 +67,9 @@
   약 134 MB. R2 저장 비용은 달에 약 0.24 달러다(GB 당 0.015 달러).
 - **제공자 부담**: 첫 채우기 동안 하루에 국민연금 목록 1 + 메타데이터 21 + 파일 21(많아야 약 2.5 GB), 고용·산재 목록 1 + 메타데이터 5 + 파일
   5(많아야 약 1.75 GB), 요청 사이 5 초. 그 뒤 하루 네 요청과 새 판.
-- **알려진 한계**: 판은 파일 id 로만 알아본다. 포털이 같은 바이트를 새 id 로 다시 올리면 한 번 더 받는다 — 고용·산재 목록의
-  2020-12-31 판 둘(2021-04-19·2022-08-09 등록)이 크기가 같다(357,493,430 바이트). 지난달의 지금 판이 목록으로 옮겨 갈 때 id 가
-  바뀌는지는 첫 달에 본다(바뀌면 체크섬으로 알아보게 고친다).
+- **같은 바이트는 한 객체**: 고용·산재 목록의 2020-12-31 판 둘(2021-04-19·2022-08-09 등록)은 크기가 같다(357,493,430 바이트).
+  같은 바이트면 둘 다 내려받지만(바이트를 받아야 안다) 객체는 하나다. 지난달의 지금 판이 목록으로 옮겨 갈 때 id 가 같으면 내려받지
+  않고, 바뀌면 한 번 더 내려받아 같은 객체에 닿는다.
 - **남은 일**: (1) 두 표의 Silver(국민연금 월 파일을 사업장×월로, 고용·산재를 사업자번호로; 법정동 코드·주소로 필지·단지에 잇기,
   ADR-0406 §2); (2) 첫 실행들의 저널로 `measured_run_seconds` 를 적고 `first_run` 을 지우는 PR; (3) Open DART·국세청 상태조회·
   금융위 기업정보는 사장의 계정 일이라 여기 없다.

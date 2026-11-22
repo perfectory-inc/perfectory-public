@@ -86,8 +86,13 @@ fn a_job_names_its_files_and_an_unknown_or_repeated_name_refuses() -> anyhow::Re
     Ok(())
 }
 
+fn sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(bytes))
+}
+
 #[test]
-fn every_file_is_its_own_source_and_one_object_named_by_its_portal_id() -> anyhow::Result<()> {
+fn every_file_is_its_own_source_and_one_object_named_by_its_bytes() -> anyhow::Result<()> {
     let contract = source_contract()?;
     let announced = Announced {
         attach_file_id: FILE_ID.to_owned(),
@@ -96,35 +101,44 @@ fn every_file_is_its_own_source_and_one_object_named_by_its_portal_id() -> anyho
     let at =
         chrono::DateTime::parse_from_rfc3339("2099-01-02T03:04:05Z")?.with_timezone(&chrono::Utc);
     let run = foundation_shared_kernel::ids::IngestionRunId::new(Uuid::new_v4());
-    // The registered factory keeps the key it had before ADR-0401.
+    // The ledger keeps the portal's file id; the key names the dataset and the bytes (root ADR-0152).
     let factory = file(&contract, "registered_factory")?;
     assert_eq!(
         provider_file_id(factory, &announced),
         "registered-factory-file-000000000000001"
     );
     assert_eq!(
-        plan(factory, &announced, zip_bytes(), run, at)?
-            .object_key
-            .as_str(),
-        "bronze/source=datagokr__registered_factory/registered-factory-file-000000000000001.zip"
+        plan(factory, zip_bytes(), run, at)?.object_key.as_str(),
+        format!(
+            "bronze/source=datagokr__registered_factory/registered-factory--sha256-{}.zip",
+            sha256(&zip_bytes())
+        )
     );
-    let airport = plan(
-        file(&contract, "airport")?,
-        &announced,
-        b"a,b\n".to_vec(),
-        run,
-        at,
-    )?;
+    let airport = plan(file(&contract, "airport")?, b"a,b\n".to_vec(), run, at)?;
     assert_eq!(
         (airport.object_key.as_str(), airport.content_type.as_str()),
         (
-            "bronze/source=datagokr__airport/airport-file-000000000000001.csv",
+            format!(
+                "bronze/source=datagokr__airport/airport--sha256-{}.csv",
+                sha256(b"a,b\n")
+            )
+            .as_str(),
             "text/csv"
         )
     );
+    // The same bytes planned on another day, in another run, are the same object.
+    let later =
+        chrono::DateTime::parse_from_rfc3339("2099-02-03T04:05:06Z")?.with_timezone(&chrono::Utc);
+    let again = foundation_shared_kernel::ids::IngestionRunId::new(Uuid::new_v4());
+    assert_eq!(
+        plan(file(&contract, "airport")?, b"a,b\n".to_vec(), again, later)?
+            .object_key
+            .as_str(),
+        airport.object_key.as_str()
+    );
     for each in contract.files.values() {
         // Every file plans a canonical Bronze key (the slug is the catalog's dataset_slug).
-        plan(each, &announced, zip_bytes(), run, at)?;
+        plan(each, zip_bytes(), run, at)?;
     }
     assert!(PREFIX.starts_with("FOUNDATION_PLATFORM_"));
     Ok(())
@@ -325,7 +339,6 @@ async fn a_standard_data_pass_asks_the_current_table_and_lands_only_when_its_row
         chrono::DateTime::parse_from_rfc3339("2099-01-02T03:04:05Z")?.with_timezone(&chrono::Utc);
     let planned = plan(
         school,
-        &announced,
         bytes,
         foundation_shared_kernel::ids::IngestionRunId::new(Uuid::new_v4()),
         at,
@@ -333,7 +346,7 @@ async fn a_standard_data_pass_asks_the_current_table_and_lands_only_when_its_row
     assert!(planned
         .object_key
         .as_str()
-        .starts_with("bronze/source=datagokr__school_location/school-location-rows-"));
+        .starts_with("bronze/source=datagokr__school_location/school-location--sha256-"));
     assert_eq!(planned.content_type, "application/gzip");
     Ok(())
 }
@@ -579,11 +592,16 @@ async fn a_past_edition_is_asked_by_its_own_key_lands_as_what_arrived_and_a_land
     let at =
         chrono::DateTime::parse_from_rfc3339("2099-01-02T03:04:05Z")?.with_timezone(&chrono::Utc);
     let run = foundation_shared_kernel::ids::IngestionRunId::new(Uuid::new_v4());
-    let planned = plan(insurance, &announced, bytes, run, at)?;
+    assert_eq!(announced.attach_file_id, FILE_ID);
+    let planned = plan(insurance, bytes, run, at)?;
     assert_eq!(
         (planned.object_key.as_str(), planned.content_type.as_str()),
         (
-            "bronze/source=datagokr__employment_insurance_workplace/employment-insurance-workplace-file-000000000000001.csv",
+            format!(
+                "bronze/source=datagokr__employment_insurance_workplace/employment-insurance-workplace--sha256-{}.csv",
+                sha256("사업장명\n".as_bytes())
+            )
+            .as_str(),
             "text/csv"
         )
     );

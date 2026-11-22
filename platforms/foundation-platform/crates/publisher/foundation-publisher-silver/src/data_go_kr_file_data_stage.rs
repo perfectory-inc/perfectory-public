@@ -288,7 +288,8 @@ pub struct PlannedFile {
 }
 
 impl PlannedFile {
-    /// The edition id: the Bronze leaf without its extension (the dataset and the portal file id).
+    /// The edition id: the Bronze leaf without its extension (the dataset and its bytes' SHA-256, root
+    /// ADR-0604; the dataset and the portal file id for the editions landed before it).
     #[must_use]
     pub fn snapshot_id(&self) -> &str {
         let leaf = self
