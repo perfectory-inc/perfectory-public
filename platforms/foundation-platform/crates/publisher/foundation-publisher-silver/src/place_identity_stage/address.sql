@@ -1,6 +1,7 @@
 -- The macros that read a Korean address (root ADR-0288 §1): `offers.sql` reads each row's address
 -- with them, and a source that parses a lot itself (the court auction search rows) uses the same
--- pattern. Needs `python_values.sql` (py_ws).
+-- pattern. Needs `python_values.sql` (py_ws) and nothing else: DuckDB binds a macro's calls when it is
+-- made, so `place_address_words` (it reads reference.sql's place_words) stays in offers.sql.
 
 -- Python's \s, \S and \d in a text pattern: Unicode whitespace (str.isspace) and decimal digits.
 CREATE OR REPLACE MACRO place_s() AS '[' || py_ws() || ']';
@@ -34,12 +35,6 @@ CREATE OR REPLACE MACRO place_city_cuts(w) AS
 CREATE OR REPLACE MACRO place_city_pieces(w, cuts) AS
   list_transform(range(1, len(cuts) + 2), lambda k:
     substr(w, ([0] || cuts || [length(w)])[k] + 1, ([0] || cuts || [length(w)])[k + 1] - ([0] || cuts || [length(w)])[k]));
-
--- address_words: the words before any parenthesis, comma or 외, with 산 split from a glued lot and a
--- 시 split from its 구.
-CREATE OR REPLACE MACRO place_address_words(a) AS
-  flatten(list_transform(place_words(place_mountain_split(place_head(a))),
-                         lambda w: place_city_pieces(w, place_city_cuts(w))));
 
 -- The register's road address: 시도, 시군구 words, 도로명, 건물번호, then anything. Spark read it with Java's
 -- regex (\s is [ \t\n\x0B\f\r], `.` stops at a line end) and cast '' to null.

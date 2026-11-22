@@ -10,6 +10,12 @@
 
 -- The address macros are `address.sql`'s; it runs first.
 
+-- address_words: the words before any parenthesis, comma or 외, with 산 split from a glued lot and a
+-- 시 split from its 구.
+CREATE OR REPLACE MACRO place_address_words(a) AS
+  flatten(list_transform(place_words(place_mountain_split(place_head(a))),
+                         lambda w: place_city_pieces(w, place_city_cuts(w))));
+
 CREATE OR REPLACE TEMP TABLE place_words_of AS
 SELECT _row, pnu, coalesce(address, '') AS address, place_address_words(coalesce(address, '')) AS words FROM place_rows;
 
