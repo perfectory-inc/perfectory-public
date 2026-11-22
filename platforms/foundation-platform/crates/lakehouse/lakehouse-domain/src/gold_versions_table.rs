@@ -160,11 +160,13 @@ pub fn gold_versions_table(
 /// producer that appends to it and nothing switches over. The served parcel boundaries are read by
 /// the parcel tile bake through its handoff (row 6 of the ADR's waves, with the geometry handoff).
 /// Root ADR-0564 §9 차례 5: the parcel panel is the parcel host lane's Gold, which the lane names as
-/// a constant, not by a kind line (`by_pnu_lanes`).
+/// a constant, not by a kind line (`by_pnu_lanes`). The steward queue is read by the steward
+/// database through its handoff, which the queue's producer writes (root ADR-0115 §9).
 const VERSIONED_OUTSIDE_THE_LANES: &[&LakehouseTableContract] = &[
     &crate::real_transaction_region_stats::GOLD_REAL_TRANSACTION_REGION_STATS,
     &crate::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED,
     &crate::parcel_panel::GOLD_PARCEL_PANEL,
+    &crate::lakehouse::GOLD_LINEAGE_REVIEW_QUEUE,
 ];
 
 /// The versions tables of the Golds outside the by-PNU lanes; empty when one cannot be derived
