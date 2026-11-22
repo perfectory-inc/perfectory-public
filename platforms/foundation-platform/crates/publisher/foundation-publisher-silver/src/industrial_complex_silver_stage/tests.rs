@@ -234,12 +234,19 @@ fn the_spark_refusals_hold_before_anything_is_staged() -> anyhow::Result<()> {
         (format!("{}{}", with(&[]), with(&[])), "must be unique"),
         ("[1, 2]\n".to_owned(), "is not a JSON object"),
     ];
+    // One stage for every case: each export replaces the stage's tables, and a stage per case
+    // took the test past nextest's 60 s limit on a CI runner (2026-11-22).
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    let shape = shape()?;
+    let refuse = |text: &str| -> anyhow::Result<String> {
+        let path = directory.path().join("export.jsonl");
+        std::fs::write(&path, text)?;
+        let staged = stage_export(&stage, &shape, contract(), &path, None, "complexes-test");
+        Ok(format!("{:#}", staged.err().context("not refused")?))
+    };
     for (index, (text, expected)) in cases.iter().enumerate() {
-        let directory = tempfile::tempdir()?;
-        let error = stage_text(directory.path(), text)
-            .err()
-            .with_context(|| format!("case {index} ({expected}) was not refused"))?;
-        let message = format!("{error:#}");
+        let message = refuse(text).with_context(|| format!("case {index} ({expected})"))?;
         assert!(message.contains(expected), "case {index}: {message}");
     }
 
@@ -248,10 +255,8 @@ fn the_spark_refusals_hold_before_anything_is_staged() -> anyhow::Result<()> {
         .as_object_mut()
         .context("an object")?
         .remove("developer_name");
-    let directory = tempfile::tempdir()?;
-    let error = stage_text(directory.path(), &format!("{missing}\n"))
-        .err()
+    let message = refuse(&format!("{missing}\n"))
         .context("a line without a transport column was not refused")?;
-    assert!(format!("{error:#}").contains("missing the column developer_name"));
+    assert!(message.contains("missing the column developer_name"));
     Ok(())
 }
