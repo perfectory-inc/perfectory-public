@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 월별 전기 lane `building-energy-monthly-electricity` (root ADR-0169 ②, ADR-0396): every Bronze object is a release of one usage month; load the first object, oldest ledger month first, whose parts silver.building_energy_monthly_electricity does not record yet (`unchanged` when every one is), stage it on a load branch, compare only that usage month's bucket with the table's current rows and append to main the rows of the 지번 whose month changed and a removal marker per 지번 that month no longer holds (compare.bucket_scope release; root ADR-0318), and read it back (`changed`). One release per run is the cap: a month is 1.46M rows, a hub part lane's monthly size. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 월별 전기 lane `building-energy-monthly-electricity` (root ADR-0169 ②, ADR-0396): every Bronze object is a release of one usage month; load the first object, oldest ledger month first, whose parts silver.building_energy_monthly_electricity does not record yet (`unchanged` when every one is), compare, in the publisher's DuckDB, only that usage month's bucket with the table's current rows and append to main the rows of the 지번 whose month changed and a removal marker per 지번 that month no longer holds (compare.bucket_scope release; root ADR-0318), and read it back (`changed`). One release per run is the cap: a month is 1.46M rows, a hub part lane's monthly size. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
       "systemd_service": "foundation-silver-refresh@building-energy-monthly-electricity.service",
       "check_service": "foundation-silver-refresh-plan@building-energy-monthly-electricity.service",
       "systemd_timer": null,
@@ -86,8 +86,7 @@
       "status": "partial",
       "via": [
         "export-building-energy-monthly-electricity-silver-handoff",
-        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh"
       ],
       "source_slugs": [
         "hubgokr__building_energy_monthly_electricity"

@@ -27,13 +27,11 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/silver-refresh.sh %i
 # (scripts/ops/pinned-cleanup.sh reads it from RuntimeDirectory; root ADR-0270 §3).
 ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh silver-refresh.sh
 RuntimeDirectory=%N
-# The export runs here, as a child of the publisher, not in a container: this bounds it, as the
-# FLOOR export's container is bounded (lakehouse-engine.contract.json execution_profile). Spark is
-# bounded by the compose `spark` cap, which the Docker daemon, not this unit, holds.
+# The export runs here, as a child of the publisher, not in a container, and so does the
+# publisher's DuckDB load (root ADR-0599): this bounds both, one after the other.
 # 4G killed the units export on its first lane run (2026-10-10, oom-kill at 4.0G during the export:
-# it indexes the nation's titles and basis outlines before it streams the units). The export child
-# exits before Spark starts, so a lane holds this or the Spark cap, never both
-# (tools/host-memory-budget.contract.json counts the larger): 16G stays under Spark's 20g.
+# it indexes the nation's titles and basis outlines before it streams the units); 8G throttled it
+# at MemoryHigh to 61 minutes (2026-11-21), so the cap is 16G (tools/host-memory-budget.contract.json).
 # Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=14745M
 MemoryMax=16G

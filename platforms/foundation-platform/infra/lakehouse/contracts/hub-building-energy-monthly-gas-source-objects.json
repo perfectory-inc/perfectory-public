@@ -67,10 +67,8 @@
     },
     "export": "export-building-energy-monthly-gas-silver-handoff",
     "release_unit": "object",
-    "spark": {
-      "master": "local[8,8]",
-      "driver_memory": "16g",
-      "iceberg_write_mode": "append",
+    "load": {
+      "write_mode": "append",
       "input_file_batch_size": 40
     },
     "compare": {

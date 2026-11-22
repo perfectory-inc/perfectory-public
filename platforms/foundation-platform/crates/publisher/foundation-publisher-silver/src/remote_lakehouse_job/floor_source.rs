@@ -1,7 +1,6 @@
-//! Explicit FLOOR inputs and retained execution time; Bronze authentication runs on the server.
-use super::{required_lookup, shell_quote};
+//! The FLOOR inputs a cycle selected and its execution time; Bronze authentication runs in the export.
+use super::shell_quote;
 use crate::building_register_floor_silver_export::HistoryWitness;
-use anyhow::{ensure, Context};
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 
@@ -15,41 +14,6 @@ pub(super) struct FloorSource {
 }
 
 impl FloorSource {
-    pub fn from_lookup(lookup: &mut impl FnMut(&str) -> Option<String>) -> anyhow::Result<Self> {
-        let floor = required_lookup(
-            lookup,
-            "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_FLOOR_SOURCE_OBJECT",
-        )?;
-        let title = required_lookup(
-            lookup,
-            "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_BUILDING_REGISTER_TITLE_SOURCE_OBJECT",
-        )?;
-        crate::hub_provider_release::ProviderRelease::of_files([&floor, &title])?;
-        let time = required_lookup(
-            lookup,
-            "FOUNDATION_PLATFORM_BUILDING_REGISTER_RETAINED_INGESTED_AT_UTC",
-        )?;
-        let ingested_at = DateTime::parse_from_rfc3339(&time)
-            .context("invalid retained FLOOR ingestion time")?
-            .with_timezone(&Utc);
-        let derivation = lookup("FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_DERIVATION");
-        ensure!(
-            lookup("FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_INPUT_FILE_BATCH_SIZE").is_none(),
-            "FLOOR source is one logical load; input file batching cannot split its identity"
-        );
-        ensure!(
-            lookup("FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_INPUT_PATH").is_none(),
-            "FLOOR pipeline input must be its exact exported handoff"
-        );
-        Ok(Self {
-            floor,
-            title,
-            ingested_at,
-            derivation,
-            history: HistoryWitness::from_lookup(lookup, false)?,
-        })
-    }
-
     pub fn root(&self) -> String {
         // One source/derivation owns one ready handoff across retry dates. A retry recovers
         // its original time from that summary; clock time must not hide a completed handoff.

@@ -117,10 +117,8 @@
       "source": "hubgokr__building_permit_structure_ledger"
     },
     "export": "export-building-permit-structure-ledger-silver-handoff",
-    "spark": {
-      "master": "local[8,8]",
-      "driver_memory": "16g",
-      "iceberg_write_mode": "append",
+    "load": {
+      "write_mode": "append",
       "input_file_batch_size": 40
     },
     "compare": {

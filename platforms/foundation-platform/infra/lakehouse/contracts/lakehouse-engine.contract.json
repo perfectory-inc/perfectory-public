@@ -93,7 +93,11 @@
         "wave": 3
       },
       "building_register_floor_history": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1599,
+          "rows": null,
+          "fingerprint": null
+        }
       },
       "building_register_master_silver_to_gold": {
         "wave": 3
@@ -258,7 +262,11 @@
         "wave": 1
       },
       "silver_scalar_handoff_to_lakehouse": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1599,
+          "rows": 21195732,
+          "fingerprint": "rows:21195732;digest_sum:195499190572848492389039524"
+        }
       },
       "spatial_silver_handoff": {
         "wave": 5

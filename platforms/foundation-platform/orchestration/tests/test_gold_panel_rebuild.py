@@ -567,8 +567,9 @@ class Registration(unittest.TestCase):
         self.assertEqual(job_specs.scheduler_timeout_minutes(job), 165)
         stretched = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
         rebuild = next(j for j in stretched["jobs"] if j["id"] == "gold_panel_rebuild")
-        # The fold's bound has 430 minutes of room behind FLOOR and the other fold (root ADR-0558).
-        rebuild["stop_grace_minutes"] = 431 - rebuild["time_limit_minutes"]
+        # The fold's bound has 935 minutes of room behind the other fold (root ADR-0558; FLOOR's 505
+        # left the spark pool with root ADR-0599).
+        rebuild["stop_grace_minutes"] = 936 - rebuild["time_limit_minutes"]
         self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1201 minutes")
                             for problem in job_specs.pool_starvation(stretched)))
 

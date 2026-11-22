@@ -107,6 +107,8 @@ mod handoff_object_support;
 mod juso_electronic_map_base;
 mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
+mod building_register_floor_history_check;
+mod building_register_floor_silver_load;
 mod gold_takeover_sides;
 mod gold_versions_change_set;
 mod gold_versions_commit;
@@ -275,7 +277,6 @@ enum Command {
     PlanProviderAcquisitionJobs,
     PlanVWorldDatasetCollection,
     CheckR2RuntimeTarget,
-    RunRemoteLakehouseJob,
     PublishAdministrativeBoundaryPostgis,
     PublishAdministrativeBoundaryStaticRelease,
     PublishIndustrialComplexBoundaryPostgis,
@@ -300,6 +301,8 @@ enum Command {
     LoadIndustrialComplexNoticeSilver,
     PlanIndustrialComplexSilverInputs,
     LoadIndustrialComplexSilver,
+    CheckBuildingRegisterFloorHistory,
+    LoadBuildingRegisterFloorSilver,
     BuildParcelNearbyVersions,
     RunParcelMatchingGate,
     BuildParcelRegisterMastersVersions,
@@ -614,7 +617,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::StopUnitPriceVersions => {
             Box::pin(async { remote_lakehouse_job::stop_unit_price_versions() })
         }
-        Command::RunRemoteLakehouseJob => Box::pin(remote_lakehouse_job::run()),
         Command::PublishAdministrativeBoundaryPostgis => {
             Box::pin(administrative_boundary_postgis_publish::run())
         }
@@ -657,6 +659,12 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(industrial_complex_silver_load::plan())
         }
         Command::LoadIndustrialComplexSilver => Box::pin(industrial_complex_silver_load::load()),
+        Command::CheckBuildingRegisterFloorHistory => {
+            Box::pin(building_register_floor_history_check::run())
+        }
+        Command::LoadBuildingRegisterFloorSilver => {
+            Box::pin(building_register_floor_silver_load::run())
+        }
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
         Command::RunParcelMatchingGate => Box::pin(parcel_matching_gate::run()),
         Command::BuildParcelRegisterMastersVersions => {
@@ -797,7 +805,6 @@ where
         Some("stop-silver-refresh") => Ok(Command::StopSilverRefresh),
         Some("stop-parcel-tile-bake") => Ok(Command::StopParcelTileBake),
         Some("stop-unit-price-versions") => Ok(Command::StopUnitPriceVersions),
-        Some("run-remote-lakehouse-job") => Ok(Command::RunRemoteLakehouseJob),
         Some("publish-administrative-boundary-postgis") => {
             Ok(Command::PublishAdministrativeBoundaryPostgis)
         }
@@ -838,6 +845,10 @@ where
             Ok(Command::PlanIndustrialComplexSilverInputs)
         }
         Some("load-industrial-complex-silver") => Ok(Command::LoadIndustrialComplexSilver),
+        Some("check-building-register-floor-history") => {
+            Ok(Command::CheckBuildingRegisterFloorHistory)
+        }
+        Some("load-building-register-floor-silver") => Ok(Command::LoadBuildingRegisterFloorSilver),
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
         Some("run-parcel-matching-gate") => Ok(Command::RunParcelMatchingGate),
         Some("build-parcel-register-masters-versions") => {

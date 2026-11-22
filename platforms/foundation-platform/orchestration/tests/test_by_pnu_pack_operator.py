@@ -361,13 +361,14 @@ class PackOperator(OperatorHarness):
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
 
     def test_an_operator_start_takes_the_pools_slots_a_scheduled_run_holds(self):
-        # Root ADR-0270 §2b (2026-10-18): an operator's spark one-off beside a scheduled FLOOR run.
+        # Root ADR-0270 §2b (2026-10-18): an operator's spark one-off beside a scheduled whole-pool run
+        # (FLOOR then; lineage now, FLOOR having left the spark pool, root ADR-0599).
         for args in (("parcel-tiles", "rehearse", "bake"), ("parcel-tiles", "rehearse", "gold", "202609")):
             with self.subTest(args=args):
                 self.log.unlink(missing_ok=True)
-                result, calls = self.run_operator(*args, activating=["foundation-building-register-floor.service"])
+                result, calls = self.run_operator(*args, activating=["foundation-lineage-stewardship.service"])
                 self.assertEqual(result.returncode, 75, result.stderr)
-                self.assertIn("foundation-building-register-floor.service holds 3", result.stderr)
+                self.assertIn("foundation-lineage-stewardship.service holds 3", result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
 
     def test_a_parcel_tile_rehearsal_starts_its_half_and_never_beside_spark_work(self):

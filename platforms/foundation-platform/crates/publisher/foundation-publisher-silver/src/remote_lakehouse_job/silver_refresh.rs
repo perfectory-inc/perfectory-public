@@ -9,8 +9,8 @@
 //!    `foundation.ingest-batch-objects` record `append_batch_once` commits with the rows. If it is,
 //!    or a newer release of the lane is, the run ends `unchanged` in seconds and writes nothing;
 //! 3. otherwise stages the release's Bronze (verified against the ledger's bytes), runs the lane's
-//!    export, loads the handoff with `silver_scalar_handoff_to_lakehouse.py`, and reads the table's
-//!    record again to see the release in it: `changed`.
+//!    export, and appends the release in one commit with the publisher's `DuckDB`
+//!    (`duckdb_release`, root ADR-0599), recording it: `changed`.
 //!
 //! The last line of every successful run is `silver-refresh-outcome lane=… outcome=changed|unchanged
 //! …` (ADR-0169 §4). The lane's runner values are its contract's (`lane.rs`); this file holds none.
@@ -18,7 +18,7 @@
 //! The VWorld land lanes (step 3) differ only in step 1 and in what one release is: the newest
 //! vintage whose objects, read by their ZIP member names, cover the contract's regions
 //! (`land.rs`). Steps 2 and 3 are the same: the table's own record, the lane's existing export,
-//! the same Spark load.
+//! the same load.
 use std::collections::BTreeSet;
 
 use anyhow::{ensure, Context};
@@ -61,26 +61,10 @@ pub(super) const UNIT_TIME_LIMIT_MINUTES: i64 = 150;
 /// measured 2026-10-28), is about 31 minutes at the 2026-10-21 rate (131,664,668 rows in 87 minutes),
 /// so the 40 minutes left hold it and the publish.
 pub(super) const LAST_BUCKET_START_MINUTES: i64 = UNIT_TIME_LIMIT_MINUTES - LARGEST_BUCKET_MINUTES;
-/// What the deadline leaves for the bucket that starts last and the publish (see above), for a
-/// lane whose contract measures no `run_budget`.
+/// What the deadline leaves for the lane that starts last (see above). The lanes' measured
+/// `run_budget` was the slowest Spark step (root ADR-0391); a lane's release is now one `DuckDB`
+/// commit (root ADR-0599), and no run reads a per-lane step any more.
 const LARGEST_BUCKET_MINUTES: i64 = 40;
-/// A measured run ends inside this share of its unit's limit, the margin #988 left rt-molit's
-/// Silver load and ADR-0386's guard holds every job to (root ADR-0391).
-pub(super) const FIT_SHARE_PERCENT: i64 = 90;
-/// A budget that leaves less than this to start a step would let a run do nothing but export.
-pub(super) const MIN_STEP_START_SECONDS: i64 = 30 * 60;
-
-/// How far into a run the last step may start: the unit's fit less the lane's measured slowest
-/// step (a load batch or a compare bucket, `run_budget.step_seconds_max`), so the step that starts
-/// last still ends inside the fit; without a measured step, the 40-minute default (root ADR-0391).
-/// On 2026-11-03 bucket 41 of `silver.land_transfer_history` took 2,779s, past the default's 40
-/// minutes: started at 110 minutes it would have run into the 150-minute kill.
-pub(super) fn last_step_start_seconds(step_seconds_max: Option<u32>) -> i64 {
-    match step_seconds_max {
-        Some(step) => UNIT_TIME_LIMIT_MINUTES * 60 * FIT_SHARE_PERCENT / 100 - i64::from(step),
-        None => LAST_BUCKET_START_MINUTES * 60,
-    }
-}
 
 /// What the run found, and what it reports on its last line.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -93,14 +77,15 @@ pub(super) enum Decision {
     LoadOnly,
 }
 
-/// `ExecStopPost`: remove the Spark container a killed run left (the Compose project of this
-/// invocation, nothing else).
+/// `ExecStopPost`: remove any container of this invocation's Compose project a killed run left
+/// (nothing else). A lane starts none since its load left Spark (root ADR-0599); the cleanup stays
+/// the unit's guarantee, not the lane's.
 pub(super) fn stop() -> anyhow::Result<()> {
     invocation_cleanup::run(Job::SilverRefresh)
 }
 
-/// The instance that runs every HUB family lane in one run (root ADR-0551 §2): one job holds the
-/// spark pool once for the family, not once per lane.
+/// The instance that runs every HUB family lane in one run (root ADR-0551 §2): one job holds its
+/// pool slot once for the family, not once per lane.
 pub(super) const FAMILY_INSTANCE: &str = "hub-lane-family";
 
 pub(super) async fn run() -> anyhow::Result<()> {
@@ -137,8 +122,7 @@ async fn run_family(
         // A lane that would start too late to end inside the unit waits for the next run: a
         // release is one commit, so a lane killed half way would have done nothing.
         if !plan
-            && chrono::Utc::now()
-                >= started + chrono::Duration::seconds(last_step_start_seconds(None))
+            && chrono::Utc::now() >= started + chrono::Duration::minutes(LAST_BUCKET_START_MINUTES)
         {
             resumes = Some(lane.id());
             break;
@@ -298,24 +282,9 @@ fn runtime(lane: Lane, lookup: &mut impl FnMut(&str) -> Option<String>) -> anyho
         !state_root.starts_with(&release_root),
         "the Silver refresh state must live outside the immutable release"
     );
-    let gid = super::required_lookup(lookup, "FOUNDATION_PLATFORM_LAKEHOUSE_GID")?;
-    ensure!(
-        !gid.is_empty() && gid.bytes().all(|b| b.is_ascii_digit()),
-        "FOUNDATION_PLATFORM_LAKEHOUSE_GID must be a numeric group id"
-    );
     Ok(Runtime {
         release_root,
         lane_root: state_root.join(lane.id()),
-        spark_jars: super::required_lookup(
-            lookup,
-            "FOUNDATION_PLATFORM_SILVER_REFRESH_SPARK_JARS",
-        )?,
-        jars_dir: absolute(
-            super::required_lookup(lookup, "FOUNDATION_PLATFORM_SILVER_REFRESH_JARS_DIR")?,
-            "the release jars directory",
-        )?,
-        project: invocation_cleanup::project_id(Job::SilverRefresh, lookup)?,
-        gid,
         publisher: std::env::current_exe().context("cannot locate the running publisher")?,
     })
 }

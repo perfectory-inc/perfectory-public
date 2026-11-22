@@ -46,10 +46,8 @@
       "source": "hubgokr__building_permit_basis_outline"
     },
     "export": "export-building-permit-basis-outline-silver-handoff",
-    "spark": {
-      "master": "local[8,8]",
-      "driver_memory": "16g",
-      "iceberg_write_mode": "append",
+    "load": {
+      "write_mode": "append",
       "input_file_batch_size": 40
     },
     "compare": {"content_columns": ["sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon", "arch_kind_code", "arch_kind_name", "plot_area_m2", "building_area_m2", "total_floor_area_m2", "main_purpose_code", "main_purpose_name", "start_scheduled_date", "start_delayed_date", "start_actual_date", "permit_date", "use_approval_date", "pnu", "raw_columns"], "bucket_prefix_length": 2}

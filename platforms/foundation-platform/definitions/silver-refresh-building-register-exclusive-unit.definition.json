@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 전유부 다리 lane `building-register-exclusive-unit` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_exclusive_unit already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed keys' rows and a removal marker per vanished key (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 전유부 다리 lane `building-register-exclusive-unit` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_exclusive_unit already records it or a newer one (`unchanged`), export it, compare it, in the publisher's DuckDB, with the table's current rows key bucket by key bucket and append to main only the changed keys' rows and a removal marker per vanished key (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
       "systemd_service": "foundation-silver-refresh@building-register-exclusive-unit.service",
       "check_service": "foundation-silver-refresh-plan@building-register-exclusive-unit.service",
       "systemd_timer": null,
@@ -87,8 +87,7 @@
       "status": "implemented",
       "via": [
         "export-building-register-exclusive-unit-silver-handoff",
-        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh"
       ],
       "source_slugs": [
         "hubgokr__building_register_exclusive_unit"

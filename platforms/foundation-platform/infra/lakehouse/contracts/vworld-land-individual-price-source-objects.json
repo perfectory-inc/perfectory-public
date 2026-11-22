@@ -18,10 +18,8 @@
       "regions_from": "reference.legal_dong_code_snapshot"
     },
     "export": "export-land-individual-price-silver-handoff",
-    "spark": {
-      "master": "local[8,8]",
-      "driver_memory": "16g",
-      "iceberg_write_mode": "overwrite",
+    "load": {
+      "write_mode": "overwrite",
       "input_file_batch_size": 4
     },
     "compare": {

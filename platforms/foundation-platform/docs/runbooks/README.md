@@ -34,6 +34,7 @@ last_reviewed: 2026-07-29
 - [산업입지정보시스템(ILIS) 산업단지 고시 첨부 — 수집·적재](./industrial-complex-notice.md)
 - [VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재](./vworld-parcel-editions.md)
 - [Silver 레인 새로 고침 — 건축HUB 레인의 감독 실행](./silver-refresh.md)
+- [건축물대장 층별 정보(FLOOR) 주기 — 이력 검사·내보내기·DuckDB 적재](./building-register-floor-cycle.md)
 - [필지 ID 원장 첫 등록 — 예약 작업](./parcel-registry.md)
 - [데이터 카탈로그(DataHub) — 설치·로그인·확인](./data-catalog.md)
 - [데이터 흐름 지도 — 읽기 전용 자격 파일·Slack 알림·확인](./operations-map.md)

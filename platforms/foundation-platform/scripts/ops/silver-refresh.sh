@@ -10,17 +10,17 @@
 # and each lane's runner values are the `silver_refresh` block of its source contract
 # (infra/lakehouse/contracts/hub-building-register-*-source-objects.json and
 # vworld-land-*-source-objects.json). This script binds the run to the admitted release, the runtime
-# database connection and this invocation's Compose project, and lets one lane run at a time: each
-# takes the compose `spark` service's whole cap.
+# database connection and this invocation's Compose project, and lets one lane run at a time: the
+# export runs as a child of the publisher and the publisher's DuckDB loads the release (root ADR-0599).
 #
 # The publisher's last line is `silver-refresh-outcome lane=… outcome=changed|unchanged reason=… …`;
 # a run then ends with `foundation-job-outcome changed|unchanged`, the same word (root ADR-0171).
 # `unchanged` means the Silver table's own snapshot summaries already record the release (or a
 # newer one): nothing was staged, exported or written.
 #
-# Spark runs in the Compose project foundation-silver-refresh-<INVOCATION_ID>. A timeout kills this
-# script and the compose client, not the daemon-owned container; `cleanup` removes that project's
-# one-off containers and networks with the release's publisher, as FLOOR and the Gold rebuild do.
+# The run's Compose project is foundation-silver-refresh-<INVOCATION_ID>. A lane starts no container
+# since its load left Spark; `cleanup` still removes whatever one-off container or network that
+# project holds, with the release's publisher, as FLOOR and the Gold rebuild do.
 set -euo pipefail
 
 LANE="${1:-}"
@@ -39,7 +39,7 @@ PLAN=0
 }
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 
-# The lanes' work (staged ZIPs of gigabytes, the handoff, Spark's spill) is on the data disk, which
+# The lanes' work (staged ZIPs of gigabytes, the handoff) is on the data disk, which
 # the release creates (foundation-release.sh timers); the unit names it in ReadWritePaths.
 export FOUNDATION_PLATFORM_SILVER_REFRESH_STATE_ROOT="${FOUNDATION_PLATFORM_SILVER_REFRESH_STATE_ROOT:-/data/foundation-platform/silver-refresh}"
 # DuckDB 로 싣는 레인(루트 ADR-0599)의 판 사본·임시 파일·준비 파일은 SSD 에 둔다. /data 는 느린 디스크다.
@@ -85,15 +85,10 @@ export INVOCATION_ID
 export FOUNDATION_PLATFORM_SILVER_REFRESH_LANE="${LANE}"
 export FOUNDATION_PLATFORM_SILVER_REFRESH_PLAN="${PLAN}"
 export FOUNDATION_PLATFORM_SILVER_REFRESH_RELEASE_ROOT="${RELEASE_ROOT}"
-export FOUNDATION_PLATFORM_SILVER_REFRESH_SPARK_JARS="${SPARK_RELEASE_JARS}"
-export FOUNDATION_PLATFORM_SILVER_REFRESH_JARS_DIR="${RELEASE_JARS_DIR}"
-# Spark (uid 185) writes the lane's work directory through the service account's group.
-FOUNDATION_PLATFORM_LAKEHOUSE_GID="$(id -g)"
-export FOUNDATION_PLATFORM_LAKEHOUSE_GID
 if [[ "${PLAN}" == 1 ]]; then
   # A plan is not a run: it ends with `foundation-job-check unchanged|would_change`, never a job
   # outcome. The scheduled check (foundation-silver-refresh-plan@.service) reads that line to skip a
-  # run with nothing to do before it takes the spark pool (root ADR-0277).
+  # run with nothing to do before it takes its pool slot (root ADR-0277).
   "${PUBLISHER_BIN}" run-silver-refresh | awk '
     { print; fflush() }
     /^silver-refresh-plan / {

@@ -336,11 +336,11 @@ fn the_lane_contracts_say_how_each_lane_runs() -> anyhow::Result<()> {
     let units = Lane::Units.contract()?;
     assert_eq!(units.kind, ExportKind::Unit);
     assert_eq!(units.roles, unit_roles());
-    assert_eq!(units.spark.iceberg_write_mode, WriteMode::Overwrite);
-    assert_eq!(units.spark.input_file_batch_size, 0);
+    assert_eq!(units.load.write_mode, WriteMode::Overwrite);
+    assert_eq!(units.load.input_file_batch_size, 0);
     let price = Lane::ApartmentPrice.contract()?;
     assert!(!price.kind.loads_as_one_run());
-    assert_eq!(price.spark.iceberg_write_mode, WriteMode::Append);
+    assert_eq!(price.load.write_mode, WriteMode::Append);
     assert_eq!(
         price.handoff_prefix.as_deref(),
         Some("silver-handoff/hubgokr__building_register_apartment_price")
@@ -371,17 +371,28 @@ fn a_contract_that_would_misload_its_lane_is_refused() -> anyhow::Result<()> {
         // a one-run load split into batches writes only its first batch
         (
             Lane::Titles,
-            Box::new(|v| v["silver_refresh"]["spark"]["input_file_batch_size"] = 4.into()),
+            Box::new(|v| v["silver_refresh"]["load"]["input_file_batch_size"] = 4.into()),
         ),
         // appending a second release beside the first breaks gold.building_panel
         (
             Lane::Titles,
-            Box::new(|v| v["silver_refresh"]["spark"]["iceberg_write_mode"] = "append".into()),
+            Box::new(|v| v["silver_refresh"]["load"]["write_mode"] = "append".into()),
         ),
-        // a driver larger than any unit the cap knows is still a number of gigabytes
+        // the Spark block the lanes carried before their load left Spark (root ADR-0599)
         (
             Lane::Titles,
-            Box::new(|v| v["silver_refresh"]["spark"]["driver_memory"] = "lots".into()),
+            Box::new(|v| {
+                v["silver_refresh"]["spark"] =
+                    serde_json::json!({"master": "local[8,8]", "driver_memory": "16g"});
+            }),
+        ),
+        // a measured Spark step no run reads any more
+        (
+            Lane::ApartmentPrice,
+            Box::new(|v| {
+                v["silver_refresh"]["run_budget"] =
+                    serde_json::json!({"step_seconds_max": 2774, "measured": "2026-10-20"});
+            }),
         ),
         // an export the refresh cannot run
         (
@@ -407,7 +418,7 @@ fn a_contract_that_would_misload_its_lane_is_refused() -> anyhow::Result<()> {
         // a part lane overwriting its append-only table
         (
             Lane::ApartmentPrice,
-            Box::new(|v| v["silver_refresh"]["spark"]["iceberg_write_mode"] = "overwrite".into()),
+            Box::new(|v| v["silver_refresh"]["load"]["write_mode"] = "overwrite".into()),
         ),
         // a part lane without its handoff prefix
         (
@@ -506,7 +517,7 @@ fn an_overwrite_nobody_declared_is_refused() -> anyhow::Result<()> {
         let (_, text) = lane.contract_source();
         let value: serde_json::Value = serde_json::from_str(text)?;
         let block = &value["silver_refresh"];
-        let overwrites = block["spark"]["iceberg_write_mode"] == "overwrite";
+        let overwrites = block["load"]["write_mode"] == "overwrite";
         let declared = block.get("compare").is_some() != block.get("full_reason").is_some();
         // An appending lane may compare (root ADR-0318) but never names a full write.
         assert!(
@@ -734,33 +745,22 @@ fn the_unit_export_reads_exactly_the_release_the_ledger_picked() -> anyhow::Resu
 }
 
 /// Root ADR-0391 addendum: the unit areas load part by part, the way ADR-0357's part lanes do, so
-/// no step of theirs is the 7,246s one-run Spark step of 2026-10-20.
+/// no step of theirs is the 7,246s one-run load of 2026-10-20.
 #[test]
-fn the_unit_areas_load_part_by_part_and_each_step_fits_the_unit() -> anyhow::Result<()> {
+fn the_unit_areas_load_part_by_part() -> anyhow::Result<()> {
     let contract = Lane::UnitAreas.contract()?;
     assert_eq!(contract.kind, ExportKind::UnitArea);
     assert!(!contract.kind.loads_as_one_run());
-    assert_eq!(contract.spark.iceberg_write_mode, WriteMode::Append);
+    assert_eq!(contract.load.write_mode, WriteMode::Append);
     assert_eq!(
         contract.handoff_prefix.as_deref(),
         Some("silver-handoff/hubgokr__building_register_exclusive_common_area")
     );
-    let part_rows = u64::from(contract.export_chunk_rows.context("part size")?);
-    let batch_rows = part_rows * u64::from(contract.spark.input_file_batch_size);
-    // A load batch is no bigger than the measured 2026-10-20 load cut to it: 114,461,830 rows took
-    // 6,843s of Spark besides its 386s null-share check (13:24:29 to 15:24:58), so a batch takes that share; it must fit the budget.
-    let batch_seconds = 6_843 * batch_rows / 114_461_830 + 386 + 60;
-    let step = u64::from(
-        contract
-            .step_seconds_max
-            .context("the unit areas measure a run budget")?,
-    );
     assert!(
-        batch_seconds <= step,
-        "a load batch of {batch_rows} rows is about {batch_seconds}s, more than the budget {step}s"
+        contract.export_chunk_rows.is_some(),
+        "the unit areas name their part size"
     );
-    let fit = UNIT_TIME_LIMIT_MINUTES * 60 * FIT_SHARE_PERCENT / 100;
-    assert!(last_step_start_seconds(contract.step_seconds_max) + i64::try_from(step)? <= fit);
+    assert!(contract.load.input_file_batch_size > 0);
 
     let release = release::select(
         &roles(&[(
@@ -803,8 +803,8 @@ fn a_unit_area_contract_that_loads_the_release_whole_is_refused() -> anyhow::Res
     // no part size; either would bring back a step the unit cannot hold.
     let refused: Vec<Box<dyn FnOnce(&mut serde_json::Value)>> = vec![
         Box::new(|v| {
-            v["silver_refresh"]["spark"]["iceberg_write_mode"] = "overwrite".into();
-            v["silver_refresh"]["spark"]["input_file_batch_size"] = 0.into();
+            v["silver_refresh"]["load"]["write_mode"] = "overwrite".into();
+            v["silver_refresh"]["load"]["input_file_batch_size"] = 0.into();
         }),
         Box::new(|v| {
             v["silver_refresh"]
@@ -847,62 +847,5 @@ fn the_hub_export_gets_the_ledger_size_and_the_contract_prefix() -> anyhow::Resu
         env["FOUNDATION_PLATFORM_APARTMENT_PRICE_OUTPUT_OBJECT_PREFIX"],
         PRICE_PREFIX
     );
-    Ok(())
-}
-
-/// Root ADR-0391: a lane that measured its slowest step starts its last step early enough that the
-/// step ends inside the fit of its unit, from the measured number (rt-molit's `FitsItsUnit`, #988).
-#[test]
-fn a_measured_lane_starts_its_last_step_early_enough_to_end_inside_its_unit() -> anyhow::Result<()>
-{
-    let fit = UNIT_TIME_LIMIT_MINUTES * 60 * FIT_SHARE_PERCENT / 100;
-    let mut measured = Vec::new();
-    for lane in Lane::all() {
-        let contract = lane.contract()?;
-        let Some(step) = contract.step_seconds_max else {
-            continue;
-        };
-        let start = last_step_start_seconds(Some(step));
-        assert!(
-            start >= MIN_STEP_START_SECONDS && start + i64::from(step) <= fit,
-            "{}: a step of {step}s started at {start}s does not end inside {fit}s",
-            lane.id()
-        );
-        measured.push(lane);
-    }
-    // The lanes whose measured runs did not fit their unit (2026-10-20, 10-21, 11-03).
-    for lane in [
-        Lane::ApartmentPrice,
-        Lane::LandTransferHistory,
-        Lane::UnitAreas,
-    ] {
-        assert!(
-            measured.contains(&lane),
-            "{} measures no run_budget",
-            lane.id()
-        );
-    }
-    // Without a measured step, the default the other lanes keep.
-    assert_eq!(
-        last_step_start_seconds(None),
-        LAST_BUCKET_START_MINUTES * 60
-    );
-    Ok(())
-}
-
-#[test]
-fn a_step_too_long_for_its_unit_or_an_unmeasured_budget_is_refused() -> anyhow::Result<()> {
-    // Synthetic: the 전유공용면적 one-run load is one Spark step of 7,246s (2026-10-20), which leaves
-    // a run 854s to start it; the guard refuses it rather than let the unit kill the run.
-    for (step, measured) in [(7_246, "2026-10-20 journal"), (2_805, " "), (0, "x")] {
-        let text = planted(Lane::LandTransferHistory, |v| {
-            v["silver_refresh"]["run_budget"] =
-                serde_json::json!({"step_seconds_max": step, "measured": measured});
-        })?;
-        assert!(
-            LaneContract::parse(Lane::LandTransferHistory, &text).is_err(),
-            "accepted {step}s measured {measured:?}"
-        );
-    }
     Ok(())
 }

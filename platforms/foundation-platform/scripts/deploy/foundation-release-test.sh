@@ -692,14 +692,15 @@ if [[ "${FOUNDATION_RELEASE_STATE_REHEARSAL:-}" == 1 ]]; then
   [[ -f /.dockerenv && "$(id -u)" == 0 ]]
   run_release activate "${prepared}"
   state_namespace=/data/foundation-platform/building-register-floor
+  system_disk=/var/lib/foundation-platform/building-register-floor
   dropin=/etc/systemd/system/foundation-building-register-floor.service.d/10-state.conf
   configure_state() {
     python3 - "${config_source}" "${config_target}" "$1" "$2" <<'PY'
 import pathlib, sys
-source, target, state, ivy = sys.argv[1:]
+source, target, state, duckdb = sys.argv[1:]
 values = dict(line.split('=', 1) for line in pathlib.Path(source).read_text().splitlines())
 values['FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT'] = state
-values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'] = ivy
+values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT'] = duckdb
 pathlib.Path(target).write_text(''.join(f'{k}={v}\n' for k, v in values.items()))
 PY
   }
@@ -707,7 +708,7 @@ PY
     FOUNDATION_PLATFORM_RELEASE_ROOT="${release_root}" bash -c \
       'source <(sed "/^command=/,\$d" "$1"); prepare_floor_state' _ "${release_script}"
   }
-  configure_state "${state_namespace}" "${state_namespace}/ivy"
+  configure_state "${state_namespace}" "${system_disk}/duckdb"
   chown "${service_uid}:${service_gid}" "${history_witness}"
   if prepare_state; then echo 'service-owned history witness accepted' >&2; exit 1; fi
   [[ ! -e "${dropin}" && ! -e "${state_namespace}" ]]
@@ -720,7 +721,7 @@ PY
   rm /var/lib/foundation-platform/building-register-floor
   prepare_state
   [[ "$(stat -c '%u:%g:%a' "${state_namespace}")" == "${service_uid}:${service_gid}:2770" ]]
-  [[ "$(stat -c '%u:%g:%a' "${state_namespace}/ivy")" == "${service_uid}:${service_gid}:2770" ]]
+  [[ "$(stat -c '%u:%g:%a' "${system_disk}/duckdb")" == "${service_uid}:${service_gid}:2770" ]]
   [[ "$(stat -c '%u:%g:%a' "${dropin}")" == 0:0:644 ]]
   policy='ReadWritePaths=-/var/lib/foundation-platform/building-register-floor -/data/foundation-platform/building-register-floor'
   grep -Fx "${policy}" "${dropin}"
@@ -732,26 +733,28 @@ PY
   [[ "$(stat -c '%u:%g' "${state_namespace}/spark-output")" == "185:${service_gid}" ]]
   dropin_sha="$(sha256sum "${dropin}")"
   for bad_state in /data /data/foundation-platform /tmp/floor "${state_namespace}/nested"; do
-    configure_state "${bad_state}" "${bad_state}/ivy"
+    configure_state "${bad_state}" "${system_disk}/duckdb"
     # `timers` installs the FLOOR unit only when this succeeds, and fails after installing the rest.
     if prepare_state; then echo 'unsafe state accepted' >&2; exit 1; fi
     [[ "$(sha256sum "${dropin}")" == "${dropin_sha}" ]]
   done
-  configure_state "${state_namespace}" "${state_namespace}"
-  if prepare_state; then echo 'same Ivy accepted' >&2; exit 1; fi
-  configure_state "${state_namespace}" "${state_namespace}/../foreign"
-  if prepare_state; then echo 'traversal Ivy accepted' >&2; exit 1; fi
-  configure_state "${state_namespace}" "${state_namespace}/linked/ivy"
-  ln -s /tmp "${state_namespace}/linked"
+  configure_state "${system_disk}" "${system_disk}"
+  if prepare_state; then echo 'DuckDB work in the state root itself accepted' >&2; exit 1; fi
+  configure_state "${state_namespace}" "${state_namespace}/duckdb"
+  if prepare_state; then echo 'DuckDB work on the data disk accepted' >&2; exit 1; fi
+  configure_state "${state_namespace}" "${system_disk}/../foreign"
+  if prepare_state; then echo 'traversal DuckDB root accepted' >&2; exit 1; fi
+  configure_state "${state_namespace}" "${system_disk}/linked/duckdb"
+  ln -s /tmp "${system_disk}/linked"
   if prepare_state; then echo 'symlink ancestor accepted' >&2; exit 1; fi
-  rm "${state_namespace}/linked"
-  configure_state "${state_namespace}" "${state_namespace}/ivy"
-  chown root:root "${state_namespace}/ivy"
-  if prepare_state; then echo 'foreign Ivy ownership accepted' >&2; exit 1; fi
-  [[ "$(stat -c '%u:%g' "${state_namespace}/ivy")" == 0:0 ]]
+  rm "${system_disk}/linked"
+  configure_state "${state_namespace}" "${system_disk}/duckdb"
+  chown root:root "${system_disk}/duckdb"
+  if prepare_state; then echo 'foreign DuckDB root ownership accepted' >&2; exit 1; fi
+  [[ "$(stat -c '%u:%g' "${system_disk}/duckdb")" == 0:0 ]]
   [[ "$(sha256sum "${dropin}")" == "${dropin_sha}" ]]
-  chown "${service_uid}:${service_gid}" "${state_namespace}/ivy"
-  configure_state /var/lib/foundation-platform/building-register-floor /var/lib/foundation-platform/building-register-floor/ivy
+  chown "${service_uid}:${service_gid}" "${system_disk}/duckdb"
+  configure_state "${system_disk}" "${system_disk}/duckdb"
   prepare_state
   grep -Fx "${policy}" "${dropin}"
   [[ "$(stat -c '%i:%Y' "${dropin}")" == "${dropin_before}" ]]
@@ -761,8 +764,9 @@ PY
 import pathlib, sys
 source, prepared, release, target = map(pathlib.Path, sys.argv[1:])
 body = source.read_text().replace(str(prepared), str(release))
-body = body.replace('/var/lib/foundation-platform/building-register-floor',
-                    '/data/foundation-platform/building-register-floor')
+# Only the state root moves to the data disk; the DuckDB work stays on the system disk.
+body = body.replace('FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT=/var/lib/foundation-platform/building-register-floor',
+                    'FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT=/data/foundation-platform/building-register-floor')
 target.write_text(body)
 PY
   run_release activate "${release_a}"
@@ -777,21 +781,21 @@ import os, pathlib, stat, sys, tempfile
 script, config, release = map(pathlib.Path, sys.argv[1:])
 code = 'import hashlib' + script.read_text().split("<<'PY'\nimport hashlib", 1)[1].split('\nPY', 1)[0]
 values = dict(line.split('=', 1) for line in config.read_text().splitlines())
-ivy = pathlib.Path(values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'])
+duckdb = pathlib.Path(values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT'])
 victim = pathlib.Path(tempfile.mkdtemp())
 os.chmod(victim, 0o711)
 before = victim.stat()
 real_open, real_mkdir = os.open, os.mkdir
 sys.argv = ['validator', str(config), str(release), 'state']
-held = ivy.with_name('held-ivy')
-os.chmod(ivy, 0o750)
+held = duckdb.with_name('held-duckdb')
+os.chmod(duckdb, 0o750)
 triggered = False
 def swap_after_open(path, flags, *args, **kwargs):
     global triggered
     if path == 'etc' and flags & os.O_DIRECTORY and not triggered:
         triggered = True
-        ivy.rename(held)
-        ivy.symlink_to(victim, target_is_directory=True)
+        duckdb.rename(held)
+        duckdb.symlink_to(victim, target_is_directory=True)
     return real_open(path, flags, *args, **kwargs)
 os.open = swap_after_open
 try:
@@ -803,14 +807,14 @@ try:
     assert stat.S_IMODE(held.stat().st_mode) == 0o2770
 finally:
     os.open = real_open
-    ivy.unlink()
-    held.rename(ivy)
+    duckdb.unlink()
+    held.rename(duckdb)
 after = victim.stat()
 assert (before.st_uid, before.st_gid, before.st_mode) == (after.st_uid, after.st_gid, after.st_mode)
 
 # Replace a just-created directory before its open: O_NOFOLLOW must reject it.
-new = ivy.with_name('new-ivy')
-values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'] = str(new)
+new = duckdb.with_name('new-duckdb')
+values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT'] = str(new)
 original = config.read_bytes()
 config.write_text(''.join(f'{k}={v}\n' for k, v in values.items()))
 triggered = False

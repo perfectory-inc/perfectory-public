@@ -1,6 +1,6 @@
 [Unit]
 Description=Foundation latest committed building register FLOOR cycle
-Documentation=file:///opt/foundation-platform/current/docs/runbooks/remote-lakehouse-job-runner.md
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/building-register-floor-cycle.md
 X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
@@ -16,6 +16,7 @@ WorkingDirectory=/
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 # Capture public release configuration once, including through ExecStopPost.
 # A current/previous switch cannot redirect cleanup to another release's binary.
 # The configuration lives beside the immutable release, under config/<release id>/ (root ADR-0134 §3).
@@ -31,6 +32,6 @@ ProtectHome=true
 ProtectSystem=strict
 # foundation-release.sh timers derives ReadWritePaths from its dedicated namespace policy.
 # Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
-MemoryHigh=460M
-MemoryMax=512M
+MemoryHigh=4608M
+MemoryMax=5G
 OOMScoreAdjust=500

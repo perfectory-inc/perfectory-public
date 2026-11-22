@@ -29,9 +29,8 @@ Rust foundation-platform = control-plane, API, promotion, rollback
 
 Spark/Trino 는 `foundation-platform` 제품 요청 경로가 아니라 교체 가능한 compute runtime 이다. 로컬 PC,
 `<lakehouse-host>` 같은 내부 Linux 서버, 이후 AWS Fargate/EMR/ECS 로 옮겨도 같은 contract 를 사용한다.
-원격 실행 시 host 주소는 문서/코드에 하드코딩하지 않고
-`FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_SSH_TARGET` env 로 주입한다
-(→ [remote-lakehouse-job-runner](./remote-lakehouse-job-runner.md)).
+실행 host 주소는 문서/코드에 하드코딩하지 않는다. 예약 작업은 그 host 의 systemd 유닛이 돌린다
+(FLOOR 는 → [building-register-floor-cycle](./building-register-floor-cycle.md)).
 
 불변인 것은 실행 서버가 아니라 다음 경계다.
 
@@ -215,26 +214,9 @@ Linux bind mount 는 host directory 가 root 소유로 자동 생성될 수 있�
 발행기 안의 DuckDB(`foundation-publisher-silver` 의 `industrial_complex_silver_stage`)로 행을 만든 뒤 바뀐 단지만 붙인다.
 변환 규칙과 관문의 시험은 `cargo test -p foundation-publisher-silver industrial_complex_silver_stage` 다.
 
-Scalar Silver handoff -> lakehouse smoke:
-
-```bash
-docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm spark spark-submit \
-  /workspace/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py \
-  --input /workspace/infra/lakehouse/spark/fixtures/silver_handoff/building_register_floors.jsonl \
-  --contract silver.building_register_floors \
-  --output /workspace/target/lakehouse/smoke/silver/building_register_floors \
-  --expected-count 2 \
-  --summary-output /workspace/target/lakehouse/smoke/building_register_floors-summary.json
-```
-
-이 경로는 Rust 가 이미 정규화해서 내보낸 Silver JSONL handoff 를 저장 엔진으로 넘기는 용도다.
-Spark 는 record 를 다시 정규화하지 않고, 계약 컬럼/필수값/체크섬/상태값을 검증한 뒤
-Parquet 또는 Iceberg 에 쓰고 다시 읽어 `foundation-platform.spark_run_summary.v1` 를 남긴다.
-`docker compose run` 으로 live Iceberg smoke 를 실행할 때는 `.env.lakehouse` 를 host shell 에서
-source 한 뒤 `-e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE
--e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN` 처럼 변수 이름을 명시해서 Spark container 에 전달한다.
-`--env-file` 은 Compose interpolation 에 쓰이지만, run container 의 process env 로 모든 값을 자동 주입하지
-않는다는 점을 전제로 둔다.
+Rust 가 정규화해 내보낸 Silver handoff 를 표에 싣는 일은 발행기 안의 DuckDB 가 한다(root ADR-0599): Silver 새로 고침
+레인은 `duckdb_release`, FLOOR 는 `floor_load`(→ [building-register-floor-cycle](./building-register-floor-cycle.md)).
+옛 Spark 적재기 `silver_scalar_handoff_to_lakehouse.py` 는 없어졌다.
 
 Spark job 은 성공 시 `foundation-platform.spark_run_summary.v1` JSON 을 출력하고, smoke 는
 `target/lakehouse/smoke/summaries/industrial_complexes.json` 도 검증한다. 이 summary 는

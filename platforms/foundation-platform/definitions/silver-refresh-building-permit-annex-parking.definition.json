@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 건축인허가 부설주차장 lane `building-permit-annex-parking` (root ADR-0169 ②, ADR-0402): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_permit_annex_parking already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows in one bucket and append to main only the rows it has not held and a removal marker per row it no longer holds (each row keyed by its SHA-256: one permit holds several annex rows) (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). One release per run; 59K rows. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 건축인허가 부설주차장 lane `building-permit-annex-parking` (root ADR-0169 ②, ADR-0402): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_permit_annex_parking already records it or a newer one (`unchanged`), export it, compare it, in the publisher's DuckDB, with the table's current rows in one bucket and append to main only the rows it has not held and a removal marker per row it no longer holds (each row keyed by its SHA-256: one permit holds several annex rows) (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). One release per run; 59K rows. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
       "systemd_service": "foundation-silver-refresh@building-permit-annex-parking.service",
       "check_service": "foundation-silver-refresh-plan@building-permit-annex-parking.service",
       "systemd_timer": null,
@@ -82,8 +82,7 @@
       "status": "partial",
       "via": [
         "export-building-permit-annex-parking-silver-handoff",
-        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh"
       ],
       "source_slugs": [
         "hubgokr__building_permit_annex_parking"

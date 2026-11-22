@@ -26,9 +26,10 @@ fn work_directories_must_be_real_absolute_and_outside_release() -> anyhow::Resul
     let base = tempfile::tempdir()?;
     let release = base.path().join("release");
     let state = base.path().join("state with space");
-    let ivy = state.join("ivy");
+    let duckdb = base.path().join("duckdb");
     std::fs::create_dir(&release)?;
-    std::fs::create_dir_all(&ivy)?;
+    std::fs::create_dir_all(&state)?;
+    std::fs::create_dir(&duckdb)?;
     let mut values = std::collections::BTreeMap::from([
         ("INVOCATION_ID", "1".repeat(32)),
         (
@@ -43,10 +44,7 @@ fn work_directories_must_be_real_absolute_and_outside_release() -> anyhow::Resul
             "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT",
             state.display().to_string(),
         ),
-        (
-            "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE",
-            ivy.display().to_string(),
-        ),
+        (DUCKDB_ROOT_ENV, duckdb.display().to_string()),
         (
             "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE",
             format!("sha256:{}", "a".repeat(64)),
@@ -65,7 +63,7 @@ fn work_directories_must_be_real_absolute_and_outside_release() -> anyhow::Resul
     }
     values.insert(
         "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT",
-        ivy.display().to_string(),
+        duckdb.display().to_string(),
     );
     assert!(LocalExecution::from_lookup(&mut |key| values.get(key).cloned(), &release).is_err());
     Ok(())
@@ -77,9 +75,9 @@ fn symlink_into_release_cannot_hide_a_mutable_work_directory() -> anyhow::Result
     let base = tempfile::tempdir()?;
     let release = base.path().join("release");
     let link = base.path().join("state");
-    let ivy = base.path().join("ivy");
+    let duckdb = base.path().join("duckdb");
     std::fs::create_dir(&release)?;
-    std::fs::create_dir(&ivy)?;
+    std::fs::create_dir(&duckdb)?;
     std::os::unix::fs::symlink(&release, &link)?;
     let values = std::collections::BTreeMap::from([
         ("INVOCATION_ID", "1".repeat(32)),
@@ -95,10 +93,7 @@ fn symlink_into_release_cannot_hide_a_mutable_work_directory() -> anyhow::Result
             "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT",
             link.display().to_string(),
         ),
-        (
-            "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE",
-            ivy.display().to_string(),
-        ),
+        (DUCKDB_ROOT_ENV, duckdb.display().to_string()),
         (
             "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE",
             format!("sha256:{}", "a".repeat(64)),
@@ -145,11 +140,11 @@ fn outcome_must_be_bounded_utf8_regular_file() -> anyhow::Result<()> {
 fn outcome_must_match_selected_source_in_both_branches() -> anyhow::Result<()> {
     use serde_json::json;
     let retained = json!({"schema_version": "foundation-platform.floor-history-check.v1", "source_snapshot_id": "chosen"});
-    let scalar = json!({"source_snapshot_ids": ["chosen"]});
+    let loaded = json!({"source_snapshot_ids": ["chosen"]});
     validate_selected_outcome(&retained, "chosen")?;
-    validate_selected_outcome(&scalar, "chosen")?;
+    validate_selected_outcome(&loaded, "chosen")?;
     assert!(validate_selected_outcome(&retained, "other").is_err());
-    assert!(validate_selected_outcome(&scalar, "other").is_err());
+    assert!(validate_selected_outcome(&loaded, "other").is_err());
     assert!(validate_selected_outcome(
         &json!({"source_snapshot_ids": ["chosen", "other"]}),
         "chosen"

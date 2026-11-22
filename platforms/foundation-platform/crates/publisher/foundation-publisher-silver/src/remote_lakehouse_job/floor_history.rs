@@ -1,69 +1,9 @@
-//! Read-only historical preflight for the full FLOOR pipeline.
-use super::{shell_quote, RemoteLakehouseJobConfig};
+//! The FLOOR history gate's outcome, as the cycle accepts it (root ADR-0338): the gate is
+//! `building_register_floor_silver_export::history_gate_run`.
 use anyhow::{ensure, Context};
 use serde_json::Value;
 
 const HISTORY_SCHEMA: &str = "foundation-platform.floor-history-check.v1";
-
-pub(super) fn preflight_script(config: &RemoteLakehouseJobConfig, native_export: &str) -> String {
-    let Some(source) = &config.floor_source else {
-        return String::new();
-    };
-    let source_root = source.root();
-    let root = shell_quote(&super::floor_cycle::host_path(config, &source_root));
-    let container_root = shell_quote(&source_root);
-    let run_options = if config.local.is_some() {
-        " --no-deps --pull never"
-    } else {
-        ""
-    };
-    let capture_outcome =
-        super::floor_cycle::capture_outcome(config, "\"$floor_preflight_dir/history.json\"");
-    let packages = &config.iceberg_packages;
-    let compose = super::floor_cycle::spark_compose(config);
-    let derivation = source
-        .derivation
-        .as_ref()
-        .map_or_else(String::new, |label| {
-            format!("  --derivation {} \\\n", shell_quote(label))
-        });
-    format!(
-        "\
-mkdir -p {root}
-floor_preflight_dir=\"$(mktemp -d {root}/source-check.XXXXXXXX)\"
-chmod 770 \"$floor_preflight_dir\"
-floor_preflight_container_dir={container_root}/\"${{floor_preflight_dir##*/}}\"
-export FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SOURCE_INSPECTION_PATH=\"$floor_preflight_container_dir/source.json\"
-{native_export}
-chmod 640 \"$floor_preflight_dir/source.json\"
-unset FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_SOURCE_INSPECTION_PATH
-if {compose} --profile lakehouse-batch run --rm{run_options} \\
-  --user \"${{FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}}:$(id -g)\" \\
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI \\
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \\
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN \\
-  spark spark-submit \\
-  --master 'local[2,8]' --driver-memory 1g \\
-  --conf spark.jars.ivy=/home/spark/.ivy2 \\
-  --packages {packages} \\
-  /workspace/infra/lakehouse/spark/jobs/building_register_floor_history.py \\
-  --source-receipt \"/workspace/$floor_preflight_container_dir/source.json\" \\
-{derivation}  --summary-output \"/workspace/$floor_preflight_container_dir/history.json\"; then
-{capture_outcome}  echo '{begin}'
-  cat \"$floor_preflight_dir/history.json\"
-  echo '{end}'
-  exit 0
-else
-  floor_preflight_status=$?
-  if [ \"$floor_preflight_status\" -ne 10 ]; then
-    exit \"$floor_preflight_status\"
-  fi
-fi
-",
-        begin = super::SUMMARY_BEGIN_MARKER,
-        end = super::SUMMARY_END_MARKER,
-    )
-}
 
 pub(super) fn retained_outcome(
     raw: &str,

@@ -90,12 +90,12 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 시간 한계는 150 분(유닛 `TimeoutStartSec`, 작업 `timeout_minutes` 160)이다. 이보다 길면 매시 접기가 굶주림 상한을
 넘는다(ADR-0171 §5). 첫 감독 실행이 150 분 가까이 걸리면 켜지 말고 그 수치로 결정을 다시 연다.
 
-레인 계약의 `silver_refresh.run_budget.step_seconds_max` 는 그 레인에서 잰 가장 긴 단계(load 묶음 또는 비교 묶음)다.
-run 은 시작 + (150 분의 90% − 그 값)이 지나면 새 단계를 시작하지 않는다. 그때 `reason=load_resumes_next_run` 이나
-`compare_resumes_next_run` 으로 끝나고, 다음 run 이 이어 간다. 값이 없는 레인은 110 분 기본값을 쓴다
-(루트 [ADR-0391](../../../../docs/adr/0391-a-silver-refresh-run-starts-no-step-its-measured-time-cannot-finish-and-a-batch-reads-back-only-its-own-commit.md)).
-더 긴 단계를 재면 그 값으로 계약을 고친다. 시작할 시간이 30 분보다 적게 남는 값은 발행기가 거부한다. 그때는 단계를
-작게 한다.
+run 은 시작 + 110 분이 지나면 다음 레인을 시작하지 않는다. 그때 `reason=load_resumes_next_run` 으로 끝나고 다음 run 이
+이어 간다. 레인마다 잰 가장 긴 단계(`run_budget`, 루트
+[ADR-0391](../../../../docs/adr/0391-a-silver-refresh-run-starts-no-step-its-measured-time-cannot-finish-and-a-batch-reads-back-only-its-own-commit.md))는
+Spark 단계의 측정이었고, 레인의 적재가 발행기 안의 DuckDB 한 커밋이 된 뒤(루트 ADR-0599) 읽는 곳이 없어 계약에서 빠졌다.
+레인 계약의 `silver_refresh.load` 는 판을 어떻게 쓰는지다: `write_mode`(`overwrite`|`append`)와
+`input_file_batch_size`(0 이면 판 전체가 한 묶음).
 
 ## 3. 레인의 첫 감독 실행
 
@@ -150,8 +150,7 @@ run 은 시작 + (150 분의 90% − 그 값)이 지나면 새 단계를 시작�
    - `evidence/<identity>/` 에 `export-summary.json`·`spark-summary-*.json` 이 있다.
    - 3 을 다시 돌리면 수 초 만에 `outcome=unchanged reason=already_loaded` 다. 이것이 "이미 반영" 판단이 실물에서
      도는 증거다.
-   - 첫 실행의 시간과 Spark 최대 메모리를 적는다. `MemoryMax=4G`(내보내기)와 계약의 `driver_memory`(16g)는 아직
-     실측이 아니다. 특히 면적은 1억 행을 한 묶음으로 넣는다.
+   - 첫 실행의 시간과 유닛의 최대 메모리(`memory peak`)를 적는다. 내보내기와 DuckDB 적재가 같은 유닛 상한 안에서 돈다.
 
 5. 측정한 시간이 150 분 안이면 그 레인의 `enabled` 를 `true` 로, `disabled_reason` 을 지우고 `enabled_since` 에 병합 시각(UTC)을 적는 PR 을 낸다(루트 ADR-0239: 그 전 회차는 늦음이 아니다)
    (ADR-0122 §4). 마지막 줄 `foundation-job-outcome changed|unchanged` 가 `silver-refresh-outcome` 바로 뒤에

@@ -12,7 +12,7 @@
       "full_tracked_by": "PR #919 (root ADR-0317 stage 3: the price lane compares into a versions table and appends only the changed keys)",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
       "systemd_service": "foundation-silver-refresh@building-register-apartment-price.service",
       "check_service": "foundation-silver-refresh-plan@building-register-apartment-price.service",
       "systemd_timer": null,
@@ -93,8 +93,7 @@
       "status": "implemented",
       "via": [
         "export-building-register-apartment-price-silver-handoff",
-        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh"
       ],
       "source_slugs": [
         "hubgokr__building_register_apartment_price"

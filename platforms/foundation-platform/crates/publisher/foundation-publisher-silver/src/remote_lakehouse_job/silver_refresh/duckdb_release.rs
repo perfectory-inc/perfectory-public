@@ -725,8 +725,7 @@ mod tests {
     fn main_is_copied_once_per_snapshot_and_another_snapshots_copy_is_removed() -> anyhow::Result<()>
     {
         let root = tempfile::tempdir()?;
-        let mut stage = DuckDbParquetStage::open(root.path())?;
-        stage.limit_spill(1 << 20)?;
+        let stage = DuckDbParquetStage::open(root.path())?;
         // Inside the stage's own directory: the only place this stage may read and write.
         let work = std::fs::read_dir(root.path())?
             .next()

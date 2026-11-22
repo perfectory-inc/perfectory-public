@@ -12,11 +12,7 @@
     "roles": {"unit_area": "hubgokr__building_register_exclusive_common_area"},
     "export": "export-building-register-unit-area-silver-handoff",
     "export_chunk_rows": 1000000,
-    "run_budget": {
-      "step_seconds_max": 2805,
-      "measured": "root ADR-0391 addendum. The slowest step is a compare bucket: with bucket_prefix_length 3 the largest of the table's 28 buckets is \"100\" with 16,553,022 of 114,461,830 rows (read-only Trino, 2026-11-04); the closest measured compare of a bucket that size is silver.land_transfer_history bucket \"41\" (17,746,890 rows) at 2,805s with the publish, 2026-11-03 journal. A load batch of 20 parts (20M rows) is computed at about 1,640s from the 2026-10-20 one-run load (114,461,830 rows in 6,843s of Spark besides its 386s PNU null-share check, which each batch repeats, plus a minute to start). Measure both on the first release loaded by part and lower this."
-    },
-    "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "append", "input_file_batch_size": 20},
+    "load": {"write_mode": "append", "input_file_batch_size": 20},
     "compare": {"content_columns": ["register_kind_name_raw", "register_type_name_raw", "pnu", "register_parcel_key", "dong_name_raw", "unit_name_raw", "unit_designation", "floor_kind", "floor_index", "floor_number", "floor_label_raw", "area_kind", "area_kind_name_raw", "main_or_annex_name_raw", "structure_name_raw", "usage_code_raw", "usage_name_raw", "usage_detail_raw", "area_m2", "area_m2_raw", "created_date_raw", "normalization_status", "normalization_reason"], "bucket_prefix_length": 3}
   }
 }

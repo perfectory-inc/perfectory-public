@@ -578,12 +578,12 @@ try:
     if os.geteuid() == 0:
         account = pwd.getpwnam('foundation-platform')
         service_gid = grp.getgrnam('foundation-platform').gr_gid
-        # Root can read 0400 files that the host/native service and Spark cannot. Ask the
-        # kernel under their actual IDs, without inheriting root's supplementary groups.
+        # Root can read 0400 files that the host service cannot. Ask the kernel under its
+        # actual IDs, without inheriting root's supplementary groups.
         probe = ('import os,stat,sys; '
                  'fd=os.open(sys.argv[1],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK); '
                  'assert stat.S_ISREG(os.fstat(fd).st_mode); os.read(fd,1); os.close(fd)')
-        for reader_uid in {account.pw_uid, 185}:
+        for reader_uid in (account.pw_uid,):
             subprocess.run([sys.executable, '-I', '-c', probe, str(witness)],
                            user=reader_uid, group=service_gid, extra_groups=[],
                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -599,20 +599,23 @@ if mode != 'state' or os.geteuid() != 0:
 # Only the two dedicated host namespaces are supported. The configuration owns the
 # selected path; this allowlist is a privilege boundary, not another default.
 state = pathlib.Path(values['FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT'])
-ivy = pathlib.Path(values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'])
+duckdb = pathlib.Path(values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT'])
 approved_namespaces = ('/var/lib/foundation-platform/building-register-floor',
                        '/data/foundation-platform/building-register-floor')
+# The DuckDB stages work on the system disk, under its reserve (config/host-layout.contract.json
+# duckdb_stage_reserve_bytes, root ADR-0599); /data is the slow disk.
+system_disk = pathlib.Path(approved_namespaces[0])
 if str(state) not in approved_namespaces:
     fail()
 if str(state) != values['FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT']:
     fail()
-if (str(ivy) != values['FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE'] or
-    '..' in ivy.parts or ivy == state or state not in ivy.parents):
+if (str(duckdb) != values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT'] or
+    '..' in duckdb.parts or system_disk not in duckdb.parents or duckdb == state):
     fail()
 uid, gid = account.pw_uid, service_gid
 dropin = pathlib.Path('/etc/systemd/system/foundation-building-register-floor.service.d/10-state.conf')
-dedicated = [state]
-for part in ivy.relative_to(state).parts:
+dedicated = [state, system_disk]
+for part in duckdb.relative_to(system_disk).parts:
     dedicated.append(dedicated[-1] / part)
 
 directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -657,7 +660,7 @@ def open_directory(path, create=False):
     return fd
 
 # Hold existing directory inodes through mutation; no later pathname chmod/chown.
-for path in (*(pathlib.Path(name) for name in approved_namespaces), ivy, dropin.parent):
+for path in (*(pathlib.Path(name) for name in approved_namespaces), duckdb, dropin.parent):
     open_directory(path)
 if source.stat().st_uid != 0 or stat.S_IMODE(source.stat().st_mode) != 0o644:
     fail()
