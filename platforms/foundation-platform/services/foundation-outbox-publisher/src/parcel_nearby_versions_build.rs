@@ -82,6 +82,16 @@ pub(crate) fn max_row_loss_fraction() -> anyhow::Result<f64> {
         .context("gold-panel-rebuild.contract.json names no kind_tables.max_row_loss_fraction")
 }
 
+/// The bound `replaced`'s versions table may lose rows by: the table's own when the rebuild contract
+/// lists it (`tables.<replaced>.max_row_loss_fraction`, a host panel), else the kinds' one value.
+pub(crate) fn max_row_loss_fraction_of(replaced: &str) -> anyhow::Result<f64> {
+    let contract: Value = serde_json::from_str(REBUILD_CONTRACT)?;
+    match contract["tables"][replaced]["max_row_loss_fraction"].as_f64() {
+        Some(own) => Ok(own),
+        None => max_row_loss_fraction(),
+    }
+}
+
 /// The served parcel edition's `silver.parcel_boundaries.source_snapshot_id`.
 pub(crate) fn served_edition() -> anyhow::Result<String> {
     let view = vworld_parcel_source_contract::served_edition_view(PARCEL_SOURCE_CONTRACT)?;

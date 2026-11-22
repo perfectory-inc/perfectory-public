@@ -95,6 +95,16 @@ pub trait KindVersionsStage: Sync {
         let _ = (connection, source, suffix);
         Ok(BTreeMap::new())
     }
+    /// Whether a row set's current rows are chosen in each 시도's [`load_region`] rather than over
+    /// the nation in [`spool`]: the spool then copies every version of the rows, with the columns
+    /// the contract's rule ranks by, and the rule (its one rendering, root ADR-0564 §4) runs on one
+    /// 시도 at a time. It holds only for a Silver whose key names the row set's parcel column, so
+    /// that every version of a key lies in one 시도; [`spool`] refuses any other. A stage whose
+    /// inputs are hundreds of millions of rows answers `true` (the parcel panel: 402,659,127 land
+    /// use rows, 2026-11-22), so no read sorts the nation's rows at once.
+    fn current_rows_per_region(&self) -> bool {
+        false
+    }
     /// Leaves an empty `built`, the table [`Self::build`] inserts into.
     ///
     /// # Errors
@@ -170,6 +180,19 @@ fn sql_dir(dir: &Path) -> anyhow::Result<String> {
 const SPOOL_SQL: &str =
     "COPY (SELECT *, substr(pnu, 1, 2) AS sido FROM (@query@)) TO '@dir@/@name@' \
     (FORMAT parquet, COMPRESSION zstd, PARTITION_BY (sido), OVERWRITE_OR_IGNORE)";
+
+/// The spool query of a row set whose current rows a 시도's load chooses
+/// ([`KindVersionsStage::current_rows_per_region`]): the served PNU, the set's columns, and every
+/// column the contract's rule reads (key, order, removal) as `rule_<n>`, of every version.
+const REGIONAL_SPOOL_QUERY: &str = "SELECT @pnu@ AS pnu, @kept@, @rule@ \
+    FROM (SELECT * FROM @read@) m @join@ @joins@ WHERE @column@ IS NOT NULL";
+/// A 시도 of that spool as the relation the contract's rule reads: the rule's columns under their
+/// own names, the served PNU and the set's columns apart from them (`foundation_served_pnu`,
+/// `foundation_kept_<n>`), so a set column named like a key column does not shadow it.
+const REGIONAL_LOAD_SOURCE: &str =
+    "(SELECT pnu AS foundation_served_pnu, @kept@, @rule@ FROM @part@)";
+/// The texts the per-시도 rule adds to a stage's code version beside [`SHARED_SQL`].
+pub(crate) const REGIONAL_SQL: [&str; 2] = [REGIONAL_SPOOL_QUERY, REGIONAL_LOAD_SOURCE];
 
 /// Reads every input of `stage` at `source` once, for the served `edition`, into `dir`.
 ///
@@ -268,7 +291,11 @@ pub fn spool(
     read_millis.extend(stage.prepare(connection, source, suffix)?);
     for set in stage.row_sets() {
         let at = Instant::now();
-        spool_row_set(connection, source, &set, suffix, &dir_text)?;
+        if stage.current_rows_per_region() && !set.prepared {
+            spool_regional_row_set(connection, source, &set, suffix, &dir_text)?;
+        } else {
+            spool_row_set(connection, source, &set, suffix, &dir_text)?;
+        }
         if !set.prepared {
             read_millis.insert(set.source.to_owned(), elapsed(at));
         }
@@ -424,6 +451,168 @@ fn spool_row_set(
     Ok(())
 }
 
+/// The rule of a row set whose current rows a 시도's load chooses, and the columns it reads in the
+/// order the spool carries them (`rule_<n>`): the key, then the order, then the removal column.
+///
+/// # Errors
+/// Refuses a source with no newest-per-key rule, one that also selects by a predicate, and one
+/// whose key does not name the row set's parcel column: its versions could lie in two 시도.
+fn regional_rule(
+    set: &RowSet,
+) -> anyhow::Result<(
+    lakehouse_domain::LakehouseCurrentRowLatest,
+    Vec<&'static str>,
+)> {
+    let contract = contract(set.source)?;
+    ensure!(
+        contract.current_row_predicate.is_none(),
+        "{} selects its current rows by a predicate too; this reader applies only the newest-per-key rule",
+        set.source
+    );
+    let latest = contract
+        .current_row_latest()
+        .with_context(|| format!("{} keeps no versions per key", set.source))?;
+    ensure!(
+        latest.key.contains(&set.pnu),
+        "{}'s key {:?} does not name {}: its versions could lie in two 시도, so its current rows \
+         cannot be chosen per 시도",
+        set.source,
+        latest.key,
+        set.pnu
+    );
+    let mut rule: Vec<&'static str> = Vec::new();
+    for column in latest
+        .key
+        .iter()
+        .chain(latest.newest_first)
+        .copied()
+        .chain(latest.removal_column)
+    {
+        if !rule.contains(&column) {
+            rule.push(column);
+        }
+    }
+    Ok((latest, rule))
+}
+
+/// Spools every version of `set`'s rows, re-keyed to the served code, with the columns its rule
+/// reads ([`REGIONAL_SPOOL_QUERY`]); [`load_region`] chooses the current ones per 시도.
+fn spool_regional_row_set(
+    connection: &Connection,
+    source: &Source<'_>,
+    set: &RowSet,
+    suffix: &str,
+    dir_text: &str,
+) -> anyhow::Result<()> {
+    let (_, rule) = regional_rule(set)?;
+    let contract = contract(set.source)?;
+    // A column the table gained after the pinned snapshot reads as NULL there.
+    let read = with_contract_columns(connection, contract, &source.of(set.source)?)?;
+    let at_suffix = |text: &str| fill(text, &[("suffix", suffix)]);
+    let kept = set
+        .columns
+        .iter()
+        .map(|(expression, column)| format!("{} AS {column}", at_suffix(expression.as_str())))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let rule = rule
+        .iter()
+        .enumerate()
+        .map(|(index, column)| format!("m.{column} AS rule_{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let joins = set
+        .joins
+        .iter()
+        .map(|join| at_suffix(join.as_str()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let column = format!("m.{}", set.pnu);
+    let query = fill(
+        REGIONAL_SPOOL_QUERY,
+        &[
+            ("pnu", &served_pnu(&column, "r")),
+            ("kept", &kept),
+            ("rule", &rule),
+            ("read", &read),
+            ("join", &renumbering_join(&column, "r", suffix)),
+            ("joins", &joins),
+            ("column", &column),
+        ],
+    );
+    connection.execute_batch(&fill(
+        SPOOL_SQL,
+        &[
+            ("query", &query),
+            ("dir", dir_text),
+            ("name", &format!("{}{suffix}", set.name)),
+        ],
+    ))?;
+    Ok(())
+}
+
+/// One 시도 of a regionally spooled row set: its current rows by the contract's rule, on served
+/// PNUs only, as `pnu` and the set's columns. A source that forbids ties is refused when a key of
+/// the 시도 ties.
+fn regional_rows(
+    connection: &Connection,
+    set: &RowSet,
+    part: &str,
+    served: &str,
+    distinct: &str,
+) -> anyhow::Result<String> {
+    let (latest, rule) = regional_rule(set)?;
+    let kept = set
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(index, (_, column))| format!("{column} AS foundation_kept_{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let renamed = rule
+        .iter()
+        .enumerate()
+        .map(|(index, column)| format!("rule_{index} AS {column}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let relation = fill(
+        REGIONAL_LOAD_SOURCE,
+        &[("kept", &kept), ("rule", &renamed), ("part", part)],
+    );
+    if !latest.keep_ties {
+        let keys = latest.key.join(", ");
+        let (rows, keyed): (i64, i64) = connection.query_row(
+            &format!(
+                "SELECT count(*), count(DISTINCT ({keys})) FROM ({})",
+                latest.current_rows_sql(&relation, latest.key, "TRUE")
+            ),
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        ensure!(
+            rows == keyed,
+            "{} holds {} current rows tied on their version order",
+            set.source,
+            rows - keyed
+        );
+    }
+    let mut projected = vec!["foundation_served_pnu".to_owned()];
+    projected.extend((0..set.columns.len()).map(|index| format!("foundation_kept_{index}")));
+    let projected = projected.iter().map(String::as_str).collect::<Vec<_>>();
+    let columns = set
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(index, (_, column))| format!("foundation_kept_{index} AS {column}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Ok(format!(
+        "SELECT {distinct}foundation_served_pnu AS pnu, {columns} FROM ({}) \
+         WHERE foundation_served_pnu IN (SELECT pnu FROM {served})",
+        latest.current_rows_sql(&relation, &projected, "TRUE")
+    ))
+}
+
 /// Loads `sido` of what [`spool`] left in `dir` under `suffix`.
 ///
 /// It leaves `served<suffix>(pnu)` and each row
@@ -463,27 +652,30 @@ pub fn load_region(
             .chain(set.columns.iter().map(|(_, column)| *column))
             .collect::<Vec<_>>()
             .join(", ");
-        let body = part(&name).map_or_else(
-            || {
-                format!(
-                    "SELECT {} WHERE FALSE",
-                    std::iter::once("CAST(NULL AS VARCHAR) AS pnu".to_owned())
-                        .chain(
-                            set.columns
-                                .iter()
-                                .map(|(_, column)| format!("CAST(NULL AS VARCHAR) AS {column}"))
-                        )
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            },
-            |read| {
-                format!(
-                    "SELECT {distinct}{columns} FROM {read} WHERE pnu IN (SELECT pnu FROM served{suffix})",
-                    distinct = if set.distinct { "DISTINCT " } else { "" }
-                )
-            },
-        );
+        let distinct = if set.distinct { "DISTINCT " } else { "" };
+        let body = match part(&name) {
+            None => format!(
+                "SELECT {} WHERE FALSE",
+                std::iter::once("CAST(NULL AS VARCHAR) AS pnu".to_owned())
+                    .chain(
+                        set.columns
+                            .iter()
+                            .map(|(_, column)| format!("CAST(NULL AS VARCHAR) AS {column}"))
+                    )
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Some(read) if stage.current_rows_per_region() && !set.prepared => regional_rows(
+                connection,
+                &set,
+                &read,
+                &format!("served{suffix}"),
+                distinct,
+            )?,
+            Some(read) => format!(
+                "SELECT {distinct}{columns} FROM {read} WHERE pnu IN (SELECT pnu FROM served{suffix})"
+            ),
+        };
         connection.execute_batch(&format!("CREATE OR REPLACE TABLE {name} AS {body};"))?;
         let count: i64 =
             connection.query_row(&format!("SELECT count(*) FROM {name}"), [], |row| {

@@ -159,9 +159,12 @@ pub fn gold_versions_table(
 /// region statistics are read by their producer alone, so the versions table is born with the
 /// producer that appends to it and nothing switches over. The served parcel boundaries are read by
 /// the parcel tile bake through its handoff (row 6 of the ADR's waves, with the geometry handoff).
+/// Root ADR-0564 §9 차례 5: the parcel panel is the parcel host lane's Gold, which the lane names as
+/// a constant, not by a kind line (`by_pnu_lanes`).
 const VERSIONED_OUTSIDE_THE_LANES: &[&LakehouseTableContract] = &[
     &crate::real_transaction_region_stats::GOLD_REAL_TRANSACTION_REGION_STATS,
     &crate::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED,
+    &crate::parcel_panel::GOLD_PARCEL_PANEL,
 ];
 
 /// The versions tables of the Golds outside the by-PNU lanes; empty when one cannot be derived
@@ -300,6 +303,25 @@ mod tests {
                 .as_slice()
             )
         );
+    }
+
+    /// The parcel panel's: its PNU key, the 시도 partition, its columns and the two of a version.
+    #[test]
+    fn the_parcel_panel_has_its_versions_table() -> Result<(), String> {
+        let panel = gold_versions_tables_outside_the_lanes()
+            .iter()
+            .find(|table| table.table_name == "gold.parcel_panel_versions")
+            .ok_or("the parcel panel has no versions table")?;
+        assert_eq!(panel.partition_spec, [GOLD_VERSIONS_PNU_PARTITION]);
+        assert_eq!(
+            panel.current_row_latest().map(|latest| latest.key),
+            Some(["pnu"].as_slice())
+        );
+        assert_eq!(
+            panel.columns.len(),
+            crate::parcel_panel::GOLD_PARCEL_PANEL.columns.len() + 2
+        );
+        Ok(())
     }
 
     #[test]

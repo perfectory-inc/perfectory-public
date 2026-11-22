@@ -16507,6 +16507,138 @@
         "unit": "derived"
       }
     },
+    "gold.parcel_panel_versions": {
+      "table_name": "gold.parcel_panel_versions",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "pnu"
+        ],
+        "newest_first": [
+          "version_seq"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY pnu ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area_m2",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "zonings_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "price_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "characteristics_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "forest_ledger_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "transfer_history_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "land_rights_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "land_right_total",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "lineage_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "attached_via_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "version_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "truncate(2, pnu)"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "append_only",
+        "(pnu, version_seq) unique",
+        "of the current rows: one row per pnu",
+        "of the current rows: pnu matches the cadastral grammar",
+        "of the current rows: land_right_total is non-negative",
+        "of the current rows: published_at_utc is present",
+        "of the current rows: row_digest is the sha256 of the content columns only (ADR-0099)",
+        "of the current rows: a section attached through the lineage names its path in attached_via_json"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "silver.onbid_announcement": {
       "table_name": "silver.onbid_announcement",
       "physical_format": "Parquet",

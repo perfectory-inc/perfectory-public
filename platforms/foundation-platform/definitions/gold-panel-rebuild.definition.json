@@ -75,6 +75,61 @@
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
       }
+    },
+    {
+      "id": "gold_parcel_panel_versions_build",
+      "dagster_group": "gold",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Parcel panel Gold as a table of appended row versions (root ADR-0096, ADR-0564 §9 차례 5; scripts/ops/gold-versions-build.sh parcel → publisher build-parcel-panel-versions): gold.parcel_panel_versions, computed by DuckDB inside the publisher (parcel_panel_stage::PANEL, one 시도 at a time, each row set's current rows chosen per 시도) and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the parcel lane bakes gold.parcel_panel it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise only the PNUs whose rows, zone anchors, 법정동 names or served parcels changed (ParcelPanel::changed_pnus). It reads no lineage, as the Spark build it shadows does not (gold-panel-rebuild.contract.json unmeasured_inputs). It starts no Spark session, so it queues in the documents pool on its own unit's memory_claim, not in the spark pool, and at weight 3, under the land Silver lanes it reads (4) and the hourly document jobs (10): a shadow serves nothing, so it waits behind them. Nothing reads it until the parcel lane's takeover PR names it as the lane's Gold.",
+      "systemd_service": "foundation-gold-versions@parcel.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "55 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 60,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 2400,
+          "estimated_from": "computed, not measured: the first shadow build holds every key. It copies every version of the six row sets into a local spool split by 시도 with no sort (402,659,127 land use, 131,850,695 transfer, 39,966,526 forest, 35,888,121 characteristic, 35,887,377 price and 28,498,072 land right rows, Trino $files 2026-11-22) and the 39,861,511 served PNUs, then chooses each set's current rows and folds the documents one 시도 at a time and appends them in one commit. The same path committed 39,861,511 parcel-nearby rows in 1,500 s (2026-11-19); the panel reads about five times those rows, mostly copied rather than sorted: about 2,400 s, inside the 3,240 s share of the 60-minute limit the unit's other builds share. The Spark build took 5,555 s for the whole table (root ADR-0440 §4). Later runs rebuild the changed PNUs only."
+        }
+      },
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-gold-versions@parcel.service"
+        ]
+      },
+      "priority_weight": 3,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-gold-parcel-panel-versions",
+        "silver-land-use-plan-to-gold-parcel-panel-versions",
+        "silver-land-use-zone-code-to-gold-parcel-panel-versions",
+        "silver-land-individual-price-to-gold-parcel-panel-versions",
+        "silver-land-characteristic-to-gold-parcel-panel-versions",
+        "silver-land-forest-ledger-to-gold-parcel-panel-versions",
+        "silver-land-transfer-history-to-gold-parcel-panel-versions",
+        "silver-land-right-registration-to-gold-parcel-panel-versions",
+        "reference-legal-dong-code-change-to-gold-parcel-panel-versions",
+        "reference-legal-dong-code-snapshot-to-gold-parcel-panel-versions",
+        "gold-parcel-panel-to-gold-parcel-panel-versions"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "dagster",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
+      }
     }
   ],
   "assets": [
@@ -132,6 +187,25 @@
         {
           "kind": "lakehouse_contract",
           "value": "gold.parcel_panel"
+        }
+      ]
+    },
+    {
+      "id": "gold-parcel-panel-versions",
+      "type": "gold_table",
+      "title": "필지 패널 by-PNU 표(판을 쌓는 표)",
+      "description": "필지마다 용도지역·공시지가·토지특성·임야대장·토지이동이력·대지권·법정동 이름을 담는 필지 패널(루트 ADR-0096)을 판을 쌓는 표로(루트 ADR-0564 §1·§2): gold.parcel_panel 의 칸에 version_seq·row_state 를 더해 바뀐 PNU 의 행만 덧붙인다. 현재 행은 PNU 마다 version_seq 가 가장 큰 행이고 row_state 가 removed 면 그 PNU 는 없다. 발행기 안의 DuckDB 가 시도마다 계산하고 발행기가 추가 커밋으로 붙인다. 필지 레인이 옛 표를 굽는 동안은 그 표의 그림자다(옛 표 빌드 태그의 입력 핀으로 짓는다, 루트 ADR-0564 §6).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
+      ],
+      "table_name": "gold.parcel_panel_versions",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_panel_versions"
         }
       ]
     }
@@ -313,6 +387,126 @@
         "docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md"
       ],
       "description": "속성을 parcel_id 로 붙이고 스냅숏마다 ID 목록·연결 파일·변경 내역을 낸다(루트 ADR-0113 6·8항)."
+    },
+    {
+      "from": "silver-parcel-boundaries",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "서빙 필지판의 PNU 가 문서의 전체 집합이다(루트 ADR-0292). 들고 난 필지만 다시 짓는다."
+    },
+    {
+      "from": "silver-land-use-plan",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "용도지역·지구 판정(포함 1·2, 접함 3 은 버린다)을 서빙 법정동 코드로 다시 매겨 PNU 에 접는다. 현재 행은 시도마다 고른다(4억 행)."
+    },
+    {
+      "from": "silver-land-use-zone-code",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "용도지역 코드의 상위 코드를 따라 앵커를 찾는다(최대 16 단계). 앵커가 바뀐 코드의 필지만 다시 짓는다."
+    },
+    {
+      "from": "silver-land-individual-price",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "가장 새 공시지가(기준연도·월·가격 순)를 필지에 접는다."
+    },
+    {
+      "from": "silver-land-characteristic",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "넓이가 0 보다 큰 토지특성 한 행을 필지에 접는다; 두 행이면 거부한다."
+    },
+    {
+      "from": "silver-land-forest-ledger",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "넓이가 0 보다 큰 임야대장 한 행을 필지에 접는다; 두 행이면 거부한다."
+    },
+    {
+      "from": "silver-land-transfer-history",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "(이동 순번, 필지 이력 순번)마다 한 항목, 이동일 최신 순으로 접는다; 필지 이력 순번이 없으면 거부한다."
+    },
+    {
+      "from": "silver-land-right-registration",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "(권리 일련번호, 동, 층, 호, 실)마다 한 항목, 앞 200 개와 전체 수를 접는다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "재편으로 바뀐 코드의 행을 서빙 코드로 읽는다(루트 ADR-0329 §3). 이 표가 바뀌면 모든 PNU 를 다시 짓는다."
+    },
+    {
+      "from": "reference-legal-dong-code-snapshot",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "가장 새 법정동 목록이 존재로 적은 이름과 최하위 이름을 필지에 단다. 이름이 바뀐 코드의 필지만 다시 짓는다."
+    },
+    {
+      "from": "gold-parcel-panel",
+      "to": "gold-parcel-panel-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_panel_stage.rs"
+      ],
+      "description": "그림자인 동안 옛 표의 foundation-gold-build 태그 커밋이 적은 입력 핀과 서빙 에디션으로 짓는다(루트 ADR-0564 §6): 옛 표의 데이터가 아니라 그 빌드의 핀을 읽는다."
+    },
+    {
+      "from": "gold-parcel-panel-versions",
+      "to": "parcel-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md"
+      ],
+      "description": "필지 레인의 넘겨받기 PR 이 레인의 Gold 를 이 표로 바꾸면(판정 equal 뒤, 루트 ADR-0564 §6) 레인의 굽기가 이 표의 현재 행을 읽는다. 그때까지 아무도 읽지 않는 그림자다."
     }
   ],
   "host_memory": {
@@ -320,6 +514,11 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark"
+      }
+    ],
+    "gold_parcel_panel_versions_build": [
+      {
+        "unit": "MemoryMax"
       }
     ]
   },
@@ -352,6 +551,17 @@
         }
       ],
       "consumers": []
+    }
+  ],
+  "asset_checks": [
+    {
+      "asset": "gold-parcel-panel-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-parcel-panel"
+      ]
     }
   ]
 }
