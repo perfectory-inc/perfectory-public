@@ -490,4 +490,10 @@ expect_pass "a pooled job that claims its own unit and names no cap sources"
 pooled_claimant fixture-job.service
 expect_fail "a pooled job with no cap sources whose claim is another unit"
 
+# The instance drop-ins and every job's own memory (root ADR-0574 §8): unit_memory.py's unit tests.
+python3 -I "$root/scripts/ci/test_unit_memory.py" 2>&1 || {
+  echo "FAIL $name: scripts/ci/test_unit_memory.py" >&2
+  exit 1
+}
+
 echo "OK $name"

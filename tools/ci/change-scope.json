@@ -191,7 +191,6 @@
         "tools/biome/**",
         "scripts/catalog/declared_definitions.py",
         "scripts/catalog/definition.v1.schema.json",
-        "scripts/ci/unit_memory.py",
         "platforms/identity-platform/docs/openapi/identity.v1.json"
       ]
     },
@@ -226,7 +225,6 @@
         "docs/architecture/single-source-spatial-publication.md",
         "scripts/catalog/declared_definitions.py",
         "scripts/catalog/definition.v1.schema.json",
-        "scripts/ci/unit_memory.py",
         "platforms/identity-platform/docs/openapi/identity.v1.json"
       ]
     }
