@@ -84,9 +84,11 @@ fn optional(text: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
-/// The parcel unit's open items and the counts behind them (`open_<status>`, `closed_by_steward`,
-/// `closed_by_evidence`, `reopened_by_new_evidence`), from every lineage row of the parcels that
-/// ever had a review-grade row.
+/// The parcel unit's open items and the counts behind them.
+///
+/// The counts are `open_<status>`, `closed_by_steward`, `closed_by_evidence` and
+/// `reopened_by_new_evidence`; `rows` are every lineage row of the parcels that ever had a
+/// review-grade row.
 ///
 /// # Errors
 /// A row has a grade the lineage does not use.
@@ -206,9 +208,10 @@ pub struct UnresolvedGroup {
     pub sample_row_keys: Vec<String>,
 }
 
-/// The groups of `table`'s current rows at `source` that hold no `pnu`: the twin of
-/// `place_reference_queue_to_gold.unresolved`. A row's key is its contract key (or `row_key`), each
-/// part as text joined by `|` with a null part left out.
+/// The groups of `table`'s current rows at `source` that hold no `pnu`.
+///
+/// The twin of `place_reference_queue_to_gold.unresolved`. A row's key is its contract key (or
+/// `row_key`), each part as text joined by `|` with a null part left out.
 ///
 /// # Errors
 /// Returns an error when `table` has no contract or cannot be read.
@@ -249,8 +252,9 @@ pub fn load_unresolved(
         )
     };
     let read = with_contract_columns(connection, contract, &source.of(table)?)?;
-    let current = match &latest {
-        Some(latest) => {
+    let current = latest.as_ref().map_or_else(
+        || format!("SELECT * FROM {read}"),
+        |latest| {
             let mut columns = vec!["pnu", REASON];
             if has("legal_dong_code") {
                 columns.push("legal_dong_code");
@@ -261,9 +265,8 @@ pub fn load_unresolved(
                 }
             }
             latest.current_rows_sql(&read, &columns, "TRUE")
-        }
-        None => format!("SELECT * FROM {read}"),
-    };
+        },
+    );
     let sql = format!(
         "SELECT reason, legal_dong_code, count(*) AS rows, \
            to_json(list_slice(list_sort(list_distinct(list(sample_key))), 1, {SAMPLE_KEYS}))::VARCHAR \

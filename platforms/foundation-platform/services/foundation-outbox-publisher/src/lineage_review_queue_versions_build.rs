@@ -199,8 +199,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .with_context(|| format!("{TABLE} does not exist after its creation"))?;
     let base = versions::base(&history)?;
     let head = history.first().map(|snapshot| snapshot.snapshot_id);
-    let heads = input_heads(&catalog).await?;
-    let (pins, replaced_head) = shadow_pins(&catalog, &heads).await?;
+    let at_heads = input_heads(&catalog).await?;
+    let (pins, replaced_head) = shadow_pins(&catalog, &at_heads).await?;
     let code = queue::code_version();
     if let Some(base) = &base {
         versions::pin(&catalog, TABLE, base.snapshot_id, &base.pins).await?;
