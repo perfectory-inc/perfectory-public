@@ -1133,23 +1133,47 @@ const NOTICE_ATTACHMENT: &str = "SELECT CAST(99001 AS BIGINT) AS notice_sequence
      to_timestamp(4071006246) AS fetched_at_utc, 'bronze/source=synthetic/detail-20990102t030405z-000.gz' AS source_record_id, \
      1 AS source_line_number, '20990102T030405Z' AS source_snapshot_id, to_timestamp(4071006245) AS ingested_at_utc";
 
+/// One synthetic row of each industrial land sale notice table (root ADR-0603), in contract order.
+const SALE_NOTICE_READ: &str = "SELECT 'ilis' AS notice_source, '99001' AS notice_id, repeat('f', 64) AS list_fingerprint,      to_timestamp(4071006245) AS requested_at_utc, 200 AS http_status, 'read' AS read_outcome, 1 AS file_count,      1 AS files_stored, 'bronze/source=synthetic/detail-20990102t030405z-000.gz' AS source_record_id,      1 AS source_line_number, '20990102T030405Z' AS source_snapshot_id, to_timestamp(4071006245) AS ingested_at_utc";
+const SALE_NOTICE_ATTACHMENT: &str = "SELECT 'ilis' AS notice_source, '99001' AS notice_id, repeat('a', 64) AS sha256,      1 AS file_sequence, 'synthetic file' AS file_title, 'f1' AS provider_file_id, CAST(1234 AS BIGINT) AS provider_file_size,      'https://example.invalid/f1' AS source_url, 'pdf' AS media_format, CAST(1234 AS BIGINT) AS size_bytes,      to_timestamp(4071006246) AS fetched_at_utc, 'bronze/source=synthetic/detail-20990102t030405z-000.gz' AS source_record_id,      1 AS source_line_number, '20990102T030405Z' AS source_snapshot_id, to_timestamp(4071006245) AS ingested_at_utc";
+
 /// The ILIS notice Silver load's first object into each of its empty tables (root ADR-0389), as
-/// `load-industrial-complex-notice-silver` appends it: a commit that records the object, pinned
+/// `load-industrial-complex-notice-silver` appends it, and the industrial land sale notice load's
+/// (`load-industrial-land-sale-notice-silver`, root ADR-0603) the same way: a commit that records the object, pinned
 /// on the head the rows were computed against (none yet). An object with no row of a table is
 /// recorded too (an empty commit), and an object `main` records is not appended again.
 #[tokio::test(flavor = "multi_thread")]
+// One loop over the four tables; the first-load guard reads the append from this body itself
+// (test_silver_first_load_iceberg.py), so it is not split into a helper.
+#[allow(clippy::too_many_lines)]
 async fn a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_no_row_is_recorded(
 ) -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
-    for (table, rows) in [
+    for (table, rows, key, value) in [
         (
             contract("silver.industrial_complex_notice_detail")?,
             NOTICE_READ,
+            "notice_sequence",
+            serde_json::json!(99001),
         ),
         (
             contract("silver.industrial_complex_notice_attachment")?,
             NOTICE_ATTACHMENT,
+            "notice_sequence",
+            serde_json::json!(99001),
+        ),
+        (
+            contract("silver.industrial_land_sale_notice_read")?,
+            SALE_NOTICE_READ,
+            "notice_id",
+            serde_json::json!("99001"),
+        ),
+        (
+            contract("silver.industrial_land_sale_notice_attachment")?,
+            SALE_NOTICE_ATTACHMENT,
+            "notice_id",
+            serde_json::json!("99001"),
         ),
     ] {
         let short = table
@@ -1181,7 +1205,7 @@ async fn a_notice_object_is_the_first_append_into_each_empty_table_and_one_with_
         let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
         scanned.ensure_complete()?;
         assert_eq!(scanned.rows.len(), 1, "{short}");
-        assert_eq!(scanned.rows[0]["notice_sequence"], 99001, "{short}");
+        assert_eq!(scanned.rows[0][key], value, "{short}");
 
         // The next object holds no row of this table: its commit only records it.
         let second = "bronze/source=synthetic/detail-20990102t030405z-001.gz".to_owned();

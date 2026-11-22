@@ -172,6 +172,8 @@ sqlx = { version = "0.8", default-features = false, features = [
 
 # HTTP 클라이언트 (Zitadel JWKS / outbound)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+# HTML 문서에서 요소 찾기 (root ADR-0603): 한국산업단지공단 게시판의 글 번호·첨부 버튼. Servo 의 html5ever·selectors 위. 명령줄 도구(main)는 끈다.
+scraper = { version = "0.29.0", default-features = false, features = ["errors"] }
 # 법원경매 브라우저 세션 (root ADR-0289 §1): BoringSSL 위의 브라우저 지문. collection-infrastructure 의
 # `court-auction-browser` 기능으로만 빌드된다(cmake·libclang 필요).
 wreq = { version = "0.16.3", features = ["cookies"] }

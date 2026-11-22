@@ -125,6 +125,14 @@
           "mode": "0777"
         },
         {
+          "path": "/var/lib/foundation-platform/industrial-land-sale-notice",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/industrial-land-sale-notice/lakehouse",
+          "mode": "0777"
+        },
+        {
           "path": "/var/lib/foundation-platform/registered-factory",
           "mode": "0755"
         },

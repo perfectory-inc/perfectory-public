@@ -72,6 +72,7 @@ mod industrial_complex_canonical_load;
 mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
 mod industrial_complex_notice_collect;
+mod industrial_land_sale_notice_collect;
 mod lakehouse_object_listing;
 mod onbid_silver_load;
 mod silver_load_objects;
@@ -115,6 +116,7 @@ mod gold_versions_change_set;
 mod gold_versions_commit;
 mod industrial_complex_notice_silver_load;
 mod industrial_complex_silver_load;
+mod industrial_land_sale_notice_silver_load;
 mod kind_versions_build;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
@@ -217,6 +219,7 @@ enum Command {
     MediaLadderBacklog,
     CollectIndustrialComplexAddressSource,
     CollectIndustrialComplexNoticeAttachments,
+    CollectIndustrialLandSaleNotices,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
     StageBuildingRegisterFloorInputs,
@@ -301,6 +304,7 @@ enum Command {
     AppendLineageStewardFold,
     DeriveParcelLineage,
     LoadIndustrialComplexNoticeSilver,
+    LoadIndustrialLandSaleNoticeSilver,
     PlanIndustrialComplexSilverInputs,
     LoadIndustrialComplexSilver,
     CheckBuildingRegisterFloorHistory,
@@ -457,6 +461,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::CollectIndustrialComplexNoticeAttachments => {
             Box::pin(industrial_complex_notice_collect::run())
+        }
+        Command::CollectIndustrialLandSaleNotices => {
+            Box::pin(industrial_land_sale_notice_collect::run())
         }
         Command::DeleteR2Candidates => Box::pin(r2_delete_candidates::run()),
         Command::ExportBuildingRegisterFloorSilverHandoff => {
@@ -663,6 +670,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadIndustrialComplexNoticeSilver => {
             Box::pin(industrial_complex_notice_silver_load::run())
         }
+        Command::LoadIndustrialLandSaleNoticeSilver => {
+            Box::pin(industrial_land_sale_notice_silver_load::run())
+        }
         Command::PlanIndustrialComplexSilverInputs => {
             Box::pin(industrial_complex_silver_load::plan())
         }
@@ -865,6 +875,9 @@ where
         Some("load-industrial-complex-notice-silver") => {
             Ok(Command::LoadIndustrialComplexNoticeSilver)
         }
+        Some("load-industrial-land-sale-notice-silver") => {
+            Ok(Command::LoadIndustrialLandSaleNoticeSilver)
+        }
         Some("plan-industrial-complex-silver-inputs") => {
             Ok(Command::PlanIndustrialComplexSilverInputs)
         }
@@ -951,6 +964,9 @@ where
         }
         Some("collect-industrial-complex-notice-attachments") => {
             Ok(Command::CollectIndustrialComplexNoticeAttachments)
+        }
+        Some("collect-industrial-land-sale-notices") => {
+            Ok(Command::CollectIndustrialLandSaleNotices)
         }
         Some("export-industrial-complex-boundary-silver-handoff") => {
             Ok(Command::ExportIndustrialComplexBoundarySilverHandoff)

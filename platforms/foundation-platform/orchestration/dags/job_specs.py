@@ -273,10 +273,23 @@ def service_unit_file(service):
 
 def service_unit_text(service):
     """The unit a service runs, as systemd reads it: its file's, or its template's with `%i` the instance
-    (systemd.unit(5) specifiers), so a lane's instance of a template states that lane's arguments."""
+    (systemd.unit(5) specifiers), so a lane's instance of a template states that lane's arguments; then
+    each of the instance's drop-ins (`<service>.d/*.conf`, in name order) sets its lines over the unit's
+    (root ADR-0574 §8: an instance's own time and memory limit)."""
     text = service_unit_file(service).read_text(encoding="utf-8")
     match = SERVICE_NAME.fullmatch(service)
-    return text.replace("%i", match.group(1)) if match and match.group(1) else text
+    if match and match.group(1):
+        text = text.replace("%i", match.group(1))
+    for drop_in in sorted((SYSTEMD / f"{service}.d").glob("*.conf")):
+        for line in drop_in.read_text(encoding="utf-8").splitlines():
+            key, equals, _ = line.strip().partition("=")
+            if not equals or line.lstrip().startswith(("#", ";", "[")):
+                continue
+            # shortcut: the drop-ins here set single-valued keys the unit already has; a list key
+            # (ExecStart=, Environment=) would need systemd's reset rules.
+            setting = line.strip()
+            text = re.sub(rf"^{re.escape(key)}=.*$", lambda _, setting=setting: setting, text, flags=re.MULTILINE)
+    return text
 
 
 # Serving surfaces made by a bake: each has a producing job, or an exemption that says why not.

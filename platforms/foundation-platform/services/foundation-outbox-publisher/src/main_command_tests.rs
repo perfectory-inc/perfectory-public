@@ -303,6 +303,26 @@ fn load_industrial_complex_notice_silver_command_is_explicit() -> anyhow::Result
     Ok(())
 }
 
+/// The two halves of the industrial land sale notice lane (root ADR-0603).
+#[test]
+fn industrial_land_sale_notice_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "collect-industrial-land-sale-notices"
+        ])?,
+        Command::CollectIndustrialLandSaleNotices
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-industrial-land-sale-notice-silver"
+        ])?,
+        Command::LoadIndustrialLandSaleNoticeSilver
+    );
+    Ok(())
+}
+
 #[test]
 fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(

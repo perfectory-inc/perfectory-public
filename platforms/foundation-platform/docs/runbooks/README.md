@@ -32,6 +32,7 @@ last_reviewed: 2026-07-29
 - [감사 기록 — 해시 사슬 한 표, 배포·호스트 명령 가져오기, 더니어 화면](./audit-log.md)
 - [온비드 공매 (data.go.kr) — 수집·적재](./data-go-kr-onbid.md)
 - [산업입지정보시스템(ILIS) 산업단지 고시 첨부 — 수집·적재](./industrial-complex-notice.md)
+- [산업용지 분양·처분·공급 공고(ILIS·한국산업단지공단·LH) — 수집·적재](./industrial-land-sale-notice.md)
 - [VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재](./vworld-parcel-editions.md)
 - [Silver 레인 새로 고침 — 건축HUB 레인의 감독 실행](./silver-refresh.md)
 - [건축물대장 층별 정보(FLOOR) 주기 — 이력 검사·내보내기·DuckDB 적재](./building-register-floor-cycle.md)

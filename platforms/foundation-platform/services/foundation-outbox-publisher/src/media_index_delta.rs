@@ -21,7 +21,8 @@ use anyhow::Context as _;
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
 use lakehouse_domain::{
     LakehouseTableContract, SILVER_COURT_AUCTION_APPRAISAL_REPORT, SILVER_COURT_AUCTION_ITEM_PHOTO,
-    SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT, SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO,
+    SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT, SILVER_INDUSTRIAL_LAND_SALE_NOTICE_ATTACHMENT,
+    SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO,
 };
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde::Deserialize;
@@ -54,6 +55,7 @@ fn contract_of(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
         &SILVER_COURT_AUCTION_ITEM_PHOTO,
         &SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT,
         &SILVER_COURT_AUCTION_APPRAISAL_REPORT,
+        &SILVER_INDUSTRIAL_LAND_SALE_NOTICE_ATTACHMENT,
     ]
     .into_iter()
     .find(|contract| contract.table_name == table)
@@ -208,7 +210,7 @@ mod tests {
     #[test]
     fn every_index_the_contract_names_has_a_reader() {
         let tables = index_tables().unwrap();
-        assert_eq!(tables.len(), 4);
+        assert_eq!(tables.len(), 5);
         for table in &tables {
             assert_eq!(contract_of(table).unwrap().table_name, table);
             let columns = &contract_of(table).unwrap().columns;
