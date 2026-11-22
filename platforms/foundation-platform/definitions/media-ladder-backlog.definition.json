@@ -20,6 +20,8 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
       "time_limit_minutes": 40,
+      "memory_max": "3G",
+      "memory_measured": "no run yet (added 2026-11-08, root ADR-0429); sized by its author for four 50-megapixel sources decoded and AV1-encoded at a time (root ADR-0427 §2); systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "object",
         "limits": [

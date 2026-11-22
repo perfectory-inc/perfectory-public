@@ -18,6 +18,8 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 10,
+      "memory_max": "256M",
+      "memory_measured": "no run yet (new 2026-11-19, root ADR-0569 §6); sized as the publisher binary with one connection and the importer's rows (about 1,200 on the first run, a few KB each) and one `git log` at a time; systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -58,6 +60,8 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 10,
+      "memory_max": "256M",
+      "memory_measured": "no run yet (new 2026-11-19, root ADR-0569 §4); sized as the publisher binary with one connection, then the pinned cosign signing one small file (its peak is that of a Go binary, tens of MB); systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

@@ -23,6 +23,9 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 115,
+      "memory_max": "2G",
+      "memory_measured_peak": "954M",
+      "memory_measured": "2026-11-13..18 every bake run peaked at 939-954M under the old 1G cap (MemoryHigh 921M) and swapped up to 947M: the cap was sized as if the unit held only the script (GDAL and tippecanoe run in their own capped containers, config/tile-bake-containers.contract.json), but the publisher's bake-lakehouse-tiles runs in this unit too. It held the feature index of 39,876,546 parcels, 40 bytes each (1.6 GB), and eight runs reached the 115-minute limit inside the index build. The index is now built in sorted runs of 4 Mi records (160 MiB) merged from disk (lakehouse_tile_patch.rs INDEX_SORT_RUN_RECORDS); what the publisher still holds for a full national bake is the sorted id hashes (ServedIds, 16 bytes x 39.9M = 640 MB) and one run (160 MiB): computed about 0.9G, so 2G is above 1.5x the 954M peak and twice the computed demand; the next run logs the first uncapped peak",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -65,6 +68,10 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 60,
+      "memory_max": "8G",
+      "memory_measured_peak": "7373M",
+      "memory_measured": "its own: run 20261119T152616Z of foundation-gold-versions@parcel-nearby (2026-11-19 15:26-15:51Z, every served parcel, 39,861,511 rows committed in 1500 s), systemd's memory peak 7.2G, swap peak 13.5M; the publisher's own peak in its run log 7,733,563,392 bytes",
+      "memory_headroom_why": "The peak follows the cap, not the work: the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (parcel_nearby_versions_build MEMORY_SHARE) and DuckDB fills it and the page cache, so a larger memory_max would only raise the peak. The run fit: no timeout, 13.5M swap, under MemoryMax",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

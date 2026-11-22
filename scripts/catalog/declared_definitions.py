@@ -26,6 +26,7 @@ import copy
 import importlib.util
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -247,7 +248,63 @@ def generate(platform, definitions, ordered=True):
             put(documents[path], where, [items[name][i] for i in ids])
         else:
             put(documents[path], where, {i: items[name][i] for i in ids})
+    job_memory(documents)
     return documents
+
+
+SIZE = re.compile(r"([0-9]+)([KMG])")
+SIZE_BYTES = {"K": 1 << 10, "M": 1 << 20, "G": 1 << 30}
+# A job's memory, beside its time_limit_minutes (root ADR-0574 §8): its unit's systemd_units entry.
+JOB_MEMORY = {"memory_max": "memory_max", "memory_measured_peak": "measured_peak",
+              "memory_measured": "measured", "memory_headroom_why": "headroom_why"}
+
+
+def size_bytes(job_id, raw):
+    match = SIZE.fullmatch(raw) if isinstance(raw, str) else None
+    if not match:
+        raise DefinitionError(f"job {job_id}: memory_max {raw!r} is not a size like 512M or 4G")
+    return int(match.group(1)) * SIZE_BYTES[match.group(2)]
+
+
+def job_memory(documents):
+    """The memory of every job's unit, from the job (root ADR-0574 §8): `systemd_units.unit_files` gets
+    each job unit's entry and `systemd_units.instances` the instances of a template that hold less than it.
+
+    A job states its unit's memory once, beside its time limit. A template is held to its largest
+    instance, so an instance no job names can take no more than any job's; an instance with a smaller
+    cap gets its own entry, which scripts/ci/unit_memory.py renders into the instance's drop-in. A unit
+    a job runs that the platform definition also declares is refused: one place.
+    """
+    section = documents[MEMORY]["systemd_units"]
+    declared = section["unit_files"]
+    by_file = {}
+    for job in documents[JOBS]["jobs"]:
+        if "memory_max" not in job or "memory_measured" not in job:
+            raise DefinitionError(f"job {job['id']}: states memory_max and memory_measured beside time_limit_minutes "
+                                  "(root ADR-0574 §8)")
+        service = job["systemd_service"]
+        name, at, rest = service.partition("@")
+        file = f"{name}@.{rest.rsplit('.', 1)[-1]}" if at else service
+        if file in declared:
+            raise DefinitionError(f"{PLATFORM_FILE}: systemd_units.unit_files {file}: a job runs it, so its memory is the "
+                                  f"job's memory_max ({job['id']}); remove the entry")
+        entry = {"class": "batch", **{key: job[field] for field, key in JOB_MEMORY.items() if field in job}}
+        # Two jobs that run one service state one memory: the unit cannot hold two.
+        same = next((item for item in by_file.get(file, []) if item[0] == service), None)
+        if same is not None:
+            if same[2] != entry:
+                raise DefinitionError(f"{service}: jobs {same[3]} and {job['id']} run it and state different memory")
+            continue
+        by_file.setdefault(file, []).append((service, size_bytes(job["id"], job["memory_max"]), entry, job["id"]))
+    instances = {}
+    for file, held in by_file.items():
+        largest = max(held, key=lambda item: item[1])
+        declared[file] = largest[2]
+        for service, cap, entry, _job in held:
+            if "@." in file and cap != largest[1]:
+                instances[service] = entry
+    section["unit_files"] = dict(sorted(declared.items()))
+    section["instances"] = dict(sorted(instances.items()))
 
 
 def own_checks(group, definition):
@@ -464,6 +521,7 @@ def family_definitions(contracts):
             "stop_grace_minutes": shared["stop_grace_minutes"],
             "wait_limit_minutes": 0,
             "time_limit_minutes": shared["time_limit_minutes"],
+            **{field: shared[field] for field in JOB_MEMORY if field in shared},
             "per_run_cap": {
                 "unit": "run",
                 "limits": [],
