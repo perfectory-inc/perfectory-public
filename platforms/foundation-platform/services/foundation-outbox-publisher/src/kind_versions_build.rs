@@ -2,10 +2,10 @@
 //! ADR-0564 §3, §6): `build-parcel-register-masters-versions`, `build-parcel-demolitions-versions`,
 //! `build-parcel-energy-versions`, `build-parcel-sub-parcels-versions`,
 //! `build-parcel-building-permits-versions`, `build-parcel-panel-versions`,
-//! `build-parcel-ownership-versions`. `DuckDB` inside the publisher computes the kind
-//! (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the publisher appends
-//! the keys that changed (`gold_versions_commit`). A new lane is a stage, a [`KindBuild`], a kind line
-//! and a job.
+//! `build-parcel-ownership-versions`, `build-parcel-factories-versions`. `DuckDB` inside the publisher
+//! computes the kind (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the
+//! publisher appends the keys that changed (`gold_versions_commit`). A new lane is a stage, a
+//! [`KindBuild`], a kind line and a job.
 //!
 //! While a lane serves the Spark table its versions table replaces, the versions table is its shadow:
 //! its inputs are pinned to that table's build-tag commit (`planned_inputs`), so the takeover verdict
@@ -26,6 +26,7 @@ use foundation_publisher_silver::{
     building_permit_stage::BUILDING_PERMITS,
     building_sub_parcel_stage::SUB_PARCELS,
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    factory_kind_stage::FACTORIES,
     kind_versions_stage::{
         ensure_no_commit_tables, load_region, spool, KindVersionsStage, PARCEL_SOURCE,
     },
@@ -130,6 +131,15 @@ pub(crate) const OWNERSHIP_BUILD: KindBuild = KindBuild {
     stage: &OWNERSHIP,
 };
 
+/// Lane 7: the registered factories (root ADR-0449).
+pub(crate) const FACTORIES_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_factories_versions",
+    lane: "parcel-factories",
+    replaced: "gold.parcel_factories",
+    job: "build-parcel-factories-versions",
+    stage: &FACTORIES,
+};
+
 /// Builds and appends `kind`'s changed keys.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
@@ -143,6 +153,18 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         .iter()
         .map(|column| column.name)
         .collect();
+    // The kind line's `place_identity` gave the table its place id; the stage must carry it.
+    ensure!(
+        content_columns.contains(&"place_id") == stage.carries_place_id(),
+        "{} has {}a place_id column but its stage {} it",
+        kind.replaced,
+        if stage.carries_place_id() { "no " } else { "" },
+        if stage.carries_place_id() {
+            "carries"
+        } else {
+            "does not carry"
+        }
+    );
     let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
     let committer = LakehouseDataCommitter::from_env().await?;
     let created = committer.create_table_if_absent(versions_contract).await?;
@@ -483,6 +505,30 @@ impl Drop for Spool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A kind line that names `place_identity` gives its table a `place_id` column (by_pnu_kind
+    /// derive); a stage that did not carry it would write every row's id as null, and the takeover
+    /// verdict would fail on every row (the factories are the first lane that carries it).
+    #[test]
+    fn every_lane_s_stage_carries_the_place_id_its_table_has() -> anyhow::Result<()> {
+        for kind in [
+            &REGISTER_MASTERS_BUILD,
+            &DEMOLITIONS_BUILD,
+            &ENERGY_BUILD,
+            &SUB_PARCELS_BUILD,
+            &BUILDING_PERMITS_BUILD,
+            &PARCEL_PANEL_BUILD,
+            &OWNERSHIP_BUILD,
+            &FACTORIES_BUILD,
+        ] {
+            let has = contract(kind.replaced)?
+                .columns
+                .iter()
+                .any(|column| column.name == "place_id");
+            assert_eq!(has, kind.stage.carries_place_id(), "{}", kind.table);
+        }
+        Ok(())
+    }
 
     #[test]
     fn a_sido_s_range_bounds_its_keys_and_the_last_one_is_open() -> anyhow::Result<()> {

@@ -14,12 +14,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Instant;
 
-use anyhow::{ensure, Context};
+use anyhow::{bail, ensure, Context};
 use duckdb::Connection;
+use lakehouse_domain::LakehouseRowVersions;
 
 use crate::duckdb_parquet_stage::with_contract_columns;
 use crate::legal_dong_code_change_stage::{PAIR_ROWS_SQL, RENUMBERED_INTO_SQL};
 use crate::parcel_nearby_stage::Source;
+use crate::place_id_join::{place_ids_sql, BRIDGE_SOURCE};
 
 /// The parcels; the served edition's are every kind's universe.
 pub const PARCEL_SOURCE: &str = crate::parcel_nearby_stage::PARCEL_SOURCE;
@@ -77,6 +79,12 @@ pub trait KindVersionsStage: Sync {
     fn code_version(&self) -> String;
     /// The tables of the kind's rows (each loaded per 시도 by [`load_region`]).
     fn row_sets(&self) -> Vec<RowSet>;
+    /// Whether each row carries its parcel's place id (the kind line's `place_identity`, root
+    /// ADR-0483): [`spool`] then also writes the place ids of the PNUs the row sets hold, and
+    /// [`load_region`] loads them as `place_ids<suffix>(pnu, place_id)`.
+    fn carries_place_id(&self) -> bool {
+        false
+    }
     /// Leaves what a row set reads beside its Silver, from the inputs at `source`: the tables a
     /// `prepared` row set names and the views a row set's joins read (each `<name><suffix>`).
     /// [`spool`] calls it after the read's renumbering and before the row sets. A prepared table
@@ -302,6 +310,34 @@ pub fn spool(
             read_millis.insert(set.source.to_owned(), elapsed(at));
         }
     }
+    // The place ids of the PNUs the row sets hold, once (`place_id_join`): the others have no
+    // document to carry one.
+    if stage.carries_place_id() {
+        let at = Instant::now();
+        let held = stage
+            .row_sets()
+            .iter()
+            .map(|set| {
+                format!(
+                    "SELECT pnu FROM read_parquet('{dir_text}/{}{suffix}/*/*.parquet')",
+                    set.name
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" UNION ");
+        connection.execute_batch(&fill(
+            SPOOL_SQL,
+            &[
+                (
+                    "query",
+                    &place_ids_sql(source, &format!("code IN ({held})"))?,
+                ),
+                ("dir", &dir_text),
+                ("name", &format!("{PLACE_IDS}{suffix}")),
+            ],
+        ))?;
+        read_millis.insert(BRIDGE_SOURCE.to_owned(), elapsed(at));
+    }
     Ok(Spooled {
         served_parcels: u64::try_from(served)?,
         sidos,
@@ -349,6 +385,107 @@ pub(crate) fn current_rows_query(
 
 /// The key columns a row set's spool carries for the tie check (`<column>` as `tie_<n>`).
 const TIE_PREFIX: &str = "tie_";
+/// The spool (and the region's table) of the place ids a kind that carries them reads.
+pub const PLACE_IDS: &str = "place_ids";
+
+/// How a row set's Silver names its current rows (its contract's rule: the newest row per key, or
+/// the newest edition per group), and the columns that ride along so the spool can be checked for
+/// a tie SQL keeps.
+struct CurrentRule {
+    /// Columns that ride along for the check.
+    carried: Vec<&'static str>,
+    /// How many of `carried` (the first ones) name a group a duplicate is counted in: the key of a
+    /// newest-per-key table (each key once), the group of an editions table (each group's
+    /// newest edition once).
+    group: usize,
+    /// Whether the check counts distinct `carried` tuples against distinct groups (editions) or
+    /// rows against distinct keys (newest per key).
+    editions: bool,
+}
+
+impl CurrentRule {
+    fn of(contract: &lakehouse_domain::LakehouseTableContract) -> anyhow::Result<Self> {
+        let table = contract.table_name;
+        match contract.row_versions {
+            LakehouseRowVersions::LatestPerKey(latest) => {
+                ensure!(
+                    contract.current_row_predicate.is_none(),
+                    "{table} selects its current rows by a predicate too; this reader applies only \
+                     the newest-per-key rule"
+                );
+                let carried = if latest.keep_ties {
+                    Vec::new()
+                } else {
+                    latest.key.to_vec()
+                };
+                Ok(Self {
+                    group: carried.len(),
+                    carried,
+                    editions: false,
+                })
+            }
+            LakehouseRowVersions::Editions {
+                edition_column,
+                per,
+                ..
+            } => {
+                ensure!(
+                    contract.newest_edition_sql("t", &["pnu"], "TRUE").is_some(),
+                    "{table} is read one pinned edition at a time, not by its newest edition"
+                );
+                Ok(Self {
+                    carried: per.iter().copied().chain([edition_column]).collect(),
+                    group: per.len(),
+                    editions: true,
+                })
+            }
+            _ => bail!("{table} keeps neither versions per key nor editions read newest first"),
+        }
+    }
+
+    /// The current rows of `read`, projecting `columns`: the contract's one rendering.
+    fn query(
+        &self,
+        contract: &lakehouse_domain::LakehouseTableContract,
+        read: &str,
+        columns: &[&str],
+    ) -> anyhow::Result<String> {
+        if self.editions {
+            contract
+                .newest_edition_sql(read, columns, "TRUE")
+                .with_context(|| format!("{} has no newest edition", contract.table_name))
+        } else {
+            Ok(contract
+                .current_row_latest()
+                .with_context(|| format!("{} keeps no versions per key", contract.table_name))?
+                .current_rows_sql(read, columns, "TRUE"))
+        }
+    }
+
+    /// `(found, allowed)`: kept rows and their distinct keys, or kept editions and their groups.
+    fn check_sql(&self, glob: &str) -> String {
+        let tuple = |count: usize| {
+            (0..count)
+                .map(|index| format!("{TIE_PREFIX}{index}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let all = tuple(self.carried.len());
+        if self.editions {
+            let groups = if self.group == 0 {
+                "CAST(count(*) > 0 AS BIGINT)".to_owned()
+            } else {
+                format!("count(DISTINCT ({}))", tuple(self.group))
+            };
+            format!(
+                "SELECT (SELECT count(*) FROM (SELECT DISTINCT {all} FROM read_parquet({glob}))), \
+                 (SELECT {groups} FROM read_parquet({glob}))"
+            )
+        } else {
+            format!("SELECT count(*), count(DISTINCT ({all})) FROM read_parquet({glob})")
+        }
+    }
+}
 
 fn spool_row_set(
     connection: &Connection,
@@ -360,7 +497,7 @@ fn spool_row_set(
     let mut projected: Vec<&str> = vec![set.pnu];
     projected.extend(set.reads.iter().copied().filter(|name| *name != set.pnu));
     // A prepared table is already the rows: the stage read its inputs by their current-row rule.
-    let (rows, ties, pinned): (String, &[&str], String) = if set.prepared {
+    let (rows, rule, pinned): (String, Option<CurrentRule>, String) = if set.prepared {
         ensure!(
             set.source
                 .bytes()
@@ -369,32 +506,26 @@ fn spool_row_set(
             set.source
         );
         let table = format!("{}{suffix}", set.source);
-        let none: &[&str] = &[];
-        (format!("SELECT * FROM {table}"), none, table)
+        (format!("SELECT * FROM {table}"), None, table)
     } else {
         let contract = contract(set.source)?;
-        ensure!(
-            contract.current_row_predicate.is_none(),
-            "{} selects its current rows by a predicate too; this reader applies only the newest-per-key rule",
-            set.source
-        );
-        let latest = contract
-            .current_row_latest()
-            .with_context(|| format!("{} keeps no versions per key", set.source))?;
+        // The contract's one current-row rule (root ADR-0267, ADR-0564 §4). SQL keeps a tie, so the
+        // columns that tell one ride along and the spool is checked: a key read twice, or two
+        // editions of one group chosen.
+        let rule = CurrentRule::of(contract)?;
         let pinned = source.of(set.source)?;
         // A column the table gained after the pinned snapshot reads as NULL there.
         let read = with_contract_columns(connection, contract, &pinned)?;
-        let ties: &[&str] = if latest.keep_ties { &[] } else { latest.key };
-        for key in ties {
-            if !projected.contains(key) {
-                projected.push(key);
+        for column in &rule.carried {
+            if !projected.contains(column) {
+                projected.push(column);
             }
         }
-        (
-            latest.current_rows_sql(&read, &projected, "TRUE"),
-            ties,
-            pinned,
-        )
+        (rule.query(contract, &read, &projected)?, Some(rule), pinned)
+    };
+    let ties: &[&str] = match &rule {
+        Some(rule) => &rule.carried,
+        None => &[],
     };
     let at_suffix = |text: &str| fill(text, &[("suffix", suffix)]);
     let joins = set
@@ -432,22 +563,17 @@ fn spool_row_set(
             ("name", &name),
         ],
     ))?;
-    if !ties.is_empty() {
+    if let Some(rule) = rule.as_ref().filter(|rule| !rule.carried.is_empty()) {
         let glob = format!("'{dir_text}/{name}/*/*.parquet'");
-        let keys = (0..ties.len())
-            .map(|index| format!("{TIE_PREFIX}{index}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let (rows, distinct): (i64, i64) = connection.query_row(
-            &format!("SELECT count(*), count(DISTINCT ({keys})) FROM read_parquet({glob})"),
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
+        let (found, allowed): (i64, i64) =
+            connection.query_row(&rule.check_sql(&glob), [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?;
         ensure!(
-            rows == distinct,
-            "{} ({pinned}) holds {} current rows tied on their version order",
+            found == allowed,
+            "{} ({pinned}) holds {} current rows or editions tied on their version order",
             set.source,
-            rows - distinct
+            found - allowed
         );
     }
     Ok(())
@@ -685,6 +811,17 @@ pub fn load_region(
             })?;
         rows += u64::try_from(count)?;
     }
+    if stage.carries_place_id() {
+        let name = format!("{PLACE_IDS}{suffix}");
+        let body = part(&name).map_or_else(
+            || {
+                "SELECT CAST(NULL AS VARCHAR) AS pnu, CAST(NULL AS VARCHAR) AS place_id WHERE FALSE"
+                    .to_owned()
+            },
+            |read| format!("SELECT pnu, place_id FROM {read}"),
+        );
+        connection.execute_batch(&format!("CREATE OR REPLACE TABLE {name} AS {body};"))?;
+    }
     if suffix.is_empty() {
         stage.create_built(connection)?;
     }
@@ -783,6 +920,76 @@ mod commit_table_tests {
             .err()
             .map(|error| error.to_string());
         assert!(refused.is_some_and(|text| text.contains("appended")));
+        Ok(())
+    }
+}
+
+/// The current-row rule a row set's spool is read and checked by, on synthetic rows: an editions
+/// table refuses two editions tied on its order, per group; a newest-per-key table refuses a key
+/// read twice.
+#[cfg(test)]
+mod rule_tests {
+    use super::*;
+
+    fn found_and_allowed(rule: &CurrentRule, rows: &str) -> anyhow::Result<(i64, i64)> {
+        let connection = Connection::open_in_memory()?;
+        let dir = tempfile::tempdir()?;
+        let dir_text = sql_dir(dir.path())?;
+        let carried = (0..rule.carried.len())
+            .map(|index| format!("{TIE_PREFIX}{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        connection.execute_batch(&format!(
+            "COPY (SELECT * FROM (VALUES {rows}) v({carried})) TO '{dir_text}/set.parquet' (FORMAT parquet);"
+        ))?;
+        Ok(connection.query_row(
+            &rule.check_sql(&format!("'{dir_text}/set.parquet'")),
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?)
+    }
+
+    #[test]
+    fn two_editions_tied_on_the_order_are_refused() -> anyhow::Result<()> {
+        let boundaries = contract("silver.administrative_boundaries")?;
+        let rule = CurrentRule::of(boundaries)?;
+        assert_eq!(
+            (rule.carried.as_slice(), rule.group, rule.editions),
+            (&["source_snapshot_id"][..], 0, true)
+        );
+        // Two rounds loaded at one instant: both are the newest, and the check refuses them.
+        assert_eq!(
+            found_and_allowed(&rule, "('round-a'), ('round-b')")?,
+            (2, 1)
+        );
+        assert_eq!(
+            found_and_allowed(&rule, "('round-b'), ('round-b')")?,
+            (1, 1)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn each_group_holds_one_newest_edition() -> anyhow::Result<()> {
+        let schedule = contract("silver.court_auction_item_schedule")?;
+        let rule = CurrentRule::of(schedule)?;
+        assert_eq!((rule.carried.len(), rule.group), (4, 3));
+        let one_each = "('c', '1', '1', '2099-01-02'), ('c', '2', '1', '2099-01-01')";
+        assert_eq!(found_and_allowed(&rule, one_each)?, (2, 2));
+        let tied = "('c', '1', '1', '2099-01-02'), ('c', '1', '1', '2099-01-03')";
+        assert_eq!(found_and_allowed(&rule, tied)?, (2, 1));
+        Ok(())
+    }
+
+    #[test]
+    fn a_key_read_twice_is_refused_and_a_pinned_edition_table_is_not_a_row_set(
+    ) -> anyhow::Result<()> {
+        let rule = CurrentRule::of(contract("silver.onbid_item_bid_info")?)?;
+        assert!(!rule.editions);
+        assert_eq!(found_and_allowed(&rule, "('k1'), ('k1')")?, (2, 1));
+        assert_eq!(found_and_allowed(&rule, "('k1'), ('k2')")?, (2, 2));
+        // The parcels are read by the edition the caller names, never as a row set's newest.
+        assert!(CurrentRule::of(contract(PARCEL_SOURCE)?).is_err());
         Ok(())
     }
 }

@@ -211,3 +211,32 @@ fn a_load_of_the_parcel_number_history_that_appends_a_few_rows_hides_none_of_the
         }
     ));
 }
+
+/// Root ADR-0564 §4: the SQL twin of the newest edition exists exactly for the tables read by
+/// their newest edition, and chooses the edition before the caller's filter (the factories read
+/// it in `DuckDB`; `factory_kind_stage` holds it to `newest_edition_rows` on rows).
+#[test]
+fn the_newest_edition_sql_is_rendered_only_for_editions_read_newest_first() {
+    for contract in industrial_complex_lakehouse_contracts() {
+        let rendered = contract.newest_edition_sql("t", &["a"], "f");
+        let newest = matches!(
+            contract.row_versions,
+            LakehouseRowVersions::Editions {
+                read: lakehouse_domain::LakehouseEditionRead::Newest,
+                ..
+            }
+        );
+        assert_eq!(rendered.is_some(), newest, "{}", contract.table_name);
+    }
+    let factory = lakehouse_domain::SILVER_REGISTERED_FACTORY
+        .newest_edition_sql("t", &["a"], "f")
+        .unwrap_or_default();
+    assert_eq!(
+        factory,
+        "SELECT a FROM (SELECT *, dense_rank() OVER ( ORDER BY foundation_edition_newest_0 DESC NULLS LAST, \
+         foundation_edition_newest_1 DESC NULLS LAST) AS foundation_edition_rank FROM (SELECT *, \
+         max(source_snapshot_id) OVER (PARTITION BY source_snapshot_id) AS foundation_edition_newest_0, \
+         max(ingested_at_utc) OVER (PARTITION BY source_snapshot_id) AS foundation_edition_newest_1 FROM t)) \
+         WHERE foundation_edition_rank = 1 AND (f)"
+    );
+}

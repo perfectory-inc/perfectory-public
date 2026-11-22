@@ -380,6 +380,13 @@ fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Resul
         parse_command(["foundation-outbox-publisher", "build-parcel-panel-versions"])?,
         Command::BuildParcelPanelVersions
     );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-factories-versions"
+        ])?,
+        Command::BuildParcelFactoriesVersions
+    );
     Ok(())
 }
 
