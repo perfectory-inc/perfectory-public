@@ -171,8 +171,11 @@ impl KindVersionsStage for RecordKind {
         vec![RowSet {
             name: "rows",
             source: self.source,
+            pnu: "pnu",
             reads: self.kept(),
             columns,
+            joins: Vec::new(),
+            prepared: false,
             distinct: true,
         }]
     }

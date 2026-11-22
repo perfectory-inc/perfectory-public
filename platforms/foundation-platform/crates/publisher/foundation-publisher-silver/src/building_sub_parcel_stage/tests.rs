@@ -1,16 +1,20 @@
 //! The sub-parcel rules on synthetic inputs (PNUs under `99999`): a link reaches both of its
 //! parcels, an unserved end has no document, a row naming its own parcel is no link, a null PNU keeps
-//! the provider's 지번, only a register's newest vintage counts, the bound, a renumbered code on the
-//! served parcel, the bytes Spark writes, and the partial diff that reaches a parcel a register left.
-//! The national judgement against the Spark job is its takeover verdict.
+//! the provider's 지번, a row with no 대지 PNU still reaches its 부속 지번, only a register's newest
+//! vintage counts, the bound, a renumbered code at either end, the bytes Spark writes, and the
+//! partial diff that reaches a parcel a register left. The national judgement against the Spark job
+//! is its takeover verdict.
 
 use duckdb::Connection;
 use sha2::{Digest, Sha256};
 
 use super::*;
+use crate::kind_versions_stage::read_for_test;
 
 const EDITION: &str = "synthetic__parcel-209906";
 const DONG: &str = "9999910100";
+/// A served parcel under the code a reorganization renumbered 10200 into.
+const MOVED: &str = "9999910300100040000";
 
 fn pnu(main: u32) -> String {
     format!("{DONG}1{main:04}0000")
@@ -33,7 +37,7 @@ fn load(connection: &Connection, rows: &[String]) -> anyhow::Result<()> {
            source_snapshot_id VARCHAR, valid_to_utc TIMESTAMP); \
          INSERT INTO silver_parcel_boundaries VALUES \
            ('{site}', NULL, '{EDITION}', NULL), ('{annex}', NULL, '{EDITION}', NULL), \
-           ('{moved}', NULL, '{EDITION}', NULL), ('{unserved}', NULL, 'synthetic__parcel-209903', NULL); \
+           ('{MOVED}', NULL, '{EDITION}', NULL), ('{unserved}', NULL, 'synthetic__parcel-209903', NULL); \
          CREATE OR REPLACE TABLE reference_legal_dong_code_change (kind VARCHAR, old_code VARCHAR, \
            new_code VARCHAR, level VARCHAR, effective_date VARCHAR, source VARCHAR); \
          INSERT INTO reference_legal_dong_code_change VALUES \
@@ -47,7 +51,6 @@ fn load(connection: &Connection, rows: &[String]) -> anyhow::Result<()> {
         rows.join(", "),
         site = pnu(1),
         annex = pnu(2),
-        moved = "9999910300100040000",
         unserved = pnu(3),
     ))?;
     Ok(())
@@ -68,13 +71,20 @@ fn entry(key: &str, other: Option<&str>, jibun: &str) -> String {
     )
 }
 
-fn build_all(connection: &Connection) -> anyhow::Result<()> {
+/// Reads `rows` as a new build does and builds every PNU.
+fn build_all(
+    connection: &Connection,
+    rows: &[String],
+) -> anyhow::Result<Vec<(String, String, String)>> {
+    load(connection, rows)?;
+    read_for_test(&SUB_PARCELS, connection, EDITION, "")?;
     SUB_PARCELS.build(
         connection,
         true,
         "999990000000000001",
         "2099-01-03T00:00:00Z",
-    )
+    )?;
+    built(connection)
 }
 
 #[test]
@@ -100,9 +110,17 @@ fn a_link_reaches_both_parcels_in_spark_s_bytes() -> anyhow::Result<()> {
             row(Some(&site), Some(&pnu(7)), "synthetic-1", "0007", "202609"),
         ],
     )?;
-    let read = SUB_PARCELS.load_inputs(&connection, &Source::Local, EDITION, "")?;
-    assert_eq!((read.served_parcels, read.rows), (3, 3));
-    build_all(&connection)?;
+    let read = read_for_test(&SUB_PARCELS, &connection, EDITION, "")?;
+    // Served PNUs; the entries on them: four on the 대지 as the 대지 (the self link among them), and
+    // two on a served 부속 지번 (the annex, and the self link's other end, the 대지 again). The
+    // build leaves the self link out.
+    assert_eq!((read.served_parcels, read.rows), (3, 6));
+    SUB_PARCELS.build(
+        &connection,
+        true,
+        "999990000000000001",
+        "2099-01-03T00:00:00Z",
+    )?;
     crate::kind_versions_stage::ensure_no_commit_tables(&connection)?;
     let rows = built(&connection)?;
     let pnus: Vec<&str> = rows.iter().map(|row| row.0.as_str()).collect();
@@ -134,20 +152,40 @@ fn a_link_reaches_both_parcels_in_spark_s_bytes() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A 시군구 the crosswalk refused leaves the 대지's PNU null; the row still lies on its 부속 지번,
+/// which lists the register with the 대지's 지번 (Spark keeps it: its filter reads either end).
+#[test]
+fn a_row_without_a_site_pnu_still_reaches_its_annex() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    let annex = pnu(2);
+    let rows = build_all(
+        &connection,
+        &[row(None, Some(&annex), "synthetic-1", "0002", "202610")],
+    )?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, annex);
+    assert_eq!(
+        rows[0].1,
+        format!(
+            "{{\"on_other_parcels\":[],\"on_other_total\":0,\"from_other_parcels\":[{}],\
+             \"from_other_total\":1}}",
+            entry("synthetic-1", None, "99999-10100-0-0001-0000"),
+        )
+    );
+    Ok(())
+}
+
 #[test]
 fn a_null_jibun_part_is_skipped_and_spaces_are_trimmed() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     let (site, annex) = (pnu(1), pnu(2));
-    load(
+    let rows = build_all(
         &connection,
         &[
             row(Some(&site), Some(&annex), "synthetic-1", " 0002 ", "202610")
                 .replace("'0', ' 0002 '", "NULL, ' 0002 '"),
         ],
     )?;
-    SUB_PARCELS.load_inputs(&connection, &Source::Local, EDITION, "")?;
-    build_all(&connection)?;
-    let rows = built(&connection)?;
     let document: serde_json::Value = serde_json::from_str(&rows[0].1)?;
     assert_eq!(
         document["on_other_parcels"][0]["other_jibun"],
@@ -172,10 +210,7 @@ fn more_links_than_the_bound_keep_the_bound_and_count_all() -> anyhow::Result<()
             )
         })
         .collect();
-    load(&connection, &many)?;
-    SUB_PARCELS.load_inputs(&connection, &Source::Local, EDITION, "")?;
-    build_all(&connection)?;
-    let rows = built(&connection)?;
+    let rows = build_all(&connection, &many)?;
     let document: serde_json::Value = serde_json::from_str(&rows[0].1)?;
     let entries = document["on_other_parcels"]
         .as_array()
@@ -190,51 +225,69 @@ fn more_links_than_the_bound_keep_the_bound_and_count_all() -> anyhow::Result<()
     Ok(())
 }
 
+/// Either end keyed under 10200 is read under the served 10300: the 부속 지번 here, the 대지 in the
+/// second row (whose own 부속 지번 is the served 대지 of the first).
 #[test]
 fn both_ends_of_a_row_follow_a_renumbering() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
-    // The 부속 지번 is keyed under 10200, which the served edition holds as 10300.
-    load(
+    let rows = build_all(
         &connection,
-        &[row(
-            Some(&pnu(1)),
-            Some("9999910200100040000"),
-            "synthetic-1",
-            "0004",
-            "202610",
-        )],
+        &[
+            row(
+                Some(&pnu(1)),
+                Some("9999910200100040000"),
+                "synthetic-1",
+                "0004",
+                "202610",
+            ),
+            row(
+                Some("9999910200100040000"),
+                Some(&pnu(2)),
+                "synthetic-2",
+                "0002",
+                "202610",
+            ),
+        ],
     )?;
-    SUB_PARCELS.load_inputs(&connection, &Source::Local, EDITION, "")?;
-    build_all(&connection)?;
-    let pnus: Vec<String> = built(&connection)?.into_iter().map(|row| row.0).collect();
-    assert_eq!(pnus, [pnu(1), "9999910300100040000".to_owned()]);
+    let pnus: Vec<&str> = rows.iter().map(|row| row.0.as_str()).collect();
+    assert_eq!(pnus, [pnu(1).as_str(), pnu(2).as_str(), MOVED]);
+    let site: serde_json::Value = serde_json::from_str(&rows[0].1)?;
+    assert_eq!(site["on_other_parcels"][0]["other_pnu"], MOVED);
+    let annex: serde_json::Value = serde_json::from_str(&rows[1].1)?;
+    assert_eq!(annex["from_other_parcels"][0]["other_pnu"], MOVED);
+    let moved: serde_json::Value = serde_json::from_str(&rows[2].1)?;
+    assert_eq!(
+        (
+            moved["on_other_total"].clone(),
+            moved["from_other_total"].clone()
+        ),
+        (serde_json::json!(1), serde_json::json!(1))
+    );
     Ok(())
 }
 
 #[test]
 fn a_partial_run_reaches_the_parcel_a_register_left() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
-    let (site, annex, moved) = (pnu(1), pnu(2), "9999910300100040000");
-    load(
-        &connection,
-        &[row(
-            Some(&site),
-            Some(&annex),
-            "synthetic-1",
-            "0002",
-            "202610",
-        )],
-    )?;
-    SUB_PARCELS.load_inputs(&connection, &Source::Local, EDITION, "_old")?;
+    let (site, annex) = (pnu(1), pnu(2));
+    let first = [row(
+        Some(&site),
+        Some(&annex),
+        "synthetic-1",
+        "0002",
+        "202610",
+    )];
+    load(&connection, &first)?;
+    read_for_test(&SUB_PARCELS, &connection, EDITION, "_old")?;
     // The register's newest set names another parcel: the annex leaves it.
     load(
         &connection,
         &[
-            row(Some(&site), Some(&annex), "synthetic-1", "0002", "202610"),
-            row(Some(&site), Some(moved), "synthetic-1", "0004", "202611"),
+            first[0].clone(),
+            row(Some(&site), Some(MOVED), "synthetic-1", "0004", "202611"),
         ],
     )?;
-    SUB_PARCELS.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    read_for_test(&SUB_PARCELS, &connection, EDITION, "")?;
     assert_eq!(SUB_PARCELS.changed_pnus(&connection)?, 3);
     SUB_PARCELS.build(
         &connection,
@@ -244,9 +297,9 @@ fn a_partial_run_reaches_the_parcel_a_register_left() -> anyhow::Result<()> {
     )?;
     // The annex is rebuilt and has no document left: the diff marks it removed.
     let pnus: Vec<String> = built(&connection)?.into_iter().map(|row| row.0).collect();
-    assert_eq!(pnus, [site, moved.to_owned()]);
+    assert_eq!(pnus, [site, MOVED.to_owned()]);
     // Nothing changed: no PNU to rebuild.
-    SUB_PARCELS.load_inputs(&connection, &Source::Local, EDITION, "_old")?;
+    read_for_test(&SUB_PARCELS, &connection, EDITION, "_old")?;
     assert_eq!(SUB_PARCELS.changed_pnus(&connection)?, 0);
     Ok(())
 }
