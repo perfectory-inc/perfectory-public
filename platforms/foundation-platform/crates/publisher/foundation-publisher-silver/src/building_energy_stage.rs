@@ -133,11 +133,14 @@ impl KindVersionsStage for EnergyKind {
                     _ => "gas_rows",
                 },
                 source: table,
+                pnu: "pnu",
                 reads: vec!["use_ym", "usage_amount"],
                 columns: vec![
                     ("m.use_ym".to_owned(), "use_ym"),
                     ("m.usage_amount".to_owned(), "usage_amount"),
                 ],
+                joins: Vec::new(),
+                prepared: false,
                 distinct: false,
             })
             .collect()

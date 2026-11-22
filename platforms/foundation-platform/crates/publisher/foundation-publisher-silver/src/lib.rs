@@ -135,6 +135,8 @@ pub mod legal_dong_code_snapshot_stage;
 
 /// The building energy kind's Gold in `DuckDB` (root ADR-0398).
 pub mod building_energy_stage;
+pub mod building_permit_stage;
+pub mod building_sub_parcel_stage;
 pub mod intelligence_documents_stage;
 /// What every parcel kind Gold of appended row versions shares (root ADR-0564 §6).
 pub mod kind_versions_stage;

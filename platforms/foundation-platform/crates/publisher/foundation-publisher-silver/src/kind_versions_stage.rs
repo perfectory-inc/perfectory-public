@@ -43,12 +43,22 @@ pub struct Spooled {
 pub struct RowSet {
     /// The table a region load leaves (`<name><suffix>`).
     pub name: &'static str,
-    /// The Silver it reads, at its pin, by its contract's current-row rule.
+    /// The Silver it reads, at its pin, by its contract's current-row rule; with `prepared`, the
+    /// table the stage's [`KindVersionsStage::prepare`] left (`<source><suffix>`), read as it is.
     pub source: &'static str,
-    /// The Silver's columns the expressions read (as `m.<column>`), beside `pnu`.
+    /// The column that names the parcel a row is on: the row's 시도 and its served PNU are this
+    /// column's (`pnu` for a row of one parcel; a 부속지번 row also lies on its `sub_pnu`).
+    pub pnu: &'static str,
+    /// The Silver's columns the expressions read (as `m.<column>`), beside [`Self::pnu`].
     pub reads: Vec<&'static str>,
-    /// `(expression over the current row m, column)`, in the table's order after `pnu`.
+    /// `(expression over the current row m and the joins, column)`, in the table's order after
+    /// `pnu`. `@suffix@` in it names the read's suffix (`renumbering@suffix@`).
     pub columns: Vec<(String, &'static str)>,
+    /// `LEFT JOIN`s the expressions read beside `m` (a view the stage prepared, or the read's
+    /// `renumbering@suffix@` for a second PNU of the row); `@suffix@` as in the columns.
+    pub joins: Vec<String>,
+    /// Whether `source` is a table the stage prepared rather than a Silver at its pin.
+    pub prepared: bool,
     /// Whether the table keeps a row once (the kind's rows are distinct on their columns).
     pub distinct: bool,
 }
@@ -67,6 +77,24 @@ pub trait KindVersionsStage: Sync {
     fn code_version(&self) -> String;
     /// The tables of the kind's rows (each loaded per 시도 by [`load_region`]).
     fn row_sets(&self) -> Vec<RowSet>;
+    /// Leaves what a row set reads beside its Silver, from the inputs at `source`: the tables a
+    /// `prepared` row set names and the views a row set's joins read (each `<name><suffix>`).
+    /// [`spool`] calls it after the read's renumbering and before the row sets. A prepared table
+    /// holds the whole nation, so a stage prepares only what is small, states its size and refuses
+    /// a larger one; a view is read by the one row set that joins it, in its own spool. Returns
+    /// each input's read time.
+    ///
+    /// # Errors
+    /// Returns an error when an input cannot be read or a prepared table is larger than its bound.
+    fn prepare(
+        &self,
+        connection: &Connection,
+        source: &Source<'_>,
+        suffix: &str,
+    ) -> anyhow::Result<BTreeMap<String, u64>> {
+        let _ = (connection, source, suffix);
+        Ok(BTreeMap::new())
+    }
     /// Leaves an empty `built`, the table [`Self::build`] inserts into.
     ///
     /// # Errors
@@ -112,14 +140,17 @@ pub(crate) fn elapsed(at: Instant) -> u64 {
     u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
-/// The PNU of `alias`'s row under the served code: a renumbered 동·리 code is translated, the lot kept.
-pub(crate) fn served_pnu(alias: &str) -> String {
-    format!("CASE WHEN r.dst IS NULL THEN {alias}.pnu ELSE r.dst || substr({alias}.pnu, 11, 9) END")
+/// The PNU `column` under the served code: a renumbered 동·리 code is translated through the join
+/// `alias` ([`renumbering_join`]), the lot kept.
+pub(crate) fn served_pnu(column: &str, alias: &str) -> String {
+    format!(
+        "CASE WHEN {alias}.dst IS NULL THEN {column} ELSE {alias}.dst || substr({column}, 11, 9) END"
+    )
 }
 
-/// The join that [`served_pnu`] reads `r` from.
-pub(crate) fn renumbering_join(alias: &str, suffix: &str) -> String {
-    format!("LEFT JOIN renumbering{suffix} r ON substr({alias}.pnu, 1, 10) = r.src")
+/// The join that [`served_pnu`] reads `alias` from: the renumbering of the read `suffix` names.
+pub(crate) fn renumbering_join(column: &str, alias: &str, suffix: &str) -> String {
+    format!("LEFT JOIN renumbering{suffix} {alias} ON substr({column}, 1, 10) = {alias}.src")
 }
 
 /// A spool directory as `DuckDB` SQL text.
@@ -232,11 +263,15 @@ pub fn spool(
         ))?;
     }
 
-    // Each row set, once, re-keyed to the served code.
+    // What the row sets read beside their Silver, then each row set, once, re-keyed to the served
+    // code.
+    read_millis.extend(stage.prepare(connection, source, suffix)?);
     for set in stage.row_sets() {
         let at = Instant::now();
         spool_row_set(connection, source, &set, suffix, &dir_text)?;
-        read_millis.insert(set.source.to_owned(), elapsed(at));
+        if !set.prepared {
+            read_millis.insert(set.source.to_owned(), elapsed(at));
+        }
     }
     Ok(Spooled {
         served_parcels: u64::try_from(served)?,
@@ -252,6 +287,37 @@ fn contract(table: &str) -> anyhow::Result<&'static lakehouse_domain::LakehouseT
         .with_context(|| format!("no lakehouse contract for {table}"))
 }
 
+/// The current rows of `table` at `source` as SQL text, by its contract's one rendering (root
+/// ADR-0564 §4), projecting `columns`: what a stage's [`KindVersionsStage::prepare`] reads. `filter`
+/// keeps rows before the rule ranks them, so it must keep or drop a key's rows together (it reads
+/// the key's columns only). A table whose key must not tie is refused: only a row set's spool
+/// checks ties.
+///
+/// # Errors
+/// Returns an error when `table` has no newest-per-key contract, forbids ties, or is not pinned.
+pub(crate) fn current_rows_query(
+    connection: &Connection,
+    source: &Source<'_>,
+    table: &str,
+    columns: &[&str],
+    filter: &str,
+) -> anyhow::Result<String> {
+    let contract = contract(table)?;
+    ensure!(
+        contract.current_row_predicate.is_none(),
+        "{table} selects its current rows by a predicate too; this reader applies only the newest-per-key rule"
+    );
+    let latest = contract
+        .current_row_latest()
+        .with_context(|| format!("{table} keeps no versions per key"))?;
+    ensure!(
+        latest.keep_ties,
+        "{table} forbids ties on its key; read it as a row set, whose spool checks them"
+    );
+    let read = with_contract_columns(connection, contract, &source.of(table)?)?;
+    Ok(latest.current_rows_sql(&read, columns, filter))
+}
+
 /// The key columns a row set's spool carries for the tie check (`<column>` as `tie_<n>`).
 const TIE_PREFIX: &str = "tie_";
 
@@ -262,30 +328,56 @@ fn spool_row_set(
     suffix: &str,
     dir_text: &str,
 ) -> anyhow::Result<()> {
-    let contract = contract(set.source)?;
-    ensure!(
-        contract.current_row_predicate.is_none(),
-        "{} selects its current rows by a predicate too; this reader applies only the newest-per-key rule",
-        set.source
-    );
-    let latest = contract
-        .current_row_latest()
-        .with_context(|| format!("{} keeps no versions per key", set.source))?;
-    let pinned = source.of(set.source)?;
-    // A column the table gained after the pinned snapshot reads as NULL there.
-    let read = with_contract_columns(connection, contract, &pinned)?;
-    let ties: &[&str] = if latest.keep_ties { &[] } else { latest.key };
-    let mut projected: Vec<&str> = vec!["pnu"];
-    projected.extend(set.reads.iter().copied().filter(|name| *name != "pnu"));
-    for key in ties {
-        if !projected.contains(key) {
-            projected.push(key);
+    let mut projected: Vec<&str> = vec![set.pnu];
+    projected.extend(set.reads.iter().copied().filter(|name| *name != set.pnu));
+    // A prepared table is already the rows: the stage read its inputs by their current-row rule.
+    let (rows, ties, pinned): (String, &[&str], String) = if set.prepared {
+        ensure!(
+            set.source
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'_'),
+            "the prepared table {} is not a plain name",
+            set.source
+        );
+        let table = format!("{}{suffix}", set.source);
+        let none: &[&str] = &[];
+        (format!("SELECT * FROM {table}"), none, table)
+    } else {
+        let contract = contract(set.source)?;
+        ensure!(
+            contract.current_row_predicate.is_none(),
+            "{} selects its current rows by a predicate too; this reader applies only the newest-per-key rule",
+            set.source
+        );
+        let latest = contract
+            .current_row_latest()
+            .with_context(|| format!("{} keeps no versions per key", set.source))?;
+        let pinned = source.of(set.source)?;
+        // A column the table gained after the pinned snapshot reads as NULL there.
+        let read = with_contract_columns(connection, contract, &pinned)?;
+        let ties: &[&str] = if latest.keep_ties { &[] } else { latest.key };
+        for key in ties {
+            if !projected.contains(key) {
+                projected.push(key);
+            }
         }
-    }
+        (
+            latest.current_rows_sql(&read, &projected, "TRUE"),
+            ties,
+            pinned,
+        )
+    };
+    let at_suffix = |text: &str| fill(text, &[("suffix", suffix)]);
+    let joins = set
+        .joins
+        .iter()
+        .map(|join| at_suffix(join.as_str()))
+        .collect::<Vec<_>>()
+        .join(" ");
     let kept = set
         .columns
         .iter()
-        .map(|(expression, column)| format!("{expression} AS {column}"))
+        .map(|(expression, column)| format!("{} AS {column}", at_suffix(expression.as_str())))
         .chain(
             ties.iter()
                 .enumerate()
@@ -294,16 +386,17 @@ fn spool_row_set(
         .collect::<Vec<_>>()
         .join(", ");
     let name = format!("{}{suffix}", set.name);
+    let column = format!("m.{}", set.pnu);
     connection.execute_batch(&fill(
         SPOOL_SQL,
         &[
             (
                 "query",
                 &format!(
-                    "SELECT {pnu} AS pnu, {kept} FROM ({rows}) m {join} WHERE m.pnu IS NOT NULL",
-                    pnu = served_pnu("m"),
-                    rows = latest.current_rows_sql(&read, &projected, "TRUE"),
-                    join = renumbering_join("m", suffix),
+                    "SELECT {pnu} AS pnu, {kept} FROM ({rows}) m {join} {joins} \
+                     WHERE {column} IS NOT NULL",
+                    pnu = served_pnu(&column, "r"),
+                    join = renumbering_join(&column, "r", suffix),
                 ),
             ),
             ("dir", dir_text),
