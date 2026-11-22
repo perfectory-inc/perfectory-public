@@ -422,5 +422,16 @@
         }
       ]
     }
+  ],
+  "asset_checks": [
+    {
+      "asset": "gold-parcel-sub-parcels-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-parcel-sub-parcels"
+      ]
+    }
   ]
 }
