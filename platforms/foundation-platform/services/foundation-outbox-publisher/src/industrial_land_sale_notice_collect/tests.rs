@@ -2,15 +2,13 @@
 //! measured 2026-11-22 on the ILIS list and detail, the KICOX board and post pages, and the LH usage
 //! guides' answer examples.
 
-use std::collections::HashMap;
-
 use anyhow::Context;
 use chrono::TimeZone;
 use serde_json::{json, Map, Value as JsonValue};
 
 use super::{
-    batch_file_id, fingerprint, ilis, is_settled, kicox, lane_contract, last_reads, lh, plan,
-    walk_done, FileRequest, Listed, Source,
+    batch_file_id, fingerprint, ilis, kicox, lane_contract, last_reads, lh, list_file_id, owes,
+    plan, walk_done, FileRequest, Listed, Source,
 };
 
 const KICOX_LIST: &str = include_str!("fixtures/kicox_list.html");
@@ -33,8 +31,12 @@ fn every_source_of_the_lane_contract_parses_into_its_client() -> anyhow::Result<
         let common = contract.common(source)?;
         collection_domain::source_slug(&common.provider, &common.detail_dataset_slug)?;
         assert!(!contract.fingerprint_fields(source)?.is_empty());
+        assert!(contract.recent_pages(source)? >= 1);
+        // The sources that take notices down or change their statuses keep their list answers.
+        assert_eq!(contract.keeps_list(source)?, source != Source::Kicox);
         super::client_for(&contract, source)?;
     }
+    assert!(contract.full_walk_hour_utc < 24 && contract.retry_after_hours > 0);
     assert_eq!(Source::parse("kicox")?, Source::Kicox);
     assert!(Source::parse("lh-web").is_err());
     Ok(())
@@ -63,12 +65,16 @@ fn the_last_read_of_each_notice_of_the_source_decides_whether_it_is_owed() -> an
         row(
             json!({"notice_source": "ilis", "notice_id": "1", "list_fingerprint": "a", "read_outcome": "read", "source_snapshot_id": "20990101T000000Z", "source_line_number": 1}),
         )?,
-        // A later read of the same notice that did not settle it: it is owed again.
+        // A later read of the same notice that did not settle it: it is owed again, once a day.
         row(
             json!({"notice_source": "ilis", "notice_id": "1", "list_fingerprint": "a", "read_outcome": "incomplete", "source_snapshot_id": "20990102T000000Z", "source_line_number": 1}),
         )?,
         row(
             json!({"notice_source": "ilis", "notice_id": "2", "list_fingerprint": "b", "read_outcome": "read", "source_snapshot_id": "20990102T000000Z", "source_line_number": 2}),
+        )?,
+        // The provider said it is not there: settled.
+        row(
+            json!({"notice_source": "ilis", "notice_id": "4", "list_fingerprint": "d", "read_outcome": "gone", "source_snapshot_id": "20990102T000000Z", "source_line_number": 3}),
         )?,
         // Another source's read of the same id is not this source's.
         row(
@@ -76,17 +82,41 @@ fn the_last_read_of_each_notice_of_the_source_decides_whether_it_is_owed() -> an
         )?,
     ];
     let last = last_reads(rows.iter(), Source::Ilis);
-    assert_eq!(last.len(), 2);
-    assert!(!is_settled(&last, "1", "a"));
-    assert!(is_settled(&last, "2", "b"));
-    // The provider changed the notice's list fields: it is read again.
-    assert!(!is_settled(&last, "2", "b2"));
-    assert!(!is_settled(&last, "3", "c"));
+    assert_eq!(last.len(), 3);
+    let at = |hour| {
+        chrono::Utc
+            .with_ymd_and_hms(2099, 1, 2, hour, 0, 0)
+            .single()
+            .context("an instant")
+    };
+    // Failed an hour ago: not yet; a day after that run: asked again.
+    assert!(!owes(last.get("1"), "a", at(1)?, 24));
+    assert!(owes(
+        last.get("1"),
+        "a",
+        at(0)? + chrono::Duration::hours(24),
+        24
+    ));
+    assert!(!owes(last.get("2"), "b", at(1)?, 24));
+    assert!(!owes(last.get("4"), "d", at(1)?, 24));
+    // The provider changed the notice's list fields: it is read again at once.
+    assert!(owes(last.get("2"), "b2", at(1)?, 24));
+    assert!(owes(last.get("3"), "c", at(1)?, 24));
+    assert!(owes(None, "a", at(1)?, 24));
     assert!(walk_done(5, Some(5)) && !walk_done(4, Some(5)) && walk_done(0, None));
     assert!(last_reads(rows.iter(), Source::Lh).is_empty());
-    let empty: HashMap<String, (String, bool)> = HashMap::new();
-    assert!(!is_settled(&empty, "1", "a"));
     Ok(())
+}
+
+#[test]
+fn a_taken_down_ilis_notice_answers_code_400_and_no_result() {
+    // Measured 2026-11-22 (par_seq 832): HTTP 200, this body.
+    assert_eq!(
+        ilis::gone_code(&json!({"code": 400, "msg": "요청처리를 실패하였습니다.", "result": null})),
+        Some(400)
+    );
+    assert_eq!(ilis::gone_code(&json!({"code": 200, "result": null})), None);
+    assert_eq!(ilis::gone_code(&json!({"code": 500})), None);
 }
 
 #[test]
@@ -266,6 +296,10 @@ fn a_batch_lands_under_a_content_qualified_key() -> anyhow::Result<()> {
     assert_eq!(
         id,
         "industrial-land-sale-notice-detail-20990102t030405z-007"
+    );
+    assert_eq!(
+        list_file_id("industrial_land_sale_notice_list", 3),
+        "industrial-land-sale-notice-list-0003"
     );
     let planned = plan(
         "kicox.or.kr",

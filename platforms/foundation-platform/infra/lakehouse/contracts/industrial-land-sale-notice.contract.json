@@ -5,6 +5,10 @@
   "commit_every": 50,
   "run_time_budget_seconds": 1800,
   "stop_after_consecutive_failures": 5,
+  "$retry_after_hours": "읽기가 끝나지 않은(failed·incomplete) 공고를 다시 묻기까지의 시간. 늘 실패하는 공고가 매 실행 밀린 공고보다 먼저 물어져 연속 실패 상한에 걸리지 않게 한다. 제공자가 없다고 답한 공고(4xx, ILIS 는 code 4xx 에 result 없음)는 gone 으로 끝난다.",
+  "retry_after_hours": 24,
+  "$full_walk_hour_utc": "이 시(UTC)에 시작한 실행은 목록 전체를 걷는다: 매시 실행은 최근 쪽(list.recent_pages)과 밀린 것만 걷기 때문에, 깊은 쪽에서 제공자가 바꾼 공고(LH 상태, KICOX 정정)는 하루 안에 이 걷기가 본다. KICOX 97 쪽 × 2 초 ≈ 3 분.",
+  "full_walk_hour_utc": 17,
   "read_from": "silver.industrial_land_sale_notice_read",
   "attachments": {
     "$comment": "공용 내용주소 저장소(ADR-0298)의 접두어는 그 저장소를 쓰는 계약이 정한다(ADR-0484 §2와 같은 저장소). max_file_bytes 는 한 파일이 메모리를 넘지 않게 하는 안전밸브이고 넘는 파일은 해시만 적고 센다.",
@@ -13,7 +17,7 @@
   },
   "sources": {
     "ilis": {
-      "$comment": "산업입지정보시스템 분양공고(il/parcel). 실측(2026-11-22, 읽기만): 목록 POST 하나에 전국 741 건(576 KB), par_seq 1..846 중 105 건(12 %)은 목록에서 사라졌고 그 상세는 HTTP 400 — 내려간 공고는 되찾을 수 없다. 그래서 목록 답도 바뀔 때마다 Bronze 에 둔다(list.keep_in_bronze, LH 도 같다: 공고 상태가 바뀌는 목록이라 그 이력을 남긴다). 상세는 result.saveFiles 에 첨부(file_path·real_file_name·file_name·file_size·use_yn)를 싣고, 받기는 고시 첨부와 같은 cmm/file/download 다.",
+      "$comment": "산업입지정보시스템 분양공고(il/parcel). 실측(2026-11-22, 읽기만): 목록 POST 하나에 전국 741 건(576 KB), par_seq 1..846 중 105 건(12 %)은 목록에서 사라졌고 그 상세는 HTTP 200 에 code 400·result null(요청처리를 실패하였습니다) — 내려간 공고는 되찾을 수 없다. 그래서 목록 답도 바뀔 때마다 Bronze 에 둔다(list.keep_in_bronze, LH 도 같다: 공고 상태가 바뀌는 목록이라 그 이력을 남긴다). 상세는 result.saveFiles 에 첨부(file_path·real_file_name·file_name·file_size·use_yn)를 싣고, 받기는 고시 첨부와 같은 cmm/file/download 다.",
       "provider": "industryland.or.kr",
       "base_url_from": "industryland-or-kr.contract.json#/base_url",
       "detail_dataset_slug": "industrial_land_sale_notice_detail",
@@ -25,6 +29,7 @@
         "records_pointer": "/result/dataList",
         "total_pointer": "/result/cnt",
         "key_field": "par_seq",
+        "recent_pages": 1,
         "fingerprint_fields": ["title", "par_dtm", "par_type", "open_yn", "danji_nm", "sk_cnt"],
         "keep_in_bronze": true
       },
@@ -55,6 +60,7 @@
         "query": {"menuId": "MENU_00000265"},
         "page_field": "pageIndex",
         "page_rows": 10,
+        "recent_pages": 3,
         "fingerprint_fields": ["title", "registered_on", "has_attachment"],
         "keep_in_bronze": false
       },
@@ -79,6 +85,7 @@
         "path": "lhLeaseNoticeInfo1/lhLeaseNoticeInfo1",
         "notice_kind_code": "01",
         "page_size": 100,
+        "recent_pages": 1,
         "history_from": "2015-01-01",
         "fingerprint_fields": ["PAN_NM", "PAN_SS", "PAN_NT_ST_DT", "CLSG_DT"],
         "keep_in_bronze": true

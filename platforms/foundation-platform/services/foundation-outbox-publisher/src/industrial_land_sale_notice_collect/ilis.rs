@@ -8,7 +8,7 @@ use collection_infrastructure::{
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
-use super::{pointed_text, Detail, Downloaded, FileRef, FileRequest, ListPage, Listed};
+use super::{pointed_text, Detail, DetailRead, Downloaded, FileRef, FileRequest, ListPage, Listed};
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct List {
@@ -101,6 +101,13 @@ pub(crate) fn list_page(list: &List, payload: &JsonValue) -> anyhow::Result<List
     })
 }
 
+/// The 4xx `code` an answer with no result carries: the provider saying the notice is not there.
+pub(crate) fn gone_code(payload: &JsonValue) -> Option<u16> {
+    whole(&payload["code"])
+        .and_then(|code| u16::try_from(code).ok())
+        .filter(|code| (400..500).contains(code))
+}
+
 /// The attachments a detail result lists, in its order.
 pub(crate) fn files_of(base_url: &str, rules: &Rules, payload: &JsonValue) -> Vec<FileRef> {
     let files = &rules.attachments;
@@ -185,23 +192,28 @@ impl Ilis {
         ))
     }
 
-    pub(crate) async fn detail(&mut self, listed: &Listed) -> anyhow::Result<Detail> {
+    /// One notice's detail. A notice the provider took down answers HTTP 200 with `code` 400 and
+    /// no result (measured 2026-11-22 on par_seq 832): that is [`DetailRead::Gone`].
+    pub(crate) async fn detail(&mut self, listed: &Listed) -> anyhow::Result<DetailRead> {
         let page = self
             .client
             .fetch_detail(&self.rules.detail.path, &listed.id)
             .await?;
-        anyhow::ensure!(
-            page.payload
-                .pointer(&self.rules.detail.result_pointer)
-                .is_some_and(JsonValue::is_object),
-            "no object at {}",
-            self.rules.detail.result_pointer
-        );
-        Ok(Detail {
+        if !page
+            .payload
+            .pointer(&self.rules.detail.result_pointer)
+            .is_some_and(JsonValue::is_object)
+        {
+            if let Some(code) = gone_code(&page.payload) {
+                return Ok(DetailRead::Gone(code));
+            }
+            anyhow::bail!("no object at {}", self.rules.detail.result_pointer);
+        }
+        Ok(DetailRead::Found(Detail {
             http_status: Some(200),
             files: files_of(&self.base_url, &self.rules, &page.payload),
             body: page.payload,
-        })
+        }))
     }
 
     pub(crate) async fn download(&mut self, request: &FileRequest) -> anyhow::Result<Downloaded> {

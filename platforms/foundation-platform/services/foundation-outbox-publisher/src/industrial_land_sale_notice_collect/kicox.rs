@@ -13,7 +13,7 @@ use scraper::{ElementRef, Html, Selector};
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
-use super::{Detail, Downloaded, FileRef, FileRequest, ListPage, Listed};
+use super::{Detail, DetailRead, Downloaded, FileRef, FileRequest, ListPage, Listed};
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct List {
@@ -198,7 +198,12 @@ impl Kicox {
         )
     }
 
-    async fn page_text(&self, url: &str, query: &[(String, String)]) -> anyhow::Result<String> {
+    /// One page's text, or the 4xx the site answered with.
+    async fn page_text(
+        &self,
+        url: &str,
+        query: &[(String, String)],
+    ) -> anyhow::Result<Result<String, u16>> {
         let response = self
             .http
             .get(url)
@@ -207,13 +212,15 @@ impl Kicox {
             .await
             .map_err(|error| anyhow::anyhow!("kicox.or.kr request failed: {error}"))?;
         let status = response.status();
+        if status.is_client_error() {
+            return Ok(Err(status.as_u16()));
+        }
         if !status.is_success() {
             bail!("kicox.or.kr answered HTTP {status}");
         }
-        response
-            .text()
-            .await
-            .map_err(|error| anyhow::anyhow!("kicox.or.kr body failed: {error}"))
+        Ok(Ok(response.text().await.map_err(|error| {
+            anyhow::anyhow!("kicox.or.kr body failed: {error}")
+        })?))
     }
 
     pub(crate) async fn page(&mut self, page_no: u32) -> anyhow::Result<ListPage> {
@@ -227,7 +234,10 @@ impl Kicox {
         query.push((self.rules.list.page_field.clone(), page_no.to_string()));
         let html = self
             .page_text(&self.url(&self.rules.list.path), &query)
-            .await?;
+            .await?
+            .map_err(|status| {
+                anyhow::anyhow!("kicox.or.kr answered HTTP {status} for list page {page_no}")
+            })?;
         Ok(list_page(
             &Patterns::new()?,
             &self.rules.list,
@@ -236,7 +246,9 @@ impl Kicox {
         ))
     }
 
-    pub(crate) async fn detail(&mut self, listed: &Listed) -> anyhow::Result<Detail> {
+    /// One post's page; a 4xx is [`DetailRead::Gone`]. A page without a post (the site's own error
+    /// page) is a failed read, asked again later: it may be the site, not the post.
+    pub(crate) async fn detail(&mut self, listed: &Listed) -> anyhow::Result<DetailRead> {
         let mut query = self
             .rules
             .list
@@ -245,15 +257,19 @@ impl Kicox {
             .map(|(name, value)| (name.clone(), value.clone()))
             .collect::<Vec<_>>();
         query.push((self.rules.detail.id_field.clone(), listed.id.clone()));
-        let html = self
+        let html = match self
             .page_text(&self.url(&self.rules.detail.path), &query)
-            .await?;
+            .await?
+        {
+            Ok(html) => html,
+            Err(status) => return Ok(DetailRead::Gone(status)),
+        };
         let files = files_of(&Patterns::new()?, &self.rules, &html)?;
-        Ok(Detail {
+        Ok(DetailRead::Found(Detail {
             http_status: Some(200),
             body: json!({ "html": html }),
             files,
-        })
+        }))
     }
 
     pub(crate) async fn download(&mut self, request: &FileRequest) -> anyhow::Result<Downloaded> {

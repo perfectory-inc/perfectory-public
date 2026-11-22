@@ -12,7 +12,9 @@ use chrono::NaiveDate;
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
-use super::{contract_date, Detail, Downloaded, FileRef, FileRequest, ListPage, Listed};
+use super::{
+    contract_date, Detail, DetailRead, Downloaded, FileRef, FileRequest, ListPage, Listed,
+};
 use crate::public_data_control_support::optional_env_value;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -271,9 +273,14 @@ impl Lh {
         ))
     }
 
-    pub(crate) async fn detail(&mut self, listed: &Listed) -> anyhow::Result<Detail> {
+    /// One notice's detail and supply list. A 4xx from the gateway is [`DetailRead::Gone`]; a refusal
+    /// of either service is [`Refused`], which ends the run.
+    pub(crate) async fn detail(&mut self, listed: &Listed) -> anyhow::Result<DetailRead> {
         let params = notice_params(listed)?;
         let (status, detail) = self.call(&self.rules.detail.path, &params).await?;
+        if (400..500).contains(&status) {
+            return Ok(DetailRead::Gone(status));
+        }
         if !(200..300).contains(&status) {
             bail!("the LH detail answered HTTP {status}");
         }
@@ -282,14 +289,14 @@ impl Lh {
         let (supply_status, supply) = self.call(&self.rules.supply.path, &params).await?;
         let supply =
             serde_json::from_str::<JsonValue>(&supply).unwrap_or(JsonValue::String(supply));
-        Ok(Detail {
+        Ok(DetailRead::Found(Detail {
             http_status: Some(status),
             files: files_of(&self.rules, &detail),
             body: json!({
                 "detail": detail,
                 "supply": {"http_status": supply_status, "answer": supply},
             }),
-        })
+        }))
     }
 
     pub(crate) async fn download(&mut self, request: &FileRequest) -> anyhow::Result<Downloaded> {

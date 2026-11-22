@@ -20,13 +20,13 @@ mod kicox;
 mod lh;
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
     time::Duration,
 };
 
 use anyhow::{bail, ensure, Context};
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Timelike, Utc};
 use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
 use collection_application::{
     plan_public_data_bulk_file, BronzeCommitter, BronzePayload, PlannedBronzeObject,
@@ -52,7 +52,7 @@ use crate::bronze_object_storage::{
     BronzeObjectStorageWriter,
 };
 use crate::industrial_complex_notice_collect::{
-    gzip_lines, media_prefix, store_attachment, AttachmentReport, ReadOutcome, Stop, StoreOutcome,
+    gzip_lines, media_prefix, store_attachment, AttachmentReport, Stop, StoreOutcome,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value};
@@ -78,6 +78,8 @@ pub(crate) struct LaneContract {
     pub(crate) commit_every: usize,
     pub(crate) run_time_budget_seconds: u64,
     pub(crate) stop_after_consecutive_failures: u32,
+    pub(crate) retry_after_hours: i64,
+    pub(crate) full_walk_hour_utc: u32,
     pub(crate) read_from: String,
     pub(crate) attachments: LaneAttachments,
     pub(crate) sources: BTreeMap<String, JsonValue>,
@@ -145,6 +147,22 @@ impl LaneContract {
         })
     }
 
+    /// How many list pages a run walks at least (the recent window a provider changes most).
+    pub(crate) fn recent_pages(&self, source: Source) -> anyhow::Result<u32> {
+        self.source_json(source)?["list"]["recent_pages"]
+            .as_u64()
+            .and_then(|pages| u32::try_from(pages).ok())
+            .filter(|pages| *pages > 0)
+            .with_context(|| format!("source {} names no list.recent_pages", source.name()))
+    }
+
+    /// Whether the source's list answers are kept in Bronze (`list.keep_in_bronze`).
+    pub(crate) fn keeps_list(&self, source: Source) -> anyhow::Result<bool> {
+        self.source_json(source)?["list"]["keep_in_bronze"]
+            .as_bool()
+            .with_context(|| format!("source {} names no list.keep_in_bronze", source.name()))
+    }
+
     /// The list fields whose values make a listed notice's fingerprint.
     pub(crate) fn fingerprint_fields(&self, source: Source) -> anyhow::Result<Vec<String>> {
         serde_json::from_value(self.source_json(source)?["list"]["fingerprint_fields"].clone())
@@ -190,6 +208,33 @@ pub(crate) const fn auth_of(source: Source) -> SourceAuthKind {
     }
 }
 
+/// How one notice read ended. `Read` and `Gone` settle it; the others are asked again after
+/// `retry_after_hours`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ReadOutcome {
+    /// The detail was read and every attachment settled.
+    Read,
+    /// The provider says the notice is not there (a 4xx, or ILIS's `code` 4xx with no result):
+    /// asking again will not bring it back.
+    Gone,
+    /// The detail was read but an attachment failed for a reason a later run can get past.
+    Incomplete,
+    /// The detail itself was not read.
+    Failed,
+}
+
+impl ReadOutcome {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Gone => "gone",
+            Self::Incomplete => "incomplete",
+            Self::Failed => "failed",
+        }
+    }
+}
+
 /// One notice as its list states it.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Listed {
@@ -232,6 +277,14 @@ pub(crate) struct FileRef {
     pub(crate) withdrawn: bool,
 }
 
+/// What asking for one detail came to.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum DetailRead {
+    Found(Detail),
+    /// The provider says the notice is not there, with the status it said it with.
+    Gone(u16),
+}
+
 /// One detail as read.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Detail {
@@ -264,7 +317,7 @@ impl SourceClient {
         }
     }
 
-    async fn detail(&mut self, listed: &Listed) -> anyhow::Result<Detail> {
+    async fn detail(&mut self, listed: &Listed) -> anyhow::Result<DetailRead> {
         match self {
             Self::Ilis(client) => client.detail(listed).await,
             Self::Kicox(client) => client.detail(listed).await,
@@ -292,13 +345,21 @@ pub(crate) fn fingerprint(row: &JsonValue, fields: &[String]) -> String {
     format!("{:x}", Sha256::digest(canonical.as_bytes()))
 }
 
-/// The last read of each notice of one source, from rows of `read_from`: its fingerprint and
-/// whether it settled the notice (`read`: the detail and every attachment settled).
+/// The last read of one notice: the fingerprint it was read with, how it ended and when (its run).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LastRead {
+    pub(crate) print: String,
+    pub(crate) settled: bool,
+    pub(crate) run: Option<NaiveDateTime>,
+}
+
+/// The last read of each notice of one source, from rows of `read_from`. `read` and `gone` settle a
+/// notice; any other outcome leaves it owed.
 pub(crate) fn last_reads<'a>(
     rows: impl IntoIterator<Item = &'a serde_json::Map<String, JsonValue>>,
     source: Source,
-) -> HashMap<String, (String, bool)> {
-    let mut last: HashMap<String, ((String, i64), String, bool)> = HashMap::new();
+) -> HashMap<String, LastRead> {
+    let mut last: HashMap<String, ((String, i64), LastRead)> = HashMap::new();
     for row in rows {
         if row.get("notice_source").and_then(JsonValue::as_str) != Some(source.name()) {
             continue;
@@ -316,30 +377,53 @@ pub(crate) fn last_reads<'a>(
                 .and_then(JsonValue::as_i64)
                 .unwrap_or(0),
         );
-        let settled = row.get("read_outcome").and_then(JsonValue::as_str) == Some("read");
+        let settled = matches!(
+            row.get("read_outcome").and_then(JsonValue::as_str),
+            Some("read" | "gone")
+        );
+        let read = LastRead {
+            print: print.to_owned(),
+            settled,
+            run: NaiveDateTime::parse_from_str(snapshot, "%Y%m%dT%H%M%SZ").ok(),
+        };
         match last.get(id) {
-            Some((seen, _, _)) if *seen >= order => {}
+            Some((seen, _)) if *seen >= order => {}
             _ => {
-                last.insert(id.to_owned(), (order, print.to_owned(), settled));
+                last.insert(id.to_owned(), (order, read));
             }
         }
     }
-    last.into_iter()
-        .map(|(id, (_, print, settled))| (id, (print, settled)))
-        .collect()
+    last.into_iter().map(|(id, (_, read))| (id, read)).collect()
 }
 
-/// Whether the last read of `listed` settled it with the fingerprint it is listed with now.
-pub(crate) fn is_settled(last: &HashMap<String, (String, bool)>, id: &str, print: &str) -> bool {
-    last.get(id)
-        .is_some_and(|(seen, settled)| *settled && seen == print)
+/// Whether a listed notice is owed this run: never read, read with another list fingerprint (the
+/// provider changed it in its list), or last read unsettled at least `retry_after_hours` ago (a
+/// notice that keeps failing is asked once a day, not every run ahead of the backlog).
+pub(crate) fn owes(
+    last: Option<&LastRead>,
+    print: &str,
+    now: DateTime<Utc>,
+    retry_after_hours: i64,
+) -> bool {
+    let Some(last) = last else {
+        return true;
+    };
+    if last.print != print {
+        return true;
+    }
+    if last.settled {
+        return false;
+    }
+    last.run
+        .is_none_or(|run| run.and_utc() + chrono::Duration::hours(retry_after_hours) <= now)
 }
 
-/// Whether the list walk may stop at a page that owes nothing: the notices whose last read settled
-/// them are at least as many as the provider says it lists (a provider that states no count is
-/// taken to list nothing beyond the page).
-pub(crate) fn walk_done(settled_notices: usize, total: Option<u64>) -> bool {
-    total.is_none_or(|total| settled_notices as u64 >= total)
+/// Whether the list walk may stop at a page that owes nothing past the recent pages: every notice
+/// the provider says it lists has been asked at least once (a notice asked and still failing does
+/// not hold the walk open; one the provider took down may end the first fill early, and the daily
+/// full walk reaches the rest). A provider that states no count is taken to list nothing beyond.
+pub(crate) fn walk_done(asked_notices: usize, total: Option<u64>) -> bool {
+    total.is_none_or(|total| asked_notices as u64 >= total)
 }
 
 /// Reads the last reads from the lakehouse (`read_from`'s current snapshot); none when the table
@@ -347,7 +431,7 @@ pub(crate) fn walk_done(settled_notices: usize, total: Option<u64>) -> bool {
 async fn last_reads_from_lakehouse(
     contract: &LaneContract,
     source: Source,
-) -> anyhow::Result<HashMap<String, (String, bool)>> {
+) -> anyhow::Result<HashMap<String, LastRead>> {
     use crate::lakehouse_snapshot_scan::{scan_snapshot_rows, LakehouseObjectReader};
     use lakehouse_domain::SILVER_INDUSTRIAL_LAND_SALE_NOTICE_READ;
     use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
@@ -410,7 +494,25 @@ async fn read_notice(
     let requested_at = Utc::now();
     asker.pace().await;
     let detail = match asker.client.detail(listed).await {
-        Ok(detail) => detail,
+        Ok(DetailRead::Found(detail)) => detail,
+        Ok(DetailRead::Gone(status)) => {
+            return Ok((
+                ReadOutcome::Gone,
+                line(
+                    run.source,
+                    listed,
+                    print,
+                    requested_at,
+                    Some(status),
+                    ReadOutcome::Gone,
+                    None,
+                    JsonValue::Null,
+                    Vec::new(),
+                ),
+            ));
+        }
+        // The provider refused the lane itself: no read is written, the run ends (78).
+        Err(error) if error.downcast_ref::<lh::Refused>().is_some() => return Err(error),
         Err(error) => {
             return Ok((
                 ReadOutcome::Failed,
@@ -521,7 +623,7 @@ fn line(
         "list_row": listed.row,
         "requested_at_utc": requested_at.to_rfc3339(),
         "http_status": http_status,
-        "read_outcome": outcome,
+        "read_outcome": outcome.name(),
         "error": error,
         "body": body,
         "attachments": attachments,
@@ -788,8 +890,13 @@ pub async fn run() -> anyhow::Result<()> {
     )?;
     let started_at = Utc::now();
     let deadline = Instant::now() + Duration::from_secs(contract.run_time_budget_seconds);
+    let recent_pages = contract.recent_pages(source)?;
+    let keeps_list = contract.keeps_list(source)?;
+    // Once a day the whole list is walked, so a change the provider makes deep in its list is seen
+    // (a run of the other hours walks the recent pages and the backlog).
+    let full_walk = started_at.hour() == contract.full_walk_hour_utc;
     let last = last_reads_from_lakehouse(&contract, source).await?;
-    let settled_before = last.values().filter(|(_, settled)| *settled).count();
+    let settled_before = last.values().filter(|read| read.settled).count();
 
     let live: Live = if config.live_write {
         live_write_target_preflight()
@@ -833,7 +940,7 @@ pub async fn run() -> anyhow::Result<()> {
     let mut asked = 0_usize;
     let mut listed_total = None;
     let mut pages = 0_u32;
-    let mut settled_now = settled_before;
+    let mut asked_ever: HashSet<String> = last.keys().cloned().collect();
     'walk: for page_no in 1_u32.. {
         if Instant::now() >= deadline {
             stop = Some(Stop::TimeBudget);
@@ -842,13 +949,11 @@ pub async fn run() -> anyhow::Result<()> {
         asker.pace().await;
         let (page, raw_list) = match asker.client.page(page_no).await {
             Ok(page) => page,
-            Err(error) if page_no == 1 => {
-                if let Some(refusal) = error.downcast_ref::<lh::Refused>() {
-                    println!("{REFUSED_MARKER} {refusal}");
-                }
-                return Err(error.context(format!("failed to read the {} list", source.name())));
-            }
             Err(error) => {
+                // A refusal, or the first page failing, ends the run: nothing to walk.
+                if refused(&error) || page_no == 1 {
+                    return Err(error.context(format!("failed to read the {} list", source.name())));
+                }
                 // A later page failing ends the walk; what was read is kept, the next run continues.
                 eprintln!(
                     "the {} list page {page_no} failed: {error:#}",
@@ -860,7 +965,7 @@ pub async fn run() -> anyhow::Result<()> {
         };
         pages = page_no;
         listed_total = page.total.or(listed_total);
-        if let (Some(raw), Some((uow, storage))) = (raw_list, live.as_ref()) {
+        if let (true, Some(raw), Some((uow, storage))) = (keeps_list, raw_list, live.as_ref()) {
             list_objects.push(
                 persist_list(
                     &contract,
@@ -877,7 +982,12 @@ pub async fn run() -> anyhow::Result<()> {
         let mut owed_here = 0_usize;
         for listed in &page.rows {
             let print = fingerprint(&listed.row, &fields);
-            if is_settled(&last, &listed.id, &print) {
+            if !owes(
+                last.get(&listed.id),
+                &print,
+                started_at,
+                contract.retry_after_hours,
+            ) {
                 continue;
             }
             owed_here += 1;
@@ -898,24 +1008,19 @@ pub async fn run() -> anyhow::Result<()> {
                 prefix: &prefix,
                 storage: storage_of(&live),
             };
-            let (outcome, line) =
-                read_notice(&run, &mut asker, listed, &print, &mut report).await?;
+            let (outcome, line) = read_notice(&run, &mut asker, listed, &print, &mut report)
+                .await
+                .inspect_err(|error| {
+                    refused(error);
+                })?;
             asked += 1;
+            asked_ever.insert(listed.id.clone());
             consecutive_failures = if outcome == ReadOutcome::Failed {
                 consecutive_failures + 1
             } else {
                 0
             };
-            if outcome == ReadOutcome::Read && !last.get(&listed.id).is_some_and(|(_, s)| *s) {
-                settled_now += 1;
-            }
-            *counts
-                .entry(match outcome {
-                    ReadOutcome::Read => "read",
-                    ReadOutcome::Incomplete => "incomplete",
-                    ReadOutcome::Failed => "failed",
-                })
-                .or_default() += 1;
+            *counts.entry(outcome.name()).or_default() += 1;
             batch.push(line);
             if batch.len() >= contract.commit_every {
                 let committed = flush(
@@ -933,7 +1038,9 @@ pub async fn run() -> anyhow::Result<()> {
                 batch.clear();
             }
         }
-        if page.last || (owed_here == 0 && walk_done(settled_now, listed_total)) {
+        let walked_enough =
+            page_no >= recent_pages && owed_here == 0 && walk_done(asked_ever.len(), listed_total);
+        if page.last || (!full_walk && walked_enough) {
             break;
         }
     }
@@ -959,8 +1066,10 @@ pub async fn run() -> anyhow::Result<()> {
         "started_at_utc": started_at.to_rfc3339(),
         "live_write": config.live_write,
         "list_pages": pages,
+        "full_walk": full_walk,
         "listed_total": listed_total,
         "settled_before": settled_before,
+        "asked_ever": asked_ever.len(),
         "asked": asked,
         "notices": counts,
         "attachments": report,
@@ -986,6 +1095,16 @@ pub async fn run() -> anyhow::Result<()> {
         }
     );
     Ok(())
+}
+
+/// Whether `error` is the provider refusing the lane itself; if so the run prints the marker its
+/// script ends with 78 on, before anything else is written.
+fn refused(error: &anyhow::Error) -> bool {
+    let Some(refusal) = error.downcast_ref::<lh::Refused>() else {
+        return false;
+    };
+    println!("{REFUSED_MARKER} {refusal}");
+    true
 }
 
 /// Commits one list page's answer as served, under its content-qualified name: the same answer

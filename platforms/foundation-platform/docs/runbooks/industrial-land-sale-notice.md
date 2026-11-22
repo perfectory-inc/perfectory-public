@@ -22,9 +22,16 @@ last_reviewed: 2026-11-22
 상태: `/var/lib/foundation-platform/industrial-land-sale-notice/`(`journal.log`, 실행마다 `runs/<원천>-<실행>/run.log`).
 다음에 물을 공고는 매 실행 레이크하우스(`silver.industrial_land_sale_notice_read`)에서 계산한다. 다음 실행을 막는 상태 파일은 없다.
 
+- 매시 실행은 최근 쪽(`list.recent_pages`)과 밀린 것만 걷는다. `full_walk_hour_utc` 시(UTC)에 시작한 실행은 목록 전체를 걷는다
+  (요약의 `full_walk: true`). 그날 KICOX 실행은 목록 쪽을 97 번쯤 묻는다(정상).
+- `gone` 은 제공자가 없다고 답한 공고다(4xx, ILIS 는 `code` 400·`result` null): 끝난 것으로 치고 다시 묻지 않는다. `failed`·`incomplete` 는
+  `retry_after_hours` 뒤에 다시 묻는다.
+- KICOX 의 글 번호와 첨부 번호는 쪽이 부르는 `onclick`(`bbsArticleDet('<글>')`, `fnFileDownload('<번호>', '<id>')`)에서 읽는다. 게시판 모양이
+  바뀌면 목록이 비거나(`list_pages` 1, `asked` 0) 글 쪽이 "the page holds no post" 로 실패한다 — 그때 고칠 곳은 `kicox.rs` 의 `Patterns` 다.
+
 ## 실패했을 때 (사람 할 일 없음)
 
-- 상세 하나 실패는 그 공고의 읽은 기록이 `read` 가 아니게 남아 다음 실행이 다시 묻는다. `stop_after_consecutive_failures` 번 연달아
+- 상세 하나 실패는 그 공고의 읽은 기록이 `failed` 로 남아 `retry_after_hours` 뒤의 실행이 다시 묻는다. `stop_after_consecutive_failures` 번 연달아
   실패하면 그 실행은 멈춘다(제공자 장애). 이미 커밋한 묶음은 Bronze 에 있다. 목록의 둘째 쪽부터 실패하면 걷기만 멈추고 읽은 것은 남는다.
 - 첨부 4xx 는 사라진 파일(끝남), 상한 넘는 파일은 해시·크기만 적고 `oversize` 로 센다. 그 밖의 받기 실패는 그 공고를 끝내지 않는다.
 - 상세를 하나도 못 읽은 실행만 실패로 끝나 `OnFailure` 가 주인(collection)을 부른다.

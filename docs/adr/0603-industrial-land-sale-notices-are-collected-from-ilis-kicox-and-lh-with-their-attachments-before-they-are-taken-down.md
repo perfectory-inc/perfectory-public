@@ -7,7 +7,9 @@
   [ADR-0152](./0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md)(내용 주소 Bronze 키),
   [ADR-0352](./0352-court-auction-recrawl-is-computed-each-run-from-the-lakehouse-not-a-stored-queue.md)(다음에 물을 것은 레이크하우스에서 계산),
   [ADR-0387](./0387-the-media-in-r2-and-the-silver-index-that-names-it-are-reconciled-daily.md)(미디어 대조),
-  [ADR-0032](./0032-provider-identity-is-derived-from-domain-label.md)(공급자 도메인)
+  [ADR-0032](./0032-provider-identity-is-derived-from-domain-label.md)(공급자 도메인),
+  [ADR-0559](./0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md)·[ADR-0560](./0560-the-publisher-commits-duckdb-staged-parquet-with-iceberg-rust-fast-append-and-only-tables-whose-commit-is-an-append-move-off-spark.md)(발행기 안의 DuckDB 와 Iceberg 추가),
+  [ADR-0429](./0429-a-photo-whose-collector-run-left-its-ladder-gets-it-from-the-silver-photo-index-hourly.md)(같은 저장소의 색인)
 
 ## Context
 
@@ -16,9 +18,9 @@
 
 | 원천 | 받는 길 | 범위 | 잰 것 |
 | --- | --- | --- | --- |
-| ILIS 산업입지정보시스템 분양공고(`il/parcel`) | 목록 POST 하나(576 KB)에 전부, 상세 GET, 첨부는 고시와 같은 `cmm/file/download` | 17 개 시도, 2011-04 부터 741 건(일반 507·농공 163·국가 45·도시첨단 26) | 상세에 단지 코드(`danji_cd` = `official_complex_code`)·면적·가격·신청기간·업종·시행자, 첨부 평균 1.65 개(목록 `sk_cnt`). **par_seq 1..846 중 105 건(12 %)이 목록에서 사라졌고 그 상세는 HTTP 400** — 826~832 같은 최근 것도 |
-| 한국산업단지공단 임대/분양 게시판(`boardList/1003`) | HTML, 한 쪽 10 건(쪽 크기 매개변수 없음), 글 쪽에 첨부 버튼 `fnFileDownload('<번호>', '<id>')`, 받기 `api/fnFile/commonFileDownload/<번호>/<id>` | 공단 자체 단지, 962 건, 2008-07 부터 | 계양 4차·경산4·울산테크노·오송·장성나노 = ILIS 분양공고에 **0 건**. robots.txt 전부 허용 |
-| LH 토지 공고(data.go.kr B552555) | 공고문 조회 `lhLeaseNoticeInfo1`(유형 01 토지), 상세 `lhLeaseNoticeDtlInfo1`(`dsAhflInfo[].AHFL_URL`), 공급정보 `lhLeaseNoticeSplInfo1`(필지마다 용도·소재지·지번·면적·예정가격) | 전국 | LH 산업시설용지 공고는 ILIS 에 일부만: 남동 8차는 있고 밀양나노·포항블루밸리 2단계·사천지구·남청주현도(11-13)는 없다. 서비스키는 있지만(`DATA_GO_KR_SERVICE_KEY`) 세 서비스의 **활용신청이 사장 결정**이다 |
+| ILIS 산업입지정보시스템 분양공고(`il/parcel`) | 목록 POST 하나(576 KB)에 전부, 상세 GET, 첨부는 고시와 같은 `cmm/file/download` | 17 개 시도, 2011-04 부터 741 건(일반 507·농공 163·국가 45·도시첨단 26) | 상세에 단지 코드(`danji_cd` = `official_complex_code`)·면적·가격·신청기간·업종·시행자, 첨부 평균 1.65 개(목록 `sk_cnt`). **par_seq 1..846 중 105 건(12 %)이 목록에서 사라졌고 그 상세는 HTTP 200 에 `code` 400·`result` null** — 826~832 같은 최근 것도 |
+| 한국산업단지공단(KICOX) 임대/분양 게시판(`boardList/1003`) | HTML, 한 쪽 10 건(쪽 크기 매개변수 없음), 글 쪽에 첨부 버튼 `fnFileDownload('<번호>', '<id>')`, 받기 `api/fnFile/commonFileDownload/<번호>/<id>` | 공단 자체 단지, 962 건, 2008-07 부터 | 계양 4차·경산4·울산테크노·오송·장성나노 = ILIS 분양공고에 **0 건**. robots.txt 전부 허용 |
+| 한국토지주택공사(LH) 토지 공고(data.go.kr B552555) | 공고문 조회 `lhLeaseNoticeInfo1`(유형 01 토지), 상세 `lhLeaseNoticeDtlInfo1`(`dsAhflInfo[].AHFL_URL`), 공급정보 `lhLeaseNoticeSplInfo1`(필지마다 용도·소재지·지번·면적·예정가격) | 전국 | LH 산업시설용지 공고는 ILIS 에 일부만: 남동 8차는 있고 밀양나노·포항블루밸리 2단계·사천지구·남청주현도(2026-11-13 공고)는 없다. 서비스키는 있지만(`DATA_GO_KR_SERVICE_KEY`) 세 서비스의 **활용신청이 사장 결정**이다 |
 
 넣지 않은 것: 시도 개발공사·시군 게시판(사이트 17 개 넘게, ILIS 가 일반·농공 공고 대부분을 싣는다), 전남 분양단지 API(한 지역, 공고 아님),
 국토부 분양현황(면적 통계), 공장설립온라인지원시스템(robots.txt 가 `/bbs/`·`/srch/` 를 막는다; 그 표본 20 건 중 6 건을 이 세 원천이 덮는다 —
@@ -31,18 +33,36 @@
    계약 `industrial-land-sale-notice.contract.json` 하나를 읽는다. 원천의 목록을 새 것부터 쪽마다 읽고, 공고마다 상세를 받은 그대로
    두고, 첨부는 형식에 상관없이 공용 내용주소 저장소(`data-go-kr-onbid.contract.json#/media/object_prefix`)에
    `industrial_complex_notice_collect::store_attachment` 로 한 번만 담는다(ADR-0298, ADR-0484 §2 와 같은 저장소·같은 함수). 글을 꺼내지 않는다(ADR-0484 §1).
-2. **Bronze.** 읽은 줄 하나 = `{notice_source, notice_id, list_fingerprint, list_row, requested_at_utc, http_status, read_outcome, error, body, attachments}`:
-   `body` 는 제공자의 답 그대로(KICOX 는 `{"html": 쪽}`, LH 는 상세와 공급정보 답 둘), 수집기가 한 일은 `attachments` 에만 적는다.
-   `commit_every`(50) 건이 gzip JSON Lines 객체 하나이고, 키는 내용 주소다(`…-<run>-<batch>--sha256-<hex>.gz`, ADR-0152).
-   ILIS·LH 의 목록 답도 쪽마다 내용 주소 키로 둔다(`list.keep_in_bronze`): 같은 답은 같은 객체이고, ILIS 처럼 공고를 내리는 원천에서
-   목록이 언제 무엇을 실었는지가 남는 유일한 기록이다. KICOX 목록은 쪽마다 조회수가 바뀌어 두지 않는다(글 쪽이 목록의 값을 모두 싣는다).
+2. **Bronze.** 읽은 줄 하나 = `{notice_source, notice_id, list_fingerprint, list_row, requested_at_utc, http_status, read_outcome, error, body, attachments}`.
+   제공자의 답은 `body` 에 손대지 않고 둔다: ILIS 는 상세 JSON 그대로, KICOX 는 글 쪽 HTML 을 `{"html": …}` 로 감싸고, LH 는 상세 답과
+   공급정보 답 둘을 `{"detail": …, "supply": {"http_status", "answer"}}` 로 묶는다. 그 밖의 칸은 수집기가 적는다: `list_row`(ILIS·LH 는 목록
+   답의 행 그대로, KICOX 는 목록 쪽에서 읽은 글 번호·제목·등록일·첨부 유무·조회수), `http_status`(ILIS·KICOX 는 답을 받으면 200 으로 적는다),
+   `attachments`(첨부마다 해시·형식·크기·출처 URL·결과). `commit_every`(50) 건이 gzip JSON Lines 객체 하나이고, 키는 내용 주소다
+   (`…-<run>-<batch>--sha256-<hex>.gz`, ADR-0152). 목록 답은 `list.keep_in_bronze` 가 참인 원천(ILIS·LH)만 쪽마다 내용 주소 키로 둔다:
+   같은 답은 같은 객체이고, ILIS 처럼 공고를 내리는 원천에서 목록이 언제 무엇을 실었는지가 남는 유일한 기록이다(뒷날 "언제 내려갔나"를
+   세는 Silver 가 읽는다; 지금 읽는 것은 없다). KICOX 목록은 쪽마다 조회수가 바뀌어 두지 않는다(글 쪽이 목록의 값을 모두 싣는다).
 3. **부분·새 것만.** 다음에 물을 공고는 매 실행 레이크하우스에서 계산한다(ADR-0352 의 꼴): 목록의 공고 중
-   `silver.industrial_land_sale_notice_read` 의 마지막 읽음이 **같은 목록 지문**의 `read` 가 아닌 것. 지문은 계약이 원천마다 정한 목록
-   필드(ILIS 제목·공고일·구분·승인·단지·첨부 수, KICOX 제목·등록일·첨부 유무, LH 공고명·상태·게시일·마감일) 값의 sha256 이다:
-   제공자가 목록에서 바꾼 공고는 다시 읽고, 번호·조회수처럼 늘 바뀌는 값은 넣지 않는다. 상한 `per_run_limit`(400)·`run_time_budget_seconds`
-   (1,800 초), 요청 사이 2 초, 상세 다섯 번 연달아 실패하면 멈춘다. 목록 걷기는 아무것도 빚지지 않은 쪽에서 멈추되, 읽은 공고 수가
-   제공자가 밝힌 총 건수에 닿은 뒤에만 멈춘다(첫 채우기 동안은 깊은 쪽까지 간다). 매시 한 번 — 첫 채우기가 몇 시간에 끝나고, 내려가는
-   공고를 한 시간 안에 잡는다; 첫 채우기 뒤의 실행은 목록 쪽 하나다.
+   `silver.industrial_land_sale_notice_read` 의 마지막 읽음(키마다 가장 새 실행·줄)이
+   - 없거나(처음 보는 공고),
+   - 다른 목록 지문이거나(제공자가 목록에서 바꾼 공고; 계약의 `fingerprint_fields` 를 바꾸면 모든 공고가 한 번 다시 읽힌다),
+   - `failed`·`incomplete` 로 끝난 지 `retry_after_hours`(24) 가 지난 것.
+
+   `read`(상세와 모든 첨부가 끝남)와 `gone`(제공자가 없다고 함: 4xx, ILIS 는 HTTP 200 의 `code` 4xx·`result` 없음)은 끝난 것이다. 늘
+   실패하는 공고는 하루 한 번만 다시 묻는다: 매 실행 밀린 공고보다 먼저 물어져 연속 실패 상한(다섯 번, `gone` 은 세지 않는다)에 걸리지
+   않는다. 지문은 계약이 원천마다 정한 목록 필드(ILIS 제목·공고일·구분·승인·단지·첨부 수, KICOX 제목·등록일·첨부 유무, LH 공고명·상태·게시일·
+   마감일) 값을 그 순서의 JSON 배열(없는 필드는 null)로 쓴 글의 sha256 이다; 번호·조회수처럼 늘 바뀌는 값은 넣지 않는다.
+   상한 `per_run_limit`(400)·`run_time_budget_seconds`(1,800 초), 요청 사이 2 초.
+
+   **목록 걷기.** 매시 실행은 최근 쪽(`list.recent_pages`: ILIS 1 = 목록 전체, KICOX 3 = 30 건, LH 1 = 100 건)을 걷고, 그 뒤로는 빚진 것이
+   없는 쪽을 만나되 **한 번이라도 물어본 공고 수**가 제공자가 밝힌 총 건수에 닿았을 때 멈춘다: 첫 채우기 동안은 깊은 쪽까지 가고, 실패를
+   거듭하는 공고 하나가 걷기를 열어 두지 않는다. 하루 한 번(`full_walk_hour_utc` 17 시 UTC 에 시작한 실행) 목록 전체를 걸어 깊은 쪽에서
+   바뀐 공고(LH 상태, KICOX 정정)와, 내려간 공고가 수를 부풀려 첫 채우기가 일찍 멈춘 경우의 나머지를 잡는다(KICOX 97 쪽 × 2 초 ≈ 3 분).
+   매시 — 첫 채우기가 몇 시간에 끝나고, 내려가는 공고를 한 시간 안에 잡는다; 첫 채우기 뒤의 실행은 목록 쪽 몇 장이다.
+
+   **실행 순서.** 수집은 ILIS :35, KICOX :45, LH :55(꺼짐)에 시작하고, Silver 적재는 수집이 Bronze 를 바꾸면(그리고 :15 마다) 돈다
+   (ADR-0484 §6·§7 의 첫 실행·기대 결과 규칙이 그대로다: `per_run_cap.first_run` 은 계산값이고, 첫 실행의 저널로 `measured_run_seconds` 를
+   적는 PR 이 그것을 지운다). 다음 수집은 이미 실린 읽음만 본다: 적재가 앞 실행의 마지막 묶음을 싣기 전에 수집이 시작하면 그 묶음의
+   공고를 한 번 더 묻는다(같은 답은 같은 첨부 해시라 저장소에는 아무것도 더해지지 않는다).
 4. **Silver 는 수집의 장부 둘만.** `load-industrial-land-sale-notice-silver`(작업 `industrial_land_sale_notice_silver`, 발행기 안의 DuckDB 와
    Iceberg 추가 커밋, ADR-0559·0560)가 세 원천의 상세 객체를 객체마다 붙인다: 먼저 저장소에 담긴 첨부를
    `silver.industrial_land_sale_notice_attachment`((원천, 공고, 해시)마다 한 줄; 새것·바뀐 것만), 그다음 읽음을
@@ -51,9 +71,13 @@
 5. **첨부 색인은 대조기에.** 첨부 색인은 미디어 대조기의 `media.reconcile.index_tables` 다섯째다(`media_index_delta` 의 읽는 이도).
    막는 사고: 색인 없이 같은 `sha256/` 에 첨부만 쌓이면 48 시간 뒤부터 그 수천 개가 매일 고아로 세어져 `FoundationMediaObjectOrphaned` 가
    울린다(ADR-0429 의 경매 사진, ADR-0484 §5 와 같은 일). 표 집합이 바뀌므로 대조기는 다음 실행에 색인을 한 번 통째로 다시 읽는다(설계된 동작).
-6. **LH 는 꺼진 채로 들어온다.** 서비스키가 없거나 게이트웨이가 세 서비스를 거부하면(`refusal_codes`) 수집기는 아무것도 쓰기 전에
-   `industrial-land-sale-notice-refused` 를 찍고, 스크립트가 78 로 끝낸다. 작업은 `enabled: false` 이고 `disabled_reason` 에 사장이 할
-   활용신청 셋(15058530·15057999·15056765)을 적는다. 첨부 URL 은 `apply.lh.or.kr` 의 https 만 묻는다: 응답이 다른 호스트를 가리켜도 적기만 한다.
+6. **LH 는 꺼진 채로 들어온다.** 서비스키(`DATA_GO_KR_SERVICE_KEY`)가 없으면 스크립트가 아무것도 하기 전에 78(EX_CONFIG)로 끝낸다.
+   게이트웨이가 서비스를 거부하면(`refusal_codes`: 활용신청 전) 목록이든 상세·공급정보든 수집기는 그 읽음을 쓰지 않고
+   `industrial-land-sale-notice-refused` 를 찍어 끝나고, 스크립트가 그 줄을 보고 78 로 끝낸다(목록만 승인되고 상세가 거부되는 반쯤의 승인도
+   같다; 이미 받은 목록 답은 Bronze 에 남는다). 작업은 `enabled: false` 이고 `disabled_reason` 에 사장이 할 활용신청 셋(15058530·15057999·
+   15056765)을 적는다. 첨부 URL 은 `apply.lh.or.kr` 의 https 만 묻는다: 응답이 다른 호스트를 가리켜도 적기만 한다. 그 URL(`/lhapply/lhFile.do`)은
+   청약센터 robots.txt 가 크롤러에게 막는 경로다 — 공식 OpenAPI 가 공고의 첨부로 내주는 주소이고 그 이용허락범위가 "제한 없음"이라 받는 것으로
+   정했지만, LH 를 켜는 결정(활용신청)과 함께 사장이 확인한다.
 7. **공급자.** `kicox.or.kr` 을 승인 도메인에 더한다(ADR-0032, `kicoxorkr__…`). LH 는 data.go.kr 공급자이고 세 연산의 dataset 은
    `lh_land_notice_dataset_slug` 지도가 정한다(`source_slug_catalog_parity`). HTML 은 `scraper`(Servo 의 html5ever·selectors) 로 찾는다 —
    글 번호와 첨부 번호는 쪽이 스스로 부르는 `onclick` 호출에서만 읽는다.
@@ -63,6 +87,9 @@
 | 대안 | 왜 아닌가 |
 | --- | --- |
 | ILIS 분양공고 하나만 | 표본으로 KICOX 자체 단지 5 개·LH 산업용지 4 건이 빠진다 |
+| ILIS 분양공고를 고시 수집기(ADR-0484)의 둘째 목록으로 | 고시는 한 번 내면 고치지 않아 끝난 고시를 다시 묻지 않지만, 분양공고는 목록에서 바뀐다(승인·첨부 수); 원천 셋이 같은 꼴을 써야 한다 |
+| 매시 최근 쪽만, 깊은 쪽은 영영 | 깊은 쪽의 LH 상태·KICOX 정정을 놓친다; 하루 한 번 전체 걷기(KICOX ~3 분)로 잡는다 |
+| 실패한 공고를 매 실행 다시 | 늘 실패하는 공고가 밀린 공고보다 먼저 물어져 연속 실패 상한에 걸린다 |
 | 공장설립온라인 분양공고 목록을 받기 | 그 robots.txt 가 `/bbs/` 를 막는다; 원 게시처에서 받는다 |
 | LH 를 청약센터 웹 목록으로(열쇠 없이) | 첨부 받기 경로(`/lhapply/lhFile.do`)를 robots.txt 가 막고, 목록은 최근 창만 보인다; 공식 API 가 같은 URL 을 준다 |
 | 다음에 물을 것을 Bronze 원장(Postgres)으로 | 같은 일을 고시 수집기가 Silver 읽은 기록으로 한다(ADR-0484 §3); 두 번째 방식은 결함이다 |
@@ -77,7 +104,10 @@
 ## Consequences
 
 - **양(계산)**: 첨부 ≈ ILIS 741 × 1.65 ≈ 1,220 개 + KICOX 962 × ~1.5 ≈ 1,450 개, 합 ≈ 3~4 GB(고시 첨부 평균 1.25 MB 기준). Bronze 상세 ≈ 35 객체
-  (KICOX 쪽 HTML ~170 KB 를 gzip 으로). R2 저장 ≈ 월 $0.06, PUT ≈ 2,700 + 35 ≈ $0.01 한 번.
+  (KICOX 쪽 HTML ~170 KB 를 gzip 으로). R2 저장 ≈ 월 $0.06, PUT ≈ 2,700 + 35 ≈ $0.01 한 번. LH 는 켜질 때까지 0(양을 모른다: 답을 못 봤다).
+- **제공자 부담(계산)**: 매시 ILIS 목록 1 요청(576 KB), KICOX 목록 3 요청(쪽마다 ~146 KB), 하루 한 번 KICOX 전체 97 요청(~14 MB); 새 공고마다
+  상세 1 + 첨부 몇 개.
+- **새 의존성**: HTML 은 `scraper` 0.29.0(ISC; Servo 의 `html5ever`·`selectors`, 명령줄 기능은 끔)으로 찾는다 — 저장소에 HTML 해석기가 없었다.
 - **첫 바퀴(계산)**: 공고 하나 ≈ (상세 1 + 첨부 1.5~1.65) × 2 초 ≈ 5 초 → 실행 하나에 ~340 건 → ILIS ~3 실행, KICOX ~3 실행(매시: 몇 시간).
 - **검증하지 못한 것**: 운영 실행 시간·메모리(첫 실행의 저널), KICOX 의 옛 쪽(2008~)의 HTML 모양이 같은지, LH 의 답(활용신청 전이라
   한 번도 못 봤다 — 가이드의 예제로만 짰다), 게시일 전 기간을 한 번에 묻는 LH 목록이 받아들여지는지.
