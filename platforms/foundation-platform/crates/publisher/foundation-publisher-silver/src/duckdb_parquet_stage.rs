@@ -373,6 +373,24 @@ impl DuckDbParquetStage {
             .context("DuckDB refused the memory limit")
     }
 
+    /// Lets the next statements reuse the blocks of the tables this stage has replaced or dropped.
+    ///
+    /// A file-backed stage ([`Self::open_reading_lakehouse`]) gives a replaced table's blocks back
+    /// only at a checkpoint (`DuckDB`'s "to reclaim space after deleting rows, use the CHECKPOINT
+    /// statement"), and its automatic checkpoint follows the write-ahead log, which a large
+    /// `CREATE TABLE … AS` barely grows: its row groups go straight to the database file. A build
+    /// that replaces its tables once per part calls this after each part, or the file holds every
+    /// part's tables at once (2026-11-22 22:21Z: the served parcel boundaries' stage passed about
+    /// 43 GB by its 15th 시도 and the disk's reserve refused the last one, root ADR-0599).
+    ///
+    /// # Errors
+    /// `DuckDB` cannot checkpoint (a transaction is open on the connection).
+    pub fn release_replaced_tables(&self) -> anyhow::Result<()> {
+        self.connection
+            .execute_batch("CHECKPOINT")
+            .context("DuckDB could not checkpoint its stage")
+    }
+
     /// The rows `query` answers, one JSON object per row as `DuckDB`'s `to_json` writes it, for a
     /// reader that loads them somewhere else (the Silver-to-Postgres loads, root ADR-0565: they read
     /// through Trino's CLI before, one JSON object per row as well).

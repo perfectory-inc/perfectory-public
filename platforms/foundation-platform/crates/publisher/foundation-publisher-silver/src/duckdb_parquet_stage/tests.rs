@@ -1447,3 +1447,41 @@ async fn a_floor_edition_is_the_first_append_into_the_empty_table() -> anyhow::R
     );
     Ok(())
 }
+
+/// What `DuckDbParquetStage::release_replaced_tables` relies on: in a database file, a table that
+/// `CREATE OR REPLACE TABLE … AS` replaced gives its blocks to later tables once a checkpoint ran,
+/// so a build that replaces its table once per part keeps the file near one part's tables, not the
+/// sum of them (2026-11-22: the served parcel boundaries' stage held every 시도's at once).
+#[test]
+fn a_checkpoint_lets_the_next_part_reuse_a_replaced_tables_blocks() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let connection = duckdb::Connection::open(directory.path().join("stage.duckdb"))?;
+    let part = |n: u32| {
+        format!(
+            "CREATE OR REPLACE TABLE built AS SELECT range AS pnu, \
+             (md5(range::VARCHAR || '-{n}') || md5(range::VARCHAR || '+{n}'))::BLOB AS geometry_wkb \
+             FROM range(300000)"
+        )
+    };
+    let blocks = |connection: &duckdb::Connection| -> anyhow::Result<(i64, i64)> {
+        Ok(connection.query_row(
+            "SELECT total_blocks, used_blocks FROM pragma_database_size()",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?)
+    };
+    connection.execute_batch(&part(0))?;
+    connection.execute_batch("CHECKPOINT")?;
+    let (_, one_part) = blocks(&connection)?;
+    assert!(one_part > 4, "a part fills blocks: {one_part}");
+    for n in 1..8 {
+        connection.execute_batch(&part(n))?;
+        connection.execute_batch("CHECKPOINT")?;
+    }
+    let (total, used) = blocks(&connection)?;
+    assert!(
+        total <= 3 * one_part,
+        "eight parts replaced with a checkpoint after each hold {total} blocks, one part {one_part} (used {used})"
+    );
+    Ok(())
+}
