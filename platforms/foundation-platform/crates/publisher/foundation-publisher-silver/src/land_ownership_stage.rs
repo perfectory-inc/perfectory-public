@@ -23,10 +23,9 @@ use sha2::{Digest, Sha256};
 use duckdb::Connection;
 
 use crate::kind_versions_stage::{
-    elapsed, fill, is_plain, load_current, load_served_and_renumbering, renumbering_join,
-    served_pnu, KindInputs, KindVersionsStage, CODE_CHANGE_SOURCE, PARCEL_SOURCE, SHARED_SQL,
+    elapsed, fill, is_plain, KindVersionsStage, RowSet, CODE_CHANGE_SOURCE, PARCEL_SOURCE,
+    SHARED_SQL,
 };
-use crate::parcel_nearby_stage::Source;
 
 /// The owner Silver.
 pub const OWNERSHIP_SOURCE: &str = "silver.land_ownership";
@@ -58,17 +57,14 @@ const ROW_FIELDS: [&str; 3] = [
 /// What the rules are; part of the build's code version.
 pub const RULES_VERSION: &str = "parcel-ownership-duckdb-v1";
 
-/// `ownership_rows<suffix>`: the current rows, re-keyed to the served code, of served PNUs only.
-const ROWS_SQL: &str = "\
-CREATE OR REPLACE TABLE ownership_rows@suffix@ AS \
-SELECT * FROM ( \
-  SELECT @pnu@ AS pnu, @columns@ FROM current_ownership@suffix@ m @join@ WHERE m.pnu IS NOT NULL) \
-WHERE pnu IN (SELECT pnu FROM served@suffix@)";
-
-/// The rows of the PNUs of `targets` folded into one document each, inserted into `built`.
+/// The rows of the PNUs of `targets` folded into one document each, inserted into `built`. The
+/// 공유인수 is read as the integer the Silver holds: a 시도 the spool holds nothing of loads every
+/// column as text.
 const DOCUMENT_SQL: &str = "\
 INSERT INTO built \
-WITH picked AS (SELECT * FROM ownership_rows WHERE @targets@), \
+WITH picked AS ( \
+  SELECT * REPLACE (CAST(co_owner_count AS INTEGER) AS co_owner_count) \
+  FROM ownership_rows WHERE @targets@), \
 land AS ( \
   SELECT * FROM picked \
   WHERE collective_building_serial_no IS NULL OR regexp_matches(collective_building_serial_no, '@land@')), \
@@ -163,7 +159,6 @@ impl KindVersionsStage for OwnershipKind {
             LAND_ROW_SERIAL,
             &bound,
             &fields,
-            ROWS_SQL,
             DOCUMENT_SQL,
         ]
         .into_iter()
@@ -175,53 +170,23 @@ impl KindVersionsStage for OwnershipKind {
         format!("{:x}", hash.finalize())
     }
 
-    fn load_inputs(
-        &self,
-        connection: &Connection,
-        source: &Source<'_>,
-        edition: &str,
-        suffix: &str,
-    ) -> anyhow::Result<KindInputs> {
-        let mut read_millis = std::collections::BTreeMap::new();
-        let served_parcels =
-            load_served_and_renumbering(connection, source, edition, suffix, &mut read_millis)?;
-        let mut columns = vec!["pnu"];
-        columns.extend(kept());
-        let millis = load_current(
-            connection,
-            source,
-            OWNERSHIP_SOURCE,
-            &columns,
-            &format!("current_ownership{suffix}"),
-        )?;
-        read_millis.insert(OWNERSHIP_SOURCE.to_owned(), millis);
-        let projected = kept()
-            .iter()
-            .map(|column| format!("m.{column} AS {column}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        connection.execute_batch(&fill(
-            ROWS_SQL,
-            &[
-                ("suffix", suffix),
-                ("pnu", &served_pnu("m")),
-                ("columns", &projected),
-                ("join", &renumbering_join("m", suffix)),
-            ],
-        ))?;
-        let rows: i64 = connection.query_row(
-            &format!("SELECT count(*) FROM ownership_rows{suffix}"),
-            [],
-            |row| row.get(0),
-        )?;
-        if suffix.is_empty() {
-            connection.execute_batch(BUILT_TABLE)?;
-        }
-        Ok(KindInputs {
-            served_parcels,
-            rows: u64::try_from(rows)?,
-            read_millis,
-        })
+    fn row_sets(&self) -> Vec<RowSet> {
+        // Every owner row counts (`owner_total`), so the rows are not made distinct.
+        vec![RowSet {
+            name: "ownership_rows",
+            source: OWNERSHIP_SOURCE,
+            reads: kept(),
+            columns: kept()
+                .into_iter()
+                .map(|column| (format!("m.{column}"), column))
+                .collect(),
+            distinct: false,
+        }]
+    }
+
+    fn create_built(&self, connection: &Connection) -> anyhow::Result<()> {
+        connection.execute_batch(BUILT_TABLE)?;
+        Ok(())
     }
 
     fn changed_pnus(&self, connection: &Connection) -> anyhow::Result<u64> {

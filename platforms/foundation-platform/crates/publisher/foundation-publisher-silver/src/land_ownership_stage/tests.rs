@@ -210,7 +210,7 @@ fn build_all(connection: &Connection) -> anyhow::Result<Vec<(String, String, i64
 fn a_document_is_spark_s_bytes_with_owners_sorted_null_first() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     load(&connection, &rows())?;
-    let read = OWNERSHIP.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    let read = crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
     // The factory's three newest rows, four unit rows, the bounded parcel's 105 and the moved one.
     assert_eq!(
         (read.served_parcels, read.rows),
@@ -242,7 +242,7 @@ fn a_document_is_spark_s_bytes_with_owners_sorted_null_first() -> anyhow::Result
 fn unit_owners_are_counted_most_first_and_a_null_name_first_among_equals() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     load(&connection, &rows())?;
-    OWNERSHIP.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
     let rows = build_all(&connection)?;
     let (_, complex, total, _) = &rows[1];
     let expected = document(
@@ -262,7 +262,7 @@ fn unit_owners_are_counted_most_first_and_a_null_name_first_among_equals() -> an
 fn a_parcel_past_the_bound_keeps_the_first_owners_and_counts_all() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     load(&connection, &rows())?;
-    OWNERSHIP.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
     let rows = build_all(&connection)?;
     let (_, many, total, _) = &rows[2];
     let owners: Vec<String> = (1..=OWNER_PAGE_BOUND)
@@ -277,7 +277,7 @@ fn a_parcel_past_the_bound_keeps_the_first_owners_and_counts_all() -> anyhow::Re
 fn a_partial_run_names_only_the_parcels_whose_rows_or_service_changed() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     load(&connection, &rows())?;
-    OWNERSHIP.load_inputs(&connection, &Source::Local, EDITION, "_old")?;
+    crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "_old")?;
     // A new release changes one factory owner's 변동일자; nothing else moves.
     let mut newer = rows();
     newer.push(Row {
@@ -287,7 +287,7 @@ fn a_partial_run_names_only_the_parcels_whose_rows_or_service_changed() -> anyho
         ..row(FACTORY, None, "000001")
     });
     load(&connection, &newer)?;
-    OWNERSHIP.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
     assert_eq!(OWNERSHIP.changed_pnus(&connection)?, 1);
     OWNERSHIP.build(
         &connection,
