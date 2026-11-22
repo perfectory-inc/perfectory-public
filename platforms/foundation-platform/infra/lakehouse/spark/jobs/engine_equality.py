@@ -34,9 +34,12 @@ import shlex
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-import gold_fingerprint
+# gold-takeover-verdict.sh runs this file as `python3 -I`, which leaves its directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gold_fingerprint  # noqa: E402
 
 REPORT_SCHEMA_VERSION = 1
 SAMPLE_LIMIT = 20
