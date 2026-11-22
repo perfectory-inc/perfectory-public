@@ -565,8 +565,12 @@ CI 의 `a-release-keeps-the-jobs-it-switches-off` 가드가 켜진 작업을 지
 - **판정.** 한 시도(41)의 필지 unit — `scope` 칸이 시도다 — 에서 두 표가 모두 같아야 넘긴다(place_id 는 AI 조인 열쇠다: 그
   시도의 모든 place_id 가 그대로여야 한다). 거짓 `not equal` 은 날 수 있다: 순환이 예산(100분)을 넘겨 41 을 다음 실행으로 미루면
   옛 표의 41 은 그 핀보다 낡았다. 거짓 `equal` 은 날 수 없다: 값이 같다는 것은 값이 같다는 것이다. `release_id` 는 실행의
-  스탬프라 digest 도 판정도 읽지 않는다(`BUILD_STAMPS`). 판정 도구가 `scope` 칸을 시도로 읽게 넓히는 PR 이 두 표의
-  `asset_checks` 줄을 더한다.
+  스탬프라 digest 도 판정도 읽지 않는다(`BUILD_STAMPS`). 판정 도구는 `scope` 를 시도 칸으로 읽고(`national` 은 어느 시도에도
+  들지 않는다), 한 쪽을 지역 표시와 id 의 첫 글자로 나눠 읽는다(`values::Parts::Labelled`, 지역의 16분의 1 — 시도 41 을 한 번에
+  들면 약 6백만 행이 발행기 메모리에 통째로 온다). 한 실행이 두 표를 지으므로 판정 기록은 표마다 둔다(`gold_takeover_check`).
+  판정은 한 실행에 하나다: 유닛의 한 시간은 빌드와 30분 판정 하나의 몫이다(넷째 개정, 인스턴스마다 한도를 올리지 않는다).
+  실행은 마지막으로 판정한 표의 다음 표부터 고르므로(`last_judged`, 커밋이 지우지 않는다), 실행마다 커밋해도 두 표가 번갈아
+  판정된다.
 - **풀.** 다른 판 빌드처럼 `duckdb` 풀에서 무게 20, 자기 유닛의 `memory_claim` 이다(root ADR-0605).
 - **전환(넘겨받기 PR).** 하나뿐인 독자 `place_id_join` 의 `BRIDGE_SOURCE` 를 이 판 표의 현재 행으로 옮기고, 두 순환
   (`parcel-registry-cycle.sh` 3단계, `admin-boundary-release.sh` 7단계)이 이 명령을 부르며, 변경 내역(`gold.place_id_changelog`)은 판

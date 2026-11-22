@@ -68,9 +68,12 @@ const BUILD_STAMPS: &[(&str, &[&str])] = &[
 const DIGEST: &str = "row_digest";
 /// The 시도 compared when the verdict names none: 경기도, the largest (ADR-0559's measurements).
 pub(crate) const DEFAULT_SIDO: &str = "41";
-/// The key columns a 시도 is read from, in order: both begin with the 시도 code (a PNU; a region
-/// code of every level the region stats hold, `legal_dong` and `sigungu`).
-const SIDO_COLUMNS: [&str; 2] = ["pnu", "region_code"];
+/// The key columns a 시도 is read from, in order: the first two begin with the 시도 code (a PNU; a
+/// region code of every level the region stats hold, `legal_dong` and `sigungu`), the third is it
+/// (the place-id release's `scope`: a 시도 code, or `national` for the admin unit).
+const SIDO_COLUMNS: [&str; 3] = ["pnu", "region_code", "scope"];
+/// The id a region labelled by `scope` is cut by when a side is read ([`values::Parts::Labelled`]).
+const LABELLED_ID: &str = "place_id";
 
 /// The first of [`SIDO_COLUMNS`] the key holds: the column a side's rows are read by.
 fn sido_column(keys: &[&str]) -> anyhow::Result<&'static str> {
@@ -78,6 +81,23 @@ fn sido_column(keys: &[&str]) -> anyhow::Result<&'static str> {
         .into_iter()
         .find(|column| keys.contains(column))
         .with_context(|| format!("no key of {keys:?} holds a 시도 code ({SIDO_COLUMNS:?})"))
+}
+
+/// How a side is read a part at a time: a 시군구 of its 시도 code, or a region label and the first
+/// character of its ids.
+fn parts(keys: &[&str]) -> anyhow::Result<values::Parts> {
+    let column = sido_column(keys)?;
+    if column != "scope" {
+        return Ok(values::Parts::Code(column));
+    }
+    ensure!(
+        keys.contains(&LABELLED_ID),
+        "the key {keys:?} labels its region by scope but holds no {LABELLED_ID} to cut it by"
+    );
+    Ok(values::Parts::Labelled {
+        label: column,
+        id: LABELLED_ID,
+    })
 }
 
 /// The predicate that keeps the rows of `sido` (two digits) by [`sido_column`], as a range so
@@ -295,7 +315,7 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         "{replaced_name}'s columns lack its key {:?}",
         latest.key
     );
-    let column = sido_column(latest.key)?;
+    let parts = parts(latest.key)?;
     // A 시도 that is not two digits, or the last code, is refused before anything is read.
     sido_predicate(latest.key, &sido)?;
     // Loaded before the DuckDB session opens: the session is not `Send` across an await.
@@ -326,17 +346,17 @@ pub(crate) async fn export() -> anyhow::Result<()> {
     let prefixes = values::prefixes(
         connection,
         &[reference_source.as_str(), candidate_source.as_str()],
-        column,
+        parts,
     )?;
     let sido_prefixes: Vec<String> = prefixes
         .iter()
-        .filter(|prefix| prefix.starts_with(sido.as_str()))
+        .filter(|prefix| parts.in_sido(prefix, &sido))
         .cloned()
         .collect();
     let reference_pass = values::pass(
         connection,
         &reference_rows,
-        column,
+        parts,
         &prefixes,
         &columns,
         &sido,
@@ -349,7 +369,7 @@ pub(crate) async fn export() -> anyhow::Result<()> {
     let candidate_pass = values::pass(
         connection,
         &candidate_rows,
-        column,
+        parts,
         &prefixes,
         &columns,
         &sido,
@@ -396,7 +416,7 @@ pub(crate) async fn export() -> anyhow::Result<()> {
                     &latest.current_rows_sql(
                         &candidate_source,
                         &every_column,
-                        &values::prefix_filter(column, prefix)?,
+                        &parts.filter(prefix)?,
                     ),
                     &provenance,
                     &mut documents,
@@ -617,6 +637,22 @@ mod tests {
         for bad in ["4", "411", "4'", "ab", "+1", "99"] {
             assert!(sido_predicate(&["pnu"], bad).is_err(), "{bad} was taken");
         }
+        // The place-id release: the parcel unit's region is its `scope`, the admin unit's `national`
+        // falls outside every 시도; a region is read a character of its ids at a time.
+        let registry = ["unit", "scope", "place_id"];
+        assert_eq!(
+            sido_predicate(&registry, "41")?,
+            "(scope >= '41' AND scope < '42')"
+        );
+        assert_eq!(
+            parts(&registry)?,
+            values::Parts::Labelled {
+                label: "scope",
+                id: "place_id"
+            }
+        );
+        assert_eq!(parts(&["pnu"])?, values::Parts::Code("pnu"));
+        assert!(parts(&["unit", "scope"]).is_err());
         Ok(())
     }
 

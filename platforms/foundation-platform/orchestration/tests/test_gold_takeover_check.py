@@ -39,30 +39,48 @@ def cli(*argv):
 
 class Declared(unittest.TestCase):
     def test_a_shadow_commit_is_judged_in_the_sido_its_check_declares(self):
-        self.assertEqual(check.declared(run(), [DEFINITION], {}), (TABLE, "11"))
+        self.assertEqual(check.declared(run(), [DEFINITION], {}), [(TABLE, "11")])
 
     def test_a_run_that_kept_the_head_judges_it_until_one_verdict_ran_to_its_end(self):
         # Lane 1's first shadow commit landed before the check existed; a verdict that could not run
         # (a timeout, an R2 error) is run again: the inputs of a shadow may never move again.
-        self.assertEqual(check.declared(run("unchanged"), [DEFINITION], {}), (TABLE, "11"))
-        self.assertEqual(check.declared(run("unchanged"), [DEFINITION], {"completed": False}), (TABLE, "11"))
-        self.assertIsNone(check.declared(run("unchanged"), [DEFINITION], {"completed": True}))
-        self.assertEqual(check.declared(run(), [DEFINITION], {"completed": True}), (TABLE, "11"),
+        self.assertEqual(check.declared(run("unchanged"), [DEFINITION], {}), [(TABLE, "11")])
+        self.assertEqual(check.declared(run("unchanged"), [DEFINITION], {TABLE: {"completed": False}}), [(TABLE, "11")])
+        self.assertEqual(check.declared(run("unchanged"), [DEFINITION], {TABLE: {"completed": True}}), [])
+        # A lane's record written before the state kept one a table is its table's.
+        self.assertEqual(check.declared(run("unchanged"), [DEFINITION], {"completed": True}), [])
+        self.assertEqual(check.declared(run(), [DEFINITION], {TABLE: {"completed": True}}), [(TABLE, "11")],
                          "a commit is a new head")
 
     def test_a_kept_head_is_judged_again_when_the_build_it_shadows_moved(self):
         # The unit prices' shadow writes nothing: its head stays while Spark appends a newer batch.
-        done = {"completed": True, "reference_snapshot": "1"}
-        self.assertIsNone(check.declared(run("unchanged"), [DEFINITION], done))
+        done = {TABLE: {"completed": True, "reference_snapshot": "1"}}
+        self.assertEqual(check.declared(run("unchanged"), [DEFINITION], done), [])
         moved = run("unchanged", shadow_of={"table": TABLE[:-9], "build": "price:3|exclusive:4|vintage:209912"})
-        self.assertEqual(check.declared(moved, [DEFINITION], done), (TABLE, "11"))
-        self.assertIsNone(check.declared(moved, [DEFINITION], {"completed": True}),
-                          "a record that names no reference stands for the build it judged")
+        self.assertEqual(check.declared(moved, [DEFINITION], done), [(TABLE, "11")])
+        self.assertEqual(check.declared(moved, [DEFINITION], {TABLE: {"completed": True}}), [],
+                         "a record that names no reference stands for the build it judged")
+
+    def test_a_run_that_built_two_tables_judges_each_its_own_way(self):
+        # The place-id lane builds the registry and the bridge in one run (root ADR-0564 §6-9).
+        other = "gold.parcel_demolitions_versions"
+        definition = {"assets": DEFINITION["assets"] + [{"id": "other", "table_name": other}],
+                      "asset_checks": DEFINITION["asset_checks"] + [
+                          {"asset": "other", "check": "takeover_equal", "blocking": True, "sido": "41"}]}
+        both = run(tables=[TABLE, other])
+        self.assertEqual(check.declared(both, [definition], {}), [(TABLE, "11"), (other, "41")])
+        kept = run("unchanged", tables=[TABLE, other])
+        self.assertEqual(check.declared(kept, [definition], {TABLE: {"completed": True}}), [(other, "41")])
+        # The build judges one a run: the next starts after the table judged last, so each has its
+        # turn even when every run commits.
+        self.assertEqual(check.declared(both, [definition], {check.LAST: TABLE}), [(other, "41"), (TABLE, "11")])
+        self.assertEqual(check.declared(kept, [definition], {TABLE: {"completed": True}, check.LAST: other}),
+                         [(other, "41")])
 
     def test_no_verdict_without_a_shadow_or_a_declared_check(self):
-        self.assertIsNone(check.declared(run(shadow_of=None), [DEFINITION], {}))
-        self.assertIsNone(check.declared(run(), [{"assets": DEFINITION["assets"]}], {}))
-        self.assertIsNone(check.declared(run(table="gold.parcel_nearby_versions"), [DEFINITION], {}))
+        self.assertEqual(check.declared(run(shadow_of=None), [DEFINITION], {}), [])
+        self.assertEqual(check.declared(run(), [{"assets": DEFINITION["assets"]}], {}), [])
+        self.assertEqual(check.declared(run(table="gold.parcel_nearby_versions"), [DEFINITION], {}), [])
 
     def test_a_check_must_name_its_sido(self):
         definition = json.loads(json.dumps(DEFINITION))
@@ -77,13 +95,16 @@ class Declared(unittest.TestCase):
                       "gold.parcel_panel_versions", "gold.unit_price_versions",
                       "silver.unit_official_price_versions"):
             with self.subTest(table=table):
-                self.assertEqual(check.declared(run(table=table), definitions, {}), (table, "41"))
+                self.assertEqual(check.declared(run(table=table), definitions, {}), [(table, "41")])
         # A lane that took its table over shadows nothing and declares the check no more (root ADR-0564 §6-4).
         for table in ("gold.parcel_energy_versions", "gold.parcel_register_masters_versions",
                       "gold.parcel_demolitions_versions", "gold.parcel_factories_versions"):
             with self.subTest(taken_over=table):
-                self.assertIsNone(check.declared(run(table=table, shadow_of=None), definitions, {}))
-                self.assertIsNone(check.declared(run(table=table), definitions, {}))
+                self.assertEqual(check.declared(run(table=table, shadow_of=None), definitions, {}), [])
+                self.assertEqual(check.declared(run(table=table), definitions, {}), [])
+        place_ids = ["gold.place_id_registry_versions", "gold.place_id_bridge_versions"]
+        self.assertEqual(check.declared(run(table=place_ids[0], tables=place_ids), definitions, {}),
+                         [(table, "41") for table in place_ids])
 
     def test_a_commit_clears_the_last_head_s_record(self):
         with tempfile.TemporaryDirectory() as work:
@@ -94,6 +115,11 @@ class Declared(unittest.TestCase):
             done = cli("declared", str(work / "summary.json"), str(PLATFORM / "definitions"), str(state))
             self.assertEqual(done.stdout.split(), ["gold.parcel_sub_parcels_versions", "41"])
             self.assertFalse(state.exists())
+            judged = {"gold.parcel_energy_versions": {"completed": True}, check.LAST: "gold.parcel_energy_versions"}
+            state.write_text(json.dumps(judged), encoding="utf-8")
+            cli("declared", str(work / "summary.json"), str(PLATFORM / "definitions"), str(state))
+            self.assertEqual(json.loads(state.read_text(encoding="utf-8")), {check.LAST: "gold.parcel_energy_versions"},
+                             "a new head keeps only which table was judged last")
 
 
 class Report(unittest.TestCase):
@@ -134,10 +160,10 @@ class Report(unittest.TestCase):
         message = json.loads(done.stdout)
         self.assertEqual(message["__dagster_pipes_version"], "0.1")
         self.assertTrue(message["params"]["passed"])
-        self.assertEqual((state["completed"], state["reference_snapshot"], state["candidate_snapshot"]),
-                         (True, "1", "7"))
+        self.assertEqual((state[TABLE]["completed"], state[TABLE]["reference_snapshot"],
+                          state[TABLE]["candidate_snapshot"], state[check.LAST]), (True, "1", "7", TABLE))
         self.assertFalse(json.loads(crashed.stdout)["params"]["passed"])
-        self.assertFalse(crashed_state["completed"], "the next run judges the head again")
+        self.assertFalse(crashed_state[TABLE]["completed"], "the next run judges the head again")
 
 
 if __name__ == "__main__":
