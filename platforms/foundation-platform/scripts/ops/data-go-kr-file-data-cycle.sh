@@ -2,8 +2,8 @@
 # data.go.kr 파일 데이터 — 기타 공공 일괄 파일 수집과 Silver 적재 (root ADR-0401). 등록된 작업
 # data_go_kr_file_data 가 하루 한 번 돌린다.
 #
-#   1. 수집 — collect-data-go-kr-file-data 가 계약(data-go-kr-file-data.contract.json)의 파일 가운데 등록공장을 뺀
-#             전부를 맡는다(등록공장은 작업 registered_factory). 파일마다 포털의 메타데이터를 한 번 묻고, 마지막으로
+#   1. 수집 — collect-data-go-kr-file-data 가 계약(data-go-kr-file-data.contract.json)의 파일 가운데 자기 작업(own_job)을
+#             적지 않은 전부를 맡는다(등록공장은 작업 registered_factory, 사업장 명부 둘은 root ADR-0604 의 작업). 파일마다 포털의 메타데이터를 한 번 묻고, 마지막으로
 #             받은 것과 다른 파일(atchFileId)일 때만 받아 그 원천의 Bronze(datagokr__<dataset_slug>)에 남긴다. 파일마다
 #             따로 커밋하므로 한 파일이 실패해도 다른 파일은 받고, run 은 끝에 실패한다.
 #   2. 계획 — plan-silver-load-objects 가 표마다 R2 만 보고 쌓을 판을 정한다: 그 원천의 Bronze 파일 가운데 표의 커밋
@@ -60,7 +60,7 @@ trap 'rm -rf "${work}/collect" "${lake}"' EXIT
 datasets="$(python3 -I -c '
 import json, sys
 files = json.load(open(sys.argv[1], encoding="utf-8"))["files"]
-print(",".join(slug for slug in files if slug != "registered_factory"))
+print(",".join(slug for slug, f in files.items() if "own_job" not in f))
 ' "${CONTRACT}")"
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_STATE_DIR=${STATE_ROOT}/collector" "${COLLECT}_LIVE_WRITE=1" \
   "${COLLECT}_DATASETS=${datasets}" "${PUBLISHER_BIN}" collect-data-go-kr-file-data >> "${run_log}" 2>&1 || collect_status=$?
@@ -71,8 +71,8 @@ landed="$(python3 -I -c 'import json, sys; print(" ".join(f["dataset_slug"] for 
 # 2. 계획: 표마다, R2 의 Bronze 와 표의 커밋 기록만 본다.
 mapfile -t loads < <(python3 -I -c '
 import json, sys
-for slug in json.load(open(sys.argv[1], encoding="utf-8"))["files"]:
-    if slug != "registered_factory":
+for slug, f in json.load(open(sys.argv[1], encoding="utf-8"))["files"].items():
+    if "own_job" not in f:
         print(f"silver.{slug} datagokr__{slug}")
 ' "${CONTRACT}")
 owed_total=0

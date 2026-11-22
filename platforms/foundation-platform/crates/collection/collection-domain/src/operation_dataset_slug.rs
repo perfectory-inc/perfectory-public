@@ -151,6 +151,9 @@ pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
         "fileData15004246" => Some("standard_land_price"),
         "fileData15112638" => Some("elevator_installation"),
         "fileData15117154" => Some("knowledge_industry_center"),
+        // Two workplace registers, every edition the portal still offers (root ADR-0604).
+        "fileData15083277" => Some("pension_workplace"),
+        "fileData15002150" => Some("employment_insurance_workplace"),
         // The three 표준데이터 the same collector asks through the dataset page's keyless download
         // (`stdData<공공데이터 번호>`, root ADR-0453).
         "stdData15021148" => Some("school_location"),

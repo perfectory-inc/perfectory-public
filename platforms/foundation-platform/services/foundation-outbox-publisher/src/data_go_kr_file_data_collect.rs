@@ -16,12 +16,20 @@
 //! service key is set, a landed pass is cross-checked against the `OpenAPI`'s total; that check is
 //! recorded in the manifest and never fails the file.
 //!
+//! A file that lists `past_editions` has its earlier editions walked too (root ADR-0604): the dataset
+//! page's 주기성 과거 데이터 list (`past_editions.path`, asked with the current edition's keys) names
+//! each by its own `publicDataDetailPk`, and the same metadata ask with that key names its file. A run
+//! lands at most `max_per_run` of the editions not yet asked, oldest registered first, and records each
+//! in `<dataset_slug>/past.json` as it goes; an edition whose file is already landed is recorded
+//! without a download. An earlier edition may arrive as another format than the current one (a CSV
+//! among zips): it lands as what it is.
+//!
 //! One file's failure does not stop the others (each commits on its own); the run fails at the end
 //! naming every file that failed. A run writes `..._OUTPUT_DIR/manifest.json` and a local copy of
 //! each file it fetched; its last stdout line says whether it landed a new file.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -40,6 +48,7 @@ use collection_domain::{
 use collection_infrastructure::PgBronzeIngestUnitOfWork;
 use foundation_outbox::ObjectStorageService;
 use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
+use scraper::{Html, Selector};
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
@@ -114,6 +123,18 @@ pub(crate) struct OpenapiFile {
     pub(crate) path: String,
 }
 
+/// The dataset page's list of a file's earlier editions (root ADR-0604).
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct PastEditionList {
+    pub(crate) path: String,
+}
+
+/// How many earlier editions of a file one run may land.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct PastEditionsFile {
+    pub(crate) max_per_run: usize,
+}
+
 /// One file of the contract. The Silver-side fields (header, bounds, keys) are not read here.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct ContractFile {
@@ -131,6 +152,8 @@ pub(crate) struct ContractFile {
     pub(crate) openapi: Option<OpenapiFile>,
     /// A file too large for the contract-wide timeout states its own.
     pub(crate) request_timeout_seconds: Option<u64>,
+    /// Its earlier editions are walked too (root ADR-0604).
+    pub(crate) past_editions: Option<PastEditionsFile>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -143,6 +166,7 @@ pub(crate) struct SourceContract {
     pub(crate) download: Download,
     pub(crate) standard_download: StandardDownload,
     pub(crate) openapi: Openapi,
+    pub(crate) past_editions: PastEditionList,
     pub(crate) files: BTreeMap<String, ContractFile>,
 }
 
@@ -222,8 +246,18 @@ pub(crate) fn provider_file_id(file: &ContractFile, announced: &Announced) -> St
     )
 }
 
-fn extension(file: &ContractFile) -> &'static str {
+/// What a portal file arrived as: a zip opens with its magic, and anything else is read as the CSV
+/// (an earlier edition may differ from the current one, root ADR-0604).
+fn arrived(file: &ContractFile, bytes: &[u8]) -> FileFormat {
     match file.format {
+        FileFormat::StandardPages => FileFormat::StandardPages,
+        FileFormat::Zip | FileFormat::Csv if bytes.starts_with(ZIP_MAGIC) => FileFormat::Zip,
+        FileFormat::Zip | FileFormat::Csv => FileFormat::Csv,
+    }
+}
+
+fn extension(format: FileFormat) -> &'static str {
+    match format {
         FileFormat::Zip => "zip",
         FileFormat::Csv => "csv",
         FileFormat::StandardPages => "gz",
@@ -232,6 +266,24 @@ fn extension(file: &ContractFile) -> &'static str {
 
 fn state_path(state_dir: &Path, file: &ContractFile) -> PathBuf {
     state_dir.join(&file.dataset_slug).join("accepted.json")
+}
+
+fn past_path(state_dir: &Path, file: &ContractFile) -> PathBuf {
+    state_dir.join(&file.dataset_slug).join("past.json")
+}
+
+/// The earlier editions already asked: each one's `publicDataDetailPk` and the file it named.
+fn past_asked(state_dir: &Path, file: &ContractFile) -> anyhow::Result<BTreeMap<String, String>> {
+    let path = past_path(state_dir, file);
+    if !path.exists() {
+        return Ok(BTreeMap::new());
+    }
+    let value: JsonValue = serde_json::from_slice(
+        &std::fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?,
+    )
+    .with_context(|| format!("{} is not JSON", path.display()))?;
+    serde_json::from_value(value["editions"].clone())
+        .with_context(|| format!("{} lists no editions", path.display()))
 }
 
 fn last_accepted(state_dir: &Path, file: &ContractFile) -> anyhow::Result<Option<String>> {
@@ -287,8 +339,8 @@ impl Config {
 
 /// Refuses a download that is not the file: a zip must open as one, and a CSV is never markup
 /// (the portal answers a login or notice page with HTTP 200).
-fn check_download(file: &ContractFile, bytes: &[u8]) -> anyhow::Result<()> {
-    match file.format {
+fn check_download(file: &ContractFile, format: FileFormat, bytes: &[u8]) -> anyhow::Result<()> {
+    match format {
         FileFormat::Zip => ensure!(
             bytes.starts_with(ZIP_MAGIC),
             "the {} download is not a zip ({} bytes)",
@@ -540,26 +592,28 @@ pub(crate) async fn openapi_check(
     }
 }
 
-/// Asks one file's metadata, and the file when it is new. `None` when the last landed file is
-/// current. `requests` counts this run's requests, so the spacing holds across files.
-pub(crate) async fn fetch(
-    contract: &SourceContract,
-    file: &ContractFile,
-    base_uri: &str,
-    spacing: ProviderRequestSpacing,
-    requests: &mut usize,
-    last: Option<&str>,
-) -> anyhow::Result<Option<(Announced, Vec<u8>)>> {
-    let http = http_client(
+fn file_client(contract: &SourceContract, file: &ContractFile) -> anyhow::Result<reqwest::Client> {
+    http_client(
         contract,
         file.request_timeout_seconds
             .unwrap_or(contract.request_timeout_seconds),
-    )?;
+    )
+}
+
+/// Asks the metadata of one edition: `query` is the file's own ask, or an earlier edition's.
+async fn announce(
+    contract: &SourceContract,
+    http: &reqwest::Client,
+    base_uri: &str,
+    query: &BTreeMap<String, String>,
+    spacing: ProviderRequestSpacing,
+    requests: &mut usize,
+) -> anyhow::Result<Announced> {
     spacing.wait_before_request(*requests).await;
     *requests += 1;
     let response = http
         .get(format!("{base_uri}{}", contract.metadata.path))
-        .query(&file.metadata_query)
+        .query(query)
         .send()
         .await
         .context("the file metadata request failed")?;
@@ -568,10 +622,18 @@ pub(crate) async fn fetch(
         "the file metadata answered HTTP {}",
         response.status()
     );
-    let announced = read_metadata(&response.text().await?)?;
-    if last == Some(announced.attach_file_id.as_str()) {
-        return Ok(None);
-    }
+    read_metadata(&response.text().await?)
+}
+
+/// Downloads the file a metadata answer named.
+async fn download(
+    contract: &SourceContract,
+    http: &reqwest::Client,
+    base_uri: &str,
+    announced: &Announced,
+    spacing: ProviderRequestSpacing,
+    requests: &mut usize,
+) -> anyhow::Result<Vec<u8>> {
     spacing.wait_before_request(*requests).await;
     *requests += 1;
     let mut query = contract.download.query.clone();
@@ -587,9 +649,173 @@ pub(crate) async fn fetch(
         "the file download answered HTTP {}",
         response.status()
     );
-    let bytes = Vec::from(response.bytes().await?);
-    check_download(file, &bytes)?;
+    Ok(Vec::from(response.bytes().await?))
+}
+
+/// Asks one file's metadata, and the file when it is new. `None` when the last landed file is
+/// current. `requests` counts this run's requests, so the spacing holds across files.
+pub(crate) async fn fetch(
+    contract: &SourceContract,
+    file: &ContractFile,
+    base_uri: &str,
+    spacing: ProviderRequestSpacing,
+    requests: &mut usize,
+    last: Option<&str>,
+) -> anyhow::Result<Option<(Announced, Vec<u8>)>> {
+    let http = file_client(contract, file)?;
+    let announced = announce(
+        contract,
+        &http,
+        base_uri,
+        &file.metadata_query,
+        spacing,
+        requests,
+    )
+    .await?;
+    if last == Some(announced.attach_file_id.as_str()) {
+        return Ok(None);
+    }
+    let bytes = download(contract, &http, base_uri, &announced, spacing, requests).await?;
+    check_download(file, file.format, &bytes)?;
     Ok(Some((announced, bytes)))
+}
+
+/// One earlier edition the dataset page lists: its own metadata key and the day it was registered.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PastEdition {
+    pub(crate) detail_pk: String,
+    pub(crate) registered: String,
+}
+
+fn selector(text: &str) -> anyhow::Result<Selector> {
+    Selector::parse(text).map_err(|error| anyhow::anyhow!("selector {text:?}: {error:?}"))
+}
+
+/// Reads the dataset page's list of earlier editions, oldest registered first. A list with no
+/// edition, or an edition without its key or day, refuses: the page is not the list.
+pub(crate) fn read_past_editions(body: &str) -> anyhow::Result<Vec<PastEdition>> {
+    let page = Html::parse_document(body);
+    let (row, link, cell) = (
+        selector("tr")?,
+        selector("a.openFileDetailPopup")?,
+        selector("td")?,
+    );
+    let mut editions = Vec::new();
+    for tr in page.select(&row) {
+        let Some(anchor) = tr.select(&link).next() else {
+            continue;
+        };
+        let detail_pk = anchor
+            .value()
+            .attr("data-public-pk")
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        ensure!(
+            detail_pk.starts_with("uddi:")
+                && detail_pk
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_')),
+            "the past-edition list names an unexpected key {detail_pk:?}"
+        );
+        let registered = tr
+            .select(&cell)
+            .nth(1)
+            .map(|td| td.text().collect::<String>().trim().to_owned())
+            .unwrap_or_default();
+        ensure!(
+            chrono::NaiveDate::parse_from_str(&registered, "%Y-%m-%d").is_ok(),
+            "the past edition {detail_pk} names no registration day ({registered:?})"
+        );
+        editions.push(PastEdition {
+            detail_pk,
+            registered,
+        });
+    }
+    ensure!(
+        !editions.is_empty(),
+        "the past-edition list names no edition"
+    );
+    editions.sort_by(|a, b| {
+        a.registered
+            .cmp(&b.registered)
+            .then_with(|| a.detail_pk.cmp(&b.detail_pk))
+    });
+    editions.dedup_by(|a, b| a.detail_pk == b.detail_pk);
+    Ok(editions)
+}
+
+/// Asks the dataset page for a file's earlier editions, with the current edition's keys.
+async fn list_past(
+    contract: &SourceContract,
+    http: &reqwest::Client,
+    base_uri: &str,
+    file: &ContractFile,
+    spacing: ProviderRequestSpacing,
+    requests: &mut usize,
+) -> anyhow::Result<Vec<PastEdition>> {
+    let form = ["publicDataPk", "publicDataDetailPk"]
+        .into_iter()
+        .map(|key| {
+            file.metadata_query
+                .get(key)
+                .map(|value| (key, value.as_str()))
+                .with_context(|| {
+                    format!("{} has no {key} to list its editions by", file.dataset_slug)
+                })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    spacing.wait_before_request(*requests).await;
+    *requests += 1;
+    let response = http
+        .post(format!("{base_uri}{}", contract.past_editions.path))
+        .form(&form)
+        .send()
+        .await
+        .context("the past-edition list request failed")?;
+    ensure!(
+        response.status().is_success(),
+        "the past-edition list answered HTTP {}",
+        response.status()
+    );
+    read_past_editions(&response.text().await?)
+}
+
+/// The earlier editions a run asks: those not yet asked, oldest first, at most `max_per_run`.
+pub(crate) fn owed_past<'l>(
+    listed: &'l [PastEdition],
+    asked: &BTreeMap<String, String>,
+    max_per_run: usize,
+) -> Vec<&'l PastEdition> {
+    listed
+        .iter()
+        .filter(|edition| !asked.contains_key(&edition.detail_pk))
+        .take(max_per_run)
+        .collect()
+}
+
+/// Asks one earlier edition's metadata, and its file unless that file is one already landed
+/// (`landed`): the bytes are `None` then.
+pub(crate) async fn fetch_past(
+    contract: &SourceContract,
+    file: &ContractFile,
+    edition: &PastEdition,
+    base_uri: &str,
+    spacing: ProviderRequestSpacing,
+    requests: &mut usize,
+    landed: &BTreeSet<String>,
+) -> anyhow::Result<(Announced, Option<Vec<u8>>)> {
+    let http = file_client(contract, file)?;
+    let mut query = file.metadata_query.clone();
+    query.insert("publicDataDetailPk".to_owned(), edition.detail_pk.clone());
+    let announced = announce(contract, &http, base_uri, &query, spacing, requests).await?;
+    if landed.contains(&announced.attach_file_id) {
+        return Ok((announced, None));
+    }
+    let bytes = download(contract, &http, base_uri, &announced, spacing, requests).await?;
+    check_download(file, arrived(file, &bytes), &bytes)
+        .with_context(|| format!("the past edition {}", edition.detail_pk))?;
+    Ok((announced, Some(bytes)))
 }
 
 pub(crate) fn plan(
@@ -600,6 +826,7 @@ pub(crate) fn plan(
     at: DateTime<Utc>,
 ) -> anyhow::Result<PublicDataBulkFilePlan> {
     let file_id = provider_file_id(file, announced);
+    let format = arrived(file, &bytes);
     plan_public_data_bulk_file(PublicDataBulkFilePlanInput {
         source_slug: &source_slug(PROVIDER, &file.dataset_slug)?,
         ingest_date: at.date_naive(),
@@ -608,18 +835,18 @@ pub(crate) fn plan(
             operation: file.operation.clone(),
             provider_file_period: None,
             provider_snapshot_date: Some(at.date_naive()),
-            provider_file_name: format!("{file_id}.{}", extension(file)),
+            provider_file_name: format!("{file_id}.{}", extension(format)),
             provider_file_id: file_id,
             provider_updated_at: None,
         },
         raw_payload: bytes,
-        content_type: content_type(file).to_owned(),
+        content_type: content_type(format).to_owned(),
     })
     .with_context(|| format!("failed to plan the Bronze object for {}", file.dataset_slug))
 }
 
-fn content_type(file: &ContractFile) -> &'static str {
-    match file.format {
+fn content_type(format: FileFormat) -> &'static str {
+    match format {
         FileFormat::Zip => "application/zip",
         FileFormat::Csv => "text/csv",
         FileFormat::StandardPages => "application/gzip",
@@ -737,7 +964,13 @@ fn bronze_object_record(
         snapshot_date: plan.snapshot_date,
         snapshot_granularity: plan.snapshot_granularity,
         snapshot_basis: plan.snapshot_basis,
-        provider_file_name: Some(format!("{file_id}.{}", extension(file))),
+        // The key's leaf is `<file id>.<the extension of what arrived>`.
+        provider_file_name: plan
+            .object_key
+            .as_str()
+            .rsplit('/')
+            .next()
+            .map(str::to_owned),
         provider_file_id: Some(file_id),
         provider_updated_at: None,
         effective_date: None,
@@ -852,30 +1085,107 @@ async fn collect_one(
     let Some((announced, bytes)) = fetched else {
         return Ok(None);
     };
-    let size = bytes.len();
-    let object = if let Some(live) = live {
-        let (key, checksum, local) = persist(
-            contract,
-            file,
-            &config.output_dir,
-            &announced,
-            bytes,
-            now,
-            &live.uow,
-            live.storage.as_ref(),
-        )
-        .await?;
+    let mut entry = land(contract, file, config, live, &announced, bytes, now).await?;
+    if live.is_some() {
         let state = state_path(&config.state_dir, file);
         std::fs::create_dir_all(state.parent().context("a state file has a directory")?)?;
         write_json_file(
             &state,
             &json!({"attach_file_id": announced.attach_file_id, "accepted_at_utc": now.to_rfc3339()}),
         )?;
+    }
+    entry["openapi_check"] = json!(openapi);
+    Ok(Some(entry))
+}
+
+/// Lands the earlier editions of a file not yet asked, at most `max_per_run`, oldest first; each
+/// one asked is recorded as it goes, so a run that stops keeps what it asked (root ADR-0604).
+#[allow(clippy::too_many_arguments)] // `collect_one`'s six, plus the cap and the manifest it adds to
+async fn collect_past(
+    contract: &SourceContract,
+    file: &ContractFile,
+    past: &PastEditionsFile,
+    config: &Config,
+    live: Option<&Live>,
+    requests: &mut usize,
+    now: DateTime<Utc>,
+    landed: &mut Vec<JsonValue>,
+) -> anyhow::Result<()> {
+    let http = file_client(contract, file)?;
+    let listed = list_past(
+        contract,
+        &http,
+        &config.base_uri,
+        file,
+        config.request_spacing,
+        requests,
+    )
+    .await?;
+    let mut asked = past_asked(&config.state_dir, file)?;
+    let current = last_accepted(&config.state_dir, file)?;
+    for edition in owed_past(&listed, &asked, past.max_per_run) {
+        // shortcut: last month's current file comes back in the list under a key of its own and is
+        // known by its file id; if the portal gives it a new id, it lands once more (the same bytes
+        // under a second key), so compare checksums if the first month's move shows that.
+        let known = asked
+            .values()
+            .cloned()
+            .chain(current.clone())
+            .collect::<BTreeSet<_>>();
+        let (announced, bytes) = fetch_past(
+            contract,
+            file,
+            edition,
+            &config.base_uri,
+            config.request_spacing,
+            requests,
+            &known,
+        )
+        .await?;
+        if let Some(bytes) = bytes {
+            let mut entry = land(contract, file, config, live, &announced, bytes, now).await?;
+            entry["past_edition"] =
+                json!({"detail_pk": edition.detail_pk, "registered": edition.registered});
+            landed.push(entry);
+        }
+        if live.is_some() {
+            asked.insert(edition.detail_pk.clone(), announced.attach_file_id);
+            let state = past_path(&config.state_dir, file);
+            std::fs::create_dir_all(state.parent().context("a state file has a directory")?)?;
+            write_json_file(&state, &json!({"editions": asked}))?;
+        }
+    }
+    Ok(())
+}
+
+/// Lands one fetched file: committed to Bronze when the run writes, else planned and copied only.
+async fn land(
+    contract: &SourceContract,
+    file: &ContractFile,
+    config: &Config,
+    live: Option<&Live>,
+    announced: &Announced,
+    bytes: Vec<u8>,
+    now: DateTime<Utc>,
+) -> anyhow::Result<JsonValue> {
+    let size = bytes.len();
+    let object = if let Some(live) = live {
+        let (key, checksum, local) = persist(
+            contract,
+            file,
+            &config.output_dir,
+            announced,
+            bytes,
+            now,
+            &live.uow,
+            live.storage.as_ref(),
+        )
+        .await?;
         json!({"object_key": key, "checksum_sha256": checksum, "local_path": local, "written": true})
     } else {
         let plan = plan(
             file,
-            &announced,
+            announced,
             bytes,
             IngestionRunId::new(Uuid::new_v4()),
             now,
@@ -889,14 +1199,13 @@ async fn collect_one(
         attach_file_id = %announced.attach_file_id,
         "data.go.kr file collection landed a new edition"
     );
-    Ok(Some(json!({
+    Ok(json!({
         "dataset_slug": file.dataset_slug,
         "attach_file_id": announced.attach_file_id,
         "provider_updated_at": announced.updated_at,
         "size_bytes": size,
         "object": object,
-        "openapi_check": openapi,
-    })))
+    }))
 }
 
 /// Checks the named files for a new edition and lands each in Bronze.
@@ -933,13 +1242,32 @@ pub async fn run() -> anyhow::Result<()> {
     let mut landed = Vec::new();
     let mut failed = Vec::new();
     for file in files {
-        match collect_one(&contract, file, &config, live.as_ref(), &mut requests, now).await {
-            Ok(Some(entry)) => landed.push(entry),
-            Ok(None) => {}
-            Err(error) => {
-                tracing::error!(dataset = %file.dataset_slug, error = %format!("{error:#}"), "data.go.kr file collection failed");
-                failed.push(format!("{}: {error:#}", file.dataset_slug));
-            }
+        let collected =
+            match collect_one(&contract, file, &config, live.as_ref(), &mut requests, now).await {
+                Ok(entry) => {
+                    landed.extend(entry);
+                    match &file.past_editions {
+                        Some(past) => {
+                            collect_past(
+                                &contract,
+                                file,
+                                past,
+                                &config,
+                                live.as_ref(),
+                                &mut requests,
+                                now,
+                                &mut landed,
+                            )
+                            .await
+                        }
+                        None => Ok(()),
+                    }
+                }
+                Err(error) => Err(error),
+            };
+        if let Err(error) = collected {
+            tracing::error!(dataset = %file.dataset_slug, error = %format!("{error:#}"), "data.go.kr file collection failed");
+            failed.push(format!("{}: {error:#}", file.dataset_slug));
         }
     }
     write_json_file(

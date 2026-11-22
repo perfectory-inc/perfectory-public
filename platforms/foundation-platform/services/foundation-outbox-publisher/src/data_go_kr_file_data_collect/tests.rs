@@ -6,8 +6,9 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{
-    fetch, fetch_standard, openapi_check, pass_id, plan, provider_file_id, read_columns,
-    read_metadata, selected, source_contract, Announced, ContractFile, SourceContract, PREFIX,
+    fetch, fetch_past, fetch_standard, openapi_check, owed_past, pass_id, plan, provider_file_id,
+    read_columns, read_metadata, read_past_editions, selected, source_contract, Announced,
+    ContractFile, SourceContract, PREFIX,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -478,5 +479,125 @@ fn the_column_list_names_the_current_table_or_refuses() -> anyhow::Result<()> {
     )
     .is_err());
     assert!(read_columns("<html>").is_err());
+    Ok(())
+}
+
+/// A synthetic 주기성 과거 데이터 answer: newest first, as the portal lists them, behind a header row.
+fn past_list(rows: &[(&str, &str)]) -> String {
+    let body = rows
+        .iter()
+        .map(|(key, day)| {
+            format!(
+                r##"<tr><td><a href="#layer_data_infomation" class="openFileDetailPopup open-modal" data-public-pk="{key}" data-public-detail-sn="1">합성 파일_20990101</a></td><td>{day}</td></tr>"##
+            )
+        })
+        .collect::<String>();
+    format!("<div><p>미리보기</p><table><thead><tr><th>데이터명</th><th>등록일</th></tr></thead><tbody>{body}</tbody></table></div>")
+}
+
+const PAST_A: &str = "uddi:00000000-0000-4000-8000-00000000000a";
+const PAST_B: &str = "uddi:00000000-0000-4000-8000-00000000000b";
+const PAST_C: &str = "uddi:00000000-0000-4000-8000-00000000000c_209901011200";
+
+#[test]
+fn the_past_edition_list_is_read_oldest_first_and_a_page_that_is_not_it_refuses(
+) -> anyhow::Result<()> {
+    let listed = read_past_editions(&past_list(&[
+        (PAST_C, "2099-03-01"),
+        (PAST_A, "2099-01-01"),
+        (PAST_B, "2099-02-01"),
+    ]))?;
+    assert_eq!(
+        listed
+            .iter()
+            .map(|e| (e.detail_pk.as_str(), e.registered.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (PAST_A, "2099-01-01"),
+            (PAST_B, "2099-02-01"),
+            (PAST_C, "2099-03-01")
+        ]
+    );
+    assert!(read_past_editions("<html><body>점검 중</body></html>").is_err());
+    assert!(read_past_editions(&past_list(&[("../../etc", "2099-01-01")])).is_err());
+    assert!(read_past_editions(&past_list(&[(PAST_A, "")])).is_err());
+    // A run asks what it has not asked, oldest first, up to its cap.
+    let asked: std::collections::BTreeMap<String, String> =
+        [(PAST_A.to_owned(), FILE_ID.to_owned())]
+            .into_iter()
+            .collect();
+    assert_eq!(
+        owed_past(&listed, &asked, 1)
+            .iter()
+            .map(|e| e.detail_pk.as_str())
+            .collect::<Vec<_>>(),
+        [PAST_B]
+    );
+    assert_eq!(owed_past(&listed, &asked, 5).len(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_past_edition_is_asked_by_its_own_key_lands_as_what_arrived_and_a_landed_file_is_not_fetched_again(
+) -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let insurance = file(&contract, "employment_insurance_workplace")?;
+    assert!(insurance.past_editions.is_some());
+    let server = MockServer::start().await;
+    for (key, id) in [(PAST_A, FILE_ID), (PAST_B, OTHER_ID)] {
+        Mock::given(method("GET"))
+            .and(path(contract.metadata.path.clone()))
+            .and(query_param("publicDataDetailPk", key))
+            .respond_with(ResponseTemplate::new(200).set_body_json(metadata(id)))
+            .mount(&server)
+            .await;
+    }
+    // An earlier edition of a zip file that arrives as one CSV.
+    Mock::given(method("GET"))
+        .and(path(contract.download.path.clone()))
+        .and(query_param("atchFileId", FILE_ID))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes("사업장명\n".as_bytes().to_vec()))
+        .mount(&server)
+        .await;
+    let editions = read_past_editions(&past_list(&[
+        (PAST_B, "2099-02-01"),
+        (PAST_A, "2099-01-01"),
+    ]))?;
+    let mut requests = 0;
+    let landed = std::collections::BTreeSet::from([OTHER_ID.to_owned()]);
+    let (announced, bytes) = fetch_past(
+        &contract,
+        insurance,
+        &editions[0],
+        &server.uri(),
+        spacing()?,
+        &mut requests,
+        &landed,
+    )
+    .await?;
+    let bytes = bytes.ok_or_else(|| anyhow::anyhow!("a new edition is fetched"))?;
+    let at =
+        chrono::DateTime::parse_from_rfc3339("2099-01-02T03:04:05Z")?.with_timezone(&chrono::Utc);
+    let run = foundation_shared_kernel::ids::IngestionRunId::new(Uuid::new_v4());
+    let planned = plan(insurance, &announced, bytes, run, at)?;
+    assert_eq!(
+        (planned.object_key.as_str(), planned.content_type.as_str()),
+        (
+            "bronze/source=datagokr__employment_insurance_workplace/employment-insurance-workplace-file-000000000000001.csv",
+            "text/csv"
+        )
+    );
+    let (same, none) = fetch_past(
+        &contract,
+        insurance,
+        &editions[1],
+        &server.uri(),
+        spacing()?,
+        &mut requests,
+        &landed,
+    )
+    .await?;
+    assert_eq!((same.attach_file_id.as_str(), none), (OTHER_ID, None));
+    assert_eq!(requests, 3, "two metadata asks and one download");
     Ok(())
 }
