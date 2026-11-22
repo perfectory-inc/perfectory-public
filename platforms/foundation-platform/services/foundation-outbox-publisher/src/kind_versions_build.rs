@@ -1,6 +1,6 @@
 //! The publisher's one build of a parcel kind's Gold as a table of appended row versions (root
 //! ADR-0564 §3, §6): `build-parcel-register-masters-versions`, `build-parcel-demolitions-versions`,
-//! `build-parcel-energy-versions`. `DuckDB` inside the publisher computes the kind
+//! `build-parcel-energy-versions`, `build-parcel-sub-parcels-versions`. `DuckDB` inside the publisher computes the kind
 //! (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the publisher appends
 //! the keys that changed (`gold_versions_commit`). A new lane is a stage, a [`KindBuild`], a kind line
 //! and a job.
@@ -21,6 +21,7 @@ use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
 use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     building_energy_stage::ENERGY,
+    building_sub_parcel_stage::SUB_PARCELS,
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
     kind_versions_stage::{
         ensure_no_commit_tables, load_region, spool, KindVersionsStage, PARCEL_SOURCE,
@@ -84,6 +85,15 @@ pub(crate) const ENERGY_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_energy",
     job: "build-parcel-energy-versions",
     stage: &ENERGY,
+};
+
+/// Lane 4: the 부속지번, read from both of a link's parcels (root ADR-0399).
+pub(crate) const SUB_PARCELS_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_sub_parcels_versions",
+    lane: "parcel-sub-parcels",
+    replaced: "gold.parcel_sub_parcels",
+    job: "build-parcel-sub-parcels-versions",
+    stage: &SUB_PARCELS,
 };
 
 /// Builds and appends `kind`'s changed keys.
