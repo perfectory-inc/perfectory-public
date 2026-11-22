@@ -305,6 +305,62 @@ impl CommittedInputs {
 #[cfg(test)]
 mod tests;
 
+impl SemanticInputs {
+    /// The provider month of both roles (floor, title).
+    pub(super) const fn provider_months(&self) -> (NaiveDate, NaiveDate) {
+        (self.floor.provider_month, self.title.provider_month)
+    }
+}
+
+impl HistoricalBinding {
+    /// What the history gate authenticates of the witness.
+    pub(super) fn gate_witness(&self) -> anyhow::Result<super::history_gate::Witness> {
+        Ok(super::history_gate::Witness {
+            table_uuid: self.table_uuid,
+            snapshot_id: self.snapshot_id.parse()?,
+            operation: self.operation.clone(),
+            source_snapshot_id: self.source_snapshot_id.clone(),
+            row_count: self.row_count,
+        })
+    }
+
+    pub(super) fn table_name(&self) -> &str {
+        &self.table_name
+    }
+
+    pub(super) fn source_snapshot_id(&self) -> &str {
+        &self.source_snapshot_id
+    }
+
+    pub(super) fn bronze_object_key(&self) -> &str {
+        &self.bronze_object_key
+    }
+
+    pub(super) const fn valid_from_utc(&self) -> DateTime<Utc> {
+        self.valid_from_utc
+    }
+
+    pub(super) const fn ingested_at_utc(&self) -> DateTime<Utc> {
+        self.ingested_at_utc
+    }
+
+    pub(super) const fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
+    pub(super) const fn table_uuid(&self) -> uuid::Uuid {
+        self.table_uuid
+    }
+
+    pub(super) fn snapshot_id(&self) -> &str {
+        &self.snapshot_id
+    }
+
+    pub(super) const fn inputs(&self) -> &SemanticInputs {
+        &self.inputs
+    }
+}
+
 impl HistoricalBinding {
     pub(super) fn validate(&self) -> anyhow::Result<()> {
         use super::history_witness::valid_sha256;
