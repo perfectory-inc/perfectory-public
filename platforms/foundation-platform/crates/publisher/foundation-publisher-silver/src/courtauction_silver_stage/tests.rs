@@ -539,7 +539,8 @@ fn the_search_rows_and_their_offers_are_the_spark_jobs() -> anyhow::Result<()> {
         .iter()
         .map(|column| match column.as_str() {
             "legal_dong_code" => "jibun_code".to_owned(),
-            "road_name_key" => "road_name".to_owned(),
+            // The offer's road key, not the row's raw road name.
+            "road_name_key" => "place_offers.road_name".to_owned(),
             other => other.to_owned(),
         })
         .collect::<Vec<_>>();
