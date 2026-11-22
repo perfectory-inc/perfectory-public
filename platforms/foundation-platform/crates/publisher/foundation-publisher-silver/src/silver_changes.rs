@@ -241,9 +241,10 @@ pub fn changed_editions(
     Ok(u64::try_from(count)?)
 }
 
-/// What a load checks of the rows it appends of one object (the result checks its unit reports to
-/// Dagster, root ADR-0559): how many there are, how many repeat a key of the table's `(…) unique`
-/// quality gate, and how many miss a required column.
+/// The result checks of the rows a load appends of one object (root ADR-0559).
+///
+/// Its unit reports them to Dagster: how many rows there are, how many repeat a key of the table's
+/// `(…) unique` quality gate, and how many miss a required column.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ResultChecks {
     /// The rows.
