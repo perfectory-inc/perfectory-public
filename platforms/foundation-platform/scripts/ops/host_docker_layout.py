@@ -29,9 +29,14 @@ def load_layout(path: pathlib.Path = CONTRACT) -> dict[str, Any]:
     if layout.get("schema_version") != 1:
         raise ValueError(f"{path}: unsupported schema_version {layout.get('schema_version')!r}")
     mount = layout["data_mount"].rstrip("/") + "/"
-    for name in (layout["docker"]["data_root"], layout["containerd"]["root"], layout["spark_tmp"]):
+    for name in (layout["docker"]["data_root"], layout["containerd"]["root"]):
         if not name.startswith(mount):
             raise ValueError(f"{name} is not on the data disk {layout['data_mount']}")
+    # Spark's spill goes to the scratch disk when the host declares one, else to the data disk; never
+    # to the system disk, where it once filled the container layers (root ADR-0478 §3).
+    scratch = (layout.get("scratch_mount") or layout["data_mount"]).rstrip("/") + "/"
+    if not layout["spark_tmp"].startswith(scratch):
+        raise ValueError(f"{layout['spark_tmp']} is not on the scratch disk {scratch.rstrip('/')}")
     return layout
 
 
