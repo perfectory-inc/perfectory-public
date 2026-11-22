@@ -447,6 +447,85 @@ fn an_untagged_shadow_refuses_what_it_cannot_follow() {
     }
 }
 
+/// The steward queue's Spark jobs record their pins under their own properties and tag no build:
+/// the shadow is the replaced table's head, each input at the newest snapshot its history records,
+/// and an input it never named at its head.
+#[test]
+fn a_build_that_records_its_own_pins_is_shadowed_at_its_head() -> anyhow::Result<()> {
+    let queue = &RECORDED_BUILDS[0];
+    let history = [
+        snapshot(
+            40,
+            &[("foundation.place-reference-snapshot.silver.airport", "7")],
+        ),
+        snapshot(
+            30,
+            &[
+                ("foundation.lineage-snapshot-id", "12"),
+                ("foundation.place-reference-snapshot.silver.airport", "6"),
+            ],
+        ),
+        snapshot(20, &[("foundation.lineage-snapshot-id", "11")]),
+    ];
+    let heads = BTreeMap::from([
+        (queue_stage::LINEAGE_SOURCE.to_owned(), 13),
+        ("silver.airport".to_owned(), 8),
+        ("silver.port".to_owned(), 5),
+    ]);
+    let found = recorded_shadow(
+        "gold.lineage_review_queue_versions",
+        "gold.lineage_review_queue",
+        queue,
+        &history,
+        &heads,
+    )?;
+    assert_eq!(
+        (found.replaced.as_str(), found.build),
+        ("gold.lineage_review_queue", 40)
+    );
+    assert_eq!(
+        found.pins,
+        BTreeMap::from([
+            (queue_stage::LINEAGE_SOURCE.to_owned(), 12),
+            ("silver.airport".to_owned(), 7),
+            ("silver.port".to_owned(), 5),
+        ]),
+        "the newest recorded pin of each, and the head of a source never named"
+    );
+    let unrecorded = [snapshot(
+        40,
+        &[("foundation.place-reference-snapshot.silver.airport", "7")],
+    )];
+    let bad = [snapshot(40, &[("foundation.lineage-snapshot-id", "x")])];
+    for (served, history, says) in [
+        ("gold.y", &history[..], "neither"),
+        ("gold.lineage_review_queue", &[][..], "no snapshot"),
+        (
+            "gold.lineage_review_queue",
+            &unrecorded[..],
+            "records no pin",
+        ),
+        (
+            "gold.lineage_review_queue",
+            &bad[..],
+            "records foundation.lineage-snapshot-id=x",
+        ),
+    ] {
+        let error = recorded_shadow(
+            "gold.lineage_review_queue_versions",
+            served,
+            queue,
+            history,
+            &heads,
+        )
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+        assert!(error.contains(says), "{served}: {error}");
+    }
+    Ok(())
+}
+
 fn coverage(counts: &[(&str, u64)]) -> Coverage {
     counts
         .iter()

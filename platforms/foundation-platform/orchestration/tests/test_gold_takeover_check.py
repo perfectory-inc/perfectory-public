@@ -93,7 +93,7 @@ class Declared(unittest.TestCase):
                        for path in sorted((PLATFORM / "definitions").glob("*.definition.json"))]
         for table in ("gold.parcel_sub_parcels_versions", "gold.parcel_boundary_served_versions",
                       "gold.parcel_panel_versions", "gold.unit_price_versions",
-                      "silver.unit_official_price_versions"):
+                      "silver.unit_official_price_versions", "gold.lineage_review_queue_versions"):
             with self.subTest(table=table):
                 self.assertEqual(check.declared(run(table=table), definitions, {}), [(table, "41")])
         # A lane that took its table over shadows nothing and declares the check no more (root ADR-0564 §6-4).

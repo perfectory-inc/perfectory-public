@@ -445,11 +445,12 @@
 
 **판정·전환·끝·되돌리기.**
 
-- **판정.** 판정은 위의 자산 검사 `takeover_equal` 이다(값으로 견주는 둘째 개정 그대로). 지금의 판정 도구(`export-gold-takeover-sides`)는 옛 표의 빌드 태그와 시도를 가진
-  키를 요구하므로 스튜어드 큐에 그대로 돌지 않는다. 그래서 큐의 정의는 아직 그 검사를 선언하지 않고, 그림자 유닛은 판정을 돌리지 않는다. 넘겨받기
-  전에 도구를 넓히는 PR 이 더한다: 빌린 핀과 옛 표 머리의 짝(`shadow_of` 대신), 시도 키가 없는 표의 범위(표 전체 — 2026-11-19 22,068 행, 위 Revision 의
-  시도 거부를 이 표에 한해 고친다), 그리고 큐 정의의 `asset_checks` 한 줄. 견주는 칸은 스탬프(`published_at_utc`)를 뺀 모든
-  칸이다 — 첫 빌드가 짝을 이으므로 `from_snapshot_id`·`to_snapshot_id` 도 견준다. `not equal` 이면 넘기지 않는다.
+- **판정.** 판정은 위의 자산 검사 `takeover_equal` 이다(값으로 견주는 둘째 개정 그대로, 시도 41). 큐의 옛 표는 빌드 태그 없이
+  입력 핀을 자기 속성으로 적으므로, 그림자의 짝은 공통 `shadow_of` 의 셋째 종류(`RECORDED_BUILDS`: 옛 표 머리, 기록된 가장 새 핀, 이름이
+  없는 원천은 머리)다 — 빌드와 판정이 같은 규칙을 쓴다. 시도 칸은 `subject_code` 다: parcel unit 의 항목은 PNU 라 시도 41 의 항목을
+  행마다 견주고, place_reference 항목(`source|reason|code`)은 어느 시도에도 들지 않아 전국 집계(행 수·키·내용의 합)로 견준다.
+  견주는 칸은 스탬프(`published_at_utc`)를 뺀 모든 칸이다 — 첫 빌드가 짝을 이으므로 `from_snapshot_id`·`to_snapshot_id` 도 견준다.
+  `not equal` 이면 넘기지 않는다.
 - **전환(넘겨받기 PR).** 스튜어드 순환(`lineage-stewardship-cycle.sh`)이 Spark 두 단계 대신 이 표를 쓰는 명령을 부르고, 그 명령이 unit 마다 넘김
   파일(`lineage_review_queue.handoff_document` 의 모양, `stewardship_domain::handoff` 가 읽는 것)을 현재 행에서 쓴다. 같은 PR 이 그림자 핀과 첫
   빌드의 이어받기(`one-off` 표시)를 지우고 입력의 머리로 돌린다. 지우는 것: `lineage_review_queue_to_gold.py`·`place_reference_queue_to_gold.py` 와

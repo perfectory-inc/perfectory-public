@@ -21,17 +21,28 @@ pub(super) const JSON_SUFFIX: &str = "_json";
 
 /// The predicate that keeps exactly the rows whose `column` begins with `prefix` (or is `prefix`,
 /// when shorter): a range, so `DuckDB` skips the files outside it, and the prefix itself, so a
-/// shorter code (a 시도's own row) is read once.
+/// shorter code (a 시도's own row) is read once. A prefix that is not a code (the steward queue's
+/// place reference items, `silver.<source>|…`) is bounded by its last character's successor.
 pub(super) fn prefix_filter(column: &str, prefix: &str) -> anyhow::Result<String> {
     ensure!(
-        !prefix.is_empty() && prefix.bytes().all(|byte| byte.is_ascii_digit()),
-        "the prefix {prefix:?} is not digits"
+        !prefix.is_empty()
+            && prefix
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric()
+                    || matches!(byte, b'.' | b'_' | b'|' | b'-')),
+        "the prefix {prefix:?} is neither a code nor a name"
     );
-    let number: u64 = prefix.parse()?;
-    let next = format!("{:0width$}", number + 1, width = prefix.len());
-    let upper = if next.len() > prefix.len() {
-        String::new()
+    let upper = if prefix.bytes().all(|byte| byte.is_ascii_digit()) {
+        let number: u64 = prefix.parse()?;
+        let next = format!("{:0width$}", number + 1, width = prefix.len());
+        if next.len() > prefix.len() {
+            String::new()
+        } else {
+            format!(" AND {column} < '{next}'")
+        }
     } else {
+        let (last, head) = prefix.as_bytes().split_last().context("an empty prefix")?;
+        let next = format!("{}{}", String::from_utf8_lossy(head), char::from(last + 1));
         format!(" AND {column} < '{next}'")
     };
     Ok(format!(
@@ -239,7 +250,11 @@ mod tests {
             prefix_filter("pnu", "99999")?,
             "(pnu >= '99999' AND substr(pnu, 1, 5) = '99999')"
         );
-        for bad in ["", "4'", "ab"] {
+        assert_eq!(
+            prefix_filter("subject_code", "silve")?,
+            "(subject_code >= 'silve' AND subject_code < 'silvf' AND substr(subject_code, 1, 5) = 'silve')"
+        );
+        for bad in ["", "4'", "a b", "가"] {
             assert!(prefix_filter("pnu", bad).is_err(), "{bad:?} was taken");
         }
         Ok(())

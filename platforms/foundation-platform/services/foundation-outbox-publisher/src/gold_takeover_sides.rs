@@ -68,10 +68,11 @@ const BUILD_STAMPS: &[(&str, &[&str])] = &[
 const DIGEST: &str = "row_digest";
 /// The 시도 compared when the verdict names none: 경기도, the largest (ADR-0559's measurements).
 pub(crate) const DEFAULT_SIDO: &str = "41";
-/// The key columns a 시도 is read from, in order: the first two begin with the 시도 code (a PNU; a
-/// region code of every level the region stats hold, `legal_dong` and `sigungu`), the third is it
-/// (the place-id release's `scope`: a 시도 code, or `national` for the admin unit).
-const SIDO_COLUMNS: [&str; 3] = ["pnu", "region_code", "scope"];
+/// The key columns a 시도 is read from, in order: the first three begin with the 시도 code (a PNU; a
+/// region code of every level the region stats hold, `legal_dong` and `sigungu`; the steward queue's
+/// `subject_code`, a PNU for the parcel unit, while a place reference item's `source|reason|code` is
+/// of no 시도), the fourth is it (the place-id release's `scope`: a 시도 code, or `national`).
+const SIDO_COLUMNS: [&str; 4] = ["pnu", "region_code", "subject_code", "scope"];
 /// The id a region labelled by `scope` is cut by when a side is read ([`values::Parts::Labelled`]).
 const LABELLED_ID: &str = "place_id";
 
@@ -711,11 +712,11 @@ mod tests {
         let columns = ["pnu", "v_json"];
         let count = |table: &str| -> anyhow::Result<SideCounts> {
             let side = |filter: &str| format!("SELECT pnu, v_json FROM {table} WHERE {filter}");
-            let prefixes = values::prefixes(&connection, &[table], "pnu")?;
+            let prefixes = values::prefixes(&connection, &[table], values::Parts::Code("pnu"))?;
             let pass = values::pass(
                 &connection,
                 &side,
-                "pnu",
+                values::Parts::Code("pnu"),
                 &prefixes,
                 &columns,
                 "99",
