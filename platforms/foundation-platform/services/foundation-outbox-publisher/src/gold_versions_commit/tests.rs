@@ -540,6 +540,7 @@ fn a_build_diffed_range_by_range_appends_and_counts_what_one_diff_does() -> anyh
             pins: BTreeMap::new(),
             code_version: "c".to_owned(),
             served_edition: None,
+            as_of: None,
             current_records: 3,
             fingerprint: (3, 1 + 2 + 3),
         }),
