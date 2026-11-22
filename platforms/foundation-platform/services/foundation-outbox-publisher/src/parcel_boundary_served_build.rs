@@ -594,7 +594,7 @@ fn build_every_sido(
         let part = versions::diff(connection, commit, &range)?;
         digests += versions::digests(connection, commit)?;
         if let Some(shape) = shape.filter(|_| part.keys() > 0) {
-            staged.extend(versions::stage(stage, shape, run, "pnu")?);
+            staged.extend(versions::stage(stage, shape, run, commit.versions)?);
         }
         if let Some(handoff) = handoff.as_mut() {
             write_parts(
@@ -851,7 +851,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         table: TABLE,
         versions: versions_contract,
         content_columns,
-        key: "pnu",
         head,
         base: base.clone(),
         version_seq,
@@ -870,7 +869,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         connection.execute_batch(&build_fold_sql(list, &silver_snapshot, through, &now)?)?;
         let diff = versions::diff(connection, &commit, &format!("pnu IN ({list})"))?;
         if let Some(shape) = versions_shape.as_ref().filter(|_| diff.keys() > 0) {
-            staged.extend(versions::stage(&stage, shape, &run, "pnu")?);
+            staged.extend(versions::stage(&stage, shape, &run, versions_contract)?);
         }
         (diff, versions::digests(connection, &commit)?)
     } else {
@@ -1163,7 +1162,6 @@ pub(crate) async fn run_shadow() -> anyhow::Result<()> {
         table: TABLE,
         versions: versions_contract,
         content_columns,
-        key: "pnu",
         head,
         base,
         version_seq,

@@ -507,7 +507,6 @@ fn a_build_diffed_range_by_range_appends_and_counts_what_one_diff_does() -> anyh
         table: "gold.parcel_real_transaction_versions",
         versions: &versions,
         content_columns: content.clone(),
-        key: "pnu",
         head: Some(1),
         base: Some(Base {
             snapshot_id: 1,
