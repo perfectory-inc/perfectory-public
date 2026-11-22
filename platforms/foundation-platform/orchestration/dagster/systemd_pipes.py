@@ -148,6 +148,32 @@ class SystemdRun:
                 for key, reported in keys.items()]
 
 
+    def check_evaluations(self, asset_keys, reported):
+        """The asset check evaluations the journal reported (`report_asset_check`), as the op logs them
+        (Dagster lets an op log an evaluation outside an asset context). Only a check `reported` names
+        on one of the run's outputs is taken, so a run never judges a dataset it does not write or a
+        check its unit does not own; a run that withholds its events reports none."""
+        from dagster import AssetCheckEvaluation, AssetCheckSeverity, AssetKey
+
+        if self.outcome in job_specs.WITHHOLDS_EVENTS:
+            return []
+        outputs = {AssetKey(list(key.path)) for key in asset_keys}
+        found = []
+        for message in self.messages:
+            if message.get("method") != "report_asset_check":
+                continue
+            params = message.get("params") or {}
+            key = AssetKey.from_user_string(params.get("asset_key") or "")
+            name = params.get("check_name") or ""
+            if key not in outputs or (key, name) not in reported:
+                raise Failure(f"{self.job_id} reported check {name!r} on {key.to_user_string()}, "
+                              "which is not a check its unit owns on a dataset it writes")
+            severity = AssetCheckSeverity(params.get("severity") or "ERROR")
+            found.append(AssetCheckEvaluation(
+                asset_key=key, check_name=name, passed=bool(params.get("passed")), severity=severity,
+                metadata={field: (entry or {}).get("raw_value") for field, entry in (params.get("metadata") or {}).items()}))
+        return found
+
 class SubprocessForcedCommand:
     """The forced command as a local argv, its request the last argument: the tests' stand-in for
     the host (run_jobs.ForcedCommand reaches the real one over SSH)."""

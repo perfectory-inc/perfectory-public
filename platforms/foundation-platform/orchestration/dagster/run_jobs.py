@@ -169,6 +169,9 @@ def run_job(spec, transport=None, lineage_client=None):
         context.instance.add_run_tags(context.run_id, tags)
         for materialization in result.materializations(keys):
             context.log_event(materialization)
+        # After the materializations: a check the unit reported judges the commit it just made.
+        for evaluation in result.check_evaluations(keys, reported_checks(keys)):
+            context.log_event(evaluation)
 
     def runs_the_unit():
         run.alias("run")()
@@ -177,6 +180,19 @@ def run_job(spec, transport=None, lineage_client=None):
     return job(name=spec.dagster_job, tags={key: value for key, value in spec.dagster_tags().items()
                                              if key != job_specs.RUN_KIND_TAG},
                description=spec.description)(runs_the_unit)
+
+
+def reported_checks(keys, graph=None):
+    """(asset key, check name) of every declared check on `keys` that the job's unit reports itself
+    (takeover_checks.REPORTED): what systemd_pipes.SystemdRun.check_evaluations takes from the journal."""
+    import asset_checks
+    import takeover_checks
+
+    if graph is None:
+        graph = observe_assets.contracts()[1]
+    wanted = {key for key in keys}
+    return {(item.key(), item.check) for item in asset_checks.declared(graph)
+            if item.check in takeover_checks.REPORTED and item.key() in wanted}
 
 
 def run_jobs(jobs=None, graph=None, transport=None, lineage_client=None):

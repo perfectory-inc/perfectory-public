@@ -427,5 +427,16 @@
         }
       ]
     }
+  ],
+  "asset_checks": [
+    {
+      "asset": "gold-parcel-register-masters-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-parcel-register-masters"
+      ]
+    }
   ]
 }

@@ -218,6 +218,42 @@ class AJobDagsterRunsTest(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(materialized, {})
 
+    def shadow_build(self):
+        """The lane-1 shadow build: its output carries the declared `takeover_equal` check."""
+        import observe_assets
+
+        return next(spec for spec in observe_assets.job_specs.load_specs()
+                    if spec.job_id == "gold_parcel_register_masters_versions_build")
+
+    def check_line(self, asset_key, check_name="takeover_equal", passed=False):
+        return pipes_line("report_asset_check", {
+            "asset_key": asset_key, "check_name": check_name, "passed": passed, "severity": "ERROR",
+            "metadata": {"outcome": {"raw_value": "not equal", "type": "__infer__"}}})
+
+    def test_a_shadow_build_logs_the_takeover_verdict_its_unit_reported(self):
+        # Root ADR-0564 §6-3: the unit judges its own shadow commit; the op logs that as the check.
+        spec = self.shadow_build()
+        result, tags, materialized, _ = self.execute(spec, [
+            self.check_line("iceberg/gold/parcel_register_masters_versions"), "foundation-job-outcome changed"])
+        self.assertTrue(result.success)
+        self.assertEqual(tags["foundation/job-outcome"], "changed")
+        evaluations = [event.event_specific_data for event in result.all_events
+                       if event.event_type_value == "ASSET_CHECK_EVALUATION"]
+        self.assertEqual([(evaluation.asset_key.to_user_string(), evaluation.check_name, evaluation.passed)
+                          for evaluation in evaluations],
+                         [("iceberg/gold/parcel_register_masters_versions", "takeover_equal", False)])
+        self.assertEqual(evaluations[0].metadata["outcome"].value, "not equal")
+        self.assertIn(evaluations[0].asset_key, materialized, "the commit it judged is materialized too")
+
+    def test_a_run_never_judges_a_check_its_unit_does_not_own(self):
+        for spec, line in (
+                (self.shadow_build(), self.check_line("iceberg/gold/parcel_register_masters_versions", "rows_valid_per_sido")),
+                (self.shadow_build(), self.check_line("iceberg/gold/parcel_register_masters", passed=True)),
+                (self.spec(), self.check_line(self.spec().outputs and "iceberg/" + self.spec().outputs[0][1].replace(".", "/")))):
+            with self.subTest(line=line):
+                result, _, _, _ = self.execute(spec, [line, "foundation-job-outcome changed"])
+                self.assertFalse(result.success)
+
     def decided_by_dagster(self):
         """A Silver refresh with a check, as if Dagster decided it (no job is at `dagster` yet)."""
         import observe_assets

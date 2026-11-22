@@ -353,3 +353,7 @@
 - **기록.** `verdict.json` 에 `scope`(시도, 시도의 행 수, 전국 행 수, 집계 검사)가 붙는다. 넘겨받기 PR 은 그것을 싣는다.
 - **전환.** 결정 6-5 의 전량 굽기는 그대로다: 판정한 빌드 쌍에서 구운 문서가 옛 세대와 다르면 발행하지 않는다(위 Revision 의 전환 내용 검사).
   전환이 없는 표(결정 6-9)는 위 집계가 전국의 검사다.
+- **판정은 Dagster 의 자산 검사다(같은 날 덧붙임).** 레인의 정의가 그림자 `_versions` 자산에 막는 검사 `takeover_equal` 을 시도와 함께 선언한다
+  (`asset_checks`, `sido` 기본 `41`). 그림자 빌드의 유닛(`gold-versions-build.sh`)이 그림자 커밋 바로 뒤에 같은 유닛의 키·풀로 판정을 돌리고,
+  결과(시도의 대조 수·집계 검사)를 journal 의 Pipes 줄로 알리면 유닛을 돌린 op 가 그 검사의 평가로 남긴다(`orchestration/dagster/takeover_checks.py`,
+  `systemd_pipes.SystemdRun.check_evaluations`). 사람의 호출·호스트 슬롯은 없다. 넘겨받기 PR 은 통과한 평가의 run 을 인용한다.

@@ -5,7 +5,11 @@
 # shadow `gold.<x>_versions` built (DuckDB) the rows of the served `gold.<x>` build (Spark) whose
 # input pins it read?
 #
-#   gold-takeover-verdict.sh <versions table> [시도]   e.g. gold.parcel_nearby_versions 41
+#   gold-takeover-verdict.sh <versions table> <시도> <work directory>
+#
+# The shadow build's unit runs it after each shadow commit, in its own environment and pool, and
+# reports the outcome as the asset check `takeover_equal` (gold-versions-build.sh,
+# orchestration/dagster/takeover_checks.py); the 시도 is the one the check's declaration names.
 #
 # The rows compared are one 시도's (two digits; default 41, 경기도, the largest; the lane's owner names
 # another when a verdict or a switch's content check found a difference in it before). The whole table
@@ -16,8 +20,10 @@
 # 1 when not, 3 when a national check fails, any other code on an error of the run (an empty 시도 is
 # one); verdict.json, which names the 시도 and carries the national checks, is the record.
 set -euo pipefail
-table="${1:?usage: gold-takeover-verdict.sh <gold.<x>_versions> [시도]}"
-sido="${2:-41}"
+usage='usage: gold-takeover-verdict.sh <gold.<x>_versions> <시도> <work directory>'
+table="${1:?${usage}}"
+sido="${2:?${usage}}"
+work="${3:?${usage}}"
 [[ "${table}" =~ ^gold\.[a-z0-9_]+_versions$ ]] || {
   echo "gold-takeover-verdict: ${table} is not a versions table (gold.<x>_versions)" >&2
   exit 64
@@ -28,7 +34,7 @@ sido="${2:-41}"
 }
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 
-work="/data/foundation-platform/gold-takeover/${table}/${sido}-$(date -u +%Y%m%dT%H%M%SZ)"
+# The caller's work directory (the build's run directory, on the SSD the unit's state lives on).
 mkdir -p "${work}/spill"
 export FOUNDATION_PLATFORM_GOLD_TAKEOVER_TABLE="${table}"
 export FOUNDATION_PLATFORM_GOLD_TAKEOVER_SIDO="${sido}"
