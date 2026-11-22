@@ -15,6 +15,7 @@
 //! The Silver load (`load-industrial-land-sale-notice-silver`) turns the lines into the read record
 //! and the attachment index. Nothing inside a notice or a file is read here (root ADR-0484 §1).
 
+mod factoryon;
 mod ilis;
 mod kicox;
 mod lh;
@@ -52,7 +53,7 @@ use crate::bronze_object_storage::{
     BronzeObjectStorageWriter,
 };
 use crate::industrial_complex_notice_collect::{
-    gzip_lines, media_prefix, store_attachment, AttachmentReport, Stop, StoreOutcome,
+    gzip_lines, media_prefix, store_attachment, AttachmentReport, StoreOutcome,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value};
@@ -100,6 +101,7 @@ pub(crate) fn lane_contract() -> anyhow::Result<LaneContract> {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Source {
+    Factoryon,
     Ilis,
     Kicox,
     Lh,
@@ -108,15 +110,17 @@ pub(crate) enum Source {
 impl Source {
     pub(crate) fn parse(value: &str) -> anyhow::Result<Self> {
         match value.trim() {
+            "factoryon" => Ok(Self::Factoryon),
             "ilis" => Ok(Self::Ilis),
             "kicox" => Ok(Self::Kicox),
             "lh" => Ok(Self::Lh),
-            other => bail!("{PREFIX}_SOURCE is {other:?}; one of ilis, kicox, lh"),
+            other => bail!("{PREFIX}_SOURCE is {other:?}; one of factoryon, ilis, kicox, lh"),
         }
     }
 
     pub(crate) const fn name(self) -> &'static str {
         match self {
+            Self::Factoryon => "factoryon",
             Self::Ilis => "ilis",
             Self::Kicox => "kicox",
             Self::Lh => "lh",
@@ -145,6 +149,39 @@ impl LaneContract {
                 source.name()
             )
         })
+    }
+
+    /// A source's own value of a lane setting, or the lane's (Factory-on is asked slower, longer
+    /// and never walked whole again, root ADR-0603 §8).
+    fn own_u64(&self, source: Source, field: &str, lane: u64) -> anyhow::Result<u64> {
+        Ok(self.source_json(source)?[field].as_u64().unwrap_or(lane))
+    }
+
+    pub(crate) fn spacing_ms(&self, source: Source) -> anyhow::Result<u64> {
+        self.own_u64(source, "request_spacing_ms", self.request_spacing_ms)
+    }
+
+    pub(crate) fn run_limit(&self, source: Source) -> anyhow::Result<usize> {
+        Ok(usize::try_from(self.own_u64(
+            source,
+            "per_run_limit",
+            self.per_run_limit as u64,
+        )?)?)
+    }
+
+    pub(crate) fn budget_seconds(&self, source: Source) -> anyhow::Result<u64> {
+        self.own_u64(
+            source,
+            "run_time_budget_seconds",
+            self.run_time_budget_seconds,
+        )
+    }
+
+    /// Whether the daily full walk is the source's (`full_walk`, default yes).
+    pub(crate) fn walks_whole(&self, source: Source) -> anyhow::Result<bool> {
+        Ok(self.source_json(source)?["full_walk"]
+            .as_bool()
+            .unwrap_or(true))
     }
 
     /// How many list pages a run walks at least (the recent window a provider changes most).
@@ -204,7 +241,7 @@ pub(crate) fn base_url_of(source: &JsonValue) -> anyhow::Result<String> {
 pub(crate) const fn auth_of(source: Source) -> SourceAuthKind {
     match source {
         Source::Lh => SourceAuthKind::ServiceKey,
-        Source::Ilis | Source::Kicox => SourceAuthKind::NoAuth,
+        Source::Factoryon | Source::Ilis | Source::Kicox => SourceAuthKind::NoAuth,
     }
 }
 
@@ -293,6 +330,32 @@ pub(crate) struct Detail {
     pub(crate) files: Vec<FileRef>,
 }
 
+/// The provider refused the collector or answered a page that is not the one asked for (a 4xx,
+/// 429 or a block page; Factory-on's client answers so): the run commits what it read, asks
+/// nothing more and fails, so it is seen (root ADR-0603 §8).
+#[derive(Debug)]
+pub(crate) struct Blocked(pub(crate) String);
+
+impl std::fmt::Display for Blocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Blocked {}
+
+/// Why a run ended before its list did, if it did.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Stop {
+    /// `run_time_budget_seconds` passed; the next run continues.
+    TimeBudget,
+    /// `stop_after_consecutive_failures` details failed in a row, or a later list page failed.
+    SiteFailing,
+    /// The provider refused the collector ([`Blocked`]): the run fails.
+    Blocked,
+}
+
 /// What a download came to.
 pub(crate) enum Downloaded {
     Bytes(Vec<u8>),
@@ -302,6 +365,7 @@ pub(crate) enum Downloaded {
 
 /// The client of one source.
 pub(crate) enum SourceClient {
+    Factoryon(Box<factoryon::Factoryon>),
     Ilis(Box<ilis::Ilis>),
     Kicox(Box<kicox::Kicox>),
     Lh(Box<lh::Lh>),
@@ -310,6 +374,7 @@ pub(crate) enum SourceClient {
 impl SourceClient {
     async fn page(&mut self, page_no: u32) -> anyhow::Result<(ListPage, Option<Vec<u8>>)> {
         match self {
+            Self::Factoryon(client) => client.page(page_no).await.map(|page| (page, None)),
             Self::Ilis(client) => client.page(page_no).await,
             Self::Kicox(client) => client.page(page_no).await.map(|page| (page, None)),
             Self::Lh(client) => client.page(page_no).await,
@@ -318,6 +383,7 @@ impl SourceClient {
 
     async fn detail(&mut self, listed: &Listed) -> anyhow::Result<DetailRead> {
         match self {
+            Self::Factoryon(client) => client.detail(listed).await,
             Self::Ilis(client) => client.detail(listed).await,
             Self::Kicox(client) => client.detail(listed).await,
             Self::Lh(client) => client.detail(listed).await,
@@ -326,6 +392,7 @@ impl SourceClient {
 
     async fn download(&mut self, request: &FileRequest) -> anyhow::Result<Downloaded> {
         match self {
+            Self::Factoryon(client) => client.download(request).await,
             Self::Ilis(client) => client.download(request).await,
             Self::Kicox(client) => client.download(request).await,
             Self::Lh(client) => client.download(request).await,
@@ -510,8 +577,11 @@ async fn read_notice(
                 ),
             ));
         }
-        // The provider refused the lane itself: no read is written, the run ends (78).
-        Err(error) if error.downcast_ref::<lh::Refused>().is_some() => return Err(error),
+        // The provider refused the lane itself: no read is written, the run ends (78 for LH, a
+        // failure for a blocked source).
+        Err(error) if error.downcast_ref::<lh::Refused>().is_some() || is_blocked(&error) => {
+            return Err(error);
+        }
         Err(error) => {
             return Ok((
                 ReadOutcome::Failed,
@@ -581,6 +651,7 @@ async fn read_attachment(
     let fetched_at = Utc::now();
     let bytes = match asker.client.download(request).await {
         Ok(Downloaded::Bytes(bytes)) => bytes,
+        Err(error) if is_blocked(&error) => return Err(error),
         Ok(Downloaded::Gone(status)) => {
             report.gone += 1;
             file["http_status"] = json!(status);
@@ -856,6 +927,7 @@ impl Config {
 fn client_for(contract: &LaneContract, source: Source) -> anyhow::Result<SourceClient> {
     let json = contract.source_json(source)?;
     Ok(match source {
+        Source::Factoryon => SourceClient::Factoryon(Box::new(factoryon::Factoryon::new(json)?)),
         Source::Ilis => SourceClient::Ilis(Box::new(ilis::Ilis::new(json)?)),
         Source::Kicox => SourceClient::Kicox(Box::new(kicox::Kicox::new(json)?)),
         Source::Lh => SourceClient::Lh(Box::new(lh::Lh::new(json, Utc::now().date_naive())?)),
@@ -885,15 +957,17 @@ pub async fn run() -> anyhow::Result<()> {
     let fields = contract.fingerprint_fields(source)?;
     let prefix = media_prefix(&contract.attachments.object_prefix_from)?;
     let spacing = ProviderRequestSpacing::try_new(
-        Duration::from_millis(contract.request_spacing_ms).max(MIN_REQUEST_SPACING),
+        Duration::from_millis(contract.spacing_ms(source)?).max(MIN_REQUEST_SPACING),
     )?;
     let started_at = Utc::now();
-    let deadline = Instant::now() + Duration::from_secs(contract.run_time_budget_seconds);
+    let deadline = Instant::now() + Duration::from_secs(contract.budget_seconds(source)?);
+    let per_run_limit = contract.run_limit(source)?;
     let recent_pages = contract.recent_pages(source)?;
     let keeps_list = contract.keeps_list(source)?;
     // Once a day the whole list is walked, so a change the provider makes deep in its list is seen
     // (a run of the other hours walks the recent pages and the backlog).
-    let full_walk = started_at.hour() == contract.full_walk_hour_utc;
+    let full_walk =
+        contract.walks_whole(source)? && started_at.hour() == contract.full_walk_hour_utc;
     let last = last_reads_from_lakehouse(&contract, source).await?;
     let settled_before = last.values().filter(|read| read.settled).count();
 
@@ -940,6 +1014,7 @@ pub async fn run() -> anyhow::Result<()> {
     let mut listed_total = None;
     let mut pages = 0_u32;
     let mut asked_ever: HashSet<String> = last.keys().cloned().collect();
+    let mut blocked = None;
     'walk: for page_no in 1_u32.. {
         if Instant::now() >= deadline {
             stop = Some(Stop::TimeBudget);
@@ -948,6 +1023,11 @@ pub async fn run() -> anyhow::Result<()> {
         asker.pace().await;
         let (page, raw_list) = match asker.client.page(page_no).await {
             Ok(page) => page,
+            Err(error) if is_blocked(&error) => {
+                blocked = Some(format!("{error:#}"));
+                stop = Some(Stop::Blocked);
+                break;
+            }
             Err(error) => {
                 // A refusal, or the first page failing, ends the run: nothing to walk.
                 if refused(&error) || page_no == 1 {
@@ -990,7 +1070,7 @@ pub async fn run() -> anyhow::Result<()> {
                 continue;
             }
             owed_here += 1;
-            if asked >= contract.per_run_limit {
+            if asked >= per_run_limit {
                 break 'walk;
             }
             if Instant::now() >= deadline {
@@ -1007,11 +1087,19 @@ pub async fn run() -> anyhow::Result<()> {
                 prefix: &prefix,
                 storage: storage_of(&live),
             };
-            let (outcome, line) = read_notice(&run, &mut asker, listed, &print, &mut report)
-                .await
-                .inspect_err(|error| {
-                    refused(error);
-                })?;
+            let (outcome, line) =
+                match read_notice(&run, &mut asker, listed, &print, &mut report).await {
+                    Ok(read) => read,
+                    Err(error) if is_blocked(&error) => {
+                        blocked = Some(format!("{error:#}"));
+                        stop = Some(Stop::Blocked);
+                        break 'walk;
+                    }
+                    Err(error) => {
+                        refused(&error);
+                        return Err(error);
+                    }
+                };
             asked += 1;
             asked_ever.insert(listed.id.clone());
             consecutive_failures = if outcome == ReadOutcome::Failed {
@@ -1074,6 +1162,7 @@ pub async fn run() -> anyhow::Result<()> {
         "attachments": report,
         "requests_sent": asker.requests,
         "stopped": stop,
+        "blocked": blocked,
         "objects": objects,
         "list_objects": list_objects
             .iter()
@@ -1081,6 +1170,12 @@ pub async fn run() -> anyhow::Result<()> {
             .collect::<Vec<_>>(),
     });
     println!("industrial-land-sale-notice-summary-json {summary}");
+    if let Some(reason) = blocked {
+        bail!(
+            "{} refused the collector ({reason}): stopped at once, nothing more asked (root ADR-0603 §8)",
+            common.provider
+        );
+    }
     let failed = counts.get("failed").copied().unwrap_or(0);
     if asked > 0 && failed == asked as u64 {
         bail!("every one of the {asked} notice details asked failed: the site is not answering");
@@ -1094,6 +1189,11 @@ pub async fn run() -> anyhow::Result<()> {
         }
     );
     Ok(())
+}
+
+/// Whether `error` is a source refusing the collector ([`Blocked`]).
+fn is_blocked(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<Blocked>().is_some()
 }
 
 /// Whether `error` is the provider refusing the lane itself; if so the run prints the marker its

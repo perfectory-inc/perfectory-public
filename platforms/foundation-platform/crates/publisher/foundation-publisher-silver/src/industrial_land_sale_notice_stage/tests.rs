@@ -150,6 +150,7 @@ fn the_load_reads_one_detail_source_per_source_of_the_lane() -> anyhow::Result<(
     assert_eq!(
         detail_source_slugs()?,
         [
+            "factoryongokr__industrial_land_sale_notice_detail",
             "industrylandorkr__industrial_land_sale_notice_detail",
             "kicoxorkr__industrial_land_sale_notice_detail",
             "datagokr__lh_land_notice_detail",
@@ -192,8 +193,8 @@ fn a_plan_is_read_oldest_run_first_and_refuses_what_is_not_this_loads() -> anyho
     };
     let entry = |slug: &str, run: &str, local: &str| serde_json::json!({"object_key": key(slug, run), "source_slug": slug, "local_path": local});
     write(serde_json::json!([
-        entry(&slugs[1], "20990103t000000z", "objects/b.gz"),
-        entry(&slugs[0], "20990102t000000z", "objects/a.gz"),
+        entry(&slugs[2], "20990103t000000z", "objects/b.gz"),
+        entry(&slugs[1], "20990102t000000z", "objects/a.gz"),
     ]))?;
     let objects = planned_objects(root.path(), &slugs)?;
     assert_eq!(

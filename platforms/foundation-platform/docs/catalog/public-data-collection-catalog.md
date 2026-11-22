@@ -22,10 +22,10 @@ last_reviewed: 2026-07-30
 
 ## 현재 카탈로그 규모
 
-- 엔드포인트 정의: **180개**
+- 엔드포인트 정의: **181개**
 - 고유 dataset slug: **156개**
-- 고유 Bronze source slug: **178개**
-- 국가 수집 허용 endpoint: **142개**
+- 고유 Bronze source slug: **179개**
+- 국가 수집 허용 endpoint: **143개**
 - 기본 실행 레인에 포함되는 endpoint: **83개**
 
 ## 제공기관별 정리
@@ -35,6 +35,7 @@ last_reviewed: 2026-07-30
 | code.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
 | courtauction.go.kr | 13 | 13 | 0 | 전용 커맨드 13 |
 | data.go.kr | 49 | 26 | 0 | API 예정 11, 전용 커맨드 16, 중복 API 비활성 22 |
+| factoryon.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
 | industryland.or.kr | 6 | 5 | 0 | 전용 커맨드 6 |
 | juso.go.kr | 12 | 0 | 0 | 수동 승인 12 |
@@ -60,7 +61,7 @@ last_reviewed: 2026-07-30
 | `data_go_kr_file_data` | 16 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
 | `ilis` | 1 | industryland.or.kr 산업단지 고시 상세·첨부 (root ADR-0484) |
 | `ilis_address` | 3 | industryland.or.kr 산업단지 목록·고시 목록·상세 (주소 해소 출처) |
-| `industrial_land_sale_notice` | 6 | 산업용지 분양공고: ILIS 분양공고·한국산업단지공단 게시판·LH 토지 공고와 그 첨부 (root ADR-0603) |
+| `industrial_land_sale_notice` | 7 | 산업용지 분양공고: ILIS 분양공고·한국산업단지공단 게시판·LH 토지 공고와 그 첨부 (root ADR-0603) |
 | `juso_electronic_map_bulk` | 12 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
 | `onbid_open_api` | 7 | data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280) |
@@ -158,6 +159,7 @@ last_reviewed: 2026-07-30
 | data.go.kr | 부동산 실거래 | 단독다가구 전월세 실거래가 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 부동산 실거래 | 단독다가구 매매 실거래가 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 부동산 실거래 | 아파트 분양권전매 실거래가 | 중복 API | false | 중복 API 비활성 |
+| factoryon.go.kr | 산업용지 분양공고 | 공장설립온라인 분양 및 처분신청 공고·첨부 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 건물 전기 사용량 파일 | bulk_file | true | 기본 실행 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 지번별에너지(전기,연도별) | 제공기관 목록 없음 | false | 제공기관 목록 없음 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 지번별에너지(가스,연도별) | 제공기관 목록 없음 | false | 제공기관 목록 없음 |

@@ -2,7 +2,7 @@
 # 산업용지 분양공고의 Silver 적재 절반 (root ADR-0603). 등록된 작업 industrial_land_sale_notice_silver 가 수집 실행이
 # Bronze 를 바꿨다고 알리면, 그리고 일정마다 돌린다. Spark 는 쓰지 않는다.
 #
-# 쌓을 것은 R2 만 보고 정한다. plan-silver-load-objects 가 세 원천(ILIS·한국산업단지공단·LH)의 상세 Bronze 접두어를
+# 쌓을 것은 R2 만 보고 정한다. plan-silver-load-objects 가 네 원천(공장설립온라인·ILIS·한국산업단지공단·LH)의 상세 Bronze 접두어를
 # 나열하고, 읽은 기록 표(silver.industrial_land_sale_notice_read)의 커밋 요약이 이미 기록한 객체를 빼고, 남은 것을
 # 오래된 것부터 계약(industrial-land-sale-notice.contract.json silver_load)의 범위 안에서 이 실행의 폴더로 받는다.
 # 발행기의 load-industrial-land-sale-notice-silver 가 객체마다(발행기 안의 DuckDB 가 행을 만들고 발행기가 Iceberg 추가

@@ -7,12 +7,14 @@ use chrono::TimeZone;
 use serde_json::{json, Map, Value as JsonValue};
 
 use super::{
-    batch_file_id, fingerprint, ilis, kicox, lane_contract, last_reads, lh, list_file_id, owes,
-    plan, walk_done, FileRequest, Listed, Source,
+    batch_file_id, factoryon, fingerprint, ilis, kicox, lane_contract, last_reads, lh,
+    list_file_id, owes, plan, walk_done, Blocked, FileRequest, Listed, Source,
 };
 
 const KICOX_LIST: &str = include_str!("fixtures/kicox_list.html");
 const KICOX_POST: &str = include_str!("fixtures/kicox_post.html");
+const FACTORYON_LIST: &str = include_str!("fixtures/factoryon_list.html");
+const FACTORYON_POST: &str = include_str!("fixtures/factoryon_post.html");
 
 fn row(value: JsonValue) -> anyhow::Result<Map<String, JsonValue>> {
     value.as_object().cloned().context("a row is an object")
@@ -27,16 +29,29 @@ fn source_rules<T: serde::de::DeserializeOwned>(source: Source) -> anyhow::Resul
 #[test]
 fn every_source_of_the_lane_contract_parses_into_its_client() -> anyhow::Result<()> {
     let contract = lane_contract()?;
-    for source in [Source::Ilis, Source::Kicox, Source::Lh] {
+    for source in [Source::Factoryon, Source::Ilis, Source::Kicox, Source::Lh] {
         let common = contract.common(source)?;
         collection_domain::source_slug(&common.provider, &common.detail_dataset_slug)?;
         assert!(!contract.fingerprint_fields(source)?.is_empty());
         assert!(contract.recent_pages(source)? >= 1);
         // The sources that take notices down or change their statuses keep their list answers.
-        assert_eq!(contract.keeps_list(source)?, source != Source::Kicox);
+        assert_eq!(
+            contract.keeps_list(source)?,
+            matches!(source, Source::Ilis | Source::Lh)
+        );
         super::client_for(&contract, source)?;
     }
     assert!(contract.full_walk_hour_utc < 24 && contract.retry_after_hours > 0);
+    // Factory-on, at the owner's least load (root ADR-0603 §8): five to ten seconds a request, never
+    // walked whole again, a generic user agent.
+    assert!((5_000..=10_000).contains(&contract.spacing_ms(Source::Factoryon)?));
+    assert!(!contract.walks_whole(Source::Factoryon)?);
+    assert!(contract.walks_whole(Source::Kicox)?);
+    assert_eq!(
+        contract.spacing_ms(Source::Ilis)?,
+        contract.request_spacing_ms
+    );
+    assert!(contract.budget_seconds(Source::Factoryon)? > contract.run_time_budget_seconds);
     assert_eq!(Source::parse("kicox")?, Source::Kicox);
     assert!(Source::parse("lh-web").is_err());
     Ok(())
@@ -221,6 +236,52 @@ fn a_kicox_board_page_lists_its_posts_and_a_post_page_names_its_files() -> anyho
     assert!(files[2].request.is_none());
     // A page without a post (an error page) is not a read.
     assert!(kicox::files_of(&patterns, &rules, KICOX_LIST).is_err());
+    Ok(())
+}
+
+#[test]
+fn a_factoryon_page_lists_its_notices_and_a_page_that_is_not_one_stops_the_run(
+) -> anyhow::Result<()> {
+    let rules: factoryon::Rules = source_rules(Source::Factoryon)?;
+    let patterns = factoryon::Patterns::new()?;
+    let page = factoryon::list_page(&patterns, &rules.list, FACTORYON_LIST)?;
+    assert_eq!(
+        page.rows
+            .iter()
+            .map(|listed| listed.id.as_str())
+            .collect::<Vec<_>>(),
+        ["99902", "99901"]
+    );
+    assert_eq!(
+        page.rows[0].row,
+        json!({"bbs_sn": "99902", "number": "1012", "kind": "처분신청", "title": "가상일반산업단지 처분신청 용지 매각 공고", "publisher": "가상특별자치시", "notice_date": "2099-01-02", "has_attachment": true, "period": "2099-01-10~2099-01-11"})
+    );
+    assert_eq!(page.rows[1].row["has_attachment"], json!(false));
+    // Fewer rows than a page holds: the last page.
+    assert_eq!((page.total, page.last), (Some(1012), true));
+
+    let files = factoryon::files_of(&patterns, &rules, FACTORYON_POST)?;
+    assert_eq!(
+        files.len(),
+        2,
+        "the link to another host is not an attachment"
+    );
+    assert_eq!(files[0].title.as_deref(), Some("가상 공고문.pdf"));
+    assert_eq!(
+        files[0].provider_file_id.as_deref(),
+        Some("99999000000000001/1")
+    );
+    assert_eq!(
+        files[1].request,
+        Some(FileRequest::Url(
+            "https://www.factoryon.go.kr/bbs/atchFileDownload.do?atchmnflSn=2&atchmnflManageNo=99999000000000001".to_owned()
+        ))
+    );
+    // A block or error page is not a failed read: the run stops (root ADR-0603 §8).
+    let not_a_list = factoryon::list_page(&patterns, &rules.list, FACTORYON_POST);
+    assert!(not_a_list.is_err_and(|error| error.downcast_ref::<Blocked>().is_some()));
+    let not_a_notice = factoryon::files_of(&patterns, &rules, FACTORYON_LIST);
+    assert!(not_a_notice.is_err_and(|error| error.downcast_ref::<Blocked>().is_some()));
     Ok(())
 }
 

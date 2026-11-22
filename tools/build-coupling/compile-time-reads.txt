@@ -138,7 +138,7 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_vers
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_address_source_collect/tests.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_notice_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect.rs:1
-platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect/tests.rs:2
+platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect/tests.rs:4
 platforms/foundation-platform/services/foundation-outbox-publisher/src/juso_electronic_map_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/media_renditions.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/onbid_silver_load.rs:1

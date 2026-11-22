@@ -16,6 +16,34 @@
     "max_file_bytes": 268435456
   },
   "sources": {
+    "factoryon": {
+      "$comment": "공장설립온라인지원시스템(팩토리온, 한국산업단지공단) 분양 및 처분신청 공고(bbs/lttotNdDspsPblancList.do). 실측(2026-11-22): 1,567 건(157 쪽, 한 쪽 10 건, 2026-11 까지; 가장 오래된 번호 1), 분양주체가 공단·지사(처분신청 포함)·시도·시군·공사·K-water·한국농어촌공사·민간까지 가장 넓고 새롭다. 상세 쪽(lttotNdDspsPblancDetail.do?selectBbsSn=)이 단지명·분양주체·소재지·분양면적·가격·접수기간·사업시행자·용도·첨부(atchFileDownload.do)를 싣는다. robots.txt 는 Disallow: /bbs/ 다 — 사장이 그 줄을 듣고도 2026-11-22 두 번 수집을 결정했다(루트 ADR-0603 §8): 가장 적은 부담으로(일반 User-Agent, 요청 사이 7 초, 전체 이력은 한 번만 여러 실행에 나눠, 그 뒤 매일 목록 1 쪽과 새 공고만), 4xx·429·차단 쪽이면 그 자리에서 멈추고 실패로 알린다(수집기의 factoryon 클라이언트가 그렇게 답한다: Blocked). 대안은 원 게시처 게시판이다.",
+      "provider": "factoryon.go.kr",
+      "base_url": "https://www.factoryon.go.kr",
+      "detail_dataset_slug": "industrial_land_sale_notice_detail",
+      "user_agent": "Mozilla/5.0 (compatible; data-collector/1.0)",
+      "request_spacing_ms": 7000,
+      "per_run_limit": 800,
+      "run_time_budget_seconds": 12600,
+      "full_walk": false,
+      "list": {
+        "operation": "lttotNdDspsPblancList",
+        "path": "bbs/lttotNdDspsPblancList.do",
+        "page_field": "pageIndex",
+        "page_rows": 10,
+        "recent_pages": 1,
+        "fingerprint_fields": ["title", "kind", "publisher", "notice_date", "period", "has_attachment"],
+        "keep_in_bronze": false
+      },
+      "detail": {
+        "operation": "lttotNdDspsPblancDetail",
+        "path": "bbs/lttotNdDspsPblancDetail.do",
+        "id_field": "selectBbsSn"
+      },
+      "attachments": {
+        "download_path": "bbs/atchFileDownload.do"
+      }
+    },
     "ilis": {
       "$comment": "산업입지정보시스템 분양공고(il/parcel). 실측(2026-11-22, 읽기만): 목록 POST 하나에 전국 741 건(576 KB), par_seq 1..846 중 105 건(12 %)은 목록에서 사라졌고 그 상세는 HTTP 200 에 code 400·result null(요청처리를 실패하였습니다) — 내려간 공고는 되찾을 수 없다. 그래서 목록 답도 바뀔 때마다 Bronze 에 둔다(list.keep_in_bronze, LH 도 같다: 공고 상태가 바뀌는 목록이라 그 이력을 남긴다). 상세는 result.saveFiles 에 첨부(file_path·real_file_name·file_name·file_size·use_yn)를 싣고, 받기는 고시 첨부와 같은 cmm/file/download 다.",
       "provider": "industryland.or.kr",

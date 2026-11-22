@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # 산업용지 분양·처분·공급 공고와 그 첨부를 받는다 — 수집 절반 (root ADR-0603). 인자 하나가 원천이다:
-# ilis(산업입지정보시스템 분양공고), kicox(한국산업단지공단 임대/분양 게시판), lh(LH 토지 공고, data.go.kr).
+# factoryon(공장설립온라인 분양 및 처분신청 공고), ilis(산업입지정보시스템 분양공고), kicox(한국산업단지공단 임대/분양
+# 게시판), lh(LH 토지 공고, data.go.kr). factoryon 이 거부하거나 차단 쪽을 주면 읽은 것을 커밋하고 그 자리에서 실패로
+# 끝난다(다시 묻지 않는다, 사장 결정 2026-11-22).
 # 등록된 작업 industrial_land_sale_notice_<원천>_collect(default_pool)가 작업 등록부의 일정에
 # foundation-industrial-land-sale-notice-collect@<원천>.service 로 돌린다. Spark 는 쓰지 않는다.
 #
@@ -19,9 +21,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 
 source_name="${1:-}"
 case "${source_name}" in
-  ilis | kicox | lh) ;;
+  factoryon | ilis | kicox | lh) ;;
   *)
-    echo "industrial land sale notice collect: usage: $0 ilis|kicox|lh" >&2
+    echo "industrial land sale notice collect: usage: $0 factoryon|ilis|kicox|lh" >&2
     exit 64 # EX_USAGE
     ;;
 esac

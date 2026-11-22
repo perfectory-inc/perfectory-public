@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "세 원천의 분양공고 상세를 읽을 때마다(실패 포함) 공고 하나에 한 행을 쌓는다: 원천·공고 id·목록 지문·물은 시각·결과·첨부 수. 수집기가 다음 실행에 물을 공고를 이 표에서 계산한다(루트 ADR-0603)."
+  purpose: "네 원천의 분양공고 상세를 읽을 때마다(실패 포함) 공고 하나에 한 행을 쌓는다: 원천·공고 id·목록 지문·물은 시각·결과·첨부 수. 수집기가 다음 실행에 물을 공고를 이 표에서 계산한다(루트 ADR-0603)."
 team:
   name: "foundation-platform"
 servers:

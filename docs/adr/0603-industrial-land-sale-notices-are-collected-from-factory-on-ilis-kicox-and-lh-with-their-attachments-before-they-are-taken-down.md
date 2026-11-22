@@ -1,4 +1,4 @@
-# ADR 0603: 산업용지 분양·처분·공급 공고는 ILIS·한국산업단지공단·LH 셋에서 첨부까지 내려가기 전에 모으고, 읽은 기록과 첨부 색인만 Silver 에 둔다
+# ADR 0603: 산업용지 분양·처분·공급 공고는 공장설립온라인·ILIS·한국산업단지공단·LH 넷에서 첨부까지 내려가기 전에 모으고, 읽은 기록과 첨부 색인만 Silver 에 둔다
 
 - Status: Accepted
 - Date: 2026-11-22
@@ -18,18 +18,24 @@
 
 | 원천 | 받는 길 | 범위 | 잰 것 |
 | --- | --- | --- | --- |
+| 공장설립온라인지원시스템(팩토리온, 한국산업단지공단) 분양 및 처분신청 공고(`bbs/lttotNdDspsPblancList.do`) | HTML, 한 쪽 10 건, 상세 `lttotNdDspsPblancDetail.do?selectBbsSn=`(단지명·분양주체·소재지·분양면적·가격·접수기간·사업시행자·용도), 첨부 `atchFileDownload.do` | 전국, 1,567 건(157 쪽), 가장 오래된 번호 1 | 분양주체가 가장 넓다: 공단 본사·지사(처분신청), 시도·시군, 공사, K-water, 한국농어촌공사, 민간. 코디네이터 표본(11-06~11-20) 20 건이 모두 여기 있다. **robots.txt `Disallow: /bbs/`** (§8) |
 | ILIS 산업입지정보시스템 분양공고(`il/parcel`) | 목록 POST 하나(576 KB)에 전부, 상세 GET, 첨부는 고시와 같은 `cmm/file/download` | 17 개 시도, 2011-04 부터 741 건(일반 507·농공 163·국가 45·도시첨단 26) | 상세에 단지 코드(`danji_cd` = `official_complex_code`)·면적·가격·신청기간·업종·시행자, 첨부 평균 1.65 개(목록 `sk_cnt`). **par_seq 1..846 중 105 건(12 %)이 목록에서 사라졌고 그 상세는 HTTP 200 에 `code` 400·`result` null** — 826~832 같은 최근 것도 |
 | 한국산업단지공단(KICOX) 임대/분양 게시판(`boardList/1003`) | HTML, 한 쪽 10 건(쪽 크기 매개변수 없음), 글 쪽에 첨부 버튼 `fnFileDownload('<번호>', '<id>')`, 받기 `api/fnFile/commonFileDownload/<번호>/<id>` | 공단 자체 단지, 962 건, 2008-07 부터 | 계양 4차·경산4·울산테크노·오송·장성나노 = ILIS 분양공고에 **0 건**. robots.txt 전부 허용 |
 | 한국토지주택공사(LH) 토지 공고(data.go.kr B552555) | 공고문 조회 `lhLeaseNoticeInfo1`(유형 01 토지), 상세 `lhLeaseNoticeDtlInfo1`(`dsAhflInfo[].AHFL_URL`), 공급정보 `lhLeaseNoticeSplInfo1`(필지마다 용도·소재지·지번·면적·예정가격) | 전국 | LH 산업시설용지 공고는 ILIS 에 일부만: 남동 8차는 있고 밀양나노·포항블루밸리 2단계·사천지구·남청주현도(2026-11-13 공고)는 없다. 서비스키는 있지만(`DATA_GO_KR_SERVICE_KEY`) 세 서비스의 **활용신청이 사장 결정**이다 |
 
-넣지 않은 것: 시도 개발공사·시군 게시판(사이트 17 개 넘게, ILIS 가 일반·농공 공고 대부분을 싣는다), 전남 분양단지 API(한 지역, 공고 아님),
-국토부 분양현황(면적 통계), 공장설립온라인지원시스템(robots.txt 가 `/bbs/`·`/srch/` 를 막는다; 그 표본 20 건 중 6 건을 이 세 원천이 덮는다 —
-나머지 게시처의 허용 여부는 이 ADR 의 남은 일).
+공장설립온라인을 빼면 표본 20 건 중 ILIS·KICOX·LH 가 덮는 것은 6 건(30 %)이다: 빠진 14 건은 KICOX 지사 처분신청 4·세종시·한국농어촌공사·
+K-water·민간 2·남동구청·기장군·LH 입주기준·고양도시관리공사·보령시/충남개발공사다. 그 원 게시처의 robots.txt(2026-11-22): 세종시·한국농어촌공사·
+고양도시관리공사는 모두 막고 보령시는 자동 요청을 거부한다; K-water·남동구·기장군·새만금개발청은 허용한다. 공장설립온라인이 있어도 셋을
+둔다: ILIS 는 공장설립온라인에 없는 공고를 싣고(2026-11-11 평동3차 처분신청 매각 재공고·인천남동도시첨단 8차 공급공고 — 공장설립온라인 1~3 쪽, 11-03~11-20 에 없다), KICOX 게시판은 공장설립온라인의
+분양·처분 게시판에 없는 **임대 공고**(국유토지(공장용지) 임대·스마트혁신지원센터 임대·청사 입주자 모집)를 싣고 그 분양 글은 대부분 겹친다(Silver 에서 하나로), LH 는 필지별 예정가격을
+주는 유일한 구조화 원천이다. 넣지 않은 것: 시도 개발공사·시군 게시판(원 게시처; §8 의 대안), 전남 분양단지 API(한 지역, 공고 아님),
+국토부 분양현황(면적 통계).
 
 ## Decision
 
-1. **세 원천, 한 꼴.** 수집기 `collect-industrial-land-sale-notices`(원천마다 작업 하나:
-   `industrial_land_sale_notice_{ilis,kicox,lh}_collect`, 유닛 `foundation-industrial-land-sale-notice-collect@<원천>.service`)가
+1. **네 원천, 한 꼴.** 수집기 `collect-industrial-land-sale-notices`(원천마다 작업 하나:
+   `industrial_land_sale_notice_{factoryon,ilis,kicox,lh}_collect`; 매시 원천은 유닛 `foundation-industrial-land-sale-notice-collect@<원천>.service`,
+   하루 한 번 240 분인 공장설립온라인은 `foundation-industrial-land-sale-notice-factoryon-collect.service`)가
    계약 `industrial-land-sale-notice.contract.json` 하나를 읽는다. 원천의 목록을 새 것부터 쪽마다 읽고, 공고마다 상세를 받은 그대로
    두고, 첨부는 형식에 상관없이 공용 내용주소 저장소(`data-go-kr-onbid.contract.json#/media/object_prefix`)에
    `industrial_complex_notice_collect::store_attachment` 로 한 번만 담는다(ADR-0298, ADR-0484 §2 와 같은 저장소·같은 함수). 글을 꺼내지 않는다(ADR-0484 §1).
@@ -59,14 +65,15 @@
    바뀐 공고(LH 상태, KICOX 정정)와, 내려간 공고가 수를 부풀려 첫 채우기가 일찍 멈춘 경우의 나머지를 잡는다(KICOX 97 쪽 × 2 초 ≈ 3 분).
    매시 — 첫 채우기가 몇 시간에 끝나고, 내려가는 공고를 한 시간 안에 잡는다; 첫 채우기 뒤의 실행은 목록 쪽 몇 장이다.
 
-   **실행 순서.** 수집은 ILIS :35, KICOX :45, LH :55(꺼짐)에 시작하고, Silver 적재는 수집이 Bronze 를 바꾸면(그리고 :15 마다) 돈다
+   **실행 순서.** 수집은 매시 ILIS :35, KICOX :45, LH :55(꺼짐)에, 공장설립온라인은 하루 한 번 18:10 UTC 에 시작하고, Silver 적재는 수집이 Bronze 를 바꾸면(그리고 :15 마다) 돈다
    (ADR-0484 §6·§7 의 첫 실행·기대 결과 규칙이 그대로다: `per_run_cap.first_run` 은 계산값이고, 첫 실행의 저널로 `measured_run_seconds` 를
    적는 PR 이 그것을 지운다). 다음 수집은 이미 실린 읽음만 본다: 적재가 앞 실행의 마지막 묶음을 싣기 전에 수집이 시작하면 그 묶음의
    공고를 한 번 더 묻는다(같은 답은 같은 첨부 해시라 저장소에는 아무것도 더해지지 않는다).
 4. **Silver 는 수집의 장부 둘만.** `load-industrial-land-sale-notice-silver`(작업 `industrial_land_sale_notice_silver`, 발행기 안의 DuckDB 와
-   Iceberg 추가 커밋, ADR-0559·0560)가 세 원천의 상세 객체를 객체마다 붙인다: 먼저 저장소에 담긴 첨부를
+   Iceberg 추가 커밋, ADR-0559·0560)가 네 원천의 상세 객체를 객체마다 붙인다: 먼저 저장소에 담긴 첨부를
    `silver.industrial_land_sale_notice_attachment`((원천, 공고, 해시)마다 한 줄; 새것·바뀐 것만), 그다음 읽음을
-   `silver.industrial_land_sale_notice_read`(읽기마다 한 줄, 실패 포함). 두 표는 첫 커밋이 만든다. 공고의 뜻(면적·가격·기간·필지)을 푸는
+   `silver.industrial_land_sale_notice_read`(읽기마다 한 줄, 실패 포함). 두 표는 첫 커밋이 만든다. 같은 공고가 둘 이상의 원천에 있으면
+   (공장설립온라인과 KICOX·ILIS·LH) 줄은 원천마다 따로 있고 같은 첨부 바이트는 저장소에 한 번이다; 공고를 하나로 묶는 것은 뜻을 푸는 Silver 의 일이다. 공고의 뜻(면적·가격·기간·필지)을 푸는
    Silver 는 이 ADR 이 아니다 — Bronze 가 답을 그대로 갖고 있어 나중에 다시 만든다.
 5. **첨부 색인은 대조기에.** 첨부 색인은 미디어 대조기의 `media.reconcile.index_tables` 다섯째다(`media_index_delta` 의 읽는 이도).
    막는 사고: 색인 없이 같은 `sha256/` 에 첨부만 쌓이면 48 시간 뒤부터 그 수천 개가 매일 고아로 세어져 `FoundationMediaObjectOrphaned` 가
@@ -81,6 +88,13 @@
 7. **공급자.** `kicox.or.kr` 을 승인 도메인에 더한다(ADR-0032, `kicoxorkr__…`). LH 는 data.go.kr 공급자이고 세 연산의 dataset 은
    `lh_land_notice_dataset_slug` 지도가 정한다(`source_slug_catalog_parity`). HTML 은 `scraper`(Servo 의 html5ever·selectors) 로 찾는다 —
    글 번호와 첨부 번호는 쪽이 스스로 부르는 `onclick` 호출에서만 읽는다.
+8. **공장설립온라인은 사장이 알고 결정했다.** 사장은 2026-11-22 공장설립온라인의 robots.txt 가 `Disallow: /bbs/`(`/srch/`·`/common/popup/` 도)라는
+   것을 듣고 두 번 수집을 결정했다: 가장 넓고 새로운 원천이고 처분신청 공고까지 싣는다. 부담은 가장 작게 한다(계약 `sources.factoryon`):
+   일반 User-Agent(`Mozilla/5.0 (compatible; data-collector/1.0)`, 사람의 정보 없음), 요청 사이 7 초(`request_spacing_ms`, 5~10 초 안),
+   전체 이력은 한 번만 여러 실행에 나눠(하루 한 번 18:10 UTC, 실행 상한 `run_time_budget_seconds` 12,600 초·`per_run_limit` 800, 유닛 240 분:
+   1,567 건이면 두세 실행), 그 뒤 매일 목록 1 쪽과 새 공고의 쪽·첨부만(`full_walk: false` — 하루 한 번 전체 걷기를 하지 않는다). 4xx·429, 또는
+   목록·공고가 아닌 쪽(차단 쪽)을 받으면 그 자리에서 멈춘다(`Blocked`): 읽은 묶음을 커밋하고 실행은 실패로 끝나 알리며(`OnFailure`), 그 실행
+   안에서 다시 묻지 않는다. 대안은 원 게시처의 게시판이다(위 robots 조사; 허용하는 곳만, 빠진 몫을 잰 뒤).
 
 ### 대안
 
@@ -90,7 +104,8 @@
 | ILIS 분양공고를 고시 수집기(ADR-0484)의 둘째 목록으로 | 고시는 한 번 내면 고치지 않아 끝난 고시를 다시 묻지 않지만, 분양공고는 목록에서 바뀐다(승인·첨부 수); 원천 셋이 같은 꼴을 써야 한다 |
 | 매시 최근 쪽만, 깊은 쪽은 영영 | 깊은 쪽의 LH 상태·KICOX 정정을 놓친다; 하루 한 번 전체 걷기(KICOX ~3 분)로 잡는다 |
 | 실패한 공고를 매 실행 다시 | 늘 실패하는 공고가 밀린 공고보다 먼저 물어져 연속 실패 상한에 걸린다 |
-| 공장설립온라인 분양공고 목록을 받기 | 그 robots.txt 가 `/bbs/` 를 막는다; 원 게시처에서 받는다 |
+| 공장설립온라인 없이 원 게시처만 | 게시처가 수십 곳이고 그중 넷은 robots.txt 가 막거나 자동 요청을 거부한다; 사장 결정(§8)으로 공장설립온라인을 받고 원 게시처는 대안으로 둔다 |
+| KICOX 게시판을 빼기(분양 글은 공장설립온라인에 있다) | 공장설립온라인의 분양·처분 게시판에 없는 임대 공고(국유토지·지원센터)를 싣는다; 매시 목록 쪽 셋이라 부담이 작다 |
 | LH 를 청약센터 웹 목록으로(열쇠 없이) | 첨부 받기 경로(`/lhapply/lhFile.do`)를 robots.txt 가 막고, 목록은 최근 창만 보인다; 공식 API 가 같은 URL 을 준다 |
 | 다음에 물을 것을 Bronze 원장(Postgres)으로 | 같은 일을 고시 수집기가 Silver 읽은 기록으로 한다(ADR-0484 §3); 두 번째 방식은 결함이다 |
 | 첨부를 Bronze 객체(원장 행)로 | ADR-0298 이 미디어 blob 에 원장 행을 기각했다; 저장소 하나 + Silver 색인이 정본이다 |
@@ -106,11 +121,12 @@
 - **양(계산)**: 첨부 ≈ ILIS 741 × 1.65 ≈ 1,220 개 + KICOX 962 × ~1.5 ≈ 1,450 개, 합 ≈ 3~4 GB(고시 첨부 평균 1.25 MB 기준). Bronze 상세 ≈ 35 객체
   (KICOX 쪽 HTML ~170 KB 를 gzip 으로). R2 저장 ≈ 월 $0.06, PUT ≈ 2,700 + 35 ≈ $0.01 한 번. LH 는 켜질 때까지 0(양을 모른다: 답을 못 봤다).
 - **제공자 부담(계산)**: 매시 ILIS 목록 1 요청(576 KB), KICOX 목록 3 요청(쪽마다 ~146 KB), 하루 한 번 KICOX 전체 97 요청(~14 MB); 새 공고마다
-  상세 1 + 첨부 몇 개.
+  상세 1 + 첨부 몇 개. 공장설립온라인: 첫 채우기 ≈ 157 목록 + 1,567 상세 + ~2,300 첨부 ≈ 4,000 요청을 7 초 간격으로 두세 날에, 그 뒤 하루 목록 1
+  요청과 새 공고(하루 몇 건)의 상세·첨부.
 - **새 의존성**: HTML 은 `scraper` 0.29.0(ISC; Servo 의 `html5ever`·`selectors`, 명령줄 기능은 끔)으로 찾는다 — 저장소에 HTML 해석기가 없었다.
 - **첫 바퀴(계산)**: 공고 하나 ≈ (상세 1 + 첨부 1.5~1.65) × 2 초 ≈ 5 초 → 실행 하나에 ~340 건 → ILIS ~3 실행, KICOX ~3 실행(매시: 몇 시간).
 - **검증하지 못한 것**: 운영 실행 시간·메모리(첫 실행의 저널), KICOX 의 옛 쪽(2008~)의 HTML 모양이 같은지, LH 의 답(활용신청 전이라
   한 번도 못 봤다 — 가이드의 예제로만 짰다), 게시일 전 기간을 한 번에 묻는 LH 목록이 받아들여지는지.
 - **남은 일**: (1) 첫 실행의 저널로 `measured_run_seconds` 를 적고 `first_run` 을 지우는 PR; (2) 사장의 LH 활용신청 뒤 LH 작업을 켜는 PR(첫
-  답을 인용); (3) 공장설립온라인 표본 20 건 가운데 이 세 원천 밖의 게시처(지자체·공사·K-water·한국농어촌공사·KICOX 지사 처분신청) — robots 와 약관이
-  허용하는 곳만, 2026 년 공고로 빠진 몫을 잰 뒤 더한다; (4) 공고의 뜻을 푸는 Silver(필지·면적·가격·기간)와 intelligence 의 첨부 읽기(ADR-0484 남은 일과 같은 길).
+  답을 인용); (3) 대안: 공장설립온라인이 막을 때를 위해 원 게시처(K-water·남동구·기장군·새만금개발청 등 robots 가 허용하는 곳, KICOX 지사 처분신청
+  게시처는 아직 못 찾음)를 계속 조사해, 빠지는 몫을 잰 뒤 더한다; (4) 공고의 뜻을 푸는 Silver(필지·면적·가격·기간)와 intelligence 의 첨부 읽기(ADR-0484 남은 일과 같은 길).

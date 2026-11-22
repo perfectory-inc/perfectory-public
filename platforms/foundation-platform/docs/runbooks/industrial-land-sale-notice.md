@@ -14,6 +14,7 @@ last_reviewed: 2026-11-22
 
 | 작업 | 단위 | 하는 일 |
 |---|---|---|
+| `industrial_land_sale_notice_factoryon_collect` (하루 한 번 18:10 UTC, default_pool, 240 분) | `foundation-industrial-land-sale-notice-factoryon-collect.service` → `scripts/ops/industrial-land-sale-notice-collect.sh factoryon` | 공장설립온라인 분양 및 처분신청 공고: 목록 쪽을 새 것부터, 읽지 않은 공고의 쪽·첨부, 요청 사이 7 초(사장 결정, 루트 ADR-0603 §8) |
 | `industrial_land_sale_notice_ilis_collect` (매시, default_pool) | `foundation-industrial-land-sale-notice-collect@ilis.service` → `scripts/ops/industrial-land-sale-notice-collect.sh ilis` | ILIS 분양공고 목록 POST 하나(바뀌었으면 그 답을 Bronze 에), 같은 목록 지문으로 읽지 않은 공고의 상세·첨부 |
 | `industrial_land_sale_notice_kicox_collect` (매시) | `…-collect@kicox.service` → `… kicox` | 한국산업단지공단 임대/분양 게시판의 목록 쪽을 새 것부터, 읽지 않은 글의 쪽·첨부 |
 | `industrial_land_sale_notice_lh_collect` (꺼짐) | `…-collect@lh.service` → `… lh` | LH 토지 공고 목록(답을 Bronze 에), 공고마다 상세·공급정보·첨부. 사장의 data.go.kr 활용신청 전에는 78 로 끝난다 |
@@ -35,6 +36,8 @@ last_reviewed: 2026-11-22
   실패하면 그 실행은 멈춘다(제공자 장애). 이미 커밋한 묶음은 Bronze 에 있다. 목록의 둘째 쪽부터 실패하면 걷기만 멈추고 읽은 것은 남는다.
 - 첨부 4xx 는 사라진 파일(끝남), 상한 넘는 파일은 해시·크기만 적고 `oversize` 로 센다. 그 밖의 받기 실패는 그 공고를 끝내지 않는다.
 - 상세를 하나도 못 읽은 실행만 실패로 끝나 `OnFailure` 가 주인(collection)을 부른다.
+- 공장설립온라인이 4xx·429 를 주거나 목록·공고가 아닌 쪽(차단 쪽)을 주면 그 실행은 읽은 것을 커밋하고 그 자리에서 실패한다(요약의 `blocked`).
+  사장 결정의 조건(루트 ADR-0603 §8)이라 그 실행 안에서 다시 묻지 않는다; 다음 날 실행이 다시 시도한다. 거듭 막히면 원 게시처(대안)로 간다.
 - LH 인스턴스가 78 로 끝나면 `journal.log` 의 `REFUSED` 줄이 게이트웨이의 거부 코드를 적는다. 사장의 활용신청(15058530·15057999·15056765)
   전에는 정상이고, 그 뒤라면 키 파일(`/etc/foundation-platform/data-go-kr.env`)을 본다.
 - Silver 적재가 `window_days` 보다 오래 안 실린 객체를 보면 실패해 알린다.
