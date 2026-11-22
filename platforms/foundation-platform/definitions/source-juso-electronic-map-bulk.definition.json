@@ -21,6 +21,8 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 120,
+      "memory_max": "3G",
+      "memory_measured": "never run (root ADR-0475: new, waiting for the approval key); sized as the collector holds one ten-day answer's files in memory and one more copy while it commits each, against the provider's 2,000,000,000-byte file limit for the largest; systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "request",
         "limits": [

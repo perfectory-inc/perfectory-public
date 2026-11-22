@@ -21,6 +21,9 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 160,
+      "memory_max": "512M",
+      "memory_measured_peak": "308M",
+      "memory_measured": "journal `memory peak` 2026-10-18..11-08, 21 runs, highest 2026-11-08 (foundation-gold-kind-rebuild)",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -79,6 +82,10 @@
       "stop_grace_minutes": 60,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 1200,
+      "memory_max": "14G",
+      "memory_measured_peak": "13517M",
+      "memory_measured": "journal `memory peak` 2026-10-18..11-08, 25 runs, highest 2026-10-29 (foundation-by-pnu-serving-bake)",
+      "memory_headroom_why": "A bound decided from a measured shard (root ADR-0138): the export refuses a shard over 900,000 rows, whose anonymous peak was 11.1G, so 14G is that peak x1.3; the 13517M journal peak includes page cache, which the kernel reclaims before it kills.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

@@ -1,7 +1,7 @@
 # ADR 0574: 모든 한도는 측정으로 정하고, 한도 가까운 유닛은 죽기 전에 이름이 불린다
 
 - Status: Accepted
-- Date: 2026-11-19
+- Date: 2026-11-19 (2026-11-22: §1·§5 근접 규칙과 측정, §8 작업 정의의 한도·인스턴스 드롭인)
 - Builds on: [ADR-0455](./0455-one-job-cannot-take-the-host-every-unit-declares-its-memory-and-batch-is-killed-first.md)(유닛마다 메모리 상한, `memory_max ≥ 1.5 × measured_peak`),
   [ADR-0386](./0386-every-job-states-its-per-run-bound-in-one-vocabulary-and-its-measured-runs-fit-its-unit.md)(run 시간 ≤ 제한의 90%),
   [ADR-0391](./0391-a-silver-refresh-run-starts-no-step-its-measured-time-cannot-finish-and-a-batch-reads-back-only-its-own-commit.md)(잰 단계 시간으로 마감),
@@ -56,7 +56,13 @@ near 11 개: autodeploy 3,225M/3.5G·onbid-collect 2,489M/3G·industrial-complex
 1. **측정은 스크립트 하나가 다시 만든다.** `scripts/ops/unit_limits.py` 가 표의 정본이다(손으로 만든 표 없음). 호스트에서
    `--table`(Markdown)·`--json`, `--prometheus` 를 주면 컨테이너까지. 읽기만 한다(`journalctl _PID=1` 의 여섯 종류 줄,
    `systemctl show`, `docker ps`, Prometheus API, `journalctl -k`). 유닛 상태: 창 안에 OOM·timeout 이 있으면 `failing`,
-   메모리나 시간의 최대가 한도의 80% 이상이면 `near`, 아니면 `fits`. 컨테이너는 유닛 run 하나가 품을 때만 그 유닛에 센다
+   시간의 최대나 **쥔** 메모리 최고점이 한도의 80% 이상이면 `near`, 아니면 `fits`. 메모리 최고점을 쥐었다는 것은 그 run 이
+   OOM 으로 죽었거나, 최고점이 `MemoryHigh` 를 커널의 회수 여유보다 넘었다는 것이다. 커널은 cgroup 에 CPU 마다
+   `MEMCG_CHARGE_BATCH`(64 쪽) 씩 청구하고, 사용자 공간으로 돌아갈 때 `memory.high` 를 넘은 몫을 되찾는다
+   (`include/linux/memcontrol.h`, `mm/memcontrol.c` `try_charge_memcg`·`mem_cgroup_handle_over_high`, 호스트 커널 Linux v6.8;
+   `cgroup-v2.rst`: "the limit may be breached"). 그래서 `MemoryHigh` + 64 쪽 × 4 KiB × CPU 수(ai-server 20 CPU: 5 MiB)
+   안의 최고점은 되찾던 페이지 캐시다. 2026-11-22 측정에서 20 유닛의 최고점이 모든 run 에서 `MemoryHigh` 를 0.5–3.4 MiB
+   넘어 있었다; 이 규칙 전에는 그 20 개가 늘 near 였다. 저널은 줄마다 흘려 읽는다(14 일 324k 줄을 쥐면 780 MB). 컨테이너는 유닛 run 하나가 품을 때만 그 유닛에 센다
    (두 run 이 품으면 버린다: 다른 작업의 컨테이너를 붙이지 않는다). `job-run-times.py`(ADR-0386)는 작업 목록의 run 시간
    블록을 쓰는 같은 저널 읽기다; 두 읽기의 run 경계는 같고(시작 → 끝 줄), 하나로 합치는 것은 그 블록을 다시 재는 PR 의 몫이다.
 2. **메모리 한도 = 잰 최고점 × 1.5**(ADR-0455 의 `memory_max_over_peak` 그대로, 바닥 128M). 창은 최근 14 일, 최고점은
@@ -74,11 +80,12 @@ near 11 개: autodeploy 3,225M/3.5G·onbid-collect 2,489M/3G·industrial-complex
    (`every-container-has-a-memory-cap.sh`: 상주 합 + 가장 큰 일회성/풀 조합 + host_reserved ≤ 62g)를 통과한다. 예산 계약이
    합의 정본이고 다른 곳에서 한도를 바꾸지 않는다.
 5. **근접은 죽기 전에 이름이 불린다.** 자기 유닛 `foundation-unit-limits.service`(타이머 30 분, control, 512M)가
-   `unit_limits.py --write` 로 `unit-limits.prom` 을 쓴다. 자산 조정기의 한 단계로 두지 않는다: 14 일 저널 읽기가 15 초이고,
-   조정기는 3 분 한도에서 이미 7 번 timeout 났다:
-   유닛·한도(`memory`, `time`)마다 최근 run 이 연달아 80% 를 넘은 수(`foundation_unit_runs_near_limit`)와 마지막 run 의 비율.
-   - `FoundationUnitNearItsLimit`(ticket): 연달아 **3 번**. 한 번은 입력, 세 번은 그 유닛의 크기다. Alertmanager 는 유닛·한도마다
-     한 알림, 하루 한 번 다시(`service = "unit-limits"`).
+   `unit_limits.py --write` 로 `unit-limits.prom` 을 쓴다. 자산 조정기의 한 단계로 두지 않는다: 14 일 저널 읽기가 25 초이고
+   (2026-11-22 실측, 최대 RSS 129 MB), 조정기는 3 분 한도에서 이미 7 번 timeout 났다:
+   유닛·한도(`memory`, `time`)마다 최근 run 이 연달아 80% 를 넘은 수(`foundation_unit_runs_near_limit`, 메모리는 §1 의 쥔
+   최고점만)와 마지막 run 의 비율.
+   - `FoundationUnitNearItsLimit`(ticket): 연달아 **3 번**. 한 번은 입력, 세 번은 그 유닛의 크기다. 알림은 ADR-0591 의
+     묶음 경로로 간다(ticket 은 규칙마다 한 메시지, 한 시간에 한 번 바뀐 것만, 하루 한 번 다시; page 는 채널 멘션).
    - `FoundationContainerMemoryNearCapLong`(page): 컨테이너가 하루 96 개 15 분 중 절반 넘게 상한의 90% 위. 기존 ticket
      (`FoundationContainerMemoryNearCap`)이 foundation-api 에 2 주 울리는 동안 69 번 죽었다(ADR-0573).
    - `FoundationUnitLimitsUnread`(ticket): 측정 파일이 두 시간 없음.
@@ -90,12 +97,30 @@ near 11 개: autodeploy 3,225M/3.5G·onbid-collect 2,489M/3G·industrial-complex
    parcel-number-change(256M 에서 OOM 6 번, 10 월 측정 11M — 성장), registered-factory(256M 에서 OOM 2 번), asset-reconcile
    (180 초 timeout 7 번)은 이 결정의 표로 W87 보고에 실려 코디네이터가 주인을 정한다. 한도를 먼저 올리지 않는다(§4).
 
+8. **한 유닛의 한도는 그 작업의 정의 한 곳에 있고, 템플릿의 인스턴스는 자기 한도를 가질 수 있다.** 작업 정의
+   (`definitions/*.definition.json` 의 `jobs`)가 `time_limit_minutes` 옆에 `memory_max`(그리고 `memory_measured`, 있으면
+   `memory_measured_peak`·`memory_headroom_why`)를 적는다. 선언 정의 생성기(`scripts/catalog/declared_definitions.py`)가 그것을
+   그 유닛의 `systemd_units` 항목(class batch)으로 쓰고, 같은 유닛을 플랫폼 정의의 `systemd_units.unit_files` 에도 적으면
+   거부한다. 한 템플릿(`x@.service`)의 인스턴스 작업들은 서로 다른 한도를 적을 수 있다. 템플릿은 그중 가장 큰 시간·메모리를
+   가진다: 어떤 작업도 이름 짓지 않은 인스턴스도 어느 작업보다 더 갖지 못한다. 그보다 작은 인스턴스는 자기 드롭인을 받는다:
+   `infra/systemd/<instance>.service.d/50-time-limit.conf`(`crates/ops/foundation-jobs` 가 `TimeoutStartSec`)와
+   `50-memory.conf`(`scripts/ci/unit_memory.py` 가 `MemoryHigh`·`MemoryMax`). 둘 다 생성기가 쓰고 같은 검사가 일치를 잡는다
+   (`foundation-jobs check`, `every-container-has-a-memory-cap.sh`); 손으로 쓰지 않는다. 작업이 없어진 인스턴스의 드롭인은
+   검사가 잡고 생성기가 지운다; 릴리스는 받은 드롭인을 깔고 더 받지 않은 우리 것(두 이름)만 지운다. 메모리 요구
+   (`memory_claim`, ADR-0563)는 인스턴스의 자기 상한으로 잰다. 작업의 코드 판(`job_code_version.py`)은 자기 드롭인을 포함해
+   한도가 바뀌면 판이 바뀐다. 2026-11-22 의 옮김은 값을 바꾸지 않았다: 51 개 작업 유닛의 항목을 107 개 작업으로 옮겼고(템플릿의
+   인스턴스는 모두 템플릿의 값), 생성된 계약은 전과 같다(74 항목, 인스턴스 0). 첫 사용자는
+   `foundation-gold-versions@parcel-real-transaction`(W81e)이다. 큰 곳도 같다: Kubernetes 는 `requests`/`limits` 를 파드 템플릿마다,
+   Nomad 는 작업 그룹의 task 마다 적는다 — 실행 단위가 자기 자원을 적고, 같은 이미지(템플릿)를 쓰는 다른 실행은 다른 값을 적는다.
+
 ## Consequences
 
-- 한도가 잰 값과 멀어지면 30 분 안에 보인다: 처음 켜질 때 near 11 개와 failing 의 대부분이 ticket 을 받는다 — 그것이 지금의
-  실제 상태다.
-- 측정은 호스트의 읽기뿐이고 30 분에 한 번 십몇 초다(2026-11-19 실측: 14 일 저널 323,991 줄, journalctl 15.4 초·129 MB;
-  파이썬 해석의 최고점은 아직 재지 않았고, 512M 상한 아래 첫 run 의 `memory peak` 로 계약을 고친다). 비용 0.
+- 한도가 잰 값과 멀어지면 30 분 안에 보인다. 2026-11-22 다시 잰 값(14 일, 11-08..22): 유닛 failing 27 · near 6(모두 시간) ·
+  fits 315 · 미측정 3, 컨테이너 near 6. 처음 켜질 때 그것들이 ticket 을 받는다 — 그것이 지금의 실제 상태다.
+- 측정은 호스트의 읽기뿐이고 30 분에 한 번 25 초다(2026-11-22 실측: 최대 RSS 129 MB; 저널을 통째로 쥐던 첫 판은 780 MB 로
+  자기 512M 상한을 넘었을 것이다). 비용 0.
+- 템플릿을 나눠 쓰는 레인(silver-refresh@ 33 개는 모두 16G: land-use-plan 최고점 1 GB, unit-areas 15.4 GB)은 이제 인스턴스마다
+  상한을 적어 예산을 돌려줄 수 있다; 값을 바꾸는 것은 각 레인 주인의 PR 이다(§2·§4).
 - 계약의 `measured_peak`(ADR-0455)는 10 월 측정으로 남아 있다. 그것을 이 스크립트로 다시 쓰는 것은 한도를 고치는 PR 마다의
   몫이다(가드가 1.5 배를 검사하므로 새 측정이 상한을 끌어올리거나, §4 에 따라 성장을 고치게 한다).
 - 더니어(통합 콘솔)는 이 측정을 읽어 유닛마다 한도·잰 값·비율·상태·마지막 OOM/timeout·예산 합을 보여 줄 수 있다; 한도 변경은

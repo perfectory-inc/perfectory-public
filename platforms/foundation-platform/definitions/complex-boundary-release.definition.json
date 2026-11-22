@@ -20,6 +20,9 @@
       "stop_grace_minutes": 10,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 120,
+      "memory_max": "512M",
+      "memory_measured_peak": "306M",
+      "memory_measured": "journal `memory peak` 2026-10-18..11-08, 33 runs, highest 2026-11-04 (foundation-complex-boundary-release)",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

@@ -21,6 +21,9 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 3,
+      "memory_max": "768M",
+      "memory_measured_peak": "512M",
+      "memory_measured": "journal `memory peak` 2026-10-18..11-08, 3035 runs, highest 2026-10-31 (foundation-asset-reconcile)",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

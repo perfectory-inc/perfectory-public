@@ -66,6 +66,7 @@
       },
       "memory_claims_means": "Memory a job's run takes that no pool slot stands for (root ADR-0563; Borg's reclaimed resources, Kubernetes' requests under limits): a job states memory_claim.units, the systemd units whose MemoryMax its run may fill (the local model runtime's weights), and scripts/deploy/job_units.py pool-full, the one admission every start and the reconciler ask, refuses it while the host's MemAvailable less what those units may still take is under keep_available; the refused start is queued and aged as one its pool refused (queue_aging_means), and its next schedule period tries again. It is admitted against what the host has now, not against the caps of everything that could run: the slots of a pool bound the caps (pools_means), and by caps a 24G model fits beside nothing, which is why the fact job claimed every spark slot and on 2026-11-13 waited 24,600 s for an empty pool while 30 GiB or more was available for 95% of the week. keep_available is what stays free after the claim: the spark-small sessions of the claiming job and of the text job (2,560m each) and a gigabyte. A claimed unit is batch class, so if the standing services later grow into their caps the kernel reclaims the model's mapped pages and then kills it first, and the job reads its documents again. tools/host-memory-budget.contract.json scheduled_jobs.memory_claims holds the measured availability the guard holds each claim to; orchestration/dags/job_specs.py refuses a claim outside a one-slot pool.",
       "time_limit_minutes_means": "How long one run may run, in minutes: the one number for it (root ADR-0270 §1). The crate foundation-jobs renders it into the TimeoutStartSec= line of the job's systemd unit (`cargo run -p foundation-jobs -- generate`) and its test refuses a unit that says anything else, and jobs that share a unit with different limits. The scheduler's limit for one start is time_limit_minutes + stop_grace_minutes (see stop_grace_minutes_means).",
+      "memory_max_means": "The job's unit's memory, stated once, beside time_limit_minutes (root ADR-0574 §7): memory_max (the hard cap, sized from the measured peak with headroom, ADR-0455), memory_measured (where that peak comes from, or why there is none yet), and optionally memory_measured_peak and memory_headroom_why. The declared-definitions generator writes it as the unit's systemd_units entry (class batch) and scripts/ci/unit_memory.py renders MemoryHigh, MemoryMax and OOMScoreAdjust from it. The jobs of one template's instances may state different memory and time limits: the template holds the largest of each, and an instance that holds less gets its own drop-ins, <instance>.service.d/50-memory.conf and 50-time-limit.conf, generated and checked like the unit lines, never written by hand. A unit a job runs is not declared in systemd_units.unit_files as well.",
       "per_run_cap_means": "Root ADR-0386 (ADR-0299 H-cap, ADR-0300 P1): what bounds one run of the job, in one vocabulary for every job, and the measured run times that show the bound fits time_limit_minutes. unit: what one run does a bounded number of (request, download, object), or run when the job has no item loop and its whole run is the bound. limits: where each per-run count lives, as <file under platforms/foundation-platform>#<JSON pointer> into the source contract that the job reads (per_run_limit, max_objects, max_requests_per_run, max_downloads_per_run: the contracts keep their own names, this list says which are the per-run caps); empty for run. deadline: the pointer to the seconds after which the run starts no new item (run_time_budget_seconds), or null. measured_run_seconds: systemd's own journal of the unit, start to end, every run counted (failed ones too), from scripts/ops/job-run-times.py; from is the first run counted (the journal's start, or the merge named in from_change), to is when it was measured. A job fits when no measured run timed out and the longest took at most 90% of time_limit_minutes (the share #988 left rt-molit's Silver load: 1,800 s budget + 206 s object + 120 s of 2,400 s), and, when the deadline's contract section measures its items (measured_object_seconds, run_start_seconds), run_start_seconds + max_objects x p90 <= deadline and deadline + max + 120 < time_limit_minutes x 60. A job that does not fit says so in open_exception (why, tracked_by) and shows on the roadmap; a job that fits must not carry one. A job never run states measured_run_seconds null: off, with unmeasured_reason; or on for its first run (root ADR-0457), with first_run (estimate_seconds, computed from measured neighbours and at most 90% of time_limit_minutes; estimated_from, what it is computed from), commits as_it_goes and retries 0, so that run is bounded by its unit's own time limit and MemoryMax (root ADR-0455), loses at most the item in flight if stopped, and is not started again at once; the pull request that records its measured runs drops first_run. orchestration/tests/test_per_run_cap.py refuses anything else: the onbid collector timed out for four days and committed nothing (2026-10-22..26), and the rt-molit Silver load was killed at 40 minutes every hour (2026-10-30, #988).",
       "stop_grace_minutes_means": "How much longer than time_limit_minutes the scheduler gives one start, in minutes: for the unit to stop and clean up (its TimeoutStopSec) and for the outcome to come back. One start's limit is time_limit_minutes + stop_grace_minutes, and every reader adds the two: the DAG's execution_timeout and SSH timeout and the starvation bound (orchestration/dags/job_specs.py scheduler_timeout_minutes), the deploy's wait for a started-once job (scripts/deploy/foundation-deploy.sh), and when the operations map calls a job late (foundation-api data_catalog/operations.rs). The crate foundation-jobs refuses a grace not longer than the unit's TimeoutStopSec (root ADR-0270 §1). It replaced timeout_minutes, which stated the sum by hand.",
       "wait_limit_minutes_means": "How long one scheduled start may wait for the host before its run begins, in minutes (root ADR-0270 §2b, deploy D4): for a release build to finish or for its pool to have room. A start that is still blocked then runs nothing and says so. 0: it never waits. The rule here: a daily default_pool job waits up to 60 minutes (a release build took 2,590 s, measured 2026-10-03 in tools/release-build.contract.json); a job due every hour or half hour waits 0, since its next period is its retry; a spark-pool job waits 0, because a waiting start holds its pool slots and the folds' starvation bound (job_specs) has no room for it — one due during a build is deferred and started by the deploy, until the build leaves the host (root ADR-0276). The scheduler's limit for one start is this plus time_limit_minutes plus stop_grace_minutes (orchestration/dags/job_specs.py scheduler_timeout_minutes); a start the deploy makes directly does not wait and takes the run's limit alone (run_limit_minutes).",
@@ -1156,29 +1157,11 @@
           }
         },
         "unit_files": {
-          "foundation-admin-boundary-release.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 45 runs, highest 2026-11-08 (foundation-admin-boundary-release)"
-          },
-          "foundation-asset-reconcile.service": {
-            "class": "batch",
-            "memory_max": "768M",
-            "measured_peak": "512M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 3035 runs, highest 2026-10-31 (foundation-asset-reconcile)"
-          },
           "foundation-autodeploy.service": {
             "class": "control",
             "memory_max": "3584M",
             "measured_peak": "2253M",
             "measured": "journal `memory peak` 2026-10-18..11-08, 236 runs, highest 2026-10-18 (foundation-autodeploy)"
-          },
-          "foundation-building-register-floor.service": {
-            "class": "batch",
-            "memory_max": "5G",
-            "measured_peak": "3167M",
-            "measured": "the FLOOR load's dry run on the 2026-11-20 edition (21,195,732 rows, 16 staged files, 80 s), 2026-11-22 on ai-server in perfectory-verify:local with the release's publisher: cgroup memory.peak 3,320,811,520 B (page cache included), anon at most 838 MB; the history gate and the input staging read less. The unit held only its script while Spark and the export ran in containers (308M, journal 2026-10-18..11-08); since root ADR-0599 the gate and the DuckDB load run in the unit itself"
           },
           "foundation-by-pnu-auto-promote.service": {
             "class": "control",
@@ -1195,97 +1178,15 @@
             "memory_max": "128M",
             "measured": "new 2026-11-11 (root ADR-0480); the edge probe's code with one document at a time, so sized as the edge probe's 128M cap; systemd logs the peak of every run under this cap"
           },
-          "foundation-by-pnu-lane-bake@.service": {
-            "class": "batch",
-            "memory_max": "5G",
-            "measured_peak": "397M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 6 runs, highest 2026-11-08 (foundation-by-pnu-lane-bake@parcel-public-auction)"
-          },
-          "foundation-by-pnu-serving-bake.service": {
-            "class": "batch",
-            "memory_max": "14G",
-            "measured_peak": "13517M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 25 runs, highest 2026-10-29 (foundation-by-pnu-serving-bake)",
-            "headroom_why": "A bound decided from a measured shard (root ADR-0138): the export refuses a shard over 900,000 rows, whose anonymous peak was 11.1G, so 14G is that peak x1.3; the 13517M journal peak includes page cache, which the kernel reclaims before it kills."
-          },
           "foundation-by-pnu-serving-monitor@.service": {
             "class": "control",
             "memory_max": "512M",
             "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as its 512M cap, set when it was written; it logged CPU only; systemd logs the peak of every run under this cap"
           },
-          "foundation-by-pnu-unit-price-bake.service": {
-            "class": "batch",
-            "memory_max": "3G",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 22 runs, highest 2026-11-08 (foundation-by-pnu-unit-price-bake)"
-          },
-          "foundation-complex-boundary-release.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "306M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 33 runs, highest 2026-11-04 (foundation-complex-boundary-release)"
-          },
-          "foundation-court-auction-collect.service": {
-            "class": "batch",
-            "memory_max": "2G",
-            "measured_peak": "1024M",
-            "measured": "journal `memory peak` 2026-10-18..11-12: 534M on 2026-11-11 (lists + 1,800 물건상세), then 1,023.9M and oom-kill at the 1G cap on 2026-11-12 after 2 h 9 min, the first night that asked every in-progress property (root ADR-0540 §2) while holding its lines as text; the lines are now held gzipped (GzLines), and the cap leaves the lists (~0.5G) plus the night's compressed lines and in-flight answers room (foundation-court-auction-collect)"
-          },
-          "foundation-court-auction-silver-load.service": {
-            "class": "batch",
-            "memory_max": "3G",
-            "measured_peak": "306M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 3 runs, highest 2026-11-06 (foundation-court-auction-silver-load), when the whole load ran in the Spark container (its own cap). Since root ADR-0559 the 공통코드, 감정평가서, 매각물건명세서 and 배당요구종기공고 objects are loaded by the publisher's DuckDB inside this unit: the stage's buffer is half the execution profile (2048 MiB, lakehouse-engine.contract.json), as the onbid load's; 3G holds the buffer and the process, and the first runs' memory_peak_bytes set it again (root ADR-0455)"
-          },
-          "foundation-data-go-kr-file-data.service": {
-            "class": "batch",
-            "memory_max": "3G",
-            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting). Since root ADR-0559 the Silver load is the publisher's DuckDB inside this unit (it was the spark container, 8g driver): sized as the onbid Silver load, the same stage (2.1G measured 2026-11-20 on 48 objects); the largest edition (상가 2,753,778 rows, quarterly) has not run under this cap yet; systemd logs the peak of every run and the load prints memory_peak_bytes"
-          },
-          "foundation-data-quality.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 21 runs, highest 2026-11-08 (foundation-data-quality)"
-          },
           "foundation-edge-settings.service": {
             "class": "control",
             "memory_max": "512M",
             "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as one python script that sets edge settings through an API; 1 run, CPU only; systemd logs the peak of every run under this cap"
-          },
-          "foundation-gold-court-auction-rebuild.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the script foundation-gold-panel-rebuild.service runs (307M measured, 57 runs); Spark runs in its own capped container; systemd logs the peak of every run under this cap"
-          },
-          "foundation-gold-kind-rebuild.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 21 runs, highest 2026-11-08 (foundation-gold-kind-rebuild)"
-          },
-          "foundation-gold-lane-rebuild@.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the script foundation-gold-panel-rebuild.service runs (307M measured, 57 runs); Spark runs in its own capped container; systemd logs the peak of every run under this cap"
-          },
-          "foundation-gold-panel-rebuild.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 57 runs, highest 2026-11-08 (foundation-gold-panel-rebuild)"
-          },
-          "foundation-gold-public-auction-rebuild.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 20 runs, highest 2026-11-08 (foundation-gold-public-auction-rebuild)"
-          },
-          "foundation-gold-unit-price-rebuild.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "306M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 11 runs, highest 2026-11-04 (foundation-gold-unit-price-rebuild)"
           },
           "foundation-host-retention.service": {
             "class": "control",
@@ -1308,120 +1209,11 @@
             "memory_max": "1G",
             "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as its drill database runs in a capped container; cgroup peak 14M on 2026-11-08 (systemctl MemoryPeak); systemd logs the peak of every run under this cap"
           },
-          "foundation-juso-electronic-map.service": {
-            "class": "batch",
-            "memory_max": "3G",
-            "measured": "never run (root ADR-0475: new, waiting for the approval key); sized as the collector holds one ten-day answer's files in memory and one more copy while it commits each, against the provider's 2,000,000,000-byte file limit for the largest; systemd logs the peak of every run under this cap"
-          },
-          "foundation-industrial-complex-address-source-collect.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured": "no run yet (new 2026-11-22, root ADR-0033); sized as the ILIS notice Silver load (512M), the largest thing it holds being the 13.5 MB notice list answer twice (raw bytes and parsed JSON) and the 412 KB profile workbook; systemd logs the peak of every run under this cap"
-          },
-          "foundation-industrial-complex-silver-load.service": {
-            "class": "batch",
-            "memory_max": "1G",
-            "measured": "no run yet (new 2026-11-22, root ADR-0033); sized as the ILIS notice Silver load (512M), the same DuckDB stage reading the lakehouse, and twice that for the 98 MB district boundary archive the address resolution reads whole; systemd logs the peak of every run under this cap"
-          },
-          "foundation-industrial-complex-notice-collect.service": {
-            "class": "batch",
-            "memory_max": "1G",
-            "measured": "no run yet (new 2026-11-09, root ADR-0484); sized as the court auction collector (547M measured), which keeps one detail and its attachments in memory as this one does, under a 256 MiB per-file cap (industryland-or-kr.contract.json attachments.max_file_bytes); systemd logs the peak of every run under this cap"
-          },
-          "foundation-industrial-complex-notice-silver-load.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured": "no run yet (new 2026-11-09, root ADR-0484); sized as the court auction Silver load (306M measured), the same plan-then-container script; the Spark container is capped by its compose service; systemd logs the peak of every run under this cap"
-          },
-          "foundation-lakehouse-maintenance.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 33 runs, highest 2026-11-08 (foundation-lakehouse-maintenance)"
-          },
           "foundation-lakehouse-migrate.service": {
             "class": "batch",
             "memory_max": "512M",
             "measured_peak": "306M",
             "measured": "journal `memory peak` 2026-10-18..11-08, 1 runs, highest 2026-11-06 (foundation-lakehouse-migrate)"
-          },
-          "foundation-legal-dong-code.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 22 runs, highest 2026-11-08 (foundation-legal-dong-code)"
-          },
-          "foundation-real-estate-broker-lookup-load.service": {
-            "class": "batch",
-            "memory_max": "1G",
-            "measured": "no run yet (new 2026-11-12, root ADR-0550); sized as the first load holds every office and person (106,429 + 179,124 rows, a few tens of MB of text) twice, as Trino rows and as COPY lines; later loads hold a few hundred offices; systemd logs the peak of every run under this cap"
-          },
-          "foundation-industrial-complex-edge-export.service": {
-            "class": "batch",
-            "memory_max": "1G",
-            "measured": "no run yet (new 2026-11-13, root ADR-0563 §3); the same publisher command ran inside foundation-lineage-stewardship.service under its 512M cap (308M measured, 23 runs) with the catalog's rows alone; sized as it now also holds every complex's document facts while it hashes, below the outbox publisher's native peak (770M measured); systemd logs the peak of every run under this cap"
-          },
-          "foundation-lineage-stewardship.service": {
-            "class": "batch",
-            "memory_max": "3G",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 23 runs, highest 308M on 2026-11-08, while its loads ran in the spark container outside this cap. Since root ADR-0559 the parcel-number-change load is the publisher's DuckDB inside this unit (the history's 1.37M events against a file of up to 356k rows): DuckDB spills past half the engine profile (2048 MiB), so the unit is sized as the onbid Silver load, the same stage (2.4G measured 2026-11-20); no such load has run under this cap yet; systemd logs the peak of every run"
-          },
-          "foundation-map-edit-fold@.service": {
-            "class": "batch",
-            "memory_max": "768M",
-            "measured_peak": "355M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 659 runs, highest 2026-10-20 (foundation-map-edit-fold@complex)"
-          },
-          "foundation-media-ladder-backlog.service": {
-            "class": "batch",
-            "memory_max": "3G",
-            "measured": "no run yet (added 2026-11-08, root ADR-0429); sized by its author for four 50-megapixel sources decoded and AV1-encoded at a time (root ADR-0427 §2); systemd logs the peak of every run under this cap"
-          },
-          "foundation-media-reconcile.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 3 runs, highest 2026-11-08 (foundation-media-reconcile)"
-          },
-          "foundation-onbid-collect.service": {
-            "class": "batch",
-            "memory_max": "3G",
-            "measured_peak": "1844M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 486 runs, highest 2026-11-06 (foundation-onbid-collect)"
-          },
-          "foundation-onbid-silver-load.service": {
-            "class": "batch",
-            "memory_max": "3G",
-            "measured_peak": "542M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 433 runs, highest 2026-10-29 (foundation-onbid-silver-load), when the load ran in the spark-small container (2560m, its own cap). Since root ADR-0559 the load is the publisher's DuckDB inside this unit: the stage's buffer is half the execution profile (2048 MiB, lakehouse-engine.contract.json), and the engine-equality harness on ai-server peaked at 1795 MiB anonymous over three production item list objects (62,235 conditions each, R2 reads and the place-identity inputs included); 3G holds the buffer and the process, and is under the 2560m container plus 1G unit it replaces"
-          },
-          "foundation-outbox-publish.service": {
-            "class": "batch",
-            "memory_max": "1280M",
-            "measured_peak": "770M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 341 runs, highest 2026-11-08 (foundation-outbox-publish)"
-          },
-          "foundation-parcel-edition-readiness.service": {
-            "class": "batch",
-            "memory_max": "1G",
-            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as a shell cycle over the control API and Trino; runs logged CPU only; systemd logs the peak of every run under this cap"
-          },
-          "foundation-parcel-number-change.service": {
-            "class": "batch",
-            "memory_max": "256M",
-            "measured_peak": "11M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 12 runs, highest 2026-10-21 (foundation-parcel-number-change)"
-          },
-          "foundation-parcel-registry.service": {
-            "class": "batch",
-            "memory_max": "3G",
-            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting). Since root ADR-0559 the registry's step is the publisher's DuckDB inside this unit (it was the spark container, 16g driver): DuckDB spills past half the engine profile (2048 MiB), so the unit is sized as the onbid Silver load, the same stage (2.4G measured 2026-11-20); no registry step has run under this cap yet; systemd logs the peak of every run under this cap"
-          },
-          "foundation-parcel-tile-bake@.service": {
-            "class": "batch",
-            "memory_max": "2G",
-            "measured_peak": "954M",
-            "measured": "2026-11-13..18 every bake run peaked at 939-954M under the old 1G cap (MemoryHigh 921M) and swapped up to 947M: the cap was sized as if the unit held only the script (GDAL and tippecanoe run in their own capped containers, config/tile-bake-containers.contract.json), but the publisher's bake-lakehouse-tiles runs in this unit too. It held the feature index of 39,876,546 parcels, 40 bytes each (1.6 GB), and eight runs reached the 115-minute limit inside the index build. The index is now built in sorted runs of 4 Mi records (160 MiB) merged from disk (lakehouse_tile_patch.rs INDEX_SORT_RUN_RECORDS); what the publisher still holds for a full national bake is the sorted id hashes (ServedIds, 16 bytes x 39.9M = 640 MB) and one run (160 MiB): computed about 0.9G, so 2G is above 1.5x the 954M peak and twice the computed demand; the next run logs the first uncapped peak"
           },
           "foundation-postgres-backup-freshness.service": {
             "class": "control",
@@ -1445,23 +1237,6 @@
             "measured_peak": "42M",
             "measured": "journal `memory peak` 2026-10-18..11-08, 1 runs, highest 2026-11-07 (foundation-readiness-report)"
           },
-          "foundation-registered-factory.service": {
-            "class": "batch",
-            "memory_max": "3G",
-            "measured": "13M on the days the file is the same (journal `memory peak` 2026-10-18..11-08, 13 runs). Since root ADR-0559 the Silver load is the publisher's DuckDB inside this unit (it was the spark container, 8g driver): sized as the onbid Silver load, the same stage (2.1G measured 2026-11-20 on 48 objects); an edition (220,000 rows, yearly) has not run under this cap yet; systemd logs the peak of every run under this cap"
-          },
-          "foundation-rt-molit-collect.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 37 runs, highest 2026-11-08 (foundation-rt-molit-collect)"
-          },
-          "foundation-rt-molit-silver-load.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 141 runs, highest 2026-11-08 (foundation-rt-molit-silver-load)"
-          },
           "foundation-run-now.service": {
             "class": "control",
             "memory_max": "512M",
@@ -1472,39 +1247,11 @@
             "memory_max": "256M",
             "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as its 256M cap, set when it was written; it logged CPU only; systemd logs the peak of every run under this cap"
           },
-          "foundation-audit-digest.service": {
-            "class": "batch",
-            "memory_max": "256M",
-            "measured": "no run yet (new 2026-11-19, root ADR-0569 §4); sized as the publisher binary with one connection, then the pinned cosign signing one small file (its peak is that of a Go binary, tens of MB); systemd logs the peak of every run under this cap"
-          },
-          "foundation-audit-import.service": {
-            "class": "batch",
-            "memory_max": "256M",
-            "measured": "no run yet (new 2026-11-19, root ADR-0569 §6); sized as the publisher binary with one connection and the importer's rows (about 1,200 on the first run, a few KB each) and one `git log` at a time; systemd logs the peak of every run under this cap"
-          },
-          "foundation-shape-ledger-check.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "313M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 37 runs, highest 2026-10-20 (foundation-shape-ledger-check)"
-          },
           "foundation-silver-refresh-plan@.service": {
             "class": "batch",
             "memory_max": "1G",
             "measured_peak": "398M",
             "measured": "journal `memory peak` 2026-10-18..11-08, 521 runs, highest 2026-11-02 (foundation-silver-refresh-plan@building-register-master)"
-          },
-          "foundation-silver-refresh@.service": {
-            "class": "batch",
-            "memory_max": "16G",
-            "measured": "2026-11-21, building-register-units. Under 16G: three runs, export 6m47s-7m00s CPU and about 10 minutes of wall time, `memory peak` 13.3-13.4G. Under the 8G this cap was for one day: one run, 61 minutes (17:37:58-18:39:25Z), 10m35s CPU, `memory peak` 7.2G - the export child held 6.68G resident and the cgroup sat at MemoryHigh with 18,933 `high` events and no OOM kill: throttled, not killed. journal `memory peak` 2026-10-18..11-08, 84 runs under 16G: highest 15,668M on 2026-10-20 (building-register-unit-areas). The other lanes measured on the DuckDB path the same day: 0.3G-7.1G.",
-            "headroom_why": "A measured working point, not 1.5 x a peak: the export sizes its workers to three quarters of what its cgroup has left, so its peak follows the cap, but about 7G of it does not shrink - at 8G nothing was left for it to work in. 16G is the cap under which the largest export is measured to finish in ten minutes. One number for all 54 lanes, because they share one unit template: it over-reserves for the small lanes (1-7G), and a request per lane comes with the Dagster resource tags that replace this admission (root ADR-0583 follow-up)."
-          },
-          "foundation-source-sweep.service": {
-            "class": "batch",
-            "memory_max": "4G",
-            "measured_peak": "1536M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 26 runs, highest 2026-10-21 (foundation-source-sweep); the runs 10-31..11-08 peaked at 42.2G, the n x n copy #1183 fixed, and are not the size"
           },
           "foundation-unit-failed@.service": {
             "class": "control",
@@ -1516,22 +1263,10 @@
             "memory_max": "512M",
             "measured": "new unit (root ADR-0574); its 14-day journal read measured on the host 2026-11-19: journalctl 129 MB resident, 15.4 s, 323,991 lines; the Python parse of those lines is not measured yet; systemd logs the peak of every run under this cap"
           },
-          "foundation-unit-price-versions-migrate.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "307M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 3 runs, highest 2026-11-07 (foundation-unit-price-versions-migrate)"
-          },
           "foundation-unit-recovered@.service": {
             "class": "control",
             "memory_max": "256M",
             "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the script foundation-unit-failed@.service runs; systemd logs the peak of every run under this cap"
-          },
-          "foundation-vworld-parcel-edition.service": {
-            "class": "batch",
-            "memory_max": "512M",
-            "measured_peak": "308M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 20 runs, highest 2026-11-08 (foundation-vworld-parcel-edition)"
           },
           "foundation-worker-autodeploy.service": {
             "class": "control",
@@ -1539,37 +1274,12 @@
             "measured_peak": "64M",
             "measured": "journal `memory peak` 2026-10-18..11-08, 11 runs, highest 2026-11-04 (foundation-worker-autodeploy)"
           },
-          "foundation-zoning-tile-bake.service": {
-            "class": "batch",
-            "memory_max": "5G",
-            "measured_peak": "3175M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 7 runs, highest 2026-11-06 (foundation-zoning-tile-bake)"
-          },
           "intelligence-model-runtime-ollama.service": {
             "class": "batch",
             "memory_max": "24G",
             "measured_peak": "29655M",
             "measured": "the hand-installed ollama.service this unit replaces, cgroup MemoryPeak 2026-09-11..11-11 (31,842,312,192 bytes, page cache of the model files included, with up to three models loaded at once); the 35B-A3B Q4 run of 2026-11-11 (16 ILIS notices, root ADR-0478) held 21.4 GB with 5.5 GB of the model on the GPU",
             "headroom_why": "A decided bound, not 1.5 x the old peak: one model at a time (OLLAMA_MAX_LOADED_MODELS=1) and the largest is 23 GB, of which about 5.5 GB sits in VRAM; the model files are mapped, so under MemoryHigh the kernel drops their pages and reads them again instead of killing. 24G is the most one unit may hold beside every standing service and host_reserved, and the unit runs only under a job whose memory_claim names it, admitted against the host's available memory (root ADR-0563; it replaced holding the whole spark pool, root ADR-0478 §2)"
-          },
-          "foundation-intelligence-document-text.service": {
-            "class": "batch",
-            "memory_max": "1G",
-            "measured": "no run under this cap. Its Spark steps ran in a container outside the unit; since root ADR-0559 the plan and the append are the publisher's DuckDB inside it, held to 384 MiB by the loader (intelligence_documents_load STAGE_MEMORY_MIB) over tables of tens of thousands of rows, beside the job script, the Docker client and python3 (306M was the peak of the same shape without DuckDB, foundation-court-auction-silver-load.service). The image has its own cap. The job is paused (2026-11-20); its first run measures this one.",
-            "headroom_why": "Not 1.5 x a measured peak: none exists yet. 384 MiB of DuckDB plus the 306M shape is about 700M; 1G leaves a third above it."
-          },
-          "foundation-intelligence-document-fact.service": {
-            "class": "batch",
-            "memory_max": "1G",
-            "measured": "no run under this cap. journal `memory peak` 2026-11-12 20:55Z was 311.2M with its Spark steps in a container outside the unit; since root ADR-0559 the plan, the append and the fold's reads are the publisher's DuckDB inside it, held to 384 MiB by the loader, and the fold rule is python3 over the run's files. The image and the model runtime have their own caps. The job is paused (2026-11-20); its first run measures this one.",
-            "headroom_why": "Not 1.5 x a measured peak: none exists yet. 384 MiB of DuckDB plus the 312M measured without it is about 700M; 1G leaves a third above it."
-          },
-          "foundation-gold-versions@.service": {
-            "class": "batch",
-            "memory_max": "8G",
-            "measured_peak": "7373M",
-            "measured": "its own: run 20261119T152616Z of foundation-gold-versions@parcel-nearby (2026-11-19 15:26-15:51Z, every served parcel, 39,861,511 rows committed in 1500 s), systemd's memory peak 7.2G, swap peak 13.5M; the publisher's own peak in its run log 7,733,563,392 bytes",
-            "headroom_why": "The peak follows the cap, not the work: the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (parcel_nearby_versions_build MEMORY_SHARE) and DuckDB fills it and the page cache, so a larger memory_max would only raise the peak. The run fit: no timeout, 13.5M swap, under MemoryMax"
           }
         }
       },

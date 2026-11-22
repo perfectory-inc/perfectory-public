@@ -40,7 +40,7 @@ OOM 의 `limit` 이 `2621440kB`(2.5GiB) 면 공매 Silver 적재(`foundation-onb
 | `FoundationContainerMemoryNearCapLong` | 컨테이너가 하루의 절반 넘게 상한의 90% 위(page) | `journalctl -k --since -1d \| grep oom_memcg` 로 죽은 횟수; 상주 서비스면 무엇이 자랐는지(ADR-0573 의 아레나처럼) |
 | `FoundationUnitLimitsUnread` | 측정 파일이 두 시간째 없음 | `journalctl -u foundation-unit-limits.service` |
 
-표를 다시 만든다(호스트에서, 읽기만; 14일 저널 몇 초):
+표를 다시 만든다(호스트에서, 읽기만; 14일 저널 25초, 최대 RSS 129 MB):
 
 ```sh
 python3 /opt/foundation-platform/current/scripts/ops/unit_limits.py --since=-14d --table --prometheus http://127.0.0.1:19090
@@ -48,4 +48,18 @@ python3 /opt/foundation-platform/current/scripts/ops/unit_limits.py --since=-14d
 
 `peak` 는 systemd 가 유닛이 끝날 때 남기는 cgroup `memory.peak` 이고 페이지 캐시를 포함한다. 최고점이 `MemoryHigh`
 (상한의 0.9)에 붙어 있고 OOM 이 없으면 커널이 캐시를 되찾은 것이다. 상한에서 죽은 run 은 resource 줄을 남기지 않으므로
-그 최고점은 상한 이상이다 — 그 유닛은 측정이 아니라 원인(입력이 자랐나)부터 본다.
+그 최고점은 상한 이상이다 — 그 유닛은 측정이 아니라 원인(입력이 자랐나)부터 본다. 경보가 세는 메모리 근접은 쥔 최고점뿐이다:
+OOM 으로 죽었거나 `MemoryHigh` 를 커널의 회수 여유(CPU 마다 64 쪽, ai-server 5 MiB)보다 넘은 run(ADR-0574 §1). `--json` 의
+`held_memory_share` 가 그 값이고, `memory_share` 는 캐시까지 센 원래 비율이다.
+
+한도를 바꾸는 곳은 작업 정의 하나다(ADR-0574 §8): `definitions/<무리>.definition.json` 의 그 작업에 `time_limit_minutes`
+옆의 `memory_max`·`memory_measured`(·`memory_measured_peak`·`memory_headroom_why`). 템플릿(`x@.service`)의 인스턴스 작업은
+제 값을 적을 수 있다; 템플릿보다 작으면 생성기가 `infra/systemd/<instance>.service.d/50-time-limit.conf`·`50-memory.conf` 를
+쓴다. 고친 뒤:
+
+```sh
+bash scripts/ci/generate-declared.sh                     # 저장소 뿌리에서: 작업 목록과 메모리 계약
+python3 scripts/ci/unit_memory.py --write                # 유닛과 인스턴스 드롭인의 메모리 줄
+cargo run -q -p foundation-jobs -- generate              # platforms/foundation-platform 에서: TimeoutStartSec 과 그 드롭인
+bash scripts/guard/every-container-has-a-memory-cap.sh   # 합이 호스트에 드는지
+```

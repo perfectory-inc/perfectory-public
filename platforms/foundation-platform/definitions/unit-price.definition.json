@@ -23,6 +23,9 @@
       "stop_grace_minutes": 30,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 60,
+      "memory_max": "3G",
+      "memory_measured_peak": "308M",
+      "memory_measured": "journal `memory peak` 2026-10-18..11-08, 22 runs, highest 2026-11-08 (foundation-by-pnu-unit-price-bake)",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

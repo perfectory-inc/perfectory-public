@@ -30,6 +30,9 @@ pub const JOB_UNIT_LINES: &[&str] = &[
     "ProtectHome=true",
     "ProtectSystem=strict",
 ];
+/// The drop-in an instance of a template unit gets its own time limit from (root ADR-0574 §7):
+/// `<instance>.service.d/50-time-limit.conf` beside the units, generated here and nowhere else.
+pub const TIME_LIMIT_DROPIN: &str = "50-time-limit.conf";
 /// The generated `tmpfiles.d` file, relative to the platform root.
 pub const TMPFILES: &str = "infra/tmpfiles/foundation-job-state.conf";
 /// The account and group that own every job state directory.
@@ -135,6 +138,25 @@ pub fn unit_file_name(service: &str) -> String {
         },
         None => service.to_owned(),
     }
+}
+
+/// The drop-in of an instance service (`a@b.service`), relative to the unit directory.
+#[must_use]
+pub fn time_limit_dropin(service: &str) -> String {
+    format!("{service}.d/{TIME_LIMIT_DROPIN}")
+}
+
+/// An instance's time-limit drop-in: its job's `TimeoutStartSec=`, over the template's.
+#[must_use]
+pub fn render_time_limit_dropin(minutes: u32) -> String {
+    format!(
+        "# Rendered from orchestration/jobs.v1.json time_limit_minutes (root ADR-0574 §7); do not edit.
+         # Run: {GENERATE}
+[Service]
+{}
+",
+        time_limit_line(minutes)
+    )
 }
 
 /// The `TimeoutStartSec=` line for a limit: whole hours as `<n>h`, otherwise `<n>m`.
@@ -383,13 +405,19 @@ pub struct Unit {
     pub rendered: String,
 }
 
-/// Every job unit, rendered from the list. `read` returns a unit file's text by its file name.
+/// Every job unit, rendered from the list, and the time-limit drop-in of every job that runs an
+/// instance of a template. `read` returns a unit file's text by its file name; a drop-in it cannot
+/// read is one not written yet.
+///
+/// Instances of one template may state different limits (root ADR-0574 §7): the template holds
+/// the longest of them, so an instance no job names is held to no more than any job's, and an
+/// instance with a shorter one gets a drop-in that holds its own.
 ///
 /// # Errors
 /// Every problem found: a limit of zero, a state path that is not absolute, jobs that share a unit
-/// but state different facts, a unit that cannot be read or has no single `TimeoutStartSec=`, and
-/// a stop grace no longer than the unit's `TimeoutStopSec=` (the scheduler would give up while the
-/// unit still stops).
+/// but state different state paths (or, on a unit that is not a template, different limits), a
+/// unit that cannot be read or has no single `TimeoutStartSec=`, and a stop grace no longer than
+/// the unit's `TimeoutStopSec=` (the scheduler would give up while the unit still stops).
 pub fn render(
     list: &JobList,
     read: &dyn Fn(&str) -> Result<String, String>,
@@ -397,6 +425,7 @@ pub fn render(
     let mut problems = Vec::new();
     let mut by_unit: BTreeMap<String, (UnitFacts, &str)> = BTreeMap::new();
     let mut graces: BTreeMap<String, (u32, &str)> = BTreeMap::new();
+    let mut instances: Vec<(String, u32)> = Vec::new();
     for job in &list.jobs {
         if job.time_limit_minutes == 0 {
             problems.push(format!("{}: time_limit_minutes must be above 0", job.id));
@@ -415,7 +444,14 @@ pub fn render(
         if job.stop_grace_minutes < shortest.0 {
             *shortest = (job.stop_grace_minutes, &job.id);
         }
-        match by_unit.get(&file) {
+        let instance = file != job.systemd_service;
+        if instance {
+            instances.push((job.systemd_service.clone(), job.time_limit_minutes));
+        }
+        match by_unit.get_mut(&file) {
+            Some((shared, _)) if instance && shared.state_paths == facts.state_paths => {
+                shared.time_limit_minutes = shared.time_limit_minutes.max(facts.time_limit_minutes);
+            }
             Some((shared, other)) if *shared != facts => problems.push(format!(
                 "{}: shares {file} with {other}, which states {shared:?}, not {facts:?}",
                 job.id
@@ -426,7 +462,23 @@ pub fn render(
             }
         }
     }
-    let mut units = Vec::new();
+    // An instance at the template's own limit needs no drop-in: the template says it.
+    let mut units: Vec<Unit> = instances
+        .into_iter()
+        .filter(|(service, minutes)| {
+            by_unit
+                .get(&unit_file_name(service))
+                .is_some_and(|(template, _)| template.time_limit_minutes != *minutes)
+        })
+        .map(|(service, minutes)| {
+            let file = time_limit_dropin(&service);
+            Unit {
+                current: read(&file).unwrap_or_default(),
+                rendered: render_time_limit_dropin(minutes),
+                file,
+            }
+        })
+        .collect();
     for (file, (facts, _)) in by_unit {
         let unit = read(&file).and_then(|current| {
             render_unit(&current, &facts).map(|rendered| Unit {
@@ -460,23 +512,47 @@ pub fn render(
     }
 }
 
-/// Every way the committed units differ from the job list: each [`render`] problem, and each unit
-/// whose file is not its rendering. Empty is a pass.
+/// Every way the committed units differ from the job list: each [`render`] problem, each unit
+/// whose file is not its rendering, and each committed time-limit drop-in (`committed`, paths
+/// relative to the unit directory) no job renders. Empty is a pass.
 #[must_use]
-pub fn check(list: &JobList, read: &dyn Fn(&str) -> Result<String, String>) -> Vec<String> {
+pub fn check(
+    list: &JobList,
+    read: &dyn Fn(&str) -> Result<String, String>,
+    committed: &[String],
+) -> Vec<String> {
     match render(list, read) {
         Err(problems) => problems,
-        Ok(units) => units
-            .into_iter()
-            .filter(|unit| unit.current != unit.rendered)
-            .map(|unit| {
-                format!(
-                    "{}: TimeoutStartSec or ReadWritePaths is not what the job list says; run: {GENERATE}",
-                    unit.file
-                )
-            })
-            .collect(),
+        Ok(units) => {
+            let mut problems: Vec<String> = units
+                .iter()
+                .filter(|unit| unit.current != unit.rendered)
+                .map(|unit| {
+                    format!(
+                        "{}: TimeoutStartSec or ReadWritePaths is not what the job list says; run: {GENERATE}",
+                        unit.file
+                    )
+                })
+                .collect();
+            problems.extend(stale_dropins(&units, committed).into_iter().map(|file| {
+                format!("{file}: no job runs this instance any more; run: {GENERATE}")
+            }));
+            problems
+        }
     }
+}
+
+/// The committed time-limit drop-ins (`committed`) that no rendered unit is: what `generate`
+/// removes. Another drop-in in the same directory is not this crate's.
+#[must_use]
+pub fn stale_dropins(units: &[Unit], committed: &[String]) -> Vec<String> {
+    let rendered: BTreeSet<&str> = units.iter().map(|unit| unit.file.as_str()).collect();
+    committed
+        .iter()
+        .filter(|file| file.ends_with(&format!(".service.d/{TIME_LIMIT_DROPIN}")))
+        .filter(|file| !rendered.contains(file.as_str()))
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
@@ -503,7 +579,7 @@ mod tests {
         assert_eq!(job_unit_line_problems("a.service", &loosened).len(), 1);
         let jobs = list(&[("a", "a.service", 150)]);
         let reading_unsandboxed = move |_: &str| Ok(unsandboxed.clone());
-        assert_eq!(check(&jobs, &reading_unsandboxed).len(), 1);
+        assert_eq!(check(&jobs, &reading_unsandboxed, &[]).len(), 1);
     }
 
     fn list(jobs: &[(&str, &str, u32)]) -> JobList {
@@ -687,7 +763,7 @@ mod tests {
             job.state_paths = paths(&["/var/lib/foundation-platform/lineage-stewardship"]);
         }
         let unit = format!("{UNIT}ReadWritePaths=/var/lib/foundation-platform/map-edit-fold\n");
-        let problems = check(&jobs, &move |_: &str| Ok(unit.clone()));
+        let problems = check(&jobs, &move |_: &str| Ok(unit.clone()), &[]);
         assert_eq!(problems.len(), 1, "{problems:?}");
     }
 
@@ -697,7 +773,7 @@ mod tests {
         if let Some(job) = jobs.jobs.first_mut() {
             job.state_paths = paths(&["var/lib/x"]);
         }
-        assert!(check(&jobs, &reading(UNIT))
+        assert!(check(&jobs, &reading(UNIT), &[])
             .iter()
             .any(|problem| problem.contains("not absolute")));
     }
@@ -727,11 +803,11 @@ mod tests {
         let mut jobs = list(&[("a", "a.service", 150)]);
         let slow_stop = format!("{UNIT}TimeoutStopSec=6min\n");
         let reading_slow_stop = move |_: &str| Ok(slow_stop.clone());
-        assert_eq!(check(&jobs, &reading_slow_stop).len(), 1);
+        assert_eq!(check(&jobs, &reading_slow_stop, &[]).len(), 1);
         if let Some(job) = jobs.jobs.first_mut() {
             job.stop_grace_minutes = 7;
         }
-        assert!(check(&jobs, &reading_slow_stop).is_empty());
+        assert!(check(&jobs, &reading_slow_stop, &[]).is_empty());
     }
 
     #[test]
@@ -743,13 +819,13 @@ mod tests {
     #[test]
     fn a_unit_that_says_the_lists_limit_passes() {
         let jobs = list(&[("a", "a.service", 150)]);
-        assert_eq!(check(&jobs, &reading(UNIT)), Vec::<String>::new());
+        assert_eq!(check(&jobs, &reading(UNIT), &[]), Vec::<String>::new());
     }
 
     #[test]
     fn a_unit_that_says_another_limit_is_refused_and_generate_fixes_it() -> TestResult {
         let jobs = list(&[("a", "a.service", 160)]);
-        let problems = check(&jobs, &reading(UNIT));
+        let problems = check(&jobs, &reading(UNIT), &[]);
         assert_eq!(problems.len(), 1, "{problems:?}");
         let units = render(&jobs, &reading(UNIT)).map_err(|problems| problems.join("; "))?;
         let rendered = &units.first().ok_or("no unit rendered")?.rendered;
@@ -763,21 +839,87 @@ mod tests {
         let jobs = list(&[("a", "a.service", 150)]);
         let none = "[Service]\nType=oneshot\n";
         let two = "[Service]\nTimeoutStartSec=1h\nTimeoutStartSec=2h\n";
-        assert_eq!(check(&jobs, &reading(none)).len(), 1);
-        assert_eq!(check(&jobs, &reading(two)).len(), 1);
+        assert_eq!(check(&jobs, &reading(none), &[]).len(), 1);
+        assert_eq!(check(&jobs, &reading(two), &[]).len(), 1);
     }
 
     #[test]
-    fn jobs_sharing_a_unit_must_state_one_limit() {
+    fn instances_of_one_template_each_get_their_own_limit_and_the_template_the_longest(
+    ) -> TestResult {
+        // W81e (2026-11-22): foundation-gold-versions@parcel-real-transaction needs other limits than
+        // the template's other instances, which one TimeoutStartSec on the template could not say.
         let jobs = list(&[
             ("lane_a", "foundation-x@a.service", 150),
             ("lane_b", "foundation-x@b.service", 160),
         ]);
-        let problems = check(&jobs, &reading(UNIT));
+        let template = |file: &str| {
+            if file == "foundation-x@.service" {
+                Ok(UNIT.to_owned())
+            } else {
+                Err("absent".to_owned())
+            }
+        };
+        let units = render(&jobs, &template).map_err(|problems| problems.join("; "))?;
+        let by_file: BTreeMap<&str, &str> = units
+            .iter()
+            .map(|unit| (unit.file.as_str(), unit.rendered.as_str()))
+            .collect();
+        assert!(by_file["foundation-x@.service"].contains(
+            "
+TimeoutStartSec=160m
+"
+        ));
+        assert!(
+            by_file["foundation-x@a.service.d/50-time-limit.conf"].ends_with(
+                "[Service]
+TimeoutStartSec=150m
+"
+            )
+        );
+        // b states the template's limit: nothing of its own.
+        assert!(!by_file.contains_key("foundation-x@b.service.d/50-time-limit.conf"));
+        // The template's line and a's drop-in are not written yet: what `generate` writes.
+        assert_eq!(check(&jobs, &template, &[]).len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn a_drop_in_of_an_instance_no_job_runs_is_stale() -> TestResult {
+        let jobs = list(&[
+            ("lane_a", "foundation-x@a.service", 150),
+            ("lane_b", "foundation-x@b.service", 160),
+        ]);
+        let units = render(&jobs, &|file: &str| {
+            Ok(if file.ends_with(".conf") {
+                render_time_limit_dropin(150)
+            } else {
+                UNIT.to_owned()
+            })
+        })
+        .map_err(|problems| problems.join("; "))?;
+        let committed = vec![
+            "foundation-x@a.service.d/50-time-limit.conf".to_owned(),
+            "foundation-x@gone.service.d/50-time-limit.conf".to_owned(),
+            "foundation-x@gone.service.d/10-other.conf".to_owned(),
+        ];
+        assert_eq!(
+            stale_dropins(&units, &committed),
+            vec!["foundation-x@gone.service.d/50-time-limit.conf".to_owned()]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn jobs_sharing_a_unit_that_is_not_a_template_must_state_one_limit() {
+        let jobs = list(&[
+            ("a", "foundation-x.service", 150),
+            ("b", "foundation-x.service", 160),
+        ]);
+        let problems = check(&jobs, &reading(UNIT), &[]);
         assert!(
             problems
                 .iter()
-                .any(|problem| problem.contains("shares foundation-x@.service")),
+                .any(|problem| problem.contains("shares foundation-x.service")),
             "{problems:?}"
         );
     }
@@ -785,13 +927,13 @@ mod tests {
     #[test]
     fn a_limit_of_zero_is_refused() {
         let jobs = list(&[("a", "a.service", 0)]);
-        assert!(!check(&jobs, &reading(UNIT)).is_empty());
+        assert!(!check(&jobs, &reading(UNIT), &[]).is_empty());
     }
 
     #[test]
     fn a_unit_that_cannot_be_read_is_a_problem() {
         let jobs = list(&[("a", "a.service", 150)]);
-        let problems = check(&jobs, &|_| Err("missing".to_owned()));
+        let problems = check(&jobs, &|_| Err("missing".to_owned()), &[]);
         assert_eq!(problems, vec!["a.service: missing".to_owned()]);
     }
 }

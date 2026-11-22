@@ -21,6 +21,9 @@
       "stop_grace_minutes": 10,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 240,
+      "memory_max": "5G",
+      "memory_measured_peak": "3167M",
+      "memory_measured": "the FLOOR load's dry run on the 2026-11-20 edition (21,195,732 rows, 16 staged files, 80 s), 2026-11-22 on ai-server in perfectory-verify:local with the release's publisher: cgroup memory.peak 3,320,811,520 B (page cache included), anon at most 838 MB; the history gate and the input staging read less. The unit held only its script while Spark and the export ran in containers (308M, journal 2026-10-18..11-08); since root ADR-0599 the gate and the DuckDB load run in the unit itself",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
