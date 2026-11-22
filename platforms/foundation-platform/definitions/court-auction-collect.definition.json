@@ -1194,6 +1194,474 @@
       "check": "parcel_source_resolution",
       "blocking": false,
       "reads": []
+    },
+    {
+      "asset": "silver-court-auction-code",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-code",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-code",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report-read",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report-read",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-report-read",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-specification-read",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-specification-read",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-specification-read",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-notice",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-notice",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-notice",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-object",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-object",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-dividend-object",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice-item",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice-item",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-notice-item",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-related",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-related",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-related",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-object",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-object",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-object",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-party",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-party",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-party",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-document-read",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-document-read",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-document-read",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-object",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-object",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-object",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-tenant",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-tenant",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-survey-tenant",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-filing",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-filing",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-filing",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-delivery",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-delivery",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-case-delivery",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-photo",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-photo",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-photo",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-spec",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-spec",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-spec",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-schedule",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-schedule",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-schedule",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-object",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-object",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-object",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-annex",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-annex",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-annex",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-point",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-point",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-appraisal-point",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-detail",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-detail",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-item-detail",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
     }
   ]
 }

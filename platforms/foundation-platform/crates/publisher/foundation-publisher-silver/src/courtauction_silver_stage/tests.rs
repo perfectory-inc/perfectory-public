@@ -136,6 +136,15 @@ fn the_staged_rows_are_the_rows_the_spark_job_built(role: Role) -> anyhow::Resul
             .collect::<Vec<_>>()
     );
     for table in &staged {
+        // The load's result checks hold on the rows each role builds.
+        let checks =
+            crate::silver_changes::result_checks(&stage, contract(table.table)?, &table.staged)?;
+        assert_eq!(
+            (checks.rows, checks.duplicate_keys, checks.missing_required),
+            (table.rows, 0, 0),
+            "{}",
+            table.table
+        );
         let short = table.table.split_once('.').context("a schema")?.1;
         // A table more than one role writes has the rows of each role's object apart.
         let expected = fixture(&format!("spark_{}__{short}.txt", role.name()))

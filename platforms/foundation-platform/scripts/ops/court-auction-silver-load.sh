@@ -92,6 +92,9 @@ if [ "${owed_duckdb}" != 0 ]; then
   FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT="${work}/duckdb" \
     "${PUBLISHER_BIN}" load-courtauction-go-kr-silver >> "${run_log}" 2>&1
   duckdb_summary="$(grep '^courtauction-go-kr-duckdb-summary-json ' "${run_log}" | tail -1)"
+  # The load's result checks, to the journal, where the op that ran this unit reads them as Dagster
+  # asset check evaluations (orchestration/dagster/load_checks.py).
+  grep '^{"__dagster_pipes_version"' "${run_log}" || true
 fi
 summary=""
 if [ "${owed_items}" != 0 ] || [ "${owed_results}" != 0 ]; then

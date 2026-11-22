@@ -187,16 +187,17 @@ def run_job(spec, transport=None, lineage_client=None):
 
 def reported_checks(keys, graph=None):
     """(asset key, check name) -> declared severity, of every declared check on `keys` that the job's
-    unit reports itself (takeover_checks.REPORTED): what systemd_pipes.SystemdRun.check_evaluations
-    takes from the journal."""
+    unit reports itself (takeover_checks.REPORTED, load_checks.REPORTED): what
+    systemd_pipes.SystemdRun.check_evaluations takes from the journal."""
     import asset_checks
+    import load_checks
     import takeover_checks
 
     if graph is None:
         graph = observe_assets.contracts()[1]
     wanted = set(keys)
     return {(item.key(), item.check): item.severity for item in asset_checks.declared(graph)
-            if item.check in takeover_checks.REPORTED and item.key() in wanted}
+            if item.check in takeover_checks.REPORTED | load_checks.REPORTED and item.key() in wanted}
 
 
 def run_jobs(jobs=None, graph=None, transport=None, lineage_client=None):
