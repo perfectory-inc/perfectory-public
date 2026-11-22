@@ -118,10 +118,9 @@ fn only_changed_keys_are_appended_and_a_key_that_left_gets_a_marker() -> anyhow:
         source_snapshot_id: "s2".to_owned(),
         published_at_utc: "t2".to_owned(),
     };
-    // A by-PNU table: its key is the PNU and its digest the row_digest it carries, as before the
-    // Golds outside the lanes came to the same commit.
+    // A by-PNU table: its key is the PNU, as before the Golds outside the lanes came to the same
+    // commit.
     assert_eq!(commit.key()?, ["pnu"]);
-    assert_eq!(commit.digest_sql(), "row_digest");
     // A first commit: every key is new.
     let first = diff(&connection, &commit, "TRUE")?;
     assert_eq!((first.added, first.changed, first.removed), (3, 0, 0));
@@ -184,35 +183,65 @@ fn only_changed_keys_are_appended_and_a_key_that_left_gets_a_marker() -> anyhow:
     Ok(())
 }
 
-/// A Gold outside the by-PNU lanes (the steward queue): a key of two columns and no `row_digest`,
-/// so the digest is of the content columns but the stamps, and a row that differs only in its
-/// stamp is not appended again.
+/// A Gold outside the by-PNU lanes (the steward queue): a key of two columns and the `row_digest`
+/// its versions table adds, which the producer computes over the content but the stamps, so a row
+/// that differs only in its stamp is not appended again.
 #[test]
-fn a_table_without_a_row_digest_appends_by_its_content_and_its_whole_key() -> anyhow::Result<()> {
+fn a_table_outside_the_lanes_appends_by_its_digest_and_its_whole_key() -> anyhow::Result<()> {
     let versions = industrial_complex_lakehouse_contracts()
         .iter()
         .find(|contract| contract.table_name == "gold.lineage_review_queue_versions")
         .context("the steward queue's versions table")?;
-    let replaced = industrial_complex_lakehouse_contracts()
+    let content: Vec<&'static str> = versions
+        .columns
         .iter()
-        .find(|contract| contract.table_name == "gold.lineage_review_queue")
-        .context("the steward queue")?;
-    let content: Vec<&'static str> = replaced.columns.iter().map(|column| column.name).collect();
+        .map(|column| column.name)
+        .filter(|name| !["version_seq", "row_state"].contains(name))
+        .collect();
+    assert!(content.contains(&"row_digest"));
+    let row = |unit: &str, subject: &str, id: &str, status: &str, digest: &str, day: u32| {
+        format!(
+            "('{unit}', '{subject}', '{id}', '{status}', '[]', 'e', NULL, NULL, \
+             TIMESTAMPTZ '2099-01-0{day} 00:00:00+00', '{digest}')"
+        )
+    };
     let connection = foundation_publisher_silver::duckdb::Connection::open_in_memory()?;
-    connection.execute_batch(
+    connection.execute_batch(&format!(
         "CREATE TABLE built (unit VARCHAR, subject_code VARCHAR, item_id VARCHAR, status VARCHAR, \
            candidates_json VARCHAR, evidence_etag VARCHAR, from_snapshot_id VARCHAR, \
-           to_snapshot_id VARCHAR, published_at_utc TIMESTAMPTZ); \
+           to_snapshot_id VARCHAR, published_at_utc TIMESTAMPTZ, row_digest VARCHAR); \
          CREATE TABLE current_rows AS SELECT * FROM built WHERE FALSE; \
-         INSERT INTO current_rows VALUES \
-           ('parcel', '9999910100100010000', 'i1', 'pending', '[]', 'e1', NULL, NULL, TIMESTAMPTZ '2099-01-01 00:00:00+00'), \
-           ('parcel', '9999910100100020000', 'i2', 'pending', '[]', 'e2', NULL, NULL, TIMESTAMPTZ '2099-01-01 00:00:00+00'), \
-           ('place_reference', '9999910100100010000', 'i3', 'steward', '{}', 'e3', NULL, 's1', TIMESTAMPTZ '2099-01-01 00:00:00+00'); \
-         INSERT INTO built VALUES \
-           ('parcel', '9999910100100010000', 'i1', 'pending', '[]', 'e1', NULL, NULL, TIMESTAMPTZ '2099-01-02 00:00:00+00'), \
-           ('parcel', '9999910100100020000', 'i2', 'needs_review', '[]', 'e9', NULL, NULL, TIMESTAMPTZ '2099-01-02 00:00:00+00'), \
-           ('place_reference', '9999910100100020000', 'i4', 'steward', '{}', 'e4', NULL, 's2', TIMESTAMPTZ '2099-01-02 00:00:00+00');",
-    )?;
+         INSERT INTO current_rows VALUES {}, {}, {}; \
+         INSERT INTO built VALUES {}, {}, {};",
+        row("parcel", "9999910100100010000", "i1", "pending", "d1", 1),
+        row("parcel", "9999910100100020000", "i2", "pending", "d2", 1),
+        row(
+            "place_reference",
+            "9999910100100010000",
+            "i3",
+            "steward",
+            "d3",
+            1
+        ),
+        // i1 differs only in its stamp: the same digest.
+        row("parcel", "9999910100100010000", "i1", "pending", "d1", 2),
+        row(
+            "parcel",
+            "9999910100100020000",
+            "i2",
+            "needs_review",
+            "d9",
+            2
+        ),
+        row(
+            "place_reference",
+            "9999910100100020000",
+            "i4",
+            "steward",
+            "d4",
+            2
+        ),
+    ))?;
     let commit = Commit {
         table: "gold.lineage_review_queue_versions",
         versions,
@@ -224,10 +253,6 @@ fn a_table_without_a_row_digest_appends_by_its_content_and_its_whole_key() -> an
         published_at_utc: "2099-01-02T00:00:00Z".to_owned(),
     };
     assert_eq!(commit.key()?, ["unit", "subject_code"]);
-    assert!(commit
-        .digest_sql()
-        .starts_with("sha256(to_json({'unit': unit"));
-    assert!(!commit.digest_sql().contains("published_at_utc"));
     connection.execute_batch(&appended_sql(&commit)?)?;
     let changes = connection
         .prepare(
@@ -243,9 +268,9 @@ fn a_table_without_a_row_digest_appends_by_its_content_and_its_whole_key() -> an
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    let (changed, removed, added) = (&changes[0], &changes[1], &changes[2]);
-    // i1 differs only in its stamp: not appended. The same PNU under another unit is another key.
+    // i1 is not appended; the same PNU under another unit is another key.
     assert_eq!(changes.len(), 3);
+    let (changed, removed, added) = (&changes[0], &changes[1], &changes[2]);
     assert_eq!(
         (changed.1.as_str(), changed.2.as_str()),
         ("9999910100100020000", "changed")

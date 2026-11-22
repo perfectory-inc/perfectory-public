@@ -41,6 +41,7 @@ use foundation_publisher_silver::{
     parcel_nearby_stage::{NearbyPins, Source},
     process_memory,
 };
+use lakehouse_domain::{GOLD_VERSIONS_REMOVAL_COLUMN, GOLD_VERSION_SEQ_COLUMN};
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::json;
 
@@ -65,15 +66,22 @@ const FRESH_TABLE: &str = "CREATE OR REPLACE TABLE fresh (unit VARCHAR, subject_
     from_snapshot_id VARCHAR, to_snapshot_id VARCHAR);";
 
 /// `built` from `fresh` and the head's current rows (`head_rows`): a place reference item whose
-/// evidence did not change keeps the snapshot pair it has.
+/// evidence did not change keeps the snapshot pair it has. `row_digest` (the column the versions
+/// table adds, root ADR-0564 §2) is the SHA-256 of `to_json` of the content but the stamp.
 const BUILT_SQL: &str = "CREATE OR REPLACE TABLE built AS \
-    SELECT f.unit, f.subject_code, f.item_id, f.status, f.candidates_json, f.evidence_etag, \
-      CASE WHEN f.unit = '@place@' AND h.evidence_etag = f.evidence_etag \
-        THEN h.from_snapshot_id ELSE f.from_snapshot_id END AS from_snapshot_id, \
-      CASE WHEN f.unit = '@place@' AND h.evidence_etag = f.evidence_etag \
-        THEN h.to_snapshot_id ELSE f.to_snapshot_id END AS to_snapshot_id, \
-      CAST('@published_at_utc@' AS TIMESTAMPTZ) AS published_at_utc \
-    FROM fresh f LEFT JOIN head_rows h USING (unit, subject_code);";
+    WITH kept AS ( \
+      SELECT f.unit, f.subject_code, f.item_id, f.status, f.candidates_json, f.evidence_etag, \
+        CASE WHEN f.unit = '@place@' AND h.evidence_etag = f.evidence_etag \
+          THEN h.from_snapshot_id ELSE f.from_snapshot_id END AS from_snapshot_id, \
+        CASE WHEN f.unit = '@place@' AND h.evidence_etag = f.evidence_etag \
+          THEN h.to_snapshot_id ELSE f.to_snapshot_id END AS to_snapshot_id \
+      FROM fresh f LEFT JOIN head_rows h USING (unit, subject_code)) \
+    SELECT *, CAST('@published_at_utc@' AS TIMESTAMPTZ) AS published_at_utc, \
+      sha256(to_json({'unit': unit, 'subject_code': subject_code, 'item_id': item_id, \
+        'status': status, 'candidates_json': candidates_json, 'evidence_etag': evidence_etag, \
+        'from_snapshot_id': from_snapshot_id, 'to_snapshot_id': to_snapshot_id})::VARCHAR) \
+        AS row_digest \
+    FROM kept;";
 
 // one-off: until the queue's takeover PR (the steward cycle loads its handoff from this table and
 // the Spark jobs that write gold.lineage_review_queue are gone): `LINEAGE_SNAPSHOT_PROPERTY`,
@@ -183,7 +191,14 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let summary_path = required_env_value(SUMMARY_ENV)?;
     let published_at_utc = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let versions_contract = contract(TABLE)?;
-    let content_columns: Vec<&'static str> = contract(REPLACED)?
+    // The replaced table's columns, then the `row_digest` the versions table adds.
+    let content_columns: Vec<&'static str> = versions_contract
+        .columns
+        .iter()
+        .map(|column| column.name)
+        .filter(|name| ![GOLD_VERSION_SEQ_COLUMN, GOLD_VERSIONS_REMOVAL_COLUMN].contains(name))
+        .collect();
+    let queue_columns: Vec<&'static str> = contract(REPLACED)?
         .columns
         .iter()
         .map(|column| column.name)
@@ -297,13 +312,13 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                     versions_contract,
                     &format!("{LAKEHOUSE_CATALOG}.{TABLE} AT (VERSION => {head})"),
                 )?,
-                &content_columns,
+                &queue_columns,
                 "TRUE",
             ),
         // The first build: the replaced table's rows at the head its pins were read from.
         None => format!(
             "SELECT {} FROM {}",
-            content_columns.join(", "),
+            queue_columns.join(", "),
             with_contract_columns(
                 connection,
                 contract(REPLACED)?,

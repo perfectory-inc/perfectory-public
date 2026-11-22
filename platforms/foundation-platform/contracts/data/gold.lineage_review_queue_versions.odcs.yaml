@@ -59,6 +59,10 @@ schema:
         physicalType: "timestamp"
         logicalType: "timestamp"
         required: true
+      - name: "row_digest"
+        physicalType: "string"
+        logicalType: "string"
+        required: true
       - name: "version_seq"
         physicalType: "long"
         logicalType: "integer"
@@ -80,6 +84,8 @@ schema:
         description: "of the current rows: item_id is the UUIDv5 of lineage-review:<unit>:<subject_code>"
       - type: "text"
         description: "of the current rows: evidence_etag is the sha256 of status, a newline, and candidates_json (ADR-0115)"
+      - type: "text"
+        description: "of the current rows: row_digest contains content only"
 customProperties:
   - property: "pipelineGraphNode"
     value: "gold-lineage-review-queue-versions"

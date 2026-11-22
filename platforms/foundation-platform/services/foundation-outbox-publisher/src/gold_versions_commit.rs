@@ -206,8 +206,6 @@ pub(crate) struct Commit<'a> {
 /// and the run's start (`appended_sql` stamps both on a removal marker). They differ on every commit
 /// and say nothing of the content, so neither a digest nor a takeover verdict reads them.
 pub(crate) const PER_COMMIT_STAMPS: [&str; 2] = ["source_snapshot_id", "published_at_utc"];
-/// The content digest a by-PNU Gold carries on every row (root ADR-0099).
-const ROW_DIGEST: &str = "row_digest";
 
 impl Commit<'_> {
     /// The key: the versions table's current-row key (`pnu` for a by-PNU table).
@@ -220,23 +218,6 @@ impl Commit<'_> {
             .current_row_latest()
             .context("the versions table has no current-row rule")?
             .key)
-    }
-
-    /// A row's content digest as SQL over its content columns: its `row_digest`, or for a table
-    /// that carries none (a Gold outside the by-PNU lanes) the SHA-256 of `to_json` of its content
-    /// columns but the per-commit stamps.
-    pub(crate) fn digest_sql(&self) -> String {
-        if self.content_columns.contains(&ROW_DIGEST) {
-            return ROW_DIGEST.to_owned();
-        }
-        let fields = self
-            .content_columns
-            .iter()
-            .filter(|column| !PER_COMMIT_STAMPS.contains(column))
-            .map(|column| format!("'{column}': {column}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("sha256(to_json({{{fields}}})::VARCHAR)")
     }
 }
 
@@ -524,7 +505,6 @@ fn assert_coverage(connection: &Connection, commit: &Commit<'_>) -> anyhow::Resu
 pub(crate) fn appended_sql(commit: &Commit<'_>) -> anyhow::Result<String> {
     let keys = commit.key()?;
     let (first, key) = (keys[0], keys.join(", "));
-    let digest = commit.digest_sql();
     // A removal marker's stamp, as the column's type holds it.
     let stamped = |column: &str, value: &str| {
         let timestamp = commit
@@ -562,15 +542,13 @@ pub(crate) fn appended_sql(commit: &Commit<'_>) -> anyhow::Result<String> {
     let sequence = commit.version_seq;
     Ok(format!(
         "CREATE OR REPLACE TABLE appended AS \
-         WITH b AS (SELECT *, {digest} AS foundation_digest FROM built), \
-              c AS (SELECT *, {digest} AS foundation_digest FROM current_rows) \
          SELECT {built_columns}, CAST({sequence} AS BIGINT) AS version_seq, CAST(NULL AS VARCHAR) AS row_state, \
                 CASE WHEN c.{first} IS NULL THEN 'added' ELSE 'changed' END AS change \
-         FROM b LEFT JOIN c USING ({key}) \
-         WHERE c.{first} IS NULL OR c.foundation_digest IS DISTINCT FROM b.foundation_digest \
+         FROM built b LEFT JOIN current_rows c USING ({key}) \
+         WHERE c.{first} IS NULL OR c.row_digest IS DISTINCT FROM b.row_digest \
          UNION ALL \
          SELECT {removed_columns}, CAST({sequence} AS BIGINT) AS version_seq, 'removed' AS row_state, 'removed' AS change \
-         FROM c ANTI JOIN b USING ({key});"
+         FROM current_rows c ANTI JOIN built b USING ({key});"
     ))
 }
 
@@ -591,10 +569,8 @@ impl std::ops::AddAssign for Digests {
 /// The digest sums of the range [`diff`] last left in `appended` and `current_rows`.
 pub(crate) fn digests(connection: &Connection, commit: &Commit<'_>) -> anyhow::Result<Digests> {
     let key = commit.key()?.join(", ");
-    let number = format!(
-        "CAST(('0x' || substr({}, 1, {FINGERPRINT_HEX_DIGITS})) AS HUGEINT)",
-        commit.digest_sql()
-    );
+    let number =
+        format!("CAST(('0x' || substr(row_digest, 1, {FINGERPRINT_HEX_DIGITS})) AS HUGEINT)");
     let sum = |sql: &str| -> anyhow::Result<u128> {
         let value: String = connection.query_row(sql, [], |row| row.get(0))?;
         Ok(value.parse()?)
@@ -634,63 +610,13 @@ pub(crate) fn after_digests(
     Ok(((rows, total), rows))
 }
 
-/// The fingerprint and the current rows after the commit of one range: [`after_digests`] for a
-/// table that carries `row_digest`; for one whose digest is computed ([`Commit::digest_sql`]),
-/// [`recomputed`] over every current row, so a change of its columns or of the formula never
-/// leaves two formulas in one sum.
+/// [`after_digests`] of one range: the fingerprint and the current rows after the commit.
 pub(crate) fn after(
     connection: &Connection,
     commit: &Commit<'_>,
     diff: &Diff,
 ) -> anyhow::Result<((u64, u128), u64)> {
-    if commit.digest_sql() != ROW_DIGEST {
-        return recomputed(connection, commit);
-    }
     after_digests(commit, diff, digests(connection, commit)?)
-}
-
-/// The fingerprint and the current rows after the commit, counted over the head's current rows
-/// that the commit does not touch and the rows it appends (removal markers aside). It reads the
-/// head's current rows whole: only the Golds outside the lanes, whose digest is computed, use it.
-fn recomputed(connection: &Connection, commit: &Commit<'_>) -> anyhow::Result<((u64, u128), u64)> {
-    let key = commit.key()?.join(", ");
-    let content = commit.content_columns.join(", ");
-    let head = match commit.head {
-        Some(head) => commit
-            .versions
-            .current_row_latest()
-            .context("the versions table has no current-row rule")?
-            .current_rows_sql(
-                &with_contract_columns(
-                    connection,
-                    commit.versions,
-                    &format!(
-                        "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-                        commit.table
-                    ),
-                )?,
-                &commit.content_columns,
-                "TRUE",
-            ),
-        None => format!("SELECT {content} FROM built WHERE FALSE"),
-    };
-    let number = format!(
-        "CAST(('0x' || substr({}, 1, {FINGERPRINT_HEX_DIGITS})) AS HUGEINT)",
-        commit.digest_sql()
-    );
-    let (rows, sum): (i64, String) = connection.query_row(
-        &format!(
-            "WITH kept AS (SELECT {content} FROM ({head}) h ANTI JOIN (SELECT {key} FROM appended) a \
-               USING ({key})), \
-             after_commit AS (SELECT {content} FROM kept \
-               UNION ALL SELECT {content} FROM appended WHERE change <> 'removed') \
-             SELECT count(*), CAST(coalesce(sum({number}), 0) AS VARCHAR) FROM after_commit"
-        ),
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    let rows = u64::try_from(rows)?;
-    Ok(((rows, sum.parse()?), rows))
 }
 
 /// The SQL a partition entry of a versions table splits rows by: the 시도 of a table keyed by PNU
