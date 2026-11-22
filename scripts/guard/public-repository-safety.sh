@@ -51,7 +51,10 @@ fi
 
 # Windows worktrees commonly use core.filemode=false, so test -x cannot prove
 # what a Linux public clone will receive. Inspect staged blob modes directly and
-# keep every repository script with a shebang executable in the Git tree.
+# keep every repository script with a shebang executable in the Git tree: under
+# every scripts/ directory, the root's and each area's. Reading only the root's
+# let platforms/foundation-platform/scripts/ops/unit_limits.py ship as 100644
+# (#1443), and its unit's ExecStart failed 203/EXEC on the first production run.
 non_executable_shebang_scripts="$(
   while IFS= read -r -d '' index_entry; do
     metadata="${index_entry%%$'\t'*}"
@@ -65,7 +68,7 @@ non_executable_shebang_scripts="$(
     if [[ "$first_line" == '#!'* ]] && [ "$mode" != 100755 ]; then
       printf '%s %s\n' "$mode" "$script_path"
     fi
-  done < <(git ls-files --stage -z -- scripts)
+  done < <(git ls-files --stage -z -- ':(glob)**/scripts/**')
 )"
 if [ -n "$non_executable_shebang_scripts" ]; then
   fail "tracked shebang scripts must be executable in the Git index:\n$non_executable_shebang_scripts"
