@@ -47,10 +47,17 @@ run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
 run_log="${work}/run.log"
 mkdir -p "${work}"
-# The runs a disk keeps: the last 30 (each holds a summary and a log; DuckDB's stage directory is
-# removed by the publisher when it ends).
+# The runs a disk keeps: the last 30 (each holds a summary and a log).
 mapfile -t kept < <(ls -1d "${STATE_ROOT}"/runs/*/ 2>/dev/null)
 ((${#kept[@]} <= 30)) || rm -rf -- "${kept[@]:0:${#kept[@]}-30}"
+# The publisher removes its DuckDB stage directory when it ends; a run the unit's time limit or a
+# kill stopped leaves it (2026-11-19: a parcel-nearby run stopped at its hour left a 24 GB
+# stage.duckdb on the SSD the stages share with the runtime Postgres, and three days later the
+# served parcel boundaries' first build was refused by that disk's reserve, root ADR-0599).
+# systemd runs one run of a lane at a time, so a stage under an earlier run is no one's: it goes
+# before this run opens its own.
+find "${STATE_ROOT}/runs" -mindepth 2 -maxdepth 2 -type d -name '.duckdb-stage-*' -prune \
+  -exec rm -rf -- {} +
 
 on_error() {
   job_journal "${journal}" "gold versions ${lane} FAILED at line $1 run=${run_id}" >&2
