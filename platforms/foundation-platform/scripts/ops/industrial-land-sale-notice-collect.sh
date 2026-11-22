@@ -66,7 +66,8 @@ if ! env "${COLLECT}_SOURCE=${source_name}" "${COLLECT}_OUTPUT_DIR=${work}/colle
     exit 78 # EX_CONFIG
   fi
   # What any run committed is in Bronze; the load finds it there.
-  job_journal "${journal}" "industrial land sale notice collect (${source_name}) STOPPED run=${run_id}: $(tail -1 "${run_log}")" >&2
+  last_line="$(tail -1 "${run_log}")"
+  job_journal "${journal}" "industrial land sale notice collect (${source_name}) STOPPED run=${run_id}: ${last_line}" >&2
   job_run_log_tail "${run_log}"
   exit 1
 fi

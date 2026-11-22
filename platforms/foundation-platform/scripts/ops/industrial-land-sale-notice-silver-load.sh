@@ -29,12 +29,13 @@ trap 'rm -rf "${work}/details"' EXIT
 
 # The detail sources: <provider without dots>__<detail_dataset_slug> of every source, as the load
 # itself derives them (industrial_land_sale_notice_stage::detail_source_slugs).
-read -r window_days max_objects detail_slugs < <(python3 -I -c '
+settings="$(python3 -I -c '
 import json, sys
 c = json.load(open(sys.argv[1], encoding="utf-8"))
 slugs = [s["provider"].replace(".", "") + "__" + s["detail_dataset_slug"] for s in c["sources"].values()]
 print(c["silver_load"]["window_days"], c["silver_load"]["max_objects"], ",".join(slugs))
-' "${CONTRACT}")
+' "${CONTRACT}")"
+read -r window_days max_objects detail_slugs <<< "${settings}"
 
 env FOUNDATION_PLATFORM_SILVER_LOAD_TABLE=silver.industrial_land_sale_notice_read \
   FOUNDATION_PLATFORM_SILVER_LOAD_SOURCE_SLUGS="${detail_slugs}" \
