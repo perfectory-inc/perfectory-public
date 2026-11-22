@@ -149,37 +149,42 @@ SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq
        '{snapshot_id}' AS source_snapshot_id, to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc
 FROM listed;
 
+-- Each listed object into a table first with its fields taken out at once (one parse of it), so the
+-- value readers below read small values: over the objects themselves, every expression a macro expands
+-- to parsed the object again, which held a 3,980-line 물건상세 object above 2 GiB (2026-11-22).
+CREATE OR REPLACE TEMP TABLE ca_detail_objects AS
+SELECT court_office_code, case_no, property_seq, line_number, n, {object_code} AS legal_dong_code,
+       json_extract(item, ['$.dspslObjctSeq', '$.auctnLstDvsCd', '$.rletDvsDts', '$.pjbBuldList', '$.objctArDts', '$.ldcgDts', '$.aeeEvlAmt', '$.lclDspslGdsLstUsgCd', '$.mclDspslGdsLstUsgCd', '$.sclDspslGdsLstUsgCd', '$.rprsLtnoAddr', '$.pnuNoCtt', '$.bldNm', '$.bldDtlDts', '$.userPrintSt', '$.stXcrd', '$.stYcrd', '$.dspslStkNmrtVal', '$.dspslStkDnmnVal', '$.rgstRdngYn']) AS v
+FROM (SELECT court_office_code, case_no, property_seq, line_number, unnest(l) AS item, generate_subscripts(l, 1) AS n
+      FROM (SELECT *, ca_objects(objects) AS l FROM ca_detail_property));
+
 CREATE OR REPLACE TEMP TABLE ca_court_auction_item_object AS
-WITH listed AS (
-  SELECT court_office_code, case_no, property_seq, line_number, unnest(l) AS item, generate_subscripts(l, 1) AS n
-  FROM (SELECT *, ca_objects(objects) AS l FROM ca_detail_property)
-)
 SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq,
-       CAST(ca_whole(json_extract(item, '$.dspslObjctSeq')) AS INTEGER) AS object_seq,
-       py_text(json_extract(item, '$.auctnLstDvsCd')) AS list_kind_code,
-       py_text(json_extract(item, '$.rletDvsDts')) AS realty_kind,
-       py_text(json_extract(item, '$.pjbBuldList')) AS building_structure,
-       py_text(json_extract(item, '$.objctArDts')) AS area_raw,
-       py_text(json_extract(item, '$.ldcgDts')) AS land_category,
-       ca_whole(json_extract(item, '$.aeeEvlAmt')) AS appraisal_amount_krw,
-       py_text(json_extract(item, '$.lclDspslGdsLstUsgCd')) AS usage_lcls_code,
-       py_text(json_extract(item, '$.mclDspslGdsLstUsgCd')) AS usage_mcls_code,
-       py_text(json_extract(item, '$.sclDspslGdsLstUsgCd')) AS usage_scls_code,
-       {object_code} AS legal_dong_code,
-       py_text(json_extract(item, '$.rprsLtnoAddr')) AS lot_raw,
-       py_text(json_extract(item, '$.pnuNoCtt')) AS source_pnu_raw,
-       py_text(json_extract(item, '$.bldNm')) AS building_name,
-       py_text(json_extract(item, '$.bldDtlDts')) AS building_unit_raw,
-       py_text(json_extract(item, '$.userPrintSt')) AS print_address_raw,
-       ca_decimal(json_extract(item, '$.stXcrd')) AS x_raw,
-       ca_decimal(json_extract(item, '$.stYcrd')) AS y_raw,
-       nullif(ca_decimal(json_extract(item, '$.dspslStkNmrtVal')), 0) AS share_numerator,
-       nullif(ca_decimal(json_extract(item, '$.dspslStkDnmnVal')), 0) AS share_denominator,
-       py_text(json_extract(item, '$.rgstRdngYn')) AS register_read_yn,
+       CAST(ca_whole(v[1]) AS INTEGER) AS object_seq,
+       py_text(v[2]) AS list_kind_code,
+       py_text(v[3]) AS realty_kind,
+       py_text(v[4]) AS building_structure,
+       py_text(v[5]) AS area_raw,
+       py_text(v[6]) AS land_category,
+       ca_whole(v[7]) AS appraisal_amount_krw,
+       py_text(v[8]) AS usage_lcls_code,
+       py_text(v[9]) AS usage_mcls_code,
+       py_text(v[10]) AS usage_scls_code,
+       legal_dong_code,
+       py_text(v[11]) AS lot_raw,
+       py_text(v[12]) AS source_pnu_raw,
+       py_text(v[13]) AS building_name,
+       py_text(v[14]) AS building_unit_raw,
+       py_text(v[15]) AS print_address_raw,
+       ca_decimal(v[16]) AS x_raw,
+       ca_decimal(v[17]) AS y_raw,
+       nullif(ca_decimal(v[18]), 0) AS share_numerator,
+       nullif(ca_decimal(v[19]), 0) AS share_denominator,
+       py_text(v[20]) AS register_read_yn,
        '{object_key}' AS source_record_id, CAST(line_number AS INTEGER) AS source_line_number,
        '{snapshot_id}' AS source_snapshot_id, to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc
-FROM listed
-WHERE ca_whole(json_extract(item, '$.dspslObjctSeq')) IS NOT NULL
+FROM ca_detail_objects
+WHERE ca_whole(v[1]) IS NOT NULL
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no, property_seq, object_seq ORDER BY n) = 1;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_item_annex AS

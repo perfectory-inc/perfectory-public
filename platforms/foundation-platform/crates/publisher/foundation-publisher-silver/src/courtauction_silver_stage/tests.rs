@@ -631,6 +631,87 @@ fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
             "{}",
             case["case"]
         );
+/// A synthetic object of `role` as large as a night's: `count` lines, each the fixture's line at
+/// `template` with every list of its answer `times` as long and its own case number.
+fn large_object(
+    directory: &std::path::Path,
+    role: Role,
+    template: usize,
+    count: usize,
+    times: usize,
+) -> anyhow::Result<PlannedObject> {
+    let text = fixture(&format!("{}.jsonl", role.name()))?;
+    let mut line: serde_json::Value = serde_json::from_str(
+        text.lines()
+            .filter(|line| !line.trim().is_empty())
+            .nth(template)
+            .context("the fixture has the template line")?,
+    )?;
+    let mut body: serde_json::Value =
+        serde_json::from_str(line["body"].as_str().context("a body")?)?;
+    let answer = if role == Role::ItemDetail {
+        body.pointer_mut("/data/dma_result")
+    } else {
+        body.pointer_mut("/data")
+    }
+    .and_then(serde_json::Value::as_object_mut)
+    .context("an answer")?;
+    for value in answer.values_mut() {
+        if let Some(list) = value.as_array_mut() {
+            let once = list.clone();
+            for _ in 1..times {
+                list.extend(once.iter().cloned());
+            }
+        }
+    }
+    let body = body.to_string();
+    let path = directory.join(format!("{}-large.gz", role.name()));
+    let mut gzip =
+        flate2::write::GzEncoder::new(std::fs::File::create(&path)?, flate2::Compression::fast());
+    for n in 0..count {
+        let case_no = format!("2099013{n:07}");
+        let request = line["request"]
+            .as_object_mut()
+            .and_then(|request| request.values_mut().next())
+            .context("a request")?;
+        request["csNo"] = serde_json::Value::String(case_no.clone());
+        line["body"] = serde_json::Value::String(body.replace("20990130000001", &case_no));
+        gzip.write_all(format!("{line}\n").as_bytes())?;
+    }
+    gzip.finish()?;
+    Ok(PlannedObject {
+        object_key: OBJECT_KEY.to_owned(),
+        role,
+        source_snapshot_id: "20990102T030405Z".to_owned(),
+        path,
+    })
+}
+
+#[test]
+fn a_night_sized_object_is_read_within_a_gigabyte() -> anyhow::Result<()> {
+    // 2026-11-22: the first production run stopped on a 1,541-line 사건상세 object above the stage's
+    // 2 GiB, and a 3,980-line 물건상세 object of 11-21 needed more. These are their size (12 MB and
+    // 50 MB of lines); the queries that read the whole answer in every expression ran either out of
+    // 1 GiB.
+    for (role, template, count, times, rows) in [
+        (Role::CaseDetail, 0, 1_500, 10, 1_500),
+        (Role::ItemDetail, 1, 2_000, 8, 2_000),
+    ] {
+        let directory = tempfile::tempdir()?;
+        let source = CourtAuctionSource::compiled()?;
+        let stage = DuckDbParquetStage::open(directory.path())?;
+        stage.limit_memory(1024)?;
+        stage
+            .connection()
+            .execute_batch(&CourtAuctionSource::values_sql())?;
+        let object = large_object(directory.path(), role, template, count, times)?;
+        read_object(&stage, &source, &object, chrono::Utc::now())?;
+        let cases: i64 = stage.connection().query_row(
+            "SELECT count(*) FROM ca_court_auction_case",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(cases, rows, "{}", role.name());
     }
     Ok(())
 }
