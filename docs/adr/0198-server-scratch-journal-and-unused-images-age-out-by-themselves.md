@@ -78,3 +78,5 @@ ai-server 에서 측정한 사실이다.
   데몬 수준 기본 로그 상한은 다음 계획된 dockerd 재시작 때 넣는다.
 
 - 2026-11-23 개정 주석: §3 의 지우는 조건에 하나가 더해졌다 — 호스트가 짓는 저장소(RAON 배치 이미지)의 가장 새 이미지는 나이와 관계없이 남는다([ADR-0607](./0607-the-raon-image-the-host-builds-stays-until-its-inputs-change-and-a-raon-run-takes-thirteen-files.md)).
+
+- 2026-11-23 개정 주석: §3 의 릴리스 소유는 [ADR-0608](./0608-host-retention-keeps-every-image-a-release-on-the-host-records-so-a-rollback-can-always-tag-them.md) 이 넓혔다 — 호스트에 남은 릴리스의 build.json 이 적은 이미지는 모두 릴리스 정리의 것이다.

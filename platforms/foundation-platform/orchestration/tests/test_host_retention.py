@@ -192,6 +192,37 @@ class TheImagePrune(unittest.TestCase):
         self.assertIn(["docker", "builder", "prune", "--force", "--filter", "until=168h"], calls)
         self.assertIn("host-retention-ok images=2 image_bytes=15", out)
 
+    def release_root(self, temporary, build_json):
+        """A release root: one release (40 hex) whose build.json is `build_json`, and an admission's
+        scratch directory whose build.json names `leftover`, which is no release's."""
+        root = pathlib.Path(temporary)
+        for name, text in (("b" * 40, build_json), (".registry-scratch", '{"x_image": "sha256:leftover"}')):
+            (root / "artifacts" / name).mkdir(parents=True)
+            (root / "artifacts" / name / "build.json").write_text(text, encoding="utf-8")
+        return str(root)
+
+    def test_an_image_a_release_here_records_stays_however_old(self):
+        # Root ADR-0608: a rollback tags the compose images its release's build.json records; a
+        # registry release's are held only by their digest, so seven days without a deploy aged them out.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.release_root(temporary, json.dumps({"foundation-platform-dagster_image": "sha256:untagged",
+                                                            "publisher_tag": "sha256:leftover"}))
+            code, calls, out = self.run_main("--release-root", root)
+        self.assertEqual(code, 0)
+        removals = [call[3] for call in calls if call[:3] == ["docker", "image", "rm"]]
+        self.assertEqual(removals, ["agent/a:1", "agent/b:1"], "only `<name>_image` values are a release's")
+        self.assertIn("host-retention-ok images=1 image_bytes=10", out)
+        self.assertEqual(host_retention.release_images(pathlib.Path("/nonexistent/releases")), set(),
+                         "no release root, no release images")
+
+    def test_a_release_whose_build_json_cannot_be_read_stops_the_run(self):
+        with tempfile.TemporaryDirectory() as temporary, redirect_stderr(io.StringIO()) as err:
+            root = self.release_root(temporary, "not json")
+            code, calls, _ = self.run_main("--release-root", root)
+        self.assertEqual(code, 65)
+        self.assertFalse([call for call in calls if call[1:3] in (["image", "rm"], ["builder", "prune"])])
+        self.assertIn("host-retention-refused", err.getvalue())
+
     def test_a_dry_run_removes_nothing(self):
         code, calls, out = self.run_main("--dry-run")
         self.assertEqual(code, 0)

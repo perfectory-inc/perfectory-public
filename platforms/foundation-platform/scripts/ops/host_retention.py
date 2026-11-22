@@ -13,6 +13,8 @@ An image is removed only when all of these hold:
 * it was created more than `--min-age-days` ago, so a build or pull in progress is never raced;
 * the release prune does not own it: the publisher and tippecanoe images follow the releases
   they were built for, including the emergency release, and `foundation-release.sh prune` decides;
+  so does every image a release still on the host records in its build.json (`--release-root`,
+  root ADR-0608), so a rollback can tag the compose images it records however long no deploy came;
 * it is not the newest image of a repository a host job builds and reuses by the digest of its
   inputs (`HOST_BUILT`, root ADR-0607);
 * the repository checkout the host deploys from (`--reference-root`) names neither its tag nor its
@@ -45,6 +47,8 @@ RELEASE_OWNED = frozenset({"foundation-outbox-publisher", "foundation-tippecanoe
 # first file (2026-11-22).
 HOST_BUILT = ("foundation-platform/raon-batch-",)
 DEFAULT_REFERENCE_ROOT = pathlib.Path("/opt/perfectory-control/current")
+DEFAULT_RELEASE_ROOT = pathlib.Path("/opt/foundation-platform")
+RELEASE_ID = re.compile(r"[0-9a-f]{40}")
 HOST_LAYOUT = pathlib.Path(__file__).resolve().parents[2] / "config" / "host-layout.contract.json"
 REFERENCE_SUFFIXES = (".env", ".json", ".yml", ".yaml", ".sh", ".py", ".toml", "Dockerfile")
 IMAGE_REFERENCE = re.compile(
@@ -125,6 +129,23 @@ def used_image_ids(runner: Runner) -> set[str]:
     return {line.strip() for line in out.splitlines() if line.strip()}
 
 
+def release_images(release_root: pathlib.Path) -> set[str]:
+    """Every image ID a release still on the host records in its build.json (root ADR-0608).
+
+    `foundation-release.sh prune` decides those with their releases. A rollback tags the compose
+    images its build.json records, and a registry release's are held only by their digest, so at
+    seven days without a deploy they aged out like any image. No release root, no release images.
+    A build.json that cannot be read raises: what that release needs is not known.
+    """
+    found: set[str] = set()
+    for build in sorted((release_root / "artifacts").glob("*/build.json")):
+        if RELEASE_ID.fullmatch(build.parent.name):
+            record = json.loads(build.read_text(encoding="utf-8"))
+            found.update(value for key, value in record.items()
+                         if key.endswith("_image") and isinstance(value, str))
+    return found
+
+
 def removable(
     candidates: Iterable[Image],
     used: set[str],
@@ -132,6 +153,7 @@ def removable(
     referenced_digests: set[str],
     now: float,
     min_age_days: float,
+    owned: set[str] | frozenset[str] = frozenset(),
 ) -> list[Image]:
     candidates = list(candidates)
     newest_built: dict[str, Image] = {}
@@ -146,7 +168,7 @@ def removable(
             continue
         if now - image.created < min_age_days * DAY:
             continue
-        if image.repositories & RELEASE_OWNED:
+        if image.repositories & RELEASE_OWNED or image.image_id in owned:
             continue
         if any(tag in referenced_tags for tag in image.tags):
             continue
@@ -174,6 +196,7 @@ def free_bytes(path: pathlib.Path) -> int:
 def main(argv: Sequence[str] | None = None, runner: Runner = run) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--reference-root", type=pathlib.Path, default=DEFAULT_REFERENCE_ROOT)
+    parser.add_argument("--release-root", type=pathlib.Path, default=DEFAULT_RELEASE_ROOT)
     parser.add_argument("--min-age-days", type=float, default=7)
     parser.add_argument("--dry-run", action="store_true")
     arguments = parser.parse_args(argv)
@@ -182,12 +205,18 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run) -> int:
         print(f"host-retention-refused: reference root {arguments.reference_root} is missing",
               file=sys.stderr)
         return 65
+    try:
+        owned = release_images(arguments.release_root)
+    except (OSError, ValueError, AttributeError) as error:
+        print(f"host-retention-refused: a release's build.json under {arguments.release_root} "
+              f"cannot be read: {error!r}", file=sys.stderr)
+        return 65
 
     referenced_tags, referenced_digests = references(arguments.reference_root)
     store = image_store()
     before = free_bytes(store)
     chosen = removable(images(runner), used_image_ids(runner), referenced_tags,
-                       referenced_digests, time.time(), arguments.min_age_days)
+                       referenced_digests, time.time(), arguments.min_age_days, owned)
     planned = sum(image.size for image in chosen)
     for image in chosen:
         name = ",".join(image.tags) or image.image_id[:19]
