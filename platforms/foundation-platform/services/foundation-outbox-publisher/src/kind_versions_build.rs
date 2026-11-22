@@ -22,7 +22,9 @@ use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     building_energy_stage::ENERGY,
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
-    kind_versions_stage::{ensure_no_commit_tables, KindVersionsStage, PARCEL_SOURCE},
+    kind_versions_stage::{
+        ensure_no_commit_tables, load_region, spool, KindVersionsStage, PARCEL_SOURCE,
+    },
     parcel_nearby_stage::{NearbyPins, Source},
     process_memory,
     record_kind_stage::{DEMOLITIONS, REGISTER_MASTERS},
@@ -33,7 +35,7 @@ use serde_json::json;
 use crate::{
     by_pnu_gateway_contract::ByPnuLane,
     gold_versions_commit::{
-        self as versions, Commit, CODE_VERSION_PROPERTY, CURRENT_RECORDS_PROPERTY,
+        self as versions, Commit, Diff, Digests, CODE_VERSION_PROPERTY, CURRENT_RECORDS_PROPERTY,
         FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, RECORDED_EXPLANATION_PROPERTY,
         SERVED_EDITION_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY, VERSION_SEQ_PROPERTY,
     },
@@ -170,16 +172,23 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         }
     });
 
-    // Compute.
+    // Compute, one 시도 at a time (rules.txt "DuckDB ports are regional, one pass"): every input is
+    // read once into a local spool split by 시도, then each 시도 is loaded, built, diffed and staged
+    // before the next replaces it; one append commits them all.
     let work = Path::new(&summary_path)
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
+    // Asked before the DuckDB session opens: the session is not `Send` across an await.
+    let shape = committer.table_shape(table).await?;
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
     let memory_limit = duck.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
+    duck.require_room(0)?;
     let connection = duck.connection();
+    let spool_dir = Spool::new(work.join("spool"))?;
     let new_pins = NearbyPins(pins.clone());
-    let read = stage.load_inputs(
+    let read = spool(
+        stage,
         connection,
         &Source::Pinned {
             catalog: LAKEHOUSE_CATALOG,
@@ -187,17 +196,18 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         },
         &edition,
         "",
+        spool_dir.path(),
     )?;
-    let targets = if every_pnu {
-        None
-    } else {
+    let mut sidos = read.sidos.clone();
+    if !every_pnu {
         let base = base.as_ref().context("a partial run has a base")?;
         let old_pins = NearbyPins(base.pins.clone());
         let old_edition = base
             .served_edition
             .clone()
             .context("a partial run's base names its served edition")?;
-        stage.load_inputs(
+        let old = spool(
+            stage,
             connection,
             &Source::Pinned {
                 catalog: LAKEHOUSE_CATALOG,
@@ -205,42 +215,20 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             },
             &old_edition,
             "_old",
+            spool_dir.path(),
         )?;
-        Some(stage.changed_pnus(connection)?)
-    };
+        sidos.extend(old.sidos);
+    }
+    // A 시도 the head holds and the served edition no longer does (a merged 시도) is diffed too: its
+    // keys get removal markers.
+    if let Some(head) = head {
+        sidos.extend(head_sidos(connection, table, head)?);
+    }
+    duck.require_room(0)?;
     let parcels_snapshot = pins
         .get(PARCEL_SOURCE)
         .context("the parcels are pinned")?
         .to_string();
-    stage.build(
-        connection,
-        targets.is_none(),
-        &parcels_snapshot,
-        &published_at_utc,
-    )?;
-    ensure_no_commit_tables(connection)?;
-    println!(
-        "gold-versions {table} built {} PNUs of {} served ({} rows) in {:.1}s (memory peak {:?} bytes)",
-        targets.map_or_else(|| "every".to_owned(), |count| count.to_string()),
-        read.served_parcels,
-        read.rows,
-        started.elapsed().as_secs_f64(),
-        process_memory::cgroup_peak_bytes()
-    );
-    let invalid: i64 = connection.query_row(
-        &format!(
-            "SELECT count(*) FROM built WHERE NOT regexp_full_match(pnu, '[0-9]{{19}}') OR {} IS NULL",
-            stage.section_column()
-        ),
-        [],
-        |row| row.get(0),
-    )?;
-    ensure!(
-        invalid == 0,
-        "{invalid} built rows have a malformed PNU or no section: nothing was appended"
-    );
-
-    // Diff and check.
     let version_seq = base.as_ref().map_or(1, |base| base.version_seq + 1);
     let commit = Commit {
         table,
@@ -253,14 +241,62 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         source_snapshot_id: parcels_snapshot.clone(),
         published_at_utc: published_at_utc.clone(),
     };
-    let range = match targets {
-        None => "TRUE",
-        // A partial run that names no PNU diffs nothing and records the new pins.
-        Some(0) => "FALSE",
-        Some(_) => "pnu IN (SELECT pnu FROM targets)",
-    };
-    let diff = versions::diff(connection, &commit, range)?;
-    let (fingerprint, current_records) = versions::after(connection, &commit, &diff)?;
+    let run = versions::run_id(table, &pins, &code, &edition);
+    let (mut diff, mut digests, mut files) = (Diff::default(), Digests::default(), Vec::new());
+    let (mut rows, mut targets) = (0, (!every_pnu).then_some(0));
+    for sido in &sidos {
+        rows += load_region(stage, connection, spool_dir.path(), "", sido)?;
+        let named = if every_pnu {
+            None
+        } else {
+            load_region(stage, connection, spool_dir.path(), "_old", sido)?;
+            Some(stage.changed_pnus(connection)?)
+        };
+        stage.build(
+            connection,
+            named.is_none(),
+            &parcels_snapshot,
+            &published_at_utc,
+        )?;
+        ensure_no_commit_tables(connection)?;
+        let invalid: i64 = connection.query_row(
+            &format!(
+                "SELECT count(*) FROM built WHERE NOT regexp_full_match(pnu, '[0-9]{{19}}') \
+                 OR substr(pnu, 1, 2) <> '{sido}' OR {} IS NULL",
+                stage.section_column()
+            ),
+            [],
+            |row| row.get(0),
+        )?;
+        ensure!(
+            invalid == 0,
+            "{invalid} built rows of 시도 {sido} have a malformed PNU, another 시도's or no section: \
+             nothing was appended"
+        );
+        let in_sido = sido_range(sido)?;
+        let range = match named {
+            None => in_sido,
+            // A partial run that names no PNU here diffs nothing.
+            Some(0) => "FALSE".to_owned(),
+            Some(_) => format!("{in_sido} AND pnu IN (SELECT pnu FROM targets)"),
+        };
+        diff += versions::diff(connection, &commit, &range)?;
+        digests += versions::digests(connection, &commit)?;
+        files.extend(versions::stage(&duck, &shape, &run, "pnu")?);
+        if let (Some(total), Some(count)) = (targets.as_mut(), named) {
+            *total += count;
+        }
+    }
+    drop(spool_dir);
+    println!(
+        "gold-versions {table} built {} PNUs of {} served ({rows} rows) in {} 시도 in {:.1}s (memory peak {:?} bytes)",
+        targets.map_or_else(|| "every".to_owned(), |count: u64| count.to_string()),
+        read.served_parcels,
+        sidos.len(),
+        started.elapsed().as_secs_f64(),
+        process_memory::cgroup_peak_bytes()
+    );
+    let (fingerprint, current_records) = versions::after_digests(&commit, &diff, digests)?;
     let mut recorded_explanation = None;
     if let Some(base) = &base {
         let max_loss = max_row_loss_fraction()?;
@@ -291,9 +327,6 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     }
 
     // Commit.
-    let run = versions::run_id(table, &pins, &code, &edition);
-    let shape = committer.table_shape(table).await?;
-    let files = versions::stage(&duck, &shape, &run, "pnu")?;
     let mut properties = std::collections::BTreeMap::from([
         (VERSION_SEQ_PROPERTY.to_owned(), version_seq.to_string()),
         (
@@ -327,7 +360,8 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             "version_seq": version_seq, "run": run, "pins": pins, "moved": moved,
             "served_edition": edition, "shadow_of": shadow_build, "code_version": code,
             "every_pnu": every_pnu, "targets": targets, "recorded_explanation": recorded_explanation,
-            "served_parcels": read.served_parcels, "rows": read.rows, "read_millis": read.read_millis,
+            "served_parcels": read.served_parcels, "rows": rows, "read_millis": read.read_millis,
+            "sidos": sidos,
             "diff": diff, "current_records": current_records,
             "content_fingerprint": versions::fingerprint_text(fingerprint),
             "files": files.len(), "tags": tags, "duckdb_memory_limit_bytes": memory_limit,
@@ -345,4 +379,89 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+/// The key range of one 시도, as a predicate on `pnu` that skips the files outside it.
+fn sido_range(sido: &str) -> anyhow::Result<String> {
+    let number: u8 = sido
+        .parse()
+        .ok()
+        .filter(|_| sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()))
+        .with_context(|| format!("the 시도 {sido:?} is not two digits"))?;
+    Ok(if number == 99 {
+        format!("(pnu >= '{sido}')")
+    } else {
+        format!("(pnu >= '{sido}' AND pnu < '{:02}')", number + 1)
+    })
+}
+
+/// The 시도 the head's rows lie in (a removal marker's too: a superset of its current rows').
+fn head_sidos(
+    connection: &foundation_publisher_silver::duckdb::Connection,
+    table: &str,
+    head: i64,
+) -> anyhow::Result<BTreeSet<String>> {
+    connection
+        .prepare(&format!(
+            "SELECT DISTINCT substr(pnu, 1, 2) FROM {LAKEHOUSE_CATALOG}.{table} AT (VERSION => {head})"
+        ))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<BTreeSet<_>, _>>()
+        .context("DuckDB failed to read the head's 시도")
+}
+
+/// The run's spool directory, removed when the run ends, failed or not (the runs a disk keeps hold
+/// summaries and logs, not spools).
+struct Spool(std::path::PathBuf);
+
+impl Spool {
+    fn new(path: std::path::PathBuf) -> anyhow::Result<Self> {
+        if path.exists() {
+            std::fs::remove_dir_all(&path)
+                .with_context(|| format!("cannot clear {}", path.display()))?;
+        }
+        std::fs::create_dir_all(&path)
+            .with_context(|| format!("cannot create {}", path.display()))?;
+        Ok(Self(path))
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Spool {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_sido_s_range_bounds_its_keys_and_the_last_one_is_open() -> anyhow::Result<()> {
+        assert_eq!(sido_range("41")?, "(pnu >= '41' AND pnu < '42')");
+        assert_eq!(sido_range("09")?, "(pnu >= '09' AND pnu < '10')");
+        assert_eq!(sido_range("99")?, "(pnu >= '99')");
+        for bad in ["4", "411", "4'", "+1"] {
+            assert!(sido_range(bad).is_err(), "{bad} was taken");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_spool_is_removed_when_its_run_ends() -> anyhow::Result<()> {
+        let work = tempfile::tempdir()?;
+        let path = work.path().join("spool");
+        std::fs::create_dir_all(path.join("stale"))?;
+        {
+            let spool = Spool::new(path.clone())?;
+            assert!(!spool.path().join("stale").exists());
+            std::fs::write(spool.path().join("part.parquet"), b"x")?;
+        }
+        assert!(!path.exists());
+        Ok(())
+    }
 }

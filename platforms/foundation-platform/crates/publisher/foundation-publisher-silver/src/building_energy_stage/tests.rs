@@ -66,7 +66,7 @@ fn a_document_is_spark_s_bytes_with_the_decimal_scale_written() -> anyhow::Resul
         ],
         &[usage("b1", "202412", "3")],
     )?;
-    ENERGY.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    crate::kind_versions_stage::read_for_test(&ENERGY, &connection, EDITION, "")?;
     ENERGY.build(
         &connection,
         true,
@@ -98,7 +98,7 @@ fn a_document_keeps_the_newest_twelve_months() -> anyhow::Result<()> {
         .collect();
     // Months 13 and 14 are not months, but they sort as text like the provider's do.
     load(&connection, &months, &[])?;
-    ENERGY.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    crate::kind_versions_stage::read_for_test(&ENERGY, &connection, EDITION, "")?;
     ENERGY.build(
         &connection,
         true,
@@ -119,8 +119,8 @@ fn a_partial_run_names_the_pnus_whose_rows_changed() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     let rows = [usage("b1", "202501", "1")];
     load(&connection, &rows, &[])?;
-    ENERGY.load_inputs(&connection, &Source::Local, EDITION, "_old")?;
-    ENERGY.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    crate::kind_versions_stage::read_for_test(&ENERGY, &connection, EDITION, "_old")?;
+    crate::kind_versions_stage::read_for_test(&ENERGY, &connection, EDITION, "")?;
     assert_eq!(ENERGY.changed_pnus(&connection)?, 0);
     // The same row twice is another month total: a change though the set of rows is the same.
     load(
@@ -128,7 +128,7 @@ fn a_partial_run_names_the_pnus_whose_rows_changed() -> anyhow::Result<()> {
         &[usage("b1", "202501", "1"), usage("b2", "202501", "1")],
         &[],
     )?;
-    ENERGY.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    crate::kind_versions_stage::read_for_test(&ENERGY, &connection, EDITION, "")?;
     assert_eq!(ENERGY.changed_pnus(&connection)?, 1);
     Ok(())
 }

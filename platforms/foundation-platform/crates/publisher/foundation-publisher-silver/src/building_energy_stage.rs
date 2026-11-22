@@ -18,10 +18,9 @@ use sha2::{Digest, Sha256};
 use duckdb::Connection;
 
 use crate::kind_versions_stage::{
-    elapsed, fill, is_plain, load_current, load_served_and_renumbering, renumbering_join,
-    served_pnu, KindInputs, KindVersionsStage, CODE_CHANGE_SOURCE, PARCEL_SOURCE, SHARED_SQL,
+    elapsed, fill, is_plain, KindVersionsStage, RowSet, CODE_CHANGE_SOURCE, PARCEL_SOURCE,
+    SHARED_SQL,
 };
-use crate::parcel_nearby_stage::Source;
 
 /// The 전기 Silver.
 pub const ELECTRICITY_SOURCE: &str = "silver.building_energy_monthly_electricity";
@@ -37,14 +36,6 @@ pub const ELECTRICITY_UNIT: &str = "kWh";
 pub const NUMBER: &str = r"^\s*-?[0-9]+(\.[0-9]+)?\s*$";
 /// What the rules are; part of the build's code version.
 pub const RULES_VERSION: &str = "parcel-energy-duckdb-v1";
-
-/// `<energy>_rows<suffix>`: the current rows, re-keyed to the served code, of served PNUs only.
-const ROWS_SQL: &str = "\
-CREATE OR REPLACE TABLE @energy@_rows@suffix@ AS \
-SELECT * FROM ( \
-  SELECT @pnu@ AS pnu, m.use_ym, m.usage_amount FROM current_@energy@@suffix@ m @join@ \
-  WHERE m.pnu IS NOT NULL) \
-WHERE pnu IN (SELECT pnu FROM served@suffix@)";
 
 /// One energy's months: its summed use, its rows and its unreadable rows per (pnu, month).
 const MONTHLY_SQL: &str = "\
@@ -119,7 +110,6 @@ impl KindVersionsStage for EnergyKind {
             RULES_VERSION,
             NUMBER,
             ELECTRICITY_UNIT,
-            ROWS_SQL,
             MONTHLY_SQL,
             DOCUMENT_SQL,
         ]
@@ -130,53 +120,32 @@ impl KindVersionsStage for EnergyKind {
             hash.update([0]);
         }
         hash.update(MONTH_BOUND.to_le_bytes());
+        hash.update(format!("{:?}", self.row_sets()).as_bytes());
         format!("{:x}", hash.finalize())
     }
 
-    fn load_inputs(
-        &self,
-        connection: &Connection,
-        source: &Source<'_>,
-        edition: &str,
-        suffix: &str,
-    ) -> anyhow::Result<KindInputs> {
-        let mut read_millis = std::collections::BTreeMap::new();
-        let served_parcels =
-            load_served_and_renumbering(connection, source, edition, suffix, &mut read_millis)?;
-        let mut rows = 0;
-        for (table, energy) in ENERGIES {
-            let millis = load_current(
-                connection,
-                source,
-                table,
-                &["pnu", "use_ym", "usage_amount"],
-                &format!("current_{energy}{suffix}"),
-            )?;
-            read_millis.insert(table.to_owned(), millis);
-            connection.execute_batch(&fill(
-                ROWS_SQL,
-                &[
-                    ("energy", energy),
-                    ("suffix", suffix),
-                    ("pnu", &served_pnu("m")),
-                    ("join", &renumbering_join("m", suffix)),
+    fn row_sets(&self) -> Vec<RowSet> {
+        ENERGIES
+            .iter()
+            .map(|(table, energy)| RowSet {
+                name: match *energy {
+                    "electricity" => "electricity_rows",
+                    _ => "gas_rows",
+                },
+                source: table,
+                reads: vec!["use_ym", "usage_amount"],
+                columns: vec![
+                    ("m.use_ym".to_owned(), "use_ym"),
+                    ("m.usage_amount".to_owned(), "usage_amount"),
                 ],
-            ))?;
-            let count: i64 = connection.query_row(
-                &format!("SELECT count(*) FROM {energy}_rows{suffix}"),
-                [],
-                |row| row.get(0),
-            )?;
-            rows += u64::try_from(count)?;
-        }
-        if suffix.is_empty() {
-            connection.execute_batch(BUILT_TABLE)?;
-        }
-        Ok(KindInputs {
-            served_parcels,
-            rows,
-            read_millis,
-        })
+                distinct: false,
+            })
+            .collect()
+    }
+
+    fn create_built(&self, connection: &Connection) -> anyhow::Result<()> {
+        connection.execute_batch(BUILT_TABLE)?;
+        Ok(())
     }
 
     fn changed_pnus(&self, connection: &Connection) -> anyhow::Result<u64> {

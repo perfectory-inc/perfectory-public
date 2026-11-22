@@ -171,6 +171,16 @@ pub(crate) struct Diff {
     pub current_in_range: u64,
 }
 
+impl std::ops::AddAssign for Diff {
+    fn add_assign(&mut self, other: Self) {
+        self.built += other.built;
+        self.added += other.added;
+        self.changed += other.changed;
+        self.removed += other.removed;
+        self.current_in_range += other.current_in_range;
+    }
+}
+
 impl Diff {
     pub(crate) const fn keys(&self) -> u64 {
         self.added + self.changed + self.removed
@@ -511,14 +521,22 @@ pub(crate) fn appended_sql(commit: &Commit<'_>) -> anyhow::Result<String> {
     ))
 }
 
-/// The fingerprint and the current rows after the commit, from the base's and the rows the commit
-/// adds and hides (root ADR-0564 §5: the fingerprint sums, so it is updated by adding and
-/// subtracting).
-pub(crate) fn after(
-    connection: &Connection,
-    commit: &Commit<'_>,
-    diff: &Diff,
-) -> anyhow::Result<((u64, u128), u64)> {
+/// The digest sums one range's diff moves: what its appended rows add and the head rows they hide.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Digests {
+    pub added: u128,
+    pub hidden: u128,
+}
+
+impl std::ops::AddAssign for Digests {
+    fn add_assign(&mut self, other: Self) {
+        self.added += other.added;
+        self.hidden += other.hidden;
+    }
+}
+
+/// The digest sums of the range [`diff`] last left in `appended` and `current_rows`.
+pub(crate) fn digests(connection: &Connection, commit: &Commit<'_>) -> anyhow::Result<Digests> {
     let key = commit.key;
     let number =
         format!("CAST(('0x' || substr(row_digest, 1, {FINGERPRINT_HEX_DIGITS})) AS HUGEINT)");
@@ -526,13 +544,24 @@ pub(crate) fn after(
         let value: String = connection.query_row(sql, [], |row| row.get(0))?;
         Ok(value.parse()?)
     };
-    let added = sum(&format!(
-        "SELECT CAST(coalesce(sum({number}), 0) AS VARCHAR) FROM appended WHERE change <> 'removed'"
-    ))?;
-    let hidden = sum(&format!(
-        "SELECT CAST(coalesce(sum({number}), 0) AS VARCHAR) FROM current_rows \
-         WHERE {key} IN (SELECT {key} FROM appended)"
-    ))?;
+    Ok(Digests {
+        added: sum(&format!(
+            "SELECT CAST(coalesce(sum({number}), 0) AS VARCHAR) FROM appended WHERE change <> 'removed'"
+        ))?,
+        hidden: sum(&format!(
+            "SELECT CAST(coalesce(sum({number}), 0) AS VARCHAR) FROM current_rows              WHERE {key} IN (SELECT {key} FROM appended)"
+        ))?,
+    })
+}
+
+/// The fingerprint and the current rows after the commit, from the base's, the diff of every range
+/// and their summed [`Digests`] (root ADR-0564 §5: the fingerprint sums, so it is updated by adding
+/// and subtracting).
+pub(crate) fn after_digests(
+    commit: &Commit<'_>,
+    diff: &Diff,
+    digests: Digests,
+) -> anyhow::Result<((u64, u128), u64)> {
     let (rows, total, current) = commit.base.as_ref().map_or((0, 0, 0), |base| {
         (base.fingerprint.0, base.fingerprint.1, base.current_records)
     });
@@ -543,10 +572,19 @@ pub(crate) fn after(
     let rows = (rows + diff.added)
         .checked_sub(diff.removed)
         .context("the commit removes more keys than the table holds")?;
-    let total = (total + added)
-        .checked_sub(hidden)
+    let total = (total + digests.added)
+        .checked_sub(digests.hidden)
         .context("the commit hides digests the base fingerprint does not hold")?;
     Ok(((rows, total), rows))
+}
+
+/// [`after_digests`] of one range: the fingerprint and the current rows after the commit.
+pub(crate) fn after(
+    connection: &Connection,
+    commit: &Commit<'_>,
+    diff: &Diff,
+) -> anyhow::Result<((u64, u128), u64)> {
+    after_digests(commit, diff, digests(connection, commit)?)
 }
 
 /// Stages `appended` as one file per 시도 (the table's partition, root ADR-0564 §2), each sorted by
