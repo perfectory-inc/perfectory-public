@@ -190,8 +190,6 @@ fn main_copy(
         }
     }
     if !copy.is_file() {
-        // The copy's size is not known before it is made; the stage's spill ceiling is.
-        stage.require_room(0)?;
         let partial = copy.with_extension("partial");
         stage
             .connection()
@@ -474,6 +472,9 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
     let main = match head {
         Some(head) if key_buckets(table_contract, &rule).is_some() => {
             let started = Instant::now();
+            // The copy's size is not known before it is made; the stage's spill ceiling is. Asked
+            // here, not in `main_copy`: its test must not depend on the disk of the machine it runs on.
+            stage.require_room(0)?;
             let local = main_copy(&stage, &main, head, &copies)?;
             println!(
                 "silver-refresh {table}: main at snapshot {head} copied once in {:.1} s; every bucket compares with the copy",
