@@ -1,6 +1,7 @@
 //! The publisher's one build of a parcel kind's Gold as a table of appended row versions (root
 //! ADR-0564 §3, §6): `build-parcel-register-masters-versions`, `build-parcel-demolitions-versions`,
-//! `build-parcel-energy-versions`, `build-parcel-sub-parcels-versions`. `DuckDB` inside the publisher computes the kind
+//! `build-parcel-energy-versions`, `build-parcel-sub-parcels-versions`,
+//! `build-parcel-building-permits-versions`. `DuckDB` inside the publisher computes the kind
 //! (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the publisher appends
 //! the keys that changed (`gold_versions_commit`). A new lane is a stage, a [`KindBuild`], a kind line
 //! and a job.
@@ -21,6 +22,7 @@ use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
 use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     building_energy_stage::ENERGY,
+    building_permit_stage::BUILDING_PERMITS,
     building_sub_parcel_stage::SUB_PARCELS,
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
     kind_versions_stage::{
@@ -94,6 +96,15 @@ pub(crate) const SUB_PARCELS_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_sub_parcels",
     job: "build-parcel-sub-parcels-versions",
     stage: &SUB_PARCELS,
+};
+
+/// Lane 5: the 건축인허가 and the other files of the permit family (root ADR-0451, ADR-0464).
+pub(crate) const BUILDING_PERMITS_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_building_permits_versions",
+    lane: "parcel-building-permits",
+    replaced: "gold.parcel_building_permits",
+    job: "build-parcel-building-permits-versions",
+    stage: &BUILDING_PERMITS,
 };
 
 /// Builds and appends `kind`'s changed keys.

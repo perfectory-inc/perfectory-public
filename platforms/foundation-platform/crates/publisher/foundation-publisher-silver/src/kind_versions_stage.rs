@@ -287,6 +287,37 @@ fn contract(table: &str) -> anyhow::Result<&'static lakehouse_domain::LakehouseT
         .with_context(|| format!("no lakehouse contract for {table}"))
 }
 
+/// The current rows of `table` at `source` as SQL text, by its contract's one rendering (root
+/// ADR-0564 §4), projecting `columns`: what a stage's [`KindVersionsStage::prepare`] reads. `filter`
+/// keeps rows before the rule ranks them, so it must keep or drop a key's rows together (it reads
+/// the key's columns only). A table whose key must not tie is refused: only a row set's spool
+/// checks ties.
+///
+/// # Errors
+/// Returns an error when `table` has no newest-per-key contract, forbids ties, or is not pinned.
+pub(crate) fn current_rows_query(
+    connection: &Connection,
+    source: &Source<'_>,
+    table: &str,
+    columns: &[&str],
+    filter: &str,
+) -> anyhow::Result<String> {
+    let contract = contract(table)?;
+    ensure!(
+        contract.current_row_predicate.is_none(),
+        "{table} selects its current rows by a predicate too; this reader applies only the newest-per-key rule"
+    );
+    let latest = contract
+        .current_row_latest()
+        .with_context(|| format!("{table} keeps no versions per key"))?;
+    ensure!(
+        latest.keep_ties,
+        "{table} forbids ties on its key; read it as a row set, whose spool checks them"
+    );
+    let read = with_contract_columns(connection, contract, &source.of(table)?)?;
+    Ok(latest.current_rows_sql(&read, columns, filter))
+}
+
 /// The key columns a row set's spool carries for the tie check (`<column>` as `tie_<n>`).
 const TIE_PREFIX: &str = "tie_";
 

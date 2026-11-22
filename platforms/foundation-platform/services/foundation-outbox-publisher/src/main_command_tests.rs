@@ -342,6 +342,13 @@ fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Resul
         ])?,
         Command::BuildParcelSubParcelsVersions
     );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-building-permits-versions"
+        ])?,
+        Command::BuildParcelBuildingPermitsVersions
+    );
     Ok(())
 }
 

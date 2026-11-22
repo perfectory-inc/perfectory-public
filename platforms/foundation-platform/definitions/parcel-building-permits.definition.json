@@ -56,6 +56,60 @@
       }
     },
     {
+      "id": "gold_parcel_building_permits_versions_build",
+      "dagster_group": "gold",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "건축인허가 kind Gold as a table of appended row versions (root ADR-0451, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-building-permits → publisher build-parcel-building-permits-versions): gold.parcel_building_permits_versions from the parcel's current 건축인허가 기본개요 rows with their parking by 관리허가대장PK and one list per other file of the permit family (동별개요, 층별개요, 대지위치, 대수선, 가설건축물, 부설주차장, 공작물관리대장, 주택인허가 기본개요 by their own PNU, and 정기점검이력 through the one 표제부 its 관리건축물대장PK names), computed by DuckDB inside the publisher one 시도 at a time and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the lane serves gold.parcel_building_permits it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict (gold-takeover-verdict.sh) compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise only the PNUs whose rows (a permit with its parking, a detail row, an inspection's link) or served parcels changed. It starts no Spark; it holds two slots of the host's heavy-work pool, as the lanes' other publisher builds (root ADR-0567: the pool moves with the orchestration, not the engine). Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
+      "systemd_service": "foundation-gold-versions@parcel-building-permits.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "55 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 60,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1500,
+          "estimated_from": "computed, not measured: the first shadow build holds every key. It reads each input once into a local spool split by 시도: the served parcel edition's PNUs (about 40 million), the 건축인허가 basis outline (6,572,660 rows of every vintage, Trino 2026-11-22) with its parking (2,835,072 rows, measured 2026-11-09) joined by key, the eight detail files (the largest the 층별개요, 15,130,151 rows, and the 동별개요, 8,590,150), the 65,482 inspections and the 표제부 they name, and folds the about 4.32 million PNUs gold.parcel_building_permits holds. parcel-nearby read 39,861,511 rows and committed them in 1500 s under the same 8G cap (2026-11-19); this reads about 45 million input rows. About 1500 s, inside the 60-minute limit. Later runs rebuild the changed PNUs only."
+        }
+      },
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 20,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-permit-basis-outline-to-gold-parcel-building-permits-versions",
+        "silver-building-permit-parking-to-gold-parcel-building-permits-versions",
+        "silver-building-maintenance-regular-inspection-history-to-gold-parcel-building-permits-versions",
+        "silver-building-permit-annex-parking-to-gold-parcel-building-permits-versions",
+        "silver-building-permit-building-outline-to-gold-parcel-building-permits-versions",
+        "silver-building-permit-floor-overview-to-gold-parcel-building-permits-versions",
+        "silver-building-permit-major-repair-to-gold-parcel-building-permits-versions",
+        "silver-housing-permit-basis-outline-to-gold-parcel-building-permits-versions",
+        "silver-building-permit-site-location-to-gold-parcel-building-permits-versions",
+        "silver-building-permit-structure-ledger-to-gold-parcel-building-permits-versions",
+        "silver-building-permit-temporary-building-to-gold-parcel-building-permits-versions",
+        "silver-building-register-titles-to-gold-parcel-building-permits-versions",
+        "silver-parcel-boundaries-to-gold-parcel-building-permits-versions",
+        "reference-legal-dong-code-change-to-gold-parcel-building-permits-versions",
+        "gold-parcel-building-permits-to-gold-parcel-building-permits-versions"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-22T00:00:00Z",
+      "dagster_stage": "dagster",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
+      }
+    },
+    {
       "id": "by_pnu_parcel_building_permits_bake",
       "dagster_group": "gold",
       "scope": "changed-keys",
@@ -119,6 +173,26 @@
         {
           "kind": "lakehouse_contract",
           "value": "gold.parcel_building_permits"
+        }
+      ]
+    },
+    {
+      "id": "gold-parcel-building-permits-versions",
+      "type": "gold_table",
+      "title": "필지 건축인허가 by-PNU 표(판을 쌓는 표)",
+      "description": "루트 ADR-0451 의 건축인허가 by-PNU 표를 판을 쌓는 표로(루트 ADR-0564 §1·§2): gold.parcel_building_permits 의 칸에 version_seq·row_state 를 더해 바뀐 PNU 의 행만 덧붙인다. 현재 행은 PNU 마다 version_seq 가 가장 큰 행이고 row_state 가 removed 면 그 PNU 는 없다. 발행기 안의 DuckDB 가 시도마다 계산하고 발행기가 추가 커밋으로 붙인다. 레인이 옛 표를 굽는 동안은 그 표의 그림자다(옛 표 빌드 태그의 입력 핀으로 짓는다, 루트 ADR-0564 §6).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
+      ],
+      "table_name": "gold.parcel_building_permits_versions",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_building_permits_versions"
         }
       ]
     },
@@ -269,6 +343,156 @@
       "description": "개편으로 바뀐 코드에 걸린 건축인허가 행을 서빙 필지판의 코드로 읽는다(모든 필지 섹션과 같은 renumbered, 루트 ADR-0329 §3). 이 표가 바뀌면 종류를 통째로 짓는다(루트 ADR-0451)."
     },
     {
+      "from": "silver-building-permit-basis-outline",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "현재 건축인허가 기본개요 행(관리허가대장PK 마다)을 서빙 법정동 코드로 다시 매겨 서빙 필지판의 PNU 에 접는다(DuckDB, 루트 ADR-0451). 행이 바뀐 PNU 만 다시 짓는다."
+    },
+    {
+      "from": "silver-building-permit-parking",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "주차장 대수를 같은 관리허가대장PK 의 인허가에 붙인다(루트 ADR-0452): 인허가의 시도 분할 안에서 전국을 한 번 조인한다. 주차장 행이 바뀐 인허가의 PNU 만 다시 짓는다."
+    },
+    {
+      "from": "silver-building-maintenance-regular-inspection-history",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "정기점검이력은 PNU 가 없어 관리건축물대장PK 가 가리키는 표제부 하나의 필지에 놓인다(루트 ADR-0404 §2). 연결은 전국에서 한 번 정하고(작은 표, 상한이 있다) 시도로 나눈다."
+    },
+    {
+      "from": "silver-building-permit-annex-parking",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "부설주차장 행을 자기 PNU 의 필지에 목록으로 접는다(루트 ADR-0464)."
+    },
+    {
+      "from": "silver-building-permit-building-outline",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "동별개요 행을 자기 PNU 의 필지에 목록으로 접는다(루트 ADR-0464)."
+    },
+    {
+      "from": "silver-building-permit-floor-overview",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "층별개요 행을 자기 PNU 의 필지에 목록으로 접는다(루트 ADR-0464)."
+    },
+    {
+      "from": "silver-building-permit-major-repair",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "대수선 행을 자기 PNU 의 필지에 목록으로 접는다(루트 ADR-0464)."
+    },
+    {
+      "from": "silver-housing-permit-basis-outline",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "주택인허가 기본개요 행을 자기 PNU 의 필지에 승인일 새것부터 접는다(루트 ADR-0511)."
+    },
+    {
+      "from": "silver-building-permit-site-location",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "대지위치 행을 자기 PNU 의 필지에 목록으로 접는다(루트 ADR-0464)."
+    },
+    {
+      "from": "silver-building-permit-structure-ledger",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "공작물관리대장 행을 자기 PNU 의 필지에 목록으로 접는다(루트 ADR-0464)."
+    },
+    {
+      "from": "silver-building-permit-temporary-building",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "가설건축물 행을 자기 PNU 의 필지에 존치기간 새것부터 접는다(루트 ADR-0464)."
+    },
+    {
+      "from": "silver-building-register-titles",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "정기점검이력이 가리키는 표제부의 PNU 를 매 실행 현재 행에서 읽는다(루트 ADR-0404 §2): 표제부가 바뀌면 그 점검의 필지가 따라 움직인다. 점검이 이름 대는 키의 표제부만 읽는다."
+    },
+    {
+      "from": "silver-parcel-boundaries",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "서빙 필지판의 PNU 가 문서의 전체 집합이다(루트 ADR-0292). 들고 난 필지만 다시 짓는다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "재편으로 바뀐 코드의 행을 서빙 코드로 읽는다(루트 ADR-0329 §3). 이 표가 바뀌면 모든 PNU 를 다시 짓는다."
+    },
+    {
+      "from": "gold-parcel-building-permits",
+      "to": "gold-parcel-building-permits-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage.rs"
+      ],
+      "description": "그림자인 동안 옛 표의 foundation-gold-build 태그 커밋이 적은 입력 핀과 서빙 에디션으로 짓는다(루트 ADR-0564 §6): 옛 표의 데이터가 아니라 그 빌드의 핀을 읽는다."
+    },
+    {
       "from": "gold-parcel-building-permits",
       "to": "parcel-building-permits-by-pnu-section-packs",
       "relation": "feeds",
@@ -276,6 +500,16 @@
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
       ]
+    },
+    {
+      "from": "gold-parcel-building-permits-versions",
+      "to": "parcel-building-permits-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md"
+      ],
+      "description": "레인의 넘겨받기 PR 이 종류 줄의 gold_table 을 이 표로 바꾸면(판정 equal 뒤, 루트 ADR-0564 §6) 레인의 굽기가 이 표의 현재 행을 읽는다. 그때까지 아무도 읽지 않는 그림자다."
     }
   ],
   "by_pnu_lanes": {
@@ -288,6 +522,7 @@
         "building_permit_total:long"
       ],
       "producer": "building_permit_silver_to_gold",
+      "versions_table": true,
       "decision": "docs/adr/0451-a-parcel-shows-its-building-permits-as-its-own-by-pnu-kind.md",
       "spark_held_test": "infra/lakehouse/spark/tests/test_building_permit_gold.py"
     }
@@ -306,6 +541,11 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark-small"
+      }
+    ],
+    "gold_parcel_building_permits_versions_build": [
+      {
+        "unit": "MemoryMax"
       }
     ]
   },

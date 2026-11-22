@@ -118,8 +118,9 @@ SELECT pnu, @json@, @total@, CAST(NULL AS VARCHAR) AS attached_via, \
   '@source_snapshot_id@' AS source_snapshot_id, '@published_at_utc@' AS published_at_utc \
 FROM documents";
 
-/// A field as the document writes it: trimmed, an empty one null.
-fn text(field: &str) -> String {
+/// A field as the document writes it: trimmed, an empty one null (the 건축인허가 kind writes its
+/// fields the same way).
+pub(crate) fn text(field: &str) -> String {
     format!("CASE WHEN trim({field}, ' ') = '' THEN NULL ELSE trim({field}, ' ') END")
 }
 

@@ -50,7 +50,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "부속지번 kind Gold as a table of appended row versions (root ADR-0399, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-sub-parcels → publisher build-parcel-sub-parcels-versions): gold.parcel_sub_parcels_versions from the current 부속지번 rows (silver.building_register_sub_parcel), read from both of a link's parcels, computed by DuckDB inside the publisher and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the lane serves gold.parcel_sub_parcels it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict (gold-takeover-verdict.sh) compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise both ends of every link that differs between the two reads and the parcels that entered or left the served edition. It starts no Spark: it queues in the documents pool with a memory_claim on its own unit (root ADR-0563). Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
+      "description": "부속지번 kind Gold as a table of appended row versions (root ADR-0399, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-sub-parcels → publisher build-parcel-sub-parcels-versions): gold.parcel_sub_parcels_versions from the current 부속지번 rows (silver.building_register_sub_parcel), read from both of a link's parcels, computed by DuckDB inside the publisher and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the lane serves gold.parcel_sub_parcels it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict (gold-takeover-verdict.sh) compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise both ends of every link that differs between the two reads and the parcels that entered or left the served edition. It starts no Spark; it holds two slots of the host's heavy-work pool, as the lanes' other publisher builds (root ADR-0567: the pool moves with the orchestration, not the engine). Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
       "systemd_service": "foundation-gold-versions@parcel-sub-parcels.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -69,13 +69,8 @@
           "estimated_from": "computed, not measured: the first shadow build holds every key. It reads the served parcel edition's PNUs (about 40 million) and the current 부속지번 rows (silver.building_register_sub_parcel: 5,566,401 rows of every vintage, Trino 2026-11-22), and folds both directions in one statement for the about 1.64 million PNUs gold.parcel_sub_parcels holds. Lane 1 (gold_parcel_register_masters_versions_build) folded 583,561 rows over the same served edition in 30 s (2026-11-22 02:03Z). About 600 s with the read, inside the 60-minute limit. Later runs rebuild the changed PNUs only."
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
-      "memory_claim": {
-        "units": [
-          "foundation-gold-versions@parcel-sub-parcels.service"
-        ]
-      },
+      "pool": "spark",
+      "pool_slots": 2,
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -303,6 +298,11 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark-small"
+      }
+    ],
+    "gold_parcel_sub_parcels_versions_build": [
+      {
+        "unit": "MemoryMax"
       }
     ]
   },
