@@ -40,16 +40,17 @@ class TheGroups(unittest.TestCase):
 
     def test_a_group_moves_in_one_switch(self):
         # Root ADR-0583 §2: in a group every switched-on job is at `dagster` or none is; the stages Airflow
-        # decides (airflow, shadow, proxied) are one side. The next group not switched is half switched here.
+        # decides (airflow, shadow, proxied) are one side. The last group is half moved here, to the side it is not on.
         jobs = copy.deepcopy(real_inputs()[0])
         self.assertEqual(job_specs.dagster_groups(jobs), [])
-        group = next(group for group in job_specs.DAGSTER_GROUPS if group not in switched_groups(jobs))
+        group = job_specs.DAGSTER_GROUPS[-1]
         members = [job for job in jobs["jobs"] if job["dagster_group"] == group and job["enabled"]]
-        members[0]["dagster_stage"] = "dagster"
+        other = "shadow" if group in switched_groups(jobs) else "dagster"
+        members[0]["dagster_stage"] = other
         self.assertEqual(len(job_specs.dagster_groups(jobs)), 1)
         self.assertIn(f"group {group}", job_specs.dagster_groups(jobs)[0])
         for job in members:
-            job["dagster_stage"] = "dagster"
+            job["dagster_stage"] = other
         self.assertEqual(job_specs.dagster_groups(jobs), [])
 
 

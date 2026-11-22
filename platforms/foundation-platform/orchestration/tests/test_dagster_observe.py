@@ -246,8 +246,8 @@ class AirliftParityTest(unittest.TestCase):
 
         graph = definitions.build(self.instance).resolve_asset_graph()
         checked = {key.asset_key for key in graph.asset_check_keys if key.name == dual_run.CHECK_NAME}
+        # Every group has moved (root ADR-0583), so no job is in the dual run and no DAG carries the check.
         shadow = {dual_run.dag_key(spec) for spec, _ in dual_run.shadow_jobs(*dual_run.observe_assets.contracts())}
-        self.assertTrue(shadow)
         self.assertEqual(checked, shadow)
         self.assertTrue(all(key in graph.get_all_asset_keys() for key in shadow))
 
@@ -293,7 +293,6 @@ class AirliftParityTest(unittest.TestCase):
         decided = {spec.dag_id for spec in job_specs.load_specs() if spec.dagster_stage == "dagster"}
         expected = {(dag, run, asset) for (dag, run), uris in recorded.items()
                     if (dag, run) in keep and dag not in decided for asset in uris}
-        self.assertTrue(expected)
         self.assertFalse({item for item in seen if item[0] in decided})
         self.assertEqual(seen, expected)
         self.assertTrue(any(call == ("POST", f"{BASE}/api/v2/dags/~/dagRuns/list") for call in self.server.calls))

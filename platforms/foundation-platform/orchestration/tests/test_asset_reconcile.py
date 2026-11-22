@@ -854,8 +854,8 @@ class MissedStarts(unittest.TestCase):
 
     That load has since left Spark and its pool (root ADR-0559), and so have the registered factories
     the replay ran on next, and the Gold and Silver jobs after them are decided by Dagster, whose sensor
-    keeps its own missed ticks (root ADR-0583); it runs on lakehouse_maintenance, the daily job Airflow still
-    decides in the spark pool's queue."""
+    keeps its own missed ticks (root ADR-0583); it runs on lakehouse_maintenance, the daily job in the spark
+    pool's queue, put back on Airflow's side: every group is Dagster's now, and this goes with Airflow."""
 
     JOB = "lakehouse_maintenance"
     # 2026-11-09 16:20Z, the measurement of W30f; the job's slot is 04:30Z daily.
@@ -865,6 +865,7 @@ class MissedStarts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+        next(job for job in cls.jobs["jobs"] if job["id"] == cls.JOB)["dagster_stage"] = "shadow"
         cls.reconciler = next(job for job in cls.jobs["jobs"] if job["id"] == asset_reconcile.RECONCILER)
 
     def owed(self, starts, now=NOW, queued=(), paused=(), running=False):

@@ -197,10 +197,11 @@ wait_for_declared_dags() {
       printf '%s' "${listing}" | python3 -I -B -c '
 import json, sys
 try:
-    expected = {"foundation_" + job["id"] for job in json.load(open(sys.argv[1]))["jobs"]
-                if job.get("dagster_stage", "airflow") != "dagster"}
+    jobs = json.load(open(sys.argv[1]))["jobs"]
+    # Once every group is with Dagster (root ADR-0583) Airflow is owed no DAG; an empty job list is still a misread.
+    expected = {"foundation_" + job["id"] for job in jobs if job.get("dagster_stage", "airflow") != "dagster"}
     rows = json.load(sys.stdin)
-    if not expected or not isinstance(rows, list) or any(
+    if not jobs or not isinstance(rows, list) or any(
         not isinstance(row, dict) or not isinstance(row.get("dag_id"), str) for row in rows
     ):
         raise ValueError("invalid DAG list")
