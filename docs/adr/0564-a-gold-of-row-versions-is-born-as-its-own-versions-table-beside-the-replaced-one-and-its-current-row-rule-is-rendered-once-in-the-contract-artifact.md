@@ -403,3 +403,72 @@
   합을 견주고, 지문은 커밋의 것으로 남는다), 결정 6-3 의 "`row_digest`, 그리고 지문", 결정 6-4 의 "판정의 지문", Revision 2026-11-20 의 "(`row_digest`
   포함)"과 "정규화는 없다: 키 순서만 달라도 `not equal`", 첫째 Revision 2026-11-22 의 "`row_digest` 의 합(Gold 지문과 같은 셈)"과 "시도 밖의 값 차이도
   `row_digest` 의 합이 본다"(이제 내용 해시의 합이 본다). ADR-0559 의 대체는 그 문서의 같은 날 둘째 개정 메모에 있다.
+
+## Revision 2026-11-22: 레인 밖 판 표의 공통 커밋과 스튜어드 큐의 그림자 (결정 2·3·5·6-9, W97)
+
+- 고치는 곳: 결정 3-3(차분은 `row_digest` 로), 결정 5(지문), 위 Revision 2026-11-20 의 구역 손실 막이, 결정 9 의 차례(스튜어드 큐는 차례 6 의 표이지만
+  공통 커밋을 넓히는 첫 표로 앞당긴다).
+
+결정 6-9 의 표(by-PNU 레인이 아닌 Gold: 실거래 지역 통계, 스튜어드 검토 큐, 그리고 뒤의 `place_id_*`)도 공통 커밋(`gold_versions_commit`) 하나로 쓴다.
+처음 쓰는 표는 스튜어드 검토 큐(`gold.lineage_review_queue_versions`, `VERSIONED_OUTSIDE_THE_LANES` 의 둘째 줄)다. 공통 커밋은 새 설정을 받지 않고
+계약에서 셋을 읽는다. 키 첫 칸이 `pnu` 이고 `row_digest` 를 가진 표에서는 셋 다 지금과 같은 값이 나온다(`only_changed_keys_are_appended_and_a_key_that_left_gets_a_marker`
+가 `key() == ["pnu"]`, `digest_sql() == "row_digest"` 를 단언한다).
+
+| 무엇 | 읽는 곳 | `row_digest` 를 가진 by-PNU 표 | `row_digest` 가 없는 표(스튜어드 큐) |
+|---|---|---|---|
+| 키 | 판 표 계약의 현재 행 규칙 `key`(여러 칸) | `pnu` | `(unit, subject_code)` |
+| 내용 digest | 옛 표 계약의 내용 칸: `row_digest` 가 있으면 그것, 없으면 스탬프 둘(`source_snapshot_id`·`published_at_utc`)을 뺀 내용 칸 `to_json` 의 SHA-256 | `row_digest` | 계산한 digest |
+| 준비 파일 | 판 표 계약의 파티션 명세의 값마다 하나 | 시도 | `unit` |
+| 지문(결정 5) | — | 지금처럼 기준 커밋 + 붙인 것 − 가린 것 | 매 커밋 현재 행 전체에서 다시 센다(아래) |
+
+- **digest 칸을 더하지 않는다.** 결정 2 의 표 모양(옛 칸 + `version_seq`·`row_state`)을 지킨다. 계산한 digest 는 차분과 지문에만 쓰고 표에 적지 않는다.
+  그 digest 는 DuckDB 의 `to_json` 으로 정의된다 — Spark·Trino 가 같은 글자를 내리라고 기대하지 않는다. `evidence_etag` 를 digest 로 쓰지 않는 까닭: 그것은
+  상태와 후보만 덮고 스냅숏 짝을 덮지 않는다.
+- **계산한 digest 의 지문은 다시 센다.** 더하고 빼는 셈은 기준 커밋의 합과 오늘의 식이 같아야 맞다. 내용 칸이나 스탬프 목록이 바뀌면 두 식이 한 합에
+  섞인다. 그래서 `row_digest` 가 없는 표의 지문과 현재 행 수는 매 커밋 머리의 현재 행(커밋이 건드리지 않은 것)과 붙인 행으로 다시 센다(`recomputed`).
+  스튜어드 큐는 몇만 행이라 싸다. 큰 표(`place_id_*`)가 이 길을 쓰게 될 때 그 PR 이 비용을 잰다.
+- **스탬프는 한 정의다.** 계산한 digest 가 빼는 스탬프와 판정(결정 6-3)이 견주지 않는 스탬프는 같은 상수(`PER_COMMIT_STAMPS`)다. 스탬프만 다른 행은
+  붙지 않는다. `row_digest` 를 가진 표의 차분은 지금처럼 `row_digest` 만 본다.
+- **지우는 표시의 스탬프는 칸의 형으로 쓴다**(스튜어드 큐의 `published_at_utc` 는 `timestamp`).
+- **구역 손실 막이(위 Revision 2026-11-20)는 키 첫 칸이 `pnu` 인 표에 건다.** 다른 표의 `*_json` 칸(스튜어드 큐의 `candidates_json`)은 필지의 구역이 아니다.
+  여러 칸 키의 by-PNU 표(결정 9 차례 4 의 `unit_price`)도 막이를 받는다.
+
+**스튜어드 큐의 그림자.**
+
+- **핀은 옛 표가 기록한 것을 빌린다.** 옛 표에는 빌드 태그도 `foundation.source-iceberg-snapshots` 도 없다. 대신 두 Spark 작업이 커밋마다 읽은 입력을
+  적는다: parcel unit 은 `foundation.lineage-snapshot-id`, place_reference unit 은 원천마다 `foundation.place-reference-snapshot.<원천>`. 그림자 작업
+  (`gold_lineage_review_queue_versions_build`, 입력이 움직이면 시작한다)은 옛 표의 `main` 을 새것부터 걸으며 입력마다 가장 새 기록을 핀으로 쓴다
+  (`recorded_snapshots` 와 같은 걸음). 남은 이력이 이름 대지 않는 원천은 그 뒤 움직이지 않은 것이라(옛 작업은 매 실행 움직인 원천을 모두 읽는다) 머리를 쓴다.
+  그래서 두 표는 언제나 같은 입력의 두 답이다.
+- **첫 빌드는 옛 표의 스냅숏 짝을 잇는다.** place_reference 항목의 `from_snapshot_id`·`to_snapshot_id` 는 그 항목의 근거가 마지막으로 바뀐 원천 스냅숏
+  짝이고, 옛 표에서는 `MERGE`(`WHEN MATCHED AND t.evidence_etag <> v.evidence_etag`)가 그 역사를 지킨다. 새 표는 같은 규칙을 머리의 현재 행으로
+  지킨다(근거가 같은 항목은 머리의 짝을 그대로 둔다). 머리가 없는 첫 빌드는 옛 표의 행(빌린 핀을 적은 그 머리)을 머리로 삼는다. 내용(상태·후보·
+  `evidence_etag`)은 새 엔진이 스스로 계산하고, 옛 표에서 오는 것은 근거가 같은 항목의 짝 둘뿐이다. 그 뒤는 빌린 핀이 같은 짝을 낸다.
+- **Spark 의 부분 처리를 그대로 옮긴다.** parcel unit 은 계보가 움직이면 통째로, 원천의 항목은 그 원천이 움직이면 그것만, 코드(`code_version`: 큐 단계와
+  계보 독자의 글자)가 움직이면 둘 다. 코드만 움직인 실행에서 움직이지 않은 원천의 새 항목은 `from_snapshot_id = to_snapshot_id` 다. 첫 빌드는 전량이다 —
+  결정 3-2 의 `full` 예외, 계산한 900 s(작업 정의의 `first_run`).
+- **결정 3-4 의 검사.** 키마다 한 행(차분)과 unit 마다의 상태값(parcel 은 `needs_review`·`pending`, place_reference 는 `steward`·`awaiting_data`)을 본다.
+  잃은 행의 하한과 바뀐 키 비율의 상한은 두지 않는다: 항목은 스튜어드가 정하거나 더 센 근거가 닫으면 빠지므로 큐는 한 실행에 비어도 맞고, 옛 두
+  작업에도 없었다.
+
+**판정·전환·끝·되돌리기.**
+
+- **판정.** 판정은 위의 자산 검사 `takeover_equal` 이다. 지금의 판정 도구(`export-gold-takeover-sides`)는 옛 표의 빌드 태그, `row_digest`, 시도를 가진
+  키를 요구하므로 스튜어드 큐에 그대로 돌지 않는다. 그래서 큐의 정의는 아직 그 검사를 선언하지 않고, 그림자 유닛은 판정을 돌리지 않는다. 넘겨받기
+  전에 도구를 넓히는 PR 이 더한다: 빌린 핀과 옛 표 머리의 짝(`shadow_of` 대신), 시도 키가 없는 표의 범위(표 전체 — 2026-11-19 22,068 행, 위 Revision 의
+  시도 거부를 이 표에 한해 고친다), 계산한 digest 의 합, 그리고 큐 정의의 `asset_checks` 한 줄. 견주는 칸은 스탬프(`published_at_utc`)를 뺀 모든
+  칸이다 — 첫 빌드가 짝을 이으므로 `from_snapshot_id`·`to_snapshot_id` 도 견준다. `not equal` 이면 넘기지 않는다.
+- **전환(넘겨받기 PR).** 스튜어드 순환(`lineage-stewardship-cycle.sh`)이 Spark 두 단계 대신 이 표를 쓰는 명령을 부르고, 그 명령이 unit 마다 넘김
+  파일(`lineage_review_queue.handoff_document` 의 모양, `stewardship_domain::handoff` 가 읽는 것)을 현재 행에서 쓴다. 같은 PR 이 그림자 핀과 첫
+  빌드의 이어받기(`one-off` 표시)를 지우고 입력의 머리로 돌린다. 지우는 것: `lineage_review_queue_to_gold.py`·`place_reference_queue_to_gold.py` 와
+  그 시험, `lineage-queue-check.py`(옛 표의 속성을 읽는다; 같은 일은 이 명령의 "할 일 없음"이 한다), 순환의 `--probe-only`(계보가 아직 없으면 이 명령이
+  기다림으로 끝난다), `place_reference_queue.py` 와 그 시험. `lineage_review_queue.py` 는 다른 모듈(`legal_dong_code_change_pairs`·`parcel_lineage_section`·
+  `parcel_panel_silver_to_gold`·`parcel_registry_frames`)이 `steward_resolved` 를 읽는 동안 남는다. 엔진 장부 두 줄은 `moved` 로, 그래프의 옛 표 노드는
+  `retired` 로.
+- **끝.** 순환 한 번이 두 unit 을 이 표의 현재 행에서 스튜어드 DB 로 실었고, 옛 두 작업과 그 정의가 없고, 장부 두 줄이 `moved` 다.
+- **되돌리기.** 넘겨받기 PR 을 되돌린다. 옛 표는 지워지지 않았다: parcel unit 은 다음 실행이 통째로 다시 쓰고, place_reference 는 그 사이 움직인 원천을
+  `MERGE` 가 다시 읽는다(옛 표가 기록한 스냅숏과 머리가 다르므로). 30 일(스냅숏 보존) 안이면 그대로 성립한다.
+
+**기각한 대안.** digest 칸을 표에 더하기(결정 2 의 모양이 달라지고, 판정이 견줄 칸이 옛 표에 없다). 머리의 핀으로 그림자를 짓고 두 표의 핀이 우연히 같은
+때 판정하기(같은 때가 오지 않을 수 있고, 첫 빌드의 짝이 영원히 다르다). 판정에서 place_reference 의 짝 둘을 빼기(정규화 금지, 위 Revision 2026-11-20).
+계산한 digest 에도 더하고 빼는 지문(식이 바뀌면 조용히 틀린다).
