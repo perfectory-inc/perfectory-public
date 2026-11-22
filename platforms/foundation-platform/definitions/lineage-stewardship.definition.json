@@ -745,7 +745,7 @@
       "asset": "gold-lineage-review-queue-versions",
       "check": "takeover_equal",
       "blocking": true,
-      "sido": "41",
+      "sido": "47",
       "reads": [
         "gold-lineage-review-queue"
       ]
