@@ -336,8 +336,9 @@ fn each_role_writes_its_tables_and_the_contract_names_its_source() -> anyhow::Re
             // A changed-keys table keeps its newest row per key; an editions table appends whole
             // lists; a read record keeps every row.
             match keep {
-                Keep::Changed => assert!(contract.current_row_latest().is_some(), "{table}"),
-                Keep::Removals => assert!(contract.current_row_latest().is_some(), "{table}"),
+                Keep::Changed | Keep::Removals => {
+                    assert!(contract.current_row_latest().is_some(), "{table}");
+                }
                 Keep::Editions => assert!(
                     matches!(contract.row_versions, LakehouseRowVersions::Editions { .. }),
                     "{table}"

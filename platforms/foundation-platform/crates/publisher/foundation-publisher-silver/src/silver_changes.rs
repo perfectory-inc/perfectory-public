@@ -309,10 +309,11 @@ pub fn result_checks(
 /// The value of `row_state` that marks a key removed (root ADR-0275).
 pub const REMOVED: &str = "removed";
 
-/// Builds `out` from `staged` of a newest-per-key table that keeps removal markers: the keys new
-/// or changed against the current rows at `head`, and, when `complete`, a removal marker per current
-/// key the staged rows no longer hold, stamped with this load's object, run and instant. Returns
-/// (rows, of them markers).
+/// Builds `out` from `staged` of a newest-per-key table that keeps removal markers.
+///
+/// `out` holds the keys new or changed against the current rows at `head`, and, when `complete`, a
+/// removal marker per current key the staged rows no longer hold, stamped with this load's object,
+/// run and instant. Returns (rows, of them markers).
 ///
 /// # Errors
 /// Refuses a table that keeps no versions per key; returns a `DuckDB` failure.

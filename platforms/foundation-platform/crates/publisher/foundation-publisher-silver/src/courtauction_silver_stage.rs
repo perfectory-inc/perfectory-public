@@ -469,8 +469,8 @@ impl CourtAuctionSource {
     ///
     /// # Errors
     /// Returns an error when the contract lacks a value the SQL takes.
-    // `{name}` is a placeholder of the SQL text, not a format argument.
-    #[allow(clippy::literal_string_with_formatting_args)]
+    // `{name}` is a placeholder of the SQL text, not a format argument; one arm per role.
+    #[allow(clippy::literal_string_with_formatting_args, clippy::too_many_lines)]
     pub fn role_sql(&self, role: Role) -> anyhow::Result<String> {
         let mut sql = role.sql().to_owned();
         if role.is_case_document() {
@@ -851,10 +851,11 @@ fn search_place_part(name: &str) -> anyhow::Result<&'static str> {
     Ok(rest[1..].find("-- @").map_or(rest, |end| &rest[..=end]))
 }
 
-/// Places the rows of a search object (`ca_search_rows`, from [`read_object`]) on the served parcels
-/// through the one place-identity resolver, and builds the search's staging table of the table's
-/// columns, its PNU columns those of the placement (`courtauction_go_kr.link`). Returns the grades
-/// placed (`pnu_basis`, or `unresolved:<reason>`).
+/// Places the rows of a search object (`ca_search_rows`) through the one place-identity resolver.
+///
+/// The rows (from [`read_object`]) go on the served parcels, and the search's staging table is built
+/// of the table's columns, its PNU columns those of the placement (`courtauction_go_kr.link`).
+/// Returns the grades placed (`pnu_basis`, or `unresolved:<reason>`).
 ///
 /// The place-identity reference tables are on the stage (`place_identity_stage::load_reference`).
 ///
@@ -897,7 +898,10 @@ pub fn offer_search(
     } else {
         "NULL::VARCHAR"
     };
-    connection.execute_batch(&search_place_part("first")?.replace("{code_pnu}", code_pnu))?;
+    // `{code_pnu}` is a placeholder of the SQL text, not a format argument.
+    #[allow(clippy::literal_string_with_formatting_args)]
+    let first = search_place_part("first")?.replace("{code_pnu}", code_pnu);
+    connection.execute_batch(&first)?;
     place_identity_stage::offers(stage)?;
     connection.execute_batch(search_place_part("second")?)?;
     place_identity_stage::offers(stage)
@@ -954,9 +958,10 @@ pub fn finish_search(
     Ok(found)
 }
 
-/// Whether the object's lines read every condition of the search to its last page (the job's
-/// `search_complete`): a condition ends at an empty page or once its pages hold `totalCnt` rows; a
-/// request without both fields of the search's `date_window` does not count.
+/// Whether the object's lines read every condition of the search to its last page.
+///
+/// As the job's `search_complete`: a condition ends at an empty page or once its pages hold
+/// `totalCnt` rows; a request without both fields of the search's `date_window` does not count.
 ///
 /// # Errors
 /// Returns a `DuckDB` failure or a contract without the search's conditions.
@@ -1055,9 +1060,10 @@ pub fn search_complete(
     }))
 }
 
-/// The staging table of what a search object appends (`<staging>_changed`): its changed keys and,
-/// when `complete` (an item search read whole), a removal marker per current key it no longer holds.
-/// Returns its name, how many rows and how many of them are markers.
+/// The staging table of what a search object appends (`<staging>_changed`).
+///
+/// Its changed keys and, when `complete` (an item search read whole), a removal marker per current
+/// key it no longer holds. Returns its name, how many rows and how many of them are markers.
 ///
 /// # Errors
 /// Returns a `DuckDB` failure.
