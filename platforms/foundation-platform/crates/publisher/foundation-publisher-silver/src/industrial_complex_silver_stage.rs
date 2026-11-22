@@ -211,31 +211,23 @@ fn refuse_invalid(
     // lacked one. One query for all of them, and one for every gate: a query each made a 1,442-row
     // export cost seconds of per-statement overhead (2026-11-22).
     let columns = bronze_industrial_complexes_raw_jsonl_columns();
-    let missing_counts = columns
+    let missing = columns
         .iter()
         .map(|column| format!("count_if(json_extract(j, '$.\"{column}\"') IS NULL)"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let missing = counts(
-        connection,
-        &format!("SELECT [{missing_counts}] FROM complex_lines_json"),
-    )?;
-    if let Some((column, lines)) = columns.iter().zip(&missing).find(|(_, lines)| **lines > 0) {
-        bail!("the export is missing the column {column} on {lines} line(s)");
+        .collect::<Vec<_>>();
+    if let Some((index, lines)) = first_nonzero(connection, &missing, "complex_lines_json")? {
+        bail!(
+            "the export is missing the column {} on {lines} line(s)",
+            columns[index]
+        );
     }
     let gates = gates(contract);
     let gate_counts = gates
         .iter()
         .map(|(predicate, _)| format!("count_if({predicate})"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let held = counts(
-        connection,
-        &format!("SELECT [{gate_counts}] FROM complex_rows"),
-    )?;
-    if let Some(((predicate, message), count)) =
-        gates.iter().zip(&held).find(|(_, count)| **count > 0)
-    {
+        .collect::<Vec<_>>();
+    if let Some((index, count)) = first_nonzero(connection, &gate_counts, "complex_rows")? {
+        let (predicate, message) = &gates[index];
         let samples: Option<String> = connection
             .query_row(
                 &format!(
@@ -266,24 +258,37 @@ fn refuse_invalid(
     Ok(())
 }
 
-/// The counts `query` answers as one list.
-fn counts(connection: &Connection, query: &str) -> anyhow::Result<Vec<i64>> {
-    let text: String = connection
-        .query_row(
-            &format!("SELECT CAST(to_json(q) AS VARCHAR) FROM ({query}) q"),
-            [],
-            |row| row.get(0),
-        )
-        .context("DuckDB could not count the export's refusals")?;
-    let value: serde_json::Value = serde_json::from_str(&text)?;
-    value
-        .as_object()
-        .and_then(|row| row.values().next())
-        .and_then(serde_json::Value::as_array)
-        .context("DuckDB answered no list of counts")?
+/// The first of `counts` (SQL count expressions over `source`) that is not zero: its index and
+/// count, or `None` when every one is zero. One scan of `source` for all of them.
+fn first_nonzero(
+    connection: &Connection,
+    counts: &[String],
+    source: &str,
+) -> anyhow::Result<Option<(usize, i64)>> {
+    let list = counts
         .iter()
-        .map(|count| count.as_i64().context("a count is not a whole number"))
-        .collect()
+        .map(|count| format!("CAST({count} AS BIGINT)"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let found: Option<(i64, i64)> = connection
+        .query_row(
+            &format!(
+                "SELECT position - 1, list_extract(counts, position) FROM \
+                 (SELECT counts, list_position(list_transform(counts, lambda c: c > 0), true) AS position \
+                  FROM (SELECT [{list}] AS counts FROM {source})) WHERE position IS NOT NULL"
+            ),
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map(Some)
+        .or_else(|error| match error {
+            duckdb::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other),
+        })
+        .context("DuckDB could not count the export's refusals")?;
+    found
+        .map(|(index, count)| Ok((usize::try_from(index)?, count)))
+        .transpose()
 }
 
 /// Fills `complex_ids` with the id of every code the export names.
