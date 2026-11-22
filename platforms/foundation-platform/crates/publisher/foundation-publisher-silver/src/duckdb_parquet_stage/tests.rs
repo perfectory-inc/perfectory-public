@@ -1283,7 +1283,7 @@ async fn an_industrial_complex_export_is_the_first_append_into_the_empty_table(
             )
             .await?,
     )?;
-    assert_eq!((parent, added), (None, 1));
+    assert_eq!((parent, added), (None, 2), "both complexes are added");
     let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
     scanned.ensure_complete()?;
     assert_eq!(scanned.rows.len(), 2);
