@@ -320,6 +320,7 @@ enum Command {
     BuildParcelBuildingPermitsVersions,
     BuildParcelPanelVersions,
     BuildParcelOwnershipVersions,
+    BuildParcelFactoriesVersions,
     ExportGoldVersionsChangeSet,
     ExportGoldTakeoverSides,
     ShowGoldTakeoverSwitch,
@@ -710,6 +711,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelOwnershipVersions => {
             Box::pin(kind_versions_build::run(&kind_versions_build::OWNERSHIP_BUILD))
         }
+        Command::BuildParcelFactoriesVersions => {
+            Box::pin(kind_versions_build::run(&kind_versions_build::FACTORIES_BUILD))
+        }
         Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
         Command::ExportGoldTakeoverSides => Box::pin(gold_takeover_sides::export()),
         Command::ShowGoldTakeoverSwitch => Box::pin(gold_takeover_sides::switch()),
@@ -903,6 +907,7 @@ where
         }
         Some("build-parcel-panel-versions") => Ok(Command::BuildParcelPanelVersions),
         Some("build-parcel-ownership-versions") => Ok(Command::BuildParcelOwnershipVersions),
+        Some("build-parcel-factories-versions") => Ok(Command::BuildParcelFactoriesVersions),
         Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
         Some("export-gold-takeover-sides") => Ok(Command::ExportGoldTakeoverSides),
         Some("show-gold-takeover-switch") => Ok(Command::ShowGoldTakeoverSwitch),

@@ -139,6 +139,8 @@ pub mod legal_dong_code_snapshot_stage;
 pub mod building_energy_stage;
 pub mod building_permit_stage;
 pub mod building_sub_parcel_stage;
+/// The registered-factory kind's Gold in `DuckDB` (root ADR-0449).
+pub mod factory_kind_stage;
 pub mod intelligence_documents_stage;
 /// What every parcel kind Gold of appended row versions shares (root ADR-0564 §6).
 pub mod kind_versions_stage;
@@ -151,6 +153,8 @@ pub mod parcel_number_change_history_stage;
 /// The parcel panel's Gold in `DuckDB` (root ADR-0096, ADR-0564 §9 차례 5).
 pub mod parcel_panel_stage;
 pub mod parcel_registry_stage;
+/// The parcel place ids every kind row carries, by one rule (root ADR-0483).
+pub mod place_id_join;
 /// The register kinds' Gold in `DuckDB`: 총괄표제부, 철거·멸실 (root ADR-0450, ADR-0399).
 pub mod record_kind_stage;
 

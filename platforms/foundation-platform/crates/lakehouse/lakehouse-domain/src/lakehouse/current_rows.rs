@@ -11,12 +11,19 @@
 //! - [`LakehouseTableContract::current_rows`]: the same rule over rows a snapshot scan decoded.
 //!
 //! One fixture (`tests/current_rows.rs`) holds both to the same answer.
+//!
+//! An `Editions` table read newest first has its SQL twin here too
+//! ([`LakehouseTableContract::newest_edition_sql`]) beside the row twin
+//! ([`LakehouseTableContract::newest_edition_rows`]); `DuckDB` readers in the publisher take it.
 
 use std::{cmp::Ordering, collections::BTreeMap};
 
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
-use super::{LakehouseCurrentRowLatest, LakehouseTableContract, REMOVED_MARKER};
+use super::{
+    LakehouseCurrentRowLatest, LakehouseEditionRead, LakehouseRowVersions, LakehouseTableContract,
+    REMOVED_MARKER,
+};
 
 /// Where the caller's table reference goes in [`LakehouseTableContract::current_rows_sql_template`].
 pub const CURRENT_ROWS_SOURCE: &str = "{source}";
@@ -27,6 +34,10 @@ pub const CURRENT_ROWS_COLUMNS: &str = "{columns}";
 pub const CURRENT_ROWS_FILTER: &str = "{filter}";
 /// The rank column the query adds inside; a caller's projection never names it.
 const RANK: &str = "foundation_current_rank";
+/// The edition rank and the per-edition maxima [`LakehouseTableContract::newest_edition_sql`] adds
+/// inside; a caller's projection never names them.
+const EDITION_RANK: &str = "foundation_edition_rank";
+const EDITION_NEWEST: &str = "foundation_edition_newest";
 
 impl LakehouseCurrentRowLatest {
     /// A query of the current rows of `source` (a table reference, pinned by the caller),
@@ -74,6 +85,70 @@ impl LakehouseTableContract {
     pub fn current_rows_sql_template(&self) -> Option<String> {
         self.current_row_latest()
             .map(|latest| latest.render(self.current_row_predicate))
+    }
+
+    /// A query of the rows of the newest edition of `source` (a table reference, pinned by the
+    /// caller) per `per` group, projecting `columns`, among the rows `filter` keeps, then the
+    /// contract's `current_row_predicate`: the SQL twin of [`Self::newest_edition_rows`] and
+    /// `platform_contracts.newest_edition` (root ADR-0286 §3, ADR-0564 §4). `None` for a table that
+    /// does not append editions read newest first.
+    ///
+    /// Each edition's maxima of `newest_first`, compared in turn with a missing value oldest, rank
+    /// the editions of a group; every row of the top edition is read. The edition is chosen over the
+    /// whole of `source` and `filter` only restricts which of its rows are read: a filter before the
+    /// choice would make an older edition look newest where the newest holds no row. One scan of
+    /// `source` (window aggregates, no self-join): a pinned R2 table read twice cost a production run
+    /// 46 minutes on 2026-11-19 (`parcel_nearby_stage::current_rows`). SQL cannot refuse two
+    /// editions tied on every column; a reader that must not read both counts the editions per group
+    /// it read, as [`Self::newest_edition_rows`] refuses them.
+    #[must_use]
+    pub fn newest_edition_sql(
+        &self,
+        source: &str,
+        columns: &[&str],
+        filter: &str,
+    ) -> Option<String> {
+        let LakehouseRowVersions::Editions {
+            edition_column,
+            newest_first,
+            per,
+            read: LakehouseEditionRead::Newest,
+        } = self.row_versions
+        else {
+            return None;
+        };
+        let partition = |extra: Option<&str>| -> String {
+            let columns: Vec<&str> = per.iter().copied().chain(extra).collect();
+            if columns.is_empty() {
+                String::new()
+            } else {
+                format!("PARTITION BY {}", columns.join(", "))
+            }
+        };
+        let maxima = newest_first
+            .iter()
+            .enumerate()
+            .map(|(index, column)| {
+                format!(
+                    "max({column}) OVER ({}) AS {EDITION_NEWEST}_{index}",
+                    partition(Some(edition_column))
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let order = (0..newest_first.len())
+            .map(|index| format!("{EDITION_NEWEST}_{index} DESC NULLS LAST"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let predicate = self
+            .current_row_predicate
+            .map_or_else(String::new, |text| format!(" AND ({text})"));
+        Some(format!(
+            "SELECT {columns} FROM (SELECT *, dense_rank() OVER ({partition} ORDER BY {order}) AS {EDITION_RANK} \
+             FROM (SELECT *, {maxima} FROM {source})) WHERE {EDITION_RANK} = 1 AND ({filter}){predicate}",
+            columns = columns.join(", "),
+            partition = partition(None),
+        ))
     }
 
     /// The current rows among `rows` (every version a scan decoded, of whole keys): the newest
