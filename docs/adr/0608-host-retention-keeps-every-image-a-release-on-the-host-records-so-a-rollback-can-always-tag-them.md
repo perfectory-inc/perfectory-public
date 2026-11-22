@@ -10,7 +10,8 @@
 
 ADR-0198 §3 의 "릴리스 정리가 소유한 이미지"는 저장소 이름 둘(`foundation-outbox-publisher`, `foundation-tippecanoe`)이다. 서버가
 릴리스를 짓던 때는 그것이 릴리스의 이미지 전부였다. 레지스트리 릴리스(ADR-0276)는 아홉 이미지를 다이제스트로 당기고 `build.json` 에
-`<이름>_image` 로 적는다. runtime, postgres-recovery, Dagster, Airflow, Dawneer, 문서 추출, 검증 이미지가 그렇다.
+`<이름>_image` 로 적는다. publisher·tippecanoe 와 compose 이미지 일곱(runtime, postgres-recovery, Dagster, Airflow, Dawneer,
+문서 추출, 검증)이다.
 `foundation-release.sh migrate`(rollback 도)는 그 ID 를 compose 가 부르는 `:local` 로 태그한다(`tag_compose_images`).
 
 current 의 이미지는 `:local` 태그와 돌고 있는 컨테이너가 지킨다. previous 와 비상 릴리스의 compose 이미지는 레지스트리 다이제스트
