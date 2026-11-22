@@ -1,8 +1,8 @@
-//! The one steward queue's items, computed by the publisher (root ADR-0113 §10, ADR-0483 §5,
-//! ADR-0564 §6): the twins of `lineage_review_queue.review_queue` (unit `parcel`, from
-//! `silver.parcel_lineage`) and of `place_reference_queue.items` over
-//! `place_reference_queue_to_gold.unresolved` (unit `place_reference`, from every parcel source
-//! Silver the resolver placed).
+//! The one steward queue's items, computed by the publisher (root ADR-0113 §10, ADR-0483 §5).
+//!
+//! The twins of `lineage_review_queue.review_queue` (unit `parcel`, from `silver.parcel_lineage`)
+//! and of `place_reference_queue.items` over `place_reference_queue_to_gold.unresolved` (unit
+//! `place_reference`, from every parcel source Silver the resolver placed), root ADR-0564 §6-9.
 //!
 //! A parcel is on the queue when the best derived row of its newest derivations is `needs_review`
 //! or `pending` and no standing steward decision closes it; its candidates and fingerprint are the
