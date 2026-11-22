@@ -542,7 +542,10 @@ pub(crate) fn read_for_test(
 /// Silver rows read as the head's current rows).
 pub const COMMIT_TABLES: [&str; 2] = ["current_rows", "appended"];
 
-/// Errors when `connection` holds a table [`COMMIT_TABLES`] names.
+/// Errors when `connection` holds a `TEMP` table [`COMMIT_TABLES`] names.
+///
+/// Only a `TEMP` one shadows the commit's. The commit's own tables of the previous 시도 stay in
+/// `main` and the next diff replaces them; refusing those stopped every build at its second 시도.
 ///
 /// # Errors
 /// Returns an error naming the table, or when `DuckDB` cannot list its tables.
@@ -550,7 +553,8 @@ pub fn ensure_no_commit_tables(connection: &Connection) -> anyhow::Result<()> {
     let names = COMMIT_TABLES.map(|name| format!("'{name}'")).join(", ");
     let held: Option<String> = connection.query_row(
         &format!(
-            "SELECT string_agg(schema_name || '.' || table_name, ', ') FROM duckdb_tables()              WHERE table_name IN ({names})"
+            "SELECT string_agg(schema_name || '.' || table_name, ', ') FROM duckdb_tables() \
+             WHERE temporary AND table_name IN ({names})"
         ),
         [],
         |row| row.get(0),
@@ -565,3 +569,26 @@ pub fn ensure_no_commit_tables(connection: &Connection) -> anyhow::Result<()> {
 
 /// The SQL texts every kind's code version folds in beside its own: the code views and the spool.
 pub(crate) const SHARED_SQL: [&str; 3] = [PAIR_ROWS_SQL, RENUMBERED_INTO_SQL, SPOOL_SQL];
+
+#[cfg(test)]
+mod commit_table_tests {
+    use super::*;
+
+    /// The previous 시도's commit tables pass; a `TEMP` table of their names, which would shadow the
+    /// next commit's, is refused.
+    #[test]
+    fn only_a_temp_table_of_the_commit_s_names_is_refused() -> anyhow::Result<()> {
+        let connection = Connection::open_in_memory()?;
+        connection.execute_batch(
+            "CREATE OR REPLACE TABLE current_rows AS SELECT 1 AS pnu; \
+             CREATE OR REPLACE TABLE appended AS SELECT 1 AS pnu;",
+        )?;
+        ensure_no_commit_tables(&connection)?;
+        connection.execute_batch("CREATE TEMP TABLE appended AS SELECT 2 AS pnu;")?;
+        let refused = ensure_no_commit_tables(&connection)
+            .err()
+            .map(|error| error.to_string());
+        assert!(refused.is_some_and(|text| text.contains("appended")));
+        Ok(())
+    }
+}
