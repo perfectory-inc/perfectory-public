@@ -10,7 +10,7 @@
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "공장설립온라인지원시스템(팩토리온) 분양 및 처분신청 공고 (root ADR-0603 §8; scripts/ops/industrial-land-sale-notice-collect.sh factoryon): the widest list (1,567 notices measured 2026-11-22: 한국산업단지공단 and its branches' 처분신청, 시도, 시군, 공사, K-water, 한국농어촌공사, private developers), collected by the owner's decision of 2026-11-22 knowing its robots.txt disallows /bbs/, at the least load: once a day, seven seconds between requests, the whole history once over a few runs, then list page 1 and only the new notices' pages (lttotNdDspsPblancDetail.do) and attachments (atchFileDownload.do). Any 4xx, 429 or a page that is not the one asked for stops the run at once: it commits what it read and fails, so it is seen, and asks nothing more until the next day. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, at most per_run_limit and until run_time_budget_seconds, two seconds between requests; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
-      "systemd_service": "foundation-industrial-land-sale-notice-factoryon-collect.service",
+      "systemd_service": "foundation-industrial-land-sale-notice-collect@factoryon.service",
       "systemd_timer": null,
       "state_paths": [
         "/var/lib/foundation-platform/industrial-land-sale-notice"
@@ -20,6 +20,8 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
       "time_limit_minutes": 240,
+      "memory_max": "1G",
+      "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice collector (1G), which keeps one detail and its attachments in memory as this one does, under the same 256 MiB per-file cap (industrial-land-sale-notice.contract.json attachments.max_file_bytes), plus at most one batch of 50 reads (a KICOX post page is about 170 KB, a Factory-on notice page about 60 KB); systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "request",
         "limits": [
@@ -66,6 +68,8 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
       "time_limit_minutes": 40,
+      "memory_max": "1G",
+      "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice collector (1G), which keeps one detail and its attachments in memory as this one does, under the same 256 MiB per-file cap (industrial-land-sale-notice.contract.json attachments.max_file_bytes), plus at most one batch of 50 reads (a KICOX post page is about 170 KB, a Factory-on notice page about 60 KB); systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "request",
         "limits": [
@@ -112,6 +116,8 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
       "time_limit_minutes": 40,
+      "memory_max": "1G",
+      "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice collector (1G), which keeps one detail and its attachments in memory as this one does, under the same 256 MiB per-file cap (industrial-land-sale-notice.contract.json attachments.max_file_bytes), plus at most one batch of 50 reads (a KICOX post page is about 170 KB, a Factory-on notice page about 60 KB); systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "request",
         "limits": [
@@ -158,6 +164,8 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
       "time_limit_minutes": 40,
+      "memory_max": "1G",
+      "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice collector (1G), which keeps one detail and its attachments in memory as this one does, under the same 256 MiB per-file cap (industrial-land-sale-notice.contract.json attachments.max_file_bytes), plus at most one batch of 50 reads (a KICOX post page is about 170 KB, a Factory-on notice page about 60 KB); systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "request",
         "limits": [
@@ -205,6 +213,8 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 40,
+      "memory_max": "512M",
+      "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice Silver load (512M), the same DuckDB stage and append over objects of the same size; systemd logs the peak of every run under this cap",
       "per_run_cap": {
         "unit": "object",
         "limits": [

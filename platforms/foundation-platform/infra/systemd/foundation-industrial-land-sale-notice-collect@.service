@@ -17,8 +17,9 @@ EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=-/etc/foundation-platform/operations-map.env
 EnvironmentFile=-/etc/foundation-platform/data-go-kr.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/industrial-land-sale-notice-collect.sh %i
-# The job list's time_limit_minutes (jobs.v1.json): the notice budget (1,800 s) and one notice.
-TimeoutStartSec=40m
+# The job list's longest time_limit_minutes (jobs.v1.json): Factory-on's daily run, its own budget
+# (12,600 s) and one notice; the hourly sources' 40 minutes are their drop-ins (root ADR-0574 §8).
+TimeoutStartSec=4h
 TimeoutStopSec=30
 NoNewPrivileges=true
 PrivateTmp=true

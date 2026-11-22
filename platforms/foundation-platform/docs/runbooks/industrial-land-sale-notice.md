@@ -14,7 +14,7 @@ last_reviewed: 2026-11-22
 
 | 작업 | 단위 | 하는 일 |
 |---|---|---|
-| `industrial_land_sale_notice_factoryon_collect` (하루 한 번 18:10 UTC, default_pool, 240 분) | `foundation-industrial-land-sale-notice-factoryon-collect.service` → `scripts/ops/industrial-land-sale-notice-collect.sh factoryon` | 공장설립온라인 분양 및 처분신청 공고: 목록 쪽을 새 것부터, 읽지 않은 공고의 쪽·첨부, 요청 사이 7 초(사장 결정, 루트 ADR-0603 §8) |
+| `industrial_land_sale_notice_factoryon_collect` (하루 한 번 18:10 UTC, default_pool, 240 분) | `foundation-industrial-land-sale-notice-collect@factoryon.service` → `scripts/ops/industrial-land-sale-notice-collect.sh factoryon` | 공장설립온라인 분양 및 처분신청 공고: 목록 쪽을 새 것부터, 읽지 않은 공고의 쪽·첨부, 요청 사이 7 초(사장 결정, 루트 ADR-0603 §8) |
 | `industrial_land_sale_notice_ilis_collect` (매시, default_pool) | `foundation-industrial-land-sale-notice-collect@ilis.service` → `scripts/ops/industrial-land-sale-notice-collect.sh ilis` | ILIS 분양공고 목록 POST 하나(바뀌었으면 그 답을 Bronze 에), 같은 목록 지문으로 읽지 않은 공고의 상세·첨부 |
 | `industrial_land_sale_notice_kicox_collect` (매시) | `…-collect@kicox.service` → `… kicox` | 한국산업단지공단 임대/분양 게시판의 목록 쪽을 새 것부터, 읽지 않은 글의 쪽·첨부 |
 | `industrial_land_sale_notice_lh_collect` (꺼짐) | `…-collect@lh.service` → `… lh` | LH 토지 공고 목록(답을 Bronze 에), 공고마다 상세·공급정보·첨부. 사장의 data.go.kr 활용신청 전에는 78 로 끝난다 |

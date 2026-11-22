@@ -34,8 +34,8 @@ K-water·민간 2·남동구청·기장군·LH 입주기준·고양도시관리�
 ## Decision
 
 1. **네 원천, 한 꼴.** 수집기 `collect-industrial-land-sale-notices`(원천마다 작업 하나:
-   `industrial_land_sale_notice_{factoryon,ilis,kicox,lh}_collect`; 매시 원천은 유닛 `foundation-industrial-land-sale-notice-collect@<원천>.service`,
-   하루 한 번 240 분인 공장설립온라인은 `foundation-industrial-land-sale-notice-factoryon-collect.service`)가
+   `industrial_land_sale_notice_{factoryon,ilis,kicox,lh}_collect`, 유닛 `foundation-industrial-land-sale-notice-collect@<원천>.service`; 템플릿은
+   가장 긴 공장설립온라인의 4 시간을, 매시 원천은 40 분 드롭인을 갖는다, ADR-0574 §8)가
    계약 `industrial-land-sale-notice.contract.json` 하나를 읽는다. 원천의 목록을 새 것부터 쪽마다 읽고, 공고마다 상세를 받은 그대로
    두고, 첨부는 형식에 상관없이 공용 내용주소 저장소(`data-go-kr-onbid.contract.json#/media/object_prefix`)에
    `industrial_complex_notice_collect::store_attachment` 로 한 번만 담는다(ADR-0298, ADR-0484 §2 와 같은 저장소·같은 함수). 글을 꺼내지 않는다(ADR-0484 §1).

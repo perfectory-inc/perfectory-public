@@ -29,10 +29,11 @@ class AProducerOutranksItsConsumers(unittest.TestCase):
         circles = [{"map_edit_fold_admin", "map_edit_fold_complex"},  # they share one ledger
                    # The collector asks the read records which notices are settled; the Silver load reads what it wrote.
                    {"industrial_complex_notice_collect", "industrial_complex_notice_silver"},
-                   # The same, with one read record for the sale notices of three sources (root ADR-0603):
+                   # The same, with one read record for the sale notices of four sources (root ADR-0603):
                    # each collector reads only its own source's reads, but the graph names one table.
-                   {"industrial_land_sale_notice_ilis_collect", "industrial_land_sale_notice_kicox_collect",
-                    "industrial_land_sale_notice_lh_collect", "industrial_land_sale_notice_silver"}]
+                   {"industrial_land_sale_notice_factoryon_collect", "industrial_land_sale_notice_ilis_collect",
+                    "industrial_land_sale_notice_kicox_collect", "industrial_land_sale_notice_lh_collect",
+                    "industrial_land_sale_notice_silver"}]
         pairs = [(writer, reader) for reader, writers in feeders.items() for writer in writers
                  if by_id[writer]["pool"] == by_id[reader]["pool"]
                  and not any({writer, reader} <= circle for circle in circles)]
@@ -56,6 +57,18 @@ class AProducerOutranksItsConsumers(unittest.TestCase):
         self.assertEqual(job_specs.queue_weights(jobs, feeders),
                          {"load": 21, "gold": 20, "bake": 10, "alone": 40, "elsewhere": 90,
                           "fold_a": 71, "fold_b": 71, "after_folds": 70})
+
+
+
+class AnInstanceReadsItsDropIns(unittest.TestCase):
+    def test_an_instance_drop_in_sets_its_time_limit_over_its_template(self):
+        # Root ADR-0574 §8: the template states its longest instance's limit, a shorter one its drop-in.
+        template = job_specs.service_unit_text("foundation-industrial-land-sale-notice-collect@factoryon.service")
+        hourly = job_specs.service_unit_text("foundation-industrial-land-sale-notice-collect@ilis.service")
+        self.assertIn("\nTimeoutStartSec=4h\n", template)
+        self.assertIn("\nTimeoutStartSec=40m\n", hourly)
+        self.assertNotIn("TimeoutStartSec=4h", hourly)
+        self.assertIn("industrial-land-sale-notice-collect.sh ilis\n", hourly)
 
 
 if __name__ == "__main__":
