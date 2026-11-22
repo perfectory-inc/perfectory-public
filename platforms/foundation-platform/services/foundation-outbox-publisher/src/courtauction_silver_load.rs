@@ -24,17 +24,22 @@ use foundation_publisher_core::lakehouse_data_commit::{
 };
 use foundation_publisher_silver::{
     courtauction_silver_stage::{
-        appended, planned_objects, read_object, CourtAuctionSource, PlannedObject,
+        appended, appended_search, place_search, planned_objects, read_object, search_complete,
+        CourtAuctionSource, Keep, PlannedObject, Role,
     },
+    data_go_kr_file_data_stage::PlaceInputs,
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
     onbid_silver_stage::{plan_dirs, write},
+    place_identity_stage::{
+        self, PlacePins, CODE_CHANGE_TABLE, DONG_NAME_TABLE, PARCEL_TABLE, TITLE_TABLE,
+    },
     process_memory,
     silver_changes::{result_checks, ResultChecks},
 };
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::{json, Value};
 
-use crate::onbid_silver_load::{contract, head, locked};
+use crate::onbid_silver_load::{contract, head, locked, pinned, served_snapshot_id};
 use crate::public_data_control_support::required_env_value;
 
 const PLAN_ROOT_ENV: &str = "FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT";
@@ -114,6 +119,8 @@ fn seconds(started: Instant) -> f64 {
 
 struct Run {
     source: CourtAuctionSource,
+    /// The place-identity inputs' pins, when the run holds a search object.
+    pins: Option<PlacePins>,
     committer: LakehouseDataCommitter,
     catalog: IcebergRestCatalog,
     ingested_at: chrono::DateTime<chrono::Utc>,
@@ -128,9 +135,31 @@ impl Run {
         checks: &mut BTreeMap<&'static str, TableChecks>,
     ) -> anyhow::Result<Value> {
         let started = Instant::now();
-        let staged = {
+        let mut line = serde_json::Map::new();
+        let (staged, complete) = {
             let stage = &*locked(stage)?;
-            read_object(stage, &self.source, object, self.ingested_at)?
+            let staged = read_object(stage, &self.source, object, self.ingested_at)?;
+            let mut complete = false;
+            if matches!(object.role, Role::ItemSearch | Role::SaleResultSearch) {
+                complete = search_complete(stage, &self.source, object.role)?;
+                let pins = self
+                    .pins
+                    .as_ref()
+                    .context("a search object needs the place pins")?;
+                let table = object.role.tables()[0].0;
+                let grades = place_search(
+                    stage,
+                    object.role,
+                    contract(table)?,
+                    PlaceInputs {
+                        pins,
+                        title_contract: contract(TITLE_TABLE)?,
+                    },
+                )?;
+                line.insert("complete".to_owned(), json!(complete));
+                line.insert("resolved_by_grade".to_owned(), json!(grades));
+            }
+            (staged, complete)
         };
         let mut tables = serde_json::Map::new();
         for table in &staged {
@@ -145,7 +174,20 @@ impl Run {
             let expected_head = head(&self.catalog, table.table).await?;
             let (file, rows, result) = {
                 let stage = &*locked(stage)?;
-                let (rows_table, rows) = appended(stage, table_contract, expected_head, table)?;
+                let (rows_table, rows) = if table.keep == Keep::Removals {
+                    let (out, rows, _) = appended_search(
+                        stage,
+                        table_contract,
+                        expected_head,
+                        table,
+                        object,
+                        complete,
+                        self.ingested_at,
+                    )?;
+                    (out, rows)
+                } else {
+                    appended(stage, table_contract, expected_head, table)?
+                };
                 let result = result_checks(stage, table_contract, &rows_table)?;
                 (
                     write(stage, &shape, table.table, &rows_table, &object.object_key)?,
@@ -187,12 +229,11 @@ impl Run {
                 json!({"staged": table.rows, "appended_rows": rows, "appended": appended_commit}),
             );
         }
-        Ok(json!({
-            "object": object.object_key,
-            "role": object.role.name(),
-            "tables": tables,
-            "seconds": seconds(started),
-        }))
+        line.insert("object".to_owned(), json!(object.object_key));
+        line.insert("role".to_owned(), json!(object.role.name()));
+        line.insert("tables".to_owned(), Value::Object(tables));
+        line.insert("seconds".to_owned(), json!(seconds(started)));
+        Ok(Value::Object(line))
     }
 }
 
@@ -214,8 +255,26 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .context("DuckDB refused the court auction value readers")?;
     // One instant for the run, as the Spark job took one.
     let ingested_at = chrono::Utc::now();
+    let pins = if objects
+        .iter()
+        .any(|object| matches!(object.role, Role::ItemSearch | Role::SaleResultSearch))
+    {
+        // Root ADR-0288 §1: a 물건 is placed by the one resolver; its inputs are pinned once a run.
+        let pins = PlacePins {
+            code_changes: pinned(&catalog, CODE_CHANGE_TABLE).await?,
+            dong_names: pinned(&catalog, DONG_NAME_TABLE).await?,
+            parcels: pinned(&catalog, PARCEL_TABLE).await?,
+            titles: pinned(&catalog, TITLE_TABLE).await?,
+            served_snapshot_id: served_snapshot_id()?,
+        };
+        place_identity_stage::load_reference(&*locked(&stage)?, &pins)?;
+        Some(pins)
+    } else {
+        None
+    };
     let run = Run {
         source,
+        pins,
         committer,
         catalog,
         ingested_at,

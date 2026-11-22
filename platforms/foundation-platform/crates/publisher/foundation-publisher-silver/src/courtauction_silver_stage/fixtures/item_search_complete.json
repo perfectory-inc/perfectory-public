@@ -1,0 +1,290 @@
+[
+ {
+  "case": "complete",
+  "complete": true,
+  "lines": [
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004601",
+      "lclDspslGdsLstUsgCd": "10000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"1\"}, \"dlt_srchResult\": [{\"boCd\": \"B999999\", \"saNo\": \"20990130000001\", \"maemulSer\": \"1\", \"mokmulSer\": \"1\", \"srnSaNo\": \"2099타경1\", \"gamevalAmt\": \"100000000\", \"minmaePrice\": \"70000000\", \"maeGiil\": \"20990115\", \"maeAmt\": \"0\", \"jinstatCd\": \"0002100001\", \"hjguSido\": \"합성도\", \"hjguSigu\": \"가상시\", \"hjguDong\": \"가나동\", \"hjguRd\": \"\", \"daepyoLotno\": \"7\", \"rdNm\": \"\", \"buldNo\": \"\", \"wgs84Xcordi\": \"127.1235\", \"wgs84Ycordi\": \"36.1235\"}]}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004601",
+      "lclDspslGdsLstUsgCd": "20000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004602",
+      "lclDspslGdsLstUsgCd": "10000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004602",
+      "lclDspslGdsLstUsgCd": "20000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   }
+  ]
+ },
+ {
+  "case": "a_condition_never_asked",
+  "complete": false,
+  "lines": [
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004601",
+      "lclDspslGdsLstUsgCd": "20000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004602",
+      "lclDspslGdsLstUsgCd": "10000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004602",
+      "lclDspslGdsLstUsgCd": "20000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   }
+  ]
+ },
+ {
+  "case": "stopped_before_total",
+  "complete": false,
+  "lines": [
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004601",
+      "lclDspslGdsLstUsgCd": "10000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"2\"}, \"dlt_srchResult\": [{\"boCd\": \"B999999\", \"saNo\": \"20990130000001\", \"maemulSer\": \"1\", \"mokmulSer\": \"1\", \"srnSaNo\": \"2099타경1\", \"gamevalAmt\": \"100000000\", \"minmaePrice\": \"70000000\", \"maeGiil\": \"20990115\", \"maeAmt\": \"0\", \"jinstatCd\": \"0002100001\", \"hjguSido\": \"합성도\", \"hjguSigu\": \"가상시\", \"hjguDong\": \"가나동\", \"hjguRd\": \"\", \"daepyoLotno\": \"7\", \"rdNm\": \"\", \"buldNo\": \"\", \"wgs84Xcordi\": \"127.1235\", \"wgs84Ycordi\": \"36.1235\"}]}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004601",
+      "lclDspslGdsLstUsgCd": "20000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004602",
+      "lclDspslGdsLstUsgCd": "10000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004602",
+      "lclDspslGdsLstUsgCd": "20000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   }
+  ]
+ },
+ {
+  "case": "refused",
+  "complete": false,
+  "lines": [
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004601",
+      "lclDspslGdsLstUsgCd": "10000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 429,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"1\"}, \"dlt_srchResult\": [{\"boCd\": \"B999999\", \"saNo\": \"20990130000001\", \"maemulSer\": \"1\", \"mokmulSer\": \"1\", \"srnSaNo\": \"2099타경1\", \"gamevalAmt\": \"100000000\", \"minmaePrice\": \"70000000\", \"maeGiil\": \"20990115\", \"maeAmt\": \"0\", \"jinstatCd\": \"0002100001\", \"hjguSido\": \"합성도\", \"hjguSigu\": \"가상시\", \"hjguDong\": \"가나동\", \"hjguRd\": \"\", \"daepyoLotno\": \"7\", \"rdNm\": \"\", \"buldNo\": \"\", \"wgs84Xcordi\": \"127.1235\", \"wgs84Ycordi\": \"36.1235\"}]}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004601",
+      "lclDspslGdsLstUsgCd": "20000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004602",
+      "lclDspslGdsLstUsgCd": "10000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004602",
+      "lclDspslGdsLstUsgCd": "20000",
+      "bidBgngYmd": "20980102",
+      "bidEndYmd": "21000102"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   }
+  ]
+ },
+ {
+  "case": "no_date_range",
+  "complete": false,
+  "lines": [
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004601",
+      "lclDspslGdsLstUsgCd": "10000"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004601",
+      "lclDspslGdsLstUsgCd": "20000"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004602",
+      "lclDspslGdsLstUsgCd": "10000"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   },
+   {
+    "operation": "searchControllerMain",
+    "request": {
+     "dma_srchGdsDtlSrchInfo": {
+      "cortAuctnSrchCondCd": "0004602",
+      "lclDspslGdsLstUsgCd": "20000"
+     }
+    },
+    "http_status": 200,
+    "body": "{\"status\": 200, \"data\": {\"ipcheck\": true, \"dma_pageInfo\": {\"totalCnt\": \"0\"}, \"dlt_srchResult\": []}}",
+    "fixture": "synthetic"
+   }
+  ]
+ }
+]

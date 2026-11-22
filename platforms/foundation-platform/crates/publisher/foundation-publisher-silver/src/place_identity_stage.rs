@@ -20,6 +20,8 @@ use lakehouse_domain::LakehouseTableContract;
 use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG};
 
 pub(crate) const REFERENCE_SQL: &str = include_str!("place_identity_stage/reference.sql");
+/// The macros that read an address (`address.sql`); [`offers`] runs them first.
+pub const ADDRESS_SQL: &str = include_str!("place_identity_stage/address.sql");
 const OFFERS_SQL: &str = include_str!("place_identity_stage/offers.sql");
 const PLACE_SQL: &str = include_str!("place_identity_stage/place.sql");
 
@@ -95,7 +97,7 @@ pub fn reference_from_loaded(connection: &duckdb::Connection) -> anyhow::Result<
 pub fn offers(stage: &DuckDbParquetStage) -> anyhow::Result<()> {
     stage
         .connection()
-        .execute_batch(OFFERS_SQL)
+        .execute_batch(&format!("{ADDRESS_SQL}\n{OFFERS_SQL}"))
         .context("DuckDB failed to read the addresses")
 }
 
@@ -186,7 +188,7 @@ pub fn place(
 ) -> anyhow::Result<std::collections::BTreeMap<String, u64>> {
     let connection = stage.connection();
     connection
-        .execute_batch(&format!("{OFFERS_SQL}\n{PLACE_SQL}"))
+        .execute_batch(&format!("{ADDRESS_SQL}\n{OFFERS_SQL}\n{PLACE_SQL}"))
         .context("DuckDB failed to place the rows")?;
     let mut grades = connection.prepare(
         "SELECT coalesce(pnu_basis, 'unresolved:' || coalesce(pnu_unresolved_reason, 'None')), count(*) \

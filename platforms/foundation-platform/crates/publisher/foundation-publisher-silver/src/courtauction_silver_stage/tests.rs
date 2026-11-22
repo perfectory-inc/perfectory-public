@@ -336,7 +336,9 @@ fn each_role_writes_its_tables_and_the_contract_names_its_source() -> anyhow::Re
             // A changed-keys table keeps its newest row per key; an editions table appends whole
             // lists; a read record keeps every row.
             match keep {
-                Keep::Changed => assert!(contract.current_row_latest().is_some(), "{table}"),
+                Keep::Changed | Keep::Removals => {
+                    assert!(contract.current_row_latest().is_some(), "{table}");
+                }
                 Keep::Editions => assert!(
                     matches!(contract.row_versions, LakehouseRowVersions::Editions { .. }),
                     "{table}"
@@ -348,7 +350,7 @@ fn each_role_writes_its_tables_and_the_contract_names_its_source() -> anyhow::Re
             }
         }
     }
-    assert!(Role::of_table("silver.court_auction_item").is_err());
+    assert!(Role::of_table("silver.onbid_real_estate_item").is_err());
     Ok(())
 }
 
@@ -460,5 +462,173 @@ fn the_contract_names_the_tables_the_roles_write() -> anyhow::Result<()> {
         .as_str()
         .context("the specification prefix")?
         .starts_with(served));
+    Ok(())
+}
+
+/// The expected rows of a fixture with a `# a|b|…` header: (columns, rows), the rows sorted.
+fn expected_with_header(name: &str) -> anyhow::Result<(Vec<String>, Vec<String>)> {
+    let text = fixture(name)?;
+    let mut lines = text.lines();
+    let header = lines
+        .next()
+        .and_then(|line| line.strip_prefix("# "))
+        .context("a header line")?;
+    let mut rows = lines.map(str::to_owned).collect::<Vec<_>>();
+    rows.sort();
+    Ok((header.split('|').map(str::to_owned).collect(), rows))
+}
+
+/// `query`'s rows as the fixtures write them: each column as text, `NULL` for none, sorted.
+fn rows_as_text(
+    stage: &DuckDbParquetStage,
+    columns: &[String],
+    from: &str,
+) -> anyhow::Result<Vec<String>> {
+    let parts = columns
+        .iter()
+        .map(|column| format!("coalesce(CAST({column} AS VARCHAR), 'NULL')"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut found = stage
+        .connection()
+        .prepare(&format!("SELECT concat_ws('|', {parts}) FROM {from}"))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    found.sort();
+    Ok(found)
+}
+
+/// A stage with the court readers and the synthetic place-identity reference of the place stage's
+/// own test (합성도 99, 합성도 가상시 가나동 9999910100).
+fn search_stage() -> anyhow::Result<(tempfile::TempDir, DuckDbParquetStage, CourtAuctionSource)> {
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage
+        .connection()
+        .execute_batch(&CourtAuctionSource::values_sql())?;
+    stage.connection().execute_batch(&format!(
+        "CREATE TABLE place_code_changes (kind VARCHAR, old_code VARCHAR, new_code VARCHAR, level VARCHAR, \
+         effective_date VARCHAR, source VARCHAR);
+         CREATE TABLE place_dong_names AS SELECT * FROM (VALUES
+           ('9900000000', '합성도', '존재'), ('9999910100', '합성도 가상시 가나동', '존재')) t(region_cd, full_name, status);
+         {}",
+        crate::place_identity_stage::REFERENCE_SQL
+    ))?;
+    Ok((directory, stage, CourtAuctionSource::compiled()?))
+}
+
+#[test]
+fn the_search_rows_and_their_offers_are_the_spark_jobs() -> anyhow::Result<()> {
+    let (directory, stage, source) = search_stage()?;
+    let staged = read_object(
+        &stage,
+        &source,
+        &object(directory.path(), Role::ItemSearch)?,
+        chrono::Utc::now(),
+    )?;
+    assert_eq!(staged[0].rows, 5);
+    let (columns, rows) = expected_with_header("spark_item_search__ca_search_rows.txt")?;
+    assert_eq!(rows_as_text(&stage, &columns, "ca_search_rows")?, rows);
+    super::offer_search(
+        &stage,
+        Role::ItemSearch,
+        contract("silver.court_auction_item")?,
+    )?;
+    let (columns, rows) = expected_with_header("spark_item_search__offers.txt")?;
+    let renamed = columns
+        .iter()
+        .map(|column| match column.as_str() {
+            "legal_dong_code" => "jibun_code".to_owned(),
+            // The offer's road key, not the row's raw road name.
+            "road_name_key" => "place_offers.road_name".to_owned(),
+            other => other.to_owned(),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows_as_text(
+            &stage,
+            &renamed,
+            "place_offers JOIN ca_place_first USING (_row)"
+        )?,
+        rows
+    );
+    Ok(())
+}
+
+#[test]
+fn a_search_row_takes_the_code_first_then_its_lot_then_its_road() -> anyhow::Result<()> {
+    let (directory, stage, source) = search_stage()?;
+    read_object(
+        &stage,
+        &source,
+        &object(directory.path(), Role::ItemSearch)?,
+        chrono::Utc::now(),
+    )?;
+    let table = contract("silver.court_auction_item")?;
+    super::offer_search(&stage, Role::ItemSearch, table)?;
+    stage.connection().execute_batch(
+        "CREATE OR REPLACE TABLE place_parcels AS SELECT * FROM (VALUES ('9999910100100070000')) t(pnu);
+         CREATE OR REPLACE TABLE place_titles AS SELECT * FROM (VALUES
+           ('9999910100100070000', '합성도 가상시 가나대로 3')) t(pnu, road_address_raw);",
+    )?;
+    super::finish_search(&stage, table)?;
+    let found = rows_as_text(
+        &stage,
+        &[
+            "case_no".to_owned(),
+            "pnu".to_owned(),
+            "pnu_basis".to_owned(),
+            "pnu_candidate_count".to_owned(),
+            "legal_dong_code".to_owned(),
+        ],
+        "ca_court_auction_item",
+    )?;
+    assert_eq!(
+        found,
+        [
+            "20990130000001|9999910100100070000|legal_dong_code|1|9999910100",
+            "20990130000002|NULL|NULL|NULL|9999910100",
+            "20990130000003|9999910100100070000|jibun_address|1|9999910100",
+            "20990130000004|NULL|NULL|NULL|NULL",
+            "20990130000007|9999910100100070000|road_address|1|NULL",
+        ]
+    );
+    let reason: String = stage.connection().query_row(
+        "SELECT pnu_unresolved_reason FROM ca_court_auction_item WHERE case_no = '20990130000004'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(reason, "no_legal_dong");
+    Ok(())
+}
+
+#[test]
+fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
+    let cases: serde_json::Value = serde_json::from_str(&fixture("item_search_complete.json")?)?;
+    for case in cases.as_array().context("cases")? {
+        let (directory, stage, source) = search_stage()?;
+        let path = directory.path().join("case.gz");
+        let mut gzip = flate2::write::GzEncoder::new(
+            std::fs::File::create(&path)?,
+            flate2::Compression::default(),
+        );
+        for line in case["lines"].as_array().context("lines")? {
+            gzip.write_all(format!("{line}\n").as_bytes())?;
+        }
+        gzip.finish()?;
+        let object = PlannedObject {
+            object_key: OBJECT_KEY.to_owned(),
+            role: Role::ItemSearch,
+            source_snapshot_id: "20990102T030405Z".to_owned(),
+            path,
+        };
+        read_object(&stage, &source, &object, chrono::Utc::now())?;
+        assert_eq!(
+            super::search_complete(&stage, &source, Role::ItemSearch)?,
+            case["complete"].as_bool().context("complete")?,
+            "{}",
+            case["case"]
+        );
+    }
     Ok(())
 }

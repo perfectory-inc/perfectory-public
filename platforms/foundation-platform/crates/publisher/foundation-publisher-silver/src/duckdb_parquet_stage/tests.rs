@@ -849,6 +849,8 @@ async fn a_court_auction_object_is_the_first_append_into_each_empty_table() -> a
         contract("silver.court_auction_item_annex")?,
         contract("silver.court_auction_appraisal_point")?,
         contract("silver.court_auction_item_detail")?,
+        contract("silver.court_auction_item")?,
+        contract("silver.court_auction_sale_result")?,
     ];
     let root = tempfile::tempdir()?;
     let catalog: Arc<dyn Catalog> = Arc::new(

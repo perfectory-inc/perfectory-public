@@ -18,8 +18,10 @@ use chrono::{DateTime, Utc};
 use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 
+use crate::data_go_kr_file_data_stage::PlaceInputs;
 use crate::duckdb_parquet_stage::{DuckDbParquetStage, PYTHON_VALUES_SQL};
 use crate::onbid_silver_stage::{snapshot_id, PLAN_SCHEMA};
+use crate::place_identity_stage;
 use crate::silver_changes::{self, content_columns, table_key};
 
 pub mod names;
@@ -41,6 +43,9 @@ pub enum Keep {
     /// Each group's whole list when it differs from the group's newest edition (the job's
     /// `changed_editions`).
     Editions,
+    /// Its changed keys, and when the search was read whole, a removal marker per current key it
+    /// no longer holds (the job's `release_changes`; [`appended_search`]).
+    Removals,
 }
 
 /// What one object loads as.
@@ -69,10 +74,14 @@ pub enum Role {
     /// 물건상세: each property's read, its case's photos and its documents (root ADR-0384,
     /// ADR-0540 §4).
     ItemDetail,
+    /// 물건 검색: the 물건 on sale, placed on a parcel (root ADR-0280, ADR-0288).
+    ItemSearch,
+    /// 매각결과 검색: the 물건 sold, placed on a parcel (root ADR-0280).
+    SaleResultSearch,
 }
 
 /// Every role, in the order a run loads an object of each.
-pub const ROLES: [Role; 11] = [
+pub const ROLES: [Role; 13] = [
     Role::CommonCodes,
     Role::AppraisalReports,
     Role::SaleSpecifications,
@@ -84,6 +93,8 @@ pub const ROLES: [Role; 11] = [
     Role::CaseFilings,
     Role::CaseSurveyReport,
     Role::ItemDetail,
+    Role::ItemSearch,
+    Role::SaleResultSearch,
 ];
 
 /// The read record every case document writes, last.
@@ -105,6 +116,8 @@ impl Role {
             Self::CaseFilings => "case_filings",
             Self::CaseSurveyReport => "case_survey_report",
             Self::ItemDetail => "item_detail",
+            Self::ItemSearch => "item_search",
+            Self::SaleResultSearch => "sale_result_search",
         }
     }
 
@@ -173,6 +186,8 @@ impl Role {
                 ("silver.court_auction_appraisal_point", Keep::Editions),
                 ("silver.court_auction_item_detail", Keep::Every),
             ],
+            Self::ItemSearch => &[("silver.court_auction_item", Keep::Removals)],
+            Self::SaleResultSearch => &[("silver.court_auction_sale_result", Keep::Removals)],
         }
     }
 
@@ -221,7 +236,9 @@ impl Role {
             | Self::DividendNotices
             | Self::SaleNotices
             | Self::CaseDetail
-            | Self::CaseFilings => &[],
+            | Self::CaseFilings
+            | Self::ItemSearch
+            | Self::SaleResultSearch => &[],
         }
     }
 
@@ -244,6 +261,9 @@ impl Role {
                 include_str!("courtauction_silver_stage/case_survey_report.sql")
             }
             Self::ItemDetail => include_str!("courtauction_silver_stage/item_detail.sql"),
+            Self::ItemSearch | Self::SaleResultSearch => {
+                include_str!("courtauction_silver_stage/searches.sql")
+            }
         }
     }
 
@@ -287,6 +307,10 @@ impl Role {
             Self::ItemDetail => Some((
                 "ca_detail_lines",
                 &["court_office_code", "case_no", "property_seq"],
+            )),
+            Self::ItemSearch | Self::SaleResultSearch => Some((
+                "ca_search_lines",
+                &["court_office_code", "case_no", "property_seq", "item_seq"],
             )),
             Self::CommonCodes | Self::DividendNotices => None,
         }
@@ -401,7 +425,13 @@ impl CourtAuctionSource {
     /// `code_of(item, OBJECT_CODE)` as SQL over `item`: the 물건상세's four legal-dong code fields,
     /// each of the list rows' width and all digits, joined; None otherwise.
     fn object_code_sql(&self) -> anyhow::Result<String> {
-        let fields = self.contract["collection"]["pnu_assembly"]["legal_dong_code_fields"]
+        self.code_sql(&self.contract["collection"]["pnu_assembly"]["legal_dong_code_fields"])
+    }
+
+    /// The 10-digit legal-dong code of `item`'s `fields` (each of the list rows' width, all digits)
+    /// as SQL, None otherwise (`code_of`).
+    fn code_sql(&self, fields: &Value) -> anyhow::Result<String> {
+        let fields = fields
             .as_array()
             .context("courtauction-go-kr.contract.json has no legal_dong_code_fields")?;
         let widths = self.contract["pnu_resolution"]["from_code"]["legal_dong_code_widths"]
@@ -432,15 +462,19 @@ impl CourtAuctionSource {
     /// The readers every object's SQL calls: run once on the stage.
     #[must_use]
     pub fn values_sql() -> String {
-        format!("{PYTHON_VALUES_SQL}\n{VALUES_SQL}")
+        // The search rows read their lot with the resolver's pattern (`place_lot_re`).
+        format!(
+            "{PYTHON_VALUES_SQL}\n{}\n{VALUES_SQL}",
+            place_identity_stage::ADDRESS_SQL
+        )
     }
 
     /// A role's SQL with the contract's values in it.
     ///
     /// # Errors
     /// Returns an error when the contract lacks a value the SQL takes.
-    // `{name}` is a placeholder of the SQL text, not a format argument.
-    #[allow(clippy::literal_string_with_formatting_args)]
+    // `{name}` is a placeholder of the SQL text, not a format argument; one arm per role.
+    #[allow(clippy::literal_string_with_formatting_args, clippy::too_many_lines)]
     pub fn role_sql(&self, role: Role) -> anyhow::Result<String> {
         let mut sql = role.sql().to_owned();
         if role.is_case_document() {
@@ -525,6 +559,22 @@ impl CourtAuctionSource {
                     .replace("{photo_page}", photo("page_field")?)
                     .replace("{photo_title}", photo("title_field")?)
                     .replace("{object_code}", &self.object_code_sql()?);
+            }
+            Role::ItemSearch | Role::SaleResultSearch => {
+                let from_code = &self.contract["pnu_resolution"]["from_code"];
+                sql = sql
+                    .replace(
+                        "{code_fields}",
+                        &self.code_sql(&from_code["legal_dong_code_fields"])?,
+                    )
+                    .replace(
+                        "{lot_field}",
+                        plain_name(
+                            from_code["lot_field"]
+                                .as_str()
+                                .context("courtauction-go-kr.contract.json has no lot_field")?,
+                        )?,
+                    );
             }
             Role::AppraisalReports
             | Role::SaleSpecifications
@@ -738,10 +788,17 @@ pub fn read_object(
         .iter()
         .map(|&(table, keep)| {
             let staged = Role::staged(table);
+            // A search's staging table is built by its placement (`place_search`); its rows are
+            // the object's 물건 already.
+            let counted = if keep == Keep::Removals {
+                "ca_search_rows"
+            } else {
+                staged.as_str()
+            };
             Ok(StagedTable {
                 table,
                 keep,
-                rows: count(stage, &staged)?,
+                rows: count(stage, counted)?,
                 staged,
             })
         })
@@ -775,8 +832,270 @@ pub fn appended(
                 silver_changes::changed_editions(stage, contract, head, &staged.staged, &out)?;
             Ok((out, rows))
         }
+        Keep::Removals => {
+            anyhow::bail!(
+                "{} keeps removal markers: append it with appended_search",
+                staged.table
+            )
+        }
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+const SEARCH_PLACE_SQL: &str = include_str!("courtauction_silver_stage/search_place.sql");
+
+/// One part of `search_place.sql` (`-- @name` to the next).
+fn search_place_part(name: &str) -> anyhow::Result<&'static str> {
+    let start = SEARCH_PLACE_SQL
+        .find(&format!("-- @{name}\n"))
+        .with_context(|| format!("search_place.sql has no part {name}"))?;
+    let rest = &SEARCH_PLACE_SQL[start..];
+    Ok(rest[1..].find("-- @").map_or(rest, |end| &rest[..=end]))
+}
+
+/// Places the rows of a search object (`ca_search_rows`) through the one place-identity resolver.
+///
+/// The rows (from [`read_object`]) go on the served parcels, and the search's staging table is built
+/// of the table's columns, its PNU columns those of the placement (`courtauction_go_kr.link`).
+/// Returns the grades placed (`pnu_basis`, or `unresolved:<reason>`).
+///
+/// The place-identity reference tables are on the stage (`place_identity_stage::load_reference`).
+///
+/// # Errors
+/// Refuses another role; returns a `DuckDB` failure.
+pub fn place_search(
+    stage: &DuckDbParquetStage,
+    role: Role,
+    contract: &LakehouseTableContract,
+    place: PlaceInputs<'_>,
+) -> anyhow::Result<std::collections::BTreeMap<String, u64>> {
+    offer_search(stage, role, contract)?;
+    place_identity_stage::read_served(stage, place.pins, place.title_contract)?;
+    finish_search(stage, contract)
+}
+
+/// The two address offers of a search's rows (`offer` of `courtauction_go_kr`): the jibun form, then
+/// the road form for the rows it leaves (`ca_place_first`, `place_rows`, `place_offers`).
+///
+/// # Errors
+/// Refuses another role; returns a `DuckDB` failure.
+pub fn offer_search(
+    stage: &DuckDbParquetStage,
+    role: Role,
+    contract: &LakehouseTableContract,
+) -> anyhow::Result<()> {
+    ensure!(
+        matches!(role, Role::ItemSearch | Role::SaleResultSearch),
+        "{} is not a search",
+        role.name()
+    );
+    let connection = stage.connection();
+    // The Spark link took the code path only where the table keeps the source code.
+    let keeps_code = contract
+        .columns
+        .iter()
+        .any(|c| c.name == "source_code_pnu_raw");
+    let code_pnu = if keeps_code {
+        "source_code_pnu_raw"
+    } else {
+        "NULL::VARCHAR"
+    };
+    // `{code_pnu}` is a placeholder of the SQL text, not a format argument.
+    #[allow(clippy::literal_string_with_formatting_args)]
+    let first = search_place_part("first")?.replace("{code_pnu}", code_pnu);
+    connection.execute_batch(&first)?;
+    place_identity_stage::offers(stage)?;
+    connection.execute_batch(search_place_part("second")?)?;
+    place_identity_stage::offers(stage)
+}
+
+/// Places the offered search rows on the parcels and titles on the stage (`place_parcels`,
+/// `place_titles`) and builds the search's staging table; the grades placed.
+///
+/// # Errors
+/// Returns a `DuckDB` failure.
+pub fn finish_search(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+) -> anyhow::Result<std::collections::BTreeMap<String, u64>> {
+    let connection = stage.connection();
+    place_identity_stage::place_offered(stage)?;
+    connection
+        .execute_batch(search_place_part("place")?)
+        .context("DuckDB failed to place the search rows")?;
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| match column.name {
+            "pnu"
+            | "pnu_basis"
+            | "pnu_unresolved_reason"
+            | "pnu_candidate_count"
+            | "legal_dong_code" => {
+                format!("p.{}", column.name)
+            }
+            "row_state" => "NULL::VARCHAR AS row_state".to_owned(),
+            other => format!("r.{other}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TEMP TABLE {} AS SELECT {columns} FROM ca_search_rows r \
+         JOIN ca_place p USING (court_office_code, case_no, property_seq, item_seq)",
+        Role::staged(contract.table_name)
+    ))?;
+    let mut grades = connection.prepare(
+        "SELECT coalesce(pnu_basis, 'unresolved:' || coalesce(pnu_unresolved_reason, 'None')), count(*) \
+         FROM ca_place GROUP BY 1 ORDER BY 1",
+    )?;
+    let found = grades
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?
+        .map(|row| {
+            let (grade, n) = row?;
+            Ok((grade, u64::try_from(n)?))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    Ok(found)
+}
+
+/// Whether the object's lines read every condition of the search to its last page.
+///
+/// As the job's `search_complete`: a condition ends at an empty page or once its pages hold
+/// `totalCnt` rows; a request without both fields of the search's `date_window` does not count.
+///
+/// # Errors
+/// Returns a `DuckDB` failure or a contract without the search's conditions.
+pub fn search_complete(
+    stage: &DuckDbParquetStage,
+    source: &CourtAuctionSource,
+    role: Role,
+) -> anyhow::Result<bool> {
+    let search = source.section(role);
+    let conditions = search["conditions"]
+        .as_array()
+        .context("the search has no conditions")?;
+    let mut fields = conditions
+        .iter()
+        .filter_map(Value::as_object)
+        .flat_map(|condition| condition.keys().cloned())
+        .collect::<Vec<_>>();
+    fields.sort();
+    fields.dedup();
+    for field in &fields {
+        plain_name(field)?;
+    }
+    let window = search["date_window"].as_object().map(|window| {
+        (
+            window
+                .get("start_field")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            window
+                .get("end_field")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        )
+    });
+    let asked = "coalesce(CASE WHEN py_truthy(json_extract(j, '$.request')) \
+                 THEN json_extract(j, '$.request.dma_srchGdsDtlSrchInfo') END, '{}'::JSON)";
+    let window_ok = match &window {
+        Some((start, end)) => {
+            plain_name(start)?;
+            plain_name(end)?;
+            format!(
+                "py_truthy(json_extract(asked, '$.{start}')) AND py_truthy(json_extract(asked, '$.{end}'))"
+            )
+        }
+        None => "true".to_owned(),
+    };
+    let key = fields
+        .iter()
+        .map(|field| format!("coalesce(CAST(json_extract(asked, '$.{field}') AS VARCHAR), 'null')"))
+        .collect::<Vec<_>>()
+        .join(" || '\u{1f}' || ");
+    let sql = format!(
+        "SELECT line_number, {key} AS condition, \
+                CASE WHEN json_type(json_extract(data, '$.dlt_srchResult')) = 'ARRAY' \
+                     THEN json_array_length(json_extract(data, '$.dlt_srchResult')) ELSE 0 END AS rows, \
+                ca_whole(json_extract(data, '$.dma_pageInfo.totalCnt')) AS total \
+         FROM (SELECT line_number, j, {asked} AS asked, \
+                      json_extract(TRY_CAST(json_extract_string(j, '$.body') AS JSON), '$.data') AS data \
+               FROM ca_parsed \
+               WHERE json_type(json_extract(j, '$.http_status')) IN ('BIGINT', 'UBIGINT', 'DOUBLE') \
+                 AND TRY_CAST(json_extract(j, '$.http_status') AS DOUBLE) = 200) \
+         WHERE json_type(TRY_CAST(json_extract_string(j, '$.body') AS JSON)) = 'OBJECT' AND ({window_ok}) \
+         ORDER BY line_number"
+    );
+    let mut read = std::collections::BTreeMap::<String, i64>::new();
+    let mut ended = std::collections::BTreeSet::new();
+    let mut lines = stage.connection().prepare(&sql)?;
+    let found = lines.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, Option<i64>>(3)?,
+        ))
+    })?;
+    for line in found {
+        let (condition, rows, total) = line?;
+        let so_far = read.entry(condition.clone()).or_default();
+        *so_far += rows;
+        if rows == 0 || total.is_some_and(|total| *so_far >= total) {
+            ended.insert(condition);
+        }
+    }
+    Ok(conditions.iter().all(|condition| {
+        let key = fields
+            .iter()
+            .map(|field| {
+                condition
+                    .get(field)
+                    .map_or_else(|| "null".to_owned(), Value::to_string)
+            })
+            .collect::<Vec<_>>()
+            .join("\u{1f}");
+        ended.contains(&key)
+    }))
+}
+
+/// The staging table of what a search object appends (`<staging>_changed`).
+///
+/// Its changed keys and, when `complete` (an item search read whole), a removal marker per current
+/// key it no longer holds. Returns its name, how many rows and how many of them are markers.
+///
+/// # Errors
+/// Returns a `DuckDB` failure.
+pub fn appended_search(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    head: Option<i64>,
+    staged: &StagedTable,
+    object: &PlannedObject,
+    complete: bool,
+    ingested_at: DateTime<Utc>,
+) -> anyhow::Result<(String, u64, u64)> {
+    let out = format!("{}_changed", staged.staged);
+    // Only a complete item search says what left it; the result search never does. A night that
+    // read no row commits empty: the Spark load compared nothing then, so it marked nothing removed.
+    let complete = complete && object.role == Role::ItemSearch && staged.rows > 0;
+    let (rows, removed) = silver_changes::removal_changes(
+        stage,
+        contract,
+        head,
+        &staged.staged,
+        &out,
+        complete,
+        (
+            &object.object_key,
+            &object.source_snapshot_id,
+            ingested_at.timestamp(),
+        ),
+    )?;
+    Ok((out, rows, removed))
+}
