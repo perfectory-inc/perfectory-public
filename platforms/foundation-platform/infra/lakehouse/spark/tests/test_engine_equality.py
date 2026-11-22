@@ -246,6 +246,17 @@ class RunnerCommand(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "no such view"):
             run("SELECT 1")
 
+    def test_the_file_runs_as_the_takeover_verdict_runs_it(self):
+        # gold-takeover-verdict.sh runs `python3 -I -B engine_equality.py`; -I leaves the file's own
+        # directory off sys.path, and the first production verdict (2026-11-22) stopped at the import of
+        # gold_fingerprint beside it.
+        import subprocess
+
+        found = subprocess.run([sys.executable, "-I", "-B", engine_equality.__file__, "--help"],
+                               capture_output=True, text=True, check=False)
+        self.assertEqual(found.returncode, 0, found.stderr)
+        self.assertIn("--sides", found.stdout)
+
 
 def asdict_of(verdict) -> dict:
     import dataclasses
