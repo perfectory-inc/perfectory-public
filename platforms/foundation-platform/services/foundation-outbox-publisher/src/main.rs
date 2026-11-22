@@ -112,6 +112,7 @@ mod gold_versions_change_set;
 mod gold_versions_commit;
 mod industrial_complex_notice_silver_load;
 mod industrial_complex_silver_load;
+mod building_register_floor_history_check;
 mod kind_versions_build;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
@@ -300,6 +301,7 @@ enum Command {
     LoadIndustrialComplexNoticeSilver,
     PlanIndustrialComplexSilverInputs,
     LoadIndustrialComplexSilver,
+    CheckBuildingRegisterFloorHistory,
     BuildParcelNearbyVersions,
     RunParcelMatchingGate,
     BuildParcelRegisterMastersVersions,
@@ -657,6 +659,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(industrial_complex_silver_load::plan())
         }
         Command::LoadIndustrialComplexSilver => Box::pin(industrial_complex_silver_load::load()),
+        Command::CheckBuildingRegisterFloorHistory => {
+            Box::pin(building_register_floor_history_check::run())
+        }
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
         Command::RunParcelMatchingGate => Box::pin(parcel_matching_gate::run()),
         Command::BuildParcelRegisterMastersVersions => {
@@ -838,6 +843,9 @@ where
             Ok(Command::PlanIndustrialComplexSilverInputs)
         }
         Some("load-industrial-complex-silver") => Ok(Command::LoadIndustrialComplexSilver),
+        Some("check-building-register-floor-history") => {
+            Ok(Command::CheckBuildingRegisterFloorHistory)
+        }
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
         Some("run-parcel-matching-gate") => Ok(Command::RunParcelMatchingGate),
         Some("build-parcel-register-masters-versions") => {
