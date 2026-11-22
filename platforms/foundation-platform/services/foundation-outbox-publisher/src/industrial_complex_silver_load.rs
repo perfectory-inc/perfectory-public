@@ -391,7 +391,7 @@ pub(crate) async fn load() -> anyhow::Result<()> {
                     DataAppend {
                         table_name: TABLE,
                         contract: &SILVER_INDUSTRIAL_COMPLEXES,
-                        files: staged.file.as_ref().map_or(&[][..], std::slice::from_ref),
+                        files: staged.file.as_slice(),
                         batch: &batch,
                         already_ingested: &already_ingested,
                         summary: BTreeMap::new(),
