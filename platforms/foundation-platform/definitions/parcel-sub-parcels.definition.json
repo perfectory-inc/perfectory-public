@@ -304,11 +304,6 @@
         "project": "foundation-platform-compute",
         "service": "spark-small"
       }
-    ],
-    "gold_parcel_sub_parcels_versions_build": [
-      {
-        "unit": "MemoryMax"
-      }
     ]
   },
   "published_schemas": [
