@@ -22,7 +22,7 @@ use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     building_energy_stage::ENERGY,
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
-    kind_versions_stage::{KindVersionsStage, PARCEL_SOURCE},
+    kind_versions_stage::{ensure_no_commit_tables, KindVersionsStage, PARCEL_SOURCE},
     parcel_nearby_stage::{NearbyPins, Source},
     process_memory,
     record_kind_stage::{DEMOLITIONS, REGISTER_MASTERS},
@@ -218,6 +218,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         &parcels_snapshot,
         &published_at_utc,
     )?;
+    ensure_no_commit_tables(connection)?;
     println!(
         "gold-versions {table} built {} PNUs of {} served ({} rows) in {:.1}s (memory peak {:?} bytes)",
         targets.map_or_else(|| "every".to_owned(), |count| count.to_string()),

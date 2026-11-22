@@ -100,6 +100,7 @@ fn a_document_is_spark_s_bytes_newest_first_with_blanks_null() -> anyhow::Result
         "999990000000000001",
         "2099-01-03T00:00:00Z",
     )?;
+    crate::kind_versions_stage::ensure_no_commit_tables(&connection)?;
     let rows = built(&connection)?;
     // s4's PNU is not served; s3 lands on the served code.
     let pnus: Vec<&str> = rows.iter().map(|row| row.0.as_str()).collect();

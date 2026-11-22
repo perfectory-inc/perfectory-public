@@ -73,6 +73,7 @@ fn a_document_is_spark_s_bytes_with_the_decimal_scale_written() -> anyhow::Resul
         "999990000000000001",
         "2099-01-03T00:00:00Z",
     )?;
+    crate::kind_versions_stage::ensure_no_commit_tables(&connection)?;
     let (json, digest) = document(&connection)?;
     // 2025-01 first; its 가스 is absent (null, 0 rows); 1.2345 is held at three places as Spark's
     // decimal(38,3) cast holds it.
