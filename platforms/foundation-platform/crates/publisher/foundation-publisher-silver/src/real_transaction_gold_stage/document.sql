@@ -88,15 +88,12 @@ members AS (
   WHERE i.place_id IS NOT NULL
   GROUP BY d.pnu
 )
-SELECT d.pnu, d.real_transaction_json, d.transaction_total, CAST(NULL AS VARCHAR) AS attached_via,
-       i.place_id, m.main_lot_group_place_ids,
-       -- The content columns as JSON, a null field left out.
-       sha256('{"pnu":' || to_json(d.pnu)::VARCHAR
-              || ',"real_transaction_json":' || to_json(d.real_transaction_json)::VARCHAR
-              || ',"transaction_total":' || d.transaction_total
-              || coalesce(',"place_id":' || to_json(i.place_id)::VARCHAR, '')
-              || coalesce(',"main_lot_group_place_ids":' || to_json(m.main_lot_group_place_ids)::VARCHAR, '')
-              || '}') AS row_digest
-FROM documents d
-LEFT JOIN place_ids i USING (pnu)
-LEFT JOIN members m USING (pnu);
+-- `{row_digest}`: the SHA-256 of every content column (`row_digest_sql`).
+SELECT *, {row_digest} AS row_digest
+FROM (
+  SELECT d.pnu, d.real_transaction_json, d.transaction_total, CAST(NULL AS VARCHAR) AS attached_via,
+         i.place_id, m.main_lot_group_place_ids
+  FROM documents d
+  LEFT JOIN place_ids i USING (pnu)
+  LEFT JOIN members m USING (pnu)
+);

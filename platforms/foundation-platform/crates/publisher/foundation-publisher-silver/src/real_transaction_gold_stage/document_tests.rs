@@ -9,7 +9,7 @@ use chrono::NaiveDate;
 use duckdb::Connection;
 use serde_json::{json, Value};
 
-use super::{gold_rows, history_coverage, Coverage};
+use super::{gold_rows, history_coverage, row_digest_sql, Coverage, CONTENT_COLUMNS};
 use crate::real_transaction_placement_stage::place;
 use crate::real_transaction_placement_stage::tests::{
     inference, inputs, pnu, Deal, INDUSTRIAL, OTHER, OTHER_NAME,
@@ -332,6 +332,48 @@ fn the_document_is_its_fields_in_order_and_the_digest_holds_content_only() -> an
          \"coverage\":[{{\"dataset_slug\":\"real_transaction_apartment_trade\",\"from_month\":\"2095-05\"}}]}}"
     );
     assert_eq!(text, expected);
+    Ok(())
+}
+
+/// The digest is of every content column: changing any one of them changes it.
+#[test]
+fn every_content_column_moves_the_row_digest() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    let digest = |values: &[String]| -> anyhow::Result<String> {
+        let select = CONTENT_COLUMNS
+            .iter()
+            .zip(values)
+            .map(|(column, value)| format!("{value} AS {column}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(connection.query_row(
+            &format!("SELECT {} FROM (SELECT {select})", row_digest_sql()),
+            [],
+            |row| row.get(0),
+        )?)
+    };
+    let number = |value: i64| format!("CAST({value} AS BIGINT)");
+    let base: Vec<String> = CONTENT_COLUMNS
+        .iter()
+        .map(|column| match *column {
+            "transaction_total" => number(1),
+            other => format!("'{other}'"),
+        })
+        .collect();
+    let first = digest(&base)?;
+    assert_eq!(first.len(), 64);
+    for (index, column) in CONTENT_COLUMNS.iter().enumerate() {
+        let other = if *column == "transaction_total" {
+            number(2)
+        } else {
+            "'other'".to_owned()
+        };
+        for changed in ["NULL".to_owned(), other] {
+            let mut values = base.clone();
+            values[index].clone_from(&changed);
+            assert_ne!(digest(&values)?, first, "{column} = {changed}");
+        }
+    }
     Ok(())
 }
 

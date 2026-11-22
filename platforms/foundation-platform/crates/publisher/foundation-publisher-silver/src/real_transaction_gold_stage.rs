@@ -107,6 +107,30 @@ const JSON_DOUBLE: &str = "CREATE OR REPLACE MACRO json_double(v) AS \
     CASE WHEN isnan(v) THEN '\"NaN\"' WHEN isinf(v) AND v > 0 THEN '\"Infinity\"' \
       WHEN isinf(v) THEN '\"-Infinity\"' ELSE CAST(v AS VARCHAR) END";
 
+/// The content columns of `gold.parcel_real_transaction`, in its order: every column but the
+/// digest and the two per-commit stamps.
+pub const CONTENT_COLUMNS: [&str; 6] = [
+    "pnu",
+    "real_transaction_json",
+    "transaction_total",
+    "attached_via",
+    "place_id",
+    "main_lot_group_place_ids",
+];
+
+/// The `row_digest` of a built row: the SHA-256 of `to_json` of every content column. The
+/// versions table appends only the keys whose digest moved, so a column the digest left out
+/// would change unseen (root ADR-0564 Revision 2026-11-22, the second).
+#[must_use]
+pub fn row_digest_sql() -> String {
+    let fields = CONTENT_COLUMNS
+        .iter()
+        .map(|column| format!("'{column}': {column}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("sha256(to_json({{{fields}}})::VARCHAR)")
+}
+
 /// The document's rules as text, for a build's code version: its SQL, the fields it writes and its
 /// bounds. A change of any of them changes every document.
 #[must_use]
@@ -117,6 +141,7 @@ pub fn code_texts() -> Vec<String> {
         DOCUMENT_SQL.to_owned(),
         SPARK_PERCENTILE.to_owned(),
         JSON_DOUBLE.to_owned(),
+        row_digest_sql(),
         TRANSACTION_FIELDS.join(","),
         COMPARABLE_FIELDS.join(","),
         format!("{REGION_MONTHS},{COMPARABLE_MONTHS},{COMPARABLE_COUNT},{DOCUMENT_BUDGET}"),
@@ -339,6 +364,7 @@ pub fn gold_rows(
             "{coverage_json}",
             coverage_json(coverage)?.replace('\'', "''"),
         ),
+        ("{row_digest}", row_digest_sql()),
     ];
     let fill = |text: &str| -> String {
         values.iter().fold(text.to_owned(), |sql, (name, value)| {

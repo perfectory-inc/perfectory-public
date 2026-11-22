@@ -227,11 +227,10 @@ fn a_double_is_duckdbs_own_text_and_json() -> anyhow::Result<()> {
         (f64::NAN, "\"NaN\""),
         (f64::INFINITY, "\"Infinity\""),
     ] {
-        let found: String = connection.query_row(
-            "SELECT json_double(CAST(? AS DOUBLE))",
-            [value],
-            |row| row.get(0),
-        )?;
+        let found: String =
+            connection.query_row("SELECT json_double(CAST(? AS DOUBLE))", [value], |row| {
+                row.get(0)
+            })?;
         assert_eq!(found, text, "{value}");
     }
     Ok(())
