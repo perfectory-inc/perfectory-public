@@ -49,6 +49,48 @@
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
       }
+    },
+    {
+      "id": "gold_parcel_boundary_served_versions_build",
+      "dagster_group": "gold",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The served parcel boundaries as a table of appended row versions (root ADR-0602, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-boundary-served → publisher build-parcel-boundary-served-versions): gold.parcel_boundary_served_versions, the edition with every ledgered parcels edit applied, computed by DuckDB inside the publisher one 시도 at a time and appended as the parcels whose row_digest (PNU, geometry checksum, CRS, origin) changed, each commit one version_seq. While the parcel tile bake reads gold.parcel_boundary_served it is that table's shadow: the Spark job tags no build, so it follows that table's newest commit that is not a compaction, reads each input as of that commit and the edition its rows carry, hands nothing to the bake and appends no edit to the ledger; the takeover verdict (gold-takeover-verdict.sh, the check takeover_equal on 시도 41) compares the two engines over one set of inputs. Nothing to do when the base commit was built from the same pins, edition and code. Nothing reads it until the switch, in which the bake's gold half builds it instead of the Spark job.",
+      "systemd_service": "foundation-gold-versions@parcel-boundary-served.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "30 11 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 60,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1800,
+          "estimated_from": "computed, not measured: the first shadow build holds every parcel, so it reads the replaced build's edition (39,876,546 parcels of 202609, about 7.5 GB of silver.parcel_boundaries in one partition ordered by PNU) once, 시도 by 시도, and stages about 6 GB of Parquet (the served table's 58 files hold 6,053,964,102 bytes, 2026-11-22). W86's first DuckDB port diffed the same parcels in 4,277 s at 2 threads and 2 GiB; this unit gives DuckDB 3/5 of up to 8 GiB and every core, so about 1,800 s, inside the 60-minute limit with the takeover verdict after it. Later runs do nothing until that table's build moves, and then append the parcels whose content changed."
+        }
+      },
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 20,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-gold-parcel-boundary-served-versions",
+        "silver-map-edit-ledger-to-gold-parcel-boundary-served-versions",
+        "gold-parcel-boundary-served-to-gold-parcel-boundary-served-versions"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "dagster",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when the replaced table's build moved, which the Spark job does at most once a day (parcel_served_gold at 07:30); the shadow follows it at its own schedule after that, not at each hourly edit of the ledger it reads at the build's pins. A change bound here would report a bake that published nothing."
+      }
     }
   ],
   "assets": [
@@ -67,6 +109,26 @@
         {
           "kind": "lakehouse_contract",
           "value": "gold.parcel_boundary_served"
+        }
+      ]
+    },
+    {
+      "id": "gold-parcel-boundary-served-versions",
+      "type": "gold_table",
+      "title": "필지 서빙본 (판을 쌓는 표)",
+      "description": "필지 경계 Silver 한 판에 원장의 필지 편집을 적용한 모습을 판을 쌓는 표로(루트 ADR-0602, ADR-0564 §1·§2): gold.parcel_boundary_served 의 칸에 row_digest·version_seq·row_state 를 더해 내용(PNU·기하 체크섬·좌표계·출처)이 바뀐 필지의 행만 덧붙인다. 발행기 안의 DuckDB 가 시도마다 계산하고 발행기가 추가 커밋으로 붙인다. 필지 타일 굽기가 옛 표를 읽는 동안은 그 표의 그림자다(옛 표의 가장 새 빌드와 그 시각의 입력으로 짓는다).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_boundary_served_stage.rs",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs"
+      ],
+      "table_name": "gold.parcel_boundary_served_versions",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_boundary_served_versions"
         }
       ]
     }
@@ -99,6 +161,36 @@
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_matching_gate_stage/gate.sql"
       ],
       "description": "서빙본을 만들기 전 대조 관문의 (b) 검사가 필지마다 현재 parcel_id 를 하나씩 갖는지 본다. 그 표가 아직 없으면 관문이 돌지 않고 기다린다(루트 ADR-0265)."
+    },
+    {
+      "from": "silver-parcel-boundaries",
+      "to": "gold-parcel-boundary-served-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs"
+      ],
+      "description": "옛 표의 빌드가 읽은 판(그 커밋 시각의 Silver)을 시도마다 한 번 읽는다(PNU 순 정렬, 시도 밖 파일은 건너뛴다)."
+    },
+    {
+      "from": "silver-map-edit-ledger",
+      "to": "gold-parcel-boundary-served-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs"
+      ],
+      "description": "옛 표의 빌드가 적용한 필지 편집(그 커밋 시각의 원장)을 적용한다. 원장에 스냅숏이 없으면 편집 없이 짓는다."
+    },
+    {
+      "from": "gold-parcel-boundary-served",
+      "to": "gold-parcel-boundary-served-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs"
+      ],
+      "description": "그림자인 동안 옛 표의 압축이 아닌 가장 새 커밋을 따른다(루트 ADR-0564 §6): 그 커밋 시각의 입력과 그 행이 가진 판으로 짓는다. 옛 표의 데이터는 판 이름만 읽는다."
     }
   ],
   "host_memory": {
@@ -107,6 +199,22 @@
         "project": "foundation-platform-compute",
         "service": "spark"
       }
+    ],
+    "gold_parcel_boundary_served_versions_build": [
+      {
+        "unit": "MemoryMax"
+      }
     ]
-  }
+  },
+  "asset_checks": [
+    {
+      "asset": "gold-parcel-boundary-served-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-parcel-boundary-served"
+      ]
+    }
+  ]
 }
