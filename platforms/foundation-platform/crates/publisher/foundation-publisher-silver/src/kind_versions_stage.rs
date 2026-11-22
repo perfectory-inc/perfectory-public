@@ -523,7 +523,10 @@ fn spool_row_set(
         }
         (rule.query(contract, &read, &projected)?, Some(rule), pinned)
     };
-    let ties: &[&str] = rule.as_ref().map_or(&[], |rule| rule.carried.as_slice());
+    let ties: &[&str] = match &rule {
+        Some(rule) => &rule.carried,
+        None => &[],
+    };
     let at_suffix = |text: &str| fill(text, &[("suffix", suffix)]);
     let joins = set
         .joins
