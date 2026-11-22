@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 중개사무소 소속 인원 lane `real-estate-broker-member` (root ADR-0169 ③, ADR-0511 §4): pick the newest daily national AL_D172 object, read from the ZIP members measured beside the Bronze ledger, and, unless silver.real_estate_broker_member already records it or a newer one (`unchanged`), export it, compare it, in the publisher's DuckDB, with the table's current rows 시도 by 시도 and append to main only every row of an office whose roster changed and a removal marker per closed office (keyed by 시군구 and 등록번호; lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
+      "description": "Silver refresh of the 중개사무소 소속 인원 lane `real-estate-broker-member` (root ADR-0169 ③, ADR-0511 §4): pick the newest daily national AL_D172 object, read from the ZIP members measured beside the Bronze ledger, and, unless silver.real_estate_broker_member already records it or a newer one (`unchanged`), export it, compare it, in the publisher's DuckDB, with the table's current rows 시도 by 시도 and append to main only every row of an office whose roster changed and a removal marker per closed office (keyed by 시군구 and 등록번호; lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). Two of the duckdb pool's runs go at a time, lanes or other in-process work: each holds one of its slots and a memory_claim on its unit (root ADR-0599, ADR-0605).",
       "systemd_service": "foundation-silver-refresh@real-estate-broker-member.service",
       "check_service": "foundation-silver-refresh-plan@real-estate-broker-member.service",
       "systemd_timer": null,
@@ -35,8 +35,7 @@
           "estimated_from": "computed, on the same template unit (root ADR-0386): silver_refresh_building_permit_demolition_loss 161 s for a 15 MB release and _parking 251 s for 59 MB; this lane's newest object is 3.8 MB (21.8 MB unzipped, 179,124 rows) in R2 (2026-11-11), and its compare splits into 17 시도 buckets"
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-silver-refresh@real-estate-broker-member.service"

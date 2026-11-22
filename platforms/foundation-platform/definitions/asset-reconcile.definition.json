@@ -63,7 +63,8 @@
       "dagster_stage": "proxied",
       "requeues_refused_starts_in": [
         "spark",
-        "documents"
+        "duckdb",
+        "gpu"
       ],
       "expected_outcome": {
         "changes_within_hours": null,

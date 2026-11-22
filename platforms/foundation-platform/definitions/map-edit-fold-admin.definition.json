@@ -38,7 +38,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 2,
       "priority_weight": 50,
       "pipeline_graph_edges": [
         "map-edit-store-to-silver-map-edit-ledger",

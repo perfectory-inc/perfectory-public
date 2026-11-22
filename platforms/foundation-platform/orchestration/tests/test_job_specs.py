@@ -269,8 +269,9 @@ class TheRealJobList(unittest.TestCase):
         jobs, _ = real_inputs()
         floor = next(job for job in jobs["jobs"] if job["id"] == "building_register_floor")
         self.assertTrue(floor["enabled"])
-        # Root ADR-0599: no Spark; one slot of the documents pool, admitted by its unit's memory.
-        self.assertEqual((floor["pool"], floor["pool_slots"]), ("documents", 1))
+        # Root ADR-0599, ADR-0605: no Spark; a run of the duckdb pool, admitted by its unit's memory.
+        self.assertEqual(floor["pool"], "duckdb")
+        self.assertNotIn("pool_slots", floor)
         self.assertEqual(floor["memory_claim"], {"units": [floor["systemd_service"]]})
         self.assertEqual(floor["pipeline_graph_edges"], [
             "source-building-hub-bulk-to-silver-building-register-floors"
@@ -397,73 +398,6 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(lambda jobs: jobs["pools"]["spark"].update(description=" "))
         self.refused(lambda jobs: jobs["pools"].update(default_pool={"slots": 1, "description": "x"}))
 
-    def test_a_long_bake_cannot_hold_every_slot_the_hourly_folds_need(self):
-        # The bake runs up to 21 hours. Taking two of the three slots, the hourly folds (two each)
-        # would wait behind it as well; with one, a fold always fits beside it (root ADR-0138).
-        # Lighter and as wide as a fold, it never starts ahead of one, but one run of it can already
-        # hold the pool when a fold's turn comes: a whole-pool job and the other fold, then the bake.
-        def both_slots(jobs):
-            bake(jobs)["pool_slots"] = 2
-        jobs = copy.deepcopy(real_inputs()[0])
-        whole_pool_job(jobs)
-        both_slots(jobs)
-        problems = job_specs.pool_starvation(jobs)
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2030 minutes for pool 'spark'")
-                            and "by_pnu_serving_bake" in problem for problem in problems), problems)
-        self.refused(both_slots)
-
-    def test_the_starvation_bound_counts_every_job_that_can_hold_it_back(self):
-        # A whole-pool job (3 slots, tier 100: FLOOR until root ADR-0599) can be held back once by each lighter job narrower than it, which
-        # may start in room FLOOR does not fit (both folds, each 1-slot bake run), and by what already
-        # holds the pool when its turn comes: lineage (lighter and as wide since root ADR-0558, retried
-        # once), whose 265 minutes outlast the panel Gold rebuild's 165 and any one Silver lane's 160.
-        # The hourly Onbid load (1 slot, tier 100, 40 + 5 minutes; root ADR-0280) may start ahead of
-        # it once too, and so may the nightly 실거래가 load (the same shape, root ADR-0349) and the hourly
-        # ILIS notice load (the same shape, root ADR-0484). The public-auction bake (1 slot, 115 + 30; root ADR-0303) and the unit price bake
-        # (1 slot, 60 + 30; root ADR-0333) count like the serving bake, and so do the ownership bake
-        # (2 slots, 115 + 30; root ADR-0361) and every other lane's own bake; the bound reads no
-        # takes_turns, so they count though they do not take turns. Each lane bake counts once at its own
-        # hold, read from the job list for the lanes the index names (no count of lanes is written here).
-        # Each Gold the publisher builds in this pool (2 slots, 60 + 5: parcel-nearby, root ADR-0567, and
-        # the lanes the takeover path adds, ADR-0564 §6) counts the same way, read from the job list.
-        jobs = copy.deepcopy(real_inputs()[0])
-        floor = whole_pool_job(jobs)
-        spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
-        wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
-        lane_bakes = [job for job in spark if job["id"] in own_lane_bakes()]
-        self.assertEqual({job["id"] for job in lane_bakes}, set(own_lane_bakes()), "every lane bake is in the spark pool")
-        builds = [job for job in spark if job["id"] in publisher_gold_builds(jobs)]
-        self.assertIn("gold_parcel_nearby_rebuild", {job["id"] for job in builds})
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260 + 45
-                         + sum(job_specs.hold_minutes(job) for job in builds)
-                         + sum(job_specs.hold_minutes(job) for job in lane_bakes))
-        self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
-                                         "by_pnu_serving_bake", "rt_molit_real_transaction_silver",
-                                         *publisher_gold_builds(jobs), *own_lane_bakes()})
-        # A fold (2 slots) never waits for the bake (1): they fit together.
-        fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
-        wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
-        self.assertNotIn("by_pnu_serving_bake", blockers)
-        # Lineage takes all three slots: a fold waits for the whole-pool job, the other fold and one
-        # run of lineage, inside its limit (20 x 60 minutes).
-        self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5))
-        self.assertLess(wait, job_specs.STARVATION_CYCLES * 60)
-
-    def test_a_retry_holds_the_slots_again(self):
-        # Airflow retries a failed run: one run can hold its slots for (retries + 1) x its timeout.
-        floor = {"id": "f", "time_limit_minutes": 240, "stop_grace_minutes": 10, "wait_limit_minutes": 0, "retries": 1}
-        self.assertEqual(job_specs.hold_minutes(floor), 505)
-        self.assertEqual(job_specs.hold_minutes({**floor, "retries": 0}), 250)
-        # Planted: a whole-pool job retried three times would keep the hourly folds waiting past the
-        # limit, although its timeout alone would not.
-        def retried(jobs):
-            whole_pool_job(jobs)["retries"] = 3
-        jobs = copy.deepcopy(real_inputs()[0])
-        retried(jobs)
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1545 minutes")
-                            for problem in job_specs.pool_starvation(jobs)))
-        self.refused(retried)
-
     def test_the_bake_is_not_retried_and_takes_turns(self):
         # A retried bake would hold its slot for another 21 hours; a turn-taking one defers to the
         # heavier Silver loads and lineage between runs (start-scheduled-job.sh).
@@ -477,19 +411,16 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # (root ADR-0558), below the folds.
         self.assertGreater(weights["map_edit_fold_admin"], weights["lineage_stewardship"])
         self.assertGreater(weights["lineage_stewardship"], weights["gold_panel_rebuild"])
-        self.assertGreater(weights["map_edit_fold_admin"], weights["by_pnu_serving_bake"])
 
     def test_invalid_retries_weight_or_turn_taking(self):
         self.refused(lambda jobs: bake(jobs).update(retries=4))
         self.refused(lambda jobs: bake(jobs).update(priority_weight=0))
         self.refused(lambda jobs: bake(jobs).update(takes_turns="yes"))
 
-    def test_a_job_taking_more_slots_than_its_pool_has(self):
-        self.refused(lambda jobs: bake(jobs).update(pool_slots=4))
-        self.refused(lambda jobs: bake(jobs).update(pool_slots=0))
-
-    def test_the_real_pools_starve_nothing(self):
-        self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])
+    def test_a_job_or_a_claimant_that_states_a_slot_count(self):
+        # A run takes one slot, as Dagster's pools count it (root ADR-0605): a count no reader reads is refused.
+        self.refused(lambda jobs: bake(jobs).update(pool_slots=1))
+        self.refused(lambda jobs: jobs["capacity_claimants"]["by_pnu_lane_cutover"].update(pool_slots=1))
 
     def test_a_disabled_job_neither_waits_for_its_pool_nor_holds_it(self):
         # The host refuses a disabled job's start (start-scheduled-job.sh), so it runs nowhere: the
@@ -719,126 +650,50 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         self.refused(circle, "jobs start each other in a circle: building_register_floor -> gold_panel_rebuild "
                              "-> building_register_floor")
 
-    def test_a_job_started_by_its_inputs_cycles_as_often_as_what_feeds_it(self):
-        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
-        cycles = job_specs.cycle_minutes(jobs, graph)
-        self.assertEqual(cycles["gold_panel_rebuild"], 1440)
-        # A sweep every hour would start the lanes every hour, and through them Gold and the bake.
-        job(jobs, "source_sweep")["schedule"] = "40 * * * *"
-        cycles = job_specs.cycle_minutes(jobs, graph)
-        for job_id in [*ALL_LANES, "gold_panel_rebuild", "by_pnu_serving_bake"]:
-            self.assertEqual(cycles[job_id], 60, job_id)
-        # ... and the Gold rebuild's wait, counted in those cycles, starves (the bound did not move): it
-        # may wait past 20 hourly runs. The lanes hold no pool slot, so they wait for none.
-        problems = job_specs.pool_starvation(jobs, graph)
-        for job_id in ["gold_panel_rebuild"]:
-            waits = [int(problem.split()[3]) for problem in problems if problem.startswith(f"{job_id} may wait ")]
-            self.assertEqual(len(waits), 1, problems)
-            self.assertGreater(waits[0], job_specs.STARVATION_CYCLES * 60)
-        # Its own fallback schedule counts as well.
-        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
-        job(jobs, "by_pnu_serving_bake")["schedule"] = "15 * * * *"
-        self.assertEqual(job_specs.cycle_minutes(jobs, graph)["by_pnu_serving_bake"], 60)
 
 
-class TheSilverLanesInTheSparkPool(unittest.TestCase):
-    """The Silver lanes left the spark pool when their load left Spark (root ADR-0599): no lane holds
-    a spark slot, so none makes a fold wait and none waits for a Spark job."""
+class ThePoolsByResource(unittest.TestCase):
+    """The pools are cut by what they guard (root ADR-0605): the Spark containers one run at a time, the
+    in-process DuckDB work two, the GPU one. A run takes one slot; how long a job waits is measured
+    (FoundationJobQueueWaitOverBudget), not computed from the list."""
 
-    def test_no_lane_takes_a_spark_slot_and_each_claims_its_own_unit(self):
-        # One at a time in the one-slot claim pool, queued there instead of bounced off the lane lock
-        # (a `waiting` run is a run: the lane would lose its day), each admitted against the host's
-        # free memory by a claim on its own unit.
+    def test_the_pools_are_the_resources(self):
         jobs = real_inputs()[0]
-        self.assertFalse({entry["id"] for entry in self.spark(jobs)} & set(ALL_LANES))
-        self.assertEqual(job_specs.declared_pools(jobs)["documents"], 1)
+        self.assertEqual(job_specs.declared_pools(jobs), {"spark": 1, "duckdb": 2, "gpu": 1})
+        pools = {entry["id"]: entry["pool"] for entry in jobs["jobs"]}
         for lane in ALL_LANES:
-            entry = job(jobs, lane)
-            self.assertEqual((entry["pool"], job_specs.pool_slots(entry)), ("documents", 1), lane)
-            self.assertEqual(entry["memory_claim"], {"units": [entry["systemd_service"]]}, lane)
+            self.assertEqual(pools[lane], "duckdb", lane)
+        for job_id in ("building_register_floor", "by_pnu_serving_bake", *publisher_gold_builds(jobs), *own_lane_bakes()):
+            self.assertEqual(pools[job_id], "duckdb", job_id)
+        self.assertEqual({job_id for job_id, pool in pools.items() if pool == "gpu"},
+                         {"intelligence_document_text", "intelligence_document_fact"})
+        for job_id in ("lineage_stewardship", "gold_panel_rebuild", "map_edit_fold_admin", "map_edit_fold_complex"):
+            self.assertEqual(pools[job_id], "spark", job_id)
+
+    def test_every_duckdb_run_is_admitted_by_the_memory_of_its_own_unit(self):
+        # The memory guard counts no cap for these (the pool holds two of the largest at 16G each, past the
+        # 24.68g the caps leave): the host's available memory admits each, its claim on its own unit.
+        jobs = real_inputs()[0]
+        for entry in jobs["jobs"]:
+            if entry["pool"] == "duckdb":
+                self.assertEqual(entry.get("memory_claim"), {"units": [entry["systemd_service"]]}, entry["id"])
+        job_specs.memory_claims(jobs)
         # Planted: a claimed unit name that is no service name.
         broken = copy.deepcopy(jobs)
         job(broken, ALL_LANES[0])["memory_claim"] = {"units": ["foundation-silver-refresh@.service"]}
         with self.assertRaises(job_specs.JobListError):
             job_specs.memory_claims(broken)
 
-    def spark(self, jobs):
-        return [entry for entry in jobs["jobs"] if entry["pool"] == "spark"]
-
-    def wait(self, jobs, job_id):
-        spark = self.spark(jobs)
-        starved = job(jobs, job_id)
-        return job_specs.longest_wait_minutes(starved, [entry for entry in spark if entry is not starved], 3)
-
-    def test_the_fold_waits_for_one_lane_at_most_and_still_fits_its_bound(self):
-        jobs = copy.deepcopy(real_inputs()[0])
-        wait, blockers = self.wait(jobs, "map_edit_fold_admin")
-        # The other fold (as heavy) once, then whatever holds the pool when its turn comes: lineage's
-        # 265 minutes (retried once), longer than the Gold rebuild's 165. FLOOR, heavier, counted
-        # once more until it left the pool (root ADR-0599).
-        self.assertEqual(wait, (2 * 130 + 5) + (2 * 130 + 5))
-        self.assertLess(wait, job_specs.STARVATION_CYCLES * 60)
-        self.assertFalse(set(ALL_LANES) & set(blockers))
-
-
-    def test_the_bound_is_the_one_every_group_of_running_jobs_gives(self):
-        # The search stops at groups of `slots` jobs (2026-10-19: enumerating every size was 2^n, and
-        # one more spark job doubled this file's time). A larger group cannot hold the pool, so the
-        # answer must equal one that tries every group, on random pools.
-        import itertools
-        import random
-
-        def every_group(starved, others, slots):
-            """longest_wait_minutes as it was: the same rule, groups of every size."""
-            need = job_specs.pool_slots(starved)
-            blockers = [j for j in others if job_specs.pool_slots(j) + need > slots]
-            only_running = [j for j in blockers if job_specs.priority_weight(j) < job_specs.priority_weight(starved)
-                            and job_specs.pool_slots(j) >= need]
-            ahead = [j for j in blockers if j not in only_running]
-            running = only_running + [j for j in others if j not in blockers]
-            worst = 0
-            for size in range(1, len(running) + 1):
-                for group in itertools.combinations(running, size):
-                    held = sum(job_specs.pool_slots(j) for j in group)
-                    if held > slots or slots - held >= need:
-                        continue
-                    freed, missing = 0, need - (slots - held)
-                    for j in sorted(group, key=job_specs.hold_minutes):
-                        freed += job_specs.pool_slots(j)
-                        if freed >= missing:
-                            worst = max(worst, job_specs.hold_minutes(j))
-                            break
-            return sum(job_specs.hold_minutes(j) for j in ahead) + worst
-
-        rng = random.Random(20261019)
-        for trial in range(40):
-            slots = rng.choice([2, 3, 4])
-            jobs = [{"id": f"j{n}", "pool_slots": rng.randint(1, slots), "priority_weight": rng.randint(1, 5),
-                     "time_limit_minutes": rng.randint(10, 200), "stop_grace_minutes": 10, "wait_limit_minutes": rng.randint(0, 30),
-                     "retries": rng.randint(0, 1)}
-                    for n in range(9)]
-            for starved in jobs:
-                others = [j for j in jobs if j is not starved]
-                with self.subTest(trial=trial, job=starved["id"]):
-                    total, _ = job_specs.longest_wait_minutes(starved, others, slots)
-                    self.assertEqual(total, every_group(starved, others, slots))
-
-    def test_a_lighter_narrower_job_still_counts_every_time(self):
-        # The bake (1 slot) is lighter than a whole-pool job but fits where it (3) does not, so Airflow may
-        # start it ahead: it stays among the jobs counted ahead, as does the hourly Onbid load and
-        # the own-producer public-auction bake (1 slot, 115 + 30; root ADR-0303) and the unit price bake
-        # (1 slot, 60 + 30; root ADR-0333).
-        jobs = copy.deepcopy(real_inputs()[0])
-        wait, blockers = self.wait(jobs, whole_pool_job(jobs)["id"])
-        builds = publisher_gold_builds(jobs)
-        for job_id in ("by_pnu_serving_bake", "rt_molit_real_transaction_silver", *builds, *own_lane_bakes()):
-            self.assertIn(job_id, blockers)
-        by_id = {job["id"]: job for job in jobs["jobs"]}
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 45 + sum(job_specs.hold_minutes(by_id[job_id]) for job_id in builds)
-                         + sum(job_specs.hold_minutes(by_id[job_id]) for job_id in own_lane_bakes()))
-
-    def test_the_real_list_fits(self):
-        self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])
+    def test_a_job_fed_every_hour_may_be_started_by_its_inputs(self):
+        # Until root ADR-0605 a job started by inputs that change hourly counted its wait in hourly cycles,
+        # and the served-parcel Gold build (#1609) and the real-transaction Gold build (#1629) were put on
+        # the clock to pass that bound. Nothing in the list computes a wait now.
+        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        self.assertEqual(job(jobs, "gold_parcel_boundary_served_versions_build")["started_by"], "inputs")
+        for lane in ALL_LANES[:3]:
+            job(jobs, lane)["started_by"] = "inputs"
+        job(jobs, "source_sweep")["schedule"] = "40 * * * *"
+        self.assertTrue(job_specs.load_specs(jobs, graph))
 
 
 class EveryJobSaysItsOutcome(unittest.TestCase):
@@ -945,8 +800,8 @@ class ThePoolsTheSchedulerHas(unittest.TestCase):
     def test_the_dagster_run_queue_admits_what_airflow_hands_it_and_keeps_a_place_for_checks(self):
         # A proxied job's run is a Dagster run (root ADR-0431 §5) Airflow's parallelism bounds. The runs of
         # jobs Dagster decides are held to the pools' slots together, and two job places more stay for the
-        # proxied runs (root ADR-0583 §7); one place more for the observer's check runs, and no more of a
-        # pool's runs than its slots (orchestration/dagster/dagster.yaml).
+        # proxied runs (root ADR-0583 §7); one place more for the observer's check runs. No more of a pool's
+        # runs than its slots is Dagster's own pools' work (root ADR-0605), not a tag limit.
         compose = (job_specs.PLATFORM_ROOT / "compose.orchestration.yml").read_text(encoding="utf-8")
         [parallelism] = re.findall(r'AIRFLOW__CORE__PARALLELISM: "(\d+)"', compose)
         queue = (job_specs.PLATFORM_ROOT / "orchestration/dagster/dagster.yaml").read_text(encoding="utf-8")
@@ -964,7 +819,9 @@ class ThePoolsTheSchedulerHas(unittest.TestCase):
         # The code server's cap counts every run (compose.orchestration.yml): 100 + 2 x 169 + runs x 169.
         [cap] = re.findall(r"(?m)^  dagster-code-server:\n(?:    .*\n)*?    mem_limit: (\d+)m$", compose)
         self.assertGreaterEqual(int(cap), 100 + 2 * 169 + int(most) * 169)
-        self.assertEqual(limits, {(job_specs.POOL_TAG, name): slots for name, slots in pools.items()})
+        self.assertEqual(limits, {})
+        self.assertRegex(queue, r"(?m)^concurrency:\n  pools:\n    granularity: run\n    default_limit: 1$")
+        self.assertRegex(queue, r"(?m)^  free_slots_after_run_end_seconds: \d+$")
 
     def test_parallelism_leaves_a_slot_for_default_pool_jobs(self):
         compose = (job_specs.PLATFORM_ROOT / "compose.orchestration.yml").read_text(encoding="utf-8")
@@ -1418,7 +1275,6 @@ class TheDagsterStage(unittest.TestCase):
         self.assertEqual(spec.dagster_job, f"foundation_job__{job['id']}")
         value = jobs["priority_classes"][job.get("priority_class", "default")]["value"]
         self.assertEqual(spec.dagster_tags("triggered"), {"foundation/run-kind": "triggered", "foundation/run": "job",
-                                                          "foundation/pool": job["pool"],
                                                           # The class, then the queue weight (root ADR-0558).
                                                           "dagster/priority": str(value * 1000 + spec.priority_weight),
                                                           # Root ADR-0565 §9: run monitoring fails a run whose

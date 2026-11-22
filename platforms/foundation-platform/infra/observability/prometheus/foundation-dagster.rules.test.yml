@@ -213,7 +213,31 @@ tests:
         values: '900+60x60'
       - series: 'foundation_dagster_run_overdue_seconds{run_job="foundation_job__synthetic_b"}'
         values: '0x60'
+      # Root ADR-0605 §5: one run waits past its class's 360 minutes, the other inside its budget.
+      - series: 'foundation_dagster_run_queued_seconds{job="synthetic_starved",pool="duckdb",priority_class="default"}'
+        values: '21000+60x60'
+      - series: 'foundation_dagster_run_queue_budget_seconds{job="synthetic_starved",pool="duckdb",priority_class="default"}'
+        values: '21600x60'
+      - series: 'foundation_dagster_run_queued_seconds{job="synthetic_waiting",pool="spark",priority_class="publish"}'
+        values: '600+60x60'
+      - series: 'foundation_dagster_run_queue_budget_seconds{job="synthetic_waiting",pool="spark",priority_class="publish"}'
+        values: '7200x60'
     alert_rule_test:
+      - eval_time: 15m
+        alertname: FoundationDagsterRunQueuedOverBudget
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: FoundationDagsterRunQueuedOverBudget
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: orchestration
+              job: synthetic_starved
+              pool: duckdb
+              priority_class: default
+            exp_annotations:
+              summary: 'synthetic_starved 의 Dagster run 이 duckdb 풀 자리를 6h 15m 0s째 기다려요(default 예산 넘음). Dagster UI 의 Deployment → Concurrency 에서 그 풀을 무엇이 쥐고 있는지 보세요'
+              runbook: docs/runbooks/production-orchestrator-cutover.md
       - eval_time: 29m
         alertname: FoundationDagsterSensorStopped
         exp_alerts: []

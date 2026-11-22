@@ -26,7 +26,7 @@ last_reviewed: 2026-07-29
 - [data.go.kr 파일 데이터 — 등록공장 수집·PNU·적재, 기타 공공 일괄 파일 수집](./data-go-kr-registered-factory.md)
 - [주소정보 전자지도 변동분 수집 — 승인키 놓기·커서·거부 알림](./juso-electronic-map.md)
 - [로컬 모델 런타임 — spark 풀 시간 나눔·평가·증설 첫날 순서](./model-runtime.md)
-- [고시 첨부 텍스트·사실 — intelligence 이미지·documents 풀·켜기](./intelligence-documents.md)
+- [고시 첨부 텍스트·사실 — intelligence 이미지·gpu 풀·켜기](./intelligence-documents.md)
 - [법원경매정보 (courtauction.go.kr) — 정직한 수집·멈춤·적재](./court-auction.md)
 - [중개사 가입 확인 명부 — 바뀐 사무소만 싣는 적재와 VWorld 실시간 대체](./real-estate-broker-lookup.md)
 - [감사 기록 — 해시 사슬 한 표, 배포·호스트 명령 가져오기, 더니어 화면](./audit-log.md)

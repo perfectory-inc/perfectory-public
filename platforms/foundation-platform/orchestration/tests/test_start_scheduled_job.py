@@ -18,15 +18,17 @@ PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = PLATFORM / "scripts/ops/start-scheduled-job.sh"
 
 JOBS = {
-    "pools": {"spark": {"slots": 3, "description": "fixture"}},
+    # A run takes one slot (root ADR-0605): floor, the bake and the paused job share a one-slot pool, so each
+    # keeps the others out; the fold is in a pool of two beside them.
+    "pools": {"spark": {"slots": 1, "description": "fixture"}, "duckdb": {"slots": 2, "description": "fixture"}},
     "jobs": [
-        {"id": "floor", "pool": "spark", "pool_slots": 3, "systemd_service": "foundation-floor.service", "enabled": True,
+        {"id": "floor", "pool": "spark", "systemd_service": "foundation-floor.service", "enabled": True,
          "wait_limit_minutes": 2},
-        {"id": "fold", "pool": "spark", "pool_slots": 2, "systemd_service": "foundation-fold.service", "enabled": True,
+        {"id": "fold", "pool": "duckdb", "systemd_service": "foundation-fold.service", "enabled": True,
          "wait_limit_minutes": 0},
-        {"id": "bake", "pool": "spark", "pool_slots": 1, "takes_turns": True,
+        {"id": "bake", "pool": "spark", "takes_turns": True,
          "systemd_service": "foundation-bake.service", "enabled": True, "wait_limit_minutes": 0},
-        {"id": "paused", "pool": "spark", "pool_slots": 3, "systemd_service": "foundation-paused.service", "enabled": False,
+        {"id": "paused", "pool": "spark", "systemd_service": "foundation-paused.service", "enabled": False,
          "wait_limit_minutes": 0},
     ],
 }
@@ -247,7 +249,7 @@ class NoStartIsHeldByTheClock(HostFixture):
     def setUp(self):
         super().setUp()
         listing = json.loads((self.root / "jobs.json").read_text())
-        listing["jobs"].append({"id": "migration", "pool": "spark", "pool_slots": 3, "enabled": True,
+        listing["jobs"].append({"id": "migration", "pool": "spark", "enabled": True,
                                 "systemd_service": "foundation-migration.service", "wait_limit_minutes": 0,
                                 "schedule": "45 18 * * *", "started_by": "schedule", "time_limit_minutes": 160,
                                 "stop_grace_minutes": 5})
@@ -410,7 +412,7 @@ class TakingTurns(HostFixture):
         self.assertIn("foundation-bake.service", asked)
 
     def test_jobs_that_can_run_beside_it_or_are_switched_off_do_not_hold_it(self):
-        # The fold (2 slots) fits beside the bake (1 of 3); the paused job is not enabled.
+        # The fold runs in another pool; the paused job is not enabled.
         self.record("bake", 2000)
         self.record("floor", 3000)
         result, asked = self.start("bake")

@@ -115,7 +115,7 @@ slots = listing["pools"][job["pool"]]["slots"]
 waiting = sorted(
     other["id"] for other in jobs.values()
     if other["id"] != job_id and other["enabled"] and other["pool"] == job["pool"]
-    and other.get("pool_slots", 1) + job.get("pool_slots", 1) > slots
+    and slots < 2  # a run takes one slot (root ADR-0605): only a one-slot pool keeps two jobs apart
     and (started(other["id"]) or 0) < mine
 )
 if waiting:

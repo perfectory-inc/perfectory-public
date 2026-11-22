@@ -34,7 +34,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "priority_weight": 31,
       "retries": 0,
       "pipeline_graph_edges": [

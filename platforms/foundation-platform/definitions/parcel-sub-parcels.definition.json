@@ -31,7 +31,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -75,8 +74,12 @@
           "estimated_from": "computed, not measured: the first shadow build holds every key. It reads the served parcel edition's PNUs (about 40 million) and the current 부속지번 rows (silver.building_register_sub_parcel: 5,566,401 rows of every vintage, Trino 2026-11-22), and folds both directions in one statement for the about 1.64 million PNUs gold.parcel_sub_parcels holds. Lane 1 (gold_parcel_register_masters_versions_build) folded 583,561 rows over the same served edition in 30 s (2026-11-22 02:03Z). About 600 s with the read, inside the 60-minute limit. Later runs rebuild the changed PNUs only."
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-gold-versions@parcel-sub-parcels.service"
+        ]
+      },
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -126,8 +129,12 @@
           "estimated_from": "computed from the lane's own bakes measured in its cut-over's bake step (by-pnu-pack-operator.sh parcel-sub-parcels bake, the same by-pnu-serving-bake.sh): 146 s on 2026-11-09 for 1,638,053 documents; the first scheduled bake after the publish may cut a whole generation (no reads.jsonl yet, root ADR-0468 §4), so 600 s, inside the 6,210 s share of the 115-minute limit"
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-by-pnu-lane-bake@parcel-sub-parcels.service"
+        ]
+      },
       "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
@@ -298,20 +305,6 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark"
-      }
-    ],
-    "by_pnu_parcel_sub_parcels_bake": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
-      }
-    ],
-    "gold_parcel_sub_parcels_versions_build": [
-      {
-        "unit": "MemoryMax"
       }
     ]
   },

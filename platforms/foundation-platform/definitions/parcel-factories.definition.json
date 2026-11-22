@@ -31,7 +31,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -77,8 +76,7 @@
           "estimated_from": "computed, not measured: the first shadow build holds every key, so it reads the served parcel edition's PNUs (about 40 million, the read gold_parcel_register_masters_versions_build also makes, estimated 900 s) and the newest edition of the factory file (123,451 rows built on 2026-11-09) and folds them in one statement; about 900 s, inside the 60-minute limit. Later runs rebuild the changed PNUs only."
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-gold-versions@parcel-factories.service"
@@ -134,8 +132,12 @@
           "estimated_from": "computed from the lane's own bakes measured in its cut-over's bake step (by-pnu-pack-operator.sh parcel-factories bake, the same by-pnu-serving-bake.sh): 157 s on 2026-11-09 for 123,451 documents; the first scheduled bake after the publish may cut a whole generation (no reads.jsonl yet, root ADR-0468 §4), so 600 s, inside the 6,210 s share of the 115-minute limit"
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-by-pnu-lane-bake@parcel-factories.service"
+        ]
+      },
       "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
@@ -342,15 +344,6 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark"
-      }
-    ],
-    "by_pnu_parcel_factories_bake": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
       }
     ]
   },

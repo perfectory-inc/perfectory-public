@@ -39,7 +39,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -97,8 +96,12 @@
           "estimated_from": "computed from the parcel-ownership bake, the same by-pnu-serving-bake.sh: 636 s for 39,396,906 documents (2026-11-05, its cut-over's bake step); the lane bakes at most one document per served parcel (39,861,511), so 1,500 s, more than twice it; before the lane's first publish, which waits for whole history (root ADR-0350 §6), a run is `nothing to do: not cut over yet`"
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-by-pnu-lane-bake@parcel-real-transaction.service"
+        ]
+      },
       "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
@@ -375,15 +378,6 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark"
-      }
-    ],
-    "by_pnu_parcel_real_transaction_bake": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
       }
     ]
   },

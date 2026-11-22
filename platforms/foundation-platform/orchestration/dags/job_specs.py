@@ -13,7 +13,6 @@ Pure Python with no Airflow import, so the code the DAGs run is the code the tes
 """
 
 import datetime
-import itertools
 import json
 import pathlib
 import re
@@ -41,13 +40,7 @@ RELEASE_PREFIX = "/opt/foundation-platform/current/"
 JOBS_SCHEMA = "foundation-platform.orchestration_jobs.v1"
 # Airflow's own pool; every other pool a job may name is declared in jobs.v1.json `pools`.
 DEFAULT_POOL = "default_pool"
-# A job may wait for a shared pool's slots at most this many of its own schedule cycles (root
-# ADR-0138). The bound is the worst case, not the usual one: an hourly fold behind FLOOR and lineage
-# that both time out and are retried waits about 17 hours, which still lands staff edits within
-# the day; a 21-hour bake holding a slot a fold needs would add a day more and is refused.
-STARVATION_CYCLES = 20
-# Every DAG task retries this long after a failure (foundation_jobs.py). A retry holds the slots
-# again, so a run can hold them for (retries + 1) x its timeout plus the delays.
+# Every run is tried again this long after a failure (foundation_jobs.py, orchestration/dagster/run_jobs.py).
 RETRY_DELAY_MINUTES = 5
 SERVICE_NAME = re.compile(r"foundation-[a-z0-9-]+(?:@([a-z0-9-]+))?\.service")
 TIMER_NAME = re.compile(r"foundation-[a-z0-9-]+\.timer")
@@ -90,8 +83,9 @@ RUN_KIND_TAG = "foundation/run-kind"
 OUTCOME_TAG = "foundation/job-outcome"
 OWED_TAG = "foundation/asset-owed"
 # The run queue's view of a job run (orchestration/dagster/dagster.yaml): every job run is counted under
-# JOB_RUN_TAG apart from the observer's check runs, its pool under POOL_TAG, and Dagster's own
-# `dagster/priority`, the order the queue starts runs in, is dagster_priority (root ADR-0435, ADR-0558).
+# JOB_RUN_TAG apart from the observer's check runs, and Dagster's own `dagster/priority`, the order the
+# queue starts runs in, is dagster_priority (root ADR-0435, ADR-0558). Its pool is not a tag: it is the
+# op's own Dagster pool (orchestration/dagster/run_jobs.py, root ADR-0605).
 JOB_RUN_TAG = "foundation/run"
 # A job's `dagster/priority` is its priority class's value times this, plus its queue weight: the class
 # orders first (root ADR-0435), and inside it a job that writes what another reads starts first (root
@@ -100,7 +94,6 @@ QUEUE_WEIGHT_SPAN = 1000
 # What may follow the job id in a start: nothing (the clock), `triggered`, or `requested <id>` (an
 # operator's run-now, root ADR-0282 §4); the host's forced command reads the same words.
 RUN_KIND = re.compile(r"(?:triggered|requested [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?")
-POOL_TAG = "foundation/pool"
 # A run of a job Dagster decides (`dagster_stage: dagster`) also carries this: dagster.yaml holds such runs to
 # the pools' slots together, so the runs Airflow hands Dagster (proxied) always find a place (root ADR-0583 §7).
 DECIDED_TAG = "foundation/decided-by"
@@ -140,8 +133,7 @@ class JobSpec:
     description: str
     schedule: str
     timeout_minutes: int  # one start's limit: scheduler_timeout_minutes(job)
-    pool: str
-    pool_slots: int
+    pool: str  # its Dagster pool, and Airflow's for a job Airflow runs; a run takes one slot
     retries: int
     priority_weight: int
     systemd_service: str
@@ -166,7 +158,7 @@ class JobSpec:
 
     def dagster_tags(self, run_kind=""):
         """The tags a Dagster run of this job carries: how it was started, and what the run queue reads."""
-        tags = run_tags(self.pool, dagster_priority(self), run_kind, 60 * self.timeout_minutes)
+        tags = run_tags(dagster_priority(self), run_kind, 60 * self.timeout_minutes)
         if self.dagster_stage == "dagster":
             tags[DECIDED_TAG] = "dagster"
         return tags
@@ -186,11 +178,11 @@ class JobListError(ValueError):
     pass
 
 
-def run_tags(pool, priority, run_kind="", max_runtime_seconds=None):
+def run_tags(priority, run_kind="", max_runtime_seconds=None):
     """The tags a Dagster run of a job carries, whoever launches it (Airflow's proxied task, the job's
     sensor, the deploy or a run-now): how it was started, what the run queue reads, and when run
     monitoring fails a run whose process died (MAX_RUNTIME_TAG; the default launcher cannot tell)."""
-    tags = {RUN_KIND_TAG: run_kind, JOB_RUN_TAG: "job", POOL_TAG: pool, PRIORITY_TAG: str(priority)}
+    tags = {RUN_KIND_TAG: run_kind, JOB_RUN_TAG: "job", PRIORITY_TAG: str(priority)}
     if max_runtime_seconds is not None:
         tags[MAX_RUNTIME_TAG] = str(max_runtime_seconds)
     return tags
@@ -493,20 +485,19 @@ def previous_slot(schedule, at):
     return today[-1] if today else day - 86400 + starts[-1]
 
 
-def pool_slots(job):
-    """Slots a job takes in its pool (Airflow pool_slots); 1 when the job list does not say."""
-    slots = job.get("pool_slots", 1)
-    if type(slots) is not int or slots < 1:
-        raise JobListError(f"{job['id']}: pool_slots must be a positive integer")
-    return slots
-
-
 def retries(job):
     """How often Airflow retries a failed run of the job (`retries`, 1 when absent)."""
     value = job.get("retries", 1)
     if type(value) is not int or not 0 <= value <= 3:
         raise JobListError(f"{job['id']}: retries must be an integer from 0 to 3")
     return value
+
+
+def no_slot_count(entry, name):
+    """A run takes one slot of its pool, as a Dagster pool of run granularity counts it (root ADR-0605):
+    a job or a capacity claimant states no slot count of its own, so none is read and silently ignored."""
+    if "pool_slots" in entry:
+        raise JobListError(f"{name}: pool_slots is gone; a run takes one slot of its pool (root ADR-0605)")
 
 
 def priority_weight(job):
@@ -598,10 +589,10 @@ def inherited_class(job, by_id, found):
 
 def memory_claims(jobs):
     """Each job's `memory_claim` (root ADR-0563), checked: the systemd units whose MemoryMax its run
-    takes beyond what its pool's slots stand for, admitted against the host's available memory when it
-    starts (scripts/deploy/job_units.py memory_short). A claim needs the list's
-    `memory_claims.keep_available`, names units, and belongs to a job of a pool with one slot: two
-    claiming jobs started together would each be admitted against the same available memory."""
+    takes, admitted against the host's available memory when it starts (scripts/deploy/job_units.py
+    memory_short). A claim needs the list's `memory_claims.keep_available` and names units. It may be in a
+    pool of more than one slot (root ADR-0605 §3): memory_short counts what every running claimed unit
+    may still take, so two claims started one after the other are never admitted against the same memory."""
     claiming = [job for job in jobs["jobs"] if "memory_claim" in job]
     if not claiming:
         return
@@ -613,16 +604,10 @@ def memory_claims(jobs):
         units = claim.get("units") if isinstance(claim, dict) else None
         named = isinstance(units, list) and units and all(
             # A template instance too (`foundation-silver-refresh@<lane>.service`): a Silver lane claims
-            # its own unit (root ADR-0599). Part of the hand-written admission the Dagster pool/memory-tag change deletes after the ops bundle.
+            # its own unit (root ADR-0599). Host admission, deleted with pool-full by root ADR-0583's last PR.
             isinstance(unit, str) and re.fullmatch(r"[a-z0-9-]+(@[a-z0-9-]+)?\.service", unit) for unit in units)
         if not named or set(claim) != {"units"}:
             raise JobListError(f"{job['id']}: memory_claim must be an object with only `units`, systemd service names")
-        if (jobs.get("pools") or {}).get(job["pool"], {}).get("slots") != 1:
-            raise JobListError(f"{job['id']}: a job with a memory_claim runs in a pool of one slot, so no two claims"
-                               " are admitted against the same available memory")
-    pools = {job["pool"] for job in claiming}
-    if len(pools) > 1:
-        raise JobListError(f"jobs with a memory_claim are in more than one pool ({sorted(pools)}); they must share one")
 
 
 def capacity_claimants(jobs, pools):
@@ -633,9 +618,7 @@ def capacity_claimants(jobs, pools):
             raise JobListError(f"capacity claimant {name!r} is not a lower_snake name apart from every job id")
         if claimant.get("pool") not in pools or claimant["pool"] == DEFAULT_POOL:
             raise JobListError(f"capacity claimant {name}: pool {claimant.get('pool')!r} is not a declared pool")
-        slots = jobs["pools"][claimant["pool"]]["slots"]
-        if type(claimant.get("pool_slots")) is not int or not 1 <= claimant["pool_slots"] <= slots:
-            raise JobListError(f"capacity claimant {name}: pool_slots must be 1 to {slots}")
+        no_slot_count(claimant, f"capacity claimant {name}")
         if not re.fullmatch(r"[a-z0-9@*-]+\.service", claimant.get("unit") or ""):
             raise JobListError(f"capacity claimant {name}: unit must be a systemd service name or pattern")
         work = claimant.get("work_units", [])
@@ -662,58 +645,13 @@ def run_limit_minutes(job):
 def scheduler_timeout_minutes(job):
     """One scheduled start's limit: its wait_limit_minutes plus its run's limit (root ADR-0270 §2b).
 
-    The DAG's execution and SSH timeouts, the starvation bound and the operations map's lateness use
+    The DAG's execution and SSH timeouts and the operations map's lateness use
     this sum; jobs.v1.json states its three parts. A start may wait for the host before it runs.
     """
     wait = job.get("wait_limit_minutes")
     if type(wait) is not int or wait < 0:
         raise JobListError(f"{job['id']}: wait_limit_minutes must be a whole number of minutes, 0 or more")
     return wait + run_limit_minutes(job)
-
-
-def hold_minutes(job):
-    """The longest one scheduled run holds its slots: every try at its timeout, plus the delays."""
-    return (retries(job) + 1) * scheduler_timeout_minutes(job) + retries(job) * RETRY_DELAY_MINUTES
-
-
-def longest_wait_minutes(starved, others, slots):
-    """An upper bound on how long a job waits for its slots, and which jobs make it up.
-
-    A job that cannot run beside it holds it back. One with an equal or higher priority_weight may
-    start ahead of it once each. So may a lighter one that needs fewer slots than it: Airflow skips
-    a waiting task that does not fit and starts a lighter one that does (scheduler_job_runner.py,
-    "we can execute tasks with lower priority if there's enough room"). A lighter one that needs at
-    least as many slots as it never fits where it does not, so it never starts ahead of it: it can
-    only already be running when its turn comes (root ADR-0171 §5). Each counts at its
-    hold_minutes. The jobs that can be running when its turn comes -- those lighter ones, and jobs
-    that block it only together -- hold it until enough of them have finished; the worst such set
-    counts once. A `takes_turns` job starts at most once between runs of the jobs it cannot run
-    beside (start-scheduled-job.sh), so it counts once like the others.
-    """
-    need = pool_slots(starved)
-    blockers = [job for job in others if pool_slots(job) + need > slots]
-    only_running = [job for job in blockers
-                    if priority_weight(job) < priority_weight(starved) and pool_slots(job) >= need]
-    ahead = [job for job in blockers if job not in only_running]
-    total = sum(hold_minutes(job) for job in ahead)
-    combined, combined_ids = 0, []
-    running = only_running + [job for job in others if job not in blockers]
-    # Every job takes at least one slot, so a group of more jobs than the pool has slots cannot hold
-    # it together and is skipped below anyway. Not enumerating them keeps this cubic, not 2^n: one
-    # more spark job doubled test_job_specs' time (352 s -> 731 s, 1,327 s on a runner, 2026-10-19).
-    for size in range(1, min(len(running), slots) + 1):
-        for group in itertools.combinations(running, size):
-            held = sum(pool_slots(job) for job in group)
-            if held > slots or slots - held >= need:
-                continue  # cannot hold the pool together, or leaves room anyway
-            freed, missing = 0, need - (slots - held)
-            for job in sorted(group, key=hold_minutes):
-                freed += pool_slots(job)
-                if freed >= missing:
-                    if hold_minutes(job) > combined:
-                        combined, combined_ids = hold_minutes(job), [member["id"] for member in group]
-                    break
-    return total + combined, [job["id"] for job in ahead] + combined_ids
 
 
 def dagster_stage(job, jobs=None):
@@ -809,69 +747,34 @@ def started_for(jobs, job):
     return tuple(job.get("reconciles", ())) + requeued(jobs, job)
 
 
+def start_circles(jobs, graph=None):
+    """Refuses jobs started by their inputs that start each other in a circle (root ADR-0171 §5): each
+    changed run would start the next, forever."""
+    graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
+    by_id = {job["id"]: job for job in jobs["jobs"]}
+    feeders = producers(jobs, graph)
+    done = set()
+
+    def visit(job_id, path=()):
+        if job_id in path:
+            raise JobListError(f"jobs start each other in a circle: {' -> '.join(path + (job_id,))}")
+        if job_id in done:
+            return
+        if started_by(by_id[job_id]) == "inputs":
+            for feeder in feeders[job_id]:
+                visit(feeder, path + (job_id,))
+        done.add(job_id)
+
+    for job_id in by_id:
+        visit(job_id)
+
+
 def started_by(job):
     """What starts a job: `schedule` or `inputs` (jobs.v1.json `started_by`, required)."""
     value = job.get("started_by")
     if value not in STARTED_BY:
         raise JobListError(f"{job['id']}: started_by must be one of {list(STARTED_BY)}")
     return value
-
-
-def cycle_minutes(jobs, graph=None):
-    """Job id -> the shortest time between two starts of the job.
-
-    A scheduled job's is its schedule's. A job started by its inputs cannot start more often than
-    the jobs that feed it, nor than its own fallback schedule: its cycle is the shortest of those
-    (root ADR-0171 §5). The starvation bound counts a job's wait in these cycles.
-    """
-    graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
-    by_id = {job["id"]: job for job in jobs["jobs"]}
-    feeders = producers(jobs, graph)
-    cycles = {}
-
-    def cycle(job_id, path=()):
-        if job_id in path:
-            raise JobListError(f"jobs start each other in a circle: {' -> '.join(path + (job_id,))}")
-        if job_id not in cycles:
-            job = by_id[job_id]
-            own = shortest_interval_minutes(job["schedule"])
-            if started_by(job) == "inputs":
-                own = min([own] + [cycle(feeder, path + (job_id,)) for feeder in feeders[job_id]])
-            cycles[job_id] = own
-        return cycles[job_id]
-
-    for job_id in by_id:
-        cycle(job_id)
-    return cycles
-
-
-def pool_starvation(jobs, graph=None):
-    """Every job that could wait for its pool's slots longer than STARVATION_CYCLES of its runs.
-
-    A disabled job runs nowhere (the host refuses its start, start-scheduled-job.sh), so it neither
-    waits for a pool nor holds one.
-    """
-    problems = []
-    cycles = cycle_minutes(jobs, graph)
-    weights = queue_weights(jobs, producers(jobs, graph if graph is not None
-                                           else json.loads(GRAPH.read_text(encoding="utf-8"))))
-    for pool, slots in declared_pools(jobs).items():
-        # Weighed as Airflow orders them: by the weight the data dependency raised (queue_weights).
-        members = [{**job, "priority_weight": weights[job["id"]]} for job in jobs["jobs"]
-                   if job["pool"] == pool and job["enabled"]]
-        for starved in members:
-            if pool_slots(starved) > slots:
-                problems.append(f"{starved['id']} takes {pool_slots(starved)} slots of pool {pool!r}, which has {slots}")
-                continue
-            others = [job for job in members if job is not starved]
-            wait, blockers = longest_wait_minutes(starved, others, slots)
-            limit = STARVATION_CYCLES * cycles[starved["id"]]
-            if wait > limit:
-                problems.append(
-                    f"{starved['id']} may wait {wait} minutes for pool {pool!r} behind {', '.join(blockers)}, "
-                    f"over {STARVATION_CYCLES} of its runs ({limit} minutes); change the slots or the pool"
-                )
-    return problems
 
 
 def job_nodes(jobs, graph):
@@ -1187,6 +1090,7 @@ def load_specs(jobs=None, graph=None):
                                f" ({sorted(unknown) or 'its own'}), and only the reconciler requeues")
         if reconciles and (start != "schedule" or job["pool"] != DEFAULT_POOL):
             raise JobListError(f"{job_id}: a reconciler runs on its own schedule in {DEFAULT_POOL}, never on an event")
+        no_slot_count(job, job_id)
         specs.append(
             JobSpec(
                 job_id=job_id,
@@ -1195,7 +1099,6 @@ def load_specs(jobs=None, graph=None):
                 schedule=job["schedule"],
                 timeout_minutes=scheduler_timeout_minutes(job),
                 pool=job["pool"],
-                pool_slots=pool_slots(job),
                 retries=retries(job),
                 priority_weight=weights[job_id],
                 systemd_service=service,
@@ -1216,7 +1119,8 @@ def load_specs(jobs=None, graph=None):
         )
     problems = [f"{spec.job_id}: queue weight {spec.priority_weight} reaches QUEUE_WEIGHT_SPAN; raise the span"
                 for spec in specs if spec.priority_weight >= QUEUE_WEIGHT_SPAN]
-    problems += pool_starvation(jobs, graph) + dagster_order(jobs, feeders) + dagster_groups(jobs)
+    start_circles(jobs, graph)
+    problems += dagster_order(jobs, feeders) + dagster_groups(jobs)
     if problems:
         raise JobListError("; ".join(problems))
     return specs

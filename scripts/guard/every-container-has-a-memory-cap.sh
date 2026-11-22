@@ -59,7 +59,6 @@ command -v python3 >/dev/null 2>&1 || {
 python3 - "$root" "$name" "$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd -P; })" <<'PY'
 from __future__ import annotations
 
-import itertools
 import json
 import os
 import pathlib
@@ -430,17 +429,11 @@ def scheduled_load(section: dict) -> tuple[int, str]:
     worst_total, worst_label = 0, []
     for pool, spec in pools.items():
         members = [job for job in jobs.values() if job["pool"] == pool and job["id"] in peaks]
-        worst, worst_set = 0, ()
-        # Every job takes at least one slot, so a group larger than the pool's slots never fits: not
-        # enumerating them keeps this polynomial, not 2^n (30 spark jobs took 16 minutes on CI,
-        # 2026-10-28), as job_specs.longest_wait_minutes does.
-        for size in range(1, min(len(members), spec["slots"]) + 1):
-            for group in itertools.combinations(members, size):
-                if sum(job.get("pool_slots", 1) for job in group) > spec["slots"]:
-                    continue
-                held = sum(peaks[job["id"]] for job in group)
-                if held > worst:
-                    worst, worst_set = held, group
+        # A run takes one slot (root ADR-0605, a Dagster pool of run granularity), so the most the pool holds
+        # at once is its `slots` largest members together. A member admitted by its memory_claim was left
+        # out above: the host's available memory admits it, not these caps.
+        worst_set = tuple(sorted(members, key=lambda job: (-peaks[job["id"]], job["id"]))[: spec["slots"]])
+        worst = sum(peaks[job["id"]] for job in worst_set)
         worst_total += worst
         if worst_set:
             worst_label.append(f"{pool}: " + " + ".join(f"{job['id']} {gib(peaks[job['id']])}" for job in worst_set))

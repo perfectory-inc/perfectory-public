@@ -36,8 +36,12 @@
           "to": "2026-11-20T05:49:59Z"
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-gold-versions@parcel-nearby.service"
+        ]
+      },
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -94,8 +98,12 @@
           "estimated_from": "computed from the parcel-ownership bake, the same by-pnu-serving-bake.sh: 636 s for 39,396,906 documents (2026-11-05, its cut-over's bake step); the nearby lane bakes one document for each of 39,861,511 parcels, so 1,500 s, more than twice it"
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-by-pnu-lane-bake@parcel-nearby.service"
+        ]
+      },
       "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
@@ -295,22 +303,6 @@
       "decision": "docs/adr/0465-a-parcel-shows-what-is-near-it-computed-in-gold-with-sedona-and-h3.md",
       "spark_held_test": "crates/publisher/foundation-publisher-silver/src/parcel_nearby_stage/tests.rs"
     }
-  },
-  "host_memory": {
-    "gold_parcel_nearby_rebuild": [
-      {
-        "unit": "MemoryMax"
-      }
-    ],
-    "by_pnu_parcel_nearby_bake": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
-      }
-    ]
   },
   "published_schemas": [
     {

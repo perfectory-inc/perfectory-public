@@ -246,15 +246,12 @@ PY
   expect_fail "invalid memory parameter binding: $defect"
 done
 
-# Scheduled jobs in a shared pool count at every combination its slots allow (root ADR-0138).
-# Host 6g: 1g standing + 1g reserved leaves 4g. One-shots: migrate 3g, seed 3g, small 2g.
-# Pool "heavy" (3 slots): floor takes 3 (migrate 3g), each fold 2 (small 2g), the bake 1
-# (its unit's MemoryMax 2G). The worst sets are fold + bake = 4g and floor alone = 3g: they fit.
-# With a fifth argument a Gold rebuild joins the pool on the big Spark (migrate 3g) with that many
-# slots (root ADR-0139).
+# Scheduled jobs in a shared pool: a run takes one slot (root ADR-0605), so the pool holds its `slots`
+# largest members at once. Host 6g: 1g standing + 1g reserved leaves 4g. One-shots: migrate 3g, seed 3g,
+# small 2g. Pool "heavy": floor (migrate 3g), two folds (small 2g each), the bake (its unit's MemoryMax 2G).
+# One slot holds floor alone (3g) and fits; two hold floor and a fold or the bake (5g) and do not.
 write_scheduled_fixture() {
-  local bake_memory="${1-MemoryMax=2G}" fold_slots="${2:-2}" small_cap="${3:-2g}" extra_memory="${4:-}"
-  local gold_slots="${5:-0}"
+  local bake_memory="${1-MemoryMax=2G}" slots="${2:-1}" small_cap="${3:-2g}" extra_memory="${4:-}"
   rm -f "$fixture/stack/compose.native.yml" "$fixture/tools/engine.json"
   write_contract 6g
   write_stack "    mem_limit: 1g"
@@ -267,18 +264,17 @@ write_scheduled_fixture() {
 YAML
   mkdir -p "$fixture/units"
   printf '[Service]\nExecStart=/bin/true\n%s\n' "$bake_memory" > "$fixture/units/fixture-bake.service"
-  for unit in fixture-floor fixture-fold-a fixture-fold-b fixture-gold; do
+  for unit in fixture-floor fixture-fold-a fixture-fold-b; do
     printf '[Service]\nExecStart=/bin/true\n' > "$fixture/units/$unit.service"
   done
-  python3 - "$fixture" "$fold_slots" "$extra_memory" "$gold_slots" <<'PY'
+  python3 - "$fixture" "$slots" "$extra_memory" <<'PY'
 import json, pathlib, sys
-root, fold_slots, extra, gold_slots = pathlib.Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3], int(sys.argv[4])
-def job(job_id, slots, pool="heavy"):
-    return {"id": job_id, "pool": pool, "pool_slots": slots, "systemd_service": f"fixture-{job_id.replace('_', '-')}.service"}
+root, slots, extra = pathlib.Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+def job(job_id, pool="heavy"):
+    return {"id": job_id, "pool": pool, "systemd_service": f"fixture-{job_id.replace('_', '-')}.service"}
 (root / "tools/jobs.json").write_text(json.dumps({
-    "pools": {"heavy": {"slots": 3, "description": "fixture"}},
-    "jobs": [job("floor", 3), job("fold_a", fold_slots), job("fold_b", fold_slots), job("bake", 1),
-             job("sweep", 1, "default_pool")] + ([job("gold", gold_slots)] if gold_slots else []),
+    "pools": {"heavy": {"slots": slots, "description": "fixture"}},
+    "jobs": [job("floor"), job("fold_a"), job("fold_b"), job("bake"), job("sweep", "default_pool")],
 }))
 memory = {
     "floor": [{"project": "stack", "service": "migrate"}],
@@ -286,8 +282,6 @@ memory = {
     "fold_b": [{"project": "stack", "service": "small"}],
     "bake": [{"unit": "MemoryMax"}],
 }
-if gold_slots:
-    memory["gold"] = [{"project": "stack", "service": "migrate"}]
 if extra:
     memory.update(json.loads(extra))
 path = root / "tools/host-memory-budget.contract.json"
@@ -298,27 +292,25 @@ PY
 }
 
 write_scheduled_fixture
-expect_pass "scheduled jobs whose every slot combination fits"
+expect_pass "a one-slot pool whose largest member fits"
 write_scheduled_fixture ""
 expect_fail "a bake unit without MemoryMax"
-write_scheduled_fixture "MemoryMax=3G"
-expect_fail "a bake MemoryMax that pushes a fold and the bake over the host"
-write_scheduled_fixture "MemoryMax=2G" 1
-expect_fail "two one-slot folds and the bake whose sum the slots allow but the host does not"
-write_scheduled_fixture "MemoryMax=2G" 2 3g
-expect_fail "a small Spark cap that pushes a fold and the bake over the host"
-write_scheduled_fixture "MemoryMax=2G" 2 2g '{"fold_b": []}'
+write_scheduled_fixture "MemoryMax=5G"
+expect_fail "a bake MemoryMax over what the host leaves"
+write_scheduled_fixture "MemoryMax=2G" 2
+expect_fail "a pool of two slots whose two largest members the host cannot hold"
+write_scheduled_fixture "MemoryMax=2G" 2 2g '{"floor": [{"project": "stack", "service": "small"}]}'
+expect_pass "a pool of two slots whose two largest members fit"
+write_scheduled_fixture "MemoryMax=2G" 1 5g
+expect_fail "a small Spark cap over what the host leaves"
+write_scheduled_fixture "MemoryMax=2G" 1 2g '{"fold_b": []}'
 expect_fail "a pooled job that names no memory source"
-write_scheduled_fixture "MemoryMax=2G" 2 2g '{"gone": [{"unit": "MemoryMax"}]}'
+write_scheduled_fixture "MemoryMax=2G" 1 2g '{"gone": [{"unit": "MemoryMax"}]}'
 expect_fail "a memory entry for a job the list does not have"
-write_scheduled_fixture "MemoryMax=2G" 2 2g '{"fold_a": [{"project": "stack", "service": "absent"}]}'
+write_scheduled_fixture "MemoryMax=2G" 1 2g '{"fold_a": [{"project": "stack", "service": "absent"}]}'
 expect_fail "a memory source naming a service the host does not run"
 write_scheduled_fixture "MemoryMax=infinity"
 expect_fail "a MemoryMax that is not a size"
-write_scheduled_fixture "MemoryMax=2G" 2 2g "" 3
-expect_pass "a Gold rebuild on the big Spark that takes every slot and runs alone"
-write_scheduled_fixture "MemoryMax=2G" 2 2g "" 1
-expect_fail "a Gold rebuild on the big Spark that takes one slot, so a fold runs beside it over the host"
 
 # A host script's container start states its cap where it starts, a continued line read whole. The
 # fixtures spell the command RUN_CMD: container-runtime-policy reads every shell line of the

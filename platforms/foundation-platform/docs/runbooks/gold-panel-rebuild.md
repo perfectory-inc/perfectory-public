@@ -158,4 +158,4 @@ ADR-0310). Gold 작업을 멈춰 굽기를 기다릴 필요는 없다. 각 샤�
 (`scripts/guard/every-container-has-a-memory-cap.sh`)를 통과하는 범위에서 compose `spark` 상한을 올리거나 driver 를
 줄이는 결정을 먼저 한 뒤 계약에서 그 항목을 지운다.
 
-Airflow 시간 상한 165분(systemd 는 160분)은 매시 접기의 굶김 상한이 한도(1,200분 = 주기 20번)에 닿는 값이다(`job_specs.pool_starvation`).
+Airflow 시간 상한 165분(systemd 는 160분). 이 값이 매시 접기의 굶김 상한(1,200분 = 주기 20번)에 닿는 값이던 계산은 루트 ADR-0605 가 지웠다: spark 풀은 한 번에 run 하나이고, 줄에서 기다린 시간이 등급 예산을 넘으면 `FoundationJobQueueWaitOverBudget` 이 울린다.

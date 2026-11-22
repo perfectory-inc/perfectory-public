@@ -39,7 +39,6 @@
         }
       },
       "pool": "default_pool",
-      "pool_slots": 1,
       "priority_weight": 10,
       "retries": 0,
       "pipeline_graph_edges": [

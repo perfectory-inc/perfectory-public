@@ -166,6 +166,17 @@ import json, sys
 for name, pool in json.load(open(sys.argv[1]))["pools"].items():
     print(name, pool["slots"], pool["description"], sep="\t")
 ' "${jobs_file}")
+  # A pool the list no longer names goes (root ADR-0605 re-cut spark/documents into spark/duckdb/gpu); no
+  # task names it, so it only showed a slot count nothing holds.
+  while read -r name; do
+    airflow_cli pools delete "${name}" </dev/null >/dev/null
+  done < <(airflow_cli pools list -o json </dev/null | python3 -I -B -c '
+import json, sys
+declared = set(json.load(open(sys.argv[1]))["pools"]) | {"default_pool"}
+for pool in json.load(sys.stdin):
+    if pool["pool"] not in declared:
+        print(pool["pool"])
+' "${jobs_file}")
 }
 
 # Paused or not is decided by orchestration/jobs.v1.json `enabled`, never by a click in the UI: the
@@ -270,6 +281,14 @@ sync_dagster() {
     printf 'airflow-runtime: WARN dagster: the writable webserver did not answer on its socket after 5 minutes\n' >&2
     return 0
   fi
+  # Dagster's own pool limits are the job list's (root ADR-0605), set before the release's code loads, so its
+  # runs find them; a pool not set yet starts one run at a time (dagster.yaml default_limit). It reads them
+  # back: what Dagster holds after the deploy is the list's, or this says so.
+  python3 -I -B -c '
+import json, sys
+print(json.dumps({name: pool["slots"] for name, pool in json.load(open(sys.argv[1]))["pools"].items()}))
+' "${jobs_file}" | compose exec -T dagster-webserver python -I -B /opt/dagster/gate/writer_gate.py ask pools ||
+    printf 'airflow-runtime: WARN dagster: its pool limits are not the job list'"'"'s; a pool not set starts one run at a time\n' >&2
   dagster_ask reload ||
     printf 'airflow-runtime: WARN dagster: the code location did not reload; it serves the release it loaded last\n' >&2
   # The UI answers while the code location fails to load: from 2026-11-06 21:16Z to 11-09 every load

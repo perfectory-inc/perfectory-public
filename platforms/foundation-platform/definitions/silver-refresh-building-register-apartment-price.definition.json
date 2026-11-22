@@ -12,7 +12,7 @@
       "full_tracked_by": "PR #919 (root ADR-0317 stage 3: the price lane compares into a versions table and appends only the changed keys)",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
+      "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). Two of the duckdb pool's runs go at a time, lanes or other in-process work: each holds one of its slots and a memory_claim on its unit (root ADR-0599, ADR-0605).",
       "systemd_service": "foundation-silver-refresh@building-register-apartment-price.service",
       "check_service": "foundation-silver-refresh-plan@building-register-apartment-price.service",
       "systemd_timer": null,
@@ -46,8 +46,7 @@
           "tracked_by": "root ADR-0386 §5, and its full_tracked_by"
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-silver-refresh@building-register-apartment-price.service"

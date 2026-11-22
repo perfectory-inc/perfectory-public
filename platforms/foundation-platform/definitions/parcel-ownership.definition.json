@@ -31,7 +31,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -52,7 +51,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "토지소유 kind Gold as a table of appended row versions (root ADR-0361, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-ownership → publisher build-parcel-ownership-versions): gold.parcel_ownership_versions from the parcel's current owner rows (silver.land_ownership: every row of the newest release that holds the parcel), computed by DuckDB inside the publisher and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the lane serves gold.parcel_ownership it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict (gold-takeover-verdict.sh) compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise only the PNUs whose owner rows or served parcels changed. It starts no Spark session, so it queues in the documents pool on its own unit's memory_claim, not in the spark pool. Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
+      "description": "토지소유 kind Gold as a table of appended row versions (root ADR-0361, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-ownership → publisher build-parcel-ownership-versions): gold.parcel_ownership_versions from the parcel's current owner rows (silver.land_ownership: every row of the newest release that holds the parcel), computed by DuckDB inside the publisher and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the lane serves gold.parcel_ownership it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict (gold-takeover-verdict.sh) compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise only the PNUs whose owner rows or served parcels changed. It starts no Spark session, so it queues in the duckdb pool on its own unit's memory_claim, not in the spark pool. Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
       "systemd_service": "foundation-gold-versions@parcel-ownership.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -75,8 +74,7 @@
           "estimated_from": "computed, not measured: the first shadow build holds every key, so it reads the served parcel edition's PNUs (39,861,511) and the 123,103,469 owner rows of silver.land_ownership (its 2026-11-10 snapshot summary) and folds them into about 39.7 million documents; the old Spark build of the same rows took 1,571 s and 1,449 s (gold-kind mode=full, 2026-11-05 and 11-07), and the first DuckDB shadow of the same kind path committed 39,861,511 parcel-nearby rows in 1,500 s (2026-11-19). About 1,800 s, inside the 3,240 s share of the 60-minute limit. Later runs rebuild the changed PNUs only."
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-gold-versions@parcel-ownership.service"
@@ -131,8 +129,12 @@
           "estimated_from": "computed from the lane's own bakes measured in its cut-over's bake step (by-pnu-pack-operator.sh parcel-ownership bake, the same by-pnu-serving-bake.sh): 636 s on 2026-11-05 and 665 s on 2026-11-07 for 39,396,906 documents; the first scheduled bake after the publish may cut a whole generation (no reads.jsonl yet, root ADR-0468 §4), so 1,200 s, inside the 6,210 s share of the 115-minute limit"
         }
       },
-      "pool": "spark",
-      "pool_slots": 2,
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-by-pnu-lane-bake@parcel-ownership.service"
+        ]
+      },
       "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
@@ -304,15 +306,6 @@
       {
         "project": "foundation-platform-compute",
         "service": "spark"
-      }
-    ],
-    "by_pnu_parcel_ownership_bake": [
-      {
-        "unit": "MemoryMax"
-      },
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
       }
     ]
   },

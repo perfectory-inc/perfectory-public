@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 월별 가스 lane `building-energy-monthly-gas` (root ADR-0169 ②, ADR-0396): every Bronze object is a release of one usage month; load the first object, oldest ledger month first, whose parts silver.building_energy_monthly_gas does not record yet (`unchanged` when every one is), compare, in the publisher's DuckDB, only that usage month's bucket with the table's current rows and append to main the rows of the 지번 whose month changed and a removal marker per 지번 that month no longer holds (compare.bucket_scope release; root ADR-0318), and read it back (`changed`). One release per run is the cap: a month is 1.46M rows, a hub part lane's monthly size. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
+      "description": "Silver refresh of the 월별 가스 lane `building-energy-monthly-gas` (root ADR-0169 ②, ADR-0396): every Bronze object is a release of one usage month; load the first object, oldest ledger month first, whose parts silver.building_energy_monthly_gas does not record yet (`unchanged` when every one is), compare, in the publisher's DuckDB, only that usage month's bucket with the table's current rows and append to main the rows of the 지번 whose month changed and a removal marker per 지번 that month no longer holds (compare.bucket_scope release; root ADR-0318), and read it back (`changed`). One release per run is the cap: a month is 1.46M rows, a hub part lane's monthly size. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). Two of the duckdb pool's runs go at a time, lanes or other in-process work: each holds one of its slots and a memory_claim on its unit (root ADR-0599, ADR-0605).",
       "systemd_service": "foundation-silver-refresh@building-energy-monthly-gas.service",
       "check_service": "foundation-silver-refresh-plan@building-energy-monthly-gas.service",
       "systemd_timer": null,
@@ -39,8 +39,7 @@
           "to": "2026-11-05T02:34:05Z"
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-silver-refresh@building-energy-monthly-gas.service"

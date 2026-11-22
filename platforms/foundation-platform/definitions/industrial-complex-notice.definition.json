@@ -87,7 +87,6 @@
         "no_change_bound_reason": "Changes only when its collector wrote a notice object; that it is not behind its inputs is the asset reconciler's lag (root ADR-0333)."
       },
       "pool": "default_pool",
-      "pool_slots": 1,
       "priority_weight": 100,
       "retries": 0,
       "pipeline_graph_edges": [

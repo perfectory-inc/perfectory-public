@@ -469,7 +469,7 @@ def live_claims(listing, running_units=running, now=None) -> list[dict]:
         if not fnmatch.fnmatchcase(unit, declared[claimant]["unit"]) or not running_units([unit]):
             continue
         claims.append({**record, "claimant": claimant, "pool": declared[claimant]["pool"],
-                       "slots": declared[claimant]["pool_slots"],
+                       "slots": 1,
                        "priority": aged(listing, declared[claimant], record.get("since"), now),
                        "priority_class": declared[claimant]["priority_class"]})
     return claims
@@ -550,7 +550,7 @@ def unit_memory(units, systemctl: str = "systemctl") -> dict[str, tuple[int, int
     return sized
 
 
-def memory_short(listing, job, named, unit_sizes=unit_memory, available=available_memory) -> str:
+def memory_short(listing, job, named, unit_sizes=unit_memory, available=available_memory, running_units=running) -> str:
     """Why the host has no memory now for what `job` claims (`memory_claim`, root ADR-0563), or "".
 
     The claim is the MemoryMax of the units the job names: memory its run takes that no pool slot
@@ -559,7 +559,11 @@ def memory_short(listing, job, named, unit_sizes=unit_memory, available=availabl
     unit already holds is counted as taken, and `memory_claims.keep_available` stays free after it. A
     start this refuses is queued and aged like one its pool refused (root ADR-0462). 2026-11-13: the
     fact job claimed every spark slot to keep the 24G model off Spark, the pool was never empty, and
-    it waited 24,600 s with 30 GiB or more available for 95% of the week."""
+    it waited 24,600 s with 30 GiB or more available for 95% of the week.
+
+    What every other running claimed unit may still take is taken too (root ADR-0605 §3): a claim may share
+    a pool of two slots, and MemAvailable counts only what a unit holds now, so two claims started one
+    after the other would otherwise both be admitted against the memory the first one is still growing into."""
     claim = job.get("memory_claim")
     if not claim:
         return ""
@@ -571,9 +575,17 @@ def memory_short(listing, job, named, unit_sizes=unit_memory, available=availabl
     except (KeyError, ValueError) as error:
         return f"the memory claim of {named} cannot be sized: {error.args[0] if isinstance(error, KeyError) else error}"
     need = sum(max(cap - held, 0) for cap, held in sizes.values())
-    if free - need >= keep:
+    others = sorted({unit for other in listing["jobs"] if other is not job
+                     for unit in (other.get("memory_claim") or {}).get("units", ())} - set(sizes))
+    try:
+        live = sorted(running_units(others)) if others else []
+        reserved = sum(max(cap - held, 0) for cap, held in unit_sizes(live).values()) if live else 0
+    except (KeyError, ValueError) as error:
+        return f"the memory claims running beside {named} cannot be sized: {error.args[0] if isinstance(error, KeyError) else error}"
+    if free - need - reserved >= keep:
         return ""
-    return (f"the host has no memory for {named}'s claim: {', '.join(sorted(sizes))} may take {need / gib:.1f} GiB more,"
+    beside = f", {reserved / gib:.1f} GiB more is reserved for {', '.join(live)}" if reserved else ""
+    return (f"the host has no memory for {named}'s claim: {', '.join(sorted(sizes))} may take {need / gib:.1f} GiB more{beside},"
             f" {free / gib:.1f} GiB is available and {keep / gib:.1f} GiB stays free")
 
 
@@ -599,8 +611,9 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
     a hand `systemctl start` (2026-10-18: an operator's one-off took the spark pool's three slots,
     Airflow did not know, and FLOOR ran beside it at fourteen times its usual time). A disabled job
     counts too; an operator starts those. An instance of a templated job that is not a job itself (a
-    parcel tile rehearsal) holds as many slots as the most any of that template's jobs takes. A pool
-    the job list gives no slots is not bounded here.
+    parcel tile rehearsal) holds a slot of that template's pool. Every run takes one slot (root ADR-0605), as
+    Dagster's pools count the runs it decides; this counts them for a start outside Dagster. A pool the job
+    list gives no slots is not bounded here.
 
     A job that fits its pool and states a `memory_claim` must also find the host's memory for it
     (`memory_short`, root ADR-0563): the same answer, so the same queue.
@@ -612,7 +625,7 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
     def slots_of(service):
         exact = [job for job in jobs if job["systemd_service"] == service]
         alike = exact or [job for job in jobs if template(service) and template(job["systemd_service"]) == template(service)]
-        return max(alike, key=lambda job: job.get("pool_slots", 1)) if alike else None
+        return alike[0] if alike else None
 
     named = next((job["systemd_service"] for job in jobs if job["id"] == unit), unit)
     mine = slots_of(named)
@@ -620,10 +633,10 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
         raise KeyError(f"{unit} is not a job, or an instance of one, in {jobs_file}")
     pool = listing.get("pools", {}).get(mine["pool"])
     if pool is None:
-        return memory_short(listing, mine, named)
+        return memory_short(listing, mine, named, running_units=running_units)
     held = sorted(service for service in running_units(pool_patterns(listing, mine["pool"])) if service != named)
-    taken = {service: slots_of(service).get("pool_slots", 1) for service in held}
-    need = mine.get("pool_slots", 1)
+    taken = dict.fromkeys(held, 1)
+    need = 1
     # A claim waiting for this pool keeps its slots free of any start of a lower class, and of a
     # later one of its own (root ADR-0435): on 2026-11-06 a backfill that started first held the pool
     # while the cut-over waited for it. A start its pool refused before has aged in the queue since its
@@ -635,7 +648,7 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
                             since=since, now=now)
     reserved = sum(found["slots"] for found in above)
     if sum(taken.values()) + need + reserved <= pool["slots"]:
-        return memory_short(listing, mine, named)
+        return memory_short(listing, mine, named, running_units=running_units)
     if sum(taken.values()) + need <= pool["slots"]:
         waiting = ", ".join(f"{found['claimant']} ({found['priority_class']}, {found['slots']} slots, waiting since"
                             f" {found.get('since')})" for found in above)
@@ -662,9 +675,7 @@ def preempted(jobs_file, job_id, running_units=running) -> str:
     above = _waiting_claims(listing, job["pool"], priority(listing, job), running_units, equal=False)
     if not above:
         return ""
-    members = [entry for entry in listing["jobs"] if entry["pool"] == job["pool"]]
-    held = sum(next((entry.get("pool_slots", 1) for entry in members if entry["systemd_service"] == service), 1)
-               for service in running_units(pool_patterns(listing, job["pool"])))
+    held = len(running_units(pool_patterns(listing, job["pool"])))
     if held + sum(found["slots"] for found in above) <= pool["slots"]:
         return ""
     names = ", ".join(f"{found['claimant']} ({found['priority_class']})" for found in above)

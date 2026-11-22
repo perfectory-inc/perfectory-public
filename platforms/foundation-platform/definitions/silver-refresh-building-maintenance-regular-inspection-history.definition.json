@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 건축물 정기점검이력 lane `building-maintenance-regular-inspection-history` (root ADR-0169 ②, ADR-0402, ADR-0404): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_maintenance_regular_inspection_history already records it or a newer one (`unchanged`), export it, compare it, in the publisher's DuckDB, with the table's current rows in one piece and append to main only the new rows and a removal marker per vanished one (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
+      "description": "Silver refresh of the 건축물 정기점검이력 lane `building-maintenance-regular-inspection-history` (root ADR-0169 ②, ADR-0402, ADR-0404): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_maintenance_regular_inspection_history already records it or a newer one (`unchanged`), export it, compare it, in the publisher's DuckDB, with the table's current rows in one piece and append to main only the new rows and a removal marker per vanished one (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). Two of the duckdb pool's runs go at a time, lanes or other in-process work: each holds one of its slots and a memory_claim on its unit (root ADR-0599, ADR-0605).",
       "systemd_service": "foundation-silver-refresh@building-maintenance-regular-inspection-history.service",
       "check_service": "foundation-silver-refresh-plan@building-maintenance-regular-inspection-history.service",
       "systemd_timer": null,
@@ -35,8 +35,7 @@
           "estimated_from": "computed, about 2.5x the nearest larger measured neighbours on the same template unit (root ADR-0386): silver_refresh_building_permit_basis_outline 357 s for a 438 MB release, _parking 251 s for 59 MB, _demolition_loss 161 s for 15 MB; this lane's newest release is about 2 MB in the Bronze ledger (2026-11-09)"
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-silver-refresh@building-maintenance-regular-inspection-history.service"

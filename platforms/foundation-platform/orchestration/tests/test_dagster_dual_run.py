@@ -84,7 +84,7 @@ class RulesTest(unittest.TestCase):
         import dual_run
 
         values = {"job_id": "synthetic", "dag_id": "foundation_synthetic", "description": "", "schedule": "50 * * * *",
-                  "timeout_minutes": 30, "pool": "default_pool", "pool_slots": 1, "retries": 0, "priority_weight": 1,
+                  "timeout_minutes": 30, "pool": "default_pool", "retries": 0, "priority_weight": 1,
                   "systemd_service": "foundation-synthetic.service", "systemd_timer": None, "enabled": True,
                   "inputs": [], "outputs": [], "dagster_stage": "shadow", **fields}
         return dual_run.job_specs.JobSpec(**values)

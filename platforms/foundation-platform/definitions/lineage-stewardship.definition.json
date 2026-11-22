@@ -39,7 +39,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "pipeline_graph_edges": [
         "source-code-go-kr-to-reference-legal-dong-code-snapshot",
         "reference-legal-dong-code-snapshot-to-reference-legal-dong-code-change",

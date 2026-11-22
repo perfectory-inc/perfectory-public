@@ -837,6 +837,10 @@ DAGSTER_HELP = """# HELP foundation_dagster_observing Whether Dagster observes A
 # TYPE foundation_dagster_sensor_tick_failed gauge
 # HELP foundation_dagster_run_overdue_seconds How long past its limit the oldest unfinished Dagster run of a Dagster job is (root ADR-0565 §9 (c)): a run never closed is one the sensor waits on forever.
 # TYPE foundation_dagster_run_overdue_seconds gauge
+# HELP foundation_dagster_run_queued_seconds How long the oldest QUEUED Dagster run of a job has waited in Dagster's queue for its pool's slot, from when the run was made (root ADR-0605 §5).
+# TYPE foundation_dagster_run_queued_seconds gauge
+# HELP foundation_dagster_run_queue_budget_seconds How long a QUEUED run of the job's priority class may wait before it alerts (priority_classes queue_wait_budget_minutes).
+# TYPE foundation_dagster_run_queue_budget_seconds gauge
 """
 # A Dagster run that is not a job's own (an asset check's) is closed by run monitoring at the instance's
 # max runtime (orchestration/dagster/dagster.yaml, root ADR-0565 §9); a job's run at its scheduled start's
@@ -878,7 +882,7 @@ def dagster_state(jobs: dict, dag_ids: dict, post, decided=(), held=lambda job: 
         ' { __typename ... on Sensor { sensorState { status ticks(limit: 1) { status } } } }'
         for index, job in enumerate(decided))
     runs = (f" runs: runsOrError(filter: {{statuses: {UNFINISHED_RUN_STATUSES}}}, limit: 200)"
-            " { __typename ... on Runs { results { jobName creationTime } } }")
+            " { __typename ... on Runs { results { jobName creationTime status } } }")
     query = ("{ workspaceOrError { __typename ... on Workspace { locationEntries { name locationOrLoadError"
              " { __typename } } } }" + checks + sensors + runs + " }")
     try:
@@ -908,7 +912,9 @@ def dagster_state(jobs: dict, dag_ids: dict, post, decided=(), held=lambda job: 
                      f'foundation_dagster_sensor_tick_failed{{job="{label(job)}"}} '
                      f'{int(bool(ticks) and ticks[0].get("status") == "FAILURE")}\n')
         text += f'foundation_dagster_sensor_held{{job="{label(job)}"}} {int(bool(held(job)))}\n'
-    text += run_overdue(jobs, (data.get("runs") or {}).get("results") or [], now())
+    unfinished = (data.get("runs") or {}).get("results") or []
+    text += run_overdue(jobs, unfinished, now())
+    text += run_queued(jobs, unfinished, now())
     return text
 
 
@@ -932,6 +938,31 @@ def run_overdue(jobs: dict, runs: list, now: float) -> str:
         overdue[name] = max(overdue.get(name, 0.0), late)
     return "".join(f'foundation_dagster_run_overdue_seconds{{run_job="{label(name)}"}} {round(late)}\n'
                    for name, late in sorted(overdue.items()))
+
+
+def run_queued(jobs: dict, runs: list, now: float) -> str:
+    """Per job with a QUEUED Dagster run, how long the oldest has waited for its pool's slot, and its class's
+    budget (root ADR-0605 §5). The wait is measured here, not computed from the job list: until root
+    ADR-0605 job_specs refused a list whose worst case it computed past 20 of a job's cycles, and so put
+    input-started jobs on the clock."""
+    by_dagster_job = {job_specs.DAGSTER_JOB_PREFIX + job["id"]: job for job in jobs.get("jobs", [])}
+    oldest = {}
+    for run in runs:
+        job = by_dagster_job.get(run.get("jobName") or "")
+        created = run.get("creationTime")
+        if job is None or run.get("status") != "QUEUED" or not isinstance(created, (int, float)):
+            continue
+        oldest[job["id"]] = min(oldest.get(job["id"], created), created)
+    lines = []
+    for job_id, created in sorted(oldest.items()):
+        job = by_dagster_job[job_specs.DAGSTER_JOB_PREFIX + job_id]
+        cls = job.get("priority_class", "default")
+        labels = f'job="{label(job_id)}",pool="{label(job["pool"])}",priority_class="{label(cls)}"'
+        lines.append(f"foundation_dagster_run_queued_seconds{{{labels}}} {round(max(now - created, 0))}\n")
+        budget = ((jobs.get("priority_classes") or {}).get(cls) or {}).get("queue_wait_budget_minutes")
+        if isinstance(budget, int):
+            lines.append(f"foundation_dagster_run_queue_budget_seconds{{{labels}}} {budget * 60}\n")
+    return "".join(lines)
 
 
 def dagster_post(url: str):

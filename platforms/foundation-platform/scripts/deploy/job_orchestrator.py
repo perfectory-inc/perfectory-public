@@ -117,14 +117,20 @@ def unpause(jobs, job_ids, post):
     return started
 
 
-def start(jobs, job_id, kind, post):
-    """Launches the job's Dagster job once with run kind `kind`; the run id."""
+def launch_tags(jobs, job_id, kind):
+    """The tags a start of the job carries: its sensor's runs' own (JobSpec.dagster_tags), so its class and
+    queue weight order it (dagster_priority) and a job Dagster decides counts under the decided-by limit.
+    Until root ADR-0605 a deploy's start-once or an operator's run-now sent the class value alone, so it
+    queued behind the sensor runs of its class. Read from the release's whole list and pipeline graph."""
+    spec = next(spec for spec in job_specs.load_specs(jobs) if spec.job_id == job_id)
+    return spec.dagster_tags(kind)
+
+
+def start(jobs, job_id, kind, post, tags):
+    """Launches the job's Dagster job once with run kind `kind` and `tags` (launch_tags); the run id."""
     _named(jobs, [job_id])
     if not kind or not job_specs.RUN_KIND.fullmatch(kind):
         raise Refused(f"{kind[:60]!r} is not `triggered` or `requested <request id>`")
-    job = next(job for job in jobs["jobs"] if job["id"] == job_id)
-    priority = jobs["priority_classes"][job_specs.priority_class(jobs, job, job_id)]["value"]
-    tags = job_specs.run_tags(job["pool"], priority, kind, 60 * job_specs.scheduler_timeout_minutes(job))
     found = _expect(post(LAUNCH, {"params": {
         "mode": "default",
         "executionMetadata": {"tags": [{"key": key, "value": value} for key, value in tags.items()]},
@@ -149,7 +155,9 @@ def main(argv, post=None):
         else:
             if len(argv) < 3:
                 raise Refused("start names one job")
-            run_id = start(jobs, argv[2], " ".join(argv[3:]) or "triggered", post or poster())
+            kind = " ".join(argv[3:]) or "triggered"
+            _named(jobs, [argv[2]])
+            run_id = start(jobs, argv[2], kind, post or poster(), launch_tags(jobs, argv[2], kind))
             print(f"job-orchestrator: started {argv[2]} as Dagster run {run_id}")
     except Refused as error:
         print(f"job-orchestrator: refused: {error}", file=sys.stderr)

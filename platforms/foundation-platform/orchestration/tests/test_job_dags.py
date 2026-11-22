@@ -544,7 +544,7 @@ class AProxiedJobsRunIsDagsters(unittest.TestCase):
     def test_the_run_task_keeps_its_pool_and_limits_and_the_tasks_around_it(self):
         run = self.run_of(self.job)
         self.assertIsInstance(run, self.module.ProxyRunJob)
-        for name, expected in (("pool", self.job.pool), ("pool_slots", self.job.pool_slots),
+        for name, expected in (("pool", self.job.pool),
                                ("priority_weight", self.job.priority_weight), ("retries", self.job.retries)):
             self.assertEqual(run.kwargs[name], expected, name)
         tasks = {task.task_id for task in self.dags[self.job.dag_id].tasks}

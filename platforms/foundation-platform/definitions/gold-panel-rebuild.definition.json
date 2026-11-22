@@ -43,7 +43,6 @@
         }
       },
       "pool": "spark",
-      "pool_slots": 3,
       "priority_weight": 30,
       "priority_class": "publish",
       "priority_class_from": "by_pnu_serving_bake",
@@ -82,7 +81,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Parcel panel Gold as a table of appended row versions (root ADR-0096, ADR-0564 §9 차례 5; scripts/ops/gold-versions-build.sh parcel → publisher build-parcel-panel-versions): gold.parcel_panel_versions, computed by DuckDB inside the publisher (parcel_panel_stage::PANEL, one 시도 at a time, each row set's current rows chosen per 시도) and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the parcel lane bakes gold.parcel_panel it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise only the PNUs whose rows, zone anchors, 법정동 names or served parcels changed (ParcelPanel::changed_pnus). It reads no lineage, as the Spark build it shadows does not (gold-panel-rebuild.contract.json unmeasured_inputs). It starts no Spark session, so it queues in the documents pool on its own unit's memory_claim, not in the spark pool, and at weight 3, under the land Silver lanes it reads (4) and the hourly document jobs (10): a shadow serves nothing, so it waits behind them. Nothing reads it until the parcel lane's takeover PR names it as the lane's Gold.",
+      "description": "Parcel panel Gold as a table of appended row versions (root ADR-0096, ADR-0564 §9 차례 5; scripts/ops/gold-versions-build.sh parcel → publisher build-parcel-panel-versions): gold.parcel_panel_versions, computed by DuckDB inside the publisher (parcel_panel_stage::PANEL, one 시도 at a time, each row set's current rows chosen per 시도) and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the parcel lane bakes gold.parcel_panel it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise only the PNUs whose rows, zone anchors, 법정동 names or served parcels changed (ParcelPanel::changed_pnus). It reads no lineage, as the Spark build it shadows does not (gold-panel-rebuild.contract.json unmeasured_inputs). It starts no Spark session, so it queues in the duckdb pool on its own unit's memory_claim, not in the spark pool, and at weight 3, under the land Silver lanes it reads (4) and the hourly document jobs (10): a shadow serves nothing, so it waits behind them. Nothing reads it until the parcel lane's takeover PR names it as the lane's Gold.",
       "systemd_service": "foundation-gold-versions@parcel.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -105,8 +104,7 @@
           "estimated_from": "computed, not measured: the first shadow build holds every key. It copies every version of the six row sets into a local spool split by 시도 with no sort (402,659,127 land use, 131,850,695 transfer, 39,966,526 forest, 35,888,121 characteristic, 35,887,377 price and 28,498,072 land right rows, Trino $files 2026-11-22) and the 39,861,511 served PNUs, then chooses each set's current rows and folds the documents one 시도 at a time and appends them in one commit. The same path committed 39,861,511 parcel-nearby rows in 1,500 s (2026-11-19); the panel reads about five times those rows, mostly copied rather than sorted: about 2,400 s, inside the 3,240 s share of the 60-minute limit the unit's other builds share. The Spark build took 5,555 s for the whole table (root ADR-0440 §4). Later runs rebuild the changed PNUs only."
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-gold-versions@parcel.service"

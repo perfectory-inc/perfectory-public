@@ -52,7 +52,6 @@
         "source-data-go-kr-file-data-to-silver-knowledge-industry-center"
       ],
       "enabled": true,
-      "pool_slots": 1,
       "priority_weight": 10,
       "enabled_since": "2026-11-09T03:00:00Z",
       "dagster_stage": "dagster",
