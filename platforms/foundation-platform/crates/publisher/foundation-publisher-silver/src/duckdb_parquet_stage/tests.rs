@@ -816,8 +816,8 @@ async fn an_onbid_object_is_the_first_append_into_each_empty_table() -> anyhow::
     Ok(())
 }
 
-/// The 법원경매정보 `DuckDB` load's first object into each of the six tables its 공통코드, 감정평가서,
-/// 매각물건명세서 and 배당요구종기공고 write, as `load-courtauction-go-kr-silver` appends it.
+/// The 법원경매정보 `DuckDB` load's first object into each of the tables its documents write, as
+/// `load-courtauction-go-kr-silver` appends it.
 ///
 /// Into a catalog that holds none of them yet: the load makes each table before its first commit.
 #[tokio::test(flavor = "multi_thread")]
@@ -829,6 +829,26 @@ async fn a_court_auction_object_is_the_first_append_into_each_empty_table() -> a
         contract("silver.court_auction_sale_specification_read")?,
         contract("silver.court_auction_dividend_notice")?,
         contract("silver.court_auction_dividend_object")?,
+        contract("silver.court_auction_sale_notice")?,
+        contract("silver.court_auction_sale_notice_item")?,
+        contract("silver.court_auction_case")?,
+        contract("silver.court_auction_case_related")?,
+        contract("silver.court_auction_case_object")?,
+        contract("silver.court_auction_case_party")?,
+        contract("silver.court_auction_case_document_read")?,
+        contract("silver.court_auction_survey")?,
+        contract("silver.court_auction_survey_object")?,
+        contract("silver.court_auction_appraisal")?,
+        contract("silver.court_auction_case_filing")?,
+        contract("silver.court_auction_case_delivery")?,
+        contract("silver.court_auction_survey_tenant")?,
+        contract("silver.court_auction_item_photo")?,
+        contract("silver.court_auction_item_spec")?,
+        contract("silver.court_auction_item_schedule")?,
+        contract("silver.court_auction_item_object")?,
+        contract("silver.court_auction_item_annex")?,
+        contract("silver.court_auction_appraisal_point")?,
+        contract("silver.court_auction_item_detail")?,
     ];
     let root = tempfile::tempdir()?;
     let catalog: Arc<dyn Catalog> = Arc::new(

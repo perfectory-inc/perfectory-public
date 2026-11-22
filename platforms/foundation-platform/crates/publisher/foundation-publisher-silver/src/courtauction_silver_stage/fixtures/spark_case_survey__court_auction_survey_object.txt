@@ -1,0 +1,2 @@
+B999999|20990130000001|2|1|1|NULL|09|소유자 ○○○ 점유|NULL|1|NULL|NULL|NULL|NULL|NULL|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+B999999|20990130000002|2|1|1|NULL|09|소유자 ○○○ 점유|NULL|1|NULL|NULL|NULL|NULL|NULL|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z

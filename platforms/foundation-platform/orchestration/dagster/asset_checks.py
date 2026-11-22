@@ -4,7 +4,7 @@ A definition's `asset_checks` section (platforms/foundation-platform/definitions
 says which of its own assets carries which check, whether the check blocks, and which other nodes it
 reads. This module only turns each declaration into a Dagster asset check over the kind of check it
 names; the kinds are the code (unit_price_checks.KINDS, publish_checks.KINDS, place_identity_checks.KINDS,
-takeover_checks.KINDS: the one a job's unit reports itself). No asset key, table or node id is written
+takeover_checks.KINDS and load_checks.KINDS: the ones a job's unit reports itself). No asset key, table or node id is written
 here, so a check moves, is added or turns blocking by editing the asset's own definition.
 
 A blocking check (`blocking: true`) fails with severity ERROR and, in a run that materializes its
@@ -49,7 +49,7 @@ class Declared:
 def kinds():
     """Check name -> its kind (the modules imported at the end of this one)."""
     return {**unit_price_checks.KINDS, **publish_checks.KINDS, **place_identity_checks.KINDS,
-            **takeover_checks.KINDS}
+            **takeover_checks.KINDS, **load_checks.KINDS}
 
 
 def definitions():
@@ -107,3 +107,4 @@ import place_identity_checks  # noqa: E402
 import publish_checks  # noqa: E402
 import unit_price_checks  # noqa: E402
 import takeover_checks  # noqa: E402
+import load_checks  # noqa: E402

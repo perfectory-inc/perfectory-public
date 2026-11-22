@@ -1,0 +1,2 @@
+B999999|20990130000001|1|01|토지|000|미종국|9999910100|7|NULL|NULL|NULL|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|1|20990102T030405Z
+B999999|20990130000002|1|01|토지|000|미종국|9999910100|7|NULL|NULL|NULL|NULL|bronze/source=courtauctiongokr__synthetic/year=2099/month=01/day=02/ca-20990102t030405z.gz|3|20990102T030405Z

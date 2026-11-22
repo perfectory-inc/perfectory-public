@@ -2812,6 +2812,7 @@ dependencies = [
  "collection-infrastructure",
  "duckdb",
  "encoding_rs",
+ "fancy-regex",
  "flate2",
  "foundation-normalization-domain",
  "foundation-outbox",
