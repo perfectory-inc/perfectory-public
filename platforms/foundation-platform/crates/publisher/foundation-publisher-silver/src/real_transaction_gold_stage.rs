@@ -118,8 +118,9 @@ pub const CONTENT_COLUMNS: [&str; 6] = [
     "main_lot_group_place_ids",
 ];
 
-/// The `row_digest` of a built row: the SHA-256 of `to_json` of every content column. The
-/// versions table appends only the keys whose digest moved, so a column the digest left out
+/// The `row_digest` of a built row: the SHA-256 of `to_json` of every content column.
+///
+/// The versions table appends only the keys whose digest moved, so a column the digest left out
 /// would change unseen (root ADR-0564 Revision 2026-11-22, the second).
 #[must_use]
 pub fn row_digest_sql() -> String {

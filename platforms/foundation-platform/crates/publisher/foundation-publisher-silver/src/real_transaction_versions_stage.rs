@@ -39,6 +39,7 @@ pub const INPUTS: [&str; 9] = [
 ];
 
 /// The deals a unit takes before the next one starts (a 시군구 component larger than this is one unit).
+///
 /// 경기 whole (4.8M deals) did not fit 12 GB in the 2026-11-21 verdict and 부산 whole (617k) not its
 /// documents' 12 GB before they were built per 시군구; the unit's `MemoryMax` is 8G, of which `DuckDB`
 /// takes three fifths. A first bound to measure, not a measured one.
@@ -94,9 +95,10 @@ fn root(parent: &mut BTreeMap<String, String>, node: &str) -> String {
     at
 }
 
-/// The units of `deals_by_node` (deals per 시군구) under `edges` (pairs of 시군구 a placement links):
-/// each connected component whole, components packed largest first into units of at most `budget`
-/// deals (a larger component alone). Deterministic: the same inputs give the same units.
+/// The units of `deals_by_node` (deals per 시군구) under `edges` (pairs of 시군구 a placement links).
+///
+/// Each connected component is whole; components are packed largest first into units of at most
+/// `budget` deals (a larger component alone). Deterministic: the same inputs give the same units.
 #[must_use]
 pub fn units(
     deals_by_node: &BTreeMap<String, u64>,
@@ -374,7 +376,9 @@ const SPOOLED_TABLES: [&str; 7] = [
 ];
 
 /// Per 시군구 of the spool in `dir`, `<table>=<rows>:<sum of row hashes>` for each table that holds a
-/// row of it: the same rows in any order give the same digest, and any row added, removed or changed
+/// row of it.
+///
+/// The same rows in any order give the same digest, and any row added, removed or changed
 /// in a 시군구 changes that 시군구's digest alone.
 ///
 /// # Errors
