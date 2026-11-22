@@ -1,5 +1,4 @@
-//! The parcel panel's Gold in `DuckDB` (root ADR-0096, ADR-0564 §9 차례 5): the twin of
-//! `parcel_panel_silver_to_gold.py` as the scheduled rebuild runs it.
+//! The twin of `parcel_panel_silver_to_gold.py` as the scheduled rebuild runs it.
 //!
 //! One row per PNU of the served parcel edition, each section a JSON column shaped like the response
 //! DTO the parcel document carries (`parcel_by_pnu_serving_export::parcel_document`). The sections:
