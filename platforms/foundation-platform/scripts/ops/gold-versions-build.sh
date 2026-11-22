@@ -16,6 +16,8 @@
 # parcel → build-parcel-panel-versions (root ADR-0096, ADR-0564 §9 차례 5: 필지 레인의 호스트 패널, 같은 그림자 길).
 # parcel-ownership → build-parcel-ownership-versions (root ADR-0361, 같은 그림자 길).
 # parcel-factories → build-parcel-factories-versions (root ADR-0449, 같은 그림자 길).
+# lineage-review-queue → build-lineage-review-queue-versions (root ADR-0113 §10·0483 §5, 레인 밖 표: 스튜어드 큐,
+# ADR-0564 §6-9; 선언된 판정 검사가 없다).
 # 그림자 커밋 뒤에는(그리고 그 머리의 판정이 끝까지 돌 때까지 다음 실행마다) 같은 유닛이 넘겨받기 판정
 # (gold-takeover-verdict.sh)을 선언된 시도에서 돌려 Dagster 의 자산 검사 `takeover_equal` 로 알린다(journal 의
 # Pipes 줄, orchestration/dagster/takeover_checks.py; ADR-0564 §6-3). 판정의 실패는 검사의 것이고 빌드의 커밋은 선다.
@@ -32,6 +34,7 @@ case "${lane}" in
   parcel) command=build-parcel-panel-versions ;;
   parcel-ownership) command=build-parcel-ownership-versions ;;
   parcel-factories) command=build-parcel-factories-versions ;;
+  lineage-review-queue) command=build-lineage-review-queue-versions ;;
   *) echo "gold-versions-build: ${lane} has no table of appended row versions the publisher builds" >&2; exit 64 ;;
 esac
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current

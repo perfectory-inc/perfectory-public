@@ -44,15 +44,11 @@ use foundation_publisher_by_pnu::building_by_pnu_serving_export::section_packs::
 
 use crate::{
     gold_takeover_documents::{DocumentCheck, DocumentRules},
-    gold_versions_commit::{shadow_of, Shadow, SOURCE_SNAPSHOTS_PROPERTY},
+    gold_versions_commit::{shadow_of, Shadow, PER_COMMIT_STAMPS, SOURCE_SNAPSHOTS_PROPERTY},
     public_data_control_support::{optional_env_value, required_env_value},
 };
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_GOLD_TAKEOVER_";
-/// The columns each build stamps on the rows it writes: the replaced table's per-commit partition
-/// and the run's start (`gold_versions_commit::appended_sql` stamps the same two). The two engines
-/// commit at different times, so these differ on every row and say nothing of the content.
-const PER_COMMIT_STAMPS: [&str; 2] = ["source_snapshot_id", "published_at_utc"];
 // one-off: with gold.parcel_boundary_served's switch, which deletes its Spark job.
 /// The lineage a replaced table's build stamps on the rows it writes besides [`PER_COMMIT_STAMPS`]:
 /// the Spark served-boundary job writes the Silver snapshot and the ledger position it read on every

@@ -372,6 +372,13 @@ fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Resul
     assert_eq!(
         parse_command([
             "foundation-outbox-publisher",
+            "build-lineage-review-queue-versions"
+        ])?,
+        Command::BuildLineageReviewQueueVersions
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
             "build-parcel-ownership-versions"
         ])?,
         Command::BuildParcelOwnershipVersions

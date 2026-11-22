@@ -182,6 +182,8 @@ pub mod place_identity_stage;
 
 /// The parcel lineage's carry walk every placing producer shares (root ADR-0113 §6).
 pub mod lineage_carry;
+/// The steward queue's items (root ADR-0113 §10, ADR-0483 §5).
+pub mod lineage_review_queue_stage;
 
 /// The parcel lineage as every consumer reads it: steward decisions in force (root ADR-0115 §9).
 pub mod lineage_steward_read;

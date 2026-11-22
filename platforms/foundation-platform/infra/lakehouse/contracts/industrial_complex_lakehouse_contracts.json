@@ -14691,6 +14691,108 @@
         "unit": "derived"
       }
     },
+    "gold.lineage_review_queue_versions": {
+      "table_name": "gold.lineage_review_queue_versions",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "unit",
+          "subject_code"
+        ],
+        "newest_first": [
+          "version_seq"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY unit, subject_code ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "unit",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "subject_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "item_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "candidates_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "evidence_etag",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "from_snapshot_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "to_snapshot_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "version_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "unit"
+      ],
+      "sort_order": [
+        "subject_code"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(unit, subject_code, version_seq) unique",
+        "of the current rows: one row per (unit, subject_code)",
+        "of the current rows: status is needs_review or pending",
+        "of the current rows: item_id is the UUIDv5 of lineage-review:<unit>:<subject_code>",
+        "of the current rows: evidence_etag is the sha256 of status, a newline, and candidates_json (ADR-0115)",
+        "of the current rows: row_digest contains content only"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "gold.land_use_zone_area_by_tile": {
       "table_name": "gold.land_use_zone_area_by_tile",
       "physical_format": "GeoParquet",

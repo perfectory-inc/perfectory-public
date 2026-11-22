@@ -119,6 +119,7 @@ mod industrial_complex_silver_load;
 mod industrial_land_sale_notice_silver_load;
 mod kind_versions_build;
 mod lineage_review_items_load;
+mod lineage_review_queue_versions_build;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
 mod parcel_boundary_served_build;
@@ -318,6 +319,7 @@ enum Command {
     BuildParcelEnergyVersions,
     BuildParcelSubParcelsVersions,
     BuildParcelBuildingPermitsVersions,
+    BuildLineageReviewQueueVersions,
     BuildParcelPanelVersions,
     BuildParcelOwnershipVersions,
     BuildParcelFactoriesVersions,
@@ -705,6 +707,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelBuildingPermitsVersions => Box::pin(kind_versions_build::run(
             &kind_versions_build::BUILDING_PERMITS_BUILD,
         )),
+        Command::BuildLineageReviewQueueVersions => {
+            Box::pin(lineage_review_queue_versions_build::run())
+        }
         Command::BuildParcelPanelVersions => Box::pin(kind_versions_build::run(
             &kind_versions_build::PARCEL_PANEL_BUILD,
         )),
@@ -905,6 +910,7 @@ where
         Some("build-parcel-building-permits-versions") => {
             Ok(Command::BuildParcelBuildingPermitsVersions)
         }
+        Some("build-lineage-review-queue-versions") => Ok(Command::BuildLineageReviewQueueVersions),
         Some("build-parcel-panel-versions") => Ok(Command::BuildParcelPanelVersions),
         Some("build-parcel-ownership-versions") => Ok(Command::BuildParcelOwnershipVersions),
         Some("build-parcel-factories-versions") => Ok(Command::BuildParcelFactoriesVersions),
