@@ -300,7 +300,6 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         table,
         versions: versions_contract,
         content_columns,
-        key: "pnu",
         head,
         base: base.clone(),
         version_seq,
@@ -348,7 +347,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         };
         diff += versions::diff(connection, &commit, &range)?;
         digests += versions::digests(connection, &commit)?;
-        files.extend(versions::stage(&duck, &shape, &run, "pnu")?);
+        files.extend(versions::stage(&duck, &shape, &run, versions_contract)?);
         if let (Some(total), Some(count)) = (targets.as_mut(), named) {
             *total += count;
         }

@@ -369,7 +369,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         table: TABLE,
         versions: versions_contract,
         content_columns,
-        key: "pnu",
         head,
         base: base.clone(),
         version_seq,
@@ -433,7 +432,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     // Commit.
     let run = versions::run_id(TABLE, &pins, &code, &edition);
     let shape = committer.table_shape(TABLE).await?;
-    let files = versions::stage(&stage, &shape, &run, "pnu")?;
+    let files = versions::stage(&stage, &shape, &run, versions_contract)?;
     let mut summary = BTreeMap::from([
         (VERSION_SEQ_PROPERTY.to_owned(), version_seq.to_string()),
         (

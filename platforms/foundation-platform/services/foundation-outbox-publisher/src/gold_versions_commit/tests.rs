@@ -112,7 +112,6 @@ fn only_changed_keys_are_appended_and_a_key_that_left_gets_a_marker() -> anyhow:
         table: "gold.parcel_real_transaction_versions",
         versions: &versions,
         content_columns: content.clone(),
-        key: "pnu",
         head: None,
         base: None,
         version_seq: 1,
@@ -179,6 +178,95 @@ fn only_changed_keys_are_appended_and_a_key_that_left_gets_a_marker() -> anyhow:
     assert_eq!((rows, sum, current), (3, 14, 3));
     assert_eq!(fingerprint_text((rows, sum)), "rows:3;digest_sum:14");
     Ok(())
+}
+
+/// A Gold outside the by-PNU lanes (the steward queue): a key of two columns and no `row_digest`,
+/// so the digest is of the content columns but the stamps, and a row that differs only in its
+/// stamp is not appended again.
+#[test]
+fn a_table_without_a_row_digest_appends_by_its_content_and_its_whole_key() -> anyhow::Result<()> {
+    let versions = industrial_complex_lakehouse_contracts()
+        .iter()
+        .find(|contract| contract.table_name == "gold.lineage_review_queue_versions")
+        .context("the steward queue's versions table")?;
+    let replaced = industrial_complex_lakehouse_contracts()
+        .iter()
+        .find(|contract| contract.table_name == "gold.lineage_review_queue")
+        .context("the steward queue")?;
+    let content: Vec<&'static str> = replaced.columns.iter().map(|column| column.name).collect();
+    let connection = foundation_publisher_silver::duckdb::Connection::open_in_memory()?;
+    connection.execute_batch(
+        "CREATE TABLE built (unit VARCHAR, subject_code VARCHAR, item_id VARCHAR, status VARCHAR, \
+           candidates_json VARCHAR, evidence_etag VARCHAR, from_snapshot_id VARCHAR, \
+           to_snapshot_id VARCHAR, published_at_utc TIMESTAMPTZ); \
+         CREATE TABLE current_rows AS SELECT * FROM built WHERE FALSE; \
+         INSERT INTO current_rows VALUES \
+           ('parcel', '9999910100100010000', 'i1', 'pending', '[]', 'e1', NULL, NULL, TIMESTAMPTZ '2099-01-01 00:00:00+00'), \
+           ('parcel', '9999910100100020000', 'i2', 'pending', '[]', 'e2', NULL, NULL, TIMESTAMPTZ '2099-01-01 00:00:00+00'), \
+           ('place_reference', '9999910100100010000', 'i3', 'steward', '{}', 'e3', NULL, 's1', TIMESTAMPTZ '2099-01-01 00:00:00+00'); \
+         INSERT INTO built VALUES \
+           ('parcel', '9999910100100010000', 'i1', 'pending', '[]', 'e1', NULL, NULL, TIMESTAMPTZ '2099-01-02 00:00:00+00'), \
+           ('parcel', '9999910100100020000', 'i2', 'needs_review', '[]', 'e9', NULL, NULL, TIMESTAMPTZ '2099-01-02 00:00:00+00'), \
+           ('place_reference', '9999910100100020000', 'i4', 'steward', '{}', 'e4', NULL, 's2', TIMESTAMPTZ '2099-01-02 00:00:00+00');",
+    )?;
+    let commit = Commit {
+        table: "gold.lineage_review_queue_versions",
+        versions,
+        content_columns: content,
+        head: Some(1),
+        base: None,
+        version_seq: 2,
+        source_snapshot_id: "s2".to_owned(),
+        published_at_utc: "2099-01-02T00:00:00Z".to_owned(),
+    };
+    assert_eq!(commit.key()?, ["unit", "subject_code"]);
+    assert!(commit
+        .digest_sql()
+        .starts_with("sha256(to_json({'unit': unit"));
+    assert!(!commit.digest_sql().contains("published_at_utc"));
+    connection.execute_batch(&appended_sql(&commit)?)?;
+    let changes = connection
+        .prepare(
+            "SELECT unit, subject_code, change, CAST(published_at_utc AS VARCHAR) FROM appended \
+             ORDER BY unit, subject_code",
+        )?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let (changed, removed, added) = (&changes[0], &changes[1], &changes[2]);
+    // i1 differs only in its stamp: not appended. The same PNU under another unit is another key.
+    assert_eq!(changes.len(), 3);
+    assert_eq!(
+        (changed.1.as_str(), changed.2.as_str()),
+        ("9999910100100020000", "changed")
+    );
+    assert_eq!(
+        (removed.0.as_str(), removed.1.as_str(), removed.2.as_str()),
+        ("place_reference", "9999910100100010000", "removed")
+    );
+    assert_eq!(
+        (added.0.as_str(), added.1.as_str(), added.2.as_str()),
+        ("place_reference", "9999910100100020000", "added")
+    );
+    // The removal marker carries this commit's stamp as the column's type.
+    assert!(removed.3.starts_with("2099-01-02"));
+    Ok(())
+}
+
+#[test]
+fn a_partition_splits_files_by_the_sido_of_the_pnu_or_by_its_identity_column() {
+    assert_eq!(
+        partition_expression("truncate(2, pnu)").ok().as_deref(),
+        Some("substr(pnu, 1, 2)")
+    );
+    assert_eq!(partition_expression("unit").ok().as_deref(), Some("unit"));
+    assert!(partition_expression("bucket(4, item_id)").is_err());
 }
 
 fn build_tag(snapshot_id: i64) -> lakehouse_infrastructure::IcebergSnapshotRef {
