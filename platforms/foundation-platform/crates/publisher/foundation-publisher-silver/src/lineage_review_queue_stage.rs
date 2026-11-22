@@ -363,6 +363,22 @@ pub fn place_reference_items(
     Ok(items)
 }
 
+/// The rules' code version: the text of this module and of the lineage reader it folds through,
+/// so any change of either rebuilds the whole queue (some thousands of items).
+#[must_use]
+pub fn code_version() -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    for text in [
+        include_str!("lineage_review_queue_stage.rs"),
+        include_str!("lineage_steward_read.rs"),
+    ] {
+        hash.update(text.as_bytes());
+        hash.update([0]);
+    }
+    format!("{:x}", hash.finalize())
+}
+
 /// The Silver tables whose rows the resolver placed: those whose contract carries a `pnu` and its
 /// reason (`place_reference_queue.sources`), by name.
 #[must_use]
