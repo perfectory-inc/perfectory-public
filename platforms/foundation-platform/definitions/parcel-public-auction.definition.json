@@ -91,8 +91,7 @@
           "estimated_from": "computed, not measured: every run reads the served parcel edition's PNUs (about 40 million, as gold_parcel_register_masters_versions_build, estimated 900 s), the Onbid Silver tables (79,246 items on 2026-10-20) and the parcel lineage whole once, places and renders the open rounds (a few thousand) and folds each 시도; about 900 s, inside the 60-minute limit."
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-gold-versions@parcel-public-auction.service"

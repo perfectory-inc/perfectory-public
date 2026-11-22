@@ -59,7 +59,7 @@ Dagster 1.13.27 에서 확인한 것(배포판 휠의 소스와 공식 문서):
    | 풀 | 칸 | 무엇 | 메모리 |
    |---|---|---|---|
    | `spark` | 1 | `spark`(20g)·`spark-small`(2,560m)·타일 굽기 컨테이너를 띄우고 자기 유닛 상한이 없는 작업 27개 | 정적: 가장 큰 구성원 20g |
-   | `duckdb` | 2 | 발행기 안의 DuckDB 59개: Silver 레인 33개, FLOOR, 산업단지 Silver, Gold 판 빌드 9개와 `gold_parcel_nearby_rebuild`, by-PNU 굽기 14개 | 자기 유닛의 `memory_claim`(§3) |
+   | `duckdb` | 2 | 발행기 안의 DuckDB 61개: Silver 레인 33개, FLOOR, 산업단지 Silver, Gold 판 빌드(`foundation-gold-versions@*`) 11개와 `gold_parcel_nearby_rebuild`, by-PNU 굽기 14개 | 자기 유닛의 `memory_claim`(§3) |
    | `gpu` | 1 | 문서 작업 둘(OCR·HWP, 사실 작업의 로컬 모델). GPU 는 하나다 | 정적 1.25g + 모델의 `memory_claim` |
    | `default_pool` | — | 작은 수집·검사. Dagster 에서는 풀 없음 | `host_reserved` |
 
@@ -163,6 +163,15 @@ Dagster 1.13.27 에서 확인한 것(배포판 휠의 소스와 공식 문서):
     노화로 앞당기지 않는다(ADR-0583 §7).
   - 시작되면 160분 상한 안에서 한 걸음씩 커밋한다. 끊기면 다음 시작이 다음 걸음부터 이어 간다.
   - 배포 때 호스트 줄에 이미 서 있는 시작은 조정자가 다시 묻는다. 새 셈으로는 spark 칸이 처음 빌 때 들어간다.
+- **타일 굽기(실례: `parcel_tile_bake` 13.4시간 10번 거절, `parcel_served_gold` 37시간 15번 거절).** 둘 다 옛 3칸 작업이었고,
+  spark 를 잡고 있던 것은 `lakehouse_maintenance` 와 2칸씩 적힌 Gold 판 빌드(`foundation-gold-versions@*`)였다.
+  - 판 빌드는 Spark 를 띄우지 않는다. 열두 개(W96 #1616 의 공매 레인 포함) 모두 `duckdb` 로 옮긴다.
+  - 이제 `spark` 에는 Spark 나 타일 굽기 컨테이너를 띄우는 27개만 남는다.
+  - `lakehouse_maintenance` 는 `proxied` 단계다. Airflow 가 정하지만 run 은 Dagster op 라 Dagster 의 `spark` 칸으로 센다.
+  - 두 굽기는 `default` 등급의 한 칸 run 이다. 앞에 설 수 있는 것은 지금 도는 spark run 하나(상한 165분 이하)와,
+    더 높은 우선순위의 spark 작업 run 이 작업마다 하나씩이다. `publish` 등급의 패널·kind Gold 둘과, `default` 안에서 무게가
+    더 큰 `rt_molit` Silver·접기 둘·필지 등록부·경매 Silver 다. 거절·재시도 고리는 없다. 그래도 360분(`default` 예산)을
+    넘기면 `FoundationDagsterRunQueuedOverBudget` 이 울린다.
 - 메모리가 모자라 호스트에서 거절된 큰 claim(16G 레인, 24G 사실 작업)은 호스트 줄의 backoff 로 기다린다. 그 사이 작은 claim
   (5~8G)이 들어갈 수 있다. 이 굶주림은 계산하지 않고 잰다(`FoundationJobQueueWaitOverBudget`). 기다리는 시간이 얼마일지는 배포 뒤 첫 주의 지표로 본다.
 - 모든 작업의 코드 버전이 바뀐다(`job_specs.py` 를 모두가 읽는다). 이전 코드에서 실패한 작업만 한 번 다시 시작된다(ADR-0499).
