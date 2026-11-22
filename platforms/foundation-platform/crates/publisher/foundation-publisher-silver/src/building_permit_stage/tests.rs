@@ -178,6 +178,47 @@ fn floors() -> &'static str {
     "silver.building_permit_floor_overview"
 }
 
+/// A permit record as Spark writes it: the fields of `permit()` and its parking fields `parking`.
+fn permit_record(
+    purpose: &str,
+    plot: &str,
+    started: &str,
+    approved: &str,
+    parking: &str,
+) -> String {
+    let text = |value: &str| {
+        if value.is_empty() {
+            "null".to_owned()
+        } else {
+            format!("\"{value}\"")
+        }
+    };
+    format!(
+        "{{\"arch_kind_name\":\"신축\",\"main_purpose_name\":\"{purpose}\",\"plot_area_m2\":{},\
+         \"building_area_m2\":\"400.25\",\"total_floor_area_m2\":\"800\",\"permit_date\":null,\
+         \"start_scheduled_date\":null,\"start_delayed_date\":null,\"start_actual_date\":{},\
+         \"use_approval_date\":{},{parking}}}",
+        text(plot),
+        text(started),
+        text(approved)
+    )
+}
+
+/// Every detail list of a document in its order: the ones `details` gives, the others null.
+fn details_json(details: &[(&str, String)]) -> String {
+    DETAILS
+        .iter()
+        .map(|detail| {
+            let value = details
+                .iter()
+                .find(|(key, _)| *key == detail.key)
+                .map_or_else(|| "null".to_owned(), |(_, value)| value.clone());
+            format!("\"{}\":{value}", detail.key)
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 #[test]
 fn a_parcel_s_permits_are_spark_s_bytes_newest_first_with_their_parking() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
@@ -218,41 +259,10 @@ fn a_parcel_s_permits_are_spark_s_bytes_newest_first_with_their_parking() -> any
     let rows = build_all(&connection, &inputs)?;
     let pnus: Vec<&str> = rows.iter().map(|row| row.0.as_str()).collect();
     assert_eq!(pnus, [FACTORY, WAREHOUSE]);
-    let record = |purpose: &str, plot: &str, started: &str, approved: &str, parking: &str| {
-        let text = |value: &str| {
-            if value.is_empty() {
-                "null".to_owned()
-            } else {
-                format!("\"{value}\"")
-            }
-        };
-        format!(
-            "{{\"arch_kind_name\":\"신축\",\"main_purpose_name\":\"{purpose}\",\"plot_area_m2\":{},\
-             \"building_area_m2\":\"400.25\",\"total_floor_area_m2\":\"800\",\"permit_date\":null,\
-             \"start_scheduled_date\":null,\"start_delayed_date\":null,\"start_actual_date\":{},\
-             \"use_approval_date\":{},{parking}}}",
-            text(plot),
-            text(started),
-            text(approved)
-        )
-    };
-    let none = |details: &[(&str, String)]| {
-        DETAILS
-            .iter()
-            .map(|detail| {
-                let value = details
-                    .iter()
-                    .find(|(key, _)| *key == detail.key)
-                    .map_or_else(|| "null".to_owned(), |(_, value)| value.clone());
-                format!("\"{}\":{value}", detail.key)
-            })
-            .collect::<Vec<_>>()
-            .join(",")
-    };
     // k2 (started 2099-05-05) before k1 (approved 2099-01-01); a '/' written as it is (Jackson's).
     let factory = format!(
         "{{\"records\":[{},{}],{}}}",
-        record(
+        permit_record(
             "창고/시설",
             "",
             "20990505",
@@ -260,7 +270,7 @@ fn a_parcel_s_permits_are_spark_s_bytes_newest_first_with_their_parking() -> any
             "\"indoor_self_parking_count\":null,\"outdoor_self_parking_count\":null,\
              \"indoor_mechanical_parking_count\":null"
         ),
-        record(
+        permit_record(
             "공장",
             "1000.5",
             "",
@@ -268,7 +278,7 @@ fn a_parcel_s_permits_are_spark_s_bytes_newest_first_with_their_parking() -> any
             "\"indoor_self_parking_count\":\"3\",\"outdoor_self_parking_count\":null,\
              \"indoor_mechanical_parking_count\":\"0\""
         ),
-        none(&[(
+        details_json(&[(
             "floor_overviews",
             "{\"total\":1,\"records\":[{\"floor_kind_name\":\"지상\",\"floor_no\":\"1\",\
              \"main_purpose_name\":\"공장\",\"structure_name\":null,\"floor_area_m2\":\"800\",\
@@ -355,7 +365,7 @@ fn a_row_under_a_renumbered_code_lands_on_the_served_parcel() -> anyhow::Result<
     Ok(())
 }
 
-/// 99999-123 names the 표제부 <4>1123 on the factory, which starts with 99999 (linked); 99999-77
+/// 99999-123 names the 표제부 `<4>1123` on the factory, which starts with 99999 (linked); 99999-77
 /// names two (no link); 88888-5 names one whose PNU neither starts with 88888 nor has this row's
 /// 법정동·번·지 (no link); 88888-6 names one that has them (linked); 99999-9 names none.
 fn inspections() -> Inputs {
