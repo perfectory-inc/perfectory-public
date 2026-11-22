@@ -704,9 +704,21 @@ class Reconciler(unittest.TestCase):
             {"jobName": "foundation_job__synthetic_lane", "creationTime": now - 7200, "status": "QUEUED"},
             {"jobName": "foundation_job__synthetic_bake", "creationTime": now - 90000, "status": "STARTED"},
             {"jobName": "__ASSET_JOB", "creationTime": now - 99999, "status": "QUEUED"}], now)
-        self.assertEqual(text, 'foundation_dagster_run_queued_seconds{job="synthetic_lane",pool="duckdb",priority_class="default"} 7200\n'
-                               'foundation_dagster_run_queue_budget_seconds{job="synthetic_lane",pool="duckdb",priority_class="default"} 21600\n')
+        self.assertEqual(text, 'foundation_dagster_run_queued_seconds{job_id="synthetic_lane",pool="duckdb",priority_class="default"} 7200\n'
+                               'foundation_dagster_run_queue_budget_seconds{job_id="synthetic_lane",pool="duckdb",priority_class="default"} 21600\n')
         self.assertEqual(asset_reconcile.run_queued(jobs, [], now), "")
+
+    def test_a_pool_whose_dagster_limit_is_not_the_lists_is_said(self):
+        # Root ADR-0605 §6: unset, Dagster's default, or another number is a 0; the list's slots a 1.
+        jobs = {"pools": {"spark": {"slots": 1}, "duckdb": {"slots": 2}, "gpu": {"slots": 1}}}
+        held = [{"concurrencyKey": "spark", "limit": 1, "usingDefaultLimit": False},
+                {"concurrencyKey": "duckdb", "limit": 1, "usingDefaultLimit": True},
+                {"concurrencyKey": "documents", "limit": 1, "usingDefaultLimit": False}]
+        self.assertEqual(asset_reconcile.pool_limits(jobs, held),
+                         'foundation_dagster_pool_limit_matches{pool="duckdb"} 0\n'
+                         'foundation_dagster_pool_limit_matches{pool="gpu"} 0\n'
+                         'foundation_dagster_pool_limit_matches{pool="spark"} 1\n')
+        self.assertEqual(asset_reconcile.pool_limits(jobs, None), "", "Dagster did not say")
 
     def test_the_dual_run_check_is_named_as_the_code_location_names_it(self):
         # The host has no Dagster to import dual_run from; its names are read from the file.

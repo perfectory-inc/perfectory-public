@@ -130,3 +130,7 @@ ADR-0477 §5 의 관문은 바뀌지 않는다. 화면에 실리는 것은 손 �
 - 사실이 접히면 다음 Airflow 사건에서 내보내기가 돌고(수십 초), 패널은 다음 목록 요청에서 새 프로필을 읽는다. 계보 순환이 밀려도
   프로필은 밀리지 않는다.
 - ADR-0478 §3 의 증설(RAM +64 GB) 뒤에는 `available` 을 다시 재서 계약에 적는다. claim 의 방식은 그대로다.
+
+## 개정 각주 — 2026-11-23, ADR-0605
+
+claim 을 한 칸짜리 풀에만 두던 규칙은 [ADR-0605](./0605-scheduled-job-pools-are-cut-by-the-resource-they-guard-and-counted-by-dagsters-own-pools-and-a-jobs-wait-is-measured-not-computed.md) §3 이 바꿨다: claim 은 두 칸 `duckdb` 풀에도 있고, `memory_short` 가 도는 다른 claim·claimant 작업 유닛·옆 컨테이너의 몫과, 다른 claim 이 돌 때 정적 풀의 몫(`static_reserve`)을 뺀다.

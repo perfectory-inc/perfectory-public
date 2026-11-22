@@ -841,6 +841,8 @@ DAGSTER_HELP = """# HELP foundation_dagster_observing Whether Dagster observes A
 # TYPE foundation_dagster_run_queued_seconds gauge
 # HELP foundation_dagster_run_queue_budget_seconds How long a QUEUED run of the job's priority class may wait before it alerts (priority_classes queue_wait_budget_minutes).
 # TYPE foundation_dagster_run_queue_budget_seconds gauge
+# HELP foundation_dagster_pool_limit_matches Whether Dagster's limit of a job list pool is the list's slots (root ADR-0605 §6; 0: unset, Dagster's default, or another number).
+# TYPE foundation_dagster_pool_limit_matches gauge
 """
 # A Dagster run that is not a job's own (an asset check's) is closed by run monitoring at the instance's
 # max runtime (orchestration/dagster/dagster.yaml, root ADR-0565 §9); a job's run at its scheduled start's
@@ -882,7 +884,12 @@ def dagster_state(jobs: dict, dag_ids: dict, post, decided=(), held=lambda job: 
         ' { __typename ... on Sensor { sensorState { status ticks(limit: 1) { status } } } }'
         for index, job in enumerate(decided))
     runs = (f" runs: runsOrError(filter: {{statuses: {UNFINISHED_RUN_STATUSES}}}, limit: 200)"
-            " { __typename ... on Runs { results { jobName creationTime status } } }")
+            " { __typename ... on Runs { results { jobName creationTime } } }"
+            # The queued apart, so the oldest is never past the newest 200 unfinished (one per job at most: the
+            # sensor sees QUEUED runs; the job list has 118).
+            " queued: runsOrError(filter: {statuses: [QUEUED]}, limit: 500)"
+            " { __typename ... on Runs { results { jobName creationTime status } } }"
+            " instance { concurrencyLimits { concurrencyKey limit usingDefaultLimit } }")
     query = ("{ workspaceOrError { __typename ... on Workspace { locationEntries { name locationOrLoadError"
              " { __typename } } } }" + checks + sensors + runs + " }")
     try:
@@ -912,10 +919,20 @@ def dagster_state(jobs: dict, dag_ids: dict, post, decided=(), held=lambda job: 
                      f'foundation_dagster_sensor_tick_failed{{job="{label(job)}"}} '
                      f'{int(bool(ticks) and ticks[0].get("status") == "FAILURE")}\n')
         text += f'foundation_dagster_sensor_held{{job="{label(job)}"}} {int(bool(held(job)))}\n'
-    unfinished = (data.get("runs") or {}).get("results") or []
-    text += run_overdue(jobs, unfinished, now())
-    text += run_queued(jobs, unfinished, now())
+    text += run_overdue(jobs, (data.get("runs") or {}).get("results") or [], now())
+    text += run_queued(jobs, (data.get("queued") or {}).get("results") or [], now())
+    text += pool_limits(jobs, ((data.get("instance") or {}).get("concurrencyLimits")))
     return text
+
+
+def pool_limits(jobs: dict, held) -> str:
+    """Per pool of the job list, whether Dagster's limit is its slots (root ADR-0605 §6): the deploy sets them,
+    and nothing else says when one is unset, a default, or another number. Nothing when Dagster did not say."""
+    if not isinstance(held, list):
+        return ""
+    limits = {entry.get("concurrencyKey"): None if entry.get("usingDefaultLimit") else entry.get("limit") for entry in held}
+    return "".join(f'foundation_dagster_pool_limit_matches{{pool="{label(name)}"}} {int(limits.get(name) == pool.get("slots"))}\n'
+                   for name, pool in sorted((jobs.get("pools") or {}).items()))
 
 
 def run_overdue(jobs: dict, runs: list, now: float) -> str:
@@ -957,7 +974,9 @@ def run_queued(jobs: dict, runs: list, now: float) -> str:
     for job_id, created in sorted(oldest.items()):
         job = by_dagster_job[job_specs.DAGSTER_JOB_PREFIX + job_id]
         cls = job.get("priority_class", "default")
-        labels = f'job="{label(job_id)}",pool="{label(job["pool"])}",priority_class="{label(cls)}"'
+        # `job_id`, not `job`: the node-exporter scrape keeps its own `job` label (prometheus.yml has no
+        # honor_labels), so a textfile's `job` would arrive as `exported_job`.
+        labels = f'job_id="{label(job_id)}",pool="{label(job["pool"])}",priority_class="{label(cls)}"'
         lines.append(f"foundation_dagster_run_queued_seconds{{{labels}}} {round(max(now - created, 0))}\n")
         budget = ((jobs.get("priority_classes") or {}).get(cls) or {}).get("queue_wait_budget_minutes")
         if isinstance(budget, int):

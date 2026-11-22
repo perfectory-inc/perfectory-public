@@ -40,6 +40,9 @@ RELEASE_PREFIX = "/opt/foundation-platform/current/"
 JOBS_SCHEMA = "foundation-platform.orchestration_jobs.v1"
 # Airflow's own pool; every other pool a job may name is declared in jobs.v1.json `pools`.
 DEFAULT_POOL = "default_pool"
+# The most slots a pool may have: what the deploy's gate lets it set as a Dagster pool limit
+# (dagster_writes.MAX_POOL_LIMIT, held equal by test_dagster_writer_gate.py; root ADR-0605 §6).
+MAX_POOL_SLOTS = 16
 # Every run is tried again this long after a failure (foundation_jobs.py, orchestration/dagster/run_jobs.py).
 RETRY_DELAY_MINUTES = 5
 SERVICE_NAME = re.compile(r"foundation-[a-z0-9-]+(?:@([a-z0-9-]+))?\.service")
@@ -444,8 +447,8 @@ def declared_pools(jobs):
         if name == DEFAULT_POOL or not re.fullmatch(r"[a-z][a-z0-9_]*", name):
             raise JobListError(f"pool {name!r} is not a lower_snake name other than {DEFAULT_POOL}")
         slots = pool.get("slots") if isinstance(pool, dict) else None
-        if type(slots) is not int or slots < 1 or not str(pool.get("description", "")).strip():
-            raise JobListError(f"pool {name!r} needs a positive integer slots and a description")
+        if type(slots) is not int or not 1 <= slots <= MAX_POOL_SLOTS or not str(pool.get("description", "")).strip():
+            raise JobListError(f"pool {name!r} needs slots of 1 to {MAX_POOL_SLOTS} and a description")
         declared[name] = slots
     return declared
 
@@ -606,8 +609,15 @@ def memory_claims(jobs):
             # A template instance too (`foundation-silver-refresh@<lane>.service`): a Silver lane claims
             # its own unit (root ADR-0599). Host admission, deleted with pool-full by root ADR-0583's last PR.
             isinstance(unit, str) and re.fullmatch(r"[a-z0-9-]+(@[a-z0-9-]+)?\.service", unit) for unit in units)
-        if not named or set(claim) != {"units"}:
-            raise JobListError(f"{job['id']}: memory_claim must be an object with only `units`, systemd service names")
+        if not named or not {"units"} <= set(claim) <= {"units", "beside"}:
+            raise JobListError(f"{job['id']}: memory_claim must be an object with `units`, systemd service names, and"
+                               " optionally `beside`")
+        if "beside" in claim and not (isinstance(claim["beside"], str) and re.fullmatch(r"[1-9][0-9]*[mg]", claim["beside"])):
+            raise JobListError(f"{job['id']}: memory_claim.beside must be a size like 2560m (its side container's cap)")
+    reserve = (jobs.get("memory_claims") or {}).get("static_reserve")
+    if not isinstance(reserve, str) or not re.fullmatch(r"[1-9][0-9]*[mg]", reserve):
+        raise JobListError("memory_claims.static_reserve must be a size like 21760m when a job states a memory_claim"
+                           " (root ADR-0605 §3: what a claim beside another leaves the static pools)")
 
 
 def capacity_claimants(jobs, pools):

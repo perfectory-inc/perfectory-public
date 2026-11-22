@@ -1017,13 +1017,24 @@ groups:
         # its class's budget it is starving. The wait is measured, where job_specs once computed a bound and
         # put jobs started by their inputs on the clock to pass it.
         expr: >-
-          foundation_dagster_run_queued_seconds > on(job, pool, priority_class) foundation_dagster_run_queue_budget_seconds
+          foundation_dagster_run_queued_seconds > on(job_id, pool, priority_class) foundation_dagster_run_queue_budget_seconds
         for: 10m
         labels:
           severity: ticket
           service: orchestration
         annotations:
-          summary: '{{ $labels.job }} 의 Dagster run 이 {{ $labels.pool }} 풀 자리를 {{ humanizeDuration $value }}째 기다려요({{ $labels.priority_class }} 예산 넘음). Dagster UI 의 Deployment → Concurrency 에서 그 풀을 무엇이 쥐고 있는지 보세요'
+          summary: '{{ $labels.job_id }} 의 Dagster run 이 {{ $labels.pool }} 풀 자리를 {{ humanizeDuration $value }}째 기다려요({{ $labels.priority_class }} 예산 넘음). Dagster UI 의 Deployment → Concurrency 에서 그 풀을 무엇이 쥐고 있는지 보세요'
+          runbook: docs/runbooks/production-orchestrator-cutover.md
+      - alert: FoundationDagsterPoolLimitDrift
+        # Root ADR-0605 §6: the deploy sets each pool's limit from the job list (writer_gate.py ask pools); a
+        # pool left at Dagster's default runs one at a time, one with another number runs more or fewer.
+        expr: foundation_dagster_pool_limit_matches == 0
+        for: 30m
+        labels:
+          severity: ticket
+          service: orchestration
+        annotations:
+          summary: 'Dagster 의 {{ $labels.pool }} 풀 한도가 작업 목록의 칸과 달라요 — 배포가 쓰지 못했거나 손으로 바뀌었어요. airflow-runtime 로그의 pools 줄을 보고, 같은 명령(writer_gate.py ask pools)으로 다시 쓰세요'
           runbook: docs/runbooks/production-orchestrator-cutover.md
       - alert: FoundationDualRunSilent
         # A check compares after every Airflow run of its job; eight of the jobs run more than once a

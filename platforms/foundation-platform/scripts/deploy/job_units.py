@@ -561,30 +561,51 @@ def memory_short(listing, job, named, unit_sizes=unit_memory, available=availabl
     fact job claimed every spark slot to keep the 24G model off Spark, the pool was never empty, and
     it waited 24,600 s with 30 GiB or more available for 95% of the week.
 
-    What every other running claimed unit may still take is taken too (root ADR-0605 §3): a claim may share
-    a pool of two slots, and MemAvailable counts only what a unit holds now, so two claims started one
-    after the other would otherwise both be admitted against the memory the first one is still growing into."""
+    Root ADR-0605 §3 (ours, until a static duckdb limit fits the static room): a claim may share a pool of
+    two slots, so more is taken as well, each from what may still grow:
+    - every other running claimed unit's cap less what it holds (MemAvailable counts only what it holds);
+    - the cap headroom of every running unit a capacity claimant does its work in (`work_units`: the
+      cut-over's transient pack bakes, which are no job and claim nothing);
+    - each running claimer's side container (`memory_claim.beside`, a bake's spark-small), and the job's own;
+    - beside another running claim, the static pools' reserve (`memory_claims.static_reserve`, which the
+      host memory guard holds to at least the largest set its static pools can run): the first claim is
+      admitted as before (ADR-0563: a claimed unit is batch class), two claims together never count on the
+      OOM killer to make room for a Spark start."""
     claim = job.get("memory_claim")
     if not claim:
         return ""
     gib = 1 << 30
+    claims = listing.get("memory_claims") or {}
     try:
-        keep = size_bytes((listing.get("memory_claims") or {})["keep_available"])
+        keep = size_bytes(claims["keep_available"])
         sizes = unit_sizes(claim["units"])
         free = available()
+        own_beside = size_bytes(claim["beside"]) if claim.get("beside") else 0
     except (KeyError, ValueError) as error:
         return f"the memory claim of {named} cannot be sized: {error.args[0] if isinstance(error, KeyError) else error}"
-    need = sum(max(cap - held, 0) for cap, held in sizes.values())
-    others = sorted({unit for other in listing["jobs"] if other is not job
-                     for unit in (other.get("memory_claim") or {}).get("units", ())} - set(sizes))
+    need = sum(max(cap - held, 0) for cap, held in sizes.values()) + own_beside
+    claimers = {unit: other for other in listing["jobs"] if other is not job
+                for unit in (other.get("memory_claim") or {}).get("units", ())}
+    others = sorted(set(claimers) - set(sizes))
+    work = sorted({unit for claimant in (listing.get("capacity_claimants") or {}).values()
+                   for unit in claimant.get("work_units") or ()})
     try:
         live = sorted(running_units(others)) if others else []
-        reserved = sum(max(cap - held, 0) for cap, held in unit_sizes(live).values()) if live else 0
+        working = sorted(set(running_units(work)) - set(live) - set(sizes)) if work else []
+        reserved = sum(max(cap - held, 0) for cap, held in unit_sizes(live + working).values()) if live or working else 0
+        # Once per running claimer, however many units it claims.
+        reserved += sum(size_bytes(beside) for beside in {claimers[unit]["id"]: claimers[unit]["memory_claim"].get("beside")
+                                                            for unit in live}.values() if beside)
+        if live:
+            reserved += size_bytes(claims["static_reserve"])
     except (KeyError, ValueError) as error:
-        return f"the memory claims running beside {named} cannot be sized: {error.args[0] if isinstance(error, KeyError) else error}"
+        return f"the memory running beside {named} cannot be sized: {error.args[0] if isinstance(error, KeyError) else error}"
     if free - need - reserved >= keep:
         return ""
-    beside = f", {reserved / gib:.1f} GiB more is reserved for {', '.join(live)}" if reserved else ""
+    held_by = live + working
+    beside = f", {reserved / gib:.1f} GiB more is reserved for {', '.join(held_by)}" if reserved else ""
+    if live:
+        beside += " and the static pools"
     return (f"the host has no memory for {named}'s claim: {', '.join(sorted(sizes))} may take {need / gib:.1f} GiB more{beside},"
             f" {free / gib:.1f} GiB is available and {keep / gib:.1f} GiB stays free")
 

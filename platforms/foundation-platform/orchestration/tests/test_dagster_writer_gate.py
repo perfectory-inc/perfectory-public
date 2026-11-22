@@ -160,6 +160,11 @@ class TheGate(unittest.TestCase):
 class DagstersPoolLimitsAreTheJobLists(unittest.TestCase):
     """Root ADR-0605: the deploy sets Dagster's own pool limits from jobs.v1.json pools and reads them back."""
 
+    def test_the_gate_sets_every_limit_the_job_list_may_declare(self):
+        sys.path.insert(0, str(PLATFORM / "orchestration" / "dags"))
+        import job_specs  # noqa: PLC0415
+        self.assertEqual(dagster_writes.MAX_POOL_LIMIT, job_specs.MAX_POOL_SLOTS)
+
     def test_the_host_may_read_set_and_delete_a_pool_limit_and_nothing_wider(self):
         self.assertIsNone(host(body(dagster_writes.POOL_LIMITS)))
         self.assertIsNone(host(body(dagster_writes.SET_POOL_LIMIT, {"concurrencyKey": "duckdb", "limit": 2})))
@@ -196,7 +201,11 @@ class DagstersPoolLimitsAreTheJobLists(unittest.TestCase):
         graphql, told = self.dagster(held)
         original, writer_gate.graphql = writer_gate.graphql, graphql
         try:
+            # Before the reload: the list's pools are set, an undeclared one stays (a loaded op may still name it).
             self.assertEqual(writer_gate.pools({"spark": 1, "duckdb": 2, "gpu": 1}), 0)
+            self.assertEqual(held, {"spark": 1, "documents": 1, "duckdb": 2, "gpu": 1})
+            # After it: pruned, and read back exactly.
+            self.assertEqual(writer_gate.pools({"spark": 1, "duckdb": 2, "gpu": 1}, prune=True), 0)
         finally:
             writer_gate.graphql = original
         self.assertEqual(held, {"spark": 1, "duckdb": 2, "gpu": 1})

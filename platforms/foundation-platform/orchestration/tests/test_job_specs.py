@@ -398,12 +398,14 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(lambda jobs: jobs["pools"]["spark"].update(description=" "))
         self.refused(lambda jobs: jobs["pools"].update(default_pool={"slots": 1, "description": "x"}))
 
-    def test_the_bake_is_not_retried_and_takes_turns(self):
+    def test_the_bake_is_not_retried_and_takes_no_turns(self):
         # A retried bake would hold its slot for another 21 hours; a turn-taking one defers to the
         # heavier Silver loads and lineage between runs (start-scheduled-job.sh).
         spec = next(spec for spec in job_specs.load_specs() if spec.job_id == "by_pnu_serving_bake")
         self.assertEqual(spec.retries, 0)
-        self.assertTrue(bake(real_inputs()[0])["takes_turns"])
+        # Root ADR-0605: the bake runs in the two-slot duckdb pool, so FLOOR and lineage no longer wait behind
+        # it and it takes no turns (the mechanism goes with the host path, root ADR-0583's last PR).
+        self.assertNotIn("takes_turns", bake(real_inputs()[0]))
         weights = {spec.job_id: spec.priority_weight for spec in job_specs.load_specs() if spec.pool == "spark"}
         self.assertGreater(weights["rt_molit_real_transaction_silver"],
                            max(weights["map_edit_fold_admin"], weights["map_edit_fold_complex"]))
@@ -676,7 +678,11 @@ class ThePoolsByResource(unittest.TestCase):
         jobs = real_inputs()[0]
         for entry in jobs["jobs"]:
             if entry["pool"] == "duckdb":
-                self.assertEqual(entry.get("memory_claim"), {"units": [entry["systemd_service"]]}, entry["id"])
+                self.assertEqual(entry["memory_claim"]["units"], [entry["systemd_service"]], entry["id"])
+                # A bake's spark-small step is its side container, counted while it runs (root ADR-0605 §3).
+                self.assertEqual(entry["memory_claim"].get("beside"),
+                                 "2560m" if entry["id"].startswith("by_pnu_") else None, entry["id"])
+        self.assertRegex(jobs["memory_claims"]["static_reserve"], r"^[1-9][0-9]*[mg]$")
         job_specs.memory_claims(jobs)
         # Planted: a claimed unit name that is no service name.
         broken = copy.deepcopy(jobs)

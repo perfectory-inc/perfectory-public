@@ -291,6 +291,14 @@ class AgainstDagster(unittest.TestCase):
                                  "WorkspaceLocationEntry")
                 entries = post(dagster_writes.LOCATION_ERRORS, None)["workspaceOrError"]["locationEntries"]
                 self.assertEqual([entry["locationOrLoadError"]["__typename"] for entry in entries], ["RepositoryLocation"])
+                # Root ADR-0605 §6: the pool limit documents as Dagster 1.13 answers them, through the gate.
+                self.assertTrue(post(dagster_writes.SET_POOL_LIMIT, {"concurrencyKey": "duckdb", "limit": 2})["setConcurrencyLimit"])
+                limits = {entry["concurrencyKey"]: entry for entry in
+                          post(dagster_writes.POOL_LIMITS, None)["instance"]["concurrencyLimits"]}
+                self.assertEqual((limits["duckdb"]["limit"], limits["duckdb"]["usingDefaultLimit"]), (2, False))
+                self.assertTrue(post(dagster_writes.DELETE_POOL_LIMIT, {"concurrencyKey": "duckdb"})["deleteConcurrencyLimit"])
+                self.assertNotIn("duckdb", {entry["concurrencyKey"] for entry in
+                                            post(dagster_writes.POOL_LIMITS, None)["instance"]["concurrencyLimits"]})
 
 
 if __name__ == "__main__":

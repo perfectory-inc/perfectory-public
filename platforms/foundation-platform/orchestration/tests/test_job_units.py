@@ -378,17 +378,27 @@ class AMemoryClaimWaitsForMemoryNotForAnEmptyPool(unittest.TestCase):
         self.assertIn("the gpu pool has no room", result.stdout)
 
     def test_a_running_claim_keeps_what_it_may_still_take(self):
-        # Root ADR-0605 §3: claims share pools of two slots now, so what a running claimed unit may still grow
-        # into is taken too. The serving bake (duckdb, its own 14 GiB unit) holds 4 GiB: 10 GiB more is
-        # reserved, and the model's 24 GiB with 6 GiB free needs 40 GiB available, not 30.
+        # Root ADR-0605 §3: claims share pools of two slots. Beside the running serving bake (duckdb, its own
+        # 14 GiB unit, 4 GiB held) the model's claim also leaves what the bake may still take (10 GiB), its
+        # spark-small side container (2.5 GiB) and the static pools' reserve (21.25 GiB): 24 + 33.75 + 6 free.
         bake = "foundation-by-pnu-serving-bake.service"
         beside = f"{bake}={14 * self.GIB}:{4 * self.GIB}"
-        refused = self.pool_full(36, units=[bake], beside=beside)
+        refused = self.pool_full(63, units=[bake], beside=beside)
         self.assertEqual(refused.returncode, 0, refused.stderr)
-        self.assertIn(f"10.0 GiB more is reserved for {bake}", refused.stdout)
-        self.assertEqual(self.pool_full(40, units=[bake], beside=beside).stdout.strip(), "")
-        # Stopped, it reserves nothing.
+        self.assertIn(f"33.8 GiB more is reserved for {bake} and the static pools", refused.stdout)
+        self.assertEqual(self.pool_full(64, units=[bake], beside=beside).stdout.strip(), "")
+        # Stopped, it reserves nothing, and the first claim alone is admitted as before (ADR-0563).
         self.assertEqual(self.pool_full(30, beside=beside).stdout.strip(), "")
+
+    def test_a_cut_overs_transient_bake_is_counted_though_it_claims_nothing(self):
+        # A capacity claimant's work units (the cut-over's pack bakes) are no job and state no claim: what
+        # they may still take is reserved, though no other claim runs, so no static reserve is added.
+        pack = "foundation-parcel-pack-bake-g1.service"
+        beside = f"{pack}={10 * self.GIB}:{2 * self.GIB}"
+        refused = self.pool_full(37, units=[pack], beside=beside)
+        self.assertIn(f"8.0 GiB more is reserved for {pack},", refused.stdout)
+        self.assertNotIn("static pools", refused.stdout)
+        self.assertEqual(self.pool_full(38, units=[pack], beside=beside).stdout.strip(), "")
 
 
 class TheOneDefinition(unittest.TestCase):

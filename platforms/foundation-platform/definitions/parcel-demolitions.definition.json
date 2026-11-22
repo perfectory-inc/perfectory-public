@@ -133,7 +133,8 @@
       "memory_claim": {
         "units": [
           "foundation-by-pnu-lane-bake@parcel-demolitions.service"
-        ]
+        ],
+        "beside": "2560m"
       },
       "priority_weight": 10,
       "priority_class": "publish",

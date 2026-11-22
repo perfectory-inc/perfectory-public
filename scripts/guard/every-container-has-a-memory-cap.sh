@@ -22,12 +22,13 @@
 # reads; `one_shot_contracts` names that contract and where its containers are, and this guard
 # counts each as a one-shot job. A container there without a `memory_limit` is a failure.
 #
-# Scheduled jobs that share an Airflow pool can run together as far as its slots allow (root
-# ADR-0138). `scheduled_jobs` names the job list, the systemd units and, for every job in a declared
+# Scheduled jobs that share a pool can run together as far as its slots allow, a run taking one slot
+# (root ADR-0605). `scheduled_jobs` names the job list, the systemd units and, for every job in a declared
 # pool, what it runs: compose services, contract containers, or its unit's MemoryMax (a unit that
 # should have one and does not is a failure). A job holds the largest of its sources at a time; a
-# pool holds the sum over every set of its jobs whose slots fit; the pools together are the
-# scheduled load, which counts instead of the largest one-shot job when it is larger. The release
+# pool holds its `slots` largest jobs together, a job its own unit's memory_claim admits counting none;
+# the pools together are the scheduled load, which counts instead of the largest one-shot job when it is
+# larger, and which jobs.v1.json memory_claims.static_reserve is at least. The release
 # build refuses to start while a registered job runs, and manual loads run with the DAGs paused,
 # so neither ever adds to it.
 #
@@ -458,6 +459,7 @@ def memory_claim_problems(section: dict) -> list[str]:
     or a protected class is memory nothing bounds or the OOM killer spares."""
     jobs_list = json.loads(repository_file(section["jobs"], "jobs").read_text(encoding="utf-8"))
     claiming = {job["id"]: job["memory_claim"]["units"] for job in jobs_list["jobs"] if "memory_claim" in job}
+    jobs_by_id = {job["id"]: job for job in jobs_list["jobs"]}
     declared = section.get("memory_claims")
     if not claiming:
         return [f"{CONTRACT}: scheduled_jobs.memory_claims is stated but no job states a memory_claim"] if declared else []
@@ -493,11 +495,21 @@ def memory_claim_problems(section: dict) -> list[str]:
             if unit not in measured:
                 found.append(f"{CONTRACT}: {job_id} claims {unit}, whose measured memory scheduled_jobs.memory_claims.claimed_measured does not state")
             caps.append(cap)
+        beside = size_of(str(jobs_by_id[job_id]["memory_claim"].get("beside", "0m")))
+        caps.append(beside or 0)
         if sum(caps) + keep > usual:
             found.append(
                 f"{CONTRACT}: {job_id} claims {gib(sum(caps))} and keeps {gib(keep)} free, over the {gib(usual)} the host had"
                 f" available for 95% of the measured period: it would wait as the fact job did on 2026-11-13"
             )
+    # Root ADR-0605 §3: a claim beside another leaves the static pools their reserve, so the reserve is at
+    # least the most the static pools hold together (the scheduled term above).
+    reserve = size_of(str((jobs_list.get("memory_claims") or {}).get("static_reserve", "")))
+    if reserve is None:
+        found.append(f"{CONTRACT}: jobs state a memory_claim but jobs.v1.json memory_claims.static_reserve is not a size")
+    elif reserve < scheduled[0]:
+        found.append(f"{CONTRACT}: memory_claims.static_reserve {gib(reserve)} is under the {gib(scheduled[0])} the static"
+                     " pools can hold together; two claims would count on the OOM killer to make room for them")
     stale = sorted(set(measured) - {unit for units in claiming.values() for unit in units})
     if stale:
         found.append(f"{CONTRACT}: scheduled_jobs.memory_claims.claimed_measured names units no job claims: {', '.join(stale)}")

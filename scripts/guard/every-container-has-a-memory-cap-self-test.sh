@@ -429,17 +429,17 @@ expect_fail "a critical service whose oom_score_adj is not its class's"
 
 # A job's memory_claim is held to the memory the host measurably has available (root ADR-0563).
 write_claim_fixture() {
-  local cap="$1" usual="$2" class="${3:-batch}" measured="${4:-fixture-model.service}"
+  local cap="$1" usual="$2" class="${3:-batch}" measured="${4:-fixture-model.service}" reserve="${5-1g}"
   write_unit_fixture '{"class": "batch", "memory_max": "1G", "measured_peak": "300M", "measured": "fixture"}' \
     "{\"fixture-model.service\": {\"class\": \"${class}\", \"memory_max\": \"${cap}\", \"measured\": \"fixture\"}}" no-render
   printf '[Service]\nType=exec\nExecStart=/bin/true\n' > "$fixture/unit-memory/fixture-model.service"
-  python3 - "$fixture" "$usual" "$measured" "$root/scripts/ci" <<'PY'
+  python3 - "$fixture" "$usual" "$measured" "$root/scripts/ci" "$reserve" <<'PY'
 import json, pathlib, sys
-root, usual, measured, ci = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
+root, usual, measured, ci, reserve = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 sys.path.insert(0, ci)
 import unit_memory
 (root / "unit-memory/jobs.json").write_text(json.dumps({
-    "pools": {}, "memory_claims": {"keep_available": "1g"},
+    "pools": {}, "memory_claims": {"keep_available": "1g", **({"static_reserve": reserve} if reserve else {})},
     "jobs": [{"id": "a", "pool": "default_pool", "systemd_service": "fixture-job.service",
               "memory_claim": {"units": ["fixture-model.service"]}}],
 }))
@@ -463,6 +463,9 @@ write_claim_fixture 1G ""
 expect_fail "a job with a memory claim and no measured availability in the contract"
 write_claim_fixture 1G 3g batch fixture-other.service
 expect_fail "a claimed unit whose measured memory is not stated"
+# Root ADR-0605 §3: a claim beside another leaves the static pools their reserve, which the list states.
+write_claim_fixture 1G 3g batch fixture-model.service ""
+expect_fail "memory claims without the static pools' reserve"
 
 # A pooled job is counted by its cap sources, unless its own unit is its memory and it claims it: then
 # the claim admits it against free memory (a Silver lane, root ADR-0599). $1: the job's own service.
