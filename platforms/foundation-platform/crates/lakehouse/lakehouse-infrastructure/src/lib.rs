@@ -28,8 +28,8 @@ pub use gold_publication::{
     PgIndustrialComplexGoldPointerReader, PgLakehousePublicationUnitOfWork,
 };
 pub use iceberg_rest_catalog::{
-    IcebergRestCatalog, IcebergSnapshotManifestList, IcebergSnapshotRef, IcebergSnapshotRefs,
-    IcebergSnapshotSummary,
+    IcebergRegisteredSnapshot, IcebergRestCatalog, IcebergSnapshotManifestList, IcebergSnapshotRef,
+    IcebergSnapshotRefs, IcebergSnapshotRegistry, IcebergSnapshotSummary,
 };
 pub use lakehouse_batch_audit::{PgLakehouseBatchRunAudit, PgLakehouseBatchRunRepository};
 pub use lakehouse_config::{
