@@ -350,7 +350,7 @@ fn each_role_writes_its_tables_and_the_contract_names_its_source() -> anyhow::Re
             }
         }
     }
-    assert!(Role::of_table("silver.court_auction_item").is_err());
+    assert!(Role::of_table("silver.onbid_real_estate_item").is_err());
     Ok(())
 }
 

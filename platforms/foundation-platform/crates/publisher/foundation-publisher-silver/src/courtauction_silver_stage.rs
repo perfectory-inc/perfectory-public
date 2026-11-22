@@ -462,7 +462,11 @@ impl CourtAuctionSource {
     /// The readers every object's SQL calls: run once on the stage.
     #[must_use]
     pub fn values_sql() -> String {
-        format!("{PYTHON_VALUES_SQL}\n{VALUES_SQL}")
+        // The search rows read their lot with the resolver's pattern (`place_lot_re`).
+        format!(
+            "{PYTHON_VALUES_SQL}\n{}\n{VALUES_SQL}",
+            place_identity_stage::ADDRESS_SQL
+        )
     }
 
     /// A role's SQL with the contract's values in it.
