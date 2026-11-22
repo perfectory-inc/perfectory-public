@@ -688,19 +688,22 @@ fn large_object(
 }
 
 #[test]
-fn a_night_sized_object_is_read_within_a_gigabyte() -> anyhow::Result<()> {
+fn an_object_of_wide_answers_is_read_within_its_memory_budget() -> anyhow::Result<()> {
     // 2026-11-22: the first production run stopped on a 1,541-line 사건상세 object above the stage's
-    // 2 GiB, and a 3,980-line 물건상세 object of 11-21 needed more. These are their size (12 MB and
-    // 50 MB of lines); the queries that read the whole answer in every expression ran either out of
-    // 1 GiB.
-    for (role, template, count, times, rows) in [
-        (Role::CaseDetail, 0, 1_500, 10, 1_500),
-        (Role::ItemDetail, 1, 2_000, 8, 2_000),
+    // 2 GiB, and a 3,980-line 물건상세 object of 11-21 needed more: the queries read the whole answer
+    // in every expression a macro expands to. Night-sized objects take minutes in the dev profile's
+    // unoptimized DuckDB, so these are a few hundred lines of answers as wide as a night's, each
+    // under a budget the queries before #1646 ran out of (measured with DuckDB 2.0: the 사건상세 one
+    // needed over 256 MiB before and fits 200 MiB now, the 물건상세 one ran out of 1 GiB before and
+    // fits about 350 MiB now).
+    for (role, template, count, times, rows, budget_mib) in [
+        (Role::CaseDetail, 0, 150, 10, 150, 256),
+        (Role::ItemDetail, 1, 400, 8, 400, 512),
     ] {
         let directory = tempfile::tempdir()?;
         let source = CourtAuctionSource::compiled()?;
         let stage = DuckDbParquetStage::open(directory.path())?;
-        stage.limit_memory(1024)?;
+        stage.limit_memory(budget_mib)?;
         stage
             .connection()
             .execute_batch(&CourtAuctionSource::values_sql())?;
