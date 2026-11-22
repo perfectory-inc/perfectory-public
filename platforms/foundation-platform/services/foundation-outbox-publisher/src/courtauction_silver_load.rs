@@ -10,11 +10,18 @@
 //! keys, a read record's every row. These were `courtauction_go_kr.py`'s 공통코드, 감정평가서,
 //! 매각물건명세서 and 배당요구종기공고. The last stdout line is
 //! `courtauction-go-kr-duckdb-summary-json {json}`.
+//!
+//! Before it, one Dagster Pipes `report_asset_check` line per table it appended to and result check
+//! (orchestration/dagster/load_checks.py; the op that ran the unit logs them): every object's rows
+//! were committed whole (`silver_load_rows`), repeat no key of the table's unique gate
+//! (`silver_load_key_unique`), and miss no required column (`silver_load_required_present`).
 
-use std::{path::PathBuf, sync::Mutex, time::Instant};
+use std::{collections::BTreeMap, path::PathBuf, sync::Mutex, time::Instant};
 
 use anyhow::Context;
-use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
+use foundation_publisher_core::lakehouse_data_commit::{
+    AppendOutcome, DataAppend, LakehouseDataCommitter,
+};
 use foundation_publisher_silver::{
     courtauction_silver_stage::{
         appended, planned_objects, read_object, CourtAuctionSource, PlannedObject,
@@ -22,14 +29,83 @@ use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
     onbid_silver_stage::{plan_dirs, write},
     process_memory,
+    silver_changes::{result_checks, ResultChecks},
 };
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::{json, Value};
 
-use crate::onbid_silver_load::{append, contract, head, locked};
+use crate::onbid_silver_load::{contract, head, locked};
 use crate::public_data_control_support::required_env_value;
 
 const PLAN_ROOT_ENV: &str = "FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT";
+const PIPES_PROTOCOL_VERSION: &str = "0.1";
+
+/// The result checks of one table over the run's objects.
+#[derive(Default)]
+struct TableChecks {
+    objects: u64,
+    rows: u64,
+    /// Objects whose commit added another count of records than the rows staged for it.
+    uncommitted: Vec<String>,
+    duplicate_keys: u64,
+    missing_required: u64,
+}
+
+impl TableChecks {
+    fn add(&mut self, object: &str, checks: ResultChecks, added: u64) {
+        self.objects += 1;
+        self.rows += checks.rows;
+        if added != checks.rows {
+            self.uncommitted.push(object.to_owned());
+        }
+        self.duplicate_keys += checks.duplicate_keys;
+        self.missing_required += checks.missing_required;
+    }
+
+    /// The Pipes `report_asset_check` lines of the table's three checks.
+    fn pipes_lines(&self, table: &str) -> Vec<Value> {
+        let line = |check: &str, passed: bool, detail: Value| {
+            let mut metadata = serde_json::Map::new();
+            for (name, value) in [
+                ("objects", json!(self.objects)),
+                ("rows", json!(self.rows)),
+                ("detail", detail),
+            ] {
+                metadata.insert(
+                    name.to_owned(),
+                    json!({"raw_value": value, "type": "__infer__"}),
+                );
+            }
+            json!({
+                "__dagster_pipes_version": PIPES_PROTOCOL_VERSION,
+                "method": "report_asset_check",
+                "params": {
+                    "asset_key": format!("iceberg/{}", table.replace('.', "/")),
+                    "check_name": check,
+                    "passed": passed,
+                    "metadata": metadata,
+                },
+            })
+        };
+        vec![
+            line(
+                "silver_load_rows",
+                self.uncommitted.is_empty(),
+                json!(self.uncommitted.join(" ")),
+            ),
+            line(
+                "silver_load_key_unique",
+                self.duplicate_keys == 0,
+                json!(self.duplicate_keys),
+            ),
+            line(
+                "silver_load_required_present",
+                self.missing_required == 0,
+                json!(self.missing_required),
+            ),
+        ]
+    }
+}
 
 /// Seconds since `started`, to a tenth.
 fn seconds(started: Instant) -> f64 {
@@ -49,6 +125,7 @@ impl Run {
         &self,
         stage: &Mutex<DuckDbParquetStage>,
         object: &PlannedObject,
+        checks: &mut BTreeMap<&'static str, TableChecks>,
     ) -> anyhow::Result<Value> {
         let started = Instant::now();
         let staged = {
@@ -66,23 +143,44 @@ impl Run {
             let shape = self.committer.table_shape(table.table).await?;
             // Pinned before the compare, so the commit refuses a head that moved since.
             let expected_head = head(&self.catalog, table.table).await?;
-            let (file, rows) = {
+            let (file, rows, result) = {
                 let stage = &*locked(stage)?;
                 let (rows_table, rows) = appended(stage, table_contract, expected_head, table)?;
+                let result = result_checks(stage, table_contract, &rows_table)?;
                 (
                     write(stage, &shape, table.table, &rows_table, &object.object_key)?,
                     rows,
+                    result,
                 )
             };
-            let appended_commit = append(
-                &self.committer,
-                &self.catalog,
-                table.table,
-                file.as_ref(),
-                &object.object_key,
-                expected_head,
-            )
-            .await?;
+            let already_ingested = self
+                .catalog
+                .load_ingested_batch_objects(table.table)
+                .await?
+                .with_context(|| format!("{} does not exist", table.table))?;
+            let outcome = self
+                .committer
+                .append_at_head(
+                    DataAppend {
+                        table_name: table.table,
+                        contract: table_contract,
+                        files: file.as_ref().map_or(&[][..], std::slice::from_ref),
+                        batch: &[object.object_key.clone()],
+                        already_ingested: &already_ingested,
+                        summary: BTreeMap::new(),
+                    },
+                    expected_head,
+                )
+                .await?;
+            let (appended_commit, added) = match outcome {
+                AppendOutcome::Appended { added_records, .. } => (true, added_records),
+                // Recorded by an earlier run: nothing of this run to check.
+                AppendOutcome::AlreadyIngested => (false, result.rows),
+            };
+            checks
+                .entry(table.table)
+                .or_default()
+                .add(&object.object_key, result, added);
             let short = table.table.rsplit('.').next().unwrap_or(table.table);
             tables.insert(
                 short.to_owned(),
@@ -123,10 +221,16 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         ingested_at,
     };
     let mut loaded = Vec::with_capacity(objects.len());
+    let mut checks = BTreeMap::new();
     for object in &objects {
-        loaded.push(run.load(&stage, object).await?);
+        loaded.push(run.load(&stage, object, &mut checks).await?);
     }
     drop(stage);
+    for (table, table_checks) in &checks {
+        for line in table_checks.pipes_lines(table) {
+            println!("{line}");
+        }
+    }
     let summary = json!({
         "job": "load-courtauction-go-kr-silver",
         "engine": "duckdb",

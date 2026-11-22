@@ -240,3 +240,66 @@ pub fn changed_editions(
             .query_row(&format!("SELECT count(*) FROM {out}"), [], |row| row.get(0))?;
     Ok(u64::try_from(count)?)
 }
+
+/// What a load checks of the rows it appends of one object (the result checks its unit reports to
+/// Dagster, root ADR-0559): how many there are, how many repeat a key of the table's `(…) unique`
+/// quality gate, and how many miss a required column.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ResultChecks {
+    /// The rows.
+    pub rows: u64,
+    /// The rows beyond the first of each key the unique gate names.
+    pub duplicate_keys: u64,
+    /// The rows with a required column null.
+    pub missing_required: u64,
+}
+
+/// The columns of the table's `(a, b, …) unique` quality gate.
+///
+/// # Errors
+/// Refuses a table that declares none.
+pub fn unique_gate(contract: &LakehouseTableContract) -> anyhow::Result<Vec<&'static str>> {
+    contract
+        .quality_gates
+        .iter()
+        .find_map(|gate| {
+            gate.strip_suffix(" unique")
+                .and_then(|columns| columns.strip_prefix('('))
+                .and_then(|columns| columns.strip_suffix(')'))
+        })
+        .map(|columns| columns.split(", ").collect())
+        .with_context(|| format!("{} declares no unique gate", contract.table_name))
+}
+
+/// The result checks of `rows`, a staging table of rows of `contract`'s table.
+///
+/// # Errors
+/// Refuses a table that declares no unique gate; returns a `DuckDB` failure.
+pub fn result_checks(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    rows: &str,
+) -> anyhow::Result<ResultChecks> {
+    let key = unique_gate(contract)?.join(", ");
+    let required = contract
+        .columns
+        .iter()
+        .filter(|column| column.required)
+        .map(|column| format!("{} IS NULL", column.name))
+        .collect::<Vec<_>>();
+    let missing = if required.is_empty() {
+        "0".to_owned()
+    } else {
+        format!("count(*) FILTER (WHERE {})", required.join(" OR "))
+    };
+    let (rows, duplicate_keys, missing_required): (i64, i64, i64) = stage.connection().query_row(
+        &format!("SELECT count(*), count(*) - count(DISTINCT ({key})), {missing} FROM {rows}"),
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+    Ok(ResultChecks {
+        rows: u64::try_from(rows)?,
+        duplicate_keys: u64::try_from(duplicate_keys)?,
+        missing_required: u64::try_from(missing_required)?,
+    })
+}
