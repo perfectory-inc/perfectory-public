@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 용도지역지구 도형 lane `land-use-zone-area` (root ADR-0169 ③, ADR-0362): pick the newest vintage whose AL_D<layer>_00 shapefiles cover every layer the lane contract lists, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_zone_area already records it or a newer one (`unchanged`), export each layer (geometry reprojected to EPSG:4326 WKB), stage the release on a load branch, compare it with the table's current rows one layer (compare bucket) at a time and append to main only the changed areas' rows and a removal marker per vanished area (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). A run that reaches its time limit leaves the layers it did not compare to the next run. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 용도지역지구 도형 lane `land-use-zone-area` (root ADR-0169 ③, ADR-0362): pick the newest vintage whose AL_D<layer>_00 shapefiles cover every layer the lane contract lists, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_zone_area already records it or a newer one (`unchanged`), export each layer (geometry reprojected to EPSG:4326 WKB), compare it, in the publisher's DuckDB, with the table's current rows one layer (compare bucket) at a time and append to main only the changed areas' rows and a removal marker per vanished area (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). A run that reaches its time limit leaves the layers it did not compare to the next run. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
       "systemd_service": "foundation-silver-refresh@land-use-zone-area.service",
       "check_service": "foundation-silver-refresh-plan@land-use-zone-area.service",
       "systemd_timer": null,
@@ -86,9 +86,7 @@
       "status": "implemented",
       "via": [
         "export-land-use-zone-area-silver-handoff",
-        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_release_compare.py"
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh"
       ],
       "source_slugs": [
         "vworldkr__land_use_zone"

@@ -20,17 +20,17 @@ use std::{collections::BTreeMap, path::Path};
 use anyhow::{ensure, Context};
 use chrono::Utc;
 use foundation_publisher_core::lakehouse_data_commit::{
-    AppendOutcome, DataAppend, LakehouseDataCommitter, TableField, TableShape,
+    AppendOutcome, DataAppend, LakehouseDataCommitter, StagedFile, TableField, TableShape,
 };
 use lakehouse_domain::{
     industrial_complex_lakehouse_contract_by_table_name, LakehouseTableContract,
 };
-use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
+use lakehouse_infrastructure::IcebergRestCatalog;
 use serde_json::{json, Value};
 
 use super::history_gate::identity_under_derivation;
 use crate::{
-    duckdb_parquet_stage::{sql_path, DuckDbParquetStage, LakehouseRead},
+    duckdb_parquet_stage::{read_catalog_config, sql_path, DuckDbParquetStage, LakehouseRead},
     release_compare_stage::check_release,
 };
 
@@ -50,6 +50,8 @@ pub struct FloorLoad {
     pub appended: bool,
     /// The snapshot the append committed, when it did.
     pub snapshot_id: Option<i64>,
+    /// How many files the edition was staged as (one or more per bucket).
+    pub staged_files: usize,
 }
 
 fn contract() -> anyhow::Result<&'static LakehouseTableContract> {
@@ -155,21 +157,184 @@ fn quality_metrics(
         .collect())
 }
 
+/// The export's ready summary schema (`ready_summary`).
+const EXPORT_SCHEMA: &str = "foundation-platform.building_register_floor_silver_handoff_export.v1";
+
+/// What the load takes from the export's ready summary: the edition and its row count.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReadyEdition {
+    /// The edition's identity, which the append records.
+    pub source_snapshot_id: String,
+    /// The rows the export wrote; the release check requires exactly these.
+    pub row_count: u64,
+}
+
+/// Reads the export's ready summary of one Parquet edition of this table.
+///
+/// # Errors
+/// The summary is not ready, or is of another contract, format or edition.
+pub fn ready_edition(summary: &Value) -> anyhow::Result<ReadyEdition> {
+    ensure!(
+        summary["schema_version"] == EXPORT_SCHEMA && summary["status"] == "ready",
+        "the FLOOR export summary is not a ready {EXPORT_SCHEMA}"
+    );
+    let output = &summary["output"];
+    ensure!(
+        output["contract"] == TABLE && output["format"] == "parquet",
+        "the FLOOR export wrote another contract or format"
+    );
+    let source = summary["source"]["source_snapshot_id"]
+        .as_str()
+        .context("the FLOOR export summary names no edition")?;
+    ensure!(
+        output["source_snapshot_ids"] == json!([source]),
+        "the FLOOR export wrote another edition than its source"
+    );
+    Ok(ReadyEdition {
+        source_snapshot_id: source.to_owned(),
+        row_count: output["row_count"]
+            .as_u64()
+            .context("the FLOOR export summary has no row count")?,
+    })
+}
+
+/// The edition's rows, checked and staged: their count, the quality metrics and the staged files.
+pub(crate) struct Staged {
+    pub(crate) rows: u64,
+    metrics: BTreeMap<String, i64>,
+    pub(crate) files: Vec<StagedFile>,
+}
+
+/// Checks the handoff's rows and stages them one file per bucket (split at [`STAGED_FILE_BYTES`]).
+pub(crate) fn stage_edition(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    shape: &TableShape,
+    handoff: &Path,
+    source_snapshot_id: &str,
+    expected_rows: Option<u64>,
+) -> anyhow::Result<Staged> {
+    let relation = handoff_rows(contract, handoff)?;
+    let rows = check_release(
+        stage,
+        contract,
+        &relation,
+        source_snapshot_id,
+        expected_rows,
+    )?;
+    let metrics = quality_metrics(stage, contract, &relation)?;
+    let files = stage.write_bucketed(
+        shape,
+        &relation,
+        "mgm_bldrgst_pk",
+        16,
+        &format!(
+            "building-register-floors-{}",
+            &source_snapshot_id[source_snapshot_id.len().saturating_sub(16)..]
+        ),
+        STAGED_FILE_BYTES,
+    )?;
+    Ok(Staged {
+        rows,
+        metrics,
+        files,
+    })
+}
+
+/// The run summary the Spark load printed (`foundation-platform.spark_run_summary.v1`).
+fn run_summary(
+    contract: &LakehouseTableContract,
+    handoff: &Path,
+    source_snapshot_id: &str,
+    staged: Staged,
+    appended: bool,
+    live: bool,
+) -> anyhow::Result<Value> {
+    let names = contract
+        .columns
+        .iter()
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
+    let required = contract
+        .columns
+        .iter()
+        .filter(|column| column.required)
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
+    let persisted = appended.then_some(staged.rows);
+    let mut quality = staged
+        .metrics
+        .into_iter()
+        .map(|(name, value)| (name, json!(value)))
+        .collect::<serde_json::Map<_, _>>();
+    if let Some(persisted) = persisted {
+        quality.insert("persisted_row_count".to_owned(), json!(persisted));
+    }
+    let (namespace, table) = TABLE.split_once('.').context("namespace.table")?;
+    let mut summary = json!({
+        "schema_version": RUN_SUMMARY_SCHEMA,
+        "job_name": "load-building-register-floor-silver",
+        "contract": TABLE,
+        "created_at_utc": Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        "input": {"kind": "silver_handoff_parquet", "path": handoff.to_string_lossy()},
+        "target": {
+            "kind": "iceberg",
+            "catalog": "lakehouse",
+            "namespace": namespace,
+            "table": table,
+            "qualified_table": format!("lakehouse.{TABLE}"),
+        },
+        "write_mode": "iceberg",
+        "write_disposition": if live { "iceberg_append" } else { "validate_only" },
+        "row_count": staged.rows,
+        "persisted_row_count": persisted,
+        "quality_metrics": quality,
+        "column_count": names.len(),
+        "columns": names,
+        "required_columns": required,
+        "source_snapshot_count": 1,
+        "source_snapshot_ids": [source_snapshot_id],
+        "source_snapshot_truncated": false,
+    });
+    if appended {
+        let mut bytes_written = 0_u64;
+        for file in &staged.files {
+            bytes_written += std::fs::metadata(&file.local_path)?.len();
+        }
+        if let Some(object) = summary.as_object_mut() {
+            object.insert("bytes_written".to_owned(), json!(bytes_written));
+        }
+    }
+    Ok(summary)
+}
+
+/// Where a dry run keeps the files it staged, under its work directory: the stage removes its own
+/// when it ends, and the engine verdict compares these with the table (the code that would commit
+/// is the code that stages).
+pub const VERDICT_STAGED: &str = "verdict-staged";
+
+fn keep_for_verdict(work: &Path, files: &[StagedFile]) -> anyhow::Result<()> {
+    let kept = work.join(VERDICT_STAGED);
+    std::fs::create_dir_all(&kept).with_context(|| format!("cannot create {}", kept.display()))?;
+    for file in files {
+        std::fs::copy(
+            &file.local_path,
+            kept.join(format!("{}.parquet", file.name)),
+        )
+        .with_context(|| format!("cannot keep {}", file.local_path.display()))?;
+    }
+    Ok(())
+}
+
 /// Loads the edition `source_snapshot_id` the export wrote under `handoff`, in `work`.
 ///
-/// Without `live` nothing is committed: the rows are checked and staged and the summary says what
-/// would have been appended (the engine verdict runs this).
+/// Without `live` nothing is committed: the rows are checked and staged with the read-only
+/// credentials (`LakehouseRead::read_only_from_env`), the staged files are kept under
+/// [`VERDICT_STAGED`] in `work`, and the summary says what would have been appended (the engine
+/// verdict runs this).
 ///
 /// # Errors
 /// A check refuses the rows, the table records part of the batch, or the commit fails.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one edition's load in order; to be split by the handoff"
-)]
-#[expect(
-    clippy::significant_drop_tightening,
-    reason = "the stage is locked once for the check, the metrics and the staging"
-)]
 pub async fn load(
     handoff: &Path,
     work: &Path,
@@ -180,8 +345,7 @@ pub async fn load(
 ) -> anyhow::Result<FloorLoad> {
     let contract = contract()?;
     let identity = identity_under_derivation(source_snapshot_id, derivation)?;
-    let batch = vec![identity.clone()];
-    let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
+    let catalog = IcebergRestCatalog::new(read_catalog_config()?)?;
     let ingested = catalog
         .load_ingested_batch_objects(TABLE)
         .await?
@@ -191,6 +355,7 @@ pub async fn load(
             summary: json!({"status": "already_appended", "source_snapshot_ids": [source_snapshot_id]}),
             appended: false,
             snapshot_id: None,
+            staged_files: 0,
         });
     }
     let head = catalog
@@ -208,39 +373,23 @@ pub async fn load(
         Some(committer) => committer.table_shape(TABLE).await?,
         None => contract_shape(contract)?,
     };
-    let stage = std::sync::Mutex::new(DuckDbParquetStage::open_reading_lakehouse(
-        work,
-        &LakehouseRead::with_reader_keys_from_env()?,
-    )?);
-    let (rows, metrics, files) = {
-        let stage = stage
-            .lock()
-            .map_err(|_| anyhow::anyhow!("an earlier step of the load panicked"))?;
-        let relation = handoff_rows(contract, handoff)?;
-        let rows = check_release(
-            &stage,
-            contract,
-            &relation,
-            source_snapshot_id,
-            expected_rows,
-        )?;
-        let metrics = quality_metrics(&stage, contract, &relation)?;
-        // The staged files hold the edition's rows once more, beside the handoff.
-        stage.require_room(0)?;
-        let files = stage.write_bucketed(
-            &shape,
-            &format!("SELECT * FROM {relation}"),
-            "mgm_bldrgst_pk",
-            16,
-            &format!(
-                "building-register-floors-{}",
-                &source_snapshot_id[source_snapshot_id.len().saturating_sub(16)..]
-            ),
-            STAGED_FILE_BYTES,
-        )?;
-        (rows, metrics, files)
-    };
-    let mut appended = false;
+    // The stage (and its staged files) lives until the commit has uploaded them.
+    let stage =
+        DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::read_only_from_env()?)?;
+    // The staged files hold the edition's rows once more, on the stage's disk. Asked here, not in
+    // `stage_edition`: its test must not depend on the disk of the machine it runs on.
+    stage.require_room(0)?;
+    let staged = stage_edition(
+        &stage,
+        contract,
+        &shape,
+        handoff,
+        source_snapshot_id,
+        expected_rows,
+    )?;
+    if committer.is_none() {
+        keep_for_verdict(work, &staged.files)?;
+    }
     let mut snapshot = None;
     if let Some(committer) = &committer {
         let outcome = committer
@@ -248,8 +397,8 @@ pub async fn load(
                 DataAppend {
                     table_name: TABLE,
                     contract,
-                    files: &files,
-                    batch: &batch,
+                    files: &staged.files,
+                    batch: &[identity],
                     already_ingested: &ingested,
                     summary: BTreeMap::new(),
                 },
@@ -263,71 +412,72 @@ pub async fn load(
         } = outcome
         {
             ensure!(
-                added_records == rows,
-                "the commit of {TABLE} added {added_records} rows, the edition holds {rows}"
+                added_records == staged.rows,
+                "the commit of {TABLE} added {added_records} rows, the edition holds {}",
+                staged.rows
             );
             snapshot = Some(committed.snapshot_id);
-            appended = true;
         }
     }
+    let appended = snapshot.is_some();
+    let staged_files = staged.files.len();
+    let summary = run_summary(
+        contract,
+        handoff,
+        source_snapshot_id,
+        staged,
+        appended,
+        live,
+    )?;
     drop(stage);
-    let names = contract
-        .columns
-        .iter()
-        .map(|column| column.name)
-        .collect::<Vec<_>>();
-    let required = contract
-        .columns
-        .iter()
-        .filter(|column| column.required)
-        .map(|column| column.name)
-        .collect::<Vec<_>>();
-    let persisted = appended.then_some(rows);
-    let mut quality = metrics
-        .into_iter()
-        .map(|(name, value)| (name, json!(value)))
-        .collect::<serde_json::Map<_, _>>();
-    if let Some(persisted) = persisted {
-        quality.insert("persisted_row_count".to_owned(), json!(persisted));
-    }
-    let (namespace, table) = TABLE.split_once('.').context("namespace.table")?;
-    let mut bytes_written = 0_u64;
-    for file in &files {
-        bytes_written += std::fs::metadata(&file.local_path)?.len();
-    }
-    let mut summary = json!({
-        "schema_version": RUN_SUMMARY_SCHEMA,
-        "job_name": "load-building-register-floor-silver",
-        "contract": TABLE,
-        "created_at_utc": Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
-        "input": {"kind": "silver_handoff_parquet", "path": handoff.to_string_lossy()},
-        "target": {
-            "kind": "iceberg",
-            "catalog": "lakehouse",
-            "namespace": namespace,
-            "table": table,
-            "qualified_table": format!("lakehouse.{TABLE}"),
-        },
-        "write_mode": "iceberg",
-        "write_disposition": if live { "iceberg_append" } else { "validate_only" },
-        "row_count": rows,
-        "persisted_row_count": persisted,
-        "quality_metrics": quality,
-        "column_count": names.len(),
-        "columns": names,
-        "required_columns": required,
-        "source_snapshot_count": 1,
-        "source_snapshot_ids": [source_snapshot_id],
-        "source_snapshot_truncated": false,
-    });
-    if let (Some(bytes), Some(object)) =
-        (appended.then_some(bytes_written), summary.as_object_mut())
-    {
-        object.insert("bytes_written".to_owned(), json!(bytes));
-    }
     Ok(FloorLoad {
         summary,
         appended,
         snapshot_id: snapshot,
+        staged_files,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ready_edition, ReadyEdition, EXPORT_SCHEMA};
+
+    fn summary(source: &str, written: &str) -> serde_json::Value {
+        serde_json::json!({
+            "schema_version": EXPORT_SCHEMA,
+            "status": "ready",
+            "source": {"source_snapshot_id": source},
+            "output": {
+                "path": "target/lakehouse/floor-runs/run/handoff",
+                "format": "parquet",
+                "contract": "silver.building_register_floors",
+                "row_count": 7,
+                "source_snapshot_ids": [written],
+            },
+        })
+    }
+
+    #[test]
+    fn a_ready_summary_names_the_edition_and_its_rows() -> anyhow::Result<()> {
+        let edition = "building-register-floor-content-v1-2099";
+        assert_eq!(
+            ready_edition(&summary(edition, edition))?,
+            ReadyEdition {
+                source_snapshot_id: edition.to_owned(),
+                row_count: 7,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_summary_of_another_edition_format_or_not_ready_is_refused() {
+        assert!(ready_edition(&summary("a", "b")).is_err());
+        let mut pending = summary("a", "a");
+        pending["status"] = "pending".into();
+        assert!(ready_edition(&pending).is_err());
+        let mut jsonl = summary("a", "a");
+        jsonl["output"]["format"] = "jsonl".into();
+        assert!(ready_edition(&jsonl).is_err());
+    }
 }

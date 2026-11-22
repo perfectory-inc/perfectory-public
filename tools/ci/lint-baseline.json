@@ -61,9 +61,6 @@
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_release_compare.py": {
    "B905": 4
   },
-  "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py": {
-   "F401": 1
-  },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_number_change_history.py": {
    "B905": 1
   },
@@ -71,15 +68,12 @@
    "B905": 4
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_apartment_price_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_building_panel.py": {
    "F401": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_building_panel_args.py": {
-   "F401": 1
-  },
-  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_building_register_floor_history.py": {
    "F401": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_changelog_spark.py": {
@@ -89,7 +83,7 @@
    "B905": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_exclusive_unit_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_gold_fingerprint_iceberg.py": {
    "F541": 1
@@ -101,7 +95,7 @@
    "B905": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_housing_permit_basis_outline_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_lakehouse_ingest.py": {
    "B905": 1
@@ -110,7 +104,7 @@
    "PLW1510": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_maintenance_regular_inspection_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_panel_snapshot_pins.py": {
    "B023": 2,
@@ -130,46 +124,43 @@
    "B007": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_annex_parking_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_basis_outline_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_building_outline_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_demolition_loss_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_floor_overview_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_major_repair_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_parking_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_site_location_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_structure_ledger_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_permit_temporary_building_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_register_master_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_register_sub_parcel_contract.py": {
-   "E402": 2
+   "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_rt_molit_real_transaction.py": {
    "PLW1510": 1
-  },
-  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_silver_scalar_handoff_to_lakehouse.py": {
-   "F841": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_unit_price_panel_iceberg.py": {
    "F841": 1

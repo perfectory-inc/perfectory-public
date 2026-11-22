@@ -1,10 +1,9 @@
-//! Running one changed release: stage its Bronze, export, load with the scalar Spark job.
+//! Running one changed release: stage its Bronze and export it; the publisher's `DuckDB` loads it
+//! (`duckdb_release`, root ADR-0599).
 //!
 //! The export is the release's own publisher, started as a child of this command: it runs inside
 //! the unit's memory bound (`MemoryMax`), reads the host's database and the legal-dong projection
-//! directly, and needs no image of its own. Spark runs in the compose `spark` service under its
-//! 20g cap, in a Compose project named after the systemd invocation so `ExecStopPost` can remove
-//! what a killed run leaves (root ADR-0128, `invocation_cleanup`).
+//! directly, and needs no image of its own.
 use std::{
     fs,
     io::{Read, Write},
@@ -25,18 +24,10 @@ use crate::silver_handoff_io::{open_source, InputSource};
 /// What the unit and its script hand this command about the release it runs from.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::remote_lakehouse_job) struct Runtime {
-    /// The admitted release (`compose.lakehouse.yml` and the Spark jobs live here).
+    /// The admitted release.
     pub release_root: PathBuf,
     /// This lane's state directory on the data disk.
     pub lane_root: PathBuf,
-    /// The release's frozen jars, as paths inside the Spark container's Ivy mount.
-    pub spark_jars: String,
-    /// The host directory those jars are in, mounted read-only.
-    pub jars_dir: PathBuf,
-    /// The Compose project this invocation's Spark runs in.
-    pub project: String,
-    /// The service account's group: Spark (uid 185) writes the work directory through it.
-    pub gid: String,
     /// The publisher binary that runs the export.
     pub publisher: PathBuf,
 }
@@ -44,10 +35,6 @@ pub(in crate::remote_lakehouse_job) struct Runtime {
 impl Runtime {
     pub(in crate::remote_lakehouse_job) fn work(&self) -> PathBuf {
         self.lane_root.join("work")
-    }
-
-    fn scratch(&self) -> PathBuf {
-        self.lane_root.join("spark-scratch")
     }
 
     /// Empties the lane's work directory: one release at a time, and a failed attempt's staged
@@ -58,29 +45,12 @@ impl Runtime {
             fs::remove_dir_all(&work)
                 .with_context(|| format!("cannot empty {}", work.display()))?;
         }
-        for directory in [work, self.scratch()] {
-            fs::create_dir_all(&directory)
-                .with_context(|| format!("cannot create {}", directory.display()))?;
-            open_to_spark(&directory)?;
-        }
+        fs::create_dir_all(&work).with_context(|| format!("cannot create {}", work.display()))?;
         Ok(())
     }
 }
 
-#[cfg(unix)]
-fn open_to_spark(directory: &Path) -> anyhow::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    // Spark runs as uid 185 in the service account's group; the group must write here.
-    fs::set_permissions(directory, fs::Permissions::from_mode(0o2770))
-        .with_context(|| format!("cannot open {} to the Spark container", directory.display()))
-}
-
-#[cfg(not(unix))]
-fn open_to_spark(_directory: &Path) -> anyhow::Result<()> {
-    Ok(())
-}
-
-/// Where the export writes its handoff, as the host and as the Spark container see it.
+/// Where the export writes its handoff, under the lane's work directory.
 pub(in crate::remote_lakehouse_job) const HANDOFF: &str = "handoff";
 const EXPORT_SUMMARY: &str = "export-summary.json";
 /// The environment the lane's export reads, from the release the ledger picked.

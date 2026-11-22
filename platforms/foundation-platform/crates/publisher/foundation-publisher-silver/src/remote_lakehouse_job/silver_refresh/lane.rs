@@ -3,7 +3,7 @@
 //! The list of lanes is this enum and the HUB family files: a hand lane needs its export's
 //! environment, which is code; a family lane is an entry of a family file, with nothing in code
 //! (root ADR-0551). Everything else a lane runs with (its Silver table, the Bronze sources that make one release, the export
-//! command, the Spark size and write mode) is the `silver_refresh` block of the lane's source
+//! command, how the release is written) is the `silver_refresh` block of the lane's source
 //! contract, compiled in from the same release (root ADR-0169 §2–3). A VWorld land lane's block
 //! also holds the rule that reads its region and vintage from a ZIP member name and how many
 //! regions make a release (step 3, `land.rs`).
@@ -321,7 +321,7 @@ impl PartialEq for FamilyLane {
 
 impl Eq for FamilyLane {}
 
-/// How the lane's export hands rows to Spark, which decides the load identity.
+/// How the lane's export hands rows to the load, which decides the load identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::remote_lakehouse_job) enum ExportKind {
     /// 표제부: one local JSONL file from one staged ZIP.
@@ -439,12 +439,14 @@ pub(in crate::remote_lakehouse_job) enum WriteMode {
     Overwrite,
 }
 
+/// How a lane's release is written (`silver_refresh.load`): what makes the lane a one-run load, a
+/// part lane or a land lane (`LaneContract::parse`).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub(in crate::remote_lakehouse_job) struct SparkRunner {
-    pub master: String,
-    pub driver_memory: String,
-    pub iceberg_write_mode: WriteMode,
+pub(in crate::remote_lakehouse_job) struct LoadBlock {
+    /// `overwrite`: a release replaces the table's edition; `append`: it adds to it.
+    pub write_mode: WriteMode,
+    /// Handoff files per input batch; 0 is one batch, the whole release.
     pub input_file_batch_size: u32,
 }
 
@@ -487,7 +489,7 @@ struct Block {
     export: String,
     #[serde(default)]
     export_chunk_rows: Option<u32>,
-    spark: SparkRunner,
+    load: LoadBlock,
     /// Land lanes that append a release's changes instead of publishing it whole (root ADR-0275).
     #[serde(default)]
     compare: Option<CompareBlock>,
@@ -499,18 +501,6 @@ struct Block {
     /// the newest complete provider month is the release (ADR-0169 §2).
     #[serde(default)]
     release_unit: Option<String>,
-    /// The slowest step of a run (a load batch or a compare bucket), measured (root ADR-0391).
-    #[serde(default)]
-    run_budget: Option<RunBudgetBlock>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RunBudgetBlock {
-    /// The longest one step took: the run starts no step later than its unit allows with this.
-    step_seconds_max: u32,
-    /// When, from what and how it was measured: a budget nobody measured is a guess.
-    measured: String,
 }
 
 #[derive(Deserialize)]
@@ -583,7 +573,7 @@ pub(in crate::remote_lakehouse_job) struct LaneContract {
     pub handoff_prefix: Option<String>,
     /// How a land lane finds its release in the ledger and names its handoffs.
     pub land: Option<LandRule>,
-    pub spark: SparkRunner,
+    pub load: LoadBlock,
     /// A land lane that appends a release's changes to `main` rather than publishing its staged
     /// branch (root ADR-0275): the columns compared. `None` publishes the release whole.
     pub compare_content: Option<Vec<String>>,
@@ -596,30 +586,6 @@ pub(in crate::remote_lakehouse_job) struct LaneContract {
     pub compare_geometry_tolerance: Option<String>,
     /// Every Bronze object is its own release, loaded oldest first (`Block::release_unit`).
     pub releases_each_object: bool,
-    /// The measured slowest step (`RunBudgetBlock::step_seconds_max`); `None` keeps the default
-    /// (`super::LARGEST_BUCKET_MINUTES`).
-    pub step_seconds_max: Option<u32>,
-}
-
-/// A measured budget must leave a run time to start a step: the deadline is the unit's fit
-/// (`super::FIT_SHARE_PERCENT` of its limit) less the slowest step (root ADR-0391).
-fn checked_run_budget(table: &str, budget: Option<RunBudgetBlock>) -> anyhow::Result<Option<u32>> {
-    let Some(budget) = budget else {
-        return Ok(None);
-    };
-    ensure!(
-        !budget.measured.trim().is_empty(),
-        "{table}: run_budget.measured says when and how step_seconds_max was measured"
-    );
-    ensure!(
-        budget.step_seconds_max > 0
-            && super::last_step_start_seconds(Some(budget.step_seconds_max))
-                >= super::MIN_STEP_START_SECONDS,
-        "{table}: a step of {}s leaves a run less than {}s to start one inside its unit's fit; the step must get smaller (more batches, finer buckets), not the unit longer",
-        budget.step_seconds_max,
-        super::MIN_STEP_START_SECONDS
-    );
-    Ok(Some(budget.step_seconds_max))
 }
 
 fn checked_prefix(prefix: Option<String>) -> anyhow::Result<String> {
@@ -664,29 +630,13 @@ impl LaneContract {
             lane.id(),
             lane.table()
         );
-        let spark = block.spark;
+        let load = block.load;
         checked_full_reason(
             &block.table,
-            spark.iceberg_write_mode,
+            load.write_mode,
             block.compare.is_some(),
             block.full_reason.as_ref(),
         )?;
-        ensure!(
-            master_retries_tasks(&spark.master),
-            "spark.master must be local[N,maxFailures] with maxFailures >= 2: plain local[N] ignores \
-             spark.task.maxFailures, so one reset R2 read aborts the lane (root ADR-0102); got {}",
-            spark.master
-        );
-        ensure!(
-            spark.master.starts_with("local[")
-                && spark.master.ends_with(']')
-                && spark.driver_memory.len() >= 2
-                && spark.driver_memory.ends_with('g')
-                && spark.driver_memory[..spark.driver_memory.len() - 1]
-                    .bytes()
-                    .all(|b| b.is_ascii_digit()),
-            "spark.master must be local[N,M] and spark.driver_memory <N>g"
-        );
         if let ExportKind::Land { .. } = kind {
             let export = crate::land_use_silver_export::export_command(&block.export)
                 .context("a land lane runs a land export")?;
@@ -704,8 +654,8 @@ impl LaneContract {
             // gold.parcel_panel reads one source_snapshot_id per land table, so a new release
             // replaces the table: its first load batch overwrites and the rest append to it.
             ensure!(
-                spark.iceberg_write_mode == WriteMode::Overwrite && spark.input_file_batch_size > 0,
-                "{} holds one release for gold.parcel_panel: a land lane overwrites in batches of input_file_batch_size",
+                load.write_mode == WriteMode::Overwrite && load.input_file_batch_size > 0,
+                "{} holds one release for gold.parcel_panel: a land lane overwrites in batches of load.input_file_batch_size",
                 block.table
             );
             let source = block.source.context("a land lane states its source")?;
@@ -753,7 +703,7 @@ impl LaneContract {
                 .context("a land lane's contract states handoff_suffix")?;
             ensure!(
                 handoff_suffix == ".jsonl.gz",
-                "a land handoff is gzip JSONL (.jsonl.gz), which the export compresses and Spark reads"
+                "a land handoff is gzip JSONL (.jsonl.gz), which the export compresses and the load reads"
             );
             let rule = LandRule {
                 source,
@@ -777,7 +727,6 @@ impl LaneContract {
                 compare_release_buckets_only,
                 compare_geometry_tolerance,
             ) = checked_compare_block(&block.table, block.compare)?;
-            let step_seconds_max = checked_run_budget(&block.table, block.run_budget)?;
             return Ok(Self {
                 lane,
                 table: block.table,
@@ -787,13 +736,12 @@ impl LaneContract {
                 export_chunk_rows: None,
                 handoff_prefix: Some(rule.handoff_prefix.clone()),
                 land: Some(rule),
-                spark,
+                load,
                 compare_content,
                 compare_bucket_prefix_length,
                 compare_release_buckets_only,
                 compare_geometry_tolerance,
                 releases_each_object: false,
-                step_seconds_max,
             });
         }
         ensure!(
@@ -819,7 +767,6 @@ impl LaneContract {
             "{}: a lane whose objects are releases compares only the buckets each release holds",
             block.table
         );
-        let step_seconds_max = checked_run_budget(&block.table, block.run_budget)?;
         let block_roles = block
             .roles
             .context("a hub lane names the roles of its release")?;
@@ -834,14 +781,13 @@ impl LaneContract {
             checked_slug(slug, "hubgokr__")?;
         }
         let handoff_prefix = if kind.loads_as_one_run() {
-            // One run is one load identity; a split input would write only its first batch
-            // (silver_scalar_handoff_to_lakehouse.py refuses it before writing).
+            // One run is one load identity; a split input would write only its first batch.
             ensure!(
-                spark.input_file_batch_size == 0,
-                "a one-run load must be one input batch (input_file_batch_size 0)"
+                load.input_file_batch_size == 0,
+                "a one-run load must be one input batch (load.input_file_batch_size 0)"
             );
             ensure!(
-                spark.iceberg_write_mode == WriteMode::Overwrite,
+                load.write_mode == WriteMode::Overwrite,
                 "{} holds one source_snapshot_id for gold.building_panel, so a new release replaces it (overwrite)",
                 block.table
             );
@@ -854,10 +800,10 @@ impl LaneContract {
             // The unit-area export cuts its own parts (`export_chunk_rows` rows each); a hub part
             // lane's engine reads its part size from the layout.
             ensure!(
-                spark.input_file_batch_size > 0
-                    && spark.iceberg_write_mode == WriteMode::Append
+                load.input_file_batch_size > 0
+                    && load.write_mode == WriteMode::Append
                     && block.export_chunk_rows.is_some() == (kind == ExportKind::UnitArea),
-                "a part lane appends its parts in batches of input_file_batch_size; only the \
+                "a part lane appends its parts in batches of load.input_file_batch_size; only the \
                  unit-area export names its part size (export_chunk_rows)"
             );
             Some(checked_prefix(document.handoff_prefix)?)
@@ -871,13 +817,12 @@ impl LaneContract {
             export_chunk_rows: block.export_chunk_rows,
             handoff_prefix,
             land: None,
-            spark,
+            load,
             compare_content,
             compare_bucket_prefix_length,
             compare_release_buckets_only,
             compare_geometry_tolerance,
             releases_each_object,
-            step_seconds_max,
         })
     }
 }
@@ -1002,38 +947,4 @@ fn checked_compare(table: &str, content: Vec<String>) -> anyhow::Result<Vec<Stri
         );
     }
     Ok(content)
-}
-
-/// `local[N,M]` with `M >= 2`: a failed task runs again (root ADR-0102).
-fn master_retries_tasks(master: &str) -> bool {
-    master
-        .strip_prefix("local[")
-        .and_then(|rest| rest.strip_suffix(']'))
-        .and_then(|inner| inner.split_once(','))
-        .is_some_and(|(threads, failures)| {
-            !threads.trim().is_empty() && failures.trim().parse::<u32>().is_ok_and(|n| n >= 2)
-        })
-}
-
-#[cfg(test)]
-mod master_tests {
-    use super::master_retries_tasks;
-
-    #[test]
-    fn only_a_master_that_runs_a_failed_task_again_is_accepted() {
-        // Built, not written out: the repository scan (test_spark_masters_retry_tasks.py) refuses a
-        // written master without task retries, and these are the refused ones.
-        let master = |threads: &str, failures: &str| format!("local[{threads}{failures}]");
-        assert!(master_retries_tasks(&master("8", ",8")));
-        assert!(master_retries_tasks(&master("*", ",2")));
-        for refused in [
-            master("8", ""),
-            master("8", ",1"),
-            master("", ",8"),
-            master("8", ",x"),
-        ] {
-            assert!(!master_retries_tasks(&refused), "{refused}");
-        }
-        assert!(!master_retries_tasks("yarn"));
-    }
 }

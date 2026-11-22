@@ -82,13 +82,16 @@ class SnapshotReadersArePinned(unittest.TestCase):
         self.assertEqual(gone, [], "the contract names readers that no longer read a snapshot by id")
 
     def test_the_contract_names_the_tags_the_code_makes(self) -> None:
-        import building_register_floor_history
         import gold_incremental
 
         tags = self.pins["tags"]
         self.assertIn(gold_incremental.INPUT_TAG_PREFIX, tags)
         self.assertIn(gold_incremental.BUILD_TAG, tags)
-        self.assertIn(building_register_floor_history.WITNESS_TAG, tags)
+        gate = (PLATFORM / "crates/publisher/foundation-publisher-silver/src/building_register_floor_silver_export/"
+                "history_gate_run.rs").read_text(encoding="utf-8")
+        witness = re.search(r'pub const WITNESS_TAG: &str = "([^"]+)";', gate)
+        self.assertTrue(witness, "the FLOOR history gate no longer names its witness tag")
+        self.assertIn(witness.group(1), tags)
         pins = (PLATFORM / "crates/publisher/foundation-publisher-by-pnu/src/by_pnu_serving_pins.rs").read_text(
             encoding="utf-8")
         for prefix in ("served-", "baking-"):

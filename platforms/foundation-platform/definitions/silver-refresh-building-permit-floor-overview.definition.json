@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 건축인허가 층별개요 lane `building-permit-floor-overview` (root ADR-0169 ②, ADR-0402): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_permit_floor_overview already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed floors' rows and a removal marker per vanished floor (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 건축인허가 층별개요 lane `building-permit-floor-overview` (root ADR-0169 ②, ADR-0402): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_permit_floor_overview already records it or a newer one (`unchanged`), export it, compare it, in the publisher's DuckDB, with the table's current rows key bucket by key bucket and append to main only the changed floors' rows and a removal marker per vanished floor (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
       "systemd_service": "foundation-silver-refresh@building-permit-floor-overview.service",
       "check_service": "foundation-silver-refresh-plan@building-permit-floor-overview.service",
       "systemd_timer": null,
@@ -82,8 +82,7 @@
       "status": "partial",
       "via": [
         "export-building-permit-floor-overview-silver-handoff",
-        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh"
       ],
       "source_slugs": [
         "hubgokr__building_permit_floor_overview"

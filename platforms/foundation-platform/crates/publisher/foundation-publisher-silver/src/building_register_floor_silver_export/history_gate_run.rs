@@ -10,15 +10,14 @@
 //!
 //! The witness tag is created through the catalog's REST commit (`IcebergRestCatalog::create_tag`,
 //! `set-snapshot-ref` asserted absent): iceberg-rust 0.11 offers no public action that sets a
-//! reference, its `TransactionAction` being crate-private.
+//! reference, its `TransactionAction` being crate-private. A tag that already names the witness is
+//! left as it is (`create_tag` reads the refs first), so in steady state the gate only reads.
 
 use std::{io::Read as _, path::Path};
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, Utc};
-use lakehouse_infrastructure::{
-    IcebergRestCatalog, IcebergSnapshotRegistry, LakehouseCatalogConfig,
-};
+use lakehouse_infrastructure::{IcebergRestCatalog, IcebergSnapshotRegistry};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -27,7 +26,9 @@ use super::{
     history_gate::{identity_under_derivation, registered_append, verify_metadata},
     history_witness::HistoryWitness,
 };
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG};
+use crate::duckdb_parquet_stage::{
+    read_catalog_config, DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
+};
 
 /// The outcome's schema (unchanged from the Spark job).
 pub const OUTCOME_SCHEMA: &str = "foundation-platform.floor-history-check.v1";
@@ -250,147 +251,186 @@ fn read_receipt(path: &Path) -> anyhow::Result<(Receipt, Value)> {
     Ok((serde_json::from_value(raw.clone())?, raw))
 }
 
-/// Runs the gate and writes the outcome to `summary`; returns the exit code.
+/// What the gate judges: the receipt, the witness and the identity the receipt is checked under.
+struct Gate<'a> {
+    receipt: &'a Receipt,
+    witness: &'a HistoricalBinding,
+    binding: Option<&'a HistoricalBinding>,
+    identity: &'a str,
+    derivation: Option<&'a str>,
+}
+
+impl Gate<'_> {
+    /// The retained append of the receipt's rows, when the register records one: its fields for
+    /// the outcome. A new source or a derivation is judged by its recorded append; the historical
+    /// base by the witness alone.
+    fn retained(
+        &self,
+        stage: &DuckDbParquetStage,
+        registry: &IcebergSnapshotRegistry,
+        head: i64,
+    ) -> anyhow::Result<Option<Value>> {
+        if self.binding.is_some() {
+            authenticate_witness(stage, self.witness)?;
+            if self.derivation.is_none() {
+                return Ok(None);
+            }
+        }
+        let Some(record) = registered_append(self.identity, registry)? else {
+            self.refuse_unrecorded_rows(stage, head)?;
+            return Ok(None);
+        };
+        let groups = added_by(
+            stage,
+            registry,
+            record.snapshot_id,
+            &self.receipt.source_snapshot_id,
+        )?;
+        let added: i64 = record
+            .summary
+            .get("added-records")
+            .context("the append records no added rows")?
+            .parse()?;
+        let [(lineage, count)] = groups.as_slice() else {
+            bail!("recorded FLOOR append has missing or mixed row lineage");
+        };
+        ensure!(
+            lineage.source_snapshot_id == self.receipt.source_snapshot_id
+                && lineage.bronze_object_key == self.receipt.bronze_object_key
+                && lineage.valid_from_us == micros(self.receipt.valid_from_utc)
+                && *count == added,
+            "recorded FLOOR rows differ from authenticated source and count"
+        );
+        let ingested = DateTime::<Utc>::from_timestamp_micros(lineage.ingested_at_us)
+            .context("an unreadable retained time")?;
+        Ok(Some(json!({
+            "table_uuid": registry.table_uuid.to_string(),
+            "snapshot_id": record.snapshot_id.to_string(),
+            "observed_head_snapshot_id": head.to_string(),
+            "retained_row_count": count,
+            "retained_ingested_at_utc": ingested.to_rfc3339(),
+            "retention_kind": "registered_append",
+            "derivation": self.derivation,
+        })))
+    }
+
+    /// Snapshot expiry may remove the register without removing the rows: a missing record never
+    /// means unprocessed.
+    fn refuse_unrecorded_rows(&self, stage: &DuckDbParquetStage, head: i64) -> anyhow::Result<()> {
+        let current = lineage_at(stage, head, Some(&self.receipt.source_snapshot_id))?;
+        if self.derivation.is_none() {
+            ensure!(
+                current.is_empty(),
+                "FLOOR rows exist without their recorded append; recovery required"
+            );
+        } else {
+            ensure!(
+                current.iter().all(|(lineage, _)| {
+                    lineage.ingested_at_us < micros(self.receipt.ingested_at_utc)
+                }),
+                "changed derivation must be later than retained rows"
+            );
+        }
+        Ok(())
+    }
+
+    /// The outcome the Spark job wrote, with the retained append's fields over it.
+    fn outcome(
+        &self,
+        raw: &Value,
+        head: i64,
+        retained: Option<Value>,
+    ) -> anyhow::Result<(&'static str, Value)> {
+        let binding = self.binding;
+        let action = if retained.is_some() || (binding.is_some() && self.derivation.is_none()) {
+            "already_retained"
+        } else {
+            if let Some(binding) = binding {
+                ensure!(
+                    self.receipt.ingested_at_utc > binding.ingested_at_utc(),
+                    "changed derivation must be later than retained historical rows"
+                );
+            }
+            "export_required"
+        };
+        let mut outcome = json!({
+            "schema_version": OUTCOME_SCHEMA,
+            "action": action,
+            "source_snapshot_id": self.receipt.source_snapshot_id,
+            "inputs": raw["inputs"],
+            "derivation": self.derivation,
+            "table_uuid": binding.map(|binding| binding.table_uuid().to_string()),
+            "snapshot_id": binding.map(|binding| binding.snapshot_id().to_owned()),
+            "observed_head_snapshot_id": binding.map(|_| head.to_string()),
+            "retained_row_count": binding.map_or(0, HistoricalBinding::row_count),
+            "persisted_row_count": 0,
+        });
+        if let (Some(Value::Object(fields)), Some(object)) = (retained, outcome.as_object_mut()) {
+            object.extend(fields);
+        }
+        Ok((action, outcome))
+    }
+}
+
+fn write_outcome(path: &Path, outcome: &Value) -> anyhow::Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| format!("cannot create {}", path.display()))?;
+    std::io::Write::write_all(&mut file, format!("{outcome}\n").as_bytes())?;
+    Ok(())
+}
+
+/// Runs the gate on the receipt at `receipt_path` against `witness_file`, reading the table with
+/// `DuckDB` in `work`, and writes the outcome to `summary`; returns the exit code.
+///
+/// Every step reads: the catalog's register and refs, and the table's rows through `DuckDB` with
+/// the reader pair (`LakehouseRead::read_only_from_env`). The one write is the witness tag when it
+/// is missing; once it names the witness, the gate writes nothing but its outcome file.
 ///
 /// # Errors
 /// The witness, the receipt or the table's history does not authenticate, or a read fails.
-#[expect(
-    clippy::too_many_lines,
-    reason = "ported in the order of the Spark job's main; to be split by the handoff"
-)]
-#[expect(
-    clippy::significant_drop_tightening,
-    reason = "the stage is locked once for every lineage read of the gate"
-)]
 pub async fn run(
+    witness_file: &HistoryWitness,
     receipt_path: &Path,
     summary: &Path,
     derivation: Option<&str>,
+    work: &Path,
 ) -> anyhow::Result<i32> {
-    let witness_file = HistoryWitness::from_lookup(&mut |key| std::env::var(key).ok(), true)?;
     let witness = witness_file.binding();
-    let (receipt, raw) = read_receipt(receipt_path)?;
-    let binding = bound(&receipt, witness)?;
-    let identity = identity_under_derivation(&receipt.source_snapshot_id, derivation)?;
     ensure!(
         witness.table_name() == TABLE,
         "the witness names another table"
     );
+    let (receipt, raw) = read_receipt(receipt_path)?;
+    let identity = identity_under_derivation(&receipt.source_snapshot_id, derivation)?;
+    let gate = Gate {
+        receipt: &receipt,
+        witness,
+        binding: bound(&receipt, witness)?,
+        identity: &identity,
+        derivation,
+    };
 
-    let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
+    let catalog = IcebergRestCatalog::new(read_catalog_config()?)?;
     let registry = catalog
         .load_snapshot_registry(TABLE)
         .await?
         .with_context(|| format!("{TABLE} does not exist"))?;
-    let work = summary.parent().context("the outcome has no directory")?;
-    let stage = std::sync::Mutex::new(DuckDbParquetStage::open_reading_lakehouse(
-        work,
-        &LakehouseRead::with_reader_keys_from_env()?,
-    )?);
-    let gate_witness = witness.gate_witness()?;
     // A missing or replaced table, or a broken historical chain, is not a new empty dataset.
-    let head = verify_metadata(&gate_witness, &registry)?;
-    let mut retained = None;
-    {
-        let stage = stage
-            .lock()
-            .map_err(|_| anyhow::anyhow!("an earlier step of the gate panicked"))?;
-        if binding.is_some() {
-            authenticate_witness(&stage, witness)?;
-        }
-        if binding.is_none() || derivation.is_some() {
-            if let Some(record) = registered_append(&identity, &registry)? {
-                {
-                    let groups = added_by(
-                        &stage,
-                        &registry,
-                        record.snapshot_id,
-                        &receipt.source_snapshot_id,
-                    )?;
-                    let added: i64 = record
-                        .summary
-                        .get("added-records")
-                        .context("the append records no added rows")?
-                        .parse()?;
-                    let [(lineage, count)] = groups.as_slice() else {
-                        bail!("recorded FLOOR append has missing or mixed row lineage");
-                    };
-                    ensure!(
-                        lineage.source_snapshot_id == receipt.source_snapshot_id
-                            && lineage.bronze_object_key == receipt.bronze_object_key
-                            && lineage.valid_from_us == micros(receipt.valid_from_utc)
-                            && *count == added,
-                        "recorded FLOOR rows differ from authenticated source and count"
-                    );
-                    let ingested = DateTime::<Utc>::from_timestamp_micros(lineage.ingested_at_us)
-                        .context("an unreadable retained time")?;
-                    retained = Some(json!({
-                        "table_uuid": registry.table_uuid.to_string(),
-                        "snapshot_id": record.snapshot_id.to_string(),
-                        "observed_head_snapshot_id": head.to_string(),
-                        "retained_row_count": count,
-                        "retained_ingested_at_utc": ingested.to_rfc3339(),
-                        "retention_kind": "registered_append",
-                        "derivation": derivation,
-                    }));
-                }
-            } else {
-                {
-                    // Snapshot expiry may remove the registry without removing the rows: a missing
-                    // record never means unprocessed.
-                    let current = lineage_at(&stage, head, Some(&receipt.source_snapshot_id))?;
-                    if derivation.is_none() && !current.is_empty() {
-                        bail!("FLOOR rows exist without their recorded append; recovery required");
-                    }
-                    if derivation.is_some()
-                        && current.iter().any(|(lineage, _)| {
-                            lineage.ingested_at_us >= micros(receipt.ingested_at_utc)
-                        })
-                    {
-                        bail!("changed derivation must be later than retained rows");
-                    }
-                }
-            }
-        }
-    }
-    drop(stage);
+    let head = verify_metadata(&witness.gate_witness()?, &registry)?;
+    let retained = {
+        let stage = DuckDbParquetStage::open_reading_lakehouse(
+            work,
+            &LakehouseRead::read_only_from_env()?,
+        )?;
+        gate.retained(&stage, &registry, head)?
+    };
     same_head(&catalog, &registry).await?;
     pin_witness(&catalog, witness).await?;
-
-    let action = if retained.is_some() || (binding.is_some() && derivation.is_none()) {
-        "already_retained"
-    } else if let Some(binding) = binding {
-        ensure!(
-            receipt.ingested_at_utc > binding.ingested_at_utc(),
-            "changed derivation must be later than retained historical rows"
-        );
-        "export_required"
-    } else {
-        "export_required"
-    };
-    let mut outcome = json!({
-        "schema_version": OUTCOME_SCHEMA,
-        "action": action,
-        "source_snapshot_id": receipt.source_snapshot_id,
-        "inputs": raw["inputs"],
-        "derivation": derivation,
-        "table_uuid": binding.map(|binding| binding.table_uuid().to_string()),
-        "snapshot_id": binding.map(|binding| binding.snapshot_id().to_owned()),
-        "observed_head_snapshot_id": binding.map(|_| head.to_string()),
-        "retained_row_count": binding.map_or(0, HistoricalBinding::row_count),
-        "persisted_row_count": 0,
-    });
-    if let (Some(fields), Some(object)) = (retained, outcome.as_object_mut()) {
-        if let Some(fields) = fields.as_object() {
-            object.extend(fields.clone());
-        }
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(summary)
-        .with_context(|| format!("cannot create {}", summary.display()))?;
-    std::io::Write::write_all(&mut file, format!("{outcome}\n").as_bytes())?;
+    let (action, outcome) = gate.outcome(&raw, head, retained)?;
+    write_outcome(summary, &outcome)?;
     Ok(if action == "already_retained" {
         0
     } else {

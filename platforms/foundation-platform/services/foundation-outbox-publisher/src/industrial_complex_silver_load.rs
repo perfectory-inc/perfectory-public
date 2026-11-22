@@ -38,11 +38,11 @@ use foundation_publisher_core::lakehouse_data_commit::{
     AppendOutcome, DataAppend, LakehouseDataCommitter, TableField, TableShape,
 };
 use foundation_publisher_silver::{
-    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
+    duckdb_parquet_stage::{read_catalog_config, DuckDbParquetStage, LakehouseRead},
     industrial_complex_silver_stage::{stage_export, TABLE},
 };
 use lakehouse_domain::SILVER_INDUSTRIAL_COMPLEXES;
-use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
+use lakehouse_infrastructure::IcebergRestCatalog;
 use serde_json::{json, Value};
 
 use crate::public_data_control_support::{required_env_value, write_json_file};
@@ -197,7 +197,7 @@ pub(crate) async fn plan() -> anyhow::Result<()> {
             chosen.push((input.source_slug, key));
         }
     }
-    let catalog = IcebergRestCatalog::new(catalog_config()?)?;
+    let catalog = IcebergRestCatalog::new(read_catalog_config()?)?;
     let recorded = catalog
         .load_ingested_batch_objects(TABLE)
         .await?
@@ -282,18 +282,6 @@ pub(crate) fn unrecorded_inputs(planned: &[String], recorded: &BTreeSet<String>)
         .collect()
 }
 
-/// The catalog settings a step reads with: the read-only token when the environment holds one (a
-/// verdict run with the reader key alone), the unit's own otherwise.
-fn catalog_config() -> anyhow::Result<LakehouseCatalogConfig> {
-    Ok(
-        if std::env::var_os("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN").is_some() {
-            LakehouseCatalogConfig::reader_from_env()?
-        } else {
-            LakehouseCatalogConfig::from_env()?
-        },
-    )
-}
-
 /// The table's shape as its contract numbers it: what a dry run stages with, having no writer to
 /// ask the live schema of.
 fn contract_shape() -> anyhow::Result<TableShape> {
@@ -341,8 +329,7 @@ pub(crate) async fn load() -> anyhow::Result<()> {
         Some(committer) => committer.table_shape(TABLE).await?,
         None => contract_shape()?,
     };
-    let catalog_settings = catalog_config()?;
-    let catalog = IcebergRestCatalog::new(catalog_settings.clone())?;
+    let catalog = IcebergRestCatalog::new(read_catalog_config()?)?;
     let head = catalog
         .load_main_snapshot_history(TABLE)
         .await?
@@ -350,20 +337,7 @@ pub(crate) async fn load() -> anyhow::Result<()> {
         .first()
         .map(|snapshot| snapshot.snapshot_id);
     // The data files are read with the reader pair, the catalog with the step's token.
-    let storage = R2ObjectStorageConfig::lakehouse_reader_from_env().context(
-        "the industrial-complex Silver load reads the table with the lakehouse reader key",
-    )?;
-    let read = LakehouseRead {
-        extensions: foundation_publisher_silver::duckdb_extensions::release_directory()?,
-        catalog_uri: catalog_settings.catalog_uri,
-        warehouse: catalog_settings.warehouse,
-        catalog_token: catalog_settings
-            .catalog_token
-            .context("the lakehouse catalog token is required")?,
-        s3_endpoint: storage.endpoint,
-        s3_access_key_id: storage.access_key_id,
-        s3_secret_access_key: storage.secret_access_key,
-    };
+    let read = LakehouseRead::read_only_from_env()?;
     let stage = Mutex::new(DuckDbParquetStage::open_reading_lakehouse(&work, &read)?);
     let staged = {
         let stage = stage

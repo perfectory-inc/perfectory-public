@@ -381,7 +381,7 @@ def family_definitions(contracts):
     Each lane is a group of its own: its Silver table (asset) and the edge from the building HUB source
     (dependency). The family is one more group, `silver-refresh-hub-lane-family`: the one Silver
     refresh job that runs every lane in one run (`foundation-silver-refresh@hub-lane-family`), so the
-    family holds the spark pool once, not once per lane. What the lanes share is each file's
+    family holds its documents pool slot once, not once per lane. What the lanes share is each file's
     `defaults.job`, the same in every file.
     """
     definitions = {}
@@ -419,7 +419,6 @@ def family_definitions(contracts):
                     "via": [
                         f"export-{lane}-silver-handoff",
                         "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
-                        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py",
                     ],
                     "source_slugs": [f"hubgokr__{snake}"],
                     "description": (f"{entry['title']}({entry['inner_file'].removesuffix('.txt')}) "
@@ -447,11 +446,12 @@ def family_definitions(contracts):
                 f"Silver refresh of the {len(edges)} HUB family lanes (root ADR-0169 ②, ADR-0551; "
                 f"{', '.join(files)}), one run for all: for each lane in name order pick the newest complete "
                 "hub.go.kr release in the Bronze ledger and, unless its table already records it or a newer one "
-                "(seconds, nothing written), export it, stage it on a load branch, compare it with the table's "
+                "(seconds, nothing written), export it, compare it, in the publisher's DuckDB, with the table's "
                 "current rows and append to main only the changed rows and a removal marker per row it no "
                 "longer holds (root ADR-0318). The first lane that runs out of the run's time ends the run and "
                 "the next run resumes it. `changed` when any lane changed. Started when a source_sweep run lands "
-                "new files, and daily as the fallback (root ADR-0171); it takes the compose `spark` cap."),
+                "new files, and daily as the fallback (root ADR-0171); it holds one slot of the documents pool and a "
+                "memory_claim on its unit (root ADR-0599)."),
             "systemd_service": "foundation-silver-refresh@hub-lane-family.service",
             "check_service": "foundation-silver-refresh-plan@hub-lane-family.service",
             "systemd_timer": None,

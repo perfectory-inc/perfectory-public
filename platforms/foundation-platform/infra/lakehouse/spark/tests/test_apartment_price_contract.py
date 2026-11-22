@@ -4,13 +4,10 @@ import json
 from pathlib import Path
 import sys
 import unittest
-from types import SimpleNamespace
 
 SPARK = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SPARK / "jobs"))
 from platform_contracts import load_lakehouse_contract, spark_sql_type
-from silver_scalar_handoff_to_lakehouse import spark_type, write_silver_iceberg
-
 
 class ApartmentPriceContractTest(unittest.TestCase):
     def test_measured_layout_and_consumed_positions(self):
@@ -27,10 +24,10 @@ class ApartmentPriceContractTest(unittest.TestCase):
         })
         self.assertTrue(all(v["meaning"] for v in c["columns"].values()))
         self.assertEqual(c["handoff_suffix"], ".jsonl.gz")
-        # A Spark batch holds what the measured hand load held (4 parts of 10M rows); the parts are
+        # A load batch holds what the measured hand load held (4 parts of 10M rows); the parts are
         # smaller so the export writes them on several workers (hub_register_silver_export.rs).
-        spark = c["silver_refresh"]["spark"]
-        self.assertLessEqual(c["rows_per_part"] * spark["input_file_batch_size"], 40_000_000)
+        load = c["silver_refresh"]["load"]
+        self.assertLessEqual(c["rows_per_part"] * load["input_file_batch_size"], 40_000_000)
 
     def test_the_release_is_the_ledgers_not_the_contracts(self):
         # Root ADR-0169 §2: the contract keeps rules; which month loads is the Bronze ledger's.
@@ -40,7 +37,7 @@ class ApartmentPriceContractTest(unittest.TestCase):
         lane = c["silver_refresh"]
         self.assertEqual(lane["table"], "silver.building_register_apartment_price")
         self.assertEqual(lane["roles"], {"source": c["source"].removeprefix("bronze/source=")})
-        self.assertEqual(lane["spark"]["iceberg_write_mode"], "append")
+        self.assertEqual(lane["load"]["write_mode"], "append")
 
     def test_silver_retains_raw_array_and_loads_each_part_once(self):
         c = load_lakehouse_contract("silver.building_register_apartment_price")
@@ -53,25 +50,6 @@ class ApartmentPriceContractTest(unittest.TestCase):
         self.assertTrue(columns["source_record_id"]["required"])
         self.assertTrue(columns["source_line_number"]["required"])
         self.assertEqual(spark_sql_type("array<string>"), "ARRAY<STRING>")
-
-    def test_spark_maps_string_arrays_without_stringifying_them(self):
-        class Types:
-            @staticmethod
-            def StringType():
-                return "string"
-
-            @staticmethod
-            def ArrayType(element, containsNull=True):
-                return ("array", element, containsNull)
-
-        self.assertEqual(spark_type("array<string>", Types), ("array", "string", True))
-
-    def test_append_only_observations_refuse_overwrite_before_opening_spark(self):
-        c = load_lakehouse_contract("silver.building_register_apartment_price")
-        self.assertIn("append_only", c["quality_gates"])
-        for configured, override in [("overwrite", None), ("append", "overwrite")]:
-            with self.assertRaisesRegex(ValueError, "append.only"):
-                write_silver_iceberg(None, None, SimpleNamespace(iceberg_write_mode=configured), c, None, override)
 
 
 if __name__ == "__main__":

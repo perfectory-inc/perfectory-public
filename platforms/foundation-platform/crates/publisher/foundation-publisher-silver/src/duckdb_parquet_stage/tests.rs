@@ -1303,3 +1303,101 @@ async fn an_industrial_complex_export_is_the_first_append_into_the_empty_table(
     );
     Ok(())
 }
+
+/// The FLOOR cycle's load (`floor_load`, root ADR-0599): a synthetic edition written as the native
+/// export writes it (instants as zone-less milliseconds) is checked, staged one file per bucket of
+/// the table's `bucket(16, mgm_bldrgst_pk)`, and is the first append into the empty table, recorded
+/// under the edition.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_floor_edition_is_the_first_append_into_the_empty_table() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let table = contract("silver.building_register_floors")?;
+    let catalog = catalog_partitioned(
+        &root.path().join("building_register_floors"),
+        table,
+        &[("mgm_bldrgst_pk", Transform::Bucket(16))],
+    )
+    .await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    let shape = committer.table_shape(table.table_name).await?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    // The stage reads and writes only its own directory: the handoff is put there.
+    let handoff = std::fs::read_dir(root.path().join("stage"))?
+        .next()
+        .context("the stage directory")??
+        .path()
+        .join("handoff");
+    std::fs::create_dir_all(&handoff)?;
+    let edition = format!("building-register-floor-content-v1-{}", "9".repeat(64));
+    stage.connection().execute_batch(&format!(
+        "COPY (SELECT 'floor-' || i AS floor_row_id, '99999-' || CAST(i % 7 AS VARCHAR) AS mgm_bldrgst_pk, \
+         NULL::VARCHAR AS floor_type_code_raw, NULL::VARCHAR AS floor_type_name_raw, \
+         NULL::VARCHAR AS floor_number_raw, NULL::VARCHAR AS floor_label_raw, 'above_ground' AS floor_kind, \
+         CAST(i AS INTEGER) AS floor_number, CAST(i AS INTEGER) AS floor_index, \
+         NULL::VARCHAR AS floor_display_ko, 'accepted' AS normalization_status, \
+         'synthetic' AS normalization_reason, 'record-' || i AS source_record_id, \
+         '{edition}' AS source_snapshot_id, 'bronze/source=synthetic/20991231.zip' AS bronze_object_key, \
+         CAST(i AS BIGINT) AS source_line_number, \
+         CAST(TIMESTAMP '2099-12-01 00:00:00' AS TIMESTAMP_MS) AS valid_from_utc, \
+         NULL::TIMESTAMP_MS AS valid_to_utc, \
+         CAST(TIMESTAMP '2099-12-31 12:00:00' AS TIMESTAMP_MS) AS ingested_at_utc, \
+         sha256('row-' || i) AS row_checksum_sha256 FROM range(40) t(i)) \
+         TO '{}/part-00000.parquet' (FORMAT parquet)",
+        super::sql_path(&handoff)?
+    ))?;
+    let staged = crate::building_register_floor_silver_export::floor_load::stage_edition(
+        &stage,
+        table,
+        &shape,
+        &handoff,
+        &edition,
+        Some(40),
+    )?;
+    assert_eq!(staged.rows, 40);
+    // Seven keys: at most seven of the sixteen buckets hold rows, one file each.
+    assert!(
+        (1..=7).contains(&staged.files.len()),
+        "{}",
+        staged.files.len()
+    );
+    let (snapshot, parent, added) = appended(
+        committer
+            .append_at_head(
+                DataAppend {
+                    table_name: table.table_name,
+                    contract: table,
+                    files: &staged.files,
+                    batch: std::slice::from_ref(&edition),
+                    already_ingested: &BTreeSet::new(),
+                    summary: BTreeMap::new(),
+                },
+                None,
+            )
+            .await?,
+    )?;
+    assert_eq!(
+        (parent, added),
+        (None, 40),
+        "the edition is the table's first commit"
+    );
+    let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
+    scanned.ensure_complete()?;
+    assert_eq!(scanned.rows.len(), 40);
+    assert!(scanned
+        .rows
+        .iter()
+        .all(|row| row["source_snapshot_id"] == edition.as_str()));
+    // A release check refuses an edition of another identity before anything is staged.
+    assert!(
+        crate::building_register_floor_silver_export::floor_load::stage_edition(
+            &stage,
+            table,
+            &shape,
+            &handoff,
+            "building-register-floor-content-v1-other",
+            Some(40),
+        )
+        .is_err()
+    );
+    Ok(())
+}

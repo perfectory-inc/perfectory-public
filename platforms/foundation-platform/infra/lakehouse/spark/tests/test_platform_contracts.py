@@ -728,11 +728,11 @@ class WriterAdmissionTest(unittest.TestCase):
             if not refresh:
                 continue
             kind = row_versions(contracts[refresh["table"]])["kind"]
-            mode = refresh["spark"]["iceberg_write_mode"]
+            mode = refresh["load"]["write_mode"]
             with self.subTest(lane=path.name, kind=kind, mode=mode):
                 checked += 1
                 if mode == "overwrite":
-                    # A compare lane stages the release on a branch and appends only its changes.
+                    # A compare lane appends only the release's changes (root ADR-0599).
                     self.assertTrue(kind == "replaced" or "compare" in refresh)
                 else:
                     self.assertNotEqual(kind, "replaced")

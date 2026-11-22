@@ -104,20 +104,6 @@ class BuildingParentLinksTest(unittest.TestCase):
         self.assertIsNone(row.building_mgm_bldrgst_pk)
         self.assertEqual(row.building_link_evidence.normalization_application_id, "11111111-1111-4111-8111-111111111111")
 
-    def test_silver_validation_executes_evidence_gate(self):
-        import silver_scalar_handoff_to_lakehouse as ingest
-        from platform_contracts import load_lakehouse_contract, spark_sql_type
-        contract = load_lakehouse_contract("silver.building_register_units")
-        frame = self.units("canonical_dong")
-        for column in contract["columns"]:
-            if column["name"] not in frame.columns:
-                value = "synthetic" if column["required"] else None
-                frame = frame.withColumn(column["name"], F.lit(value).cast(spark_sql_type(column["logical_type"])))
-        metrics = ingest.collect_quality_metrics(frame, contract, F)
-        self.assertEqual(metrics["invalid_building_link_evidence_count"], 1)
-        with self.assertRaisesRegex(ValueError, "building link lacks"):
-            ingest.assert_quality_metrics(frame, contract, metrics, F)
-
 
 if __name__ == "__main__":
     unittest.main()

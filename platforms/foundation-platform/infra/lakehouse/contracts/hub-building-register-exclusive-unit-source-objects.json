@@ -67,10 +67,8 @@
       "source": "hubgokr__building_register_exclusive_unit"
     },
     "export": "export-building-register-exclusive-unit-silver-handoff",
-    "spark": {
-      "master": "local[8,8]",
-      "driver_memory": "16g",
-      "iceberg_write_mode": "append",
+    "load": {
+      "write_mode": "append",
       "input_file_batch_size": 40
     },
     "compare": {"content_columns": ["sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon", "dong_name", "ho_name", "floor_kind", "floor_no", "pnu", "raw_columns"], "bucket_prefix_length": 2}

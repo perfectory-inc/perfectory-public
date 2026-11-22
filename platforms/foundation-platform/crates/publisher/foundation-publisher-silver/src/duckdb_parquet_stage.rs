@@ -100,6 +100,47 @@ impl LakehouseRead {
             s3_secret_access_key: storage.secret_access_key,
         })
     }
+    /// [`Self::with_reader_keys_from_env`] with the catalog of [`read_catalog_config`]: what a step
+    /// that only reads uses, so a verdict run holding the reader credentials alone runs the step's
+    /// own code (`load-industrial-complex-silver`, the FLOOR history check and its dry load).
+    ///
+    /// # Errors
+    /// Returns an error when a setting is missing; the error never carries a credential.
+    pub fn read_only_from_env() -> anyhow::Result<Self> {
+        let catalog = read_catalog_config()?;
+        let storage =
+            foundation_outbox::object_storage::R2ObjectStorageConfig::lakehouse_reader_from_env()
+                .context(
+                "failed to configure lakehouse R2 reads with the reader pair for a DuckDB read",
+            )?;
+        Ok(Self {
+            extensions: crate::duckdb_extensions::release_directory()?,
+            catalog_uri: catalog.catalog_uri,
+            warehouse: catalog.warehouse,
+            catalog_token: catalog
+                .catalog_token
+                .context("the lakehouse catalog token is required")?,
+            s3_endpoint: storage.endpoint,
+            s3_access_key_id: storage.access_key_id,
+            s3_secret_access_key: storage.secret_access_key,
+        })
+    }
+}
+
+/// The catalog settings a step that only reads uses: the read-only token when the environment
+/// holds one (a verdict run with the reader credentials alone, root ADR-0247), the unit's own
+/// otherwise.
+///
+/// # Errors
+/// Returns an error when a setting is missing or invalid.
+pub fn read_catalog_config() -> anyhow::Result<lakehouse_infrastructure::LakehouseCatalogConfig> {
+    Ok(
+        if std::env::var_os("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN").is_some() {
+            lakehouse_infrastructure::LakehouseCatalogConfig::reader_from_env()?
+        } else {
+            lakehouse_infrastructure::LakehouseCatalogConfig::from_env()?
+        },
+    )
 }
 
 /// One transform's `DuckDB` and the directory its staged files and spill live in.
@@ -317,21 +358,6 @@ impl DuckDbParquetStage {
             self.directory.path().display(),
             stage_reserve_bytes()?
         );
-        Ok(())
-    }
-
-    /// Lowers the spill ceiling to `bytes`, on the buffer manager and in [`Self::require_room`]'s
-    /// count: a test whose few rows need no room is not refused by the free space of the machine
-    /// running it (2026-11-22: a CI runner with 62 GB free refused the 32 GiB default plus the
-    /// 30 GiB reserve).
-    ///
-    /// # Errors
-    /// `DuckDB` refuses the setting.
-    #[cfg(test)]
-    pub(crate) fn limit_spill(&mut self, bytes: u64) -> anyhow::Result<()> {
-        self.connection
-            .execute("SET max_temp_directory_size = ?", [format!("{bytes}B")])?;
-        self.spill_ceiling = bytes;
         Ok(())
     }
 

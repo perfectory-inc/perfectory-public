@@ -46,7 +46,7 @@ def lane_contracts():
             snake = lane.replace("-", "_")
             yield f"hub-family-{lane}", {"silver_refresh": {
                 "table": f"silver.{snake}", "roles": {"source": f"hubgokr__{snake}"},
-                "export": f"export-{lane}-silver-handoff", "spark": family["defaults"]["spark"]}}
+                "export": f"export-{lane}-silver-handoff", "load": family["defaults"]["load"]}}
 
 
 class TheUnit(unittest.TestCase):

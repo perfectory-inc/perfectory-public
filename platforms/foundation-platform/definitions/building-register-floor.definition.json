@@ -12,7 +12,7 @@
       "full_tracked_by": "root ADR-0322 §3 and its progress notes (the FLOOR lane compares like the hub lanes, ordered by ADR-0328; natural row ids are done in #932); its tracking PR #952 was folded there",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "최신 complete Bronze FLOOR/title pair를 매일 재확인하고 FLOOR Silver 적재를 재시도한다. source_sweep의 신규 수집 건수와 독립적이다.",
+      "description": "최신 complete Bronze FLOOR/title pair를 매일 재확인하고 FLOOR Silver 적재를 재시도한다. source_sweep의 신규 수집 건수와 독립적이다. 이력 검사와 적재는 Spark 없이 발행기 안의 DuckDB 가 한다: 이미 실린 판이면 검사에서 끝나고, 아니면 제어 컨테이너가 판을 내보내고 발행기가 판 전체를 한 커밋으로 덧붙인다(root ADR-0599). Spark 풀이 아니라 documents 풀에서 한 번에 하나씩, 자기 유닛의 memory_claim 으로 들어간다.",
       "systemd_service": "foundation-building-register-floor.service",
       "systemd_timer": "foundation-building-register-floor.timer",
       "state_paths": [],
@@ -35,8 +35,13 @@
           "to": "2026-11-03T15:50:32Z"
         }
       },
-      "pool": "spark",
-      "pool_slots": 3,
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-building-register-floor.service"
+        ]
+      },
       "priority_weight": 100,
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-register-floors"
@@ -77,8 +82,9 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "export-building-register-floor-silver-handoff",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+        "platforms/foundation-platform/scripts/ops/building-register-floor-cycle.sh",
+        "run-building-register-floor-cycle",
+        "export-building-register-floor-silver-handoff"
       ],
       "source_slugs": [
         "hubgokr__building_register_floor_overview"
@@ -87,10 +93,6 @@
   ],
   "host_memory": {
     "building_register_floor": [
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      },
       {
         "project": "foundation-platform-compute",
         "service": "lakehouse-control"

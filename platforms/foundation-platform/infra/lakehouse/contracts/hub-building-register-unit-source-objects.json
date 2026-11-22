@@ -15,7 +15,7 @@
     },
     "export": "export-building-register-unit-silver-handoff",
     "export_chunk_rows": 250000,
-    "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "overwrite", "input_file_batch_size": 0},
+    "load": {"write_mode": "overwrite", "input_file_batch_size": 0},
     "compare": {"content_columns": ["pnu", "register_parcel_key", "dong_join_name", "dong_name_raw", "unit_name_raw", "unit_number", "unit_label_ko", "unit_designation", "unit_designation_normalized", "floor_kind", "floor_index", "floor_number", "building_mgm_bldrgst_pk", "building_link_method", "building_link_reason", "building_main_or_annex", "building_title_unit_count", "normalization_status", "normalization_reason", "normalization_application_id"], "bucket_prefix_length": 2}
   }
 }

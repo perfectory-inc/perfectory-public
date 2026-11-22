@@ -551,8 +551,8 @@ fn every_land_contract_is_a_land_lane_of_its_export() -> anyhow::Result<()> {
             matches!(contract.kind, ExportKind::Land { env_prefix } if env_prefix == export.env_prefix)
         );
         assert!(contract.roles.is_empty());
-        assert_eq!(contract.spark.iceberg_write_mode, WriteMode::Overwrite);
-        assert!(contract.spark.input_file_batch_size > 0);
+        assert_eq!(contract.load.write_mode, WriteMode::Overwrite);
+        assert!(contract.load.input_file_batch_size > 0);
         assert_eq!(
             rule.handoff_prefix,
             format!("silver-handoff/{}", rule.source),
@@ -681,11 +681,11 @@ fn a_land_contract_that_names_a_release_or_would_misload_is_refused() -> anyhow:
         // appending a second release beside the first breaks gold.parcel_panel
         (
             Lane::LandUsePlan,
-            Box::new(|v| v["silver_refresh"]["spark"]["iceberg_write_mode"] = "append".into()),
+            Box::new(|v| v["silver_refresh"]["load"]["write_mode"] = "append".into()),
         ),
         (
             Lane::LandUsePlan,
-            Box::new(|v| v["silver_refresh"]["spark"]["input_file_batch_size"] = 0.into()),
+            Box::new(|v| v["silver_refresh"]["load"]["input_file_batch_size"] = 0.into()),
         ),
         // a rule that cannot say the region or the vintage, or is not anchored
         (

@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 토지이동이력 lane `land-transfer-history` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_transfer_history already records it or a newer one (`unchanged`), export each object, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed keys' rows and a removal marker per vanished key (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 토지이동이력 lane `land-transfer-history` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_transfer_history already records it or a newer one (`unchanged`), export each object, compare it, in the publisher's DuckDB, with the table's current rows key bucket by key bucket and append to main only the changed keys' rows and a removal marker per vanished key (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each holds the one slot of the documents pool and a memory_claim on its unit (root ADR-0599).",
       "systemd_service": "foundation-silver-refresh@land-transfer-history.service",
       "check_service": "foundation-silver-refresh-plan@land-transfer-history.service",
       "systemd_timer": null,
@@ -89,8 +89,7 @@
       "status": "implemented",
       "via": [
         "export-land-transfer-history-silver-handoff",
-        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh"
       ],
       "source_slugs": [
         "vworldkr__land_transfer_history"

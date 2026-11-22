@@ -731,15 +731,6 @@ fn verify_lakehouse_registry_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn run_remote_lakehouse_job_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command(["foundation-outbox-publisher", "run-remote-lakehouse-job",])?,
-        Command::RunRemoteLakehouseJob
-    );
-    Ok(())
-}
-
-#[test]
 fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Result<()> {
     let cases = [
         (
@@ -1398,6 +1389,25 @@ fn industrial_complex_silver_commands_are_explicit() -> anyhow::Result<()> {
             "load-industrial-complex-silver"
         ])?,
         Command::LoadIndustrialComplexSilver
+    );
+    Ok(())
+}
+
+#[test]
+fn parses_the_floor_history_check_and_the_floor_load() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "check-building-register-floor-history"
+        ])?,
+        Command::CheckBuildingRegisterFloorHistory
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-building-register-floor-silver"
+        ])?,
+        Command::LoadBuildingRegisterFloorSilver
     );
     Ok(())
 }

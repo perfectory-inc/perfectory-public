@@ -74,7 +74,8 @@ struct FamilyFile {
 struct Defaults {
     rows_per_part: u64,
     max_row_bytes: u64,
-    spark: Value,
+    /// How a lane's release is written: the lane contract's `silver_refresh.load`.
+    load: Value,
     /// The Silver refresh job every lane of the file shares; `declared_definitions.py` reads it.
     #[serde(rename = "job")]
     _job: IgnoredAny,
@@ -100,7 +101,7 @@ struct Entry {
     how_measured: String,
     columns: BTreeMap<String, (usize, String)>,
     #[serde(default)]
-    spark: Option<Value>,
+    load: Option<Value>,
 }
 
 #[derive(Clone, Copy, Deserialize, Eq, PartialEq)]
@@ -383,7 +384,7 @@ fn source_document(
             "table": table.table_name,
             "roles": {"source": source_slug},
             "export": export,
-            "spark": entry.spark.clone().unwrap_or_else(|| file.defaults.spark.clone()),
+            "load": entry.load.clone().unwrap_or_else(|| file.defaults.load.clone()),
             "compare": {
                 "content_columns": content,
                 "bucket_prefix_length": entry.bucket_prefix_length,
@@ -415,7 +416,7 @@ mod tests {
         leak(format!(
             r#"{{"schema_version": 1, "$comment": "x", "decision": "d", "field_layout_authority": "a",
                 "measured_at_utc": "2026-11-12",
-                "defaults": {{"rows_per_part": 1000000, "max_row_bytes": 1048576, "spark": {{}}, "job": {{}}}},
+                "defaults": {{"rows_per_part": 1000000, "max_row_bytes": 1048576, "load": {{}}, "job": {{}}}},
                 "lanes": {lanes}}}"#
         ))
     }
