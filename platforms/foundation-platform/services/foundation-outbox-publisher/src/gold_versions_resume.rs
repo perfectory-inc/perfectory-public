@@ -19,7 +19,7 @@ use crate::public_data_control_support::required_env_value;
 
 /// The lane's resume root.
 const RESUME_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_RESUME_DIR";
-/// No group starts past this: the unit's hour (`foundation-gold-versions@.service` TimeoutStartSec)
+/// No group starts past this: the unit's hour (`foundation-gold-versions@.service` `TimeoutStartSec`)
 /// less the takeover verdict a commit's run goes on to (gold-versions-build.sh TAKEOVER_SECONDS, 30
 /// minutes) and the longest group a run may still start (W84b, 11-22: 45 + 30 is past the hour).
 pub(crate) const BUILD_DEADLINE: Duration = Duration::from_secs(25 * 60);
