@@ -10,7 +10,7 @@
 //! read: a link stands when the unit names its row, the method and no refusal, and either the source
 //! method's record and input SHA-256 (no application) or an approved application id (no record, no
 //! digest); a link without that evidence is dropped and the unit is served under its own PNU. The
-//! catalog ids are the catalog domain's UUIDv8 (`catalog_domain::building_id_for_register_pk`,
+//! catalog ids are the catalog domain's `UUIDv8` (`catalog_domain::building_id_for_register_pk`,
 //! `building_unit_id_for_register_pk`): the SHA-256 of `perfectory.catalog.<kind>.v1`, a NUL and the
 //! register key, its first 16 bytes with the version 8 and the RFC 4122 variant.
 
@@ -120,7 +120,7 @@ pub fn catalog_digest_sql(kind: &str, key: &str) -> String {
 }
 
 /// The catalog id cut from the digest column `digest` ([`catalog_digest_sql`]), as
-/// `catalog_domain`'s UUIDv8: the first 16 bytes, version 8, the RFC 4122 variant.
+/// `catalog_domain`'s `UUIDv8`: the first 16 bytes, version 8, the RFC 4122 variant.
 #[must_use]
 pub fn catalog_id_sql(digest: &str) -> String {
     format!(

@@ -145,7 +145,7 @@ pub fn newest_batch(ids: &BTreeSet<String>, order: &CommitOrder) -> anyhow::Resu
         })
     };
     match ordered.last() {
-        Some(last) if covered && !tied(*last) => Ok(Some((*last).to_owned())),
+        Some(last) if covered && !tied(last) => Ok(Some((*last).to_owned())),
         _ => bail!(
             "silver.unit_official_price holds {} batches of vintage {} and their order is unknown: {:?}",
             batches.len(),
