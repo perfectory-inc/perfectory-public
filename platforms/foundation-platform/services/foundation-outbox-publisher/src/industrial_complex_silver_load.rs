@@ -15,8 +15,11 @@
 //!    build the export from that directory, unchanged.
 //! 3. `load-industrial-complex-silver` stages the export in `DuckDB`
 //!    (`foundation_publisher_silver::industrial_complex_silver_stage`) and appends the complexes that
-//!    are new or changed, in one commit that records every input object, even when no complex
-//!    changed. The next plan reads that record.
+//!    are new or changed, in one commit that records every input object the table did not record
+//!    yet, even when no complex changed. An input an earlier load recorded (the profile workbook
+//!    stays the same for months) stays recorded there: a batch is appended whole or not at all, and
+//!    one that named it again was refused (2026-11-22, the first run of this load). The next plan
+//!    reads the record of every commit.
 //!
 //! The whole input is one workbook of 1,442 complexes and four answers of a few megabytes and one
 //! 98 MB boundary archive: one pass, no regional split (the declared exception: kilobytes of rows).
@@ -265,6 +268,20 @@ pub(crate) fn planned_keys(plan: &Value) -> anyhow::Result<Vec<String>> {
     Ok(keys.into_iter().collect())
 }
 
+/// The planned inputs `recorded` does not hold, in plan order: what this load's commit records.
+///
+/// The export is built from every planned input, but an input an earlier commit recorded is not
+/// recorded again. The commit's batch is appended whole or not at all, so naming the profile
+/// workbook a second time refused the whole load; and the union of every commit's record, which the
+/// next plan reads, names it already.
+pub(crate) fn unrecorded_inputs(planned: &[String], recorded: &BTreeSet<String>) -> Vec<String> {
+    planned
+        .iter()
+        .filter(|key| !recorded.contains(*key))
+        .cloned()
+        .collect()
+}
+
 /// The catalog settings a step reads with: the read-only token when the environment holds one (a
 /// verdict run with the reader key alone), the unit's own otherwise.
 fn catalog_config() -> anyhow::Result<LakehouseCatalogConfig> {
@@ -386,20 +403,25 @@ pub(crate) async fn load() -> anyhow::Result<()> {
                 .load_ingested_batch_objects(TABLE)
                 .await?
                 .with_context(|| format!("{TABLE} does not exist"))?;
-            let outcome = committer
-                .append_at_head(
-                    DataAppend {
-                        table_name: TABLE,
-                        contract: &SILVER_INDUSTRIAL_COMPLEXES,
-                        files: staged.file.as_slice(),
-                        batch: &batch,
-                        already_ingested: &already_ingested,
-                        summary: BTreeMap::new(),
-                    },
-                    head,
-                )
-                .await?;
-            matches!(outcome, AppendOutcome::Appended { .. })
+            let unrecorded = unrecorded_inputs(&batch, &already_ingested);
+            if unrecorded.is_empty() {
+                false
+            } else {
+                let outcome = committer
+                    .append_at_head(
+                        DataAppend {
+                            table_name: TABLE,
+                            contract: &SILVER_INDUSTRIAL_COMPLEXES,
+                            files: staged.file.as_slice(),
+                            batch: &unrecorded,
+                            already_ingested: &already_ingested,
+                            summary: BTreeMap::new(),
+                        },
+                        head,
+                    )
+                    .await?;
+                matches!(outcome, AppendOutcome::Appended { .. })
+            }
         }
     };
     drop(stage);
