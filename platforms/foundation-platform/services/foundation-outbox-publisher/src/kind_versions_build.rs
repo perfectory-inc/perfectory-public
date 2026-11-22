@@ -386,7 +386,7 @@ fn sido_range(sido: &str) -> anyhow::Result<String> {
     let number: u8 = sido
         .parse()
         .ok()
-        .filter(|_| sido.len() == 2)
+        .filter(|_| sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()))
         .with_context(|| format!("the 시도 {sido:?} is not two digits"))?;
     Ok(if number == 99 {
         format!("(pnu >= '{sido}')")
