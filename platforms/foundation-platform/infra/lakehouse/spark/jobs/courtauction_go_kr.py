@@ -24,17 +24,16 @@ The other documents are not this job's: the publisher's `load-courtauction-go-kr
 공통코드, 감정평가서, 매각물건명세서, 배당요구종기공고, 매각공고, 사건 문서 and 물건상세 objects in DuckDB
 (root ADR-0559).
 
-`parse` reads the plan directories without Spark. The last stdout line is `court-auction-summary-json {json}`.
+The last stdout line is `court-auction-summary-json {json}`.
 """
 
 from __future__ import annotations
 
 import argparse
-import gzip
 import json
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -47,79 +46,12 @@ ITEM_TABLE = "silver.court_auction_item"
 RESULT_TABLE = "silver.court_auction_sale_result"
 CONTRACTS = Path(__file__).resolve().parents[2] / "contracts"
 CONTRACT_PATH = CONTRACTS / "courtauction-go-kr.contract.json"
-PLAN_SCHEMA = "foundation-platform.silver_load_objects.v1"
-SNAPSHOT_ID = re.compile(r"-(\d{8}t\d{6}z)\.gz$")
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 KEY = ("court_office_code", "case_no", "property_seq", "item_seq")
 LOAD_COLUMNS = ("source_record_id", "source_line_number", "source_snapshot_id", "ingested_at_utc", "row_state")
 ROLE_TABLE = {"item_search": ITEM_TABLE, "sale_result_search": RESULT_TABLE}
-CASE = ("court_office_code", "case_no")
-PROPERTY = (*CASE, "property_seq")
 def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-FROM_CODE = load_source_contract()["pnu_resolution"]["from_code"]
-def text_or_none(value: Any) -> str | None:
-    text = "" if value is None else str(value).strip()
-    return text or None
-
-
-def whole(value: Any) -> int | None:
-    text = str(value or "").strip().replace(",", "")
-    return int(text) if re.fullmatch(r"-?\d+", text) else None
-
-
-def decimal(value: Any) -> float | None:
-    try:
-        return float(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-
-
-def ymd(value: Any) -> date | None:
-    text = str(value or "").strip()
-    try:
-        return datetime.strptime(text, "%Y%m%d").date()
-    except ValueError:
-        return None
-
-
-def code_of(item: Mapping[str, Any], from_code: Mapping[str, Any]) -> str | None:
-    """The row's 10-digit legal-dong code from its four code fields, each of its width, or None."""
-
-    parts = [str(item.get(name) or "").strip() for name in from_code["legal_dong_code_fields"]]
-    if [len(p) for p in parts] != list(from_code["legal_dong_code_widths"]) or not all(p.isdigit() for p in parts):
-        return None
-    return "".join(parts)
-
-
-def item_row(item: Mapping[str, Any]) -> dict[str, Any]:
-    sold = whole(item.get("maeAmt"))
-    return {
-        "source_code_pnu_raw": place_identity_resolver.code_lot_pnu(code_of(item, FROM_CODE),
-                                                                    item.get(FROM_CODE["lot_field"])),
-        "court_office_code": str(item["boCd"]).strip(), "case_no": str(item["saNo"]).strip(),
-        "property_seq": whole(item["maemulSer"]), "item_seq": whole(item["mokmulSer"]),
-        "user_case_no": text_or_none(item.get("srnSaNo")), "court_name": text_or_none(item.get("jiwonNm")),
-        "department_name": text_or_none(item.get("jpDeptNm")),
-        "appraisal_amount_krw": whole(item.get("gamevalAmt")), "minimum_bid_price_krw": whole(item.get("minmaePrice")),
-        "sale_date": ymd(item.get("maeGiil")), "sale_time_raw": text_or_none(item.get("maeHh1")),
-        "sale_decision_date": ymd(item.get("maegyuljGiil")), "sale_place": text_or_none(item.get("maePlace")),
-        "failed_bid_count": whole(item.get("yuchalCnt")),
-        # The site writes 0 for an unsold item.
-        "sale_amount_krw": sold if sold else None,
-        "case_status_code": text_or_none(item.get("jinstatCd")), "item_status_code": text_or_none(item.get("mulStatcd")),
-        "item_in_progress_yn": text_or_none(item.get("mulJinYn")),
-        "usage_lcls_code": text_or_none(item.get("lclsUtilCd")), "usage_mcls_code": text_or_none(item.get("mclsUtilCd")),
-        "usage_scls_code": text_or_none(item.get("sclsUtilCd")),
-        "address_sido_name": text_or_none(item.get("hjguSido")), "address_sigungu_name": text_or_none(item.get("hjguSigu")),
-        "address_dong_name": text_or_none(item.get("hjguDong")), "address_ri_name": text_or_none(item.get("hjguRd")),
-        "representative_lot_raw": text_or_none(item.get("daepyoLotno")), "road_name": text_or_none(item.get("rdNm")),
-        "building_no_raw": text_or_none(item.get("buldNo")), "building_name": text_or_none(item.get("buldNm")),
-        "print_address_raw": text_or_none(item.get("printSt")),
-        "wgs84_x": decimal(item.get("wgs84Xcordi")), "wgs84_y": decimal(item.get("wgs84Ycordi")),
-    }
 
 
 def offer(row: Mapping[str, Any], prefixes: Mapping[str, str], dongs: Mapping[tuple[str, str], str]) -> dict[str, Any]:
@@ -132,131 +64,6 @@ def offer(row: Mapping[str, Any], prefixes: Mapping[str, str], dongs: Mapping[tu
         return jibun
     road = " ".join(n for n in (*names[:2], row["road_name"], row["building_no_raw"] or "") if n)
     return address_pnu.candidates(road, prefixes, dongs)
-
-
-def answer_rows(line: Mapping[str, Any]) -> list[dict[str, Any]]:
-    if line.get("http_status") != 200:
-        return []
-    try:
-        body = json.loads(line["body"])
-    except (TypeError, ValueError):
-        return []
-    rows = (body.get("data") or {}).get("dlt_srchResult")
-    return list(rows) if isinstance(rows, list) else []
-
-
-def rows_of(lines: Sequence[Mapping[str, Any]], object_key: str, snapshot_id: str, ingested_at: datetime,
-            prefixes: Mapping[str, str], dongs: Mapping[tuple[str, str], str]) -> list[dict[str, Any]]:
-    """One row per 물건 of the object, from its last line that holds it, with what its address offers."""
-
-    found: dict[tuple, dict[str, Any]] = {}
-    for number, line in enumerate(lines, start=1):
-        for item in answer_rows(line):
-            row = item_row(item)
-            if not row["court_office_code"] or not row["case_no"] or row["property_seq"] is None or row["item_seq"] is None:
-                raise ValueError(f"{object_key} line {number}: a row without its key")
-            given = offer(row, prefixes, dongs)
-            road = given["road"]
-            row.update(
-                legal_dong_code=given["legal_dong_code"], jibun_pnu=given["jibun_pnu"], reason=given["reason"],
-                road_sido=road.sido_code if road else None, road_sigungu=road.sigungu if road else None,
-                road_name_key=road.road if road else None, road_main_no=road.main_no if road else None,
-                road_sub_no=road.sub_no if road else None,
-                source_record_id=object_key, source_line_number=number, source_snapshot_id=snapshot_id,
-                ingested_at_utc=ingested_at,
-            )
-            found[tuple(row[k] for k in KEY)] = row
-    return list(found.values())
-
-
-def condition_key(condition: Any) -> str:
-    return json.dumps(condition or {}, sort_keys=True, ensure_ascii=False)
-
-
-def search_complete(lines: Sequence[Mapping[str, Any]], search: Mapping[str, Any]) -> bool:
-    """Whether the lines read every condition of a search to its last page.
-
-    The same test the collector makes while paging: a condition ends at an empty page or once its
-    pages hold totalCnt rows. A night stopped by a refusal, the request bound or the end of the quiet
-    hours has a condition without such a line. When the search has a `date_window` (root ADR-0290
-    §2), a request without both of its fields does not count: the server's default range slides
-    daily, so such a pass cannot say what left the list.
-    """
-
-    conditions = search["conditions"]
-    fields = sorted({name for condition in conditions for name in condition})
-    window = search.get("date_window")
-    read: dict[str, int] = {}
-    ended = set()
-    for line in lines:
-        if line.get("http_status") != 200:
-            continue
-        try:
-            data = json.loads(line["body"]).get("data") or {}
-        except (TypeError, ValueError, AttributeError):
-            continue
-        asked = (line.get("request") or {}).get("dma_srchGdsDtlSrchInfo") or {}
-        if window and not (asked.get(window["start_field"]) and asked.get(window["end_field"])):
-            continue
-        key = condition_key({name: asked.get(name) for name in fields})
-        rows = data.get("dlt_srchResult")
-        count = len(rows) if isinstance(rows, list) else 0
-        read[key] = read.get(key, 0) + count
-        total = whole((data.get("dma_pageInfo") or {}).get("totalCnt"))
-        if count == 0 or (total is not None and read[key] >= total):
-            ended.add(key)
-    return {condition_key({name: c.get(name) for name in fields}) for c in conditions} <= ended
-
-
-def search_roles(contract: Mapping[str, Any]) -> dict[str, str]:
-    """Source slug → the search its objects hold (root ADR-0014 `{provider}__{dataset}`)."""
-
-    return {f"courtauctiongokr__{contract[role]['dataset_slug']}": role for role in ROLE_TABLE}
-
-
-def snapshot_id(object_key: str) -> str:
-    """The run id the collector put in the key (`...-20990102t030405z.gz` → `20990102T030405Z`)."""
-
-    found = SNAPSHOT_ID.search(object_key)
-    if not found:
-        raise ValueError(f"{object_key} carries no run id")
-    return found.group(1).upper()
-
-
-def planned_objects(plan_dirs: Sequence[Path], contract: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Every object the plans fetched, with its search and local file, oldest night first."""
-
-    roles = search_roles(contract)
-    objects = []
-    seen: set[str] = set()
-    for plan_dir in plan_dirs:
-        plan = json.loads((plan_dir / "plan.json").read_text(encoding="utf-8"))
-        if plan.get("schema_version") != PLAN_SCHEMA:
-            raise ValueError(f"{plan_dir}: not a {PLAN_SCHEMA} plan")
-        for entry in plan["objects"]:
-            if entry["source_slug"] not in roles:
-                raise ValueError(f"{entry['object_key']}: {entry['source_slug']} is not a search this job loads")
-            # An object two plans name is loaded once.
-            if entry["object_key"] in seen:
-                continue
-            seen.add(entry["object_key"])
-            objects.append({"object_key": entry["object_key"], "role": roles[entry["source_slug"]],
-                            "source_snapshot_id": snapshot_id(entry["object_key"]),
-                            "path": plan_dir / entry["local_path"]})
-    return sorted(objects, key=lambda o: (o["source_snapshot_id"], o["object_key"]))
-
-
-def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], prefixes: Mapping[str, str],
-                dongs: Mapping[tuple[str, str], str], ingested_at: datetime) -> dict[str, Any]:
-    """What one object loads: its rows and whether its search was read completely. ``prefixes`` are
-    ``address_pnu.sido_prefixes`` of the 법정동 code table (root ADR-0403)."""
-
-    with gzip.open(entry["path"], "rt", encoding="utf-8") as handle:
-        lines = [json.loads(line) for line in handle if line.strip()]
-    return {"object_key": entry["object_key"],
-            "complete": search_complete(lines, contract[entry["role"]]),
-            "rows": rows_of(lines, entry["object_key"], entry["source_snapshot_id"], ingested_at,
-                            prefixes, dongs)}
 
 
 def content_columns(contract: Mapping[str, Any]) -> list[str]:
@@ -318,37 +125,6 @@ def link(offered: Any, names: Sequence[str], parcels: Any, titles: Any,
                                 F.when(by_code_ok, F.substring(F.col("pnu"), 1, 10)).otherwise(F.col("legal_dong_code")))
                     .drop("_code_pnu", "_grade"))
     return resolved
-
-
-def search_changes(spark: Any, role: str, search: Mapping[str, Any], contract: Mapping[str, Any], parcels: Any,
-                   titles: Any, current: Any, snapshot_id: str, now: datetime,
-                   crosswalk: tuple[Mapping[str, str], Any] = ({}, ())) -> tuple[Any, Any]:
-    """(staged rows, the rows to append) for one search of one night.
-
-    The rows go through the code path (``place_identity_resolver.resolve`` with ``crosswalk``, the
-    pairs of ``pairs_from_lakehouse``), then the address joins (``address_pnu.resolve``) for what
-    it leaves unresolved, and are compared with the table's current rows (``release_changes``). A
-    removal marker survives only for a complete item search.
-    """
-
-    from platform_contracts import column_names  # noqa: PLC0415
-    from pyspark.sql import functions as F  # noqa: PLC0415
-    from silver_release_compare import release_changes  # noqa: PLC0415
-
-    columns = list(column_names(contract))
-    names, ddl = offered_schema(contract)
-    offered = spark.createDataFrame(
-        [tuple(n if name == "row_id" else row.get(name) for name in names) for n, row in enumerate(search["rows"])],
-        schema=ddl)
-    resolved = link(offered, names, parcels, titles, crosswalk)
-    staged = (resolved.drop("road_name").withColumnRenamed("road_name_raw", "road_name")
-              .withColumn("row_state", F.lit(None).cast("string")).select(*columns))
-    changes = release_changes(staged, current, key=KEY, content=content_columns(contract), removal="row_state",
-                              source_snapshot_id=snapshot_id, ingested_at=F.lit(now).cast("timestamp"), columns=columns)
-    if role != "item_search" or not search["complete"]:
-        # Only a complete item search says what left it; the result search never does.
-        changes = changes.join(staged.select(*KEY).distinct(), list(KEY), "left_semi")
-    return staged, changes
 
 
 def relinked_rows(rows: Sequence[Mapping[str, Any]], record: str, snapshot: str, ingested_at: datetime,
@@ -425,14 +201,8 @@ def follow_code_changes(spark: Any, catalog: str, table: str, contract: Mapping[
             "prefixes": None if moved is None else len(moved), "checked": checked, "appended": appended}
 
 
-def plan_dir_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--plan-dir", action="append", default=[], required=True,
-                        help="A directory `plan-silver-load-objects` wrote (plan.json + objects/); repeatable")
-
-
 def _load(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(prog="load")
-    plan_dir_arguments(parser)
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--table-suffix", default="")
     parser.add_argument("--allow-non-smoke-write", action="store_true")
@@ -445,52 +215,20 @@ def _load(argv: Sequence[str]) -> int:
         parser.error("writing the Silver tables needs --allow-non-smoke-write")
 
     from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
-    from lakehouse_ingest import append_source_object  # noqa: PLC0415
-    from platform_contracts import (  # noqa: PLC0415
-        REMOVED, column_names, current_rows, ensure_contract_table, load_lakehouse_contract,
-    )
-    from pyspark.sql import SparkSession, functions as F  # noqa: PLC0415
+    from platform_contracts import load_lakehouse_contract  # noqa: PLC0415
+    from pyspark.sql import SparkSession  # noqa: PLC0415
 
     assert_catalog_env()
-    source = load_source_contract()
-    objects = planned_objects([Path(d) for d in args.plan_dir], source)
     now = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)
-    summary: dict[str, Any] = {"job": JOB_NAME, "status": "loaded", "objects": []}
+    summary: dict[str, Any] = {"job": JOB_NAME, "status": "followed", "follows": []}
     builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}").config("spark.sql.session.timeZone", "UTC")
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     try:
-        spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`silver`")
         dongs = address_pnu.lakehouse_legal_dong_index(spark, args.iceberg_catalog_name)
         parcels, titles = address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name)
         prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
         # ADR-0288 §1: the code pairs are read once for the run, as every parcel source does.
         crosswalk = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
-        for entry in objects:
-            search = read_object(entry, source, prefixes, dongs, now)
-            role = entry["role"]
-            contract_table = ROLE_TABLE[role]
-            contract = load_lakehouse_contract(contract_table)
-            table = f"`{args.iceberg_catalog_name}`.`silver`.`{contract_table.split('.', 1)[1]}{args.table_suffix}`"
-            ensure_contract_table(spark, table, contract)
-            columns = list(column_names(contract))
-            counts: dict[str, Any] = {"object": entry["object_key"], "role": role, "rows": len(search["rows"]),
-                                      "complete": search["complete"]}
-            if search["rows"]:
-                current = current_rows(spark.table(table), contract)
-                staged, changes = search_changes(spark, role, search, contract, parcels, titles, current,
-                                                 entry["source_snapshot_id"], now, crosswalk)
-                changes = changes.withColumn("source_record_id", F.lit(entry["object_key"])).select(*columns).cache()
-                counts.update(changes=changes.count(), with_pnu=staged.where(F.col("pnu").isNotNull()).count())
-                if "row_state" in columns:
-                    counts["removed"] = changes.where(F.col("row_state") == REMOVED).count()
-            else:
-                # A night that read no row (stopped at once) still commits, empty, so it is not owed again.
-                changes = spark.createDataFrame([], schema=spark.table(table).schema).select(*columns)
-            counts["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"],
-                                                         contract_table=contract_table)
-            changes.unpersist()
-            summary["objects"].append(counts)
-        summary["follows"] = []
         for contract_table in ROLE_TABLE.values():
             contract = load_lakehouse_contract(contract_table)
             table = f"`{args.iceberg_catalog_name}`.`silver`.`{contract_table.split('.', 1)[1]}{args.table_suffix}`"
@@ -505,22 +243,7 @@ def _load(argv: Sequence[str]) -> int:
     return 0
 
 
-def _parse(argv: Sequence[str]) -> int:
-    parser = argparse.ArgumentParser(prog="parse")
-    plan_dir_arguments(parser)
-    args = parser.parse_args(argv)
-    source = load_source_contract()
-    now = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)
-    report = []
-    for entry in planned_objects([Path(d) for d in args.plan_dir], source):
-        search = read_object(entry, source, {}, {}, now)
-        report.append({"object": entry["object_key"], "role": entry["role"], "rows": len(search["rows"]),
-                       "complete": search["complete"]})
-    _summary_line({"job": JOB_NAME, "status": "parsed", "objects": report})
-    return 0
-
-
-COMMANDS = {"parse": _parse, "load": _load}
+COMMANDS = {"load": _load}
 
 
 def main(argv: Sequence[str] | None = None) -> int:

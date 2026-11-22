@@ -145,6 +145,8 @@ OWN_WRITERS = {
     "silver.court_auction_item_annex": COURT_AUCTION_FIRST_LOAD,
     "silver.court_auction_appraisal_point": COURT_AUCTION_FIRST_LOAD,
     "silver.court_auction_item_detail": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_item": COURT_AUCTION_FIRST_LOAD,
+    "silver.court_auction_sale_result": COURT_AUCTION_FIRST_LOAD,
 }
 RUST_TEST = "rust:"
 
@@ -358,7 +360,7 @@ class ObjectFirstLoadTest(unittest.TestCase):
         from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract
 
         lanes = tables_of("object")
-        self.assertIn("silver.court_auction_item", lanes)
+        self.assertIn("silver.real_transaction", lanes)
         for contract_name in lanes:
             with self.subTest(table=contract_name):
                 table, unquoted = target(contract_name)

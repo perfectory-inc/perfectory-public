@@ -1071,8 +1071,9 @@ pub fn appended_search(
     ingested_at: DateTime<Utc>,
 ) -> anyhow::Result<(String, u64, u64)> {
     let out = format!("{}_changed", staged.staged);
-    // Only a complete item search says what left it; the result search never does.
-    let complete = complete && object.role == Role::ItemSearch;
+    // Only a complete item search says what left it; the result search never does. A night that
+    // read no row commits empty: the Spark load compared nothing then, so it marked nothing removed.
+    let complete = complete && object.role == Role::ItemSearch && staged.rows > 0;
     let (rows, removed) = silver_changes::removal_changes(
         stage,
         contract,
