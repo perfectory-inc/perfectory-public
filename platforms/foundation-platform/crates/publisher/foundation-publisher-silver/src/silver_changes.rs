@@ -20,6 +20,7 @@ pub const LOAD_COLUMNS: [&str; 5] = [
 
 const CHANGED_SQL: &str = include_str!("silver_changes/changed.sql");
 const EDITIONS_SQL: &str = include_str!("silver_changes/editions.sql");
+const REMOVALS_SQL: &str = include_str!("silver_changes/removals.sql");
 
 /// The table's key: its contract's `current_row_latest` key.
 ///
@@ -303,4 +304,93 @@ pub fn result_checks(
         duplicate_keys: u64::try_from(duplicate_keys)?,
         missing_required: u64::try_from(missing_required)?,
     })
+}
+
+/// The value of `row_state` that marks a key removed (root ADR-0275).
+pub const REMOVED: &str = "removed";
+
+/// Builds `out` from `staged` of a newest-per-key table that keeps removal markers: the keys new
+/// or changed against the current rows at `head`, and, when `complete`, a removal marker per current
+/// key the staged rows no longer hold, stamped with this load's object, run and instant. Returns
+/// (rows, of them markers).
+///
+/// # Errors
+/// Refuses a table that keeps no versions per key; returns a `DuckDB` failure.
+// `{name}` is a placeholder of the SQL text, not a format argument.
+#[allow(clippy::literal_string_with_formatting_args)]
+#[allow(clippy::too_many_arguments)]
+pub fn removal_changes(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    head: Option<i64>,
+    staged: &str,
+    out: &str,
+    complete: bool,
+    load: (&str, &str, i64),
+) -> anyhow::Result<(u64, u64)> {
+    let (object_key, snapshot_id, ingested_at_epoch_seconds) = load;
+    ensure!(
+        !object_key.contains('\'') && !snapshot_id.contains('\''),
+        "a load identity holds a quote"
+    );
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
+    let key = table_key(contract)?;
+    let markers = columns
+        .iter()
+        .map(|column| match *column {
+            "row_state" => format!("'{REMOVED}' AS row_state"),
+            "source_snapshot_id" => format!("'{snapshot_id}' AS source_snapshot_id"),
+            "ingested_at_utc" => {
+                format!("to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc")
+            }
+            "source_record_id" => format!("'{object_key}' AS source_record_id"),
+            other => format!("c.{other}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    stage
+        .connection()
+        .execute_batch(
+            &REMOVALS_SQL
+                .replace(
+                    "{current}",
+                    &current_rows(stage, contract, head, &columns, staged)?,
+                )
+                .replace("{staged}", staged)
+                .replace("{out}", out)
+                .replace(
+                    "{key_c}",
+                    &key.iter()
+                        .map(|k| format!("c.{k}"))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                )
+                .replace("{key}", &key.join(", "))
+                .replace("{key_matches}", &same(&key))
+                .replace("{content_matches}", &same(&content_columns(contract, &[])?))
+                .replace("{complete}", if complete { "true" } else { "false" })
+                .replace("{columns}", &columns.join(", "))
+                .replace("{marker_columns}", &markers),
+        )
+        .with_context(|| {
+            format!(
+                "DuckDB failed to compare the rows of {}",
+                contract.table_name
+            )
+        })?;
+    let removed = if columns.contains(&"row_state") {
+        format!("count(*) FILTER (WHERE row_state = '{REMOVED}')")
+    } else {
+        "0".to_owned()
+    };
+    let (rows, removed): (i64, i64) = stage.connection().query_row(
+        &format!("SELECT count(*), {removed} FROM {out}"),
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok((u64::try_from(rows)?, u64::try_from(removed)?))
 }
