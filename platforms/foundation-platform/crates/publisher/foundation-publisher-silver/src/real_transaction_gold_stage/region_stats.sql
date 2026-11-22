@@ -2,9 +2,10 @@
 -- (dataset, 법정동 or 시군구, contract month or the trailing 12 months before the build month) the
 -- deal count, the cancelled count and the m² price quartiles in 만원 of the uncancelled deals, by
 -- land area and, but for 토지, by building area. The rules of `region_rows` and
--- `region_gold_rows` in `real_transaction_silver_to_gold.py`, written so the rows and their
--- `row_digest` are byte for byte what that job writes (judged nationally against the served
--- `gold.real_transaction_region_stats`, 2026-11-14: 3,204,170 rows, every digest equal).
+-- `region_gold_rows` in `real_transaction_silver_to_gold.py` (judged nationally against the served
+-- `gold.real_transaction_region_stats`, 2026-11-14: 3,204,170 rows, every digest equal, while a
+-- double was still written as Java writes it; it is now `json_double`'s text, so the digest is no
+-- longer the job's).
 --
 -- `deals`: dataset_slug, legal_dong (the deal's CURRENT 법정동, or NULL), deal_date (DATE),
 -- deal_amount_10k_krw (BIGINT), land_area_m2, building_area_m2 (DOUBLE), cancelled (BOOLEAN).

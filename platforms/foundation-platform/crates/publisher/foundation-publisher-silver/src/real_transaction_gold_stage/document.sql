@@ -1,7 +1,8 @@
 -- The 실거래 by-PNU kind's Gold rows (root ADR-0350 §2, ADR-0405, ADR-0479, ADR-0483): the rules of
 -- `gold_rows` and `with_place_ids` in `real_transaction_silver_to_gold.py` and
--- `place_id_join.with_place_ids`, written so `real_transaction_json` and `row_digest` are byte for byte
--- what that job writes.
+-- `place_id_join.with_place_ids`: that job's rules and values. The text is `DuckDB`'s own (a double is
+-- `json_double`'s) and `row_digest` is of every content column (`row_digest_sql`), so neither is the
+-- job's bytes: the verdict reads the JSON as values (root ADR-0564 Revision 2026-11-22, the second).
 --
 -- One 시군구's rows (`{chunk}`, the PNU's first five digits): every part of a document is keyed by
 -- the PNU's 법정동, so a 시군구 is built alone and memory stays one 시군구's. `document_setup.sql`
