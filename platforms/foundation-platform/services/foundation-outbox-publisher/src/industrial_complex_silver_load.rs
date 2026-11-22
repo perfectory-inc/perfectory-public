@@ -32,7 +32,7 @@ use chrono::{DateTime, Utc};
 use foundation_outbox::object_storage::{R2InventoryRequest, R2ObjectStorageConfig};
 use foundation_outbox::R2ObjectStorage;
 use foundation_publisher_core::lakehouse_data_commit::{
-    AppendOutcome, DataAppend, LakehouseDataCommitter,
+    AppendOutcome, DataAppend, LakehouseDataCommitter, TableField, TableShape,
 };
 use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
@@ -194,7 +194,7 @@ pub(crate) async fn plan() -> anyhow::Result<()> {
             chosen.push((input.source_slug, key));
         }
     }
-    let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
+    let catalog = IcebergRestCatalog::new(catalog_config()?)?;
     let recorded = catalog
         .load_ingested_batch_objects(TABLE)
         .await?
@@ -265,70 +265,155 @@ pub(crate) fn planned_keys(plan: &Value) -> anyhow::Result<Vec<String>> {
     Ok(keys.into_iter().collect())
 }
 
-/// `load-industrial-complex-silver`: stages `..._EXPORT_PATH` and appends what changed, recording
-/// every input of `..._WORK_DIR/plan.json`. The last stdout line is
-/// `industrial-complex-silver-summary-json {json}`.
+/// The catalog settings a step reads with: the read-only token when the environment holds one (a
+/// verdict run with the reader key alone), the unit's own otherwise.
+fn catalog_config() -> anyhow::Result<LakehouseCatalogConfig> {
+    Ok(
+        if std::env::var_os("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN").is_some() {
+            LakehouseCatalogConfig::reader_from_env()?
+        } else {
+            LakehouseCatalogConfig::from_env()?
+        },
+    )
+}
+
+/// The table's shape as its contract numbers it: what a dry run stages with, having no writer to
+/// ask the live schema of.
+fn contract_shape() -> anyhow::Result<TableShape> {
+    Ok(TableShape {
+        location: String::new(),
+        fields: SILVER_INDUSTRIAL_COMPLEXES
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(index, column)| {
+                Ok(TableField {
+                    id: i32::try_from(index + 1)?,
+                    name: column.name.to_owned(),
+                    required: column.required,
+                    element_id: None,
+                })
+            })
+            .collect::<anyhow::Result<_>>()?,
+    })
+}
+
+/// `load-industrial-complex-silver`: stages `..._EXPORT_PATH` and, with `..._LIVE_WRITE=1`, appends
+/// what changed, recording every input of `..._WORK_DIR/plan.json`. Without it nothing is committed:
+/// every row of the export is written to `verdict-rows.parquet` in the work directory, for the
+/// engine verdict to compare with the table (the code that would commit is the code that stages).
+/// The last stdout line is `industrial-complex-silver-summary-json {json}`.
 ///
 /// # Errors
 /// The plan or the export cannot be read, a gate refuses the export, or the commit fails.
 pub(crate) async fn load() -> anyhow::Result<()> {
     let work = PathBuf::from(required_env_value(&format!("{PREFIX}_WORK_DIR"))?);
     let export = PathBuf::from(required_env_value(&format!("{PREFIX}_EXPORT_PATH"))?);
+    let live = std::env::var(format!("{PREFIX}_LIVE_WRITE")).is_ok_and(|value| value.trim() == "1");
     let plan: Value = serde_json::from_slice(
         &std::fs::read(work.join("plan.json"))
             .with_context(|| format!("cannot read the plan in {}", work.display()))?,
     )?;
     let batch = planned_keys(&plan)?;
-    let committer = LakehouseDataCommitter::from_env().await?;
-    let shape = committer.table_shape(TABLE).await?;
-    let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
+    let committer = if live {
+        Some(LakehouseDataCommitter::from_env().await?)
+    } else {
+        None
+    };
+    let shape = match &committer {
+        Some(committer) => committer.table_shape(TABLE).await?,
+        None => contract_shape()?,
+    };
+    let catalog_settings = catalog_config()?;
+    let catalog = IcebergRestCatalog::new(catalog_settings.clone())?;
     let head = catalog
         .load_main_snapshot_history(TABLE)
         .await?
         .with_context(|| format!("{TABLE} does not exist"))?
         .first()
         .map(|snapshot| snapshot.snapshot_id);
-    let stage = Mutex::new(DuckDbParquetStage::open_reading_lakehouse(
-        &work,
-        &LakehouseRead::from_env()?,
-    )?);
+    // The data files are read with the reader pair, the catalog with the step's token.
+    let storage = R2ObjectStorageConfig::lakehouse_reader_from_env().context(
+        "the industrial-complex Silver load reads the table with the lakehouse reader key",
+    )?;
+    let read = LakehouseRead {
+        extensions: foundation_publisher_silver::duckdb_extensions::release_directory()?,
+        catalog_uri: catalog_settings.catalog_uri,
+        warehouse: catalog_settings.warehouse,
+        catalog_token: catalog_settings
+            .catalog_token
+            .context("the lakehouse catalog token is required")?,
+        s3_endpoint: storage.endpoint,
+        s3_access_key_id: storage.access_key_id,
+        s3_secret_access_key: storage.secret_access_key,
+    };
+    let stage = Mutex::new(DuckDbParquetStage::open_reading_lakehouse(&work, &read)?);
     let staged = {
         let stage = stage
             .lock()
             .map_err(|_| anyhow::anyhow!("an earlier step of the load panicked"))?;
-        stage_export(
+        let staged = stage_export(
             &stage,
             &shape,
             &SILVER_INDUSTRIAL_COMPLEXES,
             &export,
             head,
             "industrial-complexes",
-        )?
+        )?;
+        if committer.is_none() {
+            let target = work.join("verdict-rows.parquet");
+            let text = target
+                .to_str()
+                .context("the work path must be UTF-8")?
+                .replace('\\', "/");
+            ensure!(
+                !text.contains('\''),
+                "the work path must not contain a quote"
+            );
+            stage
+                .connection()
+                .execute_batch(&format!(
+                    "COPY (SELECT * FROM complex_rows) TO '{text}' (FORMAT parquet)"
+                ))
+                .context("DuckDB could not write the verdict rows")?;
+        }
+        staged
     };
-    let already_ingested = catalog
-        .load_ingested_batch_objects(TABLE)
-        .await?
-        .with_context(|| format!("{TABLE} does not exist"))?;
-    let outcome = committer
-        .append_at_head(
-            DataAppend {
-                table_name: TABLE,
-                contract: &SILVER_INDUSTRIAL_COMPLEXES,
-                files: staged.file.as_ref().map_or(&[][..], std::slice::from_ref),
-                batch: &batch,
-                already_ingested: &already_ingested,
-                summary: BTreeMap::new(),
-            },
-            head,
-        )
-        .await?;
+    let appended = match &committer {
+        None => false,
+        Some(committer) => {
+            let already_ingested = catalog
+                .load_ingested_batch_objects(TABLE)
+                .await?
+                .with_context(|| format!("{TABLE} does not exist"))?;
+            let outcome = committer
+                .append_at_head(
+                    DataAppend {
+                        table_name: TABLE,
+                        contract: &SILVER_INDUSTRIAL_COMPLEXES,
+                        files: staged.file.as_ref().map_or(&[][..], std::slice::from_ref),
+                        batch: &batch,
+                        already_ingested: &already_ingested,
+                        summary: BTreeMap::new(),
+                    },
+                    head,
+                )
+                .await?;
+            matches!(outcome, AppendOutcome::Appended { .. })
+        }
+    };
     drop(stage);
-    let appended = matches!(outcome, AppendOutcome::Appended { .. });
+    let status = match (live, appended) {
+        (false, _) => "dry_run",
+        (true, true) => "loaded",
+        (true, false) => "already_loaded",
+    };
     let summary = json!({
         "job": "load-industrial-complex-silver",
         "engine": "duckdb",
-        "status": if appended { "loaded" } else { "already_loaded" },
+        "status": status,
         "inputs": batch,
+        "head": head,
         "rows": staged.rows,
         "changed_rows": staged.changed,
         "appended": appended,

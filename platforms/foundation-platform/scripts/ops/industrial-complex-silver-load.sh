@@ -47,7 +47,7 @@ env "${EXPORT}_BRONZE_ROOT=${work}/bronze-root" \
   "${EXPORT}_OUTPUT_PATH=${work}/export.jsonl" \
   "${EXPORT}_SUMMARY_PATH=${work}/export-summary.json" \
   "${PUBLISHER_BIN}" export-industrial-complex-bronze-raw-jsonl >> "${run_log}" 2>&1
-env "${SILVER}_WORK_DIR=${work}" "${SILVER}_EXPORT_PATH=${work}/export.jsonl" \
+env "${SILVER}_WORK_DIR=${work}" "${SILVER}_EXPORT_PATH=${work}/export.jsonl" "${SILVER}_LIVE_WRITE=1" \
   "${PUBLISHER_BIN}" load-industrial-complex-silver >> "${run_log}" 2>&1
 
 summary="$(grep '^industrial-complex-silver-summary-json ' "${run_log}" | tail -1)"
