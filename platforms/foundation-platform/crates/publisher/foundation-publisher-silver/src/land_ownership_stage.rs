@@ -114,7 +114,11 @@ const BUILT_TABLE: &str = "CREATE OR REPLACE TABLE built (pnu VARCHAR, ownership
 
 /// The columns a row keeps beside its PNU.
 fn kept() -> Vec<&'static str> {
-    ROW_FIELDS.iter().chain(OWNER_FIELDS.iter()).copied().collect()
+    ROW_FIELDS
+        .iter()
+        .chain(OWNER_FIELDS.iter())
+        .copied()
+        .collect()
 }
 
 /// The owner struct's type: every field text but the 공유인수 (`int` in the Silver contract).

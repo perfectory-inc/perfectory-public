@@ -196,7 +196,12 @@ fn digest(pnu: &str, document: &str, total: i64) -> anyhow::Result<String> {
 }
 
 fn build_all(connection: &Connection) -> anyhow::Result<Vec<(String, String, i64, String)>> {
-    OWNERSHIP.build(connection, true, "999990000000000001", "2099-03-01T00:00:00Z")?;
+    OWNERSHIP.build(
+        connection,
+        true,
+        "999990000000000001",
+        "2099-03-01T00:00:00Z",
+    )?;
     crate::kind_versions_stage::ensure_no_commit_tables(connection)?;
     built(connection)
 }
@@ -284,7 +289,12 @@ fn a_partial_run_names_only_the_parcels_whose_rows_or_service_changed() -> anyho
     load(&connection, &newer)?;
     OWNERSHIP.load_inputs(&connection, &Source::Local, EDITION, "")?;
     assert_eq!(OWNERSHIP.changed_pnus(&connection)?, 1);
-    OWNERSHIP.build(&connection, false, "999990000000000002", "2099-03-02T00:00:00Z")?;
+    OWNERSHIP.build(
+        &connection,
+        false,
+        "999990000000000002",
+        "2099-03-02T00:00:00Z",
+    )?;
     let rows = built(&connection)?;
     assert_eq!(rows.len(), 1);
     let (pnu, factory, total, _) = &rows[0];
@@ -292,7 +302,12 @@ fn a_partial_run_names_only_the_parcels_whose_rows_or_service_changed() -> anyho
     // The new release holds the parcel: its one row is now every owner.
     assert_eq!(
         factory,
-        &document(&[owner("000001", Some("01"), "20990101", 1)], 0, "", "20990101")
+        &document(
+            &[owner("000001", Some("01"), "20990101", 1)],
+            0,
+            "",
+            "20990101"
+        )
     );
     assert_eq!(*total, 1);
     Ok(())
