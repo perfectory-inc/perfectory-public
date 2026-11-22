@@ -1,5 +1,6 @@
-//! The parcel ownership kind's Gold in `DuckDB` (root ADR-0361, ADR-0564 §6): the twin of
-//! `land_ownership_silver_to_gold.py`.
+//! The twin of `land_ownership_silver_to_gold.py`.
+//!
+//! Root ADR-0361, ADR-0564 §6.
 //!
 //! A PNU's document is its current owner rows (every row of the newest release that holds the
 //! parcel, the contract's `keep_ties`) folded into one `ownership` object:
@@ -175,11 +176,14 @@ impl KindVersionsStage for OwnershipKind {
         vec![RowSet {
             name: "ownership_rows",
             source: OWNERSHIP_SOURCE,
+            pnu: "pnu",
             reads: kept(),
             columns: kept()
                 .into_iter()
                 .map(|column| (format!("m.{column}"), column))
                 .collect(),
+            joins: Vec::new(),
+            prepared: false,
             distinct: false,
         }]
     }
