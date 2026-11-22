@@ -196,5 +196,33 @@ pub(crate) fn load_current(
     Ok(elapsed(at))
 }
 
+/// The tables the publisher's commit (`gold_versions_commit`) creates on the stage's connection.
+///
+/// A stage must not leave a table of these names: a `TEMP` one would shadow the commit's own (`DuckDB`
+/// reads `temp` before `main`), as the first lane-1 shadow build met (2026-11-22: the 총괄표제부
+/// Silver rows read as the head's current rows).
+pub const COMMIT_TABLES: [&str; 2] = ["current_rows", "appended"];
+
+/// Errors when `connection` holds a table [`COMMIT_TABLES`] names.
+///
+/// # Errors
+/// Returns an error naming the table, or when `DuckDB` cannot list its tables.
+pub fn ensure_no_commit_tables(connection: &Connection) -> anyhow::Result<()> {
+    let names = COMMIT_TABLES.map(|name| format!("'{name}'")).join(", ");
+    let held: Option<String> = connection.query_row(
+        &format!(
+            "SELECT string_agg(schema_name || '.' || table_name, ', ') FROM duckdb_tables()              WHERE table_name IN ({names})"
+        ),
+        [],
+        |row| row.get(0),
+    )?;
+    ensure!(
+        held.is_none(),
+        "the stage left {} on the connection, a name the commit creates",
+        held.unwrap_or_default()
+    );
+    Ok(())
+}
+
 /// The SQL texts every kind's code version folds in beside its own: the code views.
 pub(crate) const SHARED_SQL: [&str; 2] = [PAIR_ROWS_SQL, RENUMBERED_INTO_SQL];

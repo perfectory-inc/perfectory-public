@@ -106,7 +106,7 @@ pub const DEMOLITIONS: RecordKind = RecordKind {
 const ROWS_SQL: &str = "\
 CREATE OR REPLACE TABLE rows@suffix@ AS \
 SELECT DISTINCT * FROM ( \
-  SELECT @pnu@ AS pnu, @columns@ FROM current_rows@suffix@ m @join@ WHERE m.pnu IS NOT NULL) \
+  SELECT @pnu@ AS pnu, @columns@ FROM source_rows@suffix@ m @join@ WHERE m.pnu IS NOT NULL) \
 WHERE pnu IN (SELECT pnu FROM served@suffix@)";
 
 /// `rows`' rows ranked and folded into one row per PNU of `targets`, inserted into `built`.
@@ -180,7 +180,7 @@ impl KindVersionsStage for RecordKind {
             source,
             self.source,
             &columns,
-            &format!("current_rows{suffix}"),
+            &format!("source_rows{suffix}"),
         )?;
         read_millis.insert(self.source.to_owned(), millis);
         let kept = self
