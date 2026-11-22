@@ -183,6 +183,7 @@ mod parcel_registry_load;
 mod real_estate_broker_lookup_load;
 mod registered_factory_silver_load;
 mod unit_official_price_projection_load;
+mod unit_official_price_versions_build;
 mod unit_price_versions_build;
 use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
 use foundation_publisher_collection::vworld_dataset_collection_plan;
@@ -331,6 +332,8 @@ enum Command {
     BuildParcelFactoriesVersions,
     BuildParcelPublicAuctionVersions,
     BuildUnitPriceVersions,
+    BuildUnitOfficialPriceVersions,
+    ExportUnitOfficialPriceTakeoverSides,
     ExportGoldVersionsChangeSet,
     ExportGoldTakeoverSides,
     ShowGoldTakeoverSwitch,
@@ -735,6 +738,12 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             &kind_versions_build::PUBLIC_AUCTION_BUILD,
         )),
         Command::BuildUnitPriceVersions => Box::pin(unit_price_versions_build::run()),
+        Command::BuildUnitOfficialPriceVersions => {
+            Box::pin(unit_official_price_versions_build::run())
+        }
+        Command::ExportUnitOfficialPriceTakeoverSides => {
+            Box::pin(unit_official_price_versions_build::export_sides())
+        }
         Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
         Command::ExportGoldTakeoverSides => Box::pin(gold_takeover_sides::export()),
         Command::ShowGoldTakeoverSwitch => Box::pin(gold_takeover_sides::switch()),
@@ -938,6 +947,10 @@ where
             Ok(Command::BuildParcelPublicAuctionVersions)
         }
         Some("build-unit-price-versions") => Ok(Command::BuildUnitPriceVersions),
+        Some("build-unit-official-price-versions") => Ok(Command::BuildUnitOfficialPriceVersions),
+        Some("export-unit-official-price-takeover-sides") => {
+            Ok(Command::ExportUnitOfficialPriceTakeoverSides)
+        }
         Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
         Some("export-gold-takeover-sides") => Ok(Command::ExportGoldTakeoverSides),
         Some("show-gold-takeover-switch") => Ok(Command::ShowGoldTakeoverSwitch),

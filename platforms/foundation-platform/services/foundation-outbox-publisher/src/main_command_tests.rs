@@ -333,7 +333,7 @@ fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Result<()> {
+fn build_versions_commands_are_explicit() -> anyhow::Result<()> {
     for (name, command) in [
         (
             "build-parcel-register-masters-versions",
@@ -377,6 +377,14 @@ fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Resul
         ),
         ("build-unit-price-versions", Command::BuildUnitPriceVersions),
         ("build-place-id-versions", Command::BuildPlaceIdVersions),
+        (
+            "build-unit-official-price-versions",
+            Command::BuildUnitOfficialPriceVersions,
+        ),
+        (
+            "export-unit-official-price-takeover-sides",
+            Command::ExportUnitOfficialPriceTakeoverSides,
+        ),
     ] {
         assert_eq!(
             parse_command(["foundation-outbox-publisher", name])?,

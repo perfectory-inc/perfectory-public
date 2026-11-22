@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "세대 가격 조합의 판마다 바뀐 (관리번호, 기준일) 키의 행과 사라진 키의 삭제 표시만 쌓는다. 어느 판이든 그 판 이하의 버전에서 키마다 가장 새 행으로 다시 만들며, 패널이 읽던 그 판의 묶음과 같다(루트 ADR-0317). 일회성 이행 잡이 옛 표에서 채우고, 독자 전환 전까지 읽는 소비자가 없어 섬으로 둔다."
+  purpose: "세대 가격 조합의 판마다 바뀐 (관리번호, 기준일) 키의 행과 사라진 키의 삭제 표시만 쌓는다. 어느 판이든 그 판 이하의 버전에서 키마다 가장 새 행으로 다시 만들며, 패널이 읽던 그 판의 묶음과 같다(루트 ADR-0317). 일회성 이행 잡이 옛 표에서 채우고, 독자 전환 전까지 읽는 소비자가 없어 섬으로 둔다. Spark 조합(unit_official_price.py)의 그림자 빌드(build-unit-official-price-versions)가 표에 아무것도 쓰지 않고, 가장 새 배치를 그 배치의 핀으로 발행기 안의 DuckDB 가 다시 조합해 Spark 의 행과 값으로 맞춘다(takeover_equal, 시도 41; 루트 ADR-0317 §6, ADR-0564 §6)."
 team:
   name: "foundation-platform"
 servers:
