@@ -333,7 +333,7 @@ fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Result<()> {
+fn build_versions_commands_are_explicit() -> anyhow::Result<()> {
     for (name, command) in [
         (
             "build-parcel-register-masters-versions",
@@ -376,6 +376,10 @@ fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Resul
             Command::BuildParcelPublicAuctionVersions,
         ),
         ("build-unit-price-versions", Command::BuildUnitPriceVersions),
+        (
+            "build-complex-catalog-versions",
+            Command::BuildComplexCatalogVersions,
+        ),
     ] {
         assert_eq!(
             parse_command(["foundation-outbox-publisher", name])?,
@@ -401,18 +405,6 @@ fn build_parcel_boundary_served_commands_are_explicit() -> anyhow::Result<()> {
             "build-parcel-boundary-served-versions"
         ])?,
         Command::BuildParcelBoundaryServedVersions
-    );
-    Ok(())
-}
-
-#[test]
-fn build_complex_catalog_versions_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-complex-catalog-versions"
-        ])?,
-        Command::BuildComplexCatalogVersions
     );
     Ok(())
 }
