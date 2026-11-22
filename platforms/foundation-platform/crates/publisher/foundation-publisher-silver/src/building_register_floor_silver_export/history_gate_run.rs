@@ -15,7 +15,9 @@ use std::{io::Read as _, path::Path};
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, Utc};
-use lakehouse_infrastructure::{IcebergRestCatalog, IcebergSnapshotRegistry, LakehouseCatalogConfig};
+use lakehouse_infrastructure::{
+    IcebergRestCatalog, IcebergSnapshotRegistry, LakehouseCatalogConfig,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -63,8 +65,14 @@ fn micros(at: DateTime<Utc>) -> i64 {
 
 /// The binding the receipt states, checked against the witness: `None` for a new source, which
 /// must be later than the witness and carry a content identity.
-fn bound<'a>(receipt: &'a Receipt, witness: &HistoricalBinding) -> anyhow::Result<Option<&'a HistoricalBinding>> {
-    ensure!(receipt.schema_version == 2, "unsupported FLOOR source inspection receipt");
+fn bound<'a>(
+    receipt: &'a Receipt,
+    witness: &HistoricalBinding,
+) -> anyhow::Result<Option<&'a HistoricalBinding>> {
+    ensure!(
+        receipt.schema_version == 2,
+        "unsupported FLOOR source inspection receipt"
+    );
     ensure!(
         receipt.bronze_object_key.starts_with("bronze/"),
         "missing committed Bronze object key"
@@ -81,7 +89,10 @@ fn bound<'a>(receipt: &'a Receipt, witness: &HistoricalBinding) -> anyhow::Resul
             .strip_prefix("building-register-floor-content-v1-")
             .unwrap_or_default();
         ensure!(
-            digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
             "unexpected new FLOOR source identity"
         );
         return Ok(None);
@@ -162,7 +173,10 @@ fn added_by(
 }
 
 /// The witness's rows are the one lineage it states, with its row count.
-fn authenticate_witness(stage: &DuckDbParquetStage, witness: &HistoricalBinding) -> anyhow::Result<()> {
+fn authenticate_witness(
+    stage: &DuckDbParquetStage,
+    witness: &HistoricalBinding,
+) -> anyhow::Result<()> {
     let groups = lineage_at(stage, witness.snapshot_id().parse()?, None)?;
     let expected = Lineage {
         source_snapshot_id: witness.source_snapshot_id().to_owned(),
@@ -171,7 +185,9 @@ fn authenticate_witness(stage: &DuckDbParquetStage, witness: &HistoricalBinding)
         ingested_at_us: micros(witness.ingested_at_utc()),
     };
     ensure!(
-        groups.len() == 1 && groups[0].0 == expected && u64::try_from(groups[0].1)? == witness.row_count(),
+        groups.len() == 1
+            && groups[0].0 == expected
+            && u64::try_from(groups[0].1)? == witness.row_count(),
         "historical rows do not match retained source, times and count"
     );
     Ok(())
@@ -194,7 +210,10 @@ async fn same_head(
 }
 
 /// Pins the authenticated witness snapshot (root ADR-0338): a tag on another snapshot is refused.
-async fn pin_witness(catalog: &IcebergRestCatalog, witness: &HistoricalBinding) -> anyhow::Result<()> {
+async fn pin_witness(
+    catalog: &IcebergRestCatalog,
+    witness: &HistoricalBinding,
+) -> anyhow::Result<()> {
     let snapshot: i64 = witness.snapshot_id().parse()?;
     catalog.create_tag(TABLE, WITNESS_TAG, snapshot).await?;
     let refs = catalog
@@ -210,8 +229,12 @@ async fn pin_witness(catalog: &IcebergRestCatalog, witness: &HistoricalBinding) 
 }
 
 fn read_receipt(path: &Path) -> anyhow::Result<(Receipt, Value)> {
-    let file = std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
-    ensure!(file.metadata()?.is_file(), "source evidence must be a regular file");
+    let file =
+        std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
+    ensure!(
+        file.metadata()?.is_file(),
+        "source evidence must be a regular file"
+    );
     let mut bytes = Vec::new();
     file.take(MAX_RECEIPT_BYTES + 1).read_to_end(&mut bytes)?;
     ensure!(
@@ -230,13 +253,20 @@ fn read_receipt(path: &Path) -> anyhow::Result<(Receipt, Value)> {
 ///
 /// # Errors
 /// The witness, the receipt or the table's history does not authenticate, or a read fails.
-pub async fn run(receipt_path: &Path, summary: &Path, derivation: Option<&str>) -> anyhow::Result<i32> {
+pub async fn run(
+    receipt_path: &Path,
+    summary: &Path,
+    derivation: Option<&str>,
+) -> anyhow::Result<i32> {
     let witness_file = HistoryWitness::from_lookup(&mut |key| std::env::var(key).ok(), true)?;
     let witness = witness_file.binding();
     let (receipt, raw) = read_receipt(receipt_path)?;
     let binding = bound(&receipt, witness)?;
     let identity = identity_under_derivation(&receipt.source_snapshot_id, derivation)?;
-    ensure!(witness.table_name() == TABLE, "the witness names another table");
+    ensure!(
+        witness.table_name() == TABLE,
+        "the witness names another table"
+    );
 
     let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
     let registry = catalog
@@ -262,7 +292,12 @@ pub async fn run(receipt_path: &Path, summary: &Path, derivation: Option<&str>) 
         if binding.is_none() || derivation.is_some() {
             match registered_append(&identity, &registry)? {
                 Some(record) => {
-                    let groups = added_by(&stage, &registry, record.snapshot_id, &receipt.source_snapshot_id)?;
+                    let groups = added_by(
+                        &stage,
+                        &registry,
+                        record.snapshot_id,
+                        &receipt.source_snapshot_id,
+                    )?;
                     let added: i64 = record
                         .summary
                         .get("added-records")
@@ -298,9 +333,9 @@ pub async fn run(receipt_path: &Path, summary: &Path, derivation: Option<&str>) 
                         bail!("FLOOR rows exist without their recorded append; recovery required");
                     }
                     if derivation.is_some()
-                        && current
-                            .iter()
-                            .any(|(lineage, _)| lineage.ingested_at_us >= micros(receipt.ingested_at_utc))
+                        && current.iter().any(|(lineage, _)| {
+                            lineage.ingested_at_us >= micros(receipt.ingested_at_utc)
+                        })
                     {
                         bail!("changed derivation must be later than retained rows");
                     }
@@ -346,7 +381,11 @@ pub async fn run(receipt_path: &Path, summary: &Path, derivation: Option<&str>) 
         .open(summary)
         .with_context(|| format!("cannot create {}", summary.display()))?;
     std::io::Write::write_all(&mut file, format!("{outcome}\n").as_bytes())?;
-    Ok(if action == "already_retained" { 0 } else { EXPORT_REQUIRED })
+    Ok(if action == "already_retained" {
+        0
+    } else {
+        EXPORT_REQUIRED
+    })
 }
 
 #[cfg(test)]
