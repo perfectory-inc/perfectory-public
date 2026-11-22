@@ -702,6 +702,7 @@ fn iceberg_type(logical_type: &str) -> anyhow::Result<PrimitiveType> {
         "boolean" => PrimitiveType::Boolean,
         "date" => PrimitiveType::Date,
         "timestamp" => PrimitiveType::Timestamptz,
+        "binary" => PrimitiveType::Binary,
         other => match decimal_type(other) {
             Some((precision, scale)) => PrimitiveType::Decimal { precision, scale },
             None => bail!("no Iceberg type here for the contract type {other}"),
@@ -869,6 +870,11 @@ fn holds(column: &ColumnDescriptor, primitive: &PrimitiveType) -> bool {
                         converted,
                         ConvertedType::NONE | ConvertedType::INT_32 | ConvertedType::INT_64
                     ))
+        }
+        // Bytes with no annotation (`DuckDB` writes a BLOB so): an annotated byte array is text or
+        // another type, not the table's bytes.
+        (PrimitiveType::Binary, PhysicalType::BYTE_ARRAY) => {
+            logical.is_none() && converted == ConvertedType::NONE
         }
         (PrimitiveType::Date, PhysicalType::INT32) => {
             matches!(logical, Some(LogicalType::Date)) || converted == ConvertedType::DATE
@@ -1290,7 +1296,14 @@ fn column_facts(
 /// A decimal is the exception: Parquet's statistic is the little-endian integer of its physical type
 /// and Iceberg's is the big-endian two's complement of the unscaled value (iceberg 0.11
 /// `Datum::try_from_bytes`), so its bytes are turned around first.
+///
+/// A binary column records none: its values are whole objects (a parcel's WKB geometry runs to
+/// kilobytes), which would sit in every manifest entry and narrow no read; Iceberg's bounds are
+/// optional, and Spark's default metrics keep 16 bytes of them at most.
 fn bounds_of(statistics: &Statistics, primitive: &PrimitiveType) -> Option<(Datum, Datum)> {
+    if *primitive == PrimitiveType::Binary {
+        return None;
+    }
     let low = statistic_datum(statistics.min_bytes_opt()?, primitive)?;
     let high = statistic_datum(statistics.max_bytes_opt()?, primitive)?;
     (!low.is_nan() && !high.is_nan()).then_some((low, high))
@@ -1441,6 +1454,46 @@ mod tests {
             .context("a decimal(5,2) bound")?;
         assert_eq!(percent.literal(), &PrimitiveLiteral::Int128(-1));
         assert!(statistic_datum(&[0; 3], &decimal(5, 2)).is_none());
+        Ok(())
+    }
+
+    /// `gold.parcel_boundary_served_versions` keeps each parcel's geometry as WKB bytes
+    /// (`binary`): the table is created with an Iceberg binary column, a staged `DuckDB` BLOB
+    /// (bytes with no annotation) holds it and a text column does not, and no bound is recorded.
+    #[test]
+    fn a_binary_column_is_bytes_with_no_annotation_and_records_no_bounds() -> anyhow::Result<()> {
+        use parquet::data_type::ByteArray;
+        use parquet::schema::{parser::parse_message_type, types::SchemaDescriptor};
+
+        let schema = parse_message_type(
+            "message staged { required binary geometry_wkb; optional binary pnu (UTF8); }",
+        )?;
+        let descriptor = SchemaDescriptor::new(Arc::new(schema));
+        assert_eq!(iceberg_type("binary")?, PrimitiveType::Binary);
+        assert!(holds(&descriptor.column(0), &PrimitiveType::Binary));
+        assert!(!holds(&descriptor.column(1), &PrimitiveType::Binary));
+        assert!(!holds(&descriptor.column(0), &PrimitiveType::String));
+
+        let statistics = Statistics::new(
+            Some(ByteArray::from(vec![1_u8, 2])),
+            Some(ByteArray::from(vec![9_u8; 4_096])),
+            None,
+            Some(0),
+            false,
+        );
+        assert!(bounds_of(&statistics, &PrimitiveType::Binary).is_none());
+        assert!(bounds_of(&statistics, &PrimitiveType::String).is_some());
+
+        // The creation the first shadow build refused (2026-11-22 18:11Z).
+        let served = lakehouse_domain::industrial_complex_lakehouse_contracts()
+            .iter()
+            .find(|contract| contract.table_name == "gold.parcel_boundary_served_versions")
+            .context("the served parcel boundaries' versions contract")?;
+        let (schema, _, _) = contract_layout(served)?;
+        let geometry = schema
+            .field_by_name("geometry_wkb")
+            .context("its geometry column")?;
+        assert_eq!(*geometry.field_type, Type::Primitive(PrimitiveType::Binary));
         Ok(())
     }
 }
