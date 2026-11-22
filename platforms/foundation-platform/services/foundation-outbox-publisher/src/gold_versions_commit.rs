@@ -797,7 +797,7 @@ pub(crate) fn shadow(
 // one-off: until gold.parcel_boundary_served is replaced (its switch deletes the Spark job and this).
 /// The replaced tables whose builds carry no build tag and record no input pins, with the inputs
 /// their builds read: the Spark served-boundary job (root ADR-0133 §2) overwrites
-/// gold.parcel_boundary_served with plain Iceberg commits. It reads each input at its head (the
+/// `gold.parcel_boundary_served` with plain Iceberg commits. It reads each input at its head (the
 /// ledger after appending the edits it was handed) and commits within the same run, under the bake's
 /// lock, so the inputs it read are each input as of its commit: Iceberg's time travel by commit
 /// time, taken here from the catalog's snapshot log.
