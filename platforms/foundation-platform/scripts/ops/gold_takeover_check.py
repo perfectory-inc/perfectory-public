@@ -20,8 +20,9 @@ import sys
 
 CHECK = "takeover_equal"
 PIPES_PROTOCOL_VERSION = "0.1"
-# A verdict that ran to its end: equal, not equal, or a national check failed. Anything else did not run.
-OUTCOMES = {0: "equal", 1: "not equal", 3: "a national check failed"}
+# A verdict that ran to its end: equal, not equal, or a result check failed (a national aggregate, or a
+# document of the 시도 its schema refuses). Anything else did not run.
+OUTCOMES = {0: "equal", 1: "not equal", 3: "a result check failed"}
 
 
 def declared(summary, definitions, state):
@@ -48,9 +49,11 @@ def completed(status, verdict):
 
 
 def report(table, sido, status, verdict, checks):
-    """The Pipes message of one verdict: its outcome, the 시도's comparison and the national checks."""
+    """The Pipes message of one verdict: its outcome, the 시도's comparison, the national checks and the
+    documents of the 시도 held to their schema."""
     ran = completed(status, verdict)
     scope = verdict.get("scope") or {}
+    documents = (checks or {}).get("documents") or {}
     metadata = {
         "outcome": OUTCOMES[status] if ran else f"the verdict did not run to its end (exit {status})",
         "exit_status": status, "sido": sido,
@@ -58,7 +61,8 @@ def report(table, sido, status, verdict, checks):
         "rows_compared": verdict.get("reference_rows"), "same": verdict.get("same"),
         "different": verdict.get("different"), "only_reference": verdict.get("only_reference"),
         "only_candidate": verdict.get("only_candidate"),
-        "national_checks_failed": checks.get("failed") if checks else None,
+        "result_checks_failed": checks.get("failed") if checks else None,
+        "documents_rendered": documents.get("rendered"), "documents_refused": documents.get("refused"),
         "reference_snapshot": verdict.get("reference_snapshot"),
         "candidate_snapshot": verdict.get("candidate_snapshot"),
     }

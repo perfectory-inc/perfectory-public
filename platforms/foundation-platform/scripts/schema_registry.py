@@ -479,6 +479,19 @@ def host_schemas(registry: dict[str, Any]) -> str:
             "/// The `schema_revision` its documents carry: none while the current revision is legacy.",
             f"pub const {name}_SCHEMA_REVISION: Option<u32> = {revision};",
         ]
+    lines += [
+        "",
+        "/// Every by-PNU lane's document schema as its subject's current revision writes it, by lane: what a",
+        "/// takeover verdict holds each document it renders to (root ADR-0564, Revision 2026-11-22, second).",
+        "pub const LANE_DOCUMENT_SCHEMAS: &[(&str, &str)] = &[",
+    ]
+    for entry in sorted(registry["subjects"], key=lambda e: e["owner"].get("lane") or ""):
+        lane, part = owner_key(entry)
+        if "lane" not in entry["owner"] or part is not None:
+            continue
+        path = (pathlib.Path("../../../..") / schema_file(entry["subject"], current(entry))).as_posix()
+        lines += [f"    ({json.dumps(lane)}, include_str!({json.dumps(path)})),"]
+    lines += ["];"]
     return "\n".join(lines) + "\n"
 
 

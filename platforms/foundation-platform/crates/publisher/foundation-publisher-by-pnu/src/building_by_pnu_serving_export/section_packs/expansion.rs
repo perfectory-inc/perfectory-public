@@ -210,10 +210,10 @@ pub(super) async fn load_served_dong(
 
 /// Whether two documents of the lane say the same, whatever version and snapshot stamped them.
 ///
-/// A null member is the field's absence (an optional field an older version never wrote). Values
-/// are compared as values, not as one engine writes them (rules.txt "no Spark byte emulation", root
-/// ADR-0564 §6-5): a number by its value (`1.0E7`, `10000000.0` and `10000000` are one), an instant
-/// by its time (`…00.000Z` and `…00Z` are one); text, keys and the order of a list stay as written.
+/// The documents are read as the values they say (`foundation_publisher_core::json_values`, the one
+/// reading the takeover verdict also holds the Gold to; rules.txt "no Spark byte emulation", root
+/// ADR-0564 §6-5): a null member is the field's absence, a number its value, an instant its time;
+/// text, members and the order of a list stay as written.
 pub(super) fn same_content(served: &[u8], rendered: &[u8]) -> anyhow::Result<bool> {
     Ok(content(served)? == content(rendered)?)
 }
@@ -225,49 +225,8 @@ fn content(bytes: &[u8]) -> anyhow::Result<JsonValue> {
         fields.remove("schema_version");
         fields.remove("source");
     }
-    drop_nulls(&mut document);
-    canonical_values(&mut document);
+    foundation_publisher_core::json_values::canonical(&mut document);
     Ok(document)
-}
-
-/// The largest integer an `f64` holds exactly (2^53): a whole number above it stays a float.
-const EXACT_INTEGER: f64 = 9_007_199_254_740_992.0;
-
-/// Each number as its value (a whole float as the integer it is) and each instant as UTC with the
-/// fraction it needs, so two engines' renderings of one value compare equal.
-fn canonical_values(value: &mut JsonValue) {
-    match value {
-        JsonValue::Number(number) => {
-            if let Some(float) = number.as_f64().filter(|_| number.is_f64()) {
-                if float.fract() == 0.0 && float.abs() <= EXACT_INTEGER {
-                    #[allow(clippy::cast_possible_truncation)]
-                    let whole = float as i64;
-                    *value = JsonValue::from(whole);
-                }
-            }
-        }
-        JsonValue::String(text) => {
-            if let Ok(instant) = chrono::DateTime::parse_from_rfc3339(text) {
-                *text = instant
-                    .with_timezone(&chrono::Utc)
-                    .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true);
-            }
-        }
-        JsonValue::Object(fields) => fields.values_mut().for_each(canonical_values),
-        JsonValue::Array(items) => items.iter_mut().for_each(canonical_values),
-        _ => {}
-    }
-}
-
-fn drop_nulls(value: &mut JsonValue) {
-    match value {
-        JsonValue::Object(fields) => {
-            fields.retain(|_, field| !field.is_null());
-            fields.values_mut().for_each(drop_nulls);
-        }
-        JsonValue::Array(items) => items.iter_mut().for_each(drop_nulls),
-        _ => {}
-    }
 }
 
 #[cfg(test)]
