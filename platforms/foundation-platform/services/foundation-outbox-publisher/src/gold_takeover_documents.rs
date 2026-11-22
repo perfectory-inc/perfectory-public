@@ -1,14 +1,23 @@
 // one-off: with `gold_takeover_sides` (the last served Gold moved to its `_versions` table).
 //! The documents a takeover verdict's candidate serves, held to the schema registry (root ADR-0564,
-//! Revision 2026-11-22; rules: a port does not reproduce Spark's bytes, and every document it serves
-//! validates against its subject's schema).
+//! Revision 2026-11-22 (둘째); rules: a port does not reproduce Spark's bytes, and every document it
+//! serves validates against its subject's schema).
 //!
 //! The rows of the verdict's one 시도 are compared as values (`gold_takeover_sides`), which says the
 //! two tables agree; it does not say the documents the lane renders from the new table are what the
 //! registry promises its readers. So every candidate row of that 시도 is rendered by the lane's own
 //! renderer (the one the bake runs, `section_packs::sections::Renderer`) and the document is
-//! validated against the JSON Schema of the subject's current revision (`schema_registry`). A row
-//! the renderer refuses, or a document the schema refuses, fails the verdict's result checks.
+//! validated against the JSON Schema of the subject's current revision as the release compiled it
+//! in (`schema_registry::lane_document_schema`). A row the renderer refuses, or a document the
+//! schema refuses, fails the verdict's result checks.
+//!
+//! What it does not see: the other 시도 (the switch's full bake renders every document and holds it
+//! to the served one); what the lane schemas leave open (they declare `type`, `required`, `enum` and
+//! `pattern`, never `additionalProperties`, so an extra field passes); the `source` block, stamped
+//! here with the candidate's table and snapshot and placeholder locations; and a row as the bake's
+//! Iceberg reader decodes it, for the rows reach the renderer through `DuckDB`'s `to_json`. A table no
+//! by-PNU lane bakes (the 실거래 region statistics) or whose lane the registry lists no schema for
+//! (the building lane) is not checked, and the record says why.
 
 use anyhow::Context;
 use foundation_publisher_by_pnu::building_by_pnu_serving_export::section_packs::sections::{
@@ -21,20 +30,11 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 /// How many refused documents the record names.
 const MAX_SAMPLES: usize = 20;
 
-/// The lane that serves `table` (the table a versions table replaces), as the bake resolves it.
-///
-/// # Errors
-/// Returns an error when the contract cannot be read or no lane bakes `table`.
-pub(crate) fn lane_of(table: &str) -> anyhow::Result<ByPnuLane> {
-    ByPnuLane::all()?
-        .into_iter()
-        .find(|lane| sections::gold_table(*lane).table_name == table)
-        .with_context(|| format!("no by-PNU lane bakes {table}"))
-}
-
 /// What the document check found, recorded in `checks.json`.
 #[derive(Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct DocumentCheck {
+    /// Why the documents were not checked, when they were not.
+    pub skipped: Option<String>,
     /// The lane whose renderer and schema were used.
     pub lane: String,
     /// The candidate rows rendered.
@@ -54,22 +54,35 @@ pub(crate) struct DocumentRules {
 }
 
 impl DocumentRules {
-    /// The rules of the lane that bakes `table`.
+    /// The rules of the lane that bakes `table`, or why its documents cannot be checked: no lane
+    /// bakes it, or the registry lists no document schema for the lane.
     ///
     /// # Errors
-    /// Returns an error when no lane bakes `table`, the registry lists no schema for it, the schema
-    /// does not compile, or the renderer's inputs cannot be read.
-    pub(crate) async fn load(table: &str) -> anyhow::Result<Self> {
-        let lane = lane_of(table)?;
+    /// Returns an error when the contract cannot be read, the schema does not compile, or the
+    /// renderer's inputs cannot be read.
+    pub(crate) async fn load(table: &str) -> anyhow::Result<Result<Self, String>> {
+        let Some(lane) = ByPnuLane::all()?
+            .into_iter()
+            .find(|lane| sections::gold_table(*lane).table_name == table)
+        else {
+            return Ok(Err(format!("no by-PNU lane bakes {table}")));
+        };
+        if schema_registry::lane_document_schema(lane.name()).is_none() {
+            return Ok(Err(format!(
+                "the schema registry lists no document schema for the {} lane",
+                lane.name()
+            )));
+        }
         let validator = validator(lane)?;
-        Ok(Self {
+        Ok(Ok(Self {
             lane,
             renderer: Renderer::load(lane).await?,
             validator,
-        })
+        }))
     }
 
-    /// Renders and validates every row `query` returns, read as `to_json` writes them.
+    /// Renders and validates every row `query` returns (one 시군구 of the candidate: `DuckDB` hands
+    /// a result over whole), read as `to_json` writes them, and adds what it found to `found`.
     ///
     /// # Errors
     /// Returns an error when `DuckDB` cannot run the query; a refused row is counted, not an error.
@@ -78,11 +91,9 @@ impl DocumentRules {
         connection: &Connection,
         query: &str,
         provenance: &PackProvenance,
-    ) -> anyhow::Result<DocumentCheck> {
-        let mut found = DocumentCheck {
-            lane: self.lane.name().to_owned(),
-            ..DocumentCheck::default()
-        };
+        found: &mut DocumentCheck,
+    ) -> anyhow::Result<()> {
+        self.lane.name().clone_into(&mut found.lane);
         let mut statement = connection
             .prepare(&format!("SELECT to_json(q)::VARCHAR FROM ({query}) AS q"))
             .context("DuckDB refused the candidate's rows")?;
@@ -97,7 +108,7 @@ impl DocumentRules {
                 }
             }
         }
-        Ok(found)
+        Ok(())
     }
 
     /// Why one row's document is refused, if it is.
@@ -161,10 +172,22 @@ mod tests {
         })
     }
 
-    #[test]
-    fn the_parcel_panel_is_baked_by_the_parcel_lane() -> anyhow::Result<()> {
-        assert!(matches!(lane_of("gold.parcel_panel")?, ByPnuLane::Parcel));
-        assert!(lane_of("gold.no_such_table").is_err());
+    /// The parcel panel's lane is found and loaded; a table no lane bakes and a lane without a
+    /// registered schema are not checked, and say why.
+    #[tokio::test]
+    async fn the_rules_are_the_lane_s_or_the_reason_there_are_none() -> anyhow::Result<()> {
+        let parcel = DocumentRules::load("gold.parcel_panel").await?;
+        assert!(matches!(
+            parcel.as_ref().map(|rules| rules.lane),
+            Ok(ByPnuLane::Parcel)
+        ));
+        assert_eq!(
+            DocumentRules::load("gold.real_transaction_region_stats")
+                .await?
+                .err()
+                .as_deref(),
+            Some("no by-PNU lane bakes gold.real_transaction_region_stats")
+        );
         Ok(())
     }
 
@@ -188,7 +211,13 @@ mod tests {
                ('9999900000100010000', NULL, NULL, '[{\"zone_code\":1}]', NULL, NULL, NULL, '[]', '[]', \
                 0, NULL, NULL, NULL);",
         )?;
-        let found = rules.check(&connection, "SELECT * FROM c ORDER BY pnu", &provenance())?;
+        let mut found = DocumentCheck::default();
+        rules.check(
+            &connection,
+            "SELECT * FROM c ORDER BY pnu",
+            &provenance(),
+            &mut found,
+        )?;
         assert_eq!(found.lane, "parcel");
         assert_eq!(found.rendered, 2);
         assert_eq!(found.refused, 1, "{:?}", found.samples);

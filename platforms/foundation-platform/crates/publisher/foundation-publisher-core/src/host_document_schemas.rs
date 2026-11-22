@@ -14,7 +14,7 @@ pub const PARCEL_DOCUMENT_SCHEMA_EXPANDS: &[&str] = &["foundation-platform.parce
 pub const PARCEL_DOCUMENT_SCHEMA_REVISION: Option<u32> = None;
 
 /// Every by-PNU lane's document schema as its subject's current revision writes it, by lane: what a
-/// takeover verdict holds each document it renders to (root ADR-0564, Revision 2026-11-22).
+/// takeover verdict holds each document it renders to (root ADR-0564, Revision 2026-11-22, second).
 pub const LANE_DOCUMENT_SCHEMAS: &[(&str, &str)] = &[
     ("parcel", include_str!("../../../../contracts/schema-registry/parcel_by_pnu_profile/1/2.schema.json")),
     ("parcel-building-permits", include_str!("../../../../contracts/schema-registry/parcel_building_permits_by_pnu/1/4.schema.json")),

@@ -482,7 +482,7 @@ def host_schemas(registry: dict[str, Any]) -> str:
     lines += [
         "",
         "/// Every by-PNU lane's document schema as its subject's current revision writes it, by lane: what a",
-        "/// takeover verdict holds each document it renders to (root ADR-0564, Revision 2026-11-22).",
+        "/// takeover verdict holds each document it renders to (root ADR-0564, Revision 2026-11-22, second).",
         "pub const LANE_DOCUMENT_SCHEMAS: &[(&str, &str)] = &[",
     ]
     for entry in sorted(registry["subjects"], key=lambda e: e["owner"].get("lane") or ""):

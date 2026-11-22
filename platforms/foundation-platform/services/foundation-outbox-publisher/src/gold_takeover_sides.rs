@@ -4,24 +4,26 @@
 //! build replaced rows of, and the `_versions` table `DuckDB` built from the same input pins as its
 //! shadow.
 //!
-//! `export-gold-takeover-sides` writes both as Parquet with the columns they share and a
-//! `sides.json` naming them, for one 시도 only (root ADR-0559 and ADR-0564 revisions of 2026-11-22);
-//! beside it, it checks the whole of both sides by aggregates alone, copying nothing (`checks.json`:
-//! rows, unique keys, the key hash sum, the content hash sum, non-null counts per column), and renders
-//! the candidate's documents of the 시도 and holds each to the schema registry
-//! (`gold_takeover_documents`); `query-takeover-sides` runs one SQL statement over the two files and
-//! prints its rows as JSON, so `engine_equality.py` reaches its verdict through this `DuckDB` (the
-//! release images have no Python `duckdb`).
+//! `export-gold-takeover-sides` checks the whole of both sides by aggregates alone, copying nothing
+//! (`checks.json`: rows, unique keys, the key hash sum, the content hash sum, non-null counts per
+//! column); renders the candidate's documents of one 시도 and holds each to the schema registry
+//! (`gold_takeover_documents`); and writes both sides' rows of that 시도 as Parquet with the columns
+//! they share and a `sides.json` naming them (root ADR-0559 and ADR-0564 revisions of 2026-11-22).
+//! `query-takeover-sides` runs one SQL statement over the two files and prints its rows as JSON, so
+//! `engine_equality.py` reaches its verdict through this `DuckDB` (the release images have no Python
+//! `duckdb`).
 //!
-//! Both sides are compared as values, not as the bytes a build wrote (root ADR-0564, Revision
-//! 2026-11-22: a port does not reproduce Spark's `to_json`): every `*_json` column is read through
-//! `DuckDB`'s `json()`, which parses it and writes it again in one spelling (a number as its value
-//! writes it, `1.0E7` and `10000000.0` alike; one escape per character; keys and lists in the order
-//! written; an integer and a real number stay apart). `row_digest`, a hash of those bytes, is not
-//! compared; the content it stands for is, column by column.
+//! Both sides are compared as the values they say, not as the bytes a build wrote (root ADR-0564,
+//! Revision 2026-11-22 (둘째): a port does not reproduce Spark's `to_json`): every `*_json` cell is
+//! read by `foundation_publisher_core::json_values`, the reading the switch's content check holds
+//! the served documents to (a null member absent, a number its value, an instant its time), and
+//! the content hash sums each row's key with those values ([`values`]). `row_digest`, a hash of the
+//! bytes, is not compared; the content it stands for is, column by column.
 //!
 //! `show-gold-takeover-switch` names that pair for the switch, whose full bake holds every
 //! document to the served one (`section_packs::takeover` of the by-PNU publisher).
+
+mod values;
 
 use std::{io::Read as _, path::Path};
 
@@ -65,16 +67,22 @@ const BUILD_STAMPS: &[(&str, &[&str])] = &[(
 /// The row digest (root ADR-0099): a hash of the bytes a build wrote, which two engines need not
 /// write alike. The verdict compares the content it stands for, as values, and not the digest.
 const DIGEST: &str = "row_digest";
-/// The suffix of a column that holds a JSON document as text, compared as the value it parses to.
-const JSON_SUFFIX: &str = "_json";
 /// The 시도 compared when the verdict names none: 경기도, the largest (ADR-0559's measurements).
 pub(crate) const DEFAULT_SIDO: &str = "41";
 /// The key columns a 시도 is read from, in order: both begin with the 시도 code (a PNU; a region
 /// code of every level the region stats hold, `legal_dong` and `sigungu`).
 const SIDO_COLUMNS: [&str; 2] = ["pnu", "region_code"];
 
-/// The predicate that keeps the rows of `sido` (two digits) by the first of [`SIDO_COLUMNS`] the
-/// key holds, as a range so `DuckDB` skips the files whose bounds lie outside it.
+/// The first of [`SIDO_COLUMNS`] the key holds: the column a side's rows are read by.
+fn sido_column(keys: &[&str]) -> anyhow::Result<&'static str> {
+    SIDO_COLUMNS
+        .into_iter()
+        .find(|column| keys.contains(column))
+        .with_context(|| format!("no key of {keys:?} holds a 시도 code ({SIDO_COLUMNS:?})"))
+}
+
+/// The predicate that keeps the rows of `sido` (two digits) by [`sido_column`], as a range so
+/// `DuckDB` skips the files whose bounds lie outside it.
 fn sido_predicate(keys: &[&str], sido: &str) -> anyhow::Result<String> {
     let number: u8 = sido
         .parse()
@@ -82,56 +90,42 @@ fn sido_predicate(keys: &[&str], sido: &str) -> anyhow::Result<String> {
         .filter(|_| sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()))
         .with_context(|| format!("the 시도 {sido:?} is not a two-digit code"))?;
     ensure!(number < 99, "the 시도 {sido} has no next code to bound it");
-    let column = SIDO_COLUMNS
-        .into_iter()
-        .find(|column| keys.contains(column))
-        .with_context(|| format!("no key of {keys:?} holds a 시도 code ({SIDO_COLUMNS:?})"))?;
+    let column = sido_column(keys)?;
     Ok(format!(
         "({column} >= '{sido}' AND {column} < '{:02}')",
         number + 1
     ))
 }
 
-/// What the whole of one side holds, by aggregates alone, read in one pass.
+/// What the whole of one side holds, by aggregates alone: counts in one pass of `DuckDB`, the content
+/// hash in one pass of the publisher a 시군구 at a time ([`values::pass`]).
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
 struct SideCounts {
     rows: i64,
     keys: i64,
     /// The sum of a hash of each row's key: the same keys on both sides, not only as many.
     key_hash_sum: String,
-    /// The sum of a hash of each row's content columns as values ([`compared`]): the same content
-    /// on both sides, not only as many values.
+    /// The sum of a hash of each row, its key with its content read as values
+    /// ([`values::compared_cell`]): the same content under the same keys on both sides.
     content_hash_sum: String,
     /// Non-null values per compared column, in the columns' order.
     non_null: Vec<(String, i64)>,
 }
 
-/// The rows, distinct keys, key hash sum, content hash sum and non-null count of each of `columns`
-/// that `query` returns (already read as values, [`compared`]), in one aggregate.
+/// The rows, distinct keys, key hash sum and non-null count of each of `columns` that `query`
+/// returns, in one aggregate; the content hash sum is the caller's ([`values::pass`]).
 fn side_counts(
     connection: &Connection,
     query: &str,
     keys: &[&str],
     columns: &[&str],
+    content_hash_sum: u128,
 ) -> anyhow::Result<SideCounts> {
     let key_list = keys.join(", ");
     let distinct = if keys.len() == 1 {
         key_list.clone()
     } else {
         format!("({key_list})")
-    };
-    let content = columns
-        .iter()
-        .filter(|column| !keys.contains(column))
-        .copied()
-        .collect::<Vec<_>>();
-    let content_hash = if content.is_empty() {
-        "'0'".to_owned()
-    } else {
-        format!(
-            "CAST(coalesce(sum(CAST(hash({}) AS HUGEINT)), 0) AS VARCHAR)",
-            content.join(", ")
-        )
     };
     let counted = columns
         .iter()
@@ -140,8 +134,7 @@ fn side_counts(
         .join(", ");
     let sql = format!(
         "SELECT count(*), count(DISTINCT {distinct}), \
-           CAST(coalesce(sum(CAST(hash({key_list}) AS HUGEINT)), 0) AS VARCHAR), {content_hash}, \
-           {counted} \
+           CAST(coalesce(sum(CAST(hash({key_list}) AS HUGEINT)), 0) AS VARCHAR), {counted} \
          FROM ({query})"
     );
     let width = columns.len();
@@ -149,13 +142,13 @@ fn side_counts(
         .query_row(&sql, [], |row| {
             let mut non_null = Vec::with_capacity(width);
             for (index, column) in columns.iter().enumerate() {
-                non_null.push(((*column).to_owned(), row.get(index + 4)?));
+                non_null.push(((*column).to_owned(), row.get(index + 3)?));
             }
             Ok(SideCounts {
                 rows: row.get(0)?,
                 keys: row.get(1)?,
                 key_hash_sum: row.get(2)?,
-                content_hash_sum: row.get(3)?,
+                content_hash_sum: content_hash_sum.to_string(),
                 non_null,
             })
         })
@@ -163,8 +156,8 @@ fn side_counts(
 }
 
 /// The national result checks: each side's keys unique, and both sides the same rows, the same
-/// keys (hash sum), the same content (hash sum of the values) and the same non-null count in every
-/// column.
+/// keys (hash sum), the same content under the same keys (hash sum of the rows as values) and the
+/// same non-null count in every column.
 /// Returns what failed, empty when every check holds.
 fn failed_checks(reference: &SideCounts, candidate: &SideCounts) -> Vec<String> {
     let mut failed = Vec::new();
@@ -204,19 +197,6 @@ fn failed_checks(reference: &SideCounts, candidate: &SideCounts) -> Vec<String> 
     failed
 }
 
-/// Refuses a 시도 the reference holds no row of: an empty 시도 would be `equal` on nothing.
-fn ensure_sido_holds_rows(connection: &Connection, query: &str, sido: &str) -> anyhow::Result<i64> {
-    let rows: i64 =
-        connection.query_row(&format!("SELECT count(*) FROM ({query})"), [], |row| {
-            row.get(0)
-        })?;
-    ensure!(
-        rows > 0,
-        "the reference holds no row in 시도 {sido}: name a 시도 the table has"
-    );
-    Ok(rows)
-}
-
 fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
     industrial_complex_lakehouse_contracts()
         .iter()
@@ -247,22 +227,6 @@ fn compared_columns(
                 && versions.columns.iter().any(|column| column.name == *name)
         })
         .collect()
-}
-
-/// `columns` as each side is compared on them: a JSON column as the value it parses to, in the one
-/// spelling `json()` writes it; every other column as it is.
-fn compared(columns: &[&str]) -> String {
-    columns
-        .iter()
-        .map(|column| {
-            if column.ends_with(JSON_SUFFIX) {
-                format!("json({column})::VARCHAR AS {column}")
-            } else {
-                (*column).to_owned()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// A path in the work directory as `DuckDB` SQL text.
@@ -301,8 +265,9 @@ async fn shadow_commit(
         })
 }
 
-/// Writes `reference.parquet`, `candidate.parquet` and `sides.json` for the versions table the
-/// environment names.
+/// Writes `checks.json`, then `reference.parquet`, `candidate.parquet` and `sides.json` for the
+/// versions table the environment names; fails after writing them when a result check failed (a
+/// national aggregate, or a document of the 시도), so the 시도's comparison is still made.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn export() -> anyhow::Result<()> {
     let table = required_env_value(&format!("{PREFIX}TABLE"))?;
@@ -331,6 +296,9 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         "{replaced_name}'s columns lack its key {:?}",
         latest.key
     );
+    let column = sido_column(latest.key)?;
+    // A 시도 that is not two digits, or the last code, is refused before anything is read.
+    sido_predicate(latest.key, &sido)?;
     // Loaded before the DuckDB session opens: the session is not `Send` across an await.
     let rules = DocumentRules::load(replaced_name).await?;
     let work = Path::new(&work);
@@ -339,8 +307,6 @@ pub(crate) async fn export() -> anyhow::Result<()> {
     if let Some(limit) = &memory_limit {
         connection.execute("SET memory_limit = ?", [limit.as_str()])?;
     }
-    let in_sido = sido_predicate(latest.key, &sido)?;
-    let listed = compared(&columns);
     let reference_source = with_contract_columns(
         connection,
         replaced,
@@ -354,87 +320,120 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         versions,
         &format!("{LAKEHOUSE_CATALOG}.{table} AT (VERSION => {candidate})"),
     )?;
-    let candidate_rows = |filter: &str| {
-        format!(
-            "SELECT {listed} FROM ({})",
-            latest.current_rows_sql(&candidate_source, &columns, filter)
-        )
-    };
-    let (reference_all, candidate_all) = (
-        format!("SELECT {listed} FROM {reference_source}"),
-        candidate_rows("TRUE"),
+    let listed = columns.join(", ");
+    let reference_rows =
+        |filter: &str| format!("SELECT {listed} FROM {reference_source} WHERE {filter}");
+    let candidate_rows =
+        |filter: &str| latest.current_rows_sql(&candidate_source, &columns, filter);
+
+    // The whole of both sides, by aggregates and one pass each that also writes the 시도's rows.
+    let prefixes = values::prefixes(
+        connection,
+        &[reference_source.as_str(), candidate_source.as_str()],
+        column,
+    )?;
+    let sido_prefixes: Vec<String> = prefixes
+        .iter()
+        .filter(|prefix| prefix.starts_with(sido.as_str()))
+        .cloned()
+        .collect();
+    let reference_pass = values::pass(
+        connection,
+        &reference_rows,
+        column,
+        &prefixes,
+        &columns,
+        &sido,
+        "side_reference",
+    )?;
+    ensure!(
+        reference_pass.sido_rows > 0,
+        "the reference holds no row in 시도 {sido}: name a 시도 the table has"
     );
+    let candidate_pass = values::pass(
+        connection,
+        &candidate_rows,
+        column,
+        &prefixes,
+        &columns,
+        &sido,
+        "side_candidate",
+    )?;
     let (reference_counts, candidate_counts) = (
-        side_counts(connection, &reference_all, latest.key, &columns)?,
-        side_counts(connection, &candidate_all, latest.key, &columns)?,
+        side_counts(
+            connection,
+            &reference_rows("TRUE"),
+            latest.key,
+            &columns,
+            reference_pass.hash_sum,
+        )?,
+        side_counts(
+            connection,
+            &candidate_rows("TRUE"),
+            latest.key,
+            &columns,
+            candidate_pass.hash_sum,
+        )?,
     );
     let mut failed = failed_checks(&reference_counts, &candidate_counts);
-    let checks_path = work.join("checks.json");
-    let write_checks = |failed: &[String],
-                        documents: Option<&DocumentCheck>|
-     -> anyhow::Result<()> {
-        let checks = json!({
-            "reference": reference_counts, "candidate": candidate_counts, "documents": documents,
-            "failed": failed,
-        });
-        std::fs::write(&checks_path, serde_json::to_vec_pretty(&checks)?)
-            .with_context(|| format!("cannot write {}", checks_path.display()))
-    };
-    write_checks(&failed, None)?;
-    ensure!(
-        failed.is_empty(),
-        "the national result checks failed ({}): {}",
-        checks_path.display(),
-        failed.join("; ")
-    );
-    let reference_sido = format!("SELECT {listed} FROM {reference_source} WHERE {in_sido}");
-    let sido_rows = ensure_sido_holds_rows(connection, &reference_sido, &sido)?;
 
     // Every document the candidate serves in the 시도, rendered as the bake renders it and held to
     // the registry's schema: the comparison says the tables agree, this that the documents keep
     // the registry's promise.
-    let every_column = versions
-        .columns
-        .iter()
-        .map(|column| column.name)
-        .collect::<Vec<_>>();
-    let found = rules.check(
-        connection,
-        &latest.current_rows_sql(&candidate_source, &every_column, &in_sido),
-        &PackProvenance {
-            table: table.clone(),
-            iceberg_snapshot_id: candidate.to_string(),
-            metadata_location: "-".to_owned(),
-            manifest_list_location: "-".to_owned(),
-        },
-    )?;
-    if found.refused > 0 {
-        failed.push(format!(
-            "{} of the {} candidate documents of 시도 {sido} are refused by the renderer or the {} \
-             lane's schema",
-            found.refused, found.rendered, found.lane
-        ));
+    let mut documents = DocumentCheck::default();
+    match &rules {
+        Ok(rules) => {
+            let every_column = versions
+                .columns
+                .iter()
+                .map(|column| column.name)
+                .collect::<Vec<_>>();
+            let provenance = PackProvenance {
+                table: table.clone(),
+                iceberg_snapshot_id: candidate.to_string(),
+                metadata_location: "-".to_owned(),
+                manifest_list_location: "-".to_owned(),
+            };
+            for prefix in &sido_prefixes {
+                rules.check(
+                    connection,
+                    &latest.current_rows_sql(
+                        &candidate_source,
+                        &every_column,
+                        &values::prefix_filter(column, prefix)?,
+                    ),
+                    &provenance,
+                    &mut documents,
+                )?;
+            }
+            if documents.refused > 0 {
+                failed.push(format!(
+                    "documents: {} of the {} candidate documents of 시도 {sido} are refused by the \
+                     renderer or the {} lane's schema",
+                    documents.refused, documents.rendered, documents.lane
+                ));
+            }
+        }
+        Err(why) => documents.skipped = Some(why.clone()),
     }
-    write_checks(&failed, Some(&found))?;
-    ensure!(
-        failed.is_empty(),
-        "the candidate's documents failed their schema ({}): {}",
-        checks_path.display(),
-        found.samples.join("; ")
-    );
-    for (name, query) in [
-        ("reference", reference_sido),
-        ("candidate", candidate_rows(&in_sido)),
-    ] {
+    let checks_path = work.join("checks.json");
+    let checks = json!({
+        "reference": reference_counts, "candidate": candidate_counts, "documents": documents,
+        "failed": failed,
+    });
+    std::fs::write(&checks_path, serde_json::to_vec_pretty(&checks)?)
+        .with_context(|| format!("cannot write {}", checks_path.display()))?;
+
+    // The 시도's two sides, as values, for `engine_equality.py`.
+    for name in ["reference", "candidate"] {
         let target = sql_path(&work.join(format!("{name}.parquet")))?;
         connection
             .execute_batch(&format!(
-                "COPY ({query}) TO '{target}' (FORMAT parquet, COMPRESSION zstd)"
+                "COPY side_{name} TO '{target}' (FORMAT parquet, COMPRESSION zstd)"
             ))
             .with_context(|| format!("DuckDB failed to write {name}.parquet"))?;
     }
     drop(stage);
-
     let keys = latest.key;
     let content: Vec<&str> = columns
         .iter()
@@ -447,20 +446,31 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         "pins": shadow.pins, "keys": keys, "content": content,
         // No digest: the content is compared as values, and a digest is of bytes ([`DIGEST`]).
         "digest": serde_json::Value::Null,
-        "sido": sido, "sido_rows": sido_rows, "rows_nationally": reference_counts.rows,
+        "sido": sido, "sido_rows": reference_pass.sido_rows,
+        "rows_nationally": reference_counts.rows,
     });
     let path = work.join("sides.json");
     std::fs::write(&path, serde_json::to_vec_pretty(&sides)?)
         .with_context(|| format!("cannot write {}", path.display()))?;
+    ensure!(
+        failed.is_empty(),
+        "a result check failed ({}): {}",
+        checks_path.display(),
+        failed.join("; ")
+    );
     println!(
         "gold-takeover-sides {table}: reference {replaced_name}@{} candidate {table}@{candidate} \
-         keys={keys:?} content={} sido={sido} national checks passed on {} rows, {} documents \
-         held to the {} lane's schema",
+         keys={keys:?} content={} sido={sido} ({} rows) national checks passed on {} rows; \
+         documents rendered {} {}",
         shadow.build,
         content.len(),
+        reference_pass.sido_rows,
         reference_counts.rows,
-        found.rendered,
-        found.lane
+        documents.rendered,
+        documents.skipped.as_deref().map_or_else(
+            || format!("held to the {} lane's schema", documents.lane),
+            |why| { format!("(not checked: {why})") }
+        )
     );
     Ok(())
 }
@@ -636,100 +646,69 @@ mod tests {
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<_, _>>()?;
         assert_eq!(kept, [("41999".to_owned(), 2)]);
-        assert_eq!(ensure_sido_holds_rows(&connection, &query, "41")?, 1);
-        let empty = latest.current_rows_sql("v", &columns, &sido_predicate(latest.key, "42")?);
-        assert!(ensure_sido_holds_rows(&connection, &empty, "42").is_err());
+        assert_eq!(sido_column(latest.key)?, "region_code");
         Ok(())
     }
 
+    /// The national checks over the real passes: the same rows written by two engines agree; a
+    /// changed value, content that moved to another key, another key and a tied key are each seen.
     #[test]
-    fn national_checks_see_counts_keys_and_content_without_comparing_rows() -> anyhow::Result<()> {
+    fn national_checks_see_counts_keys_and_content_as_values() -> anyhow::Result<()> {
         let connection = Connection::open_in_memory()?;
         connection.execute_batch(
-            "CREATE TABLE a (pnu VARCHAR, v VARCHAR); \
-             INSERT INTO a VALUES ('9999910100100010000', 'x'), ('9999920100100010000', NULL); \
-             CREATE TABLE same AS SELECT * FROM a; \
-             CREATE TABLE changed AS SELECT pnu, CASE WHEN v = 'x' THEN 'y' ELSE v END AS v FROM a; \
-             CREATE TABLE swapped AS SELECT replace(pnu, '9999920', '9999930') AS pnu, v FROM a; \
-             CREATE TABLE tied (pnu VARCHAR, v VARCHAR); \
-             INSERT INTO tied VALUES ('9999910100100010000', 'x'), ('9999910100100010000', 'z');",
+            r#"CREATE TABLE a (pnu VARCHAR, v_json VARCHAR);
+               INSERT INTO a VALUES ('9999910100100010000', '{"area_m2":1.0E7,"note":null}'),
+                 ('9999920100100010000', '[{"seq":2}]');
+               CREATE TABLE same (pnu VARCHAR, v_json VARCHAR);
+               INSERT INTO same VALUES ('9999910100100010000', '{"area_m2":10000000.0}'),
+                 ('9999920100100010000', '[{"seq":2.0}]');
+               CREATE TABLE changed AS SELECT pnu, replace(v_json, '2', '3') AS v_json FROM a;
+               CREATE TABLE moved (pnu VARCHAR, v_json VARCHAR);
+               INSERT INTO moved VALUES ('9999910100100010000', '[{"seq":2}]'),
+                 ('9999920100100010000', '{"area_m2":10000000.0}');
+               CREATE TABLE swapped AS SELECT replace(pnu, '9999920', '9999930') AS pnu, v_json FROM a;
+               CREATE TABLE tied (pnu VARCHAR, v_json VARCHAR);
+               INSERT INTO tied VALUES ('9999910100100010000', '[]'), ('9999910100100010000', NULL);"#,
         )?;
-        let count = |table: &str| {
+        let columns = ["pnu", "v_json"];
+        let count = |table: &str| -> anyhow::Result<SideCounts> {
+            let side = |filter: &str| format!("SELECT pnu, v_json FROM {table} WHERE {filter}");
+            let prefixes = values::prefixes(&connection, &[table], "pnu")?;
+            let pass = values::pass(
+                &connection,
+                &side,
+                "pnu",
+                &prefixes,
+                &columns,
+                "99",
+                "side_test",
+            )?;
             side_counts(
                 &connection,
-                &format!("SELECT pnu, v FROM {table}"),
+                &side("TRUE"),
                 &["pnu"],
-                &["pnu", "v"],
+                &columns,
+                pass.hash_sum,
             )
         };
         let a = count("a")?;
         assert!(failed_checks(&a, &count("same")?).is_empty());
-        let changed = failed_checks(&a, &count("changed")?);
-        assert!(
-            changed
-                .iter()
-                .any(|line| line.starts_with("content hash sum")),
-            "{changed:?}"
-        );
-        let swapped = failed_checks(&a, &count("swapped")?);
-        assert!(
-            swapped.iter().any(|line| line.starts_with("key hash sum")),
-            "{swapped:?}"
-        );
+        for (table, seen) in [
+            ("changed", "content hash sum"),
+            ("moved", "content hash sum"),
+            ("swapped", "key hash sum"),
+        ] {
+            let found = failed_checks(&a, &count(table)?);
+            assert!(
+                found.iter().any(|line| line.starts_with(seen)),
+                "{table}: {found:?}"
+            );
+        }
         let tied = failed_checks(&a, &count("tied")?);
         assert!(tied
             .iter()
             .any(|line| line.starts_with("candidate holds 2 rows on 1 keys")));
-        assert!(tied.iter().any(|line| line.starts_with("v non-null")));
-        Ok(())
-    }
-
-    /// Spark's `to_json` and `DuckDB`'s spell one number two ways; read as values they are one, so the
-    /// row compare and the content hash sum see the same content. An integer and a real number of the
-    /// same size, a changed value and another key order stay different.
-    #[test]
-    fn json_columns_are_compared_as_the_values_they_hold() -> anyhow::Result<()> {
-        let connection = Connection::open_in_memory()?;
-        connection.execute_batch(
-            r#"CREATE TABLE spark (pnu VARCHAR, area_json VARCHAR, note VARCHAR);
-               INSERT INTO spark VALUES
-                 ('9999910100100010000', '{"area_m2":1.0E7,"name":"\u001F합성"}', 'a'),
-                 ('9999910100100020000', '[{"seq":1,"r":0.0001}]', 'b');
-               CREATE TABLE duck AS SELECT * FROM spark;
-               UPDATE duck SET area_json = '{"area_m2":10000000.0,"name":"\u001f합성"}' WHERE note = 'a';
-               UPDATE duck SET area_json = '[{"seq":1,"r":1.0E-4}]' WHERE note = 'b';
-               CREATE TABLE whole AS SELECT * FROM duck;
-               UPDATE whole SET area_json = '{"area_m2":10000000,"name":"\u001f합성"}' WHERE note = 'a';
-               CREATE TABLE reordered AS SELECT * FROM duck;
-               UPDATE reordered SET area_json = '{"name":"\u001f합성","area_m2":10000000.0}' WHERE note = 'a';"#,
-        )?;
-        let columns = ["pnu", "area_json", "note"];
-        assert_eq!(
-            compared(&columns),
-            "pnu, json(area_json)::VARCHAR AS area_json, note"
-        );
-        let read = |table: &str| -> anyhow::Result<(Vec<String>, SideCounts)> {
-            let query = format!("SELECT {} FROM {table}", compared(&columns));
-            let texts = connection
-                .prepare(&format!("SELECT area_json FROM ({query}) ORDER BY pnu"))?
-                .query_map([], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok((texts, side_counts(&connection, &query, &["pnu"], &columns)?))
-        };
-        let (spark, spark_counts) = read("spark")?;
-        let (duck, duck_counts) = read("duck")?;
-        assert_eq!(spark, duck);
-        assert!(failed_checks(&spark_counts, &duck_counts).is_empty());
-        for other in ["whole", "reordered"] {
-            let (texts, counts) = read(other)?;
-            assert_ne!(spark, texts, "{other}");
-            assert!(
-                failed_checks(&spark_counts, &counts)
-                    .iter()
-                    .any(|line| line.starts_with("content hash sum")),
-                "{other}"
-            );
-        }
+        assert!(tied.iter().any(|line| line.starts_with("v_json non-null")));
         Ok(())
     }
 

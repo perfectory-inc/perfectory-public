@@ -17,7 +17,10 @@ that passes writes a Gold whose recorded fingerprint equals the reference's and 
 nothing. A table without `row_digest` (a Silver load, an export, a check's answer) is compared on its
 content columns alone. A document column is JSON text, so "equal" is byte equality of what is
 served; `sampled_written_differently` only says how many of the sampled differing rows parse to the
-same value, as a hint of where to look, never as a count of the whole.
+same value, as a hint of where to look, never as a count of the whole. A takeover verdict
+(`--sides`, root ADR-0564 Revision 2026-11-22, second) hands this module both sides already read
+as values (`foundation_publisher_core::json_values`) and no digest, so there "equal" is equality of
+the values the documents say, not of their bytes.
 
 The comparison is one SQL statement of the common subset (FULL OUTER JOIN, COUNT, CASE), run by
 DuckDB when this file is a command; the same text runs on Spark SQL and Trino, and the tests run it
