@@ -118,6 +118,10 @@ fn only_changed_keys_are_appended_and_a_key_that_left_gets_a_marker() -> anyhow:
         source_snapshot_id: "s2".to_owned(),
         published_at_utc: "t2".to_owned(),
     };
+    // A by-PNU table: its key is the PNU and its digest the row_digest it carries, as before the
+    // Golds outside the lanes came to the same commit.
+    assert_eq!(commit.key()?, ["pnu"]);
+    assert_eq!(commit.digest_sql(), "row_digest");
     // A first commit: every key is new.
     let first = diff(&connection, &commit, "TRUE")?;
     assert_eq!((first.added, first.changed, first.removed), (3, 0, 0));

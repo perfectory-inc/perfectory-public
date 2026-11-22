@@ -498,8 +498,9 @@ fn assert_coverage(connection: &Connection, commit: &Commit<'_>) -> anyhow::Resu
         .copied()
         .filter(|column| column.ends_with("_json"))
         .collect();
-    // The sections are a by-PNU table's: a table keyed otherwise serves no PNU a section.
-    if sections.is_empty() || commit.head.is_none() || commit.key()? != ["pnu"] {
+    // The sections are a by-PNU table's: a table whose key does not start with the PNU serves no
+    // parcel a section.
+    if sections.is_empty() || commit.head.is_none() || commit.key()?.first() != Some(&"pnu") {
         return Ok(());
     }
     let served = coverage_of(connection, "current_rows", "pnu", &sections)?;
@@ -633,13 +634,63 @@ pub(crate) fn after_digests(
     Ok(((rows, total), rows))
 }
 
-/// [`after_digests`] of one range: the fingerprint and the current rows after the commit.
+/// The fingerprint and the current rows after the commit of one range: [`after_digests`] for a
+/// table that carries `row_digest`; for one whose digest is computed ([`Commit::digest_sql`]),
+/// [`recomputed`] over every current row, so a change of its columns or of the formula never
+/// leaves two formulas in one sum.
 pub(crate) fn after(
     connection: &Connection,
     commit: &Commit<'_>,
     diff: &Diff,
 ) -> anyhow::Result<((u64, u128), u64)> {
+    if commit.digest_sql() != ROW_DIGEST {
+        return recomputed(connection, commit);
+    }
     after_digests(commit, diff, digests(connection, commit)?)
+}
+
+/// The fingerprint and the current rows after the commit, counted over the head's current rows
+/// that the commit does not touch and the rows it appends (removal markers aside). It reads the
+/// head's current rows whole: only the Golds outside the lanes, whose digest is computed, use it.
+fn recomputed(connection: &Connection, commit: &Commit<'_>) -> anyhow::Result<((u64, u128), u64)> {
+    let key = commit.key()?.join(", ");
+    let content = commit.content_columns.join(", ");
+    let head = match commit.head {
+        Some(head) => commit
+            .versions
+            .current_row_latest()
+            .context("the versions table has no current-row rule")?
+            .current_rows_sql(
+                &with_contract_columns(
+                    connection,
+                    commit.versions,
+                    &format!(
+                        "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
+                        commit.table
+                    ),
+                )?,
+                &commit.content_columns,
+                "TRUE",
+            ),
+        None => format!("SELECT {content} FROM built WHERE FALSE"),
+    };
+    let number = format!(
+        "CAST(('0x' || substr({}, 1, {FINGERPRINT_HEX_DIGITS})) AS HUGEINT)",
+        commit.digest_sql()
+    );
+    let (rows, sum): (i64, String) = connection.query_row(
+        &format!(
+            "WITH kept AS (SELECT {content} FROM ({head}) h ANTI JOIN (SELECT {key} FROM appended) a \
+               USING ({key})), \
+             after_commit AS (SELECT {content} FROM kept \
+               UNION ALL SELECT {content} FROM appended WHERE change <> 'removed') \
+             SELECT count(*), CAST(coalesce(sum({number}), 0) AS VARCHAR) FROM after_commit"
+        ),
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let rows = u64::try_from(rows)?;
+    Ok(((rows, sum.parse()?), rows))
 }
 
 /// The SQL a partition entry of a versions table splits rows by: the 시도 of a table keyed by PNU

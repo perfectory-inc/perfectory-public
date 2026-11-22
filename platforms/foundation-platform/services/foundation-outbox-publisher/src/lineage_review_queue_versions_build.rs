@@ -1,7 +1,7 @@
 //! The publisher's build of the steward queue as a table of appended row versions (root ADR-0564
 //! §6-9, ADR-0113 §10, ADR-0483 §5): `build-lineage-review-queue-versions`.
 //!
-//! `DuckDB` inside the publisher computes the queue's two units from their inputs at their heads
+//! `DuckDB` inside the publisher computes the queue's two units from their inputs
 //! (`foundation_publisher_silver::lineage_review_queue_stage`): the parcel unit from
 //! `silver.parcel_lineage`, the place reference unit from every parcel source Silver the resolver
 //! placed. The publisher appends the keys that changed (`gold_versions_commit`, keyed by
@@ -15,8 +15,16 @@
 //! the one it was first found under.
 //!
 //! While the Spark jobs still write `gold.lineage_review_queue` and feed the steward database, this
-//! table is their shadow: nothing reads it until the takeover verdict is equal and the steward
-//! cycle loads its handoff.
+//! table is their shadow (root ADR-0564 §6): it reads the inputs that table last recorded
+//! ([`shadow_pins`]), so the takeover verdict compares two engines over one set of inputs, and its
+//! first build takes the snapshot pair of each place reference item whose evidence is unchanged from
+//! that table, the history its `MERGE` kept. Nothing reads it until the verdict is equal and the
+//! steward cycle loads its handoff.
+//!
+//! Of root ADR-0564 §3-4's checks it keeps the ones that hold of a queue: one row per key (the diff)
+//! and each unit's statuses. It has no floor on lost rows and no bound on changed keys: an item
+//! leaves when a steward decides it or stronger evidence closes it, so the queue may empty in one
+//! run, and the Spark jobs it replaces had neither.
 
 use std::{collections::BTreeMap, path::Path, time::Instant};
 
@@ -66,6 +74,67 @@ const BUILT_SQL: &str = "CREATE OR REPLACE TABLE built AS \
         THEN h.to_snapshot_id ELSE f.to_snapshot_id END AS to_snapshot_id, \
       CAST('@published_at_utc@' AS TIMESTAMPTZ) AS published_at_utc \
     FROM fresh f LEFT JOIN head_rows h USING (unit, subject_code);";
+
+// one-off: until the queue's takeover PR (the steward cycle loads its handoff from this table and
+// the Spark jobs that write gold.lineage_review_queue are gone): `LINEAGE_SNAPSHOT_PROPERTY`,
+// `SOURCE_SNAPSHOT_PREFIX`, `shadow_pins` and the first build's seed from `REPLACED` go with it.
+/// The property the parcel unit's Spark job records its lineage snapshot under
+/// (`lineage_review_queue_to_gold.LINEAGE_SNAPSHOT_PROPERTY`).
+const LINEAGE_SNAPSHOT_PROPERTY: &str = "foundation.lineage-snapshot-id";
+/// The prefix the place reference job records each source's snapshot under
+/// (`place_reference_queue_to_gold.SNAPSHOT_PREFIX`).
+const SOURCE_SNAPSHOT_PREFIX: &str = "foundation.place-reference-snapshot.";
+
+/// The inputs the Spark queue last read, in place of `heads`: each input's newest recorded snapshot
+/// along `gold.lineage_review_queue`'s `main`, newest first (`recorded_snapshots`). A source its
+/// kept history does not name did not move since (the job reads every source that moved, each run),
+/// so its head stands. Returns the pins and the replaced table's head.
+///
+/// # Errors
+/// The replaced table does not exist or records no lineage snapshot: there is nothing to shadow.
+async fn shadow_pins(
+    catalog: &IcebergRestCatalog,
+    heads: &BTreeMap<String, i64>,
+) -> anyhow::Result<(BTreeMap<String, i64>, i64)> {
+    let history = catalog
+        .load_main_snapshot_history(REPLACED)
+        .await?
+        .with_context(|| format!("{REPLACED} does not exist: there is no queue to shadow"))?;
+    let replaced_head = history
+        .first()
+        .map(|snapshot| snapshot.snapshot_id)
+        .with_context(|| format!("{REPLACED} holds no snapshot"))?;
+    let mut recorded: BTreeMap<String, i64> = BTreeMap::new();
+    for snapshot in &history {
+        for (property, value) in &snapshot.summary {
+            let input = if property == LINEAGE_SNAPSHOT_PROPERTY {
+                LINEAGE_SOURCE
+            } else if let Some(source) = property.strip_prefix(SOURCE_SNAPSHOT_PREFIX) {
+                source
+            } else {
+                continue;
+            };
+            if !recorded.contains_key(input) {
+                let pin: i64 = value.parse().with_context(|| {
+                    format!(
+                        "{REPLACED} snapshot {} records {property}={value}",
+                        snapshot.snapshot_id
+                    )
+                })?;
+                recorded.insert(input.to_owned(), pin);
+            }
+        }
+    }
+    ensure!(
+        recorded.contains_key(LINEAGE_SOURCE),
+        "{REPLACED} records no {LINEAGE_SNAPSHOT_PROPERTY} in its kept history: nothing to shadow"
+    );
+    let pins = heads
+        .iter()
+        .map(|(input, head)| (input.clone(), *recorded.get(input).unwrap_or(head)))
+        .collect();
+    Ok((pins, replaced_head))
+}
 
 /// Every input at its head: the lineage and each place reference source that exists.
 async fn input_heads(catalog: &IcebergRestCatalog) -> anyhow::Result<BTreeMap<String, i64>> {
@@ -130,7 +199,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .with_context(|| format!("{TABLE} does not exist after its creation"))?;
     let base = versions::base(&history)?;
     let head = history.first().map(|snapshot| snapshot.snapshot_id);
-    let pins = input_heads(&catalog).await?;
+    let heads = input_heads(&catalog).await?;
+    let (pins, replaced_head) = shadow_pins(&catalog, &heads).await?;
     let code = queue::code_version();
     if let Some(base) = &base {
         versions::pin(&catalog, TABLE, base.snapshot_id, &base.pins).await?;
@@ -144,7 +214,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             &summary_path,
             &json!({
                 "job": JOB, "engine": "duckdb", "table": TABLE, "outcome": "unchanged",
-                "pins": pins, "seconds": started.elapsed().as_secs_f64(),
+                "pins": pins, "shadow_of": {"table": REPLACED, "head": replaced_head},
+                "seconds": started.elapsed().as_secs_f64(),
             }),
         )?;
         println!("gold-versions {TABLE} nothing to do: its inputs and code are the base commit's");
@@ -229,8 +300,16 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                 &content_columns,
                 "TRUE",
             ),
-        None => "SELECT *, CAST(NULL AS TIMESTAMPTZ) AS published_at_utc FROM fresh WHERE FALSE"
-            .to_owned(),
+        // The first build: the replaced table's rows at the head its pins were read from.
+        None => format!(
+            "SELECT {} FROM {}",
+            content_columns.join(", "),
+            with_contract_columns(
+                connection,
+                contract(REPLACED)?,
+                &format!("{LAKEHOUSE_CATALOG}.{REPLACED} AT (VERSION => {replaced_head})"),
+            )?
+        ),
     };
     connection.execute_batch(&format!(
         "CREATE OR REPLACE TABLE head_rows AS {head_rows};"
@@ -242,6 +321,21 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     )?;
     connection.execute_batch("DROP TABLE fresh;")?;
     ensure_no_commit_tables(connection)?;
+    // Each unit's statuses (the contract's `status is needs_review or pending` holds of the parcel
+    // unit; a place reference item is a steward's or waits for data).
+    let misfiled: i64 = connection.query_row(
+        &format!(
+            "SELECT count(*) FROM built WHERE NOT ( \
+               (unit = '{PARCEL_UNIT}' AND status IN ('needs_review', 'pending')) \
+               OR (unit = '{PLACE_REFERENCE_UNIT}' AND status IN ('steward', 'awaiting_data')))"
+        ),
+        [],
+        |row| row.get(0),
+    )?;
+    ensure!(
+        misfiled == 0,
+        "{misfiled} built items hold a status their unit does not have: nothing was appended"
+    );
 
     // Diff and check.
     let version_seq = base.as_ref().map_or(1, |base| base.version_seq + 1);
@@ -290,6 +384,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             "job": JOB, "engine": "duckdb", "table": TABLE, "outcome": "committed",
             "created_table": created, "snapshot_id": snapshot, "parent_snapshot_id": head,
             "version_seq": version_seq, "run": run, "pins": pins, "rebuilt": rebuilt,
+            "shadow_of": {"table": REPLACED, "head": replaced_head},
             "code_version": code, "parcel": parcel_counts, "open_by_sido": open_by_sido,
             "place_reference": place_read, "diff": diff, "current_records": current_records,
             "content_fingerprint": versions::fingerprint_text(fingerprint),
