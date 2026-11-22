@@ -89,7 +89,7 @@ pub(crate) fn list_page(list: &List, payload: &JsonValue) -> anyhow::Result<List
             ))
         })
         .collect::<Vec<_>>();
-    listed.sort_by(|a, b| b.0.cmp(&a.0));
+    listed.sort_by_key(|(id, _)| std::cmp::Reverse(*id));
     Ok(ListPage {
         rows: listed.into_iter().map(|(_, listed)| listed).collect(),
         total: payload
