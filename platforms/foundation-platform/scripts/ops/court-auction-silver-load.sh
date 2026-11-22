@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# 법원경매정보의 Silver 적재 절반 (root ADR-0280, ADR-0281). 등록된 작업 court_auction_silver(spark 3칸, 가중치 1)가
+# 법원경매정보의 Silver 적재 절반 (root ADR-0280, ADR-0281). 등록된 작업 court_auction_silver(default_pool)가
 # 매일 06:30 KST, 수집이 끝난 뒤에 돌린다.
 #
 # 엔진(root ADR-0559): 문서 전부(물건 검색·매각결과와 아래의 물건상세·공통코드·사건 문서·감정평가서·명세서·매각공고·
 # 배당요구종기공고)는 발행기 load-courtauction-go-kr-silver 가 DuckDB 로 같은 계획(${work}/duckdb/*)을 읽어 쌓는다.
-# Spark(courtauction_go_kr.py load)에 남은 것은 법정동 변경 따라가기뿐이다(다음 조각에서 옮긴다). 표마다 쓰는 엔진은 하나다.
+# 적재 끝에 두 검색 표의 법정동 변경 따라가기도 같은 발행기가 한다(root ADR-0329 §3). Spark 는 띄우지 않는다.
 #
 # 쌓을 것은 R2 만 보고 정한다. plan-silver-load-objects 가 검색마다 원천의 Bronze 접두어를 나열하고, 그 표의 커밋
 # 요약이 이미 기록한 객체를 빼고, 남은 것을 오래된 것부터 계약의 범위(courtauction-go-kr.contract.json silver_load)
-# 안에서 이 실행의 폴더로 받는다. courtauction_go_kr.py load 가 객체마다 커밋 하나로, 주소로 PNU 를 찾아
-# (address_pnu.py) silver.court_auction_item 에 내용이 바뀐 물건과(물건 검색을 끝까지 읽은 밤에만) 빠진 물건의
+# 안에서 이 실행의 폴더로 받는다. 적재가 객체마다 커밋 하나로, 하나뿐인 해석기로 PNU 를 찾아
+# (place_identity_stage) silver.court_auction_item 에 내용이 바뀐 물건과(물건 검색을 끝까지 읽은 밤에만) 빠진 물건의
 # 삭제 표지를, silver.court_auction_sale_result 에 바뀐 행을 쌓는다. 물건상세 객체는 silver.court_auction_item_photo 에
 # 새 사진(내용 해시)을, 문서 여섯 표(사건·명세서 요약·기일·목록·제시외건물·감정요항, root ADR-0540)에 바뀐 것을,
 # 그다음 silver.court_auction_item_detail 에 읽은 기록을 쌓는다(root ADR-0384). 계획은 읽은 기록 표와 마지막 문서 표
@@ -22,7 +22,7 @@
 # silver.court_auction_appraisal_report 에, 그다음 모든 요청(캡차 건너뜀 포함)을 silver.court_auction_appraisal_report_read 에
 # 쌓는다: 계획은 읽은 기록 표 기준이다. 매각물건명세서 객체는 물은 판마다(캡차 건너뜀 포함) 한 줄을
 # silver.court_auction_sale_specification_read 에 쌓는다(root ADR-0575): 계획은 그 표 기준이다. 쌓을 것이 없으면
-# Spark 를 띄우지 않는다. 매각공고 객체는 공고마다 공고 행과 그 목록 판(매각물건·정정·취소변경)을 쌓는다(root ADR-0575 §6):
+# 아무것도 띄우지 않는다. 매각공고 객체는 공고마다 공고 행과 그 목록 판(매각물건·정정·취소변경)을 쌓는다(root ADR-0575 §6):
 # 계획은 목록 표 기준이다.
 #
 # 대기열이 없으니 옮길 것도 없다. 실패하면 커밋하지 못한 객체는 표에 기록이 없어 다음 실행이 다시 받는다.
@@ -82,37 +82,18 @@ owed_dividends="$(plan silver.court_auction_dividend_object "${dividend_slug}" "
 # 매각공고, the five 사건 문서 and 물건상세.
 owed_duckdb=$((owed_codes + owed_reports + owed_specs + owed_dividends + owed_notices + owed_cases + owed_surveys
   + owed_appraisals + owed_filings + owed_tenants + owed_details + owed_documents + owed_items + owed_results))
-if [ "${owed_items}" = 0 ] && [ "${owed_results}" = 0 ] && [ "${owed_duckdb}" = 0 ]; then
+if [ "${owed_duckdb}" = 0 ]; then
   job_journal "${journal}" "court-auction silver load: nothing owed run=${run_id}"
   printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
-duckdb_summary=""
-if [ "${owed_duckdb}" != 0 ]; then
-  FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT="${work}/duckdb" \
-    "${PUBLISHER_BIN}" load-courtauction-go-kr-silver >> "${run_log}" 2>&1
-  duckdb_summary="$(grep '^courtauction-go-kr-duckdb-summary-json ' "${run_log}" | tail -1)"
-  # The load's result checks, to the journal, where the op that ran this unit reads them as Dagster
-  # asset check evaluations (orchestration/dagster/load_checks.py).
-  grep '^{"__dagster_pipes_version"' "${run_log}" || true
-fi
-summary=""
-if true; then # The code-change follow runs on every run that loads anything.
-chmod -R a+rX "${work}" # Spark 컨테이너는 uid 185 로 읽는다.
-
-lakehouse_run_log "${run_log}"
-FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
-FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-lakehouse_spark_run foundation-platform-compute \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark spark-submit --master 'local[4,8]' --driver-memory 8g \
-  --jars "${SPARK_RELEASE_JARS}" \
-  /workspace/infra/lakehouse/spark/jobs/courtauction_go_kr.py load \
-  --allow-non-smoke-write >> "${run_log}" 2>&1
-
-summary="$(grep '^court-auction-summary-json ' "${run_log}" | tail -1)"
-fi
+# The load ends by following the 법정동 code changes on the two search tables (root ADR-0329 §3).
+FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT="${work}/duckdb" \
+  "${PUBLISHER_BIN}" load-courtauction-go-kr-silver >> "${run_log}" 2>&1
+summary="$(grep '^courtauction-go-kr-duckdb-summary-json ' "${run_log}" | tail -1)"
+# The load's result checks, to the journal, where the op that ran this unit reads them as Dagster
+# asset check evaluations (orchestration/dagster/load_checks.py).
+grep '^{"__dagster_pipes_version"' "${run_log}" || true
 # An object no load recorded for longer than the window means loads have been failing: it is loaded
 # now, and the run fails so the gap raises an alert (the plan names it `late`).
 late="$(python3 -I -c '
@@ -124,5 +105,5 @@ if [ "${late}" != 0 ]; then
   echo "court-auction silver load: ${late} Bronze object(s) waited more than ${window_days} days unloaded; they are loaded now, and this run fails so the gap is seen" >&2
   exit 1
 fi
-job_journal "${journal}" "court-auction silver load ok run=${run_id} owed=${owed_items}+${owed_results}+${owed_duckdb} ${duckdb_summary} ${summary}"
+job_journal "${journal}" "court-auction silver load ok run=${run_id} owed=${owed_duckdb} ${summary}"
 printf 'foundation-job-outcome changed\n'

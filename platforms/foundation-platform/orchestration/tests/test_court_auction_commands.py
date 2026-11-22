@@ -6,8 +6,9 @@ The publisher and docker are stand-ins: the publisher answers the collect comman
 does (an outcome, or exit 1 after a run that got no answer) and the plan command with FAKE_OWED objects per table;
 docker records its arguments. What runs for real is the scripts: the collect passes its outcome on and
 keeps no copy; a run without progress fails and hands nothing on (what it landed is in Bronze, so the next
-plan finds it); a missing required variable stops the run before any request; the load with nothing owed ends without starting Spark; a load hands Spark
-one plan per table and removes the copies whether it succeeds or not.
+plan finds it); a missing required variable stops the run before any request; the load with nothing owed
+starts nothing; a load hands the publisher's DuckDB load one plan per table, starts no Spark, and removes
+the copies whether it succeeds or not.
 """
 
 import hashlib
@@ -52,6 +53,8 @@ if sys.argv[1] == "load-courtauction-go-kr-silver":
     root = os.environ["FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT"]
     with open(os.path.join(state, "duckdb.log"), "a", encoding="utf-8") as log:
         log.write(" ".join(sorted(os.listdir(root))) + "\n")
+    if os.environ.get("FAKE_LOAD_FAIL") == "1":
+        sys.exit(1)
     print('courtauction-go-kr-duckdb-summary-json {"engine": "duckdb"}')
     sys.exit(0)
 assert sys.argv[1] == "plan-silver-load-objects", sys.argv
@@ -175,40 +178,35 @@ class CourtAuctionCommands(unittest.TestCase):
         self.env["FAKE_LATE"] = "1"
         result = self.run_script(self.load)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("spark-submit", (self.fake / "docker.log").read_text())
+        self.assertTrue((self.fake / "duckdb.log").exists())
         self.assertIn("LATE", (self.state / "journal.log").read_text(encoding="utf-8"))
         self.assertNotIn("foundation-job-outcome", result.stdout)
 
-    def test_the_load_with_nothing_owed_ends_without_spark(self):
+    def test_the_load_with_nothing_owed_starts_nothing(self):
         self.env["FAKE_OWED"] = "0"
         result = self.run_script(self.load)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
-        self.assertFalse((self.fake / "docker.log").exists())
+        self.assertFalse((self.fake / "duckdb.log").exists())
 
-    def test_a_load_hands_spark_one_plan_per_table_and_removes_the_copies(self):
-        self.env["FAKE_DOCKER_FAIL"] = "1"
+    def test_a_load_hands_duckdb_one_plan_per_table_and_removes_the_copies(self):
+        self.env["FAKE_LOAD_FAIL"] = "1"
         self.assertNotEqual(self.run_script(self.load).returncode, 0)
         self.assertEqual(self.copies(), [], "an unloaded object has no commit record, so the next plan fetches it again")
-        self.env["FAKE_DOCKER_FAIL"] = "0"
+        self.env["FAKE_LOAD_FAIL"] = "0"
         loaded = self.run_script(self.load)
         self.assertEqual(loaded.returncode, 0, loaded.stderr)
         self.assertEqual(loaded.stdout.splitlines()[-1], "foundation-job-outcome changed")
         self.assertEqual(self.copies(), [])
-        call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
-        plans = [call[i + 1].rsplit("/", 1)[1] for i, arg in enumerate(call) if arg == "--plan-dir"]
+        # Every document loads in the publisher's DuckDB, and the same load follows the code changes;
+        # nothing starts Spark (root ADR-0559).
+        self.assertFalse((self.fake / "docker.log").exists())
         # The 물건상세 objects are planned against their read record (root ADR-0384) and their last
         # document table, so a new document table is filled from the window's objects (root ADR-0540).
-        # The 공통코드 objects are planned against the code table (root ADR-0540 §5).
         # The 사건 문서 objects are planned against their read record, one plan per document (root ADR-0540 §3).
-        # Spark keeps only the code-change follow, which reads no plan.
-        self.assertEqual(plans, [])
-        # Every document but the item and result searches left Spark: the publisher loads their plans in
-        # DuckDB, before Spark loads the searches (root ADR-0559).
         self.assertEqual((self.fake / "duckdb.log").read_text().splitlines()[-1],
                          "appraisals cases codes details dividends documents filings items notices reports results specs "
                          "surveys tenants")
-
 
 if __name__ == "__main__":
     unittest.main()

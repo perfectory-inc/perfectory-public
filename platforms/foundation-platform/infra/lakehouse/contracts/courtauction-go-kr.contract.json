@@ -1,5 +1,5 @@
 {
-  "$comment": "Root ADR-0280 (ownership) and ADR-0289 (asked as a browser at an adaptive pace, never giving up; it superseded ADR-0281 and ADR-0283). How 법원경매정보 (courtauction.go.kr) is asked and what a block is. The collector (`collect-courtauction-go-kr` in services/foundation-outbox-publisher), the collection rules (collection-domain::court_auction), the Silver load (infra/lakehouse/spark/jobs/courtauction_go_kr.py) and their tests read this file; nothing else restates these values.",
+  "$comment": "Root ADR-0280 (ownership) and ADR-0289 (asked as a browser at an adaptive pace, never giving up; it superseded ADR-0281 and ADR-0283). How 법원경매정보 (courtauction.go.kr) is asked and what a block is. The collector (`collect-courtauction-go-kr` in services/foundation-outbox-publisher), the collection rules (collection-domain::court_auction), the Silver load (the publisher's load-courtauction-go-kr-silver, courtauction_silver_stage) and their tests read this file; nothing else restates these values.",
   "version": 1,
   "base_url": "https://www.courtauction.go.kr",
   "item_search": {
@@ -340,7 +340,7 @@
     }
   },
   "personal_names": {
-    "$comment": "Root ADR-0540 §4. The free text a Silver table keeps (매각물건명세서 인수되는 권리·지상권 개요·비고·최선순위 설정, 물건 비고, 제시외건물 비고, 감정요항표) sometimes names a person: measured 2026-10-21 on the prototype's 39,296 물건상세, 258 of 4,269 filled 인수되는 권리, 2,381 of 20,267 명세서 비고 and 154 of 29,275 최선순위 설정 matched a name pattern (\"갑구 제14번 ○○○지분\", \"소유자 ○○○\"), most of the 비고 hits being 공유 지분 words, not names. A name is a 2-4 syllable word right before one of `before`, or right after one of `after` where that word starts a word and is set off by a space, colon or bracket (with the names a comma joins to it), followed by a particle or the end; one of `not_names` (judged without a trailing particle) is not a name. A name is replaced by `mask`. A pattern-and-context recognizer as Microsoft Presidio's PatternRecognizer is; Bronze keeps the text as received. The Silver load (courtauction_go_kr.py mask_names) and its tests read this; nothing else restates it.",
+    "$comment": "Root ADR-0540 §4. The free text a Silver table keeps (매각물건명세서 인수되는 권리·지상권 개요·비고·최선순위 설정, 물건 비고, 제시외건물 비고, 감정요항표) sometimes names a person: measured 2026-10-21 on the prototype's 39,296 물건상세, 258 of 4,269 filled 인수되는 권리, 2,381 of 20,267 명세서 비고 and 154 of 29,275 최선순위 설정 matched a name pattern (\"갑구 제14번 ○○○지분\", \"소유자 ○○○\"), most of the 비고 hits being 공유 지분 words, not names. A name is a 2-4 syllable word right before one of `before`, or right after one of `after` where that word starts a word and is set off by a space, colon or bracket (with the names a comma joins to it), followed by a particle or the end; one of `not_names` (judged without a trailing particle) is not a name. A name is replaced by `mask`. A pattern-and-context recognizer as Microsoft Presidio's PatternRecognizer is; Bronze keeps the text as received. The Silver load (courtauction_silver_stage::names) and its tests read this; nothing else restates it.",
     "mask": "○○○",
     "name_syllables": [2, 4],
     "before": ["지분"],

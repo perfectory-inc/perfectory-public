@@ -632,3 +632,78 @@ fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn a_follow_places_again_the_rows_a_code_change_can_move_with_its_record() -> anyhow::Result<()> {
+    let (directory, stage, source) = search_stage()?;
+    read_object(
+        &stage,
+        &source,
+        &object(directory.path(), Role::ItemSearch)?,
+        chrono::Utc::now(),
+    )?;
+    let table = contract("silver.court_auction_item")?;
+    super::offer_search(&stage, Role::ItemSearch, table)?;
+    stage.connection().execute_batch(
+        "CREATE OR REPLACE TABLE place_parcels AS SELECT * FROM (VALUES ('9999910100100070000')) t(pnu);
+         CREATE OR REPLACE TABLE place_titles AS SELECT * FROM (VALUES
+           ('9999910100100070000', '합성도 가상시 가나대로 3')) t(pnu, road_address_raw);",
+    )?;
+    super::finish_search(&stage, table)?;
+    // The table's current rows: the night's, one of them since removed.
+    stage.connection().execute_batch(
+        "CREATE TABLE ca_current AS SELECT * REPLACE (
+           CASE WHEN case_no = '20990130000004' THEN 'removed' END AS row_state) FROM ca_court_auction_item;",
+    )?;
+    let at = chrono::Utc
+        .with_ymd_and_hms(2099, 1, 3, 4, 5, 6)
+        .single()
+        .context("a valid instant")?;
+    let record = "follow:reference.legal_dong_code_change@7@20990103T040506Z";
+    let followed = |prefix: Option<&str>| -> anyhow::Result<Vec<String>> {
+        stage.connection().execute_batch(&format!(
+            "CREATE OR REPLACE TABLE file_prefixes AS SELECT * FROM (VALUES ('{}')) t(prefix)",
+            prefix.unwrap_or("-")
+        ))?;
+        super::follow_rows(
+            &stage,
+            "SELECT * FROM ca_current",
+            prefix.is_some(),
+            record,
+            at,
+        )?;
+        rows_as_text(&stage, &["case_no".to_owned()], "ca_search_rows")
+    };
+    // Under no moved code only the row without a PNU; under 99999 every placed row too; the removed
+    // row never; every other row when the earlier change snapshot is unknown.
+    assert_eq!(followed(Some("98888"))?, ["20990130000002"]);
+    let moved = [
+        "20990130000001",
+        "20990130000002",
+        "20990130000003",
+        "20990130000007",
+    ];
+    assert_eq!(followed(Some("99999"))?, moved);
+    assert_eq!(followed(None)?, moved);
+    // Placed again, a row keeps what it was observed with and carries the follow's record.
+    super::offer_search(&stage, Role::ItemSearch, table)?;
+    super::finish_search(&stage, table)?;
+    let found = rows_as_text(
+        &stage,
+        &[
+            "case_no".to_owned(),
+            "pnu".to_owned(),
+            "pnu_basis".to_owned(),
+            "source_record_id".to_owned(),
+            "source_snapshot_id".to_owned(),
+        ],
+        "ca_court_auction_item WHERE case_no = '20990130000001'",
+    )?;
+    assert_eq!(
+        found,
+        [format!(
+            "20990130000001|9999910100100070000|legal_dong_code|{record}|20990103T040506Z"
+        )]
+    );
+    Ok(())
+}

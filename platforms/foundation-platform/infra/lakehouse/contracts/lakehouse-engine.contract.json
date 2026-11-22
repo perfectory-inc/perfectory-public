@@ -118,7 +118,11 @@
         "wave": 3
       },
       "courtauction_go_kr": {
-        "wave": 4
+        "moved": {
+          "pull_request": 1638,
+          "rows": null,
+          "fingerprint": null
+        }
       },
       "data_go_kr_file_data": {
         "moved": {

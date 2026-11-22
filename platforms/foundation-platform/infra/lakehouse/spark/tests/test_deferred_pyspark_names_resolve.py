@@ -63,7 +63,6 @@ MODULES = (
     "vworld_parcel_number_change_history",
     "onbid_public_auction_document",
     "address_pnu",
-    "courtauction_go_kr",
     "gold_incremental",
     "changelog",
 )

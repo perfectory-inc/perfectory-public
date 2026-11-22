@@ -1,15 +1,15 @@
-//! `load-courtauction-go-kr-silver`: 법원경매정보 Silver documents that left Spark (root ADR-0559).
+//! `load-courtauction-go-kr-silver`: the 법원경매정보 Silver load (root ADR-0559).
 //!
 //! The documents are root ADR-0280, ADR-0540 and ADR-0575's.
 //!
-//! `court-auction-silver-load.sh` runs it over the plan directories of its tables, before the Spark
-//! job loads the rest. For each object, oldest first, `DuckDB` inside the publisher builds the rows
-//! of every table its document writes (`foundation_publisher_silver::courtauction_silver_stage`) and
-//! the publisher appends them, table by table in the document's order, each in one Iceberg commit
-//! that records the object even when it holds no row (root ADR-0560): a newest-per-key table's changed
-//! keys, a read record's every row. These were `courtauction_go_kr.py`'s 공통코드, 감정평가서,
-//! 매각물건명세서 and 배당요구종기공고. The last stdout line is
-//! `courtauction-go-kr-duckdb-summary-json {json}`.
+//! `court-auction-silver-load.sh` runs it over the plan directories of its tables. For each object,
+//! oldest first, `DuckDB` inside the publisher builds the rows of every table its document writes
+//! (`foundation_publisher_silver::courtauction_silver_stage`) and the publisher appends them, table by
+//! table in the document's order, each in one Iceberg commit that records the object even when it
+//! holds no row (root ADR-0560): a newest-per-key table's changed keys, a read record's every row.
+//! Then, on the two search tables, it follows the 법정동 code changes since each one's last follow
+//! (root ADR-0329 §3, ADR-0416), committed under a follow record. These were `courtauction_go_kr.py`'s.
+//! The last stdout line is `courtauction-go-kr-duckdb-summary-json {json}`.
 //!
 //! Before it, one Dagster Pipes `report_asset_check` line per table it appended to and result check
 //! (orchestration/dagster/load_checks.py; the op that ran the unit logs them): every object's rows
@@ -20,14 +20,14 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Mutex, time::Instant};
 
 use anyhow::Context;
 use foundation_publisher_core::lakehouse_data_commit::{
-    AppendOutcome, DataAppend, LakehouseDataCommitter,
+    AppendOutcome, DataAppend, LakehouseDataCommitter, StagedFile,
 };
 use foundation_publisher_silver::{
     courtauction_silver_stage::{
-        appended, appended_search, place_search, planned_objects, read_object, search_complete,
-        CourtAuctionSource, Keep, PlannedObject, Role,
+        appended, appended_search, follow_search, place_search, planned_objects, read_object,
+        search_complete, CourtAuctionSource, Keep, PlannedObject, Role,
     },
-    data_go_kr_file_data_stage::PlaceInputs,
+    data_go_kr_file_data_stage::{follow_record, last_followed, PlaceInputs},
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
     onbid_silver_stage::{plan_dirs, write},
     place_identity_stage::{
@@ -119,8 +119,8 @@ fn seconds(started: Instant) -> f64 {
 
 struct Run {
     source: CourtAuctionSource,
-    /// The place-identity inputs' pins, when the run holds a search object.
-    pins: Option<PlacePins>,
+    /// The place-identity inputs' pins, read once a run.
+    pins: PlacePins,
     committer: LakehouseDataCommitter,
     catalog: IcebergRestCatalog,
     ingested_at: chrono::DateTime<chrono::Utc>,
@@ -142,17 +142,13 @@ impl Run {
             let mut complete = false;
             if matches!(object.role, Role::ItemSearch | Role::SaleResultSearch) {
                 complete = search_complete(stage, &self.source, object.role)?;
-                let pins = self
-                    .pins
-                    .as_ref()
-                    .context("a search object needs the place pins")?;
                 let table = object.role.tables()[0].0;
                 let grades = place_search(
                     stage,
                     object.role,
                     contract(table)?,
                     PlaceInputs {
-                        pins,
+                        pins: &self.pins,
                         title_contract: contract(TITLE_TABLE)?,
                     },
                 )?;
@@ -195,34 +191,16 @@ impl Run {
                     result,
                 )
             };
-            let already_ingested = self
-                .catalog
-                .load_ingested_batch_objects(table.table)
-                .await?
-                .with_context(|| format!("{} does not exist", table.table))?;
-            let outcome = self
-                .committer
-                .append_at_head(
-                    DataAppend {
-                        table_name: table.table,
-                        contract: table_contract,
-                        files: file.as_slice(),
-                        batch: std::slice::from_ref(&object.object_key),
-                        already_ingested: &already_ingested,
-                        summary: BTreeMap::new(),
-                    },
+            let appended_commit = self
+                .commit(
+                    table.table,
+                    file.as_slice(),
+                    &object.object_key,
                     expected_head,
+                    result,
+                    checks,
                 )
                 .await?;
-            let (appended_commit, added) = match outcome {
-                AppendOutcome::Appended { added_records, .. } => (true, added_records),
-                // Recorded by an earlier run: nothing of this run to check.
-                AppendOutcome::AlreadyIngested => (false, result.rows),
-            };
-            checks
-                .entry(table.table)
-                .or_default()
-                .add(&object.object_key, result, added);
             let short = table.table.rsplit('.').next().unwrap_or(table.table);
             tables.insert(
                 short.to_owned(),
@@ -234,6 +212,110 @@ impl Run {
         line.insert("tables".to_owned(), Value::Object(tables));
         line.insert("seconds".to_owned(), json!(seconds(started)));
         Ok(Value::Object(line))
+    }
+
+    /// Commits `files` to `table` at `expected_head`, recording `record`, and adds its result
+    /// checks; whether the commit appended (not a record an earlier run committed).
+    async fn commit(
+        &self,
+        table: &'static str,
+        files: &[StagedFile],
+        record: &str,
+        expected_head: Option<i64>,
+        result: ResultChecks,
+        checks: &mut BTreeMap<&'static str, TableChecks>,
+    ) -> anyhow::Result<bool> {
+        let already_ingested = self
+            .catalog
+            .load_ingested_batch_objects(table)
+            .await?
+            .with_context(|| format!("{table} does not exist"))?;
+        let outcome = self
+            .committer
+            .append_at_head(
+                DataAppend {
+                    table_name: table,
+                    contract: contract(table)?,
+                    files,
+                    batch: &[record.to_owned()],
+                    already_ingested: &already_ingested,
+                    summary: BTreeMap::new(),
+                },
+                expected_head,
+            )
+            .await?;
+        let (appended, added) = match outcome {
+            AppendOutcome::Appended { added_records, .. } => (true, added_records),
+            // Recorded by an earlier run: nothing of this run to check.
+            AppendOutcome::AlreadyIngested => (false, result.rows),
+        };
+        checks.entry(table).or_default().add(record, result, added);
+        Ok(appended)
+    }
+
+    /// Places again the rows of a search table that the 법정동 code changes since its last follow
+    /// can move, and appends those whose placement moved (root ADR-0329 §3, ADR-0416); the summary
+    /// line, or `None` when the table was never loaded or its links are as of the pin. The commit
+    /// records the follow even with no row moved, so the next follow starts from this snapshot.
+    async fn follow(
+        &self,
+        stage: &Mutex<DuckDbParquetStage>,
+        role: Role,
+        checks: &mut BTreeMap<&'static str, TableChecks>,
+    ) -> anyhow::Result<Option<Value>> {
+        let started = Instant::now();
+        let table = role.tables()[0].0;
+        let Some(recorded) = self.catalog.load_ingested_batch_objects(table).await? else {
+            return Ok(None);
+        };
+        let after = self.pins.code_changes;
+        let before = last_followed(recorded.iter().map(String::as_str));
+        if before == Some(after) {
+            return Ok(None);
+        }
+        let Some(expected_head) = head(&self.catalog, table).await? else {
+            return Ok(None);
+        };
+        let table_contract = contract(table)?;
+        let shape = self.committer.table_shape(table).await?;
+        let record = follow_record(after, self.ingested_at);
+        let (followed, file, result) = {
+            let stage = &*locked(stage)?;
+            let followed = follow_search(
+                stage,
+                role,
+                table_contract,
+                expected_head,
+                PlaceInputs {
+                    pins: &self.pins,
+                    title_contract: contract(TITLE_TABLE)?,
+                },
+                before,
+                &record,
+                self.ingested_at,
+            )?;
+            let result = result_checks(stage, table_contract, &followed.out)?;
+            let file = write(stage, &shape, table, &followed.out, &record)?;
+            (followed, file, result)
+        };
+        self.commit(
+            table,
+            file.as_slice(),
+            &record,
+            Some(expected_head),
+            result,
+            checks,
+        )
+        .await?;
+        Ok(Some(json!({
+            "table": table,
+            "from_snapshot": before,
+            "to_snapshot": after,
+            "prefixes": followed.prefixes,
+            "checked": followed.checked,
+            "appended": followed.appended,
+            "seconds": seconds(started),
+        })))
     }
 }
 
@@ -255,23 +337,16 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .context("DuckDB refused the court auction value readers")?;
     // One instant for the run, as the Spark job took one.
     let ingested_at = chrono::Utc::now();
-    let pins = if objects
-        .iter()
-        .any(|object| matches!(object.role, Role::ItemSearch | Role::SaleResultSearch))
-    {
-        // Root ADR-0288 §1: a 물건 is placed by the one resolver; its inputs are pinned once a run.
-        let pins = PlacePins {
-            code_changes: pinned(&catalog, CODE_CHANGE_TABLE).await?,
-            dong_names: pinned(&catalog, DONG_NAME_TABLE).await?,
-            parcels: pinned(&catalog, PARCEL_TABLE).await?,
-            titles: pinned(&catalog, TITLE_TABLE).await?,
-            served_snapshot_id: served_snapshot_id()?,
-        };
-        place_identity_stage::load_reference(&*locked(&stage)?, &pins)?;
-        Some(pins)
-    } else {
-        None
+    // Root ADR-0288 §1: a 물건 is placed by the one resolver, on a search load and on a follow;
+    // its inputs are pinned once a run.
+    let pins = PlacePins {
+        code_changes: pinned(&catalog, CODE_CHANGE_TABLE).await?,
+        dong_names: pinned(&catalog, DONG_NAME_TABLE).await?,
+        parcels: pinned(&catalog, PARCEL_TABLE).await?,
+        titles: pinned(&catalog, TITLE_TABLE).await?,
+        served_snapshot_id: served_snapshot_id()?,
     };
+    place_identity_stage::load_reference(&*locked(&stage)?, &pins)?;
     let run = Run {
         source,
         pins,
@@ -284,6 +359,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     for object in &objects {
         loaded.push(run.load(&stage, object, &mut checks).await?);
     }
+    let mut follows = Vec::new();
+    for role in [Role::ItemSearch, Role::SaleResultSearch] {
+        follows.extend(run.follow(&stage, role, &mut checks).await?);
+    }
     drop(stage);
     for (table, table_checks) in &checks {
         for line in table_checks.pipes_lines(table) {
@@ -295,6 +374,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         "engine": "duckdb",
         "status": "loaded",
         "objects": loaded,
+        "follows": follows,
         "seconds": seconds(started),
         // The unit's limit is set from this (root ADR-0455): the most its cgroup held this run.
         "memory_peak_bytes": process_memory::cgroup_peak_bytes(),

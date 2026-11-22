@@ -16,7 +16,7 @@ last_reviewed: 2026-11-12
 | 작업 | 단위 | 하는 일 |
 |---|---|---|
 | `court_auction_collect` (작업 등록부 일정, default_pool) | `foundation-court-auction-collect.service` → `scripts/ops/court-auction-collect.sh` | `collect-courtauction-go-kr`: 물건 검색 네 조합 → 매각결과 검색 두 조합. 조합마다 첫 쪽으로 쪽 수를 알고, 나머지 쪽은 계약 `collection.pace` 의 폭만큼 동시에. 검색 하나에 gzip JSON Lines Bronze 객체 하나 |
-| `court_auction_silver` (spark 3칸) | `foundation-court-auction-silver-load.service` → `scripts/ops/court-auction-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 검색마다 표의 커밋 요약이 아직 기록하지 않은 객체를 받고(계약 `silver_load`), `courtauction_go_kr.py load`: 주소로 PNU, `silver.court_auction_item`·`silver.court_auction_sale_result` 에 바뀐 행만. 물건상세 객체는 사진, 문서 여섯 표(사건·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표, 루트 ADR-0540)의 바뀐 것, 읽은 기록 순으로 커밋한다. 계획은 읽은 기록 표와 마지막 문서 표 둘 다 기준이라, 새 문서 표는 창 안의 물건상세 객체로 처음 채워진다. 공통코드 객체(목록을 끝까지 읽은 실행마다 한 요청, 계약 `common_codes`)는 이름이 바뀐 코드를 `silver.court_auction_code` 에 쌓는다(루트 ADR-0540 §5). 사건상세·현황조사·감정평가 객체는 문서 표(사건·관련사건·목록별 종국결과·당사자 구분, 현황조사 회차와 목록, 감정평가 회차)의 바뀐 것, 그다음 읽은 기록(`silver.court_auction_case_document_read`) 순으로 커밋하고, 계획은 문서마다 읽은 기록 표 기준이다 |
+| `court_auction_silver` (default_pool, 발행기 DuckDB) | `foundation-court-auction-silver-load.service` → `scripts/ops/court-auction-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 검색마다 표의 커밋 요약이 아직 기록하지 않은 객체를 받고(계약 `silver_load`), `load-courtauction-go-kr-silver`(루트 ADR-0559): 하나뿐인 해석기로 PNU, `silver.court_auction_item`·`silver.court_auction_sale_result` 에 바뀐 행만, 끝에 두 표의 법정동 변경 따라가기(옮겨진 행만). 물건상세 객체는 사진, 문서 여섯 표(사건·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표, 루트 ADR-0540)의 바뀐 것, 읽은 기록 순으로 커밋한다. 계획은 읽은 기록 표와 마지막 문서 표 둘 다 기준이라, 새 문서 표는 창 안의 물건상세 객체로 처음 채워진다. 공통코드 객체(목록을 끝까지 읽은 실행마다 한 요청, 계약 `common_codes`)는 이름이 바뀐 코드를 `silver.court_auction_code` 에 쌓는다(루트 ADR-0540 §5). 사건상세·현황조사·감정평가 객체는 문서 표(사건·관련사건·목록별 종국결과·당사자 구분, 현황조사 회차와 목록, 감정평가 회차)의 바뀐 것, 그다음 읽은 기록(`silver.court_auction_case_document_read`) 순으로 커밋하고, 계획은 문서마다 읽은 기록 표 기준이다 |
 
 상태: `/var/lib/foundation-platform/court-auction/`(`journal.log`, 실행마다 `runs/<실행>/run.log`). 다음 실행을 막는 상태 파일은 없다.
 
@@ -54,7 +54,7 @@ last_reviewed: 2026-11-12
    ssh -tt ai-server "date +%s | xargs -o -I{} sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job clear-refusal court_auction_collect --requested-at {} --reason 'the 2026-10-20 refusal was a daytime attended run; the 2026-10-19 night passed; owner approved collection 2026-10-30'"
    ```
 
-2. 다음 날 06:30 KST 적재 뒤 요약 줄(`court-auction-summary-json`)의 `with_pnu` 를 본다. 코드 길(ADR-0382)은
+2. 다음 날 06:30 KST 적재 뒤 요약 줄(`courtauction-go-kr-duckdb-summary-json`)의 물건 검색 객체 `resolved_by_grade` 를 본다. 코드 길(ADR-0382)은
    `pnu_basis` 가 `legal_dong_code`·`legal_dong_code_superseded` 인 행이다.
 3. 07:05 KST(22:05 UTC) `gold_court_auction_rebuild` 첫 커밋 뒤, 창(04:30–21:50 UTC) 밖에서 레인을 처음 전환한다.
    먼저 `--dry-run`, 그다음 진짜:
