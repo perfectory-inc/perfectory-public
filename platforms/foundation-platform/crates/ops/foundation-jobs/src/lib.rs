@@ -910,7 +910,7 @@ TimeoutStartSec=150m
             ("lane_b", "foundation-x@b.service", 160),
         ]);
         let units = render(&jobs, &|file: &str| {
-            Ok(if file.ends_with(".conf") {
+            Ok(if file.contains(".service.d/") {
                 render_time_limit_dropin(150)
             } else {
                 UNIT.to_owned()
