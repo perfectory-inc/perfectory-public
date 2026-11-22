@@ -11,6 +11,7 @@ mod blocking;
 mod committed_inputs;
 mod completed_handoff;
 mod floor_scratch;
+pub mod history_gate;
 mod history_witness;
 #[cfg(test)]
 mod hub_bulk_decoder;

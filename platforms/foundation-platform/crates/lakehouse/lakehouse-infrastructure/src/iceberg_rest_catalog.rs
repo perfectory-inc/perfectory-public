@@ -115,6 +115,37 @@ impl IcebergSnapshotSummary {
     }
 }
 
+/// Every snapshot a table's metadata holds, with what a writer recorded of each: the register a
+/// gate that authenticates retained history walks (the FLOOR history gate, root ADR-0338).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IcebergSnapshotRegistry {
+    /// The table's UUID; a replaced table has another.
+    pub table_uuid: uuid::Uuid,
+    /// The snapshot `main` names, `None` for a table never written.
+    pub head: Option<i64>,
+    /// Every snapshot the metadata still holds, in the metadata's order.
+    pub snapshots: Vec<IcebergRegisteredSnapshot>,
+}
+
+/// One snapshot of an [`IcebergSnapshotRegistry`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IcebergRegisteredSnapshot {
+    /// The snapshot's id.
+    pub snapshot_id: i64,
+    /// The snapshot it was committed on; `None` for a table's first.
+    pub parent_snapshot_id: Option<i64>,
+    /// The writer's summary, every value as text; Iceberg's `operation` is one of its keys.
+    pub summary: BTreeMap<String, String>,
+}
+
+impl IcebergRegisteredSnapshot {
+    /// The commit's operation (`append`, `overwrite`, …), from the summary.
+    #[must_use]
+    pub fn operation(&self) -> Option<&str> {
+        self.summary.get("operation").map(String::as_str)
+    }
+}
+
 /// One named reference of an Iceberg table.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IcebergSnapshotRef {
@@ -514,6 +545,57 @@ impl IcebergRestCatalog {
                 })
                 .collect()
         }))
+    }
+
+    /// The table's UUID, its `main` head and every snapshot its metadata holds with its parent and
+    /// summary.
+    ///
+    /// Returns `Ok(None)` when the table does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the catalog cannot be reached or the response omits the
+    /// table UUID.
+    pub async fn load_snapshot_registry(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<IcebergSnapshotRegistry>, LakehouseError> {
+        self.load_table_response(table_name)
+            .await?
+            .map(|payload| {
+                let table_uuid = payload.metadata.table_uuid.ok_or_else(|| {
+                    LakehouseError::Upstream(
+                        "Iceberg REST load table response omitted table UUID".into(),
+                    )
+                })?;
+                let head = main_head(&payload.metadata);
+                let snapshots = payload
+                    .metadata
+                    .snapshots
+                    .iter()
+                    .map(|snapshot| IcebergRegisteredSnapshot {
+                        snapshot_id: snapshot.snapshot_id,
+                        parent_snapshot_id: snapshot.parent_snapshot_id,
+                        summary: snapshot
+                            .summary
+                            .iter()
+                            .map(|(key, value)| {
+                                let text = match value {
+                                    serde_json::Value::String(text) => text.clone(),
+                                    other => other.to_string(),
+                                };
+                                (key.clone(), text)
+                            })
+                            .collect(),
+                    })
+                    .collect();
+                Ok(IcebergSnapshotRegistry {
+                    table_uuid,
+                    head,
+                    snapshots,
+                })
+            })
+            .transpose()
     }
 
     /// The table's named references (`main` and every branch and tag) and the snapshots its
