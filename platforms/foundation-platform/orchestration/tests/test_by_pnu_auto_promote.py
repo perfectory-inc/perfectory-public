@@ -111,17 +111,17 @@ class AutoPromotion(unittest.TestCase):
         # parcel lane's owed panel rebuild waited behind it.
         metrics = self.root / "asset-reconcile.prom"
         self.env["FOUNDATION_AUTO_PROMOTE_ASSET_METRICS"] = str(metrics)
-        metrics.write_text('foundation_asset_owed{asset="iceberg://gold.parcel_panel",job="gold_panel_rebuild"} 1\n'
-                           'foundation_asset_owed{asset="iceberg://gold.unit_price",job="gold_unit_price_rebuild"} 1\n')
+        metrics.write_text('foundation_asset_owed{asset="iceberg://gold.parcel_panel",job_id="gold_panel_rebuild"} 1\n'
+                           'foundation_asset_owed{asset="iceberg://gold.unit_price",job_id="gold_unit_price_rebuild"} 1\n')
         os.utime(metrics, (NIGHT, NIGHT))
         result, started = self.run_controller()
         self.assertEqual((result.returncode, started), (0, []), result.stderr)
         self.assertIn("a served lane's refresh is owed (iceberg://gold.parcel_panel)", result.stdout)
         # A default job owed (the unit price Gold) or a reconciler silent for half an hour holds nothing.
-        metrics.write_text('foundation_asset_owed{asset="iceberg://gold.unit_price",job="gold_unit_price_rebuild"} 1\n')
+        metrics.write_text('foundation_asset_owed{asset="iceberg://gold.unit_price",job_id="gold_unit_price_rebuild"} 1\n')
         os.utime(metrics, (NIGHT, NIGHT))
         self.assertEqual(self.run_controller()[1], ["parcel-ownership cutover 1 --auto"])
-        metrics.write_text('foundation_asset_owed{asset="iceberg://gold.parcel_panel",job="gold_panel_rebuild"} 1\n')
+        metrics.write_text('foundation_asset_owed{asset="iceberg://gold.parcel_panel",job_id="gold_panel_rebuild"} 1\n')
         os.utime(metrics, (NIGHT - 1801, NIGHT - 1801))
         self.assertEqual(len(self.run_controller(now=NIGHT + 3600 * 25)[1]), 1, "a silent reconciler holds nothing")
 

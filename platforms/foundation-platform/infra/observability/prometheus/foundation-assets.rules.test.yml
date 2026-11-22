@@ -1,0 +1,61 @@
+# promtool unit tests for the foundation-assets rules the asset reconciler feeds (root ADR-0333 §7, ADR-0462).
+# Every series carries the scrape's own job label, job="node-exporter", as on ai-server: the reconciler's textfile
+# names a job by job_id. Until this was so, FoundationJobQueueWaitOverBudget failed to evaluate on ai-server
+# ("found duplicate series for the match group {job=\"node-exporter\", pool=\"spark\", priority_class=\"default\"}").
+# Run by the guard prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      # Two starts of one pool and class wait; one is past its 360-minute budget.
+      - series: 'foundation_job_queue_wait_seconds{job="node-exporter",job_id="synthetic_fold",pool="spark",priority_class="default"}'
+        values: '21000+60x40'
+      - series: 'foundation_job_queue_wait_budget_seconds{job="node-exporter",job_id="synthetic_fold",pool="spark",priority_class="default"}'
+        values: '21600x40'
+      - series: 'foundation_job_queue_wait_seconds{job="node-exporter",job_id="synthetic_lane",pool="spark",priority_class="default"}'
+        values: '60+60x40'
+      - series: 'foundation_job_queue_wait_budget_seconds{job="node-exporter",job_id="synthetic_lane",pool="spark",priority_class="default"}'
+        values: '21600x40'
+      - series: 'foundation_job_missed_start_seconds{job="node-exporter",job_id="synthetic_daily"}'
+        values: '7000+60x40'
+      - series: 'foundation_asset_unscheduled_since_timestamp_seconds{asset="iceberg://synthetic.table",job="node-exporter",job_id="synthetic_gold"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: FoundationJobQueueWaitOverBudget
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              job_id: synthetic_fold
+              pool: spark
+              priority_class: default
+            exp_annotations:
+              summary: 'synthetic_fold 의 시작이 spark 풀 대기열에서 6h 15m 0s째 기다려요(default 예산 넘음). journalctl -u foundation-asset-reconcile.service 의 queued start 줄과 무엇이 풀을 잡고 있는지 보세요'
+              runbook: docs/runbooks/asset-reconcile.md
+      - eval_time: 25m
+        alertname: FoundationJobMissedStartNotTaken
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              job: node-exporter
+              job_id: synthetic_daily
+            exp_annotations:
+              summary: 'synthetic_daily 의 지난 일정 뒤로 2h 21m 40s 동안 시작이 없어요. journalctl -u foundation-asset-reconcile.service 의 missed start 줄과 그 작업 DAG 의 reconcile__ run 을 보세요'
+              runbook: docs/runbooks/asset-reconcile.md
+      - eval_time: 25m
+        alertname: FoundationAssetUnscheduled
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              asset: iceberg://synthetic.table
+              job: node-exporter
+              job_id: synthetic_gold
+            exp_annotations:
+              summary: 'iceberg://synthetic.table 의 입력이 바뀌었는데 25m 0s째 synthetic_gold 실행이 없어요(풀에 자리가 있는데도). foundation_asset_reconcile DAG 의 start 과제와 journalctl -u foundation-asset-reconcile.service 를 보세요'
+              runbook: docs/runbooks/asset-reconcile.md

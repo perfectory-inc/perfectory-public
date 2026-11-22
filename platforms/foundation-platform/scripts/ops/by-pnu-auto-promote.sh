@@ -81,7 +81,7 @@ except OSError:
     sys.exit(0)
 listing = json.load(open(jobs_file, encoding="utf-8"))
 publish = {job["id"] for job in listing["jobs"] if job.get("priority_class") == "publish"}
-owed = re.compile(r'^foundation_asset_owed\{asset="([^"]+)",job="([^"]+)"\} 1$')
+owed = re.compile(r'^foundation_asset_owed\{asset="([^"]+)",job_id="([^"]+)"\} 1$')
 print(" ".join(sorted(found[1] for found in map(owed.match, lines) if found and found[2] in publish)))
 PY
 )" || { log "cannot read what the asset reconciler owes; nothing started"; exit 70; }

@@ -174,7 +174,7 @@ tests:
         values: '1x1700'
       - series: 'foundation_dual_run_jobs'
         values: '64x1700'
-      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job="synthetic_daily"}'
+      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job_id="synthetic_daily"}'
         values: '0x1700'
       - series: 'foundation_job_outcomes_last_recorded_seconds'
         values: '0+60x1700'

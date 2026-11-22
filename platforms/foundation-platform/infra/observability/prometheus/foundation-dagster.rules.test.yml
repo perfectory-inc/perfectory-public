@@ -82,9 +82,9 @@ tests:
         values: '1x180'
       - series: 'foundation_dual_run_jobs'
         values: '64x180'
-      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job="synthetic_hourly"}'
+      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job_id="synthetic_hourly"}'
         values: '0+60x180'
-      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job="synthetic_daily"}'
+      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job_id="synthetic_daily"}'
         values: '0x180'
       - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/dagster.prom"}'
         values: '0+60x180'
@@ -110,7 +110,7 @@ tests:
         values: '1x1700'
       - series: 'foundation_dual_run_jobs'
         values: '3x1700'
-      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job="synthetic_daily"}'
+      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job_id="synthetic_daily"}'
         values: '0x1700'
       - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/dagster.prom"}'
         values: '0+60x1700'
@@ -197,17 +197,19 @@ tests:
   # ticks fail, is said after 30 minutes; a run past its limit after 15.
   - interval: 1m
     input_series:
-      - series: 'foundation_dagster_sensor_running{job="synthetic_held"}'
+      # Every series has job="node-exporter" (the scrape's label; the textfile's job id is job_id): under
+      # `unless on(job)` the held sensor silenced every stopped one (production until root ADR-0605's follow-up).
+      - series: 'foundation_dagster_sensor_running{job="node-exporter",job_id="synthetic_held"}'
         values: '0x60'
-      - series: 'foundation_dagster_sensor_held{job="synthetic_held"}'
+      - series: 'foundation_dagster_sensor_held{job="node-exporter",job_id="synthetic_held"}'
         values: '1x60'
-      - series: 'foundation_dagster_sensor_running{job="synthetic_stopped"}'
+      - series: 'foundation_dagster_sensor_running{job="node-exporter",job_id="synthetic_stopped"}'
         values: '0x60'
-      - series: 'foundation_dagster_sensor_held{job="synthetic_stopped"}'
+      - series: 'foundation_dagster_sensor_held{job="node-exporter",job_id="synthetic_stopped"}'
         values: '0x60'
-      - series: 'foundation_dagster_sensor_running{job="synthetic_failing"}'
+      - series: 'foundation_dagster_sensor_running{job="node-exporter",job_id="synthetic_failing"}'
         values: '1x60'
-      - series: 'foundation_dagster_sensor_tick_failed{job="synthetic_failing"}'
+      - series: 'foundation_dagster_sensor_tick_failed{job="node-exporter",job_id="synthetic_failing"}'
         values: '1x60'
       - series: 'foundation_dagster_run_overdue_seconds{run_job="foundation_job__synthetic_a"}'
         values: '900+60x60'
@@ -270,7 +272,8 @@ tests:
           - exp_labels:
               severity: ticket
               service: orchestration
-              job: synthetic_stopped
+              job: node-exporter
+              job_id: synthetic_stopped
             exp_annotations:
               summary: 'synthetic_stopped 을 결정하는 Dagster 센서가 30분 넘게 멈춰 있는데 배포가 쥐고 있지 않아요 — 그 작업은 시작되지 않아요. 되돌리기: python3 scripts/deploy/job_orchestrator.py unpause orchestration/jobs.v1.json synthetic_stopped'
               runbook: docs/runbooks/production-orchestrator-cutover.md
@@ -280,7 +283,8 @@ tests:
           - exp_labels:
               severity: ticket
               service: orchestration
-              job: synthetic_failing
+              job: node-exporter
+              job_id: synthetic_failing
             exp_annotations:
               summary: 'synthetic_failing 을 결정하는 Dagster 센서의 틱이 30분 넘게 실패해요 — 실패하는 동안 그 작업은 시작되지 않아요. Dagster UI 의 센서 foundation_decide__synthetic_failing 틱 오류를 보세요'
               runbook: docs/runbooks/production-orchestrator-cutover.md

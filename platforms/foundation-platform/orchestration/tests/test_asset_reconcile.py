@@ -140,7 +140,7 @@ class Reconciler(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertFalse(any("by_pnu_parcel_building_permits_bake" in line for line in owed))
         self.assertIn('foundation_asset_owed{asset="perfectory://parcel-building-permits-by-pnu-section-packs",'
-                      'job="by_pnu_parcel_building_permits_bake"} 0', metrics)
+                      'job_id="by_pnu_parcel_building_permits_bake"} 0', metrics)
         # Once a cut-over published it, a lane with no read yet is owed its bake, which records one.
         self.unpublished = set()
         owed, _, _, _ = self.tick()
@@ -196,7 +196,7 @@ class Reconciler(unittest.TestCase):
         self.assertEqual(errors, [])
         [line] = owed
         self.assertRegex(line, r"^foundation-asset-owed by_pnu_public_auction_bake [0-9a-f]{16}$")
-        labels = 'asset="perfectory://parcel-public-auction-by-pnu-section-packs",job="by_pnu_public_auction_bake"'
+        labels = 'asset="perfectory://parcel-public-auction-by-pnu-section-packs",job_id="by_pnu_public_auction_bake"'
         self.assertIn(f"foundation_asset_lag_seconds{{{labels}}} 1800", metrics)
         self.assertIn(f"foundation_asset_unscheduled_since_timestamp_seconds{{{labels}}} {T0 + 1800:.0f}", metrics)
         self.assertEqual(state["perfectory://parcel-public-auction-by-pnu-section-packs"]["unscheduled_since"], T0 + 1800)
@@ -334,7 +334,7 @@ class Reconciler(unittest.TestCase):
                  pins={"silver.building_register_titles": "12", "silver.building_register_units": "21"}))
         owed, metrics, _, _ = self.tick()
         self.assertTrue(any(line.startswith("foundation-asset-owed gold_unit_price_rebuild ") for line in owed))
-        self.assertIn('foundation_asset_lag_seconds{asset="iceberg://gold.unit_price",job="gold_unit_price_rebuild"} 600',
+        self.assertIn('foundation_asset_lag_seconds{asset="iceberg://gold.unit_price",job_id="gold_unit_price_rebuild"} 600',
                       metrics)
         # A new price vintage at the head of silver.unit_official_price is owed too.
         self.catalog["gold.building_panel"]["head"] = "201"
@@ -380,7 +380,7 @@ class Reconciler(unittest.TestCase):
         owed, metrics, _, errors = self.tick()
         self.assertEqual(len(errors), 2)
         self.assertTrue(any("by_pnu_public_auction_bake" in line for line in owed))
-        self.assertIn('foundation_asset_reconcile_error{asset="iceberg://gold.unit_price",job="gold_unit_price_rebuild"} 1',
+        self.assertIn('foundation_asset_reconcile_error{asset="iceberg://gold.unit_price",job_id="gold_unit_price_rebuild"} 1',
                       metrics)
         self.assertTrue(metrics[-1].startswith("foundation_asset_reconcile_timestamp_seconds "))
 
@@ -405,9 +405,9 @@ class Reconciler(unittest.TestCase):
         self.assertEqual(errors, [])
         [line] = self.panel_owed(owed)
         self.assertIn('foundation_asset_owed{asset="perfectory://parcel-forest-ledger-by-pnu-section-packs",'
-                      'job="by_pnu_serving_bake"} 1', metrics)
+                      'job_id="by_pnu_serving_bake"} 1', metrics)
         self.assertIn('foundation_asset_owed{asset="perfectory://parcel-zoning-by-pnu-section-packs",'
-                      'job="by_pnu_serving_bake"} 0', metrics)
+                      'job_id="by_pnu_serving_bake"} 0', metrics)
         # A second owed lane is the same one start, under a key of both lanes' versions.
         self.catalog["gold.parcel_zoning"] = table(*self.catalog["gold.parcel_zoning"]["snapshots"],
                                                    snap("777", self.catalog["gold.parcel_zoning"]["head"], 20))
@@ -530,7 +530,7 @@ class Reconciler(unittest.TestCase):
         owed, metrics, _, _ = tick()
         self.assertEqual(len(owed), 1)
         self.assertRegex(owed[0], r"^foundation-asset-owed gold_kind_rebuild ")
-        self.assertIn('foundation_asset_owed{asset="iceberg://gold.parcel_transfer_history",job="gold_kind_rebuild"} 1',
+        self.assertIn('foundation_asset_owed{asset="iceberg://gold.parcel_transfer_history",job_id="gold_kind_rebuild"} 1',
                       metrics)
 
     def test_the_lane_reads_count_the_failures_in_a_row(self):
@@ -627,7 +627,7 @@ class Reconciler(unittest.TestCase):
         self.assertIn("foundation_dagster_answered 1\n", text)
         self.assertIn('foundation_dagster_code_location_loaded{location="definitions.py"} 0\n', text)
         self.assertIn("foundation_dual_run_jobs 2\n", text)
-        self.assertIn('foundation_dual_run_last_comparison_timestamp_seconds{job="synthetic_a"} 1800000000.5\n', text)
+        self.assertIn('foundation_dual_run_last_comparison_timestamp_seconds{job_id="synthetic_a"} 1800000000.5\n', text)
         self.assertNotIn('job="synthetic_b"', text, "a job that never compared has no time")
         self.assertIn('j0: assetCheckExecutions(assetKey: {path: ["foundation_airflow", "dag", "foundation_synthetic_a"]},'
                       ' checkName: "dual_run_matches_airflow", limit: 1)', asked[0], "one query, in job order")
@@ -673,10 +673,10 @@ class Reconciler(unittest.TestCase):
         text = asset_reconcile.dagster_state(jobs, {}, post, ["synthetic_b", "synthetic_a", "synthetic_c"],
                                              held=lambda job: job == "synthetic_a", now=lambda: now)
         self.assertIn("foundation_dagster_decided_jobs 3\n", text)
-        self.assertIn('foundation_dagster_sensor_running{job="synthetic_a"} 0\n', text)
-        self.assertIn('foundation_dagster_sensor_held{job="synthetic_a"} 1\n', text, "the deploy stopped it")
-        self.assertIn('foundation_dagster_sensor_tick_failed{job="synthetic_b"} 1\n', text)
-        self.assertIn('foundation_dagster_sensor_running{job="synthetic_c"} 0\n', text, "a sensor the location lacks")
+        self.assertIn('foundation_dagster_sensor_running{job_id="synthetic_a"} 0\n', text)
+        self.assertIn('foundation_dagster_sensor_held{job_id="synthetic_a"} 1\n', text, "the deploy stopped it")
+        self.assertIn('foundation_dagster_sensor_tick_failed{job_id="synthetic_b"} 1\n', text)
+        self.assertIn('foundation_dagster_sensor_running{job_id="synthetic_c"} 0\n', text, "a sensor the location lacks")
         self.assertIn('foundation_dagster_run_overdue_seconds{run_job="foundation_job__synthetic_a"} 900\n', text)
         self.assertIn('foundation_dagster_run_overdue_seconds{run_job="__ASSET_JOB"} 372300\n', text)
         self.assertIn('s0: sensorOrError(sensorSelector: {repositoryLocationName: "foundation", repositoryName: '
@@ -778,9 +778,9 @@ class QueuedStarts(unittest.TestCase):
             with self.subTest(**case):
                 self.assertEqual(self.owed(record, now=T0 + 300, **case)[0], [])
         wait = next(line for line in metrics if line.startswith("foundation_job_queue_wait_seconds{"))
-        self.assertIn(f'job="{self.JOB}",pool="duckdb",priority_class="default"', wait)
+        self.assertIn(f'job_id="{self.JOB}",pool="duckdb",priority_class="default"', wait)
         self.assertTrue(wait.endswith(" 7200"))
-        self.assertIn(f'foundation_job_queue_wait_budget_seconds{{job="{self.JOB}",pool="duckdb",priority_class="default"}} 21600',
+        self.assertIn(f'foundation_job_queue_wait_budget_seconds{{job_id="{self.JOB}",pool="duckdb",priority_class="default"}} 21600',
                       metrics)
 
     def test_the_backoff_doubles_to_an_hour(self):
@@ -882,7 +882,7 @@ class MissedStarts(unittest.TestCase):
     def test_a_job_never_started_since_its_slot_is_started_once_for_that_slot(self):
         (line,), metrics = self.owed({})
         self.assertEqual(job_specs.owed_runs(line, (self.JOB,)), [(self.JOB, line.split()[2])])
-        self.assertIn(f'foundation_job_missed_start_seconds{{job="{self.JOB}",pool="spark",priority_class="default"}} '
+        self.assertIn(f'foundation_job_missed_start_seconds{{job_id="{self.JOB}",pool="spark",priority_class="default"}} '
                       f'{self.NOW - self.SLOT}', metrics)
         # The same slot is the same key on every tick, so the DAG starts it once; the next slot is a new one.
         self.assertEqual(self.owed({})[0], [line])
