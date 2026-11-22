@@ -81,9 +81,10 @@ fn pinned(table: &str, snapshot: i64) -> String {
     format!("{LAKEHOUSE_CATALOG}.{table} AT (VERSION => {snapshot})")
 }
 
-/// Reads the inputs at `pins` into the tables [`build`] reads: `complex_current` (the Silver's
-/// current rows by its contract's rule), `place_code_changes` and `place_dong_names` (the newest
-/// snapshot's rows).
+/// Reads the inputs at `pins` into the tables [`build`] reads.
+///
+/// `complex_current` holds the Silver's current rows by its contract's rule, `place_code_changes`
+/// the code changes and `place_dong_names` the newest 법정동 snapshot's rows.
 ///
 /// # Errors
 /// Returns an error when an input cannot be read.
@@ -116,10 +117,11 @@ pub fn load(connection: &Connection, pins: &ComplexPins) -> anyhow::Result<()> {
         .context("DuckDB failed to read the industrial-complex catalog's inputs")
 }
 
-/// Builds `built` from what [`load`] left: the catalog's rows with `iceberg_snapshot_id` (the
-/// Silver snapshot read) and `published_at_utc` stamped, and refuses a row the Spark job's gates
-/// refused (a required column null, a string column empty, a negative parcel count). Returns the
-/// rows.
+/// Builds `built` from what [`load`] left and returns its rows.
+///
+/// The rows carry `iceberg_snapshot_id` (the Silver snapshot read) and `published_at_utc`; a row the
+/// Spark job's gates refused (a required column null, a string column empty, a negative parcel
+/// count) is refused.
 ///
 /// # Errors
 /// Returns an error when `DuckDB` refuses a statement or a row breaks a gate.
@@ -165,7 +167,8 @@ pub fn build(
     ));
     let counts = gates
         .iter()
-        .map(|(_, predicate)| format!("count_if({predicate})"))
+        // `count_if` is NULL when every input is; a filtered count is never.
+        .map(|(_, predicate)| format!("count(*) FILTER (WHERE {predicate})"))
         .collect::<Vec<_>>()
         .join(", ");
     let broken: Vec<String> =

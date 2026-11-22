@@ -141,10 +141,10 @@ pub mod building_permit_stage;
 pub mod building_sub_parcel_stage;
 /// Where a building register unit is served: its building's PNU with evidence, else its own (root ADR-0190).
 pub mod building_unit_placement;
-/// The registered-factory kind's Gold in `DuckDB` (root ADR-0449).
-pub mod factory_kind_stage;
 /// The industrial-complex catalog in `DuckDB` (root ADR-0426).
 pub mod complex_catalog_stage;
+/// The registered-factory kind's Gold in `DuckDB` (root ADR-0449).
+pub mod factory_kind_stage;
 pub mod intelligence_documents_stage;
 /// What every parcel kind Gold of appended row versions shares (root ADR-0564 §6).
 pub mod kind_versions_stage;
