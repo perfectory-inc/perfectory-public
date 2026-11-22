@@ -67,9 +67,9 @@ deterministic 하게 생성한다. 방식은 **RFC 4122 version-5 UUID, namespac
 | Parcel membership | `complex_parcel_membership:{complex_id}:{pnu}` |
 
 산업단지 seed 의 유일한 정본은
-`infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py` 의 `COMPLEX_ID_SEED_PREFIX` ·
-`stable_uuid_v5_string` 이고, 값은 `infra/lakehouse/spark/tests/test_industrial_complex_bronze_to_silver.py`
-의 벡터에 고정되어 있다. **하위 생산자는 `complex_id` 를 다시 계산하지 않는다** —
+`crates/foundation-shared-kernel/src/ids.rs` 의 `COMPLEX_ID_SEED_PREFIX` ·
+`ComplexId::for_official_complex_code` 이고, 값은 같은 파일 시험의 벡터에 고정되어 있다(Silver 적재가 이것으로
+`complex_id` 를 만든다, 2026-11-22 Spark 잡에서 옮김). **하위 생산자는 `complex_id` 를 다시 계산하지 않는다** —
 `silver.industrial_complexes` 에서 읽는다([ADR-0043](../../../../docs/adr/0043-a-canonical-id-is-read-not-recomputed.md)).
 
 자연키가 불안정한 원천은 `source_record_id` 와 source-specific external key 를 함께 저장하고,
@@ -416,19 +416,11 @@ partition, sort, quality gate, snapshot lineage 를 먼저 고정하고, 실제 
 root ADR-0238)가 Iceberg 의 표준 프로시저로 한다. 한때 있던 Rust 계획기(`plan_lakehouse_maintenance`)는
 시험 밖에서 부르는 곳이 없어 2026-11-04 지웠다.
 
-## 9. Local Spark Contract Smoke
+## 9. Silver 적재 (Spark 를 떠남, 2026-11-22)
 
-R2 Data Catalog credential 이 없어도 Bronze -> Silver 변환 계약은 로컬 Docker Spark 로 검증한다.
-
-```bash
-docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm spark spark-submit \
-  /workspace/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py
-```
-
-이 smoke 는 Bronze JSONL fixture 를 읽고 `silver.industrial_complexes` column order, required field,
-domain value, deterministic UUIDv5 id, row checksum, unique source key, positive area gate 를 검증한 뒤
-Parquet 으로 쓴다. 현 단계의 출력 대상은 local Parquet 이며, live R2/Iceberg credential 이 준비되면
-같은 Silver frame 을 Iceberg REST Catalog writer 로 연결한다.
+Bronze -> Silver 변환은 작업 `silver_industrial_complexes` 가 발행기 안의 DuckDB 로 한다
+(`scripts/ops/industrial-complex-silver-load.sh`, `industrial_complex_silver_stage`). 아래의 Spark run summary 와
+감사·승격 경로는 그 전에 Spark 잡이 남긴 기록을 읽는 길로 남아 있다.
 
 Spark job 의 성공 handoff 는 `foundation-platform.spark_run_summary.v1` JSON 이다. 이 summary 는
 `job_name=industrial_complex_bronze_to_silver`, `contract=silver.industrial_complexes`,
@@ -460,14 +452,6 @@ Orchestration 진입점은 `lakehouse-application::RecordLakehouseBatchRun` 이�
 정규 컬럼의 drift 를 다시 검사하고, static table contract 재검증을 통과한 경우에만 Gold/serving
 promotion 입력으로 쓸 수 있다.
 
-Live Iceberg write 는 dedicated smoke table 로 먼저 검증한다. Live R2/Iceberg credential 을 환경에
-주입한 뒤 같은 Spark job 을 live write 모드로 실행한다.
-
-```bash
-docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm spark spark-submit \
-  /workspace/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py --live-write
-```
-
-기본 table 은 `silver.industrial_complexes_smoke` 이며, canonical
-`silver.industrial_complexes` write 는 operator 가 명시적으로 table name 과 non-smoke 허용 플래그를
-준 경우에만 실행한다. 이 경계는 PoC 데이터가 정본 table 을 오염시키지 않게 하기 위한 안전장치다.
+Live Iceberg write 는 작업 `silver_industrial_complexes` 의 발행기 추가 커밋 하나다. 커밋 없이 돌리려면
+`FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_SILVER_LIVE_WRITE` 를 비워 두고 `load-industrial-complex-silver` 를 부른다
+(판정용 행만 쓴다).

@@ -67,6 +67,8 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/d
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/housing_permit_basis_outline_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_notice_stage.rs:3
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_notice_stage/tests.rs:4
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_silver_stage.rs:3
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_silver_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/intelligence_documents_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/juso_electronic_map_base_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lakehouse_engine_contract.rs:1

@@ -149,6 +149,13 @@
       "industrial_complex_boundary_served_gold": {
         "wave": 5
       },
+      "industrial_complex_bronze_to_silver": {
+        "moved": {
+          "pull_request": 1593,
+          "rows": 1442,
+          "fingerprint": null
+        }
+      },
       "industrial_complex_silver_to_gold": {
         "wave": 3
       },
