@@ -42,6 +42,7 @@ sed -e "s|^admission=.*|admission=\"${test_root}/admission\"|" \
   -e "s|^retention_contract=.*|retention_contract=\"${retention_contract}\"|" \
   -e "s|^control_releases_dir=.*|control_releases_dir=\"${control_releases}\"|" \
   -e "s|^prune_program=.*|prune_program=\"${prune_program}\"|" \
+  -e "s|^floor_carry_program=.*|floor_carry_program=\"${repo_root}/scripts/deploy/foundation-release-floor-carry.py\"|" \
   "${repo_root}/scripts/deploy/foundation-release.sh" >"${release_script}"
 # Every activation ends with `prune`. The release flows below install fewer releases than this
 # keeps, so prune removes nothing there; its own section further down plants what it must remove.
@@ -687,6 +688,30 @@ sed 's|^FOUNDATION_PLATFORM_LAKEHOUSE_DATABASE_NETWORK=.*|FOUNDATION_PLATFORM_LA
 refuse floor-config "${prepared}" "${test_root}/conflict.env"
 cmp "${config_source}" "${config_target}"
 assert_inactive
+# The running release's file, from before a declared key change (the deploy copies it, step 3): the
+# retired key's line becomes its replacement with this release's example value; nothing else moves.
+mv "${config_target}" "${config_target}.saved"
+duckdb_line="$(grep '^FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT=' "${release_root}/releases/${prepared}/infra/systemd/building-register-floor.env.example")"
+[[ "${duckdb_line}" == *=/* ]]
+sed 's|^FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT=.*|FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE=/data/foundation-platform/building-register-floor/ivy|' \
+  "${config_source}" >"${test_root}/previous-keys.env"
+sed "s|^FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT=.*|${duckdb_line}|" "${config_source}" >"${test_root}/carried.env"
+# Both keys, or the retired key beside a key no change declares, are refused as before.
+cp "${config_source}" "${test_root}/both-keys.env"
+printf 'FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE=/data/foundation-platform/building-register-floor/ivy\n' >>"${test_root}/both-keys.env"
+refuse floor-config "${prepared}" "${test_root}/both-keys.env"
+cp "${test_root}/previous-keys.env" "${test_root}/previous-and-secret.env"
+printf 'DATABASE_URL=postgres://fixture\n' >>"${test_root}/previous-and-secret.env"
+refuse floor-config "${prepared}" "${test_root}/previous-and-secret.env"
+[[ ! -e "${config_target}" ]]
+run_release floor-config "${prepared}" "${test_root}/previous-keys.env"
+cmp "${test_root}/carried.env" "${config_target}"
+run_release floor-config "${prepared}" "${test_root}/previous-keys.env"
+cmp "${test_root}/carried.env" "${config_target}"
+assert_inactive
+rm "${config_target}"
+mv "${config_target}.saved" "${config_target}"
+printf 'carried-retired-floor-key=pass\n'
 if [[ "${FOUNDATION_RELEASE_STATE_REHEARSAL:-}" == 1 ]]; then
   # Only a disposable root container may exercise real host namespaces.
   [[ -f /.dockerenv && "$(id -u)" == 0 ]]
