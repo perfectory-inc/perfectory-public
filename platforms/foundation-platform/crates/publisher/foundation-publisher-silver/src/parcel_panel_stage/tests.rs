@@ -293,7 +293,7 @@ fn a_partial_run_names_the_parcels_whose_inputs_moved() -> anyhow::Result<()> {
     let rows = built(&connection)?;
     assert_eq!(
         rows.keys().map(String::as_str).collect::<Vec<_>>(),
-        [P1, P3, P4]
+        [P1, P4, P3]
     );
     assert_eq!(rows[P1]["price_json"]["base_year"], 2100);
     assert_eq!(rows[P4]["zonings_json"][0]["anchor_code"], "UQD001");

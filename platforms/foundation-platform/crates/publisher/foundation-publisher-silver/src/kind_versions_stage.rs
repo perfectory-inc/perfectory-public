@@ -95,7 +95,9 @@ pub trait KindVersionsStage: Sync {
         let _ = (connection, source, suffix);
         Ok(BTreeMap::new())
     }
-    /// Whether a row set's current rows are chosen in each 시도's [`load_region`] rather than over
+    /// Whether a row set's current rows are chosen per 시도.
+    ///
+    /// They are chosen in each 시도's [`load_region`] rather than over
     /// the nation in [`spool`]: the spool then copies every version of the rows, with the columns
     /// the contract's rule ranks by, and the rule (its one rendering, root ADR-0564 §4) runs on one
     /// 시도 at a time. It holds only for a Silver whose key names the row set's parcel column, so
