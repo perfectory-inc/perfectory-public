@@ -1,4 +1,4 @@
-//! The one steward queue's items, computed by the publisher (root ADR-0113 §10, ADR-0483 §5).
+//! The one steward queue's items, computed by the publisher.
 //!
 //! The twins of `lineage_review_queue.review_queue` (unit `parcel`, from `silver.parcel_lineage`)
 //! and of `place_reference_queue.items` over `place_reference_queue_to_gold.unresolved` (unit
