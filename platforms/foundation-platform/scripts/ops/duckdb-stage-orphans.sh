@@ -11,19 +11,20 @@
 # dir>. A stage is removed only from a run that is no one's:
 #   - the calling lane's earlier runs (systemd runs one run of a lane at a time); <run dir> is never
 #     touched;
-#   - another lane's runs but its newest, and only while that lane's unit is `inactive` or `failed`.
-#     A Type=oneshot unit is `activating` while it runs, which `systemctl is-active` does not call
-#     active, so the state is read whole, and any other state or no answer keeps the lane's stages.
-#     A run that starts after the runs were listed is not among them, and a running lane's run is
-#     its newest.
-# One line per removed stage on stdout: `removed <path> bytes=<n> lane=<lane> state=<state>`, then
-# `stage orphans removed=<count> bytes=<total>`.
+#   - another lane's runs but its newest, and only while that lane's unit does not run. The host's
+#     one answer to that is scripts/deploy/job_units.py `running` (root ADR-0184): it names the unit
+#     while it runs (a oneshot job is `activating` for its whole run) and exits 2 when systemd could
+#     not be asked, which keeps the lane's stages. A run that starts after the runs were listed is
+#     not among them, and a running lane's run is its newest.
+# One line per removed stage on stdout: `removed <path> bytes=<n> lane=<lane> state=<own|stopped>`,
+# then `stage orphans removed=<count> bytes=<total>`.
 set -euo pipefail
 usage='usage: duckdb-stage-orphans.sh <versions root> <lane> <run dir>'
 root="${1:?${usage}}"
 own="${2:?${usage}}"
 current="${3:?${usage}}"
 current="${current%/}"
+job_units="$(cd "$(dirname "${BASH_SOURCE[0]}")/../deploy" && pwd -P)/job_units.py"
 count=0
 total=0
 for lane_dir in "${root}"/*/; do
@@ -37,8 +38,10 @@ for lane_dir in "${root}"/*/; do
   if [[ "${lane}" == "${own}" ]]; then
     state=own
   else
-    state="$(systemctl show -p ActiveState --value "foundation-gold-versions@${lane}.service" 2>/dev/null || true)"
-    [[ "${state}" == inactive || "${state}" == failed ]] || continue
+    answer="$(python3 -I -B "${job_units}" running "foundation-gold-versions@${lane}.service" 2>/dev/null)" ||
+      continue
+    [[ -z "${answer}" ]] || continue
+    state=stopped
     # Run directories are named by their UTC start, so the glob's order is their order.
     runs=("${runs[@]:0:${#runs[@]}-1}")
   fi
