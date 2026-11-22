@@ -38,6 +38,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-collection/s
 platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/vworld_credentials.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/building_link_evidence.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/by_pnu_gateway_contract.rs:3
+platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/host_document_schemas.rs:20
 platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/profile_gateway_contract.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/schema_registry.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/test_support.rs:1
