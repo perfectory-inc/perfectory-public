@@ -380,13 +380,17 @@ class AMemoryClaimWaitsForMemoryNotForAnEmptyPool(unittest.TestCase):
     def test_a_running_claim_keeps_what_it_may_still_take(self):
         # Root ADR-0605 §3: claims share pools of two slots. Beside the running serving bake (duckdb, its own
         # 14 GiB unit, 4 GiB held) the model's claim also leaves what the bake may still take (10 GiB), its
-        # spark-small side container (2.5 GiB) and the static pools' reserve (21.25 GiB): 24 + 33.75 + 6 free.
+        # spark-small side container (2.5 GiB) and the idle spark pool's reserve (20 GiB; gpu is the model's own
+        # pool): 24 + 32.5 + 6 free.
         bake = "foundation-by-pnu-serving-bake.service"
         beside = f"{bake}={14 * self.GIB}:{4 * self.GIB}"
-        refused = self.pool_full(63, units=[bake], beside=beside)
+        refused = self.pool_full(62, units=[bake], beside=beside)
         self.assertEqual(refused.returncode, 0, refused.stderr)
-        self.assertIn(f"33.8 GiB more is reserved for {bake} and the static pools", refused.stdout)
-        self.assertEqual(self.pool_full(64, units=[bake], beside=beside).stdout.strip(), "")
+        self.assertIn(f"32.5 GiB more is reserved for {bake} and the static pools", refused.stdout)
+        self.assertEqual(self.pool_full(63, units=[bake], beside=beside).stdout.strip(), "")
+        # A spark run going holds its memory in MemAvailable already: its reserve is not taken twice.
+        spark = "foundation-gold-panel-rebuild.service"
+        self.assertEqual(self.pool_full(43, units=[bake, spark], beside=beside).stdout.strip(), "")
         # Stopped, it reserves nothing, and the first claim alone is admitted as before (ADR-0563).
         self.assertEqual(self.pool_full(30, beside=beside).stdout.strip(), "")
 

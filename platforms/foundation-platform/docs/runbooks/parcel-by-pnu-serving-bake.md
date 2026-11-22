@@ -412,7 +412,7 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 
 - 무게(`priority_weight`): FLOOR·계보 10 > 접기 5 > 굽기 1. 슬롯이 비면 Airflow 는 들어가는 작업 중 무거운 것부터 시작한다.
 - 굽기는 재시도하지 않는다(`retries: 0`). 시간 상한에 걸리면 다음 차례에 이어 굽는다.
-- 차례(`takes_turns`): 굽기는 FLOOR 와 계보가 자기 마지막 시작 뒤에 한 번씩 시작하기 전에는 다시 시작하지 않는다.
+- 차례(`takes_turns`, 루트 ADR-0605 뒤로 없음 — 굽기는 두 칸 `duckdb` 풀에서 FLOOR·계보 옆에서 돈다; 아래는 그 전의 규칙): 굽기는 FLOOR 와 계보가 자기 마지막 시작 뒤에 한 번씩 시작하기 전에는 다시 시작하지 않는다.
   `start-scheduled-job.sh` 가 시작을 `/var/lib/foundation-jobs/queue/starts/` 에 적고(root ADR-0467), 차례가 아니면
   `deferred: ...` 를 남기고 아무것도 시작하지 않는다(Airflow 에는 성공). 확인(`check_service`)이 할 일이 없다고
   답한 작업도 그때 차례를 가진 것으로 적힌다(root ADR-0305).
@@ -502,7 +502,7 @@ monitor` 가 있으면 그쪽(5xx·문서 불일치·p95)이 먼저다.
    `journalctl -u foundation-by-pnu-serving-bake.service --since -3d | grep -E 'foundation-job-outcome|by-pnu-serving-bake <레인>:'`.
    레인 줄이 `published` 가 아니라 `nothing to do`(Gold 가 안 움직임 → `gold_panel_rebuild`·`gold_kind_rebuild` 를 본다),
    `FAILED`, `skipped`, `waiting` 이면 그 이유가 원인이다. 결과 줄이 아예 없으면 실행이 끝나지 않았다(아래 3).
-2. **Airflow 차례 미룸** — 실행이 시작됐나: 굽기는 `takes_turns` 라 같은 풀의 작업이 먼저 돌지 않았으면 미뤄진다.
+2. **Airflow 차례 미룸** — 실행이 시작됐나: (루트 ADR-0605 전) 굽기는 `takes_turns` 라 같은 풀의 작업이 먼저 돌지 않았으면 미뤄진다.
    `docker exec airflow-airflow-scheduler-1 sh -c 'grep -rh "start-scheduled-job: by_pnu_serving_bake" /opt/airflow/logs/dag_id=foundation_by_pnu_serving_bake/ | tail'`
    에 `deferred: ...` 만 이어지면 차례가 오지 않는 것이다(루트 ADR-0138, ADR-0277).
 3. **실행 요약 날짜와 배포 중단** — `ls -lt /data/foundation-platform/by-pnu-bake/<레인>/runs/*/run-summary.json | head -3`

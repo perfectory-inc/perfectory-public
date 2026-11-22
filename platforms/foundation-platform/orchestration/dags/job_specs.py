@@ -615,9 +615,10 @@ def memory_claims(jobs):
         if "beside" in claim and not (isinstance(claim["beside"], str) and re.fullmatch(r"[1-9][0-9]*[mg]", claim["beside"])):
             raise JobListError(f"{job['id']}: memory_claim.beside must be a size like 2560m (its side container's cap)")
     reserve = (jobs.get("memory_claims") or {}).get("static_reserve")
-    if not isinstance(reserve, str) or not re.fullmatch(r"[1-9][0-9]*[mg]", reserve):
-        raise JobListError("memory_claims.static_reserve must be a size like 21760m when a job states a memory_claim"
-                           " (root ADR-0605 §3: what a claim beside another leaves the static pools)")
+    if not isinstance(reserve, dict) or not set(reserve) <= set(jobs.get("pools") or {}) or not all(
+            isinstance(size, str) and re.fullmatch(r"[1-9][0-9]*[mg]", size) for size in reserve.values()):
+        raise JobListError("memory_claims.static_reserve must map declared pools to sizes like 20480m when a job states"
+                           " a memory_claim (root ADR-0605 §3: what a claim beside another leaves each static pool)")
 
 
 def capacity_claimants(jobs, pools):
@@ -1025,8 +1026,11 @@ def load_specs(jobs=None, graph=None):
         seen_ids.add(job_id)
         if job["pool"] not in pools:
             raise JobListError(f"{job_id}: pool {job['pool']!r} is not one of {sorted(pools)}")
-        if not isinstance(job.get("takes_turns", False), bool):
-            raise JobListError(f"{job_id}: takes_turns must be true or false")
+        if "takes_turns" in job:
+            # Root ADR-0605: only a one-slot pool keeps two jobs apart, and the one job that took turns (the
+            # serving bake) runs in the two-slot duckdb pool. A flag start-scheduled-job.sh would read and ignore
+            # is refused; the mechanism goes with the host start path (root ADR-0583's last PR).
+            raise JobListError(f"{job_id}: takes_turns is unused since root ADR-0605; no job takes turns")
         retries(job)
         priority_weight(job)
         priority_class(jobs, job, job_id)

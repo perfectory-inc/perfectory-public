@@ -27,7 +27,7 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/lakehouse-maintenance.sh
 # (scripts/ops/pinned-cleanup.sh reads it from RuntimeDirectory; root ADR-0270 §3).
 ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh lakehouse-maintenance.sh
 RuntimeDirectory=%N
-# Under Airflow's 165 minutes (jobs.v1.json), which the hourly folds' starvation bound allows and
+# Under Airflow's 165 minutes (jobs.v1.json), which the hourly folds' starvation bound allowed (root ADR-0605 removed it) and
 # no more. The job starts no table after the maintenance contract's `scheduled.deadline_minutes`,
 # below this, so a table in flight finishes; a table it does not reach is first at the next run.
 TimeoutStartSec=160m

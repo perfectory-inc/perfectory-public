@@ -215,7 +215,7 @@ tests:
         values: '0x60'
       # Root ADR-0605 §5: one run waits past its class's 360 minutes; another of the same pool and class, and
       # one of another class, wait inside theirs. The scrape's own `job` label is the same on all of them
-      # (node-exporter), as on ai-server: the rule matches on job_id.
+      # (node-exporter), as on ai-server: the rule matches on job_id, and its alert carries only the on() labels.
       - series: 'foundation_dagster_run_queued_seconds{job="node-exporter",job_id="synthetic_starved",pool="duckdb",priority_class="default"}'
         values: '21000+60x60'
       - series: 'foundation_dagster_run_queue_budget_seconds{job="node-exporter",job_id="synthetic_starved",pool="duckdb",priority_class="default"}'
@@ -255,7 +255,6 @@ tests:
           - exp_labels:
               severity: ticket
               service: orchestration
-              job: node-exporter
               job_id: synthetic_starved
               pool: duckdb
               priority_class: default

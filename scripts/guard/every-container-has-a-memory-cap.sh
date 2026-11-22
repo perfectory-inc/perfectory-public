@@ -384,6 +384,9 @@ def contract_containers_cap(entry: dict) -> int:
     return max(caps)
 
 
+pool_worst: dict[str, int] = {}  # pool -> the most its static members hold together (scheduled_load)
+
+
 def scheduled_load(section: dict) -> tuple[int, str]:
     """The most memory the pooled scheduled jobs can hold at once, and which jobs that is."""
     jobs_list = json.loads(repository_file(section["jobs"], "jobs").read_text(encoding="utf-8"))
@@ -436,6 +439,7 @@ def scheduled_load(section: dict) -> tuple[int, str]:
         worst_set = tuple(sorted(members, key=lambda job: (-peaks[job["id"]], job["id"]))[: spec["slots"]])
         worst = sum(peaks[job["id"]] for job in worst_set)
         worst_total += worst
+        pool_worst[pool] = worst
         if worst_set:
             worst_label.append(f"{pool}: " + " + ".join(f"{job['id']} {gib(peaks[job['id']])}" for job in worst_set))
     return worst_total, "; ".join(worst_label)
@@ -502,14 +506,17 @@ def memory_claim_problems(section: dict) -> list[str]:
                 f"{CONTRACT}: {job_id} claims {gib(sum(caps))} and keeps {gib(keep)} free, over the {gib(usual)} the host had"
                 f" available for 95% of the measured period: it would wait as the fact job did on 2026-11-13"
             )
-    # Root ADR-0605 §3: a claim beside another leaves the static pools their reserve, so the reserve is at
-    # least the most the static pools hold together (the scheduled term above).
-    reserve = size_of(str((jobs_list.get("memory_claims") or {}).get("static_reserve", "")))
-    if reserve is None:
-        found.append(f"{CONTRACT}: jobs state a memory_claim but jobs.v1.json memory_claims.static_reserve is not a size")
-    elif reserve < scheduled[0]:
-        found.append(f"{CONTRACT}: memory_claims.static_reserve {gib(reserve)} is under the {gib(scheduled[0])} the static"
-                     " pools can hold together; two claims would count on the OOM killer to make room for them")
+    # Root ADR-0605 §3: a claim beside another leaves each static pool its reserve, so each pool's reserve is at
+    # least the most that pool's static members hold together (scheduled_load).
+    reserve = (jobs_list.get("memory_claims") or {}).get("static_reserve")
+    if not isinstance(reserve, dict):
+        found.append(f"{CONTRACT}: jobs state a memory_claim but jobs.v1.json memory_claims.static_reserve is not a pool -> size map")
+    else:
+        for pool, worst in sorted(pool_worst.items()):
+            held = size_of(str(reserve.get(pool, "")))
+            if worst and (held is None or held < worst):
+                found.append(f"{CONTRACT}: memory_claims.static_reserve of pool {pool} is {gib(held or 0)}, under the {gib(worst)}"
+                             " its static jobs hold together; two claims would count on the OOM killer to make room for them")
     stale = sorted(set(measured) - {unit for units in claiming.values() for unit in units})
     if stale:
         found.append(f"{CONTRACT}: scheduled_jobs.memory_claims.claimed_measured names units no job claims: {', '.join(stale)}")

@@ -223,6 +223,17 @@ class DagstersPoolLimitsAreTheJobLists(unittest.TestCase):
             writer_gate.graphql = original
         self.assertEqual([document for document, _ in told], [dagster_writes.POOL_LIMITS] * 2)
 
+    def test_the_rollback_prunes_every_pool(self):
+        # Root ADR-0605 §8: before a revert deploys, `echo '{}' | ... ask pools --prune` leaves Dagster no limit.
+        held = {"spark": 1, "duckdb": 2, "gpu": 1}
+        graphql, _ = self.dagster(held)
+        original, writer_gate.graphql = writer_gate.graphql, graphql
+        try:
+            self.assertEqual(writer_gate.pools({}, prune=True), 0)
+        finally:
+            writer_gate.graphql = original
+        self.assertEqual(held, {})
+
     def test_a_limit_dagster_does_not_hold_after_the_deploy_or_a_bad_list_fails(self):
         graphql, _ = self.dagster({"spark": 3}, refuse_set=True)
         original, writer_gate.graphql = writer_gate.graphql, graphql

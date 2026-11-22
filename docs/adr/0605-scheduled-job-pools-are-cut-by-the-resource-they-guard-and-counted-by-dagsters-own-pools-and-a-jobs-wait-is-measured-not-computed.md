@@ -59,13 +59,14 @@ Dagster 1.13.27 에서 확인한 것(배포판 휠의 소스와 공식 문서):
    | 풀 | 칸 | 무엇 | 메모리 |
    |---|---|---|---|
    | `spark` | 1 | `spark`(20g)·`spark-small`(2,560m)·타일 굽기 컨테이너를 띄우고 자기 유닛 상한이 없는 작업 27개 | 정적: 가장 큰 구성원 20g |
-   | `duckdb` | 2 | 발행기 안의 DuckDB 59개: Silver 레인 33개, FLOOR, 산업단지 Silver, Gold 판 빌드 10개, by-PNU 굽기 14개 | 자기 유닛의 `memory_claim`(§3) |
+   | `duckdb` | 2 | 발행기 안의 DuckDB 59개: Silver 레인 33개, FLOOR, 산업단지 Silver, Gold 판 빌드 9개와 `gold_parcel_nearby_rebuild`, by-PNU 굽기 14개 | 자기 유닛의 `memory_claim`(§3) |
    | `gpu` | 1 | 문서 작업 둘(OCR·HWP, 사실 작업의 로컬 모델). GPU 는 하나다 | 정적 1.25g + 모델의 `memory_claim` |
    | `default_pool` | — | 작은 수집·검사. Dagster 에서는 풀 없음 | `host_reserved` |
 
    `spark` 의 20g run(계보·Gold 재빌드)은 이미 3칸을 다 쥐고 혼자 돌았다. 접기 둘은 init 컨테이너 이름을 나눠 써 겹치면 안 된다.
-   한 칸이면 둘 다 지켜진다. 구성원은 정의 파일의 `host_memory` 가 정한다. 유닛의 MemoryMax 를 쓰는 작업은 `duckdb`, 컨테이너만
-   쓰는 작업은 `spark` 이다.
+   한 칸이면 둘 다 지켜진다. 구성원은 무엇을 띄우는지로 정했다(이 PR 이전 정의의 `host_memory`): 자기 유닛의 MemoryMax 로 도는
+   발행기 작업은 `duckdb`(그래서 이제 `host_memory` 가 없고 claim 이 있다), 컨테이너를 띄우고 유닛 상한이 없는 작업은 `spark`,
+   문서 작업 둘은 `gpu` 다.
 
 2. **한 run 은 한 칸이다.** `pool_slots` 는 지운다. 작업이나 claimant 가 다시 적으면 `job_specs.no_slot_count` 가 거부한다(읽히지 않고
    무시되는 숫자를 남기지 않는다). Dagster 는 자기가 꺼내는 run 을 센다. 호스트의 `pool_full` 은 같은 칸으로, Dagster 밖의
@@ -77,14 +78,18 @@ Dagster 1.13.27 에서 확인한 것(배포판 휠의 소스와 공식 문서):
    - `job_units.py memory_short` 는 MemAvailable 에서 다음을 뺀 나머지가 `keep_available`(6g) 이상일 때만 허가한다:
      1. 자기 유닛이 아직 더 가질 몫(MemoryMax − MemoryCurrent)과 자기 `beside`.
      2. 도는 다른 claim 유닛이 아직 더 가질 몫. 차례로 시작한 두 claim 이 같은 메모리로 허가되지 않는다.
-     3. 도는 claimant 작업 유닛(`capacity_claimants.work_units`: cut-over 의 일시 pack 굽기)이 아직 더 가질 몫. 그 유닛들은 작업도 claim 도 아니다.
+     3. 도는 claimant 작업 유닛(`capacity_claimants.work_units`: cut-over 의 일시 pack 굽기와
+        `gold-panel-rebuild-unconditional`)이 아직 더 가질 몫. 그 유닛들은 작업도 claim 도 아니다.
      4. 도는 claim 마다 그 `beside`.
-     5. **다른 claim 이 돌 때만** 정적 풀의 몫(`memory_claims.static_reserve`, 21,760m). 첫 claim 은 지금처럼 허가된다(ADR-0563 의
-        batch 등급). 둘째 claim 은 Spark 시작이 들어올 자리를 남긴다. 그래서 두 claim 이 함께 돌 때 OOM 킬러에 기대지 않는다.
-   - 가드는 `static_reserve` 가 정적 풀이 함께 쥘 수 있는 가장 큰 합(§4) 이상인지 본다.
-   - **끝 조건.** `duckdb` 를 claim 없이 정적으로 세어도 정적 자리에 들어오면 `memory_claim`·`memory_short` 를 지운다. 식으로는
-     `20 + 1.25 + 2 × (duckdb 의 가장 큰 상한) ≤ 24.68g` 이고, 가장 큰 상한이 1.7g 이하여야 한다. 레인마다 잰 상한(ADR-0574 §8 인스턴스
-     드롭인; 지금 33개가 템플릿의 16G)만으로는 닿지 않는다. 20g Spark 작업이 떠나거나(DuckDB 전환) 정적 자리가 커져야 한다. 그 PR 이 표를 싣는다.
+     5. **다른 claim 이 돌 때만**, 자기 풀이 아니고 run 이 하나도 돌지 않는 정적 풀마다의 몫(`memory_claims.static_reserve`:
+        spark 20,480m, gpu 1,280m). 첫 claim 은 ADR-0563 처럼 허가된다(1~4 만 뺀다; batch 등급). 둘째 claim 은 아직 시작하지 않은
+        Spark 가 들어올 자리를 남긴다. 그래서 두 claim 이 함께 돌 때 OOM 킬러에 기대지 않는다. 이미 도는 정적 run 은 제 메모리가
+        MemAvailable 에 들어 있으므로 다시 빼지 않는다(그 run 이 더 자랄 몫은 빼지 않는다).
+   - 가드는 풀마다 `static_reserve` 가 그 풀의 정적 구성원이 함께 쥘 수 있는 가장 큰 합(§4) 이상인지 본다.
+   - **끝 조건.** `duckdb` 를 claim 없이 정적으로 세어도 정적 자리에 들어오면 `duckdb` 작업의 claim 과 이 §3 의 셈(1~5)을 지운다.
+     식으로는 `20 + 1.25 + 2 × (duckdb 의 가장 큰 상한 + 그 beside) ≤ 24.68g` 이고, 가장 큰 것이 1.7g 이하여야 한다. 굽기의
+     `beside` 2,560m 하나만으로 넘으므로, 레인마다 잰 상한(ADR-0574 §8 인스턴스 드롭인; 지금 33개가 템플릿의 16G)만으로는 닿지
+     않는다. 20g Spark 작업이 떠나거나(DuckDB 전환) 정적 자리가 커져야 한다. 그 PR 이 표를 싣는다. `gpu` 의 모델 claim(ADR-0563)은 이 끝 조건과 상관없이 남는다.
 
 4. **메모리 가드는 풀마다 `slots` 개의 가장 큰 정적 구성원을 더한다.** 슬롯 조합을 모두 세던 셈은 지운다. claim 으로 허가되는
    구성원은 더하지 않는다(그대로). 잰 값: 예약된 작업 21.25g(spark 20g + gpu 1.25g). 전체는 32.32 + 5 + max(21.25, 일회성 22) = **59.32g/62g** 이다.
@@ -93,7 +98,7 @@ Dagster 1.13.27 에서 확인한 것(배포판 휠의 소스와 공식 문서):
    - 자산 조정자(`asset_reconcile.py`)가 Dagster 의 `QUEUED` run 가운데 작업마다 가장 오래된 것의 나이와 등급 예산을 쓴다
      (`foundation_dagster_run_queued_seconds`·`foundation_dagster_run_queue_budget_seconds`).
    - 넘으면 `FoundationDagsterRunQueuedOverBudget` 이 울린다. 레이블은 `job_id` 다. node-exporter 수집이 자기 `job` 레이블을 지키므로
-     파일의 `job` 은 `exported_job` 이 된다.
+     그래서 파일에 `job` 이라 쓰면 Prometheus 에는 `exported_job` 으로 들어오고, 모든 시계열의 `job` 은 `node-exporter` 가 된다.
    - 호스트 줄의 `FoundationJobQueueWaitOverBudget` 은 그대로다.
    - 입력 시작 작업이 서로를 시작하는 원은 `job_specs.start_circles` 가 여전히 거부한다.
    - 그래서 시간마다 오는 입력으로 시작하는 작업도 목록이 받는다. `gold_parcel_boundary_served_versions_build` 는 이 PR 에서 `inputs` 로 돌아간다.
@@ -129,7 +134,8 @@ Dagster 1.13.27 에서 확인한 것(배포판 휠의 소스와 공식 문서):
    | 대기 노화(`queue_aging`)·선점(`preempted`) | 우리 것, 한시 | ADR-0583 §7 대로 마지막 묶음과 함께 지운다(W82b) |
 
 8. **되돌리기.** 이 PR 의 revert 하나에, revert 를 배포하기 전 한 줄을 더한다.
-   - revert 전에 `echo '{}' | writer_gate.py ask pools --prune` 로 Dagster 의 풀 한도를 모두 지운다.
+   - revert 를 배포하기 전에, 지금 릴리스에서 `echo '{}' | scripts/deploy/airflow-runtime.sh exec -T dagster-webserver python -I -B
+     /opt/dagster/gate/writer_gate.py ask pools --prune` 로 Dagster 의 풀 한도를 모두 지운다(0 으로 끝나면 남은 한도가 없다).
      이 릴리스에서 만들어진 `QUEUED` run 은 op 의 풀을 지니고 있다. 되돌린 yaml 에는 `free_slots_after_run_end_seconds` 도 없다.
      그래서 한도를 남기면 칸이 풀리지 않은 run 이 줄을 막을 수 있다.
    - Airflow 에는 `duckdb`·`gpu` 풀이 남는다. 쓰는 태스크가 없어 해가 없다. `documents` 는 옛 `ensure_pools` 가 다시 쓴다.
@@ -139,7 +145,12 @@ Dagster 1.13.27 에서 확인한 것(배포판 휠의 소스와 공식 문서):
 - W81e(#1629)의 실거래 Gold 판 빌드는 rebase 뒤 `inputs` 로 둘 수 있다. 굶김 계산 때문에 시계에 있는 다른 작업
   (`gold_public_auction_rebuild` 21:35, 공매 kind Gold, VWorld 판 수집의 Spark 없는 이유 등)은 주인 PR 이 옮긴다. 이 PR 은 이유 문장만 고친다.
 - `spark` 1칸이면 접기(옛 2칸)와 `rt_molit` Silver(옛 1칸)가 함께 돌던 것을 잃는다. 둘 다 짧다.
-- `duckdb` 의 둘째 칸은 메모리가 허락할 때만 쓰인다. 16G 레인 둘이면 대략 43g 이상이 남아 있어야 한다. claim 하나일 때는 지금과 같다.
+- `duckdb` 의 둘째 칸은 메모리가 허락할 때만 쓰인다. Spark 가 쉬고 있으면 둘째 16G 레인은 16 + (첫 레인이 더 가질 몫) + 21.28 + 6 이 남아 있어야 한다: 첫 레인이 다 자란 뒤 약 43g, 막 시작했으면 약 59g.
+  레인 claim 하나일 때는 지금과 같다.
+- **서빙 굽기는 지금과 다르다.** 전에는 정적 합에 14g 로 들어 20g Spark run 과 겹칠 수 없었다. 이제는 첫 claim 이라 Spark 몫을
+  남기지 않고, 14 + 2.56 + 20 = 36.56g 이 정적 자리를 넘을 수 있다. 메모리가 모자라면 커널이 batch 등급인 굽기를 먼저 죽인다.
+  굽기는 끊겨도 되는 작업이고(`interruptible`, 한 걸음씩 커밋), 다음 입력이나 10:15 fallback 틱에 이어 간다. 배포 뒤 첫 주에
+  `unit-limits.prom` 의 oom-kill run 과 서빙 굽기의 재시작 수를 본다. 잦으면 굽기 claim 에도 정적 몫을 늘 남긴다.
 - `duckdb` 안의 순서는 등급이 먼저다(값 × 1000). by-PNU 굽기는 `publish` 등급이라 레인(`default`)보다 먼저 꺼내진다. 같은 등급
   안에서는 큐 무게(읽히는 쪽이 먼저, ADR-0558)를 따른다.
 - 메모리가 모자라 호스트에서 거절된 큰 claim(16G 레인, 24G 사실 작업)은 호스트 줄의 backoff 로 기다린다. 그 사이 작은 claim

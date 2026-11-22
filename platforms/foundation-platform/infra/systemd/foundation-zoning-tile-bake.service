@@ -15,7 +15,7 @@ WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/zoning-tile-bake.sh
-# Under the job's 115 minutes in Airflow (jobs.v1.json) and the spark pool's starvation bound.
+# Under the job's 115 minutes in Airflow (jobs.v1.json) and the spark pool's starvation bound (removed by root ADR-0605; the limit stays).
 TimeoutStartSec=115m
 NoNewPrivileges=true
 PrivateTmp=true

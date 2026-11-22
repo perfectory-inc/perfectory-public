@@ -28,7 +28,7 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh all
 # (scripts/ops/pinned-cleanup.sh reads it from RuntimeDirectory; root ADR-0270 §3).
 ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh
 RuntimeDirectory=%N
-# Under Airflow's 165 minutes (jobs.v1.json), which the hourly folds' starvation bound allows and
+# Under Airflow's 165 minutes (jobs.v1.json), which the hourly folds' starvation bound allowed (root ADR-0605 removed it) and
 # no more; the measured national building rebuild took 32 minutes (root ADR-0139).
 TimeoutStartSec=160m
 # The cleanup's own bound (FLOOR's): `docker stop --time 30`, then removal and its check.

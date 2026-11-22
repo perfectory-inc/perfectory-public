@@ -276,15 +276,19 @@ sync_dagster() {
   # only after the reload below, when no loaded op names it. The reconciler says when a pool's limit is not the
   # list's (FoundationDagsterPoolLimitDrift), so a warning here is not the only sign.
   dagster_pools
-  dagster_ask reload ||
+  local reloaded=1
+  dagster_ask reload || {
+    reloaded=""
     printf 'airflow-runtime: WARN dagster: the code location did not reload; it serves the release it loaded last\n' >&2
+  }
   # The UI answers while the code location fails to load: from 2026-11-06 21:16Z to 11-09 every load
   # failed and this said "observing", and the dual run recorded no comparison (root ADR-0431).
   if ! load_error="$(dagster_ask location-errors 2>&1)"; then
     printf 'airflow-runtime: WARN dagster: the code location could not be read (%s); Dagster is not observing\n' "${load_error}" >&2
     return 0
   fi
-  dagster_pools --prune
+  # Only after a reload: before it, the location still loaded may name a pool the list no longer has.
+  [[ -z "${reloaded}" ]] || dagster_pools --prune
   [[ -z "${load_error}" ]] && { printf 'dagster: observing; read-only UI on 127.0.0.1:19085\n'; return 0; }
   printf 'airflow-runtime: WARN dagster: the code location does not load (%s); Dagster is not observing\n' "${load_error}" >&2
 }

@@ -418,6 +418,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.refused(lambda jobs: bake(jobs).update(retries=4))
         self.refused(lambda jobs: bake(jobs).update(priority_weight=0))
         self.refused(lambda jobs: bake(jobs).update(takes_turns="yes"))
+        self.refused(lambda jobs: bake(jobs).update(takes_turns=True))
 
     def test_a_job_or_a_claimant_that_states_a_slot_count(self):
         # A run takes one slot, as Dagster's pools count it (root ADR-0605): a count no reader reads is refused.
@@ -682,7 +683,7 @@ class ThePoolsByResource(unittest.TestCase):
                 # A bake's spark-small step is its side container, counted while it runs (root ADR-0605 §3).
                 self.assertEqual(entry["memory_claim"].get("beside"),
                                  "2560m" if entry["id"].startswith("by_pnu_") else None, entry["id"])
-        self.assertRegex(jobs["memory_claims"]["static_reserve"], r"^[1-9][0-9]*[mg]$")
+        self.assertEqual(set(jobs["memory_claims"]["static_reserve"]), {"spark", "gpu"})
         job_specs.memory_claims(jobs)
         # Planted: a claimed unit name that is no service name.
         broken = copy.deepcopy(jobs)

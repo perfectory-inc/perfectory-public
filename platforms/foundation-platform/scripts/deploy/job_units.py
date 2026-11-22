@@ -567,10 +567,11 @@ def memory_short(listing, job, named, unit_sizes=unit_memory, available=availabl
     - the cap headroom of every running unit a capacity claimant does its work in (`work_units`: the
       cut-over's transient pack bakes, which are no job and claim nothing);
     - each running claimer's side container (`memory_claim.beside`, a bake's spark-small), and the job's own;
-    - beside another running claim, the static pools' reserve (`memory_claims.static_reserve`, which the
-      host memory guard holds to at least the largest set its static pools can run): the first claim is
-      admitted as before (ADR-0563: a claimed unit is batch class), two claims together never count on the
-      OOM killer to make room for a Spark start."""
+    - beside another running claim, the reserve of each static pool other than the job's own with none of
+      its runs going (`memory_claims.static_reserve`, per pool, which the host memory guard holds to at least
+      what that pool can hold): the first claim is admitted as before (ADR-0563: a claimed unit is batch
+      class), two claims together never count on the OOM killer to make room for a Spark start. A static pool
+      already running holds its memory in MemAvailable; its growth is not reserved."""
     claim = job.get("memory_claim")
     if not claim:
         return ""
@@ -597,7 +598,9 @@ def memory_short(listing, job, named, unit_sizes=unit_memory, available=availabl
         reserved += sum(size_bytes(beside) for beside in {claimers[unit]["id"]: claimers[unit]["memory_claim"].get("beside")
                                                             for unit in live}.values() if beside)
         if live:
-            reserved += size_bytes(claims["static_reserve"])
+            for pool, size in sorted((claims["static_reserve"] or {}).items()):
+                if pool != job["pool"] and not running_units(pool_patterns(listing, pool)):
+                    reserved += size_bytes(size)
     except (KeyError, ValueError) as error:
         return f"the memory running beside {named} cannot be sized: {error.args[0] if isinstance(error, KeyError) else error}"
     if free - need - reserved >= keep:

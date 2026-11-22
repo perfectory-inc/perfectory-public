@@ -39,7 +39,7 @@ Silver 적재(FLOOR·계보·Silver 레인·수동 적재·백필)  행을 바�
   그날 08:45 에 반영된다. 급하면 Airflow 화면에서 그 Silver 자산(`iceberg://silver.<표>`)에 이벤트를 만들거나
   `airflow-runtime.sh trigger gold_panel_rebuild` 로 시작한다.
 - Gold 작업은 무게가 굽기보다 크다(3 > 1): 둘이 함께 기다리면 Gold 가 먼저 돈다.
-- 굽기는 `takes_turns` 다. 이 작업이 켜진 뒤에는 Gold 작업이 한 번 시작한 뒤에야 굽기가 다시 시작한다.
+- 굽기는 루트 ADR-0605 뒤로 차례(`takes_turns`)를 지키지 않는다(두 칸 `duckdb` 풀). 그 전에는 `takes_turns` 였다. 이 작업이 켜진 뒤에는 Gold 작업이 한 번 시작한 뒤에야 굽기가 다시 시작한다.
 - 할 일이 없으면 둘 다 `nothing to do` 로 성공한다.
 
 ## 2. 한 번의 실행

@@ -429,7 +429,7 @@ expect_fail "a critical service whose oom_score_adj is not its class's"
 
 # A job's memory_claim is held to the memory the host measurably has available (root ADR-0563).
 write_claim_fixture() {
-  local cap="$1" usual="$2" class="${3:-batch}" measured="${4:-fixture-model.service}" reserve="${5-1g}"
+  local cap="$1" usual="$2" class="${3:-batch}" measured="${4:-fixture-model.service}" reserve="${5-{\}}"
   write_unit_fixture '{"class": "batch", "memory_max": "1G", "measured_peak": "300M", "measured": "fixture"}' \
     "{\"fixture-model.service\": {\"class\": \"${class}\", \"memory_max\": \"${cap}\", \"measured\": \"fixture\"}}" no-render
   printf '[Service]\nType=exec\nExecStart=/bin/true\n' > "$fixture/unit-memory/fixture-model.service"
@@ -439,7 +439,7 @@ root, usual, measured, ci, reserve = pathlib.Path(sys.argv[1]), sys.argv[2], sys
 sys.path.insert(0, ci)
 import unit_memory
 (root / "unit-memory/jobs.json").write_text(json.dumps({
-    "pools": {}, "memory_claims": {"keep_available": "1g", **({"static_reserve": reserve} if reserve else {})},
+    "pools": {}, "memory_claims": {"keep_available": "1g", **({"static_reserve": json.loads(reserve)} if reserve else {})},
     "jobs": [{"id": "a", "pool": "default_pool", "systemd_service": "fixture-job.service",
               "memory_claim": {"units": ["fixture-model.service"]}}],
 }))
