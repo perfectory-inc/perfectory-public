@@ -231,7 +231,7 @@ fn compared_columns(
 }
 
 /// A path in the work directory as `DuckDB` SQL text.
-fn sql_path(path: &Path) -> anyhow::Result<String> {
+pub(crate) fn sql_path(path: &Path) -> anyhow::Result<String> {
     let text = path
         .to_str()
         .context("the work directory must be UTF-8")?

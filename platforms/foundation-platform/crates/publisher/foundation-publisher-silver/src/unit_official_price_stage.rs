@@ -164,9 +164,9 @@ pub fn compose(
     scope: Option<&str>,
 ) -> anyhow::Result<Composed> {
     let sql = COMPOSE_SQL
-        .replace("{batch}", &pins.batch())
-        .replace("{vintage}", &pins.vintage)
-        .replace("{scope}", scope.unwrap_or("TRUE"));
+        .replace("@batch@", &pins.batch())
+        .replace("@vintage@", &pins.vintage)
+        .replace("@scope@", scope.unwrap_or("TRUE"));
     connection
         .execute_batch(&sql)
         .with_context(|| format!("DuckDB failed to join {}", pins.batch()))?;

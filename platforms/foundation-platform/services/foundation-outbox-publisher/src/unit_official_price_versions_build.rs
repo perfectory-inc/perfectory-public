@@ -21,9 +21,7 @@ use std::{
 
 use anyhow::{ensure, Context};
 use foundation_publisher_silver::{
-    duckdb_parquet_stage::{
-        sql_path, with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG,
-    },
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG},
     unit_official_price_stage::{self as stage, BatchPins, EXCLUSIVE_TABLE, PRICE_TABLE, REPLACED},
     unit_price_stage::batch,
 };
@@ -32,6 +30,7 @@ use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::json;
 
 use crate::{
+    gold_takeover_sides::sql_path,
     parcel_nearby_versions_build::{lakehouse_read, write_summary},
     public_data_control_support::{optional_env_value, required_env_value},
 };

@@ -35,7 +35,10 @@ INSERT INTO price_source VALUES {prices};"
     Ok(())
 }
 
-fn rows(connection: &Connection) -> anyhow::Result<Vec<(String, String, String, String, i64)>> {
+/// A joined row: the unit, its PNU, its 호, the reference date and the price.
+type Joined = (String, String, String, String, i64);
+
+fn rows(connection: &Connection) -> anyhow::Result<Vec<Joined>> {
     let mut statement = connection.prepare(
         "SELECT mgm_bldrgst_pk, pnu, ho_name, base_date, price_won FROM unit_prices \
          ORDER BY mgm_bldrgst_pk, base_date",
@@ -177,7 +180,9 @@ fn a_key_that_names_two_units_is_refused() -> anyhow::Result<()> {
         ),
         "('k1', '20990101', '20990110', '100')",
     )?;
-    let refused = compose(&connection, &pins(), None).expect_err("a conflicting key was joined");
+    let Err(refused) = compose(&connection, &pins(), None) else {
+        anyhow::bail!("a conflicting key was joined");
+    };
     assert!(refused.to_string().contains("conflicting=1"), "{refused:#}");
     Ok(())
 }
@@ -223,8 +228,9 @@ fn rows_carry_the_batch_and_a_scope_keeps_one_sido() -> anyhow::Result<()> {
             format!("unit-official-price/base-date-v2/99/{batch}")
         )
     );
-    let none = compose(&connection, &pins(), Some(gyeonggi.as_str()))
-        .expect_err("an empty batch was taken");
+    let Err(none) = compose(&connection, &pins(), Some(gyeonggi.as_str())) else {
+        anyhow::bail!("an empty batch was taken");
+    };
     assert!(none.to_string().contains("no price rows"), "{none:#}");
     Ok(())
 }

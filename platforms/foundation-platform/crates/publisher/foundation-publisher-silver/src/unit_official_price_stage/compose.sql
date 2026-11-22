@@ -12,7 +12,7 @@
 -- Input (`unit_official_price_stage::load`): price_source(mgmt_key, base_date, notice_date,
 -- price_won), the vintage's rows of the price table at the batch's price pin; exclusive_source
 -- (mgmt_key, pnu, dong_name, ho_name), the exclusive units as of the vintage at the batch's unit pin.
--- Parameters: {batch} (the batch's source_snapshot_id), {vintage}, and {scope}, a predicate on the
+-- Parameters: @batch@ (the batch's source_snapshot_id), @vintage@, and @scope@, a predicate on the
 -- dictionary's `pnu` (`TRUE` for the nation, one 시도's range for a verdict). A key names one unit
 -- (the caller refuses the dictionary otherwise), so the 시도's rows are the nation's rows of that 시도.
 -- Output: unit_dictionary, unit_reference_prices, and unit_prices with the columns of
@@ -38,7 +38,7 @@ FROM (
       AND TRY_CAST(substr(trim(base_date), 1, 4) AS INTEGER) BETWEEN 1000 AND 9999
       AND regexp_matches(trim(price_won), '^[0-9]{1,18}$')
       -- Only the keys the scope's units hold: the rest join to nothing in it.
-      AND mgmt_key IN (SELECT mgmt_key FROM unit_dictionary WHERE {scope})
+      AND mgmt_key IN (SELECT mgmt_key FROM unit_dictionary WHERE @scope@)
   ) normalized
 ) ranked
 WHERE notice_rank = 1;
@@ -46,10 +46,10 @@ WHERE notice_rank = 1;
 CREATE OR REPLACE TEMP TABLE unit_prices AS
 SELECT d.mgmt_key AS mgm_bldrgst_pk, d.pnu, d.dong_name, d.ho_name, p.base_date, p.price_won,
        substr(d.pnu, 1, 2) AS sido,
-       '{batch}' AS source_snapshot_id,
-       '{vintage}' AS vintage,
+       '@batch@' AS source_snapshot_id,
+       '@vintage@' AS vintage,
        -- One load identity per 시도, as the per-province runs wrote them.
-       'unit-official-price/base-date-v2/' || substr(d.pnu, 1, 2) || '/{batch}' AS source_record_id
+       'unit-official-price/base-date-v2/' || substr(d.pnu, 1, 2) || '/@batch@' AS source_record_id
 FROM unit_reference_prices p
 JOIN unit_dictionary d ON p.mgmt_key = d.mgmt_key
-WHERE regexp_matches(d.pnu, '^[0-9]{19}$') AND {scope};
+WHERE regexp_matches(d.pnu, '^[0-9]{19}$') AND @scope@;
