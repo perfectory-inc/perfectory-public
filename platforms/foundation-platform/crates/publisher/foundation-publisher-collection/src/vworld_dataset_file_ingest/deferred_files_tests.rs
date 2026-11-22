@@ -5,7 +5,8 @@ use collection_infrastructure::VWorldDatasetFileKind;
 
 use super::deferred_files::{
     deferred_selection_archive_reports, excluded_selection_archives,
-    held_or_deferred_selection_archive_reports, DEFERRED_SELECTION_ARCHIVE_STATUS,
+    held_or_deferred_selection_archive_reports, within_new_bytes_cap, DEFERRED_RUN_CAP_STATUS,
+    DEFERRED_SELECTION_ARCHIVE_STATUS,
 };
 use super::tests::{
     existing_bronze_object, selected, test_config, test_job, RecordingRepo, RecordingUow,
@@ -72,6 +73,42 @@ async fn a_held_archive_is_skipped_and_the_rest_are_deferred() -> TestResult {
     assert_eq!(reports[1].size_bytes, Some(700 * 1024 * 1024));
     assert_eq!(reports[1].object_key, None);
     Ok(())
+}
+
+/// Root ADR-0606: a run takes the newest files Bronze lacks while their listed bytes fit its cap,
+/// as a prefix (the small older file after the one that did not fit waits too), and the first file
+/// goes even when it alone is larger than the cap.
+#[test]
+fn a_run_takes_the_newest_files_up_to_its_cap_of_new_bytes() {
+    let kib = |file_no: &str, size_kib: u64| selected(file_no, size_kib, "2026-05-13");
+    let pending = vec![
+        (0, kib("9101", 60)),
+        (1, kib("9102", 30)),
+        (2, kib("9103", 20)),
+        (3, kib("9104", 1)),
+    ];
+    let (taken, deferred) = within_new_bytes_cap(pending, 100 * 1024);
+    assert_eq!(
+        taken.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+        [0, 1]
+    );
+    assert_eq!(
+        deferred.iter().map(|(index, _)| *index).collect::<Vec<_>>(),
+        [2, 3]
+    );
+    assert_eq!(deferred[0].1.file_no, "9103");
+    assert_eq!(deferred[0].1.status, DEFERRED_RUN_CAP_STATUS);
+    assert_eq!(deferred[0].1.size_bytes, Some(20 * 1024));
+    assert_eq!(deferred[0].1.object_key, None);
+
+    let (taken, deferred) =
+        within_new_bytes_cap(vec![(0, kib("9105", 500)), (1, kib("9106", 1))], 100 * 1024);
+    assert_eq!(
+        taken.len(),
+        1,
+        "a file larger than the cap still lands, on its own"
+    );
+    assert_eq!(deferred.len(), 1);
 }
 
 #[test]

@@ -1,5 +1,6 @@
-//! Listed files a run does not download because the provider gives them only through its RAON
-//! download agent (root ADR-0170). The regular lane has no byte budget (ADR-0172).
+//! Listed files a run does not download: those the provider gives only through its RAON download
+//! agent (root ADR-0170), and those past the run's cap of new bytes (root ADR-0606, amending
+//! ADR-0172: no budget that refuses, but a run ends inside its unit's limit).
 //!
 //! A run that excludes RAON selection archives (`SelectionArchive`, over about 500 MB) still says
 //! which of them Bronze lacks. The daily sweep hands exactly those to the large-file lane
@@ -12,12 +13,40 @@ use collection_application::ports::{BronzeIngestRepository, BronzeIngestUnitOfWo
 use collection_infrastructure::{VWorldDatasetFileInventoryItem, VWorldDatasetFileKind};
 
 use super::{
-    partition_held_files, SelectedVWorldDatasetFile, VWorldDatasetFileIngestItemEvidence,
-    VWorldDatasetFileJob,
+    partition_held_files, IndexedFile, IndexedReport, SelectedVWorldDatasetFile,
+    VWorldDatasetFileIngestItemEvidence, VWorldDatasetFileJob,
 };
 
 /// File status of a listed RAON selection archive Bronze does not hold (root ADR-0170).
 pub(super) const DEFERRED_SELECTION_ARCHIVE_STATUS: &str = "deferred_selection_archive";
+
+/// File status of a listed file Bronze does not hold that waits for the next run: this run took
+/// its cap of new bytes (root ADR-0606).
+pub(super) const DEFERRED_RUN_CAP_STATUS: &str = "deferred_run_cap";
+
+/// The files Bronze lacks that this run fetches, up to its cap of listed bytes (`size_kib` × 1024),
+/// and the reports of the rest, which wait for the next run. The files come newest provider update
+/// first and the run takes a prefix of them, so an older file never goes before a newer one. The
+/// first always goes: a file larger than the cap lands on its own rather than waiting forever.
+pub(super) fn within_new_bytes_cap(
+    pending: Vec<IndexedFile>,
+    cap: u64,
+) -> (Vec<IndexedFile>, Vec<IndexedReport>) {
+    let mut taken_bytes = 0_u64;
+    let mut taken = Vec::new();
+    let mut deferred = Vec::new();
+    for (index, selected) in pending {
+        let size = selected.file.size_kib.saturating_mul(1024);
+        if deferred.is_empty() && (taken.is_empty() || taken_bytes.saturating_add(size) <= cap) {
+            taken_bytes = taken_bytes.saturating_add(size);
+            taken.push((index, selected));
+        } else {
+            let report = deferred_report(&selected.job, &selected.file, DEFERRED_RUN_CAP_STATUS);
+            deferred.push((index, report));
+        }
+    }
+    (taken, deferred)
+}
 
 /// The selection archives a run that excludes them leaves out, in listing order, within the
 /// run's job limit. Without the exclusion there are none: the download path then meets them and

@@ -259,6 +259,10 @@ else:
     # Files the provider lists only as RAON selection archives (over about 500 MB) are not taken by
     # this lane (ADR-0168); the count is journaled so their absence is visible, not silent.
     vworld_line += f" selection_archives_not_swept={inventory.get('selection_archive_file_count')}"
+    # Past the run's cap of new bytes (ADR-0606): neither landed nor failed, they wait for the next day.
+    waiting = [f for f in files if f.get("status") == "deferred_run_cap"]
+    if waiting:
+        vworld_line += f" deferred_run_cap={len(waiting)}"
     # A signal, never a limit (ADR-0172): an unusually large day is said once.
     notice = (load(plan_path) or {}).get("landed_bytes_notice")
     if isinstance(notice, int) and landed_bytes > notice:

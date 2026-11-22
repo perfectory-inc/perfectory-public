@@ -87,9 +87,23 @@ pub async fn run() -> anyhow::Result<()> {
             deferred_files::held_or_deferred_selection_archive_reports(archives, &repo, &uow)
                 .await
                 .context("failed to check held VWorld selection archives")?;
-        // Root ADR-0172: no byte budget. Every listed file Bronze does not hold is fetched, each
-        // committed on its own; a run that is stopped resumes, because what it landed is skipped next.
-        let to_fetch = selected_files.into_iter().enumerate().collect::<Vec<_>>();
+        // Root ADR-0172 as amended by ADR-0606: no budget that refuses. Every listed file Bronze
+        // does not hold is fetched, each committed on its own, newest first up to the run's cap of
+        // new bytes; the rest wait for the next run, which skips what this one landed.
+        let indexed = selected_files.into_iter().enumerate().collect::<Vec<_>>();
+        let (mut decided, to_fetch) = match config.max_new_bytes {
+            Some(cap) => {
+                let force_refetch =
+                    crate::public_data_control_support::bronze_force_refetch_enabled()?;
+                let (mut held, pending) = partition_held_files(indexed, force_refetch, &repo, &uow)
+                    .await
+                    .context("failed to check which VWorld dataset files Bronze holds")?;
+                let (to_fetch, deferred) = deferred_files::within_new_bytes_cap(pending, cap);
+                held.extend(deferred);
+                (held, to_fetch)
+            }
+            None => (Vec::new(), indexed),
+        };
         let storage = live_write_bronze_streaming_object_storage_from_env()
             .await
             .context("failed to configure object storage for VWorld dataset file ingest")?;
@@ -124,7 +138,8 @@ pub async fn run() -> anyhow::Result<()> {
             .buffer_unordered(config.max_in_flight)
             .collect::<Vec<_>>()
             .await;
-        fetched
+        decided.extend(fetched);
+        decided
     } else {
         stream::iter(selected_files.into_iter().enumerate())
             .map(|(index, selected)| {
@@ -291,6 +306,9 @@ struct VWorldDatasetFileIngestConfig {
     live_write: Option<String>,
     max_jobs: Option<usize>,
     max_files: Option<usize>,
+    /// `FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_NEW_BYTES`: a live run's cap of listed bytes of
+    /// files Bronze lacks (root ADR-0606); the daily sweep sets it from the endpoint catalog.
+    max_new_bytes: Option<u64>,
     max_in_flight: usize,
     full_download_confirmed: bool,
     exclude_selection_archives: bool,
@@ -315,6 +333,7 @@ enum BronzeKeyForm {
 
 const BRONZE_KEY_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY";
 const SPOOL_DIR_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR";
+const MAX_NEW_BYTES_ENV: &str = "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_NEW_BYTES";
 
 /// A live write keys by content (root ADR-0152). The provider reuses a file number for each new
 /// upload, so a number key either collides with the object an earlier edition left under it (the
@@ -376,6 +395,9 @@ impl VWorldDatasetFileIngestConfig {
                         &value,
                     )
                 })
+                .transpose()?,
+            max_new_bytes: optional_env_value(MAX_NEW_BYTES_ENV)?
+                .map(|value| parse_positive_u64(MAX_NEW_BYTES_ENV, &value))
                 .transpose()?,
             max_in_flight: parse_dataset_file_max_in_flight(optional_env_value(
                 "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_IN_FLIGHT",

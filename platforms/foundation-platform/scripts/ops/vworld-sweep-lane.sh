@@ -6,10 +6,16 @@
 #   vworld_sweep_lane_env <endpoint catalog> <plan> <inventory> <evidence> <spool dir>
 #
 # The plan takes only the endpoints the catalog marks source_sweep, without a summary file; the
-# lane has no byte budget (ADR-0172); new files are content-addressed and spooled while hashed
-# (ADR-0152, ADR-0168); RAON selection archives are left to their own lane (ADR-0170).
+# lane has no byte budget that refuses (ADR-0172), only the catalog's cap of new bytes a run takes,
+# the rest waiting for the next day (ADR-0606); new files are content-addressed and spooled while
+# hashed (ADR-0152, ADR-0168); RAON selection archives are left to their own lane (ADR-0170).
 
 vworld_sweep_lane_env() {
+  local cap
+  cap="$(python3 -I -c 'import json, sys
+print(json.load(open(sys.argv[1], encoding="utf-8"))["daily_collections"]["source_sweep"]["vworld_max_new_bytes_per_run"])' "$1")" ||
+    return 1
+  export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_NEW_BYTES="${cap}"
   export FOUNDATION_PLATFORM_VWORLD_DATASET_ENDPOINT_CATALOG_PATH="$1"
   export FOUNDATION_PLATFORM_VWORLD_DATASET_DAILY_COLLECTION=source_sweep
   unset FOUNDATION_PLATFORM_VWORLD_DATASET_INVENTORY_SUMMARY_PATH FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH
