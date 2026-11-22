@@ -20,7 +20,7 @@ const MOVED: &str = "9999910300100010000";
 const OLD_CODE: &str = "9999910200100010000";
 
 /// One owner row: (pnu, 집합건물일련번호, 공유인일련번호, 소유구분코드, 소유구분명, 변동일자, 공유인수,
-/// release, ingested, row_state).
+/// release, ingested, `row_state`).
 struct Row {
     pnu: &'static str,
     serial: Option<&'static str>,
