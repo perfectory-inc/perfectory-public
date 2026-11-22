@@ -218,9 +218,11 @@ impl Kicox {
         if !status.is_success() {
             bail!("kicox.or.kr answered HTTP {status}");
         }
-        Ok(Ok(response.text().await.map_err(|error| {
-            anyhow::anyhow!("kicox.or.kr body failed: {error}")
-        })?))
+        let text = response
+            .text()
+            .await
+            .map_err(|error| anyhow::anyhow!("kicox.or.kr body failed: {error}"))?;
+        Ok(Ok(text))
     }
 
     pub(crate) async fn page(&mut self, page_no: u32) -> anyhow::Result<ListPage> {

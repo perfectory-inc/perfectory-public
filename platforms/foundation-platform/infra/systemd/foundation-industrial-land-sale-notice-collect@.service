@@ -15,7 +15,6 @@ WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=-/etc/foundation-platform/operations-map.env
-# The LH instance's data.go.kr service key; optional: without it that instance refuses with 78.
 EnvironmentFile=-/etc/foundation-platform/data-go-kr.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/industrial-land-sale-notice-collect.sh %i
 # The job list's time_limit_minutes (jobs.v1.json): the notice budget (1,800 s) and one notice.

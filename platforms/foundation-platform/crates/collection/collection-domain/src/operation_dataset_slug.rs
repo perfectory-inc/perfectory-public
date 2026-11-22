@@ -110,9 +110,10 @@ pub fn onbid_dataset_slug(operation: &str) -> Option<&'static str> {
     }
 }
 
-/// Resolves a data.go.kr LH 분양임대공고 `operation` (B552555) to its canonical `dataset_slug`: the
-/// land notice list kept as answered, and each notice's detail and supply list kept together as one
-/// read (root ADR-0603).
+/// Resolves a data.go.kr LH 분양임대공고 `operation` (B552555) to its `dataset_slug` (root ADR-0603).
+///
+/// The land notice list is kept as answered; each notice's detail and supply list are kept together
+/// as one read.
 ///
 /// Returns `None` for any operation outside the three LH services; callers must treat `None` as a
 /// hard error rather than inventing a slug.

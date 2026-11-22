@@ -39,9 +39,10 @@ const ATTACHMENT_KEY: &[&str] = &["notice_source", "notice_id", "sha256"];
 const LATEST: &[&str] = &["source_snapshot_id", "source_line_number"];
 
 /// One row per notice detail read, failed reads included: the record the collector's next run
-/// computes what is still owed from (root ADR-0603 §3). `list_fingerprint` is the hash of the list
-/// fields the source contract names: a listed notice whose fingerprint differs from its last read
-/// is read again.
+/// computes what is still owed from (root ADR-0603 §3).
+///
+/// `list_fingerprint` is the hash of the list fields the source contract names: a listed notice
+/// whose fingerprint differs from its last read is read again.
 pub const SILVER_INDUSTRIAL_LAND_SALE_NOTICE_READ: LakehouseTableContract =
     LakehouseTableContract {
         table_name: "silver.industrial_land_sale_notice_read",

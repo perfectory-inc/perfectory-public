@@ -210,8 +210,7 @@ pub(crate) const fn auth_of(source: Source) -> SourceAuthKind {
 
 /// How one notice read ended. `Read` and `Gone` settle it; the others are asked again after
 /// `retry_after_hours`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ReadOutcome {
     /// The detail was read and every attachment settled.
     Read,
@@ -303,9 +302,9 @@ pub(crate) enum Downloaded {
 
 /// The client of one source.
 pub(crate) enum SourceClient {
-    Ilis(ilis::Ilis),
-    Kicox(kicox::Kicox),
-    Lh(lh::Lh),
+    Ilis(Box<ilis::Ilis>),
+    Kicox(Box<kicox::Kicox>),
+    Lh(Box<lh::Lh>),
 }
 
 impl SourceClient {
@@ -857,9 +856,9 @@ impl Config {
 fn client_for(contract: &LaneContract, source: Source) -> anyhow::Result<SourceClient> {
     let json = contract.source_json(source)?;
     Ok(match source {
-        Source::Ilis => SourceClient::Ilis(ilis::Ilis::new(json)?),
-        Source::Kicox => SourceClient::Kicox(kicox::Kicox::new(json)?),
-        Source::Lh => SourceClient::Lh(lh::Lh::new(json, Utc::now().date_naive())?),
+        Source::Ilis => SourceClient::Ilis(Box::new(ilis::Ilis::new(json)?)),
+        Source::Kicox => SourceClient::Kicox(Box::new(kicox::Kicox::new(json)?)),
+        Source::Lh => SourceClient::Lh(Box::new(lh::Lh::new(json, Utc::now().date_naive())?)),
     })
 }
 
