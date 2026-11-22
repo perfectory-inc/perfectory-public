@@ -1100,10 +1100,11 @@ pub fn appended_search(
     Ok((out, rows, removed))
 }
 
-/// `ca_search_rows` of a follow: the rows of `current` (a query of the table's current rows) that are
-/// not removed and that a code change can move (no PNU, or a code under `file_prefixes`; every row
-/// when the prefixes are unknown), each keeping the values it was observed with, stamped with the
-/// follow's record and instant. Returns how many.
+/// `ca_search_rows` of a follow: the current rows a code change can move.
+///
+/// The rows of `current` (a query of the table's current rows) that are not removed and have no PNU
+/// or a code under `file_prefixes` (every row when the prefixes are unknown), each keeping the values
+/// it was observed with, stamped with the follow's record and instant. Returns how many.
 ///
 /// # Errors
 /// Refuses a record holding a quote; returns a `DuckDB` failure.
@@ -1151,11 +1152,12 @@ pub struct Followed {
     pub appended: u64,
 }
 
-/// Follows the 법정동 code changes since `before` on a search table (`follow_code_changes` of
-/// `courtauction_go_kr`, root ADR-0329 §3, ADR-0416): its current rows at `head` that a change can
-/// move (a code under a moved prefix, or no PNU; every row when `before` is `None` or unreadable)
-/// are placed again through [`place_search`] with the follow's `record` and instant, and
-/// `<staging>_changed` holds those whose placement moved, never a removal marker.
+/// Follows the 법정동 code changes since `before` on a search table (root ADR-0329 §3, ADR-0416).
+///
+/// As `follow_code_changes` of `courtauction_go_kr` did: its current rows at `head` that a change can
+/// move ([`follow_rows`]; every row when `before` is `None` or unreadable) are placed again through
+/// [`place_search`] with the follow's `record` and instant, and `<staging>_changed` holds those whose
+/// placement moved, never a removal marker.
 ///
 /// # Errors
 /// Refuses another role; returns a `DuckDB` failure.
