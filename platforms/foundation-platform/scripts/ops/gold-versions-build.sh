@@ -99,7 +99,10 @@ takeover_check() {
   rm -rf -- "${run_dir}/verdict/reference.parquet" "${run_dir}/verdict/candidate.parquet" "${run_dir}/verdict/spill"
 }
 
+# A build that resumes (the 실거래 lane: its first build is longer than the unit's hour) keeps what the
+# next run goes on from beside the runs, not in one of them.
 FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY="${work}/summary.json" \
+  FOUNDATION_PLATFORM_GOLD_VERSIONS_RESUME_DIR="${STATE_ROOT}/resume" \
   "${PUBLISHER_BIN}" "${command}" >> "${run_log}" 2>&1
 
 # "<outcome> <version_seq or -> <keys changed or 0> <seconds>"

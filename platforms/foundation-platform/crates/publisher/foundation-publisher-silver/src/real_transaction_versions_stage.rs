@@ -39,8 +39,10 @@ pub const INPUTS: [&str; 9] = [
 ];
 
 /// The deals a unit takes before the next one starts (a 시군구 component larger than this is one unit).
-/// 경기 whole (4.8M deals) did not fit 12 GB in the 2026-11-21 verdict; its halves (1.9M, 3.0M) did.
-pub const UNIT_DEAL_BUDGET: u64 = 1_500_000;
+/// 경기 whole (4.8M deals) did not fit 12 GB in the 2026-11-21 verdict and 부산 whole (617k) not its
+/// documents' 12 GB before they were built per 시군구; the unit's `MemoryMax` is 8G, of which `DuckDB`
+/// takes three fifths. A first bound to measure, not a measured one.
+pub const UNIT_DEAL_BUDGET: u64 = 700_000;
 
 /// The rules version a change of which, with the SQL texts, rebuilds every PNU.
 const RULES_VERSION: &str = "rt-versions-1";
@@ -68,7 +70,7 @@ pub fn code_version(inference: &Value) -> String {
 }
 
 /// One unit: the 시군구 it builds and the deals they hold.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Unit {
     /// 시군구 codes (five digits).
     pub nodes: BTreeSet<String>,
@@ -143,7 +145,7 @@ pub fn units(
 }
 
 /// What one [`spool`] read and left.
-#[derive(Clone, Debug, Default, serde::Serialize)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Spooled {
     /// Current deals of the whole Silver.
     pub deals: u64,
@@ -196,6 +198,20 @@ fn count(connection: &Connection, sql: &str) -> anyhow::Result<u64> {
     Ok(u64::try_from(value)?)
 }
 
+/// Leaves the code tables `place` reads whole from a spool [`spool`] wrote, so a run that resumes it
+/// reads nothing from the lakehouse again.
+///
+/// # Errors
+/// A spool without them, or a SQL error.
+pub fn load_reference(connection: &Connection, dir: &Path) -> anyhow::Result<()> {
+    let dir = sql_dir(dir)?;
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE code_changes AS SELECT * FROM read_parquet('{dir}/code_changes.parquet');
+         CREATE OR REPLACE TABLE code_names AS SELECT * FROM read_parquet('{dir}/code_names.parquet');"
+    ))?;
+    Ok(())
+}
+
 /// Reads every input at `source` once, for the served `edition`, into `dir`, and leaves the code
 /// tables (`code_changes`, `code_names`, `crosswalk`, `ambiguous`, `served_forms`, `address_codes`).
 ///
@@ -212,6 +228,10 @@ pub fn spool(
     let mut read_millis = BTreeMap::new();
     let at = Instant::now();
     placement::reference_tables(connection, source)?;
+    connection.execute_batch(&format!(
+        "COPY code_changes TO '{dir}/code_changes.parquet' (FORMAT parquet);
+         COPY code_names TO '{dir}/code_names.parquet' (FORMAT parquet);"
+    ))?;
     let (remap, ambiguous) = placement::crosswalk_tables(connection)?;
     placement::address_code_table(connection, &remap, &ambiguous)?;
     read_millis.insert(placement::CODE_CHANGE_SOURCE.to_owned(), millis(at));

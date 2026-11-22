@@ -13,8 +13,8 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
-    time::Instant,
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 use anyhow::{bail, ensure, Context};
@@ -28,7 +28,7 @@ use foundation_publisher_silver::{
     real_transaction_gold_stage::history_coverage,
     real_transaction_placement_stage::PARCEL_SOURCE,
     real_transaction_versions_stage::{
-        build_unit, code_version, spool, UnitBuild, BUILT_TABLE, INPUTS,
+        build_unit, code_version, load_reference, spool, Spooled, UnitBuild, BUILT_TABLE, INPUTS,
     },
 };
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
@@ -56,6 +56,11 @@ const LANE: &str = "parcel-real-transaction";
 const REPLACED: &str = "gold.parcel_real_transaction";
 const JOB: &str = "build-parcel-real-transaction-versions";
 const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY";
+/// Where a run keeps what the next one resumes (`gold-versions-build.sh`: the lane's state directory).
+const RESUME_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_RESUME_DIR";
+/// No unit starts past this: the unit's hour (`foundation-gold-versions@.service` TimeoutStartSec) less
+/// the longest unit and the takeover verdict a commit's run goes on to (gold-versions-build.sh).
+const BUILD_DEADLINE: Duration = Duration::from_secs(45 * 60);
 const RT_CONTRACT: &str =
     include_str!("../../../infra/lakehouse/contracts/rt-molit-real-transaction.contract.json");
 
@@ -77,6 +82,33 @@ fn code_moved(base: &str, code: &str) -> Option<String> {
     } else {
         format!("the code version moved to {rules}")
     })
+}
+
+/// The directory under `root` that keeps `run`'s spool and finished units; any other run's is
+/// removed (its inputs, code or edition are no longer this run's).
+fn resume_dir(root: &Path, run: &str) -> anyhow::Result<PathBuf> {
+    let name: String = run
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    ensure!(!name.is_empty(), "a run has an id");
+    std::fs::create_dir_all(root)?;
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        if entry.file_name().to_string_lossy() != name.as_str() && entry.file_type()?.is_dir() {
+            std::fs::remove_dir_all(entry.path())
+                .with_context(|| format!("cannot remove {}", entry.path().display()))?;
+        }
+    }
+    let dir = root.join(name);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
 }
 
 /// Builds and appends the 실거래 Gold's changed keys.
@@ -163,7 +195,9 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         })
     });
 
-    // Compute: every input once into the spool, then every unit.
+    // Compute, resumable: the spool and each finished unit's rows stay under the lane's state
+    // directory for this run's inputs, code and edition, so a run the deadline stops goes on where it
+    // stopped and nothing is read from the lakehouse twice.
     let work = Path::new(&summary_path)
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -171,27 +205,48 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let stage = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
     let memory_limit = stage.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
     let connection = stage.connection();
-    let spool_dir = work.join(".rt-spool");
-    if spool_dir.exists() {
-        std::fs::remove_dir_all(&spool_dir)
-            .with_context(|| format!("cannot clear {}", spool_dir.display()))?;
-    }
-    std::fs::create_dir_all(&spool_dir)?;
-    let rt_pins = NearbyPins(pins.clone());
-    let source = Source::Pinned {
-        catalog: LAKEHOUSE_CATALOG,
-        pins: &rt_pins,
+    let run = versions::run_id(TABLE, &pins, &code, &edition);
+    let resume = resume_dir(Path::new(&required_env_value(RESUME_ENV)?), &run)?;
+    let (spool_dir, built_dir, spooled_path) = (
+        resume.join("spool"),
+        resume.join("built"),
+        resume.join("spooled.json"),
+    );
+    let resumed = spooled_path.exists();
+    let spooled: Spooled = if resumed {
+        load_reference(connection, &spool_dir)?;
+        serde_json::from_slice(&std::fs::read(&spooled_path)?)
+            .with_context(|| format!("cannot read {}", spooled_path.display()))?
+    } else {
+        if spool_dir.exists() {
+            std::fs::remove_dir_all(&spool_dir)
+                .with_context(|| format!("cannot clear {}", spool_dir.display()))?;
+        }
+        std::fs::create_dir_all(&spool_dir)?;
+        let rt_pins = NearbyPins(pins.clone());
+        let source = Source::Pinned {
+            catalog: LAKEHOUSE_CATALOG,
+            pins: &rt_pins,
+        };
+        let spooled = spool(connection, &source, &edition, &spool_dir)?;
+        // Written last: a spool is whole once its record is there.
+        std::fs::write(&spooled_path, serde_json::to_vec(&spooled)?)?;
+        for (input, millis) in &spooled.read_millis {
+            println!(
+                "gold-versions {TABLE} read {input} in {:.1}s",
+                *millis as f64 / 1000.0
+            );
+        }
+        spooled
     };
-    let spooled = spool(connection, &source, &edition, &spool_dir)?;
-    for (input, millis) in &spooled.read_millis {
-        println!(
-            "gold-versions {TABLE} read {input} in {:.1}s",
-            *millis as f64 / 1000.0
-        );
-    }
     println!(
-        "gold-versions {TABLE} spooled {} deals ({} unaddressed) and {} served parcels into {} units \
+        "gold-versions {TABLE} {} {} deals ({} unaddressed) and {} served parcels into {} units \
          in {:.1}s (memory peak {:?} bytes)",
+        if resumed {
+            "resumed the spool of"
+        } else {
+            "spooled"
+        },
         spooled.deals,
         spooled.unaddressed,
         spooled.served_parcels,
@@ -228,7 +283,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .get(PARCEL_SOURCE)
         .context("the parcels are pinned")?
         .to_string();
-    connection.execute_batch(BUILT_TABLE)?;
     let build = UnitBuild {
         inference,
         as_of,
@@ -236,11 +290,39 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         source_snapshot_id: &parcels_snapshot,
         published_at_utc: &published_at_utc,
     };
-    let mut seconds_by_unit = Vec::new();
+    std::fs::create_dir_all(&built_dir)?;
+    connection.execute_batch(BUILT_TABLE)?;
+    let built_text = built_dir
+        .to_str()
+        .context("the resume directory must be UTF-8")?
+        .replace('\\', "/");
+    ensure!(
+        !built_text.contains('\''),
+        "the resume directory must not contain a quote"
+    );
+    let mut seconds_by_unit = BTreeMap::new();
+    let mut left = 0_usize;
     for (index, unit) in spooled.units.iter().enumerate() {
+        let file = built_dir.join(format!("unit-{index:04}.parquet"));
+        if file.exists() {
+            continue;
+        }
+        if started.elapsed() > BUILD_DEADLINE {
+            left += 1;
+            continue;
+        }
         let at = Instant::now();
         let rows = build_unit(connection, &spool_dir, unit, &build)?;
-        seconds_by_unit.push(at.elapsed().as_secs_f64());
+        // A unit is finished once its file is whole: written aside, then renamed.
+        connection.execute_batch(&format!(
+            "COPY built TO '{built_text}/unit-{index:04}.parquet.part' (FORMAT parquet, COMPRESSION zstd); \
+             DELETE FROM built;"
+        ))?;
+        std::fs::rename(
+            built_dir.join(format!("unit-{index:04}.parquet.part")),
+            &file,
+        )?;
+        seconds_by_unit.insert(index, at.elapsed().as_secs_f64());
         println!(
             "gold-versions {TABLE} built unit {}/{} ({} 시군구, {} deals) into {rows} rows in {:.1}s \
              (memory peak {:?} bytes)",
@@ -252,8 +334,28 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             process_memory::cgroup_peak_bytes()
         );
     }
-    std::fs::remove_dir_all(&spool_dir)
-        .with_context(|| format!("cannot remove {}", spool_dir.display()))?;
+    if left > 0 {
+        write_summary(
+            &summary_path,
+            &json!({
+                "job": JOB, "engine": "duckdb", "table": TABLE, "outcome": "partial",
+                "run": run, "pins": pins, "served_edition": edition, "shadow_of": shadow_build,
+                "code_version": code, "units": spooled.units.len(), "units_left": left,
+                "seconds_by_unit": seconds_by_unit, "memory_peak_bytes": process_memory::cgroup_peak_bytes(),
+                "seconds": started.elapsed().as_secs_f64(),
+            }),
+        )?;
+        println!(
+            "gold-versions {TABLE} partial: {left} of {} units left past the {}-minute deadline; the next \
+             run resumes them",
+            spooled.units.len(),
+            BUILD_DEADLINE.as_secs() / 60
+        );
+        return Ok(());
+    }
+    connection.execute_batch(&format!(
+        "INSERT INTO built SELECT * FROM read_parquet('{built_text}/unit-*.parquet');"
+    ))?;
     let invalid: i64 = connection.query_row(
         "SELECT count(*) FROM built WHERE NOT regexp_full_match(pnu, '[0-9]{19}') \
          OR real_transaction_json IS NULL OR row_digest IS NULL",
@@ -310,7 +412,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     }
 
     // Commit.
-    let run = versions::run_id(TABLE, &pins, &code, &edition);
     let shape = committer.table_shape(TABLE).await?;
     let files = versions::stage(&stage, &shape, &run, "pnu")?;
     let mut summary = BTreeMap::from([
@@ -337,6 +438,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let snapshot = versions::append(&committer, &catalog, &commit, &files, &run, summary).await?;
     drop(stage);
     let tags = versions::pin(&catalog, TABLE, snapshot, &pins).await?;
+    std::fs::remove_dir_all(&resume)
+        .with_context(|| format!("cannot remove {}", resume.display()))?;
     write_summary(
         &summary_path,
         &json!({
