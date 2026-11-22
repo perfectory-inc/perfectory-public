@@ -92,7 +92,8 @@ fn record(area: &str, permit: &str, approval: &str) -> String {
 fn a_document_is_spark_s_bytes_newest_first_with_blanks_null() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     load(&connection, &sites())?;
-    let read = REGISTER_MASTERS.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    let read =
+        crate::kind_versions_stage::read_for_test(&REGISTER_MASTERS, &connection, EDITION, "")?;
     assert_eq!((read.served_parcels, read.rows), (2, 3));
     REGISTER_MASTERS.build(
         &connection,
@@ -123,6 +124,43 @@ fn a_document_is_spark_s_bytes_newest_first_with_blanks_null() -> anyhow::Result
     Ok(())
 }
 
+/// The build loads one 시도 of the spool at a time; a 시도 the spool holds nothing of loads empty
+/// tables, so a 시도 only the head holds is diffed against an empty build.
+#[test]
+fn a_spool_is_loaded_one_sido_at_a_time_and_an_absent_sido_loads_empty() -> anyhow::Result<()> {
+    use crate::kind_versions_stage::{load_region, spool};
+    use crate::parcel_nearby_stage::Source;
+    let connection = Connection::open_in_memory()?;
+    load(&connection, &sites())?;
+    let dir = tempfile::tempdir()?;
+    let spooled = spool(
+        &REGISTER_MASTERS,
+        &connection,
+        &Source::Local,
+        EDITION,
+        "",
+        dir.path(),
+    )?;
+    assert_eq!(spooled.sidos.iter().collect::<Vec<_>>(), ["99"]);
+    assert!(dir.path().join("served").join("sido=99").is_dir());
+    assert_eq!(
+        load_region(&REGISTER_MASTERS, &connection, dir.path(), "", "99")?,
+        3
+    );
+    assert_eq!(
+        load_region(&REGISTER_MASTERS, &connection, dir.path(), "", "98")?,
+        0
+    );
+    let (served, built): (i64, i64) = connection.query_row(
+        "SELECT (SELECT count(*) FROM served), (SELECT count(*) FROM built)",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!((served, built), (0, 0));
+    assert!(load_region(&REGISTER_MASTERS, &connection, dir.path(), "", "9'").is_err());
+    Ok(())
+}
+
 #[test]
 fn a_parcel_keeps_the_newest_sites_up_to_the_bound_and_counts_all() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
@@ -139,7 +177,7 @@ fn a_parcel_keeps_the_newest_sites_up_to_the_bound_and_counts_all() -> anyhow::R
         })
         .collect();
     load(&connection, &many)?;
-    REGISTER_MASTERS.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    crate::kind_versions_stage::read_for_test(&REGISTER_MASTERS, &connection, EDITION, "")?;
     REGISTER_MASTERS.build(
         &connection,
         true,
@@ -164,7 +202,7 @@ fn a_parcel_keeps_the_newest_sites_up_to_the_bound_and_counts_all() -> anyhow::R
 fn a_partial_run_names_the_pnus_whose_sites_or_parcels_changed() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     load(&connection, &sites())?;
-    REGISTER_MASTERS.load_inputs(&connection, &Source::Local, EDITION, "_old")?;
+    crate::kind_versions_stage::read_for_test(&REGISTER_MASTERS, &connection, EDITION, "_old")?;
     // s2 moved from the site PNU to the renumbered one; s1 is unchanged.
     let mut moved = sites();
     moved[3] = site(
@@ -176,7 +214,7 @@ fn a_partial_run_names_the_pnus_whose_sites_or_parcels_changed() -> anyhow::Resu
         "2099-01-03",
     );
     load(&connection, &moved)?;
-    REGISTER_MASTERS.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    crate::kind_versions_stage::read_for_test(&REGISTER_MASTERS, &connection, EDITION, "")?;
     assert_eq!(REGISTER_MASTERS.changed_pnus(&connection)?, 2);
     REGISTER_MASTERS.build(
         &connection,
@@ -188,7 +226,7 @@ fn a_partial_run_names_the_pnus_whose_sites_or_parcels_changed() -> anyhow::Resu
     assert_eq!(rows.len(), 2);
     assert_eq!((rows[0].2, rows[1].2), (1, 2));
     // Nothing changed: no PNU to rebuild.
-    REGISTER_MASTERS.load_inputs(&connection, &Source::Local, EDITION, "_old")?;
+    crate::kind_versions_stage::read_for_test(&REGISTER_MASTERS, &connection, EDITION, "_old")?;
     assert_eq!(REGISTER_MASTERS.changed_pnus(&connection)?, 0);
     Ok(())
 }
@@ -221,7 +259,7 @@ fn demolition_reports_are_distinct_on_the_provider_s_text_and_written_trimmed() 
         report("d3", "멸실", "20210101"),
         report("d4", "멸실", "20210101"),
     ))?;
-    let read = DEMOLITIONS.load_inputs(&connection, &Source::Local, EDITION, "")?;
+    let read = crate::kind_versions_stage::read_for_test(&DEMOLITIONS, &connection, EDITION, "")?;
     assert_eq!(read.rows, 3);
     DEMOLITIONS.build(
         &connection,
