@@ -61,6 +61,7 @@ pub fn code_version(inference: &Value) -> String {
     let inference = inference.to_string();
     for text in placement::CODE_TEXTS
         .into_iter()
+        .chain(crate::lineage_carry_stage::SQL)
         .chain(document.iter().map(String::as_str))
         .chain([RULES_VERSION, inference.as_str()])
     {

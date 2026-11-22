@@ -465,7 +465,8 @@ fn outcome_sql(sql: &mut String, last: usize, tried: &[String]) {
 pub const PLACED_SQL: &str = include_str!("real_transaction_placement_stage/placed.sql");
 
 /// The placement's rules as text, for the build's code version: a change of any rebuilds every PNU.
-pub const CODE_TEXTS: [&str; 10] = [
+/// The lineage walk's are [`crate::lineage_carry_stage::SQL`].
+pub const CODE_TEXTS: [&str; 8] = [
     crate::place_identity_stage::REFERENCE_SQL,
     ADDRESS_KEY_MACRO,
     DEALS_SQL,
@@ -473,9 +474,7 @@ pub const CODE_TEXTS: [&str; 10] = [
     MASKED_SQL,
     PLACED_SQL,
     INFERENCE_SETUP_SQL,
-    LINEAGE_SETUP_SQL,
-    LINEAGE_HOP_SQL,
-    LINEAGE_ROWS_SQL,
+    CARRY_SOURCES_SQL,
 ];
 
 /// What one placement counted.
