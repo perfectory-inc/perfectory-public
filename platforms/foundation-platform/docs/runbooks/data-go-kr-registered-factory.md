@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-22
 ---
 
 # data.go.kr 파일 데이터 — 등록공장 수집·주소로 PNU 찾기·적재, 기타 공공 일괄 파일 수집 런북
@@ -144,3 +144,23 @@ last_reviewed: 2026-11-09
 - 다른 data.go.kr 원천(2026-11-09 저장소 전수 36개): 파일 데이터는 이미 키 없이 받고, OpenAPI 만 있는 것(온비드 13개·건축HUB 2개·
   국세청 15081808·한전 15101404·산단공 15152884)은 공개 파일이 없다. 활용신청에 막혀 있으면서 공개 파일이 있는 것은 이 셋뿐이었다.
   표준데이터가 더 생기면 계약 `files` 에 `standard_pages` 항목 하나를 더한다.
+
+## 사업장 명부 둘 — 자기 작업이 지난 판까지 (루트 ADR-0604)
+
+국민연금 가입 사업장 내역(`files.pension_workplace`, 15083277, 매월)과 고용·산재보험 가입 현황
+(`files.employment_insurance_workplace`, 15002150, 매년)은 계약에 `own_job` 을 적어 위 cycle 이 받지 않는다. 작업
+`pension_workplace_collect`·`employment_insurance_workplace_collect` 가 하루 한 번
+`foundation-data-go-kr-file-collect@pension-workplace.service`·`@employment-insurance-workplace.service`
+(`scripts/ops/data-go-kr-file-collect.sh`)로 같은 수집기를 그 파일 하나로 돌린다. Silver 는 아직 없다: Bronze 만 쌓인다.
+이 수집기의 Bronze 키는 모든 파일이 루트 ADR-0152 의 내용 주소다(루트 ADR-0604 부터): `<dataset-slug>--sha256-<hex>.<ext>`,
+포털 파일 id 는 원장의 `provider_file_id` 에. 그 전에 받은 판은 `<dataset-slug>-<atchFileId>.<ext>` 그대로 있다.
+
+- 실행마다: 지금 판의 메타데이터 한 번(새 `atchFileId` 면 받는다), 데이터셋 쪽의 주기성 과거 데이터 목록 한 번
+  (`POST /tcs/dss/selectHistAndCsvData.do`), 아직 묻지 않은 지난 판을 등록일이 오래된 것부터 `past_editions.max_per_run`
+  (20·4) 개까지 그 판의 `publicDataDetailPk` 로 묻고 받는다. 이미 받은 파일 id 를 이름 짓는 판은 내려받지 않는다.
+- 진행: `/var/lib/foundation-platform/data-go-kr-file-collect/collector/<dataset_slug>/past.json`(물은 판 키 → 파일 id)과
+  `accepted.json`(지금 판), 저널 `journal.log` 의 `ok run=... landed=<n> past=<n> bytes=<n>`. 첫 채우기는 국민연금 일곱 실행,
+  고용·산재 네 실행(2026-11-22 잼: 130 판 12,984 MB·16 판 2,756 MB).
+- 한 판을 다시 받게 하려면 `past.json` 에서 그 키 줄을 지운다(Bronze 는 덮지 않는다: 키가 바이트의 SHA-256 이라 같은 바이트면 같은 객체이고 원장만 맞춘다).
+- 실패: 목록 쪽이 판을 하나도 이름 짓지 않거나(점검 쪽), 판의 키·등록일이 이상하거나, 내려받은 것이 zip 도 CSV 도 아니면(로그인·
+  안내 쪽) 그 파일은 실패하고 run 이 실패로 끝난다. 그때까지 받은 판은 커밋되고 `past.json` 에 적혀 있다.

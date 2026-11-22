@@ -37,8 +37,6 @@ use crate::{
 pub(crate) const CONTRACT: &str =
     include_str!("../../../../infra/lakehouse/contracts/data-go-kr-file-data.contract.json");
 const CHANGES_SQL: &str = include_str!("data_go_kr_file_data_stage/changes.sql");
-/// Its own job and table (`data_go_kr_registered_factory.py`).
-const OWN_JOB: &str = "registered_factory";
 const SEPARATOR: char = '\u{1f}';
 const REMOVED: &str = "removed";
 const PARCEL_LINK_COLUMNS: [&str; 4] = [
@@ -106,7 +104,8 @@ pub struct FileEntry {
 /// The files this load reads, in the contract's order.
 #[derive(Clone, Debug)]
 pub struct FileDataSource {
-    /// Every file but the registered factories (their own job).
+    /// Every file that names no `own_job` (the registered factories and the workplace registers have
+    /// their own jobs, root ADR-0604).
     pub files: Vec<FileEntry>,
 }
 
@@ -122,7 +121,7 @@ impl FileDataSource {
             .and_then(Value::as_object)
             .context("the file data contract lists no files")?
             .iter()
-            .filter(|(slug, _)| slug.as_str() != OWN_JOB)
+            .filter(|(_, entry)| entry.get("own_job").is_none())
             .map(|(slug, entry)| FileEntry {
                 slug: slug.clone(),
                 entry: entry.clone(),
@@ -289,7 +288,8 @@ pub struct PlannedFile {
 }
 
 impl PlannedFile {
-    /// The edition id: the Bronze leaf without its extension (the dataset and the portal file id).
+    /// The edition id: the Bronze leaf without its extension (the dataset and its bytes' SHA-256, root
+    /// ADR-0604; the dataset and the portal file id for the editions landed before it).
     #[must_use]
     pub fn snapshot_id(&self) -> &str {
         let leaf = self

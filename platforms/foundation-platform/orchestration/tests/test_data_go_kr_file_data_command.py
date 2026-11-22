@@ -47,7 +47,7 @@ if sys.argv[1] == "collect-data-go-kr-file-data":
     for slug in landed:
         open(os.path.join(out, "objects", slug + ".csv"), "wb").write(b"x")
     failed = ["school_location: SERVICE_KEY_IS_NOT_REGISTERED_ERROR"] if os.environ.get("FAKE_FAIL") == "1" else []
-    json.dump({"files": [{"dataset_slug": s} for s in landed], "failed": failed},
+    json.dump({"files": [{"dataset_slug": s, "size_bytes": 1} for s in landed], "failed": failed},
               open(os.path.join(out, "manifest.json"), "w", encoding="utf-8"))
     if os.environ.get("FAKE_FAIL") == "1":
         sys.exit(1)
@@ -93,7 +93,8 @@ class DataGoKrFileDataCommand(unittest.TestCase):
         base = root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("data-go-kr-file-data-cycle.sh", "admitted-writer-runtime.sh", "job-journal.sh", "database-url.sh"):
+        for name in ("data-go-kr-file-data-cycle.sh", "data-go-kr-file-collect.sh", "admitted-writer-runtime.sh",
+                     "job-journal.sh", "database-url.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         contracts = release / "infra/lakehouse/contracts"
@@ -134,7 +135,9 @@ class DataGoKrFileDataCommand(unittest.TestCase):
         self.assertEqual(same.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
         calls = (self.fake / "calls.log").read_text().splitlines()
         command, datasets = calls[0].split(" ")
-        expected = [slug for slug in files if slug != "registered_factory"]
+        expected = [slug for slug, entry in files.items() if "own_job" not in entry]
+        self.assertNotIn("registered_factory", expected)
+        self.assertNotIn("pension_workplace", expected, "its own job collects it (root ADR-0604)")
         self.assertEqual((command, datasets.split(",")), ("collect-data-go-kr-file-data", expected))
         self.assertEqual([c.split(" ")[1] for c in calls[1:-1]], ["silver." + slug for slug in expected])
         self.assertEqual(calls[-1].split(" ")[0], "load-data-go-kr-file-data-silver")
@@ -180,6 +183,47 @@ class DataGoKrFileDataCommand(unittest.TestCase):
                 self.assertIn(name, result.stderr)
                 self.assertFalse((self.fake / "calls.log").exists())
                 self.assertFalse(self.state.exists(), "no state was written")
+
+
+class DataGoKrFileCollectCommand(unittest.TestCase):
+    """scripts/ops/data-go-kr-file-collect.sh: one file that names its own job, collected only (root ADR-0604)."""
+
+    def setUp(self):
+        DataGoKrFileDataCommand.setUp(self)
+        self.script = self.script.with_name("data-go-kr-file-collect.sh")
+        self.env["FOUNDATION_DATA_GO_KR_FILE_COLLECT_STATE_ROOT"] = str(self.state)
+
+    def collect(self, dataset, env=None):
+        return subprocess.run(["bash", str(self.script), dataset], env={**self.env, **(env or {})},
+                              capture_output=True, text=True, timeout=120, check=False)
+
+    def test_it_collects_only_the_file_it_is_named_and_says_what_landed(self):
+        same = self.collect("pension-workplace")  # the unit's instance: a slug with hyphens
+        self.assertEqual(same.returncode, 0, same.stderr + same.stdout)
+        self.assertEqual(same.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
+        self.assertEqual((self.fake / "calls.log").read_text().splitlines(),
+                         ["collect-data-go-kr-file-data pension_workplace"], "no plan and no load: Bronze only")
+        landed = self.collect("pension-workplace", {"FAKE_LANDED": "pension_workplace"})
+        self.assertEqual(landed.stdout.splitlines()[-1], "foundation-job-outcome changed")
+        self.assertIn("landed=1 past=0 bytes=1", (self.state / "journal.log").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(self.state.rglob("*.csv")), [])
+
+    def test_a_file_of_the_daily_cycle_or_one_whose_job_loads_it_is_refused(self):
+        for dataset in ("airport", "registered_factory", "", "no_such_file"):
+            with self.subTest(dataset):
+                refused = self.collect(dataset)
+                self.assertEqual(refused.returncode, 64, refused.stderr)
+                self.assertFalse((self.fake / "calls.log").exists())
+
+    def test_every_job_of_this_script_names_a_file_whose_own_job_it_is(self):
+        files = json.loads(CONTRACT.read_text(encoding="utf-8"))["files"]
+        jobs = {spec.job_id: spec.systemd_service for spec in job_specs.load_specs()
+                if spec.systemd_service.startswith("foundation-data-go-kr-file-collect@")}
+        self.assertEqual(sorted(jobs), ["employment_insurance_workplace_collect", "pension_workplace_collect"])
+        for job, unit in jobs.items():
+            dataset = unit[len("foundation-data-go-kr-file-collect@"):-len(".service")].replace("-", "_")
+            self.assertEqual(files[dataset]["own_job"], job)
+            self.assertNotIn("silver_load", files[dataset])
 
 
 if __name__ == "__main__":

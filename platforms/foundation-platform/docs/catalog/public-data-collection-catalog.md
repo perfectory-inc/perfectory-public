@@ -22,10 +22,10 @@ last_reviewed: 2026-07-30
 
 ## 현재 카탈로그 규모
 
-- 엔드포인트 정의: **181개**
-- 고유 dataset slug: **156개**
-- 고유 Bronze source slug: **179개**
-- 국가 수집 허용 endpoint: **143개**
+- 엔드포인트 정의: **183개**
+- 고유 dataset slug: **158개**
+- 고유 Bronze source slug: **181개**
+- 국가 수집 허용 endpoint: **145개**
 - 기본 실행 레인에 포함되는 endpoint: **83개**
 
 ## 제공기관별 정리
@@ -34,7 +34,7 @@ last_reviewed: 2026-07-30
 |---|---:|---:|---:|---|
 | code.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
 | courtauction.go.kr | 13 | 13 | 0 | 전용 커맨드 13 |
-| data.go.kr | 49 | 26 | 0 | API 예정 11, 전용 커맨드 16, 중복 API 비활성 22 |
+| data.go.kr | 51 | 28 | 0 | API 예정 11, 전용 커맨드 18, 중복 API 비활성 22 |
 | factoryon.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
 | industryland.or.kr | 6 | 5 | 0 | 전용 커맨드 6 |
@@ -58,7 +58,7 @@ last_reviewed: 2026-07-30
 | `building_register_open_api` | 10 | data.go.kr 건축물대장 API 중복 경로 |
 | `code_go_kr` | 1 | code.go.kr 법정동 전체 표 (법정동 코드 변경 출처, root ADR-0143) |
 | `court_auction` | 13 | courtauction.go.kr 법원경매 물건·매각결과 목록 (root ADR-0280, ADR-0281) |
-| `data_go_kr_file_data` | 16 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
+| `data_go_kr_file_data` | 18 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
 | `ilis` | 1 | industryland.or.kr 산업단지 고시 상세·첨부 (root ADR-0484) |
 | `ilis_address` | 3 | industryland.or.kr 산업단지 목록·고시 목록·상세 (주소 해소 출처) |
 | `industrial_land_sale_notice` | 7 | 산업용지 분양공고: ILIS 분양공고·한국산업단지공단 게시판·LH 토지 공고와 그 첨부 (root ADR-0603) |
@@ -120,6 +120,8 @@ last_reviewed: 2026-07-30
 | data.go.kr | 건축물대장 API | 건축물대장 총괄표제부 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 건축물대장 API | 건축물대장 표제부 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 건축물대장 API | 건축물대장 오수정화시설 | 중복 API | false | 중복 API 비활성 |
+| data.go.kr | 등록공장 | 근로복지공단 고용·산재보험 가입 현황 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 국민연금공단 국민연금 가입 사업장 내역 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 한국산업단지공단 전국등록공장현황 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 행정동 법정동 연계 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 공항 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |

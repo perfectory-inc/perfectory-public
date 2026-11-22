@@ -149,6 +149,10 @@
           "mode": "0777"
         },
         {
+          "path": "/var/lib/foundation-platform/data-go-kr-file-collect",
+          "mode": "0755"
+        },
+        {
           "path": "/var/lib/foundation-platform/juso-electronic-map",
           "mode": "0755"
         },
