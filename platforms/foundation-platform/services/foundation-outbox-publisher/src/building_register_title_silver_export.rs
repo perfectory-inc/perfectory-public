@@ -2,7 +2,8 @@
 //!
 //! Reads one national title snapshot zip out of the local Bronze mirror, normalizes every line
 //! through `building_register_title_silver_plan`, and writes the Silver handoff JSONL that
-//! `silver_scalar_handoff_to_lakehouse.py` loads into `silver.building_register_titles`.
+//! the lane's `DuckDB` load appends to `silver.building_register_titles` (`duckdb_release`,
+//! root ADR-0599).
 //!
 //! What the three sibling exports taught, kept:
 //!

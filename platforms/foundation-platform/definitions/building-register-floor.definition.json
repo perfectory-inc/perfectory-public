@@ -90,13 +90,5 @@
         "hubgokr__building_register_floor_overview"
       ]
     }
-  ],
-  "host_memory": {
-    "building_register_floor": [
-      {
-        "project": "foundation-platform-compute",
-        "service": "lakehouse-control"
-      }
-    ]
-  }
+  ]
 }

@@ -89,7 +89,8 @@
       "status": "implemented",
       "via": [
         "export-building-register-unit-area-silver-handoff",
-        "platforms/foundation-platform/scripts/ops/silver-refresh.sh"
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_register_unit_areas_silver.py"
       ],
       "source_slugs": [
         "hubgokr__building_register_exclusive_common_area"

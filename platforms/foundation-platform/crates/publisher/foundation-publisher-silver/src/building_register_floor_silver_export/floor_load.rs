@@ -308,9 +308,10 @@ fn run_summary(
     Ok(summary)
 }
 
-/// Where a dry run keeps the files it staged, under its work directory: the stage removes its own
-/// when it ends, and the engine verdict compares these with the table (the code that would commit
-/// is the code that stages).
+/// Where a dry run keeps the files it staged, under its work directory.
+///
+/// The stage removes its own when it ends; the engine verdict compares these with the table (the
+/// code that would commit is the code that stages).
 pub const VERDICT_STAGED: &str = "verdict-staged";
 
 fn keep_for_verdict(work: &Path, files: &[StagedFile]) -> anyhow::Result<()> {

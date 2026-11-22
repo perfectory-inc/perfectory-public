@@ -32,6 +32,6 @@ ProtectHome=true
 ProtectSystem=strict
 # foundation-release.sh timers derives ReadWritePaths from its dedicated namespace policy.
 # Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
-MemoryHigh=460M
-MemoryMax=512M
+MemoryHigh=4608M
+MemoryMax=5G
 OOMScoreAdjust=500

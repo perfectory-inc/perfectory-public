@@ -5,7 +5,8 @@
 //! runs the land CSV exports once per 시도 (`land_use_silver_export`, same environment names). Both
 //! members stream from the archive feature by feature (`SequentialShapefileReader`), so the largest
 //! served layer never sits in memory whole; the geometry is reprojected to EPSG:4326 by the shared
-//! reader and written as WKB hex, which `silver_scalar_handoff_to_lakehouse.py` decodes.
+//! reader and written as WKB hex, which the lane's `DuckDB` load decodes (`duckdb_release`,
+//! root ADR-0599).
 
 use std::{
     collections::BTreeMap,
