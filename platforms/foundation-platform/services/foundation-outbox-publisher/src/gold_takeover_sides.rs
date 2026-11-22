@@ -5,9 +5,9 @@
 //! shadow.
 //!
 //! `export-gold-takeover-sides` writes both as Parquet with the columns they share and a
-//! `sides.json` naming them, for one 시도 only (ADR-0559 §5: the byte comparison is one 시도, the
-//! switch's full re-bake is the national one); beside it, it checks the whole of both sides by
-//! aggregates alone (`checks.json`: rows, unique keys, non-null counts per column), copying nothing; `query-takeover-sides` runs one SQL statement over the two files and
+//! `sides.json` naming them, for one 시도 only (root ADR-0559 and ADR-0564 revisions of 2026-11-22);
+//! beside it, it checks the whole of both sides by aggregates alone, copying nothing (`checks.json`:
+//! rows, unique keys, the key hash sum, the `row_digest` sum, non-null counts per column); `query-takeover-sides` runs one SQL statement over the two files and
 //! prints its rows as JSON, so `engine_equality.py` reaches its verdict through this `DuckDB` (the
 //! release images have no Python `duckdb`).
 //!
@@ -43,68 +43,98 @@ const PER_COMMIT_STAMPS: [&str; 2] = ["source_snapshot_id", "published_at_utc"];
 const DIGEST: &str = "row_digest";
 /// The 시도 compared when the verdict names none: 경기도, the largest (ADR-0559's measurements).
 pub(crate) const DEFAULT_SIDO: &str = "41";
-/// The key columns a 시도 is read from, in order: both begin with the 시도 code (a PNU, and a
-/// region code of any level).
+/// The key columns a 시도 is read from, in order: both begin with the 시도 code (a PNU; a region
+/// code of every level the region stats hold, `legal_dong` and `sigungu`).
 const SIDO_COLUMNS: [&str; 2] = ["pnu", "region_code"];
+/// Hex digits of `row_digest` read as a number, as the Gold fingerprint reads them
+/// (`gold_fingerprint.HEX_DIGITS`, `gold_versions_commit`'s fingerprint).
+const DIGEST_HEX_DIGITS: usize = 15;
 
-/// The predicate that keeps the rows of `sido` (two digits) by the first key column that holds a
-/// 시도 code.
+/// The predicate that keeps the rows of `sido` (two digits) by the first of [`SIDO_COLUMNS`] the
+/// key holds, as a range so `DuckDB` skips the files whose bounds lie outside it.
 fn sido_predicate(keys: &[&str], sido: &str) -> anyhow::Result<String> {
-    ensure!(
-        sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()),
-        "the 시도 {sido:?} is not a two-digit code"
-    );
+    let number: u8 = sido
+        .parse()
+        .ok()
+        .filter(|_| sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()))
+        .with_context(|| format!("the 시도 {sido:?} is not a two-digit code"))?;
+    ensure!(number < 99, "the 시도 {sido} has no next code to bound it");
     let column = SIDO_COLUMNS
         .into_iter()
         .find(|column| keys.contains(column))
         .with_context(|| format!("no key of {keys:?} holds a 시도 code ({SIDO_COLUMNS:?})"))?;
-    Ok(format!("substr({column}, 1, 2) = '{sido}'"))
+    Ok(format!(
+        "({column} >= '{sido}' AND {column} < '{:02}')",
+        number + 1
+    ))
 }
 
-/// What the whole of one side holds, by aggregates alone.
+/// What the whole of one side holds, by aggregates alone, read in one pass.
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
 struct SideCounts {
     rows: i64,
     keys: i64,
+    /// The sum of a hash of each row's key: the same keys on both sides, not only as many.
+    key_hash_sum: String,
+    /// The Gold fingerprint's digest sum (`row_digest`'s first hex digits as a number), when the
+    /// table has a digest: the same content on both sides, not only as many values.
+    digest_sum: Option<String>,
     /// Non-null values per compared column, in the columns' order.
     non_null: Vec<(String, i64)>,
 }
 
-/// The rows, distinct keys and non-null count of each of `columns` that `query` returns.
+/// The rows, distinct keys, key hash sum, digest sum and non-null count of each of `columns` that
+/// `query` returns, in one aggregate.
 fn side_counts(
     connection: &Connection,
     query: &str,
     keys: &[&str],
     columns: &[&str],
 ) -> anyhow::Result<SideCounts> {
+    let key_list = keys.join(", ");
+    let distinct = if keys.len() == 1 {
+        key_list.clone()
+    } else {
+        format!("({key_list})")
+    };
+    let digest = columns.contains(&DIGEST).then(|| {
+        format!(
+            "CAST(coalesce(sum(CAST(('0x' || substr({DIGEST}, 1, {DIGEST_HEX_DIGITS})) AS HUGEINT)), 0) \
+             AS VARCHAR)"
+        )
+    });
     let counted = columns
         .iter()
         .map(|column| format!("count({column})"))
         .collect::<Vec<_>>()
         .join(", ");
-    let key_list = keys.join(", ");
     let sql = format!(
-        "WITH side AS ({query}) SELECT count(*), \
-           (SELECT count(*) FROM (SELECT DISTINCT {key_list} FROM side)), {counted} FROM side"
+        "SELECT count(*), count(DISTINCT {distinct}), \
+           CAST(coalesce(sum(CAST(hash({key_list}) AS HUGEINT)), 0) AS VARCHAR), {}, {counted} \
+         FROM ({query})",
+        digest.as_deref().unwrap_or("CAST(NULL AS VARCHAR)")
     );
     let width = columns.len();
     connection
         .query_row(&sql, [], |row| {
             let mut non_null = Vec::with_capacity(width);
             for (index, column) in columns.iter().enumerate() {
-                non_null.push(((*column).to_owned(), row.get(index + 2)?));
+                non_null.push(((*column).to_owned(), row.get(index + 4)?));
             }
             Ok(SideCounts {
                 rows: row.get(0)?,
                 keys: row.get(1)?,
+                key_hash_sum: row.get(2)?,
+                digest_sum: row.get(3)?,
                 non_null,
             })
         })
         .context("DuckDB failed to count a side")
 }
 
-/// The national result checks: each side's keys unique, and both sides the same rows and the same
-/// non-null count in every column. Returns what failed, empty when every check holds.
+/// The national result checks: each side's keys unique, and both sides the same rows, the same
+/// keys (hash sum), the same content (digest sum) and the same non-null count in every column.
+/// Returns what failed, empty when every check holds.
 fn failed_checks(reference: &SideCounts, candidate: &SideCounts) -> Vec<String> {
     let mut failed = Vec::new();
     for (name, side) in [("reference", reference), ("candidate", candidate)] {
@@ -115,20 +145,41 @@ fn failed_checks(reference: &SideCounts, candidate: &SideCounts) -> Vec<String> 
             ));
         }
     }
+    let mut differ = |what: &str, left: &dyn std::fmt::Debug, right: &dyn std::fmt::Debug| {
+        failed.push(format!("{what}: reference {left:?} candidate {right:?}"));
+    };
     if reference.rows != candidate.rows {
-        failed.push(format!(
-            "rows: reference {} candidate {}",
-            reference.rows, candidate.rows
-        ));
+        differ("rows", &reference.rows, &candidate.rows);
+    }
+    if reference.key_hash_sum != candidate.key_hash_sum {
+        differ(
+            "key hash sum",
+            &reference.key_hash_sum,
+            &candidate.key_hash_sum,
+        );
+    }
+    if reference.digest_sum != candidate.digest_sum {
+        differ("digest sum", &reference.digest_sum, &candidate.digest_sum);
     }
     for ((column, left), (_, right)) in reference.non_null.iter().zip(&candidate.non_null) {
         if left != right {
-            failed.push(format!(
-                "{column} non-null: reference {left} candidate {right}"
-            ));
+            differ(&format!("{column} non-null"), left, right);
         }
     }
     failed
+}
+
+/// Refuses a 시도 the reference holds no row of: an empty 시도 would be `equal` on nothing.
+fn ensure_sido_holds_rows(connection: &Connection, query: &str, sido: &str) -> anyhow::Result<i64> {
+    let rows: i64 =
+        connection.query_row(&format!("SELECT count(*) FROM ({query})"), [], |row| {
+            row.get(0)
+        })?;
+    ensure!(
+        rows > 0,
+        "the reference holds no row in 시도 {sido}: name a 시도 the table has"
+    );
+    Ok(rows)
 }
 
 fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
@@ -264,11 +315,10 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         checks_path.display(),
         failed.join("; ")
     );
+    let reference_sido = format!("SELECT {listed} FROM {reference_source} WHERE {in_sido}");
+    let sido_rows = ensure_sido_holds_rows(connection, &reference_sido, &sido)?;
     for (name, query) in [
-        (
-            "reference",
-            format!("SELECT {listed} FROM {reference_source} WHERE {in_sido}"),
-        ),
+        ("reference", reference_sido),
         (
             "candidate",
             latest.current_rows_sql(&candidate_source, &columns, &in_sido),
@@ -294,7 +344,7 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         "table": table, "replaced": replaced_name,
         "reference_snapshot": shadow.build.to_string(), "candidate_snapshot": candidate.to_string(),
         "pins": shadow.pins, "keys": keys, "content": content, "digest": digest,
-        "sido": sido, "rows_nationally": reference_counts.rows,
+        "sido": sido, "sido_rows": sido_rows, "rows_nationally": reference_counts.rows,
     });
     let path = work.join("sides.json");
     std::fs::write(&path, serde_json::to_vec_pretty(&sides)?)
@@ -416,45 +466,93 @@ mod tests {
 
     #[test]
     fn a_verdict_reads_one_sido_by_the_key_that_holds_it() -> anyhow::Result<()> {
-        assert_eq!(sido_predicate(&["pnu"], "41")?, "substr(pnu, 1, 2) = '41'");
         assert_eq!(
-            sido_predicate(&["dataset_slug", "region_level", "region_code"], "11")?,
-            "substr(region_code, 1, 2) = '11'"
+            sido_predicate(&["pnu"], "41")?,
+            "(pnu >= '41' AND pnu < '42')"
+        );
+        assert_eq!(
+            sido_predicate(&["dataset_slug", "region_level", "region_code"], "09")?,
+            "(region_code >= '09' AND region_code < '10')"
         );
         assert!(sido_predicate(&["complex_id"], "41").is_err());
-        for bad in ["4", "411", "4'", "ab"] {
+        for bad in ["4", "411", "4'", "ab", "+1", "99"] {
             assert!(sido_predicate(&["pnu"], bad).is_err(), "{bad} was taken");
         }
         Ok(())
     }
 
+    /// The contract's current-row rule with the 시도 range, on the region stats' five-column key:
+    /// only the 시도's keys, each at its newest version, a removed one gone.
     #[test]
-    fn national_checks_count_rows_keys_and_nulls_without_comparing_rows() -> anyhow::Result<()> {
+    fn the_current_rows_of_a_multi_column_key_are_read_for_one_sido() -> anyhow::Result<()> {
+        let versions = contract("gold.real_transaction_region_stats_versions")?;
+        let latest = versions
+            .current_row_latest()
+            .context("a versions table has a current-row rule")?;
         let connection = Connection::open_in_memory()?;
         connection.execute_batch(
-            "CREATE TABLE a (pnu VARCHAR, v VARCHAR); \
-             INSERT INTO a VALUES ('4199900000000000001', 'x'), ('1199900000000000001', NULL); \
-             CREATE TABLE b (pnu VARCHAR, v VARCHAR); \
-             INSERT INTO b VALUES ('4199900000000000001', 'y'), ('1199900000000000001', NULL); \
-             CREATE TABLE c (pnu VARCHAR, v VARCHAR); \
-             INSERT INTO c VALUES ('4199900000000000001', 'x'), ('4199900000000000001', 'z');",
+            "CREATE TABLE v (dataset_slug VARCHAR, region_level VARCHAR, region_code VARCHAR, \
+               period_kind VARCHAR, period VARCHAR, n BIGINT, version_seq BIGINT, row_state VARCHAR); \
+             INSERT INTO v VALUES \
+               ('d', 'sigungu', '41999', 'month', '209901', 1, 1, NULL), \
+               ('d', 'sigungu', '41999', 'month', '209901', 2, 2, NULL), \
+               ('d', 'legal_dong', '4199900000', 'month', '209901', 3, 1, NULL), \
+               ('d', 'legal_dong', '4199900000', 'month', '209901', 3, 2, 'removed'), \
+               ('d', 'sigungu', '11999', 'month', '209901', 4, 1, NULL);",
+        )?;
+        let predicate = sido_predicate(latest.key, "41")?;
+        let mut columns: Vec<&str> = latest.key.to_vec();
+        columns.push("n");
+        let query = latest.current_rows_sql("v", &columns, &predicate);
+        let kept: Vec<(String, i64)> = connection
+            .prepare(&format!("SELECT region_code, n FROM ({query}) ORDER BY 1"))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        assert_eq!(kept, [("41999".to_owned(), 2)]);
+        assert_eq!(ensure_sido_holds_rows(&connection, &query, "41")?, 1);
+        let empty = latest.current_rows_sql("v", &columns, &sido_predicate(latest.key, "42")?);
+        assert!(ensure_sido_holds_rows(&connection, &empty, "42").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn national_checks_see_counts_keys_and_content_without_comparing_rows() -> anyhow::Result<()> {
+        let connection = Connection::open_in_memory()?;
+        connection.execute_batch(
+            "CREATE TABLE a (pnu VARCHAR, v VARCHAR, row_digest VARCHAR); \
+             INSERT INTO a VALUES ('4199900000000000001', 'x', 'aa'), ('1199900000000000001', NULL, 'bb'); \
+             CREATE TABLE same AS SELECT * FROM a; \
+             CREATE TABLE changed AS SELECT pnu, v, CASE WHEN v = 'x' THEN 'ab' ELSE row_digest END \
+               AS row_digest FROM a; \
+             CREATE TABLE swapped AS SELECT replace(pnu, '11999', '26999') AS pnu, v, row_digest FROM a; \
+             CREATE TABLE tied (pnu VARCHAR, v VARCHAR, row_digest VARCHAR); \
+             INSERT INTO tied VALUES ('4199900000000000001', 'x', 'aa'), ('4199900000000000001', 'z', 'bb');",
         )?;
         let count = |table: &str| {
             side_counts(
                 &connection,
-                &format!("SELECT pnu, v FROM {table}"),
+                &format!("SELECT pnu, v, row_digest FROM {table}"),
                 &["pnu"],
-                &["pnu", "v"],
+                &["pnu", "v", "row_digest"],
             )
         };
-        let (a, b, c) = (count("a")?, count("b")?, count("c")?);
-        // Different values, the same counts: the national checks pass; the 시도's bytes judge them.
-        assert!(failed_checks(&a, &b).is_empty());
-        let failed = failed_checks(&a, &c);
-        assert!(failed
+        let a = count("a")?;
+        assert!(failed_checks(&a, &count("same")?).is_empty());
+        let changed = failed_checks(&a, &count("changed")?);
+        assert!(
+            changed.iter().any(|line| line.starts_with("digest sum")),
+            "{changed:?}"
+        );
+        let swapped = failed_checks(&a, &count("swapped")?);
+        assert!(
+            swapped.iter().any(|line| line.starts_with("key hash sum")),
+            "{swapped:?}"
+        );
+        let tied = failed_checks(&a, &count("tied")?);
+        assert!(tied
             .iter()
             .any(|line| line.starts_with("candidate holds 2 rows on 1 keys")));
-        assert!(failed.iter().any(|line| line.starts_with("v non-null")));
+        assert!(tied.iter().any(|line| line.starts_with("v non-null")));
         Ok(())
     }
 
