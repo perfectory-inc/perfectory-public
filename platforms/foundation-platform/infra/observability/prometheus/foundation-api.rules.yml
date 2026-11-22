@@ -917,11 +917,13 @@ groups:
         # ticket, fired for two weeks while the kernel killed it 69 times (root ADR-0573). Over half of
         # a day near its cap pages: by then the ticket was not read.
         # The share of a whole day's 96 quarter-hours, so a container younger than a day is not
-        # 100% of its few samples.
+        # 100% of its few samples. Docker containers only, and their anonymous memory: a unit is
+        # FoundationUnitNearItsLimit's, and the working set counts active page cache, which would page
+        # a cache-heavy container (opensearch, kafka) every day (root ADR-0574 §5).
         expr: >-
           sum_over_time((
-            container_memory_working_set_bytes{id=~"/system.slice/.+"}
-            / (container_spec_memory_limit_bytes{id=~"/system.slice/.+"} > 0) > bool 0.9
+            container_memory_rss{id=~"/system.slice/docker-.+"}
+            / (container_spec_memory_limit_bytes{id=~"/system.slice/docker-.+"} > 0) > bool 0.9
           )[24h:15m]) / 96 > 0.5
         labels:
           severity: page

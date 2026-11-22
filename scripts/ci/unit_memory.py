@@ -176,6 +176,15 @@ def instance_problems(root: pathlib.Path, section: dict, room: int | None) -> li
     return found
 
 
+def job_entries(root: pathlib.Path, jobs_relative: str) -> dict[str, dict]:
+    """{job id: its memory as a systemd_units entry}, for every job that states it (root ADR-0574 §8)."""
+    fields = {"memory_max": "memory_max", "memory_measured_peak": "measured_peak",
+              "memory_measured": "measured", "memory_headroom_why": "headroom_why"}
+    jobs = json.loads((root / jobs_relative).read_text(encoding="utf-8"))
+    return {job["id"]: {"class": "batch", **{key: job[field] for field, key in fields.items() if field in job}}
+            for job in jobs["jobs"] if "memory_max" in job}
+
+
 def problems(root: pathlib.Path, contract: dict, room: int | None = None) -> list[str]:
     """Every way the units and `systemd_units` disagree. `room` is what one unit may hold beside every
     standing service and host_reserved; a cap above it alone could take the host down."""
@@ -203,6 +212,13 @@ def problems(root: pathlib.Path, contract: dict, room: int | None = None) -> lis
         except (UnitMemoryError, KeyError, TypeError) as error:
             found.append(f"{where}: {error}")
     found.extend(instance_problems(root, section, room))
+    # Every job's own memory, not only the one a unit's entry came from: jobs at their template's cap
+    # share its entry, and each one's measured peak must still be under its cap with headroom.
+    for job_id, entry in sorted(job_entries(root, section["jobs"]).items()):
+        try:
+            entry_problem(entry, section, room, True)
+        except (UnitMemoryError, KeyError, TypeError) as error:
+            found.append(f"{section['jobs']}: job {job_id}: {error}")
     return found
 
 

@@ -289,12 +289,16 @@ def job_memory(documents):
             raise DefinitionError(f"{PLATFORM_FILE}: systemd_units.unit_files {file}: a job runs it, so its memory is the "
                                   f"job's memory_max ({job['id']}); remove the entry")
         entry = {"class": "batch", **{key: job[field] for field, key in JOB_MEMORY.items() if field in job}}
+        # Two jobs that run one service state one memory: the unit cannot hold two.
+        same = next((item for item in by_file.get(file, []) if item[0] == service), None)
+        if same is not None:
+            if same[2] != entry:
+                raise DefinitionError(f"{service}: jobs {same[3]} and {job['id']} run it and state different memory")
+            continue
         by_file.setdefault(file, []).append((service, size_bytes(job["id"], job["memory_max"]), entry, job["id"]))
     instances = {}
     for file, held in by_file.items():
         largest = max(held, key=lambda item: item[1])
-        if "@." not in file and any(entry != largest[2] for _service, _cap, entry, _job in held):
-            raise DefinitionError(f"{file}: jobs {', '.join(item[3] for item in held)} share it and state different memory")
         declared[file] = largest[2]
         for service, cap, entry, _job in held:
             if "@." in file and cap != largest[1]:

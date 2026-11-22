@@ -352,10 +352,18 @@ def repository_file(relative: str, what: str) -> pathlib.Path:
 
 
 def unit_memory_max(units: pathlib.Path, service: str) -> int:
-    """MemoryMax of the unit file a job's service is installed from (a template for name@x)."""
+    """MemoryMax of a job's service: its instance's own memory drop-in when it has one (root ADR-0574 §8:
+    an instance whose job holds less than its template), else the unit file it is installed from (a
+    template for name@x)."""
     match = re.fullmatch(r"([a-z0-9-]+)(@[a-z0-9-]+)?\.service", service)
     if not match:
         raise ValueError(f"{service!r} is not a service name")
+    dropin = units / f"{service}.d" / unit_memory.DROPIN
+    if match.group(2) and dropin.is_file():
+        own = UNIT_MEMORY.findall(dropin.read_text(encoding="utf-8"))
+        if len(own) != 1:
+            raise ValueError(f"{dropin.relative_to(ROOT).as_posix()} states MemoryMax {len(own)} times, not once")
+        return int(own[0][0]) * UNIT[own[0][1].lower()]
     unit = units / (match.group(1) + ("@" if match.group(2) else "") + ".service")
     found = UNIT_MEMORY.findall(unit.read_text(encoding="utf-8")) if unit.is_file() else None
     if not found:

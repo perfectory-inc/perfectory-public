@@ -63,3 +63,11 @@ python3 scripts/ci/unit_memory.py --write                # 유닛과 인스턴�
 cargo run -q -p foundation-jobs -- generate              # platforms/foundation-platform 에서: TimeoutStartSec 과 그 드롭인
 bash scripts/guard/every-container-has-a-memory-cap.sh   # 합이 호스트에 드는지
 ```
+
+배포는 드롭인을 깔고 `daemon-reload` 한다; 새 한도는 그 인스턴스의 다음 시작부터다. 드롭인을 모르는 이전 릴리스로 되돌렸다면
+남은 드롭인을 지운다(그 인스턴스는 템플릿 값으로 돌아간다):
+
+```sh
+sudo rm -f /etc/systemd/system/foundation-*@*.service.d/50-time-limit.conf /etc/systemd/system/foundation-*@*.service.d/50-memory.conf
+sudo systemctl daemon-reload
+```

@@ -64,11 +64,11 @@ tests:
   # ADR-0573). A Spark container near its cap for two hours of a load does not page.
   - interval: 15m
     input_series:
-      - series: 'container_memory_working_set_bytes{id="/system.slice/docker-api.scope"}'
+      - series: 'container_memory_rss{id="/system.slice/docker-api.scope"}'
         values: '530000000x95 100000000 530000000x4'
       - series: 'container_spec_memory_limit_bytes{id="/system.slice/docker-api.scope"}'
         values: '536870912x100'
-      - series: 'container_memory_working_set_bytes{id="/system.slice/docker-spark.scope"}'
+      - series: 'container_memory_rss{id="/system.slice/docker-spark.scope"}'
         values: '100000000x87 2600000000x8 100000000x4'
       - series: 'container_spec_memory_limit_bytes{id="/system.slice/docker-spark.scope"}'
         values: '2684354560x100'

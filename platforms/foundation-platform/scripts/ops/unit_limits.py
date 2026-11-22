@@ -57,12 +57,12 @@ NEAR = 0.8
 # over memory.high when it returns to user space, so a peak may pass MemoryHigh by up to that much while
 # the kernel is giving page cache back (include/linux/memcontrol.h, mm/memcontrol.c try_charge_memcg and
 # mem_cgroup_handle_over_high, Linux v6.8, the host's kernel; cgroup-v2.rst: "the limit may be breached").
-# systemd's memory peak counts page cache, so a peak within that of MemoryHigh is not memory the unit holds
-# (root ADR-0574 §4). 2026-11-22: 20 units' peaks sat 0.5-3.4 MiB above their MemoryHigh, 90% of MemoryMax,
-# on every run, and would have raised the near alert forever.
+# systemd's memory peak counts page cache, so a peak in that band from MemoryHigh up is reclaim at work, and
+# the journal cannot tell cache the kernel was giving back from memory the unit held (root ADR-0574 §1; a
+# heuristic: a huge-page charge or a task's pending over-high pages can pass it). 2026-11-22: 20 units'
+# peaks sat 0.5-3.4 MiB above their MemoryHigh, 90% of MemoryMax, on every run, and would have raised the
+# near alert forever.
 MEMCG_CHARGE_BATCH = 64
-# Consecutive newest runs near a limit before the rule raises it (root ADR-0574 §4).
-NEAR_RUNS = 3
 DURATION = re.compile(r"([0-9]+(?:\.[0-9]+)?)(us|ms|min|s|h|d|w)?")
 JOURNAL_FIELDS = "UNIT,MESSAGE_ID,MESSAGE,MEMORY_PEAK,UNIT_RESULT,__REALTIME_TIMESTAMP"
 SHOWN = ("Id", "MemoryMax", "MemoryHigh", "TimeoutStartUSec", "RuntimeMaxUSec", "Type")
@@ -208,12 +208,18 @@ def reclaim_slack(cpus: int | None = None, page: int | None = None) -> int:
     return MEMCG_CHARGE_BATCH * page * (cpus or os.cpu_count() or 1)
 
 
+def counted(run: Run) -> bool:
+    """Whether the run counts toward a near streak: a run killed at a limit is reported as that failure
+    (root ADR-0574 §6), so it starts the streaks again instead of adding to them."""
+    return run.outcome not in ("oom-kill", "timeout")
+
+
 def held(run: Run, memory_high: int | None, slack: int) -> bool:
-    """Whether the run held its peak: killed at its cap, past MemoryHigh by more than reclaim lets a
-    peak pass it, or with no MemoryHigh to reclaim at."""
-    if run.outcome == "oom-kill":
-        return True
-    return run.peak is not None and (memory_high is None or run.peak > memory_high + slack)
+    """Whether the run's peak is one the journal can say the unit held: any peak except one in the band
+    from MemoryHigh to MemoryHigh plus reclaim's slack, where the kernel pins a cache-filled cgroup."""
+    if run.peak is None or not counted(run):
+        return False
+    return memory_high is None or not memory_high <= run.peak <= memory_high + slack
 
 
 def near_streak(ratios: list[float | None]) -> int:
@@ -230,7 +236,8 @@ def row(name: str, unit_runs: list[Run], unit: dict, slack: int | None = None) -
     """One unit's line: declared limits, measured peak and run time, the failures, and its state.
 
     A memory peak is near its limit only when the run held it (`held`): a peak the kernel was reclaiming
-    at MemoryHigh is page cache, and `memory_share` shows it all the same.
+    at MemoryHigh may be page cache, and `memory_share` shows it all the same. A run killed at a limit
+    ends both streaks: it is that failure's (root ADR-0574 §6).
     """
     slack = reclaim_slack() if slack is None else slack
     memory_max = limit_bytes(unit.get("MemoryMax"))
@@ -244,7 +251,7 @@ def row(name: str, unit_runs: list[Run], unit: dict, slack: int | None = None) -
     memory_ratios = [run.peak / memory_max if memory_max and run.peak is not None and held(run, memory_high, slack)
                      else None for run in finished]
     held_peaks = [run.peak for run in finished if run.peak is not None and held(run, memory_high, slack)]
-    time_ratios = [run.seconds / seconds_limit if seconds_limit else None for run in finished]
+    time_ratios = [run.seconds / seconds_limit if seconds_limit and counted(run) else None for run in finished]
     line = {
         "unit": name,
         "runs": len(finished),
@@ -310,11 +317,11 @@ def markdown(rows: list[dict]) -> str:
     return head + body
 
 
-TEXTFILE_HELP = """# HELP foundation_unit_runs_near_limit How many of a unit's newest runs, back from the last, reached 80% of its memory or time limit (root ADR-0574 §4).
+TEXTFILE_HELP = """# HELP foundation_unit_runs_near_limit How many of a unit's newest runs, back from the last, reached 80% of its memory (a peak it held) or time limit (root ADR-0574 §1, §5).
 # TYPE foundation_unit_runs_near_limit gauge
 # HELP foundation_unit_limit_share The newest finished run's measured peak memory or run time as a share of the unit's limit.
 # TYPE foundation_unit_limit_share gauge
-# HELP foundation_unit_limits_measured_seconds When the reconciler last measured the units' runs against their limits.
+# HELP foundation_unit_limits_measured_seconds When foundation-unit-limits last measured the units' runs against their limits.
 # TYPE foundation_unit_limits_measured_seconds gauge
 """
 
@@ -364,9 +371,31 @@ def listed_units(systemctl: str = "systemctl") -> set[str]:
     return {name for line in listed.splitlines() if line.strip() and "@." not in (name := line.split()[0])}
 
 
+class EmptyJournal(RuntimeError):
+    pass
+
+
+def read_runs(lines) -> dict[str, list[Run]]:
+    """`runs` of the lines, refusing none at all: an account outside systemd-journal sees no system
+    lines and would write every streak as 0 with a fresh file, so no rule would ever fire."""
+    seen = 0
+
+    def counting():
+        nonlocal seen
+        for line in lines:
+            seen += 1
+            yield line
+
+    by_unit = runs(counting())
+    if not seen:
+        raise EmptyJournal("journalctl returned no systemd lines in the window: can this account read the "
+                           "system journal (SupplementaryGroups=systemd-journal)?")
+    return by_unit
+
+
 def measure(now: float, since: str = "-14d") -> str:
     """The textfile, from the host's journal and systemd, read-only."""
-    by_unit = attribute_scopes(runs(journal(since)))
+    by_unit = attribute_scopes(read_runs(journal(since)))
     shown = show(sorted(listed_units() | set(by_unit)))
     names = sorted(set(by_unit) | {name for name in shown if name.endswith(".service")})
     rows = [row(name, by_unit.get(name, []), shown.get(name, {})) for name in names]
@@ -465,7 +494,7 @@ def main(argv=None) -> int:
         with open(args.journal, encoding="utf-8", errors="replace") as handle:
             by_unit = attribute_scopes(runs(handle))
     else:
-        by_unit = attribute_scopes(runs(journal(args.since)))
+        by_unit = attribute_scopes(read_runs(journal(args.since)))
     if args.declared:
         with open(args.declared, encoding="utf-8") as handle:
             shown = declared(handle.read())

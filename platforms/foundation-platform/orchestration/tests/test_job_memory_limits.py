@@ -84,6 +84,38 @@ class TheJobStatesItsUnitsMemory(unittest.TestCase):
             declared.job_memory(documents([job("a", "foundation-y.service", None)]))
 
 
+    def test_jobs_that_run_one_service_must_state_one_memory(self):
+        # EGM 2026-11-22: two jobs on one instance left the smaller cap, whichever came last.
+        built = documents([job("big", "foundation-x@big.service", "8G"),
+                           job("one", "foundation-x@shared.service", "2G"),
+                           job("two", "foundation-x@shared.service", "4G")])
+        with self.assertRaisesRegex(declared.DefinitionError, "run it and state different memory"):
+            declared.job_memory(built)
+
+
+class EveryJobsMemoryIsChecked(unittest.TestCase):
+    def test_a_job_at_its_templates_cap_is_held_to_its_own_measured_peak(self):
+        # EGM 2026-11-22: jobs that tie at the template's cap share one entry, so only that job's
+        # measured peak met the 1.5 x rule; the 33 silver-refresh@ lanes at 16G are this case.
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "units").mkdir()
+            (root / "units" / TEMPLATE).write_text(UNIT, encoding="utf-8")
+            (root / "jobs.v1.json").write_text(json.dumps({"jobs": [
+                job("a", "foundation-x@a.service", "8G", memory_measured_peak="1G"),
+                job("b", "foundation-x@b.service", "8G", memory_measured_peak="7G")]}), encoding="utf-8")
+            contract = {"systemd_units": {
+                "units": "units", "jobs": "jobs.v1.json", "memory_max_over_peak": 1.5, "memory_high_of_max": 0.9,
+                "floor": "128M", "classes": {"batch": {"oom_score_adjust": 500}},
+                "unit_files": {TEMPLATE: {"class": "batch", "memory_max": "8G", "measured": "fixture a",
+                                          "measured_peak": "1G"}},
+                "instances": {}}}
+            unit_memory.write(root, contract)
+            found = unit_memory.problems(root, contract)
+            self.assertEqual(len(found), 1, found)
+            self.assertIn("job b: memory_max 8G is under 1.5 x the measured peak 7G", found[0])
+
+
 class AnInstanceGetsItsDropIn(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

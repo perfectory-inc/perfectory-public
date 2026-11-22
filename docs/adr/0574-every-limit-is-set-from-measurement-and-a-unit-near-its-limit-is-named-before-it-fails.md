@@ -1,13 +1,14 @@
 # ADR 0574: 모든 한도는 측정으로 정하고, 한도 가까운 유닛은 죽기 전에 이름이 불린다
 
 - Status: Accepted
-- Date: 2026-11-19 (2026-11-22: §1·§5 근접 규칙과 측정, §8 작업 정의의 한도·인스턴스 드롭인)
+- Date: 2026-11-19 (2026-11-22: §1·§2·§4·§5·§6 근접 규칙과 측정, §8 작업 정의의 한도·인스턴스 드롭인; EGM 검토 반영)
 - Builds on: [ADR-0455](./0455-one-job-cannot-take-the-host-every-unit-declares-its-memory-and-batch-is-killed-first.md)(유닛마다 메모리 상한, `memory_max ≥ 1.5 × measured_peak`),
   [ADR-0386](./0386-every-job-states-its-per-run-bound-in-one-vocabulary-and-its-measured-runs-fit-its-unit.md)(run 시간 ≤ 제한의 90%),
   [ADR-0391](./0391-a-silver-refresh-run-starts-no-step-its-measured-time-cannot-finish-and-a-batch-reads-back-only-its-own-commit.md)(잰 단계 시간으로 마감),
   [ADR-0385](./0385-the-host-says-when-its-disk-memory-or-a-cap-runs-out-and-each-rule-is-tested-by-promtool.md)(promtool 로 시험한 경보),
   [ADR-0445](./0445-a-failed-host-unit-names-its-owner-and-runbook-and-a-unit-that-stays-failed-calls-its-owner.md)(실패한 유닛은 주인을 부른다),
-  ADR-0573(foundation-api 아레나, #1439)
+  [ADR-0573](./0573-the-foundation-api-caps-its-malloc-arenas-and-reads-a-few-tables-at-a-time.md)(foundation-api 아레나, #1439),
+  ADR-0418(선언 정의가 계약을 만든다), ADR-0563(작업의 `memory_claim`), ADR-0591(알림 묶음), ADR-0499(작업 코드 판)
 
 ## Context
 
@@ -53,75 +54,120 @@ near 11 개: autodeploy 3,225M/3.5G·onbid-collect 2,489M/3G·industrial-complex
 
 ## Decision
 
-1. **측정은 스크립트 하나가 다시 만든다.** `scripts/ops/unit_limits.py` 가 표의 정본이다(손으로 만든 표 없음). 호스트에서
-   `--table`(Markdown)·`--json`, `--prometheus` 를 주면 컨테이너까지. 읽기만 한다(`journalctl _PID=1` 의 여섯 종류 줄,
-   `systemctl show`, `docker ps`, Prometheus API, `journalctl -k`). 유닛 상태: 창 안에 OOM·timeout 이 있으면 `failing`,
-   시간의 최대나 **쥔** 메모리 최고점이 한도의 80% 이상이면 `near`, 아니면 `fits`. 메모리 최고점을 쥐었다는 것은 그 run 이
-   OOM 으로 죽었거나, 최고점이 `MemoryHigh` 를 커널의 회수 여유보다 넘었다는 것이다. 커널은 cgroup 에 CPU 마다
-   `MEMCG_CHARGE_BATCH`(64 쪽) 씩 청구하고, 사용자 공간으로 돌아갈 때 `memory.high` 를 넘은 몫을 되찾는다
-   (`include/linux/memcontrol.h`, `mm/memcontrol.c` `try_charge_memcg`·`mem_cgroup_handle_over_high`, 호스트 커널 Linux v6.8;
-   `cgroup-v2.rst`: "the limit may be breached"). 그래서 `MemoryHigh` + 64 쪽 × 4 KiB × CPU 수(ai-server 20 CPU: 5 MiB)
-   안의 최고점은 되찾던 페이지 캐시다. 2026-11-22 측정에서 20 유닛의 최고점이 모든 run 에서 `MemoryHigh` 를 0.5–3.4 MiB
-   넘어 있었다; 이 규칙 전에는 그 20 개가 늘 near 였다. 저널은 줄마다 흘려 읽는다(14 일 324k 줄을 쥐면 780 MB). 컨테이너는 유닛 run 하나가 품을 때만 그 유닛에 센다
-   (두 run 이 품으면 버린다: 다른 작업의 컨테이너를 붙이지 않는다). `job-run-times.py`(ADR-0386)는 작업 목록의 run 시간
-   블록을 쓰는 같은 저널 읽기다; 두 읽기의 run 경계는 같고(시작 → 끝 줄), 하나로 합치는 것은 그 블록을 다시 재는 PR 의 몫이다.
+1. **측정은 스크립트 하나가 다시 만든다.** `platforms/foundation-platform/scripts/ops/unit_limits.py` 가 표의 정본이다(손으로
+   만든 표 없음). 호스트에서 `--table`(Markdown)·`--json`, `--prometheus` 를 주면 컨테이너까지. 읽기만 한다(`journalctl _PID=1`
+   의 여섯 종류 줄, `systemctl show`, `docker ps`, Prometheus API, `journalctl -k`). 유닛 상태는 넷이다:
+   - `failing`: 창 안에 OOM 이나 timeout 이 있다.
+   - `near`: 시간의 최대가 한도의 80% 이상이거나, 메모리 최고점이 한도의 80% 이상이다. 다만 OOM·timeout 으로 끝난 run 은
+     빼고(§6 의 몫), `MemoryHigh` 와 `MemoryHigh` + 회수 여유 사이에 든 최고점도 뺀다(아래).
+   - `unmeasured`: 창 안에 끝난 run 이 없다.
+   - `fits`: 그 밖.
+   시간 한도는 `TimeoutStartSec`, 없으면 `RuntimeMaxSec` 이다. `MemoryHigh` 가 없는 유닛은 모든 최고점을 센다.
+
+   회수 여유는 이렇다. systemd 의 memory peak 는 cgroup `memory.peak` 이고 페이지 캐시를 포함한다. 커널은 cgroup 에 CPU 마다
+   `MEMCG_CHARGE_BATCH`(64 쪽)씩 청구하고, 사용자 공간으로 돌아갈 때 `memory.high` 를 넘은 몫을 되찾는다
+   (`include/linux/memcontrol.h`, `mm/memcontrol.c` `try_charge_memcg`·`mem_cgroup_handle_over_high`, 호스트 커널 Linux v6.8).
+   `cgroup-v2.rst` 도 "the limit may be breached" 라고 적는다. 그래서 캐시로 찬 cgroup 은 `MemoryHigh` 위 64 쪽 × 4 KiB × CPU
+   수(측정하는 호스트의 CPU 수; ai-server 20 CPU 에서 5 MiB) 안에 머문다. 저널만으로는 그 띠 안의 최고점이 되찾던 캐시인지
+   쥔 메모리인지 가를 수 없다. 이것은 어림이다: huge page 청구(512 쪽)나 한 작업에 쌓인 초과 청구는 그 띠를 넘을 수 있다.
+   2026-11-22 측정에서 20 유닛의 최고점이 모든 run 에서 `MemoryHigh` 를 0.5–3.4 MiB 넘어 있었다; 이 띠를 빼기 전에는 그 20 개가
+   늘 near 였다.
+
+   **재지 못하는 것.** (a) 쥔 메모리로 `MemoryHigh` 에 눌린 유닛(스왑이 없어 되찾지 못하고 느려지기만 함)은 그 띠에 들어 near 가
+   되지 않는다; 그런 유닛은 시간 near 나 timeout 으로 보인다(2026-11-21 silver-refresh 의 8G: `high` 사건 18,933 번, 61 분).
+   cgroup 의 `memory.events` 는 유닛이 끝나면 사라지고 저널에 남지 않는다. (b) 작업 유닛이 띄운 컨테이너(Spark·OCR)는 OOM 만
+   세고 근접은 재지 않는다(그 run 하나가 품을 때만 그 유닛에 붙이고, 두 run 이 품으면 버린다). 상주 컨테이너는 §5 의 cAdvisor
+   규칙이 본다.
+
+   `job-run-times.py`(ADR-0386)는 작업 목록의 run 시간 블록을 쓰는 다른 저널 읽기다. 두 읽기는 run 의 끝(resource 줄 대 실패 줄),
+   timeout 의 판정, 다시 시작의 처리가 다르다. 하나로 합치는 것은 그 블록을 다시 재는 PR 의 몫이다.
 2. **메모리 한도 = 잰 최고점 × 1.5**(ADR-0455 의 `memory_max_over_peak` 그대로, 바닥 128M). 창은 최근 14 일, 최고점은
    p95 가 아니라 최대다: p95 는 죽는 그 run 을 버린다. `memory.peak` 은 페이지 캐시를 포함하므로 최고점이 `MemoryHigh`
-   (0.9 × 상한)에 붙고 OOM 이 없으면 캐시를 되찾은 것이고 늘릴 이유가 아니다. **돌려주기:** 상한이 잰 p95 의 4 배를 넘고
-   `headroom_why` 가 없으면 예산을 쥐고만 있는 것이다; 그 상한을 1.5 × 최대로 내리는 PR 이 예산을 돌려준다. 다만 이미 결정된
-   경계(by-PNU 굽기 14G = 행 상한 샤드의 측정, ADR-0138)는 창 안의 run 이 그 경계를 쓰지 않았다고 내리지 않는다.
+   (0.9 × 상한)에 붙고 OOM 이 없으면 캐시를 되찾은 것이고 늘릴 이유가 아니다. 그래서 `memory_measured_peak`(§8)에 적는 값은
+   `--json` 의 `held_memory_share` 쪽, 곧 §1 이 센 최고점이다; 캐시까지 센 최고점을 적으면 1.5 배 가드가 상한을 올리고 캐시가
+   새 `MemoryHigh` 를 다시 채운다. **돌려주기:** 상한이 잰 p95 의 4 배를 넘고 `headroom_why` 가 없으면 예산을 쥐고만 있는
+   것이다; 그 상한을 1.5 × 최대로 내리는 PR 이 예산을 돌려준다. 다만 이미 결정된 경계(by-PNU 굽기 14G = 행 상한 샤드의 측정,
+   ADR-0138)는 창 안의 run 이 그 경계를 쓰지 않았다고 내리지 않는다.
 3. **시간 한도 = 잰 최장 run ≤ 제한의 90%**(ADR-0386 그대로). 입력과 함께 자라는 작업의 시간은 작업 전체가 아니라
    **선언된 작업 단위(샤드·묶음·객체)마다** 잰다: 단위의 잰 최장 시간으로 마감을 정하고 마감 뒤에는 새 단위를 시작하지
    않는다(ADR-0391 `step_seconds_max`, ADR-0386 `deadline`). 새 작업은 이 형태로만 켠다; 지금 작업 전체 시간만 가진 작업은
    ADR-0386 §5 의 열린 예외로 남는다.
 4. **입력이 자라 한도에 닿으면 한도가 아니라 성장을 고친다.** 잰 최고점이 입력 크기와 함께 자라는 작업(전국 색인·목록 전체·
    표 전체를 메모리에 드는 것)은 흘려 처리한다(ADR-0455 §7: 파일·조각으로 흘리고, 한 run 은 자기 몫만). 한도를 올리는 것은
-   측정이 그 크기가 작업의 고정된 몫임을 보일 때만이고, 그 PR 은 `tools/host-memory-budget.contract.json` 의 가드
-   (`every-container-has-a-memory-cap.sh`: 상주 합 + 가장 큰 일회성/풀 조합 + host_reserved ≤ 62g)를 통과한다. 예산 계약이
-   합의 정본이고 다른 곳에서 한도를 바꾸지 않는다.
-5. **근접은 죽기 전에 이름이 불린다.** 자기 유닛 `foundation-unit-limits.service`(타이머 30 분, control, 512M)가
-   `unit_limits.py --write` 로 `unit-limits.prom` 을 쓴다. 자산 조정기의 한 단계로 두지 않는다: 14 일 저널 읽기가 25 초이고
-   (2026-11-22 실측, 최대 RSS 129 MB), 조정기는 3 분 한도에서 이미 7 번 timeout 났다:
-   유닛·한도(`memory`, `time`)마다 최근 run 이 연달아 80% 를 넘은 수(`foundation_unit_runs_near_limit`, 메모리는 §1 의 쥔
-   최고점만)와 마지막 run 의 비율.
-   - `FoundationUnitNearItsLimit`(ticket): 연달아 **3 번**. 한 번은 입력, 세 번은 그 유닛의 크기다. 알림은 ADR-0591 의
-     묶음 경로로 간다(ticket 은 규칙마다 한 메시지, 한 시간에 한 번 바뀐 것만, 하루 한 번 다시; page 는 채널 멘션).
-   - `FoundationContainerMemoryNearCapLong`(page): 컨테이너가 하루 96 개 15 분 중 절반 넘게 상한의 90% 위. 기존 ticket
-     (`FoundationContainerMemoryNearCap`)이 foundation-api 에 2 주 울리는 동안 69 번 죽었다(ADR-0573).
-   - `FoundationUnitLimitsUnread`(ticket): 측정 파일이 두 시간 없음.
-   모든 규칙은 promtool 시험(`foundation-unit-limits.rules.test.yml`, 가드 `prometheus-rules-pass-their-tests`)을 통과한다.
+   측정이 그 크기가 작업의 고정된 몫임을 보일 때만이다. 작업 유닛의 한도는 그 작업 정의에서 고치고(§8), 작업 없는 유닛은
+   플랫폼 정의의 `systemd_units.unit_files` 에서 고친다. 그 정의들이 만드는 `tools/host-memory-budget.contract.json`(생성물,
+   커밋하지 않음, ADR-0418)이 합을 싣고, 가드(`every-container-has-a-memory-cap.sh`: 상주 합 + 가장 큰 일회성/풀 조합 +
+   host_reserved ≤ 62g)가 그 PR 을 막는다. 다른 곳에서 한도를 바꾸지 않는다.
+5. **근접은 죽기 전에 이름이 불린다.** 자기 유닛 `foundation-unit-limits.service`(타이머 30 분, control, 512M,
+   `SupplementaryGroups=systemd-journal`)가 `unit_limits.py --write` 로 `unit-limits.prom` 을 쓴다. 이 계정은 그 무리 없이는 시스템
+   저널을 보지 못한다(2026-11-22 `id foundation-platform`: 자기 무리와 docker 뿐). 그래서 스크립트는 창 안의 systemd 줄이 하나도
+   없으면 0 을 쓰지 않고 실패한다. 자산 조정기의 한 단계로 두지 않는다: 조정기는 3 분 한도에서 이미 7 번 timeout 났다.
+   파일에는 유닛·한도(`memory`, `time`)마다 두 값이 있다:
+   - `foundation_unit_runs_near_limit`: 마지막 run 부터 거꾸로, 한도의 80% 이상(§1 이 세는 run)이 연달아 몇 번인가.
+   - `foundation_unit_limit_share`: 마지막 run 의 비율(캐시까지 센 원래 값, 보이기만).
+   규칙은 셋이고, 모두 `platforms/foundation-platform/infra/observability/prometheus/foundation-api.rules.yml` 의
+   `foundation-unit-limits` 무리다:
+   - `FoundationUnitNearItsLimit`(ticket): 연달아 **3 번 이상**. 한 번은 입력, 세 번은 그 유닛의 크기다. 창 안에 run 이 셋이
+     안 되는 유닛(주·월 작업, 수동 작업)은 이 규칙이 부르지 못한다; 표에는 보인다.
+   - `FoundationContainerMemoryNearCapLong`(page): Docker 컨테이너의 익명 메모리(cAdvisor `container_memory_rss`)가 하루 96 개
+     15 분 중 절반 넘게 상한의 90% 위. 작업 집합(working set)은 활성 페이지 캐시를 세어 opensearch·kafka 를 날마다 부를 것이라
+     쓰지 않는다. 기존 `FoundationContainerMemoryNearCap`(ticket, working set 15 분)은 먼저 오는 신호로 남는다; 그 ticket 이
+     foundation-api 에 2 주 울리는 동안 69 번 죽었다(ADR-0573). 죽음 자체는 `FoundationHostOomKill` 이다.
+   - `FoundationUnitLimitsUnread`(ticket): 측정 파일이 없거나 두 시간보다 낡은 채 10 분.
+   알림은 ADR-0591 의 묶음 경로로 간다(ticket 은 규칙마다 한 메시지, 한 시간에 한 번 바뀐 것만, 하루 한 번 다시; page 는 채널
+   멘션). 모든 규칙은 promtool 시험(`foundation-unit-limits.rules.test.yml`, 가드 `prometheus-rules-pass-their-tests`)을 통과한다.
 6. **한도에서 죽으면 그 이름으로 한 번 부른다.** 유닛 결과는 `oom-kill`·`timeout` 으로 보고된다(Spark 컨테이너의 OOM 도
    `oom-kill`, #1399). 알림은 유닛 실패 경로 하나다(`unit-failure` 하루 한 번, 오래 실패하면 `unit-state` 가 주인을 부름,
-   ADR-0445; 원인 하나에 알림 하나, #1400). 이 결정은 실패 경로를 새로 만들지 않는다.
+   ADR-0445; 원인 하나에 알림 하나, #1400). 그래서 그렇게 끝난 run 은 §5 의 연속을 끊는다: 같은 원인을 두 번 부르지 않는다.
 7. **주인 없는 failing 유닛은 잰 값과 함께 넘긴다.** intelligence-document-text/-fact(OCR 컨테이너 OOM 24 번·timeout 26 번),
    parcel-number-change(256M 에서 OOM 6 번, 10 월 측정 11M — 성장), registered-factory(256M 에서 OOM 2 번), asset-reconcile
    (180 초 timeout 7 번)은 이 결정의 표로 W87 보고에 실려 코디네이터가 주인을 정한다. 한도를 먼저 올리지 않는다(§4).
-
-8. **한 유닛의 한도는 그 작업의 정의 한 곳에 있고, 템플릿의 인스턴스는 자기 한도를 가질 수 있다.** 작업 정의
-   (`definitions/*.definition.json` 의 `jobs`)가 `time_limit_minutes` 옆에 `memory_max`(그리고 `memory_measured`, 있으면
-   `memory_measured_peak`·`memory_headroom_why`)를 적는다. 선언 정의 생성기(`scripts/catalog/declared_definitions.py`)가 그것을
-   그 유닛의 `systemd_units` 항목(class batch)으로 쓰고, 같은 유닛을 플랫폼 정의의 `systemd_units.unit_files` 에도 적으면
-   거부한다. 한 템플릿(`x@.service`)의 인스턴스 작업들은 서로 다른 한도를 적을 수 있다. 템플릿은 그중 가장 큰 시간·메모리를
-   가진다: 어떤 작업도 이름 짓지 않은 인스턴스도 어느 작업보다 더 갖지 못한다. 그보다 작은 인스턴스는 자기 드롭인을 받는다:
-   `infra/systemd/<instance>.service.d/50-time-limit.conf`(`crates/ops/foundation-jobs` 가 `TimeoutStartSec`)와
-   `50-memory.conf`(`scripts/ci/unit_memory.py` 가 `MemoryHigh`·`MemoryMax`). 둘 다 생성기가 쓰고 같은 검사가 일치를 잡는다
-   (`foundation-jobs check`, `every-container-has-a-memory-cap.sh`); 손으로 쓰지 않는다. 작업이 없어진 인스턴스의 드롭인은
-   검사가 잡고 생성기가 지운다; 릴리스는 받은 드롭인을 깔고 더 받지 않은 우리 것(두 이름)만 지운다. 메모리 요구
-   (`memory_claim`, ADR-0563)는 인스턴스의 자기 상한으로 잰다. 작업의 코드 판(`job_code_version.py`)은 자기 드롭인을 포함해
-   한도가 바뀌면 판이 바뀐다. 2026-11-22 의 옮김은 값을 바꾸지 않았다: 51 개 작업 유닛의 항목을 107 개 작업으로 옮겼고(템플릿의
-   인스턴스는 모두 템플릿의 값), 생성된 계약은 전과 같다(74 항목, 인스턴스 0). 첫 사용자는
-   `foundation-gold-versions@parcel-real-transaction`(W81e)이다. 큰 곳도 같다: Kubernetes 는 `requests`/`limits` 를 파드 템플릿마다,
-   Nomad 는 작업 그룹의 task 마다 적는다 — 실행 단위가 자기 자원을 적고, 같은 이미지(템플릿)를 쓰는 다른 실행은 다른 값을 적는다.
+8. **한 유닛의 한도는 그 작업 정의 한 곳에 있고, 템플릿의 인스턴스는 자기 한도를 가질 수 있다.**
+   - **적는 곳.** 작업 정의(`definitions/*.definition.json` 의 `jobs`)가 `time_limit_minutes` 옆에 적는다:
+     `memory_max`(상한, §2), `memory_measured`(그 근거가 어디서 왔나, 없으면 왜 아직 없나), 있으면 `memory_measured_peak`(§2 의
+     최고점)과 `memory_headroom_why`(1.5 배 아래인 이유). 이 넷은 `systemd_units` 항목의 `memory_max`·`measured`·`measured_peak`·
+     `headroom_why` 다(ADR-0455). 선언 정의 생성기(`scripts/catalog/declared_definitions.py` `job_memory`)가 그것을 그 유닛의 항목
+     (class batch)으로 쓴다. 같은 작업 유닛을 플랫폼 정의에도 적거나, 메모리를 적지 않은 작업은 거부한다.
+   - **예외 둘.** HUB 묶음 작업(`silver-refresh@hub-lane-family`)은 두 family 파일의 `defaults.job` 에서 읽는다(두 파일이 같아야
+     함, ADR-0551). 작업의 `check_service` 는 작업이 아니라 플랫폼 정의에 남는다.
+   - **같은 서비스.** 한 서비스를 도는 작업들은 같은 메모리를 적는다(다르면 거부). 모든 작업의 항목이 1.5 배 가드를 받는다
+     — 템플릿의 가장 큰 값과 같아 그 항목을 나누는 작업도.
+   - **템플릿과 인스턴스.** 한 템플릿(`x@.service`)의 인스턴스 작업들은 다른 한도를 적을 수 있다. 템플릿은 그중 가장 큰 시간과
+     가장 큰 메모리를 가진다: 어떤 작업도 이름 짓지 않은 인스턴스도 어느 작업보다 더 갖지 못한다. 그보다 작은 인스턴스는 자기
+     드롭인을 받는다: `infra/systemd/<instance>.service.d/50-time-limit.conf`(`crates/ops/foundation-jobs` 가 `TimeoutStartSec`)와
+     `50-memory.conf`(`scripts/ci/unit_memory.py` 가 `MemoryHigh`·`MemoryMax`). 손으로 쓰지 않는다. 고친 뒤의 순서는
+     `scripts/ci/generate-declared.sh`(작업 목록과 계약) → `python3 scripts/ci/unit_memory.py --write` → `foundation-jobs generate`
+     이고, 같은 검사가 일치를 잡는다(`foundation-jobs check`, `every-container-has-a-memory-cap.sh`). 인스턴스가 템플릿 값으로
+     돌아가거나 작업이 없어지면 그 드롭인은 검사가 잡고 생성기가 지운다.
+   - **두 생성기인 이유.** 시간 줄은 ADR-0270 부터 `foundation-jobs` 가, 메모리 줄은 ADR-0455 부터 `unit_memory.py` 가 써 왔고,
+     드롭인도 각자 자기 줄만 쓴다. 두 도구가 한 파일을 쓰면 어느 쪽이 무엇을 지울지 다시 정해야 한다.
+   - **배포·되돌리기.** 릴리스(`install_instance_limits`)가 받은 드롭인을 깔고, 더 받지 않은 우리 것(이 두 이름)만 지운 뒤
+     `daemon-reload` 한다. 새 한도는 그 인스턴스의 다음 시작부터 쓴다; 배포는 도는 작업을 다시 시작하지 않는다. 이 결정 전
+     릴리스로 되돌리면 그 릴리스는 드롭인을 모르므로 남은 것을 지운다:
+     `rm -f /etc/systemd/system/foundation-*@*.service.d/50-{time-limit,memory}.conf && systemctl daemon-reload`(런북).
+   - **함께 따라가는 것.** 메모리 요구(`memory_claim`, ADR-0563)와 풀의 합 검사는 인스턴스의 자기 상한으로 잰다. 작업 코드 판
+     (`orchestration/dags/job_code_version.py`, ADR-0499)은 자기 드롭인을 포함한다. 템플릿 파일은 모든 인스턴스의 판에 들어가므로,
+     템플릿의 가장 큰 값이 바뀌면 형제 인스턴스의 판이 다 바뀐다(실패 중인 것만 한 번 다시 시작한다).
+   - **견준 다른 길.** (a) 템플릿이 가장 작은 값을 갖고 큰 인스턴스가 올리는 드롭인을 받는 길: 작업 없는 인스턴스가 가장 작게
+     묶여 안전하지만, 오늘의 레인 대부분이 큰 값이라 드롭인이 많아지고, 드롭인이 빠지면 작업이 상한에서 죽는다. 지금 길은 빠진
+     드롭인이 더 큰 상한이 되는 쪽으로만 틀린다(예산 가드가 템플릿 값으로 잰다). (b) 유닛의 작업 집합이나 익명 메모리로 근접을 재는
+     길: 짧은 oneshot 유닛은 끝나면 cgroup 이 사라져 저널 밖에서 잴 곳이 없다(§1 (a)).
+   첫 사용자는 W81e 가 더할 `foundation-gold-versions@parcel-real-transaction` 이다(계획).
 
 ## Consequences
 
-- 한도가 잰 값과 멀어지면 30 분 안에 보인다. 2026-11-22 다시 잰 값(14 일, 11-08..22): 유닛 failing 27 · near 6(모두 시간) ·
-  fits 315 · 미측정 3, 컨테이너 near 6. 처음 켜질 때 그것들이 ticket 을 받는다 — 그것이 지금의 실제 상태다.
-- 측정은 호스트의 읽기뿐이고 30 분에 한 번 25 초다(2026-11-22 실측: 최대 RSS 129 MB; 저널을 통째로 쥐던 첫 판은 780 MB 로
-  자기 512M 상한을 넘었을 것이다). 비용 0.
+- 한도가 잰 값과 멀어지면 30 분 안에 보인다. 2026-11-22 다시 잰 값(14 일, 11-08..22, 유닛 351 개 = 설치된 유닛 파일과 저널에
+  나온 인스턴스; 11-19 의 160 은 템플릿 인스턴스를 세지 않았다): failing 27 · 미측정 3, 컨테이너 near 6. 처음 켜질 때 그것들이
+  ticket 을 받는다 — 그것이 지금의 실제 상태다. near 의 수는 §1 의 띠 규칙으로 다시 잰다(이 PR 의 측정 표).
+- 측정은 호스트의 읽기뿐이고 30 분에 한 번 25 초다(2026-11-22 실측). 저널은 줄마다 흘려 읽는다: 통째로 쥐던 첫 판은 14 일
+  324k 줄로 최대 RSS 780 MB 였다. 지금 파이썬과 journalctl 은 각각 최대 RSS 129 MB 다(GNU time, 한 프로세스씩). 유닛의
+  cgroup 최고점(journalctl 이 읽는 저널 파일의 페이지 캐시 포함)은 첫 run 의 memory peak 로 계약을 고친다; 캐시는 `MemoryHigh` 에서
+  되찾는다. 비용 0.
 - 템플릿을 나눠 쓰는 레인(silver-refresh@ 33 개는 모두 16G: land-use-plan 최고점 1 GB, unit-areas 15.4 GB)은 이제 인스턴스마다
-  상한을 적어 예산을 돌려줄 수 있다; 값을 바꾸는 것은 각 레인 주인의 PR 이다(§2·§4).
-- 계약의 `measured_peak`(ADR-0455)는 10 월 측정으로 남아 있다. 그것을 이 스크립트로 다시 쓰는 것은 한도를 고치는 PR 마다의
-  몫이다(가드가 1.5 배를 검사하므로 새 측정이 상한을 끌어올리거나, §4 에 따라 성장을 고치게 한다).
+  상한을 적어 예산을 돌려줄 수 있다: 풀의 합과 메모리 요구가 인스턴스의 상한으로 잰다. 값을 바꾸는 것은 각 레인 주인의 PR 이다
+  (§2·§4).
+- 2026-11-22 의 옮김은 값을 바꾸지 않았다: 51 개 작업 유닛의 항목을 107 개 작업으로 옮겼고(템플릿의 인스턴스는 모두 템플릿의
+  값), 생성된 계약은 전과 같다(74 항목, 인스턴스 0). `foundation-jobs` 크레이트는 모든 작업이 닿으므로 그 배포에서 모든 작업의
+  코드 판이 바뀐다; 효과는 실패 중인 작업이 한 번씩 다시 시작하는 것뿐이다(ADR-0499).
 - 더니어(통합 콘솔)는 이 측정을 읽어 유닛마다 한도·잰 값·비율·상태·마지막 OOM/timeout·예산 합을 보여 줄 수 있다; 한도 변경은
-  화면에서 직접 쓰지 않고 이 계약을 바꾸는 PR 로 간다(후속).
+  화면에서 직접 쓰지 않고 작업 정의를 바꾸는 PR 로 간다(#1450).

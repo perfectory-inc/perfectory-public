@@ -120,6 +120,29 @@ class NearIsMeasured(unittest.TestCase):
         self.assertIn("foundation_unit_limits_measured_seconds 5000\n", text)
 
 
+class NearCountsWhatTheJournalCanSay(unittest.TestCase):
+    def test_peaks_between_eighty_percent_and_memory_high_are_near(self):
+        # Below MemoryHigh nothing reclaimed them: the unit used that much (EGM 2026-11-22: the 80% band).
+        lines = ok_run(0, 60, 420) + ok_run(100, 60, 430) + ok_run(200, 60, 440)
+        line = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT], SLACK)
+        self.assertEqual((line["near_memory_runs"], line["state"]), (3, "near"))
+
+    def test_a_run_killed_at_a_limit_ends_both_streaks_it_is_that_failures(self):
+        lines = ok_run(0, 2100, 470) + ok_run(3000, 2100, 480) + oom_run(6000, 2100)
+        line = unit_limits.row(UNIT, unit_limits.runs(lines)[UNIT], DECLARED[UNIT], SLACK)
+        self.assertEqual((line["near_memory_runs"], line["near_time_runs"], line["state"]), (0, 0, "failing"))
+
+    def test_an_empty_journal_is_refused_not_measured_as_zero(self):
+        # 2026-11-22: foundation-platform is in no journal group; journalctl would show it nothing.
+        with self.assertRaises(unit_limits.EmptyJournal):
+            unit_limits.read_runs(iter([]))
+        self.assertIn(UNIT, unit_limits.read_runs(iter(ok_run(0, 60, 100))))
+
+    def test_the_measuring_unit_can_read_the_system_journal(self):
+        unit = (PLATFORM / "infra/systemd/foundation-unit-limits.service").read_text(encoding="utf-8")
+        self.assertIn("\nSupplementaryGroups=systemd-journal\n", unit)
+
+
 @unittest.skipUnless(os.name == "posix", "a fake journalctl is a shell script")
 class TheJournalIsStreamed(unittest.TestCase):
     def test_lines_arrive_one_at_a_time_and_a_failed_journalctl_fails(self):
