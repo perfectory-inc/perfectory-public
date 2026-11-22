@@ -268,9 +268,10 @@ fn row_set(
     }
 }
 
-/// The `row_digest` of a built row: the SHA-256 of `to_json` of every content column of
-/// `gold.parcel_panel` (all but the digest and the two per-commit stamps), so a content column the
-/// contract gains is in it without a change here.
+/// The `row_digest` of a built row.
+///
+/// The SHA-256 of `to_json` of every content column of `gold.parcel_panel` (all but the digest and
+/// the two per-commit stamps), so a content column the contract gains is in it without a change here.
 #[must_use]
 pub fn row_digest_sql() -> String {
     let fields = content_columns()

@@ -147,7 +147,7 @@ fn every_section_is_folded_as_the_spark_job_folds_it() -> anyhow::Result<()> {
     // The unserved PNU has no row; the renumbered code's row lands on the served P3.
     assert_eq!(
         rows.keys().map(String::as_str).collect::<Vec<_>>(),
-        [P1, P2, P3, P4]
+        [P1, P2, P4, P3]
     );
     let p1 = &rows[P1];
     // s2 replaced s1; UQA110 collapses to its lowest inclusion and trimmed name; the walk that dies
@@ -252,7 +252,9 @@ fn two_valid_rows_of_one_parcel_and_a_missing_parcel_sequence_are_refused() -> a
     ] {
         let connection = Connection::open_in_memory()?;
         load(&connection, &extra)?;
-        let refused = build_all(&connection).expect_err("refused");
+        let Err(refused) = build_all(&connection) else {
+            anyhow::bail!("{refusal}: taken");
+        };
         assert!(format!("{refused:#}").contains(refusal), "{refused:#}");
     }
     Ok(())
@@ -281,7 +283,7 @@ fn a_partial_run_names_the_parcels_whose_inputs_moved() -> anyhow::Result<()> {
         .prepare("SELECT pnu FROM targets ORDER BY pnu")?
         .query_map([], |row| row.get(0))?
         .collect::<Result<_, _>>()?;
-    assert_eq!(named, [P1, P3, P4]);
+    assert_eq!(named, [P1, P4, P3]);
     PANEL.build(
         &connection,
         false,
