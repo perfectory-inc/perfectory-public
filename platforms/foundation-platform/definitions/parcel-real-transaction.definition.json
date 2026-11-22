@@ -78,6 +78,8 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 60,
+      "memory_max": "8G",
+      "memory_measured": "not measured: no run yet (new job). 8G is the template's, the cap of every foundation-gold-versions@ instance; a unit group holds at most 700,000 deals (real_transaction_versions_stage UNIT_DEAL_BUDGET), sized to fit it, and the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (MEMORY_SHARE), so DuckDB spills before the cap. The first shadow run's systemd memory peak replaces this text",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
