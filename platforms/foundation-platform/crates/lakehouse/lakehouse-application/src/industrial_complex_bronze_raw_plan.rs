@@ -1,6 +1,6 @@
 //! Bronze-to-JSONL normalization for the industrial-complex profile source.
 //!
-//! The Spark job `industrial_complex_bronze_to_silver` reads
+//! The Silver load (`load-industrial-complex-silver`) reads
 //! `bronze.industrial_complexes_raw_jsonl`. The profile source carries the complex identity,
 //! classification, dates, and area, but carries no administrative location at all. Rather than let
 //! a producer paper over that with an empty string, an [`IndustrialComplexBronzeRawRow`] owns an

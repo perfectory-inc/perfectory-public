@@ -210,20 +210,10 @@ Linux bind mount 는 host directory 가 root 소유로 자동 생성될 수 있�
 검사 컨테이너를 두 작업이 함께 만들다 by-PNU bake 가 실패했다(2026-10-29,
 `tools/semgrep/rules/batch-containers.yml`).
 
-Bronze -> Silver 변환 contract smoke:
-
-```bash
-docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm spark spark-submit \
-  /workspace/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py \
-  --input /workspace/infra/lakehouse/spark/fixtures/bronze/industrial_complexes.jsonl \
-  --output /workspace/target/lakehouse/silver/industrial_complexes \
-  --summary-output /workspace/target/lakehouse/smoke/summaries/industrial_complexes.json \
-  --lineage-output /workspace/target/lakehouse/smoke/summaries/industrial_complexes_lineage.json
-```
-
-이 job 은 `infra/lakehouse/spark/fixtures/bronze/industrial_complexes.jsonl` 을 읽고
-`silver.industrial_complexes` column contract 에 맞춘 Parquet 을 `target/lakehouse` 아래에 쓴 뒤
-다시 읽어 quality gate 를 검증한다.
+산업단지 Bronze -> Silver 변환은 Spark 를 떠났다(2026-11-22, root ADR-0559). 작업 `silver_industrial_complexes`
+(`scripts/ops/industrial-complex-silver-load.sh`)가 입력마다 가장 새 Bronze 객체를 고르고, 주소 해석과 내보내기를 거쳐
+발행기 안의 DuckDB(`foundation-publisher-silver` 의 `industrial_complex_silver_stage`)로 행을 만든 뒤 바뀐 단지만 붙인다.
+변환 규칙과 관문의 시험은 `cargo test -p foundation-publisher-silver industrial_complex_silver_stage` 다.
 
 Scalar Silver handoff -> lakehouse smoke:
 
@@ -280,7 +270,6 @@ Lineage event contract 는
 `foundation-outbox-publisher publish-lakehouse-lineage-event` 가 emit 전에
 `LakehouseLineagePublisher::validate_event` 로 artifact 를 검증한다. (별도 fixture shape gate 였던
 `check-lineage-contract` 는 2026-06-22 self-verifying evidence-gate ceremony 정리에서 삭제되었다.)
-`industrial_complex_bronze_to_silver.py` 와
 `industrial_complex_silver_to_gold.py` 는 materialized write 성공 시 `--lineage-output` 경로에 같은
 schema 의 runtime lineage artifact 를 쓴다. 아직 OpenLineage / Marquez receiver E2E 는 없다.
 
@@ -314,39 +303,8 @@ static table contract 검증이 끝난 경우에만 audit port 를 호출한다.
 persisted row count 가 candidate row count 와 같은 최신 row 만 반환한다. use case 는 반환된 row 의
 정규 컬럼과 `summary_json` 을 다시 맞춰 보고 static contract 검증을 한 번 더 수행한다.
 
-R2 Data Catalog / Iceberg write smoke (live R2/Iceberg credential 을 환경에 주입한 뒤 실행):
-
-```bash
-docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI="<catalog-uri>" \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE="foundation-platform" \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN="<catalog-token>" \
-  spark spark-submit \
-  --conf spark.jars.ivy=/tmp/.ivy2 \
-  --packages "$(python3 -c 'import sys; sys.path.insert(0, "infra/lakehouse/spark/jobs"); from lakehouse_engine import iceberg_packages; print(iceberg_packages())')" \
-  /workspace/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py \
-  --input /workspace/infra/lakehouse/spark/fixtures/bronze/industrial_complexes.jsonl \
-  --write-mode iceberg \
-  --iceberg-table industrial_complexes_smoke \
-  --summary-output /workspace/target/lakehouse/smoke/summaries/industrial_complexes_iceberg.json \
-  --lineage-output /workspace/target/lakehouse/smoke/summaries/industrial_complexes_iceberg_lineage.json
-```
-
-write smoke가 성공하면 read-only smoke는 같은 전용 테이블을 `smoke-r2` 하위 명령이나 Trino 직접 읽기로 확인한다:
-
-```sql
-SELECT * FROM r2.silver.industrial_complexes_smoke LIMIT 1;
-```
-
-기본 target 은 `silver.industrial_complexes_smoke` 이다. live catalog 를 건드리려면 live write 모드를
-명시해야 하며, table 이름이 `_smoke` 로 끝나지 않으면 non-smoke 허용 flag 없이는 거부한다.
-non-smoke table 은 fixture 입력을 사용할 수 없다. canonical table 을 대상으로 할 때는 실제 Bronze
-handoff 경로를 입력으로 명시해야 한다.
-Spark job 은 Cloudflare R2 Data Catalog 의 Iceberg REST endpoint 에 붙고, token 은 Compose run
-환경변수 전달로만 넘긴다. script 는 secret 값을 출력하지 않는다.
-live write smoke 도 같은 run summary contract 를 `industrial_complexes_iceberg.json` 으로 남기고,
-`foundation-platform.lakehouse_lineage_event.v1` runtime lineage artifact 를 쓴 뒤 target qualified table,
-persisted row count, lineage shape 를 검증한다.
+산업단지 Silver 의 R2 Data Catalog / Iceberg 쓰기는 작업 `silver_industrial_complexes` 의 발행기 추가 커밋 하나다(Spark 의
+`industrial_complexes_smoke` 쓰기 smoke 는 그 job 과 함께 지웠다). 아래 Gold smoke 의 입력 smoke 테이블은 그 전에 쓰인 것이다.
 
 ### Industrial-complex Gold projection write smoke
 

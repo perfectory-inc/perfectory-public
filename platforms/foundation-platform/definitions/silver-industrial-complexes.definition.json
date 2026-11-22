@@ -2,14 +2,65 @@
   "$schema": "scripts/catalog/definition.v1.schema.json",
   "definition": "foundation-platform.definition.v1",
   "group": "silver-industrial-complexes",
+  "jobs": [
+    {
+      "id": "silver_industrial_complexes",
+      "dagster_group": "silver",
+      "scope": "changed-keys",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "Silver load of the industrial complexes (root ADR-0033; daily at 05:10 UTC, after the ILIS address-source collector's 04:40, not on its inputs' events: the ILIS notice collector writes the same source group every hour, and a load started by it would make every reader of the table hourly (complex_boundary_release would then starve in the spark pool, job_specs.pool_starvation); scripts/ops/industrial-complex-silver-load.sh; the publisher's plan-industrial-complex-silver-inputs and load-industrial-complex-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559; it was the Spark job industrial_complex_bronze_to_silver.py, started by hand): the newest Bronze object of each input (the vworldkr__sandan_profile workbook, the ILIS complex list and notice list, the ILIS detail of each complex the list lacks, the vworldkr__boundary_sigungu archive whose .dbf is the district authority), `unchanged` without fetching anything when the table's commits record every one; otherwise the address resolution and the export (build-industrial-complex-address-resolution, export-industrial-complex-bronze-raw-jsonl, unchanged), the Spark job's gates, and one commit that appends only the complexes whose content differs from their current row and records every input, even when no complex changed. One pass over the nation: the input is one 1,442-row workbook and a 98 MB boundary archive (the declared exception to a regional split). No Spark.",
+      "systemd_service": "foundation-industrial-complex-silver-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-complex-silver"
+      ],
+      "schedule": "10 5 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 30,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 240,
+          "estimated_from": "computed from its inputs: five R2 listings and, when owed, about 115 MB fetched (the 98 MB boundary archive, the 13.5 MB notice list, the 412 KB workbook, the complex list and four details), then the resolution and export of 1,442 rows and one DuckDB pass over them; the Spark job's three hand loads of the same rows (2026-08-18, 10-01) took minutes. 240 s stays the bound until a production run is measured, inside the 30-minute limit."
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when an input changed what a complex says: the profile workbook (last new 2026-04-20 by the provider), or an ILIS answer that moves an address; that it is not behind its inputs is the asset reconciler's lag (root ADR-0333)."
+      },
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-industrial-complex-silver-load.service"
+        ]
+      },
+      "priority_weight": 40,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-ilis-to-silver-industrial-complexes",
+        "source-vworld-dataset-to-silver-industrial-complexes"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "dagster",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    }
+  ],
   "assets": [
     {
       "id": "silver-industrial-complexes",
       "type": "silver_table",
       "title": "산업단지 기본 정보",
-      "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.",
+      "description": "ILIS 주소 근거와 브이월드 산업단지 프로필로 단지마다 한 행을 쌓는다. 입력이 바뀌면 발행기 안의 DuckDB 가 바뀐 단지만 붙인다(루트 ADR-0033, ADR-0559).",
       "status": "implemented",
-      "unscheduled": "on_event",
       "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -33,7 +84,8 @@
       "via": [
         "build-industrial-complex-address-resolution",
         "export-industrial-complex-bronze-raw-jsonl",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py"
+        "platforms/foundation-platform/scripts/ops/industrial-complex-silver-load.sh",
+        "load-industrial-complex-silver"
       ],
       "source_slugs": [
         "industrylandorkr__industrial_complex_list",
@@ -54,7 +106,8 @@
       "via": [
         "build-industrial-complex-address-resolution",
         "export-industrial-complex-bronze-raw-jsonl",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py"
+        "platforms/foundation-platform/scripts/ops/industrial-complex-silver-load.sh",
+        "load-industrial-complex-silver"
       ],
       "description": "산업단지 프로필 원본을 변환하며 시군구 경계의 DBF를 주소 행정구역 판정에 사용한다."
     }

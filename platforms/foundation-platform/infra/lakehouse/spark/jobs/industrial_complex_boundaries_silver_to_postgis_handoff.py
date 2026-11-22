@@ -7,7 +7,7 @@ repository. This job is the only thing that can produce it:
 * `complex_id` is filled by the Silver *writer* from its join against `silver.industrial_complexes`,
   so the Bronze-to-Silver boundary handoff carries a JSON null there and nothing downstream of the
   handoff can supply it without re-deriving an id whose only definition lives in
-  `industrial_complex_bronze_to_silver.py`;
+  `ComplexId::for_official_complex_code` (the Silver load, `industrial_complex_silver_stage`);
 * the Rust Iceberg scan (`lakehouse_snapshot_scan`) decodes string, long, date, timestamp and
   decimal columns only — `geometry_wkb` is `binary` and the bbox and centroid columns are `double`,
   so the publisher cannot read this table itself.

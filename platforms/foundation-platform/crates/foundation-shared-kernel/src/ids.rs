@@ -45,8 +45,9 @@ id_newtype!(
 
 /// Seed prefix of the industrial-complex id derivation.
 ///
-/// The Bronze-to-Silver job (`COMPLEX_ID_SEED_PREFIX`) and the SQL function
-/// `catalog.industrial_complex_id_for` spell the same text; all three pin the same vectors.
+/// The Silver load derives every `complex_id` through [`ComplexId::for_official_complex_code`]
+/// (`industrial_complex_silver_stage`), and the SQL function `catalog.industrial_complex_id_for`
+/// spells the same text; both pin the same vectors.
 pub const COMPLEX_ID_SEED_PREFIX: &str = "foundation-platform:catalog:industrial_complex:";
 
 impl ComplexId {
@@ -137,8 +138,8 @@ id_newtype!(StaffId, "Legacy-named Foundation audit staff identifier.");
 mod tests {
     use super::ComplexId;
 
-    /// The vectors `test_industrial_complex_bronze_to_silver.py` pins (`RFC4122_VECTORS`) and the
-    /// `catalog.industrial_complex_id_for` migration test checks: one derivation, three languages.
+    /// The vectors the Spark job's test pinned (`RFC4122_VECTORS`, until the load left Spark) and the
+    /// `catalog.industrial_complex_id_for` migration test checks: one derivation, two languages.
     #[test]
     fn complex_id_is_the_lakehouse_derivation_of_the_official_code() {
         for (code, expected) in [

@@ -1,4 +1,4 @@
-//! JSONL transport contract for the industrial-complex Bronze-to-Silver Spark job.
+//! JSONL transport contract for the industrial-complex Silver load.
 //!
 //! `LakehousePhysicalFormat` deliberately has no JSONL member: a JSONL handoff is writer input,
 //! not lakehouse table storage. The Spark job still needs a fixed column set and fixed value
@@ -8,7 +8,7 @@
 
 use crate::lakehouse::SILVER_INDUSTRIAL_COMPLEXES;
 
-/// Dataset name of the JSONL input read by `industrial_complex_bronze_to_silver`.
+/// Dataset name of the JSONL input the Silver load reads (`load-industrial-complex-silver`).
 pub const BRONZE_INDUSTRIAL_COMPLEXES_RAW_JSONL: &str = "bronze.industrial_complexes_raw_jsonl";
 
 /// `silver.industrial_complexes` columns the Bronze-to-Silver job computes for itself.

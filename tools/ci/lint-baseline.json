@@ -27,9 +27,6 @@
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/gold_code_version.py": {
    "B007": 1
   },
-  "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py": {
-   "F401": 1
-  },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py": {
    "B905": 1,
    "F401": 1
@@ -272,7 +269,7 @@
    "PLW1510": 1
   },
   "platforms/foundation-platform/orchestration/tests/test_job_specs.py": {
-   "B023": 4,
+   "B023": 2,
    "E731": 2,
    "PLW1510": 17
   },

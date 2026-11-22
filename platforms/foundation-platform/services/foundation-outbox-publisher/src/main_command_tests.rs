@@ -1382,3 +1382,22 @@ fn juso_electronic_map_base_silver_handoff_command_is_explicit() -> anyhow::Resu
     );
     Ok(())
 }
+
+#[test]
+fn industrial_complex_silver_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "plan-industrial-complex-silver-inputs"
+        ])?,
+        Command::PlanIndustrialComplexSilverInputs
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-industrial-complex-silver"
+        ])?,
+        Command::LoadIndustrialComplexSilver
+    );
+    Ok(())
+}

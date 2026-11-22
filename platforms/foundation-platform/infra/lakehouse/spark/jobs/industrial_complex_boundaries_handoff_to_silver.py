@@ -10,7 +10,8 @@ Iceberg rows whose columns match `lakehouse_domain::SILVER_INDUSTRIAL_COMPLEX_BO
 carrying `official_complex_code` and a null `complex_id` and `sido_code`, because:
 
 - `complex_id` has one definition in this repository, the derivation in
-  `industrial_complex_bronze_to_silver.py` that writes `silver.industrial_complexes`. This job reads
+  `ComplexId::for_official_complex_code`, which the Silver load writes `silver.industrial_complexes`
+  with. This job reads
   the id off that table rather than deriving it a second time. Two derivations that agree today
   disagree the day one changes, and the failure is silent: both sides still look like lowercase
   UUIDs and only the join count moves.
