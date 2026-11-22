@@ -11,8 +11,7 @@ SELECT court_office_code, case_no, unnest(c),
 FROM (SELECT court_office_code, case_no, line_number,
              ca_case_row(json_extract(data, '$.dma_csBasInf'), json_extract(data, '$.dlt_dstrtDemnLstprdDts')) AS c
       FROM ca_case_lines
-      WHERE answered)
-WHERE c IS NOT NULL
+      WHERE answered AND ca_case_base(json_extract(data, '$.dma_csBasInf')))
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no ORDER BY line_number DESC) = 1;
 
 CREATE OR REPLACE TEMP TABLE ca_case_answer AS

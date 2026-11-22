@@ -39,10 +39,13 @@ CREATE OR REPLACE MACRO ca_amount(v) AS
     regexp_replace(coalesce(py_text(v), ''), '<[^>]+>', ' ', 'g'), '(\p{Nd}[\p{Nd},]*)', 1), ''), ',', '')) AS BIGINT);
 
 -- case_rows: the case row the 사건 기본 states (물건상세 `csBaseInfo`, 사건상세 `dma_csBasInf`), with
--- the latest 배당요구종기 of its list; None for a base that is no object or empty. The 사법보좌관
+-- the latest 배당요구종기 of its list, for a base `ca_case_base` takes (an object, not empty; the job
+-- made none for another). The caller filters on it: the same struct inside a CASE ran a 1,541-line
+-- 사건상세 object out of 2 GiB (2026-11-22), outside one it fits in 200 MiB. The 사법보좌관
 -- (`jdgeAojAsstnNm`) is never read.
+CREATE OR REPLACE MACRO ca_case_base(base) AS json_type(base) = 'OBJECT' AND py_truthy(base);
 CREATE OR REPLACE MACRO ca_case_row(base, deadline_list) AS
-  CASE WHEN json_type(base) = 'OBJECT' AND py_truthy(base) THEN struct_pack(
+  struct_pack(
     court_name := py_text(json_extract(base, '$.cortOfcNm')),
     court_branch_name := py_text(json_extract(base, '$.cortSptNm')),
     user_case_no := py_text(json_extract(base, '$.userCsNo')),
@@ -61,9 +64,12 @@ CREATE OR REPLACE MACRO ca_case_row(base, deadline_list) AS
     duplicate_merge_kind_code := py_text(json_extract(base, '$.auctnDpcnMrgDvsCd')),
     appeal_yn := py_text(json_extract(base, '$.rletApalYn')),
     lawsuit_kind_code := py_text(json_extract(base, '$.lwstDvsCd')),
-    dividend_demand_deadline := list_max(list_transform(ca_objects(deadline_list),
-                                                        lambda x: onbid_ymd(json_extract(x, '$.dstrtDemnLstprdYmd'))))
-  ) END;
+    -- The date values are taken out of the entries first: onbid_ymd reads its argument a dozen times,
+    -- and over each whole entry that ran a 1,541-line 사건상세 object out of 2 GiB (2026-11-22).
+    dividend_demand_deadline := list_max(list_transform(
+      list_transform(ca_objects(deadline_list), lambda x: json_extract(x, '$.dstrtDemnLstprdYmd')),
+      lambda d: onbid_ymd(d)))
+  );
 
 -- `(text_or_none(value) or "").split()`: the words of a value, split on Python's whitespace.
 CREATE OR REPLACE MACRO ca_words(v) AS
