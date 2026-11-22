@@ -64,6 +64,67 @@
       }
     },
     {
+      "id": "gold_public_auction_versions_build",
+      "dagster_group": "gold",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "공매 kind Gold as a table of appended row versions (root ADR-0287, ADR-0340, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-public-auction → publisher build-parcel-public-auction-versions): gold.parcel_public_auction_versions, the rounds open as of the build's instant on each PNU they are served under (auction_placement_stage: the located PNU carried to the current code, lineage successors, merges, the served edition's older code forms; a round no path leaves is counted, never served), soonest-closing first under the 256 KiB ceiling, with each named item's and announcement round's block once, in the form the schema registry's current revision describes (not Spark's bytes: the takeover verdict compares the documents as values and the switch re-bakes the lane once). Built whole from one read of its inputs on every run (root ADR-0326: time closes rounds with no input moving); only the PNUs whose digest changed are appended, each commit one version_seq and its instant (foundation.as-of). While the lane serves gold.parcel_public_auction it is that table's shadow: it reads the input pins its foundation-gold-build tag commit recorded and serves as of the instant that build did. Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
+      "systemd_service": "foundation-gold-versions@parcel-public-auction.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "40 21 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 60,
+      "memory_max": "8G",
+      "memory_measured_peak": "7373M",
+      "memory_measured": "its own: run 20261119T152616Z of foundation-gold-versions@parcel-nearby (2026-11-19 15:26-15:51Z, every served parcel, 39,861,511 rows committed in 1500 s), systemd's memory peak 7.2G, swap peak 13.5M; the publisher's own peak in its run log 7,733,563,392 bytes",
+      "memory_headroom_why": "The peak follows the cap, not the work: the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (parcel_nearby_versions_build MEMORY_SHARE) and DuckDB fills it and the page cache, so a larger memory_max would only raise the peak. The run fit: no timeout, 13.5M swap, under MemoryMax",
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 900,
+          "estimated_from": "computed, not measured: every run reads the served parcel edition's PNUs (about 40 million, as gold_parcel_register_masters_versions_build, estimated 900 s), the Onbid Silver tables (79,246 items on 2026-10-20) and the parcel lineage whole once, places and renders the open rounds (a few thousand) and folds each 시도; about 900 s, inside the 60-minute limit."
+        }
+      },
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-gold-versions@parcel-public-auction.service"
+        ]
+      },
+      "priority_weight": 20,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-onbid-real-estate-item-to-gold-parcel-public-auction-versions",
+        "silver-onbid-real-estate-item-photo-to-gold-parcel-public-auction-versions",
+        "silver-onbid-real-estate-item-detail-to-gold-parcel-public-auction-versions",
+        "silver-onbid-item-bid-info-to-gold-parcel-public-auction-versions",
+        "silver-onbid-item-bid-result-to-gold-parcel-public-auction-versions",
+        "silver-onbid-announcement-to-gold-parcel-public-auction-versions",
+        "silver-onbid-announcement-bid-result-to-gold-parcel-public-auction-versions",
+        "silver-onbid-announcement-detail-to-gold-parcel-public-auction-versions",
+        "silver-parcel-boundaries-to-gold-parcel-public-auction-versions",
+        "silver-parcel-lineage-to-gold-parcel-public-auction-versions",
+        "reference-legal-dong-code-change-to-gold-parcel-public-auction-versions",
+        "gold-place-id-bridge-to-gold-parcel-public-auction-versions",
+        "gold-parcel-public-auction-to-gold-parcel-public-auction-versions"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "dagster",
+      "expected_outcome": {
+        "changes_within_hours": 54,
+        "basis": "it rebuilds once a day from an hourly-changing collection; two daily turns. measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): changed 12 of 14 runs, longest gap 48.0 h."
+      }
+    },
+    {
       "id": "by_pnu_public_auction_bake",
       "dagster_group": "gold",
       "scope": "changed-keys",
@@ -134,6 +195,26 @@
         {
           "kind": "lakehouse_contract",
           "value": "gold.parcel_public_auction"
+        }
+      ]
+    },
+    {
+      "id": "gold-parcel-public-auction-versions",
+      "type": "gold_table",
+      "title": "필지 공매 by-PNU 표(판을 쌓는 표)",
+      "description": "루트 ADR-0287 의 공매 by-PNU 표를 판을 쌓는 표로(루트 ADR-0564 §1·§2): gold.parcel_public_auction 의 칸에 version_seq·row_state 를 더해 바뀐 PNU 의 행만 덧붙인다. 현재 행은 PNU 마다 version_seq 가 가장 큰 행이고 row_state 가 removed 면 그 PNU 는 없다. 빌드 시각에 열린 회차를 싣고, 커밋마다 그 시각을 적는다(foundation.as-of). 레인이 옛 표를 굽는 동안은 그 표의 그림자다(옛 표 빌드 태그의 입력 핀과 그 빌드의 시각으로 짓는다).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/definitions/parcel-public-auction.definition.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
+      ],
+      "table_name": "gold.parcel_public_auction_versions",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_public_auction_versions"
         }
       ]
     },
@@ -240,6 +321,136 @@
       "description": "입찰정보(입찰보증금·잔대금·제한·제출서류·평가·이전 회차·회차별 일정)를 items[].bid_info 로 싣는다(루트 ADR-0340 §7)."
     },
     {
+      "from": "silver-onbid-real-estate-item",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "회차 목록의 현재 행: 빌드 시각에 열린 회차만(bid_ends_at 이 그 시각 뒤), 위치 PNU 를 현재 법정동 코드로(auction_placement_stage, 루트 ADR-0383)."
+    },
+    {
+      "from": "silver-onbid-real-estate-item-photo",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "물건의 미디어: 회차의 사진과 감정평가서 그림(가장 늦게 실린 원본과 함께, 루트 ADR-0424), 그 밖의 것은 물건의 media."
+    },
+    {
+      "from": "silver-onbid-real-estate-item-detail",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "물건 상세 블록(루트 ADR-0340 §7): 레지스트리 칸마다 같은 이름의 칸, 목록은 `<이름>_json` 을 제공처 키로 읽는다."
+    },
+    {
+      "from": "silver-onbid-item-bid-info",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "물건의 입찰 정보 블록(루트 ADR-0340 §7)."
+    },
+    {
+      "from": "silver-onbid-item-bid-result",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "물건의 지난 회차 결과(history)."
+    },
+    {
+      "from": "silver-onbid-announcement",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "공고 회차 블록의 목록 값(루트 ADR-0340 §7)."
+    },
+    {
+      "from": "silver-onbid-announcement-bid-result",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "공고 회차의 개찰 상태(목록에 없는 칸만)."
+    },
+    {
+      "from": "silver-onbid-announcement-detail",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "공고 상세: 첨부 목록, 본문(20,000 자를 넘으면 싣지 않고 그렇다고 적는다)."
+    },
+    {
+      "from": "silver-parcel-boundaries",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "서빙 필지판의 PNU: 회차가 그 PNU 에 있으면 그 PNU 에 싣는다(루트 ADR-0292)."
+    },
+    {
+      "from": "silver-parcel-lineage",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "폐쇄된 PNU 의 회차를 현재 후속 필지와 병합된 필지로 옮긴다(lineage_carry_stage, 루트 ADR-0113 §6); 길이 없으면 세되 싣지 않는다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "위치 PNU 의 코드를 현재 코드로, 서빙판이 옛 코드를 쥔 필지는 옛 형태로 찾는다(루트 ADR-0329 §3, ADR-0482 §1)."
+    },
+    {
+      "from": "gold-place-id-bridge",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "행마다 그 필지의 place_id(루트 ADR-0483)."
+    },
+    {
+      "from": "gold-parcel-public-auction",
+      "to": "gold-parcel-public-auction-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs"
+      ],
+      "description": "그림자인 동안 옛 표의 foundation-gold-build 태그 커밋이 적은 입력 핀과 그 빌드의 시각(행들의 가장 늦은 published_at_utc)으로 짓는다(루트 ADR-0564 §6)."
+    },
+    {
       "from": "gold-parcel-public-auction",
       "to": "parcel-public-auction-by-pnu-section-packs",
       "relation": "feeds",
@@ -281,6 +492,16 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_join.py"
       ],
       "description": "발행이 덧붙인 변경 이력 행의 코드(옛·새)만 다시 계산한다(루트 ADR-0483): 이력은 append-only 라 고정한 스냅숏 뒤에 붙은 행만 읽는다."
+    },
+    {
+      "from": "gold-parcel-public-auction-versions",
+      "to": "parcel-public-auction-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md"
+      ],
+      "description": "레인의 넘겨받기 PR 이 종류 줄의 gold_table 을 이 표로 바꾸면(판정 뒤, 루트 ADR-0564 §6) 레인의 굽기가 이 표의 현재 행을 읽는다. 그때까지 아무도 읽지 않는 그림자다."
     }
   ],
   "by_pnu_lanes": {
@@ -295,6 +516,7 @@
         "place_id"
       ],
       "producer": "onbid_public_auction_silver_to_gold",
+      "versions_table": true,
       "decision": "docs/adr/0295-the-public-auction-kind-takes-its-official-english-name.md",
       "spark_held_test": "infra/lakehouse/spark/tests/test_onbid_public_auction_gold.py"
     }
@@ -1434,6 +1656,15 @@
       "blocking": true,
       "reads": [
         "silver-onbid-real-estate-item-photo"
+      ]
+    },
+    {
+      "asset": "gold-parcel-public-auction-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-parcel-public-auction"
       ]
     }
   ]

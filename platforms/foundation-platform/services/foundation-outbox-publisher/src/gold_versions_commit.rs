@@ -39,6 +39,9 @@ pub(crate) const KEYS_CHANGED_PROPERTY: &str = "foundation.keys-changed";
 /// A record the producer checked that explains a commit over the bound on changed keys, which the
 /// bake's change set accepts too (root ADR-0346, ADR-0596); absent on every other commit.
 pub(crate) const RECORDED_EXPLANATION_PROPERTY: &str = "foundation.recorded-explanation";
+/// The instant a time-dependent kind's documents were built as of (an auction serves the rounds still
+/// open then, root ADR-0287 §7); absent on every other table's commits.
+pub(crate) const AS_OF_PROPERTY: &str = "foundation.as-of";
 /// The tag on the commit the next run plans from (`gold_incremental.BUILD_TAG`, root ADR-0338).
 pub(crate) const BUILD_TAG: &str = "foundation-gold-build";
 /// The tag that keeps, on each input, the snapshot the table was last built from
@@ -65,6 +68,8 @@ pub(crate) struct Base {
     pub current_records: u64,
     /// The fingerprint of the current rows after it: (rows, digest sum).
     pub fingerprint: (u64, u128),
+    /// The instant its documents were built as of, for a time-dependent kind ([`AS_OF_PROPERTY`]).
+    pub as_of: Option<String>,
 }
 
 /// `rows:<count>;digest_sum:<sum>`.
@@ -109,6 +114,7 @@ pub(crate) fn base(history: &[IcebergSnapshotSummary]) -> anyhow::Result<Option<
             served_edition: summary.get(SERVED_EDITION_PROPERTY).cloned(),
             current_records: required(CURRENT_RECORDS_PROPERTY)?.parse()?,
             fingerprint: parse_fingerprint(required(FINGERPRINT_PROPERTY)?)?,
+            as_of: summary.get(AS_OF_PROPERTY).cloned(),
         }));
     }
     let rows = history

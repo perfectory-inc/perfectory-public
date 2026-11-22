@@ -83,6 +83,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/l
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_review_queue_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage/tests.rs:2
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_kind_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage.rs:5
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/onbid_silver_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_boundary_served_stage.rs:1
