@@ -5,7 +5,6 @@
   "field_layout_authority": "공공데이터포털 국토교통부_건축HUB_주택인허가정보 서비스(data.go.kr 15136560, HsPmsHubService)의 작업별 응답 항목와 2026-10 판 실측의 교차 확인. 대용량 파일은 PK 들·대지위치·(PK 와 특수지명 사이 항목)·지번 다섯·특수지명·블록·로트 순이고 나머지는 명세 순서다(ADR-0551 §3).",
   "measured_at_utc": "2026-11-12",
   "defaults": {
-    "engine": "duckdb",
     "rows_per_part": 1000000,
     "max_row_bytes": 1048576,
     "spark": {
