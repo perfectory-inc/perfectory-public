@@ -511,6 +511,20 @@ pub(crate) async fn run() -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
+    /// The unit `foundation-gold-versions@parcel-real-transaction.service` runs this command
+    /// (`gold-versions-build.sh parcel-real-transaction`).
+    #[test]
+    fn the_command_is_explicit() -> anyhow::Result<()> {
+        assert_eq!(
+            crate::parse_command([
+                "foundation-outbox-publisher",
+                "build-parcel-real-transaction-versions"
+            ])?,
+            crate::Command::BuildParcelRealTransactionVersions
+        );
+        Ok(())
+    }
+
     #[test]
     fn a_new_build_month_is_recorded_as_the_month_not_as_new_rules() -> anyhow::Result<()> {
         let october = NaiveDate::from_ymd_opt(2026, 10, 1).context("a date")?;
