@@ -13,6 +13,7 @@ mod completed_handoff;
 mod floor_scratch;
 pub mod history_gate;
 pub mod history_gate_run;
+pub mod floor_load;
 mod history_witness;
 #[cfg(test)]
 mod hub_bulk_decoder;
