@@ -114,6 +114,7 @@ mod gold_takeover_documents;
 mod gold_takeover_sides;
 mod gold_versions_change_set;
 mod gold_versions_commit;
+mod gold_versions_resume;
 mod industrial_complex_notice_silver_load;
 mod industrial_complex_silver_load;
 mod industrial_land_sale_notice_silver_load;

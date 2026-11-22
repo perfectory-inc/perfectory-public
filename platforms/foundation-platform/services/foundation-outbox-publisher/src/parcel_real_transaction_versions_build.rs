@@ -13,8 +13,8 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
+    path::Path,
+    time::Instant,
 };
 
 use anyhow::{bail, ensure, Context};
@@ -41,6 +41,7 @@ use crate::{
         FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, RECORDED_EXPLANATION_PROPERTY,
         SERVED_EDITION_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY, VERSION_SEQ_PROPERTY,
     },
+    gold_versions_resume::{self, may_start, Resume},
     parcel_nearby_versions_build::{
         contract, lakehouse_read, max_row_loss_fraction, recorded_or_refused, served_edition,
         write_summary, MEMORY_SHARE,
@@ -56,11 +57,6 @@ const LANE: &str = "parcel-real-transaction";
 const REPLACED: &str = "gold.parcel_real_transaction";
 const JOB: &str = "build-parcel-real-transaction-versions";
 const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY";
-/// Where a run keeps what the next one resumes (`gold-versions-build.sh`: the lane's state directory).
-const RESUME_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_RESUME_DIR";
-/// No unit starts past this: the unit's hour (`foundation-gold-versions@.service` TimeoutStartSec) less
-/// the longest unit and the takeover verdict a commit's run goes on to (gold-versions-build.sh).
-const BUILD_DEADLINE: Duration = Duration::from_secs(45 * 60);
 const RT_CONTRACT: &str =
     include_str!("../../../infra/lakehouse/contracts/rt-molit-real-transaction.contract.json");
 
@@ -82,33 +78,6 @@ fn code_moved(base: &str, code: &str) -> Option<String> {
     } else {
         format!("the code version moved to {rules}")
     })
-}
-
-/// The directory under `root` that keeps `run`'s spool and finished units; any other run's is
-/// removed (its inputs, code or edition are no longer this run's).
-fn resume_dir(root: &Path, run: &str) -> anyhow::Result<PathBuf> {
-    let name: String = run
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    ensure!(!name.is_empty(), "a run has an id");
-    std::fs::create_dir_all(root)?;
-    for entry in std::fs::read_dir(root)? {
-        let entry = entry?;
-        if entry.file_name().to_string_lossy() != name.as_str() && entry.file_type()?.is_dir() {
-            std::fs::remove_dir_all(entry.path())
-                .with_context(|| format!("cannot remove {}", entry.path().display()))?;
-        }
-    }
-    let dir = root.join(name);
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
 }
 
 /// Builds and appends the 실거래 Gold's changed keys.
@@ -206,17 +175,13 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let memory_limit = stage.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
     let connection = stage.connection();
     let run = versions::run_id(TABLE, &pins, &code, &edition);
-    let resume = resume_dir(Path::new(&required_env_value(RESUME_ENV)?), &run)?;
-    let (spool_dir, built_dir, spooled_path) = (
-        resume.join("spool"),
-        resume.join("built"),
-        resume.join("spooled.json"),
-    );
-    let resumed = spooled_path.exists();
-    let spooled: Spooled = if resumed {
+    let resume = Resume::open(&run)?;
+    let spool_dir = resume.dir().join("spool");
+    let stored: Option<Spooled> = resume.load("spooled")?;
+    let resumed = stored.is_some();
+    let spooled: Spooled = if let Some(spooled) = stored {
         load_reference(connection, &spool_dir)?;
-        serde_json::from_slice(&std::fs::read(&spooled_path)?)
-            .with_context(|| format!("cannot read {}", spooled_path.display()))?
+        spooled
     } else {
         if spool_dir.exists() {
             std::fs::remove_dir_all(&spool_dir)
@@ -230,7 +195,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         };
         let spooled = spool(connection, &source, &edition, &spool_dir)?;
         // Written last: a spool is whole once its record is there.
-        std::fs::write(&spooled_path, serde_json::to_vec(&spooled)?)?;
+        resume.store("spooled", &spooled)?;
         for (input, millis) in &spooled.read_millis {
             println!(
                 "gold-versions {TABLE} read {input} in {:.1}s",
@@ -290,38 +255,20 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         source_snapshot_id: &parcels_snapshot,
         published_at_utc: &published_at_utc,
     };
-    std::fs::create_dir_all(&built_dir)?;
     connection.execute_batch(BUILT_TABLE)?;
-    let built_text = built_dir
-        .to_str()
-        .context("the resume directory must be UTF-8")?
-        .replace('\\', "/");
-    ensure!(
-        !built_text.contains('\''),
-        "the resume directory must not contain a quote"
-    );
     let mut seconds_by_unit = BTreeMap::new();
     let mut left = 0_usize;
     for (index, unit) in spooled.units.iter().enumerate() {
-        let file = built_dir.join(format!("unit-{index:04}.parquet"));
-        if file.exists() {
+        if resume.finished(index) {
             continue;
         }
-        if started.elapsed() > BUILD_DEADLINE {
+        if !may_start(started) {
             left += 1;
             continue;
         }
         let at = Instant::now();
         let rows = build_unit(connection, &spool_dir, unit, &build)?;
-        // A unit is finished once its file is whole: written aside, then renamed.
-        connection.execute_batch(&format!(
-            "COPY built TO '{built_text}/unit-{index:04}.parquet.part' (FORMAT parquet, COMPRESSION zstd); \
-             DELETE FROM built;"
-        ))?;
-        std::fs::rename(
-            built_dir.join(format!("unit-{index:04}.parquet.part")),
-            &file,
-        )?;
+        resume.finish(connection, "built", index)?;
         seconds_by_unit.insert(index, at.elapsed().as_secs_f64());
         println!(
             "gold-versions {TABLE} built unit {}/{} ({} 시군구, {} deals) into {rows} rows in {:.1}s \
@@ -349,13 +296,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             "gold-versions {TABLE} partial: {left} of {} units left past the {}-minute deadline; the next \
              run resumes them",
             spooled.units.len(),
-            BUILD_DEADLINE.as_secs() / 60
+            gold_versions_resume::BUILD_DEADLINE.as_secs() / 60
         );
         return Ok(());
     }
-    connection.execute_batch(&format!(
-        "INSERT INTO built SELECT * FROM read_parquet('{built_text}/unit-*.parquet');"
-    ))?;
+    resume.load_finished(connection, "built")?;
     let invalid: i64 = connection.query_row(
         "SELECT count(*) FROM built WHERE NOT regexp_full_match(pnu, '[0-9]{19}') \
          OR real_transaction_json IS NULL OR row_digest IS NULL",
@@ -438,8 +383,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let snapshot = versions::append(&committer, &catalog, &commit, &files, &run, summary).await?;
     drop(stage);
     let tags = versions::pin(&catalog, TABLE, snapshot, &pins).await?;
-    std::fs::remove_dir_all(&resume)
-        .with_context(|| format!("cannot remove {}", resume.display()))?;
+    resume.clear()?;
     write_summary(
         &summary_path,
         &json!({
