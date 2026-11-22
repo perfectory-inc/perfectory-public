@@ -693,8 +693,20 @@ fn iceberg_type(logical_type: &str) -> anyhow::Result<PrimitiveType> {
         "boolean" => PrimitiveType::Boolean,
         "date" => PrimitiveType::Date,
         "timestamp" => PrimitiveType::Timestamptz,
-        other => bail!("no Iceberg type here for the contract type {other}"),
+        other => match decimal_type(other) {
+            Some((precision, scale)) => PrimitiveType::Decimal { precision, scale },
+            None => bail!("no Iceberg type here for the contract type {other}"),
+        },
     })
+}
+
+/// `decimal(P,S)` of a contract column, as its precision and scale.
+fn decimal_type(logical_type: &str) -> Option<(u32, u32)> {
+    let (precision, scale) = logical_type
+        .strip_prefix("decimal(")?
+        .strip_suffix(')')?
+        .split_once(',')?;
+    Some((precision.trim().parse().ok()?, scale.trim().parse().ok()?))
 }
 
 /// A contract's schema (field ids in column order), partition spec and sort order.
@@ -868,6 +880,27 @@ fn holds(column: &ColumnDescriptor, primitive: &PrimitiveType) -> bool {
         (PrimitiveType::Double, PhysicalType::DOUBLE)
         | (PrimitiveType::Float, PhysicalType::FLOAT)
         | (PrimitiveType::Boolean, PhysicalType::BOOLEAN) => true,
+        // The unscaled value in the integer the precision fits (`DuckDB` writes a decimal of up to 9
+        // digits as INT32 and up to 18 as INT64), annotated with the same precision and scale.
+        (
+            PrimitiveType::Decimal { precision, scale },
+            PhysicalType::INT32 | PhysicalType::INT64,
+        ) => {
+            let (want_precision, want_scale) = (i64::from(*precision), i64::from(*scale));
+            let annotated = match logical {
+                Some(LogicalType::Decimal(decimal)) => {
+                    Some((i64::from(decimal.precision), i64::from(decimal.scale)))
+                }
+                Some(_) => None,
+                None => (converted == ConvertedType::DECIMAL).then(|| {
+                    (
+                        i64::from(column.type_precision()),
+                        i64::from(column.type_scale()),
+                    )
+                }),
+            };
+            annotated == Some((want_precision, want_scale))
+        }
         _ => false,
     }
 }
@@ -1244,10 +1277,27 @@ fn column_facts(
 
 /// A column chunk's bounds as Iceberg values. Parquet's plain encoding of a statistic and
 /// Iceberg's single-value serialization are the same bytes for every type `holds` admits.
+///
+/// A decimal is the exception: Parquet's statistic is the little-endian integer of its physical type
+/// and Iceberg's is the big-endian two's complement of the unscaled value (iceberg 0.11
+/// `Datum::try_from_bytes`), so its bytes are turned around first.
 fn bounds_of(statistics: &Statistics, primitive: &PrimitiveType) -> Option<(Datum, Datum)> {
-    let low = Datum::try_from_bytes(statistics.min_bytes_opt()?, primitive.clone()).ok()?;
-    let high = Datum::try_from_bytes(statistics.max_bytes_opt()?, primitive.clone()).ok()?;
+    let low = statistic_datum(statistics.min_bytes_opt()?, primitive)?;
+    let high = statistic_datum(statistics.max_bytes_opt()?, primitive)?;
     (!low.is_nan() && !high.is_nan()).then_some((low, high))
+}
+
+/// One Parquet statistic as an Iceberg value of `primitive`.
+fn statistic_datum(bytes: &[u8], primitive: &PrimitiveType) -> Option<Datum> {
+    if matches!(primitive, PrimitiveType::Decimal { .. }) {
+        let unscaled = match bytes.len() {
+            4 => i128::from(i32::from_le_bytes(bytes.try_into().ok()?)),
+            8 => i128::from(i64::from_le_bytes(bytes.try_into().ok()?)),
+            _ => return None,
+        };
+        return Datum::try_from_bytes(&unscaled.to_be_bytes(), primitive.clone()).ok();
+    }
+    Datum::try_from_bytes(bytes, primitive.clone()).ok()
 }
 
 #[cfg(test)]
@@ -1265,6 +1315,36 @@ mod tests {
         );
         assert!(batch_identities(&[]).is_err());
         assert!(batch_identities(&["a,b".to_owned()]).is_err());
+        Ok(())
+    }
+
+    /// `silver.industrial_complexes` carries decimal(18,2) and decimal(5,2) columns: a staged
+    /// file's unscaled integer must carry the column's own precision and scale, and its bounds turn
+    /// from Parquet's little-endian integer into Iceberg's big-endian unscaled value.
+    #[test]
+    fn a_decimal_column_holds_only_its_own_precision_and_scale() -> anyhow::Result<()> {
+        use parquet::schema::{parser::parse_message_type, types::SchemaDescriptor};
+
+        let schema = parse_message_type(
+            "message staged { optional int64 area (DECIMAL(18,2)); optional int32 percent (DECIMAL(5,2));              optional int64 other (DECIMAL(18,3)); optional int64 count; }",
+        )?;
+        let descriptor = SchemaDescriptor::new(Arc::new(schema));
+        let decimal = |precision, scale| PrimitiveType::Decimal { precision, scale };
+        assert!(holds(&descriptor.column(0), &decimal(18, 2)));
+        assert!(holds(&descriptor.column(1), &decimal(5, 2)));
+        assert!(!holds(&descriptor.column(2), &decimal(18, 2)));
+        assert!(!holds(&descriptor.column(3), &decimal(18, 2)));
+        assert!(!holds(&descriptor.column(0), &PrimitiveType::Long));
+        assert_eq!(iceberg_type("decimal(18,2)")?, decimal(18, 2));
+        assert!(iceberg_type("decimal(18)").is_err());
+
+        let area = statistic_datum(&123_450_i64.to_le_bytes(), &decimal(18, 2))
+            .context("a decimal(18,2) bound")?;
+        assert_eq!(area.literal(), &PrimitiveLiteral::Int128(123_450));
+        let percent = statistic_datum(&(-1_i32).to_le_bytes(), &decimal(5, 2))
+            .context("a decimal(5,2) bound")?;
+        assert_eq!(percent.literal(), &PrimitiveLiteral::Int128(-1));
+        assert!(statistic_datum(&[0; 3], &decimal(5, 2)).is_none());
         Ok(())
     }
 }

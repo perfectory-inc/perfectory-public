@@ -108,6 +108,14 @@
           "mode": "0755"
         },
         {
+          "path": "/var/lib/foundation-platform/industrial-complex-silver",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/industrial-complex-address-source",
+          "mode": "0755"
+        },
+        {
           "path": "/var/lib/foundation-platform/industrial-complex-notice",
           "mode": "0755"
         },
@@ -1119,7 +1127,8 @@
           },
           "claimed_measured": {
             "foundation-silver-refresh@.service": "journal `memory peak` 2026-10-18..11-08, 84 runs under the 16G cap the lanes had in the spark pool: highest 15,668M (building-register-unit-areas, 2026-10-20). The export sizes its workers to three quarters of what its cgroup has left, so the peak follows the cap; the first runs under an 8G cap (2026-11-21) measured it: building-register-units took 61 minutes throttled at MemoryHigh, against ten minutes under 16G, so the cap and the claim are 16G again.",
-            "intelligence-model-runtime-ollama.service": "21.4 GB of RAM and 5.7 GB of VRAM with Qwen3.6-35B-A3B Q4 loaded and answering (2026-11-11, 16 ILIS notices, root ADR-0478; page cache of the mapped weights included). In production the model has not been asked yet: the one fact run (2026-11-12 20:49Z, one document) closed every table by rule and the runtime used 3.5 s of CPU."
+            "intelligence-model-runtime-ollama.service": "21.4 GB of RAM and 5.7 GB of VRAM with Qwen3.6-35B-A3B Q4 loaded and answering (2026-11-11, 16 ILIS notices, root ADR-0478; page cache of the mapped weights included). In production the model has not been asked yet: the one fact run (2026-11-12 20:49Z, one document) closed every table by rule and the runtime used 3.5 s of CPU.",
+            "foundation-industrial-complex-silver-load.service": "no run yet (new 2026-11-22): its unit's 1G cap; the 1,442 rows of one export and a 98 MB archive read whole"
           }
         }
       },
@@ -1302,6 +1311,16 @@
             "class": "batch",
             "memory_max": "3G",
             "measured": "never run (root ADR-0475: new, waiting for the approval key); sized as the collector holds one ten-day answer's files in memory and one more copy while it commits each, against the provider's 2,000,000,000-byte file limit for the largest; systemd logs the peak of every run under this cap"
+          },
+          "foundation-industrial-complex-address-source-collect.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured": "no run yet (new 2026-11-22, root ADR-0033); sized as the ILIS notice Silver load (512M), the largest thing it holds being the 13.5 MB notice list answer twice (raw bytes and parsed JSON) and the 412 KB profile workbook; systemd logs the peak of every run under this cap"
+          },
+          "foundation-industrial-complex-silver-load.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured": "no run yet (new 2026-11-22, root ADR-0033); sized as the ILIS notice Silver load (512M), the same DuckDB stage reading the lakehouse, and twice that for the 98 MB district boundary archive the address resolution reads whole; systemd logs the peak of every run under this cap"
           },
           "foundation-industrial-complex-notice-collect.service": {
             "class": "batch",
@@ -1633,6 +1652,8 @@
       "legal_dong_code_changes",
       "court_auction_collect",
       "court_auction_silver",
+      "industrial_complex_address_source_collect",
+      "silver_industrial_complexes",
       "industrial_complex_notice_collect",
       "industrial_complex_notice_silver",
       "registered_factory",
@@ -1710,6 +1731,7 @@
       "silver-unit-official-price-versions",
       "building-register-bronze-ingest",
       "source-ilis",
+      "source-ilis-address",
       "source-code-go-kr",
       "source-data-go-kr-onbid",
       "source-courtauction-go-kr",
@@ -1897,7 +1919,7 @@
       "source-building-hub-bulk-to-silver-building-register-floors",
       "source-building-hub-bulk-to-silver-building-register-units",
       "source-building-hub-bulk-to-silver-building-register-unit-areas",
-      "source-ilis-to-silver-industrial-complexes",
+      "source-ilis-address-to-silver-industrial-complexes",
       "source-vworld-dataset-to-silver-industrial-complex-boundaries",
       "silver-industrial-complexes-to-silver-industrial-complex-boundaries",
       "silver-parcel-boundaries-to-gold-parcel-panel",

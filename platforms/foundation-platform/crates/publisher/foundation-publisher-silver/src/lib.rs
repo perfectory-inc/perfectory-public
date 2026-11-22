@@ -123,6 +123,8 @@ pub mod parcel_lineage_schedule;
 
 /// Stages ILIS notice detail reads and their stored attachments as Silver rows (root ADR-0484).
 pub mod industrial_complex_notice_stage;
+/// Stages one industrial-complex profile export as `silver.industrial_complexes` rows (root ADR-0033).
+pub mod industrial_complex_silver_stage;
 /// The `DuckDB` the stages run in, for the caller that diffs and commits a stage's rows (root
 /// ADR-0564 §3): one build of it in the executable.
 pub use duckdb;

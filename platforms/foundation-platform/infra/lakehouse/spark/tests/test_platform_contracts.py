@@ -791,30 +791,6 @@ class JsonlTransportContractTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "is empty"):
                     value_domain(SILVER_INDUSTRIAL_COMPLEXES, "status")
 
-    def test_bronze_to_silver_job_reads_the_exported_contract_instead_of_its_own_lists(
-        self,
-    ) -> None:
-        job_path = JOBS_DIR / "industrial_complex_bronze_to_silver.py"
-        tree = ast.parse(job_path.read_text(encoding="utf-8"))
-        assignments = {
-            target.id: node.value
-            for node in ast.walk(tree)
-            if isinstance(node, (ast.Assign, ast.AnnAssign))
-            for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
-            if isinstance(target, ast.Name)
-        }
-
-        for name, helper in (
-            ("INPUT_COLUMNS", "jsonl_transport_columns"),
-            ("ALLOWED_COMPLEX_KINDS", "value_domain"),
-            ("ALLOWED_STATUSES", "value_domain"),
-        ):
-            with self.subTest(name=name):
-                value = assignments[name]
-                self.assertIsInstance(value, ast.Call)
-                self.assertIsInstance(value.func, ast.Name)
-                self.assertEqual(value.func.id, helper)
-
 
 class RegionOptionalContractTest(unittest.TestCase):
     """The industrial-complex tables no longer require a region, and must not partition on one."""
@@ -868,7 +844,6 @@ class RegionOptionalContractTest(unittest.TestCase):
 
     def test_industrial_complex_jobs_read_partitioning_from_the_contract(self) -> None:
         for job, partition_name, sort_name in (
-            ("industrial_complex_bronze_to_silver.py", "PARTITION_COLUMNS", "SORT_COLUMNS"),
             (
                 "industrial_complex_silver_to_gold.py",
                 "GOLD_PARTITION_COLUMNS",

@@ -2,14 +2,119 @@
   "$schema": "scripts/catalog/definition.v1.schema.json",
   "definition": "foundation-platform.definition.v1",
   "group": "silver-industrial-complexes",
+  "jobs": [
+    {
+      "id": "industrial_complex_address_source_collect",
+      "dagster_group": "collect",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "산업입지정보시스템(ILIS) 산업단지 목록·고시 목록·상세, the address source of silver.industrial_complexes (root ADR-0033; scripts/ops/industrial-complex-address-source-collect.sh, the publisher's collect-industrial-complex-address-source): the complex list (il/danji/list.do) and the notice list (il/danref/list.do) in one request each, then one detail request (il/danji/det/info.do) for each complex of the newest vworldkr__sandan_profile workbook in Bronze that the list does not carry (four of 1,442 measured 2026-08-16), two seconds between requests, the count checked against the run's ceiling before the requests it counts. Each answer lands in Bronze once (write-once, deduplicated by content): an answer equal to the last one makes no object and the run reports unchanged. A new object starts the Silver load of the industrial complexes. No Spark.",
+      "systemd_service": "foundation-industrial-complex-address-source-collect.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-complex-address-source"
+      ],
+      "schedule": "40 4 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 15,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 60,
+          "estimated_from": "computed from its own bounds: two bulk requests (the notice list 13.5 MB measured 2026-11-09 in a few seconds, the complex list 1,473 rows) and about four detail requests, two seconds apart, plus one ledger read and the 412 KB profile workbook: under a minute, inside the 15-minute limit. The command refuses a run of more than eight requests (its DEFAULT_MAX_REQUESTS) before the first."
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "The provider changes its complex list and notices on no fixed day (endpoint catalog expected_cadence irregular for ILIS); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "ilis-address-source-collection-to-source-ilis-address"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "shadow",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    },
+    {
+      "id": "silver_industrial_complexes",
+      "dagster_group": "silver",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver load of the industrial complexes (root ADR-0033; started by a new object of its inputs (the ILIS address sources the daily collector lands, source-ilis-address, apart from the hourly notice details of source-ilis; the profile workbook the daily sweep lands), the schedule being the fallback; scripts/ops/industrial-complex-silver-load.sh; the publisher's plan-industrial-complex-silver-inputs and load-industrial-complex-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559; it was the Spark job industrial_complex_bronze_to_silver.py, started by hand): the newest Bronze object of each input (the vworldkr__sandan_profile workbook, the ILIS complex list and notice list, the ILIS detail of each complex the list lacks, the vworldkr__boundary_sigungu archive whose .dbf is the district authority), `unchanged` without fetching anything when the table's commits record every one; otherwise the address resolution and the export (build-industrial-complex-address-resolution, export-industrial-complex-bronze-raw-jsonl, unchanged), the Spark job's gates, and one commit that appends only the complexes whose content differs from their current row and records every input, even when no complex changed. One pass over the nation: the input is one 1,442-row workbook and a 98 MB boundary archive (the declared exception to a regional split). No Spark.",
+      "systemd_service": "foundation-industrial-complex-silver-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-complex-silver"
+      ],
+      "schedule": "10 5 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 30,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 240,
+          "estimated_from": "computed from its inputs: five R2 listings and, when owed, about 115 MB fetched (the 98 MB boundary archive, the 13.5 MB notice list, the 412 KB workbook, the complex list and four details), then the resolution and export of 1,442 rows and one DuckDB pass over them; the Spark job's three hand loads of the same rows (2026-08-18, 10-01) took minutes. 240 s stays the bound until a production run is measured, inside the 30-minute limit."
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when an input changed what a complex says: the profile workbook (last new 2026-04-20 by the provider), or an ILIS answer that moves an address; that it is not behind its inputs is the asset reconciler's lag (root ADR-0333)."
+      },
+      "pool": "documents",
+      "pool_slots": 1,
+      "memory_claim": {
+        "units": [
+          "foundation-industrial-complex-silver-load.service"
+        ]
+      },
+      "priority_weight": 40,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-ilis-address-to-silver-industrial-complexes",
+        "source-vworld-dataset-to-silver-industrial-complexes"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "dagster",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    }
+  ],
   "assets": [
+    {
+      "id": "ilis-address-source-collection",
+      "type": "serving_surface",
+      "title": "산업단지 주소 근거 받기",
+      "description": "산업입지정보시스템(ILIS)의 산업단지 목록과 고시 목록을 한 번씩, 목록에 없는 단지의 상세를 하나씩 매일 받아 Bronze(industrylandorkr__industrial_complex_list·_notice·_detail)에 그대로 쌓는다. 같은 답은 새 객체를 만들지 않는다. 산업단지 Silver 의 주소 해석 근거다(루트 ADR-0033).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_address_source_collect.rs"
+      ],
+      "surface_kind": "scheduler"
+    },
     {
       "id": "silver-industrial-complexes",
       "type": "silver_table",
       "title": "산업단지 기본 정보",
-      "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.",
+      "description": "ILIS 주소 근거와 브이월드 산업단지 프로필로 단지마다 한 행을 쌓는다. 입력이 바뀌면 발행기 안의 DuckDB 가 바뀐 단지만 붙인다(루트 ADR-0033, ADR-0559).",
       "status": "implemented",
-      "unscheduled": "on_event",
       "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -26,14 +131,25 @@
   ],
   "dependencies": [
     {
-      "from": "source-ilis",
+      "from": "ilis-address-source-collection",
+      "to": "source-ilis-address",
+      "relation": "schedules",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/industrial-complex-address-source-collect.sh",
+        "collect-industrial-complex-address-source"
+      ]
+    },
+    {
+      "from": "source-ilis-address",
       "to": "silver-industrial-complexes",
       "relation": "feeds",
       "status": "implemented",
       "via": [
         "build-industrial-complex-address-resolution",
         "export-industrial-complex-bronze-raw-jsonl",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py"
+        "platforms/foundation-platform/scripts/ops/industrial-complex-silver-load.sh",
+        "load-industrial-complex-silver"
       ],
       "source_slugs": [
         "industrylandorkr__industrial_complex_list",
@@ -54,7 +170,8 @@
       "via": [
         "build-industrial-complex-address-resolution",
         "export-industrial-complex-bronze-raw-jsonl",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py"
+        "platforms/foundation-platform/scripts/ops/industrial-complex-silver-load.sh",
+        "load-industrial-complex-silver"
       ],
       "description": "산업단지 프로필 원본을 변환하며 시군구 경계의 DBF를 주소 행정구역 판정에 사용한다."
     }

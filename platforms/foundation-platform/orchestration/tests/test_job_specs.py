@@ -1075,9 +1075,15 @@ class EveryDatasetSaysHowItIsMade(unittest.TestCase):
     def node(graph, node_id):
         return next(node for node in graph["nodes"] if node["id"] == node_id)
 
+    @staticmethod
+    def unwritten(jobs):
+        # The industrial-complex Silver load was the last dataset made by hand (until 2026-11-22): taking its
+        # job's edges away makes it one again, the case these refusals are about.
+        job(jobs, "silver_industrial_complexes")["pipeline_graph_edges"].clear()
+        job(jobs, "silver_industrial_complexes")["reads_data_contracts"] = True
+
     def test_a_dataset_that_says_nothing_is_refused(self):
-        # The industrial-complex profile is made on an event (ILIS, by hand); without saying so it is a defect.
-        problems = self.problems(mutate_graph=lambda graph: self.node(graph, "silver-industrial-complexes").pop("unscheduled"))
+        problems = self.problems(mutate_jobs=self.unwritten)
         self.assertEqual(problems, [
             "dataset 'silver-industrial-complexes' has no job in jobs.v1.json and does not say why (unscheduled)"])
 
@@ -1101,7 +1107,11 @@ class EveryDatasetSaysHowItIsMade(unittest.TestCase):
             ("silver-complex-parcel-memberships", {"unscheduled": "needs_job"}, "is not a lakehouse dataset"),
         ]:
             with self.subTest(node=node_id):
-                problems = self.problems(mutate_graph=lambda graph: self.node(graph, node_id).update(change))
+                ours = node_id == "silver-industrial-complexes"
+                planted = {"unscheduled": "on_event", **change} if ours else change
+                problems = self.problems(
+                    mutate_jobs=self.unwritten if ours else lambda jobs: None,
+                    mutate_graph=lambda graph, node_id=node_id, planted=planted: self.node(graph, node_id).update(planted))
                 self.assertEqual(len(problems), 1, problems)
                 self.assertIn(expected, problems[0])
 

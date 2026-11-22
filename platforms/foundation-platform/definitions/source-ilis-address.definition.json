@@ -1,0 +1,18 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-ilis-address",
+  "assets": [
+    {
+      "id": "source-ilis-address",
+      "type": "source_group",
+      "title": "산업입지정보 산업단지 주소 근거",
+      "description": "목록·고시 목록·상세는 브이월드 산업단지의 주소 해석 근거로 연결된다. 매일 수집이 받고, 새 객체가 산업단지 Silver 적재를 깨운다. 고시 상세(매시 수집)는 source-ilis 로 나뉘어 이 적재를 깨우지 않는다.",
+      "status": "partial",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "endpoint_catalog_group": "ilis_address",
+      "unmapped_status": "collected_only"
+    }
+  ]
+}

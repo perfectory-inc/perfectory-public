@@ -108,6 +108,9 @@ impl LakehouseRead {
 pub struct DuckDbParquetStage {
     connection: Connection,
     directory: tempfile::TempDir,
+    /// The spill ceiling this stage set on its buffer manager (`max_temp_directory_size`): what
+    /// [`Self::require_room`] counts it may still write.
+    spill_ceiling: u64,
 }
 
 impl DuckDbParquetStage {
@@ -129,10 +132,11 @@ impl DuckDbParquetStage {
             .with("autoload_known_extensions", "false")?
             .with("autoinstall_known_extensions", "false")?;
         let connection = Connection::open_in_memory_with_flags(config)?;
+        let spill_ceiling = serving_scratch::configured_maximum_bytes()?;
         // Applied to the live buffer manager, as the floor stage does (root ADR-0127).
         connection.execute(
             "SET max_temp_directory_size = ?",
-            [format!("{}B", serving_scratch::configured_maximum_bytes()?)],
+            [format!("{spill_ceiling}B")],
         )?;
         // The stage directory is the only place a statement may read or write.
         connection.execute_batch(&format!(
@@ -141,6 +145,7 @@ impl DuckDbParquetStage {
         Ok(Self {
             connection,
             directory,
+            spill_ceiling,
         })
     }
 
@@ -171,9 +176,10 @@ impl DuckDbParquetStage {
             .with("autoinstall_known_extensions", "false")?;
         let connection =
             Connection::open_with_flags(directory.path().join("stage.duckdb"), config)?;
+        let spill_ceiling = serving_scratch::configured_maximum_bytes()?;
         connection.execute(
             "SET max_temp_directory_size = ?",
-            [format!("{}B", serving_scratch::configured_maximum_bytes()?)],
+            [format!("{spill_ceiling}B")],
         )?;
         crate::duckdb_extensions::load(&connection, &read.extensions)?;
         for value in [
@@ -211,6 +217,7 @@ impl DuckDbParquetStage {
         Ok(Self {
             connection,
             directory,
+            spill_ceiling,
         })
     }
 
@@ -303,13 +310,28 @@ impl DuckDbParquetStage {
     /// cannot be measured.
     pub fn require_room(&self, expected_bytes: u64) -> anyhow::Result<()> {
         let free = foundation_publisher_core::free_space::free_bytes(self.directory.path())?;
-        let spill = serving_scratch::configured_maximum_bytes()?;
+        let spill = self.spill_ceiling;
         ensure!(
             leaves_reserve(free, spill, expected_bytes, stage_reserve_bytes()?),
             "the disk of {} has {free} bytes free; this stage may spill {spill} and expects to write {expected_bytes} more, which would leave less than the {} bytes reserved on that disk (host-layout duckdb_stage_reserve_bytes). Free space or wait for the other stage to finish",
             self.directory.path().display(),
             stage_reserve_bytes()?
         );
+        Ok(())
+    }
+
+    /// Lowers the spill ceiling to `bytes`, on the buffer manager and in [`Self::require_room`]'s
+    /// count: a test whose few rows need no room is not refused by the free space of the machine
+    /// running it (2026-11-22: a CI runner with 62 GB free refused the 32 GiB default plus the
+    /// 30 GiB reserve).
+    ///
+    /// # Errors
+    /// `DuckDB` refuses the setting.
+    #[cfg(test)]
+    pub(crate) fn limit_spill(&mut self, bytes: u64) -> anyhow::Result<()> {
+        self.connection
+            .execute("SET max_temp_directory_size = ?", [format!("{bytes}B")])?;
+        self.spill_ceiling = bytes;
         Ok(())
     }
 

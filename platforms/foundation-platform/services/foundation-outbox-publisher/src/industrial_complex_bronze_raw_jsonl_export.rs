@@ -1,7 +1,7 @@
 //! Industrial-complex Bronze profile object to `bronze.industrial_complexes_raw_jsonl` producer.
 //!
-//! `infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py` has read this dataset since
-//! it was written and nothing has ever produced it. This command is the writer: it decodes the
+//! The Silver load (`load-industrial-complex-silver`, which replaced the Spark job
+//! `industrial_complex_bronze_to_silver.py`) reads this dataset. This command is the writer: it decodes the
 //! profile workbook out of its Bronze zip and emits one JSONL record per industrial complex.
 //!
 //! The profile source carries no administrative location, so the address resolution is an injected
