@@ -76,3 +76,5 @@ ai-server 에서 측정한 사실이다.
   이미지는 7일 안에 저장소에 고정하거나 다시 만든다.
 - 남은 일: 손으로 띄운 `martin-*` 두 컨테이너는 로그 상한이 없다(ADR-0110 이 정적 PMTiles 로 대체 중).
   데몬 수준 기본 로그 상한은 다음 계획된 dockerd 재시작 때 넣는다.
+
+- 2026-11-23 개정 주석: §3 의 지우는 조건에 하나가 더해졌다 — 호스트가 짓는 저장소(RAON 배치 이미지)의 가장 새 이미지는 나이와 관계없이 남는다([ADR-0607](./0607-the-raon-image-the-host-builds-stays-until-its-inputs-change-and-a-raon-run-takes-thirteen-files.md)).

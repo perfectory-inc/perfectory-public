@@ -124,8 +124,10 @@ if [ -z "${DATABASE_URL:-}" ]; then
   export DATABASE_URL
 fi
 
-# The image is named after the content of its build context (the worker, the Dockerfile, the
-# naming contract) and the pinned package. A release that changes none of them reuses it.
+# The image is tagged with the content of its build context (the worker, the Dockerfile, the
+# naming contract) and the pinned package. A release that changes none of them reuses it, and the
+# host retention keeps the repository's newest image at any age (root ADR-0607): aged out at 7 days,
+# the same image was built again, 85 minutes before the first file (2026-11-22).
 image_inputs=(
   "${WORKER}/Dockerfile.raon-batch"
   "${WORKER}/pyproject.toml"
@@ -138,7 +140,7 @@ content_id="$(cd "${RELEASE_ROOT}" &&
   { find "${image_inputs[@]}" -type f ! -path '*/__pycache__/*' ! -name '*.pyc' -print0 |
       sort -z | xargs -0 sha256sum; printf '%s  %s\n' "${package_sha256}" "${package_url}"; } |
   sha256sum | cut -c1-16)"
-RAON_IMAGE="foundation-platform/raon-batch-${content_id}:local"
+RAON_IMAGE="foundation-platform/raon-batch:${content_id}"
 
 ensure_image() {
   if docker image inspect "${RAON_IMAGE}" >/dev/null 2>&1; then

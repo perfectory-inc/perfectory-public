@@ -13,6 +13,8 @@ An image is removed only when all of these hold:
 * it was created more than `--min-age-days` ago, so a build or pull in progress is never raced;
 * the release prune does not own it: the publisher and tippecanoe images follow the releases
   they were built for, including the emergency release, and `foundation-release.sh prune` decides;
+* it is not the newest image of a repository a host job builds and reuses by the digest of its
+  inputs (`HOST_BUILT`, root ADR-0607);
 * the repository checkout the host deploys from (`--reference-root`) names neither its tag nor its
   digest anywhere, so every image a compose file, a contract or a job script pins stays.
 
@@ -35,6 +37,11 @@ from dataclasses import dataclass
 
 # Image repositories the release prune keeps or removes with their releases.
 RELEASE_OWNED = frozenset({"foundation-outbox-publisher", "foundation-tippecanoe"})
+# Image repositories a host job builds itself, tagged by the digest of its inputs, and reuses until
+# they change (root ADR-0607): the newest stays at any age; an older one is a former input set and
+# ages out like any image. The RAON batch image (scripts/ops/raon-large-files.sh) aged out at 7 days
+# and the next large-file run built the same image again, 85 minutes before its first file (2026-11-22).
+HOST_BUILT = frozenset({"foundation-platform/raon-batch"})
 DEFAULT_REFERENCE_ROOT = pathlib.Path("/opt/perfectory-control/current")
 HOST_LAYOUT = pathlib.Path(__file__).resolve().parents[2] / "config" / "host-layout.contract.json"
 REFERENCE_SUFFIXES = (".env", ".json", ".yml", ".yaml", ".sh", ".py", ".toml", "Dockerfile")
@@ -124,9 +131,16 @@ def removable(
     now: float,
     min_age_days: float,
 ) -> list[Image]:
+    candidates = list(candidates)
+    newest_built: dict[str, Image] = {}
+    for image in candidates:
+        for repository in image.repositories & HOST_BUILT:
+            if repository not in newest_built or image.created > newest_built[repository].created:
+                newest_built[repository] = image
+    kept_built = {image.image_id for image in newest_built.values()}
     chosen = []
     for image in candidates:
-        if image.image_id in used:
+        if image.image_id in used or image.image_id in kept_built:
             continue
         if now - image.created < min_age_days * DAY:
             continue

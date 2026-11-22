@@ -84,3 +84,5 @@ Rust 시험(새것부터), promtool 시험.
   있다. 빠진 것은 결국 "목록에 있는데 Bronze 에 없는 파일" 이므로 그것을 훑기가 직접 센다.
 - **ADR-0443 의 원천 나이를 파일 단위로 바꾸기** — 원천의 다른 파일이 신선한 것도 사실이고, 그 규칙은 수집기 정지를 잡는다.
   빠진 파일은 별도 신호다.
+
+- 2026-11-23 개정 주석: 한 실행의 파일 수는 [ADR-0607](./0607-the-raon-image-the-host-builds-stays-until-its-inputs-change-and-a-raon-run-takes-thirteen-files.md) 이 8 → 13 으로 올렸다(예산은 그 수 × 2 GiB 그대로).
