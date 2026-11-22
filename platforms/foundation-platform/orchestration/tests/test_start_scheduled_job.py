@@ -26,6 +26,10 @@ JOBS = {
          "wait_limit_minutes": 2},
         {"id": "fold", "pool": "duckdb", "systemd_service": "foundation-fold.service", "enabled": True,
          "wait_limit_minutes": 0},
+        # A second member, so the duckdb pool's question names several units (SYSTEMCTL tells a pool's
+        # question from a run's by that).
+        {"id": "lane", "pool": "duckdb", "systemd_service": "foundation-lane.service", "enabled": False,
+         "wait_limit_minutes": 0},
         {"id": "bake", "pool": "spark", "takes_turns": True,
          "systemd_service": "foundation-bake.service", "enabled": True, "wait_limit_minutes": 0},
         {"id": "paused", "pool": "spark", "systemd_service": "foundation-paused.service", "enabled": False,
