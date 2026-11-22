@@ -846,14 +846,19 @@ def cycle_minutes(jobs, graph=None):
 
 
 def pool_starvation(jobs, graph=None):
-    """Every job that could wait for its pool's slots longer than STARVATION_CYCLES of its runs."""
+    """Every job that could wait for its pool's slots longer than STARVATION_CYCLES of its runs.
+
+    A disabled job runs nowhere (the host refuses its start, start-scheduled-job.sh), so it neither
+    waits for a pool nor holds one.
+    """
     problems = []
     cycles = cycle_minutes(jobs, graph)
     weights = queue_weights(jobs, producers(jobs, graph if graph is not None
                                            else json.loads(GRAPH.read_text(encoding="utf-8"))))
     for pool, slots in declared_pools(jobs).items():
         # Weighed as Airflow orders them: by the weight the data dependency raised (queue_weights).
-        members = [{**job, "priority_weight": weights[job["id"]]} for job in jobs["jobs"] if job["pool"] == pool]
+        members = [{**job, "priority_weight": weights[job["id"]]} for job in jobs["jobs"]
+                   if job["pool"] == pool and job["enabled"]]
         for starved in members:
             if pool_slots(starved) > slots:
                 problems.append(f"{starved['id']} takes {pool_slots(starved)} slots of pool {pool!r}, which has {slots}")
