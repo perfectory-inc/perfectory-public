@@ -417,13 +417,11 @@ async fn fetch_detail_datasets(
     // same, since each is a path segment of a provider request.
     let codes = detail_complex_codes(Some(&config.detail_complex_codes.join(",")))?;
     let mut fetched = Vec::with_capacity(codes.len());
-    let mut request_index = already_sent;
-    for code in &codes {
+    for (request_index, code) in (already_sent..).zip(codes.iter()) {
         config
             .request_spacing
             .wait_before_request(request_index)
             .await;
-        request_index += 1;
         let page = client
             .fetch_detail(ILIS_DETAIL_DATASET.endpoint_path, code)
             .await
