@@ -606,12 +606,16 @@ fn build_every_sido(
                 handoff.written,
             )?;
         }
-        stage_bytes_peak = stage_bytes_peak.max(directory_bytes(work)?);
+        let stage_bytes = directory_bytes(work)?;
+        stage_bytes_peak = stage_bytes_peak.max(stage_bytes);
+        // The next 시도 replaces this one's tables: a checkpoint lets it reuse their blocks, or the
+        // stage holds every 시도's at once (2026-11-22 22:21Z: about 43 GB by the 15th).
+        stage.release_replaced_tables()?;
         // The stage shares its disk with the runtime Postgres (root ADR-0599).
         stage.require_room(0)?;
         seconds_by_sido.insert(sido.clone(), at.elapsed().as_secs_f64());
         println!(
-            "parcel-boundary-served {sido} ({}/{}): {} rows, {} keys changed in {:.1}s (memory peak {:?} bytes)",
+            "parcel-boundary-served {sido} ({}/{}): {} rows, {} keys changed in {:.1}s (memory peak {:?} bytes, stage {stage_bytes} bytes)",
             index + 1,
             sidos.len(),
             part.built,
