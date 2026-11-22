@@ -140,6 +140,8 @@ pub mod building_sub_parcel_stage;
 pub mod intelligence_documents_stage;
 /// What every parcel kind Gold of appended row versions shares (root ADR-0564 §6).
 pub mod kind_versions_stage;
+/// The parcel ownership kind's Gold in `DuckDB` (root ADR-0361).
+pub mod land_ownership_stage;
 pub mod legal_dong_pairing_stage;
 /// The parcel nearby kind's Gold in `DuckDB` (root ADR-0465, ADR-0564 §9).
 pub mod parcel_nearby_stage;

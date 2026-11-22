@@ -1,8 +1,8 @@
 //! The publisher's one build of a parcel kind's Gold as a table of appended row versions (root
 //! ADR-0564 §3, §6): `build-parcel-register-masters-versions`, `build-parcel-demolitions-versions`,
 //! `build-parcel-energy-versions`, `build-parcel-sub-parcels-versions`,
-//! `build-parcel-building-permits-versions`, `build-parcel-panel-versions`. `DuckDB` inside the
-//! publisher computes the kind
+//! `build-parcel-building-permits-versions`, `build-parcel-panel-versions`,
+//! `build-parcel-ownership-versions`. `DuckDB` inside the publisher computes the kind
 //! (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the publisher appends
 //! the keys that changed (`gold_versions_commit`). A new lane is a stage, a [`KindBuild`], a kind line
 //! and a job.
@@ -29,6 +29,7 @@ use foundation_publisher_silver::{
     kind_versions_stage::{
         ensure_no_commit_tables, load_region, spool, KindVersionsStage, PARCEL_SOURCE,
     },
+    land_ownership_stage::OWNERSHIP,
     parcel_nearby_stage::{NearbyPins, Source},
     parcel_panel_stage::PANEL,
     process_memory,
@@ -118,6 +119,15 @@ pub(crate) const PARCEL_PANEL_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_panel",
     job: "build-parcel-panel-versions",
     stage: &PANEL,
+};
+
+/// Lane 6: the owners (root ADR-0361).
+pub(crate) const OWNERSHIP_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_ownership_versions",
+    lane: "parcel-ownership",
+    replaced: "gold.parcel_ownership",
+    job: "build-parcel-ownership-versions",
+    stage: &OWNERSHIP,
 };
 
 /// Builds and appends `kind`'s changed keys.
