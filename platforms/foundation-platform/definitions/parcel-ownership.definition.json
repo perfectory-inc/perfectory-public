@@ -432,5 +432,16 @@
         }
       ]
     }
+  ],
+  "asset_checks": [
+    {
+      "asset": "gold-parcel-ownership-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-parcel-ownership"
+      ]
+    }
   ]
 }
