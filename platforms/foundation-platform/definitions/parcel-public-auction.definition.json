@@ -1657,6 +1657,15 @@
       "reads": [
         "silver-onbid-real-estate-item-photo"
       ]
+    },
+    {
+      "asset": "gold-parcel-public-auction-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-parcel-public-auction"
+      ]
     }
   ]
 }
