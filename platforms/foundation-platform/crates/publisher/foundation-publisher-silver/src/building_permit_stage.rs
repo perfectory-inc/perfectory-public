@@ -313,7 +313,7 @@ const BUILT_TABLE: &str = "CREATE OR REPLACE TABLE built (pnu VARCHAR, building_
 fn field_order(fields: &[&str]) -> String {
     fields
         .iter()
-        .chain(["mgmt_key"].iter())
+        .chain(std::iter::once(&"mgmt_key"))
         .map(|column| format!("{column} ASC NULLS FIRST"))
         .collect::<Vec<_>>()
         .join(", ")

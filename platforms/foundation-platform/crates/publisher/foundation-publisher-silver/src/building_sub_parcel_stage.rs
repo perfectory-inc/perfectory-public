@@ -48,9 +48,11 @@ pub const JIBUN_PARTS: [&str; 5] = [
 pub const SITE_PARTS: [&str; 5] = ["sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon"];
 /// What the rules are; part of the build's code version.
 pub const RULES_VERSION: &str = "parcel-sub-parcels-duckdb-v1";
-/// The two directions: (row set, the column of the parcel it serves, the other parcel's column,
-/// the other parcel's 지번 parts). `on_other`: this parcel is the 대지 and the other parcel the row's
-/// 부속 지번. `from_other`: this parcel is the 부속 지번 and the other parcel the register's 대지.
+/// The two directions, each a row set on the parcel it serves.
+///
+/// Each is (row set, the column of the parcel it serves, the other parcel's column, the other
+/// parcel's 지번 parts). `on_other`: this parcel is the 대지 and the other parcel the row's 부속 지번.
+/// `from_other`: this parcel is the 부속 지번 and the other parcel the register's 대지.
 pub const DIRECTIONS: [(&str, &str, &str, [&str; 5]); 2] = [
     ("on_other", "pnu", "sub_pnu", JIBUN_PARTS),
     ("from_other", "sub_pnu", "pnu", SITE_PARTS),
