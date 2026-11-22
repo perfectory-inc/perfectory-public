@@ -1,7 +1,7 @@
 -- A 문건·송달 object's document rows (courtauction_go_kr.case_answer_rows, role `case_filings`, root
 -- ADR-0575 §5), after case_lines.sql: per case, the 문건 and 송달 lists of the last line that answered
 -- (an empty list included), each text kept as its role, document kind and action, never the name.
-CREATE OR REPLACE TEMP TABLE ca_filing_answer AS
+CREATE OR REPLACE TEMP VIEW ca_filing_answer AS
 SELECT * FROM ca_case_lines
 WHERE answered
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no ORDER BY line_number DESC) = 1;

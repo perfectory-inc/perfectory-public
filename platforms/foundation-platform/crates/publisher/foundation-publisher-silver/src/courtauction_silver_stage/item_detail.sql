@@ -9,18 +9,27 @@
 -- Parameters: {request_object}, {result_path}, {photo_list}, {photo_kind}, {photo_sequence},
 -- {photo_page}, {photo_title}, {object_code}, {object_key}, {snapshot_id},
 -- {ingested_at_epoch_seconds}.
+-- Each line keeps its fields but not its body (the `result` taken out of it is what is read), and each
+-- value is taken out into a table before a CASE reads it: the CASE over the whole line, and the copies
+-- of the answers, held a 3,980-line object above 2 GiB (2026-11-22).
+CREATE OR REPLACE TEMP TABLE ca_detail_raw AS
+SELECT line_number, json_merge_patch(j, '{"body": null}') AS j, read, json_extract(j, '$.request') AS request,
+       json_extract(body, '{result_path}') AS raw_result
+FROM ca_parsed;
+DROP TABLE ca_parsed;
+
 CREATE OR REPLACE TEMP TABLE ca_detail_lines AS
 SELECT line_number, j,
        CASE WHEN py_truthy(json_extract(asked, '$.cortOfcCd')) THEN py_str(json_extract(asked, '$.cortOfcCd')) END
          AS court_office_code,
        CASE WHEN py_truthy(json_extract(asked, '$.csNo')) THEN py_str(json_extract(asked, '$.csNo')) END AS case_no,
        ca_whole(json_extract(asked, '$.dspslGdsSeq')) AS property_seq,
-       CASE WHEN read AND json_type(json_extract(body, '{result_path}')) = 'OBJECT'
-            THEN json_extract(body, '{result_path}') END AS result
-FROM (SELECT line_number, j, read, body,
-             coalesce(CASE WHEN py_truthy(json_extract(j, '$.request'))
-                           THEN json_extract(j, '$.request."{request_object}"') END, '{}'::JSON) AS asked
-      FROM ca_parsed);
+       CASE WHEN read AND json_type(raw_result) = 'OBJECT' THEN raw_result END AS result
+FROM (SELECT line_number, j, read, raw_result,
+             coalesce(CASE WHEN py_truthy(request) THEN json_extract(request, '$."{request_object}"') END, '{}'::JSON)
+               AS asked
+      FROM ca_detail_raw);
+DROP TABLE ca_detail_raw;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_item_detail AS
 SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq,
@@ -35,13 +44,24 @@ SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq
        '{snapshot_id}' AS source_snapshot_id, to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc
 FROM ca_detail_lines;
 
+-- The parts of each answer the rows below read, each taken out once into its own column: a statement
+-- that read them out of the whole answer did so for every expression a macro expands to, and that held
+-- a 3,980-line object above 2 GiB (2026-11-22).
 CREATE OR REPLACE TEMP TABLE ca_detail_answers AS
-SELECT * FROM ca_detail_lines WHERE result IS NOT NULL;
+-- (One json_extract over the list of paths parses the answer once.)
+SELECT court_office_code, case_no, property_seq, line_number,
+       p[1] AS photos, p[2] AS base, p[3] AS deadlines, p[4] AS spec, p[5] AS schedules, p[6] AS objects,
+       p[7] AS annex_groups, p[8] AS points
+FROM (SELECT *, json_extract(result, ['$."{photo_list}"', '$.csBaseInfo', '$.dstrtDemnInfo', '$.dspslGdsDxdyInfo',
+                                      '$.gdsDspslDxdyLst', '$.gdsDspslObjctLst', '$.gdsNotSugtBldLsstAll',
+                                      '$.aeeWevlMnpntLst']) AS p
+      FROM ca_detail_lines WHERE result IS NOT NULL);
+ALTER TABLE ca_detail_lines DROP COLUMN result;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_item_photo AS
 WITH listed AS (
   SELECT court_office_code, case_no, line_number, unnest(l) AS photo, generate_subscripts(l, 1) AS n
-  FROM (SELECT *, ca_objects(json_extract(result, '$."{photo_list}"')) AS l FROM ca_detail_answers)
+  FROM (SELECT *, ca_objects(photos) AS l FROM ca_detail_answers)
 )
 SELECT coalesce(py_text(json_extract(photo, '$.cortOfcCd')), court_office_code) AS court_office_code,
        coalesce(py_text(json_extract(photo, '$.csNo')), case_no) AS case_no,
@@ -62,13 +82,11 @@ QUALIFY row_number() OVER (PARTITION BY coalesce(py_text(json_extract(photo, '$.
                            ORDER BY line_number DESC, n DESC) = 1;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_case AS
-SELECT court_office_code, case_no, unnest(c),
+SELECT court_office_code, case_no, unnest(ca_case_row(base, deadlines)),
        '{object_key}' AS source_record_id, CAST(line_number AS INTEGER) AS source_line_number,
        '{snapshot_id}' AS source_snapshot_id, to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc
-FROM (SELECT court_office_code, case_no, line_number,
-             ca_case_row(json_extract(result, '$.csBaseInfo'), json_extract(result, '$.dstrtDemnInfo')) AS c
-      FROM ca_detail_answers
-      WHERE ca_case_base(json_extract(result, '$.csBaseInfo')))
+FROM ca_detail_answers
+WHERE ca_case_base(base)
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no ORDER BY line_number DESC) = 1;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_item_spec AS
@@ -99,22 +117,22 @@ SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq
        py_text(json_extract(spec, '$.dspslGdsSpcfcEcdocId')) AS spec_document_id,
        '{object_key}' AS source_record_id, CAST(line_number AS INTEGER) AS source_line_number,
        '{snapshot_id}' AS source_snapshot_id, to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc
-FROM (SELECT *, json_extract(result, '$.dspslGdsDxdyInfo') AS spec FROM ca_detail_answers)
+FROM ca_detail_answers
 WHERE json_type(spec) = 'OBJECT' AND py_truthy(spec)
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no, property_seq ORDER BY line_number DESC) = 1;
 
 -- The line each property's lists come from, and the line each case's 요점 come from.
-CREATE OR REPLACE TEMP TABLE ca_detail_property AS
+CREATE OR REPLACE TEMP VIEW ca_detail_property AS
 SELECT * FROM ca_detail_answers
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no, property_seq ORDER BY line_number DESC) = 1;
-CREATE OR REPLACE TEMP TABLE ca_detail_case AS
+CREATE OR REPLACE TEMP VIEW ca_detail_case AS
 SELECT * FROM ca_detail_answers
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no ORDER BY line_number DESC) = 1;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_item_schedule AS
 WITH listed AS (
   SELECT court_office_code, case_no, property_seq, line_number, unnest(l) AS item, generate_subscripts(l, 1) AS n
-  FROM (SELECT *, ca_objects(json_extract(result, '$.gdsDspslDxdyLst')) AS l FROM ca_detail_property)
+  FROM (SELECT *, ca_objects(schedules) AS l FROM ca_detail_property)
 )
 SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq, CAST(n AS INTEGER) AS schedule_seq,
        onbid_ymd(json_extract(item, '$.dxdyYmd')) AS schedule_date,
@@ -134,7 +152,7 @@ FROM listed;
 CREATE OR REPLACE TEMP TABLE ca_court_auction_item_object AS
 WITH listed AS (
   SELECT court_office_code, case_no, property_seq, line_number, unnest(l) AS item, generate_subscripts(l, 1) AS n
-  FROM (SELECT *, ca_objects(json_extract(result, '$.gdsDspslObjctLst')) AS l FROM ca_detail_property)
+  FROM (SELECT *, ca_objects(objects) AS l FROM ca_detail_property)
 )
 SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq,
        CAST(ca_whole(json_extract(item, '$.dspslObjctSeq')) AS INTEGER) AS object_seq,
@@ -167,8 +185,7 @@ QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no, property_seq
 CREATE OR REPLACE TEMP TABLE ca_court_auction_item_annex AS
 WITH groups AS (
   SELECT court_office_code, case_no, property_seq, line_number, unnest(g) AS grp, generate_subscripts(g, 1) AS gn
-  FROM (SELECT *, CASE WHEN json_type(json_extract(result, '$.gdsNotSugtBldLsstAll')) = 'ARRAY'
-                       THEN json_extract(json_extract(result, '$.gdsNotSugtBldLsstAll'), '$[*]') ELSE [] END AS g
+  FROM (SELECT *, CASE WHEN json_type(annex_groups) = 'ARRAY' THEN json_extract(annex_groups, '$[*]') ELSE [] END AS g
         FROM ca_detail_property)
 ), listed AS (
   SELECT court_office_code, case_no, property_seq, line_number, gn, unnest(l) AS item, generate_subscripts(l, 1) AS n
@@ -192,7 +209,7 @@ WHERE ca_whole(json_extract(item, '$.dspslObjctSeq')) IS NOT NULL;
 CREATE OR REPLACE TEMP TABLE ca_court_auction_appraisal_point AS
 WITH listed AS (
   SELECT court_office_code, case_no, line_number, unnest(l) AS item, generate_subscripts(l, 1) AS n
-  FROM (SELECT *, ca_objects(json_extract(result, '$.aeeWevlMnpntLst')) AS l FROM ca_detail_case)
+  FROM (SELECT *, ca_objects(points) AS l FROM ca_detail_case)
 )
 SELECT court_office_code, case_no, CAST(n AS INTEGER) AS point_seq,
        py_text(json_extract(item, '$.aeeWevlMnpntTbltDvsCd')) AS table_code,

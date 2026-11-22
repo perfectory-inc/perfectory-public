@@ -4,17 +4,22 @@
 -- object number, the first naming it) and the parties. The fields that name a person (당사자
 -- `intrpsNm`, 지분 서술 `dspslStkCtt`) are never read.
 -- Parameters: {object_code} (`code_of(item, OBJECT_CODE)` of `item`), and case_lines.sql's.
+-- The base and the deadline list are taken out of the answer into a table first: the macro reads its
+-- arguments once per field, and in one statement the optimizer reads them out of the whole answer
+-- each time (a 3,980-line 물건상세 object above 2 GiB, 2026-11-22).
+CREATE OR REPLACE TEMP TABLE ca_case_bases AS
+SELECT court_office_code, case_no, line_number, json_extract(data, '$.dma_csBasInf') AS base, json_extract(data, '$.dlt_dstrtDemnLstprdDts') AS deadlines
+FROM ca_case_lines
+WHERE answered AND ca_case_base(json_extract(data, '$.dma_csBasInf'));
+
 CREATE OR REPLACE TEMP TABLE ca_court_auction_case AS
-SELECT court_office_code, case_no, unnest(c),
+SELECT court_office_code, case_no, unnest(ca_case_row(base, deadlines)),
        '{object_key}' AS source_record_id, CAST(line_number AS INTEGER) AS source_line_number,
        '{snapshot_id}' AS source_snapshot_id, to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc
-FROM (SELECT court_office_code, case_no, line_number,
-             ca_case_row(json_extract(data, '$.dma_csBasInf'), json_extract(data, '$.dlt_dstrtDemnLstprdDts')) AS c
-      FROM ca_case_lines
-      WHERE answered AND ca_case_base(json_extract(data, '$.dma_csBasInf')))
+FROM ca_case_bases
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no ORDER BY line_number DESC) = 1;
 
-CREATE OR REPLACE TEMP TABLE ca_case_answer AS
+CREATE OR REPLACE TEMP VIEW ca_case_answer AS
 SELECT * FROM ca_case_lines
 WHERE answered
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no ORDER BY line_number DESC) = 1;
