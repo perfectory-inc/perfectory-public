@@ -253,9 +253,6 @@
       "rt_molit_real_transaction": {
         "wave": 1
       },
-      "silver_release_compare": {
-        "wave": 4
-      },
       "silver_scalar_handoff_to_lakehouse": {
         "wave": 4
       },

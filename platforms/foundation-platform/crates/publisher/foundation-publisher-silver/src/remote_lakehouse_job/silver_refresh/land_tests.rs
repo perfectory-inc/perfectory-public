@@ -2,12 +2,11 @@
 //! the table's own record, the contracts and what a changed run starts. Fixtures are synthetic:
 //! region codes 97–99, object keys and dates that name no real file.
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Context;
 use chrono::NaiveDate;
 
-use super::execute::{self, Runtime, SparkLoad};
 use super::land::{
     self, Candidate, Completeness, LandRelease, LandRule, MeasuredObject, Reading, SidoCalendar,
     MEASURE_COMMAND,
@@ -839,52 +838,6 @@ fn an_export_summary_says_its_rows_or_that_the_handoff_was_there() -> anyhow::Re
 }
 
 #[test]
-fn the_first_load_batch_replaces_the_table_and_the_rest_append() -> anyhow::Result<()> {
-    assert_eq!(land::batch_write_mode(0), WriteMode::Overwrite);
-    assert_eq!(land::batch_write_mode(1), WriteMode::Append);
-    assert_eq!(land::batch_write_mode(4), WriteMode::Append);
-    let runtime = Runtime {
-        release_root: PathBuf::from("/opt/foundation-platform/releases/synthetic"),
-        lane_root: PathBuf::from("/data/foundation-platform/silver-refresh/land-use-plan"),
-        spark_jars: "/home/spark/.ivy2/synthetic.jar".to_owned(),
-        jars_dir: PathBuf::from("/opt/foundation-platform/artifacts/synthetic/jars"),
-        project: format!("foundation-silver-refresh-{}", "0".repeat(32)),
-        gid: "999".to_owned(),
-        publisher: PathBuf::from(
-            "/opt/foundation-platform/artifacts/synthetic/foundation-outbox-publisher",
-        ),
-    };
-    let contract = Lane::LandUsePlan.contract()?;
-    for (index, mode, flag) in [(0, "overwrite", true), (1, "append", false)] {
-        let load = SparkLoad {
-            input: "s3a://bucket/a.jsonl.gz,s3a://bucket/b.jsonl.gz".to_owned(),
-            input_format: "jsonl",
-            expected_count: Some(3),
-            reads_r2: true,
-            write_mode: land::batch_write_mode(index),
-            branch: Some(execute::load_branch("synthetic-load")),
-        };
-        let args = execute::spark_arguments(&runtime, &contract, &load);
-        assert!(args.windows(2).any(|w| w == ["--iceberg-write-mode", mode]));
-        assert_eq!(
-            args.iter().any(|a| a == "--allow-non-smoke-overwrite"),
-            flag
-        );
-        assert!(args
-            .windows(2)
-            .any(|w| w == ["--contract", "silver.land_use_plan"]));
-        // Every batch of the release stages on the load's one branch (root ADR-0183).
-        assert!(args
-            .windows(2)
-            .any(|w| w[0] == "--iceberg-branch" && w[1] == execute::load_branch("synthetic-load")));
-        assert!(args
-            .windows(2)
-            .any(|w| w == ["-e", "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"]));
-    }
-    Ok(())
-}
-
-#[test]
 fn regions_exported_side_by_side_come_back_in_region_order() -> anyhow::Result<()> {
     // 2026-10-11: the transfer history's 17 regions ran one after another for 60 minutes.
     let regions: Vec<u64> = (0..12).collect();
@@ -1048,72 +1001,6 @@ fn a_geometry_tolerance_is_measured_bounded_and_over_the_tables_geometry() -> an
 }
 
 #[test]
-fn a_release_compare_names_its_branch_release_and_every_object() -> anyhow::Result<()> {
-    let runtime = Runtime {
-        release_root: PathBuf::from("/opt/foundation-platform/releases/synthetic"),
-        lane_root: PathBuf::from("/data/foundation-platform/silver-refresh/land-transfer-history"),
-        spark_jars: "/home/spark/.ivy2/synthetic.jar".to_owned(),
-        jars_dir: PathBuf::from("/opt/foundation-platform/artifacts/synthetic/jars"),
-        project: format!("foundation-silver-refresh-{}", "0".repeat(32)),
-        gid: "999".to_owned(),
-        publisher: PathBuf::from(
-            "/opt/foundation-platform/artifacts/synthetic/foundation-outbox-publisher",
-        ),
-    };
-    let contract = Lane::LandTransferHistory.contract()?;
-    let mut compare = execute::ReleaseCompare {
-        branch: execute::load_branch("synthetic-load"),
-        changes_branch: execute::changes_branch("synthetic-load"),
-        source_snapshot_id: "vworldkr-land-transfer-history:20990901".to_owned(),
-        objects: vec!["bronze/a.zip".to_owned(), "bronze/b.zip".to_owned()],
-        content_columns: vec!["reason".to_owned(), "moved_at".to_owned()],
-        bucket_prefix_length: 2,
-        release_buckets_only: false,
-        deadline_utc: Some("2099-09-01T08:50:00Z".to_owned()),
-    };
-    let args = execute::compare_arguments(&runtime, &contract, &compare)?;
-    assert!(args
-        .iter()
-        .any(|a| a.ends_with("/spark/jobs/silver_release_compare.py")));
-    for pair in [
-        ["--contract", "silver.land_transfer_history"],
-        ["--branch", compare.branch.as_str()],
-        [
-            "--source-snapshot-id",
-            "vworldkr-land-transfer-history:20990901",
-        ],
-        ["--objects", "bronze/a.zip,bronze/b.zip"],
-        ["--content-columns", "reason,moved_at"],
-        ["--changes-branch", compare.changes_branch.as_str()],
-        ["--bucket-prefix-length", "2"],
-        ["--deadline-utc", "2099-09-01T08:50:00Z"],
-    ] {
-        assert!(args.windows(2).any(|w| w == pair), "missing {pair:?}");
-    }
-    // It reads Iceberg only, through the catalog: no R2 reader pair.
-    assert!(!args
-        .iter()
-        .any(|a| a == "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID"));
-    // The load and its changes stage on two branches named by the same identity.
-    assert_ne!(compare.branch, compare.changes_branch);
-    assert_eq!(
-        compare.changes_branch.strip_prefix("changes_"),
-        compare.branch.strip_prefix("load_")
-    );
-    // A lane without a tolerance compares exactly; the zone lane passes its contract's.
-    assert!(!args.iter().any(|a| a == "--geometry-tolerance"));
-    let zones = execute::compare_arguments(&runtime, &Lane::LandUseZoneArea.contract()?, &compare)?;
-    let pair = [
-        "--geometry-tolerance",
-        "geometry_wkb,geometry_checksum_sha256,0.1",
-    ];
-    assert!(zones.windows(2).any(|w| w == pair), "missing {pair:?}");
-    compare.objects.push("bronze/c,d.zip".to_owned());
-    assert!(execute::compare_arguments(&runtime, &contract, &compare).is_err());
-    Ok(())
-}
-
-#[test]
 fn a_sido_lane_compares_by_the_pnus_sido_and_a_national_lane_in_one_piece() -> anyhow::Result<()> {
     // ADR-0318: a 시도 lane's buckets are the PNU's 시도, its first two digits.
     for lane in Lane::all() {
@@ -1145,20 +1032,6 @@ fn a_sido_lane_compares_by_the_pnus_sido_and_a_national_lane_in_one_piece() -> a
             expected,
             "{}",
             lane.id()
-        );
-    }
-    for (raw, outcome) in [
-        ("staged", Some(execute::CompareOutcome::Staged)),
-        (
-            "already_appended",
-            Some(execute::CompareOutcome::AlreadyAppended),
-        ),
-        ("deadline", Some(execute::CompareOutcome::Deadline)),
-        ("appended", None),
-    ] {
-        assert_eq!(
-            execute::CompareOutcome::of(&serde_json::json!({ "outcome": raw })),
-            outcome
         );
     }
     Ok(())

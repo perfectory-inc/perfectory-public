@@ -21,9 +21,6 @@
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py": {
    "B007": 1
   },
-  "platforms/foundation-platform/infra/lakehouse/spark/jobs/geometry_tolerance.py": {
-   "B905": 3
-  },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/gold_code_version.py": {
    "B007": 1
   },
@@ -65,7 +62,7 @@
    "F401": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_release_compare.py": {
-   "B905": 5
+   "B905": 4
   },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py": {
    "F401": 1
@@ -173,9 +170,6 @@
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_rt_molit_real_transaction.py": {
    "PLW1510": 1
-  },
-  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_silver_release_compare_lanes_spark.py": {
-   "B023": 6
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_silver_scalar_handoff_to_lakehouse.py": {
    "F841": 1

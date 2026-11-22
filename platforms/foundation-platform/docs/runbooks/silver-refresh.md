@@ -206,24 +206,22 @@ INVOCATION_ID=<찍힌 값> /opt/foundation-platform/current/scripts/ops/silver-r
 읽기 때문이다. 중간에 끊기면 다음 실행이 기록에 없는 첫 묶음부터 잇는다. 그 사이 표는 판의 일부만 갖는다. Gold
 재생성은 같은 `spark` 풀이라 레인과 겹치지 않고, 잃는 행이 많은 Gold 는 거부한다.
 
-**바뀐 키만 쌓는 레인(ADR-0275, ADR-0318).** 덮어쓰는 레인은 모두 계약에 `compare` 가 있다. 판을 load branch 에
-올린 뒤 그 branch 를 발행하지 않는다. `silver_release_compare.py` 가 main 의 현재 행과 키마다 비교해, 바뀌거나 새로
-생긴 키의 행 전부와 사라진 키마다 삭제 표시 행(`row_state = removed`) 하나를 **changes branch**(`changes_<…>`)에
-키 묶음(`compare.bucket_prefix_length`: 토지는 PNU 시도, 대장은 PK 앞 두 자리)마다 한 커밋으로 붙인다. 묶음이 다
-들어가면 판의 객체를 기록하는 빈 커밋을 하나 더 붙이고, 레인이 changes branch 를 main 으로 fast-forward 한 뒤 두
-branch 를 지운다. main 의 행은 고치지도 지우지도 않는다. 로그의 `compared the release staged on load_<…>` 줄에 묶음 수
-(`buckets`, `buckets_done`), 바뀐 키의 행 수(`changed_key_rows`)와 삭제 표시 수(`removed_keys`)가 있다.
+**바뀐 키만 쌓는 레인(ADR-0275, ADR-0318, ADR-0599).** 계약에 `compare` 가 있는 레인은 판을 통째로 싣지 않는다.
+퍼블리셔 안의 DuckDB 가 판의 로컬 사본을 main 의 현재 행과 키마다 비교해, 바뀌거나 새로 생긴 키의 행 전부와 사라진
+키마다 삭제 표시 행(`row_state = removed`) 하나를 **한 번의 커밋**으로 main 에 붙인다. 가지(load branch, changes
+branch)는 쓰지 않는다. 비교는 키 묶음(`compare.bucket_prefix_length`: 토지는 PNU 시도, 대장은 PK 앞자리)마다 하고,
+main 의 행은 고치지도 지우지도 않는다. 아래 "DuckDB 로 싣는 레인" 절이 단계와 로그 줄이다.
 
 **도형 허용 오차(`compare.geometry_tolerance`).** 계약에 이것이 있는 레인은 도형 checksum 만 다른 키를, 두 도형이
 같은 유형·부분·링·꼭짓점 수이고 꼭짓점마다 `metres` 안에 있으면 바뀌지 않은 것으로 본다(JTS
-`equalsExact(other, tolerance)`). 그 키는 아무것도 붙지 않고 앞 판의 행이 현재 행으로 남는다. 그렇게 남긴 키 수는
-`tolerated_keys` 다. 제공처 좌표 변환으로 모든 구역이 5–7 cm 밀린 판(용도지역지구, 2026-11-05 측정)이 통째로 바뀐
-것으로 쌓이지 않게 한다. `metres` 는 0 초과 1 이하이고 `reason` 에 그 값을 정한 측정을 적는다.
+`equalsExact(other, tolerance)` 의 규칙, `wkb_polygons::within_tolerance`). 그 키는 아무것도 붙지 않고 앞 판의 행이
+현재 행으로 남는다. 그렇게 남긴 키 수는 `tolerated_keys` 다. 제공처 좌표 변환으로 모든 구역이 5–7 cm 밀린
+판(용도지역지구, 2026-11-05 측정)이 통째로 바뀐 것으로 쌓이지 않게 한다. `metres` 는 0 초과 1 이하이고 `reason` 에
+그 값을 정한 측정을 적는다.
 
-실행 시작 110분 뒤에는 새 묶음을 시작하지 않는다(`deadline`). 그 실행은 `outcome=unchanged
-reason=compare_resumes_next_run` 으로 끝나고 main 은 앞 판 그대로다. 다음 실행은 export 를 건너뛰고 기록되지 않은
-묶음만 비교한다. 그사이 main 이 움직였으면(압축 등) changes branch 를 지우고 처음부터 비교한다. 커밋 뒤라면
-`already_loaded` 다.
+한 판은 한 번의 커밋이라 "이어서 하기"가 없다. 실행이 중간에 끝나면 아무것도 커밋되지 않고, 다음 실행이 남아 있는
+사본으로 처음부터 비교한다. HUB 계열 실행은 시작 110분 뒤에는 새 레인을 시작하지 않고(`resumes=<레인>`) 다음 실행이
+거기서 잇는다.
 
 **덮어쓰기는 이유가 있어야 한다(ADR-0311).** `overwrite` 레인 계약은 `compare` 나 `full_reason { reason,
 measured_cost }` 하나를 적는다. 없으면 레인 계약 파서와 `append_batch_once` 가 쓰기 전에 거부한다. 비교 레인은
@@ -232,7 +230,7 @@ main 을 덮어쓰지 못한다. 비교 커밋은 요약에 `foundation.change-r
 
 ### DuckDB 로 싣는 레인 (루트 ADR-0599)
 
-레인 계약에 `"engine": "duckdb"` 가 있으면 그 레인은 Spark 와 가지를 쓰지 않는다. 54개 레인 모두 그렇다(HUB 계열 파일은 `defaults.engine` 한 줄). 전유부 면적은 표가 `bucket(32, mgm_bldrgst_pk)` 로 나뉘어, 릴리스의 변경분을 모아 Iceberg 의 버킷 변환으로 버킷마다 파일을 쓴다. 용도지역 도형은 체크섬만 다른 키의 두 도형을 0.1 m 허용 오차로 재서(`wkb_polygons::within_tolerance`) 같은 도형이면 변경으로 치지 않는다. 스테이지는 사본을 뜨기 전과 뜬 뒤에 디스크 여유를 확인한다: 여유에서 임시 상한과 쓸 바이트를 빼고도 `config/host-layout.contract.json` 의 `duckdb_stage_reserve_bytes`(30 GiB, Postgres 와 같은 디스크)가 남지 않으면 거부한다. 비교가 없는 공동주택가격은 릴리스를 통째로 한 번에 싣고, 표제부·전유부는 내보내기가 남긴 지역 파일(JSONL·Parquet)을 읽으며 싣기 전에 일반 대지의 PNU 빈값 비율을 계약의 상한과 견준다(`silver-release-pnu-null-share` 줄). HUB 표는 판 열(`vintage`)로 나뉘어 한 릴리스가 한 파티션이고, `raw_columns` 는 글자 목록으로 읽힌다.
+54개 레인 모두 Spark 와 가지 없이 실린다. 엔진을 고르는 줄은 없다(마지막 레인이 옮겨진 뒤 지웠다). 전유부 면적은 표가 `bucket(32, mgm_bldrgst_pk)` 로 나뉘어, 릴리스의 변경분을 모아 Iceberg 의 버킷 변환으로 버킷마다 파일을 쓴다. 용도지역 도형은 체크섬만 다른 키의 두 도형을 0.1 m 허용 오차로 재서(`wkb_polygons::within_tolerance`) 같은 도형이면 변경으로 치지 않는다. 스테이지는 사본을 뜨기 전과 뜬 뒤에 디스크 여유를 확인한다: 여유에서 임시 상한과 쓸 바이트를 빼고도 `config/host-layout.contract.json` 의 `duckdb_stage_reserve_bytes`(30 GiB, Postgres 와 같은 디스크)가 남지 않으면 거부한다. 비교가 없는 공동주택가격은 릴리스를 통째로 한 번에 싣고, 표제부·전유부는 내보내기가 남긴 지역 파일(JSONL·Parquet)을 읽으며 싣기 전에 일반 대지의 PNU 빈값 비율을 계약의 상한과 견준다(`silver-release-pnu-null-share` 줄). HUB 표는 판 열(`vintage`)로 나뉘어 한 릴리스가 한 파티션이고, `raw_columns` 는 글자 목록으로 읽힌다.
 
 | 단계 | 무엇 | 로그의 줄 |
 |---|---|---|
@@ -246,7 +244,7 @@ main 을 덮어쓰지 못한다. 비교 커밋은 요약에 `foundation.change-r
 
 - **`main` 이 비교 중에 움직였다**(`… moved from snapshot … since its rows were computed: nothing was appended`): 그 run 은 실패로 끝나고 올린 파일은 지워진다. 다음 run 이 남아 있는 사본으로 다시 비교한다. 손댈 것이 없다.
 - **검사 실패**: 사본은 남는다. 원인은 내보내기나 원천이다. 고친 뒤 `release-copy/` 를 지우고 다시 돌린다(사본이 낡은 넘김의 것일 수 있다).
-- **Spark 로 되돌리기**: 계약의 `engine` 줄을 지우는 PR 이고, 그 PR 이 배포된 뒤 `/var/lib/foundation-platform/silver-refresh-duckdb/<레인>/` 을 지운다.
+- **되돌리기**: Spark 경로는 코드에 없다. 한 레인의 적재를 멈추려면 그 작업을 끈다. 옛 경로가 필요하면 그 경로를 지운 PR 을 되돌린다.
 
 ### 첫 감독 실행 (레인마다)
 

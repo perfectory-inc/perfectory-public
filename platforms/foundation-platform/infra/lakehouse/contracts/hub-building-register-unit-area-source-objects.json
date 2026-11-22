@@ -11,8 +11,6 @@
     "table": "silver.building_register_unit_areas",
     "roles": {"unit_area": "hubgokr__building_register_exclusive_common_area"},
     "export": "export-building-register-unit-area-silver-handoff",
-    "engine": "duckdb",
-    "engine_reason": "root ADR-0599 §8 ④: the parts are read by DuckDB inside the publisher, the release compared from a local copy; its changes are split by the table's hash bucket with Iceberg's own transform and appended in one commit",
     "export_chunk_rows": 1000000,
     "run_budget": {
       "step_seconds_max": 2805,

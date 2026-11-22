@@ -18,8 +18,6 @@
       "regions_from": "reference.legal_dong_code_snapshot"
     },
     "export": "export-land-use-plan-silver-handoff",
-    "engine": "duckdb",
-    "engine_reason": "root ADR-0599 §8 ①: the first lane off Spark. The handoffs are read where they are, the release is compared from a local copy by DuckDB inside the publisher, and its changes are one commit to main (no load branch, no changes branch). Verdict 2026-11-21 (laptop, read-only): release 20261109 replayed against main as it stood before it — 시도 41 40,641,552 rows and 시도 50 228,253 rows equal what Spark appended, key by key; 4,160 of 4,741 removal markers differ in non-key columns only. The spark block stays until the last lane has moved.",
     "spark": {
       "master": "local[8,8]",
       "driver_memory": "16g",
