@@ -20,8 +20,9 @@ use crate::public_data_control_support::required_env_value;
 /// The lane's resume root.
 const RESUME_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_RESUME_DIR";
 /// No group starts past this: the unit's hour (`foundation-gold-versions@.service` TimeoutStartSec)
-/// less the longest group and the takeover verdict a commit's run goes on to (gold-versions-build.sh).
-pub(crate) const BUILD_DEADLINE: Duration = Duration::from_secs(45 * 60);
+/// less the takeover verdict a commit's run goes on to (gold-versions-build.sh TAKEOVER_SECONDS, 30
+/// minutes) and the longest group a run may still start (W84b, 11-22: 45 + 30 is past the hour).
+pub(crate) const BUILD_DEADLINE: Duration = Duration::from_secs(25 * 60);
 
 /// Whether a run that started at `started` may start another group.
 pub(crate) fn may_start(started: Instant) -> bool {
@@ -30,6 +31,7 @@ pub(crate) fn may_start(started: Instant) -> bool {
 
 /// One fingerprint's state.
 pub(crate) struct Resume {
+    root: PathBuf,
     dir: PathBuf,
     /// The groups' directory as `DuckDB` SQL text.
     groups: String,
@@ -75,7 +77,11 @@ impl Resume {
             !groups.contains('\''),
             "the resume root must not contain a quote"
         );
-        Ok(Self { dir, groups })
+        Ok(Self {
+            root: root.to_path_buf(),
+            dir,
+            groups,
+        })
     }
 
     /// The directory a build may keep its own files in (its spool).
@@ -108,6 +114,32 @@ impl Resume {
         let part = self.dir.join(format!("{name}.json.part"));
         std::fs::write(&part, serde_json::to_vec(value)?)?;
         std::fs::rename(&part, &path)?;
+        Ok(())
+    }
+
+    /// What the lane stored under `name` beside every fingerprint (kept by [`Self::open`] and
+    /// [`Self::clear`]: what the last commit was built from), if it did.
+    ///
+    /// # Errors
+    /// A record that cannot be read or parsed.
+    pub(crate) fn load_lane<T: DeserializeOwned>(&self, name: &str) -> anyhow::Result<Option<T>> {
+        let path = self.root.join(format!("{name}.json"));
+        if !path.exists() {
+            return Ok(None);
+        }
+        let bytes =
+            std::fs::read(&path).with_context(|| format!("cannot read {}", path.display()))?;
+        Ok(Some(serde_json::from_slice(&bytes)?))
+    }
+
+    /// Stores `value` under `name` beside every fingerprint, whole or not at all.
+    ///
+    /// # Errors
+    /// The record cannot be written.
+    pub(crate) fn store_lane<T: Serialize>(&self, name: &str, value: &T) -> anyhow::Result<()> {
+        let part = self.root.join(format!("{name}.json.part"));
+        std::fs::write(&part, serde_json::to_vec(value)?)?;
+        std::fs::rename(&part, self.root.join(format!("{name}.json")))?;
         Ok(())
     }
 

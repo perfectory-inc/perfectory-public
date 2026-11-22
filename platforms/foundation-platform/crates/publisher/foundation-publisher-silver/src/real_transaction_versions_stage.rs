@@ -159,6 +159,12 @@ pub struct Spooled {
     pub units: Vec<Unit>,
     /// Milliseconds each input took to read, by table name.
     pub read_millis: BTreeMap<String, u64>,
+    /// Per 시군구, a digest of every spooled row in it (rows and the sum of their hashes, per
+    /// table): a 시군구 whose digest stayed builds the same documents.
+    pub node_digests: BTreeMap<String, String>,
+    /// A digest of what every document reads whatever its 시군구: the code tables and the whole
+    /// Silver's (dataset, 계약 달) pairs.
+    pub global_digest: String,
 }
 
 fn sql_dir(dir: &Path) -> anyhow::Result<String> {
@@ -332,6 +338,18 @@ pub fn spool(
         ))?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<Result<Vec<(String, String)>, _>>()?;
+    let node_digests = node_digests(connection, &dir)?;
+    let codes: String = connection.query_row(
+        "SELECT (SELECT count(*) || ':' || coalesce(sum(hash(t)::HUGEINT), 0) FROM code_changes t) || '/' || \
+                (SELECT count(*) || ':' || coalesce(sum(hash(t)::HUGEINT), 0) FROM code_names t)",
+        [],
+        |row| row.get(0),
+    )?;
+    let mut global = Sha256::new();
+    global.update(codes.as_bytes());
+    for (dataset, month) in &months {
+        global.update(format!("|{dataset}:{month}").as_bytes());
+    }
     Ok(Spooled {
         deals,
         unaddressed: deals.saturating_sub(addressed),
@@ -339,7 +357,49 @@ pub fn spool(
         months,
         units: units(&deals_by_node, &edges, UNIT_DEAL_BUDGET),
         read_millis,
+        node_digests,
+        global_digest: format!("{:x}", global.finalize()),
     })
+}
+
+/// The tables a spool holds by 시군구.
+const SPOOLED_TABLES: [&str; 7] = [
+    "deals",
+    "parcels",
+    "land",
+    "titles",
+    "ownership",
+    "lineage",
+    "place_ids",
+];
+
+/// Per 시군구 of the spool in `dir`, `<table>=<rows>:<sum of row hashes>` for each table that holds a
+/// row of it: the same rows in any order give the same digest, and any row added, removed or changed
+/// in a 시군구 changes that 시군구's digest alone.
+///
+/// # Errors
+/// A spool that does not hold every table, or a SQL error.
+pub fn node_digests(
+    connection: &Connection,
+    dir: &str,
+) -> anyhow::Result<BTreeMap<String, String>> {
+    let union = SPOOLED_TABLES
+        .iter()
+        .map(|name| {
+            format!(
+                "SELECT '{name}' AS name, node, count(*) AS n, sum(hash(t)::HUGEINT) AS s FROM {} t GROUP BY node",
+                spooled(dir, name)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" UNION ALL ");
+    let digests = connection
+        .prepare(&format!(
+            "SELECT node, string_agg(name || '=' || n || ':' || s, ',' ORDER BY name) FROM ({union}) GROUP BY node"
+        ))?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<BTreeMap<String, String>, _>>()?;
+    Ok(digests)
 }
 
 /// What every unit of one build shares.
@@ -442,6 +502,52 @@ mod tests {
 
     fn nodes(unit: &Unit) -> Vec<&str> {
         unit.nodes.iter().map(String::as_str).collect()
+    }
+
+    /// A spool whose every table holds `rows` of `(시군구, value)`.
+    fn spool_of(rows: &[(&str, &str)]) -> anyhow::Result<(tempfile::TempDir, Connection, String)> {
+        let dir = tempfile::tempdir()?;
+        let connection = Connection::open_in_memory()?;
+        let text = sql_dir(dir.path())?;
+        let values = rows
+            .iter()
+            .map(|(node, value)| format!("('{node}', '{value}')"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        for name in SPOOLED_TABLES {
+            copy_by_node(
+                &connection,
+                &format!("SELECT * FROM (VALUES {values}) AS r(node, v)"),
+                &text,
+                name,
+            )?;
+        }
+        Ok((dir, connection, text))
+    }
+
+    #[test]
+    fn a_sigungu_digest_moves_with_its_own_rows_and_not_their_order() -> anyhow::Result<()> {
+        let (_a, a, a_dir) = spool_of(&[("99901", "x"), ("99901", "y"), ("99902", "z")])?;
+        let (_b, b, b_dir) = spool_of(&[("99902", "z"), ("99901", "y"), ("99901", "x")])?;
+        let (_c, c, c_dir) = spool_of(&[("99901", "x"), ("99901", "y"), ("99902", "w")])?;
+        let first = node_digests(&a, &a_dir)?;
+        assert_eq!(
+            first,
+            node_digests(&b, &b_dir)?,
+            "the order of the rows does not count"
+        );
+        let changed = node_digests(&c, &c_dir)?;
+        assert_eq!(
+            first.get("99901"),
+            changed.get("99901"),
+            "an untouched 시군구 keeps its digest"
+        );
+        assert_ne!(
+            first.get("99902"),
+            changed.get("99902"),
+            "a changed row moves its 시군구's"
+        );
+        Ok(())
     }
 
     #[test]

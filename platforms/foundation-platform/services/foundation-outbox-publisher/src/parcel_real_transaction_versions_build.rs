@@ -80,6 +80,44 @@ fn code_moved(base: &str, code: &str) -> Option<String> {
     })
 }
 
+/// What the last commit was built from, beside every fingerprint: a later run whose code, edition,
+/// global digest and base are these rebuilds only the units a changed 시군구 lies in.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LastBuild {
+    snapshot_id: i64,
+    code: String,
+    edition: String,
+    global_digest: String,
+    node_digests: BTreeMap<String, String>,
+}
+
+/// The 시군구 whose digest moved since `last`, or `None` when every unit is to be built (no last
+/// build, or the base, code, edition or what every document reads moved).
+fn touched_nodes(
+    last: Option<&LastBuild>,
+    base_snapshot: Option<i64>,
+    code: &str,
+    edition: &str,
+    spooled: &Spooled,
+) -> Option<BTreeSet<String>> {
+    let last = last?;
+    if Some(last.snapshot_id) != base_snapshot
+        || last.code != code
+        || last.edition != edition
+        || last.global_digest != spooled.global_digest
+    {
+        return None;
+    }
+    Some(
+        last.node_digests
+            .keys()
+            .chain(spooled.node_digests.keys())
+            .filter(|node| last.node_digests.get(*node) != spooled.node_digests.get(*node))
+            .cloned()
+            .collect(),
+    )
+}
+
 /// Builds and appends the 실거래 Gold's changed keys.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn run() -> anyhow::Result<()> {
@@ -219,6 +257,50 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         started.elapsed().as_secs_f64(),
         process_memory::cgroup_peak_bytes()
     );
+    let last: Option<LastBuild> = resume.load_lane("last-build")?;
+    let touched = touched_nodes(
+        last.as_ref(),
+        base.as_ref().map(|base| base.snapshot_id),
+        &code,
+        &edition,
+        &spooled,
+    );
+    let wanted: Vec<bool> = spooled
+        .units
+        .iter()
+        .map(|unit| {
+            touched
+                .as_ref()
+                .is_none_or(|nodes| unit.nodes.iter().any(|node| nodes.contains(node)))
+        })
+        .collect();
+    let range = match &touched {
+        None => "TRUE".to_owned(),
+        Some(_) => {
+            let nodes: Vec<String> = spooled
+                .units
+                .iter()
+                .zip(&wanted)
+                .filter(|(_, wanted)| **wanted)
+                .flat_map(|(unit, _)| unit.nodes.iter().map(|node| format!("'{node}'")))
+                .collect();
+            if nodes.is_empty() {
+                // Nothing a document reads moved: the commit records the new pins only.
+                "FALSE".to_owned()
+            } else {
+                format!("substr(pnu, 1, 5) IN ({})", nodes.join(", "))
+            }
+        }
+    };
+    println!(
+        "gold-versions {TABLE} builds {} of {} units ({})",
+        wanted.iter().filter(|wanted| **wanted).count(),
+        spooled.units.len(),
+        touched.as_ref().map_or_else(
+            || "every unit: no last build of this base, code, edition and code tables".to_owned(),
+            |nodes| format!("{} 시군구 changed", nodes.len())
+        )
+    );
     let first_months: BTreeMap<String, String> = rt_contract["datasets"]
         .as_object()
         .map(|datasets| {
@@ -259,7 +341,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let mut seconds_by_unit = BTreeMap::new();
     let mut left = 0_usize;
     for (index, unit) in spooled.units.iter().enumerate() {
-        if resume.finished(index) {
+        if !wanted[index] || resume.finished(index) {
             continue;
         }
         if !may_start(started) {
@@ -312,7 +394,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         "{invalid} built rows have a malformed PNU, no document or no digest: nothing was appended"
     );
 
-    // Diff and check: every unit was built, so the diff reads every key.
+    // Diff and check, over the 시군구 of the units built (every key when every unit was).
     let version_seq = base.as_ref().map_or(1, |base| base.version_seq + 1);
     let commit = Commit {
         table: TABLE,
@@ -325,7 +407,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         source_snapshot_id: parcels_snapshot.clone(),
         published_at_utc: published_at_utc.clone(),
     };
-    let diff = versions::diff(connection, &commit, "TRUE")?;
+    let diff = versions::diff(connection, &commit, &range)?;
     let (fingerprint, current_records) = versions::after(connection, &commit, &diff)?;
     let mut recorded_explanation = None;
     if let Some(base) = &base {
@@ -383,6 +465,16 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let snapshot = versions::append(&committer, &catalog, &commit, &files, &run, summary).await?;
     drop(stage);
     let tags = versions::pin(&catalog, TABLE, snapshot, &pins).await?;
+    resume.store_lane(
+        "last-build",
+        &LastBuild {
+            snapshot_id: snapshot,
+            code: code.clone(),
+            edition: edition.clone(),
+            global_digest: spooled.global_digest.clone(),
+            node_digests: spooled.node_digests.clone(),
+        },
+    )?;
     resume.clear()?;
     write_summary(
         &summary_path,
