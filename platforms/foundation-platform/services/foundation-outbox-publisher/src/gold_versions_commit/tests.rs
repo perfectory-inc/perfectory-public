@@ -293,3 +293,123 @@ fn a_recorded_reorganization_moves_pnus_without_a_loss() {
     // Without the record the move is a loss of both 시도.
     assert_eq!(coverage_breaches(&served, &built, &[], BOUND).len(), 2);
 }
+
+/// The same commit as `only_changed_keys_are_appended_and_a_key_that_left_gets_a_marker`, diffed in
+/// two ranges and added up: the rows to append and the fingerprint after are the whole diff's.
+#[test]
+fn a_build_diffed_range_by_range_appends_and_counts_what_one_diff_does() -> anyhow::Result<()> {
+    let replaced = industrial_complex_lakehouse_contracts()
+        .iter()
+        .find(|contract| contract.table_name == "gold.parcel_real_transaction")
+        .context("a by-PNU Gold")?;
+    let versions = gold_versions_table(replaced).map_err(anyhow::Error::msg)?;
+    let content: Vec<&'static str> = replaced.columns.iter().map(|column| column.name).collect();
+    let connection = foundation_publisher_silver::duckdb::Connection::open_in_memory()?;
+    let columns = content
+        .iter()
+        .map(|name| {
+            let kind = if *name == "transaction_total" {
+                "BIGINT"
+            } else {
+                "VARCHAR"
+            };
+            format!("{name} {kind}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let row = |pnu: &str, n: u32| {
+        let values = content
+            .iter()
+            .map(|name| match *name {
+                "pnu" => format!("'{pnu}'"),
+                "row_digest" => format!("'{}'", digest(n)),
+                "transaction_total" => "1".to_owned(),
+                "source_snapshot_id" => "'s2'".to_owned(),
+                "published_at_utc" => "'t2'".to_owned(),
+                _ => "'x'".to_owned(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("({values})")
+    };
+    let commit = Commit {
+        table: "gold.parcel_real_transaction_versions",
+        versions: &versions,
+        content_columns: content.clone(),
+        key: "pnu",
+        head: Some(1),
+        base: Some(Base {
+            snapshot_id: 1,
+            version_seq: 1,
+            pins: BTreeMap::new(),
+            code_version: "c".to_owned(),
+            served_edition: None,
+            current_records: 3,
+            fingerprint: (3, 1 + 2 + 3),
+        }),
+        version_seq: 2,
+        source_snapshot_id: "s2".to_owned(),
+        published_at_utc: "t2".to_owned(),
+    };
+    // Range one: a unchanged (1), b changed (2 -> 9). Range two: c left (3), d new (4).
+    let ranges = [
+        (
+            vec![row("9999910100100010000", 1), row("9999910100100020000", 9)],
+            vec![row("9999910100100010000", 1), row("9999910100100020000", 2)],
+        ),
+        (
+            vec![row("9999910100100040000", 4)],
+            vec![row("9999910100100030000", 3)],
+        ),
+    ];
+    let mut changes = Vec::new();
+    let mut summed_digests = Digests::default();
+    for (built, current) in &ranges {
+        connection.execute_batch(&format!(
+            "CREATE OR REPLACE TABLE built ({columns}); INSERT INTO built VALUES {};              CREATE OR REPLACE TABLE current_rows AS SELECT * FROM built WHERE FALSE;              INSERT INTO current_rows VALUES {};",
+            built.join(", "),
+            current.join(", "),
+        ))?;
+        // `diff` reads the head through the catalog; here its rows are in place and the same
+        // statement runs, then the range's digests are summed and its appended rows kept.
+        connection.execute_batch(&appended_sql(&commit)?)?;
+        summed_digests += digests(&connection, &commit)?;
+        changes.extend(
+            connection
+                .prepare("SELECT pnu, change FROM appended ORDER BY pnu")?
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+    }
+    assert_eq!(
+        changes,
+        [
+            ("9999910100100020000".to_owned(), "changed".to_owned()),
+            ("9999910100100030000".to_owned(), "removed".to_owned()),
+            ("9999910100100040000".to_owned(), "added".to_owned()),
+        ]
+    );
+    let mut summed = Diff {
+        built: 2,
+        added: 0,
+        changed: 1,
+        removed: 0,
+        current_in_range: 2,
+    };
+    summed += Diff {
+        built: 1,
+        added: 1,
+        changed: 0,
+        removed: 1,
+        current_in_range: 1,
+    };
+    let ((rows, sum), current) = after_digests(&commit, &summed, summed_digests)?;
+    assert_eq!(
+        (rows, sum, current),
+        (3, 14, 3),
+        "the whole diff's fingerprint"
+    );
+    Ok(())
+}

@@ -164,6 +164,9 @@ pub mod silver_changes;
 /// ADR-0575).
 pub mod courtauction_silver_stage;
 
+/// The served parcel boundaries and the fold of staff edits (root ADR-0133 §2, ADR-0375 §2).
+pub mod parcel_boundary_served_stage;
+
 /// The one place-identity resolver every parcel source calls at ingestion (root ADR-0288 §1).
 pub mod place_identity_stage;
 

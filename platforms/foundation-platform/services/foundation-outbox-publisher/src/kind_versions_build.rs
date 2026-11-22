@@ -403,7 +403,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
 }
 
 /// The key range of one 시도, as a predicate on `pnu` that skips the files outside it.
-fn sido_range(sido: &str) -> anyhow::Result<String> {
+pub(crate) fn sido_range(sido: &str) -> anyhow::Result<String> {
     let number: u8 = sido
         .parse()
         .ok()
