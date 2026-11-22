@@ -520,13 +520,13 @@ mod tests {
         let connection = Connection::open_in_memory()?;
         connection.execute_batch(
             "CREATE TABLE a (pnu VARCHAR, v VARCHAR, row_digest VARCHAR); \
-             INSERT INTO a VALUES ('4199900000000000001', 'x', 'aa'), ('1199900000000000001', NULL, 'bb'); \
+             INSERT INTO a VALUES ('9999910100100010000', 'x', 'aa'), ('9999920100100010000', NULL, 'bb'); \
              CREATE TABLE same AS SELECT * FROM a; \
              CREATE TABLE changed AS SELECT pnu, v, CASE WHEN v = 'x' THEN 'ab' ELSE row_digest END \
                AS row_digest FROM a; \
-             CREATE TABLE swapped AS SELECT replace(pnu, '11999', '26999') AS pnu, v, row_digest FROM a; \
+             CREATE TABLE swapped AS SELECT replace(pnu, '9999920', '9999930') AS pnu, v, row_digest FROM a; \
              CREATE TABLE tied (pnu VARCHAR, v VARCHAR, row_digest VARCHAR); \
-             INSERT INTO tied VALUES ('4199900000000000001', 'x', 'aa'), ('4199900000000000001', 'z', 'bb');",
+             INSERT INTO tied VALUES ('9999910100100010000', 'x', 'aa'), ('9999910100100010000', 'z', 'bb');",
         )?;
         let count = |table: &str| {
             side_counts(
