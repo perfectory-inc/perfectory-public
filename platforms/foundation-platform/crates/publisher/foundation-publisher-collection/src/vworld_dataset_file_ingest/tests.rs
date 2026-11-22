@@ -951,6 +951,7 @@ pub(super) fn test_config() -> VWorldDatasetFileIngestConfig {
         live_write: None,
         max_jobs: None,
         max_files: None,
+        max_new_bytes: None,
         max_in_flight: 4,
         full_download_confirmed: false,
         exclude_selection_archives: false,

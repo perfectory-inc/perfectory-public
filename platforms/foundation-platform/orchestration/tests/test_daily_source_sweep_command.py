@@ -88,6 +88,10 @@ elif command == "ingest-vworld-dataset-files":
     # Root ADR-0172: the lane has no byte budget; nothing may hand the ingest one.
     assert not [name for name in env if "NEW_BYTES_BUDGET" in name and "RAON" not in name], \
         "the VWorld lane is given no byte budget"
+    # Root ADR-0606: only the catalog's cap of new bytes a run takes; the rest wait for the next day.
+    catalog = json.load(open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_ENDPOINT_CATALOG_PATH"], encoding="utf-8"))
+    assert env.get("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_MAX_NEW_BYTES") == \
+        str(catalog["daily_collections"]["source_sweep"]["vworld_max_new_bytes_per_run"]), "the run's cap is the catalog's"
     vworld = scenario["vworld"]
     if vworld.get("outcome"):
         # The publisher's provider outcome line (root ADR-0363), on stderr as the real one prints it.
@@ -772,6 +776,10 @@ class SweptDatasets(unittest.TestCase):
         for name, collection in declared.items():
             self.assertIsInstance(collection["landed_bytes_notice"], int, name)
             self.assertGreater(collection["landed_bytes_notice"], 0, name)
+            # Root ADR-0606: a run's cap of new bytes, at most 2 h at the slowest hour measured
+            # (29 GB/h, 2026-11-22), so the run and the RAON lane after it end inside 480 minutes.
+            self.assertIsInstance(collection["vworld_max_new_bytes_per_run"], int, name)
+            self.assertTrue(0 < collection["vworld_max_new_bytes_per_run"] <= 2 * 29 * 10**9, name)
             # Root ADR-0514: the large-file lane takes its files itself, a capped count a day, newest
             # first; no operator's run comes first (it never came, 2026-10-09..11-11). The budget
             # admits the count's largest files, so it refuses only a file larger than any seen.
