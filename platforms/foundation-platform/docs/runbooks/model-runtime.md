@@ -28,7 +28,6 @@ last_reviewed: 2026-11-11
 - 작업은 `jobs.v1.json` 에서 `memory_claim.units` 에 런타임 유닛을 적고, 칸이 하나인 풀(`documents`)에서 돈다(루트 ADR-0563).
   시작할 때 호스트의 남는 메모리(`MemAvailable`)가 유닛의 `MemoryMax` 와 `memory_claims.keep_available` 을 담을 때만 승인된다.
   spark 풀의 칸은 잡지 않는다. claim 의 실측 근거는 `tools/host-memory-budget.contract.json` 의 `scheduled_jobs.memory_claims` 다.
-- 문서 하나가 끝날 때마다 `job_units.py preempted` 를 물어 더 높은 claim 이 기다리면 멈춘다(문서 단위가 step 경계).
 - 텍스트의 NUL 등 제어 문자는 모델에 보내기 전에 지운다: llama.cpp 계열은 첫 NUL 에서 프롬프트를 끊는다
   (2026-11-11 ILIS 고시 20117: 9,060 토큰 중 255 토큰만 읽혔다).
 

@@ -16,9 +16,6 @@
     job_units.py queue <job id> <reason>       record a start its pool refused, to be started again (root ADR-0462)
     job_units.py dequeue <job id>              take a job that starts now off the start queue, and say how
                                                long it waited
-    job_units.py preempted <jobs.v1.json> <job id>
-                                               why a running job of a class that yields at a step boundary
-                                               must yield its slots now, or nothing (root ADR-0435)
     job_units.py leftover-failed <jobs.v1.json>
                                                each failed unit no declaration runs again, whose failed
                                                state the deploy clears (root ADR-0445)
@@ -434,22 +431,11 @@ def priority(listing, entry) -> int:
     return priority_class(listing, entry)["value"]
 
 
-def aged(listing, entry, since, now) -> float:
-    """The priority of what has waited since `since`: its class's value, raised by the list's
-    queue_aging for every hour it waited, up to its cap (root ADR-0462; Slurm's multifactor age factor),
-    so a start a higher class keeps refusing outranks it in the end and nothing starves."""
-    aging = listing.get("queue_aging") or {}
-    waited_hours = max(now - since, 0) / 3600 if since is not None else 0.0
-    return priority(listing, entry) + min(waited_hours * aging.get("points_per_hour", 0), aging.get("max_points", 0))
-
-
-def live_claims(listing, running_units=running, now=None) -> list[dict]:
+def live_claims(listing, running_units=running) -> list[dict]:
     """The queued claims whose unit runs, each with its claimant's pool, slots and priority.
 
     A claim names the systemd unit its claimant runs in; once that unit stops (it finished, failed or
-    was killed) the claim holds nothing, so no crash leaves the pool reserved. Its priority is aged
-    from when it was queued (`aged`)."""
-    now = time.time() if now is None else now
+    was killed) the claim holds nothing, so no crash leaves the pool reserved."""
     declared = listing.get("capacity_claimants") or {}
     try:
         names = sorted(os.listdir(claims_dir()))
@@ -470,7 +456,7 @@ def live_claims(listing, running_units=running, now=None) -> list[dict]:
             continue
         claims.append({**record, "claimant": claimant, "pool": declared[claimant]["pool"],
                        "slots": 1,
-                       "priority": aged(listing, declared[claimant], record.get("since"), now),
+                       "priority": priority(listing, declared[claimant]),
                        "priority_class": declared[claimant]["priority_class"]})
     return claims
 
@@ -500,11 +486,11 @@ def release(claimant) -> None:
         pass
 
 
-def _waiting_claims(listing, pool, rank, running_units, *, equal, since=None, now=None) -> list[dict]:
+def _waiting_claims(listing, pool, rank, running_units, *, equal, since=None) -> list[dict]:
     """The live claims on `pool` above `rank`, or (`equal`) at it too when queued no later than `since`
     (a start that has not waited is queued after every claim): a claim queued first is served first
     within its priority, as in any priority queue."""
-    return [found for found in live_claims(listing, running_units, now)
+    return [found for found in live_claims(listing, running_units)
             if found["pool"] == pool and (found["priority"] > rank or equal and found["priority"] == rank
                                           and (since is None or (found.get("since") or 0) <= since))]
 
@@ -557,7 +543,7 @@ def memory_short(listing, job, named, unit_sizes=unit_memory, available=availabl
     stands for (the local model's weights, held by the model runtime unit while the job runs). It is
     admitted against what the host has now, not against the caps of what could run: what a claimed
     unit already holds is counted as taken, and `memory_claims.keep_available` stays free after it. A
-    start this refuses is queued and aged like one its pool refused (root ADR-0462). 2026-11-13: the
+    start this refuses is queued like one its pool refused (root ADR-0462). 2026-11-13: the
     fact job claimed every spark slot to keep the 24G model off Spark, the pool was never empty, and
     it waited 24,600 s with 30 GiB or more available for 95% of the week.
 
@@ -663,13 +649,11 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
     need = 1
     # A claim waiting for this pool keeps its slots free of any start of a lower class, and of a
     # later one of its own (root ADR-0435): on 2026-11-06 a backfill that started first held the pool
-    # while the cut-over waited for it. A start its pool refused before has aged in the queue since its
-    # first refusal (root ADR-0462), so in the end it outranks a claim that keeps being queued anew.
-    now = time.time()
+    # while the cut-over waited for it. A start its pool refused before is queued since its first refusal
+    # (root ADR-0462), and at equal priority what was queued first goes first.
     job_id = next((job["id"] for job in jobs if job["systemd_service"] == named), None)
     since = (queued().get(job_id) or {}).get("since") if job_id else None
-    above = _waiting_claims(listing, mine["pool"], aged(listing, mine, since, now), running_units, equal=True,
-                            since=since, now=now)
+    above = _waiting_claims(listing, mine["pool"], priority(listing, mine), running_units, equal=True, since=since)
     reserved = sum(found["slots"] for found in above)
     if sum(taken.values()) + need + reserved <= pool["slots"]:
         return memory_short(listing, mine, named, running_units=running_units)
@@ -679,31 +663,6 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
         return f"the {mine['pool']} pool is kept for claims queued before {named}: {waiting}"
     holders = ", ".join(f"{service} holds {count}" for service, count in taken.items())
     return f"the {mine['pool']} pool has no room for {named} ({need} of {pool['slots']} slots): {holders}"
-
-
-def preempted(jobs_file, job_id, running_units=running) -> str:
-    """Why the running job `job_id`, of a class that yields at a step boundary, must end at its next
-    one, or "": a live claim of a higher class waits in its pool and what runs leaves it no room
-    (root ADR-0435; Kubernetes preempts a lower PriorityClass, here the job stops itself between
-    committed steps, so nothing it did is lost)."""
-    with open(jobs_file, encoding="utf-8") as handle:
-        listing = json.load(handle)
-    job = next((job for job in listing["jobs"] if job["id"] == job_id), None)
-    if job is None:
-        raise KeyError(f"{job_id} is not a job in {jobs_file}")
-    if not priority_class(listing, job).get("yields_at_step_boundary"):
-        return ""
-    pool = (listing.get("pools") or {}).get(job["pool"])
-    if pool is None:
-        return ""
-    above = _waiting_claims(listing, job["pool"], priority(listing, job), running_units, equal=False)
-    if not above:
-        return ""
-    held = len(running_units(pool_patterns(listing, job["pool"])))
-    if held + sum(found["slots"] for found in above) <= pool["slots"]:
-        return ""
-    names = ", ".join(f"{found['claimant']} ({found['priority_class']})" for found in above)
-    return f"yielded the {job['pool']} pool to {names}, which waits for its slots"
 
 
 def main(argv) -> int:
@@ -768,16 +727,6 @@ def main(argv) -> int:
             print(f"job_units: {error.args[0] if isinstance(error, KeyError) else error}", file=sys.stderr)
             return 64
         return 0
-    if len(argv) == 3 and argv[0] == "preempted":
-        try:
-            print(preempted(argv[1], argv[2]))
-        except (OSError, subprocess.CalledProcessError) as error:
-            print(f"job_units: systemd cannot report the pool of {argv[2]}: {error}", file=sys.stderr)
-            return 2
-        except KeyError as error:
-            print(f"job_units: {error.args[0]}", file=sys.stderr)
-            return 64
-        return 0
     if len(argv) == 2 and argv[0] == "leftover-failed":
         try:
             print("\n".join(leftover_failed(argv[1])))
@@ -807,7 +756,7 @@ def main(argv) -> int:
         return 0
     print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>... | deferred-dir | deferred"
           " | admission-lock | pool-full <jobs.v1.json> <job id|service> | claim <jobs.v1.json> <claimant> <unit>"
-          " | release <claimant> | queue <job id> <reason> | dequeue <job id> | preempted <jobs.v1.json> <job id> | leftover-failed <jobs.v1.json>"
+          " | release <claimant> | queue <job id> <reason> | dequeue <job id> | leftover-failed <jobs.v1.json>"
           " | unretried-failed | record-outcome <job id> <outcome line> [run|check] [invocation]",
           file=sys.stderr)
     return 64

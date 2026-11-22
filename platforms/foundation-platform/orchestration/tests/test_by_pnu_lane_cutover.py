@@ -412,7 +412,7 @@ class LaneCutover(OperatorHarness):
 
     def test_the_run_claims_the_spark_pool_while_it_waits_and_leaves_no_claim_behind(self):
         # Root ADR-0435, the 2026-11-06 00:37Z replay: the cut-over waits for the running backfill with
-        # its claim queued (the backfill yields to it, nothing lower starts), and takes it off at the end.
+        # its claim queued (nothing lower starts), and takes it off at the end.
         migration = "foundation-unit-price-versions-migrate.service"
         claims = self.root / "capacity"
         result, calls = self.runner(LANE, "1", FAKE_ACTIVATING=migration, FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES="0")

@@ -137,13 +137,13 @@ class EveryStartTakesThePoolsSlots(unittest.TestCase):
 
 class CapacityGoesByPriorityNotByClock(unittest.TestCase):
     """Root ADR-0435: the spark pool is the resource; a waiting publish claim holds back every lower
-    start and a later one of its class, and a running backfill yields at its next step boundary.
+    start and a later one of its class.
 
     The 2026-11-06 replay: unit_price_versions_migration (a backfill) started at 23:46Z from a missed
-    tick; at 00:37Z the parcel-ownership cut-over waited 45 minutes for it and failed."""
+    tick; at 00:37Z the parcel-ownership cut-over waited 45 minutes for it and failed. A running job no
+    longer yields to a claim, and waiting no longer raises a start's priority (root ADR-0583 §7)."""
 
     CUTOVER = "foundation-by-pnu-lane-cutover-g1.service"
-    MIGRATION = "foundation-unit-price-versions-migrate.service"
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="job-units-capacity-")
@@ -181,16 +181,10 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
             self.assertEqual((by_id[job_id]["priority_class"], by_id[job_id]["priority_class_from"]),
                              ("publish", "by_pnu_serving_bake"), job_id)
 
-    def test_the_eleven_o_six_backfill_yields_to_the_waiting_cut_over_and_nothing_lower_starts(self):
+    def test_while_the_cut_over_waits_with_its_claim_nothing_lower_starts(self):
         claimed = self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER)
         self.assertEqual(claimed.returncode, 0, claimed.stderr)
-        # 00:37Z: the migration runs and the cut-over's unit waits with its claim.
-        running = [self.MIGRATION, self.CUTOVER]
-        yielded = self.job_units("preempted", str(JOBS), "unit_price_versions_migration", units=running)
-        self.assertEqual(yielded.returncode, 0, yielded.stderr)
-        self.assertIn("yielded the spark pool to by_pnu_lane_cutover (first_publish)", yielded.stdout)
-        # After the migration ended at its step boundary, no default or backfill start takes the pool
-        # the cut-over waits for.
+        # No default or backfill start takes the pool the cut-over waits for.
         for job in ("unit_price_versions_migration", "rt_molit_real_transaction_silver"):
             with self.subTest(job=job):
                 held = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER])
@@ -214,27 +208,21 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
         # The cut-over's unit is gone (it ended, or crashed before it took the claim off).
         for job in ("unit_price_versions_migration", "gold_panel_rebuild"):
             self.assertEqual(self.job_units("pool-full", str(JOBS), job).stdout.strip(), "")
-        self.assertEqual(self.job_units("preempted", str(JOBS), "unit_price_versions_migration",
-                                        units=[self.MIGRATION]).stdout.strip(), "")
         self.assertEqual(self.job_units("release", "by_pnu_lane_cutover").returncode, 0)
         self.assertEqual(sorted(self.claims.iterdir()), [])
 
-    def test_a_start_refused_long_enough_outranks_a_claim_queued_anew(self):
-        # Root ADR-0462, the 2026-11-09 replay: the cut-over's claim (first_publish) was queued anew every
-        # run, and a Silver load (default) refused at 07:00Z had no way past it. Its wait now ages it: four
-        # hours in the queue tie a fresh claim; past them the start goes first.
+    def test_a_start_queued_before_a_claim_of_its_class_goes_first_and_waiting_does_not_age_it(self):
+        # Root ADR-0462: at equal priority what was queued first goes first. Root ADR-0583 §7: a wait no
+        # longer raises a start's priority; nine hours behind a higher class's claim still wait.
         job = "rt_molit_real_transaction_silver"
         self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)
         queue = self.root / "queue"
         queue.mkdir()
-        for hours, held in ((0, True), (3, True), (5, False), (9, False)):
-            with self.subTest(hours=hours):
-                record = {"since": int(time.time()) - hours * 3600, "attempts": 1, "last_at": int(time.time()), "reason": "-"}
-                (queue / f"{job}.json").write_text(json.dumps(record))
-                result = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER], queue=queue)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual("kept for claims queued before" in result.stdout, held, result.stdout)
-        # What runs still holds its slots: aging orders the waiters, it takes no running job's place.
+        record = {"since": int(time.time()) - 9 * 3600, "attempts": 1, "last_at": int(time.time()), "reason": "-"}
+        (queue / f"{job}.json").write_text(json.dumps(record))
+        result = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER], queue=queue)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("kept for claims queued before", result.stdout)
         result = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER, "foundation-gold-panel-rebuild.service"],
                                 queue=queue)
         self.assertIn("has no room", result.stdout)
@@ -284,11 +272,7 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
         self.assertEqual(len((queue / "history.jsonl").read_text().splitlines()), 1)
         self.assertEqual(self.job_units("queue", "../etc", "x", queue=queue).returncode, 64)
 
-    def test_only_a_yielding_class_is_preempted_and_only_a_declared_claimant_claims(self):
-        self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)
-        floor = self.job_units("preempted", str(JOBS), "building_register_floor",
-                               units=["foundation-building-register-floor.service", self.CUTOVER])
-        self.assertEqual(floor.stdout.strip(), "", "a default job runs to its end; the claim waits for it")
+    def test_only_a_declared_claimant_claims(self):
         for args in (("someone_else", self.CUTOVER), ("by_pnu_lane_cutover", "foundation-gold-panel-rebuild.service")):
             with self.subTest(args=args):
                 self.assertEqual(self.job_units("claim", str(JOBS), *args).returncode, 64)
