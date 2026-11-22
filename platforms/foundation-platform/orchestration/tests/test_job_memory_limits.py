@@ -1,4 +1,4 @@
-"""A job states its unit's memory beside its time limit, and an instance of a template gets its own (root ADR-0574 §7).
+"""A job states its unit's memory beside its time limit, and an instance of a template gets its own (root ADR-0574 §8).
 
 What real incident does failing this prevent? 2026-11-22: foundation-gold-versions@parcel-real-transaction
 (W81e) needed other limits than the template's other instances, and the 33 silver-refresh@ lanes all held

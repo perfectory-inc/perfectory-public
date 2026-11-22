@@ -226,7 +226,7 @@ def instances(job: dict) -> list[str]:
             if (match := SERVICE.fullmatch(service)) and match.group(2) is not None]
 
 
-# The drop-ins an instance gets its own limits from (root ADR-0574 §7): foundation-jobs writes the time
+# The drop-ins an instance gets its own limits from (root ADR-0574 §8): foundation-jobs writes the time
 # limit, scripts/ci/unit_memory.py the memory. A change to either is a change to the job.
 INSTANCE_DROPINS = ("50-time-limit.conf", "50-memory.conf")
 

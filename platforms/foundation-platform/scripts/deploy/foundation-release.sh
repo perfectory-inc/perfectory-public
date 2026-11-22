@@ -1098,7 +1098,7 @@ install_release_units() {
 }
 
 # An instance of a template that holds less than the template gets its own time limit and memory
-# drop-ins (root ADR-0574 §7), generated from its job by foundation-jobs and scripts/ci/unit_memory.py.
+# drop-ins (root ADR-0574 §8), generated from its job by foundation-jobs and scripts/ci/unit_memory.py.
 # Installed as the release ships them, and ours that the release no longer ships are removed, so an
 # instance whose job now holds the template's limit goes back to it; a drop-in we did not write stays.
 install_instance_limits() {

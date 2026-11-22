@@ -30,7 +30,7 @@ pub const JOB_UNIT_LINES: &[&str] = &[
     "ProtectHome=true",
     "ProtectSystem=strict",
 ];
-/// The drop-in an instance of a template unit gets its own time limit from (root ADR-0574 §7):
+/// The drop-in an instance of a template unit gets its own time limit from (root ADR-0574 §8):
 /// `<instance>.service.d/50-time-limit.conf` beside the units, generated here and nowhere else.
 pub const TIME_LIMIT_DROPIN: &str = "50-time-limit.conf";
 /// The generated `tmpfiles.d` file, relative to the platform root.
@@ -150,7 +150,7 @@ pub fn time_limit_dropin(service: &str) -> String {
 #[must_use]
 pub fn render_time_limit_dropin(minutes: u32) -> String {
     format!(
-        "# Rendered from orchestration/jobs.v1.json time_limit_minutes (root ADR-0574 §7); do not edit.
+        "# Rendered from orchestration/jobs.v1.json time_limit_minutes (root ADR-0574 §8); do not edit.
          # Run: {GENERATE}
 [Service]
 {}
@@ -409,7 +409,7 @@ pub struct Unit {
 /// instance of a template. `read` returns a unit file's text by its file name; a drop-in it cannot
 /// read is one not written yet.
 ///
-/// Instances of one template may state different limits (root ADR-0574 §7): the template holds
+/// Instances of one template may state different limits (root ADR-0574 §8): the template holds
 /// the longest of them, so an instance no job names is held to no more than any job's, and an
 /// instance with a shorter one gets a drop-in that holds its own.
 ///

@@ -468,7 +468,7 @@ def memory_claim_problems(section: dict) -> list[str]:
     if keep is None or usual is None:
         return [f"{CONTRACT}: memory claims need jobs.v1.json memory_claims.keep_available and scheduled_jobs.memory_claims.available.p05 as sizes"]
     unit_files = (contract.get("systemd_units") or {}).get("unit_files") or {}
-    # An instance whose job holds less than its template claims its own cap (root ADR-0574 §7).
+    # An instance whose job holds less than its template claims its own cap (root ADR-0574 §8).
     instances = (contract.get("systemd_units") or {}).get("instances") or {}
     measured = declared.get("claimed_measured") or {}
 

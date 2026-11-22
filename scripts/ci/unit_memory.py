@@ -6,7 +6,7 @@ its hard cap (`memory_max`), sized from the unit's measured `memory peak` with h
 `MemoryHigh=` (the soft bound where the kernel throttles and reclaims before it kills), `MemoryMax=`
 and `OOMScoreAdjust=` (from the class: batch is the OOM killer's first choice, recovery its last)
 are rendered from that entry and nowhere else. A unit a job runs gets its entry from the job's
-`memory_max` (root ADR-0574 §7: the declared-definitions generator writes it), and an instance of a
+`memory_max` (root ADR-0574 §8: the declared-definitions generator writes it), and an instance of a
 template whose job holds less than the template gets `systemd_units.instances`, rendered into the
 instance's own drop-in (`<instance>.service.d/50-memory.conf`) over the template's lines. `--write` renders them into the committed units;
 every-container-has-a-memory-cap.sh holds the units to their rendering, refuses a unit file with no
@@ -37,7 +37,7 @@ SIZE = re.compile(r"([0-9]+)([KMG])")
 BYTES = {"K": 1 << 10, "M": 1 << 20, "G": 1 << 30}
 KEYS = ("MemoryHigh", "MemoryMax", "OOMScoreAdjust")
 MARK = "# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit."
-# An instance's memory drop-in, beside the units (root ADR-0574 §7).
+# An instance's memory drop-in, beside the units (root ADR-0574 §8).
 DROPIN = "50-memory.conf"
 ENTRY_KEYS = {"class", "memory_max", "measured_peak", "measured", "headroom_why"}
 

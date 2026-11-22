@@ -254,7 +254,7 @@ def generate(platform, definitions, ordered=True):
 
 SIZE = re.compile(r"([0-9]+)([KMG])")
 SIZE_BYTES = {"K": 1 << 10, "M": 1 << 20, "G": 1 << 30}
-# A job's memory, beside its time_limit_minutes (root ADR-0574 §7): its unit's systemd_units entry.
+# A job's memory, beside its time_limit_minutes (root ADR-0574 §8): its unit's systemd_units entry.
 JOB_MEMORY = {"memory_max": "memory_max", "memory_measured_peak": "measured_peak",
               "memory_measured": "measured", "memory_headroom_why": "headroom_why"}
 
@@ -267,7 +267,7 @@ def size_bytes(job_id, raw):
 
 
 def job_memory(documents):
-    """The memory of every job's unit, from the job (root ADR-0574 §7): `systemd_units.unit_files` gets
+    """The memory of every job's unit, from the job (root ADR-0574 §8): `systemd_units.unit_files` gets
     each job unit's entry and `systemd_units.instances` the instances of a template that hold less than it.
 
     A job states its unit's memory once, beside its time limit. A template is held to its largest
@@ -281,7 +281,7 @@ def job_memory(documents):
     for job in documents[JOBS]["jobs"]:
         if "memory_max" not in job or "memory_measured" not in job:
             raise DefinitionError(f"job {job['id']}: states memory_max and memory_measured beside time_limit_minutes "
-                                  "(root ADR-0574 §7)")
+                                  "(root ADR-0574 §8)")
         service = job["systemd_service"]
         name, at, rest = service.partition("@")
         file = f"{name}@.{rest.rsplit('.', 1)[-1]}" if at else service
