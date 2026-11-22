@@ -30,10 +30,11 @@ foundation-platform/raon-batch-9ddf8e85f8125bfb:local`). 조건 넷이 모두 �
 
 ## Decision
 
-1. **RAON 이미지는 저장소 하나다.** `foundation-platform/raon-batch:<입력 다이제스트 16 자>` 로 태그한다. 입력이 같으면 같은
-   태그를 다시 쓴다(지금처럼).
-2. **host retention 은 호스트가 짓는 저장소의 가장 새 이미지를 나이와 관계없이 남긴다.** 그 저장소는
-   `host_retention.py` 의 `HOST_BUILT` 에 적는다(지금은 `foundation-platform/raon-batch`). 그보다 오래된 이미지는 지난 입력의
+1. **RAON 이미지의 이름은 그대로다.** `foundation-platform/raon-batch-<입력 다이제스트 16 자>:local` 이고, 입력이 같으면 같은
+   이름을 다시 쓴다. 호스트에서 지은 이미지의 태그는 `:local` 이어야 한다(컨테이너 실행 정책 검사). 그래서 다이제스트는 저장소
+   이름에 들어가고, 이 이름들이 한 집안을 이룬다.
+2. **host retention 은 호스트가 짓는 이미지 집안마다 가장 새 이미지를 나이와 관계없이 남긴다.** 집안은 이름 앞부분으로
+   `host_retention.py` 의 `HOST_BUILT` 에 적는다(지금은 `foundation-platform/raon-batch-`). 그보다 오래된 이미지는 지난 입력의
    것이라 다른 이미지처럼 7 일 뒤 나간다. 다른 네 조건은 그대로다.
 3. **RAON 한 실행은 13 파일을 받는다.** `selection_archive_max_files_per_run` 8 → 13, 예산은 그 수 × 2 GiB
    (`selection_archive_new_bytes_budget` 26 GiB, ADR-0514 의 규칙 그대로)다. 늘어난 다섯 파일이 다시 짓기에 쓰던 85 분이다.
@@ -42,9 +43,9 @@ foundation-platform/raon-batch-9ddf8e85f8125bfb:local`). 조건 넷이 모두 �
 
 ## Consequences
 
-- 입력이 바뀐 배포 뒤 첫 RAON 실행만 이미지를 짓는다. 그 실행은 약 85 분 더 길다. 이 결정을 싣는 배포 뒤 첫 실행도 이름이 바뀌어
-  한 번 짓는다.
+- 입력이 바뀐 배포 뒤 첫 RAON 실행만 이미지를 짓는다. 그 실행은 약 85 분 더 길다. 이름이 그대로라 11-22 에 지은 이미지를 바로
+  다시 쓴다.
 - 가장 새 RAON 이미지 하나(약 4.6 GB)는 늘 데이터 디스크에 남는다.
 - 시험
   - `test_host_retention.py`: 가장 새 RAON 이미지는 30 일이 지나도 남고, 그보다 하루 오래된 것은 나간다.
-  - `test_raon_large_files_command.py`: 이미지 태그가 저장소 하나·입력 다이제스트 꼴이고, 그 저장소가 `HOST_BUILT` 에 있다.
+  - `test_raon_large_files_command.py`: 이미지 이름이 입력 다이제스트·`:local` 꼴이고, `HOST_BUILT` 의 집안에 든다.

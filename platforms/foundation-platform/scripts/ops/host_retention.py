@@ -37,11 +37,13 @@ from dataclasses import dataclass
 
 # Image repositories the release prune keeps or removes with their releases.
 RELEASE_OWNED = frozenset({"foundation-outbox-publisher", "foundation-tippecanoe"})
-# Image repositories a host job builds itself, tagged by the digest of its inputs, and reuses until
-# they change (root ADR-0607): the newest stays at any age; an older one is a former input set and
-# ages out like any image. The RAON batch image (scripts/ops/raon-large-files.sh) aged out at 7 days
-# and the next large-file run built the same image again, 85 minutes before its first file (2026-11-22).
-HOST_BUILT = frozenset({"foundation-platform/raon-batch"})
+# Name prefixes of image repositories a host job builds itself, named by the digest of its inputs and
+# reused until they change (root ADR-0607). A host-built image is `<prefix><digest>:local`, as the
+# container runtime policy requires. The newest of each family stays at any age; an older one is a
+# former input set and ages out like any image. The RAON batch image (scripts/ops/raon-large-files.sh)
+# aged out at 7 days and the next large-file run built the same image again, 85 minutes before its
+# first file (2026-11-22).
+HOST_BUILT = ("foundation-platform/raon-batch-",)
 DEFAULT_REFERENCE_ROOT = pathlib.Path("/opt/perfectory-control/current")
 HOST_LAYOUT = pathlib.Path(__file__).resolve().parents[2] / "config" / "host-layout.contract.json"
 REFERENCE_SUFFIXES = (".env", ".json", ".yml", ".yaml", ".sh", ".py", ".toml", "Dockerfile")
@@ -134,9 +136,9 @@ def removable(
     candidates = list(candidates)
     newest_built: dict[str, Image] = {}
     for image in candidates:
-        for repository in image.repositories & HOST_BUILT:
-            if repository not in newest_built or image.created > newest_built[repository].created:
-                newest_built[repository] = image
+        for family in {prefix for prefix in HOST_BUILT for name in image.repositories if name.startswith(prefix)}:
+            if family not in newest_built or image.created > newest_built[family].created:
+                newest_built[family] = image
     kept_built = {image.image_id for image in newest_built.values()}
     chosen = []
     for image in candidates:

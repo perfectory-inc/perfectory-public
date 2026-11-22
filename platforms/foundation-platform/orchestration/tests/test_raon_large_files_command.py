@@ -278,9 +278,9 @@ class RaonLargeFiles(unittest.TestCase):
         [run] = self.docker("run")
         tag = build["args"][build["args"].index("-t") + 1]
         self.assertEqual(run["image"], tag)
-        # One repository, tagged by its inputs: the host retention keeps its newest (root ADR-0607).
-        self.assertRegex(tag, r"^foundation-platform/raon-batch:[0-9a-f]{16}$")
-        self.assertIn(tag.split(":", 1)[0], host_retention.HOST_BUILT)
+        self.assertRegex(tag, r"^foundation-platform/raon-batch-[0-9a-f]{16}:local$")
+        # Named by its inputs in a family the host retention keeps the newest of (root ADR-0607).
+        self.assertTrue(any(tag.startswith(prefix) for prefix in host_retention.HOST_BUILT), tag)
         self.assertIn(f"{self.publisher}:/usr/local/bin/foundation-outbox-publisher:ro", run["args"],
                       "the release's own publisher, read-only")
         self.assertIn("host", run["args"][run["args"].index("--network") + 1])
