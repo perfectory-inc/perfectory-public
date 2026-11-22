@@ -57,7 +57,8 @@ last_reviewed: 2026-07-30
 | `code_go_kr` | 1 | code.go.kr 법정동 전체 표 (법정동 코드 변경 출처, root ADR-0143) |
 | `court_auction` | 13 | courtauction.go.kr 법원경매 물건·매각결과 목록 (root ADR-0280, ADR-0281) |
 | `data_go_kr_file_data` | 16 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
-| `ilis` | 4 | industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처) |
+| `ilis` | 1 | industryland.or.kr 산업단지 고시 상세·첨부 (root ADR-0484) |
+| `ilis_address` | 3 | industryland.or.kr 산업단지 목록·고시 목록·상세 (주소 해소 출처) |
 | `juso_electronic_map_bulk` | 12 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
 | `onbid_open_api` | 7 | data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280) |
@@ -211,10 +212,10 @@ last_reviewed: 2026-07-30
 | hub.go.kr | 건축물·허가·에너지·점검 | 대지위치 | bulk_file | true | 기본 실행 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 호별개요 | bulk_file | true | 기본 실행 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 복리분양시설 | bulk_file | true | 기본 실행 |
+| industryland.or.kr | 산업단지 고시 | ILIS 산업단지 고시 상세·첨부 | 공개 JSON API (전용 커맨드) | true | 전용 커맨드 |
 | industryland.or.kr | 산업단지 주소 출처 | ILIS 산업단지 상세 | 공개 JSON API (전용 커맨드) | false | 전용 커맨드 |
 | industryland.or.kr | 산업단지 주소 출처 | ILIS 산업단지 목록 | 공개 JSON API (전용 커맨드) | true | 전용 커맨드 |
 | industryland.or.kr | 산업단지 주소 출처 | ILIS 산업단지 고시 목록 | 공개 JSON API (전용 커맨드) | true | 전용 커맨드 |
-| industryland.or.kr | 산업단지 주소 출처 | ILIS 산업단지 고시 상세·첨부 | 공개 JSON API (전용 커맨드) | true | 전용 커맨드 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 기초구간 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 국가기초구역 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 건물 도형 | 벌크(수동 승인) | false | 수동 승인 |

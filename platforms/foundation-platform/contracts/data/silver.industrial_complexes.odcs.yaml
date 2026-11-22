@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다."
+  purpose: "ILIS 주소 근거와 브이월드 산업단지 프로필로 단지마다 한 행을 쌓는다. 입력이 바뀌면 발행기 안의 DuckDB 가 바뀐 단지만 붙인다(루트 ADR-0033, ADR-0559)."
 team:
   name: "foundation-platform"
 servers:
@@ -242,5 +242,5 @@ customProperties:
       - "official_complex_code"
   - property: "upstreamDatasets"
     value:
-      - "source-ilis"
+      - "source-ilis-address"
       - "source-vworld-dataset"

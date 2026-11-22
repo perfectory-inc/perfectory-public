@@ -7,7 +7,7 @@
       "id": "source-ilis",
       "type": "source_group",
       "title": "산업입지정보 산업단지",
-      "description": "목록·고시·상세는 브이월드 산업단지의 주소 해석 근거로 연결된다.",
+      "description": "고시 상세와 그 첨부를 매시 받는다(root ADR-0484). 목록·고시 목록·상세의 주소 근거는 source-ilis-address 다.",
       "status": "partial",
       "owner": "foundation-platform",
       "evidence_refs": [],

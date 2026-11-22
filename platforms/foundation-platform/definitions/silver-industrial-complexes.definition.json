@@ -37,7 +37,7 @@
       "pool": "default_pool",
       "retries": 0,
       "pipeline_graph_edges": [
-        "ilis-address-source-collection-to-source-ilis"
+        "ilis-address-source-collection-to-source-ilis-address"
       ],
       "enabled": true,
       "enabled_since": "2026-11-23T00:00:00Z",
@@ -51,14 +51,14 @@
       "scope": "changed-keys",
       "interruptible": false,
       "commits": "at_end",
-      "description": "Silver load of the industrial complexes (root ADR-0033; daily at 05:10 UTC, after the ILIS address-source collector's 04:40, not on its inputs' events: the ILIS notice collector writes the same source group every hour, and a load started by it would make every reader of the table hourly (complex_boundary_release would then starve in the spark pool, job_specs.pool_starvation); scripts/ops/industrial-complex-silver-load.sh; the publisher's plan-industrial-complex-silver-inputs and load-industrial-complex-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559; it was the Spark job industrial_complex_bronze_to_silver.py, started by hand): the newest Bronze object of each input (the vworldkr__sandan_profile workbook, the ILIS complex list and notice list, the ILIS detail of each complex the list lacks, the vworldkr__boundary_sigungu archive whose .dbf is the district authority), `unchanged` without fetching anything when the table's commits record every one; otherwise the address resolution and the export (build-industrial-complex-address-resolution, export-industrial-complex-bronze-raw-jsonl, unchanged), the Spark job's gates, and one commit that appends only the complexes whose content differs from their current row and records every input, even when no complex changed. One pass over the nation: the input is one 1,442-row workbook and a 98 MB boundary archive (the declared exception to a regional split). No Spark.",
+      "description": "Silver load of the industrial complexes (root ADR-0033; started by a new object of its inputs (the ILIS address sources the daily collector lands, source-ilis-address, apart from the hourly notice details of source-ilis; the profile workbook the daily sweep lands), the schedule being the fallback; scripts/ops/industrial-complex-silver-load.sh; the publisher's plan-industrial-complex-silver-inputs and load-industrial-complex-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559; it was the Spark job industrial_complex_bronze_to_silver.py, started by hand): the newest Bronze object of each input (the vworldkr__sandan_profile workbook, the ILIS complex list and notice list, the ILIS detail of each complex the list lacks, the vworldkr__boundary_sigungu archive whose .dbf is the district authority), `unchanged` without fetching anything when the table's commits record every one; otherwise the address resolution and the export (build-industrial-complex-address-resolution, export-industrial-complex-bronze-raw-jsonl, unchanged), the Spark job's gates, and one commit that appends only the complexes whose content differs from their current row and records every input, even when no complex changed. One pass over the nation: the input is one 1,442-row workbook and a 98 MB boundary archive (the declared exception to a regional split). No Spark.",
       "systemd_service": "foundation-industrial-complex-silver-load.service",
       "systemd_timer": null,
       "state_paths": [
         "/var/lib/foundation-platform/industrial-complex-silver"
       ],
       "schedule": "10 5 * * *",
-      "started_by": "schedule",
+      "started_by": "inputs",
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 30,
@@ -86,7 +86,7 @@
       "priority_weight": 40,
       "retries": 0,
       "pipeline_graph_edges": [
-        "source-ilis-to-silver-industrial-complexes",
+        "source-ilis-address-to-silver-industrial-complexes",
         "source-vworld-dataset-to-silver-industrial-complexes"
       ],
       "enabled": true,
@@ -132,7 +132,7 @@
   "dependencies": [
     {
       "from": "ilis-address-source-collection",
-      "to": "source-ilis",
+      "to": "source-ilis-address",
       "relation": "schedules",
       "status": "implemented",
       "via": [
@@ -141,7 +141,7 @@
       ]
     },
     {
-      "from": "source-ilis",
+      "from": "source-ilis-address",
       "to": "silver-industrial-complexes",
       "relation": "feeds",
       "status": "implemented",
