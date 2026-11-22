@@ -46,7 +46,8 @@ status=0
 tail -n 3 "${work}/export.out"
 if [[ "${status}" -ne 0 ]]; then
   # A national result check that failed left its record; anything else is an error of the run.
-  if [[ -s "${work}/checks.json" ]] && ! grep -q '"failed": \[\]' "${work}/checks.json"; then
+  if python3 -I -B -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1], encoding="utf-8")).get("failed") else 1)' \
+    "${work}/checks.json" 2>/dev/null; then
     echo "gold-takeover-verdict: a national result check failed: ${work}/checks.json" >&2
     exit 3
   fi

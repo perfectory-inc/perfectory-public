@@ -227,32 +227,88 @@ class AJobDagsterRunsTest(unittest.TestCase):
 
     def check_line(self, asset_key, check_name="takeover_equal", passed=False):
         return pipes_line("report_asset_check", {
-            "asset_key": asset_key, "check_name": check_name, "passed": passed, "severity": "ERROR",
+            "asset_key": asset_key, "check_name": check_name, "passed": passed,
             "metadata": {"outcome": {"raw_value": "not equal", "type": "__infer__"}}})
 
+    def evaluations(self, result):
+        return [event.event_specific_data for event in result.all_events
+                if event.event_type_value == "ASSET_CHECK_EVALUATION"]
+
+    def execute_with_instance(self, spec, lines, instance):
+        import run_jobs
+
+        return run_jobs.run_job(spec, transport=Stand(lines, 0, None)).execute_in_process(
+            instance=instance, raise_on_error=False)
+
     def test_a_shadow_build_logs_the_takeover_verdict_its_unit_reported(self):
-        # Root ADR-0564 §6-3: the unit judges its own shadow commit; the op logs that as the check.
+        # Root ADR-0564 §6-3: the unit judges its own shadow commit; the op logs that as the check,
+        # at the severity its declaration gives (blocking: ERROR).
+        from dagster import AssetCheckSeverity
+
         spec = self.shadow_build()
         result, tags, materialized, _ = self.execute(spec, [
             self.check_line("iceberg/gold/parcel_register_masters_versions"), "foundation-job-outcome changed"])
         self.assertTrue(result.success)
         self.assertEqual(tags["foundation/job-outcome"], "changed")
-        evaluations = [event.event_specific_data for event in result.all_events
-                       if event.event_type_value == "ASSET_CHECK_EVALUATION"]
-        self.assertEqual([(evaluation.asset_key.to_user_string(), evaluation.check_name, evaluation.passed)
-                          for evaluation in evaluations],
-                         [("iceberg/gold/parcel_register_masters_versions", "takeover_equal", False)])
-        self.assertEqual(evaluations[0].metadata["outcome"].value, "not equal")
-        self.assertIn(evaluations[0].asset_key, materialized, "the commit it judged is materialized too")
+        (evaluation,) = self.evaluations(result)
+        self.assertEqual((evaluation.asset_key.to_user_string(), evaluation.check_name, evaluation.passed,
+                          evaluation.severity),
+                         ("iceberg/gold/parcel_register_masters_versions", "takeover_equal", False,
+                          AssetCheckSeverity.ERROR))
+        self.assertEqual(evaluation.metadata["outcome"].value, "not equal")
+        self.assertIn(evaluation.asset_key, materialized, "the commit it judged is materialized too")
+
+    def test_a_run_that_kept_the_head_still_logs_the_verdict_it_ran(self):
+        result, tags, materialized, _ = self.execute(self.shadow_build(), [
+            self.check_line("iceberg/gold/parcel_register_masters_versions", passed=True),
+            "foundation-job-outcome unchanged"])
+        self.assertTrue(result.success)
+        self.assertEqual((tags["foundation/job-outcome"], materialized), ("unchanged", {}))
+        self.assertEqual([evaluation.passed for evaluation in self.evaluations(result)], [True])
 
     def test_a_run_never_judges_a_check_its_unit_does_not_own(self):
         for spec, line in (
                 (self.shadow_build(), self.check_line("iceberg/gold/parcel_register_masters_versions", "rows_valid_per_sido")),
                 (self.shadow_build(), self.check_line("iceberg/gold/parcel_register_masters", passed=True)),
-                (self.spec(), self.check_line(self.spec().outputs and "iceberg/" + self.spec().outputs[0][1].replace(".", "/")))):
+                (self.spec(), self.check_line("iceberg/" + self.spec().outputs[0][1].replace(".", "/")))):
             with self.subTest(line=line):
-                result, _, _, _ = self.execute(spec, [line, "foundation-job-outcome changed"])
+                result, _, materialized, _ = self.execute(spec, [line, "foundation-job-outcome changed"])
                 self.assertFalse(result.success)
+                self.assertEqual(materialized, {}, "nothing is logged before the report is refused")
+
+    def test_the_check_run_alone_restates_the_build_s_evaluation_never_its_own(self):
+        import takeover_checks
+        from dagster import AssetCheckKey, AssetKey, DagsterInstance
+
+        instance = DagsterInstance.ephemeral()
+        self.addCleanup(instance.dispose)
+        key = AssetCheckKey(AssetKey(["iceberg", "gold", "parcel_register_masters_versions"]), "takeover_equal")
+        self.assertIsNone(takeover_checks.reported_evaluation(instance, key, "any"))
+        built = self.execute_with_instance(self.shadow_build(), [
+            self.check_line("iceberg/gold/parcel_register_masters_versions", passed=True),
+            "foundation-job-outcome changed"], instance)
+        found = takeover_checks.reported_evaluation(instance, key, "a later check run")
+        self.assertEqual((found[0], found[1].passed), (built.run_id, True))
+        self.assertIsNone(takeover_checks.reported_evaluation(instance, key, built.run_id),
+                          "a run never re-states itself")
+
+    def test_the_unit_names_the_check_s_asset_as_dagster_does(self):
+        import importlib.util as util
+
+        import observe_assets
+
+        spec = util.spec_from_file_location("gold_takeover_check", PLATFORM / "scripts" / "ops" / "gold_takeover_check.py")
+        unit = util.module_from_spec(spec)
+        spec.loader.exec_module(unit)
+        keys = observe_assets.node_keys(observe_assets.contracts()[1])
+        for node, table in (("gold-parcel-register-masters-versions", "gold.parcel_register_masters_versions"),
+                            ("gold-parcel-demolitions-versions", "gold.parcel_demolitions_versions"),
+                            ("gold-parcel-energy-versions", "gold.parcel_energy_versions")):
+            with self.subTest(node=node):
+                params = unit.report(table, "41", 0, {}, {})["params"]
+                self.assertEqual(params["asset_key"], keys[node].to_user_string())
+        import takeover_checks
+        self.assertEqual(unit.CHECK, takeover_checks.TAKEOVER_EQUAL)
 
     def decided_by_dagster(self):
         """A Silver refresh with a check, as if Dagster decided it (no job is at `dagster` yet)."""

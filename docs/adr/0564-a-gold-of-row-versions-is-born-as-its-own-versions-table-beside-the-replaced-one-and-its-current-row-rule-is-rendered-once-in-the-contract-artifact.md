@@ -353,7 +353,11 @@
 - **기록.** `verdict.json` 에 `scope`(시도, 시도의 행 수, 전국 행 수, 집계 검사)가 붙는다. 넘겨받기 PR 은 그것을 싣는다.
 - **전환.** 결정 6-5 의 전량 굽기는 그대로다: 판정한 빌드 쌍에서 구운 문서가 옛 세대와 다르면 발행하지 않는다(위 Revision 의 전환 내용 검사).
   전환이 없는 표(결정 6-9)는 위 집계가 전국의 검사다.
-- **판정은 Dagster 의 자산 검사다(같은 날 덧붙임).** 레인의 정의가 그림자 `_versions` 자산에 막는 검사 `takeover_equal` 을 시도와 함께 선언한다
-  (`asset_checks`, `sido` 기본 `41`). 그림자 빌드의 유닛(`gold-versions-build.sh`)이 그림자 커밋 바로 뒤에 같은 유닛의 키·풀로 판정을 돌리고,
-  결과(시도의 대조 수·집계 검사)를 journal 의 Pipes 줄로 알리면 유닛을 돌린 op 가 그 검사의 평가로 남긴다(`orchestration/dagster/takeover_checks.py`,
-  `systemd_pipes.SystemdRun.check_evaluations`). 사람의 호출·호스트 슬롯은 없다. 넘겨받기 PR 은 통과한 평가의 run 을 인용한다.
+- **판정은 Dagster 의 자산 검사다(같은 날 덧붙임).** 레인의 정의가 그림자 `_versions` 자산에 검사 `takeover_equal` 을 시도와 함께 선언한다
+  (`asset_checks`, `sido` 는 반드시 적는다; `blocking: true` 는 심각도 ERROR). 그림자 빌드의 유닛(`gold-versions-build.sh`)이 그림자 커밋 뒤에, 그리고
+  그 머리의 판정이 끝까지 돌 때까지 다음 실행마다 같은 유닛의 키·풀로 판정을 돌린다(30 분·DuckDB 4 GB 상한, 유닛의 한 시간·`MemoryHigh` 안). 결과(시도의
+  대조 수·집계 검사)를 journal 의 Pipes 줄로 알리면 유닛을 돌린 op 가 그 검사의 평가로 남긴다(`orchestration/dagster/takeover_checks.py`,
+  `systemd_pipes.SystemdRun.check_evaluations`). 판정이 돌지 못하면 검사가 "끝까지 돌지 못했다"로 실패하고, 빌드의 커밋과 결과 줄은 그대로다.
+  평가는 Dagster 안에서 아무것도 막지 않는다(물질화와 나란히 op 가 남긴다). 문은 넘겨받기다: 넘겨받기 PR 이 지금 그림자 머리(`candidate_snapshot`)에
+  대해 통과한 평가의 run 을 인용하고, 전환은 판정한 빌드 쌍에서만 굽는다. 사람의 호출·호스트 슬롯은 없다. 위의 `gold-takeover-verdict.sh <표> [시도]`
+  (이 Revision 의 첫 묶음, ADR-0559 의 같은 날 개정 메모)는 이 길로 바뀐다: 그 스크립트는 이제 유닛이 `<표> <시도> <작업 디렉터리>` 로 부른다.

@@ -56,6 +56,11 @@ def pipes_message(line):
     return message
 
 
+def raw_metadata(params):
+    """A Pipes report's metadata as raw values, as Dagster infers them."""
+    return {name: (entry or {}).get("raw_value") for name, entry in (params.get("metadata") or {}).items()}
+
+
 class NoContextInjector(PipesContextInjector):
     """The forced command reads a job id and nothing else: no Dagster context reaches the unit."""
 
@@ -141,7 +146,7 @@ class SystemdRun:
                 key = AssetKey.from_user_string(params.get("asset_key") or "")
                 if key not in keys:
                     raise Failure(f"{self.job_id} reported a materialization of {key.to_user_string()}, which it does not write")
-                keys[key].update({name: (entry or {}).get("raw_value") for name, entry in (params.get("metadata") or {}).items()})
+                keys[key].update(raw_metadata(params))
             elif message.get("method") == "log":
                 self.context.log.info(str(params.get("message", "")))
         return [AssetMaterialization(key, metadata={**reported, "outcome": self.outcome, "job": self.job_id})
@@ -150,13 +155,14 @@ class SystemdRun:
 
     def check_evaluations(self, asset_keys, reported):
         """The asset check evaluations the journal reported (`report_asset_check`), as the op logs them
-        (Dagster lets an op log an evaluation outside an asset context). Only a check `reported` names
-        on one of the run's outputs is taken, so a run never judges a dataset it does not write or a
-        check its unit does not own; a run that withholds its events reports none."""
-        from dagster import AssetCheckEvaluation, AssetCheckSeverity, AssetKey
+        (Dagster lets an op log an evaluation outside an asset context). `reported` maps (asset key, check
+        name) to its declared severity: only such a check on one of the run's outputs is taken, at that
+        severity, so a run never judges a dataset it does not write, a check its unit does not own, or
+        at a severity its declaration does not give. Unlike a materialization, an evaluation is taken
+        from a run that withholds its events too: a shadow build judges its head again on a run that
+        committed nothing (gold-versions-build.sh)."""
+        from dagster import AssetCheckEvaluation, AssetKey
 
-        if self.outcome in job_specs.WITHHOLDS_EVENTS:
-            return []
         outputs = {AssetKey(list(key.path)) for key in asset_keys}
         found = []
         for message in self.messages:
@@ -168,10 +174,9 @@ class SystemdRun:
             if key not in outputs or (key, name) not in reported:
                 raise Failure(f"{self.job_id} reported check {name!r} on {key.to_user_string()}, "
                               "which is not a check its unit owns on a dataset it writes")
-            severity = AssetCheckSeverity(params.get("severity") or "ERROR")
             found.append(AssetCheckEvaluation(
-                asset_key=key, check_name=name, passed=bool(params.get("passed")), severity=severity,
-                metadata={field: (entry or {}).get("raw_value") for field, entry in (params.get("metadata") or {}).items()}))
+                asset_key=key, check_name=name, passed=params.get("passed") is True,
+                severity=reported[(key, name)], metadata=raw_metadata(params)))
         return found
 
 class SubprocessForcedCommand:
