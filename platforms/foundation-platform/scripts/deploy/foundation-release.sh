@@ -21,6 +21,8 @@ retention_contract="/opt/perfectory-control/current/tools/release-retention.cont
 control_releases_dir="/opt/perfectory-control/releases"
 # The prune itself is a program of the control checkout too, for the same reason.
 prune_program="/opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release-prune.py"
+# So is the FLOOR key change floor-config carries a running release's file across.
+floor_carry_program="/opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release-floor-carry.py"
 
 release_root="${FOUNDATION_PLATFORM_RELEASE_ROOT:-/opt/foundation-platform}"
 state_root="${FOUNDATION_PLATFORM_STATE_ROOT:-/var/lib/foundation-platform}"
@@ -702,14 +704,21 @@ finally:
 PY
 }
 
-install_floor_config() {
-  local release_id="$1" source="$2" expected target
+# The running release's file crosses a key change this release declares (${floor_carry_program}).
+install_floor_config() (
+  set -Eeuo pipefail
+  local release_id="$1" source="$2" expected target carried outcome
   require_release_id "${release_id}"
   assert_installed_release "${release_id}"
   target="$(release_path "${release_id}")"
+  [[ -f "${source}" && ! -L "${source}" ]] || { echo 'floor config must be a regular non-symlink file' >&2; exit 65; }
+  carried="$(mktemp)"
+  trap 'rm -f -- "${carried}"' EXIT
+  outcome="$(python3 -I -B "${floor_carry_program}" "${source}" "${target}" "${carried}")" || exit 65
+  if [[ "${outcome}" == carried ]]; then source="${carried}"; fi
   expected="$(validate_floor_config "${source}" "${target}" hash)" || exit 65
   install_floor_config_file "${release_id}" "${source}" "${expected}"
-}
+)
 
 prepare_floor_state() {
   local target release_id
