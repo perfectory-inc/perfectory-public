@@ -72,6 +72,8 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/i
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_notice_stage/tests.rs:4
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_silver_stage.rs:3
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_complex_silver_stage/tests.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_land_sale_notice_stage.rs:3
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_land_sale_notice_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/intelligence_documents_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/juso_electronic_map_base_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lakehouse_engine_contract.rs:1
@@ -135,6 +137,8 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_vers
 platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_versions_commit.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_address_source_collect/tests.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_notice_collect.rs:1
+platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect.rs:1
+platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect/tests.rs:2
 platforms/foundation-platform/services/foundation-outbox-publisher/src/juso_electronic_map_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/media_renditions.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/onbid_silver_load.rs:1

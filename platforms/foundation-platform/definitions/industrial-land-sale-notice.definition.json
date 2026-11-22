@@ -1,0 +1,292 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "industrial-land-sale-notice",
+  "jobs": [
+    {
+      "id": "industrial_land_sale_notice_ilis_collect",
+      "dagster_group": "collect",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "ILIS 산업단지 분양공고 (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh ilis, the publisher's collect-industrial-land-sale-notices): the national sale-notice registry's whole list in one POST (il/parcel/list.do, 741 notices measured 2026-11-22; the answer lands in Bronze whenever it changed, as the provider takes notices down: 105 of 846 sequences gone), then one detail (il/parcel/det.do) and its attachments per owed notice. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, at most per_run_limit and until run_time_budget_seconds, two seconds between requests; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "systemd_service": "foundation-industrial-land-sale-notice-collect@ilis.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-land-sale-notice"
+      ],
+      "schedule": "35 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 40,
+      "per_run_cap": {
+        "unit": "request",
+        "limits": [
+          "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/per_run_limit"
+        ],
+        "deadline": "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/run_time_budget_seconds",
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1900,
+          "estimated_from": "computed from its own bounds: the list in one request (576 KB measured 2026-11-22), then notices until run_time_budget_seconds (1,800 s) stops the loop, the last notice (one detail and about 1.65 attachments, measured from the list's sk_cnt) finishing after it: about 1,900 s, inside the 2,160 s share of the 40-minute limit; the first fill of 741 notices takes about three runs. Each 50 notices commit on their own (as_it_goes)."
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "The provider publishes sale notices on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-read",
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment",
+        "silver-industrial-land-sale-notice-read-to-source-industrial-land-sale-notice"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "shadow",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    },
+    {
+      "id": "industrial_land_sale_notice_kicox_collect",
+      "dagster_group": "collect",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "한국산업단지공단 임대/분양 게시판 (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh kicox): the board's list pages (boardList/1003, ten posts a page, 962 posts since 2008 measured 2026-11-22), newest first, and one post page (boardDetail/1003) and its attachments (api/fnFile/commonFileDownload) per owed post: the complexes KICOX develops itself, which the ILIS registry does not carry. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, at most per_run_limit and until run_time_budget_seconds, two seconds between requests; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "systemd_service": "foundation-industrial-land-sale-notice-collect@kicox.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-land-sale-notice"
+      ],
+      "schedule": "45 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 40,
+      "per_run_cap": {
+        "unit": "request",
+        "limits": [
+          "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/per_run_limit"
+        ],
+        "deadline": "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/run_time_budget_seconds",
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1900,
+          "estimated_from": "computed from its own bounds: list pages of ten posts and, per owed post, one page and about 1.5 attachments, two seconds apart, until run_time_budget_seconds (1,800 s) stops the loop and the last post finishes: about 1,900 s, inside the 2,160 s share of the 40-minute limit; the first fill of 962 posts takes about three runs, then one list page a run. Each 50 posts commit on their own (as_it_goes)."
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "The provider publishes board posts on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-read",
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment",
+        "silver-industrial-land-sale-notice-read-to-source-industrial-land-sale-notice"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "shadow",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    },
+    {
+      "id": "industrial_land_sale_notice_lh_collect",
+      "dagster_group": "collect",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "LH 토지 공고 through data.go.kr (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh lh): the land notice list (lhLeaseNoticeInfo1, kind 01, the whole history window; each answer lands in Bronze when it changed), and per owed notice its detail (lhLeaseNoticeDtlInfo1, whose dsAhflInfo lists the attachments on apply.lh.or.kr) and supply list (lhLeaseNoticeSplInfo1: per 필지 its use, address, lot number, area and planned price) kept as one read. Without the platform's data.go.kr service key, or while the gateway refuses the three services, the run ends with 78 before writing anything. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, at most per_run_limit and until run_time_budget_seconds, two seconds between requests; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "systemd_service": "foundation-industrial-land-sale-notice-collect@lh.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-land-sale-notice"
+      ],
+      "schedule": "55 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 40,
+      "per_run_cap": {
+        "unit": "request",
+        "limits": [
+          "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/per_run_limit"
+        ],
+        "deadline": "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/run_time_budget_seconds",
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1900,
+          "estimated_from": "computed from its own bounds: list pages of 100 notices and, per owed notice, one detail, one supply list and about two attachments, two seconds apart, until run_time_budget_seconds (1,800 s) stops the loop and the last notice finishes: about 1,900 s, inside the 2,160 s share of the 40-minute limit. Not measured: no answer has been seen before the usage application."
+        },
+        "unmeasured_reason": "Never run: off until the owner's data.go.kr usage application (disabled_reason). Its first_run estimate stands for when it is switched on; the pull request that switches it on cites its first answered list."
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "The provider publishes land notices on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-read",
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment",
+        "silver-industrial-land-sale-notice-read-to-source-industrial-land-sale-notice"
+      ],
+      "enabled": false,
+      "enabled_since": null,
+      "dagster_stage": "airflow",
+      "started_once_after_deploy": null,
+      "disabled_reason": "Waiting for the owner's data.go.kr usage application (활용신청) for the three 한국토지주택공사 services 분양임대공고문 조회 (15058530), 분양임대공고별 상세정보 조회 (15057999) and 분양임대공고별 공급정보 조회 (15056765), auto-approved; the service key itself exists (runtime-secrets group data-go-kr). Until then the gateway refuses and the collector ends with 78; the PR that enables this job cites its first answered list (root ADR-0603 §5)."
+    },
+    {
+      "id": "industrial_land_sale_notice_silver",
+      "dagster_group": "silver",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver load of the industrial land sale notice reads and attachments (root ADR-0603; scripts/ops/industrial-land-sale-notice-silver-load.sh, the publisher's load-industrial-land-sale-notice-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559): the detail objects of the three sources (ILIS, KICOX, LH) that no commit of silver.industrial_land_sale_notice_read records (plan-silver-load-objects, R2 alone), oldest first, each committed on its own: first its attachments in the store to silver.industrial_land_sale_notice_attachment (new or changed (source, notice, hash) only; the index the media reconciler reads the store through), then one read row per notice to silver.industrial_land_sale_notice_read. Both tables are born on their first commit. `unchanged` without starting the load when nothing is owed; no Spark.",
+      "systemd_service": "foundation-industrial-land-sale-notice-silver-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-land-sale-notice"
+      ],
+      "schedule": "15 * * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 40,
+      "per_run_cap": {
+        "unit": "object",
+        "limits": [
+          "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/silver_load/max_objects"
+        ],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 600,
+          "estimated_from": "computed from the ILIS notice Silver load, the same DuckDB stage and append (2.0 s an object measured 2026-11-18 on ai-server over 884 production objects, R2 fetch included): the first fill leaves about 35 objects (741 + 962 notices, 50 to an object), about 70 s, and 600 s stays the bound until a production run is measured, inside the 2,160 s share of the 40-minute limit"
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when a collector wrote a notice object; that it is not behind its inputs is the asset reconciler's lag (root ADR-0333)."
+      },
+      "pool": "default_pool",
+      "pool_slots": 1,
+      "priority_weight": 100,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-read",
+        "source-industrial-land-sale-notice-to-silver-industrial-land-sale-notice-attachment"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "dagster",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    }
+  ],
+  "assets": [
+    {
+      "id": "source-industrial-land-sale-notice",
+      "type": "source_group",
+      "title": "산업용지 분양공고",
+      "description": "산업용지 분양·처분·공급 공고와 그 첨부를 세 원천에서 매시 받는다: ILIS 분양공고(전국 등록부), 한국산업단지공단 임대/분양 게시판(공단 자체 단지), LH 토지 공고(data.go.kr, 활용신청 전까지 꺼짐). 루트 ADR-0603.",
+      "status": "partial",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "endpoint_catalog_group": "industrial_land_sale_notice",
+      "unmapped_status": "collected_only"
+    },
+    {
+      "id": "silver-industrial-land-sale-notice-read",
+      "type": "silver_table",
+      "title": "산업용지 분양공고 읽은 기록",
+      "description": "세 원천의 분양공고 상세를 읽을 때마다(실패 포함) 공고 하나에 한 행을 쌓는다: 원천·공고 id·목록 지문·물은 시각·결과·첨부 수. 수집기가 다음 실행에 물을 공고를 이 표에서 계산한다(루트 ADR-0603).",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial-land-sale-notice.contract.json"
+      ],
+      "table_name": "silver.industrial_land_sale_notice_read",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.industrial_land_sale_notice_read"
+        }
+      ]
+    },
+    {
+      "id": "silver-industrial-land-sale-notice-attachment",
+      "type": "silver_table",
+      "title": "산업용지 분양공고 첨부",
+      "description": "공고마다 그 첨부(PDF·HWP·HWPX·ZIP·그림, 그 밖은 bin)를 내용 해시로 한 번씩 쌓는다: 파일 이름·제공자 id·크기·출처 URL·받은 시각·형식·바이트 수. 바이트는 공용 content-addressed 미디어 저장소에 한 번만 있다(루트 ADR-0298, ADR-0603). 미디어 대조기가 이 색인으로 저장소를 맞춘다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial-land-sale-notice.contract.json"
+      ],
+      "table_name": "silver.industrial_land_sale_notice_attachment",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.industrial_land_sale_notice_attachment"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-industrial-land-sale-notice",
+      "to": "silver-industrial-land-sale-notice-read",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-industrial-land-sale-notices",
+        "platforms/foundation-platform/scripts/ops/industrial-land-sale-notice-collect.sh",
+        "platforms/foundation-platform/scripts/ops/industrial-land-sale-notice-silver-load.sh",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_land_sale_notice_stage.rs"
+      ],
+      "source_slugs": [
+        "industrylandorkr__industrial_land_sale_notice_detail",
+        "kicoxorkr__industrial_land_sale_notice_detail",
+        "datagokr__lh_land_notice_detail"
+      ],
+      "description": "아직 같은 목록 지문으로 읽지 않은 공고의 상세를 새 것부터 묻고 읽은 기록을 쌓는다(루트 ADR-0603)."
+    },
+    {
+      "from": "source-industrial-land-sale-notice",
+      "to": "silver-industrial-land-sale-notice-attachment",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-industrial-land-sale-notices",
+        "platforms/foundation-platform/scripts/ops/industrial-land-sale-notice-collect.sh",
+        "platforms/foundation-platform/scripts/ops/industrial-land-sale-notice-silver-load.sh",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/industrial_land_sale_notice_stage.rs"
+      ],
+      "source_slugs": [
+        "industrylandorkr__industrial_land_sale_notice_detail",
+        "kicoxorkr__industrial_land_sale_notice_detail",
+        "datagokr__lh_land_notice_detail"
+      ],
+      "description": "공고의 첨부를 형식에 상관없이 받아 공용 미디어 저장소에 내용 해시로 한 번만 담고, 색인을 쌓는다(루트 ADR-0603)."
+    },
+    {
+      "from": "silver-industrial-land-sale-notice-read",
+      "to": "source-industrial-land-sale-notice",
+      "relation": "schedules",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect.rs"
+      ],
+      "description": "수집기가 매 실행 이 표의 마지막 읽음으로 물을 공고를 계산한다: 목록의 공고 중 마지막 읽음이 같은 목록 지문의 read 가 아닌 것, 새 것부터(루트 ADR-0603 §3)."
+    }
+  ]
+}

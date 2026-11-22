@@ -13970,6 +13970,224 @@
         "object_suffix_separator": null
       }
     },
+    "silver.industrial_land_sale_notice_read": {
+      "table_name": "silver.industrial_land_sale_notice_read",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "notice_source",
+          "notice_id"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY notice_source, notice_id ORDER BY source_snapshot_id DESC NULLS LAST, source_line_number DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "notice_source",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "notice_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "list_fingerprint",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "requested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "http_status",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "read_outcome",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "file_count",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "files_stored",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "notice_source",
+        "notice_id"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "one row per notice detail read, failed reads included (root ADR-0603 §3)",
+        "(notice_source, notice_id, source_snapshot_id, source_line_number) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.industrial_land_sale_notice_attachment": {
+      "table_name": "silver.industrial_land_sale_notice_attachment",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "notice_source",
+          "notice_id",
+          "sha256"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY notice_source, notice_id, sha256 ORDER BY source_snapshot_id DESC NULLS LAST, source_line_number DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "notice_source",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "notice_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "file_sequence",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "file_title",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "provider_file_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "provider_file_size",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "source_url",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "media_format",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "size_bytes",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "fetched_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "notice_source",
+        "notice_id",
+        "file_sequence"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(notice_source, notice_id, sha256, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.court_auction_sale_result": {
       "table_name": "silver.court_auction_sale_result",
       "physical_format": "Parquet",

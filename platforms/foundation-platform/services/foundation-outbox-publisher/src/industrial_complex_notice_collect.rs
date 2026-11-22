@@ -110,8 +110,13 @@ pub(crate) fn source_contract() -> anyhow::Result<SourceContract> {
 /// The prefix the attachments are stored under: the shared store's, as its writer's contract names
 /// it (one store, root ADR-0296 §2; the court-auction photos point at the same value).
 pub(crate) fn attachment_prefix(attachments: &Attachments) -> anyhow::Result<ObjectKeyPrefix> {
-    let (file, pointer) = attachments
-        .object_prefix_from
+    media_prefix(&attachments.object_prefix_from)
+}
+
+/// The shared store's prefix a contract's `object_prefix_from` (`<file>#<pointer>`) names; the
+/// industrial land sale notice collector (root ADR-0603) names the same store.
+pub(crate) fn media_prefix(object_prefix_from: &str) -> anyhow::Result<ObjectKeyPrefix> {
+    let (file, pointer) = object_prefix_from
         .split_once('#')
         .context("attachments.object_prefix_from is <file>#<pointer>")?;
     ensure!(
@@ -458,40 +463,64 @@ async fn read_attachment(
             return Ok(StoreOutcome::Failed);
         }
     };
-    let format = MediaFormat::sniff_document(&bytes);
-    file["sha256"] = json!(Sha256Hex::of(&bytes).as_str());
+    store_attachment(
+        &bytes,
+        file,
+        fetched_at,
+        prefix,
+        storage,
+        attachments.max_file_bytes,
+        report,
+    )
+    .await
+}
+
+/// Stores one attachment's bytes once in the shared media store, whatever its format
+/// (`MediaFormat::sniff_document`), and annotates `file` with its hash, format, size and fetch
+/// time; shared with the industrial land sale notice collector (root ADR-0603), which stores its
+/// attachments in the same store the same way.
+pub(crate) async fn store_attachment(
+    bytes: &[u8],
+    file: &mut JsonValue,
+    fetched_at: DateTime<Utc>,
+    prefix: &ObjectKeyPrefix,
+    storage: Option<&dyn ObjectStorageService>,
+    max_file_bytes: u64,
+    report: &mut AttachmentReport,
+) -> anyhow::Result<StoreOutcome> {
+    let format = MediaFormat::sniff_document(bytes);
+    file["sha256"] = json!(Sha256Hex::of(bytes).as_str());
     file["media_format"] = json!(format.extension());
     file["size_bytes"] = json!(bytes.len() as u64);
     file["fetched_at_utc"] = json!(fetched_at.to_rfc3339());
     let Some(storage) = storage else {
         return Ok(StoreOutcome::DryRun);
     };
-    let outcome =
-        match store_bytes_as(&bytes, format, prefix, storage, attachments.max_file_bytes).await {
-            Ok(Stored::New(media)) => {
-                report.stored += 1;
-                report.bytes_stored += media.size_bytes;
-                StoreOutcome::Stored
-            }
-            Ok(Stored::Deduplicated(_)) => {
-                report.deduplicated += 1;
-                StoreOutcome::Deduplicated
-            }
-            Ok(Stored::Oversize) => {
-                report.oversize += 1;
-                return Ok(StoreOutcome::Oversize);
-            }
-            // `store_bytes_as` names the format itself, so neither comes back; counted if one ever does.
-            Ok(Stored::UnknownFormat | Stored::Gone) => {
-                report.failed += 1;
-                return Ok(StoreOutcome::Failed);
-            }
-            Err(error) => {
-                report.failed += 1;
-                file["error"] = json!(format!("{error:#}"));
-                return Ok(StoreOutcome::Failed);
-            }
-        };
+    let outcome = match store_bytes_as(bytes, format, prefix, storage, max_file_bytes).await {
+        Ok(Stored::New(media)) => {
+            report.stored += 1;
+            report.bytes_stored += media.size_bytes;
+            StoreOutcome::Stored
+        }
+        Ok(Stored::Deduplicated(_)) => {
+            report.deduplicated += 1;
+            StoreOutcome::Deduplicated
+        }
+        Ok(Stored::Oversize) => {
+            report.oversize += 1;
+            return Ok(StoreOutcome::Oversize);
+        }
+        // `store_bytes_as` names the format itself, so neither comes back; counted if one ever does.
+        Ok(Stored::UnknownFormat | Stored::Gone) => {
+            report.failed += 1;
+            return Ok(StoreOutcome::Failed);
+        }
+        Err(error) => {
+            report.failed += 1;
+            file["error"] = json!(format!("{error:#}"));
+            return Ok(StoreOutcome::Failed);
+        }
+    };
     let entry = report
         .by_format
         .entry(format.extension().to_owned())

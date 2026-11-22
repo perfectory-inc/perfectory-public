@@ -10,9 +10,9 @@
 use std::{error::Error, path::Path, path::PathBuf};
 
 use collection_domain::{
-    building_register_dataset_slug, file_data_dataset_slug, onbid_dataset_slug, provider_id,
-    real_transaction_dataset_slug, source_slug, standard_code_dataset_slug,
-    vworld_ned_dataset_slug,
+    building_register_dataset_slug, file_data_dataset_slug, lh_land_notice_dataset_slug,
+    onbid_dataset_slug, provider_id, real_transaction_dataset_slug, source_slug,
+    standard_code_dataset_slug, vworld_ned_dataset_slug,
 };
 use serde_json::Value;
 
@@ -85,7 +85,7 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
         checked += 1;
     }
 
-    // Guardrail: the in-scope / out-of-scope split must stay as authored (174 in-scope).
+    // Guardrail: the in-scope / out-of-scope split must stay as authored (180 in-scope).
     // The three ILIS entries joined when the industrial-complex address source got a collector;
     // the 124th is the data.go.kr getStanReginCdList 법정동코드 endpoint (ADR-0103 Wave 1); the
     // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board); the
@@ -113,8 +113,10 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // the 170th is its 배당요구종기공고, every court department's (root ADR-0575 §6);
     // the 171st–173rd are three more data.go.kr files the same collector lands: 표준지공시지가,
     // 승강기 설치 현황 and 전국지식산업센터현황; the 174th is VWorld 일별 연속지적도형정보 (NA/23), the
-    // provider's daily parcel change files and monthly full sets, Bronze only for now.
-    assert_eq!(checked, 174, "expected 174 in-scope catalog entries");
+    // provider's daily parcel change files and monthly full sets, Bronze only for now; the
+    // 175th–180th are the industrial land sale notices (root ADR-0603): the ILIS 분양공고 list and
+    // detail, the kicox.or.kr board post, and the three data.go.kr LH land notice services.
+    assert_eq!(checked, 180, "expected 180 in-scope catalog entries");
     assert_eq!(
         skipped, 0,
         "expected no skipped mixed_public_source entries"
@@ -180,6 +182,7 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
     let mut real_transaction_checked = 0_usize;
     let mut standard_code_checked = 0_usize;
     let mut onbid_checked = 0_usize;
+    let mut lh_land_notice_checked = 0_usize;
     let mut file_data_checked = 0_usize;
     for entry in endpoints {
         let provider = entry["provider"]
@@ -219,6 +222,12 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
                 "onbid operation->dataset_slug map drifted from catalog for {operation:?}"
             );
             onbid_checked += 1;
+        } else if let Some(code_slug) = lh_land_notice_dataset_slug(operation) {
+            assert_eq!(
+                code_slug, dataset_slug,
+                "LH land notice operation->dataset_slug map drifted from catalog for {operation:?}"
+            );
+            lh_land_notice_checked += 1;
         } else if let Some(code_slug) = file_data_dataset_slug(operation) {
             assert_eq!(
                 code_slug, dataset_slug,
@@ -248,6 +257,10 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
     assert_eq!(
         onbid_checked, 7,
         "expected all 7 onbid operations to match the catalog"
+    );
+    assert_eq!(
+        lh_land_notice_checked, 3,
+        "expected the 3 LH land notice operations to match the catalog (root ADR-0603)"
     );
     // The registered factory, the nine other public bulk endpoints (root ADR-0401: the railway
     // station and station-line endpoints are one file), the three 표준데이터 (root ADR-0453) and

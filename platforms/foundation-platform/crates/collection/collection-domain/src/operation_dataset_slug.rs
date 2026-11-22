@@ -110,6 +110,21 @@ pub fn onbid_dataset_slug(operation: &str) -> Option<&'static str> {
     }
 }
 
+/// Resolves a data.go.kr LH 분양임대공고 `operation` (B552555) to its canonical `dataset_slug`: the
+/// land notice list kept as answered, and each notice's detail and supply list kept together as one
+/// read (root ADR-0603).
+///
+/// Returns `None` for any operation outside the three LH services; callers must treat `None` as a
+/// hard error rather than inventing a slug.
+#[must_use]
+pub fn lh_land_notice_dataset_slug(operation: &str) -> Option<&'static str> {
+    match operation {
+        "lhLeaseNoticeInfo1" => Some("lh_land_notice_list"),
+        "getLeaseNoticeDtlInfo1" | "getLeaseNoticeSplInfo1" => Some("lh_land_notice_detail"),
+        _ => None,
+    }
+}
+
 /// Resolves a data.go.kr file-data `operation` (`fileData<공공데이터 번호>`, or `stdData<공공데이터 번호>`
 /// for a 표준데이터) to its canonical
 /// `dataset_slug` (root ADR-0280).
@@ -201,13 +216,14 @@ pub fn operation_collapses_into_slug(operation: &str, source_slug: &str) -> bool
 }
 
 /// Resolves a provider operation to its canonical `dataset_slug` through any of the curated maps
-/// (building-register, real-transaction, 행정표준코드, 온비드, file data, V-World NED), or `None` if no map covers it.
+/// (building-register, real-transaction, 행정표준코드, 온비드, LH 분양임대공고, file data, V-World NED), or `None` if no map covers it.
 /// Used by [`operation_collapses_into_slug`] after the byte-equality fast path.
 fn resolve_collapsible_dataset_slug(operation: &str) -> Option<&'static str> {
     building_register_dataset_slug(operation)
         .or_else(|| real_transaction_dataset_slug(operation))
         .or_else(|| standard_code_dataset_slug(operation))
         .or_else(|| onbid_dataset_slug(operation))
+        .or_else(|| lh_land_notice_dataset_slug(operation))
         .or_else(|| file_data_dataset_slug(operation))
         .or_else(|| vworld_ned_dataset_slug(operation))
 }

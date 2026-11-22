@@ -27,7 +27,8 @@ DATA = {"feeds", "joins", "serves"}
 LIVE = {"implemented", "partial"}
 # What an industrial real-estate user asks first. First matching prefix wins; the rest go last.
 TIERS = (
-    ("공장·산업단지", ("silver.registered_factory", "silver.industrial_complex", "silver.complex_parcel")),
+    ("공장·산업단지", ("silver.registered_factory", "silver.industrial_complex", "silver.industrial_land_sale_notice",
+                       "silver.complex_parcel")),
     ("토지", ("silver.land_", "silver.parcel_")),
     ("건물", ("silver.building_", "silver.housing_permit_", "silver.unit_official_price")),
     ("거래·공매·경매", ("silver.real_transaction", "silver.onbid_", "silver.court_auction_")),

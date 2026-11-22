@@ -543,9 +543,14 @@ class AProducerOutranksItsConsumers(unittest.TestCase):
         weights = job_specs.queue_weights(jobs, feeders)
         circles = [{"map_edit_fold_admin", "map_edit_fold_complex"},  # they share one ledger
                    # The collector asks the read records which notices are settled; the Silver load reads what it wrote.
-                   {"industrial_complex_notice_collect", "industrial_complex_notice_silver"}]
+                   {"industrial_complex_notice_collect", "industrial_complex_notice_silver"},
+                   # The same, with one read record for the sale notices of three sources (root ADR-0603):
+                   # each collector reads only its own source's reads, but the graph names one table.
+                   {"industrial_land_sale_notice_ilis_collect", "industrial_land_sale_notice_kicox_collect",
+                    "industrial_land_sale_notice_lh_collect", "industrial_land_sale_notice_silver"}]
         pairs = [(writer, reader) for reader, writers in feeders.items() for writer in writers
-                 if by_id[writer]["pool"] == by_id[reader]["pool"] and {writer, reader} not in circles]
+                 if by_id[writer]["pool"] == by_id[reader]["pool"]
+                 and not any({writer, reader} <= circle for circle in circles)]
         self.assertGreater(len(pairs), 100)
         self.assertEqual([pair for pair in pairs if weights[pair[0]] <= weights[pair[1]]], [])
         self.assertEqual(weights["map_edit_fold_admin"], weights["map_edit_fold_complex"])
