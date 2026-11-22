@@ -164,8 +164,8 @@ impl Run {
                     DataAppend {
                         table_name: table.table,
                         contract: table_contract,
-                        files: file.as_ref().map_or(&[][..], std::slice::from_ref),
-                        batch: &[object.object_key.clone()],
+                        files: file.as_slice(),
+                        batch: std::slice::from_ref(&object.object_key),
                         already_ingested: &already_ingested,
                         summary: BTreeMap::new(),
                     },
