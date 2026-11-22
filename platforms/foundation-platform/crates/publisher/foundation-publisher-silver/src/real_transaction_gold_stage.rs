@@ -122,6 +122,22 @@ const SPARK_DOUBLE: &str = "CREATE OR REPLACE MACRO spark_double_digits(s) AS \
       ELSE (CASE WHEN v < 0 OR (v = 0 AND signbit(v)) THEN '-' ELSE '' END) \
            || spark_double_digits(CAST(abs(v) AS VARCHAR)) END";
 
+/// The document's rules as text, for a build's code version: its SQL, the fields it writes and its
+/// bounds. A change of any of them changes every document.
+#[must_use]
+pub fn code_texts() -> Vec<String> {
+    vec![
+        REGION_STATS_SQL.to_owned(),
+        DOCUMENT_SETUP_SQL.to_owned(),
+        DOCUMENT_SQL.to_owned(),
+        SPARK_PERCENTILE.to_owned(),
+        SPARK_DOUBLE.to_owned(),
+        TRANSACTION_FIELDS.join(","),
+        COMPARABLE_FIELDS.join(","),
+        format!("{REGION_MONTHS},{COMPARABLE_MONTHS},{COMPARABLE_COUNT},{DOCUMENT_BUDGET}"),
+    ]
+}
+
 /// The build month's first day `months` months after `month` (negative: before).
 fn add_months(month: NaiveDate, months: i32) -> anyhow::Result<NaiveDate> {
     let index = month.year() * 12 + i32::try_from(month.month0())? + months;

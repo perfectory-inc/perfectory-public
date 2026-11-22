@@ -19,14 +19,33 @@ use serde_json::Value;
 
 use crate::parcel_nearby_stage::Source;
 
-const RT_SOURCE: &str = "silver.real_transaction";
-const PARCEL_SOURCE: &str = "silver.parcel_boundaries";
-const CODE_CHANGE_SOURCE: &str = "reference.legal_dong_code_change";
-const LEGAL_DONG_SOURCE: &str = "reference.legal_dong_code_snapshot";
-const LAND_SOURCE: &str = "silver.land_characteristic";
-const TITLE_SOURCE: &str = "silver.building_register_titles";
-const OWNERSHIP_SOURCE: &str = "silver.land_ownership";
-const LINEAGE_SOURCE: &str = "silver.parcel_lineage";
+/// The 실거래 Silver.
+pub const RT_SOURCE: &str = "silver.real_transaction";
+/// The parcels; the served edition's are the ones a deal is placed on.
+pub const PARCEL_SOURCE: &str = "silver.parcel_boundaries";
+/// The code change table the crosswalk is read from.
+pub const CODE_CHANGE_SOURCE: &str = "reference.legal_dong_code_change";
+/// The code snapshots an address is looked up in.
+pub const LEGAL_DONG_SOURCE: &str = "reference.legal_dong_code_snapshot";
+/// The land register (지목, 면적, 용도지역).
+pub const LAND_SOURCE: &str = "silver.land_characteristic";
+/// The building register titles.
+pub const TITLE_SOURCE: &str = "silver.building_register_titles";
+/// The land owners.
+pub const OWNERSHIP_SOURCE: &str = "silver.land_ownership";
+/// The parcel lineage.
+pub const LINEAGE_SOURCE: &str = "silver.parcel_lineage";
+/// The PNU-keyed inputs and the tables `place` reads them as.
+pub const PNU_INPUTS: [(&str, &str); 4] = [
+    (PARCEL_SOURCE, "parcels"),
+    (LAND_SOURCE, "land"),
+    (TITLE_SOURCE, "titles"),
+    (OWNERSHIP_SOURCE, "ownership"),
+];
+/// The key an address is looked up by in `address_codes`: its runs of whitespace made one space.
+/// `deals.sql` and the region spool read it alike.
+pub const ADDRESS_KEY_MACRO: &str = "CREATE OR REPLACE MACRO rt_address_key(a) AS \
+    trim(regexp_replace(coalesce(a, ''), '\\s+', ' ', 'g'))";
 
 /// `deals.sql`: the deals with their address codes, `row_id` and source PNU.
 pub const DEALS_SQL: &str = include_str!("real_transaction_placement_stage/deals.sql");
@@ -445,6 +464,20 @@ fn outcome_sql(sql: &mut String, last: usize, tried: &[String]) {
 /// `placed.sql`: every deal with the PNU it is placed on.
 pub const PLACED_SQL: &str = include_str!("real_transaction_placement_stage/placed.sql");
 
+/// The placement's rules as text, for the build's code version: a change of any rebuilds every PNU.
+pub const CODE_TEXTS: [&str; 10] = [
+    crate::place_identity_stage::REFERENCE_SQL,
+    ADDRESS_KEY_MACRO,
+    DEALS_SQL,
+    RESOLVE_SQL,
+    MASKED_SQL,
+    PLACED_SQL,
+    INFERENCE_SETUP_SQL,
+    LINEAGE_SETUP_SQL,
+    LINEAGE_HOP_SQL,
+    LINEAGE_ROWS_SQL,
+];
+
 /// What one placement counted.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PlacementCounts {
@@ -478,7 +511,7 @@ fn has_table(connection: &duckdb::Connection, name: &str) -> anyhow::Result<bool
 /// The code crosswalk as tables (`crosswalk`, `ambiguous`, `served_forms`) from `code_changes` and
 /// `code_names`: the one place-identity resolver's (`place_identity_stage::reference_from_loaded`,
 /// root ADR-0288 §1), read back for the address codes.
-fn crosswalk_tables(
+pub(crate) fn crosswalk_tables(
     connection: &duckdb::Connection,
 ) -> anyhow::Result<(BTreeMap<String, String>, BTreeSet<String>)> {
     connection.execute_batch(
@@ -558,7 +591,7 @@ fn address_codes(
 }
 
 /// `address_codes` from `code_names` (`region_cd`, `full_name`, `status`: the newest code snapshot).
-fn address_code_table(
+pub(crate) fn address_code_table(
     connection: &duckdb::Connection,
     remap: &BTreeMap<String, String>,
     ambiguous: &BTreeSet<String>,
@@ -612,6 +645,7 @@ pub fn place(
 ) -> anyhow::Result<PlacementCounts> {
     let (remap, ambiguous) = crosswalk_tables(connection)?;
     address_code_table(connection, &remap, &ambiguous)?;
+    connection.execute_batch(ADDRESS_KEY_MACRO)?;
     connection.execute_batch(DEALS_SQL)?;
     connection.execute_batch(RESOLVE_SQL)?;
     connection.execute_batch(MASKED_SQL)?;
@@ -806,14 +840,50 @@ fn current_rows_into(
     Ok(())
 }
 
-/// Loads every table `place` reads, at the pins of `source`, with the parcels of the served `edition`.
+/// Leaves the code tables `place` reads whole, at the pins of `source`: `code_changes` and
+/// `code_names` (the newest code snapshot).
 ///
 /// # Errors
-/// An edition that is not a plain snapshot id or holds no parcel, a pin missing, a tie the contract
-/// forbids, or a SQL error.
-pub fn load_inputs(
+/// A pin missing or a SQL error.
+pub fn reference_tables(
     connection: &duckdb::Connection,
     source: &Source<'_>,
+) -> anyhow::Result<()> {
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE code_changes AS
+           SELECT kind, old_code, new_code, level, effective_date, source FROM {changes};
+         CREATE OR REPLACE TABLE code_names AS
+           SELECT region_cd, full_name, status FROM {names}
+           WHERE snapshot_date = (SELECT max(snapshot_date) FROM {names});",
+        changes = source.of(CODE_CHANGE_SOURCE)?,
+        names = source.of(LEGAL_DONG_SOURCE)?,
+    ))?;
+    Ok(())
+}
+
+/// Leaves `target`: the 실거래 Silver's current rows at the pin of `source`, the job's [`DEAL_COLUMNS`].
+///
+/// # Errors
+/// A pin missing, a tie the contract forbids, or a SQL error.
+pub fn deal_rows_into(
+    connection: &duckdb::Connection,
+    source: &Source<'_>,
+    target: &str,
+) -> anyhow::Result<()> {
+    current_rows_into(connection, source, RT_SOURCE, &DEAL_COLUMNS, target)
+}
+
+/// Leaves `table` (one of [`PNU_INPUTS`]) as `place` reads it, from `input` at the pin of `source`:
+/// the served `edition`'s parcels, or a register's current rows.
+///
+/// # Errors
+/// An edition that is not a plain snapshot id, an input that is not one of [`PNU_INPUTS`], a pin
+/// missing, or a SQL error.
+pub fn pnu_rows_into(
+    connection: &duckdb::Connection,
+    source: &Source<'_>,
+    input: &str,
+    table: &str,
     edition: &str,
 ) -> anyhow::Result<()> {
     ensure!(
@@ -823,59 +893,55 @@ pub fn load_inputs(
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-')),
         "the edition {edition:?} is not a plain snapshot id"
     );
-    let parcels = contract_of(PARCEL_SOURCE)?;
-    let predicate = parcels
-        .current_row_predicate
-        .context("silver.parcel_boundaries names its current rows by a predicate")?;
-    current_rows_into(connection, source, RT_SOURCE, &DEAL_COLUMNS, "deals_raw")?;
-    current_rows_into(
-        connection,
-        source,
-        LAND_SOURCE,
-        &["pnu", "land_category", "area_m2", "zone_name_1"],
-        "land",
-    )?;
-    current_rows_into(
-        connection,
-        source,
-        TITLE_SOURCE,
-        &[
-            "pnu",
-            "approval_year",
-            "floor_area_m2",
-            "main_or_annex_kind",
-        ],
-        "titles",
-    )?;
-    current_rows_into(
-        connection,
-        source,
-        OWNERSHIP_SOURCE,
-        &["pnu", "ownership_changed_on", "ownership_change_reason"],
-        "ownership",
-    )?;
-    connection.execute_batch(&format!(
-        "DELETE FROM titles WHERE main_or_annex_kind IS DISTINCT FROM 'main';
-         ALTER TABLE titles DROP COLUMN main_or_annex_kind;
-         CREATE OR REPLACE TABLE parcels AS
-           SELECT DISTINCT pnu FROM {parcels_table}
-           WHERE source_snapshot_id = '{edition}' AND ({predicate}) AND pnu IS NOT NULL;
-         CREATE OR REPLACE TABLE code_changes AS
-           SELECT kind, old_code, new_code, level, effective_date, source FROM {changes};
-         CREATE OR REPLACE TABLE code_names AS
-           SELECT region_cd, full_name, status FROM {names}
-           WHERE snapshot_date = (SELECT max(snapshot_date) FROM {names});
-         CREATE OR REPLACE TABLE lineage AS
-           SELECT predecessor_pnu, successor_pnu, relation, grade, evidence_kind, evidence_ref FROM {lineage};",
-        parcels_table = source.of(PARCEL_SOURCE)?,
-        changes = source.of(CODE_CHANGE_SOURCE)?,
-        names = source.of(LEGAL_DONG_SOURCE)?,
-        lineage = source.of(LINEAGE_SOURCE)?,
-    ))?;
     ensure!(
-        count(connection, "SELECT count(*) FROM parcels")? > 0,
-        "edition {edition} holds no served parcel"
+        PNU_INPUTS.contains(&(input, table)),
+        "{input} as {table} is not an input place reads by PNU"
     );
+    match input {
+        PARCEL_SOURCE => {
+            let predicate = contract_of(PARCEL_SOURCE)?
+                .current_row_predicate
+                .context("silver.parcel_boundaries names its current rows by a predicate")?;
+            connection.execute_batch(&format!(
+                "CREATE OR REPLACE TABLE {table} AS
+                   SELECT DISTINCT pnu FROM {parcels}
+                   WHERE source_snapshot_id = '{edition}' AND ({predicate}) AND pnu IS NOT NULL;",
+                parcels = source.of(PARCEL_SOURCE)?,
+            ))?;
+        }
+        LAND_SOURCE => current_rows_into(
+            connection,
+            source,
+            LAND_SOURCE,
+            &["pnu", "land_category", "area_m2", "zone_name_1"],
+            table,
+        )?,
+        TITLE_SOURCE => {
+            current_rows_into(
+                connection,
+                source,
+                TITLE_SOURCE,
+                &[
+                    "pnu",
+                    "approval_year",
+                    "floor_area_m2",
+                    "main_or_annex_kind",
+                ],
+                table,
+            )?;
+            connection.execute_batch(&format!(
+                "DELETE FROM {table} WHERE main_or_annex_kind IS DISTINCT FROM 'main';
+                 ALTER TABLE {table} DROP COLUMN main_or_annex_kind;"
+            ))?;
+        }
+        _ => current_rows_into(
+            connection,
+            source,
+            OWNERSHIP_SOURCE,
+            &["pnu", "ownership_changed_on", "ownership_change_reason"],
+            table,
+        )?,
+    }
     Ok(())
 }
 

@@ -433,6 +433,13 @@ fn build_parcel_nearby_versions_command_is_explicit() -> anyhow::Result<()> {
         Command::BuildParcelNearbyVersions
     );
     assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "build-parcel-real-transaction-versions"
+        ])?,
+        Command::BuildParcelRealTransactionVersions
+    );
+    assert_eq!(
         parse_command(["foundation-outbox-publisher", "run-parcel-matching-gate"])?,
         Command::RunParcelMatchingGate
     );
