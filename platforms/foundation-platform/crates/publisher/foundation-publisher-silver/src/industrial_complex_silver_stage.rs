@@ -208,33 +208,45 @@ fn refuse_invalid(
     contract: &LakehouseTableContract,
 ) -> anyhow::Result<()> {
     // The producer's transport columns (`jsonl_transports`): Spark's reader refused an input that
-    // lacked one.
-    for column in bronze_industrial_complexes_raw_jsonl_columns() {
-        let missing: i64 = connection.query_row(
-            &format!(
-                "SELECT count(*) FROM complex_lines_json WHERE json_extract(j, '$.\"{column}\"') IS NULL"
-            ),
-            [],
-            |row| row.get(0),
-        )?;
-        ensure!(
-            missing == 0,
-            "the export is missing the column {column} on {missing} line(s)"
-        );
+    // lacked one. One query for all of them, and one for every gate: a query each made a 1,442-row
+    // export cost seconds of per-statement overhead (2026-11-22).
+    let columns = bronze_industrial_complexes_raw_jsonl_columns();
+    let missing_counts = columns
+        .iter()
+        .map(|column| format!("count_if(json_extract(j, '$.\"{column}\"') IS NULL)"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let missing = counts(
+        connection,
+        &format!("SELECT [{missing_counts}] FROM complex_lines_json"),
+    )?;
+    if let Some((column, lines)) = columns.iter().zip(&missing).find(|(_, lines)| **lines > 0) {
+        bail!("the export is missing the column {column} on {lines} line(s)");
     }
-    for (predicate, message) in gates(contract) {
-        let (count, samples): (i64, Option<String>) = connection
+    let gates = gates(contract);
+    let gate_counts = gates
+        .iter()
+        .map(|(predicate, _)| format!("count_if({predicate})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let held = counts(
+        connection,
+        &format!("SELECT [{gate_counts}] FROM complex_rows"),
+    )?;
+    if let Some(((predicate, message), count)) =
+        gates.iter().zip(&held).find(|(_, count)| **count > 0)
+    {
+        let samples: Option<String> = connection
             .query_row(
                 &format!(
-                    "SELECT count(*), CAST(to_json(list(to_json(r)) FILTER (WHERE r.n <= 5)) AS VARCHAR) \
-                     FROM (SELECT *, row_number() OVER () AS n FROM complex_rows WHERE {predicate}) r"
+                    "SELECT CAST(to_json(list(to_json(r))) AS VARCHAR) \
+                     FROM (SELECT * FROM complex_rows WHERE {predicate} LIMIT 5) r"
                 ),
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| row.get(0),
             )
-            .with_context(|| format!("DuckDB could not check: {message}"))?;
-        ensure!(
-            count == 0,
+            .with_context(|| format!("DuckDB could not sample: {message}"))?;
+        bail!(
             "{message}. count={count} samples={}",
             samples.unwrap_or_default()
         );
@@ -252,6 +264,26 @@ fn refuse_invalid(
         samples.unwrap_or_default()
     );
     Ok(())
+}
+
+/// The counts `query` answers as one list.
+fn counts(connection: &Connection, query: &str) -> anyhow::Result<Vec<i64>> {
+    let text: String = connection
+        .query_row(
+            &format!("SELECT CAST(to_json(q) AS VARCHAR) FROM ({query}) q"),
+            [],
+            |row| row.get(0),
+        )
+        .context("DuckDB could not count the export's refusals")?;
+    let value: serde_json::Value = serde_json::from_str(&text)?;
+    value
+        .as_object()
+        .and_then(|row| row.values().next())
+        .and_then(serde_json::Value::as_array)
+        .context("DuckDB answered no list of counts")?
+        .iter()
+        .map(|count| count.as_i64().context("a count is not a whole number"))
+        .collect()
 }
 
 /// Fills `complex_ids` with the id of every code the export names.
