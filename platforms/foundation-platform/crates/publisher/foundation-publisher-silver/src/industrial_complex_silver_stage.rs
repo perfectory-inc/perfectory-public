@@ -1,5 +1,4 @@
-//! Stages one export of the industrial-complex profile as `silver.industrial_complexes` rows (root
-//! ADR-0033, ADR-0559).
+//! The rows of one industrial-complex profile export (root ADR-0033, ADR-0559).
 //!
 //! In `DuckDB` inside the publisher: it was the Spark job `industrial_complex_bronze_to_silver.py`.
 //! `export-industrial-complex-bronze-raw-jsonl` writes one JSON line per complex of a profile
@@ -303,9 +302,10 @@ fn current_rows(
     ))
 }
 
-/// Builds the rows of the export at `jsonl`, refuses it when a gate holds, and stages the
-/// complexes that are new or changed against the table's current rows at `head` (the snapshot
-/// the append will be pinned on). `name` names the staged file.
+/// Stages the complexes of the export at `jsonl` that changed against the table at `head`.
+///
+/// The rows are built and refused when a gate holds; the comparison is with the current rows at
+/// `head`, the snapshot the append will be pinned on. `name` names the staged file.
 ///
 /// # Errors
 /// A line that is not a JSON object, a missing column, a gate, and a `DuckDB` failure.
