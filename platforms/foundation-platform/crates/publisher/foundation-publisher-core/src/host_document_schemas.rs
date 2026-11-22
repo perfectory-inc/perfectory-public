@@ -12,3 +12,28 @@ pub const PARCEL_DOCUMENT_SCHEMA_EXPANDS: &[&str] = &["foundation-platform.parce
 
 /// The `schema_revision` its documents carry: none while the current revision is legacy.
 pub const PARCEL_DOCUMENT_SCHEMA_REVISION: Option<u32> = None;
+
+/// Every by-PNU lane's document schema as its subject's current revision writes it, by lane: what a
+/// takeover verdict holds each document it renders to (root ADR-0564, Revision 2026-11-22).
+pub const LANE_DOCUMENT_SCHEMAS: &[(&str, &str)] = &[
+    ("parcel", include_str!("../../../../contracts/schema-registry/parcel_by_pnu_profile/1/2.schema.json")),
+    ("parcel-building-permits", include_str!("../../../../contracts/schema-registry/parcel_building_permits_by_pnu/1/4.schema.json")),
+    ("parcel-characteristics", include_str!("../../../../contracts/schema-registry/parcel_characteristics_by_pnu/1/1.schema.json")),
+    ("parcel-court-auction", include_str!("../../../../contracts/schema-registry/parcel_court_auction_by_pnu/1/11.schema.json")),
+    ("parcel-demolitions", include_str!("../../../../contracts/schema-registry/parcel_demolitions_by_pnu/1/1.schema.json")),
+    ("parcel-energy", include_str!("../../../../contracts/schema-registry/parcel_energy_by_pnu/1/1.schema.json")),
+    ("parcel-factories", include_str!("../../../../contracts/schema-registry/parcel_factories_by_pnu/1/1.schema.json")),
+    ("parcel-forest-ledger", include_str!("../../../../contracts/schema-registry/parcel_forest_ledger_by_pnu/1/2.schema.json")),
+    ("parcel-land-rights", include_str!("../../../../contracts/schema-registry/parcel_land_rights_by_pnu/1/1.schema.json")),
+    ("parcel-nearby", include_str!("../../../../contracts/schema-registry/parcel_nearby_by_pnu/1/1.schema.json")),
+    ("parcel-ownership", include_str!("../../../../contracts/schema-registry/parcel_ownership_by_pnu/1/1.schema.json")),
+    ("parcel-price", include_str!("../../../../contracts/schema-registry/parcel_price_by_pnu/1/1.schema.json")),
+    ("parcel-public-auction", include_str!("../../../../contracts/schema-registry/parcel_public_auction_by_pnu/1/4.schema.json")),
+    ("parcel-real-transaction", include_str!("../../../../contracts/schema-registry/parcel_real_transaction_by_pnu/1/2.schema.json")),
+    ("parcel-register-masters", include_str!("../../../../contracts/schema-registry/parcel_register_masters_by_pnu/1/1.schema.json")),
+    ("parcel-regulation-zones", include_str!("../../../../contracts/schema-registry/parcel_regulation_zones_by_pnu/1/1.schema.json")),
+    ("parcel-sub-parcels", include_str!("../../../../contracts/schema-registry/parcel_sub_parcels_by_pnu/1/1.schema.json")),
+    ("parcel-transfer-history", include_str!("../../../../contracts/schema-registry/parcel_transfer_history_by_pnu/1/1.schema.json")),
+    ("parcel-zoning", include_str!("../../../../contracts/schema-registry/parcel_zoning_by_pnu/1/1.schema.json")),
+    ("unit-price", include_str!("../../../../contracts/schema-registry/unit_price_by_pnu/1/1.schema.json")),
+];

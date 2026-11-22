@@ -14,11 +14,15 @@
 # The rows compared are one 시도's (two digits; default 41, 경기도, the largest; the lane's owner names
 # another when a verdict or a switch's content check found a difference in it before). The whole table
 # is checked by aggregates only, with no national copy (checks.json: rows, unique keys, the key hash
-# sum, the row_digest sum, non-null counts per column; root ADR-0559 §5, ADR-0564 §6-3 revisions). The
+# sum, the content hash sum, non-null counts per column; root ADR-0559 §5, ADR-0564 §6-3 revisions), and
+# every candidate document of the 시도 is rendered by the lane's renderer and held to the schema
+# registry (checks.json `documents`). Both sides are compared as values: each *_json column as the JSON
+# it parses to, row_digest (a hash of the bytes) not at all (ADR-0564 Revision 2026-11-22). The
 # publisher writes the 시도's two sides as Parquet with sides.json, and engine_equality.py compares them
 # by key through the publisher's DuckDB (the release images have no Python duckdb). Exits 0 when equal,
-# 1 when not, 3 when a national check fails, any other code on an error of the run (an empty 시도 is
-# one); verdict.json, which names the 시도 and carries the national checks, is the record.
+# 1 when not, 3 when a result check fails (a national aggregate or a document), any other code on an
+# error of the run (an empty 시도 is one); verdict.json, which names the 시도 and carries the result
+# checks, is the record.
 set -euo pipefail
 usage='usage: gold-takeover-verdict.sh <gold.<x>_versions> <시도> <work directory>'
 table="${1:?${usage}}"
@@ -45,10 +49,10 @@ status=0
 "${PUBLISHER_BIN}" export-gold-takeover-sides >"${work}/export.out" 2>&1 || status=$?
 tail -n 3 "${work}/export.out"
 if [[ "${status}" -ne 0 ]]; then
-  # A national result check that failed left its record; anything else is an error of the run.
+  # A result check that failed left its record; anything else is an error of the run.
   if python3 -I -B -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1], encoding="utf-8")).get("failed") else 1)' \
     "${work}/checks.json" 2>/dev/null; then
-    echo "gold-takeover-verdict: a national result check failed: ${work}/checks.json" >&2
+    echo "gold-takeover-verdict: a result check failed: ${work}/checks.json" >&2
     exit 3
   fi
   exit "${status}"

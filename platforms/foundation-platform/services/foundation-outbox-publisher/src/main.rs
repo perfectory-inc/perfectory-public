@@ -109,6 +109,7 @@ mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
 mod building_register_floor_history_check;
 mod building_register_floor_silver_load;
+mod gold_takeover_documents;
 mod gold_takeover_sides;
 mod gold_versions_change_set;
 mod gold_versions_commit;

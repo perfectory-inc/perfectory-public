@@ -82,20 +82,23 @@ class Declared(unittest.TestCase):
 
 class Report(unittest.TestCase):
     def test_an_equal_verdict_passes_and_carries_its_scope(self):
-        params = check.report(TABLE, "41", 0, EQUAL, {"failed": []})["params"]
+        documents = {"lane": "parcel-register-masters", "rendered": 9, "refused": 0, "samples": []}
+        params = check.report(TABLE, "41", 0, EQUAL, {"failed": [], "documents": documents})["params"]
         self.assertEqual((params["asset_key"], params["check_name"], params["passed"]),
                          ("iceberg/gold/parcel_register_masters_versions", "takeover_equal", True))
         self.assertNotIn("severity", params, "the op gives the declared severity")
         metadata = {name: value["raw_value"] for name, value in params["metadata"].items()}
         self.assertEqual((metadata["outcome"], metadata["sido"], metadata["rows_compared"], metadata["rows_nationally"]),
                          ("equal", "41", 9, 40))
-        self.assertEqual(metadata["national_checks_failed"], "[]")
+        self.assertEqual(metadata["result_checks_failed"], "[]")
+        # Every document of the 시도 was rendered and held to its schema (gold_takeover_documents).
+        self.assertEqual((metadata["documents_rendered"], metadata["documents_refused"]), (9, 0))
 
     def test_a_verdict_that_differs_fails_and_one_that_crashed_says_it_did_not_run(self):
         self.assertEqual(check.report(TABLE, "41", 1, {**EQUAL, "same": 8, "different": 1}, {})["params"]["metadata"]
                          ["outcome"]["raw_value"], "not equal")
         self.assertEqual(check.report(TABLE, "41", 3, {}, {"failed": ["rows"]})["params"]["metadata"]
-                         ["outcome"]["raw_value"], "a national check failed")
+                         ["outcome"]["raw_value"], "a result check failed")
         # An uncaught error also exits 1, and leaves no comparison: not a data difference.
         for status in (1, 2, 124):
             with self.subTest(status=status):

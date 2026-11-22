@@ -95,6 +95,10 @@ sha2 = "0.10"
 hmac = "0.12"
 tempfile = "3.27"
 duckdb = { version = "=1.20000.1", default-features = false }
+# A takeover verdict holds every document it renders to the schema registry's JSON Schema (root
+# ADR-0564 Revision 2026-11-22): draft 2020-12, the registry's files compiled in. No default features:
+# no reference is fetched over HTTP or from files, and no IDNA formats (the registry admits none).
+jsonschema = { version = "=0.62.0", default-features = false }
 futures-util = "0.3"
 bytes = "1"
 http-body = "1"
