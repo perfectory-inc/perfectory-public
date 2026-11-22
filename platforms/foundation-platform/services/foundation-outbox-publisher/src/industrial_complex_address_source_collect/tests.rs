@@ -1,11 +1,24 @@
 use super::{
-    assert_records_present, detail_complex_codes, live_write_enabled, planned_request_count,
-    request_spacing, unlisted_profile_codes, IlisDataset, ILIS_DATASETS, ILIS_DETAIL_DATASET,
-    MIN_REQUEST_SPACING, PROVIDER,
+    assert_records_present, compile_plan, detail_complex_codes, fetched_dataset,
+    live_write_enabled, persist_with_adapters, planned_request_count, request_spacing,
+    unlisted_profile_codes, AddressSourceCollectConfig, AddressSourceCollectReport, FetchedDataset,
+    IlisDataset, ILIS_DATASETS, ILIS_DETAIL_DATASET, MIN_REQUEST_SPACING,
+    NATIONAL_SCOPE_PARTITION_NAME, NATIONAL_SCOPE_PARTITION_VALUE, PROVIDER,
 };
 
-use collection_domain::{provider_id, source_slug};
+use std::{path::Path, sync::Mutex};
+
+use async_trait::async_trait;
+use chrono::{DateTime, Duration, Utc};
+use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
+use collection_domain::{
+    provider_id, source_slug, BronzeObject, CollectionError, IngestionRun, SchemaProfile,
+    SourceCatalogEntry,
+};
+use foundation_outbox::FileObjectStorage;
+use foundation_shared_kernel::ids::{IngestionRunId, SourceCatalogId};
 use serde_json::json;
+use uuid::Uuid;
 
 /// The join key is the code, so every dataset this lane collects must be addressable by it. A
 /// dataset whose slug drifts off the canonical grammar cannot produce a Bronze key at all, and the
@@ -209,4 +222,222 @@ fn detail_codes_are_the_profile_codes_the_bulk_list_lacks() {
         unlisted_profile_codes(&profile[..1], &json!({})),
         vec!["99999A".to_owned()]
     );
+}
+
+#[derive(Default)]
+struct RecordingUow {
+    runs: Mutex<Vec<IngestionRun>>,
+    objects: Mutex<Vec<BronzeObject>>,
+}
+
+fn poisoned(_: impl std::fmt::Debug) -> CollectionError {
+    CollectionError::Infrastructure("lock poisoned".to_owned())
+}
+
+#[async_trait]
+impl BronzeIngestUnitOfWork for RecordingUow {
+    async fn upsert_source_catalog_entry(
+        &self,
+        entry: &SourceCatalogEntry,
+    ) -> Result<SourceCatalogEntry, CollectionError> {
+        // One id per slug, as the ledger's upsert on `slug` returns.
+        let mut source = entry.clone();
+        source.id = SourceCatalogId::new(Uuid::from_u128(u128::from(
+            entry.slug.bytes().map(u32::from).sum::<u32>(),
+        )));
+        Ok(source)
+    }
+
+    async fn create_ingestion_run(
+        &self,
+        run: &IngestionRun,
+    ) -> Result<IngestionRun, CollectionError> {
+        self.runs.lock().map_err(poisoned)?.push(run.clone());
+        Ok(run.clone())
+    }
+
+    async fn complete_ingestion_run(
+        &self,
+        command: CompleteIngestionRunCommand,
+    ) -> Result<IngestionRun, CollectionError> {
+        self.runs
+            .lock()
+            .map_err(poisoned)?
+            .iter()
+            .find(|run| run.id == command.id)
+            .cloned()
+            .ok_or_else(|| CollectionError::IngestionRunNotFound(command.id.to_string()))
+    }
+
+    async fn find_bronze_object_by_object_key(
+        &self,
+        source_catalog_id: SourceCatalogId,
+        object_key: &str,
+    ) -> Result<Option<BronzeObject>, CollectionError> {
+        Ok(self
+            .objects
+            .lock()
+            .map_err(poisoned)?
+            .iter()
+            .find(|o| {
+                o.source_catalog_id == source_catalog_id && o.object_key.as_str() == object_key
+            })
+            .cloned())
+    }
+
+    async fn record_bronze_object(
+        &self,
+        object: &BronzeObject,
+    ) -> Result<BronzeObject, CollectionError> {
+        self.objects.lock().map_err(poisoned)?.push(object.clone());
+        Ok(object.clone())
+    }
+
+    async fn upsert_schema_profile(
+        &self,
+        profile: &SchemaProfile,
+    ) -> Result<SchemaProfile, CollectionError> {
+        Ok(profile.clone())
+    }
+}
+
+fn at() -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339("2099-01-02T04:40:00Z")
+        .map(|value| value.with_timezone(&Utc))
+        .unwrap_or_default()
+}
+
+fn live_config() -> anyhow::Result<AddressSourceCollectConfig> {
+    Ok(AddressSourceCollectConfig {
+        base_uri: "http://127.0.0.1:9".to_owned(),
+        user_agent: "test".to_owned(),
+        request_spacing: request_spacing(None)?,
+        max_requests: 8,
+        live_write: true,
+        summary_path: None,
+        detail_complex_codes: Vec::new(),
+        collect_bulk_datasets: true,
+    })
+}
+
+/// The complex list as ILIS answers it (synthetic codes), its rows in the order given.
+fn list_answer(codes: &[&str]) -> anyhow::Result<FetchedDataset> {
+    let rows: Vec<_> = codes
+        .iter()
+        .enumerate()
+        .map(|(index, code)| json!({"rn": index + 1, "danji_cd": code, "addr_cd": "9999900000"}))
+        .collect();
+    let payload =
+        json!({"code": 200, "msg": "ok", "result": {"cnt": rows.len(), "dataList": rows}});
+    fetched_dataset(
+        ILIS_DATASETS[0],
+        NATIONAL_SCOPE_PARTITION_NAME,
+        NATIONAL_SCOPE_PARTITION_VALUE,
+        serde_json::to_vec(&payload)?,
+        payload,
+    )
+}
+
+async fn collect(
+    uow: &RecordingUow,
+    storage: &FileObjectStorage,
+    answer: FetchedDataset,
+    at: DateTime<Utc>,
+) -> anyhow::Result<AddressSourceCollectReport> {
+    persist_with_adapters(
+        &live_config()?,
+        IngestionRunId::new(Uuid::new_v4()),
+        at,
+        &[answer],
+        uow,
+        storage,
+    )
+    .await
+}
+
+fn write_object(root: &Path, key: &str, bytes: &[u8]) -> anyhow::Result<()> {
+    let path = root.join(key);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, bytes)?;
+    Ok(())
+}
+
+fn recorded(uow: &RecordingUow) -> anyhow::Result<usize> {
+    Ok(uow
+        .objects
+        .lock()
+        .map_err(|_| anyhow::anyhow!("lock poisoned"))?
+        .len())
+}
+
+const HAND_LOAD_KEY: &str = "bronze/source=industrylandorkr__industrial_complex_list/operation=danjiList/scope=national/page-000001.json";
+const HAND_LOAD_BYTES: &[u8] = br#"{"hand":"load"}"#;
+
+/// 2026-11-22: the first two scheduled runs stopped on a Bronze checksum conflict. A hand load of
+/// 2026-08-18 held the request-only key `.../scope=national/page-000001.json` with another answer
+/// and no ledger row, and the write-once bucket refused the new one. The answer now lands under its
+/// content-qualified key beside that object, which stays as it is; the same answer again records
+/// nothing and reports unchanged; a reordered answer is a new object.
+#[tokio::test]
+async fn a_new_answer_lands_beside_the_hand_load_and_the_same_answer_is_unchanged(
+) -> anyhow::Result<()> {
+    let root = std::env::temp_dir().join(format!("ilis-address-source-{}", Uuid::new_v4()));
+    let storage = FileObjectStorage::new(&root)?;
+    let uow = RecordingUow::default();
+    write_object(&root, HAND_LOAD_KEY, HAND_LOAD_BYTES)?;
+
+    let first = collect(&uow, &storage, list_answer(&["99999A", "99999B"])?, at()).await?;
+    let landed = &first.datasets[0];
+    assert!(landed.written);
+    assert_eq!(
+        landed.object_key,
+        format!(
+            "bronze/source=industrylandorkr__industrial_complex_list/operation=danjiList/scope=national/page-000001--sha256-{}.json",
+            landed.checksum_sha256
+        )
+    );
+    assert!(root.join(&landed.object_key).is_file());
+    assert_eq!(std::fs::read(root.join(HAND_LOAD_KEY))?, HAND_LOAD_BYTES);
+
+    // The next day, the same answer: the same object, no new row, `unchanged`.
+    let again = collect(
+        &uow,
+        &storage,
+        list_answer(&["99999A", "99999B"])?,
+        at() + Duration::days(1),
+    )
+    .await?;
+    assert!(!again.datasets[0].written);
+    assert_eq!(again.datasets[0].object_key, landed.object_key);
+    assert_eq!(recorded(&uow)?, 1);
+
+    // The same rows in another order, as the notice list comes back: other bytes, a new object.
+    let reordered = collect(&uow, &storage, list_answer(&["99999B", "99999A"])?, at()).await?;
+    assert!(reordered.datasets[0].written);
+    assert_ne!(reordered.datasets[0].object_key, landed.object_key);
+    assert_eq!(recorded(&uow)?, 2);
+    std::fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+/// The content-qualified objects of 2026-09-26..30 have no row in the production ledger. An answer
+/// equal to one of them is that object: the commit records its missing row (the committer's
+/// recovery) rather than refusing it, and the run reports it as new to the ledger.
+#[tokio::test]
+async fn an_answer_bronze_holds_without_a_row_is_recorded_not_refused() -> anyhow::Result<()> {
+    let root = std::env::temp_dir().join(format!("ilis-address-source-{}", Uuid::new_v4()));
+    let storage = FileObjectStorage::new(&root)?;
+    let uow = RecordingUow::default();
+    let answer = list_answer(&["99999A"])?;
+    let planned = compile_plan(&answer, IngestionRunId::new(Uuid::new_v4()), at())?;
+    write_object(&root, planned.object_key.as_str(), &answer.raw_payload)?;
+
+    let report = collect(&uow, &storage, answer, at()).await?;
+    assert_eq!(report.datasets[0].object_key, planned.object_key.as_str());
+    assert!(report.datasets[0].written);
+    assert_eq!(recorded(&uow)?, 1);
+    std::fs::remove_dir_all(&root)?;
+    Ok(())
 }

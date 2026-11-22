@@ -7,7 +7,9 @@
 # 2. build-industrial-complex-address-resolution 이 주소를 해석하고, export-industrial-complex-bronze-raw-jsonl 이
 #    단지마다 한 줄을 쓴다(둘 다 그대로).
 # 3. load-industrial-complex-silver 가 발행기 안의 DuckDB 로 줄을 Silver 행으로 읽고 관문을 거친 뒤, 지금 행과 다른
-#    단지만 붙이는 커밋 하나로 입력 객체를 모두 기록한다. 바뀐 단지가 없어도 기록한다.
+#    단지만 붙이는 커밋 하나로 표가 아직 기록하지 않은 입력 객체를 기록한다. 바뀐 단지가 없어도 기록한다. 앞선 커밋이
+#    기록한 입력(몇 달 그대로인 프로필 통합본)은 거기 남는다: 배치는 통째로만 붙고, 그것을 다시 적은 배치는 거부됐다
+#    (2026-11-22 첫 실행).
 #
 # 실패하면 커밋이 없어 다음 실행이 같은 입력을 다시 받는다. 받은 사본은 성공하든 실패하든 지운다.
 set -Eeuo pipefail
