@@ -55,7 +55,7 @@ const REPLACED: &str = "gold.parcel_nearby";
 const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY";
 const PARCEL_SOURCE_CONTRACT: &str =
     include_str!("../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
-const REBUILD_CONTRACT: &str =
+pub(crate) const REBUILD_CONTRACT: &str =
     include_str!("../../../infra/lakehouse/contracts/gold-panel-rebuild.contract.json");
 /// Above this share of the current rows changed in one commit the run stops, unless the code or
 /// the served edition moved, which explains a change of any size (root ADR-0346, ADR-0564 §3-4).

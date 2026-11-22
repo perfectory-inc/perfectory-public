@@ -17222,6 +17222,89 @@
         "unit": "derived"
       }
     },
+    "gold.unit_price_versions": {
+      "table_name": "gold.unit_price_versions",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "pnu",
+          "building_id"
+        ],
+        "newest_first": [
+          "version_seq"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY pnu, building_id ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "building_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "units_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "version_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "truncate(2, pnu)"
+      ],
+      "sort_order": [
+        "pnu",
+        "building_id"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "append_only",
+        "(pnu, building_id, version_seq) unique",
+        "of the current rows: one row per (pnu, building_id)",
+        "of the current rows: pnu matches the cadastral grammar",
+        "of the current rows: every row has a priced unit",
+        "of the current rows: row_digest contains content only",
+        "of the current rows: published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "silver.onbid_announcement": {
       "table_name": "silver.onbid_announcement",
       "physical_format": "Parquet",

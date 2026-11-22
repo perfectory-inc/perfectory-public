@@ -139,6 +139,8 @@ pub mod legal_dong_code_snapshot_stage;
 pub mod building_energy_stage;
 pub mod building_permit_stage;
 pub mod building_sub_parcel_stage;
+/// Where a building register unit is served: its building's PNU with evidence, else its own (root ADR-0190).
+pub mod building_unit_placement;
 /// The registered-factory kind's Gold in `DuckDB` (root ADR-0449).
 pub mod factory_kind_stage;
 pub mod intelligence_documents_stage;
@@ -157,6 +159,8 @@ pub mod parcel_registry_stage;
 pub mod place_id_join;
 /// The register kinds' Gold in `DuckDB`: 총괄표제부, 철거·멸실 (root ADR-0450, ADR-0399).
 pub mod record_kind_stage;
+/// The unit price Gold in `DuckDB` (root ADR-0190, ADR-0564 §9 차례 4).
+pub mod unit_price_stage;
 
 /// Stages the data.go.kr bulk files as Silver rows, one table per file (root ADR-0401 §3–4).
 pub mod data_go_kr_file_data_stage;

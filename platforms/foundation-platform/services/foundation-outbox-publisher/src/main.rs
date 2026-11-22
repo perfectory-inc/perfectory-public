@@ -182,6 +182,7 @@ mod parcel_registry_load;
 mod real_estate_broker_lookup_load;
 mod registered_factory_silver_load;
 mod unit_official_price_projection_load;
+mod unit_price_versions_build;
 use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
 use foundation_publisher_collection::vworld_dataset_collection_plan;
 use foundation_publisher_collection::vworld_dataset_file_ingest;
@@ -327,6 +328,7 @@ enum Command {
     BuildParcelOwnershipVersions,
     BuildParcelFactoriesVersions,
     BuildParcelPublicAuctionVersions,
+    BuildUnitPriceVersions,
     ExportGoldVersionsChangeSet,
     ExportGoldTakeoverSides,
     ShowGoldTakeoverSwitch,
@@ -729,6 +731,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelPublicAuctionVersions => Box::pin(kind_versions_build::run(
             &kind_versions_build::PUBLIC_AUCTION_BUILD,
         )),
+        Command::BuildUnitPriceVersions => Box::pin(unit_price_versions_build::run()),
         Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
         Command::ExportGoldTakeoverSides => Box::pin(gold_takeover_sides::export()),
         Command::ShowGoldTakeoverSwitch => Box::pin(gold_takeover_sides::switch()),
@@ -930,6 +933,7 @@ where
         Some("build-parcel-public-auction-versions") => {
             Ok(Command::BuildParcelPublicAuctionVersions)
         }
+        Some("build-unit-price-versions") => Ok(Command::BuildUnitPriceVersions),
         Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
         Some("export-gold-takeover-sides") => Ok(Command::ExportGoldTakeoverSides),
         Some("show-gold-takeover-switch") => Ok(Command::ShowGoldTakeoverSwitch),

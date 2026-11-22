@@ -450,6 +450,61 @@ async fn an_expired_ingest_record_is_read_from_the_durable_property() -> Result<
     Ok(())
 }
 
+#[tokio::test]
+async fn the_ingest_commit_log_names_each_load_s_snapshot_and_every_held_instant(
+) -> Result<(), Box<dyn Error>> {
+    // `unit_official_price.batch_commit_order`'s reads: main's records (a staged branch's not), the
+    // durable copy of an expired one, and every held snapshot with its parent and instant.
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00006.json",
+            "metadata": {
+                "current-snapshot-id": OTHER,
+                "refs": {
+                    "main": {"snapshot-id": OTHER, "type": "branch"},
+                    "refresh_fixture": {"snapshot-id": STAGED, "type": "branch"}
+                },
+                "properties": {"foundation.ingest-batch-objects.71": "fixture-load-a"},
+                "snapshots": [
+                    {"snapshot-id": TAGGED, "timestamp-ms": 1_000, "summary": {
+                        "foundation.ingest-batch-objects": "fixture-load-b"}},
+                    {"snapshot-id": OTHER, "parent-snapshot-id": TAGGED, "timestamp-ms": 2_000,
+                     "summary": {"foundation.ingest-batch-objects": "fixture-load-c"}},
+                    {"snapshot-id": STAGED, "parent-snapshot-id": OTHER, "timestamp-ms": 3_000,
+                     "summary": {"foundation.ingest-batch-objects": "fixture-load-d"}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let log = catalog
+        .load_ingest_commit_log("gold.parcel_panel")
+        .await?
+        .ok_or_else(|| std::io::Error::other("table should exist"))?;
+    assert_eq!(log.head, Some(OTHER));
+    assert_eq!(
+        log.ingested.into_iter().collect::<Vec<_>>(),
+        [
+            ("fixture-load-a".to_owned(), 71),
+            ("fixture-load-b".to_owned(), TAGGED),
+            ("fixture-load-c".to_owned(), OTHER)
+        ]
+    );
+    assert_eq!(
+        log.snapshots.into_iter().collect::<Vec<_>>(),
+        [
+            (TAGGED, (None, 1_000)),
+            (OTHER, (Some(TAGGED), 2_000)),
+            (STAGED, (Some(OTHER), 3_000))
+        ]
+    );
+    Ok(())
+}
+
 async fn mount_staged(server: &MockServer, main: i64) {
     Mock::given(method("GET"))
         .and(path(GOLD_PATH))

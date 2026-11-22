@@ -401,6 +401,10 @@ fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Resul
         ])?,
         Command::BuildParcelPublicAuctionVersions
     );
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "build-unit-price-versions"])?,
+        Command::BuildUnitPriceVersions
+    );
     Ok(())
 }
 
