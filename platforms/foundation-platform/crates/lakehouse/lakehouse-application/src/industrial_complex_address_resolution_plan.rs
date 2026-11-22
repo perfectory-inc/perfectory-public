@@ -623,11 +623,16 @@ struct ChosenNoticeCode {
 /// Ties break on the lowest code so the derivation is deterministic; a tie means the complex really
 /// does straddle two districts, and picking either one is a choice the tier label already flags as a
 /// heuristic.
+///
+/// The notice named as the code's provenance is the one with the lowest record id among those that
+/// carry it, not the first in the list: ILIS returns its notice list in a different row order from
+/// one request to the next (two answers of 2026-09-27 differ in 2,731 row positions), and the same
+/// notices in another order must resolve every complex the same way.
 fn modal_valid_notice_code(
     notices: &[&SourceNoticeRecord],
     authority: &BTreeSet<String>,
 ) -> Option<ChosenNoticeCode> {
-    let mut counts = BTreeMap::<String, (u64, String)>::new();
+    let mut counts = BTreeMap::<String, (u64, &str)>::new();
     for notice in notices {
         let Some(code) = normalized_code(notice.administrative_code.as_deref()) else {
             continue;
@@ -635,10 +640,10 @@ fn modal_valid_notice_code(
         if !authority.contains(sigungu_prefix(&code)) {
             continue;
         }
-        let entry = counts
-            .entry(code)
-            .or_insert_with(|| (0, notice.notice_record_id.clone()));
+        let record_id = notice.notice_record_id.as_str();
+        let entry = counts.entry(code).or_insert((0, record_id));
         entry.0 += 1;
+        entry.1 = entry.1.min(record_id);
     }
     counts
         .into_iter()
@@ -652,7 +657,7 @@ fn modal_valid_notice_code(
         })
         .map(|(code, (_, notice_record_id))| ChosenNoticeCode {
             code,
-            notice_record_id,
+            notice_record_id: notice_record_id.to_owned(),
         })
 }
 

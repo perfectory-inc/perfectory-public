@@ -1,4 +1,4 @@
-use super::{json_text, write_resolution_jsonl};
+use super::{json_text, read_source_notices, write_resolution_jsonl};
 
 use std::{env, fs, path::PathBuf};
 
@@ -119,6 +119,73 @@ fn a_superseded_code_falls_back_to_the_modal_code_among_its_own_notices() -> any
         resolution.learned_code_migrations.get("1226000000"),
         Some(&"2917000000".to_owned())
     );
+    Ok(())
+}
+
+/// ILIS returns its notice list in a different row order from one request to the next (two answers
+/// of 2026-09-27 differ in 2,731 row positions), and each such answer is a new Bronze object that
+/// starts the Silver load. The same notices in another order are the same evidence: every complex
+/// resolves the same way, its provenance included, so that load finds no complex changed.
+#[test]
+fn a_reordered_notice_list_resolves_every_complex_the_same_way() -> anyhow::Result<()> {
+    let complexes = [
+        // The source's own code is current.
+        complex("99999A", Some("9990100000")),
+        // Superseded: the modal code among its own notices decides.
+        complex("99999B", Some("9999900000")),
+        // Superseded and no notice of its own: the migration learned from 99999B decides.
+        complex("99999C", Some("9999900000")),
+    ];
+    // (danji_cd, noti_addr, ref_seq) as the provider lists them; `ref_seq` is unquoted, as ILIS
+    // writes it.
+    let rows = [
+        ("99999B", "9990200000", 7),
+        ("99999B", "9990300000", 5),
+        ("99999B", "9990200000", 3),
+        // A superseded code among a current complex's notices is one more migration observation.
+        ("99999A", "9999800000", 9),
+    ];
+    // Two raw answers: the same rows, the second in reverse order and numbered (`rn`) as listed.
+    let answer = |rows: &[(&str, &str, u32)]| {
+        let listed: Vec<_> = rows
+            .iter()
+            .enumerate()
+            .map(|(index, (complex, address, seq))| {
+                json!({"rn": index + 1, "danji_cd": complex, "noti_addr": address, "ref_seq": seq})
+            })
+            .collect();
+        json!({"code": 200, "msg": "ok", "result": {"cnt": listed.len(), "dataList": listed}})
+    };
+    let mut reversed = rows;
+    reversed.reverse();
+    let directory = temp_path("reordered-notice-list");
+    fs::create_dir_all(&directory)?;
+    let (first_path, again_path) = (directory.join("a.json"), directory.join("b.json"));
+    fs::write(&first_path, serde_json::to_vec(&answer(&rows))?)?;
+    fs::write(&again_path, serde_json::to_vec(&answer(&reversed))?)?;
+    let notices = read_source_notices(&first_path)?;
+    let reordered = read_source_notices(&again_path)?;
+    fs::remove_dir_all(&directory)?;
+    // The same notices, in another order: other bytes, other Bronze object.
+    assert_ne!(notices, reordered);
+    assert_eq!(notices.len(), reordered.len());
+
+    let authority = authority(&["99901", "99902", "99903"]);
+    let targets = ["99999A", "99999B", "99999C"];
+    let first = resolve(&targets, &complexes, &notices, &authority)?;
+    let again = resolve(&targets, &complexes, &reordered, &authority)?;
+
+    assert_eq!(again, first);
+    let modal = first
+        .resolved
+        .iter()
+        .find(|resolved| resolved.official_complex_code == "99999B")
+        .ok_or_else(|| anyhow::anyhow!("99999B must resolve"))?;
+    assert_eq!(modal.resolution_tier, ResolutionTier::ModalNoticeCode);
+    assert_eq!(code_of(modal), Some("9990200000"));
+    // The lowest record id among the notices that carry the code, whichever came first.
+    assert_eq!(modal.address_source_record_id, "ref_seq=3");
+    assert_eq!(first.resolved.len(), 3);
     Ok(())
 }
 
