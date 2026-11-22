@@ -567,6 +567,9 @@ pub fn ensure_no_commit_tables(connection: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The SQL texts every kind's code version folds in beside its own: the code views and the spool.
+pub(crate) const SHARED_SQL: [&str; 3] = [PAIR_ROWS_SQL, RENUMBERED_INTO_SQL, SPOOL_SQL];
+
 #[cfg(test)]
 mod commit_table_tests {
     use super::*;
@@ -589,6 +592,3 @@ mod commit_table_tests {
         Ok(())
     }
 }
-
-/// The SQL texts every kind's code version folds in beside its own: the code views and the spool.
-pub(crate) const SHARED_SQL: [&str; 3] = [PAIR_ROWS_SQL, RENUMBERED_INTO_SQL, SPOOL_SQL];
