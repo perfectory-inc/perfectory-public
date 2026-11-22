@@ -4,26 +4,6 @@
   "group": "silver-industrial-complexes",
   "jobs": [
     {
-<<<<<<< HEAD
-      "id": "silver_industrial_complexes",
-      "dagster_group": "silver",
-      "scope": "changed-keys",
-      "interruptible": false,
-      "commits": "at_end",
-      "description": "Silver load of the industrial complexes (root ADR-0033; daily at 05:10 UTC, after the ILIS address-source collector's 04:40, not on its inputs' events: the ILIS notice collector writes the same source group every hour, and a load started by it would make every reader of the table hourly (complex_boundary_release would then starve in the spark pool, job_specs.pool_starvation); scripts/ops/industrial-complex-silver-load.sh; the publisher's plan-industrial-complex-silver-inputs and load-industrial-complex-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559; it was the Spark job industrial_complex_bronze_to_silver.py, started by hand): the newest Bronze object of each input (the vworldkr__sandan_profile workbook, the ILIS complex list and notice list, the ILIS detail of each complex the list lacks, the vworldkr__boundary_sigungu archive whose .dbf is the district authority), `unchanged` without fetching anything when the table's commits record every one; otherwise the address resolution and the export (build-industrial-complex-address-resolution, export-industrial-complex-bronze-raw-jsonl, unchanged), the Spark job's gates, and one commit that appends only the complexes whose content differs from their current row and records every input, even when no complex changed. One pass over the nation: the input is one 1,442-row workbook and a 98 MB boundary archive (the declared exception to a regional split). No Spark.",
-      "systemd_service": "foundation-industrial-complex-silver-load.service",
-      "systemd_timer": null,
-      "state_paths": [
-        "/var/lib/foundation-platform/industrial-complex-silver"
-      ],
-      "schedule": "10 5 * * *",
-      "started_by": "schedule",
-      "stop_grace_minutes": 5,
-      "wait_limit_minutes": 0,
-      "time_limit_minutes": 30,
-      "per_run_cap": {
-        "unit": "run",
-=======
       "id": "industrial_complex_address_source_collect",
       "dagster_group": "collect",
       "scope": "new-objects",
@@ -42,23 +22,58 @@
       "time_limit_minutes": 15,
       "per_run_cap": {
         "unit": "request",
->>>>>>> 1bfaa5aa (feat(collection): 산업단지 주소 근거(ILIS 목록·고시 목록·상세)를 매일 Bronze 로 받는다 — 목록에 없는 단지는 Bronze 의 최신 프로필에서 골라 상세로 묻는다 (root ADR-0033, W91))
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
         "first_run": {
-<<<<<<< HEAD
-          "estimate_seconds": 240,
-          "estimated_from": "computed from its inputs: five R2 listings and, when owed, about 115 MB fetched (the 98 MB boundary archive, the 13.5 MB notice list, the 412 KB workbook, the complex list and four details), then the resolution and export of 1,442 rows and one DuckDB pass over them; the Spark job's three hand loads of the same rows (2026-08-18, 10-01) took minutes. 240 s stays the bound until a production run is measured, inside the 30-minute limit."
-=======
           "estimate_seconds": 60,
           "estimated_from": "computed from its own bounds: two bulk requests (the notice list 13.5 MB measured 2026-11-09 in a few seconds, the complex list 1,473 rows) and about four detail requests, two seconds apart, plus one ledger read and the 412 KB profile workbook: under a minute, inside the 15-minute limit. The command refuses a run of more than eight requests (its DEFAULT_MAX_REQUESTS) before the first."
->>>>>>> 1bfaa5aa (feat(collection): 산업단지 주소 근거(ILIS 목록·고시 목록·상세)를 매일 Bronze 로 받는다 — 목록에 없는 단지는 Bronze 의 최신 프로필에서 골라 상세로 묻는다 (root ADR-0033, W91))
         }
       },
       "expected_outcome": {
         "changes_within_hours": null,
-<<<<<<< HEAD
+        "no_change_bound_reason": "The provider changes its complex list and notices on no fixed day (endpoint catalog expected_cadence irregular for ILIS); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "ilis-address-source-collection-to-source-ilis"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "shadow",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    },
+    {
+      "id": "silver_industrial_complexes",
+      "dagster_group": "silver",
+      "scope": "changed-keys",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "Silver load of the industrial complexes (root ADR-0033; daily at 05:10 UTC, after the ILIS address-source collector's 04:40, not on its inputs' events: the ILIS notice collector writes the same source group every hour, and a load started by it would make every reader of the table hourly (complex_boundary_release would then starve in the spark pool, job_specs.pool_starvation); scripts/ops/industrial-complex-silver-load.sh; the publisher's plan-industrial-complex-silver-inputs and load-industrial-complex-silver, DuckDB inside the publisher and its own Iceberg append, root ADR-0559; it was the Spark job industrial_complex_bronze_to_silver.py, started by hand): the newest Bronze object of each input (the vworldkr__sandan_profile workbook, the ILIS complex list and notice list, the ILIS detail of each complex the list lacks, the vworldkr__boundary_sigungu archive whose .dbf is the district authority), `unchanged` without fetching anything when the table's commits record every one; otherwise the address resolution and the export (build-industrial-complex-address-resolution, export-industrial-complex-bronze-raw-jsonl, unchanged), the Spark job's gates, and one commit that appends only the complexes whose content differs from their current row and records every input, even when no complex changed. One pass over the nation: the input is one 1,442-row workbook and a 98 MB boundary archive (the declared exception to a regional split). No Spark.",
+      "systemd_service": "foundation-industrial-complex-silver-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-complex-silver"
+      ],
+      "schedule": "10 5 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 30,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 240,
+          "estimated_from": "computed from its inputs: five R2 listings and, when owed, about 115 MB fetched (the 98 MB boundary archive, the 13.5 MB notice list, the 412 KB workbook, the complex list and four details), then the resolution and export of 1,442 rows and one DuckDB pass over them; the Spark job's three hand loads of the same rows (2026-08-18, 10-01) took minutes. 240 s stays the bound until a production run is measured, inside the 30-minute limit."
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when an input changed what a complex says: the profile workbook (last new 2026-04-20 by the provider), or an ILIS answer that moves an address; that it is not behind its inputs is the asset reconciler's lag (root ADR-0333)."
       },
       "pool": "documents",
@@ -77,18 +92,6 @@
       "enabled": true,
       "enabled_since": "2026-11-23T00:00:00Z",
       "dagster_stage": "dagster",
-=======
-        "no_change_bound_reason": "The provider changes its complex list and notices on no fixed day (endpoint catalog expected_cadence irregular for ILIS); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
-      },
-      "pool": "default_pool",
-      "retries": 0,
-      "pipeline_graph_edges": [
-        "ilis-address-source-collection-to-source-ilis"
-      ],
-      "enabled": true,
-      "enabled_since": "2026-11-23T00:00:00Z",
-      "dagster_stage": "shadow",
->>>>>>> 1bfaa5aa (feat(collection): 산업단지 주소 근거(ILIS 목록·고시 목록·상세)를 매일 Bronze 로 받는다 — 목록에 없는 단지는 Bronze 의 최신 프로필에서 골라 상세로 묻는다 (root ADR-0033, W91))
       "started_once_after_deploy": null,
       "disabled_reason": null
     }
