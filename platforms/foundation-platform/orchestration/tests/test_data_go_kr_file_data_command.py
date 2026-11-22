@@ -195,7 +195,7 @@ class DataGoKrFileCollectCommand(unittest.TestCase):
 
     def collect(self, dataset, env=None):
         return subprocess.run(["bash", str(self.script), dataset], env={**self.env, **(env or {})},
-                              capture_output=True, text=True, timeout=120)
+                              capture_output=True, text=True, timeout=120, check=False)
 
     def test_it_collects_only_the_file_it_is_named_and_says_what_landed(self):
         same = self.collect("pension-workplace")  # the unit's instance: a slug with hyphens
