@@ -208,8 +208,12 @@ pub(super) async fn load_served_dong(
     .await
 }
 
-/// Whether two documents of the lane say the same, whatever version and snapshot stamped them: a
-/// null member is the field's absence (an optional field an older version never wrote).
+/// Whether two documents of the lane say the same, whatever version and snapshot stamped them.
+///
+/// A null member is the field's absence (an optional field an older version never wrote). Values
+/// are compared as values, not as one engine writes them (rules.txt "no Spark byte emulation", root
+/// ADR-0564 §6-5): a number by its value (`1.0E7`, `10000000.0` and `10000000` are one), an instant
+/// by its time (`…00.000Z` and `…00Z` are one); text, keys and the order of a list stay as written.
 pub(super) fn same_content(served: &[u8], rendered: &[u8]) -> anyhow::Result<bool> {
     Ok(content(served)? == content(rendered)?)
 }
@@ -222,7 +226,37 @@ fn content(bytes: &[u8]) -> anyhow::Result<JsonValue> {
         fields.remove("source");
     }
     drop_nulls(&mut document);
+    canonical_values(&mut document);
     Ok(document)
+}
+
+/// The largest integer an `f64` holds exactly (2^53): a whole number above it stays a float.
+const EXACT_INTEGER: f64 = 9_007_199_254_740_992.0;
+
+/// Each number as its value (a whole float as the integer it is) and each instant as UTC with the
+/// fraction it needs, so two engines' renderings of one value compare equal.
+fn canonical_values(value: &mut JsonValue) {
+    match value {
+        JsonValue::Number(number) => {
+            if let Some(float) = number.as_f64().filter(|_| number.is_f64()) {
+                if float.fract() == 0.0 && float.abs() <= EXACT_INTEGER {
+                    #[allow(clippy::cast_possible_truncation)]
+                    let whole = float as i64;
+                    *value = JsonValue::from(whole);
+                }
+            }
+        }
+        JsonValue::String(text) => {
+            if let Ok(instant) = chrono::DateTime::parse_from_rfc3339(text) {
+                *text = instant
+                    .with_timezone(&chrono::Utc)
+                    .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true);
+            }
+        }
+        JsonValue::Object(fields) => fields.values_mut().for_each(canonical_values),
+        JsonValue::Array(items) => items.iter_mut().for_each(canonical_values),
+        _ => {}
+    }
 }
 
 fn drop_nulls(value: &mut JsonValue) {
@@ -259,6 +293,27 @@ mod tests {
                 .as_slice(),
         ] {
             assert!(!same_content(served, rendered)?);
+        }
+        Ok(())
+    }
+
+    /// Two engines write one value differently: Spark's `1.0E7` and `19.500`, `DuckDB`'s
+    /// `10000000.0` and `19.5`, an instant with or without its zero fraction or in another offset.
+    #[test]
+    fn content_compares_numbers_and_instants_as_values_not_as_written() -> anyhow::Result<()> {
+        let spark = br#"{"pnu":"9999900000100000000","area_m2":1.0E7,"usage":19.500,"rows":3,
+            "at":"2099-01-02T03:04:05.000Z","months":[{"use_ym":"209901"}]}"#;
+        let duckdb = br#"{"pnu":"9999900000100000000","area_m2":10000000.0,"usage":19.5,"rows":3.0,
+            "at":"2099-01-02T12:04:05+09:00","months":[{"use_ym":"209901"}]}"#;
+        assert!(same_content(spark, duckdb)?);
+        for rendered in [
+            // Another value, a number written as text, another instant, and a list in another order.
+            br#"{"pnu":"9999900000100000000","area_m2":10000000.5,"usage":19.5,"rows":3,"at":"2099-01-02T03:04:05Z","months":[{"use_ym":"209901"}]}"#.as_slice(),
+            br#"{"pnu":"9999900000100000000","area_m2":"10000000","usage":19.5,"rows":3,"at":"2099-01-02T03:04:05Z","months":[{"use_ym":"209901"}]}"#.as_slice(),
+            br#"{"pnu":"9999900000100000000","area_m2":1.0E7,"usage":19.5,"rows":3,"at":"2099-01-02T03:04:06Z","months":[{"use_ym":"209901"}]}"#.as_slice(),
+            br#"{"pnu":"9999900000100000000","area_m2":1.0E7,"usage":19.5,"rows":3,"at":"2099-01-02T03:04:05Z","months":[{"use_ym":"209902"},{"use_ym":"209901"}]}"#.as_slice(),
+        ] {
+            assert!(!same_content(spark, rendered)?);
         }
         Ok(())
     }
