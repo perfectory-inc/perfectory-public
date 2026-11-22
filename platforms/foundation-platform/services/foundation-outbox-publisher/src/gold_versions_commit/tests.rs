@@ -145,6 +145,7 @@ fn only_changed_keys_are_appended_and_a_key_that_left_gets_a_marker() -> anyhow:
         served_edition: None,
         current_records: 3,
         fingerprint: (3, 1 + 2 + 3),
+        as_of: None,
     });
     connection.execute_batch(&appended_sql(&commit)?)?;
     let changes = connection

@@ -2,10 +2,11 @@
 //! ADR-0564 §3, §6): `build-parcel-register-masters-versions`, `build-parcel-demolitions-versions`,
 //! `build-parcel-energy-versions`, `build-parcel-sub-parcels-versions`,
 //! `build-parcel-building-permits-versions`, `build-parcel-panel-versions`,
-//! `build-parcel-ownership-versions`, `build-parcel-factories-versions`. `DuckDB` inside the publisher
-//! computes the kind (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the
-//! publisher appends the keys that changed (`gold_versions_commit`). A new lane is a stage, a
-//! [`KindBuild`], a kind line and a job.
+//! `build-parcel-ownership-versions`, `build-parcel-factories-versions`,
+//! `build-parcel-public-auction-versions`. `DuckDB` inside the publisher computes the kind
+//! (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the publisher appends
+//! the keys that changed (`gold_versions_commit`). A new lane is a stage, a [`KindBuild`], a kind line
+//! and a job.
 //!
 //! While a lane serves the Spark table its versions table replaces, the versions table is its shadow:
 //! its inputs are pinned to that table's build-tag commit (`planned_inputs`), so the takeover verdict
@@ -31,6 +32,7 @@ use foundation_publisher_silver::{
         ensure_no_commit_tables, load_region, spool, KindVersionsStage, PARCEL_SOURCE,
     },
     land_ownership_stage::OWNERSHIP,
+    onbid_kind_stage::PUBLIC_AUCTION,
     parcel_nearby_stage::{NearbyPins, Source},
     parcel_panel_stage::PANEL,
     process_memory,
@@ -42,9 +44,10 @@ use serde_json::json;
 use crate::{
     by_pnu_gateway_contract::ByPnuLane,
     gold_versions_commit::{
-        self as versions, Commit, Diff, Digests, CODE_VERSION_PROPERTY, CURRENT_RECORDS_PROPERTY,
-        FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, RECORDED_EXPLANATION_PROPERTY,
-        SERVED_EDITION_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY, VERSION_SEQ_PROPERTY,
+        self as versions, Commit, Diff, Digests, AS_OF_PROPERTY, CODE_VERSION_PROPERTY,
+        CURRENT_RECORDS_PROPERTY, FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY,
+        RECORDED_EXPLANATION_PROPERTY, SERVED_EDITION_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY,
+        VERSION_SEQ_PROPERTY,
     },
     parcel_nearby_versions_build::{
         contract, lakehouse_read, max_row_loss_fraction_of, served_edition, write_summary,
@@ -140,6 +143,15 @@ pub(crate) const FACTORIES_BUILD: KindBuild = KindBuild {
     stage: &FACTORIES,
 };
 
+/// Lane 8: the 공매 rounds (root ADR-0287, ADR-0340), built as of an instant.
+pub(crate) const PUBLIC_AUCTION_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_public_auction_versions",
+    lane: "parcel-public-auction",
+    replaced: "gold.parcel_public_auction",
+    job: "build-parcel-public-auction-versions",
+    stage: &PUBLIC_AUCTION,
+};
+
 /// Builds and appends `kind`'s changed keys.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
@@ -197,6 +209,21 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     if let Some(base) = &base {
         versions::pin(&catalog, table, base.snapshot_id, &base.pins).await?;
     }
+    let work = Path::new(&summary_path)
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    // A time-dependent kind is built as of an instant: a shadow the one its replaced build was, so
+    // the two tables answer one question; otherwise now.
+    let as_of = if stage.as_of_dependent() {
+        Some(match &shadow {
+            Some(shadow) => replaced_as_of(work, &shadow.replaced, shadow.build)?,
+            None => published_at_utc.clone(),
+        })
+    } else {
+        None
+    };
+    let stamp = as_of.clone().unwrap_or_else(|| published_at_utc.clone());
     let moved = base
         .as_ref()
         .map_or_else(BTreeSet::new, |base| versions::moved(base, &pins));
@@ -204,6 +231,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         moved.is_empty()
             && base.code_version == code
             && base.served_edition.as_deref() == Some(edition.as_str())
+            && base.as_of == as_of
     });
     if unchanged {
         write_summary(
@@ -223,6 +251,10 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             || base.served_edition.as_deref() != Some(edition.as_str())
             || moved.iter().any(|input| whole.contains(&input.as_str()))
             || !base.pins.keys().all(|input| pins.contains_key(input))
+            // Time moves a time-dependent kind's documents with no input moving: its every run is
+            // whole, from one read of its inputs (root ADR-0326: finding the change would read them
+            // twice), and appends only the keys whose digest changed.
+            || as_of.is_some()
     });
     // A moved code version or served edition explains a change of any size (root ADR-0346).
     let moved_code_or_edition = base.as_ref().and_then(|base| {
@@ -241,16 +273,22 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     // Compute, one 시도 at a time (rules.txt "DuckDB ports are regional, one pass"): every input is
     // read once into a local spool split by 시도, then each 시도 is loaded, built, diffed and staged
     // before the next replaces it; one append commits them all.
-    let work = Path::new(&summary_path)
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
     // Asked before the DuckDB session opens: the session is not `Send` across an await.
     let shape = committer.table_shape(table).await?;
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
     let memory_limit = duck.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
     duck.require_room(0)?;
     let connection = duck.connection();
+    // The instant a time-dependent stage serves as of, in microseconds since the epoch: compared
+    // with the rows' instants by `epoch_us`, whatever the session's time zone.
+    if let Some(instant) = &as_of {
+        let micros = chrono::DateTime::parse_from_rfc3339(instant)
+            .with_context(|| format!("{instant:?} is not an RFC 3339 instant"))?
+            .timestamp_micros();
+        connection.execute_batch(&format!(
+            "CREATE OR REPLACE TABLE as_of AS SELECT CAST({micros} AS BIGINT) AS instant_us;"
+        ))?;
+    }
     let spool_dir = Spool::new(work.join("spool"))?;
     let new_pins = NearbyPins(pins.clone());
     let read = spool(
@@ -304,7 +342,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         base: base.clone(),
         version_seq,
         source_snapshot_id: parcels_snapshot.clone(),
-        published_at_utc: published_at_utc.clone(),
+        published_at_utc: stamp.clone(),
     };
     let run = versions::run_id(table, &pins, &code, &edition);
     let (mut diff, mut digests, mut files) = (Diff::default(), Digests::default(), Vec::new());
@@ -317,12 +355,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             load_region(stage, connection, spool_dir.path(), "_old", sido)?;
             Some(stage.changed_pnus(connection)?)
         };
-        stage.build(
-            connection,
-            named.is_none(),
-            &parcels_snapshot,
-            &published_at_utc,
-        )?;
+        stage.build(connection, named.is_none(), &parcels_snapshot, &stamp)?;
         ensure_no_commit_tables(connection)?;
         let invalid: i64 = connection.query_row(
             &format!(
@@ -361,6 +394,19 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         started.elapsed().as_secs_f64(),
         process_memory::cgroup_peak_bytes()
     );
+    if as_of.is_some() && diff.keys() == 0 && moved.is_empty() && moved_code_or_edition.is_none() {
+        write_summary(
+            &summary_path,
+            &json!({
+                "job": kind.job, "engine": "duckdb", "table": table, "outcome": "unchanged",
+                "pins": pins, "served_edition": edition, "shadow_of": shadow_build, "as_of": as_of,
+                "base_as_of": base.as_ref().and_then(|base| base.as_of.clone()),
+                "seconds": started.elapsed().as_secs_f64(),
+            }),
+        )?;
+        println!("gold-versions {table} nothing to do: no input moved and no document changed since its base's instant");
+        return Ok(());
+    }
     let (fingerprint, current_records) = versions::after_digests(&commit, &diff, digests)?;
     let mut recorded_explanation = None;
     if let Some(base) = &base {
@@ -413,6 +459,9 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     if let Some(why) = &recorded_explanation {
         properties.insert(RECORDED_EXPLANATION_PROPERTY.to_owned(), why.clone());
     }
+    if let Some(as_of) = &as_of {
+        properties.insert(AS_OF_PROPERTY.to_owned(), as_of.clone());
+    }
     let snapshot =
         versions::append(&committer, &catalog, &commit, &files, &run, properties).await?;
     drop(duck);
@@ -423,7 +472,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             "job": kind.job, "engine": "duckdb", "table": table, "outcome": "committed",
             "created_table": created, "snapshot_id": snapshot, "parent_snapshot_id": head,
             "version_seq": version_seq, "run": run, "pins": pins, "moved": moved,
-            "served_edition": edition, "shadow_of": shadow_build, "code_version": code,
+            "served_edition": edition, "shadow_of": shadow_build, "code_version": code, "as_of": as_of,
             "every_pnu": every_pnu, "targets": targets, "recorded_explanation": recorded_explanation,
             "served_parcels": read.served_parcels, "rows": rows, "read_millis": read.read_millis,
             "sidos": sidos,
@@ -444,6 +493,46 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+/// Whether `text` is a UTC instant as the builds write them (`YYYY-MM-DDTHH:MM:SSZ`, with an
+/// optional fraction): safe to write into SQL as a literal.
+fn is_instant(text: &str) -> bool {
+    chrono::DateTime::parse_from_rfc3339(text).is_ok()
+        && text.ends_with('Z')
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'-' | b':' | b'T' | b'Z' | b'.'))
+}
+
+/// The instant the replaced table's build commit was built as of: its rows' newest
+/// `published_at_utc` (`onbid_public_auction_silver_to_gold.previous_build_time`; a merge that
+/// rebuilt some PNUs leaves its own instant on those and the older one on the rest).
+///
+/// # Errors
+/// Returns an error when the table cannot be read at `build`, holds no row, or its instant is not one.
+fn replaced_as_of(work: &Path, replaced: &str, build: i64) -> anyhow::Result<String> {
+    ensure!(
+        replaced
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'_' | b'.')),
+        "{replaced} is not a plain table name"
+    );
+    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
+    let instant: Option<String> = duck.connection().query_row(
+        &format!(
+            "SELECT CAST(max(published_at_utc) AS VARCHAR) FROM {LAKEHOUSE_CATALOG}.{replaced} \
+             AT (VERSION => {build})"
+        ),
+        [],
+        |row| row.get(0),
+    )?;
+    let instant = instant.with_context(|| format!("{replaced} holds no row at {build}"))?;
+    ensure!(
+        is_instant(&instant),
+        "{replaced} at {build} was built as of {instant:?}, not a UTC instant"
+    );
+    Ok(instant)
 }
 
 /// The key range of one 시도, as a predicate on `pnu` that skips the files outside it.
@@ -519,6 +608,7 @@ mod tests {
             &PARCEL_PANEL_BUILD,
             &OWNERSHIP_BUILD,
             &FACTORIES_BUILD,
+            &PUBLIC_AUCTION_BUILD,
         ] {
             let has = contract(kind.replaced)?
                 .columns
@@ -527,6 +617,21 @@ mod tests {
             assert_eq!(has, kind.stage.carries_place_id(), "{}", kind.table);
         }
         Ok(())
+    }
+
+    #[test]
+    fn an_instant_is_a_utc_rfc3339_time_and_nothing_else() {
+        for good in ["2099-01-02T03:04:05Z", "2099-01-02T03:04:05.123Z"] {
+            assert!(is_instant(good), "{good}");
+        }
+        for bad in [
+            "2099-01-02 03:04:05",
+            "2099-01-02T03:04:05+09:00",
+            "2099-01-02T03:04:05Z'",
+            "",
+        ] {
+            assert!(!is_instant(bad), "{bad}");
+        }
     }
 
     #[test]

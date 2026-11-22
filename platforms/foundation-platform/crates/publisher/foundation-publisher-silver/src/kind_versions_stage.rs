@@ -115,6 +115,51 @@ pub trait KindVersionsStage: Sync {
     fn current_rows_per_region(&self) -> bool {
         false
     }
+    /// Whether the kind's documents depend on the instant they are built as of, not only on its
+    /// inputs: an auction serves the rounds still open then (root ADR-0287 §7), so a round leaves its
+    /// document when it closes with no input moving. The build then stamps `published_at_utc` with
+    /// that instant (`as_of`, the Spark producers' `published_at_utc`), records it on the commit
+    /// (`foundation.as-of`), builds a shadow as of the instant the replaced build was, leaves
+    /// `as_of(instant_us)` (microseconds since the epoch) on the connection before [`spool`], and
+    /// builds every PNU on every run (root ADR-0326): [`Self::changed_pnus`] is never asked.
+    fn as_of_dependent(&self) -> bool {
+        false
+    }
+    /// Reads what the kind places by its own rule rather than as a row set re-keyed to the served
+    /// code (an auction's rounds: located, carried by the lineage, root ADR-0287 §7), once, into
+    /// spools under `dir_text` split by the served PNU's 시도 (`<name><suffix>/sido=<시도>`, a `pnu`
+    /// column each), after the served parcels (`served<suffix>`) and the row sets; returns each
+    /// input's read time by table name. Nothing by default.
+    ///
+    /// # Errors
+    /// Returns an error when an input cannot be read or `DuckDB` refuses a statement.
+    fn spool_more(
+        &self,
+        _connection: &Connection,
+        _source: &Source<'_>,
+        _suffix: &str,
+        _dir_text: &str,
+    ) -> anyhow::Result<BTreeMap<String, u64>> {
+        Ok(BTreeMap::new())
+    }
+    /// Loads one 시도 of what [`Self::spool_more`] left (`read` gives the reader of a spool's
+    /// `sido=<시도>` part, `None` when the 시도 has none); returns its rows. Nothing by default.
+    ///
+    /// # Errors
+    /// Returns an error when `DuckDB` cannot read the spool.
+    fn load_more(
+        &self,
+        _connection: &Connection,
+        _read: &dyn Fn(&str) -> Option<String>,
+        _suffix: &str,
+    ) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    /// The spools whose `pnu` column names the PNUs the place ids are read for: the row sets', by
+    /// default.
+    fn pnu_spools(&self) -> Vec<&'static str> {
+        self.row_sets().iter().map(|set| set.name).collect()
+    }
     /// Leaves an empty `built`, the table [`Self::build`] inserts into.
     ///
     /// # Errors
@@ -174,7 +219,7 @@ pub(crate) fn renumbering_join(column: &str, alias: &str, suffix: &str) -> Strin
 }
 
 /// A spool directory as `DuckDB` SQL text.
-fn sql_dir(dir: &Path) -> anyhow::Result<String> {
+pub(crate) fn sql_dir(dir: &Path) -> anyhow::Result<String> {
     let text = dir
         .to_str()
         .context("the spool directory must be UTF-8")?
@@ -187,7 +232,7 @@ fn sql_dir(dir: &Path) -> anyhow::Result<String> {
 }
 
 /// `COPY` of `query` (which has a `pnu` column) to `<dir>/<name>`, one directory per 시도 of `pnu`.
-const SPOOL_SQL: &str =
+pub(crate) const SPOOL_SQL: &str =
     "COPY (SELECT *, substr(pnu, 1, 2) AS sido FROM (@query@)) TO '@dir@/@name@' \
     (FORMAT parquet, COMPRESSION zstd, PARTITION_BY (sido), OVERWRITE_OR_IGNORE)";
 
@@ -310,21 +355,21 @@ pub fn spool(
             read_millis.insert(set.source.to_owned(), elapsed(at));
         }
     }
-    // The place ids of the PNUs the row sets hold, once (`place_id_join`): the others have no
+    read_millis.extend(stage.spool_more(connection, source, suffix, &dir_text)?);
+    // The place ids of the PNUs the kind's rows hold, once (`place_id_join`): the others have no
     // document to carry one.
-    if stage.carries_place_id() {
+    // A spool no row was written to has no directory, and none of its PNUs to ask about.
+    let held = stage
+        .pnu_spools()
+        .iter()
+        .filter(|name| dir.join(format!("{name}{suffix}")).is_dir())
+        .map(|name| {
+            format!("SELECT pnu FROM read_parquet('{dir_text}/{name}{suffix}/*/*.parquet')")
+        })
+        .collect::<Vec<_>>()
+        .join(" UNION ");
+    if stage.carries_place_id() && !held.is_empty() {
         let at = Instant::now();
-        let held = stage
-            .row_sets()
-            .iter()
-            .map(|set| {
-                format!(
-                    "SELECT pnu FROM read_parquet('{dir_text}/{}{suffix}/*/*.parquet')",
-                    set.name
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" UNION ");
         connection.execute_batch(&fill(
             SPOOL_SQL,
             &[
@@ -811,6 +856,7 @@ pub fn load_region(
             })?;
         rows += u64::try_from(count)?;
     }
+    rows += stage.load_more(connection, &part, suffix)?;
     if stage.carries_place_id() {
         let name = format!("{PLACE_IDS}{suffix}");
         let body = part(&name).map_or_else(
