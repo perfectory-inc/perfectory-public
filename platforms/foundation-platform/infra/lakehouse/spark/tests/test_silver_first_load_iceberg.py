@@ -79,6 +79,9 @@ OWN_WRITERS = {
     # The ILIS notice Silver load's two tables, appended by the publisher the same way (root ADR-0559).
     "silver.industrial_complex_notice_detail": NOTICE_FIRST_LOAD,
     "silver.industrial_complex_notice_attachment": NOTICE_FIRST_LOAD,
+    # The industrial-complex Silver load (load-industrial-complex-silver), appended by the publisher (root ADR-0559).
+    "silver.industrial_complexes": ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
+                                    "an_industrial_complex_export_is_the_first_append_into_the_empty_table"),
     # The 차세대 온비드 Silver load's eight tables, appended by the publisher the same way (root ADR-0559).
     "silver.onbid_real_estate_item": ONBID_FIRST_LOAD,
     "silver.onbid_item_bid_result": ONBID_FIRST_LOAD,

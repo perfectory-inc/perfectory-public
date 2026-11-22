@@ -22,21 +22,21 @@ fn the_newest_object_of_the_inputs_extension_is_taken() -> anyhow::Result<()> {
     let profile = &INPUTS[0];
     let objects = [
         listed(
-            "bronze/source=vworldkr__sandan_profile/99999-1.xlsx",
+            "bronze/source=vworldkr__sandan_profile/20991231DS99999-1.xlsx",
             "2099-03-01T00:00:00Z",
         ),
         listed(
-            "bronze/source=vworldkr__sandan_profile/99999-6.zip",
+            "bronze/source=vworldkr__sandan_profile/20991231DS99999-6.zip",
             "2099-02-01T00:00:00Z",
         ),
         listed(
-            "bronze/source=vworldkr__sandan_profile/99999-7.zip",
+            "bronze/source=vworldkr__sandan_profile/20991231DS99999-7.zip",
             "2099-02-02T00:00:00Z",
         ),
     ];
     assert_eq!(
         newest(profile, &objects)?,
-        ["bronze/source=vworldkr__sandan_profile/99999-7.zip"]
+        ["bronze/source=vworldkr__sandan_profile/20991231DS99999-7.zip"]
     );
     assert!(
         newest(profile, &objects[..1]).is_err(),
@@ -72,8 +72,11 @@ fn the_newest_detail_of_each_complex_is_taken() -> anyhow::Result<()> {
 fn a_fetched_object_lands_under_its_own_key_and_nowhere_else() -> anyhow::Result<()> {
     let root = std::path::Path::new("run");
     assert_eq!(
-        mirror_path(root, "bronze/source=vworldkr__sandan_profile/99999-6.zip")?,
-        root.join("bronze/source=vworldkr__sandan_profile/99999-6.zip")
+        mirror_path(
+            root,
+            "bronze/source=vworldkr__sandan_profile/20991231DS99999-6.zip"
+        )?,
+        root.join("bronze/source=vworldkr__sandan_profile/20991231DS99999-6.zip")
     );
     for key in [
         "silver/x.zip",

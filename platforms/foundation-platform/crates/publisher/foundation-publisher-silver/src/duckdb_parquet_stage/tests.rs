@@ -127,6 +127,17 @@ async fn catalog_partitioned(
             "date" => PrimitiveType::Date,
             "boolean" => PrimitiveType::Boolean,
             "timestamp" => PrimitiveType::Timestamptz,
+            decimal if decimal.starts_with("decimal(") => {
+                let (precision, scale) = decimal
+                    .trim_start_matches("decimal(")
+                    .trim_end_matches(')')
+                    .split_once(',')
+                    .context("decimal(P,S)")?;
+                PrimitiveType::Decimal {
+                    precision: precision.trim().parse()?,
+                    scale: scale.trim().parse()?,
+                }
+            }
             other => anyhow::bail!("this test has no Iceberg type for {other}"),
         });
         fields.push(Arc::new(if column.required {
@@ -1227,5 +1238,68 @@ fn rows_stream_as_json_objects_and_a_refusal_stops_the_read() -> anyhow::Result<
     });
     assert!(refused.is_err());
     assert_eq!(seen, 3000, "nothing after the refusal");
+    Ok(())
+}
+
+/// The industrial-complex Silver load (`load-industrial-complex-silver`, root ADR-0559): the stage's
+/// rows of a synthetic export are the first append into the empty table of the contract, its two
+/// decimal columns included, recorded under the export's input objects.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_industrial_complex_export_is_the_first_append_into_the_empty_table(
+) -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let table = contract("silver.industrial_complexes")?;
+    let catalog = catalog_with(&root.path().join("industrial_complexes"), table).await?;
+    let committer = LakehouseDataCommitter::new(Arc::clone(&catalog));
+    let shape = committer.table_shape(table.table_name).await?;
+    let export = root.path().join("export.jsonl");
+    std::fs::write(
+        &export,
+        include_str!("../industrial_complex_silver_stage/fixtures/export.jsonl"),
+    )?;
+    let stage = DuckDbParquetStage::open(&root.path().join("stage"))?;
+    let staged = crate::industrial_complex_silver_stage::stage_export(
+        &stage,
+        &shape,
+        table,
+        &export,
+        None,
+        "industrial-complexes-first",
+    )?;
+    assert_eq!((staged.rows, staged.changed), (2, 2));
+    let inputs = vec!["bronze/source=synthetic/profile-20991231DS99999-1.zip".to_owned()];
+    let (snapshot, parent, added) = appended(
+        committer
+            .append_at_head(
+                DataAppend {
+                    table_name: table.table_name,
+                    contract: table,
+                    files: staged.file.as_slice(),
+                    batch: &inputs,
+                    already_ingested: &BTreeSet::new(),
+                    summary: BTreeMap::new(),
+                },
+                None,
+            )
+            .await?,
+    )?;
+    assert_eq!((parent, added), (None, 1));
+    let scanned = scan_snapshot_rows(table, &LocalFiles, &snapshot).await?;
+    scanned.ensure_complete()?;
+    assert_eq!(scanned.rows.len(), 2);
+    let codes = scanned
+        .rows
+        .iter()
+        .map(|row| {
+            row["official_complex_code"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        codes,
+        BTreeSet::from(["99999A".to_owned(), "99999B".to_owned()])
+    );
     Ok(())
 }
