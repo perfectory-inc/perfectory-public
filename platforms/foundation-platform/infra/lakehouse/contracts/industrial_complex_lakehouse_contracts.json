@@ -8845,99 +8845,105 @@
       }
     },
     "gold.parcel_boundary_served_versions": {
-      "columns": [
-        {
-          "logical_type": "string",
-          "name": "pnu",
-          "required": true
-        },
-        {
-          "logical_type": "binary",
-          "name": "geometry_wkb",
-          "required": true
-        },
-        {
-          "logical_type": "int",
-          "name": "geometry_srid",
-          "required": true
-        },
-        {
-          "logical_type": "string",
-          "name": "geometry_checksum_sha256",
-          "required": true
-        },
-        {
-          "logical_type": "string",
-          "name": "origin",
-          "required": true
-        },
-        {
-          "logical_type": "string",
-          "name": "source_snapshot_id",
-          "required": true
-        },
-        {
-          "logical_type": "string",
-          "name": "silver_iceberg_snapshot_id",
-          "required": true
-        },
-        {
-          "logical_type": "long",
-          "name": "edits_through_change_seq",
-          "required": true
-        },
-        {
-          "logical_type": "timestamp",
-          "name": "published_at_utc",
-          "required": true
-        },
-        {
-          "logical_type": "long",
-          "name": "version_seq",
-          "required": true
-        },
-        {
-          "logical_type": "string",
-          "name": "row_state",
-          "required": false
-        }
-      ],
+      "table_name": "gold.parcel_boundary_served_versions",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
       "current_row_latest": {
-        "keep_ties": false,
         "key": [
           "pnu"
         ],
         "newest_first": [
           "version_seq"
         ],
-        "removal_column": "row_state"
+        "removal_column": "row_state",
+        "keep_ties": false
       },
-      "current_row_predicate": null,
       "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY pnu ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
-      "load": {
-        "unit": "derived"
+      "row_versions": {
+        "kind": "latest_per_key"
       },
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "geometry_wkb",
+          "logical_type": "binary",
+          "required": true
+        },
+        {
+          "name": "geometry_srid",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "origin",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "silver_iceberg_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "edits_through_change_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "version_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
       "partition_spec": [
         "truncate(2, pnu)"
       ],
-      "physical_format": "Parquet",
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "hash",
       "quality_gates": [
         "append_only",
         "(pnu, version_seq) unique",
         "of the current rows: geometry_srid = 4326",
         "of the current rows: one row per pnu",
         "of the current rows: origin is source or edit",
-        "of the current rows: geometry_checksum_sha256 is 64 lowercase hex"
+        "of the current rows: geometry_checksum_sha256 is 64 lowercase hex",
+        "of the current rows: row_digest contains content only"
       ],
-      "row_versions": {
-        "kind": "latest_per_key"
-      },
-      "serving_role": "Projection",
-      "sort_order": [
-        "pnu"
-      ],
-      "table_name": "gold.parcel_boundary_served_versions",
-      "write_distribution": "hash"
+      "load": {
+        "unit": "derived"
+      }
     },
     "reference.legal_dong_code_snapshot": {
       "table_name": "reference.legal_dong_code_snapshot",
