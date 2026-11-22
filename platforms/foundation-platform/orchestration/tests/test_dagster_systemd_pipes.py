@@ -162,9 +162,13 @@ class AJobDagsterRunsTest(unittest.TestCase):
 
         specs = observe_assets.job_specs.load_specs()
         if reconciles:
-            return next(spec for spec in specs if spec.reconciles)
-        # A collector: its outputs are its Silver refresh's too, which no asset definition could share.
-        return next(spec for spec in specs if spec.job_id == "onbid_public_auction_collect")
+            spec = next(spec for spec in specs if spec.reconciles)
+        else:
+            # A collector: its outputs are its Silver refresh's too, which no asset definition could share.
+            spec = next(spec for spec in specs if spec.job_id == "onbid_public_auction_collect")
+        # These runs answer Airflow; at `dagster` a failed try waits RETRY_DELAY_MINUTES in process (the
+        # merge queue's 15 minutes ran out, 2026-11-22). decided_by_dagster below covers that side.
+        return dataclasses.replace(spec, dagster_stage="proxied")
 
     def keys(self, spec):
         import observe_assets
