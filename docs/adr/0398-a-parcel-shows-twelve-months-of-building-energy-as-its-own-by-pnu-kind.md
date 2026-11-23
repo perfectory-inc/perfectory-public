@@ -72,3 +72,10 @@ Silver 에 쌓았다. 이 결정은 그것을 필지 화면에 보이는 방법�
   다른 원천의 이용 신청이 필요하다. 이 ADR 은 그것을 결정하지 않는다.
 - 실패가 막는 사고: 행이 없는 달을 0 으로 보이면 "공장이 멈췄다" 는 거짓 신호가 된다. `test_months_are_summed_per_energy_newest_first_and_unserved_parcels_left_out`
   과 웹 시험 "a missing month as -" 가 지킨다.
+
+## 개정 메모 2026-11-23: 생산자가 발행기 안의 DuckDB 로 넘어갔다
+
+레인의 표는 `gold.parcel_energy_versions` 이고 생산자는 `building_energy_stage`(발행기, `gold_parcel_energy_versions_build`)다. Spark 의
+`building_energy_silver_to_gold.py` 와 `gold_parcel_energy_rebuild` 는 지웠고, `gold.parcel_energy` 는 쓰지 않고 남긴다(루트 ADR-0564 Revision
+2026-11-23). 문서와 경로는 그대로다. 위에서 Spark 시험이 지키던 것은 발행기 단계의 시험이 지킨다
+(`building_energy_stage/tests.rs`: 달마다 에너지별로 더하고 새 달부터, 열두 달, 레지스트리 스키마의 칸 그대로).

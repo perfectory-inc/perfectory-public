@@ -4,55 +4,12 @@
   "group": "parcel-energy",
   "jobs": [
     {
-      "id": "gold_parcel_energy_rebuild",
-      "dagster_group": "gold",
-      "scope": "changed-keys",
-      "interruptible": true,
-      "commits": "as_it_goes",
-      "description": "건물 에너지 kind Gold (root ADR-0398; scripts/ops/gold-panel-rebuild.sh parcel-energy): gold.parcel_energy from silver.building_energy_monthly_electricity and _gas, when either Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs of the usage rows the Silver releases appended (and of parcels that entered or left the served edition) and merges them; a change of the code change table rebuilds whole (building_energy_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_energy_bake bakes its commit.",
-      "systemd_service": "foundation-gold-lane-rebuild@parcel-energy.service",
-      "systemd_timer": null,
-      "state_paths": [],
-      "schedule": "55 9 * * *",
-      "started_by": "inputs",
-      "stop_grace_minutes": 5,
-      "wait_limit_minutes": 0,
-      "time_limit_minutes": 150,
-      "memory_max": "512M",
-      "memory_measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the script foundation-gold-panel-rebuild.service runs (307M measured, 57 runs); Spark runs in its own capped container; systemd logs the peak of every run under this cap",
-      "per_run_cap": {
-        "unit": "run",
-        "limits": [],
-        "deadline": null,
-        "measured_run_seconds": null,
-        "first_run": {
-          "estimate_seconds": 900,
-          "estimated_from": "computed from the lane's own full build measured in its cut-over's gold step (the operator's copy of this unit, gold-panel-rebuild.sh parcel-energy): 241 s on 2026-11-09 for 1,446,147 rows from the two monthly usage Silver tables (gold-kind mode=full 209 s). A new Silver release can change every row, so the first run as its unit is taken as a full build again: about four times it, 900 s, inside the 8,100 s share of the 150-minute limit"
-        }
-      },
-      "pool": "spark",
-      "priority_weight": 20,
-      "retries": 0,
-      "pipeline_graph_edges": [
-        "silver-building-energy-monthly-electricity-to-gold-parcel-energy",
-        "silver-building-energy-monthly-gas-to-gold-parcel-energy",
-        "reference-legal-dong-code-change-to-gold-parcel-energy"
-      ],
-      "enabled": true,
-      "enabled_since": "2026-11-10T18:00:00Z",
-      "dagster_stage": "dagster",
-      "expected_outcome": {
-        "changes_within_hours": null,
-        "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
-      }
-    },
-    {
       "id": "gold_parcel_energy_versions_build",
       "dagster_group": "gold",
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "건물 에너지(전기·가스) 12 개월 kind Gold as a table of appended row versions (root ADR-0398, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-energy → publisher build-parcel-energy-versions): gold.parcel_energy_versions from the parcel's current monthly electricity and gas use (silver.building_energy_monthly_*), computed by DuckDB inside the publisher and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the lane serves gold.parcel_energy it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover verdict (gold-takeover-verdict.sh) compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise only the PNUs whose rows or served parcels changed. Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
+      "description": "건물 에너지(전기·가스) 12 개월 kind Gold as a table of appended row versions (root ADR-0398, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-energy → publisher build-parcel-energy-versions): gold.parcel_energy_versions from the parcel's current monthly electricity and gas use (silver.building_energy_monthly_*), computed by DuckDB inside the publisher and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. The lane's table since its takeover (the Spark gold_parcel_energy_rebuild and gold.parcel_energy's writes ended with it; takeover_equal was equal in 시도 41 on run 20261123T005744Z): it reads every input at its head. Nothing to do when its inputs, the served parcel edition and its code are the base commit's. A change of the code change table, the served edition or the code rebuilds every PNU; otherwise only the PNUs whose rows or served parcels changed. by_pnu_parcel_energy_bake bakes its commits.",
       "systemd_service": "foundation-gold-versions@parcel-energy.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -62,9 +19,9 @@
       "wait_limit_minutes": 0,
       "time_limit_minutes": 60,
       "memory_max": "8G",
-      "memory_measured_peak": "7373M",
-      "memory_measured": "its own: run 20261119T152616Z of foundation-gold-versions@parcel-nearby (2026-11-19 15:26-15:51Z, every served parcel, 39,861,511 rows committed in 1500 s), systemd's memory peak 7.2G, swap peak 13.5M; the publisher's own peak in its run log 7,733,563,392 bytes",
-      "memory_headroom_why": "The peak follows the cap, not the work: the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (parcel_nearby_versions_build MEMORY_SHARE) and DuckDB fills it and the page cache, so a larger memory_max would only raise the peak. The run fit: no timeout, 13.5M swap, under MemoryMax",
+      "memory_measured_peak": "3077M",
+      "memory_measured": "its own: run 20261123T005744Z of foundation-gold-versions@parcel-energy (2026-11-23 00:57-01:02Z, every served parcel's 10,917,379 usage rows in 17 시도, 1,449,777 rows committed in 275 s), the publisher's cgroup memory peak in its run log 3,225,636,864 bytes",
+      "memory_headroom_why": "The peak follows the cap, not the work: the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (parcel_nearby_versions_build MEMORY_SHARE), so a larger memory_max would only raise the peak. The run fit: no timeout, under MemoryMax",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -87,8 +44,7 @@
         "silver-building-energy-monthly-electricity-to-gold-parcel-energy-versions",
         "silver-building-energy-monthly-gas-to-gold-parcel-energy-versions",
         "silver-parcel-boundaries-to-gold-parcel-energy-versions",
-        "reference-legal-dong-code-change-to-gold-parcel-energy-versions",
-        "gold-parcel-energy-to-gold-parcel-energy-versions"
+        "reference-legal-dong-code-change-to-gold-parcel-energy-versions"
       ],
       "enabled": true,
       "enabled_since": "2026-11-22T00:00:00Z",
@@ -104,7 +60,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Reflect each new Gold snapshot of gold.parcel_energy (the own-producer 건물 에너지 kind, root ADR-0398) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-energy), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_energy_rebuild commits a new snapshot, and at 10:55 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound, for the same reason: never beside both the panel bake and another own-producer bake (root ADR-0138).",
+      "description": "Reflect each new commit of gold.parcel_energy_versions (the own-producer 건물 에너지 kind, root ADR-0398) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-energy), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_energy_versions_build commits; the first bake after the takeover is a full generation with a content check against the served one (root ADR-0564 §6-5), and at 10:55 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound, for the same reason: never beside both the panel bake and another own-producer bake (root ADR-0138).",
       "capabilities": [
         "by_pnu_kind_section_pack_patches"
       ],
@@ -142,7 +98,7 @@
       "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [
-        "gold-parcel-energy-to-parcel-energy-by-pnu-section-packs"
+        "gold-parcel-energy-versions-to-parcel-energy-by-pnu-section-packs"
       ],
       "enabled": true,
       "enabled_since": "2026-11-10T18:00:00Z",
@@ -158,12 +114,12 @@
       "id": "gold-parcel-energy",
       "type": "gold_table",
       "title": "필지 건물 에너지 by-PNU 표",
-      "description": "PNU마다 그 지번의 최근 12개월 전기(kWh)·가스 사용량(달마다 행 합계와 행 수)을 담는 데이터 종류 표(루트 ADR-0398). 계약의 종류 한 줄(parcel-energy)이 자기 생산자를 이름 짓고, 두 월별 에너지 Silver 에서 만든다. 서빙 필지판의 PNU만, 바뀐 필지만 다시 계산한다.",
+      "description": "PNU마다 그 지번의 최근 12개월 전기(kWh)·가스 사용량(달마다 행 합계와 행 수)을 담는 데이터 종류 표(루트 ADR-0398). 계약의 종류 한 줄(parcel-energy)이 자기 생산자를 이름 짓고, 두 월별 에너지 Silver 에서 만든다. 서빙 필지판의 PNU만, 바뀐 필지만 다시 계산한다. 넘겨받기(루트 ADR-0564 §6-4) 뒤로는 쓰지 않고 남긴다(쌓기만 한다): 레인은 gold.parcel_energy_versions 를 굽는다.",
       "status": "implemented",
+      "unscheduled": "replaced",
       "owner": "foundation-platform",
       "evidence_refs": [
-        "platforms/foundation-platform/config/r2-connections.contract.json",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_energy_silver_to_gold.py"
+        "platforms/foundation-platform/config/r2-connections.contract.json"
       ],
       "table_name": "gold.parcel_energy",
       "runtime_bindings": [
@@ -177,7 +133,7 @@
       "id": "gold-parcel-energy-versions",
       "type": "gold_table",
       "title": "필지 건물 에너지 by-PNU 표(판을 쌓는 표)",
-      "description": "루트 ADR-0398 의 건물 에너지(전기·가스) 12 개월 by-PNU 표를 판을 쌓는 표로(루트 ADR-0564 §1·§2): gold.parcel_energy 의 칸에 version_seq·row_state 를 더해 바뀐 PNU 의 행만 덧붙인다. 현재 행은 PNU 마다 version_seq 가 가장 큰 행이고 row_state 가 removed 면 그 PNU 는 없다. 발행기 안의 DuckDB 가 계산하고 발행기가 추가 커밋으로 붙인다. 레인이 옛 표를 굽는 동안은 그 표의 그림자다(옛 표 빌드 태그의 입력 핀으로 짓는다, 루트 ADR-0564 §6).",
+      "description": "루트 ADR-0398 의 건물 에너지(전기·가스) 12 개월 by-PNU 표를 판을 쌓는 표로(루트 ADR-0564 §1·§2): gold.parcel_energy 의 칸에 version_seq·row_state 를 더해 바뀐 PNU 의 행만 덧붙인다. 현재 행은 PNU 마다 version_seq 가 가장 큰 행이고 row_state 가 removed 면 그 PNU 는 없다. 발행기 안의 DuckDB 가 계산하고 발행기가 추가 커밋으로 붙인다. 레인이 굽는 표다(넘겨받기, 루트 ADR-0564 §6-4): 입력의 머리로 짓는다.",
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -197,7 +153,7 @@
       "id": "parcel-energy-by-pnu-section-packs",
       "type": "serving_surface",
       "title": "필지 건물 에너지 by-PNU 묶음 파일",
-      "description": "gold.parcel_energy 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/energy/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0398). 첫 발행은 운영자의 묶음 전용 관문을 거친다.",
+      "description": "gold.parcel_energy_versions 의 현재 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/energy/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0398). 첫 발행은 운영자의 묶음 전용 관문을 거친다.",
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -208,37 +164,6 @@
     }
   ],
   "dependencies": [
-    {
-      "from": "silver-building-energy-monthly-electricity",
-      "to": "gold-parcel-energy",
-      "relation": "feeds",
-      "status": "implemented",
-      "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_energy_silver_to_gold.py"
-      ],
-      "description": "자기 생산자를 가진 종류(루트 ADR-0287 9항, ADR-0398): 지번의 사용 월 행을 달마다 합쳐 서빙 필지판의 PNU에만 최근 12개월 문서로 묶는다. Silver 가 덧붙인 행의 PNU와 필지판에 들고 난 PNU만 다시 계산한다."
-    },
-    {
-      "from": "silver-building-energy-monthly-gas",
-      "to": "gold-parcel-energy",
-      "relation": "feeds",
-      "status": "implemented",
-      "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_energy_silver_to_gold.py"
-      ],
-      "description": "자기 생산자를 가진 종류(루트 ADR-0287 9항, ADR-0398): 지번의 사용 월 행을 달마다 합쳐 서빙 필지판의 PNU에만 최근 12개월 문서로 묶는다. Silver 가 덧붙인 행의 PNU와 필지판에 들고 난 PNU만 다시 계산한다."
-    },
-    {
-      "from": "reference-legal-dong-code-change",
-      "to": "gold-parcel-energy",
-      "relation": "feeds",
-      "status": "implemented",
-      "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_energy_silver_to_gold.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
-      ],
-      "description": "개편으로 바뀐 코드에 걸린 사용량 행을 서빙 필지판의 코드로 읽는다(모든 필지 섹션과 같은 renumbered, 루트 ADR-0329 §3). 이 표가 바뀌면 종류를 통째로 짓는다(루트 ADR-0398)."
-    },
     {
       "from": "silver-building-energy-monthly-electricity",
       "to": "gold-parcel-energy-versions",
@@ -280,33 +205,14 @@
       "description": "재편으로 바뀐 코드의 행을 서빙 코드로 읽는다(루트 ADR-0329 §3). 이 표가 바뀌면 모든 PNU 를 다시 짓는다."
     },
     {
-      "from": "gold-parcel-energy",
-      "to": "gold-parcel-energy-versions",
-      "relation": "feeds",
-      "status": "implemented",
-      "via": [
-        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_energy_stage.rs"
-      ],
-      "description": "그림자인 동안 옛 표의 foundation-gold-build 태그 커밋이 적은 입력 핀과 서빙 에디션으로 짓는다(루트 ADR-0564 §6): 옛 표의 데이터가 아니라 그 빌드의 핀을 읽는다."
-    },
-    {
-      "from": "gold-parcel-energy",
+      "from": "gold-parcel-energy-versions",
       "to": "parcel-energy-by-pnu-section-packs",
       "relation": "feeds",
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
-      ]
-    },
-    {
-      "from": "gold-parcel-energy-versions",
-      "to": "parcel-energy-by-pnu-section-packs",
-      "relation": "feeds",
-      "status": "planned",
-      "via": [
-        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md"
       ],
-      "description": "레인의 넘겨받기 PR 이 종류 줄의 gold_table 을 이 표로 바꾸면(판정 equal 뒤, 루트 ADR-0564 §6) 레인의 굽기가 이 표의 현재 행을 읽는다. 그때까지 아무도 읽지 않는 그림자다."
+      "description": "레인의 굽기가 이 표의 현재 행을 읽는다(넘겨받기, 루트 ADR-0564 §6-4). 넘겨받은 뒤 첫 굽기는 서빙 세대와 내용을 견주는 전량 세대다(§6-5)."
     }
   ],
   "by_pnu_lanes": {
@@ -319,17 +225,10 @@
       ],
       "producer": "building_energy_silver_to_gold",
       "versions_table": true,
+      "gold_table": "gold.parcel_energy_versions",
       "decision": "docs/adr/0398-a-parcel-shows-twelve-months-of-building-energy-as-its-own-by-pnu-kind.md",
-      "spark_held_test": "infra/lakehouse/spark/tests/test_building_energy_gold.py"
+      "spark_held_test": "crates/publisher/foundation-publisher-silver/src/building_energy_stage/tests.rs"
     }
-  },
-  "host_memory": {
-    "gold_parcel_energy_rebuild": [
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark"
-      }
-    ]
   },
   "published_schemas": [
     {
@@ -339,7 +238,7 @@
       "major": 1,
       "owner": {
         "lane": "parcel-energy",
-        "producer": "infra/lakehouse/spark/jobs/building_energy_silver_to_gold.py"
+        "producer": "crates/publisher/foundation-publisher-silver/src/building_energy_stage.rs"
       },
       "revisions": [
         {
@@ -429,17 +328,6 @@
             }
           ]
         }
-      ]
-    }
-  ],
-  "asset_checks": [
-    {
-      "asset": "gold-parcel-energy-versions",
-      "check": "takeover_equal",
-      "blocking": true,
-      "sido": "41",
-      "reads": [
-        "gold-parcel-energy"
       ]
     }
   ]

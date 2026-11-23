@@ -65,19 +65,22 @@ class Declared(unittest.TestCase):
         definitions = [json.loads(path.read_text(encoding="utf-8"))
                        for path in sorted((PLATFORM / "definitions").glob("*.definition.json"))]
         for table in ("gold.parcel_register_masters_versions", "gold.parcel_demolitions_versions",
-                      "gold.parcel_energy_versions", "gold.parcel_boundary_served_versions",
-                      "gold.parcel_panel_versions", "gold.unit_price_versions"):
+                      "gold.parcel_boundary_served_versions", "gold.parcel_panel_versions",
+                      "gold.unit_price_versions"):
             with self.subTest(table=table):
                 self.assertEqual(check.declared(run(table=table), definitions, {}), (table, "41"))
+        # A lane that took its table over shadows nothing and declares the check no more (root ADR-0564 §6-4).
+        self.assertIsNone(check.declared(run(table="gold.parcel_energy_versions", shadow_of=None), definitions, {}))
+        self.assertIsNone(check.declared(run(table="gold.parcel_energy_versions"), definitions, {}))
 
     def test_a_commit_clears_the_last_head_s_record(self):
         with tempfile.TemporaryDirectory() as work:
             work = pathlib.Path(work)
-            (work / "summary.json").write_text(json.dumps(run(table="gold.parcel_energy_versions")), encoding="utf-8")
+            (work / "summary.json").write_text(json.dumps(run(table="gold.parcel_demolitions_versions")), encoding="utf-8")
             state = work / "state.json"
             state.write_text(json.dumps({"completed": True}), encoding="utf-8")
             done = cli("declared", str(work / "summary.json"), str(PLATFORM / "definitions"), str(state))
-            self.assertEqual(done.stdout.split(), ["gold.parcel_energy_versions", "41"])
+            self.assertEqual(done.stdout.split(), ["gold.parcel_demolitions_versions", "41"])
             self.assertFalse(state.exists())
 
 

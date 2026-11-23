@@ -91,6 +91,8 @@ def main() -> None:
             ("unknown node type", "unknown node type", lambda g: g["nodes"][0].update(type="invented_type")),
             ("mismatched table binding", "runtime binding disagrees", lambda g: next(n for n in g["nodes"] if n["type"] == "silver_table")["runtime_bindings"][0].update(value="silver.wrong_table")),
             ("invented contract-only lane", "invented lane", lambda g: next(n for n in g["nodes"] if n["id"] == g["edges"][0]["to"]).update(status="contract_only")),
+            # Root ADR-0564 §6-4: a table its lane took over has no producer and no reader left.
+            ("a lane into a replaced table", "invented lane", lambda g: next(n for n in g["nodes"] if n["id"] == g["edges"][0]["to"]).update(unscheduled="replaced")),
             ("duplicate node ID", "node IDs", lambda g: g["nodes"].append(deepcopy(g["nodes"][0]))),
             ("old schema", "schema_version", lambda g: g.update(schema_version="foundation-platform.pipeline_graph.v1")),
         ]

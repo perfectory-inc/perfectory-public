@@ -1,5 +1,6 @@
-//! The parcel building energy kind's Gold in `DuckDB` (root ADR-0398, ADR-0564 §6): the twin of
-//! `building_energy_silver_to_gold.py`.
+//! The parcel building energy kind's Gold in `DuckDB` (root ADR-0398, ADR-0564 §6).
+//!
+//! The lane's producer since its takeover replaced the Spark `building_energy_silver_to_gold.py`.
 //!
 //! A PNU's document is its last [`MONTH_BOUND`] months of 전기 and 가스 use, newest first: per month
 //! the parcel's summed 사용량 of each energy (`decimal(38,3)`, the rows the provider wrote as digits

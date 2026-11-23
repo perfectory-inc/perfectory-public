@@ -70,7 +70,7 @@ export interface PipelineGraph {
     surface_kind?: string;
     /** The registry's own status (`implemented`, `planned`, `waiting`, …). */
     status?: string;
-    /** Why no scheduled job writes this lakehouse dataset: `on_event`, `not_started`, `needs_job` (root ADR-0234). */
+    /** Why no scheduled job writes this lakehouse dataset: `on_event`, `not_started`, `needs_job`, `replaced` (root ADR-0234, ADR-0564 §6-4). */
     unscheduled?: string;
     runtime_bindings?: { kind: string; value: string }[];
   }[];

@@ -503,3 +503,22 @@ UUIDv8). 건물 패널이 옮겨 올 때 그것을 부른다.
   붙는 것은 지금처럼 digest 가 바뀐 키뿐이다.
 - **가격 이력이 줄어드는 빌드는 붙이기 전에 거부한다**(Spark 의 `assert_price_histories_kept`, `max_price_history_shrink_fraction`). 커밋이 쓰는 키의
   머리 쪽 행과 새 행에서 호마다 기록 수를 모아 전국에서 견준다(다른 시도로 옮긴 호도 짝을 찾는다). 분모는 머리의 현재 행이 가진 호 전체다.
+
+## Revision 2026-11-23: 첫 넘겨받기 — 건물 에너지 (결정 6-4, W84b)
+
+- 고치는 곳: 결정 6-4(넘겨받기 PR 이 바꾸는 것), 한 레인의 순서 ④.
+
+`parcel-energy` 가 처음으로 넘겨받는다. 판정은 운영의 자산 검사다: `takeover_equal` 이 그림자 머리 `3875522570786167873`(옛 표 빌드
+`4206959693242110730` 의 핀)에 대해 통과했다(Dagster run `364e6235-9fc1-473d-9dc1-85dd00e6d1de`, 유닛 run `20261123T005744Z`; 시도 41 의
+286,663 행 모두 같음, 전국 1,449,777 행·키 해시 합·내용 해시 합·non-null 수가 같음, 시도의 문서 286,663 개 모두 스키마 통과). 첫 판정(전량)으로
+넘겨받는다. 둘째 판정(증분 길)은 돌지 않았다: 그림자는 첫 전량 커밋(`version_seq` 1) 하나뿐이다. 이것이 이 넘겨받기의 한계이고, 넘겨받은 뒤의
+첫 바뀐 키 실행은 다음 굽기의 패치가 처음 쓴다.
+
+- **넘겨받기 PR 이 바꾸는 것.** 종류 줄의 `gold_table` 을 쌓는 표로, `spark_held_test` 를 발행기 단계의 시험으로, 옛 생산 작업
+  (`gold_parcel_energy_rebuild`)과 그 `host_memory` 를 정의에서 빼고, Spark 파일과 시험을 지우고, 엔진 장부 줄을 `moved`(PR·전국 행 수·
+  `rows:N;content_hash_sum:…`)로, 코드 버전 장부(`gold-panel-rebuild.contract.json` `plumbing_symbols`)의 그 생산자 줄을 지운다. 그림자의
+  핀은 `gold_table` 이 바뀌는 것만으로 풀린다(`gold_versions_commit::shadow`: 레인이 쌓는 표를 구우면 `None`). 그림자 자산의 `takeover_equal`
+  선언은 뺀다 — 그림자가 아니면 판정할 짝이 없다(`gold_takeover_check.declared` 도 그림자 아닌 실행을 판정하지 않는다).
+- **옛 표의 노드는 남고 `unscheduled: replaced` 를 말한다.** 옛 표는 계약·데이터가 남으므로(결정 1, 지우는 것은 30 일 뒤 런북) 파이프라인 그래프의
+  표로 남는다. 생산 작업도 읽는 이도 없으므로 그 까닭을 `replaced` 로 적는다(`job_specs.UNSCHEDULED`, `pipeline-graph.v1` 의 enum). 연결 규칙은
+  `contract_only` 처럼 그 노드를 섬으로 받고(`pipeline_graph.reconcile`), 그 노드에 닿는 구현된 간선은 지어낸 길로 거부한다.

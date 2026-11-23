@@ -132,3 +132,73 @@ fn a_partial_run_names_the_pnus_whose_rows_changed() -> anyhow::Result<()> {
     assert_eq!(ENERGY.changed_pnus(&connection)?, 1);
     Ok(())
 }
+
+/// Every field path of a JSON value under `at`, in the records' grammar (`a.b`, `a[].b`).
+fn json_paths(value: &serde_json::Value, at: &str, paths: &mut std::collections::BTreeSet<String>) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            for (name, inner) in fields {
+                let path = format!("{at}.{name}");
+                paths.insert(path.clone());
+                json_paths(inner, &path, paths);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                json_paths(item, &format!("{at}[]"), paths);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Every property path a JSON Schema declares under `at`, in the same grammar.
+fn schema_paths(
+    schema: &serde_json::Value,
+    at: &str,
+    paths: &mut std::collections::BTreeSet<String>,
+) {
+    if let Some(properties) = schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+    {
+        for (name, inner) in properties {
+            let path = format!("{at}.{name}");
+            paths.insert(path.clone());
+            schema_paths(inner, &path, paths);
+        }
+    }
+    if let Some(items) = schema.get("items") {
+        schema_paths(items, &format!("{at}[]"), paths);
+    }
+}
+
+/// The lane's `spark_held_test` (root ADR-0418 §8c): the document this stage writes carries exactly
+/// the fields of the subject's registered schema, as the deleted Spark job's test held it.
+#[test]
+fn a_document_carries_exactly_the_registry_s_fields() -> anyhow::Result<()> {
+    let schema: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../contracts/schema-registry/parcel_energy_by_pnu/1/1.schema.json"
+    ))?;
+    let mut recorded = std::collections::BTreeSet::new();
+    schema_paths(&schema["properties"]["energy"], "energy", &mut recorded);
+    let connection = Connection::open_in_memory()?;
+    // A month with both energies and one with an unreadable row: every field is written.
+    load(
+        &connection,
+        &[usage("b1", "202501", "7"), usage("b2", "202501", "n/a")],
+        &[usage("b1", "202501", "3")],
+    )?;
+    crate::kind_versions_stage::read_for_test(&ENERGY, &connection, EDITION, "")?;
+    ENERGY.build(
+        &connection,
+        true,
+        "999990000000000001",
+        "2099-01-03T00:00:00Z",
+    )?;
+    let (json, _) = document(&connection)?;
+    let mut written = std::collections::BTreeSet::new();
+    json_paths(&serde_json::from_str(&json)?, "energy", &mut written);
+    assert_eq!(written, recorded);
+    Ok(())
+}
