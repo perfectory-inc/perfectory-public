@@ -132,7 +132,7 @@ class AutoPromotion(unittest.TestCase):
         metrics = self.root / "asset-reconcile.prom"
         self.env["FOUNDATION_AUTO_PROMOTE_ASSET_METRICS"] = str(metrics)
         metrics.write_text('foundation_asset_owed{asset="perfectory://parcel-real-transaction-by-pnu-section-packs",'
-                           'job="by_pnu_parcel_real_transaction_bake"} 1\n')
+                           'job_id="by_pnu_parcel_real_transaction_bake"} 1\n')
         os.utime(metrics, (NIGHT, NIGHT))
         self.pending("parcel-ownership", "parcel-nearby")
         (self.ops / "GOLD_LOCK").write_text("parcel-ownership yes\nparcel-nearby no\n")

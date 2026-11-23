@@ -628,7 +628,7 @@ class Reconciler(unittest.TestCase):
         self.assertIn('foundation_dagster_code_location_loaded{location="definitions.py"} 0\n', text)
         self.assertIn("foundation_dual_run_jobs 2\n", text)
         self.assertIn('foundation_dual_run_last_comparison_timestamp_seconds{job_id="synthetic_a"} 1800000000.5\n', text)
-        self.assertNotIn('job="synthetic_b"', text, "a job that never compared has no time")
+        self.assertNotIn('job_id="synthetic_b"', text, "a job that never compared has no time")
         self.assertIn('j0: assetCheckExecutions(assetKey: {path: ["foundation_airflow", "dag", "foundation_synthetic_a"]},'
                       ' checkName: "dual_run_matches_airflow", limit: 1)', asked[0], "one query, in job order")
         loaded = asset_reconcile.dagster_state(observing, dag_ids, lambda query: {"workspaceOrError": {"locationEntries": [
