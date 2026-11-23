@@ -1,7 +1,7 @@
 """What ages out on the host, and what never may (root ADR-0198).
 
-The tmpfiles rule must clean the scratch tree and nothing that holds production state; the
-journal must be capped; the daily prune must bound the build cache without touching tagged
+The tmpfiles rules must clean the scratch tree and Spark's temporary tree, the second only past
+every job's time limit, and nothing that holds production state; the journal must be capped; the daily prune must bound the build cache without touching tagged
 images or volumes; and the release must install every file it ships under infra/host.
 """
 
@@ -23,6 +23,7 @@ from unittest import mock
 AREA = pathlib.Path(__file__).resolve().parents[2]
 HOST = AREA / "infra" / "host"
 SCRATCH = "/data/foundation-platform/claude-scratch"
+SPARK_TMP = "/data/foundation-platform/spark-tmp"
 # Production state on the host. A rule may not name one of these, sit inside one, or contain one.
 PROTECTED = (
     "/var/lib/foundation-platform",
@@ -54,15 +55,28 @@ def age_days(age: str) -> float:
     return int(value[:-1]) * units[value[-1]] / DAY
 
 
+def rule_for(path: str) -> list[str]:
+    return next(rule for rule in tmpfiles_rules() if rule[1] == path)
+
+
+def longest_job_minutes() -> int:
+    """The longest time limit with its stop grace of any job the definitions declare."""
+    longest = 0
+    for definition in (AREA / "definitions").glob("*.definition.json"):
+        for job in json.loads(definition.read_text(encoding="utf-8")).get("jobs", []):
+            minutes = (job.get("time_limit_minutes") or 0) + (job.get("stop_grace_minutes") or 0)
+            longest = max(longest, minutes)
+    return longest
+
+
 def within(path: str, root: str) -> bool:
     return path == root or path.startswith(root.rstrip("/") + "/")
 
 
 class TheScratchRule(unittest.TestCase):
     def test_it_ages_out_only_the_scratch_tree_within_three_days(self):
-        rules = tmpfiles_rules()
-        self.assertEqual([rule[1] for rule in rules], [SCRATCH])
-        kind, path, mode, user, group, age = rules[0]
+        self.assertEqual(sorted(rule[1] for rule in tmpfiles_rules()), sorted([SCRATCH, SPARK_TMP]))
+        kind, path, mode, user, group, age = rule_for(SCRATCH)
         # `e` cleans an existing directory and never creates, chowns or removes it.
         self.assertEqual((kind, mode, user, group), ("e", "-", "-", "-"))
         self.assertTrue(age.startswith("mM:"), "age by modification time, not by the last read")
@@ -95,6 +109,48 @@ class TheScratchRule(unittest.TestCase):
             self.assertFalse(old.exists(), "a file not written for four days survived")
             self.assertTrue(new.exists(), "a file written today was removed")
             self.assertTrue(scratch.is_dir(), "the scratch directory itself was removed")
+
+
+class TheSparkTmpRule(unittest.TestCase):
+    """Root ADR-0611: what killed Spark runs left in the containers' /tmp ages out, never a live run's."""
+
+    def test_it_ages_out_only_past_every_jobs_time_limit(self):
+        kind, path, mode, user, group, age = rule_for(SPARK_TMP)
+        self.assertEqual((kind, mode, user, group), ("e", "-", "-", "-"))
+        self.assertTrue(age.startswith("mM:"), "age by modification time, not by the last read")
+        longest = longest_job_minutes()
+        self.assertGreater(longest, 0, "no job's time limit was read")
+        self.assertGreater(age_days(age) * 24 * 60, longest, "a live run's files could age out")
+        self.assertLessEqual(age_days(age), 3)
+
+    def test_it_names_the_tree_every_spark_container_mounts(self):
+        layout = json.loads((AREA / "config" / "host-layout.contract.json").read_text(encoding="utf-8"))
+        self.assertEqual(layout["spark_tmp"], SPARK_TMP)
+
+    @unittest.skipUnless(shutil.which("systemd-tmpfiles"), "systemd-tmpfiles runs on the Linux CI runner")
+    def test_systemd_tmpfiles_removes_a_dead_runs_block_manager_and_keeps_a_live_ones(self):
+        with tempfile.TemporaryDirectory(prefix="host-retention-") as temporary:
+            spark_tmp = pathlib.Path(temporary) / "spark-tmp"
+            spark_tmp.mkdir()
+            spark_tmp.chmod(0o1777)
+            dead = spark_tmp / "blockmgr-dead" / "0c"
+            live = spark_tmp / "blockmgr-live" / "0c"
+            dead.mkdir(parents=True)
+            live.mkdir(parents=True)
+            (dead / "shuffle_0_0_0.data").write_bytes(b"x")
+            (live / "shuffle_0_0_0.data").write_bytes(b"x")
+            stale = time.time() - 3 * DAY
+            started = time.time() - longest_job_minutes() * 60
+            for path, when in ((dead / "shuffle_0_0_0.data", stale), (dead, stale), (dead.parent, stale),
+                               (live / "shuffle_0_0_0.data", started), (live, started), (live.parent, started)):
+                os.utime(path, (time.time(), when))
+            conf = pathlib.Path(temporary) / "spark-tmp.conf"
+            rule = (HOST / "tmpfiles.d" / "foundation-spark-tmp.conf").read_text(encoding="utf-8")
+            conf.write_text(rule.replace(SPARK_TMP, str(spark_tmp)), encoding="utf-8")
+            subprocess.run(["systemd-tmpfiles", "--clean", str(conf)], check=True)
+            self.assertFalse((dead / "shuffle_0_0_0.data").exists(), "a dead run's file survived")
+            self.assertTrue((live / "shuffle_0_0_0.data").exists(), "a file of a run within its limit went")
+            self.assertTrue(spark_tmp.is_dir(), "the tree itself was removed")
 
 
 class TheJournalCap(unittest.TestCase):

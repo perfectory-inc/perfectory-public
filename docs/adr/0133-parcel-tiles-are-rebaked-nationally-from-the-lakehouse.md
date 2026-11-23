@@ -74,3 +74,5 @@ ADR-0112는 세 폴리곤 unit을 R2 기본판 하나로 서비스하고, 오븐
   동등성 검사, bake의 원천 기록 규칙 변경(마이그레이션), 예약 작업, 런북.
 - 버퍼 폭 차이로 새 판의 타일은 경계 밖 이웃 필지를 조금 더 담는다. 화면에서는 타일 경계에서 잘리므로
   보이는 결과는 같다.
+
+- 2026-11-23 개정 주석: 작업 디스크의 배수는 첫 전국 굽기들이 잰 값에서 온다(8 → 2), 굽기는 unit 잠금을 쥐고 앞선 run 이 남긴 작업 폴더를 먼저 치운다([ADR-0611](./0611-a-tile-bake-sizes-its-work-disk-from-measurement-and-removes-what-its-earlier-runs-left-and-spark-tmp-ages-out.md)).

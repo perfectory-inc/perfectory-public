@@ -84,7 +84,7 @@ journalctl -u 'foundation-map-edit-fold@*' --since today -o cat | tail -20  # jo
 | 입력 요약 | 서빙본 요약의 `schema_version` | `polygon_served_gold.v1` 이면 `..._SERVED_HANDOFF` 는 JSONL 파일 하나다. `polygon_served_gold.v2` 이면 `..._SERVED_HANDOFF` 는 조각 폴더다. 요약의 `handoff_parts[{path, rows, sha256}]` 에 적힌 `path` 는 그 폴더 기준 상대 경로다 |
 | 조각 검사 | `lakehouse_tile_bake.rs` 의 `prepare_handoff` | 조각을 한 번 흘려 읽는다. 읽으면서 행마다 검사하고, 조각마다 행 수와 SHA-256 을 요약과 대조하고, GDAL 입력을 쓴다. id 는 하나마다 16바이트 hash 만 남긴다 |
 | 컨테이너 상한 | [`config/tile-bake-containers.contract.json`](../../config/tile-bake-containers.contract.json) 의 `images.*.memory_limit` | 컨테이너를 `--memory <상한> --memory-swap <상한>` 으로 띄운다. 호스트 합계에는 `tools/host-memory-budget.contract.json` 의 `one_shot_contracts` 를 거쳐 한 번만 도는 작업으로 들어간다 |
-| 작업 디스크 | 같은 계약의 `work_disk` | 시작 전에 `..._WORK_ROOT` 의 여유 공간을 본다. `max(min_free_bytes, 입력 바이트 × min_free_bytes_per_handoff_byte)` 보다 작으면 거부한다. 작업 폴더 `<WORK_ROOT>/<unit>-<uuid>` 에는 GDAL CSV, GeoJSON 줄, tippecanoe 임시 폴더(`-t /w/tmp`), 결과 판이 생긴다. 굽기가 끝나면 폴더를 지운다 |
+| 작업 디스크 | 같은 계약의 `work_disk` | 시작 전에 `..._WORK_ROOT` 의 여유 공간을 본다. `max(min_free_bytes, 입력 바이트 × min_free_bytes_per_handoff_byte)` 보다 작으면 거부한다. 작업 폴더 `<WORK_ROOT>/<unit>-<uuid>` 에는 GDAL CSV, GeoJSON 줄, tippecanoe 임시 폴더(`-t /w/tmp`), 결과 판이 생긴다. 굽기가 끝나면 폴더를 지운다. 굽기는 `<WORK_ROOT>/<unit>.lock` 을 쥐고, 시간 한도에 죽은 run 이 남긴 `<unit>-<uuid>` 를 먼저 지운다(루트 ADR-0611) |
 | maxzoom 관문 | `pmtiles_feature_ids.rs` | PMTiles 디렉터리를 타일 id 순서로 따라가며 maxzoom 타일만 읽는다. MVT 에서는 layer 이름, 속성표, feature 태그만 해독하고 도형은 읽지 않는다. 빠진 id 와 남는 id 를 세고, 다섯 개까지 이름을 남긴다 |
 
 전국 필지의 작업 루트는 루트 디스크가 아니라 `/data` 아래(`work_disk.production_root`)에 둔다. 산업단지·행정경계는

@@ -39,7 +39,7 @@
 #
 # Every byte of work lives under the tile-bake contract's work_disk.production_root, on the data
 # disk (config/tile-bake-containers.contract.json); the root disk only holds the journal and the
-# state files. Run directories stay as evidence.
+# state files. Run directories stay as evidence; the handoff in one no state file names goes (root ADR-0611).
 #
 # The last line is `foundation-job-outcome changed` when gold made a run ready or bake promoted,
 # `unchanged` otherwise.
@@ -186,6 +186,38 @@ spark() {
     --conf spark.local.dir=/scratch --jars "${SPARK_RELEASE_JARS}" \
     "/workspace/infra/lakehouse/spark/jobs/$1" "${@:2}" >>"${run_log}" 2>&1
 }
+
+# Root ADR-0611: a run's handoff (served/) is read only while a state file names its run; once a
+# newer Gold took its place or its tiles were baked, nothing reads it again. Every start removes the
+# handoffs no state file names and keeps the rest of their runs (logs, summary, verdict) as evidence.
+# Under the bake lock, so no half is writing one. A handoff the Spark container wrote (uid 185, before
+# root ADR-0602's switch) is not this account's to remove: the lakehouse write check's container, as
+# that user, removes it. One that stays is journalled and does not stop the run.
+prune_handoffs() {
+  local named=" " state run bytes
+  for state in "${STATE_ROOT}/ready" "${STATE_ROOT}/rehearsal-ready"; do
+    if [[ -s "${state}" ]]; then named+="$(cut -d' ' -f2 "${state}") "; fi
+  done
+  for run in "${lakehouse_root}"/parcel-tile-bake/*/served; do
+    [[ -d "${run}" ]] || continue
+    run="${run%/served}"
+    if [[ "${named}" == *" ${run} "* ]]; then continue; fi
+    bytes="$(du -sb -- "${run}/served" 2>/dev/null | cut -f1 || true)"
+    rm -rf -- "${run}/served" 2>/dev/null || true
+    if [[ -e "${run}/served" ]]; then
+      FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${lakehouse_root}" \
+      FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
+        lakehouse_spark_run "foundation-parcel-tile-bake-${INVOCATION_ID}" lakehouse-target-init \
+        rm -rf -- "${container_root}/parcel-tile-bake/${run##*/}/served" >/dev/null 2>&1 || true
+    fi
+    if [[ -e "${run}/served" ]]; then
+      job_journal "${journal}" "could not remove the handoff of ${run##*/}, which no state file names"
+    else
+      job_journal "${journal}" "removed the handoff of ${run##*/} (${bytes:-unknown} bytes): no state file names it"
+    fi
+  done
+}
+prune_handoffs
 
 if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
   # Root ADR-0375 §2: a bake declined the partial fold handoff; this run rebuilds the served Gold.
