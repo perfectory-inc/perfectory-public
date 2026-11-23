@@ -8,24 +8,6 @@
 [profile.default]
 slow-timeout = { period = "20s", terminate-after = 3 }
 
-# The 차세대 온비드 stage's fixture tests, one per role: each plans the role's row SQL (dozens of nested
-# macros per column) in the bundled DuckDB, which the dev profile builds unoptimized. Measured on CI
-# 2026-11-19 (run 44565767978): 2.3-9.8 s for six roles, 23.8 s and 48.1 s for the two widest (item bid
-# information, item detail); the same eight take 6.7 s together in an optimized DuckDB. All eight in one
-# test ran past 60 s (run 44440260869). Their limit is their own.
-[[profile.default.overrides]]
-filter = 'package(foundation-publisher-silver) and test(/^onbid_silver_stage::tests::the_staged_.*_rows_are_the_rows_the_spark_job_built$/)'
-slow-timeout = { period = "30s", terminate-after = 4 }
-
-# The 실거래 Gold document's fixture tests (W81e) and the court auction search's two widest (물건 검색): each
-# assembles its rows through the bundled DuckDB, which the dev profile builds unoptimized. Measured on CI
-# 2026-11-22: the document tests 11.7-35.2 s (run 45081478292); the search's completeness test 33.5 s alone
-# (run 45079074151) and past 60 s on all three tries when it ran beside the document tests (run 45081478292),
-# its row test 20.3 s. Their limit is their own, as the 온비드 stage's above.
-[[profile.default.overrides]]
-filter = 'package(foundation-publisher-silver) and (test(/^real_transaction_gold_stage::document_tests::/) or test(/^courtauction_silver_stage::tests::a_search_/))'
-slow-timeout = { period = "30s", terminate-after = 4 }
-
 # The profile CI runs (`NEXTEST_PROFILE=ci`, set by scripts/ci/rust-setup.sh; root ADR-0269), as
 # oxidecomputer/omicron's: a failing test runs twice more so a flake is named FLAKY in the log, and
 # it still fails the run. It inherits everything above.
