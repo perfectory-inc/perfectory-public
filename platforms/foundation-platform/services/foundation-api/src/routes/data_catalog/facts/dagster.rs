@@ -276,7 +276,9 @@ fn runs_of(
 /// One Dagster run: made (`creationTime`) when it was queued, started when its op could start (after
 /// its pool's wait), ended when its last try did. An op tries again inside the same run, so a run
 /// waiting for its next try is still running. A run that succeeded saying it waits, or that it was
-/// skipped, ended waiting.
+/// skipped, is a success here as the data catalog showed it (its word stays in `native_result`): on
+/// 2026-11-23 counting those as no success would have called 19 more jobs late (15 to 34), the Gold
+/// builds that wait for their inputs every day among them.
 fn run_of(run: &JsonValue) -> Option<ScheduledJobRun> {
     let status = run["status"].as_str()?;
     let outcome_tag = run["tags"]
@@ -287,9 +289,6 @@ fn run_of(run: &JsonValue) -> Option<ScheduledJobRun> {
         .and_then(|tag| tag["value"].as_str())
         .filter(|outcome| !outcome.is_empty());
     let outcome = match status {
-        "SUCCESS" if matches!(outcome_tag, Some("waiting" | "skipped")) => {
-            ScheduledJobRunOutcome::Skipped
-        }
         "SUCCESS" => ScheduledJobRunOutcome::Succeeded,
         // Cancelled: stopped before its work ended (its time limit, or the DAG that launched it was
         // stopped), which is no success.
@@ -409,7 +408,7 @@ mod tests {
 
     #[test]
     fn a_dagster_run_is_queued_when_made_works_from_its_start_and_says_how_it_ended() {
-        use ScheduledJobRunOutcome::{Failed, Running, Skipped, Succeeded, Unknown};
+        use ScheduledJobRunOutcome::{Failed, Running, Succeeded, Unknown};
         let runs = runs_of(&["synthetic_load"], &synthetic_runs())
             .unwrap_or_else(|error| unreachable!("{error}"));
         let runs = &runs["synthetic_load"];
@@ -428,7 +427,7 @@ mod tests {
             vec![
                 ("r-queued", Running, None),
                 ("r-retrying", Running, None),
-                ("r-waited", Skipped, Some("SUCCESS waiting")),
+                ("r-waited", Succeeded, Some("SUCCESS waiting")),
                 ("r-changed", Succeeded, Some("SUCCESS changed")),
                 ("r-failed", Failed, Some("FAILURE failed")),
                 ("r-cancelled", Failed, Some("CANCELED")),
