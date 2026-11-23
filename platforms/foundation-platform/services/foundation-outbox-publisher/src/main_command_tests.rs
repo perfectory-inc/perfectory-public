@@ -389,6 +389,10 @@ fn build_versions_commands_are_explicit() -> anyhow::Result<()> {
             "export-unit-official-price-takeover-sides",
             Command::ExportUnitOfficialPriceTakeoverSides,
         ),
+        (
+            "build-parcel-court-auction-versions",
+            Command::BuildParcelCourtAuctionVersions,
+        ),
     ] {
         assert_eq!(
             parse_command(["foundation-outbox-publisher", name])?,

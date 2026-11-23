@@ -19,6 +19,7 @@
 # lineage-review-queue → build-lineage-review-queue-versions (root ADR-0113 §10·0483 §5, 레인 밖 표: 스튜어드 큐,
 # ADR-0564 §6-9; 선언된 판정 검사가 없다).
 # parcel-public-auction → build-parcel-public-auction-versions (root ADR-0287·0340, 같은 그림자 길; 빌드 시각이 입력).
+# parcel-court-auction → build-parcel-court-auction-versions (root ADR-0287·0353·0540, 같은 길; 빌드 시각이 입력).
 # parcel-real-transaction → build-parcel-real-transaction-versions (root ADR-0350·0371, 같은 그림자 길: 거래는
 # 주소로 놓이므로 종류 단계가 아닌 자기 단계 real_transaction_versions_stage 가 놓임이 넘지 않는 시군구 묶음마다 짓는다).
 # unit-price → build-unit-price-versions (root ADR-0190·0204, ADR-0564 §9 차례 4: 호 공시가격 레인의 Gold, 같은 그림자 길).
@@ -44,6 +45,7 @@ case "${lane}" in
   parcel-factories) command=build-parcel-factories-versions ;;
   lineage-review-queue) command=build-lineage-review-queue-versions ;;
   parcel-public-auction) command=build-parcel-public-auction-versions ;;
+  parcel-court-auction) command=build-parcel-court-auction-versions ;;
   parcel-real-transaction) command=build-parcel-real-transaction-versions ;;
   unit-price) command=build-unit-price-versions ;;
   place-id) command=build-place-id-versions ;;

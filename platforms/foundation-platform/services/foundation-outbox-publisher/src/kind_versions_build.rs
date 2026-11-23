@@ -34,6 +34,7 @@ use foundation_publisher_silver::{
     building_energy_stage::ENERGY,
     building_permit_stage::BUILDING_PERMITS,
     building_sub_parcel_stage::SUB_PARCELS,
+    court_kind_stage::COURT_AUCTION,
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
     factory_kind_stage::FACTORIES,
     kind_versions_stage::{
@@ -245,6 +246,16 @@ pub(crate) const UNIT_PRICE_BUILD: KindBuild = KindBuild {
     job: "build-unit-price-versions",
     stage: &UNIT_PRICE,
     per_sido_commits: false,
+};
+
+/// Lane 9: the 경매 items in progress and sale results (root ADR-0287, ADR-0353, ADR-0540), built as
+/// of an instant.
+pub(crate) const COURT_AUCTION_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_court_auction_versions",
+    lane: "parcel-court-auction",
+    replaced: "gold.parcel_court_auction",
+    job: "build-parcel-court-auction-versions",
+    stage: &COURT_AUCTION,
 };
 
 /// Builds and appends `kind`'s changed keys.

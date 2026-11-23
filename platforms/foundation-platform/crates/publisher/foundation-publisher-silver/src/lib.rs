@@ -200,6 +200,8 @@ pub mod lineage_carry_stage;
 pub mod lineage_review_queue_stage;
 /// The 공매 kind's Gold in `DuckDB` (root ADR-0287, ADR-0340).
 pub mod onbid_kind_stage;
+/// The 경매 kind's Gold in `DuckDB` (root ADR-0287, ADR-0353, ADR-0540).
+pub mod court_kind_stage;
 
 /// The parcel lineage as every consumer reads it: steward decisions in force (root ADR-0115 §9).
 pub mod lineage_steward_read;
