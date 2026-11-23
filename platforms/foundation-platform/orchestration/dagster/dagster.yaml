@@ -34,7 +34,6 @@ run_coordinator:
   module: dagster._core.run_coordinator
   class: QueuedRunCoordinator
   config:
-    max_concurrent_runs: 7
     # A launch the code server does not answer in time goes back into the queue, up to three times a minute
     # apart, instead of failing (dagster 1.13.27 QueuedRunCoordinatorDaemon: DagsterUserCodeUnreachableError,
     # which a gRPC timeout raises). 2026-11-20 15:35Z, load in the 20s-40s, map_edit_fold_admin's tick run
@@ -43,13 +42,6 @@ run_coordinator:
     # the retry launches it once.
     max_user_code_failure_retries: 3
     user_code_failure_retry_delay: 60
-    tag_concurrency_limits:
-      - key: foundation/run
-        value: job
-        limit: 6
-      - key: foundation/decided-by
-        value: dagster
-        limit: 5
 
 # Dagster's own pools (root ADR-0605): a run holds one slot of its op's pool from dequeue to its end
 # (granularity run; op granularity would start runs whose one op then waits, each a 170 MiB process). A
@@ -58,6 +50,19 @@ concurrency:
   pools:
     granularity: run
     default_limit: 1
+  # The run queue's limits (above). With a `concurrency` section Dagster reads them only here: one left in
+  # run_coordinator's config makes the instance refuse to load (dagster 1.13.27
+  # validate_concurrency_config; 2026-11-23 from about 01:35Z the daemon and both webservers restarted in a
+  # loop on the root ADR-0605 deploy, and no run Dagster decides was queued or started).
+  runs:
+    max_concurrent_runs: 7
+    tag_concurrency_limits:
+      - key: foundation/run
+        value: job
+        limit: 6
+      - key: foundation/decided-by
+        value: dagster
+        limit: 5
 
 # The default run launcher cannot tell whether a run's process is alive (dagster 1.13.27: no worker
 # health check), so a run whose process died stays STARTED until its max runtime: a job's run says its
