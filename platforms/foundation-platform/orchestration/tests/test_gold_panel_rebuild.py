@@ -495,6 +495,8 @@ class GoldPanelRebuild(unittest.TestCase):
         # committed was still `failed no outcome reported` and never started the bake.
         programs = {}
         for spec in job_specs.load_specs():
+            if not (spec.enabled or spec.inputs or spec.outputs):
+                continue  # listed off with no edge: its producer was taken over and the script no longer knows it
             unit = job_specs.service_unit_text(spec.systemd_service)
             for line in unit.splitlines():
                 if line.startswith("ExecStart=") and "/scripts/ops/gold-panel-rebuild.sh " in line:

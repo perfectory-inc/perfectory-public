@@ -897,6 +897,16 @@
         ]
       },
       {
+        "name": "a-release-keeps-the-jobs-it-switches-off-self-test",
+        "paths": []
+      },
+      {
+        "name": "a-release-keeps-the-jobs-it-switches-off",
+        "paths": [
+          "platforms/foundation-platform/definitions/**"
+        ]
+      },
+      {
         "name": "schema-registry-self-test",
         "paths": [
           "platforms/foundation-platform/scripts/schema_registry.py",

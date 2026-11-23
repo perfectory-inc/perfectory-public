@@ -809,6 +809,14 @@ def job_nodes(jobs, graph):
                 raise JobListError(f"{job_id}: a job that reconciles others carries no pipeline-graph edge of its own")
             reconcilers.append(job)
             continue
+        if job["enabled"] is False and not job["pipeline_graph_edges"] and not reads_contracts:
+            # A job whose producer was taken over stays listed off for one release, because the release
+            # activation refuses a candidate that drops a job the running release has enabled
+            # (scripts/deploy/foundation-release.sh; 2026-11-23: #1662 dropped gold_parcel_energy_rebuild
+            # and no release was activated for hours). Its edges went with its producer: it reads and
+            # writes nothing.
+            found[job_id] = ([], [])
+            continue
         if bool(job["pipeline_graph_edges"]) == bool(reads_contracts):
             raise JobListError(
                 f"{job_id}: a job states the pipeline-graph edges it carries out, or that it reads the "
