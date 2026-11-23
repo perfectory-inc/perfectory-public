@@ -1,10 +1,9 @@
 //! The parcel kinds whose document is a register's records on the parcel, in `DuckDB` (root
 //! ADR-0564 §6).
 //!
-//! Each [`RecordKind`] carries the rules of one Spark job: [`REGISTER_MASTERS`] those of
-//! `building_register_master_silver_to_gold.py` (root ADR-0450), which it replaced when the lane was
-//! taken over, and [`DEMOLITIONS`] those of `building_demolition_silver_to_gold.py` (root ADR-0399),
-//! whose twin it is. A PNU's document is `{"records": [...]}`:
+//! Each [`RecordKind`] carries the rules of the Spark job it replaced when its lane was taken over:
+//! [`REGISTER_MASTERS`] those of `building_register_master_silver_to_gold.py` (root ADR-0450) and
+//! [`DEMOLITIONS`] those of `building_demolition_silver_to_gold.py` (root ADR-0399). A PNU's document is `{"records": [...]}`:
 //! the parcel's distinct current rows, newest first by the latest of three dates (YYYYMMDD sorts as
 //! text; a row without a date sorts last; the fields, then the key, make the order total), at most
 //! the kind's bound, each field with its spaces trimmed and an empty one null; the total column

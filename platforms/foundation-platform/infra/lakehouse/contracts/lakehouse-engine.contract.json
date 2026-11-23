@@ -81,7 +81,11 @@
         "wave": 5
       },
       "building_demolition_silver_to_gold": {
-        "wave": 3
+        "moved": {
+          "pull_request": 1669,
+          "rows": 326999,
+          "fingerprint": "rows:326999;content_hash_sum:3014870861701815544465786"
+        }
       },
       "building_energy_silver_to_gold": {
         "moved": {

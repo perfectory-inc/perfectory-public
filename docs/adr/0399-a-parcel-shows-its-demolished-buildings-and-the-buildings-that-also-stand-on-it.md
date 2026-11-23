@@ -54,3 +54,11 @@ ADR-0395 와 ADR-0397 이 부속지번과 철거멸실관리대장을 Silver 에
 - 실패가 막는 사고: 제공자의 되풀이 행을 그대로 보이면 같은 철거가 47번 나온다(`test_reports_newest_first_repeats_once_blanks_null_and_unserved_left_out`).
   부속 필지를 한쪽에서만 보이면, 대장 대지가 아닌 필지에 선 공장 동이 "건물 없음" 으로 보인다.
 - 두 종류는 PR 이 따로다. 철거멸실은 #1018 위에, 부속지번은 #1016 위에 쌓인다. 이 ADR 은 철거멸실 PR 에 실린다.
+
+## 개정 메모 2026-11-23: 철거·멸실 종류의 생산자가 발행기 안의 DuckDB 로 넘어갔다
+
+레인의 표는 `gold.parcel_demolitions_versions` 이고 생산자는 `record_kind_stage::DEMOLITIONS`(발행기,
+`gold_parcel_demolitions_versions_build`)다. Spark 의 `building_demolition_silver_to_gold.py` 는 지웠고, `gold_parcel_demolitions_rebuild` 는
+꺼진 줄로 한 릴리스 남으며, `gold.parcel_demolitions` 는 쓰지 않고 남긴다(루트 ADR-0564 Revision 2026-11-23 셋째 넘겨받기). 문서와 경로는
+그대로다. Spark 시험이 지키던 것은 발행기 단계의 시험이 지킨다(`record_kind_stage/tests.rs`: 새 신고부터, 같은 신고는 한 번, 제공자 글자로
+견주고 다듬어 쓴다, 레지스트리 스키마의 칸 그대로).

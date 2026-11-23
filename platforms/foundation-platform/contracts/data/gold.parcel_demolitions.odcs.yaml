@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "PNU마다 그 필지의 철거·멸실 신고(철거멸실구분명, 철거시작·종료·멸실일, 연면적, 건축물수, 주용도명, 구조명; 50건까지)와 전체 수를 담는 데이터 종류 표(루트 ADR-0399). 계약의 종류 한 줄(parcel-demolitions)이 자기 생산자를 이름 짓고, silver.building_permit_demolition_loss 에서 만든다. 서빙 필지판의 PNU만, 바뀐 필지만 다시 계산한다."
+  purpose: "PNU마다 그 필지의 철거·멸실 신고(철거멸실구분명, 철거시작·종료·멸실일, 연면적, 건축물수, 주용도명, 구조명; 50건까지)와 전체 수를 담는 데이터 종류 표(루트 ADR-0399). 계약의 종류 한 줄(parcel-demolitions)이 자기 생산자를 이름 짓고, silver.building_permit_demolition_loss 에서 만든다. 서빙 필지판의 PNU만, 바뀐 필지만 다시 계산한다. 넘겨받기(루트 ADR-0564 §6-4) 뒤로는 쓰지 않고 남긴다(쌓기만 한다): 레인은 gold.parcel_demolitions_versions 를 굽는다."
 team:
   name: "foundation-platform"
 servers:
@@ -75,6 +75,4 @@ customProperties:
     value:
       - "pnu"
   - property: "upstreamDatasets"
-    value:
-      - "reference.legal_dong_code_change"
-      - "silver.building_permit_demolition_loss"
+    value: []
