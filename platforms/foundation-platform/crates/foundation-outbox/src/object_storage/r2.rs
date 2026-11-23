@@ -181,11 +181,9 @@ impl R2RangeHasher {
 /// `x-amz-meta-sha256`; the SDK takes the bare `sha256` name and adds the `x-amz-meta-` prefix.
 const SHA256_METADATA_KEY: &str = "sha256";
 
-/// The user metadata a streaming write stamps: its `sha256` when the caller knows it.
-fn sha256_metadata(sha256: Option<&str>) -> Option<std::collections::HashMap<String, String>> {
-    sha256.map(|sha256| {
-        std::collections::HashMap::from([(SHA256_METADATA_KEY.to_owned(), sha256.to_owned())])
-    })
+/// The user metadata that names an object's `sha256`, for a streaming write whose caller knows it.
+fn sha256_metadata(sha256: &str) -> std::collections::HashMap<String, String> {
+    std::collections::HashMap::from([(SHA256_METADATA_KEY.to_owned(), sha256.to_owned())])
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -750,7 +748,7 @@ impl R2ObjectStorage {
             .key(&key)
             .content_type(&request.content_type)
             .cache_control(&request.cache_control)
-            .set_metadata(sha256_metadata(request.sha256.as_deref()))
+            .set_metadata(request.sha256.as_deref().map(sha256_metadata))
             .send()
             .await
             .map_err(|error| {
@@ -969,7 +967,7 @@ impl ObjectStorageStreamingService for R2ObjectStorage {
             .content_type(request.content_type)
             .cache_control(request.cache_control)
             .content_length(content_length)
-            .set_metadata(sha256_metadata(request.sha256.as_deref()))
+            .set_metadata(request.sha256.as_deref().map(sha256_metadata))
             .body(request.body);
         // CreateOnly => conditional write (see put_object above). A provider stream is hashed only
         // as it goes, so it carries no x-amz-meta-sha256 and a 412 is reconciled by the caller
