@@ -17,8 +17,9 @@ EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=-/etc/foundation-platform/operations-map.env
 EnvironmentFile=-/etc/foundation-platform/data-go-kr.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/industrial-land-sale-notice-collect.sh %i
-# The job list's longest time_limit_minutes (jobs.v1.json): Factory-on's daily run, its own budget
-# (12,600 s) and one notice; the hourly sources' 40 minutes are their drop-ins (root ADR-0574 §8).
+# The job list's longest time_limit_minutes (jobs.v1.json): KICOX's, from its measured full history
+# (8,794 s, 2026-11-22); Factory-on's and ILIS's 2 h and LH's 40 minutes are their drop-ins (root
+# ADR-0574 §8; no run has a count or time cap of its own, root ADR-0603 2026-11-23 revision).
 TimeoutStartSec=4h
 TimeoutStopSec=30
 NoNewPrivileges=true

@@ -5,7 +5,8 @@
 //! newest first, page by page, and asks every listed notice the lakehouse does not record as read
 //! with the same list fingerprint (`read_from`: the last read of each notice; the fingerprint is the
 //! hash of the list fields the source contract names, so a notice the provider changed in its list
-//! is read again), at most `per_run_limit` and until `run_time_budget_seconds`. It stops walking the
+//! is read again), every one of them: nothing caps a run's count or time, and a run that settles
+//! nothing for `stall_minutes` stops and fails (root ADR-0603, 2026-11-23 revision). It stops walking the
 //! list at the first page that owes nothing once the reads cover the count the provider states,
 //! so a run after the first fill asks one list page. Each detail is kept as served; each attachment
 //! still in use is downloaded and stored once, whatever its format, in the shared content-addressed
@@ -66,8 +67,6 @@ pub(crate) const USER_AGENT: &str =
     "foundation-platform-industrial-land-sale-notice/1.0 (+https://github.com/perfectory)";
 const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
 const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
-/// The politeness floor of every source here (the ILIS collectors'): the contract may only slow it.
-const MIN_REQUEST_SPACING: Duration = Duration::from_secs(2);
 /// What the run prints before its summary when the provider refuses the lane's access itself (LH
 /// before the owner's data.go.kr usage application): the script ends the run with 78 (EX_CONFIG).
 pub(crate) const REFUSED_MARKER: &str = "industrial-land-sale-notice-refused";
@@ -75,9 +74,8 @@ pub(crate) const REFUSED_MARKER: &str = "industrial-land-sale-notice-refused";
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct LaneContract {
     pub(crate) request_spacing_ms: u64,
-    pub(crate) per_run_limit: usize,
     pub(crate) commit_every: usize,
-    pub(crate) run_time_budget_seconds: u64,
+    pub(crate) stall_minutes: u64,
     pub(crate) stop_after_consecutive_failures: u32,
     pub(crate) retry_after_hours: i64,
     pub(crate) full_walk_hour_utc: u32,
@@ -151,8 +149,8 @@ impl LaneContract {
         })
     }
 
-    /// A source's own value of a lane setting, or the lane's (Factory-on is asked slower, longer
-    /// and never walked whole again, root ADR-0603 §8).
+    /// A source's own value of a lane setting, or the lane's (Factory-on asks one request after
+    /// another and is never walked whole again, root ADR-0603 §8 and its 2026-11-23 revision).
     fn own_u64(&self, source: Source, field: &str, lane: u64) -> anyhow::Result<u64> {
         Ok(self.source_json(source)?[field].as_u64().unwrap_or(lane))
     }
@@ -161,20 +159,19 @@ impl LaneContract {
         self.own_u64(source, "request_spacing_ms", self.request_spacing_ms)
     }
 
-    pub(crate) fn run_limit(&self, source: Source) -> anyhow::Result<usize> {
-        Ok(usize::try_from(self.own_u64(
-            source,
-            "per_run_limit",
-            self.per_run_limit as u64,
-        )?)?)
+    /// The wait before each request, or none: a `request_spacing_ms` of 0 sends the next request
+    /// when the last is answered, one in flight (Factory-on, the owner's 2026-11-23 decision).
+    pub(crate) fn spacing(&self, source: Source) -> anyhow::Result<Option<ProviderRequestSpacing>> {
+        let millis = self.spacing_ms(source)?;
+        ProviderRequestSpacing::optional_from_millis((millis > 0).then_some(millis))
     }
 
-    pub(crate) fn budget_seconds(&self, source: Source) -> anyhow::Result<u64> {
-        self.own_u64(
-            source,
-            "run_time_budget_seconds",
-            self.run_time_budget_seconds,
-        )
+    /// How long a run may settle nothing (no list page answered, no notice read to an end) before
+    /// it stops and fails: the one bound on a run besides its unit's time limit (root ADR-0603,
+    /// 2026-11-23 revision).
+    pub(crate) fn stall(&self) -> anyhow::Result<Duration> {
+        ensure!(self.stall_minutes > 0, "stall_minutes must be above 0");
+        Ok(Duration::from_mins(self.stall_minutes))
     }
 
     /// Whether the daily full walk is the source's (`full_walk`, default yes).
@@ -348,8 +345,9 @@ impl std::error::Error for Blocked {}
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Stop {
-    /// `run_time_budget_seconds` passed; the next run continues.
-    TimeBudget,
+    /// Nothing settled for `stall_minutes`: the run commits what it read and fails, so it is seen;
+    /// the next run continues.
+    Stalled,
     /// `stop_after_consecutive_failures` details failed in a row, or a later list page failed.
     SiteFailing,
     /// The provider refused the collector ([`Blocked`]): the run fails.
@@ -535,13 +533,15 @@ async fn last_reads_from_lakehouse(
 /// What a run needs to ask: the source's client, the pace and the count of requests sent.
 pub(crate) struct Asker {
     pub(crate) client: SourceClient,
-    pub(crate) spacing: ProviderRequestSpacing,
+    pub(crate) spacing: Option<ProviderRequestSpacing>,
     pub(crate) requests: usize,
 }
 
 impl Asker {
     async fn pace(&mut self) {
-        self.spacing.wait_before_request(self.requests).await;
+        if let Some(spacing) = &self.spacing {
+            spacing.wait_before_request(self.requests).await;
+        }
         self.requests += 1;
     }
 }
@@ -956,12 +956,10 @@ pub async fn run() -> anyhow::Result<()> {
     let common = contract.common(source)?;
     let fields = contract.fingerprint_fields(source)?;
     let prefix = media_prefix(&contract.attachments.object_prefix_from)?;
-    let spacing = ProviderRequestSpacing::try_new(
-        Duration::from_millis(contract.spacing_ms(source)?).max(MIN_REQUEST_SPACING),
-    )?;
+    let spacing = contract.spacing(source)?;
     let started_at = Utc::now();
-    let deadline = Instant::now() + Duration::from_secs(contract.budget_seconds(source)?);
-    let per_run_limit = contract.run_limit(source)?;
+    let stall = contract.stall()?;
+    let mut settled_at = Instant::now();
     let recent_pages = contract.recent_pages(source)?;
     let keeps_list = contract.keeps_list(source)?;
     // Once a day the whole list is walked, so a change the provider makes deep in its list is seen
@@ -1016,8 +1014,8 @@ pub async fn run() -> anyhow::Result<()> {
     let mut asked_ever: HashSet<String> = last.keys().cloned().collect();
     let mut blocked = None;
     'walk: for page_no in 1_u32.. {
-        if Instant::now() >= deadline {
-            stop = Some(Stop::TimeBudget);
+        if settled_at.elapsed() >= stall {
+            stop = Some(Stop::Stalled);
             break;
         }
         asker.pace().await;
@@ -1043,6 +1041,7 @@ pub async fn run() -> anyhow::Result<()> {
             }
         };
         pages = page_no;
+        settled_at = Instant::now();
         listed_total = page.total.or(listed_total);
         if let (true, Some(raw), Some((uow, storage))) = (keeps_list, raw_list, live.as_ref()) {
             list_objects.push(
@@ -1070,11 +1069,8 @@ pub async fn run() -> anyhow::Result<()> {
                 continue;
             }
             owed_here += 1;
-            if asked >= per_run_limit {
-                break 'walk;
-            }
-            if Instant::now() >= deadline {
-                stop = Some(Stop::TimeBudget);
+            if settled_at.elapsed() >= stall {
+                stop = Some(Stop::Stalled);
                 break 'walk;
             }
             if consecutive_failures >= contract.stop_after_consecutive_failures {
@@ -1087,24 +1083,33 @@ pub async fn run() -> anyhow::Result<()> {
                 prefix: &prefix,
                 storage: storage_of(&live),
             };
-            let (outcome, line) =
-                match read_notice(&run, &mut asker, listed, &print, &mut report).await {
-                    Ok(read) => read,
-                    Err(error) if is_blocked(&error) => {
-                        blocked = Some(format!("{error:#}"));
-                        stop = Some(Stop::Blocked);
-                        break 'walk;
-                    }
-                    Err(error) => {
-                        refused(&error);
-                        return Err(error);
-                    }
-                };
+            let reading = within_stall(
+                settled_at,
+                stall,
+                read_notice(&run, &mut asker, listed, &print, &mut report),
+            );
+            let (outcome, line) = match reading.await {
+                Err(_) => {
+                    stop = Some(Stop::Stalled);
+                    break 'walk;
+                }
+                Ok(Ok(read)) => read,
+                Ok(Err(error)) if is_blocked(&error) => {
+                    blocked = Some(format!("{error:#}"));
+                    stop = Some(Stop::Blocked);
+                    break 'walk;
+                }
+                Ok(Err(error)) => {
+                    refused(&error);
+                    return Err(error);
+                }
+            };
             asked += 1;
             asked_ever.insert(listed.id.clone());
             consecutive_failures = if outcome == ReadOutcome::Failed {
                 consecutive_failures + 1
             } else {
+                settled_at = Instant::now();
                 0
             };
             *counts.entry(outcome.name()).or_default() += 1;
@@ -1176,6 +1181,14 @@ pub async fn run() -> anyhow::Result<()> {
             common.provider
         );
     }
+    if stop == Some(Stop::Stalled) {
+        bail!(
+            "{} settled nothing for {} minutes: stopped, what was read is committed, the next run \
+             continues (root ADR-0603)",
+            common.provider,
+            contract.stall_minutes
+        );
+    }
     let failed = counts.get("failed").copied().unwrap_or(0);
     if asked > 0 && failed == asked as u64 {
         bail!("every one of the {asked} notice details asked failed: the site is not answering");
@@ -1189,6 +1202,17 @@ pub async fn run() -> anyhow::Result<()> {
         }
     );
     Ok(())
+}
+
+/// `step` bounded by what is left of the stall window since `settled_at`: it answers `Err` when the
+/// window closes first. Each request is bounded by its client; a notice whose requests together
+/// outlast the window is the run stalling (root ADR-0603, 2026-11-23 revision).
+fn within_stall<F: std::future::IntoFuture>(
+    settled_at: Instant,
+    stall: Duration,
+    step: F,
+) -> tokio::time::Timeout<F::IntoFuture> {
+    tokio::time::timeout(stall.saturating_sub(settled_at.elapsed()), step)
 }
 
 /// Whether `error` is a source refusing the collector ([`Blocked`]).

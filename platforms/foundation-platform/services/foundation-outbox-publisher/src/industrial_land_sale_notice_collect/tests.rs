@@ -2,13 +2,16 @@
 //! measured 2026-11-22 on the ILIS list and detail, the KICOX board and post pages, and the LH usage
 //! guides' answer examples.
 
+use std::time::Duration;
+
 use anyhow::Context;
 use chrono::TimeZone;
 use serde_json::{json, Map, Value as JsonValue};
+use tokio::time::Instant;
 
 use super::{
     batch_file_id, factoryon, fingerprint, ilis, kicox, lane_contract, last_reads, lh,
-    list_file_id, owes, plan, walk_done, Blocked, FileRequest, Listed, Source,
+    list_file_id, owes, plan, walk_done, within_stall, Blocked, FileRequest, Listed, Source,
 };
 
 const KICOX_LIST: &str = include_str!("fixtures/kicox_list.html");
@@ -42,18 +45,40 @@ fn every_source_of_the_lane_contract_parses_into_its_client() -> anyhow::Result<
         super::client_for(&contract, source)?;
     }
     assert!(contract.full_walk_hour_utc < 24 && contract.retry_after_hours > 0);
-    // Factory-on, at the owner's least load (root ADR-0603 §8): five to ten seconds a request, never
-    // walked whole again, a generic user agent.
-    assert!((5_000..=10_000).contains(&contract.spacing_ms(Source::Factoryon)?));
+    // Factory-on (root ADR-0603 §8 and the owner's 2026-11-23 revision): one request after another,
+    // never walked whole again, a generic user agent.
+    assert!(contract.spacing(Source::Factoryon)?.is_none());
     assert!(!contract.walks_whole(Source::Factoryon)?);
     assert!(contract.walks_whole(Source::Kicox)?);
     assert_eq!(
         contract.spacing_ms(Source::Ilis)?,
         contract.request_spacing_ms
     );
-    assert!(contract.budget_seconds(Source::Factoryon)? > contract.run_time_budget_seconds);
+    assert!(contract.spacing(Source::Kicox)?.is_some());
+    // Nothing caps a run's count or time; the stall window is its one bound besides the unit's limit.
+    assert_eq!(contract.stall()?.as_secs(), contract.stall_minutes * 60);
     assert_eq!(Source::parse("kicox")?, Source::Kicox);
     assert!(Source::parse("lh-web").is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_notice_that_outlasts_what_is_left_of_the_stall_window_is_the_run_stalling(
+) -> anyhow::Result<()> {
+    let stall = Duration::from_millis(200);
+    let settled_at = Instant::now();
+    assert_eq!(
+        within_stall(settled_at, stall, async { 7 }).await.ok(),
+        Some(7)
+    );
+    let slow = tokio::time::sleep(Duration::from_secs(5));
+    assert!(within_stall(settled_at, stall, slow).await.is_err());
+    // The window runs from the last thing settled, not from the notice's own start.
+    let long_ago = Instant::now()
+        .checked_sub(stall)
+        .context("the clock is younger than the window")?;
+    let short = tokio::time::sleep(Duration::from_millis(1));
+    assert!(within_stall(long_ago, stall, short).await.is_err());
     Ok(())
 }
 
