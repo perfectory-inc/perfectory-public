@@ -97,10 +97,9 @@
       "enabled": true,
       "enabled_since": "2026-11-22T12:00:00Z",
       "dagster_stage": "dagster",
-      "started_once_after_deploy": true,
       "expected_outcome": {
         "changes_within_hours": null,
-        "no_change_bound_reason": "Changes only when the replaced table's build moved, which the Spark job does at most once a day (parcel_served_gold at 07:30); the shadow follows it at its own schedule after that, not at each hourly edit of the ledger it reads at the build's pins. A change bound here would report a bake that published nothing."
+        "no_change_bound_reason": "Changes only when the replaced table's build moved, which the Spark job does at most once a day (parcel_served_gold at 07:30); a start for an hourly edit of the ledger finds the base commit built from the same pins and commits nothing. A change bound here would report a bake that published nothing."
       }
     }
   ],
