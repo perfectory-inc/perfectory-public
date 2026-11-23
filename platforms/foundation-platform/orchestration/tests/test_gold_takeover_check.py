@@ -64,14 +64,15 @@ class Declared(unittest.TestCase):
     def test_the_repository_s_shadow_lanes_declare_the_check(self):
         definitions = [json.loads(path.read_text(encoding="utf-8"))
                        for path in sorted((PLATFORM / "definitions").glob("*.definition.json"))]
-        for table in ("gold.parcel_register_masters_versions", "gold.parcel_demolitions_versions",
-                      "gold.parcel_boundary_served_versions", "gold.parcel_panel_versions",
-                      "gold.unit_price_versions"):
+        for table in ("gold.parcel_demolitions_versions", "gold.parcel_boundary_served_versions",
+                      "gold.parcel_panel_versions", "gold.unit_price_versions"):
             with self.subTest(table=table):
                 self.assertEqual(check.declared(run(table=table), definitions, {}), (table, "41"))
         # A lane that took its table over shadows nothing and declares the check no more (root ADR-0564 §6-4).
-        self.assertIsNone(check.declared(run(table="gold.parcel_energy_versions", shadow_of=None), definitions, {}))
-        self.assertIsNone(check.declared(run(table="gold.parcel_energy_versions"), definitions, {}))
+        for table in ("gold.parcel_energy_versions", "gold.parcel_register_masters_versions"):
+            with self.subTest(taken_over=table):
+                self.assertIsNone(check.declared(run(table=table, shadow_of=None), definitions, {}))
+                self.assertIsNone(check.declared(run(table=table), definitions, {}))
 
     def test_a_commit_clears_the_last_head_s_record(self):
         with tempfile.TemporaryDirectory() as work:
