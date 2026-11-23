@@ -54,6 +54,9 @@ SELECT DISTINCT coalesce(predecessor_pnu, ''), successor_pnu, coalesce(relation,
        coalesce(evidence_kind, ''), coalesce(evidence_ref, '')
 FROM lineage_read WHERE successor_pnu IN (SELECT pnu FROM reached)";
 
+/// The walk's SQL texts, which a stage that carries by this module folds into its code version.
+pub const SQL: [&str; 3] = [LINEAGE_SETUP_SQL, LINEAGE_HOP_SQL, LINEAGE_ROWS_SQL];
+
 /// `carry` (`successor_pnu`, `source_pnu`, `hop`, `path`) and `merges` from `lineage` for the PNUs of
 /// `carry_sources(pnu)` (the caller's retired sources, which it leaves when `lineage` is loaded);
 /// returns (sources, candidates found).

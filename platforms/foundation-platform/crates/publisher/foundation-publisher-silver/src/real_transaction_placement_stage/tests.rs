@@ -8,42 +8,98 @@ use serde_json::{json, Value};
 
 use super::*;
 
-const OLD: &str = "9999910100";
-const NEW: &str = "9999920100";
-const OTHER: &str = "9999910200";
-const OLD_NAME: &str = "합성도 합성시 가동";
-const NEW_NAME: &str = "합성도 합성시 신구 가동";
-const OTHER_NAME: &str = "합성도 합성시 나동";
-const INDUSTRIAL: &str = "real_transaction_industrial_trade";
+pub const OLD: &str = "9999910100";
+pub const NEW: &str = "9999920100";
+pub const OTHER: &str = "9999910200";
+pub const OLD_NAME: &str = "합성도 합성시 가동";
+pub const NEW_NAME: &str = "합성도 합성시 신구 가동";
+pub const OTHER_NAME: &str = "합성도 합성시 나동";
+pub const INDUSTRIAL: &str = "real_transaction_industrial_trade";
 
-fn pnu(code: &str, main: u32, sub: u32) -> String {
+pub fn pnu(code: &str, main: u32, sub: u32) -> String {
     format!("{code}1{main:04}{sub:04}")
 }
 
-fn inference(levels: &Value) -> Value {
+pub fn inference(levels: &Value) -> Value {
     json!({"precision_bar": 0.99, "min_measured_rows": 200, "area_tolerance_m2": 0.05,
            "ownership_window_days": [0, 120], "ownership_causes": ["소유권이전"], "levels": levels})
 }
 
-/// One deal row in the job's `DEAL_COLUMNS` order, as `DocumentSparkTest.deal` builds it.
-fn deal(key: &str, address: &str, jibun: &str, day: &str, land: f64) -> String {
-    let bonbun = if jibun.bytes().all(|b| b.is_ascii_digit()) {
-        jibun
-    } else {
-        ""
-    };
-    let bubun = if bonbun.is_empty() { "" } else { "0" };
-    format!(
-        "('{INDUSTRIAL}', '{ym}', '{key}', DATE '{day}', 50000, NULL, NULL, NULL, '{address}', '{jibun}', \
-         '{bonbun}', '{bubun}', '일반', '공장', NULL, 500.0, 'total_floor', {land}, 'plottage', NULL, 2001, \
-         '계획관리', NULL, NULL, '중개거래', false, NULL)",
-        ym = day.get(..7).unwrap_or_default().replace('-', "")
-    )
+/// One 공장창고 deal of 5억, 500 m² of building, as `DocumentSparkTest.deal` builds it by default.
+pub fn deal(key: &str, address: &str, jibun: &str, day: &str, land: f64) -> String {
+    Deal::new(key, address, jibun, day).land(land).row()
+}
+
+/// One deal row in the job's `DEAL_COLUMNS` order (`DocumentSparkTest.deal`): a cancelled deal is
+/// cancelled on 2098-04-01.
+#[derive(Clone)]
+pub struct Deal {
+    pub key: String,
+    pub address: String,
+    pub jibun: String,
+    pub day: String,
+    pub dataset: String,
+    pub amount: i64,
+    pub land: f64,
+    pub building: Option<f64>,
+    pub cancelled: bool,
+}
+
+impl Deal {
+    pub fn new(key: &str, address: &str, jibun: &str, day: &str) -> Self {
+        Self {
+            key: key.to_owned(),
+            address: address.to_owned(),
+            jibun: jibun.to_owned(),
+            day: day.to_owned(),
+            dataset: INDUSTRIAL.to_owned(),
+            amount: 50000,
+            land: 1000.0,
+            building: Some(500.0),
+            cancelled: false,
+        }
+    }
+
+    pub fn land(mut self, land: f64) -> Self {
+        self.land = land;
+        self
+    }
+
+    pub fn row(&self) -> String {
+        let jibun = self.jibun.as_str();
+        let bonbun = if jibun.bytes().all(|b| b.is_ascii_digit()) {
+            jibun
+        } else {
+            ""
+        };
+        let bubun = if bonbun.is_empty() { "" } else { "0" };
+        let building = self
+            .building
+            .map_or_else(|| "NULL".to_owned(), |b| format!("{b:?}"));
+        let cancel_date = if self.cancelled {
+            "DATE '2098-04-01'"
+        } else {
+            "NULL"
+        };
+        format!(
+            "('{dataset}', '{ym}', '{key}', DATE '{day}', {amount}, NULL, NULL, NULL, '{address}', '{jibun}', \
+             '{bonbun}', '{bubun}', '일반', '공장', NULL, {building}, 'total_floor', {land:?}, 'plottage', NULL, \
+             2001, '계획관리', NULL, NULL, '중개거래', {cancelled}, {cancel_date})",
+            dataset = self.dataset,
+            ym = self.day.get(..7).unwrap_or_default().replace('-', ""),
+            key = self.key,
+            day = self.day,
+            amount = self.amount,
+            address = self.address,
+            land = self.land,
+            cancelled = self.cancelled,
+        )
+    }
 }
 
 /// The tables `place` reads: `deals`, the code pairs, the snapshot, the served `parcels` and their
 /// `land`, `ownership` rows; no titles and no lineage.
-fn inputs(
+pub fn inputs(
     deals: &[String],
     pairs: &[(&str, &str)],
     parcels: &[String],

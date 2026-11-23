@@ -17,8 +17,7 @@ WITH coded AS (
          trim(coalesce(d.bonbun, '')) AS _bon,
          trim(coalesce(d.bubun, '')) AS _bu
   FROM deals_raw d
-  LEFT JOIN address_codes c
-    ON c._address = trim(regexp_replace(coalesce(d.address_raw, ''), '\s+', ' ', 'g'))
+  LEFT JOIN address_codes c ON c._address = rt_address_key(d.address_raw)
 ),
 lots AS (
   SELECT *,

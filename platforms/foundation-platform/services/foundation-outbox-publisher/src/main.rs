@@ -114,6 +114,7 @@ mod gold_takeover_documents;
 mod gold_takeover_sides;
 mod gold_versions_change_set;
 mod gold_versions_commit;
+mod gold_versions_resume;
 mod industrial_complex_notice_silver_load;
 mod industrial_complex_silver_load;
 mod industrial_land_sale_notice_silver_load;
@@ -126,6 +127,7 @@ mod parcel_boundary_served_build;
 mod parcel_lineage_derive;
 mod parcel_matching_gate;
 mod parcel_nearby_versions_build;
+mod parcel_real_transaction_versions_build;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;
@@ -313,6 +315,7 @@ enum Command {
     BuildParcelBoundaryServed,
     BuildParcelBoundaryServedVersions,
     BuildParcelNearbyVersions,
+    BuildParcelRealTransactionVersions,
     RunParcelMatchingGate,
     BuildParcelRegisterMastersVersions,
     BuildParcelDemolitionsVersions,
@@ -692,6 +695,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(parcel_boundary_served_build::run_shadow())
         }
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
+        Command::BuildParcelRealTransactionVersions => {
+            Box::pin(parcel_real_transaction_versions_build::run())
+        }
         Command::RunParcelMatchingGate => Box::pin(parcel_matching_gate::run()),
         Command::BuildParcelRegisterMastersVersions => {
             Box::pin(kind_versions_build::run(&kind_versions_build::REGISTER_MASTERS_BUILD))
@@ -904,6 +910,9 @@ where
             Ok(Command::BuildParcelBoundaryServedVersions)
         }
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
+        Some("build-parcel-real-transaction-versions") => {
+            Ok(Command::BuildParcelRealTransactionVersions)
+        }
         Some("run-parcel-matching-gate") => Ok(Command::RunParcelMatchingGate),
         Some("build-parcel-register-masters-versions") => {
             Ok(Command::BuildParcelRegisterMastersVersions)

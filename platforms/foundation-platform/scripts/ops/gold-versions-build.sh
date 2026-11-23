@@ -19,6 +19,8 @@
 # lineage-review-queue → build-lineage-review-queue-versions (root ADR-0113 §10·0483 §5, 레인 밖 표: 스튜어드 큐,
 # ADR-0564 §6-9; 선언된 판정 검사가 없다).
 # parcel-public-auction → build-parcel-public-auction-versions (root ADR-0287·0340, 같은 그림자 길; 빌드 시각이 입력).
+# parcel-real-transaction → build-parcel-real-transaction-versions (root ADR-0350·0371, 같은 그림자 길: 거래는
+# 주소로 놓이므로 종류 단계가 아닌 자기 단계 real_transaction_versions_stage 가 놓임이 넘지 않는 시군구 묶음마다 짓는다).
 # 그림자 커밋 뒤에는(그리고 그 머리의 판정이 끝까지 돌 때까지 다음 실행마다) 같은 유닛이 넘겨받기 판정
 # (gold-takeover-verdict.sh)을 선언된 시도에서 돌려 Dagster 의 자산 검사 `takeover_equal` 로 알린다(journal 의
 # Pipes 줄, orchestration/dagster/takeover_checks.py; ADR-0564 §6-3). 판정의 실패는 검사의 것이고 빌드의 커밋은 선다.
@@ -37,6 +39,7 @@ case "${lane}" in
   parcel-factories) command=build-parcel-factories-versions ;;
   lineage-review-queue) command=build-lineage-review-queue-versions ;;
   parcel-public-auction) command=build-parcel-public-auction-versions ;;
+  parcel-real-transaction) command=build-parcel-real-transaction-versions ;;
   *) echo "gold-versions-build: ${lane} has no table of appended row versions the publisher builds" >&2; exit 64 ;;
 esac
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
@@ -96,7 +99,10 @@ takeover_check() {
   rm -rf -- "${run_dir}/verdict/reference.parquet" "${run_dir}/verdict/candidate.parquet" "${run_dir}/verdict/spill"
 }
 
+# A build that resumes (the 실거래 lane: its first build is longer than the unit's hour) keeps what the
+# next run goes on from beside the runs, not in one of them.
 FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY="${work}/summary.json" \
+  FOUNDATION_PLATFORM_GOLD_VERSIONS_RESUME_DIR="${STATE_ROOT}/resume" \
   "${PUBLISHER_BIN}" "${command}" >> "${run_log}" 2>&1
 
 # "<outcome> <version_seq or -> <keys changed or 0> <seconds>"
