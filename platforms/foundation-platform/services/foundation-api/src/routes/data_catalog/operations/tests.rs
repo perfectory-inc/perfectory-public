@@ -661,17 +661,16 @@ fn a_running_job_carries_the_typical_duration_of_its_own_catalog_job() {
     );
 }
 
-#[test]
-fn a_contract_shows_each_check_with_its_newest_evaluation_and_severity() {
-    use super::facts::dagster::ContractCheck;
-
-    let check = |key: &[&str], name: &str, executions: JsonValue| ContractCheck {
-        asset_key: key.iter().map(|part| (*part).to_owned()).collect(),
-        check_name: name.to_owned(),
-        executions,
-    };
+/// Two synthetic contracts' checks, each with the executions Dagster gave.
+fn synthetic_contract_checks() -> Vec<super::facts::dagster::ContractCheck> {
+    let check =
+        |key: &[&str], name: &str, executions: JsonValue| super::facts::dagster::ContractCheck {
+            asset_key: key.iter().map(|part| (*part).to_owned()).collect(),
+            check_name: name.to_owned(),
+            executions,
+        };
     let synthetic = ["iceberg", "silver", "synthetic"];
-    let checks = vec![
+    vec![
         check(
             &synthetic,
             "contract_columns_present",
@@ -706,8 +705,12 @@ fn a_contract_shows_each_check_with_its_newest_evaluation_and_severity() {
               "evaluation": { "success": false, "severity": "WARN", "metadataEntries": [
                 { "label": "restated_from_run", "text": "" }] } }]),
         ),
-    ];
-    let contracts = contract_quality(&checks);
+    ]
+}
+
+#[test]
+fn a_contract_shows_each_check_with_its_newest_evaluation_and_severity() {
+    let contracts = contract_quality(&synthetic_contract_checks());
     let ids: Vec<(&str, &str)> = contracts
         .iter()
         .map(|c| (c.contract_id.as_str(), c.asset_key.as_str()))

@@ -8,6 +8,7 @@
 //! task log was, and the same `classify` and `mask` read them.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use chrono::{DateTime, TimeZone, Utc};
 use serde_json::{json, Value as JsonValue};
@@ -217,20 +218,19 @@ fn contract_checks_of(data: &JsonValue) -> Result<Vec<ContractCheck>, String> {
 
 /// One query for the newest executions of every check, each under the alias `c<index>`.
 fn executions_query(checks: &[ContractCheck]) -> String {
-    let fields: String = checks
-        .iter()
-        .enumerate()
-        .map(|(index, check)| {
-            format!(
-                " c{index}: assetCheckExecutions(assetKey: {{path: {}}}, checkName: {}, limit: {EXECUTIONS}) \
-                 {{ status timestamp evaluation {{ success severity metadataEntries {{ label \
-                 ... on TextMetadataEntry {{ text }} ... on IntMetadataEntry {{ intRepr }} }} }} }}",
-                json!(check.asset_key),
-                json!(check.check_name)
-            )
-        })
-        .collect();
-    format!("{{{fields} }}")
+    let mut query = String::from("{");
+    for (index, check) in checks.iter().enumerate() {
+        let _ = write!(
+            query,
+            " c{index}: assetCheckExecutions(assetKey: {{path: {}}}, checkName: {}, limit: {EXECUTIONS}) \
+             {{ status timestamp evaluation {{ success severity metadataEntries {{ label \
+             ... on TextMetadataEntry {{ text }} ... on IntMetadataEntry {{ intRepr }} }} }} }}",
+            json!(check.asset_key),
+            json!(check.check_name)
+        );
+    }
+    query.push_str(" }");
+    query
 }
 
 /// When an execution started, as Dagster gives it.
