@@ -16,3 +16,4 @@ SELECT line_number, j,
 FROM ca_lines_json JOIN ca_bodies USING (line_number);
 DROP TABLE ca_bodies;
 DROP TABLE ca_lines_json;
+DROP TABLE ca_lines;

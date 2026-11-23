@@ -6,6 +6,14 @@
 -- Parameters: {document}, {request_object}, {round_field} (`NULL` when the document has none),
 -- {answered_round_path} (`NULL` when it has none), {object_key}, {snapshot_id},
 -- {ingested_at_epoch_seconds}.
+-- A line keeps its fields but not its body (the `data` taken out of it is what is read), and each value
+-- is taken out into a table before a CASE reads it, as item_detail.sql does.
+CREATE OR REPLACE TEMP TABLE ca_case_raw AS
+SELECT line_number, json_merge_patch(j, '{"body": null}') AS j, read, json_extract(j, '$.request') AS request,
+       json_type(body) AS body_type, json_extract(body, '$.data') AS raw_data
+FROM ca_parsed;
+DROP TABLE ca_parsed;
+
 CREATE OR REPLACE TEMP TABLE ca_case_lines AS
 SELECT line_number, j,
        py_text(json_extract(asked, '$.cortOfcCd')) AS court_office_code,
@@ -17,10 +25,14 @@ SELECT line_number, j,
        data,
        py_truthy(data) AS answered
 FROM (SELECT line_number, j,
-             coalesce(CASE WHEN py_truthy(json_extract(j, '$.request'))
-                           THEN json_extract(j, '$.request."{request_object}"') END, '{}'::JSON) AS asked,
-             CASE WHEN read THEN coalesce(ca_data(body), '{}'::JSON) ELSE '{}'::JSON END AS data
-      FROM ca_parsed);
+             coalesce(CASE WHEN py_truthy(request) THEN json_extract(request, '$."{request_object}"') END, '{}'::JSON)
+               AS asked,
+             -- ca_data(body), from the values taken out.
+             CASE WHEN read THEN coalesce(CASE WHEN body_type = 'OBJECT' AND json_type(raw_data) = 'OBJECT'
+                                               THEN raw_data END, '{}'::JSON)
+                  ELSE '{}'::JSON END AS data
+      FROM ca_case_raw);
+DROP TABLE ca_case_raw;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_case_document_read AS
 SELECT court_office_code, case_no, '{document}' AS document, CAST(asked_round AS INTEGER) AS asked_round,

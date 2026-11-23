@@ -2,7 +2,7 @@
 -- case_lines.sql: per case and answered round, the survey row and the list of 부동산 objects (one per
 -- object number, the first naming it) of the last line whose answer holds the survey. A line with no
 -- answered round or no survey adds nothing. Free text is masked afterwards (`Role::masked`).
-CREATE OR REPLACE TEMP TABLE ca_survey_answer AS
+CREATE OR REPLACE TEMP VIEW ca_survey_answer AS
 SELECT *, json_extract(data, '$.dma_ordTsCurstExmnMngInf') AS info
 FROM ca_case_lines
 WHERE answered AND answered_round IS NOT NULL
