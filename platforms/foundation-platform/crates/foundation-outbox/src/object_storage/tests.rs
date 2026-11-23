@@ -303,6 +303,29 @@ fn r2_precondition_failed_code_is_already_exists_for_create_only() {
 }
 
 #[test]
+fn a_bucket_locked_key_is_already_exists_for_create_only() {
+    // A key under a bucket lock rule answers a create-only write with 409 ObjectLockedByBucketPolicy,
+    // not 412 (ILIS notice list, 2026-11-22): the same collision, so the commit reconciles it.
+    assert!(super::is_create_only_already_exists_response(
+        ObjectWriteMode::CreateOnly,
+        Some(409),
+        Some("ObjectLockedByBucketPolicy")
+    ));
+    // Overwriting a locked object is refused, not a collision to reconcile.
+    assert!(!super::is_create_only_already_exists_response(
+        ObjectWriteMode::OverwriteAllowed,
+        Some(409),
+        Some("ObjectLockedByBucketPolicy")
+    ));
+    // Another 409 is not a collision.
+    assert!(!super::is_create_only_already_exists_response(
+        ObjectWriteMode::CreateOnly,
+        Some(409),
+        Some("OperationAborted")
+    ));
+}
+
+#[test]
 fn r2_range_headers_are_inclusive_and_provider_compatible() -> TestResult {
     assert_eq!(r2_range_header(0, 15)?, "bytes=0-15");
     assert_eq!(r2_range_header(16, 31)?, "bytes=16-31");
