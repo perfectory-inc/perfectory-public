@@ -292,18 +292,22 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
                 problems.append(f"edge source selector: {edge['id']}")
         elif selected is not None:
             problems.append(f"endpoint selector outside source data edge: {edge['id']}")
-        if edge.get("status") == "implemented" and any(by_id[edge[key]]["status"] in {"contract_only", "collected_only"} for key in ("from", "to")):
+        if edge.get("status") == "implemented" and any(by_id[edge[key]]["status"] in {"contract_only", "collected_only"}
+                                                        or by_id[edge[key]].get("unscheduled") == "replaced" for key in ("from", "to")):
             problems.append(f"invented lane for unconnected dataset: {edge['id']}")
     # Connectivity, after dbt_project_evaluator's Root Models / Unused Sources: a lakehouse
     # dataset must be produced and consumed, an active source must be consumed. contract_only
-    # is the one sanctioned island; its required description states why no lane exists.
+    # is one sanctioned island; its required description states why no lane exists. A table its
+    # lane's `_versions` table took over (`unscheduled: replaced`, root ADR-0564 §6-4) is the other:
+    # its producer was deleted with the takeover, nothing reads it, and it stays until the runbook
+    # drops it.
     # reference tables need a producer like any dataset but are exempt from the consumer
     # rule as a kind: the ingest-time resolver reads them cross-cuttingly (ADR-0103 ③),
     # not through a dataset edge, so no consumer edge is their normal state, not a defect.
     produced = {e["to"] for e in edges}
     consumed = {e["from"] for e in edges}
     for node in nodes:
-        if node.get("status") == "contract_only":
+        if node.get("status") == "contract_only" or node.get("unscheduled") == "replaced":
             continue
         if node["type"] in TABLE_TYPES:
             if node["id"] not in produced:

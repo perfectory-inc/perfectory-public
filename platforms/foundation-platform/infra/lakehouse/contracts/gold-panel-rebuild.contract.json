@@ -97,8 +97,6 @@
       "land_ownership_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "building_demolition_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
       "building_demolition_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
-      "building_energy_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
-      "building_energy_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "registered_factory_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
       "registered_factory_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "building_register_master_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",

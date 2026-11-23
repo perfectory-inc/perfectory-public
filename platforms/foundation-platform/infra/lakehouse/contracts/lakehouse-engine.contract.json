@@ -84,7 +84,11 @@
         "wave": 3
       },
       "building_energy_silver_to_gold": {
-        "wave": 3
+        "moved": {
+          "pull_request": 0,
+          "rows": 1449777,
+          "fingerprint": "rows:1449777;content_hash_sum:13367968434017746478998580"
+        }
       },
       "building_panel_silver_to_gold": {
         "wave": 2

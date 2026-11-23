@@ -331,8 +331,10 @@ def baked_surfaces_without_a_job(jobs=None, graph=None):
 DATA_FLOW_TYPES = {"silver_table", "gold_table", "reference_table", "intelligence_table"}
 # Why a dataset no job writes has none (pipeline-graph node `unscheduled`, root ADR-0234 §2):
 # on_event: made by hand when its input event comes, by the runbook its runbook_ref names;
-# not_started: production has never written it; needs_job: it should have a job and has none yet.
-UNSCHEDULED = {"on_event", "not_started", "needs_job"}
+# not_started: production has never written it; needs_job: it should have a job and has none yet;
+# replaced: its lane took over its `_versions` table and its writes ended, kept until the runbook drops
+# it (root ADR-0564 §6-4).
+UNSCHEDULED = {"on_event", "not_started", "needs_job", "replaced"}
 
 
 def datasets_without_a_job(jobs=None, graph=None):
