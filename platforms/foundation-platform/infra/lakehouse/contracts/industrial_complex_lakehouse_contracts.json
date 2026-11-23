@@ -14997,6 +14997,104 @@
         "unit": "derived"
       }
     },
+    "gold.place_id_registry_versions": {
+      "table_name": "gold.place_id_registry_versions",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "unit",
+          "scope",
+          "place_id"
+        ],
+        "newest_first": [
+          "version_seq"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY unit, scope, place_id ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "unit",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "scope",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "place_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "current_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "redirect_to",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "release_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "version_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "unit",
+        "scope"
+      ],
+      "sort_order": [
+        "place_id"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(unit, scope, place_id, version_seq) unique",
+        "of the current rows: one row per (unit, scope, place_id)",
+        "of the current rows: status is current, historic or redirected",
+        "of the current rows: redirect_to is set only for redirected",
+        "of the current rows: row_digest contains content only"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "gold.place_id_bridge": {
       "table_name": "gold.place_id_bridge",
       "physical_format": "Parquet",
@@ -15067,6 +15165,105 @@
       "quality_gates": [
         "a code maps to one place_id at any time",
         "valid_to is empty only for the open period"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.place_id_bridge_versions": {
+      "table_name": "gold.place_id_bridge_versions",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "unit",
+          "scope",
+          "place_id",
+          "code",
+          "valid_from"
+        ],
+        "newest_first": [
+          "version_seq"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY unit, scope, place_id, code, valid_from ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "unit",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "scope",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "place_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "valid_from",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "valid_to",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "release_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "version_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "unit",
+        "scope"
+      ],
+      "sort_order": [
+        "place_id"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(unit, scope, place_id, code, valid_from, version_seq) unique",
+        "of the current rows: a code maps to one place_id at any time",
+        "of the current rows: valid_to is empty only for the open period",
+        "of the current rows: row_digest contains content only"
       ],
       "load": {
         "unit": "derived"

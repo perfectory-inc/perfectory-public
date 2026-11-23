@@ -100,6 +100,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/p
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_number_change_history_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_registry_stage.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_registry_stage/tests.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_id_release_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs:4
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_gold_stage.rs:3
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_placement_stage.rs:4

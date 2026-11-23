@@ -161,13 +161,17 @@ pub fn gold_versions_table(
 /// the parcel tile bake through its handoff (row 6 of the ADR's waves, with the geometry handoff).
 /// Root ADR-0564 §9 차례 4·5: the unit price Gold and the parcel panel are their lanes' Golds, which
 /// the lanes name as constants, not by a kind line (`by_pnu_lanes`). The steward queue is read by the steward
-/// database through its handoff, which the queue's producer writes (root ADR-0115 §9).
+/// database through its handoff, which the queue's producer writes (root ADR-0115 §9). The place-id
+/// release's registry and bridge are keyed by (unit, scope, id): every kind row's `place_id` is read
+/// from the bridge (`place_id_join`), so they switch with that one reader (root ADR-0483).
 const VERSIONED_OUTSIDE_THE_LANES: &[&LakehouseTableContract] = &[
     &crate::real_transaction_region_stats::GOLD_REAL_TRANSACTION_REGION_STATS,
     &crate::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED,
     &crate::parcel_panel::GOLD_PARCEL_PANEL,
     &crate::lakehouse::GOLD_LINEAGE_REVIEW_QUEUE,
     &crate::unit_price_panel::GOLD_UNIT_PRICE_PANEL,
+    &crate::lakehouse::GOLD_PLACE_ID_REGISTRY,
+    &crate::lakehouse::GOLD_PLACE_ID_BRIDGE,
 ];
 
 /// The versions tables of the Golds outside the by-PNU lanes; empty when one cannot be derived

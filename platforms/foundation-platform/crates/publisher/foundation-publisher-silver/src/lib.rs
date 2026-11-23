@@ -157,6 +157,8 @@ pub mod parcel_panel_stage;
 pub mod parcel_registry_stage;
 /// The parcel place ids every kind row carries, by one rule (root ADR-0483).
 pub mod place_id_join;
+/// The place-id release's registry and bridge (root ADR-0113 §8, ADR-0481).
+pub mod place_id_release_stage;
 /// The register kinds' Gold in `DuckDB`: 총괄표제부, 철거·멸실 (root ADR-0450, ADR-0399).
 pub mod record_kind_stage;
 /// The unit price Gold in `DuckDB` (root ADR-0190, ADR-0564 §9 차례 4).
