@@ -66,11 +66,11 @@ class AProducerOutranksItsConsumers(unittest.TestCase):
 class AnInstanceReadsItsDropIns(unittest.TestCase):
     def test_an_instance_drop_in_sets_its_time_limit_over_its_template(self):
         # Root ADR-0574 §8: the template states its longest instance's limit, a shorter one its drop-in.
-        template = job_specs.service_unit_text("foundation-industrial-land-sale-notice-collect@kicox.service")
+        template = job_specs.service_unit_text("foundation-industrial-land-sale-notice-collect@factoryon.service")
         shorter = job_specs.service_unit_text("foundation-industrial-land-sale-notice-collect@ilis.service")
-        self.assertIn("\nTimeoutStartSec=4h\n", template)
-        self.assertIn("\nTimeoutStartSec=2h\n", shorter)
-        self.assertNotIn("TimeoutStartSec=4h", shorter)
+        self.assertIn("\nTimeoutStartSec=2h\n", template)
+        self.assertIn("\nTimeoutStartSec=40m\n", shorter)
+        self.assertNotIn("TimeoutStartSec=2h", shorter)
         self.assertIn("industrial-land-sale-notice-collect.sh ilis\n", shorter)
 
 

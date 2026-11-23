@@ -45,16 +45,16 @@ fn every_source_of_the_lane_contract_parses_into_its_client() -> anyhow::Result<
         super::client_for(&contract, source)?;
     }
     assert!(contract.full_walk_hour_utc < 24 && contract.retry_after_hours > 0);
-    // Factory-on (root ADR-0603 §8 and the owner's 2026-11-23 revision): one request after another,
-    // never walked whole again, a generic user agent.
-    assert!(contract.spacing(Source::Factoryon)?.is_none());
+    // Every source asks one request after another (the owner's 2026-11-23 revision of root ADR-0603);
+    // Factory-on is never walked whole again and sends a generic user agent (§8).
+    for source in [Source::Factoryon, Source::Ilis, Source::Kicox] {
+        assert!(
+            contract.spacing(source)?.is_none(),
+            "{source:?} waits between requests"
+        );
+    }
     assert!(!contract.walks_whole(Source::Factoryon)?);
     assert!(contract.walks_whole(Source::Kicox)?);
-    assert_eq!(
-        contract.spacing_ms(Source::Ilis)?,
-        contract.request_spacing_ms
-    );
-    assert!(contract.spacing(Source::Kicox)?.is_some());
     // Nothing caps a run's count or time; the stall window is its one bound besides the unit's limit.
     assert_eq!(contract.stall()?.as_secs(), contract.stall_minutes * 60);
     assert_eq!(Source::parse("kicox")?, Source::Kicox);
