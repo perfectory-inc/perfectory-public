@@ -298,7 +298,7 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
     # Connectivity, after dbt_project_evaluator's Root Models / Unused Sources: a lakehouse
     # dataset must be produced and consumed, an active source must be consumed. contract_only
     # is one sanctioned island; its required description states why no lane exists. A table its
-    # lane's `_versions` table took over (`unscheduled: replaced`, root ADR-0564 §6-4) is the other:
+    # lane's `_versions` table took over (a Gold that says `unscheduled: replaced`, root ADR-0564 §6-4) is the other:
     # its producer was deleted with the takeover, nothing reads it, and it stays until the runbook
     # drops it.
     # reference tables need a producer like any dataset but are exempt from the consumer
@@ -307,7 +307,7 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
     produced = {e["to"] for e in edges}
     consumed = {e["from"] for e in edges}
     for node in nodes:
-        if node.get("status") == "contract_only" or node.get("unscheduled") == "replaced":
+        if node.get("status") == "contract_only" or (node.get("unscheduled") == "replaced" and node["type"] == "gold_table"):
             continue
         if node["type"] in TABLE_TYPES:
             if node["id"] not in produced:

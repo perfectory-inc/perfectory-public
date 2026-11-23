@@ -43,6 +43,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/pro
 platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/schema_registry.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/test_support.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_energy_monthly_silver_export.rs:2
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_energy_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_maintenance_regular_inspection_history_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_annex_parking_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_basis_outline_silver_export.rs:1

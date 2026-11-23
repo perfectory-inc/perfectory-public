@@ -6,9 +6,6 @@
   "platforms/foundation-platform/infra/datahub/seed_declared_lineage.py": {
    "B023": 12
   },
-  "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_energy_silver_to_gold.py": {
-   "F401": 1
-  },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py": {
    "F401": 3
   },
