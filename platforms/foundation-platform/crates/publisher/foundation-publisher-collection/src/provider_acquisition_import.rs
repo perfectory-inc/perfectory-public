@@ -488,6 +488,7 @@ where
             size_bytes: staged.size_bytes,
             body: byte_stream,
             write_mode: ObjectWriteMode::CreateOnly,
+            sha256: None,
         })
         .await
         .with_context(|| {

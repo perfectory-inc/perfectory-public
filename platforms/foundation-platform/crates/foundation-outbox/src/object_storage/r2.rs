@@ -181,6 +181,13 @@ impl R2RangeHasher {
 /// `x-amz-meta-sha256`; the SDK takes the bare `sha256` name and adds the `x-amz-meta-` prefix.
 const SHA256_METADATA_KEY: &str = "sha256";
 
+/// The user metadata a streaming write stamps: its `sha256` when the caller knows it.
+fn sha256_metadata(sha256: Option<&str>) -> Option<std::collections::HashMap<String, String>> {
+    sha256.map(|sha256| {
+        std::collections::HashMap::from([(SHA256_METADATA_KEY.to_owned(), sha256.to_owned())])
+    })
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::module_name_repetitions)]
 /// Cloudflare R2 configuration for the S3-compatible SDK client.
@@ -743,6 +750,7 @@ impl R2ObjectStorage {
             .key(&key)
             .content_type(&request.content_type)
             .cache_control(&request.cache_control)
+            .set_metadata(sha256_metadata(request.sha256.as_deref()))
             .send()
             .await
             .map_err(|error| {
@@ -961,10 +969,11 @@ impl ObjectStorageStreamingService for R2ObjectStorage {
             .content_type(request.content_type)
             .cache_control(request.cache_control)
             .content_length(content_length)
+            .set_metadata(sha256_metadata(request.sha256.as_deref()))
             .body(request.body);
-        // CreateOnly => conditional write (see put_object above). Streaming bulk cannot
-        // pre-compute x-amz-meta-sha256 (sha is known only post-stream); the NEXT task
-        // reconciles a 412 via DB/ledger/GET-rehash.
+        // CreateOnly => conditional write (see put_object above). A provider stream is hashed only
+        // as it goes, so it carries no x-amz-meta-sha256 and a 412 is reconciled by the caller
+        // (ledger, GET-rehash); a spooled file was hashed first and is stamped.
         if matches!(request.write_mode, ObjectWriteMode::CreateOnly) {
             builder = builder.if_none_match("*");
         }

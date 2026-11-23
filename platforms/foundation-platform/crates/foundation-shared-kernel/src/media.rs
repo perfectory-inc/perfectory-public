@@ -166,15 +166,25 @@ impl MediaFormat {
     /// what it can show.
     #[must_use]
     pub fn sniff_document(bytes: &[u8]) -> Self {
-        Self::sniff(bytes).unwrap_or_else(|| Self::sniff_non_photo(bytes))
+        Self::sniff_document_head(bytes, contains(bytes, Self::HWP_SIGNATURE))
+    }
+
+    /// The HWP file header's signature: an HWP 3 file starts with it, and an HWP 5 file (a CFB
+    /// container) holds it in its `FileHeader` stream, wherever the container put that stream.
+    pub const HWP_SIGNATURE: &'static [u8] = b"HWP Document File";
+
+    /// [`Self::sniff_document`] of a file seen in pieces, as one spooled to disk while it arrives:
+    /// its first bytes (every other signature is a prefix) and whether [`Self::HWP_SIGNATURE`]
+    /// appeared anywhere in it.
+    #[must_use]
+    pub fn sniff_document_head(head: &[u8], has_hwp_signature: bool) -> Self {
+        Self::sniff(head).unwrap_or_else(|| Self::sniff_non_photo(head, has_hwp_signature))
     }
 
     /// The document formats [`Self::sniff`] does not name: HWP, HWPX, ZIP, else [`Self::Binary`].
-    fn sniff_non_photo(bytes: &[u8]) -> Self {
+    fn sniff_non_photo(bytes: &[u8], has_hwp_signature: bool) -> Self {
         const CFB: &[u8] = &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-        const HWP_HEADER: &[u8] = b"HWP Document File";
-        if bytes.starts_with(HWP_HEADER) || (bytes.starts_with(CFB) && contains(bytes, HWP_HEADER))
-        {
+        if bytes.starts_with(Self::HWP_SIGNATURE) || (bytes.starts_with(CFB) && has_hwp_signature) {
             Self::Hwp
         } else if bytes.starts_with(b"PK\x03\x04") {
             // OCF packaging (as ODF and EPUB): a stored first entry `mimetype` holding the type.
@@ -353,7 +363,7 @@ pub fn rendition_manifest_key(
 
 #[cfg(test)]
 mod tests {
-    use super::{content_addressed_key, MediaFormat, Sha256Hex};
+    use super::{contains, content_addressed_key, MediaFormat, Sha256Hex};
     use crate::object_key::ObjectKeyPrefix;
 
     #[test]
@@ -481,8 +491,25 @@ mod tests {
             (&xls, MediaFormat::Binary),
             (b"", MediaFormat::Binary),
         ];
+        // A spooled file is sniffed from its head: an HWP 5 container whose header stream lies past
+        // the head is HWP when the spool saw the signature go by.
+        assert_eq!(
+            MediaFormat::sniff_document_head(&xls, true),
+            MediaFormat::Hwp
+        );
+        assert_eq!(
+            MediaFormat::sniff_document_head(&xls, false),
+            MediaFormat::Binary
+        );
         for (bytes, expected) in cases {
             assert_eq!(MediaFormat::sniff_document(bytes), expected);
+            assert_eq!(
+                MediaFormat::sniff_document_head(
+                    bytes,
+                    contains(bytes, MediaFormat::HWP_SIGNATURE)
+                ),
+                expected
+            );
             // A photo source never stores a document it cannot show (the screens' schemas list
             // jpg/png/gif/pdf only): the photo sniff does not see these formats.
             if !matches!(expected, MediaFormat::Pdf) {

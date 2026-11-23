@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
 use super::{Detail, DetailRead, Downloaded, FileRef, FileRequest, ListPage, Listed};
+use crate::media_store::spool_response;
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct List {
@@ -274,7 +275,11 @@ impl Kicox {
         }))
     }
 
-    pub(crate) async fn download(&mut self, request: &FileRequest) -> anyhow::Result<Downloaded> {
+    pub(crate) async fn download(
+        &mut self,
+        request: &FileRequest,
+        max_bytes: u64,
+    ) -> anyhow::Result<Downloaded> {
         let FileRequest::Url(url) = request else {
             bail!("a KICOX attachment is asked by its URL");
         };
@@ -295,12 +300,10 @@ impl Kicox {
         if !status.is_success() {
             bail!("kicox.or.kr answered HTTP {status} for a file");
         }
-        Ok(Downloaded::Bytes(
-            response
-                .bytes()
+        Ok(Downloaded::Spooled(
+            spool_response(response, max_bytes)
                 .await
-                .map_err(|error| anyhow::anyhow!("kicox.or.kr file body failed: {error}"))?
-                .to_vec(),
+                .context("kicox.or.kr file body failed")?,
         ))
     }
 }

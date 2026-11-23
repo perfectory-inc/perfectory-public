@@ -11,6 +11,7 @@ use super::{
     attachment_prefix, frontier, listed_notices, read_notice, settled_notices, source_contract,
     source_url, Asker, AttachmentReport, ReadOutcome,
 };
+use crate::media_store::MediaStore;
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
 // Synthetic only: made-up notice sequences, complex codes and file ids (public repository).
@@ -127,7 +128,10 @@ async fn a_notice_stores_every_attachment_once_and_annotates_its_line() -> anyho
         &mut asker,
         99_001,
         &prefix,
-        Some(&storage as &dyn ObjectStorageService),
+        Some(MediaStore {
+            head: &storage,
+            stream: &storage,
+        }),
         &mut report,
     )
     .await?;

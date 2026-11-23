@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
 use super::{Blocked, Detail, DetailRead, Downloaded, FileRef, FileRequest, ListPage, Listed};
+use crate::media_store::spool_response;
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct List {
@@ -282,7 +283,11 @@ impl Factoryon {
         }))
     }
 
-    pub(crate) async fn download(&mut self, request: &FileRequest) -> anyhow::Result<Downloaded> {
+    pub(crate) async fn download(
+        &mut self,
+        request: &FileRequest,
+        max_bytes: u64,
+    ) -> anyhow::Result<Downloaded> {
         let FileRequest::Url(url) = request else {
             bail!("a Factory-on attachment is asked by its URL");
         };
@@ -297,10 +302,10 @@ impl Factoryon {
             .await
             .map_err(|error| anyhow::anyhow!("factoryon.go.kr download failed: {error}"))?;
         refused(response.status(), "an attachment")?;
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| anyhow::anyhow!("factoryon.go.kr file body failed: {error}"))?;
-        Ok(Downloaded::Bytes(bytes.to_vec()))
+        Ok(Downloaded::Spooled(
+            spool_response(response, max_bytes)
+                .await
+                .context("factoryon.go.kr file body failed")?,
+        ))
     }
 }

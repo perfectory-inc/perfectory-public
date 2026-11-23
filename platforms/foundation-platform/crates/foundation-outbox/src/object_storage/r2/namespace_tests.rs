@@ -346,6 +346,7 @@ async fn a_staging_stream_over_the_threshold_goes_multipart_under_the_prefix() -
             size_bytes: size,
             body: ByteStream::from(vec![7_u8; usize::try_from(size)?]),
             write_mode: ObjectWriteMode::CreateOnly,
+            sha256: None,
         }),
     )
     .await??;

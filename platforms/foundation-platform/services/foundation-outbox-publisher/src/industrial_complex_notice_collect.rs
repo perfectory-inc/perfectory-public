@@ -6,7 +6,9 @@
 //! notice), and asks the owed ones newest first, at most `per_run_limit` and until
 //! `run_time_budget_seconds`. Each detail lists its attachments (`saveFiles`); every one still in
 //! use is downloaded and stored once, whatever its format (`MediaFormat::sniff_document`), in the
-//! shared content-addressed media store (`media_store::store_bytes_as`, root ADR-0298). The detail
+//! shared content-addressed media store (`media_store::store_spooled`, root ADR-0298), spooled to
+//! disk as it arrives and sent from there, so a file of any size passes through one chunk of
+//! memory (root ADR-0603, 2026-11-23 revision §3). The detail
 //! lands in Bronze with each attachment annotated by its hash, format, size, source URL and
 //! outcome, `commit_every` notices to a gzip JSON Lines object, so a stopped run loses at most one
 //! batch. The Silver load (`load-industrial-complex-notice-silver`) turns the lines into
@@ -32,9 +34,10 @@ use collection_infrastructure::{
     IlisFileDownload, IlisIndustrialComplexApiClient, IlisIndustrialComplexApiConfig,
     PgBronzeIngestUnitOfWork,
 };
+use foundation_outbox::object_storage::ObjectStorageStreamingService;
 use foundation_outbox::ObjectStorageService;
 use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
-use foundation_shared_kernel::{MediaFormat, ObjectKeyPrefix, Sha256Hex};
+use foundation_shared_kernel::ObjectKeyPrefix;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
@@ -42,10 +45,10 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::bronze_object_storage::{
-    live_write_bronze_object_storage_from_env, live_write_target_preflight,
-    BronzeObjectStorageWriter,
+    live_write_bronze_object_storage_from_env, live_write_bronze_streaming_object_storage_from_env,
+    live_write_target_preflight, BronzeObjectStorageWriter,
 };
-use crate::media_store::{store_bytes_as, Stored};
+use crate::media_store::{spool_response, store_spooled, MediaStore, Spooled, Stored};
 use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
@@ -354,7 +357,7 @@ pub(crate) async fn read_notice(
     asker: &mut Asker<'_>,
     notice: i64,
     prefix: &ObjectKeyPrefix,
-    storage: Option<&dyn ObjectStorageService>,
+    store: Option<MediaStore<'_>>,
     report: &mut AttachmentReport,
 ) -> anyhow::Result<(ReadOutcome, JsonValue)> {
     let requested_at = Utc::now();
@@ -404,7 +407,7 @@ pub(crate) async fn read_notice(
     let mut outcome = ReadOutcome::Read;
     if let Some(files) = body.pointer_mut(&pointer).and_then(JsonValue::as_array_mut) {
         for (index, file) in files.iter_mut().enumerate() {
-            let stored = read_attachment(contract, asker, file, prefix, storage, report).await?;
+            let stored = read_attachment(contract, asker, file, prefix, store, report).await?;
             if !stored.settled() {
                 outcome = ReadOutcome::Incomplete;
             }
@@ -423,7 +426,7 @@ async fn read_attachment(
     asker: &mut Asker<'_>,
     file: &mut JsonValue,
     prefix: &ObjectKeyPrefix,
-    storage: Option<&dyn ObjectStorageService>,
+    store: Option<MediaStore<'_>>,
     report: &mut AttachmentReport,
 ) -> anyhow::Result<StoreOutcome> {
     let attachments = &contract.attachments;
@@ -446,12 +449,17 @@ async fn read_attachment(
         .map(|(name, value)| (name.as_str(), value.as_str()))
         .collect();
     let fetched_at = Utc::now();
-    let bytes = match asker
+    let max_bytes = attachments.max_file_bytes;
+    let spooled = match asker
         .client
-        .download_file(&attachments.download_path, &pairs)
+        .download_file(&attachments.download_path, &pairs, |response| async move {
+            spool_response(response, max_bytes)
+                .await
+                .map_err(|error| format!("{error:#}"))
+        })
         .await
     {
-        Ok(IlisFileDownload::Bytes(bytes)) => bytes,
+        Ok(IlisFileDownload::Body(spooled)) => spooled,
         Ok(IlisFileDownload::Gone(status)) => {
             report.gone += 1;
             file["http_status"] = json!(status);
@@ -463,40 +471,30 @@ async fn read_attachment(
             return Ok(StoreOutcome::Failed);
         }
     };
-    store_attachment(
-        &bytes,
-        file,
-        fetched_at,
-        prefix,
-        storage,
-        attachments.max_file_bytes,
-        report,
-    )
-    .await
+    store_attachment(&spooled, file, fetched_at, prefix, store, report).await
 }
 
-/// Stores one attachment's bytes once in the shared media store, whatever its format
+/// Stores one spooled attachment once in the shared media store, whatever its format
 /// (`MediaFormat::sniff_document`), and annotates `file` with its hash, format, size and fetch
 /// time; shared with the industrial land sale notice collector (root ADR-0603), which stores its
 /// attachments in the same store the same way.
 pub(crate) async fn store_attachment(
-    bytes: &[u8],
+    spooled: &Spooled,
     file: &mut JsonValue,
     fetched_at: DateTime<Utc>,
     prefix: &ObjectKeyPrefix,
-    storage: Option<&dyn ObjectStorageService>,
-    max_file_bytes: u64,
+    store: Option<MediaStore<'_>>,
     report: &mut AttachmentReport,
 ) -> anyhow::Result<StoreOutcome> {
-    let format = MediaFormat::sniff_document(bytes);
-    file["sha256"] = json!(Sha256Hex::of(bytes).as_str());
+    let format = spooled.format;
+    file["sha256"] = json!(spooled.sha256.as_str());
     file["media_format"] = json!(format.extension());
-    file["size_bytes"] = json!(bytes.len() as u64);
+    file["size_bytes"] = json!(spooled.size_bytes);
     file["fetched_at_utc"] = json!(fetched_at.to_rfc3339());
-    let Some(storage) = storage else {
+    let Some(store) = store else {
         return Ok(StoreOutcome::DryRun);
     };
-    let outcome = match store_bytes_as(bytes, format, prefix, storage, max_file_bytes).await {
+    let outcome = match store_spooled(spooled, prefix, store).await {
         Ok(Stored::New(media)) => {
             report.stored += 1;
             report.bytes_stored += media.size_bytes;
@@ -510,7 +508,7 @@ pub(crate) async fn store_attachment(
             report.oversize += 1;
             return Ok(StoreOutcome::Oversize);
         }
-        // `store_bytes_as` names the format itself, so neither comes back; counted if one ever does.
+        // `store_spooled` names the format itself, so neither comes back; counted if one ever does.
         Ok(Stored::UnknownFormat | Stored::Gone) => {
             report.failed += 1;
             return Ok(StoreOutcome::Failed);
@@ -526,7 +524,7 @@ pub(crate) async fn store_attachment(
         .entry(format.extension().to_owned())
         .or_default();
     entry.0 += 1;
-    entry.1 += bytes.len() as u64;
+    entry.1 += spooled.size_bytes;
     Ok(outcome)
 }
 
@@ -783,7 +781,7 @@ pub async fn run() -> anyhow::Result<()> {
     let settled = settled_from_lakehouse(&contract.notice_detail).await?;
     let owed = frontier(&listed, &settled, contract.notice_detail.per_run_limit);
 
-    let live = if config.live_write {
+    let live: Live = if config.live_write {
         live_write_target_preflight()
             .context("ILIS notice collection live-write target preflight failed")?;
         let pool = PgPool::connect(&required_env_value("DATABASE_URL")?)
@@ -792,7 +790,10 @@ pub async fn run() -> anyhow::Result<()> {
         let storage = live_write_bronze_object_storage_from_env()
             .await
             .context("failed to configure object storage for the ILIS notice collection")?;
-        Some((PgBronzeIngestUnitOfWork::new(pool), storage))
+        let streaming = live_write_bronze_streaming_object_storage_from_env()
+            .await
+            .context("failed to configure streaming storage for the ILIS notice collection")?;
+        Some((PgBronzeIngestUnitOfWork::new(pool), storage, streaming))
     } else {
         None
     };
@@ -812,18 +813,12 @@ pub async fn run() -> anyhow::Result<()> {
             stop = Some(Stop::SiteFailing);
             break;
         }
-        let storage = live
-            .as_ref()
-            .map(|(_, storage)| storage.as_ref() as &dyn ObjectStorageService);
-        let (outcome, line) = read_notice(
-            &contract,
-            &mut asker,
-            *notice,
-            &prefix,
-            storage,
-            &mut report,
-        )
-        .await?;
+        let store = live.as_ref().map(|(_, head, stream)| MediaStore {
+            head: head.as_ref(),
+            stream: stream.as_ref(),
+        });
+        let (outcome, line) =
+            read_notice(&contract, &mut asker, *notice, &prefix, store, &mut report).await?;
         consecutive_failures = if outcome == ReadOutcome::Failed {
             consecutive_failures + 1
         } else {
@@ -876,15 +871,23 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A live run's ledger, its store for the Bronze objects and the media HEAD, and the streaming port
+/// the spooled attachments are sent through; none in a dry run.
+type Live = Option<(
+    PgBronzeIngestUnitOfWork,
+    Box<dyn ObjectStorageService>,
+    Box<dyn ObjectStorageStreamingService>,
+)>;
+
 async fn flush(
     contract: &SourceContract,
     config: &Config,
-    live: &Option<(PgBronzeIngestUnitOfWork, Box<dyn ObjectStorageService>)>,
+    live: &Live,
     lines: &[JsonValue],
     at: DateTime<Utc>,
     batch: usize,
 ) -> anyhow::Result<String> {
-    if let Some((uow, storage)) = live {
+    if let Some((uow, storage, _)) = live {
         return persist(contract, lines, at, batch, uow, storage.as_ref()).await;
     }
     // A dry run keeps the batch on disk for an operator to read.
