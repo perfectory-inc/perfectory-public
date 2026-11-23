@@ -604,25 +604,27 @@ fn a_search_row_takes_the_code_first_then_its_lot_then_its_road() -> anyhow::Res
 
 #[test]
 fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
+    // One stage with only the value readers, and each case's lines only (`search_complete` reads
+    // `ca_parsed`): a stage per case with the search rows and the place-identity reference took over
+    // 30 s in the dev profile's unoptimized DuckDB and timed out beside other tests (2026-11-23).
+    let directory = tempfile::tempdir()?;
+    let source = CourtAuctionSource::compiled()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage
+        .connection()
+        .execute_batch(&CourtAuctionSource::values_sql())?;
     let cases: serde_json::Value = serde_json::from_str(&fixture("item_search_complete.json")?)?;
     for case in cases.as_array().context("cases")? {
-        let (directory, stage, source) = search_stage()?;
-        let path = directory.path().join("case.gz");
-        let mut gzip = flate2::write::GzEncoder::new(
-            std::fs::File::create(&path)?,
-            flate2::Compression::default(),
-        );
-        for line in case["lines"].as_array().context("lines")? {
-            gzip.write_all(format!("{line}\n").as_bytes())?;
-        }
-        gzip.finish()?;
-        let object = PlannedObject {
-            object_key: OBJECT_KEY.to_owned(),
-            role: Role::ItemSearch,
-            source_snapshot_id: "20990102T030405Z".to_owned(),
-            path,
-        };
-        read_object(&stage, &source, &object, chrono::Utc::now())?;
+        let path = directory.path().join("case.jsonl");
+        let lines = case["lines"]
+            .as_array()
+            .context("lines")?
+            .iter()
+            .map(|line| line.to_string() + "\n")
+            .collect::<String>();
+        std::fs::write(&path, lines)?;
+        stage.load_lines(&path, "ca_lines")?;
+        stage.connection().execute_batch(super::LINES_SQL)?;
         assert_eq!(
             super::search_complete(&stage, &source, Role::ItemSearch)?,
             case["complete"].as_bool().context("complete")?,
