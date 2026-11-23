@@ -789,29 +789,21 @@ class TheRunOutcome(unittest.TestCase):
 class ThePoolsTheSchedulerHas(unittest.TestCase):
     """jobs.v1.json `pools` is the one list: the runtime creates them, compose leaves room for them."""
 
-    def test_the_dagster_run_queue_admits_what_airflow_hands_it_and_keeps_a_place_for_checks(self):
-        # A proxied job's run is a Dagster run (root ADR-0431 §5) Airflow's parallelism bounds. The runs of
-        # jobs Dagster decides are held to the pools' slots together, and two job places more stay for the
-        # proxied runs (root ADR-0583 §7); one place more for the observer's check runs. No more of a pool's
-        # runs than its slots is Dagster's own pools' work (root ADR-0605), not a tag limit.
+    def test_the_dagster_run_queue_admits_the_pools_a_default_load_a_proxied_run_and_a_check(self):
+        # A proxied job's run is a Dagster run (root ADR-0431 §5) Airflow's parallelism bounds. Seven runs at
+        # once: the pools' slots, one default-pool load beside full pools, a proxied run and a check run. No
+        # more of a pool's runs than its slots is Dagster's own pools' work (root ADR-0605). No tag limit:
+        # Dagster counts a run its full pool holds back against every tag limit it carries, so one starved
+        # every run behind Gold's queued spark runs (root ADR-0612; test_dagster_observe.py runs it).
         compose = (job_specs.PLATFORM_ROOT / "compose.orchestration.yml").read_text(encoding="utf-8")
-        [parallelism] = re.findall(r'AIRFLOW__CORE__PARALLELISM: "(\d+)"', compose)
         queue = (job_specs.PLATFORM_ROOT / "orchestration/dagster/dagster.yaml").read_text(encoding="utf-8")
         [most] = re.findall(r"max_concurrent_runs: (\d+)", queue)
-        limits = {(key, value): int(limit) for key, value, limit in
-                  re.findall(r"- key: (\S+)\n\s+value: (\S+)\n\s+limit: (\d+)", queue)}
         pools = job_specs.declared_pools(real_inputs()[0])
-        decided = limits.pop((job_specs.DECIDED_TAG, "dagster"))
-        # A default-pool run Dagster decides starts beside full pools; a proxied run always finds a place.
-        self.assertEqual(decided, sum(pools.values()) + 1)
-        job_runs = limits.pop((job_specs.JOB_RUN_TAG, "job"))
-        self.assertEqual(job_runs, decided + 1)
-        self.assertLessEqual(job_runs, int(parallelism) + decided)
-        self.assertEqual(int(most), job_runs + 1)
+        self.assertEqual(int(most), sum(pools.values()) + 3)
+        self.assertNotIn("tag_concurrency_limits", queue)
         # The code server's cap counts every run (compose.orchestration.yml): 100 + 2 x 169 + runs x 169.
         [cap] = re.findall(r"(?m)^  dagster-code-server:\n(?:    .*\n)*?    mem_limit: (\d+)m$", compose)
         self.assertGreaterEqual(int(cap), 100 + 2 * 169 + int(most) * 169)
-        self.assertEqual(limits, {})
         self.assertRegex(queue, r"(?m)^concurrency:\n  pools:\n    granularity: run\n    default_limit: 1$")
         self.assertRegex(queue, r"(?m)^  free_slots_after_run_end_seconds: \d+$")
 

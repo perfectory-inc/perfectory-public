@@ -181,3 +181,7 @@ ADR-0431·0458 은 작업을 하나씩, 이중 실행의 일치 결정을 세어
 ## 개정 각주 — 2026-11-23, ADR-0605
 
 §7 의 "풀을 메모리 종류로 나눈다" 는 [ADR-0605](./0605-scheduled-job-pools-are-cut-by-the-resource-they-guard-and-counted-by-dagsters-own-pools-and-a-jobs-wait-is-measured-not-computed.md) 가 자원으로 나눴다(spark 1·duckdb 2·gpu 1, Dagster 의 풀). 메모리 허가에는 ADR-0605 §3 의 셈이 더해졌고, 그 끝 조건은 ADR-0605 §3 의 부등식이다. `pool_full`·용량 claim 의 끝 조건과 노화·선점은 그대로다.
+
+## 개정 각주 — 2026-11-23, ADR-0612
+
+§7 의 job run 한도 6(`foundation/run=job`)과 Dagster 가 정하는 run 의 한도 5(`foundation/decided-by=dagster`)는 [ADR-0612](./0612-the-dagster-run-queue-has-no-tag-limit-because-a-run-its-full-pool-holds-back-still-takes-a-place-of-every-tag-limit-it-carries.md) 가 대신한다. Dagster 는 풀에 막힌 run 도 태그 한도에 세므로, 줄 위의 `spark` run 이 그 아래 모든 run 을 굶겼다(11-23 06:40Z). 줄 전체 7 은 그대로다.
