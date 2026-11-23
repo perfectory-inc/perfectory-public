@@ -1,12 +1,14 @@
 //! How the scheduled jobs ran and what the data contracts' checks found (root ADR-0165).
 //!
-//! The runs live in the data catalog: every Airflow run reports to it by `OpenLineage` (root
-//! ADR-0118 §2). The contract checks' results live in Dagster: the quality job reports each rule as
-//! an asset check the code location declares from the contract files (root ADR-0609 §2), and this
-//! reads their newest evaluations from Dagster's read-only webserver. Foundation reads both with
-//! fixed questions, as it does for search and lineage (root ADR-0119), and adds only what they do not hold: the job list
-//! itself (`orchestration/jobs.v1.json`) and each job's next start, computed from its schedule
-//! there, and how long each job usually takes, from the durations of its recent succeeded runs.
+//! The runs live in the orchestrator that ran them (root ADR-0609 §1): a job Dagster runs
+//! (`dagster_stage` `proxied` or `dagster`) has the runs of its Dagster job, read from Dagster's
+//! read-only webserver, and a job Airflow still runs has its DAG's runs, until Airflow goes
+//! (`facts.rs`). The contract checks' results live in Dagster too: the quality job reports each rule
+//! as an asset check the code location declares from the contract files (root ADR-0609 §2), and
+//! this reads their newest evaluations. Foundation reads both with fixed questions (root ADR-0119),
+//! and adds only what they do not hold: the job list itself (`orchestration/jobs.v1.json`) and each
+//! job's next start, computed from its schedule there, and how long each job usually takes, from
+//! the durations of its recent succeeded runs.
 //!
 //! What each job reads, writes and waits on is not derived here: `orchestration/dags/job_specs.py`
 //! derives it for the scheduler and renders it to `orchestration/job-dependencies.v1.json`, which a
@@ -18,7 +20,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::{extract::State, Json};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use croner::Cron;
 use foundation_contracts::data_catalog::{
     DataContractQuality, DataQualityCheck, DataQualityDetail, DataQualityResult, DataQualityStatus,
@@ -27,9 +29,9 @@ use foundation_contracts::data_catalog::{
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
-use serde_json::{json, Value as JsonValue};
+use serde_json::Value as JsonValue;
 
-use super::{ask, facts, health, text};
+use super::{facts, health};
 use crate::routes::api_error::ApiError;
 use crate::state::AppState;
 
@@ -41,16 +43,9 @@ const DEPENDENCIES_SCHEMA: &str = "foundation-platform.orchestration_job_depende
 const SCHEDULER_UI_URL_ENV: &str = "FOUNDATION_PLATFORM_AIRFLOW_UI_URL";
 const CATALOG_UI_URL_ENV: &str = "FOUNDATION_PLATFORM_DATAHUB_UI_URL";
 const DAGSTER_UI_URL_ENV: &str = "FOUNDATION_PLATFORM_DAGSTER_UI_URL";
-/// Search results per catalog page.
-const PAGE: u64 = 100;
-/// Pages read at most. A catalog with more flows or contracts than this is reported, never cut
-/// short silently: a job past the cut would otherwise look as if it had never run.
-const MAX_PAGES: u64 = 50;
-/// Child jobs of one flow (an Airflow DAG reports itself and its one task) and runs per child read.
-/// The runs read are also the ones a job's typical duration is the median of, and the recent runs
-/// each job shows.
-const CHILD_JOBS: u64 = 10;
-const RUNS_PER_JOB: u64 = 10;
+/// The runs read of each job: the ones its typical duration is the median of, and the recent runs
+/// it shows.
+pub(super) const RUNS_PER_JOB: usize = 10;
 
 /// The part of the job list this screen reads.
 #[derive(Debug, Deserialize)]
@@ -84,6 +79,25 @@ impl JobList {
             .filter_map(|job| Some((job.id.clone(), job.enabled_since?)))
             .collect()
     }
+
+    /// The jobs Dagster runs, by id, and the jobs Airflow runs, each with its DAG id and whether it
+    /// is switched on: where each job's runs are read.
+    pub(super) fn by_runner(&self) -> (Vec<&str>, Vec<(&str, String, bool)>) {
+        let (dagster, airflow): (Vec<&ListedJob>, Vec<&ListedJob>) = self
+            .jobs
+            .iter()
+            .partition(|job| job.decided_by() == ScheduledJobScheduler::Dagster);
+        (
+            dagster.iter().map(|job| job.id.as_str()).collect(),
+            airflow
+                .iter()
+                .map(|job| {
+                    let dag_id = format!("{}{}", self.dag_id_prefix, job.id);
+                    (job.id.as_str(), dag_id, job.enabled)
+                })
+                .collect(),
+        )
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,8 +122,8 @@ struct ListedJob {
     disabled_reason: Option<String>,
     started_by: ScheduledJobStart,
     pipeline_graph_edges: Vec<String>,
-    /// Which orchestrator decides it (root ADR-0431 §5, ADR-0565): absent is `airflow`. Only
-    /// `dagster` moves where its runs are read; every earlier stage still runs through its DAG.
+    /// Which orchestrator decides and runs it (root ADR-0431 §5, ADR-0565): absent is `airflow`.
+    /// From `proxied` on Dagster runs it, so its runs and their logs are Dagster's (root ADR-0609).
     #[serde(default)]
     dagster_stage: DagsterStage,
 }
@@ -126,8 +140,12 @@ enum DagsterStage {
 }
 
 impl ListedJob {
-    fn decided_by(&self) -> ScheduledJobScheduler {
-        if self.dagster_stage == DagsterStage::Dagster {
+    /// The orchestrator that runs it: a proxied job's DAG still starts it, but its run is Dagster's.
+    const fn decided_by(&self) -> ScheduledJobScheduler {
+        if matches!(
+            self.dagster_stage,
+            DagsterStage::Proxied | DagsterStage::Dagster
+        ) {
             ScheduledJobScheduler::Dagster
         } else {
             ScheduledJobScheduler::Airflow
@@ -139,8 +157,6 @@ impl ListedJob {
 #[derive(Debug, Deserialize)]
 struct DependencyDocument {
     schema_version: String,
-    /// The task of every job DAG that runs the job (`job_specs.RUN_TASK_ID`).
-    run_task_id: String,
     jobs: Vec<JobDependencies>,
 }
 
@@ -150,9 +166,6 @@ pub(super) struct JobDependencies {
     producers: Vec<String>,
     pub(super) reads: Vec<ScheduledJobDataset>,
     pub(super) writes: Vec<ScheduledJobDataset>,
-    /// The document's `run_task_id`, carried to each job.
-    #[serde(skip)]
-    run_task_id: String,
 }
 
 /// Every scheduled job, its next start and its latest run.
@@ -173,16 +186,12 @@ pub(super) async fn scheduled_jobs(
     Ok(Json(jobs_status().await?))
 }
 
-/// Every scheduled job with its runs and problems, from the kept read of the three stores.
+/// Every scheduled job with its runs and problems, from the kept read of the stores.
 pub(super) async fn jobs_status() -> Result<ScheduledJobsStatus, ApiError> {
     let (list, dependencies) = read_registry()?;
     let facts = facts::current(Arc::clone(&list), Arc::clone(&dependencies)).await;
     let now = Utc::now();
-    let (flows, run_history_error) = match &facts.flows {
-        Ok(flows) => (flows.as_slice(), None),
-        Err(error) => (&[][..], Some(error.clone())),
-    };
-    let mut jobs = job_statuses(&list, &dependencies, flows, now);
+    let mut jobs = job_statuses(&list, &dependencies, &facts.runs.by_job, now);
     let timeouts = list.timeouts();
     let enabled_since = list.enabled_since();
     health::annotate(
@@ -193,14 +202,14 @@ pub(super) async fn jobs_status() -> Result<ScheduledJobsStatus, ApiError> {
             tables: &facts.tables,
             failures: &facts.failures,
             in_progress: &facts.in_progress,
-            runs_readable: run_history_error.is_none(),
+            runs_unread: &facts.runs.unread,
             now,
         },
     );
     Ok(ScheduledJobsStatus {
         read_at: now,
         jobs,
-        run_history_error,
+        run_history_error: facts.runs.error.clone(),
         lakehouse_error: facts.lakehouse_error.clone(),
         scheduler_error: facts.scheduler_error.clone(),
         links: links(),
@@ -256,18 +265,6 @@ pub(super) async fn quality_checks(
     }))
 }
 
-/// What the screen is told when the runs could not be read. An internal failure's detail goes to
-/// the log, as `ApiError::Internal` does for a whole response.
-pub(super) fn unread_runs_reason(error: ApiError) -> String {
-    match error {
-        ApiError::Unavailable(message) => message,
-        other => {
-            tracing::warn!(error = ?other, "scheduled job runs could not be read from the data catalog");
-            "the data catalog answered, but its runs could not be read".to_owned()
-        }
-    }
-}
-
 fn jobs_path() -> PathBuf {
     // Resolved exactly as the pipeline graph is: the runtime image names its copy by the
     // environment variable, a build tree reads its own.
@@ -312,15 +309,7 @@ fn read_dependencies(path: &Path, list: &JobList) -> Result<Vec<JobDependencies>
             path.display()
         )));
     }
-    let run_task_id = document.run_task_id;
-    Ok(document
-        .jobs
-        .into_iter()
-        .map(|job| JobDependencies {
-            run_task_id: run_task_id.clone(),
-            ..job
-        })
-        .collect())
+    Ok(document.jobs)
 }
 
 /// Whether `job_id` is a job the release's job list names (enabled or not).
@@ -350,11 +339,11 @@ fn read_job_list(path: &Path) -> Result<JobList, ApiError> {
 }
 
 /// Each listed job with its next start, its dependencies (`dependencies` in job-list order) and
-/// the latest runs among the catalog flows named for it.
+/// its recent runs (`runs` by job id, newest first, as the orchestrator that runs it holds them).
 pub(super) fn job_statuses(
     list: &JobList,
     dependencies: &[JobDependencies],
-    flows: &[JsonValue],
+    runs: &BTreeMap<String, Vec<ScheduledJobRun>>,
     now: DateTime<Utc>,
 ) -> Vec<ScheduledJobStatus> {
     list.jobs
@@ -362,33 +351,19 @@ pub(super) fn job_statuses(
         .zip(dependencies)
         .map(|(job, depends)| {
             let dag_id = format!("{}{}", list.dag_id_prefix, job.id);
-            let runs: Vec<(String, ScheduledJobRun, i64)> = flows
-                .iter()
-                .filter(|flow| flow["flowId"].as_str() == Some(dag_id.as_str()))
-                .flat_map(child_runs)
-                .collect();
-            let runs = with_run_task_starts(runs, &dag_id, &depends.run_task_id);
-            let latest = runs
-                .iter()
-                .max_by_key(|(_, run, last_event)| (*last_event, run.run_urn.clone()));
-            let catalog_job_urn = latest.map(|(job_urn, _, _)| job_urn.clone());
-            let last_run = latest.map(|(_, run, _)| run.clone());
-            // The same catalog job's runs only: the DAG and its task each report every run, so
-            // taking both would count one run twice. Matched by the job's name in its flow, not the
-            // whole urn: a job Dagster decides reports the same names under its own engine's flow of
-            // the same id (root ADR-0565 §7), and its runs continue the ones Airflow reported.
-            let own_name = catalog_job_urn.as_deref().map(job_name);
-            let mut own: Vec<&(String, ScheduledJobRun, i64)> = runs
-                .iter()
-                .filter(|(job_urn, _, _)| Some(job_name(job_urn)) == own_name)
-                .collect();
-            let typical = typical_duration(own.iter().map(|(_, run, _)| run));
-            own.sort_by(|a, b| (b.2, &b.1.run_urn).cmp(&(a.2, &a.1.run_urn)));
-            let recent_runs = own
-                .iter()
-                .take(usize::try_from(RUNS_PER_JOB).unwrap_or(usize::MAX))
-                .map(|(_, run, _)| run.clone())
-                .collect();
+            let recent_runs: Vec<ScheduledJobRun> = runs
+                .get(&job.id)
+                .map(|runs| runs.iter().take(RUNS_PER_JOB).cloned().collect())
+                .unwrap_or_default();
+            let typical = typical_duration(recent_runs.iter());
+            let decided_by = job.decided_by();
+            // The orchestrator's job that holds the runs, once one ran.
+            let catalog_job_urn = (!recent_runs.is_empty()).then(|| match decided_by {
+                ScheduledJobScheduler::Dagster => {
+                    format!("{}{}", facts::dagster::JOB_PREFIX, job.id)
+                }
+                ScheduledJobScheduler::Airflow => dag_id.clone(),
+            });
             ScheduledJobStatus {
                 job_id: job.id.clone(),
                 dag_id,
@@ -401,12 +376,12 @@ pub(super) fn job_statuses(
                     .then(|| next_start(&job.schedule, now))
                     .flatten(),
                 catalog_job_urn,
-                last_run,
+                last_run: recent_runs.first().cloned(),
                 typical_duration_seconds: typical.map(|(seconds, _)| seconds),
                 typical_duration_runs: typical.map_or(0, |(_, count)| count),
                 recent_runs,
                 started_by: job.started_by,
-                decided_by: job.decided_by(),
+                decided_by,
                 pipeline_graph_edges: job.pipeline_graph_edges.clone(),
                 upstream_job_ids: depends.producers.clone(),
                 reads: depends.reads.clone(),
@@ -442,192 +417,10 @@ fn typical_duration<'a>(runs: impl Iterator<Item = &'a ScheduledJobRun>) -> Opti
     Some((median, u32::try_from(count).unwrap_or(u32::MAX)))
 }
 
-/// The DAG's own runs with their waiting told from their running.
-///
-/// A job's DAG run starts first and its run task waits there for a slot of the job's pool: the DAG
-/// run's start is when the run was queued (`queued_at`), and the first start of a run task inside
-/// the DAG run is when its work started (`started_at`, absent while it still waits). Measured from
-/// the DAG run's start, a run that waited three hours for the pool and ran for a minute read as a
-/// three-hour run and was called slow (2026-10-18).
-///
-/// Its work ended when its last run task try did (`finished_at`), not when the DAG run did: the
-/// tasks after it wait for the scheduler, and a deploy that pauses every DAG holds them there. On
-/// 2026-10-18 a run task ended 08:33:46, its DAG run 08:54:18, and the screen said 34 minutes for
-/// 14 minutes of work. A DAG run not yet finished keeps no finish. Runs of the task job itself are
-/// left as they are.
-fn with_run_task_starts(
-    runs: Vec<(String, ScheduledJobRun, i64)>,
-    dag_id: &str,
-    run_task_id: &str,
-) -> Vec<(String, ScheduledJobRun, i64)> {
-    let dag_job = format!(",{dag_id})");
-    let task_job = format!(",{dag_id}.{run_task_id})");
-    let task_runs: Vec<(DateTime<Utc>, Option<DateTime<Utc>>)> = runs
-        .iter()
-        .filter(|(job_urn, _, _)| job_urn.ends_with(&task_job))
-        .filter_map(|(_, run, _)| run.started_at.map(|start| (start, run.finished_at)))
-        .collect();
-    runs.into_iter()
-        .map(|(job_urn, mut run, last_event)| {
-            if job_urn.ends_with(&dag_job) {
-                if let Some(queued) = run.started_at {
-                    let until = run.finished_at.unwrap_or(DateTime::<Utc>::MAX_UTC);
-                    let inside: Vec<_> = task_runs
-                        .iter()
-                        .filter(|(start, _)| queued <= *start && *start <= until)
-                        .collect();
-                    run.queued_at = Some(queued);
-                    run.started_at = inside.iter().map(|(start, _)| *start).min();
-                    if run.finished_at.is_some() {
-                        if let Some(end) = inside.iter().filter_map(|(_, end)| *end).max() {
-                            run.finished_at = Some(end);
-                        }
-                    }
-                }
-            }
-            (job_urn, run, last_event)
-        })
-        .collect()
-}
-
-/// A catalog job's name in its flow: `foundation_x.run` of
-/// `urn:li:dataJob:(urn:li:dataFlow:(dagster,foundation_x,perfectory),foundation_x.run)`; the whole
-/// urn when it is not that shape.
-fn job_name(job_urn: &str) -> &str {
-    job_urn
-        .rsplit_once("),")
-        .and_then(|(_, name)| name.strip_suffix(')'))
-        .unwrap_or(job_urn)
-}
-
 /// The next time a five-field cron schedule starts a job after `now`, in UTC as Airflow reads it.
 fn next_start(schedule: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
     let cron = Cron::from_str(schedule).ok()?;
     cron.find_next_occurrence(&now, false).ok()
-}
-
-/// Every run of a flow's child jobs: the child job's urn, the run, and its latest event time.
-fn child_runs(flow: &JsonValue) -> Vec<(String, ScheduledJobRun, i64)> {
-    let mut found = Vec::new();
-    for relationship in flow["jobs"]["relationships"]
-        .as_array()
-        .into_iter()
-        .flatten()
-    {
-        let job = &relationship["entity"];
-        let Some(job_urn) = job["urn"].as_str() else {
-            continue;
-        };
-        for run in job["runs"]["runs"].as_array().into_iter().flatten() {
-            if let Some((run, last_event)) = run_from(run) {
-                found.push((job_urn.to_owned(), run, last_event));
-            }
-        }
-    }
-    found
-}
-
-/// One run from its recorded state changes; `None` when it has no state change at all.
-///
-/// The latest change decides: a start after a completion is a retry that is running again.
-fn run_from(run: &JsonValue) -> Option<(ScheduledJobRun, i64)> {
-    let run_urn = run["urn"].as_str()?.to_owned();
-    let events: Vec<&JsonValue> = run["state"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|event| event["timestampMillis"].as_i64().is_some())
-        .collect();
-    let latest = *events
-        .iter()
-        .max_by_key(|event| event["timestampMillis"].as_i64())?;
-    let last_event = latest["timestampMillis"].as_i64()?;
-    let started_at = events
-        .iter()
-        .filter(|event| event["status"].as_str() == Some("STARTED"))
-        .filter_map(|event| event["timestampMillis"].as_i64())
-        .min()
-        .and_then(millis);
-    let complete = latest["status"].as_str() == Some("COMPLETE");
-    let result = &latest["result"];
-    let outcome = if complete {
-        match result["resultType"].as_str() {
-            Some("SUCCESS") => ScheduledJobRunOutcome::Succeeded,
-            Some("FAILURE") => ScheduledJobRunOutcome::Failed,
-            Some("SKIPPED") => ScheduledJobRunOutcome::Skipped,
-            Some("UP_FOR_RETRY") => ScheduledJobRunOutcome::UpForRetry,
-            _ => ScheduledJobRunOutcome::Unknown,
-        }
-    } else {
-        ScheduledJobRunOutcome::Running
-    };
-    Some((
-        ScheduledJobRun {
-            run_urn,
-            queued_at: None,
-            started_at,
-            finished_at: complete.then(|| millis(last_event)).flatten(),
-            outcome,
-            native_result: complete
-                .then(|| text(&result["nativeResultType"]))
-                .flatten(),
-            rows_written: None,
-        },
-        last_event,
-    ))
-}
-
-fn millis(value: i64) -> Option<DateTime<Utc>> {
-    Utc.timestamp_millis_opt(value).single()
-}
-
-/// Every Airflow-style flow in the catalog with its child jobs and their latest runs.
-pub(super) async fn catalog_flows() -> Result<Vec<JsonValue>, ApiError> {
-    search_all(
-        FLOWS_QUERY,
-        json!({ "children": CHILD_JOBS, "runs": RUNS_PER_JOB }),
-    )
-    .await
-}
-
-const FLOWS_QUERY: &str = "query($start: Int!, $count: Int!, $children: Int!, $runs: Int!) {
-  searchAcrossEntities(input: { types: [DATA_FLOW], query: \"*\", start: $start, count: $count }) {
-    total searchResults { entity { ... on DataFlow { urn flowId
-      jobs: relationships(input: { types: [\"IsPartOf\"], direction: INCOMING, start: 0, count: $children }) {
-        relationships { entity { ... on DataJob { urn
-          runs(start: 0, count: $runs) { runs { urn
-            state(limit: 20) { status timestampMillis result { resultType nativeResultType } } } } } } } } } } } } }";
-
-/// Every search result of `document`, page by page; refuses a catalog larger than `MAX_PAGES`.
-///
-/// `document` takes `$start` and `$count`, and whatever else `variables` names.
-async fn search_all(document: &str, variables: JsonValue) -> Result<Vec<JsonValue>, ApiError> {
-    let mut entities = Vec::new();
-    let mut start: u64 = 0;
-    for _ in 0..MAX_PAGES {
-        let mut page_variables = variables.clone();
-        if let Some(object) = page_variables.as_object_mut() {
-            object.insert("start".to_owned(), json!(start));
-            object.insert("count".to_owned(), json!(PAGE));
-        }
-        let data = ask(document, page_variables).await?;
-        let found = &data["searchAcrossEntities"];
-        let page: Vec<JsonValue> = found["searchResults"]
-            .as_array()
-            .map(|rows| rows.iter().map(|row| row["entity"].clone()).collect())
-            .unwrap_or_default();
-        let total = found["total"].as_u64().unwrap_or(0);
-        let read = u64::try_from(page.len()).unwrap_or(u64::MAX);
-        entities.extend(page);
-        start += read;
-        if read == 0 || start >= total {
-            return Ok(entities);
-        }
-    }
-    Err(ApiError::Internal(format!(
-        "the data catalog holds more than {} results; not all were read",
-        PAGE * MAX_PAGES
-    )))
 }
 
 /// The contract checks grouped by contract, by id, each with its newest result. A contract is its

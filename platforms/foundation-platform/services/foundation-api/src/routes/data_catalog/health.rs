@@ -1,10 +1,10 @@
 //! Whether each scheduled job is fine, and what to look at when it is not (root ADR-0195).
 //!
 //! Five signals, each read from a fact Foundation already holds, never from a second list: a
-//! failed latest run (and the cause its scheduler log gives), a job whose inputs will not come
+//! failed latest run (and the cause its orchestrator's log gives), a job whose inputs will not come
 //! because a job it waits on failed (`upstream_job_ids`, rendered by `job_specs.py`), a scheduled
 //! start whose time limit has passed with no success since and no run of it queued or running in
-//! the scheduler (the job list's `schedule`, and `time_limit_minutes` + `stop_grace_minutes`; a run waiting for its pool's
+//! its orchestrator (the job list's `schedule`, and `time_limit_minutes` + `stop_grace_minutes`; a run waiting for its pool's
 //! slots is not late, `job_specs.py` bounds that wait), a run much longer than the job's median,
 //! and a run that wrote far fewer or far more rows than the runs before it of the same kind (the
 //! `added-records` of the snapshots it committed to the Iceberg tables it writes; a run that
@@ -37,13 +37,12 @@ pub(super) fn iceberg_table(dataset: &str) -> Option<&str> {
     dataset.strip_prefix("iceberg://")
 }
 
-/// What the scheduler log of a run that did not succeed says (it failed, or it ended waiting), read
-/// for one data catalog run.
+/// What the log of a run that did not succeed says (it failed, or it ended waiting), read for one
+/// run.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct FailedRunLog {
-    /// The data catalog run it was read for.
-    pub run_urn: String,
-    pub scheduler_run_id: Option<String>,
+    /// The run it was read for: the Dagster run id, or the Airflow DAG run id.
+    pub run_id: String,
     pub cause: FailureCause,
     pub cause_line: Option<String>,
     /// What the run said it waits for: its last `foundation-job-outcome waiting` line (root ADR-0260).
@@ -60,11 +59,12 @@ pub(super) struct HealthFacts<'a> {
     pub tables: &'a BTreeMap<String, Vec<IcebergSnapshotSummary>>,
     /// The failed latest runs' logs, by DAG id.
     pub failures: &'a BTreeMap<String, FailedRunLog>,
-    /// By DAG id, when the newest run the scheduler holds queued or running was due
+    /// By DAG id, when the newest run the orchestrator holds queued or running was due
     /// (`run_after`); a job with one is not late.
     pub in_progress: &'a BTreeMap<String, DateTime<Utc>>,
-    /// False when the data catalog did not answer: then no run is known and nothing is late.
-    pub runs_readable: bool,
+    /// The jobs whose orchestrator did not answer for their runs: no run of theirs is known, so
+    /// none of them is late.
+    pub runs_unread: &'a BTreeSet<String>,
     pub now: DateTime<Utc>,
 }
 
@@ -95,7 +95,7 @@ pub(super) fn annotate(statuses: &mut [ScheduledJobStatus], facts: &HealthFacts<
                 upstream_job_ids: upstream_job_ids.clone(),
             });
         }
-        if problems.is_empty() && facts.runs_readable {
+        if problems.is_empty() && !facts.runs_unread.contains(&status.job_id) {
             let timeout = facts.timeouts.get(&status.job_id).copied().unwrap_or(0);
             if !facts.in_progress.contains_key(&status.dag_id) {
                 let since = facts.enabled_since.get(&status.job_id).copied();
@@ -188,16 +188,16 @@ fn failed(
     let run_urn = status.last_run.as_ref().map(|run| run.run_urn.as_str());
     let log = failures
         .get(&status.dag_id)
-        .filter(|log| Some(log.run_urn.as_str()) == run_urn);
+        .filter(|log| Some(log.run_id.as_str()) == run_urn);
     Some(ScheduledJobProblem::Failed {
         cause: log.map(|log| log.cause),
         cause_line: log.and_then(|log| log.cause_line.clone()),
-        scheduler_run_id: log.and_then(|log| log.scheduler_run_id.clone()),
+        scheduler_run_id: log.map(|log| log.run_id.clone()),
     })
 }
 
-/// Waiting: the latest run ended skipped, which the DAG does to a run that said it waits (root
-/// ADR-0260, `orchestration/dags/foundation_jobs.py`).
+/// Waiting: the latest run ended saying it waits (root ADR-0260): Dagster's run succeeded with that
+/// outcome, or Airflow skipped its run task (`orchestration/dags/foundation_jobs.py`).
 fn waiting(
     status: &ScheduledJobStatus,
     logs: &BTreeMap<String, FailedRunLog>,
@@ -208,10 +208,10 @@ fn waiting(
         .filter(|run| run.outcome == ScheduledJobRunOutcome::Skipped)?;
     let log = logs
         .get(&status.dag_id)
-        .filter(|log| log.run_urn == run.run_urn);
+        .filter(|log| log.run_id == run.run_urn);
     Some(ScheduledJobProblem::Waiting {
         reason: log.and_then(|log| log.waiting.clone()),
-        scheduler_run_id: log.and_then(|log| log.scheduler_run_id.clone()),
+        scheduler_run_id: log.map(|log| log.run_id.clone()),
     })
 }
 
@@ -473,7 +473,7 @@ mod tests {
                 tables,
                 failures,
                 in_progress: &BTreeMap::new(),
-                runs_readable: true,
+                runs_unread: &BTreeSet::new(),
                 now: at(now),
             },
         );
@@ -507,8 +507,7 @@ mod tests {
         let failures = BTreeMap::from([(
             "synthetic_source".to_owned(),
             FailedRunLog {
-                run_urn: "run-s".to_owned(),
-                scheduler_run_id: Some("scheduled__x".to_owned()),
+                run_id: "run-s".to_owned(),
                 cause: FailureCause::OutOfMemory,
                 cause_line: Some("result=oom-kill".to_owned()),
                 waiting: None,
@@ -530,7 +529,7 @@ mod tests {
             ScheduledJobProblem::Failed {
                 cause: Some(FailureCause::OutOfMemory),
                 cause_line: Some("result=oom-kill".to_owned()),
-                scheduler_run_id: Some("scheduled__x".to_owned()),
+                scheduler_run_id: Some("run-s".to_owned()),
             }
         );
         assert_eq!(kinds(&statuses[1]), vec!["blocked"]);
@@ -568,8 +567,7 @@ mod tests {
         let logs = BTreeMap::from([(
             "synthetic_fold".to_owned(),
             FailedRunLog {
-                run_urn: "run-f".to_owned(),
-                scheduler_run_id: Some("scheduled__f".to_owned()),
+                run_id: "run-f".to_owned(),
                 cause: FailureCause::Other,
                 cause_line: None,
                 waiting: Some("a release build is running".to_owned()),
@@ -586,7 +584,7 @@ mod tests {
             statuses[0].problems,
             vec![ScheduledJobProblem::Waiting {
                 reason: Some("a release build is running".to_owned()),
-                scheduler_run_id: Some("scheduled__f".to_owned()),
+                scheduler_run_id: Some("run-f".to_owned()),
             }]
         );
         assert!(
@@ -642,8 +640,7 @@ mod tests {
         let failures = BTreeMap::from([(
             "synthetic_source".to_owned(),
             FailedRunLog {
-                run_urn: "run-old".to_owned(),
-                scheduler_run_id: None,
+                run_id: "run-old".to_owned(),
                 cause: FailureCause::TimedOut,
                 cause_line: None,
                 waiting: None,
@@ -835,7 +832,7 @@ mod tests {
                     tables: &BTreeMap::new(),
                     failures: &BTreeMap::new(),
                     in_progress,
-                    runs_readable: true,
+                    runs_unread: &BTreeSet::new(),
                     now: at("2026-01-02T13:00:00Z"),
                 },
             );
@@ -952,7 +949,7 @@ mod tests {
                     tables: &BTreeMap::new(),
                     failures: &BTreeMap::new(),
                     in_progress: &BTreeMap::new(),
-                    runs_readable: true,
+                    runs_unread: &BTreeSet::new(),
                     now: at(now),
                 },
             );
@@ -973,9 +970,10 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_claimed_late_when_the_runs_were_not_read() {
-        let mut statuses = vec![job("daily", &[], Vec::new())];
-        let timeouts = BTreeMap::from([("daily".to_owned(), 60)]);
+    fn a_job_whose_runs_were_not_read_is_not_claimed_late_and_the_others_still_are() {
+        // One orchestrator did not answer: its jobs' runs are unknown, the other's are read.
+        let mut statuses = vec![job("daily", &[], Vec::new()), job("read", &[], Vec::new())];
+        let timeouts = BTreeMap::from([("daily".to_owned(), 60), ("read".to_owned(), 60)]);
         annotate(
             &mut statuses,
             &HealthFacts {
@@ -984,10 +982,11 @@ mod tests {
                 tables: &BTreeMap::new(),
                 failures: &BTreeMap::new(),
                 in_progress: &BTreeMap::new(),
-                runs_readable: false,
+                runs_unread: &BTreeSet::from(["daily".to_owned()]),
                 now: at("2026-01-02T08:00:00Z"),
             },
         );
         assert!(statuses[0].problems.is_empty());
+        assert_eq!(kinds(&statuses[1]), vec!["late"]);
     }
 }

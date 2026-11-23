@@ -1,29 +1,29 @@
 //! The run facts the operations map reads, kept for a short while (root ADR-0195).
 //!
-//! Three stores answer: the data catalog holds the runs (`OpenLineage`, root ADR-0165), the
-//! lakehouse catalog holds each table's snapshots with the rows each added, and the scheduler
-//! (Airflow) holds each run's log, the only place a failure says why. Asking all three for every
-//! screen refresh would make each answer as slow as the slowest of them, so one read is kept and
-//! served for `FRESH_FOR`; a request after that gets the kept read at once and starts the next in
-//! the background (stale-while-revalidate). A table is read again only when a job that writes it
+//! Three stores answer: the two orchestrators hold the runs and each run's log, the only place a
+//! failure says why, and the lakehouse catalog holds each table's snapshots with the rows each
+//! added. A job Dagster runs (`dagster_stage` `proxied` or `dagster`, root ADR-0565 §8, ADR-0609
+//! §1) has its runs, its failed run's log and its unfinished runs read from Dagster's read-only
+//! webserver (`dagster.rs`); a job Airflow still runs (`shadow`, and the switched-off `airflow`
+//! ones) from Airflow's API, until Airflow goes on 2026-11-25. Asking them all for every screen
+//! refresh would make each answer as slow as the slowest of them, so one read is kept and served
+//! for `FRESH_FOR`; a request after that gets the kept read at once and starts the next in the
+//! background (stale-while-revalidate). A table is read again only when a job that writes it
 //! finished since it was read, or after `TABLE_FRESH_FOR`; a failed run's log is read once, and
-//! one the scheduler did not give is asked for again only after `SCHEDULER_RETRY_AFTER`. The
-//! scheduler is asked which runs it holds queued or running only while some job is past its
-//! scheduled start's time limit, with one sign-in per read.
-//!
-//! A job Dagster decides (`dagster_stage: dagster`, root ADR-0565 §8) has no DAG: its failed run's
-//! log and its unfinished runs are read from Dagster's read-only webserver instead (`dagster.rs`),
-//! through the same classification and masks.
+//! one the orchestrator did not give is asked for again only after `SCHEDULER_RETRY_AFTER`. Airflow
+//! is asked which runs it holds queued or running only while some job is past its scheduled
+//! start's time limit, with one sign-in per read.
 
 pub(super) mod dagster;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, OnceLock};
 
 use chrono::{DateTime, Duration, Utc};
 use foundation_contracts::data_catalog::{
-    FailureCause, ScheduledJobRunOutcome, ScheduledJobScheduler, ScheduledJobStatus,
+    FailureCause, ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobScheduler,
+    ScheduledJobStatus,
 };
 use futures_util::StreamExt;
 use lakehouse_infrastructure::{
@@ -34,9 +34,7 @@ use serde_json::{json, Value as JsonValue};
 use tokio::sync::{Notify, RwLock};
 
 use super::health::{iceberg_table, late, FailedRunLog};
-use super::operations::{
-    catalog_flows, job_statuses, unread_runs_reason, JobDependencies, JobList,
-};
+use super::operations::{job_statuses, JobDependencies, JobList, RUNS_PER_JOB};
 
 /// How long one read of the three stores is served before the next is started.
 const FRESH_FOR: Duration = Duration::seconds(30);
@@ -61,11 +59,11 @@ const IN_PROGRESS_LIMIT: &str = "100";
 /// A cause line is cut to this many characters.
 const CAUSE_LINE_CHARS: usize = 240;
 
-/// One read of the three stores.
+/// One read of the stores.
 pub(super) struct Facts {
     pub read_at: DateTime<Utc>,
-    /// The data catalog's flows, or why they could not be read.
-    pub flows: Result<Vec<JsonValue>, String>,
+    /// Every job's recent runs, as the orchestrator that runs it holds them.
+    pub runs: RunHistory,
     /// Every Iceberg table a job reads or writes that could be read, its `main` snapshots newest
     /// first. A table that could not be read keeps its earlier read, or is absent.
     pub tables: BTreeMap<String, Vec<IcebergSnapshotSummary>>,
@@ -85,10 +83,42 @@ pub(super) struct Facts {
     pub scheduler_error: Option<String>,
 }
 
-/// Something the scheduler did not answer, for which run, why, and when to ask again.
+/// Every job's recent runs, read from the orchestrator that runs it.
+#[derive(Default)]
+pub(super) struct RunHistory {
+    /// By job id, newest first.
+    pub by_job: BTreeMap<String, Vec<ScheduledJobRun>>,
+    /// The jobs whose orchestrator did not answer: no run of theirs is known, so none is late.
+    pub unread: BTreeSet<String>,
+    /// Why, naming the orchestrator that did not answer.
+    pub error: Option<String>,
+}
+
+impl RunHistory {
+    /// One orchestrator's answer for `jobs`: their runs, or the jobs left unread and why.
+    fn keep<'a>(
+        &mut self,
+        jobs: impl Iterator<Item = &'a str>,
+        answer: Result<BTreeMap<String, Vec<ScheduledJobRun>>, String>,
+    ) {
+        match answer {
+            Ok(runs) => self.by_job.extend(runs),
+            Err(error) => {
+                tracing::warn!(%error, "scheduled job runs could not be read");
+                self.unread.extend(jobs.map(str::to_owned));
+                self.error = Some(match self.error.take() {
+                    Some(earlier) => format!("{earlier}; {error}"),
+                    None => error,
+                });
+            }
+        }
+    }
+}
+
+/// Something an orchestrator did not answer, for which run, why, and when to ask again.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SchedulerMiss {
-    run_urn: String,
+    run_id: String,
     error: String,
     retry_at: DateTime<Utc>,
 }
@@ -98,9 +128,9 @@ struct SchedulerMiss {
 enum LogRead {
     /// It was read for this run before.
     Known(FailedRunLog),
-    /// The scheduler did not give it for this run a short while ago.
+    /// The orchestrator did not give it for this run a short while ago.
     Wait(SchedulerMiss),
-    /// Ask the scheduler for it.
+    /// Ask the orchestrator for it.
     Ask,
 }
 
@@ -108,15 +138,15 @@ fn log_read(
     failures: &BTreeMap<String, FailedRunLog>,
     misses: &BTreeMap<String, SchedulerMiss>,
     dag_id: &str,
-    run_urn: &str,
+    run_id: &str,
     now: DateTime<Utc>,
 ) -> LogRead {
-    if let Some(log) = failures.get(dag_id).filter(|log| log.run_urn == run_urn) {
+    if let Some(log) = failures.get(dag_id).filter(|log| log.run_id == run_id) {
         return LogRead::Known(log.clone());
     }
     misses
         .get(dag_id)
-        .filter(|miss| miss.run_urn == run_urn && now < miss.retry_at)
+        .filter(|miss| miss.run_id == run_id && now < miss.retry_at)
         .map_or(LogRead::Ask, |miss| LogRead::Wait(miss.clone()))
 }
 
@@ -182,13 +212,14 @@ fn start_read(
 
 async fn read(previous: Option<&Facts>, list: &JobList, dependencies: &[JobDependencies]) -> Facts {
     let read_at = Utc::now();
-    let flows = catalog_flows().await.map_err(unread_runs_reason);
-    let statuses = job_statuses(
-        list,
-        dependencies,
-        flows.as_deref().unwrap_or_default(),
-        read_at,
-    );
+    let mut scheduler = SchedulerFacts {
+        sign_in_miss: previous
+            .and_then(|facts| facts.sign_in_miss.clone())
+            .filter(|miss| read_at < miss.retry_at),
+        ..SchedulerFacts::default()
+    };
+    let (runs, airflow) = read_runs(list, &mut scheduler, read_at).await;
+    let statuses = job_statuses(list, dependencies, &runs.by_job, read_at);
     // When a job that writes each table last finished: a table is read again after that.
     let mut written_at: BTreeMap<&str, DateTime<Utc>> = BTreeMap::new();
     let mut tables: Vec<&str> = Vec::new();
@@ -215,7 +246,7 @@ async fn read(previous: Option<&Facts>, list: &JobList, dependencies: &[JobDepen
     let (tables, table_read_at, lakehouse_error) =
         read_tables(&tables, previous, &written_at, read_at).await;
 
-    let (mut scheduler, ask) = known_logs(previous, &statuses, read_at);
+    let ask = known_logs(previous, &statuses, read_at, &mut scheduler);
     // Only a job past its scheduled start's time limit can be told apart by a queued or running
     // run, so the scheduler is asked for those only while there is one.
     let timeouts = list.timeouts();
@@ -233,7 +264,19 @@ async fn read(previous: Option<&Facts>, list: &JobList, dependencies: &[JobDepen
     let (dagster_asks, airflow_asks): (Vec<LogAsk>, Vec<LogAsk>) =
         ask.into_iter().partition(|asked| asked.dagster);
     if !airflow_asks.is_empty() || overdue {
-        ask_scheduler(previous, &mut scheduler, &airflow_asks, overdue, read_at).await;
+        let session = match airflow {
+            Some(session) => session,
+            None => sign_in(&mut scheduler, read_at).await,
+        };
+        ask_scheduler(
+            previous,
+            &mut scheduler,
+            session,
+            &airflow_asks,
+            overdue,
+            read_at,
+        )
+        .await;
     }
     let decides_some = statuses
         .iter()
@@ -246,7 +289,7 @@ async fn read(previous: Option<&Facts>, list: &JobList, dependencies: &[JobDepen
     errors.dedup();
     Facts {
         read_at,
-        flows,
+        runs,
         tables,
         table_read_at,
         lakehouse_error,
@@ -255,6 +298,66 @@ async fn read(previous: Option<&Facts>, list: &JobList, dependencies: &[JobDepen
         in_progress: scheduler.in_progress,
         sign_in_miss: scheduler.sign_in_miss,
         scheduler_error: (!errors.is_empty()).then(|| errors.join("; ")),
+    }
+}
+
+/// The scheduler and a token for its read-only account, or why there is none.
+type SignedIn = Result<(Scheduler, String), String>;
+
+/// Every job's recent runs from the orchestrator that runs it, and Airflow's sign-in when it was
+/// asked. A store that does not answer leaves its jobs unread, never without runs.
+async fn read_runs(
+    list: &JobList,
+    scheduler: &mut SchedulerFacts,
+    read_at: DateTime<Utc>,
+) -> (RunHistory, Option<SignedIn>) {
+    let (dagster_jobs, airflow_jobs) = list.by_runner();
+    let mut history = RunHistory::default();
+    // Dagster's own errors name it.
+    let answer = match dagster::Dagster::from_env() {
+        Some(dagster) => dagster.job_runs(&dagster_jobs).await,
+        None => Err("Dagster's read-only API is not configured".to_owned()),
+    };
+    history.keep(dagster_jobs.iter().copied(), answer);
+    // Temporary (root ADR-0609 §1): the jobs Airflow runs, until it goes on 2026-11-25. Asked only
+    // while one of them is switched on, so a list whose Airflow jobs are all off never needs it.
+    if !airflow_jobs.iter().any(|(_, _, enabled)| *enabled) {
+        return (history, None);
+    }
+    // The runs need a sign-in on every read, so a refused one is tried again on the next read, not
+    // after `SCHEDULER_RETRY_AFTER`: one sign-in a read is no hammering.
+    scheduler.sign_in_miss = None;
+    let session = sign_in(scheduler, read_at).await;
+    let answer = match &session {
+        Ok((airflow, token)) => airflow.job_runs(token, &airflow_jobs).await,
+        Err(error) => Err(error.clone()),
+    };
+    history.keep(
+        airflow_jobs.iter().map(|(job, _, _)| *job),
+        answer.map_err(|error| format!("Airflow: {error}")),
+    );
+    (history, Some(session))
+}
+
+/// Signs in to the scheduler; after a refused sign-in it is not asked again before the miss's
+/// `retry_at`.
+async fn sign_in(facts: &mut SchedulerFacts, read_at: DateTime<Utc>) -> SignedIn {
+    let scheduler =
+        Scheduler::from_env().ok_or_else(|| "the scheduler's API is not configured".to_owned())?;
+    if let Some(miss) = &facts.sign_in_miss {
+        return Err(miss.error.clone());
+    }
+    match scheduler.sign_in().await {
+        Ok(token) => Ok((scheduler, token)),
+        Err(error) => {
+            tracing::warn!(%error, "the scheduler refused Foundation's sign-in");
+            facts.sign_in_miss = Some(SchedulerMiss {
+                run_id: String::new(),
+                error: error.clone(),
+                retry_at: read_at + SCHEDULER_RETRY_AFTER,
+            });
+            Err(error)
+        }
     }
 }
 
@@ -271,31 +374,24 @@ struct SchedulerFacts {
 /// One failed or waiting latest run whose log is to be read, and from which orchestrator.
 struct LogAsk<'a> {
     dag_id: &'a str,
-    job_id: &'a str,
-    run_urn: &'a str,
-    waited: bool,
-    /// Dagster decides the job: its log is its Dagster run's.
+    run_id: &'a str,
+    /// Dagster runs the job: the run is a Dagster run.
     dagster: bool,
 }
 
-/// The logs of the latest runs that failed or ended waiting, already read or not to be asked for
-/// yet, and the runs whose logs are to be asked for.
+/// Into `facts`, the logs of the latest runs that failed or ended waiting, already read or not to
+/// be asked for yet; and the runs whose logs are to be asked for.
 fn known_logs<'a>(
     previous: Option<&Facts>,
     statuses: &'a [ScheduledJobStatus],
     read_at: DateTime<Utc>,
-) -> (SchedulerFacts, Vec<LogAsk<'a>>) {
+    facts: &mut SchedulerFacts,
+) -> Vec<LogAsk<'a>> {
     let no_failures = BTreeMap::new();
     let no_misses = BTreeMap::new();
     let (known, misses) = previous.map_or((&no_failures, &no_misses), |facts| {
         (&facts.failures, &facts.log_misses)
     });
-    let mut facts = SchedulerFacts {
-        sign_in_miss: previous
-            .and_then(|facts| facts.sign_in_miss.clone())
-            .filter(|miss| read_at < miss.retry_at),
-        ..SchedulerFacts::default()
-    };
     let mut ask = Vec::new();
     for status in statuses {
         let Some(run) = status.last_run.as_ref().filter(|run| {
@@ -309,7 +405,6 @@ fn known_logs<'a>(
         }) else {
             continue;
         };
-        let waited = run.outcome == ScheduledJobRunOutcome::Skipped;
         let dag_id = status.dag_id.as_str();
         match log_read(known, misses, dag_id, &run.run_urn, read_at) {
             LogRead::Known(log) => {
@@ -321,21 +416,20 @@ fn known_logs<'a>(
             }
             LogRead::Ask => ask.push(LogAsk {
                 dag_id,
-                job_id: status.job_id.as_str(),
-                run_urn: run.run_urn.as_str(),
-                waited,
+                run_id: run.run_urn.as_str(),
                 dagster: status.decided_by == ScheduledJobScheduler::Dagster,
             }),
         }
     }
-    (facts, ask)
+    ask
 }
 
-/// Signs in once and asks for each log in `ask`, and for the queued and running runs when
+/// With the read's sign-in, asks for each log in `ask`, and for the queued and running runs when
 /// `overdue`. A read that cannot ask keeps the last answer about queued and running runs.
 async fn ask_scheduler(
     previous: Option<&Facts>,
     facts: &mut SchedulerFacts,
+    session: SignedIn,
     ask: &[LogAsk<'_>],
     overdue: bool,
     read_at: DateTime<Utc>,
@@ -345,35 +439,16 @@ async fn ask_scheduler(
             .map(|facts| facts.in_progress.clone())
             .unwrap_or_default()
     };
-    let Some(scheduler) = Scheduler::from_env() else {
-        facts
-            .errors
-            .push("the scheduler's API is not configured".to_owned());
-        return;
-    };
-    if let Some(miss) = &facts.sign_in_miss {
-        facts.errors.push(miss.error.clone());
-        facts.in_progress = kept_in_progress();
-        return;
-    }
-    let token = match scheduler.sign_in().await {
-        Ok(token) => token,
+    let (scheduler, token) = match session {
+        Ok(session) => session,
         Err(error) => {
-            tracing::warn!(%error, "the scheduler refused Foundation's sign-in");
-            facts.errors.push(error.clone());
+            facts.errors.push(error);
             facts.in_progress = kept_in_progress();
-            facts.sign_in_miss = Some(SchedulerMiss {
-                run_urn: String::new(),
-                error,
-                retry_at: read_at + SCHEDULER_RETRY_AFTER,
-            });
             return;
         }
     };
     for asked in ask {
-        let answer = scheduler
-            .latest_log(&token, asked.dag_id, asked.run_urn, asked.waited)
-            .await;
+        let answer = scheduler.log_of(&token, asked.dag_id, asked.run_id).await;
         keep_log(facts, asked, answer, read_at);
     }
     if overdue {
@@ -405,7 +480,7 @@ fn keep_log(
             facts.log_misses.insert(
                 asked.dag_id.to_owned(),
                 SchedulerMiss {
-                    run_urn: asked.run_urn.to_owned(),
+                    run_id: asked.run_id.to_owned(),
                     error,
                     retry_at: read_at + SCHEDULER_RETRY_AFTER,
                 },
@@ -415,7 +490,7 @@ fn keep_log(
 }
 
 /// Asks Dagster for each log in `ask`, and when `overdue` for the unfinished runs of the jobs it
-/// decides, which join the in-progress runs by DAG id (root ADR-0565 §8).
+/// runs, which join the in-progress runs by DAG id (root ADR-0565 §8).
 async fn ask_dagster(
     facts: &mut SchedulerFacts,
     ask: &[LogAsk<'_>],
@@ -430,9 +505,7 @@ async fn ask_dagster(
         return;
     };
     for asked in ask {
-        let answer = dagster
-            .latest_log(asked.job_id, asked.run_urn, asked.waited)
-            .await;
+        let answer = dagster.log_of(asked.run_id).await;
         keep_log(facts, asked, answer, read_at);
     }
     if overdue {
@@ -630,38 +703,43 @@ impl Scheduler {
         Ok(in_progress_runs(&runs))
     }
 
-    /// The log of `dag_id`'s latest failed (or retrying) run, or with `waited` of its latest run
-    /// that ended waiting, read for the data catalog's run `run_urn`.
-    async fn latest_log(
+    /// By job id, the newest runs of each job's DAG (`jobs`: job id, DAG id), newest first.
+    async fn job_runs(
+        &self,
+        token: &str,
+        jobs: &[(&str, String, bool)],
+    ) -> Result<BTreeMap<String, Vec<ScheduledJobRun>>, String> {
+        let limit = RUNS_PER_JOB.to_string();
+        let newest = [("order_by", "-run_after"), ("limit", limit.as_str())];
+        let mut runs = BTreeMap::new();
+        let mut run_tasks = vec![("task_id", RUN_TASK)];
+        run_tasks.extend(newest);
+        for (job_id, dag_id, _) in jobs {
+            let dag_runs = self
+                .get(token, &["api", "v2", "dags", dag_id, "dagRuns"], &newest)
+                .await?;
+            let task_path = ["api", "v2", "dags", dag_id, "dagRuns", "~", "taskInstances"];
+            let tasks = self.get(token, &task_path, &run_tasks).await?;
+            runs.insert((*job_id).to_owned(), dag_runs_of(&dag_runs, &tasks));
+        }
+        Ok(runs)
+    }
+
+    /// The log of the DAG run `run_id` of `dag_id`, whose run task failed, waits for its retry or
+    /// ended waiting.
+    async fn log_of(
         &self,
         token: &str,
         dag_id: &str,
-        run_urn: &str,
-        waited: bool,
+        run_id: &str,
     ) -> Result<FailedRunLog, String> {
-        // A run whose task waits for its retry is still running as a DAG run; a run whose task
-        // ended waiting is skipped, and its DAG run succeeded.
-        let states: &[(&str, &str)] = if waited {
-            &[("state", "success")]
-        } else {
-            &[("state", "failed"), ("state", "running")]
-        };
-        let mut query = vec![("order_by", "-run_after"), ("limit", "1")];
-        query.extend_from_slice(states);
-        let runs = self
-            .get(token, &["api", "v2", "dags", dag_id, "dagRuns"], &query)
-            .await?;
-        let run_id = runs["dag_runs"][0]["dag_run_id"]
-            .as_str()
-            .ok_or_else(|| format!("the scheduler holds no such run of {dag_id}"))?
-            .to_owned();
         let task_path = [
             "api",
             "v2",
             "dags",
             dag_id,
             "dagRuns",
-            &run_id,
+            run_id,
             "taskInstances",
             RUN_TASK,
         ];
@@ -682,13 +760,78 @@ impl Scheduler {
         let lines = log_lines(&log["content"]);
         let (cause, cause_line) = classify(&lines);
         Ok(FailedRunLog {
-            run_urn: run_urn.to_owned(),
-            scheduler_run_id: Some(run_id),
+            run_id: run_id.to_owned(),
             cause,
             cause_line,
             waiting: waiting_reason(&lines),
         })
     }
+}
+
+/// A DAG's runs (`dagRuns`, newest first), each timed by its run task (`taskInstances` of the same
+/// runs): the DAG run starts first and its run task waits there for a slot of the job's pool, so
+/// the DAG run's start is when the run was queued (`queued_at`) and the run task's start when its
+/// work started (`started_at`, absent while it waits). Measured from the DAG run's start, a run that
+/// waited three hours for the pool and ran for a minute read as a three-hour run and was called
+/// slow (2026-10-18).
+///
+/// Its work ended when its run task did (`finished_at`), not when the DAG run did: the tasks after
+/// it wait for the scheduler, and a deploy that pauses every DAG holds them there. On 2026-10-18 a
+/// run task ended 08:33:46, its DAG run 08:54:18, and the screen said 34 minutes for 14 minutes of
+/// work. A DAG run not yet finished keeps no finish.
+///
+/// shortcut: a retried run task's start is its last try's (the task instance holds that try only),
+/// so a retried run reads shorter than it took; Airflow goes on 2026-11-25, after which no job runs
+/// there.
+fn dag_runs_of(dag_runs: &JsonValue, tasks: &JsonValue) -> Vec<ScheduledJobRun> {
+    let time = |value: &JsonValue| {
+        value
+            .as_str()
+            .and_then(|at| DateTime::parse_from_rfc3339(at).ok())
+            .map(|at| at.with_timezone(&Utc))
+    };
+    let tasks = tasks["task_instances"].as_array();
+    dag_runs["dag_runs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|run| {
+            let run_id = run["dag_run_id"].as_str()?;
+            // A run task never tried did no work: its check found nothing to do, and skipped it.
+            let task = tasks.into_iter().flatten().find(|task| {
+                task["dag_run_id"].as_str() == Some(run_id)
+                    && task["try_number"].as_u64().unwrap_or(0) > 0
+            });
+            let task_state = task.and_then(|task| task["state"].as_str());
+            let state = run["state"].as_str();
+            let outcome = match (state, task_state) {
+                (Some("queued" | "running"), Some("up_for_retry")) => {
+                    ScheduledJobRunOutcome::UpForRetry
+                }
+                (Some("queued" | "running"), _) => ScheduledJobRunOutcome::Running,
+                // The run said it waits, or was skipped (root ADR-0260, ADR-0282).
+                (Some("success"), Some("skipped")) => ScheduledJobRunOutcome::Skipped,
+                (Some("success"), _) => ScheduledJobRunOutcome::Succeeded,
+                (Some("failed"), _) => ScheduledJobRunOutcome::Failed,
+                _ => ScheduledJobRunOutcome::Unknown,
+            };
+            let finished = matches!(state, Some("success" | "failed"));
+            let task_end = task.and_then(|task| time(&task["end_date"]));
+            Some(ScheduledJobRun {
+                run_urn: run_id.to_owned(),
+                queued_at: time(&run["start_date"]).or_else(|| time(&run["queued_at"])),
+                started_at: task.and_then(|task| time(&task["start_date"])),
+                finished_at: finished
+                    .then(|| task_end.or_else(|| time(&run["end_date"])))
+                    .flatten(),
+                outcome,
+                native_result: finished
+                    .then(|| task_state.or(state).map(str::to_owned))
+                    .flatten(),
+                rows_written: None,
+            })
+        })
+        .collect()
 }
 
 /// By DAG id, the latest `run_after` of the queued and running runs in a `dagRuns` answer.
@@ -1011,8 +1154,9 @@ Successfully emitted OpenLineage `FAIL` event";
     }
 
     #[test]
-    fn a_failed_run_of_a_job_dagster_decides_is_asked_of_dagster_by_its_job_id() {
-        // Root ADR-0565 §8: such a job has no DAG, so Airflow has no log of it.
+    fn a_failed_or_waiting_run_s_log_is_asked_of_the_orchestrator_that_ran_it_by_its_id() {
+        // Root ADR-0565 §8, ADR-0609 §1: a run Dagster ran is a Dagster run, and Airflow has no
+        // log of it.
         use foundation_contracts::data_catalog::{
             ScheduledJobRun, ScheduledJobScheduler, ScheduledJobStart,
         };
@@ -1029,7 +1173,7 @@ Successfully emitted OpenLineage `FAIL` event";
             next_run_at: None,
             catalog_job_urn: None,
             last_run: Some(ScheduledJobRun {
-                run_urn: format!("urn:li:dataProcessInstance:{job}"),
+                run_urn: format!("synthetic-run-{job}"),
                 queued_at: None,
                 started_at: None,
                 finished_at: None,
@@ -1070,17 +1214,17 @@ Successfully emitted OpenLineage `FAIL` event";
                 ScheduledJobRunOutcome::Succeeded,
             ),
         ];
-        let (_, ask) = known_logs(None, &statuses, now);
-        let asked: Vec<(&str, &str, bool, bool)> = ask
+        let ask = known_logs(None, &statuses, now, &mut SchedulerFacts::default());
+        let asked: Vec<(&str, &str, bool)> = ask
             .iter()
-            .map(|asked| (asked.dag_id, asked.job_id, asked.waited, asked.dagster))
+            .map(|asked| (asked.dag_id, asked.run_id, asked.dagster))
             .collect();
         assert_eq!(
             asked,
             vec![
-                ("synthetic_load", "load", false, true),
-                ("synthetic_wait", "wait", true, true),
-                ("synthetic_bake", "bake", false, false),
+                ("synthetic_load", "synthetic-run-load", true),
+                ("synthetic_wait", "synthetic-run-wait", true),
+                ("synthetic_bake", "synthetic-run-bake", false),
             ]
         );
     }
@@ -1091,15 +1235,14 @@ Successfully emitted OpenLineage `FAIL` event";
             .map(|at| at.with_timezone(&Utc))
             .unwrap_or_default();
         let log = FailedRunLog {
-            run_urn: "run-1".to_owned(),
-            scheduler_run_id: None,
+            run_id: "run-1".to_owned(),
             cause: FailureCause::Other,
             cause_line: None,
             waiting: None,
         };
         let failures = BTreeMap::from([("dag".to_owned(), log.clone())]);
         let miss = SchedulerMiss {
-            run_urn: "run-2".to_owned(),
+            run_id: "run-2".to_owned(),
             error: "the scheduler answered 404".to_owned(),
             retry_at: now + Duration::minutes(5),
         };
@@ -1153,6 +1296,118 @@ Successfully emitted OpenLineage `FAIL` event";
             runs.get("fold").map(DateTime::to_rfc3339),
             Some("2026-01-02T07:00:00+00:00".to_owned())
         );
+    }
+
+    fn time(iso: &str) -> Option<DateTime<Utc>> {
+        DateTime::parse_from_rfc3339(iso)
+            .ok()
+            .map(|at| at.with_timezone(&Utc))
+    }
+
+    /// 2026-10-18, `building_register_floor`: its DAG run started 08:20:00, its run task ran 08:20:01
+    /// to 08:33:46, then a deploy paused every DAG and the publish task after it ran at 08:54, so the
+    /// DAG run ended 08:54:18. The screen said 34 minutes; the work took 13 minutes 45 seconds. And
+    /// 2026-10-18 `silver_refresh_*`: a run whose run task still waits for its pool has no start.
+    #[test]
+    fn an_airflow_run_is_queued_at_its_dag_run_s_start_and_works_from_its_run_task_s_start_to_its_end(
+    ) {
+        // The shapes of Airflow 3's `GET .../dagRuns` and `GET .../dagRuns/~/taskInstances?task_id=run`,
+        // ids made up.
+        let dag_runs = json!({ "dag_runs": [
+            { "dag_run_id": "scheduled__b", "state": "running", "queued_at": "2026-01-03T08:19:59Z",
+              "start_date": "2026-01-03T08:20:00Z", "end_date": null },
+            { "dag_run_id": "scheduled__a", "state": "success", "start_date": "2026-01-02T08:20:00Z",
+              "end_date": "2026-01-02T08:54:18Z" },
+        ], "total_entries": 2 });
+        let tasks = json!({ "task_instances": [
+            { "dag_run_id": "scheduled__b", "task_id": "run", "state": "scheduled", "try_number": 1,
+              "start_date": null, "end_date": null },
+            { "dag_run_id": "scheduled__a", "task_id": "run", "state": "success", "try_number": 1,
+              "start_date": "2026-01-02T08:20:01Z", "end_date": "2026-01-02T08:33:46Z" },
+        ], "total_entries": 2 });
+        let runs = dag_runs_of(&dag_runs, &tasks);
+        let waiting = &runs[0];
+        assert_eq!(
+            (waiting.run_urn.as_str(), waiting.outcome),
+            ("scheduled__b", ScheduledJobRunOutcome::Running)
+        );
+        assert_eq!(
+            (waiting.queued_at, waiting.started_at, waiting.finished_at),
+            (time("2026-01-03T08:20:00Z"), None, None),
+            "queued when its DAG run started; its run task has not started"
+        );
+        let done = &runs[1];
+        assert_eq!(
+            (done.queued_at, done.started_at, done.finished_at),
+            (
+                time("2026-01-02T08:20:00Z"),
+                time("2026-01-02T08:20:01Z"),
+                time("2026-01-02T08:33:46Z")
+            ),
+            "the work ended with the run task, not with the paused DAG run"
+        );
+        assert_eq!(
+            (done.outcome, done.native_result.as_deref()),
+            (ScheduledJobRunOutcome::Succeeded, Some("success"))
+        );
+    }
+
+    #[test]
+    fn an_airflow_run_s_outcome_is_its_dag_run_s_and_its_run_task_s() {
+        use ScheduledJobRunOutcome::{Failed, Running, Skipped, Succeeded, Unknown, UpForRetry};
+        let at = "2026-01-02T08:00:00Z";
+        let runs: Vec<JsonValue> = [
+            ("retrying", "running"),
+            ("waited", "success"),
+            ("checked", "success"),
+            ("broke", "failed"),
+            ("odd", "something_new"),
+        ]
+        .iter()
+        .map(|(id, state)| json!({ "dag_run_id": id, "state": state, "start_date": at, "end_date": at }))
+        .collect();
+        let tasks = json!({ "task_instances": [
+            // Failed and waiting for its next try: the DAG run is still running.
+            { "dag_run_id": "retrying", "state": "up_for_retry", "try_number": 1, "start_date": at, "end_date": at },
+            // The run said it waits, and the DAG skipped its run task (root ADR-0260).
+            { "dag_run_id": "waited", "state": "skipped", "try_number": 1, "start_date": at, "end_date": at },
+            // Its check found nothing to do: the run task was skipped without a try, and did no work.
+            { "dag_run_id": "checked", "state": "skipped", "try_number": 0, "start_date": at, "end_date": at },
+            { "dag_run_id": "broke", "state": "failed", "try_number": 2, "start_date": at, "end_date": at },
+        ] });
+        let outcomes: Vec<(String, ScheduledJobRunOutcome)> =
+            dag_runs_of(&json!({ "dag_runs": runs }), &tasks)
+                .into_iter()
+                .map(|run| (run.run_urn, run.outcome))
+                .collect();
+        let expected = [
+            ("retrying", UpForRetry),
+            ("waited", Skipped),
+            ("checked", Succeeded),
+            ("broke", Failed),
+            ("odd", Unknown),
+        ];
+        assert_eq!(
+            outcomes,
+            expected
+                .iter()
+                .map(|(id, outcome)| ((*id).to_owned(), *outcome))
+                .collect::<Vec<_>>()
+        );
+        let checked = dag_runs_of(
+            &json!({ "dag_runs": [{ "dag_run_id": "checked", "state": "success", "start_date": at, "end_date": at }] }),
+            &tasks,
+        );
+        assert_eq!(
+            checked.first().map(|run| run.started_at),
+            Some(None),
+            "a run task never tried has no start, so the run is no duration of the job"
+        );
+        let running = dag_runs_of(
+            &json!({ "dag_runs": [{ "dag_run_id": "now", "state": "queued" }] }),
+            &json!({ "task_instances": [] }),
+        );
+        assert_eq!(running.first().map(|run| run.outcome), Some(Running));
     }
 
     #[test]

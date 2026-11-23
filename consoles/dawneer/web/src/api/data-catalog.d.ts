@@ -469,7 +469,7 @@ export interface components {
             read_by: components["schemas"]["DatasetSnapshotLink"][];
             /** @description The input snapshots it was built from (`foundation.source-iceberg-snapshots`). */
             read_from: components["schemas"]["DatasetSnapshotLink"][];
-            /** @description That run, in the data catalog. */
+            /** @description That run's id in its orchestrator (`ScheduledJobRun.run_urn`). */
             run_urn?: string | null;
             /** @description The snapshot's id, as text (it does not fit a JSON number). */
             snapshot_id: string;
@@ -773,7 +773,7 @@ export interface components {
             cause_line?: string | null;
             /** @enum {string} */
             kind: "failed";
-            /** @description The scheduler's id of the failed run, for its log. */
+            /** @description The failed run's id in its orchestrator (`run_urn`), once its log was read. */
             scheduler_run_id?: string | null;
         } | {
             /** @enum {string} */
@@ -790,7 +790,7 @@ export interface components {
             kind: "late";
             /**
              * Format: date-time
-             * @description When it last succeeded, among the runs the catalog holds.
+             * @description When it last succeeded, among its recent runs.
              */
             last_success_at?: string | null;
         } | {
@@ -828,24 +828,31 @@ export interface components {
             kind: "waiting";
             /** @description What it waits for, as its run said; absent when the log could not be read. */
             reason?: string | null;
-            /** @description The scheduler's id of that run, for its log. */
+            /** @description That run's id in its orchestrator (`run_urn`), once its log was read. */
             scheduler_run_id?: string | null;
         };
-        /** @description One run of a scheduled job that the data catalog holds. */
+        /**
+         * @description One run of a scheduled job: a run of its Dagster job, or of its Airflow DAG while Airflow still
+         *     runs it.
+         */
         ScheduledJobRun: {
             /**
              * Format: date-time
-             * @description When the run completed; absent while it runs.
+             * @description When its work ended: the Dagster run's end, or its Airflow run task's; absent while the run
+             *     is not finished.
              */
             finished_at?: string | null;
-            /** @description The scheduler's own word for the result, as it sent it, when it sent one. */
+            /**
+             * @description The orchestrator's own word for the result, once the run finished: the Dagster run's status
+             *     and the outcome it said (`SUCCESS unchanged`), or the Airflow run task's state.
+             */
             native_result?: string | null;
             /** @description How it stands. */
             outcome: components["schemas"]["ScheduledJobRunOutcome"];
             /**
              * Format: date-time
-             * @description When the scheduler began the run. The job waited from here for a slot of its pool until
-             *     `started_at`; absent when the catalog holds only the job's own task.
+             * @description When the run was queued: the Dagster run's creation, or the Airflow DAG run's start. The job
+             *     waited from here for a slot of its pool until `started_at`; absent when not recorded.
              */
             queued_at?: string | null;
             /**
@@ -855,18 +862,19 @@ export interface components {
              *     Iceberg table, and when the lakehouse catalog could not be read.
              */
             rows_written?: number | null;
-            /** @description The run's identifier in the data catalog. */
+            /** @description The run's id in its orchestrator: the Dagster run id, or the Airflow DAG run id. */
             run_urn: string;
             /**
              * Format: date-time
-             * @description When the job's own work started: its run task's first start, after any wait for a pool slot.
-             *     Absent while the run still waits. How long a run took, and whether it is slow, count from here.
+             * @description When the job's own work started, after any wait for a pool slot: the Dagster run's start, or
+             *     its Airflow run task's. Absent while the run still waits. How long a run took, and whether it
+             *     is slow, count from here.
              */
             started_at?: string | null;
         };
         /**
-         * @description How a scheduled job's run stands, in the run record the scheduler sent to the data catalog
-         *     (`OpenLineage`, root ADR-0118 §2): started and not yet complete, or complete with a result.
+         * @description How a scheduled job's run stands, as the orchestrator that ran it holds it (root ADR-0609 §1):
+         *     queued or started and not yet finished, or finished with a result.
          * @enum {string}
          */
         ScheduledJobRunOutcome: "running" | "succeeded" | "failed" | "skipped" | "up_for_retry" | "unknown";
@@ -877,11 +885,14 @@ export interface components {
         ScheduledJobStart: "schedule" | "inputs";
         /** @description One scheduled job: what the job list says about it and its latest run. */
         ScheduledJobStatus: {
-            /** @description The job's entity in the data catalog that holds the latest run, once a run reported. */
+            /**
+             * @description The orchestrator's job that holds its runs, once one ran: its Dagster job
+             *     (`foundation_job__<id>`), or its Airflow DAG.
+             */
             catalog_job_urn?: string | null;
             /** @description The scheduler's name for the job (its Airflow DAG). */
             dag_id: string;
-            /** @description Which orchestrator decides it: where its runs and their logs are opened. */
+            /** @description Which orchestrator runs it: where its runs and their logs are opened. */
             decided_by: components["schemas"]["ScheduledJobScheduler"];
             /** @description What the job does, as the job list says. */
             description: string;
@@ -906,10 +917,7 @@ export interface components {
             problems?: components["schemas"]["ScheduledJobProblem"][];
             /** @description The datasets it reads. */
             reads: components["schemas"]["ScheduledJobDataset"][];
-            /**
-             * @description The recent runs of the catalog job of `last_run`, newest first, at most ten; `last_run` is
-             *     the first.
-             */
+            /** @description Its recent runs, newest first, at most ten; `last_run` is the first. */
             recent_runs: components["schemas"]["ScheduledJobRun"][];
             /** @description When it runs: the job list's cron schedule, in UTC. */
             schedule: string;
@@ -923,8 +931,8 @@ export interface components {
             /**
              * Format: int64
              * @description How long the job usually takes, in whole seconds: the median of `finished_at - started_at`
-             *     over the recent succeeded runs the data catalog holds for the catalog job of `last_run`.
-             *     Absent when none of those runs succeeded with both times recorded.
+             *     over the succeeded runs among `recent_runs`. Absent when none of those runs succeeded with
+             *     both times recorded.
              */
             typical_duration_seconds?: number | null;
             /**
@@ -952,12 +960,13 @@ export interface components {
              */
             read_at: string;
             /**
-             * @description Why the runs could not be read, when the data catalog did not answer. The jobs are still
-             *     listed, and then no job's missing run means it never ran.
+             * @description Why some jobs' runs could not be read, naming the orchestrator that did not answer (Dagster,
+             *     or Airflow for the jobs it still runs). The jobs are still listed, and then a job's missing
+             *     run does not mean it never ran.
              */
             run_history_error?: string | null;
             /**
-             * @description Why failed runs' logs could not be read, when the scheduler did not answer or is not
+             * @description Why failed runs' logs could not be read, when an orchestrator did not answer or is not
              *     configured: a failed problem then has no cause.
              */
             scheduler_error?: string | null;
@@ -1109,8 +1118,8 @@ export interface components {
             latest_digest?: null | components["schemas"]["AuditDigestView"];
         };
         /**
-         * @description Which orchestrator decides when a scheduled job runs (the job list's `dagster_stage`, root
-         *     ADR-0565): where its runs and their logs are opened.
+         * @description Which orchestrator runs a scheduled job (the job list's `dagster_stage`, root ADR-0565,
+         *     ADR-0609 §1): where its runs and their logs are read and opened.
          * @enum {string}
          */
         ScheduledJobScheduler: "airflow" | "dagster";

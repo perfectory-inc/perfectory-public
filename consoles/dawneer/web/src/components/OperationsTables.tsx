@@ -173,7 +173,7 @@ export function RunningNow({ client }: { client: DawneerClient }) {
   if (jobs.data.run_history_error != null) {
     return (
       <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-        데이터 카탈로그에서 실행 기록을 읽지 못해 지금 도는 작업을 알 수 없습니다({jobs.data.run_history_error}).
+        실행 기록을 읽지 못해 지금 도는 작업을 알 수 없습니다({jobs.data.run_history_error}).
       </p>
     );
   }
@@ -213,7 +213,7 @@ export function ScheduledJobs({ client }: { client: DawneerClient }) {
     <>
       {runsReadable ? null : (
         <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          데이터 카탈로그에서 실행 기록을 읽지 못했습니다({jobs.data.run_history_error}). 아래 작업에 기록이 없다고 실행되지 않은 것은 아닙니다.
+          실행 기록을 다 읽지 못했습니다({jobs.data.run_history_error}). 아래 작업에 기록이 없다고 실행되지 않은 것은 아닙니다.
         </p>
       )}
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">

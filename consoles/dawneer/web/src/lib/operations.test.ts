@@ -34,7 +34,7 @@ function check(name: string, result: DataContractQuality["checks"][number]["resu
 describe("scheduled jobs", () => {
   it("reads a failure as bad and a job with no run as a warning only when the runs were readable", () => {
     const run = (outcome: "failed" | "succeeded" | "running" | "up_for_retry") => ({
-      run_urn: "urn:li:dataProcessInstance:x",
+      run_urn: "synthetic-run-x",
       started_at: "2026-01-02T07:20:00Z",
       finished_at: null,
       outcome,
@@ -63,7 +63,7 @@ describe("running now", () => {
       job_id: id,
       typical_duration_seconds: typical,
       typical_duration_runs: typical === null ? 0 : 5,
-      last_run: { run_urn: `urn:li:dataProcessInstance:${id}`, started_at: startedAt, finished_at: null, outcome, native_result: null },
+      last_run: { run_urn: `synthetic-run-${id}`, started_at: startedAt, finished_at: null, outcome, native_result: null },
     });
 
   it("measures a run against its typical duration: elapsed, expected finish, remaining", () => {
@@ -98,7 +98,7 @@ describe("running now", () => {
   it("lists running before waiting, soonest expected finish first, runs without an estimate last", () => {
     const done = job({
       job_id: "synthetic_done",
-      last_run: { run_urn: "urn:x", started_at: "2026-01-02T07:00:00Z", finished_at: "2026-01-02T07:10:00Z", outcome: "succeeded", native_result: null },
+      last_run: { run_urn: "synthetic-run-x", started_at: "2026-01-02T07:00:00Z", finished_at: "2026-01-02T07:10:00Z", outcome: "succeeded", native_result: null },
     });
     const rows = runningJobs(
       [
@@ -190,7 +190,7 @@ describe("collection freshness", () => {
 
 describe("a run waiting for its pool", () => {
   it("is not running and its wait is counted to its start", () => {
-    const waiting = job({ last_run: { run_urn: "urn:li:dataProcessInstance:w", queued_at: "2026-01-02T07:00:00Z", started_at: null, finished_at: null, outcome: "running" } });
+    const waiting = job({ last_run: { run_urn: "synthetic-run-w", queued_at: "2026-01-02T07:00:00Z", started_at: null, finished_at: null, outcome: "running" } });
     expect(runningJobs([waiting], new Date("2026-01-02T08:00:00Z"))).toEqual([]);
     expect(waitSeconds({ queued_at: "2026-01-02T07:00:00Z", started_at: "2026-01-02T10:25:00Z" })).toBe(12300);
     expect(waitSeconds({ queued_at: "2026-01-02T07:00:00Z", started_at: "2026-01-02T07:00:30Z" })).toBeNull();
