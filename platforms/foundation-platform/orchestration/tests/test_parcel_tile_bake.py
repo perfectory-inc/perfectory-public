@@ -26,13 +26,20 @@ import json, os, pathlib, sys
 args = sys.argv[1:]
 if args[-1:] == ["lakehouse-target-init"]:  # the write check, its own run (lakehouse_spark_run)
     sys.exit(0)
+host = lambda path: pathlib.Path(path.replace(os.environ["FAKE_CONTAINER_ROOT"], os.environ["FAKE_HOST_ROOT"], 1))
+if "lakehouse-target-init" in args and "rm" in args:  # a handoff the Spark user wrote, removed as that user
+    import shutil
+    with open(os.environ["FAKE_LOG"], "a") as log:
+        log.write(json.dumps({"job": "rm", "args": [args[-1]]}) + "\n")
+    host(args[-1]).chmod(0o755)
+    shutil.rmtree(host(args[-1]))
+    sys.exit(0)
 assert args[0] == "compose" and "spark-submit" in args, args
 submit = args[args.index("spark-submit"):]
 script = next(a for a in submit if a.endswith(".py"))
 job_args = submit[submit.index(script) + 1:]
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"job": pathlib.Path(script).name, "args": job_args}) + "\n")
-host = lambda path: pathlib.Path(path.replace(os.environ["FAKE_CONTAINER_ROOT"], os.environ["FAKE_HOST_ROOT"], 1))
 summary = host(job_args[job_args.index("--summary-output") + 1])
 if os.environ.get("FAKE_GOLD") == "broken":  # 2026-11-20: docker exited 125 before the job ran
     sys.exit(125)
@@ -328,6 +335,38 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stderr)
         journal = (self.state / "journal.log").read_text().splitlines()
         self.assertNotIn("nothing to do", journal[-1], "the same Gold is baked again")
+
+    def test_a_start_removes_the_handoffs_no_state_file_names_and_keeps_their_evidence(self):
+        # Root ADR-0611: 2026-11-23 two superseded 25 GB handoffs (from 2026-10-15 and 11-13) were still on
+        # the data disk, kept with their runs as evidence, while a bake was refused for want of space.
+        self.wait_for_rehearsal()
+        self.run_half("gold", "pass", bootstrap=True)
+        named = pathlib.Path((self.state / "rehearsal-ready").read_text().split()[1])
+        runs = self.work_root / "lakehouse" / "parcel-tile-bake"
+        superseded, by_spark = runs / "20261015T150659Z", runs / "20261113T001607Z"
+        for run in (superseded, by_spark):
+            (run / "served").mkdir(parents=True)
+            (run / "served" / "part-00000.jsonl").write_text("{}")
+            (run / "run.log").write_text("evidence")
+            (run / "served-summary.json").write_text("{}")
+        # Another account's (the Spark container's uid 185): this one cannot unlink inside it.
+        (by_spark / "served").chmod(0o555)
+        self.addCleanup(lambda: (by_spark / "served").exists() and (by_spark / "served").chmod(0o755))
+        self.env["FAKE_PUBLISHER_DEFER"] = "1"
+        result, calls = self.run_half("bake", "pass", bootstrap=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        for run in (superseded, by_spark):
+            self.assertFalse((run / "served").exists(), f"{run.name}'s handoff stayed")
+            self.assertTrue((run / "run.log").is_file(), "the run's evidence went with its handoff")
+            self.assertTrue((run / "served-summary.json").is_file())
+        self.assertTrue((named / "served").is_dir(), "the handoff a state file names went")
+        if os.geteuid() != 0:  # root unlinks inside any directory; only another account needs the container
+            removed_as_spark = [call["args"] for call in calls if call["job"] == "rm"]
+            self.assertEqual(removed_as_spark, [[f"{CONTAINER_ROOT}/parcel-tile-bake/{by_spark.name}/served"]])
+        journal = (self.state / "journal.log").read_text()
+        for run in (superseded, by_spark):
+            self.assertIn(f"removed the handoff of {run.name}", journal)
+        self.assertNotIn(f"removed the handoff of {named.name}", journal)
 
 
 if __name__ == "__main__":

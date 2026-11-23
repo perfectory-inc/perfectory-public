@@ -615,6 +615,61 @@ fn free_bytes_measures_the_filesystem_of_a_path() -> anyhow::Result<()> {
 }
 
 #[test]
+fn one_run_of_a_unit_holds_its_work_root_at_a_time() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let held = lock_unit(root.path(), "parcels")?;
+    assert!(
+        lock_unit(root.path(), "parcels").is_err(),
+        "a second run of the unit is refused while the first holds the lock"
+    );
+    let _zoning = lock_unit(root.path(), "zoning")?;
+    drop(held);
+    let _again = lock_unit(root.path(), "parcels")?;
+    Ok(())
+}
+
+#[test]
+fn a_run_removes_only_the_work_directories_earlier_runs_of_its_unit_left() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let stale = root.path().join(format!("parcels-{}", Uuid::now_v7()));
+    std::fs::create_dir_all(stale.join("tmp"))?;
+    std::fs::write(stale.join("served.csv"), b"12345")?;
+    std::fs::write(stale.join("tmp").join("tippecanoe"), b"678")?;
+    let other_unit = root.path().join(format!("zoning-{}", Uuid::now_v7()));
+    std::fs::create_dir(&other_unit)?;
+    let caches = [
+        "parcels-partitions",
+        "parcels-feature-index",
+        "parcels-not-a-run",
+    ];
+    for cache in caches {
+        std::fs::create_dir(root.path().join(cache))?;
+    }
+    let file_named_like_a_run = root.path().join(format!("parcels-{}", Uuid::now_v7()));
+    std::fs::write(&file_named_like_a_run, b"")?;
+    let _lock = lock_unit(root.path(), "parcels")?;
+    assert_eq!(
+        remove_stale_work(root.path(), "parcels")?,
+        vec![(stale.clone(), 8)]
+    );
+    assert!(!stale.exists());
+    assert!(
+        other_unit.is_dir(),
+        "another unit's directory is its own runs' to remove"
+    );
+    assert!(file_named_like_a_run.is_file());
+    for cache in caches {
+        assert!(
+            root.path().join(cache).is_dir(),
+            "{cache} is not a run's directory"
+        );
+    }
+    assert!(root.path().join("parcels.lock").is_file());
+    assert!(remove_stale_work(root.path(), "parcels")?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn the_contract_caps_every_container_and_the_runs_pass_the_caps() -> anyhow::Result<()> {
     let contract = BakeContract::parse(CONTRACT_JSON)?;
     for image in [&contract.images.gdal, &contract.images.tippecanoe] {

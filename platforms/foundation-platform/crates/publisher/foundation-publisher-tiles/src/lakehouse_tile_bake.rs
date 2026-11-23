@@ -9,8 +9,9 @@
 //! each with its row count and SHA-256, and the handoff path is then the parts directory. The bake
 //! is unit-agnostic: it carries exactly the properties the rows carry. In order:
 //!
-//! 1. refuse to start when the work disk has less free space than the contract asks for the
-//!    handoff's size;
+//! 1. take the unit's lock in the work root, remove the work directories earlier runs of the unit
+//!    left, and refuse to start when the work disk has less free space than the contract asks for
+//!    the handoff's size;
 //! 2. stream the handoff once — validating every row, checking each part's hash and count, writing
 //!    the GDAL input, and keeping one 16-byte hash per feature id;
 //! 3. start a `lakehouse_bake` build against the active validated static release;
@@ -92,6 +93,8 @@ mod patch_run;
 pub mod pmtiles_write;
 #[path = "lakehouse_tile_bake_upload.rs"]
 mod upload;
+#[path = "lakehouse_tile_bake_work.rs"]
+mod work;
 
 pub use birth::NewbornUnit;
 use birth::{bear, unit_exists};
@@ -104,6 +107,8 @@ pub use partitions::{
 };
 use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
 use upload::{bake_and_upload, compared_with, ensure_comparable, rehearse, Upload};
+pub use work::{ensure_work_disk, free_bytes, WorkDisk};
+use work::{lock_unit, remove_stale_work};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE";
 const CONTRACT_JSON: &str = include_str!("../../../../config/tile-bake-containers.contract.json");
@@ -177,15 +182,6 @@ pub struct Image {
     version_banner: Option<String>,
     /// Passed as both `--memory` and `--memory-swap`, so the container cannot swap past it either.
     pub memory_limit: String,
-}
-
-/// Free space the work root must have before a bake starts: the larger of a floor and a multiple
-/// of the handoff's bytes (the GDAL CSV, the GeoJSON sequence, tippecanoe's temporary files and the
-/// archive all live there at once).
-#[derive(Debug, Deserialize)]
-pub struct WorkDisk {
-    pub min_free_bytes: u64,
-    pub min_free_bytes_per_handoff_byte: u64,
 }
 
 impl BakeContract {
@@ -656,20 +652,6 @@ fn ids_with_hashes(
     })?;
     Ok(named)
 }
-
-/// Refuses a work disk with less free space than the contract asks for this handoff.
-pub fn ensure_work_disk(free: u64, handoff_bytes: u64, disk: &WorkDisk) -> anyhow::Result<()> {
-    let needed = handoff_bytes
-        .saturating_mul(disk.min_free_bytes_per_handoff_byte)
-        .max(disk.min_free_bytes);
-    ensure!(
-        free >= needed,
-        "the work disk has {free} bytes free; a {handoff_bytes}-byte handoff needs {needed} (config/tile-bake-containers.contract.json work_disk)"
-    );
-    Ok(())
-}
-
-pub use foundation_publisher_core::free_space::free_bytes;
 
 struct Config {
     unit_key: String,
@@ -1248,6 +1230,12 @@ pub async fn run() -> anyhow::Result<()> {
     let input_bytes = handoff_bytes(&summary, &config.served_handoff)?;
     std::fs::create_dir_all(&config.work_root)
         .with_context(|| format!("work root {}", config.work_root.display()))?;
+    // Root ADR-0611: one run of the unit at a time in its work root, and what earlier ones left goes
+    // before the free space is measured. The lock lives until this function returns.
+    let _unit_lock = lock_unit(&config.work_root, &config.unit_key)?;
+    for (path, bytes) in remove_stale_work(&config.work_root, &config.unit_key)? {
+        tracing::info!(path = %path.display(), bytes, "removed the work directory an earlier run of the unit left");
+    }
     ensure_work_disk(
         free_bytes(&config.work_root)?,
         input_bytes,

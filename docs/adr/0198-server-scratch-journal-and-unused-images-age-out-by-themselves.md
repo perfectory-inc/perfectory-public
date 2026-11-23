@@ -80,3 +80,5 @@ ai-server 에서 측정한 사실이다.
 - 2026-11-23 개정 주석: §3 의 지우는 조건에 하나가 더해졌다 — 호스트가 짓는 이미지 집안(이름 앞부분, 지금은 RAON 배치 이미지)마다 가장 새 이미지는 나이와 관계없이 남는다([ADR-0607](./0607-the-raon-image-the-host-builds-stays-until-its-inputs-change-and-a-raon-run-takes-thirteen-files.md)).
 
 - 2026-11-23 개정 주석: §3 의 릴리스 소유는 [ADR-0608](./0608-host-retention-keeps-every-image-a-release-on-the-host-records-so-a-rollback-can-always-tag-them.md) 이 넓혔다 — 호스트에 남은 릴리스의 build.json 이 적은 이미지는 모두 릴리스 정리의 것이다.
+
+- 2026-11-23 개정 주석: §1 의 나이로 사라지는 트리에 Spark 컨테이너들의 /tmp(`/data/foundation-platform/spark-tmp`, `mM:2d`, 모든 작업의 시간 한도보다 길게)가 더해졌다([ADR-0611](./0611-a-tile-bake-sizes-its-work-disk-from-measurement-and-removes-what-its-earlier-runs-left-and-spark-tmp-ages-out.md)).
