@@ -522,3 +522,17 @@ UUIDv8). 건물 패널이 옮겨 올 때 그것을 부른다.
 - **옛 표의 노드는 남고 `unscheduled: replaced` 를 말한다.** 옛 표는 계약·데이터가 남으므로(결정 1, 지우는 것은 30 일 뒤 런북) 파이프라인 그래프의
   표로 남는다. 생산 작업도 읽는 이도 없으므로 그 까닭을 `replaced` 로 적는다(`job_specs.UNSCHEDULED`, `pipeline-graph.v1` 의 enum). 연결 규칙은
   `contract_only` 처럼 그 노드를 섬으로 받고(`pipeline_graph.reconcile`), 그 노드에 닿는 구현된 간선은 지어낸 길로 거부한다.
+
+## Revision 2026-11-23: 둘째 넘겨받기 — 총괄표제부, 그리고 옛 생산 작업은 꺼진 줄로 한 릴리스 남는다 (결정 6-4, W84c)
+
+- 고치는 곳: 결정 6-4(넘겨받기 PR 이 바꾸는 것). 위 Revision 의 "옛 생산 작업을 정의에서 뺀다" 를 바꾼다.
+
+**옛 생산 작업은 넘겨받기 PR 에서 `enabled: false` 로 남는다.** 첫 넘겨받기(#1662)는 켜진 `gold_parcel_energy_rebuild` 를 지웠고, 릴리스 활성화
+(`foundation-release.sh`)가 켜진 작업이 빠진 후보를 거부해 배포가 08:05Z 부터 13:14Z 까지 멈췄다(#1666 이 풀었다). 그래서 넘겨받기 PR 은 그 작업을 간선 없이
+꺼 두고(`started_by: schedule`, `per_run_cap.unmeasured_reason`, `host_memory` 는 그대로), 그 릴리스가 운영에 오른 뒤의 PR 이 줄을 지운다.
+CI 의 `a-release-keeps-the-jobs-it-switches-off` 가드가 켜진 작업을 지우는 PR 을 막는다.
+
+`parcel-register-masters` 가 넘겨받는다. 판정은 운영의 자산 검사다: `takeover_equal` 이 그림자 머리 `9189577038282651751`(옛 표 빌드
+`2986978892865942029` 의 핀)에 대해 통과했다(유닛 run `20261123T133232Z`, 13:44Z; 시도 41 의 127,113 행 모두 같음, 전국 581,357 행·키 해시 합·
+내용 해시 합·non-null 수가 같음, 시도의 문서 127,113 개 모두 스키마 통과). 판정받은 머리는 `version_seq` 2 다: 코드 버전이 움직여 모든 PNU 를
+다시 지었고 바뀐 키가 0 이었다(전량 길을 머리 위에서 한 번 더 돈 셈이다). 바뀐 키만 짓는 길은 돌지 않았다. 넘겨받은 뒤의 첫 실행이 처음 쓴다.

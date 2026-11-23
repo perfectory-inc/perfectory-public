@@ -59,3 +59,11 @@ ADR-0357 §3 은 소비자를 "건물 by-PNU 패널" 로 적었다. 건물 패�
   움직일 때만 일을 한다.
 - 대지면적이 비어 있는 대지는 면적 줄이 짧게 보인다. 건폐율·용적률은 Silver 가 아직 이름 붙이지 않은 칸이라(ADR-0357 §1)
   이 종류에 없다. 이름을 붙이는 일은 그 Silver 의 후속이다.
+
+## 개정 메모 2026-11-23: 생산자가 발행기 안의 DuckDB 로 넘어갔다
+
+레인의 표는 `gold.parcel_register_masters_versions` 이고 생산자는 `record_kind_stage::REGISTER_MASTERS`(발행기,
+`gold_parcel_register_masters_versions_build`)다. Spark 의 `building_register_master_silver_to_gold.py` 는 지웠고,
+`gold_parcel_register_masters_rebuild` 는 꺼진 줄로 한 릴리스 남으며, `gold.parcel_register_masters` 는 쓰지 않고 남긴다(루트 ADR-0564 Revision
+2026-11-23 둘째 넘겨받기). 문서와 경로는 그대로다. Spark 시험이 지키던 것은 발행기 단계의 시험이 지킨다(`record_kind_stage/tests.rs`: 새 대지부터,
+같은 행은 한 번, 빈 칸은 null, 재편된 코드는 서빙 필지로, 상한과 총수, 레지스트리 스키마의 칸 그대로).

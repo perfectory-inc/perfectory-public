@@ -104,7 +104,11 @@
         }
       },
       "building_register_master_silver_to_gold": {
-        "wave": 3
+        "moved": {
+          "pull_request": 1668,
+          "rows": 581357,
+          "fingerprint": "rows:581357;content_hash_sum:5363088250558137815048091"
+        }
       },
       "building_sub_parcel_silver_to_gold": {
         "wave": 3

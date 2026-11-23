@@ -124,6 +124,41 @@ fn a_document_is_spark_s_bytes_newest_first_with_blanks_null() -> anyhow::Result
     Ok(())
 }
 
+/// The 총괄표제부 lane's `spark_held_test` (root ADR-0418 §8c): the document this stage writes carries
+/// exactly the fields of the subject's registered schema, as the deleted Spark job's test held it.
+#[test]
+fn a_register_master_document_carries_exactly_the_registry_s_fields() -> anyhow::Result<()> {
+    use crate::building_energy_stage::tests::{json_paths, schema_paths};
+
+    let schema: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../contracts/schema-registry/parcel_register_masters_by_pnu/1/1.schema.json"
+    ))?;
+    let mut recorded = std::collections::BTreeSet::new();
+    schema_paths(
+        &schema["properties"]["register_masters"],
+        "register_masters",
+        &mut recorded,
+    );
+    let connection = Connection::open_in_memory()?;
+    load(&connection, &sites())?;
+    crate::kind_versions_stage::read_for_test(&REGISTER_MASTERS, &connection, EDITION, "")?;
+    REGISTER_MASTERS.build(
+        &connection,
+        true,
+        "999990000000000001",
+        "2099-01-03T00:00:00Z",
+    )?;
+    let rows = built(&connection)?;
+    let mut written = std::collections::BTreeSet::new();
+    json_paths(
+        &serde_json::from_str(&rows[0].1)?,
+        "register_masters",
+        &mut written,
+    );
+    assert_eq!(written, recorded);
+    Ok(())
+}
+
 /// The build loads one 시도 of the spool at a time; a 시도 the spool holds nothing of loads empty
 /// tables, so a 시도 only the head holds is diffed against an empty build.
 #[test]

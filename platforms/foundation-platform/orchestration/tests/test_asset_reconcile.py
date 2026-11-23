@@ -86,7 +86,7 @@ class Reconciler(unittest.TestCase):
             "gold.parcel_energy_versions": table(snap("703", None, 0)),
             "gold.parcel_demolitions": table(snap("704", None, 0)),
             "gold.parcel_factories": table(snap("705", None, 0)),
-            "gold.parcel_register_masters": table(snap("706", None, 0)),
+            "gold.parcel_register_masters_versions": table(snap("706", None, 0)),
             "gold.parcel_real_transaction": table(snap("707", None, 0)),
         }
         self.reads = {"parcel-public-auction": {"read_snapshot_id": "101", "outcome": "served"},

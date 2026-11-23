@@ -134,7 +134,11 @@ fn a_partial_run_names_the_pnus_whose_rows_changed() -> anyhow::Result<()> {
 }
 
 /// Every field path of a JSON value under `at`, in the records' grammar (`a.b`, `a[].b`).
-fn json_paths(value: &serde_json::Value, at: &str, paths: &mut std::collections::BTreeSet<String>) {
+pub fn json_paths(
+    value: &serde_json::Value,
+    at: &str,
+    paths: &mut std::collections::BTreeSet<String>,
+) {
     match value {
         serde_json::Value::Object(fields) => {
             for (name, inner) in fields {
@@ -153,7 +157,7 @@ fn json_paths(value: &serde_json::Value, at: &str, paths: &mut std::collections:
 }
 
 /// Every property path a JSON Schema declares under `at`, in the same grammar.
-fn schema_paths(
+pub fn schema_paths(
     schema: &serde_json::Value,
     at: &str,
     paths: &mut std::collections::BTreeSet<String>,
