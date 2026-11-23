@@ -120,9 +120,24 @@ fn the_last_read_of_each_notice_of_the_source_decides_whether_it_is_owed() -> an
         row(
             json!({"notice_source": "kicox", "notice_id": "3", "list_fingerprint": "c", "read_outcome": "read", "source_snapshot_id": "20990102T000000Z", "source_line_number": 3}),
         )?,
+        // Read before the cap grew with a file left out (over the old cap): asked again once; a
+        // read after it that still left one out is settled.
+        row(
+            json!({"notice_source": "ilis", "notice_id": "5", "list_fingerprint": "e", "read_outcome": "read", "file_count": 2, "files_stored": 1, "source_snapshot_id": "20990101T000000Z", "source_line_number": 4}),
+        )?,
+        row(
+            json!({"notice_source": "ilis", "notice_id": "6", "list_fingerprint": "f", "read_outcome": "read", "file_count": 2, "files_stored": 1, "source_snapshot_id": "20990103T000000Z", "source_line_number": 5}),
+        )?,
+        row(
+            json!({"notice_source": "ilis", "notice_id": "7", "list_fingerprint": "g", "read_outcome": "read", "file_count": 2, "files_stored": 2, "source_snapshot_id": "20990101T000000Z", "source_line_number": 6}),
+        )?,
     ];
-    let last = last_reads(rows.iter(), Source::Ilis);
-    assert_eq!(last.len(), 3);
+    let cap_since = chrono::Utc
+        .with_ymd_and_hms(2099, 1, 2, 12, 0, 0)
+        .single()
+        .context("an instant")?;
+    let last = last_reads(rows.iter(), Source::Ilis, cap_since);
+    assert_eq!(last.len(), 6);
     let at = |hour| {
         chrono::Utc
             .with_ymd_and_hms(2099, 1, 2, hour, 0, 0)
@@ -143,8 +158,11 @@ fn the_last_read_of_each_notice_of_the_source_decides_whether_it_is_owed() -> an
     assert!(owes(last.get("2"), "b2", at(1)?, 24));
     assert!(owes(last.get("3"), "c", at(1)?, 24));
     assert!(owes(None, "a", at(1)?, 24));
+    assert!(owes(last.get("5"), "e", at(1)?, 24));
+    assert!(!owes(last.get("6"), "f", at(1)?, 24));
+    assert!(!owes(last.get("7"), "g", at(1)?, 24));
     assert!(walk_done(5, Some(5)) && !walk_done(4, Some(5)) && walk_done(0, None));
-    assert!(last_reads(rows.iter(), Source::Lh).is_empty());
+    assert!(last_reads(rows.iter(), Source::Lh, cap_since).is_empty());
     Ok(())
 }
 

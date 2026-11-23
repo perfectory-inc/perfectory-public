@@ -91,6 +91,9 @@ pub(crate) struct LaneContract {
 pub(crate) struct LaneAttachments {
     pub(crate) object_prefix_from: String,
     pub(crate) max_file_bytes: u64,
+    /// When `max_file_bytes` took its value: a read before it that left a file out of the store is
+    /// owed again once ([`LastRead::refetch`]).
+    pub(crate) max_file_bytes_since: DateTime<Utc>,
 }
 
 pub(crate) fn lane_contract() -> anyhow::Result<LaneContract> {
@@ -423,6 +426,10 @@ pub(crate) fn fingerprint(row: &JsonValue, fields: &[String]) -> String {
 pub(crate) struct LastRead {
     pub(crate) print: String,
     pub(crate) settled: bool,
+    /// Settled before the attachment cap last grew, with a file left out of the store
+    /// (`file_count` above `files_stored`: one over the old cap, as Factory-on's two of 2026-11-22
+    /// under the 256 MiB the memory set): asked again at once, and settled by that read.
+    pub(crate) refetch: bool,
     pub(crate) run: Option<NaiveDateTime>,
 }
 
@@ -431,6 +438,7 @@ pub(crate) struct LastRead {
 pub(crate) fn last_reads<'a>(
     rows: impl IntoIterator<Item = &'a serde_json::Map<String, JsonValue>>,
     source: Source,
+    cap_since: DateTime<Utc>,
 ) -> HashMap<String, LastRead> {
     let mut last: HashMap<String, ((String, i64), LastRead)> = HashMap::new();
     for row in rows {
@@ -454,10 +462,19 @@ pub(crate) fn last_reads<'a>(
             row.get("read_outcome").and_then(JsonValue::as_str),
             Some("read" | "gone")
         );
+        let run = NaiveDateTime::parse_from_str(snapshot, "%Y%m%dT%H%M%SZ").ok();
+        let left_out = matches!(
+            (
+                row.get("file_count").and_then(JsonValue::as_i64),
+                row.get("files_stored").and_then(JsonValue::as_i64),
+            ),
+            (Some(count), Some(stored)) if count > stored
+        );
         let read = LastRead {
             print: print.to_owned(),
             settled,
-            run: NaiveDateTime::parse_from_str(snapshot, "%Y%m%dT%H%M%SZ").ok(),
+            refetch: settled && left_out && run.is_some_and(|run| run.and_utc() < cap_since),
+            run,
         };
         match last.get(id) {
             Some((seen, _)) if *seen >= order => {}
@@ -470,8 +487,9 @@ pub(crate) fn last_reads<'a>(
 }
 
 /// Whether a listed notice is owed this run: never read, read with another list fingerprint (the
-/// provider changed it in its list), or last read unsettled at least `retry_after_hours` ago (a
-/// notice that keeps failing is asked once a day, not every run ahead of the backlog).
+/// provider changed it in its list), settled but owed a file the cap now takes
+/// ([`LastRead::refetch`]), or last read unsettled at least `retry_after_hours` ago (a notice that
+/// keeps failing is asked once a day, not every run ahead of the backlog).
 pub(crate) fn owes(
     last: Option<&LastRead>,
     print: &str,
@@ -485,7 +503,7 @@ pub(crate) fn owes(
         return true;
     }
     if last.settled {
-        return false;
+        return last.refetch;
     }
     last.run
         .is_none_or(|run| run.and_utc() + chrono::Duration::hours(retry_after_hours) <= now)
@@ -536,7 +554,11 @@ async fn last_reads_from_lakehouse(
         &snapshot,
     )
     .await?;
-    Ok(last_reads(scanned.rows.iter(), source))
+    Ok(last_reads(
+        scanned.rows.iter(),
+        source,
+        contract.attachments.max_file_bytes_since,
+    ))
 }
 
 /// What a run needs to ask: the source's client, the pace and the count of requests sent.
