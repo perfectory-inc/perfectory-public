@@ -50,6 +50,10 @@ const MAX_FAILURE_MESSAGE_BYTES: usize = 1_000;
 /// plus the RAW page identity (`request` + `raw_payload` + `payload`) the
 /// [`BronzeCommitter`](collection_application::BronzeCommitter) needs to OWN the key-compile (ADR 0016). This is
 /// the exact set of fields every lane's `*PlannedPage` struct already holds.
+///
+/// The collector takes the pages by value and moves each body into its commit, so a page is held
+/// once while it is committed and dropped after; the plan's own copy of the bytes is dropped before
+/// the first commit (the committer compiles its own plan from the body).
 #[derive(Clone, Debug)]
 pub struct CollectablePage<Req> {
     /// The lane's compiled Bronze page plan (an alias of [`PublicDataBronzePagePlan`]).
@@ -113,13 +117,12 @@ pub async fn collect_planned_pages<Lane, Uow, Storage>(
     ingestion_run: IngestionRun,
     source_slug: &str,
     started_at: chrono::DateTime<Utc>,
-    pages: &[CollectablePage<Lane::Request>],
+    pages: Vec<CollectablePage<Lane::Request>>,
     uow: &Uow,
     storage: &Storage,
 ) -> anyhow::Result<PageCollectionReport>
 where
     Lane: PageCollectorLane,
-    Lane::Request: Clone,
     Uow: BronzeIngestUnitOfWork + ?Sized,
     Storage: ObjectStorageService + ?Sized,
 {
@@ -130,8 +133,21 @@ where
 
     // The compiled plans the planning stage already produced drive the run-level request snapshot,
     // schema profiles, and logical-record accounting (unchanged). The per-page key compile + record
-    // lives INSIDE the committer (ADR 0016), so the loop hands it the RAW page identity instead.
-    let plans: Vec<PublicDataBronzePagePlan> = pages.iter().map(|page| page.plan.clone()).collect();
+    // lives INSIDE the committer (ADR 0016), so the loop hands it the RAW page identity instead:
+    // the plans keep everything but the bytes, and each body is moved into its own commit.
+    let (plans, bodies): (Vec<PublicDataBronzePagePlan>, Vec<_>) = pages
+        .into_iter()
+        .map(|page| {
+            let CollectablePage {
+                mut plan,
+                request,
+                raw_payload,
+                payload,
+            } = page;
+            plan.raw_payload = Vec::new();
+            (plan, (request, raw_payload, payload))
+        })
+        .unzip();
 
     let source = uow
         .upsert_source_catalog_entry(&source_catalog_entry)
@@ -157,15 +173,15 @@ where
     let mut last_object_size_bytes = None;
     let mut last_bronze_object_id = None;
     let mut objects_written = 0;
-    for page in pages {
-        let object_key = page.plan.object_key.as_str().to_owned();
+    for (plan, (request, raw_payload, payload)) in plans.iter().zip(bodies) {
+        let object_key = plan.object_key.as_str().to_owned();
         let input = PublicDataPageCommitInput {
             source_slug,
             ingest_date: started_at.date_naive(),
             ingestion_run_id: run.id,
-            request: page.request.clone(),
-            raw_payload: page.raw_payload.clone(),
-            payload: page.payload.clone(),
+            request,
+            raw_payload,
+            payload,
             source_catalog_id: source.id,
             collected_at: started_at,
             content_type: BRONZE_JSON_CONTENT_TYPE.to_owned(),
@@ -486,7 +502,7 @@ mod tests {
             running_run(run_id),
             "datagokr__real_transaction_industrial_trade",
             started_at(),
-            &pages,
+            pages,
             &uow,
             &storage,
         )
