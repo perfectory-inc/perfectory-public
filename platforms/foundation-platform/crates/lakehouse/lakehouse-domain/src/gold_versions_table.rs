@@ -159,14 +159,15 @@ pub fn gold_versions_table(
 /// region statistics are read by their producer alone, so the versions table is born with the
 /// producer that appends to it and nothing switches over. The served parcel boundaries are read by
 /// the parcel tile bake through its handoff (row 6 of the ADR's waves, with the geometry handoff).
-/// Root ADR-0564 §9 차례 5: the parcel panel is the parcel host lane's Gold, which the lane names as
-/// a constant, not by a kind line (`by_pnu_lanes`). The steward queue is read by the steward
+/// Root ADR-0564 §9 차례 4·5: the unit price Gold and the parcel panel are their lanes' Golds, which
+/// the lanes name as constants, not by a kind line (`by_pnu_lanes`). The steward queue is read by the steward
 /// database through its handoff, which the queue's producer writes (root ADR-0115 §9).
 const VERSIONED_OUTSIDE_THE_LANES: &[&LakehouseTableContract] = &[
     &crate::real_transaction_region_stats::GOLD_REAL_TRANSACTION_REGION_STATS,
     &crate::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED,
     &crate::parcel_panel::GOLD_PARCEL_PANEL,
     &crate::lakehouse::GOLD_LINEAGE_REVIEW_QUEUE,
+    &crate::unit_price_panel::GOLD_UNIT_PRICE_PANEL,
 ];
 
 /// The versions tables of the Golds outside the by-PNU lanes; empty when one cannot be derived
@@ -309,20 +310,35 @@ mod tests {
 
     /// The parcel panel's: its PNU key, the 시도 partition, its columns and the two of a version.
     #[test]
-    fn the_parcel_panel_has_its_versions_table() -> Result<(), String> {
-        let panel = gold_versions_tables_outside_the_lanes()
-            .iter()
-            .find(|table| table.table_name == "gold.parcel_panel_versions")
-            .ok_or("the parcel panel has no versions table")?;
-        assert_eq!(panel.partition_spec, [GOLD_VERSIONS_PNU_PARTITION]);
-        assert_eq!(
-            panel.current_row_latest().map(|latest| latest.key),
-            Some(["pnu"].as_slice())
-        );
-        assert_eq!(
-            panel.columns.len(),
-            crate::parcel_panel::GOLD_PARCEL_PANEL.columns.len() + 2
-        );
+    fn the_lane_golds_have_their_versions_tables() -> Result<(), String> {
+        for (name, key, replaced) in [
+            (
+                "gold.parcel_panel_versions",
+                ["pnu"].as_slice(),
+                &crate::parcel_panel::GOLD_PARCEL_PANEL,
+            ),
+            (
+                "gold.unit_price_versions",
+                ["pnu", "building_id"].as_slice(),
+                &crate::unit_price_panel::GOLD_UNIT_PRICE_PANEL,
+            ),
+        ] {
+            let panel = gold_versions_tables_outside_the_lanes()
+                .iter()
+                .find(|table| table.table_name == name)
+                .ok_or_else(|| format!("{name} is not derived"))?;
+            assert_eq!(
+                panel.partition_spec,
+                [GOLD_VERSIONS_PNU_PARTITION],
+                "{name}"
+            );
+            assert_eq!(
+                panel.current_row_latest().map(|latest| latest.key),
+                Some(key),
+                "{name}"
+            );
+            assert_eq!(panel.columns.len(), replaced.columns.len() + 2, "{name}");
+        }
         Ok(())
     }
 

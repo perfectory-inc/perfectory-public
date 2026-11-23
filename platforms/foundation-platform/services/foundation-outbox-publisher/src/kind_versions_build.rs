@@ -56,7 +56,7 @@ use crate::{
     public_data_control_support::required_env_value,
 };
 
-const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY";
+pub(crate) const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY";
 
 /// One lane's build: the versions table, its by-PNU lane (whose served Gold says whether this run
 /// is a shadow, root ADR-0564 §6), the table whose columns it carries and whose build a shadow
@@ -566,10 +566,10 @@ pub(crate) fn head_sidos(
 
 /// The run's spool directory, removed when the run ends, failed or not (the runs a disk keeps hold
 /// summaries and logs, not spools).
-struct Spool(std::path::PathBuf);
+pub(crate) struct Spool(std::path::PathBuf);
 
 impl Spool {
-    fn new(path: std::path::PathBuf) -> anyhow::Result<Self> {
+    pub(crate) fn new(path: std::path::PathBuf) -> anyhow::Result<Self> {
         if path.exists() {
             std::fs::remove_dir_all(&path)
                 .with_context(|| format!("cannot clear {}", path.display()))?;
@@ -579,7 +579,7 @@ impl Spool {
         Ok(Self(path))
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.0
     }
 }

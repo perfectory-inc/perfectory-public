@@ -127,6 +127,17 @@ pub struct IcebergSnapshotRegistry {
     pub snapshots: Vec<IcebergRegisteredSnapshot>,
 }
 
+/// What [`IcebergRestCatalog::load_ingest_commit_log`] reads.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct IngestCommitLog {
+    /// The snapshot `main` names, `None` for a table never written.
+    pub head: Option<i64>,
+    /// Every snapshot the metadata holds: its parent and its commit instant in ms.
+    pub snapshots: BTreeMap<i64, (Option<i64>, i64)>,
+    /// Every load identity `main` records, with the snapshot that appended it.
+    pub ingested: BTreeMap<String, i64>,
+}
+
 /// One snapshot of an [`IcebergSnapshotRegistry`].
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IcebergRegisteredSnapshot {
@@ -663,6 +674,85 @@ impl IcebergRestCatalog {
                 lineage(metadata, main_head(metadata)).map(|snapshot| &snapshot.summary),
                 &metadata.properties,
             )
+        }))
+    }
+
+    /// What orders a table's loads (`lakehouse_ingest.read_ingested_objects` and the snapshots
+    /// `unit_official_price.batch_commit_order` reads): every load identity `main` records with the
+    /// snapshot that appended it (its lineage's summaries, oldest first, then the durable copy), `main`'s
+    /// head, and every snapshot the metadata holds with its parent and commit instant.
+    ///
+    /// Returns `Ok(None)` when the table does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns `LakehouseError` when the catalog cannot be reached or a durable copy's property does
+    /// not name a snapshot.
+    pub async fn load_ingest_commit_log(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<IngestCommitLog>, LakehouseError> {
+        let Some(payload) = self.load_table_response(table_name).await? else {
+            return Ok(None);
+        };
+        let metadata = &payload.metadata;
+        let head = main_head(metadata);
+        let on_main: std::collections::BTreeSet<i64> = lineage(metadata, head)
+            .map(|snapshot| snapshot.snapshot_id)
+            .collect();
+        let mut ingested = BTreeMap::new();
+        for snapshot in metadata
+            .snapshots
+            .iter()
+            .filter(|snapshot| on_main.contains(&snapshot.snapshot_id))
+        {
+            let recorded = snapshot
+                .summary
+                .get(INGEST_BATCH_OBJECTS_KEY)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            for name in recorded
+                .split(INGEST_OBJECT_SEPARATOR)
+                .filter(|name| !name.is_empty())
+            {
+                ingested
+                    .entry(name.to_owned())
+                    .or_insert(snapshot.snapshot_id);
+            }
+        }
+        for (key, recorded) in &metadata.properties {
+            let Some(snapshot) = key.strip_prefix(INGEST_OBJECTS_PROPERTY_PREFIX) else {
+                continue;
+            };
+            let snapshot: i64 = snapshot.parse().map_err(|_| {
+                LakehouseError::Upstream(format!(
+                    "{table_name} property {key} does not name a snapshot"
+                ))
+            })?;
+            for name in recorded
+                .split(INGEST_OBJECT_SEPARATOR)
+                .filter(|name| !name.is_empty())
+            {
+                ingested.entry(name.to_owned()).or_insert(snapshot);
+            }
+        }
+        let snapshots = metadata
+            .snapshots
+            .iter()
+            .map(|snapshot| {
+                (
+                    snapshot.snapshot_id,
+                    (
+                        snapshot.parent_snapshot_id,
+                        snapshot.timestamp_ms.unwrap_or_default(),
+                    ),
+                )
+            })
+            .collect();
+        Ok(Some(IngestCommitLog {
+            head,
+            snapshots,
+            ingested,
         }))
     }
 

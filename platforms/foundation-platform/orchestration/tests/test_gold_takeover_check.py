@@ -66,7 +66,7 @@ class Declared(unittest.TestCase):
                        for path in sorted((PLATFORM / "definitions").glob("*.definition.json"))]
         for table in ("gold.parcel_register_masters_versions", "gold.parcel_demolitions_versions",
                       "gold.parcel_energy_versions", "gold.parcel_boundary_served_versions",
-                      "gold.parcel_panel_versions"):
+                      "gold.parcel_panel_versions", "gold.unit_price_versions"):
             with self.subTest(table=table):
                 self.assertEqual(check.declared(run(table=table), definitions, {}), (table, "41"))
 

@@ -51,6 +51,58 @@
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
       }
+    },
+    {
+      "id": "gold_unit_price_versions_build",
+      "dagster_group": "gold",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Unit price Gold as a table of appended row versions (root ADR-0190, ADR-0204, ADR-0564 §9 차례 4; scripts/ops/gold-versions-build.sh unit-price → publisher build-unit-price-versions): gold.unit_price_versions, keyed by (pnu, building_id), computed by DuckDB inside the publisher (unit_price_stage: the registers placed once by the building panel's evidence rule, the newest price batch spooled by the 시도 of the PNU each unit is served under, each 시도 folded alone) and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the unit-price lane bakes gold.unit_price it is that table's shadow: it reads the input pins its foundation-gold-build tag commit recorded, so the takeover verdict compares the two engines over one set of inputs; once it serves, the registers are pinned to the building Gold's build (pins_from). Nothing to do when its inputs and code are the base commit's; otherwise every row is built (the reading is the cost) and only the changed keys are appended. A moved price batch explains a change of any size; a build in which more than max_price_history_shrink_fraction of the current units would keep fewer price records is refused before anything is appended. It starts no Spark session, so it queues in the documents pool on its own unit's memory_claim, at weight 3: a shadow serves nothing, so it waits behind the lanes that do. Nothing reads it until the unit-price lane's takeover PR names it as the lane's Gold.",
+      "systemd_service": "foundation-gold-versions@unit-price.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "25 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 60,
+      "memory_max": "8G",
+      "memory_measured_peak": "7373M",
+      "memory_measured": "its own: run 20261119T152616Z of foundation-gold-versions@parcel-nearby (2026-11-19 15:26-15:51Z, every served parcel, 39,861,511 rows committed in 1500 s), systemd's memory peak 7.2G, swap peak 13.5M; the publisher's own peak in its run log 7,733,563,392 bytes",
+      "memory_headroom_why": "The peak follows the cap, not the work: the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (parcel_nearby_versions_build MEMORY_SHARE) and DuckDB fills it and the page cache, so a larger memory_max would only raise the peak. The run fit: no timeout, 13.5M swap, under MemoryMax",
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1500,
+          "estimated_from": "computed, not measured: every run builds every row. It lists the price table's batch ids at its pin (one dictionary-encoded column of about 1.2 billion rows, Trino $files 2026-11-22), chooses each register's current rows (8,081,287 titles and 19,902,649 units) and places the units, copies the chosen batch (188,736,512 rows at the gold.unit_price build pin) joined to the placement into a local spool split by 시도, then folds and diffs one 시도 at a time into the 169,143 rows the Gold holds and appends them in one commit. The parcel-nearby build committed 39,861,511 rows from about as many read rows in 1,500 s (2026-11-19); this one reads about five times the rows but writes a quarter of a percent of them: about 1,500 s, inside the 60-minute limit. The Spark rebuild's longest run was 1,007 s (incremental)."
+        }
+      },
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-gold-versions@unit-price.service"
+        ]
+      },
+      "priority_weight": 3,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-register-titles-to-gold-unit-price-versions",
+        "silver-building-register-units-to-gold-unit-price-versions",
+        "silver-unit-official-price-to-gold-unit-price-versions",
+        "gold-building-panel-to-gold-unit-price-versions",
+        "gold-unit-price-panel-to-gold-unit-price-versions"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "dagster",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
+      }
     }
   ],
   "assets": [
@@ -70,6 +122,25 @@
         {
           "kind": "lakehouse_contract",
           "value": "gold.unit_price"
+        }
+      ]
+    },
+    {
+      "id": "gold-unit-price-versions",
+      "type": "gold_table",
+      "title": "호 공시가격 by-PNU 표(판을 쌓는 표)",
+      "description": "PNU·건물마다 그 건물에 놓인 호들의 공시가격 이력(루트 ADR-0190, ADR-0204)을 판을 쌓는 표로(루트 ADR-0564 §1·§2): gold.unit_price 의 칸에 version_seq·row_state 를 더해 바뀐 (pnu, building_id) 의 행만 덧붙인다. 현재 행은 키마다 version_seq 가 가장 큰 행이고 row_state 가 removed 면 그 키는 없다. 발행기 안의 DuckDB 가 시도마다 계산하고 발행기가 추가 커밋으로 붙인다. 호 공시가격 레인이 옛 표를 굽는 동안은 그 표의 그림자다(옛 표 빌드 태그의 입력 핀으로 짓는다, 루트 ADR-0564 §6).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/unit_price_stage.rs",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/unit_price_versions_build.rs"
+      ],
+      "table_name": "gold.unit_price_versions",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.unit_price_versions"
         }
       ]
     }
@@ -111,6 +182,66 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/gold_rebuild.py"
       ],
       "description": "단가 Gold 는 건물 Gold 가 만들어진 표제부·전유부 판에 핀을 맞춘다(gold-panel-rebuild.contract.json pins_from, root ADR-0190). 단가 작업이 자기 작업이 된 뒤(root ADR-0333) 이 간선이 건물 Gold 커밋 뒤에 단가를 다시 만들게 하는 순서다."
+    },
+    {
+      "from": "silver-building-register-titles",
+      "to": "gold-unit-price-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/unit_price_stage.rs"
+      ],
+      "description": "표제부의 현재 행이 건물이다: 키·PNU·카탈로그 id(UUIDv8). 근거 있는 링크가 가리키는 건물의 PNU 아래에 호를 둔다."
+    },
+    {
+      "from": "silver-building-register-units",
+      "to": "gold-unit-price-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/unit_price_stage.rs"
+      ],
+      "description": "전유부의 현재 행이 호다. 건물 링크는 인계 계약의 근거 규칙(building-unit-handoff.json)을 통과할 때만 선다; 아니면 호는 자기 PNU 아래 nil 건물로 간다(building_unit_placement, 건물 패널과 같은 규칙)."
+    },
+    {
+      "from": "silver-unit-official-price",
+      "to": "gold-unit-price-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/unit_price_stage.rs"
+      ],
+      "description": "가장 새 vintage 의 배치 하나를 읽는다; 한 vintage 에 배치가 여럿이면 표가 붙인 순서(적재 원장·스냅숏 시각)의 마지막이다(루트 ADR-0182). 기준일 최신 순으로 호마다 접는다."
+    },
+    {
+      "from": "gold-building-panel",
+      "to": "gold-unit-price-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/unit_price_versions_build.rs"
+      ],
+      "description": "그림자가 아닐 때 표제부·전유부는 건물 Gold 의 foundation-gold-build 태그 커밋이 읽은 스냅숏에 핀한다(gold-panel-rebuild.contract.json pins_from, 루트 ADR-0190): 두 문서가 한 호를 같은 PNU 아래에 둔다."
+    },
+    {
+      "from": "gold-unit-price-panel",
+      "to": "gold-unit-price-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/unit_price_versions_build.rs"
+      ],
+      "description": "그림자인 동안 옛 표의 foundation-gold-build 태그 커밋이 적은 입력 핀으로 짓는다(루트 ADR-0564 §6): 옛 표의 데이터가 아니라 그 빌드의 핀을 읽는다."
+    },
+    {
+      "from": "gold-unit-price-versions",
+      "to": "unit-price-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md"
+      ],
+      "description": "호 공시가격 레인의 넘겨받기 PR 이 레인의 Gold 를 이 표로 바꾸면(판정 equal 뒤, 루트 ADR-0564 §6) 레인의 굽기가 이 표의 현재 행을 읽는다. 그때까지 아무도 읽지 않는 그림자다."
     }
   ],
   "host_memory": {
@@ -126,6 +257,15 @@
       "asset": "gold-unit-price-panel",
       "check": "rows_valid_per_sido",
       "blocking": false
+    },
+    {
+      "asset": "gold-unit-price-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-unit-price-panel"
+      ]
     }
   ]
 }
