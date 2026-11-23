@@ -1121,8 +1121,8 @@ const R2_PRECONDITION_FAILED_CODE: &str = "PreconditionFailed";
 /// R2's answer to a write on an existing key a bucket lock rule holds, conditional or not: the
 /// lock is checked before the precondition. Only an existing object can be locked, so under
 /// `CreateOnly` it is the same collision, and the caller's reconcile compares the checksum.
-/// Three writers asked first to dodge it (VWorld 2026-10-05, ADR-0152, the shape ledger 11-11);
-/// the ILIS notice list (2026-11-22) wrote an unchanged page under its content key and stopped.
+/// Three writers asked first to dodge it (the parcel file stream 2026-10-05, ADR-0152, the shape
+/// ledger 11-11); the industrial land notice list (2026-11-22) rewrote an unchanged page and stopped.
 const R2_OBJECT_LOCKED_CODE: &str = "ObjectLockedByBucketPolicy";
 
 /// Read access to the raw HTTP status of an aws-smithy response.
