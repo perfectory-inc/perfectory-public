@@ -301,6 +301,29 @@ class AirliftParityTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
+class TheInstanceLoads(unittest.TestCase):
+    def test_dagster_loads_the_instance_config_the_daemon_and_webservers_read(self):
+        # 2026-11-23 from about 01:35Z the daemon and both webservers restarted in a loop: dagster.yaml had a
+        # `concurrency` section and the run queue's limits still in run_coordinator's config, which Dagster
+        # refuses when it loads the instance. Every test read the file as text; this loads it as they do.
+        import os
+        from unittest import mock
+
+        from dagster._core.instance.config import dagster_instance_config
+
+        directory = PLATFORM / "orchestration" / "dagster"
+        environment = {"DAGSTER_PG_HOST": "127.0.0.1", "DAGSTER_PG_PORT": "5432", "DAGSTER_PG_PASSWORD": "synthetic"}
+        with mock.patch.dict(os.environ, environment):
+            config, _ = dagster_instance_config(str(directory), config_filename="dagster.yaml")
+        runs = config["concurrency"]["runs"]
+        self.assertEqual(runs["max_concurrent_runs"], 7)
+        self.assertEqual({(limit["key"], limit["value"]) for limit in runs["tag_concurrency_limits"]},
+                         {("foundation/run", "job"), ("foundation/decided-by", "dagster")})
+        self.assertNotIn("max_concurrent_runs", config["run_coordinator"]["config"])
+        self.assertNotIn("tag_concurrency_limits", config["run_coordinator"]["config"])
+
+
+@unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
 class CodeLocationTest(unittest.TestCase):
     def test_an_asset_a_job_writes_carries_that_jobs_code_version(self):
         # Root ADR-0499: Dagster's own code_version, from the version the reconciler compares a failed run with.
