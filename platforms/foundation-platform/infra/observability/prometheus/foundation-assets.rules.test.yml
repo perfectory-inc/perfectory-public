@@ -59,3 +59,77 @@ tests:
             exp_annotations:
               summary: 'iceberg://synthetic.table 의 입력이 바뀌었는데 25m 0s째 synthetic_gold 실행이 없어요(풀에 자리가 있는데도). foundation_asset_reconcile DAG 의 start 과제와 journalctl -u foundation-asset-reconcile.service 를 보세요'
               runbook: docs/runbooks/asset-reconcile.md
+
+  # A capacity claim live for 15 minutes while none of its work units runs (root ADR-0462); one whose
+  # unit runs does not alert.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_capacity_claim_work_units{job="node-exporter",claimant="synthetic_cutover",pool="spark",priority_class="first_publish"}'
+        values: '0x30'
+      - series: 'foundation_capacity_claim_work_units{job="node-exporter",claimant="synthetic_working",pool="spark",priority_class="publish"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: FoundationCapacityClaimHeldWithoutSpark
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              job: node-exporter
+              claimant: synthetic_cutover
+              pool: spark
+              priority_class: first_publish
+            exp_annotations:
+              summary: 'synthetic_cutover 의 spark 풀 claim 이 살아 있는데 그 claim 이 기다리거나 돌리는 Spark 유닛이 하나도 없어요. 낮은 등급의 시작이 이유 없이 막혀 있어요. journalctl -u foundation-asset-reconcile.service 의 capacity claim 줄과 /var/lib/foundation-run-now/capacity/ 를 보세요'
+              runbook: docs/runbooks/asset-reconcile.md
+
+  # The reconciler's last tick stays at the start: 30 minutes later, and 10 more, it alerts.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_asset_reconcile_timestamp_seconds{job="node-exporter"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: FoundationAssetReconcilerStopped
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: FoundationAssetReconcilerStopped
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              job: node-exporter
+            exp_annotations:
+              summary: '자산 조정기(asset_reconcile)가 30분 넘게 돌지 않았어요. 잃어버린 이벤트로 멈춘 작업을 아무도 다시 시작하지 않아요'
+              runbook: docs/runbooks/asset-reconcile.md
+
+  # A reconciler that ticks every minute does not alert.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_asset_reconcile_timestamp_seconds{job="node-exporter"}'
+        values: '0+60x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: FoundationAssetReconcilerStopped
+        exp_alerts: []
+
+  # One asset the reconciler could not read for 30 minutes; one it read does not alert.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_asset_reconcile_error{asset="iceberg://synthetic.unread",job="node-exporter",job_id="synthetic_gold"}'
+        values: '1x40'
+      - series: 'foundation_asset_reconcile_error{asset="iceberg://synthetic.read",job="node-exporter",job_id="synthetic_silver"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: FoundationAssetUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              asset: iceberg://synthetic.unread
+              job: node-exporter
+              job_id: synthetic_gold
+            exp_annotations:
+              summary: '자산 조정기가 iceberg://synthetic.unread 의 판을 30분째 못 읽어요. 카탈로그 REST 나 by-PNU reads.jsonl 을 확인하세요'
+              runbook: docs/runbooks/asset-reconcile.md
