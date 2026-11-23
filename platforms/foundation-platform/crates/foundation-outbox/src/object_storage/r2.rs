@@ -1098,10 +1098,11 @@ where
 
 /// Classifies whether an R2 `PutObject` failure is a `CreateOnly` write-once collision.
 ///
-/// Returns `true` only when the request used [`ObjectWriteMode::CreateOnly`] and the raw
-/// response carried `412 Precondition Failed` — the response R2 sends when our
-/// `If-None-Match: *` conditional write hits an existing key. This is split out as a pure
-/// function so it can be unit-tested without fabricating an aws-sdk-s3 response.
+/// Returns `true` only when the request used [`ObjectWriteMode::CreateOnly`] and R2 answered that
+/// the key already holds an object: `412 Precondition Failed` to our `If-None-Match: *`, or, for a
+/// key under a bucket lock rule (`bronze/`), `409 ObjectLockedByBucketPolicy`, which R2 sends
+/// instead of the 412. This is split out as a pure function so it can be unit-tested without
+/// fabricating an aws-sdk-s3 response.
 pub(super) fn is_create_only_already_exists_response(
     write_mode: ObjectWriteMode,
     status: Option<u16>,
@@ -1109,13 +1110,20 @@ pub(super) fn is_create_only_already_exists_response(
 ) -> bool {
     matches!(write_mode, ObjectWriteMode::CreateOnly)
         && (status == Some(HTTP_PRECONDITION_FAILED)
-            || service_error_code == Some(R2_PRECONDITION_FAILED_CODE))
+            || service_error_code == Some(R2_PRECONDITION_FAILED_CODE)
+            || service_error_code == Some(R2_OBJECT_LOCKED_CODE))
 }
 
 /// HTTP status code returned by R2 when a conditional `If-None-Match: *` write hits an
 /// existing key.
 const HTTP_PRECONDITION_FAILED: u16 = 412;
 const R2_PRECONDITION_FAILED_CODE: &str = "PreconditionFailed";
+/// R2's answer to a write on an existing key a bucket lock rule holds, conditional or not: the
+/// lock is checked before the precondition. Only an existing object can be locked, so under
+/// `CreateOnly` it is the same collision, and the caller's reconcile compares the checksum.
+/// Three writers asked first to dodge it (the parcel file stream 2026-10-05, ADR-0152, the shape
+/// ledger 11-11); the industrial land notice list (2026-11-22) rewrote an unchanged page and stopped.
+const R2_OBJECT_LOCKED_CODE: &str = "ObjectLockedByBucketPolicy";
 
 /// Read access to the raw HTTP status of an aws-smithy response.
 ///
