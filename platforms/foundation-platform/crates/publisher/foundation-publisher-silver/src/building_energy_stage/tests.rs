@@ -134,7 +134,7 @@ fn a_partial_run_names_the_pnus_whose_rows_changed() -> anyhow::Result<()> {
 }
 
 /// Every field path of a JSON value under `at`, in the records' grammar (`a.b`, `a[].b`).
-pub(crate) fn json_paths(
+pub fn json_paths(
     value: &serde_json::Value,
     at: &str,
     paths: &mut std::collections::BTreeSet<String>,
@@ -157,7 +157,7 @@ pub(crate) fn json_paths(
 }
 
 /// Every property path a JSON Schema declares under `at`, in the same grammar.
-pub(crate) fn schema_paths(
+pub fn schema_paths(
     schema: &serde_json::Value,
     at: &str,
     paths: &mut std::collections::BTreeSet<String>,
