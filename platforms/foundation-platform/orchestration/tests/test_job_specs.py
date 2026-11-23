@@ -245,7 +245,9 @@ class TheRealJobList(unittest.TestCase):
         self.assertTrue(self.specs, "the job list builds no DAG")
         for spec in self.specs:
             with self.subTest(spec.dag_id):
-                self.assertTrue(spec.inputs, "a job must report what it reads")
+                # A job listed off with no edge is one whose producer was taken over, kept for the one
+                # release that retires it (job_specs.job_nodes): it reads nothing.
+                self.assertTrue(spec.inputs or not (spec.enabled or spec.outputs), "a job must report what it reads")
 
     def test_every_job_declares_whether_a_deploy_may_interrupt_it(self):
         # Root ADR-0301: a deploy stops interruptible jobs at step 0 instead of waiting hours for
