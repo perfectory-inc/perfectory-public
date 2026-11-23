@@ -631,6 +631,10 @@ fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
             "{}",
             case["case"]
         );
+    }
+    Ok(())
+}
+
 /// A synthetic object of `role` as large as a night's: `count` lines, each the fixture's line at
 /// `template` with every list of its answer `times` as long and its own case number.
 fn large_object(
