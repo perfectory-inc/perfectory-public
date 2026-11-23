@@ -327,5 +327,25 @@ fn demolition_reports_are_distinct_on_the_provider_s_text_and_written_trimmed() 
         )
     );
     assert_eq!(total, 3);
+    // The lane's `spark_held_test` (root ADR-0418 §8c): exactly the registered schema's fields, as
+    // the deleted Spark job's test held it.
+    let schema: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../contracts/schema-registry/parcel_demolitions_by_pnu/1/1.schema.json"
+    ))?;
+    let (mut recorded, mut written) = (
+        std::collections::BTreeSet::new(),
+        std::collections::BTreeSet::new(),
+    );
+    crate::building_energy_stage::tests::schema_paths(
+        &schema["properties"]["demolitions"],
+        "demolitions",
+        &mut recorded,
+    );
+    crate::building_energy_stage::tests::json_paths(
+        &serde_json::from_str(&document)?,
+        "demolitions",
+        &mut written,
+    );
+    assert_eq!(written, recorded);
     Ok(())
 }
