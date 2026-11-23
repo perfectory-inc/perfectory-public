@@ -475,7 +475,7 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
     owed_by_job, metrics, errors, next_state = {}, [], [], {}
     not_current = set()
     for asset in found:
-        labels = f'asset="{asset.uri}",job="{asset.job}"'
+        labels = f'asset="{asset.uri}",job_id="{asset.job}"'
         kept = dict(state.get(asset.uri, {}))
         try:
             verdict = gold_verdict(asset, table) if asset.gold else lane_verdict(asset, table, reads, now, published)
@@ -551,7 +551,7 @@ def queued_starts(now: float, jobs: dict, queued: dict, last_started: dict, runn
         job = listing.get(job_id)
         if job is None or not job["enabled"]:
             continue  # no longer a job that runs: nothing starts it, its next start takes the record off
-        labels = f'job="{job_id}",pool="{job["pool"]}",priority_class="{job.get("priority_class", "default")}"'
+        labels = f'job_id="{job_id}",pool="{job["pool"]}",priority_class="{job.get("priority_class", "default")}"'
         budget = job_units.priority_class(jobs, job).get("queue_wait_budget_minutes")
         metrics.append(f"foundation_job_queue_wait_seconds{{{labels}}} {max(now - record['since'], 0):.0f}")
         metrics.append(f"foundation_job_queue_refusals{{{labels}}} {record.get('attempts', 1)}")
@@ -571,7 +571,7 @@ def queued_starts(now: float, jobs: dict, queued: dict, last_started: dict, runn
         job = listing.get(job_id)
         if job is None:
             continue
-        labels = f'job="{job_id}",pool="{job["pool"]}",priority_class="{job.get("priority_class", "default")}"'
+        labels = f'job_id="{job_id}",pool="{job["pool"]}",priority_class="{job.get("priority_class", "default")}"'
         metrics.append(f"foundation_job_queue_last_wait_seconds{{{labels}}} {started['waited_seconds']}")
     return owed, metrics
 
@@ -621,7 +621,7 @@ def missed_starts(now: float, jobs: dict, reconciler: dict, starts: dict, queued
         since = job_specs._instant(job.get("enabled_since"))
         if since is None or slot < since.timestamp() or starts.get(job_id, 0) >= slot:
             continue
-        labels = f'job="{job_id}",pool="{job["pool"]}",priority_class="{job.get("priority_class", "default")}"'
+        labels = f'job_id="{job_id}",pool="{job["pool"]}",priority_class="{job.get("priority_class", "default")}"'
         metrics.append(f"foundation_job_missed_start_seconds{{{labels}}} {now - slot:.0f}")
         if any(running(service) for service in filter(None, (job["systemd_service"], job.get("check_service")))):
             print(f"missed start {job_id}: no start after its {slot:.0f} slot, but it runs")
@@ -905,20 +905,20 @@ def dagster_state(jobs: dict, dag_ids: dict, post, decided=(), held=lambda job: 
         found = data.get(f"j{index}") or []
         evaluation = (found[0] if found else {}).get("evaluation")
         if evaluation:
-            text += f'foundation_dual_run_last_comparison_timestamp_seconds{{job="{label(job)}"}} {evaluation["timestamp"]}\n'
+            text += f'foundation_dual_run_last_comparison_timestamp_seconds{{job_id="{label(job)}"}} {evaluation["timestamp"]}\n'
     text += f"foundation_dagster_decided_jobs {len(decided)}\n"
     for index, job in enumerate(decided):
         sensor = data.get(f"s{index}") or {}
         state = sensor.get("sensorState") if sensor.get("__typename") == "Sensor" else None
         if state is None:
             # No such sensor: the location did not load this release's job list (decide.py).
-            text += f'foundation_dagster_sensor_running{{job="{label(job)}"}} 0\n'
+            text += f'foundation_dagster_sensor_running{{job_id="{label(job)}"}} 0\n'
         else:
             ticks = state.get("ticks") or []
-            text += (f'foundation_dagster_sensor_running{{job="{label(job)}"}} {int(state.get("status") == "RUNNING")}\n'
-                     f'foundation_dagster_sensor_tick_failed{{job="{label(job)}"}} '
+            text += (f'foundation_dagster_sensor_running{{job_id="{label(job)}"}} {int(state.get("status") == "RUNNING")}\n'
+                     f'foundation_dagster_sensor_tick_failed{{job_id="{label(job)}"}} '
                      f'{int(bool(ticks) and ticks[0].get("status") == "FAILURE")}\n')
-        text += f'foundation_dagster_sensor_held{{job="{label(job)}"}} {int(bool(held(job)))}\n'
+        text += f'foundation_dagster_sensor_held{{job_id="{label(job)}"}} {int(bool(held(job)))}\n'
     text += run_overdue(jobs, (data.get("runs") or {}).get("results") or [], now())
     text += run_queued(jobs, (data.get("queued") or {}).get("results") or [], now())
     text += pool_limits(jobs, ((data.get("instance") or {}).get("concurrencyLimits")))

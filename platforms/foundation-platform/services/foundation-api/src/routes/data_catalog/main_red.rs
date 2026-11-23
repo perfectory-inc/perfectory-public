@@ -83,7 +83,7 @@ fn render(main: Option<&MainHealth>, now: DateTime<Utc>) -> String {
     for job in &main.jobs {
         let _ = writeln!(
             body,
-            "foundation_main_red_job{{workflow=\"{}\",job=\"{}\",link=\"{}\"}} 1",
+            "foundation_main_red_job{{workflow=\"{}\",ci_job=\"{}\",link=\"{}\"}} 1",
             escape(&job.workflow),
             escape(&job.job),
             escape(link),
@@ -125,7 +125,7 @@ mod tests {
         let body = render(Some(&example()?), at("2026-10-13T03:00:00Z")?);
         assert_eq!(
             series(&body, "foundation_main_red_job"),
-            vec!["foundation_main_red_job{workflow=\"Foundation Platform CI\",job=\"Postgres integration tests\",link=\"https://github.com/example-org/example-repo/actions/workflows/main-health.yml\"} 1"]
+            vec!["foundation_main_red_job{workflow=\"Foundation Platform CI\",ci_job=\"Postgres integration tests\",link=\"https://github.com/example-org/example-repo/actions/workflows/main-health.yml\"} 1"]
         );
         assert_eq!(
             series(&body, "foundation_main_red_jobs"),

@@ -6,10 +6,11 @@ rule_files:
 evaluation_interval: 1m
 
 tests:
-  # 2026-11-14..18: the Foundation nightly's Postgres integration tests red on main.
+  # 2026-11-14..18: the Foundation nightly's Postgres integration tests red on main. The series carries the
+  # scrape's job label (foundation-api), as on ai-server: GitHub's job is ci_job.
   - interval: 1m
     input_series:
-      - series: 'foundation_main_red_job{workflow="Foundation Platform CI",job="Postgres integration tests",link="https://github.com/example-org/example-repo/actions/workflows/main-health.yml"}'
+      - series: 'foundation_main_red_job{job="foundation-api",workflow="Foundation Platform CI",ci_job="Postgres integration tests",link="https://github.com/example-org/example-repo/actions/workflows/main-health.yml"}'
         values: '1x30'
       - series: 'foundation_main_health_readable{reason=""}'
         values: '1x30'
@@ -20,8 +21,9 @@ tests:
           - exp_labels:
               severity: ticket
               service: ci
+              job: foundation-api
               workflow: Foundation Platform CI
-              job: Postgres integration tests
+              ci_job: Postgres integration tests
               link: https://github.com/example-org/example-repo/actions/workflows/main-health.yml
             exp_annotations:
               summary: 'main 에서 Foundation Platform CI / Postgres integration tests 이 실패하고 있어요 — 고치는 PR 에 hotfix:main-red 라벨을 붙이고 큐 앞에 세워요(ADR-0553). https://github.com/example-org/example-repo/actions/workflows/main-health.yml'
