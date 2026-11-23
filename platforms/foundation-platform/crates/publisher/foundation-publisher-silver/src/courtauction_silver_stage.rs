@@ -1,7 +1,7 @@
 //! Stages one Bronze object of 법원경매정보 as Silver rows (root ADR-0280, ADR-0540, ADR-0575).
 //!
 //! In `DuckDB` inside the publisher (root ADR-0559): the roles here were the Spark job
-//! `courtauction_go_kr.py`, which still loads the others until they move too. The collector lands,
+//! `courtauction_go_kr.py`, now gone with its code-change follow ([`follow_search`]). The collector lands,
 //! per run and per document, one gzip JSON Lines object; `plan-silver-load-objects` fetches, per
 //! table, the objects its commits do not record yet. For each object, oldest first, the role's SQL
 //! builds every table it writes (one row per key, the last line naming it winning, each value read
@@ -18,7 +18,7 @@ use chrono::{DateTime, Utc};
 use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 
-use crate::data_go_kr_file_data_stage::PlaceInputs;
+use crate::data_go_kr_file_data_stage::{self, PlaceInputs};
 use crate::duckdb_parquet_stage::{DuckDbParquetStage, PYTHON_VALUES_SQL};
 use crate::onbid_silver_stage::{snapshot_id, PLAN_SCHEMA};
 use crate::place_identity_stage;
@@ -1098,4 +1098,116 @@ pub fn appended_search(
         ),
     )?;
     Ok((out, rows, removed))
+}
+
+/// `ca_search_rows` of a follow: the current rows a code change can move.
+///
+/// The rows of `current` (a query of the table's current rows) that are not removed and have no PNU
+/// or a code under `file_prefixes` (every row when the prefixes are unknown), each keeping the values
+/// it was observed with, stamped with the follow's record and instant. Returns how many.
+///
+/// # Errors
+/// Refuses a record holding a quote; returns a `DuckDB` failure.
+pub fn follow_rows(
+    stage: &DuckDbParquetStage,
+    current: &str,
+    prefixes_known: bool,
+    record: &str,
+    ingested_at: DateTime<Utc>,
+) -> anyhow::Result<u64> {
+    let under = |column: &str| {
+        format!("EXISTS (SELECT 1 FROM file_prefixes p WHERE starts_with(c.{column}, p.prefix))")
+    };
+    let affected = if prefixes_known {
+        format!(
+            "c.pnu IS NULL OR {} OR {}",
+            under("legal_dong_code"),
+            under("pnu")
+        )
+    } else {
+        "TRUE".to_owned()
+    };
+    stage.connection().execute_batch(&format!(
+        "CREATE OR REPLACE TEMP TABLE ca_search_rows AS \
+         SELECT * REPLACE ('{record}' AS source_record_id, '{snapshot}' AS source_snapshot_id, \
+                           to_timestamp({at}) AS ingested_at_utc) \
+         FROM ({current}) c WHERE c.row_state IS NULL AND ({affected})",
+        record = literal(record)?,
+        snapshot = ingested_at.format("%Y%m%dT%H%M%SZ"),
+        at = ingested_at.timestamp(),
+    ))?;
+    count(stage, "ca_search_rows")
+}
+
+/// What a code-change follow of one search table did ([`follow_search`]).
+#[derive(Debug)]
+pub struct Followed {
+    /// The staging table of the rows whose placement moved.
+    pub out: String,
+    /// How many PNU prefixes the change table moved, or `None` when every row was placed again.
+    pub prefixes: Option<u64>,
+    /// The current rows placed again.
+    pub checked: u64,
+    /// Of them, the rows whose placement moved.
+    pub appended: u64,
+}
+
+/// Follows the 법정동 code changes since `before` on a search table (root ADR-0329 §3, ADR-0416).
+///
+/// As `follow_code_changes` of `courtauction_go_kr` did: its current rows at `head` that a change can
+/// move ([`follow_rows`]; every row when `before` is `None` or unreadable) are placed again through
+/// [`place_search`] with the follow's `record` and instant, and `<staging>_changed` holds those whose
+/// placement moved, never a removal marker.
+///
+/// # Errors
+/// Refuses another role; returns a `DuckDB` failure.
+#[allow(clippy::too_many_arguments)]
+pub fn follow_search(
+    stage: &DuckDbParquetStage,
+    role: Role,
+    contract: &LakehouseTableContract,
+    head: i64,
+    place: PlaceInputs<'_>,
+    before: Option<i64>,
+    record: &str,
+    ingested_at: DateTime<Utc>,
+) -> anyhow::Result<Followed> {
+    let prefixes = match before {
+        Some(before) => {
+            data_go_kr_file_data_stage::changed_prefixes(stage, before, place.pins.code_changes)?
+        }
+        None => None,
+    };
+    let columns = contract
+        .columns
+        .iter()
+        .map(|column| column.name)
+        .collect::<Vec<_>>();
+    let staged = Role::staged(contract.table_name);
+    let current = silver_changes::current_rows(stage, contract, Some(head), &columns, &staged)?;
+    let checked = follow_rows(stage, &current, prefixes.is_some(), record, ingested_at)?;
+    place_search(stage, role, contract, place)?;
+    let snapshot = ingested_at.format("%Y%m%dT%H%M%SZ").to_string();
+    let out = format!("{staged}_changed");
+    // The same keys on both sides: only the rows whose placement moved, and no marker.
+    let (appended, removed) = silver_changes::removal_changes(
+        stage,
+        contract,
+        Some(head),
+        &staged,
+        &out,
+        false,
+        (record, &snapshot, ingested_at.timestamp()),
+    )?;
+    ensure!(
+        removed == 0,
+        "{}: a follow made {removed} removal markers",
+        contract.table_name
+    );
+    Ok(Followed {
+        out,
+        prefixes,
+        checked,
+        appended,
+    })
 }

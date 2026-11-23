@@ -1,5 +1,5 @@
 """What a release changes against a table's current rows: the compare the Spark jobs that still load
-by release share (`rt_molit_real_transaction`, `vintage_versions`, `courtauction_go_kr`).
+by release share (`rt_molit_real_transaction`, `vintage_versions`).
 
 It was the Silver refresh lanes' compare job (root ADR-0275, ADR-0318). Those lanes now compare in
 `DuckDB` inside the publisher (root ADR-0599: `release_compare_stage`), so the job, its buckets,

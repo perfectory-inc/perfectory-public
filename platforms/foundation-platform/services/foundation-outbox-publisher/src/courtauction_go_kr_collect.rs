@@ -18,7 +18,7 @@
 //!
 //! Each search's answers of one run land as one gzip JSON Lines Bronze object, one line per page:
 //! the request body, the HTTP status and the response body as received. The Silver load
-//! (`infra/lakehouse/spark/jobs/courtauction_go_kr.py`) parses them.
+//! (`load-courtauction-go-kr-silver`, `courtauction_silver_stage`) parses them.
 //!
 //! After a list pass that was not cut short, the same run asks the site's 공통코드 once ([`codes`],
 //! root ADR-0540 §5), then the 물건상세 of the properties due, on the same pool and tally, and stores

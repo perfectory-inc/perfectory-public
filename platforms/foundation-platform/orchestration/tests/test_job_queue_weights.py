@@ -33,7 +33,10 @@ class AProducerOutranksItsConsumers(unittest.TestCase):
                    # each collector reads only its own source's reads, but the graph names one table.
                    {"industrial_land_sale_notice_factoryon_collect", "industrial_land_sale_notice_ilis_collect",
                     "industrial_land_sale_notice_kicox_collect", "industrial_land_sale_notice_lh_collect",
-                    "industrial_land_sale_notice_silver"}]
+                    "industrial_land_sale_notice_silver"},
+                   # The court auction collector asks the read records which cases and documents are due; the
+                   # Silver load reads what it landed. Both are default_pool since the load left Spark (root ADR-0559).
+                   {"court_auction_collect", "court_auction_silver"}]
         pairs = [(writer, reader) for reader, writers in feeders.items() for writer in writers
                  if by_id[writer]["pool"] == by_id[reader]["pool"]
                  and not any({writer, reader} <= circle for circle in circles)]
