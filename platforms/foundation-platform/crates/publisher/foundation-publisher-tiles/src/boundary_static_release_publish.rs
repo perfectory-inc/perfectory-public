@@ -769,6 +769,7 @@ pub async fn create_only_upload_and_rehash(
             size_bytes: local.size_bytes,
             body,
             write_mode: ObjectWriteMode::CreateOnly,
+            sha256: None,
         })
         .await;
     match upload {
@@ -819,6 +820,7 @@ impl ObjectStorageStreamingService for TamperingFileStore {
                 size_bytes: 8,
                 body: ByteStream::from_static(b"tampered"),
                 write_mode: ObjectWriteMode::OverwriteAllowed,
+                sha256: None,
             })
             .await
     }
@@ -868,6 +870,7 @@ async fn prove_file_store_create_only_and_bypass(root: &Path) -> anyhow::Result<
             size_bytes: 22,
             body: ByteStream::from_static(b"verified-pmtiles-bytes"),
             write_mode: ObjectWriteMode::CreateOnly,
+            sha256: None,
         })
         .await;
     ensure!(
@@ -889,6 +892,7 @@ async fn prove_file_store_create_only_and_bypass(root: &Path) -> anyhow::Result<
             size_bytes: 17,
             body: ByteStream::from_static(b"replacement-bytes"),
             write_mode: ObjectWriteMode::OverwriteAllowed,
+            sha256: None,
         })
         .await?;
     ensure!(
@@ -961,6 +965,7 @@ async fn prove_unreadable_martin_is_refused(root: &Path) -> anyhow::Result<()> {
             size_bytes: 15,
             body: ByteStream::from_static(b"verified-object"),
             write_mode: ObjectWriteMode::CreateOnly,
+            sha256: None,
         })
         .await?;
     ensure!(

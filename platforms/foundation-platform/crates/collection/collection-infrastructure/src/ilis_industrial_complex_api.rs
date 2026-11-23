@@ -11,7 +11,7 @@
 //! [`IlisRequestPolicy`]): a retry is another request at the provider, and a lane whose whole
 //! collection is two requests must not silently turn into six.
 
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
 use collection_domain::CollectionError;
 use outbound_http_infrastructure::{
@@ -86,9 +86,9 @@ pub struct IlisIndustrialComplexPage {
 
 /// What one file download came to.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum IlisFileDownload {
-    /// The file's bytes as served.
-    Bytes(Vec<u8>),
+pub enum IlisFileDownload<T> {
+    /// What the caller's body reader made of the file as served (a spooled file).
+    Body(T),
     /// The provider answered with this 4xx status.
     Gone(u16),
 }
@@ -231,17 +231,25 @@ impl IlisIndustrialComplexApiClient {
     }
 
     /// Downloads one stored file (a notice attachment, root ADR-0484): `GET <download_path>?<query>`,
-    /// the bytes as served. A 4xx answer is [`IlisFileDownload::Gone`]: the file is not there and
+    /// its body read by `read_body` (the caller spools it to disk, so a file of any size passes
+    /// through one chunk of memory). The request and the body read are one attempt, asked again on
+    /// a transient failure. A 4xx answer is [`IlisFileDownload::Gone`]: the file is not there and
     /// asking again will not bring it back.
     ///
     /// # Errors
-    /// Returns [`CollectionError`] when the path is invalid, the request fails, or the provider
-    /// answers with a non-success status other than 4xx.
-    pub async fn download_file(
+    /// Returns [`CollectionError`] when the path is invalid, the request or every body read fails,
+    /// or the provider answers with a non-success status other than 4xx.
+    pub async fn download_file<T, F, Fut>(
         &self,
         download_path: &str,
         query: &[(&str, &str)],
-    ) -> Result<IlisFileDownload, CollectionError> {
+        read_body: F,
+    ) -> Result<IlisFileDownload<T>, CollectionError>
+    where
+        T: Send,
+        F: Fn(reqwest::Response) -> Fut + Sync,
+        Fut: Future<Output = Result<T, String>> + Send,
+    {
         let mut url = self
             .base_uri
             .join(download_path.trim_start_matches('/'))
@@ -254,12 +262,21 @@ impl IlisIndustrialComplexApiClient {
             policy: &self.resilience,
             audit: &self.audit,
         };
-        execute_retryable(&ctx, || self.download_once(&url))
+        execute_retryable(&ctx, || self.download_once(&url, &read_body))
             .await
             .map_err(crate::outbound_http_error::into_collection_error)
     }
 
-    async fn download_once(&self, url: &reqwest::Url) -> Result<IlisFileDownload, AttemptError> {
+    async fn download_once<T, F, Fut>(
+        &self,
+        url: &reqwest::Url,
+        read_body: &F,
+    ) -> Result<IlisFileDownload<T>, AttemptError>
+    where
+        T: Send,
+        F: Fn(reqwest::Response) -> Fut + Sync,
+        Fut: Future<Output = Result<T, String>> + Send,
+    {
         let response = self
             .http
             .get(url.clone())
@@ -287,17 +304,13 @@ impl IlisIndustrialComplexApiClient {
                 RetryDecision::NotRetryable => AttemptError::Fatal(OutboundHttpError::new(message)),
             });
         }
-        let bytes = response
-            .bytes()
+        let body = read_body(response)
             .await
-            .map_err(|error| AttemptError::Retryable {
-                message: format!(
-                    "{PROVIDER} download body read failed: {}",
-                    redact_transport_error(&error)
-                ),
+            .map_err(|message| AttemptError::Retryable {
+                message: format!("{PROVIDER} download body read failed: {message}"),
                 retry_after: None,
             })?;
-        Ok(IlisFileDownload::Bytes(bytes.to_vec()))
+        Ok(IlisFileDownload::Body(body))
     }
 
     async fn fetch_page_once(

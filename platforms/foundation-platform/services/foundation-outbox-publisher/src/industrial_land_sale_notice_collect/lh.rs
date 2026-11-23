@@ -15,6 +15,7 @@ use serde_json::{json, Value as JsonValue};
 use super::{
     contract_date, Detail, DetailRead, Downloaded, FileRef, FileRequest, ListPage, Listed,
 };
+use crate::media_store::spool_response;
 use crate::public_data_control_support::optional_env_value;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -299,7 +300,11 @@ impl Lh {
         }))
     }
 
-    pub(crate) async fn download(&mut self, request: &FileRequest) -> anyhow::Result<Downloaded> {
+    pub(crate) async fn download(
+        &mut self,
+        request: &FileRequest,
+        max_bytes: u64,
+    ) -> anyhow::Result<Downloaded> {
         let FileRequest::Url(url) = request else {
             bail!("an LH attachment is asked by its URL");
         };
@@ -316,12 +321,10 @@ impl Lh {
         if !status.is_success() {
             bail!("LH answered HTTP {status} for a file");
         }
-        Ok(Downloaded::Bytes(
-            response
-                .bytes()
+        Ok(Downloaded::Spooled(
+            spool_response(response, max_bytes)
                 .await
-                .map_err(|error| anyhow::anyhow!("LH file body failed: {error}"))?
-                .to_vec(),
+                .context("LH file body failed")?,
         ))
     }
 }

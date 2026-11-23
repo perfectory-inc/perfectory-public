@@ -9,8 +9,9 @@
 //! nothing for `stall_minutes` stops and fails (root ADR-0603, 2026-11-23 revision). It stops walking the
 //! list at the first page that owes nothing once the reads cover the count the provider states,
 //! so a run after the first fill asks one list page. Each detail is kept as served; each attachment
-//! still in use is downloaded and stored once, whatever its format, in the shared content-addressed
-//! media store (`industrial_complex_notice_collect::store_attachment`, root ADR-0298, ADR-0484 §2),
+//! still in use is downloaded to disk as it arrives and stored once from there, whatever its format
+//! and size, in the shared content-addressed media store
+//! (`industrial_complex_notice_collect::store_attachment`, root ADR-0298, ADR-0484 §2),
 //! and annotated in the line's `attachments`. `commit_every` reads make one gzip JSON Lines Bronze
 //! object under a content-qualified key (root ADR-0152), so a stopped run loses at most one batch.
 //! The Silver load (`load-industrial-land-sale-notice-silver`) turns the lines into the read record
@@ -39,6 +40,7 @@ use collection_domain::{
     IngestionTrigger, SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat,
 };
 use collection_infrastructure::PgBronzeIngestUnitOfWork;
+use foundation_outbox::object_storage::ObjectStorageStreamingService;
 use foundation_outbox::ObjectStorageService;
 use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
 use foundation_shared_kernel::ObjectKeyPrefix;
@@ -50,12 +52,13 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::bronze_object_storage::{
-    live_write_bronze_object_storage_from_env, live_write_target_preflight,
-    BronzeObjectStorageWriter,
+    live_write_bronze_object_storage_from_env, live_write_bronze_streaming_object_storage_from_env,
+    live_write_target_preflight, BronzeObjectStorageWriter,
 };
 use crate::industrial_complex_notice_collect::{
     gzip_lines, media_prefix, store_attachment, AttachmentReport, StoreOutcome,
 };
+use crate::media_store::{MediaStore, Spooled};
 use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
@@ -88,6 +91,9 @@ pub(crate) struct LaneContract {
 pub(crate) struct LaneAttachments {
     pub(crate) object_prefix_from: String,
     pub(crate) max_file_bytes: u64,
+    /// When `max_file_bytes` took its value: a read before it that left a file out of the store is
+    /// owed again once ([`LastRead::refetch`]).
+    pub(crate) max_file_bytes_since: DateTime<Utc>,
 }
 
 pub(crate) fn lane_contract() -> anyhow::Result<LaneContract> {
@@ -356,7 +362,8 @@ pub(crate) enum Stop {
 
 /// What a download came to.
 pub(crate) enum Downloaded {
-    Bytes(Vec<u8>),
+    /// The file as served, spooled to disk (`media_store::Spool`).
+    Spooled(Spooled),
     /// The provider answered 4xx: the file is gone and asking again will not bring it back.
     Gone(u16),
 }
@@ -388,12 +395,17 @@ impl SourceClient {
         }
     }
 
-    async fn download(&mut self, request: &FileRequest) -> anyhow::Result<Downloaded> {
+    /// One attachment, spooled as it arrives; bytes past `max_bytes` are hashed, not kept.
+    async fn download(
+        &mut self,
+        request: &FileRequest,
+        max_bytes: u64,
+    ) -> anyhow::Result<Downloaded> {
         match self {
-            Self::Factoryon(client) => client.download(request).await,
-            Self::Ilis(client) => client.download(request).await,
-            Self::Kicox(client) => client.download(request).await,
-            Self::Lh(client) => client.download(request).await,
+            Self::Factoryon(client) => client.download(request, max_bytes).await,
+            Self::Ilis(client) => client.download(request, max_bytes).await,
+            Self::Kicox(client) => client.download(request, max_bytes).await,
+            Self::Lh(client) => client.download(request, max_bytes).await,
         }
     }
 }
@@ -414,6 +426,10 @@ pub(crate) fn fingerprint(row: &JsonValue, fields: &[String]) -> String {
 pub(crate) struct LastRead {
     pub(crate) print: String,
     pub(crate) settled: bool,
+    /// Settled before the attachment cap last grew, with a file left out of the store
+    /// (`file_count` above `files_stored`: one over the old cap, as Factory-on's two of 2026-11-22
+    /// under the 256 MiB the memory set): asked again at once, and settled by that read.
+    pub(crate) refetch: bool,
     pub(crate) run: Option<NaiveDateTime>,
 }
 
@@ -422,6 +438,7 @@ pub(crate) struct LastRead {
 pub(crate) fn last_reads<'a>(
     rows: impl IntoIterator<Item = &'a serde_json::Map<String, JsonValue>>,
     source: Source,
+    cap_since: DateTime<Utc>,
 ) -> HashMap<String, LastRead> {
     let mut last: HashMap<String, ((String, i64), LastRead)> = HashMap::new();
     for row in rows {
@@ -445,10 +462,19 @@ pub(crate) fn last_reads<'a>(
             row.get("read_outcome").and_then(JsonValue::as_str),
             Some("read" | "gone")
         );
+        let run = NaiveDateTime::parse_from_str(snapshot, "%Y%m%dT%H%M%SZ").ok();
+        let left_out = matches!(
+            (
+                row.get("file_count").and_then(JsonValue::as_i64),
+                row.get("files_stored").and_then(JsonValue::as_i64),
+            ),
+            (Some(count), Some(stored)) if count > stored
+        );
         let read = LastRead {
             print: print.to_owned(),
             settled,
-            run: NaiveDateTime::parse_from_str(snapshot, "%Y%m%dT%H%M%SZ").ok(),
+            refetch: settled && left_out && run.is_some_and(|run| run.and_utc() < cap_since),
+            run,
         };
         match last.get(id) {
             Some((seen, _)) if *seen >= order => {}
@@ -461,8 +487,9 @@ pub(crate) fn last_reads<'a>(
 }
 
 /// Whether a listed notice is owed this run: never read, read with another list fingerprint (the
-/// provider changed it in its list), or last read unsettled at least `retry_after_hours` ago (a
-/// notice that keeps failing is asked once a day, not every run ahead of the backlog).
+/// provider changed it in its list), settled but owed a file the cap now takes
+/// ([`LastRead::refetch`]), or last read unsettled at least `retry_after_hours` ago (a notice that
+/// keeps failing is asked once a day, not every run ahead of the backlog).
 pub(crate) fn owes(
     last: Option<&LastRead>,
     print: &str,
@@ -476,7 +503,7 @@ pub(crate) fn owes(
         return true;
     }
     if last.settled {
-        return false;
+        return last.refetch;
     }
     last.run
         .is_none_or(|run| run.and_utc() + chrono::Duration::hours(retry_after_hours) <= now)
@@ -527,7 +554,11 @@ async fn last_reads_from_lakehouse(
         &snapshot,
     )
     .await?;
-    Ok(last_reads(scanned.rows.iter(), source))
+    Ok(last_reads(
+        scanned.rows.iter(),
+        source,
+        contract.attachments.max_file_bytes_since,
+    ))
 }
 
 /// What a run needs to ask: the source's client, the pace and the count of requests sent.
@@ -649,8 +680,9 @@ async fn read_attachment(
     };
     asker.pace().await;
     let fetched_at = Utc::now();
-    let bytes = match asker.client.download(request).await {
-        Ok(Downloaded::Bytes(bytes)) => bytes,
+    let max_bytes = run.contract.attachments.max_file_bytes;
+    let spooled = match asker.client.download(request, max_bytes).await {
+        Ok(Downloaded::Spooled(spooled)) => spooled,
         Err(error) if is_blocked(&error) => return Err(error),
         Ok(Downloaded::Gone(status)) => {
             report.gone += 1;
@@ -663,16 +695,7 @@ async fn read_attachment(
             return Ok(StoreOutcome::Failed);
         }
     };
-    store_attachment(
-        &bytes,
-        file,
-        fetched_at,
-        run.prefix,
-        run.storage,
-        run.contract.attachments.max_file_bytes,
-        report,
-    )
-    .await
+    store_attachment(&spooled, file, fetched_at, run.prefix, run.store, report).await
 }
 
 fn line(
@@ -705,7 +728,7 @@ struct RunContext<'a> {
     contract: &'a LaneContract,
     source: Source,
     prefix: &'a ObjectKeyPrefix,
-    storage: Option<&'a dyn ObjectStorageService>,
+    store: Option<MediaStore<'a>>,
 }
 
 /// One Bronze object's plan: `<dataset>-<run>-<batch>` (or the list's name), content-qualified.
@@ -934,12 +957,20 @@ fn client_for(contract: &LaneContract, source: Source) -> anyhow::Result<SourceC
     })
 }
 
-/// The ledger and the Bronze store a live run writes to.
-type Live = Option<(PgBronzeIngestUnitOfWork, Box<dyn ObjectStorageService>)>;
+/// The ledger and the Bronze store a live run writes to (also the media HEAD), and the streaming
+/// port the spooled attachments are sent through.
+type Live = Option<(
+    PgBronzeIngestUnitOfWork,
+    Box<dyn ObjectStorageService>,
+    Box<dyn ObjectStorageStreamingService>,
+)>;
 
 /// The store a live run writes the attachments to; none in a dry run.
-fn storage_of(live: &Live) -> Option<&dyn ObjectStorageService> {
-    live.as_ref().map(|(_, storage)| storage.as_ref())
+fn media_of(live: &Live) -> Option<MediaStore<'_>> {
+    live.as_ref().map(|(_, head, stream)| MediaStore {
+        head: head.as_ref(),
+        stream: stream.as_ref(),
+    })
 }
 
 /// Collects the owed notices of one source and their attachments (root ADR-0603). The last stdout
@@ -978,7 +1009,10 @@ pub async fn run() -> anyhow::Result<()> {
         let storage = live_write_bronze_object_storage_from_env()
             .await
             .context("failed to configure object storage for the sale notice collection")?;
-        Some((PgBronzeIngestUnitOfWork::new(pool), storage))
+        let streaming = live_write_bronze_streaming_object_storage_from_env()
+            .await
+            .context("failed to configure streaming storage for the sale notice collection")?;
+        Some((PgBronzeIngestUnitOfWork::new(pool), storage, streaming))
     } else {
         None
     };
@@ -1043,7 +1077,7 @@ pub async fn run() -> anyhow::Result<()> {
         pages = page_no;
         settled_at = Instant::now();
         listed_total = page.total.or(listed_total);
-        if let (true, Some(raw), Some((uow, storage))) = (keeps_list, raw_list, live.as_ref()) {
+        if let (true, Some(raw), Some((uow, storage, _))) = (keeps_list, raw_list, live.as_ref()) {
             list_objects.push(
                 persist_list(
                     &contract,
@@ -1081,7 +1115,7 @@ pub async fn run() -> anyhow::Result<()> {
                 contract: &contract,
                 source,
                 prefix: &prefix,
-                storage: storage_of(&live),
+                store: media_of(&live),
             };
             let reading = within_stall(
                 settled_at,
@@ -1305,7 +1339,7 @@ async fn flush(
         IngestionRunId::new(Uuid::new_v4()),
         at,
     )?;
-    if let Some((uow, storage)) = live {
+    if let Some((uow, storage, _)) = live {
         return persist(
             entry,
             &plan,

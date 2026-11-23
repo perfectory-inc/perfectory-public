@@ -206,6 +206,7 @@ where
             size_bytes: expected_size_bytes,
             body: byte_stream,
             write_mode: ObjectWriteMode::CreateOnly,
+            sha256: None,
         })
         .await;
 

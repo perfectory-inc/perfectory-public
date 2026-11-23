@@ -56,6 +56,7 @@ async fn file_object_storage_streaming_write_persists_chunks_without_full_body_r
             size_bytes: 6,
             body: ByteStream::from_static(b"abcdef"),
             write_mode: ObjectWriteMode::OverwriteAllowed,
+            sha256: None,
         })
         .await?;
 
@@ -206,6 +207,7 @@ async fn file_object_storage_streaming_create_only_rejects_existing_key() -> Tes
             size_bytes: 6,
             body: ByteStream::from_static(b"abcdef"),
             write_mode: ObjectWriteMode::CreateOnly,
+            sha256: None,
         })
         .await?;
 
@@ -217,6 +219,7 @@ async fn file_object_storage_streaming_create_only_rejects_existing_key() -> Tes
             size_bytes: 6,
             body: ByteStream::from_static(b"ghijkl"),
             write_mode: ObjectWriteMode::CreateOnly,
+            sha256: None,
         })
         .await
         .err()

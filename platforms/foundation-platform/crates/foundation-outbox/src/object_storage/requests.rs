@@ -80,6 +80,13 @@ pub struct StreamingPutObjectRequest {
     pub body: ByteStream,
     /// Write-once policy for this object (no default — caller must choose).
     pub write_mode: ObjectWriteMode,
+    /// Optional lowercase hex SHA-256 stored as the object's `x-amz-meta-sha256` user metadata, as
+    /// [`PutObjectRequest::sha256`]. A caller that hashed the bytes before sending them (a file
+    /// spooled to disk as it arrived) stamps it, so a later
+    /// [`ObjectStorageService::read_object_sha256`] finds the object; `None` leaves no checksum.
+    ///
+    /// [`ObjectStorageService::read_object_sha256`]: super::ObjectStorageService::read_object_sha256
+    pub sha256: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

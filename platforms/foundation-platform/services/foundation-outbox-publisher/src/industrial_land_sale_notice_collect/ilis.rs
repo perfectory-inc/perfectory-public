@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 use super::{pointed_text, Detail, DetailRead, Downloaded, FileRef, FileRequest, ListPage, Listed};
+use crate::media_store::spool_response;
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct List {
@@ -216,7 +217,11 @@ impl Ilis {
         }))
     }
 
-    pub(crate) async fn download(&mut self, request: &FileRequest) -> anyhow::Result<Downloaded> {
+    pub(crate) async fn download(
+        &mut self,
+        request: &FileRequest,
+        max_bytes: u64,
+    ) -> anyhow::Result<Downloaded> {
         let FileRequest::IlisQuery(query) = request else {
             anyhow::bail!("an ILIS attachment is asked by its download query");
         };
@@ -227,10 +232,18 @@ impl Ilis {
         Ok(
             match self
                 .client
-                .download_file(&self.rules.attachments.download_path, &pairs)
+                .download_file(
+                    &self.rules.attachments.download_path,
+                    &pairs,
+                    |response| async move {
+                        spool_response(response, max_bytes)
+                            .await
+                            .map_err(|error| format!("{error:#}"))
+                    },
+                )
                 .await?
             {
-                IlisFileDownload::Bytes(bytes) => Downloaded::Bytes(bytes),
+                IlisFileDownload::Body(spooled) => Downloaded::Spooled(spooled),
                 IlisFileDownload::Gone(status) => Downloaded::Gone(status),
             },
         )
