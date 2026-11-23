@@ -799,7 +799,7 @@ class QueuedStarts(unittest.TestCase):
     def test_the_wait_alert_compares_each_job_to_its_budget(self):
         rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
         self.assertIn("alert: FoundationJobQueueWaitOverBudget", rules)
-        self.assertRegex(rules, r"foundation_job_queue_wait_seconds > on\(job, pool, priority_class\) "
+        self.assertRegex(rules, r"foundation_job_queue_wait_seconds > on\(job_id, pool, priority_class\) "
                                 r"foundation_job_queue_wait_budget_seconds")
         for name, entry in self.jobs["priority_classes"].items():
             self.assertIsInstance(entry.get("queue_wait_budget_minutes"), int, name)
