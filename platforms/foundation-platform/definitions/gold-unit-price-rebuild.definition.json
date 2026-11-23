@@ -81,8 +81,7 @@
           "estimated_from": "computed, not measured: every run builds every row. It lists the price table's batch ids at its pin (one dictionary-encoded column of about 1.2 billion rows, Trino $files 2026-11-22), chooses each register's current rows (8,081,287 titles and 19,902,649 units) and places the units, copies the chosen batch (188,736,512 rows at the gold.unit_price build pin) joined to the placement into a local spool split by 시도, then folds and diffs one 시도 at a time into the 169,143 rows the Gold holds and appends them in one commit. The parcel-nearby build committed 39,861,511 rows from about as many read rows in 1,500 s (2026-11-19); this one reads about five times the rows but writes a quarter of a percent of them: about 1,500 s, inside the 60-minute limit. The Spark rebuild's longest run was 1,007 s (incremental)."
         }
       },
-      "pool": "documents",
-      "pool_slots": 1,
+      "pool": "duckdb",
       "memory_claim": {
         "units": [
           "foundation-gold-versions@unit-price.service"
