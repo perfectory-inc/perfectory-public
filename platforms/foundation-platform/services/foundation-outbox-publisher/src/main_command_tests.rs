@@ -334,77 +334,55 @@ fn derive_parcel_lineage_command_is_explicit() -> anyhow::Result<()> {
 
 #[test]
 fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-parcel-register-masters-versions"
-        ])?,
-        Command::BuildParcelRegisterMastersVersions
-    );
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-parcel-demolitions-versions"
-        ])?,
-        Command::BuildParcelDemolitionsVersions
-    );
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-parcel-energy-versions"
-        ])?,
-        Command::BuildParcelEnergyVersions
-    );
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-parcel-sub-parcels-versions"
-        ])?,
-        Command::BuildParcelSubParcelsVersions
-    );
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-parcel-building-permits-versions"
-        ])?,
-        Command::BuildParcelBuildingPermitsVersions
-    );
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-lineage-review-queue-versions"
-        ])?,
-        Command::BuildLineageReviewQueueVersions
-    );
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-parcel-ownership-versions"
-        ])?,
-        Command::BuildParcelOwnershipVersions
-    );
-    assert_eq!(
-        parse_command(["foundation-outbox-publisher", "build-parcel-panel-versions"])?,
-        Command::BuildParcelPanelVersions
-    );
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-parcel-factories-versions"
-        ])?,
-        Command::BuildParcelFactoriesVersions
-    );
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-parcel-public-auction-versions"
-        ])?,
-        Command::BuildParcelPublicAuctionVersions
-    );
-    assert_eq!(
-        parse_command(["foundation-outbox-publisher", "build-unit-price-versions"])?,
-        Command::BuildUnitPriceVersions
-    );
+    for (name, command) in [
+        (
+            "build-parcel-register-masters-versions",
+            Command::BuildParcelRegisterMastersVersions,
+        ),
+        (
+            "build-parcel-demolitions-versions",
+            Command::BuildParcelDemolitionsVersions,
+        ),
+        (
+            "build-parcel-energy-versions",
+            Command::BuildParcelEnergyVersions,
+        ),
+        (
+            "build-parcel-sub-parcels-versions",
+            Command::BuildParcelSubParcelsVersions,
+        ),
+        (
+            "build-parcel-building-permits-versions",
+            Command::BuildParcelBuildingPermitsVersions,
+        ),
+        (
+            "build-lineage-review-queue-versions",
+            Command::BuildLineageReviewQueueVersions,
+        ),
+        (
+            "build-parcel-ownership-versions",
+            Command::BuildParcelOwnershipVersions,
+        ),
+        (
+            "build-parcel-panel-versions",
+            Command::BuildParcelPanelVersions,
+        ),
+        (
+            "build-parcel-factories-versions",
+            Command::BuildParcelFactoriesVersions,
+        ),
+        (
+            "build-parcel-public-auction-versions",
+            Command::BuildParcelPublicAuctionVersions,
+        ),
+        ("build-unit-price-versions", Command::BuildUnitPriceVersions),
+    ] {
+        assert_eq!(
+            parse_command(["foundation-outbox-publisher", name])?,
+            command,
+            "{name}"
+        );
+    }
     Ok(())
 }
 
