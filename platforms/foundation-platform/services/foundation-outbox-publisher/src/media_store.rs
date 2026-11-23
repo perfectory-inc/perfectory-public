@@ -305,7 +305,7 @@ pub(crate) async fn store_spooled(
         return Ok(Stored::Deduplicated(media));
     }
     let body = ByteStream::read_from()
-        .path(spooled.path.to_path_buf())
+        .path(&spooled.path)
         .build()
         .await
         .context("failed to open the spool file")?;
