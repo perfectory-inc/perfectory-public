@@ -192,6 +192,8 @@ pub mod place_identity_stage;
 
 /// Where an auction's rows are served (공매, 경매; root ADR-0287 §7, ADR-0292).
 pub mod auction_placement_stage;
+/// The 경매 kind's Gold in `DuckDB` (root ADR-0287, ADR-0353, ADR-0540).
+pub mod court_kind_stage;
 /// The parcel lineage's carry walk every placing producer shares (root ADR-0113 §6).
 pub mod lineage_carry;
 /// That walk over the `lineage` rows a placing stage loaded, in `DuckDB` (실거래, the auctions).
@@ -200,8 +202,6 @@ pub mod lineage_carry_stage;
 pub mod lineage_review_queue_stage;
 /// The 공매 kind's Gold in `DuckDB` (root ADR-0287, ADR-0340).
 pub mod onbid_kind_stage;
-/// The 경매 kind's Gold in `DuckDB` (root ADR-0287, ADR-0353, ADR-0540).
-pub mod court_kind_stage;
 
 /// The parcel lineage as every consumer reads it: steward decisions in force (root ADR-0115 §9).
 pub mod lineage_steward_read;
