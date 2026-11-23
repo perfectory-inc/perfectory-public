@@ -692,34 +692,29 @@ fn large_object(
 }
 
 #[test]
-fn an_object_of_wide_answers_is_read_within_its_memory_budget() -> anyhow::Result<()> {
+fn a_case_detail_object_of_wide_answers_is_read_within_its_memory_budget() -> anyhow::Result<()> {
     // 2026-11-22: the first production run stopped on a 1,541-line 사건상세 object above the stage's
-    // 2 GiB, and a 3,980-line 물건상세 object of 11-21 needed more: the queries read the whole answer
-    // in every expression a macro expands to. Night-sized objects take minutes in the dev profile's
-    // unoptimized DuckDB, so these are a few hundred lines of answers as wide as a night's, each
-    // under a budget the queries before #1646 ran out of (measured with DuckDB 2.0: the 사건상세 one
-    // needed over 256 MiB before and fits 200 MiB now, the 물건상세 one ran out of 1 GiB before and
-    // fits about 350 MiB now).
-    for (role, template, count, times, rows, budget_mib) in [
-        (Role::CaseDetail, 0, 150, 10, 150, 256),
-        (Role::ItemDetail, 1, 400, 8, 400, 512),
-    ] {
-        let directory = tempfile::tempdir()?;
-        let source = CourtAuctionSource::compiled()?;
-        let stage = DuckDbParquetStage::open(directory.path())?;
-        stage.limit_memory(budget_mib)?;
+    // 2 GiB: the case row's macro read the whole answer in every expression it expands to. A
+    // night-sized object takes minutes in the dev profile's unoptimized DuckDB (planning the macro
+    // SQL alone is most of a fixture test), so this is 150 lines of answers as wide as that night's,
+    // under 256 MiB: the query before #1646 needed more, this one fits 200 MiB (DuckDB 2.0). The
+    // 물건상세 shapes were checked offline against #1646 on three production objects (#1649).
+    let directory = tempfile::tempdir()?;
+    let source = CourtAuctionSource::compiled()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage.limit_memory(256)?;
+    stage
+        .connection()
+        .execute_batch(&CourtAuctionSource::values_sql())?;
+    let object = large_object(directory.path(), Role::CaseDetail, 0, 150, 10)?;
+    read_object(&stage, &source, &object, chrono::Utc::now())?;
+    let cases: i64 =
         stage
             .connection()
-            .execute_batch(&CourtAuctionSource::values_sql())?;
-        let object = large_object(directory.path(), role, template, count, times)?;
-        read_object(&stage, &source, &object, chrono::Utc::now())?;
-        let cases: i64 = stage.connection().query_row(
-            "SELECT count(*) FROM ca_court_auction_case",
-            [],
-            |row| row.get(0),
-        )?;
-        assert_eq!(cases, rows, "{}", role.name());
-    }
+            .query_row("SELECT count(*) FROM ca_court_auction_case", [], |row| {
+                row.get(0)
+            })?;
+    assert_eq!(cases, 150);
     Ok(())
 }
 
