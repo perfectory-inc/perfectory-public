@@ -265,6 +265,14 @@
       "spark_held_test": "crates/publisher/foundation-publisher-silver/src/building_energy_stage/tests.rs"
     }
   },
+  "host_memory": {
+    "gold_parcel_energy_rebuild": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  },
   "published_schemas": [
     {
       "subject": "foundation-platform.parcel_energy_by_pnu",
