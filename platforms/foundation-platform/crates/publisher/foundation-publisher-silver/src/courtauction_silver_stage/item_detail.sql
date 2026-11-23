@@ -82,11 +82,11 @@ QUALIFY row_number() OVER (PARTITION BY coalesce(py_text(json_extract(photo, '$.
                            ORDER BY line_number DESC, n DESC) = 1;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_case AS
-SELECT court_office_code, case_no, unnest(ca_case_row(base, deadlines)),
+SELECT court_office_code, case_no, unnest(c),
        '{object_key}' AS source_record_id, CAST(line_number AS INTEGER) AS source_line_number,
        '{snapshot_id}' AS source_snapshot_id, to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc
-FROM ca_detail_answers
-WHERE ca_case_base(base)
+-- The row is made once below and unnested: unnest(ca_case_row(...)) expands the macro per field.
+FROM (SELECT court_office_code, case_no, line_number, ca_case_row(base, deadlines) AS c FROM ca_detail_answers WHERE ca_case_base(base))
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no ORDER BY line_number DESC) = 1;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_item_spec AS
