@@ -93,17 +93,6 @@
                  "infra/systemd/foundation-media-reconcile.service",
                  "services/foundation-outbox-publisher/src/lakehouse_object_listing.rs",
                  "infra/lakehouse/contracts/data-go-kr-onbid.contract.json"]
-    },
-    "start-once.gold_parcel_boundary_served_versions_build": {
-      "$comment": "one-off: until the parcel tile bake reads gold.parcel_boundary_served_versions (root ADR-0602 §8: its switch deletes this job and this step). The deploy that ships the shadow builds it and runs its takeover verdict on 시도 41 at once, not at the next daily tick.",
-      "inputs": ["scripts/ops/gold-versions-build.sh", "scripts/ops/admitted-writer-runtime.sh", "scripts/ops/job-journal.sh",
-                 "scripts/ops/gold-takeover-verdict.sh", "scripts/ops/gold_takeover_check.py",
-                 "infra/systemd/foundation-gold-versions@.service",
-                 "services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs",
-                 "services/foundation-outbox-publisher/src/gold_versions_commit.rs",
-                 "services/foundation-outbox-publisher/src/gold_takeover_sides.rs",
-                 "crates/publisher/foundation-publisher-silver/src/parcel_boundary_served_stage.rs",
-                 "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"]
     }
   }
 }
