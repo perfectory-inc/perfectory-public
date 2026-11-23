@@ -188,3 +188,7 @@ Dagster 1.13.27 에서 확인한 것(배포판 휠의 소스와 공식 문서):
   게이트 문서 셋은 실제 Dagster 의 GraphQL 로 CI 에서 시험된다(`test_dagster_job_orchestrator.py`).
 - **굶김 상한을 Dagster 쪽으로 옮긴다.** 그 계산은 Airflow 의 폴링 기다림(`wait_limit_minutes`·재시도)을 본뜬 것이다. Dagster 의 줄은
   run 을 잃지 않고 기다리게 하므로, 넘었는지는 재서 알린다.
+
+## 개정 각주 — 2026-11-23, ADR-0612
+
+§6 의 "`foundation/decided-by=dagster` 한도 5" 줄은 [ADR-0612](./0612-the-dagster-run-queue-has-no-tag-limit-because-a-run-its-full-pool-holds-back-still-takes-a-place-of-every-tag-limit-it-carries.md) 가 대신한다. 줄에는 태그 한도가 없고, 자원마다의 한도는 이 ADR 의 풀뿐이다.

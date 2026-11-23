@@ -317,10 +317,90 @@ class TheInstanceLoads(unittest.TestCase):
             config, _ = dagster_instance_config(str(directory), config_filename="dagster.yaml")
         runs = config["concurrency"]["runs"]
         self.assertEqual(runs["max_concurrent_runs"], 7)
-        self.assertEqual({(limit["key"], limit["value"]) for limit in runs["tag_concurrency_limits"]},
-                         {("foundation/run", "job"), ("foundation/decided-by", "dagster")})
+        self.assertNotIn("tag_concurrency_limits", runs)
         self.assertNotIn("max_concurrent_runs", config["run_coordinator"]["config"])
         self.assertNotIn("tag_concurrency_limits", config["run_coordinator"]["config"])
+
+
+def instance_concurrency():
+    """The `concurrency` section of the instance config, as Dagster loads it."""
+    import os
+    from unittest import mock
+
+    from dagster._core.instance.config import dagster_instance_config
+
+    directory = PLATFORM / "orchestration" / "dagster"
+    environment = {"DAGSTER_PG_HOST": "127.0.0.1", "DAGSTER_PG_PORT": "5432", "DAGSTER_PG_PASSWORD": "synthetic"}
+    with mock.patch.dict(os.environ, environment):
+        config, _ = dagster_instance_config(str(directory), config_filename="dagster.yaml")
+    return config["concurrency"]
+
+
+def dequeued(concurrency):
+    """What Dagster's own dequeue (QueuedRunCoordinatorDaemon._get_runs_to_dequeue) starts from the queue of
+    2026-11-23 06:40Z in small: spark's one slot taken, Gold's spark runs queued above a Silver refresh, two
+    duckdb slots free (the limits the deploy sets from jobs.v1.json pools, writer_gate.py ask pools)."""
+    import warnings
+
+    from dagster import DagsterRunStatus, job, op
+    from dagster._core.remote_origin import RegisteredCodeLocationOrigin, RemoteJobOrigin, RemoteRepositoryOrigin
+    from dagster._core.test_utils import instance_for_test
+    from dagster._daemon.run_coordinator.queued_run_coordinator_daemon import QueuedRunCoordinatorDaemon
+
+    @op(pool="spark")
+    def spark_op():
+        pass
+
+    @op(pool="duckdb")
+    def duckdb_op():
+        pass
+
+    @job
+    def synthetic_spark():
+        spark_op()
+
+    @job
+    def synthetic_duckdb():
+        duckdb_op()
+
+    repository = RemoteRepositoryOrigin(RegisteredCodeLocationOrigin("foundation"), "__repository__")
+    overrides = {"run_coordinator": {"module": "dagster._core.run_coordinator", "class": "QueuedRunCoordinator"},
+                 "concurrency": concurrency}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with instance_for_test(overrides=overrides) as instance:
+            instance.event_log_storage.set_concurrency_slots("spark", 1)
+            instance.event_log_storage.set_concurrency_slots("duckdb", 2)
+
+            def run(job_def, status, priority):
+                tags = {"foundation/run": "job", "foundation/decided-by": "dagster", "dagster/priority": str(priority)}
+                return instance.create_run_for_job(job_def, tags=tags, status=status,
+                                                   remote_job_origin=RemoteJobOrigin(repository, job_def.name))
+
+            run(synthetic_spark, DagsterRunStatus.STARTED, 1_000_030)
+            run(synthetic_duckdb, DagsterRunStatus.STARTED, 100_021)
+            for _ in range(6):
+                run(synthetic_spark, DagsterRunStatus.QUEUED, 1_000_030)
+            run(synthetic_duckdb, DagsterRunStatus.QUEUED, 100_021)
+            daemon = QueuedRunCoordinatorDaemon(interval_seconds=1)
+            batch = daemon._get_runs_to_dequeue(instance, instance.get_concurrency_config(), fixed_iteration_time=None)
+            return [queued.job_name for queued in batch]
+
+
+@unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
+class TheQueueDequeues(unittest.TestCase):
+    """Root ADR-0612: a run its pool admits starts, whatever runs a full pool holds back above it."""
+
+    def test_a_run_its_pool_admits_starts_behind_runs_their_full_pool_holds_back(self):
+        self.assertEqual(dequeued(instance_concurrency()), ["synthetic_duckdb"])
+
+    def test_a_tag_limit_the_held_back_runs_carry_still_starves_it(self):
+        # Dagster's own behaviour, pinned: it counts a run against its tag limits before it asks the run's
+        # pool. When this fails, Dagster has changed that, and root ADR-0612 can be read again.
+        concurrency = instance_concurrency()
+        concurrency["runs"]["tag_concurrency_limits"] = [
+            {"key": "foundation/decided-by", "value": "dagster", "limit": 5}]
+        self.assertEqual(dequeued(concurrency), [])
 
 
 @unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
