@@ -77,6 +77,52 @@ class TheContractsDeclareTheChecks(unittest.TestCase):
         with self.assertRaisesRegex(observe_assets.job_specs.JobListError, "two contracts"):
             self.rules(CONTRACT, CONTRACT)
 
+    def test_a_column_s_rules_are_one_check_and_a_rule_without_its_values_is_none(self):
+        twice = CONTRACT.replace('''              validValues: ["a", "b"]
+''', '''              validValues: ["a", "b"]
+          - metric: "invalidValues"
+            arguments:
+              validValues: ["c"]
+          - metric: "invalidValues"
+            arguments:
+              pattern: "^x"
+''')
+        self.assertEqual(self.rules(twice), {"silver.example": ["contract_columns_present",
+                                                                "contract_allowed_values_kind"]})
+
+    def test_a_definition_may_not_declare_a_contract_s_check(self):
+        import asset_checks
+        import observe_assets
+
+        _, graph = observe_assets.contracts()
+        with self.assertRaisesRegex(observe_assets.job_specs.JobListError, "contract"):
+            asset_checks.declared(graph, {"g": [{"asset": "gold-unit-price-panel",
+                                                 "check": "contract_columns_present", "blocking": False}]})
+
+    def test_the_quality_job_names_every_real_check_as_the_code_location_does(self):
+        # The unit cannot import the code location: its asset keys and check names are its own copy, and
+        # a report the op does not know fails the run (systemd_pipes.check_evaluations).
+        import importlib.util
+
+        import contract_checks
+        import observe_assets
+
+        sys.path.insert(0, str(PLATFORM / "scripts" / "ops"))
+        spec = importlib.util.spec_from_file_location("data_quality_check", PLATFORM / "scripts/ops/data-quality-check.py")
+        script = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(script)
+        _, graph = observe_assets.contracts()
+        keys = observe_assets.node_keys(graph)
+        declared = {(item.key().to_user_string(), item.check) for item in contract_checks.declared(graph, keys)}
+        reported = set()
+        for path in sorted(observe_assets.job_specs.CONTRACTS.glob("*.odcs.yaml")):
+            _, table, physical = script.contract_of(path)
+            if table.get("properties"):
+                reported.add(("/".join(script.asset_key(physical)), script.COLUMNS_PRESENT))
+            reported |= {("/".join(script.asset_key(physical)), script.allowed_values_check(field))
+                         for field in script.allowed_values(table)}
+        self.assertEqual(reported, declared)
+
     def test_every_real_contract_is_a_check_of_the_code_location(self):
         import asset_checks
         import contract_checks

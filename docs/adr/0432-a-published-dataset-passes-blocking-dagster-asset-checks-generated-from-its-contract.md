@@ -62,4 +62,4 @@ ADR-0333 시험 (d)("파티션 검사가 실패하면 그 자산의 하류를 �
   계약 품질의 일반 규칙은 3단계에서 같은 틀로 생성한다.
 - **검사마다 표·키를 문자열로 적기**: 계약과 갈라진다(ADR-0415 R4).
 
-2026-11-23 각주: §5 의 다음 조각(계약 `quality` 에서 검사 생성)은 [ADR-0609](./0609-the-data-catalogs-facts-live-in-files-and-apis-we-own-and-datahub-is-removed-run-history-from-dagster-quality-results-as-dagster-asset-checks-generated-from-the-contracts.md) §2 다. 계약의 칸과 허용 값 규칙이 `contract_columns_present`·`contract_allowed_values_<칸>` 검사가 된다.
+2026-11-23 각주: §5 의 다음 조각(계약 `quality` 에서 검사 생성)은 [ADR-0609](./0609-the-data-catalogs-facts-live-in-files-and-apis-we-own-and-datahub-is-removed-run-history-from-dagster-quality-results-as-dagster-asset-checks-generated-from-the-contracts.md) §2 다. 계약의 칸과 허용 값 규칙이 `contract_columns_present`·`contract_allowed_values_<칸>` 검사가 된다. 이 검사는 막지 않는다(`blocking: false`): 막는 발행 검사는 §1 의 그대로다.

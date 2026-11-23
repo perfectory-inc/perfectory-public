@@ -659,14 +659,53 @@ fn contract_quality(checks: &[facts::dagster::ContractCheck]) -> Vec<DataContrac
 
 /// A contract check's allowed-values rule names its column after this.
 const ALLOWED_VALUES_CHECK: &str = "contract_allowed_values";
+/// The metadata of a check run on its own in Dagster: a re-statement of the newest report, empty when
+/// the quality job has reported none yet (`orchestration/dagster/takeover_checks.py` `RESTATED_FROM`).
+const RESTATED_FROM: &str = "restated_from_run";
+
+/// A check's result, from its newest executions (newest first): the newest one with an evaluation; a
+/// newest execution that failed to run is `Error`; a re-statement with nothing reported yet, or no
+/// evaluation at all, is `NotRun`.
+fn check_result(executions: &[JsonValue]) -> (DataQualityResult, Option<&JsonValue>) {
+    let judged = executions
+        .iter()
+        .find(|execution| execution["evaluation"].is_object());
+    if executions
+        .first()
+        .is_some_and(|newest| newest["status"].as_str() == Some("EXECUTION_FAILED"))
+    {
+        return (DataQualityResult::Error, judged);
+    }
+    let Some(execution) = judged else {
+        return (DataQualityResult::NotRun, None);
+    };
+    let evaluation = &execution["evaluation"];
+    let nothing_reported = evaluation["metadataEntries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|entry| {
+            entry["label"].as_str() == Some(RESTATED_FROM) && entry["text"].as_str() == Some("")
+        });
+    if nothing_reported {
+        return (DataQualityResult::NotRun, None);
+    }
+    let result = if evaluation["success"].as_bool() == Some(true) {
+        DataQualityResult::Success
+    } else {
+        DataQualityResult::Failure
+    };
+    (result, Some(execution))
+}
 
 fn quality_check(check: &facts::dagster::ContractCheck) -> DataQualityCheck {
-    let evaluation = &check.execution["evaluation"];
-    let result = match evaluation["success"].as_bool() {
-        Some(true) => DataQualityResult::Success,
-        Some(false) => DataQualityResult::Failure,
-        None => DataQualityResult::NotRun,
-    };
+    let executions = check
+        .executions
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let (result, judged) = check_result(executions);
+    let evaluation = judged.map_or(&JsonValue::Null, |execution| &execution["evaluation"]);
     let field = check
         .check_name
         .strip_prefix(ALLOWED_VALUES_CHECK)
@@ -707,10 +746,7 @@ fn quality_check(check: &facts::dagster::ContractCheck) -> DataQualityCheck {
         kind,
         field,
         result,
-        checked_at: evaluation
-            .is_object()
-            .then(|| facts::dagster::execution_time(&check.execution))
-            .flatten(),
+        checked_at: judged.and_then(facts::dagster::execution_time),
         details,
     }
 }

@@ -235,7 +235,11 @@ class SystemdUnitPipesClient(PipesClient):
             context.log.info(line.rstrip("\n"))
         word, reason = outcome_of(outcome_line, wait())
         if word == "failed":
-            raise Failure(f"{job_id} failed: {reason}", metadata={"outcome": word, "reason": reason})
+            failure = Failure(f"{job_id} failed: {reason}", metadata={"outcome": word, "reason": reason})
+            # What the failed run reported, for the one job whose reports a failure must not lose: the
+            # quality job's enforced failures are the reason it fails (run_jobs.py, root ADR-0609 §2).
+            failure.ran = SystemdRun(context, job_id, word, reason, messages, extras)
+            raise failure
         context.log.info(f"{job_id} ended {word}{(': ' + reason) if reason else ''}")
         return SystemdRun(context, job_id, word, reason, messages, extras,
                           job_specs.owed_runs("".join(owed), job_specs.started_for(jobs, listed[job_id])))

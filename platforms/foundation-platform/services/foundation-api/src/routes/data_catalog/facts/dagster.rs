@@ -43,14 +43,18 @@ const CONTRACT_CHECK_PREFIX: &str = "contract_";
 const ASSET_CHECKS_QUERY: &str = "{ assetNodes { assetKey { path }
   assetChecksOrError { __typename ... on AssetChecks { checks { name } } } } }";
 
-/// One contract check and its newest execution, as Dagster holds them.
+/// The newest executions of a check read: the newest one with an evaluation is its result, and a
+/// planned or running one ahead of it does not hide it.
+const EXECUTIONS: u32 = 5;
+
+/// One contract check and its newest executions, as Dagster holds them.
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::routes::data_catalog) struct ContractCheck {
     /// The checked asset's key, platform first (`iceberg`, `gold`, `unit_price`).
     pub(in crate::routes::data_catalog) asset_key: Vec<String>,
     pub(in crate::routes::data_catalog) check_name: String,
-    /// The newest execution (`timestamp`, `evaluation`), or null when the check never ran.
-    pub(in crate::routes::data_catalog) execution: JsonValue,
+    /// Its newest executions, newest first (`status`, `timestamp`, `evaluation`); none when it never ran.
+    pub(in crate::routes::data_catalog) executions: JsonValue,
 }
 
 pub(in crate::routes::data_catalog) struct Dagster {
@@ -148,28 +152,39 @@ impl Dagster {
         })
     }
 
-    /// Every contract check and its newest execution: the checks Dagster declares, then one question
-    /// for all their newest executions.
+    /// Every contract check and its newest executions: the checks Dagster declares, then one question
+    /// for all their executions. No contract check at all is the code location not loaded (its
+    /// assets are then not Dagster's), never "no contracts".
     pub(in crate::routes::data_catalog) async fn contract_checks(
         &self,
     ) -> Result<Vec<ContractCheck>, String> {
         let nodes = self.ask(ASSET_CHECKS_QUERY, json!({})).await?;
-        let mut checks = contract_checks_of(&nodes);
+        let mut checks = contract_checks_of(&nodes)?;
         if checks.is_empty() {
-            return Ok(checks);
+            return Err(
+                "Dagster declares no contract check: its code location is not loaded".to_owned(),
+            );
         }
         let data = self.ask(&executions_query(&checks), json!({})).await?;
         for (index, check) in checks.iter_mut().enumerate() {
-            check.execution = data[format!("c{index}")][0].clone();
+            check.executions = data[format!("c{index}")].clone();
         }
         Ok(checks)
     }
 }
 
-/// The contract checks of an `assetNodes` answer, by asset key and name, none run yet.
-fn contract_checks_of(data: &JsonValue) -> Vec<ContractCheck> {
+/// The contract checks of an `assetNodes` answer, by asset key and name, none run yet; an asset whose
+/// checks Dagster could not list is refused, so a check is never missing from the answer unseen.
+fn contract_checks_of(data: &JsonValue) -> Result<Vec<ContractCheck>, String> {
     let mut checks = Vec::new();
     for node in data["assetNodes"].as_array().into_iter().flatten() {
+        let listed = node["assetChecksOrError"]["__typename"].as_str();
+        if listed != Some("AssetChecks") {
+            return Err(format!(
+                "Dagster could not list the checks of an asset: {}",
+                listed.unwrap_or("no answer")
+            ));
+        }
         let asset_key: Vec<String> = node["assetKey"]["path"]
             .as_array()
             .into_iter()
@@ -191,24 +206,24 @@ fn contract_checks_of(data: &JsonValue) -> Vec<ContractCheck> {
                 checks.push(ContractCheck {
                     asset_key: asset_key.clone(),
                     check_name: name.to_owned(),
-                    execution: JsonValue::Null,
+                    executions: JsonValue::Null,
                 });
             }
         }
     }
     checks.sort_by(|a, b| (&a.asset_key, &a.check_name).cmp(&(&b.asset_key, &b.check_name)));
-    checks
+    Ok(checks)
 }
 
-/// One query for the newest execution of every check, each under the alias `c<index>`.
+/// One query for the newest executions of every check, each under the alias `c<index>`.
 fn executions_query(checks: &[ContractCheck]) -> String {
     let fields: String = checks
         .iter()
         .enumerate()
         .map(|(index, check)| {
             format!(
-                " c{index}: assetCheckExecutions(assetKey: {{path: {}}}, checkName: {}, limit: 1) \
-                 {{ timestamp evaluation {{ success severity metadataEntries {{ label \
+                " c{index}: assetCheckExecutions(assetKey: {{path: {}}}, checkName: {}, limit: {EXECUTIONS}) \
+                 {{ status timestamp evaluation {{ success severity metadataEntries {{ label \
                  ... on TextMetadataEntry {{ text }} ... on IntMetadataEntry {{ intRepr }} }} }} }}",
                 json!(check.asset_key),
                 json!(check.check_name)
@@ -296,11 +311,10 @@ mod tests {
             { "assetKey": { "path": ["iceberg", "silver", "synthetic_a"] }, "assetChecksOrError": {
                 "__typename": "AssetChecks", "checks": [
                     { "name": "contract_columns_present" }, { "name": "contract_allowed_values_kind" }] } },
-            // An asset whose checks Dagster could not read has none here.
             { "assetKey": { "path": ["perfectory", "synthetic-surface"] }, "assetChecksOrError": {
-                "__typename": "AssetCheckNeedsMigrationError" } },
+                "__typename": "AssetChecks", "checks": [] } },
         ] });
-        let checks = contract_checks_of(&data);
+        let checks = contract_checks_of(&data).unwrap_or_else(|error| unreachable!("{error}"));
         let named: Vec<(String, &str)> = checks
             .iter()
             .map(|check| (check.asset_key.join("/"), check.check_name.as_str()))
@@ -324,7 +338,22 @@ mod tests {
         );
         assert!(checks
             .iter()
-            .all(|check| check.execution == JsonValue::Null));
+            .all(|check| check.executions == JsonValue::Null));
+    }
+
+    #[test]
+    fn an_asset_whose_checks_dagster_could_not_list_is_an_error_not_an_empty_answer() {
+        let data = json!({ "assetNodes": [
+            { "assetKey": { "path": ["iceberg", "silver", "synthetic"] }, "assetChecksOrError": {
+                "__typename": "AssetCheckNeedsMigrationError" } },
+        ] });
+        assert_eq!(
+            contract_checks_of(&data),
+            Err(
+                "Dagster could not list the checks of an asset: AssetCheckNeedsMigrationError"
+                    .to_owned()
+            )
+        );
     }
 
     #[test]
@@ -333,17 +362,17 @@ mod tests {
             ContractCheck {
                 asset_key: vec!["iceberg".into(), "silver".into(), "synthetic".into()],
                 check_name: "contract_columns_present".into(),
-                execution: JsonValue::Null,
+                executions: JsonValue::Null,
             },
             ContractCheck {
                 asset_key: vec!["perfectory".into(), "intelligence".into(), "fact".into()],
                 check_name: "contract_allowed_values_kind".into(),
-                execution: JsonValue::Null,
+                executions: JsonValue::Null,
             },
         ];
         let query = executions_query(&checks);
-        assert!(query.starts_with("{ c0: assetCheckExecutions(assetKey: {path: [\"iceberg\",\"silver\",\"synthetic\"]}, checkName: \"contract_columns_present\", limit: 1)"));
-        assert!(query.contains(" c1: assetCheckExecutions(assetKey: {path: [\"perfectory\",\"intelligence\",\"fact\"]}, checkName: \"contract_allowed_values_kind\", limit: 1)"));
+        assert!(query.starts_with("{ c0: assetCheckExecutions(assetKey: {path: [\"iceberg\",\"silver\",\"synthetic\"]}, checkName: \"contract_columns_present\", limit: 5) { status timestamp evaluation"));
+        assert!(query.contains(" c1: assetCheckExecutions(assetKey: {path: [\"perfectory\",\"intelligence\",\"fact\"]}, checkName: \"contract_allowed_values_kind\", limit: 5)"));
         assert!(query.ends_with(" }"));
     }
 

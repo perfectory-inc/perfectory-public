@@ -109,4 +109,4 @@
 
 2026-11-19 각주(§6): 품질 작업은 규칙을 DataHub 의 assertion 대신 계약 파일에서 읽는다(ADR-0123 이 정본으로 정한 파일). DataHub 가 143개 중 35개만 알아서 110개는 한 번도 검사되지 않았다. 결과는 DataHub 가 그 규칙의 assertion 을 가진 곳에 그대로 쓰고, 없으면 출력에만 남긴다. 처음 검사되는 계약은 7일 동안 보고만 한다(`warned`, run 을 실패시키지 않음); DataHub 에 결과가 있던 계약은 바로 강제한다. 요약은 기계 규칙이 있는 계약·검사한 계약(표가 있음)·실행한 검사 수로 센다.
 
-2026-11-23 각주: §3·§4·§6 은 [ADR-0609](./0609-the-data-catalogs-facts-live-in-files-and-apis-we-own-and-datahub-is-removed-run-history-from-dagster-quality-results-as-dagster-asset-checks-generated-from-the-contracts.md) 가 대체한다. 사람이 보는 곳은 더니어와 Dagster 이고, 사실은 계약·파이프라인 그래프·Iceberg REST·Dagster 에 있다. 품질 결과는 계약에서 생성한 Dagster 자산 검사다.
+2026-11-23 각주: §6(품질 결과)은 이 PR(#1655)부터, §3·§4(사람이 보는 곳과 그 로그인)는 PR 3·4 부터 [ADR-0609](./0609-the-data-catalogs-facts-live-in-files-and-apis-we-own-and-datahub-is-removed-run-history-from-dagster-quality-results-as-dagster-asset-checks-generated-from-the-contracts.md) 가 대체한다. 사람이 보는 곳은 더니어와 Dagster 이고, 사실은 계약·파이프라인 그래프·Iceberg REST·Dagster 에 있다. 품질 결과는 계약에서 생성한 Dagster 자산 검사다.

@@ -17,6 +17,9 @@ never blocks, since no run that materializes the table runs it. Run on its own, 
 newest evaluation the quality job reported.
 """
 
+import functools
+import pathlib
+
 import yaml
 from dagster import AssetCheckKey, AssetCheckResult
 
@@ -27,38 +30,55 @@ from takeover_checks import RESTATED_FROM, reported_evaluation
 # The definition group the checks are declared under, and the one job whose unit reports them.
 GROUP = "data-quality"
 REPORTER = "data_quality"
-COLUMNS_PRESENT = "contract_columns_present"
-ALLOWED_VALUES = "contract_allowed_values"
+# Every contract check's name starts so, and no other check's does.
+PREFIX = "contract_"
+COLUMNS_PRESENT = PREFIX + "columns_present"
+ALLOWED_VALUES = PREFIX + "allowed_values"
 
 
 def allowed_values_check(column):
     return f"{ALLOWED_VALUES}_{column}"
 
 
+def is_allowed_values(rule):
+    """An `invalidValues` rule with its validValues: the one rule kind the quality job runs
+    (data-quality-check.py reads it the same way)."""
+    return rule.get("metric") == "invalidValues" and "validValues" in (rule.get("arguments") or {})
+
+
 def rules_of(contract):
-    """(physical table, the checks its contract's machine rules make), in the file's column order."""
+    """(physical table, the checks its contract's machine rules make), in the file's column order; a
+    column with two allowed-values rules is one check."""
     (table,) = contract["schema"]
     properties = table.get("properties") or []
     checks = [COLUMNS_PRESENT] if properties else []
     checks += [allowed_values_check(prop["name"]) for prop in properties
-               for rule in prop.get("quality", []) if rule.get("metric") == "invalidValues"]
-    return table["physicalName"], checks
+               for rule in prop.get("quality") or [] if is_allowed_values(rule)]
+    return table["physicalName"], list(dict.fromkeys(checks))
 
 
 def contract_rules(directory=None):
-    """Physical table -> its contract's checks, of every contract file."""
-    directory = observe_assets.job_specs.CONTRACTS if directory is None else directory
+    """Physical table -> its contract's checks, of every contract file. Read once per process: every
+    run of every job asks for the checks it reports (run_jobs.reported_checks), and the files change
+    only with a release, which reloads the code location."""
+    return dict(_contract_rules(str(observe_assets.job_specs.CONTRACTS if directory is None else directory)))
+
+
+@functools.cache
+def _contract_rules(directory):
     found = {}
-    for path in sorted(directory.glob("*.odcs.yaml")):
+    for path in sorted(pathlib.Path(directory).glob("*.odcs.yaml")):
         table, checks = rules_of(yaml.safe_load(path.read_text(encoding="utf-8")))
         if table in found:
             raise observe_assets.job_specs.JobListError(f"two contracts describe {table}")
         found[table] = checks
-    return found
+    return tuple(found.items())
 
 
 def kind_of(check):
-    """The kind a contract check is of, or None for any other check."""
+    """The kind a contract check is of, or None for any other check. Every check named `contract_*` is
+    one: no definition may declare such a name (asset_checks.declared), so the prefix is the rule
+    foundation-api reads them by too (facts/dagster.rs)."""
     if check == COLUMNS_PRESENT:
         return COLUMNS_PRESENT
     if check.startswith(ALLOWED_VALUES + "_"):

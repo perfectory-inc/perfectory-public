@@ -85,4 +85,4 @@
 > **옮길 때의 방식.** Airflow를 유지한 채 Dagster를 점진적으로 붙인다(Mapbox 사례, `dagster-airlift`). 한 번에 대체하지 않는다.
 > 출처: [Dagster at Mapbox](https://dagster.io/customers/incremental-adoption-mapbox), [Dagster customers](https://dagster.io/customers).
 
-2026-11-23 각주: §2(실행 기록은 OpenLineage 로 카탈로그에)와 §4(품질 결과는 카탈로그에)는 [ADR-0609](./0609-the-data-catalogs-facts-live-in-files-and-apis-we-own-and-datahub-is-removed-run-history-from-dagster-quality-results-as-dagster-asset-checks-generated-from-the-contracts.md) 가 대체한다. 실행 기록은 Dagster 의 run 저장소, 품질 결과는 Dagster 자산 검사다.
+2026-11-23 각주: §4(품질 결과는 카탈로그에)는 이 PR(#1655)부터, §2(실행 기록은 OpenLineage 로 카탈로그에)는 PR 2 부터 [ADR-0609](./0609-the-data-catalogs-facts-live-in-files-and-apis-we-own-and-datahub-is-removed-run-history-from-dagster-quality-results-as-dagster-asset-checks-generated-from-the-contracts.md) 가 대체한다. 실행 기록은 Dagster 의 run 저장소, 품질 결과는 Dagster 자산 검사다.

@@ -39,19 +39,29 @@ COLUMNS = ("gold.example", "contract_columns_present")
 class Run:
     """One check_contracts run against fakes of the lakehouse (`lakehouse-query`), Dagster and DataHub."""
 
-    def __init__(self, job, snapshot, last=None, absent=False, judged=False, first_checked=None, now=1_800_000_000):
+    def __init__(self, job, snapshot, last=None, absent=False, judged=False, first_checked=None, now=1_800_000_000,
+                 dagster_down=False, datahub_down=False):
         self.queries, self.reports, self.asked = [], [], []
+        self.dagster_down, self.datahub_down = dagster_down, datahub_down
         self.totals = job.new_totals()
         self.first_checked = {} if first_checked is None else first_checked
         job.yaml = SimpleNamespace(safe_load=lambda _text: CONTRACT)
         self.snapshot, self.absent, self.last = snapshot, absent, last
         job.check_contracts([SimpleNamespace(read_text=lambda encoding: "")], self.totals, read=self.read,
                             first_checked=self.first_checked, now=now, latest=self.latest,
-                            judged_before=lambda contract: self.asked.append(contract) or judged,
+                            judged_before=lambda contract: self.judged(contract, judged),
                             publish=lambda *report: self.reports.append(report))
+
+    def judged(self, contract, judged):
+        self.asked.append(contract)
+        if self.datahub_down:
+            raise OSError("GMS did not answer")
+        return judged
 
     def latest(self, wanted):
         assert wanted == [STATUS], wanted
+        if self.dagster_down:
+            raise RuntimeError("Dagster answered errors")
         return {} if self.last is None else {STATUS: self.last}
 
     def read(self, queries):
@@ -98,19 +108,30 @@ class SkipsUnchangedTables(unittest.TestCase):
         self.assertEqual(run.reported(COLUMNS[1])[:2], (True, "WARN"))
 
     def test_an_unchanged_table_is_not_counted_and_its_recorded_result_still_counts(self):
-        run = Run(self.job, 41, (True, {"snapshot_id": "41", "rules": self.rules, "invalid_rows": 0}))
+        run = Run(self.job, 41, (True, {"snapshot_id": "41", "rules": self.rules, "invalid_rows": 0,
+                                        "restated_from_run": "a-check-run"}))
         self.assertFalse(run.counted())
-        self.assertEqual([name for _, name, *_ in run.reports], [COLUMNS[1]], "only the schema rule is reported again")
+        # The recorded result stands for this run too, with the metadata it was counted with.
+        self.assertEqual(run.reported(STATUS[1]), (True, "WARN", {"snapshot_id": "41", "rules": self.rules,
+                                                                   "invalid_rows": 0}))
         # The recorded allowed-values result, and the schema rule every contract with columns has.
         self.assertEqual(len(run.totals["passed"]), 2)
         self.assertEqual(run.totals["unchanged"], ["gold.example snapshot=41"])
 
     def test_a_recorded_failure_on_an_unchanged_table_still_fails_the_run(self):
+        # Reported at WARN on its first day, enforced a week later on the same snapshot: it says ERROR now.
         run = Run(self.job, 41, (False, {"snapshot_id": "41", "rules": self.rules, "invalid_rows": 2}),
                   first_checked={"gold.example": 0})
         self.assertFalse(run.counted())
         self.assertEqual(len(run.totals["failed"]), 1)
         self.assertIn("invalid=2", run.totals["failed"][0])
+        self.assertEqual(run.reported(STATUS[1])[:2], (False, "ERROR"))
+
+    def test_dagster_not_answering_costs_only_the_skip(self):
+        run = Run(self.job, 41, (True, {"snapshot_id": "41", "rules": self.rules, "invalid_rows": 0}),
+                  dagster_down=True)
+        self.assertTrue(run.counted())
+        self.assertEqual(run.reported(STATUS[1])[2]["snapshot_id"], "41")
 
     def test_a_new_snapshot_is_counted_again(self):
         run = Run(self.job, 42, (True, {"snapshot_id": "41", "rules": self.rules, "invalid_rows": 0}))
@@ -157,6 +178,17 @@ class Enforcement(unittest.TestCase):
         a_week = Run(self.job, 41, first_checked=first_checked, now=1_800_000_000 + 7 * 86400)
         self.assertEqual(a_week.totals["failed"], ["gold.example.status invalid=2"])
         self.assertEqual(a_week.reported(STATUS[1])[:2], (False, "ERROR"))
+
+    def test_an_enforced_contract_s_passing_rule_says_error_too(self):
+        run = Run(self.job, 41, first_checked={"gold.example": 0})
+        self.assertEqual(run.reported(COLUMNS[1])[:2], (True, "ERROR"))
+
+    def test_datahub_not_answering_reports_only_this_run_and_records_nothing(self):
+        first_checked = {}
+        run = Run(self.job, 41, datahub_down=True, first_checked=first_checked)
+        self.assertEqual((run.totals["failed"], run.totals["warned"]), ([], ["gold.example.status invalid=2"]))
+        self.assertEqual(first_checked, {}, "asked again on the next run")
+        self.assertEqual(run.reported(STATUS[1])[:2], (False, "WARN"))
 
     def test_a_contract_datahub_had_judged_is_enforced_at_once_and_recorded(self):
         first_checked = {}

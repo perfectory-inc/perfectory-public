@@ -77,6 +77,8 @@ def declared(graph, declarations=None):
                 raise observe_assets.job_specs.JobListError(f"{group}: asset check {check['check']} names nodes {missing} the pipeline graph has not")
             if check["check"] not in known:
                 raise observe_assets.job_specs.JobListError(f"{group}: asset check {check['check']} is not one the code location implements: {sorted(known)}")
+            if check["check"].startswith(contract_checks.PREFIX):
+                raise observe_assets.job_specs.JobListError(f"{group}: asset check {check['check']} is a contract's; contract_checks.py declares those from the contract files")
             found.append(Declared(group, check["check"], nodes[check["asset"]],
                                   tuple(nodes[node_id] for node_id in check.get("reads", [])),
                                   check["blocking"], keys))

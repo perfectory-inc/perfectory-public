@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform data quality: run the data contracts' executable checks and report them to the data catalog (ADR-0117 §6, ADR-0123)
+Description=Foundation Platform data quality: run the data contracts' executable checks and report them as Dagster asset checks (root ADR-0609 §2, ADR-0123)
 Documentation=file:///opt/foundation-platform/current/docs/runbooks/data-catalog.md
 X-Foundation-Owner=lakehouse
 Requires=docker.service

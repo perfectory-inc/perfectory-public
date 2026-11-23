@@ -9,7 +9,7 @@
       "scope": "skip-if-unchanged",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Run the data contracts' executable checks (allowed values, schema) against the lakehouse and report each result to the data catalog (root ADR-0117 §6, ADR-0123).",
+      "description": "Run the data contracts' executable checks (allowed values, schema) against the lakehouse and report each result as the Dagster asset check its contract declares (root ADR-0609 §2, ADR-0123).",
       "systemd_service": "foundation-data-quality.service",
       "systemd_timer": null,
       "state_paths": [],

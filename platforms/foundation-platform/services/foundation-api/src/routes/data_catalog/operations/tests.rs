@@ -665,34 +665,46 @@ fn a_running_job_carries_the_typical_duration_of_its_own_catalog_job() {
 fn a_contract_shows_each_check_with_its_newest_evaluation_and_severity() {
     use super::facts::dagster::ContractCheck;
 
-    let check = |key: &[&str], name: &str, execution: JsonValue| ContractCheck {
+    let check = |key: &[&str], name: &str, executions: JsonValue| ContractCheck {
         asset_key: key.iter().map(|part| (*part).to_owned()).collect(),
         check_name: name.to_owned(),
-        execution,
+        executions,
     };
     let synthetic = ["iceberg", "silver", "synthetic"];
     let checks = vec![
         check(
             &synthetic,
             "contract_columns_present",
-            json!({
-            "timestamp": 1_800_000_000.5,
-            "evaluation": { "success": false, "severity": "ERROR", "metadataEntries": [
-                { "label": "missing_columns", "text": "row_digest" }] } }),
+            json!([
+            // A check run planned after the report does not hide it.
+            { "status": "IN_PROGRESS", "timestamp": 1_800_000_900.0, "evaluation": null },
+            { "status": "FAILED", "timestamp": 1_800_000_000.5,
+              "evaluation": { "success": false, "severity": "ERROR", "metadataEntries": [
+                { "label": "missing_columns", "text": "row_digest" }] } }]),
         ),
         check(
             &synthetic,
             "contract_allowed_values_kind",
-            json!({
-            "timestamp": 1_800_000_100.0,
-            "evaluation": { "success": true, "severity": "WARN", "metadataEntries": [
-                { "label": "invalid_rows", "intRepr": "0" }] } }),
+            json!([
+            { "status": "SUCCEEDED", "timestamp": 1_800_000_100.0,
+              "evaluation": { "success": true, "severity": "WARN", "metadataEntries": [
+                { "label": "invalid_rows", "intRepr": "0" }] } }]),
         ),
-        check(&synthetic, "contract_allowed_values_stage", JsonValue::Null),
+        check(&synthetic, "contract_allowed_values_stage", json!([])),
+        check(
+            &synthetic,
+            "contract_allowed_values_zone",
+            json!([
+            { "status": "EXECUTION_FAILED", "timestamp": 1_800_000_200.0, "evaluation": null }]),
+        ),
+        // The check run alone before the quality job ever reported: a re-statement of nothing.
         check(
             &["perfectory", "intelligence", "synthetic_fact"],
             "contract_columns_present",
-            JsonValue::Null,
+            json!([
+            { "status": "FAILED", "timestamp": 1_800_000_300.0,
+              "evaluation": { "success": false, "severity": "WARN", "metadataEntries": [
+                { "label": "restated_from_run", "text": "" }] } }]),
         ),
     ];
     let contracts = contract_quality(&checks);
@@ -709,6 +721,14 @@ fn a_contract_shows_each_check_with_its_newest_evaluation_and_severity() {
             ),
             ("silver.synthetic", "iceberg/silver/synthetic"),
         ]
+    );
+    assert_eq!(
+        contracts[0]
+            .checks
+            .iter()
+            .map(|c| (c.result, c.checked_at))
+            .collect::<Vec<_>>(),
+        vec![(DataQualityResult::NotRun, None)]
     );
     let quality = &contracts[1];
     let by_name = |name: &str| quality.checks.iter().find(|c| c.check_name == name);
@@ -736,9 +756,12 @@ fn a_contract_shows_each_check_with_its_newest_evaluation_and_severity() {
             .map(|at| at.timestamp_millis()),
         Some(1_800_000_000_500)
     );
-    let kind = by_name("contract_allowed_values_kind");
     assert_eq!(
-        kind.map(|c| (c.result, c.kind.as_str(), c.field.clone())),
+        by_name("contract_allowed_values_kind").map(|c| (
+            c.result,
+            c.kind.as_str(),
+            c.field.clone()
+        )),
         Some((
             DataQualityResult::Success,
             "contract_allowed_values",
@@ -751,6 +774,11 @@ fn a_contract_shows_each_check_with_its_newest_evaluation_and_severity() {
         "a check the quality job has not reported yet"
     );
     assert_eq!(
+        by_name("contract_allowed_values_zone").map(|c| c.result),
+        Some(DataQualityResult::Error),
+        "a newest execution that failed to run"
+    );
+    assert_eq!(
         quality
             .checks
             .iter()
@@ -759,6 +787,7 @@ fn a_contract_shows_each_check_with_its_newest_evaluation_and_severity() {
         vec![
             "contract_allowed_values_kind",
             "contract_allowed_values_stage",
+            "contract_allowed_values_zone",
             "contract_columns_present"
         ]
     );

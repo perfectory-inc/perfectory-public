@@ -71,6 +71,9 @@ DUCKDB_MEMORY_MIB = "300"
 COLUMNS_PRESENT = "contract_columns_present"
 ALLOWED_VALUES = "contract_allowed_values"
 PIPES_VERSION = "0.1"
+# The metadata key of a check run on its own in Dagster: a re-statement of the newest report
+# (orchestration/dagster/takeover_checks.py RESTATED_FROM), never published again as this run's.
+RESTATED_FROM = "restated_from_run"
 # A lakehouse table's Dagster key is on the `iceberg` platform, any other on `perfectory`
 # (infra/datahub/dataset_names.py, observe_assets.asset_key).
 LAKEHOUSE_NAMESPACES = ("silver.", "gold.", "reference.")
@@ -201,12 +204,18 @@ def contract_of(path):
     return contract, table, table["physicalName"]
 
 
+def is_allowed_values(rule):
+    """An `invalidValues` rule with its validValues: the one rule kind run here (contract_checks.py reads
+    it the same way)."""
+    return rule.get("metric") == "invalidValues" and "validValues" in (rule.get("arguments") or {})
+
+
 def allowed_values(table):
     return {
         prop["name"]: rule["arguments"]["validValues"]
-        for prop in table["properties"]
-        for rule in prop.get("quality", [])
-        if rule.get("metric") == "invalidValues"
+        for prop in table.get("properties") or []
+        for rule in prop.get("quality") or []
+        if is_allowed_values(rule)
     }
 
 
@@ -227,9 +236,16 @@ def new_totals():
 def enforced(contract_id, first_checked, now, judged_before=checked_in_datahub):
     """Whether a failure of this contract fails the run: its first check here is REPORT_ONLY_DAYS old.
     Records the first check of one never checked; one DataHub had judged is recorded as checked long
-    ago (0), once."""
+    ago (0). DataHub is asked only for a contract the file does not hold; when it does not answer,
+    nothing is recorded and the contract only reports this run, so it is asked again on the next."""
     if contract_id not in first_checked:
-        first_checked[contract_id] = 0 if judged_before(contract_id) else int(now)
+        try:
+            judged = judged_before(contract_id)
+        except (OSError, RuntimeError, ValueError) as error:
+            print(f"data-quality: DataHub did not say whether it judged {contract_id} before "
+                  f"({type(error).__name__}); it only reports this run", file=sys.stderr)
+            return False
+        first_checked[contract_id] = 0 if judged else int(now)
     return now - first_checked[contract_id] >= REPORT_ONLY_DAYS * 86400
 
 
@@ -238,9 +254,10 @@ def outcome(totals, passed, enforce, text):
     totals["passed" if passed else ("failed" if enforce else "warned")].append(text)
 
 
-def severity_of(passed, enforce):
-    """A failure of an enforced rule is ERROR; a report-only one, and any pass, WARN."""
-    return "ERROR" if enforce and not passed else "WARN"
+def severity_of(enforce):
+    """ERROR for an enforced contract's rule, WARN while the contract only reports (Dagster shows a
+    severity on a failure; on a pass it says which the rule would be)."""
+    return "ERROR" if enforce else "WARN"
 
 
 def check_contracts(paths, totals, read=lakehouse, first_checked=None, now=None, latest=last_evaluations,
@@ -261,9 +278,15 @@ def check_contracts(paths, totals, read=lakehouse, first_checked=None, now=None,
 
     # The table's current schema (`{table}`), and the snapshot a count then pins to.
     described = read([(physical, "DESCRIBE {table}", None) for _, physical, _, _ in ruled])
-    # Each allowed-values rule's newest evaluation, for the unchanged-table skip.
-    previous_of = latest([(physical, allowed_values_check(field))
-                          for _, physical, _, allowed in ruled for field in sorted(allowed)])
+    # Each allowed-values rule's newest evaluation, for the unchanged-table skip. Dagster not answering
+    # only costs the skip: every table is counted.
+    try:
+        previous_of = latest([(physical, allowed_values_check(field))
+                              for _, physical, _, allowed in ruled for field in sorted(allowed)])
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"data-quality: Dagster's last evaluations could not be read ({type(error).__name__}); "
+              "every table is counted", file=sys.stderr)
+        previous_of = {}
     counted = []
     for (contract, physical, columns, allowed), answer in zip(ruled, described, strict=True):
         if answer.get("absent"):
@@ -284,6 +307,10 @@ def check_contracts(paths, totals, read=lakehouse, first_checked=None, now=None,
             totals["unchanged"].append(f"{contract['id']} snapshot={snapshot_text}")
             for field in fields:
                 passed, values = previous[field]
+                # The result stands for this run too, at the contract's severity today: a rule that
+                # was report-only and is enforced now says so.
+                publish(physical, allowed_values_check(field), passed, severity_of(enforce),
+                        {name: value for name, value in values.items() if name != RESTATED_FROM})
                 outcome(totals, passed, enforce,
                         f"{contract['id']}.{field} invalid={values.get('invalid_rows')} (unchanged since snapshot {snapshot_text})")
         elif fields:
@@ -291,7 +318,7 @@ def check_contracts(paths, totals, read=lakehouse, first_checked=None, now=None,
 
         if columns:
             missing = sorted(columns - present)
-            publish(physical, COLUMNS_PRESENT, not missing, severity_of(not missing, enforce),
+            publish(physical, COLUMNS_PRESENT, not missing, severity_of(enforce),
                     {"contract": contract["id"], "missing_columns": ",".join(missing) or "none",
                      "snapshot_id": "none" if snapshot is None else str(snapshot)})
             outcome(totals, not missing, enforce, f"{contract['id']} schema missing={missing}")
@@ -304,7 +331,7 @@ def check_contracts(paths, totals, read=lakehouse, first_checked=None, now=None,
         rows = int(row["total"])
         for index, field in enumerate(fields):
             bad = int(row[f"f{index}"])
-            publish(physical, allowed_values_check(field), bad == 0, severity_of(bad == 0, enforce),
+            publish(physical, allowed_values_check(field), bad == 0, severity_of(enforce),
                     {"contract": contract["id"], "field": field, "rows": rows, "invalid_rows": bad,
                      "snapshot_id": "none" if snapshot is None else str(snapshot), "rules": rules})
             outcome(totals, bad == 0, enforce, f"{contract['id']}.{field} invalid={bad}")

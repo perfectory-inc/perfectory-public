@@ -301,21 +301,58 @@ class AJobDagsterRunsTest(unittest.TestCase):
 
     def test_the_quality_job_logs_a_contract_check_on_a_table_others_write_at_its_unit_s_severity(self):
         # Root ADR-0609 §2: judging what others write is the quality job's work; its unit says whether
-        # the contract is enforced (ERROR) or still report-only (WARN).
+        # the contract is enforced (ERROR) or still report-only (WARN). A report-only failure ends the
+        # run well.
         from dagster import AssetCheckSeverity
 
-        for severity in ("ERROR", "WARN"):
-            with self.subTest(severity=severity):
-                result, _, materialized, _ = self.execute(self.quality_job(), [
-                    self.contract_line(severity), "foundation-job-outcome unchanged"])
-                self.assertTrue(result.success)
-                (evaluation,) = self.evaluations(result)
-                self.assertEqual((evaluation.asset_key.to_user_string(), evaluation.check_name, evaluation.passed,
-                                  evaluation.severity),
-                                 ("iceberg/gold/building_panel", "contract_columns_present", False,
-                                  AssetCheckSeverity(severity)))
-                self.assertEqual(evaluation.metadata["missing_columns"].value, "pnu")
-                self.assertEqual(materialized, {}, "judging a table is not writing it")
+        result, tags, materialized, _ = self.execute(self.quality_job(), [
+            self.contract_line("WARN"), "foundation-job-outcome unchanged"])
+        self.assertTrue(result.success)
+        self.assertEqual(tags["foundation/job-outcome"], "unchanged")
+        (evaluation,) = self.evaluations(result)
+        self.assertEqual((evaluation.asset_key.to_user_string(), evaluation.check_name, evaluation.passed,
+                          evaluation.severity),
+                         ("iceberg/gold/building_panel", "contract_columns_present", False, AssetCheckSeverity.WARN))
+        self.assertEqual(evaluation.metadata["missing_columns"].value, "pnu")
+        self.assertEqual(materialized, {}, "judging a table is not writing it")
+
+    def test_an_enforced_failure_fails_the_run_and_dagster_still_records_it(self):
+        # The failure that fails the quality job's run is the one Dagster must show: its evaluations are
+        # logged before the run fails, the ERROR and every other result of the run.
+        import run_jobs
+        import takeover_checks
+        from dagster import AssetCheckKey, AssetCheckSeverity, AssetKey, DagsterInstance
+
+        instance = DagsterInstance.ephemeral()
+        self.addCleanup(instance.dispose)
+        result = run_jobs.run_job(self.quality_job(), transport=Stand([
+            self.contract_line("ERROR"),
+            self.contract_line("WARN", passed=True, asset_key="iceberg/gold/parcel_panel"),
+            "foundation-job-outcome failed 1 contract checks failed"], 1, None)).execute_in_process(
+                instance=instance, raise_on_error=False)
+        self.assertFalse(result.success)
+        self.assertEqual(instance.get_run_by_id(result.run_id).tags["foundation/job-outcome"], "failed")
+        found = {}
+        for path in (["iceberg", "gold", "building_panel"], ["iceberg", "gold", "parcel_panel"]):
+            key = AssetCheckKey(AssetKey(path), "contract_columns_present")
+            _, evaluation = takeover_checks.reported_evaluation(instance, key, "a later check run")
+            found["/".join(path)] = (evaluation.passed, evaluation.severity,
+                                     evaluation.metadata[run_jobs.FAILED_RUN].value)
+        self.assertEqual(found, {"iceberg/gold/building_panel": (False, AssetCheckSeverity.ERROR, result.run_id),
+                                 "iceberg/gold/parcel_panel": (True, AssetCheckSeverity.WARN, result.run_id)})
+
+    def test_a_failed_shadow_build_logs_no_verdict(self):
+        result, tags, _, _ = self.execute(self.shadow_build(), [
+            self.check_line("iceberg/gold/parcel_register_masters_versions", passed=True),
+            "foundation-job-outcome failed the commit did not land"], status=1)
+        self.assertFalse(result.success)
+        self.assertEqual((tags["foundation/job-outcome"], self.evaluations(result)), ("failed", []))
+
+    def test_a_report_the_run_may_not_make_tags_it_failed_not_its_own_outcome(self):
+        result, tags, _, _ = self.execute(self.shadow_build(), [
+            self.check_line("iceberg/gold/parcel_register_masters", passed=True), "foundation-job-outcome unchanged"])
+        self.assertFalse(result.success)
+        self.assertEqual(tags["foundation/job-outcome"], "failed")
 
     def test_a_contract_check_without_a_severity_or_of_another_job_is_refused(self):
         for spec, line in (
