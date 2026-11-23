@@ -85,7 +85,7 @@
       },
       "building_energy_silver_to_gold": {
         "moved": {
-          "pull_request": 0,
+          "pull_request": 1662,
           "rows": 1449777,
           "fingerprint": "rows:1449777;content_hash_sum:13367968434017746478998580"
         }
