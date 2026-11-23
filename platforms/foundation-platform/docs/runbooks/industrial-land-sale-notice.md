@@ -2,19 +2,19 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-22
+last_reviewed: 2026-11-23
 ---
 
 # 산업용지 분양·처분·공급 공고 — 수집·적재 런북
 
-루트 ADR-0603 의 운영 절차다. 값(원천마다 목록·상세·첨부 규칙, 목록 지문 필드, 상한·시간 예산·묶음 크기·파일 상한)은
+루트 ADR-0603 의 운영 절차다. 값(원천마다 목록·상세·첨부 규칙, 목록 지문 필드, 요청 간격·멈춤 창·묶음 크기·파일 상한)은
 `infra/lakehouse/contracts/industrial-land-sale-notice.contract.json` 하나에 있다. 이 문서는 값을 다시 적지 않는다.
 
 ## 흐름
 
 | 작업 | 단위 | 하는 일 |
 |---|---|---|
-| `industrial_land_sale_notice_factoryon_collect` (하루 한 번 18:10 UTC, default_pool, 240 분) | `foundation-industrial-land-sale-notice-collect@factoryon.service` → `scripts/ops/industrial-land-sale-notice-collect.sh factoryon` | 공장설립온라인 분양 및 처분신청 공고: 목록 쪽을 새 것부터, 읽지 않은 공고의 쪽·첨부, 요청 사이 7 초(사장 결정, 루트 ADR-0603 §8) |
+| `industrial_land_sale_notice_factoryon_collect` (하루 한 번 18:10 UTC, default_pool, 120 분) | `foundation-industrial-land-sale-notice-collect@factoryon.service` → `scripts/ops/industrial-land-sale-notice-collect.sh factoryon` | 공장설립온라인 분양 및 처분신청 공고: 목록 쪽을 새 것부터, 읽지 않은 공고의 쪽·첨부, 요청을 하나씩 쉬지 않고(사장 결정, 루트 ADR-0603 §8·2026-11-23 개정) |
 | `industrial_land_sale_notice_ilis_collect` (매시, default_pool) | `foundation-industrial-land-sale-notice-collect@ilis.service` → `scripts/ops/industrial-land-sale-notice-collect.sh ilis` | ILIS 분양공고 목록 POST 하나(바뀌었으면 그 답을 Bronze 에), 같은 목록 지문으로 읽지 않은 공고의 상세·첨부 |
 | `industrial_land_sale_notice_kicox_collect` (매시) | `…-collect@kicox.service` → `… kicox` | 한국산업단지공단 임대/분양 게시판의 목록 쪽을 새 것부터, 읽지 않은 글의 쪽·첨부 |
 | `industrial_land_sale_notice_lh_collect` (꺼짐) | `…-collect@lh.service` → `… lh` | LH 토지 공고 목록(답을 Bronze 에), 공고마다 상세·공급정보·첨부. 사장의 data.go.kr 활용신청 전에는 78 로 끝난다 |
@@ -36,6 +36,9 @@ last_reviewed: 2026-11-22
   실패하면 그 실행은 멈춘다(제공자 장애). 이미 커밋한 묶음은 Bronze 에 있다. 목록의 둘째 쪽부터 실패하면 걷기만 멈추고 읽은 것은 남는다.
 - 첨부 4xx 는 사라진 파일(끝남), 상한 넘는 파일은 해시·크기만 적고 `oversize` 로 센다. 그 밖의 받기 실패는 그 공고를 끝내지 않는다.
 - 상세를 하나도 못 읽은 실행만 실패로 끝나 `OnFailure` 가 주인(collection)을 부른다.
+- 실행마다의 공고 수·시간 상한은 없다(사장 2026-11-23): 첫 채우기도 한 실행이 새 것을 다 모을 때까지 간다. 대신 `stall_minutes` 동안 아무것도
+  끝나지 않으면(목록 쪽 답도, 끝까지 읽힌 공고도 없음) 그 실행은 읽은 묶음을 커밋하고 실패한다(요약의 `stopped: stalled`, `OnFailure`).
+  다음 실행이 이어 묻는다. 유닛의 시간 한계는 잰 전체 이력에서 나온 값이다(작업 정의의 `per_run_cap.first_run`).
 - 공장설립온라인이 4xx·429 를 주거나 목록·공고가 아닌 쪽(차단 쪽)을 주면 그 실행은 읽은 것을 커밋하고 그 자리에서 실패한다(요약의 `blocked`).
   사장 결정의 조건(루트 ADR-0603 §8)이라 그 실행 안에서 다시 묻지 않는다; 다음 날 실행이 다시 시도한다. 거듭 막히면 원 게시처(대안)로 간다.
 - LH 인스턴스가 78 로 끝나면 `journal.log` 의 `REFUSED` 줄이 게이트웨이의 거부 코드를 적는다. 사장의 활용신청(15058530·15057999·15056765)

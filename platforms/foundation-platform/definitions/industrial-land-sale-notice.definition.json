@@ -9,7 +9,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "공장설립온라인지원시스템(팩토리온) 분양 및 처분신청 공고 (root ADR-0603 §8; scripts/ops/industrial-land-sale-notice-collect.sh factoryon): the widest list (1,567 notices measured 2026-11-22: 한국산업단지공단 and its branches' 처분신청, 시도, 시군, 공사, K-water, 한국농어촌공사, private developers), collected by the owner's decision of 2026-11-22 knowing its robots.txt disallows /bbs/, at the least load: once a day, seven seconds between requests, the whole history once over a few runs, then list page 1 and only the new notices' pages (lttotNdDspsPblancDetail.do) and attachments (atchFileDownload.do). Any 4xx, 429 or a page that is not the one asked for stops the run at once: it commits what it read and fails, so it is seen, and asks nothing more until the next day. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, at most per_run_limit and until run_time_budget_seconds, two seconds between requests; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "description": "공장설립온라인지원시스템(팩토리온) 분양 및 처분신청 공고 (root ADR-0603 §8; scripts/ops/industrial-land-sale-notice-collect.sh factoryon): the widest list (1,567 notices measured 2026-11-22: 한국산업단지공단 and its branches' 처분신청, 시도, 시군, 공사, K-water, 한국농어촌공사, private developers), collected by the owner's decision of 2026-11-22 knowing its robots.txt disallows /bbs/, at the least load: once a day, one request after another (no pause between them, one in flight: the owner's decision of 2026-11-23), the whole history once, then list page 1 and only the new notices' pages (lttotNdDspsPblancDetail.do) and attachments (atchFileDownload.do). Any 4xx, 429 or a page that is not the one asked for stops the run at once: it commits what it read and fails, so it is seen, and asks nothing more until the next day. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
       "systemd_service": "foundation-industrial-land-sale-notice-collect@factoryon.service",
       "systemd_timer": null,
       "state_paths": [
@@ -19,19 +19,17 @@
       "started_by": "schedule",
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
-      "time_limit_minutes": 240,
+      "time_limit_minutes": 120,
       "memory_max": "1G",
-      "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice collector (1G), which keeps one detail and its attachments in memory as this one does, under the same 256 MiB per-file cap (industrial-land-sale-notice.contract.json attachments.max_file_bytes), plus at most one batch of 50 reads (a KICOX post page is about 170 KB, a Factory-on notice page about 60 KB); systemd logs the peak of every run under this cap",
+      "memory_measured": "977.6M peak (and 383.9M swap) in its first run, 2026-11-22 18:52-22:22Z, under the 1G cap: one detail and its attachments in memory (256 MiB per-file cap, industrial-land-sale-notice.contract.json attachments.max_file_bytes) plus one batch of 50 reads; the peak is the largest file, not the run's length; systemd logs the peak of every run under this cap",
       "per_run_cap": {
-        "unit": "request",
-        "limits": [
-          "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/sources/factoryon/per_run_limit"
-        ],
-        "deadline": "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/sources/factoryon/run_time_budget_seconds",
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
         "measured_run_seconds": null,
         "first_run": {
-          "estimate_seconds": 12650,
-          "estimated_from": "computed from its own bounds: list pages of ten notices and, per owed notice, one page and about 1.5 attachments, seven seconds apart (about 17.5 s a notice), until run_time_budget_seconds of this source (12,600 s) stops the loop and the last notice finishes: about 12,650 s, inside the 12,960 s share of the 240-minute limit; the first fill of 1,567 notices takes two or three daily runs, then one list page a day."
+          "estimate_seconds": 3900,
+          "estimated_from": "measured 2026-11-22 18:52-22:22Z on ai-server: 508 notices and 980 attachments (1.54 GB) in 1,539 requests over 12,629 s, of which 10,766 s were the seven-second waits now removed, so about 1.21 s a request asked back to back; the whole list (1,067 notices that run) is about 3,233 requests, about 3,900 s from an empty ledger, inside the 6,480 s share of the 120-minute limit; after the first fill a run is list page 1 and the new notices."
         }
       },
       "expected_outcome": {
@@ -57,7 +55,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "ILIS 산업단지 분양공고 (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh ilis, the publisher's collect-industrial-land-sale-notices): the national sale-notice registry's whole list in one POST (il/parcel/list.do, 741 notices measured 2026-11-22; the answer lands in Bronze whenever it changed, as the provider takes notices down: 105 of 846 sequences gone, their detail answering code 400), then one detail (il/parcel/det.do) and its attachments per owed notice. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, at most per_run_limit and until run_time_budget_seconds, two seconds between requests; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "description": "ILIS 산업단지 분양공고 (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh ilis, the publisher's collect-industrial-land-sale-notices): the national sale-notice registry's whole list in one POST (il/parcel/list.do, 741 notices measured 2026-11-22; the answer lands in Bronze whenever it changed, as the provider takes notices down: 105 of 846 sequences gone, their detail answering code 400), then one detail (il/parcel/det.do) and its attachments per owed notice. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another (no pause, one in flight); the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
       "systemd_service": "foundation-industrial-land-sale-notice-collect@ilis.service",
       "systemd_timer": null,
       "state_paths": [
@@ -69,17 +67,15 @@
       "wait_limit_minutes": 30,
       "time_limit_minutes": 40,
       "memory_max": "1G",
-      "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice collector (1G), which keeps one detail and its attachments in memory as this one does, under the same 256 MiB per-file cap (industrial-land-sale-notice.contract.json attachments.max_file_bytes), plus at most one batch of 50 reads (a KICOX post page is about 170 KB, a Factory-on notice page about 60 KB); systemd logs the peak of every run under this cap",
+      "memory_measured": "711.0M peak in its first run, 2026-11-22 18:52-19:22Z, under the 1G cap: one detail and its attachments in memory (256 MiB per-file cap, industrial-land-sale-notice.contract.json attachments.max_file_bytes) plus one batch of 50 reads; the peak is the largest file, not the run's length; systemd logs the peak of every run under this cap",
       "per_run_cap": {
-        "unit": "request",
-        "limits": [
-          "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/per_run_limit"
-        ],
-        "deadline": "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/run_time_budget_seconds",
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
         "measured_run_seconds": null,
         "first_run": {
-          "estimate_seconds": 1900,
-          "estimated_from": "computed from its own bounds: the list in one request (576 KB measured 2026-11-22), then notices until run_time_budget_seconds (1,800 s) stops the loop, the last notice (one detail and about 1.65 attachments, measured from the list's sk_cnt) finishing after it: about 1,900 s, inside the 2,160 s share of the 40-minute limit; the first fill of 741 notices takes about three runs. Each 50 notices commit on their own (as_it_goes)."
+          "estimate_seconds": 1100,
+          "estimated_from": "measured 2026-11-22 18:52-19:22Z on ai-server: 290 of the 741 notices and 413 attachments (1.32 GB) in 704 requests over 1,819 s, of which 1,406 s were the two-second waits now removed, so about 0.59 s a request asked back to back; the whole list is about 1,797 requests, about 1,100 s from an empty ledger, inside the 2,160 s share of the 40-minute limit."
         }
       },
       "expected_outcome": {
@@ -105,7 +101,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "한국산업단지공단 임대/분양 게시판 (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh kicox): the board's list pages (boardList/1003, ten posts a page, 962 posts since 2008 measured 2026-11-22), newest first, and one post page (boardDetail/1003) and its attachments (api/fnFile/commonFileDownload) per owed post: the complexes KICOX develops itself, which the ILIS registry does not carry. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, at most per_run_limit and until run_time_budget_seconds, two seconds between requests; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "description": "한국산업단지공단 임대/분양 게시판 (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh kicox): the board's list pages (boardList/1003, ten posts a page, 962 posts since 2008 measured 2026-11-22), newest first, and one post page (boardDetail/1003) and its attachments (api/fnFile/commonFileDownload) per owed post: the complexes KICOX develops itself, which the ILIS registry does not carry. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another (no pause, one in flight); the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
       "systemd_service": "foundation-industrial-land-sale-notice-collect@kicox.service",
       "systemd_timer": null,
       "state_paths": [
@@ -115,19 +111,17 @@
       "started_by": "schedule",
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
-      "time_limit_minutes": 40,
+      "time_limit_minutes": 60,
       "memory_max": "1G",
-      "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice collector (1G), which keeps one detail and its attachments in memory as this one does, under the same 256 MiB per-file cap (industrial-land-sale-notice.contract.json attachments.max_file_bytes), plus at most one batch of 50 reads (a KICOX post page is about 170 KB, a Factory-on notice page about 60 KB); systemd logs the peak of every run under this cap",
+      "memory_measured": "557.8M peak over its five first-fill runs, 2026-11-22 18:52-23:11Z, under the 1G cap: one detail and its attachments in memory (256 MiB per-file cap, industrial-land-sale-notice.contract.json attachments.max_file_bytes) plus one batch of 50 reads; the peak is the largest file, not the run's length; systemd logs the peak of every run under this cap",
       "per_run_cap": {
-        "unit": "request",
-        "limits": [
-          "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/per_run_limit"
-        ],
-        "deadline": "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/run_time_budget_seconds",
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
         "measured_run_seconds": null,
         "first_run": {
-          "estimate_seconds": 1900,
-          "estimated_from": "computed from its own bounds: list pages of ten posts and, per owed post, one page and about 1.5 attachments, two seconds apart, until run_time_budget_seconds (1,800 s) stops the loop and the last post finishes: about 1,900 s, inside the 2,160 s share of the 40-minute limit; the first fill of 962 posts takes about three runs, then one list page a run. Each 50 posts commit on their own (as_it_goes)."
+          "estimate_seconds": 2150,
+          "estimated_from": "measured 2026-11-22 18:52-23:11Z on ai-server: the whole board, 962 posts and 2,088 attachments (4.53 GB), in five runs of 8,794 s and 3,335 requests together, of which 6,668 s were the two-second waits now removed; one run asked back to back does it in about 2,150 s from an empty ledger, inside the 3,240 s share of the 60-minute limit."
         }
       },
       "expected_outcome": {
@@ -153,7 +147,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "LH 토지 공고 through data.go.kr (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh lh): the land notice list (lhLeaseNoticeInfo1, kind 01, the whole history window; each answer lands in Bronze when it changed), and per owed notice its detail (lhLeaseNoticeDtlInfo1, whose dsAhflInfo lists the attachments on apply.lh.or.kr) and supply list (lhLeaseNoticeSplInfo1: per 필지 its use, address, lot number, area and planned price) kept as one read. Without the platform's data.go.kr service key, or while the gateway refuses the three services, the run ends with 78 before writing anything. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, at most per_run_limit and until run_time_budget_seconds, two seconds between requests; the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
+      "description": "LH 토지 공고 through data.go.kr (root ADR-0603; scripts/ops/industrial-land-sale-notice-collect.sh lh): the land notice list (lhLeaseNoticeInfo1, kind 01, the whole history window; each answer lands in Bronze when it changed), and per owed notice its detail (lhLeaseNoticeDtlInfo1, whose dsAhflInfo lists the attachments on apply.lh.or.kr) and supply list (lhLeaseNoticeSplInfo1: per 필지 its use, address, lot number, area and planned price) kept as one read. Without the platform's data.go.kr service key, or while the gateway refuses the three services, the run ends with 78 before writing anything. Partial: the notices the lakehouse does not record as read with the same list fingerprint (silver.industrial_land_sale_notice_read), newest first, every one of them in one run (no count or time cap per run; a run that settles nothing for the contract's stall_minutes commits what it read and fails, so it is seen; root ADR-0603, 2026-11-23 revision), one request after another (no pause, one in flight); the list walk stops at the first page that owes nothing once the reads cover the count the provider states. Each attachment still in use is downloaded and stored once, whatever its format, in the shared content-addressed media store; the details land in Bronze as served, commit_every reads to a content-qualified object (root ADR-0152), each attachment annotated with its hash, format, size, source URL and outcome. Reads nothing inside the files. No Spark.",
       "systemd_service": "foundation-industrial-land-sale-notice-collect@lh.service",
       "systemd_timer": null,
       "state_paths": [
@@ -167,17 +161,11 @@
       "memory_max": "1G",
       "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice collector (1G), which keeps one detail and its attachments in memory as this one does, under the same 256 MiB per-file cap (industrial-land-sale-notice.contract.json attachments.max_file_bytes), plus at most one batch of 50 reads (a KICOX post page is about 170 KB, a Factory-on notice page about 60 KB); systemd logs the peak of every run under this cap",
       "per_run_cap": {
-        "unit": "request",
-        "limits": [
-          "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/per_run_limit"
-        ],
-        "deadline": "infra/lakehouse/contracts/industrial-land-sale-notice.contract.json#/run_time_budget_seconds",
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
         "measured_run_seconds": null,
-        "first_run": {
-          "estimate_seconds": 1900,
-          "estimated_from": "computed from its own bounds: list pages of 100 notices and, per owed notice, one detail, one supply list and about two attachments, two seconds apart, until run_time_budget_seconds (1,800 s) stops the loop and the last notice finishes: about 1,900 s, inside the 2,160 s share of the 40-minute limit. Not measured: no answer has been seen before the usage application."
-        },
-        "unmeasured_reason": "Never run: off until the owner's data.go.kr usage application (disabled_reason). Its first_run estimate stands for when it is switched on; the pull request that switches it on cites its first answered list."
+        "unmeasured_reason": "Never run: off by the owner's decision (2026-11-23: not now; disabled_reason). No per-run cap bounds it (root ADR-0603, 2026-11-23 revision), so the pull request that switches it on sets time_limit_minutes from its first measured full history."
       },
       "expected_outcome": {
         "changes_within_hours": null,
