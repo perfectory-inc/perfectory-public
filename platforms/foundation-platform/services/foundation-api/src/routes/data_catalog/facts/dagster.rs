@@ -35,12 +35,30 @@ const LOG_QUERY: &str = "query($runId: ID!, $after: String, $limit: Int!) {
   logsForRun(runId: $runId, afterCursor: $after, limit: $limit) {
     __typename ... on EventConnection { cursor hasMore events { __typename ... on MessageEvent { message } } } } }";
 
-pub(super) struct Dagster {
+/// The data contracts' asset checks (`orchestration/dagster/contract_checks.py`, root ADR-0609 §2)
+/// are the checks whose names start so.
+const CONTRACT_CHECK_PREFIX: &str = "contract_";
+
+/// Every asset and the names of its checks.
+const ASSET_CHECKS_QUERY: &str = "{ assetNodes { assetKey { path }
+  assetChecksOrError { __typename ... on AssetChecks { checks { name } } } } }";
+
+/// One contract check and its newest execution, as Dagster holds them.
+#[derive(Clone, Debug, PartialEq)]
+pub(in crate::routes::data_catalog) struct ContractCheck {
+    /// The checked asset's key, platform first (`iceberg`, `gold`, `unit_price`).
+    pub(in crate::routes::data_catalog) asset_key: Vec<String>,
+    pub(in crate::routes::data_catalog) check_name: String,
+    /// The newest execution (`timestamp`, `evaluation`), or null when the check never ran.
+    pub(in crate::routes::data_catalog) execution: JsonValue,
+}
+
+pub(in crate::routes::data_catalog) struct Dagster {
     api: String,
 }
 
 impl Dagster {
-    pub(super) fn from_env() -> Option<Self> {
+    pub(in crate::routes::data_catalog) fn from_env() -> Option<Self> {
         std::env::var(API_URL_ENV)
             .ok()
             .map(|value| value.trim().trim_end_matches('/').to_owned())
@@ -129,6 +147,82 @@ impl Dagster {
             waiting: waiting_reason(&lines),
         })
     }
+
+    /// Every contract check and its newest execution: the checks Dagster declares, then one question
+    /// for all their newest executions.
+    pub(in crate::routes::data_catalog) async fn contract_checks(
+        &self,
+    ) -> Result<Vec<ContractCheck>, String> {
+        let nodes = self.ask(ASSET_CHECKS_QUERY, json!({})).await?;
+        let mut checks = contract_checks_of(&nodes);
+        if checks.is_empty() {
+            return Ok(checks);
+        }
+        let data = self.ask(&executions_query(&checks), json!({})).await?;
+        for (index, check) in checks.iter_mut().enumerate() {
+            check.execution = data[format!("c{index}")][0].clone();
+        }
+        Ok(checks)
+    }
+}
+
+/// The contract checks of an `assetNodes` answer, by asset key and name, none run yet.
+fn contract_checks_of(data: &JsonValue) -> Vec<ContractCheck> {
+    let mut checks = Vec::new();
+    for node in data["assetNodes"].as_array().into_iter().flatten() {
+        let asset_key: Vec<String> = node["assetKey"]["path"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|part| part.as_str().map(str::to_owned))
+            .collect();
+        if asset_key.is_empty() {
+            continue;
+        }
+        for check in node["assetChecksOrError"]["checks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            if let Some(name) = check["name"]
+                .as_str()
+                .filter(|name| name.starts_with(CONTRACT_CHECK_PREFIX))
+            {
+                checks.push(ContractCheck {
+                    asset_key: asset_key.clone(),
+                    check_name: name.to_owned(),
+                    execution: JsonValue::Null,
+                });
+            }
+        }
+    }
+    checks.sort_by(|a, b| (&a.asset_key, &a.check_name).cmp(&(&b.asset_key, &b.check_name)));
+    checks
+}
+
+/// One query for the newest execution of every check, each under the alias `c<index>`.
+fn executions_query(checks: &[ContractCheck]) -> String {
+    let fields: String = checks
+        .iter()
+        .enumerate()
+        .map(|(index, check)| {
+            format!(
+                " c{index}: assetCheckExecutions(assetKey: {{path: {}}}, checkName: {}, limit: 1) \
+                 {{ timestamp evaluation {{ success severity metadataEntries {{ label \
+                 ... on TextMetadataEntry {{ text }} ... on IntMetadataEntry {{ intRepr }} }} }} }}",
+                json!(check.asset_key),
+                json!(check.check_name)
+            )
+        })
+        .collect();
+    format!("{{{fields} }}")
+}
+
+/// When an execution started, as Dagster gives it.
+pub(in crate::routes::data_catalog) fn execution_time(
+    execution: &JsonValue,
+) -> Option<DateTime<Utc>> {
+    epoch(&execution["timestamp"])
 }
 
 fn unfinished() -> JsonValue {
@@ -187,8 +281,71 @@ fn message_lines(connection: &JsonValue) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{in_progress_runs, message_lines, unfinished};
-    use serde_json::json;
+    use super::{
+        contract_checks_of, executions_query, in_progress_runs, message_lines, unfinished,
+        ContractCheck,
+    };
+    use serde_json::{json, Value as JsonValue};
+
+    #[test]
+    fn the_contract_checks_are_the_assets_checks_named_so_by_asset_and_name() {
+        let data = json!({ "assetNodes": [
+            { "assetKey": { "path": ["iceberg", "silver", "synthetic_b"] }, "assetChecksOrError": {
+                "__typename": "AssetChecks", "checks": [
+                    { "name": "contract_columns_present" }, { "name": "takeover_equal" }] } },
+            { "assetKey": { "path": ["iceberg", "silver", "synthetic_a"] }, "assetChecksOrError": {
+                "__typename": "AssetChecks", "checks": [
+                    { "name": "contract_columns_present" }, { "name": "contract_allowed_values_kind" }] } },
+            // An asset whose checks Dagster could not read has none here.
+            { "assetKey": { "path": ["perfectory", "synthetic-surface"] }, "assetChecksOrError": {
+                "__typename": "AssetCheckNeedsMigrationError" } },
+        ] });
+        let checks = contract_checks_of(&data);
+        let named: Vec<(String, &str)> = checks
+            .iter()
+            .map(|check| (check.asset_key.join("/"), check.check_name.as_str()))
+            .collect();
+        assert_eq!(
+            named,
+            vec![
+                (
+                    "iceberg/silver/synthetic_a".to_owned(),
+                    "contract_allowed_values_kind"
+                ),
+                (
+                    "iceberg/silver/synthetic_a".to_owned(),
+                    "contract_columns_present"
+                ),
+                (
+                    "iceberg/silver/synthetic_b".to_owned(),
+                    "contract_columns_present"
+                ),
+            ]
+        );
+        assert!(checks
+            .iter()
+            .all(|check| check.execution == JsonValue::Null));
+    }
+
+    #[test]
+    fn every_checks_newest_execution_is_asked_in_one_query() {
+        let checks = vec![
+            ContractCheck {
+                asset_key: vec!["iceberg".into(), "silver".into(), "synthetic".into()],
+                check_name: "contract_columns_present".into(),
+                execution: JsonValue::Null,
+            },
+            ContractCheck {
+                asset_key: vec!["perfectory".into(), "intelligence".into(), "fact".into()],
+                check_name: "contract_allowed_values_kind".into(),
+                execution: JsonValue::Null,
+            },
+        ];
+        let query = executions_query(&checks);
+        assert!(query.starts_with("{ c0: assetCheckExecutions(assetKey: {path: [\"iceberg\",\"silver\",\"synthetic\"]}, checkName: \"contract_columns_present\", limit: 1)"));
+        assert!(query.contains(" c1: assetCheckExecutions(assetKey: {path: [\"perfectory\",\"intelligence\",\"fact\"]}, checkName: \"contract_allowed_values_kind\", limit: 1)"));
+        assert!(query.ends_with(" }"));
+    }
 
     #[test]
     fn the_jobs_own_unfinished_runs_are_read_by_job_newest_first() {

@@ -347,9 +347,12 @@ class CodeLocationTest(unittest.TestCase):
         checks = asset_checks.build(graph)
         Definitions(assets=observe_assets.observed_assets(jobs, graph), asset_checks=checks).resolve_asset_graph()
         specs = {(spec.asset_key, spec.name): spec for check in checks for spec in check.check_specs}
-        declared = {(observe_assets.node_keys(graph)[c["asset"]], c["check"])
-                    for group in asset_checks.definitions().values() for c in group}
-        self.assertEqual(set(specs), declared, "the code location carries exactly the declared checks")
+        import contract_checks
+
+        keys = observe_assets.node_keys(graph)
+        declared = {(keys[c["asset"]], c["check"]) for group in asset_checks.definitions().values() for c in group}
+        declared |= {(item.key(), item.check) for item in contract_checks.declared(graph, keys)}
+        self.assertEqual(set(specs), declared, "the code location carries exactly the declared checks and the contracts' rules")
         unit_price = {(AssetKey(["iceberg", "gold", "unit_price"]), "rows_valid_per_sido"),
                       (AssetKey(["perfectory", "unit-price-by-pnu-section-packs"]), "serves_the_newest_gold")}
         self.assertLessEqual(unit_price, set(specs))

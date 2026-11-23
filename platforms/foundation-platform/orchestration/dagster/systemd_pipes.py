@@ -158,10 +158,12 @@ class SystemdRun:
         (Dagster lets an op log an evaluation outside an asset context). `reported` maps (asset key, check
         name) to its declared severity: only such a check on one of the run's outputs is taken, at that
         severity, so a run never judges a dataset it does not write, a check its unit does not own, or
-        at a severity its declaration does not give. Unlike a materialization, an evaluation is taken
+        at a severity its declaration does not give. The one exception is a check mapped to None: the
+        quality job's contract checks (root ADR-0609 §2), on tables others write, at the WARN or ERROR
+        the unit reports. Unlike a materialization, an evaluation is taken
         from a run that withholds its events too: a shadow build judges its head again on a run that
         committed nothing (gold-versions-build.sh)."""
-        from dagster import AssetCheckEvaluation, AssetKey
+        from dagster import AssetCheckEvaluation, AssetCheckSeverity, AssetKey
 
         outputs = {AssetKey(list(key.path)) for key in asset_keys}
         found = []
@@ -171,12 +173,18 @@ class SystemdRun:
             params = message.get("params") or {}
             key = AssetKey.from_user_string(params.get("asset_key") or "")
             name = params.get("check_name") or ""
-            if key not in outputs or (key, name) not in reported:
+            if (key, name) not in reported or (reported[(key, name)] is not None and key not in outputs):
                 raise Failure(f"{self.job_id} reported check {name!r} on {key.to_user_string()}, "
                               "which is not a check its unit owns on a dataset it writes")
+            severity = reported[(key, name)]
+            if severity is None:
+                if params.get("severity") not in ("WARN", "ERROR"):
+                    raise Failure(f"{self.job_id} reported check {name!r} on {key.to_user_string()} "
+                                  f"at severity {params.get('severity')!r}; it gives WARN or ERROR")
+                severity = AssetCheckSeverity(params["severity"])
             found.append(AssetCheckEvaluation(
                 asset_key=key, check_name=name, passed=params.get("passed") is True,
-                severity=reported[(key, name)], metadata=raw_metadata(params)))
+                severity=severity, metadata=raw_metadata(params)))
         return found
 
 class SubprocessForcedCommand:

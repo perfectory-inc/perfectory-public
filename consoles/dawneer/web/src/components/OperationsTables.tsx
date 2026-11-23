@@ -289,7 +289,7 @@ export function QualityChecks({ client }: { client: DawneerClient }) {
                     {open === id ? (
                       <ul className="mt-2 space-y-1 text-xs">
                         {row.contract.checks.map((check) => (
-                          <li key={check.assertion_urn}>
+                          <li key={check.check_name}>
                             <Badge tone={check.result === "success" ? "ok" : check.result === "not_run" ? "idle" : "bad"}>
                               {QUALITY_RESULT_LABEL[check.result]}
                             </Badge>{" "}

@@ -286,6 +286,49 @@ class AJobDagsterRunsTest(unittest.TestCase):
                 self.assertFalse(result.success)
                 self.assertEqual(materialized, {}, "nothing is logged before the report is refused")
 
+    def quality_job(self):
+        import observe_assets
+
+        return next(spec for spec in observe_assets.job_specs.load_specs() if spec.job_id == "data_quality")
+
+    def contract_line(self, severity, passed=False, check_name="contract_columns_present",
+                      asset_key="iceberg/gold/building_panel"):
+        params = {"asset_key": asset_key, "check_name": check_name, "passed": passed,
+                  "metadata": {"missing_columns": {"raw_value": "pnu", "type": "__infer__"}}}
+        if severity is not None:
+            params["severity"] = severity
+        return pipes_line("report_asset_check", params)
+
+    def test_the_quality_job_logs_a_contract_check_on_a_table_others_write_at_its_unit_s_severity(self):
+        # Root ADR-0609 §2: judging what others write is the quality job's work; its unit says whether
+        # the contract is enforced (ERROR) or still report-only (WARN).
+        from dagster import AssetCheckSeverity
+
+        for severity in ("ERROR", "WARN"):
+            with self.subTest(severity=severity):
+                result, _, materialized, _ = self.execute(self.quality_job(), [
+                    self.contract_line(severity), "foundation-job-outcome unchanged"])
+                self.assertTrue(result.success)
+                (evaluation,) = self.evaluations(result)
+                self.assertEqual((evaluation.asset_key.to_user_string(), evaluation.check_name, evaluation.passed,
+                                  evaluation.severity),
+                                 ("iceberg/gold/building_panel", "contract_columns_present", False,
+                                  AssetCheckSeverity(severity)))
+                self.assertEqual(evaluation.metadata["missing_columns"].value, "pnu")
+                self.assertEqual(materialized, {}, "judging a table is not writing it")
+
+    def test_a_contract_check_without_a_severity_or_of_another_job_is_refused(self):
+        for spec, line in (
+                (self.quality_job(), self.contract_line(None)),
+                (self.quality_job(), self.contract_line("INFO")),
+                (self.quality_job(), self.contract_line("WARN", check_name="takeover_equal",
+                                                        asset_key="iceberg/gold/parcel_register_masters_versions")),
+                (self.shadow_build(), self.contract_line("WARN", asset_key="iceberg/gold/parcel_register_masters_versions"))):
+            with self.subTest(line=line):
+                result, _, _, _ = self.execute(spec, [line, "foundation-job-outcome unchanged"])
+                self.assertFalse(result.success)
+                self.assertEqual(self.evaluations(result), [])
+
     def test_the_check_run_alone_restates_the_build_s_evaluation_never_its_own(self):
         import takeover_checks
         from dagster import AssetCheckKey, AssetKey, DagsterInstance

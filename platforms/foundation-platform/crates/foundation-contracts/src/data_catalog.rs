@@ -461,9 +461,10 @@ pub struct DataQualityDetail {
 /// One check a data contract defines and its latest result.
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
 pub struct DataQualityCheck {
-    /// The check's identifier in the data catalog.
-    pub assertion_urn: String,
-    /// The catalog's kind for it (for example `FIELD` or `DATA_SCHEMA`), as the catalog names it.
+    /// The check's Dagster asset check name (for example `contract_columns_present` or
+    /// `contract_allowed_values_kind`), unique within its contract.
+    pub check_name: String,
+    /// Its kind: `contract_columns_present` or `contract_allowed_values`.
     pub kind: String,
     /// The column it checks, for a column check.
     pub field: Option<String>,
@@ -471,7 +472,8 @@ pub struct DataQualityCheck {
     pub result: DataQualityResult,
     /// When that result was reported.
     pub checked_at: Option<DateTime<Utc>>,
-    /// What the job reported with it (counts, missing columns), as it wrote them.
+    /// Its severity (`WARN` while the contract only reports, `ERROR` once enforced), then what the
+    /// job reported with it (counts, missing columns), as it wrote them.
     pub details: Vec<DataQualityDetail>,
 }
 
@@ -480,13 +482,13 @@ pub struct DataQualityCheck {
 pub struct DataContractQuality {
     /// The contract's id (the dataset it promises).
     pub contract_id: String,
-    /// The contract's entity in the data catalog.
-    pub dataset_urn: String,
+    /// The Dagster asset key of the contract's table (`iceberg/gold/unit_price`).
+    pub asset_key: String,
     /// Its checks.
     pub checks: Vec<DataQualityCheck>,
 }
 
-/// Every data contract the data catalog holds, with its checks' latest results.
+/// Every data contract's checks, with their latest results (root ADR-0609 §2).
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
 pub struct DataQualityStatus {
     /// When Foundation read this.

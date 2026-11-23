@@ -15,7 +15,7 @@
 //! log and its unfinished runs are read from Dagster's read-only webserver instead (`dagster.rs`),
 //! through the same classification and masks.
 
-mod dagster;
+pub(super) mod dagster;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};

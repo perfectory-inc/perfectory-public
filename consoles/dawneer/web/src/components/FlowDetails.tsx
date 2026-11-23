@@ -222,7 +222,7 @@ function ContractChecks({ contract }: { contract: DataContractQuality }) {
   return (
     <ul className="space-y-1 text-xs">
       {contract.checks.map((check) => (
-        <li key={check.assertion_urn} className="flex flex-wrap items-center gap-2">
+        <li key={check.check_name} className="flex flex-wrap items-center gap-2">
           <Badge tone={check.result === "success" ? "ok" : check.result === "not_run" ? "idle" : "bad"}>{QUALITY_RESULT_LABEL[check.result]}</Badge>
           <span className="font-mono">
             {check.kind}
