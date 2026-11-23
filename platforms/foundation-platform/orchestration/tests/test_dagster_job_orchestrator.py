@@ -194,14 +194,52 @@ class TheJobsDagsterDecides(unittest.TestCase):
             server.close()
             self.assertTrue(asked[0].startswith(b"POST /graphql HTTP/1.1"))
 
-    def run_main(self, *argv, dagster=None, listing=None):
+    def run_main(self, *argv, dagster=None, listing=None, health=None):
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "jobs.v1.json"
             path.write_text(json.dumps(listing or listed()), encoding="utf-8")
             out, err = io.StringIO(), io.StringIO()
             with redirect_stdout(out), redirect_stderr(err):
-                status = job_orchestrator.main([argv[0], str(path), *argv[1:]], post=dagster or self.dagster())
+                status = job_orchestrator.main([argv[0], str(path), *argv[1:]], post=dagster or self.dagster(),
+                                               health=health or (lambda jobs: self.fail("the daemon was asked")))
         return status, out.getvalue(), err.getvalue()
+
+    def test_a_pause_that_finds_no_dagster_holds_and_says_so(self):
+        # 2026-11-23: the daemon and both webservers restarted in a loop, and every deploy stopped at step 0
+        # asking Dagster to stop its sensors, so the release that fixed it could not be deployed.
+        def gone(*_):
+            raise job_orchestrator.Unreachable("Dagster did not answer at /run/foundation-dagster/writer.sock: "
+                                               "[Errno 2] No such file or directory")
+
+        for health in (lambda jobs: None, lambda jobs: False):
+            status, out, err = self.run_main("pause", "nightly", "hourly", dagster=gone, health=health)
+            self.assertEqual((status, out), (0, ""))
+            self.assertIn("HELD WITHOUT DAGSTER", err)
+            self.assertIn("none of the 2 jobs it decides can start", err)
+        # A sensor daemon still seen healthy may start them: they could not be held.
+        status, _, err = self.run_main("pause", "nightly", dagster=gone, health=lambda jobs: True)
+        self.assertEqual(status, 1)
+        self.assertNotIn("HELD", err)
+        # Releasing or starting needs Dagster; a Dagster that answers and refuses is not "no Dagster".
+        self.assertEqual(self.run_main("unpause", "nightly", dagster=gone, health=lambda jobs: None)[0], 1)
+        def refusing(*_):
+            raise job_orchestrator.Unanswered("Dagster refused the request (500): []")
+
+        self.assertEqual(self.run_main("pause", "nightly", dagster=refusing)[0], 1)
+
+    def test_the_sensor_daemon_is_asked_of_the_read_only_webserver(self):
+        healthy = {"data": {"instance": {"daemonHealth": {"allDaemonStatuses": [
+            {"daemonType": "SCHEDULER", "healthy": True}, {"daemonType": "SENSOR", "healthy": True}]}}}}
+        sick = {"data": {"instance": {"daemonHealth": {"allDaemonStatuses": [
+            {"daemonType": "SENSOR", "healthy": False}]}}}}
+        self.assertIs(job_orchestrator.sensor_daemon_healthy(listed(), ask=lambda query: healthy), True)
+        self.assertIs(job_orchestrator.sensor_daemon_healthy(listed(), ask=lambda query: sick), False)
+
+        def down(query):
+            raise OSError("connection refused")
+
+        self.assertIsNone(job_orchestrator.sensor_daemon_healthy(listed(), ask=down))
+        self.assertIsNone(job_orchestrator.sensor_daemon_healthy({"jobs": []}), "no address: nothing to ask")
 
     def test_the_command_line_the_deploy_and_the_run_now_use(self):
         self.assertEqual(self.run_main("decided")[:2], (0, "nightly\nhourly\n"))

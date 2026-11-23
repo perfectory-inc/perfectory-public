@@ -25,11 +25,20 @@ Dagster is asked over the writable webserver's unix socket (dagster_writes.WRITE
 only root opens; its gate answers these documents and nothing else (root ADR-0565 §8). Every reader asks
 the read-only webserver instead; no host port reaches this one. Exit 0 done, 64 a request this cannot
 serve (a job Dagster does not decide), 1 Dagster did not do it.
+
+A **pause** that finds no Dagster at all is done: when the writable webserver does not answer and the
+read-only one shows no healthy sensor daemon (or does not answer either), nothing Dagster decides can start,
+so its jobs are held as asked. It says so loudly; FoundationDagsterCodeLocationDown alerts on the same
+outage. 2026-11-23 the instance config made the daemon and both webservers restart in a loop; every
+deploy then stopped at step 0 asking Dagster to stop its sensors, so the release that fixed the config
+could not be deployed. An unpause or a start still needs Dagster: the deploy's step 7 asks the Dagster
+the new release brings up.
 """
 
 import json
 import pathlib
 import sys
+import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "orchestration" / "dags"))
 import dagster_writes  # noqa: E402
@@ -48,6 +57,10 @@ class Unanswered(Exception):
     """Dagster did not do what was asked (exit 1)."""
 
 
+class Unreachable(Unanswered):
+    """The writable webserver did not answer at all (its socket absent, the connection refused or cut)."""
+
+
 def decided(jobs):
     """The enabled job ids Dagster decides, in job-list order."""
     return [job["id"] for job in jobs["jobs"] if job["enabled"] and job.get("dagster_stage", "airflow") == "dagster"]
@@ -62,7 +75,7 @@ def poster(socket_path=None):
             status, body = dagster_writes.ask("POST", "/graphql", {"query": query, "variables": variables}, where)
             answer = json.loads(body)
         except (OSError, ValueError) as error:
-            raise Unanswered(f"Dagster did not answer at {where}: {error}") from None
+            raise Unreachable(f"Dagster did not answer at {where}: {error}") from None
         if status != 200 or answer.get("errors") or not isinstance(answer.get("data"), dict):
             raise Unanswered(f"Dagster refused the request ({status}): {json.dumps(answer.get('errors'))[:300]}")
         return answer["data"]
@@ -117,6 +130,45 @@ def unpause(jobs, job_ids, post):
     return started
 
 
+# What the read-only webserver says of the daemon that ticks the sensors.
+DAEMONS = "{ instance { daemonHealth { allDaemonStatuses { daemonType healthy } } } }"
+
+
+def sensor_daemon_healthy(jobs, ask=None):
+    """Whether Dagster's sensor daemon is healthy, as the read-only webserver (jobs.v1.json
+    observers.dagster.ui) says; None when that does not answer either."""
+    if ask is None:
+        url = jobs.get("observers", {}).get("dagster", {}).get("ui", "").rstrip("/")
+        if not url:
+            return None
+
+        def ask(query):
+            request = urllib.request.Request(f"{url}/graphql", data=json.dumps({"query": query}).encode(),
+                                             headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310 (loopback, from the job list)
+                return json.loads(response.read())
+
+    try:
+        answer = ask(DAEMONS)
+        statuses = answer["data"]["instance"]["daemonHealth"]["allDaemonStatuses"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return any(status.get("daemonType") == "SENSOR" and status.get("healthy") for status in statuses)
+
+
+def held_without_dagster(jobs, job_ids, error, health=sensor_daemon_healthy):
+    """For a pause the writable webserver did not answer: True (held, said loudly) when no healthy sensor
+    daemon can be seen either, so nothing Dagster decides can start; False when the sensors may still
+    run, so they could not be held."""
+    if health(jobs) is True:
+        return False
+    print(f"job-orchestrator: HELD WITHOUT DAGSTER: {error}; its sensor daemon is not seen healthy either, so none "
+          f"of the {len(job_ids)} jobs it decides can start while it does not answer: they are held as asked. "
+          "The deploy's step 7 starts their sensors against the Dagster the release brings up "
+          "(FoundationDagsterCodeLocationDown alerts on this outage).", file=sys.stderr)
+    return True
+
+
 def launch_tags(jobs, job_id, kind):
     """The tags a start of the job carries: its sensor's runs' own (JobSpec.dagster_tags), so its class and
     queue weight order it (dagster_priority) and a job Dagster decides counts under the decided-by limit.
@@ -140,7 +192,7 @@ def start(jobs, job_id, kind, post, tags):
     return found["run"]["runId"]
 
 
-def main(argv, post=None):
+def main(argv, post=None, health=sensor_daemon_healthy):
     if len(argv) < 2 or argv[0] not in ("decided", "pause", "unpause", "start"):
         print(__doc__.split("\n\n")[1], file=sys.stderr)
         return 64
@@ -162,6 +214,11 @@ def main(argv, post=None):
     except Refused as error:
         print(f"job-orchestrator: refused: {error}", file=sys.stderr)
         return 64
+    except Unreachable as error:
+        if command == "pause" and held_without_dagster(jobs, argv[2:], error, health):
+            return 0
+        print(f"job-orchestrator: {error}", file=sys.stderr)
+        return 1
     except Unanswered as error:
         print(f"job-orchestrator: {error}", file=sys.stderr)
         return 1
