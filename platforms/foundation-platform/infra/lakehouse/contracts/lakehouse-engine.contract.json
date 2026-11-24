@@ -116,7 +116,7 @@
       },
       "building_sub_parcel_silver_to_gold": {
         "moved": {
-          "pull_request": 1673,
+          "pull_request": 1675,
           "rows": 1639313,
           "fingerprint": "rows:1639313;content_hash_sum:15123884932718686327242686"
         }
