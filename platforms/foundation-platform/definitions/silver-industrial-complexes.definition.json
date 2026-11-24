@@ -20,8 +20,9 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
       "time_limit_minutes": 15,
-      "memory_max": "512M",
-      "memory_measured": "no run yet (new 2026-11-22, root ADR-0033); sized as the ILIS notice Silver load (512M), the largest thing it holds being the 13.5 MB notice list answer twice (raw bytes and parsed JSON) and the 412 KB profile workbook; systemd logs the peak of every run under this cap",
+      "memory_max": "2G",
+      "memory_measured_peak": "936M",
+      "memory_measured": "journal `memory peak` + `memory swap peak` of the first run that got past the list commit, 2026-11-23 05:20Z: 497.9M + 437.7M swap under the old 512M cap (MemoryHigh 460M), where it was throttled until its 15-minute limit after committing the list (1,478 complexes) and before committing the notice list; 2G is twice that lower bound until a whole run is measured",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
