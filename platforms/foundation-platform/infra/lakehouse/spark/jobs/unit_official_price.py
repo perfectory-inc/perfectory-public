@@ -96,7 +96,7 @@ class CommitOrder(list):
         self.before_retained = frozenset(before_retained)
 
 
-def newest_batch(source_snapshot_ids, commit_order=()) -> str | None:
+def newest_batch(source_snapshot_ids, commit_order=(), same_rows=None) -> str | None:
     """The batch of the newest vintage among `source_snapshot_ids` (root ADR-0182).
 
     None when any id is not one this job writes: the reader then cannot tell which is newest and
@@ -104,6 +104,15 @@ def newest_batch(source_snapshot_ids, commit_order=()) -> str | None:
     full after a partial one, 2026-10-11) has a later batch; the last one appended wins, by
     `commit_order` (`batch_commit_order`). Without that order two batches of one vintage are
     refused by name rather than guessed between.
+
+    One lost order needs no guess: when every batch of the vintage was appended in a snapshot that
+    has expired, `same_rows(batches)` (`batches_hold_the_same_rows`) is asked whether they hold the
+    same rows, and if so they are one batch written more than once and the largest id stands for it.
+    2026-11-22: a compaction of the two hub tables gave them new head snapshots, the join took the
+    new ids for a new input and wrote vintage 202610 a second time (188,736,512 rows each, the same
+    count, price sum and content checksum); snapshot expiry then removed both appends, the building
+    panel's read at its pin refused the vintage nine times, and the retried job held the one Spark
+    slot for two days.
     """
     vintages = {source: batch_vintage(source) for source in set(source_snapshot_ids)}
     if not vintages or None in vintages.values():
@@ -116,6 +125,8 @@ def newest_batch(source_snapshot_ids, commit_order=()) -> str | None:
     earlier = batches & getattr(commit_order, "before_retained", frozenset())
     # The batches whose snapshot expired precede every ordered one; only their order among
     # themselves is lost, which matters only when no batch of the vintage is ordered.
+    if not ordered and earlier == batches and same_rows is not None and same_rows(batches):
+        return max(batches)
     if not ordered or set(ordered) | earlier != batches:
         raise ValueError(f"{CONTRACT} holds {len(batches)} batches of vintage {newest} "
                          f"and their order is unknown: {sorted(batches)}")
@@ -153,6 +164,36 @@ def order_batches(ingested: dict[str, int], main_head: int | None, snapshots: di
             expired.add(parts[3])
     # A batch with a load in a held snapshot is ordered by its last load.
     return CommitOrder(sorted(last, key=last.__getitem__), expired - last.keys())
+
+
+def batches_hold_the_same_rows(frame):
+    """`newest_batch`'s `same_rows` over `frame` (the price table's rows at the reader's pin).
+
+    Whether the named batches hold the same rows: each batch's row count and two sums of hashes of
+    every column but the two that carry the batch's own id (`source_snapshot_id`,
+    `source_record_id`). One scan of those batches, made only when their order is lost; what it
+    found is printed, so the run says why it chose.
+    """
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    content = sorted(set(frame.columns) - {"source_snapshot_id", "source_record_id"})
+
+    def same_rows(batches) -> bool:
+        found = (frame.where(F.col("source_snapshot_id").isin(*sorted(batches)))
+                 .groupBy("source_snapshot_id")
+                 .agg(F.count(F.lit(1)).alias("rows"),
+                      F.sum(F.xxhash64(*content).cast("decimal(38,0)")).alias("xxhash64_sum"),
+                      F.sum(F.hash(*content).cast("decimal(38,0)")).alias("murmur3_sum"))
+                 .collect())
+        prints = {row.source_snapshot_id: (int(row.rows), str(row.xxhash64_sum), str(row.murmur3_sum))
+                  for row in found}
+        same = set(prints) == set(batches) and len(set(prints.values())) == 1
+        print("unit-official-price-batches-compared " + json.dumps(
+            {"batches": {batch: list(value) for batch, value in sorted(prints.items())}, "same_rows": same},
+            sort_keys=True), flush=True)
+        return same
+
+    return same_rows
 
 
 def batch_commit_order(spark, qualified_table: str) -> CommitOrder:

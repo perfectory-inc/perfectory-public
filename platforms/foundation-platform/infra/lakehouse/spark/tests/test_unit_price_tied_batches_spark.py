@@ -42,17 +42,18 @@ class TiedBatchesTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.spark.stop()
 
-    def source(self):
+    def source(self, late_price=11):
         # SQL VALUES, not createDataFrame: no Python worker.
         return self.spark.sql(
-            f"SELECT * FROM VALUES ('{EARLY}', 'U1', 10), ('{LATE}', 'U1', 11), ('{SEPTEMBER}', 'U1', 9) "
+            f"SELECT * FROM VALUES ('{EARLY}', 'U1', 10), ('{LATE}', 'U1', {late_price}), ('{SEPTEMBER}', 'U1', 9) "
             "AS t(source_snapshot_id, mgm_bldrgst_pk, price_won)")
 
-    def chosen(self, commit_order):
+    def chosen(self, commit_order, late_price=11):
         import vintage_versions
 
         with mock.patch("unit_official_price.batch_commit_order", return_value=commit_order):
-            moved = vintage_versions.unit_price_vintages(self.spark, self.source(), "r2.silver.unit_official_price")
+            moved = vintage_versions.unit_price_vintages(self.spark, self.source(late_price),
+                                                         "r2.silver.unit_official_price")
         return {vintage: (batch, [row.price_won for row in rows.collect()]) for vintage, (rows, batch) in moved.items()}
 
     def test_the_batch_committed_last_is_the_vintages_rows(self):
@@ -64,6 +65,17 @@ class TiedBatchesTest(unittest.TestCase):
     def test_without_the_commit_order_two_batches_of_a_vintage_are_refused(self):
         with self.assertRaisesRegex(ValueError, "batches of vintage 202610"):
             self.chosen([])
+
+    def test_batches_whose_appends_expired_are_one_batch_when_they_hold_the_same_rows(self):
+        # 2026-11-22: a hub compaction made the join write vintage 202610 twice, the same rows, and
+        # snapshot expiry removed both appends; the building panel refused the vintage for two days.
+        from unit_official_price import CommitOrder
+
+        lost = CommitOrder([SEPTEMBER], before_retained={EARLY, LATE})
+        self.assertEqual(self.chosen(lost, late_price=10)["202610"], (LATE, [10]))
+        # Rows that differ are two batches, and which is later is still unknown.
+        with self.assertRaisesRegex(ValueError, "batches of vintage 202610"):
+            self.chosen(lost)
 
 
 if __name__ == "__main__":

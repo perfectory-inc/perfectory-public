@@ -86,7 +86,8 @@ def unit_price_vintages(spark: Any, source: Any, qualified: str) -> dict[str, tu
     """Each vintage's rows: its last batch, the one the building panel serves (root ADR-0185)."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
-    from unit_official_price import batch_commit_order, batch_vintage, newest_batch  # noqa: PLC0415
+    from unit_official_price import (  # noqa: PLC0415
+        batch_commit_order, batch_vintage, batches_hold_the_same_rows, newest_batch)
 
     by_vintage: dict[str, list[str]] = {}
     for row in source.select("source_snapshot_id").distinct().collect():
@@ -95,7 +96,8 @@ def unit_price_vintages(spark: Any, source: Any, qualified: str) -> dict[str, tu
             raise ValueError(f"{qualified} holds a batch the join did not write: {row.source_snapshot_id}")
         by_vintage.setdefault(vintage, []).append(row.source_snapshot_id)
     order = batch_commit_order(spark, qualified)
-    chosen = {vintage: newest_batch(ids, order) for vintage, ids in by_vintage.items()}
+    same_rows = batches_hold_the_same_rows(source)
+    chosen = {vintage: newest_batch(ids, order, same_rows) for vintage, ids in by_vintage.items()}
     return {vintage: (source.where(F.col("source_snapshot_id") == batch).withColumn("vintage", F.lit(vintage)), batch)
             for vintage, batch in chosen.items()}
 

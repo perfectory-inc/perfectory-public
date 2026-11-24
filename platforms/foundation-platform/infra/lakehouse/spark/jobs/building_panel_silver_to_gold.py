@@ -31,7 +31,7 @@ from parcel_panel_silver_to_gold import normalize_utc_timestamp, validate_identi
 from building_link_evidence import evidence_policy, verified_building_links
 from gold_rebuild import assert_minimum_row_count
 import gold_incremental as incremental
-from unit_official_price import batch_commit_order, newest_batch
+from unit_official_price import batch_commit_order, batches_hold_the_same_rows, newest_batch
 
 JOB_NAME = "building_panel_silver_to_gold"
 RUN_SUMMARY_SCHEMA_VERSION = "foundation-platform.spark_run_summary.v1"
@@ -168,7 +168,8 @@ def read_source(spark, args, name, pins, after=None, batches=None):
         order = batch_commit_order(spark, iceberg_table(args, name)) \
             if args.input_mode == "iceberg" else ()
         batch = args.price_source_snapshot_id or newest_batch(
-            (row.source_snapshot_id for row in frame.select("source_snapshot_id").distinct().collect()), order)
+            (row.source_snapshot_id for row in frame.select("source_snapshot_id").distinct().collect()), order,
+            batches_hold_the_same_rows(frame))
         if batch is not None:
             frame = frame.where(F.col("source_snapshot_id") == batch)
     if name == PRICE_SOURCE and current_row_latest(contract) is None:
