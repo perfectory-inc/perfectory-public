@@ -82,7 +82,10 @@ trap 'on_error ${LINENO}' ERR
 # and pool, and its outcome is reported through the journal as the check its definition declares.
 # It is called after the build's own journal line and before its outcome line, and its failure is
 # only the check's: the build's commit stands, and its outcome line is the build's.
-TAKEOVER_SECONDS=1800          # of the unit's hour; the build itself takes minutes
+# Measured 2026-11-23 (run 20261123T171121Z, parcel-boundary-served, the widest table): the export
+# of both sides took 26.5 of the 30 minutes this bound was, which left the comparison 3.5; a full
+# build before it takes about 12 (20261122T230957Z, 16 시도), so 40 keep both inside the unit's hour.
+TAKEOVER_SECONDS=2400
 TAKEOVER_MEMORY_LIMIT=4GB      # DuckDB's, under the unit's MemoryHigh (foundation-gold-versions@.service)
 takeover_check() {
   local run_dir="$1" check state declared table sido status=0

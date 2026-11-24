@@ -20,7 +20,9 @@ served; `sampled_written_differently` only says how many of the sampled differin
 same value, as a hint of where to look, never as a count of the whole. A takeover verdict
 (`--sides`, root ADR-0564 Revision 2026-11-22, second) hands this module both sides already read
 as values (`foundation_publisher_core::json_values`) and no digest, so there "equal" is equality of
-the values the documents say, not of their bytes.
+the values the documents say, not of their bytes. Its sides.json also names the `chunks` the sides
+were written in (a 시군구 of the key each), and the comparison joins one chunk at a time: every row
+is still compared, in the memory of one chunk and not of the 시도.
 
 The comparison is one SQL statement of the common subset (FULL OUTER JOIN, COUNT, CASE), run by
 DuckDB when this file is a command; the same text runs on Spark SQL and Trino, and the tests run it
@@ -140,6 +142,44 @@ def sample_sql(reference: str, candidate: str, keys: Sequence[str], side: str, c
             f"JOIN {candidate} c ON {candidate_on} ORDER BY {order}")
 
 
+COUNTS = ("reference_rows", "candidate_rows", "duplicate_reference_keys", "duplicate_candidate_keys",
+          "only_reference", "only_candidate", "same", "different")
+
+
+@dataclass(frozen=True)
+class Chunks:
+    """The ranges of one key column a comparison is made in, one join each: the `prefixes` of the
+    column's first `length` characters (sides.json `chunks`, the ranges `export-gold-takeover-sides`
+    wrote the sides in). 2026-11-23 17:38Z: the join of 시도 41 of gold.parcel_boundary_served whole
+    (5,211,798 parcels on each side, their geometry as text) ran out of the verdict's 4 GB and the
+    table had no verdict."""
+
+    column: str
+    length: int
+    prefixes: tuple[str, ...]
+
+    @classmethod
+    def of(cls, declared: dict[str, Any] | None) -> "Chunks | None":
+        if not declared:
+            return None
+        chunks = cls(str(declared["column"]), int(declared["length"]), tuple(declared["prefixes"]))
+        if not chunks.column.isidentifier() or chunks.length < 1 or not chunks.prefixes:
+            raise ValueError(f"sides.json names no chunks to compare in: {declared!r}")
+        if len(set(chunks.prefixes)) != len(chunks.prefixes):
+            raise ValueError("sides.json names a chunk twice")
+        return chunks
+
+    def relation(self, relation: str, prefix: str) -> str:
+        """`relation`'s rows of one chunk, in common SQL: the range first, so an engine skips the
+        row groups outside it, and the prefix itself, so a shorter code is read once."""
+        if not prefix.isascii() or not prefix.isdigit() or len(prefix) > self.length:
+            raise ValueError(f"the chunk {prefix!r} is not at most {self.length} digits")
+        following = str(int(prefix) + 1).zfill(len(prefix))
+        below = f" AND {self.column} < '{following}'" if len(following) == len(prefix) else ""
+        return (f"(SELECT * FROM {relation} WHERE {self.column} >= '{prefix}'{below} "
+                f"AND SUBSTR({self.column}, 1, {self.length}) = '{prefix}')")
+
+
 def written_alike(reference: Any, candidate: Any) -> bool:
     """Whether two content values differ only in how they are written: equal once every JSON text
     in them is parsed (key order, number spelling, an absent key against a null one)."""
@@ -195,17 +235,36 @@ def verdict_of(counts: dict[str, Any], **more: Any) -> Verdict:
 
 
 def compare(run: Any, reference: str, candidate: str, keys: Sequence[str], engine: str,
-            content: Sequence[str] = (), digest: str | None = gold_fingerprint.DIGEST) -> Verdict:
+            content: Sequence[str] = (), digest: str | None = gold_fingerprint.DIGEST,
+            chunks: Chunks | None = None) -> Verdict:
     """Compare two relations through `run(sql) -> list[dict]`, the caller's engine connection.
     `content` are the output's content columns, compared themselves; `digest` None is a table
-    without a row digest, compared on `content` alone and without a fingerprint."""
-    counts = run(keyed_diff_sql(reference, candidate, keys, content, digest))[0]
+    without a row digest, compared on `content` alone and without a fingerprint. With `chunks` the
+    join is made one chunk at a time and the counts are summed; rows the chunks do not hold (a null
+    key, a prefix the export did not list) are an error, never rows left uncompared."""
+    pairs = ([(reference, candidate)] if chunks is None else
+             [(chunks.relation(reference, prefix), chunks.relation(candidate, prefix)) for prefix in chunks.prefixes])
+    counts = dict.fromkeys(COUNTS, 0)
+    samples: dict[str, list[dict[str, Any]]] = {}
+    for one_reference, one_candidate in pairs:
+        found = run(keyed_diff_sql(one_reference, one_candidate, keys, content, digest))[0]
+        for name in COUNTS:
+            counts[name] += int(found[name])
+        for side in ("only_reference", "only_candidate", "different"):
+            wanted = SAMPLE_LIMIT - len(samples.get(side, ()))
+            if int(found[side]) and wanted > 0:
+                samples.setdefault(side, []).extend(
+                    run(sample_sql(one_reference, one_candidate, keys, side, content, digest, wanted)))
+    if chunks is not None:
+        whole = {f"{side}_rows": int(run(f"SELECT COUNT(*) AS n FROM {relation}")[0]["n"])
+                 for side, relation in (("reference", reference), ("candidate", candidate))}
+        outside = {name: rows - counts[name] for name, rows in whole.items() if rows != counts[name]}
+        if outside:
+            raise RuntimeError(f"the chunks do not hold every row of the sides (rows outside them: {outside})")
     prints: list[str | None] = [None, None]
     if digest:
         prints = [gold_fingerprint.value(row["rows"], row["digest_sum"])
                   for row in (run(fingerprint_sql(name, engine, digest))[0] for name in (reference, candidate))]
-    samples = {side: run(sample_sql(reference, candidate, keys, side, content, digest))
-               for side in ("only_reference", "only_candidate", "different") if int(counts[side])}
     written = None
     if content and samples.get("different"):
         written = sum(all(written_alike(row[f"reference_{name}"], row[f"candidate_{name}"]) for name in content)
@@ -241,7 +300,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--no-digest", action="store_true",
                         help="The table has no row_digest: compare the content columns alone.")
     parser.add_argument("--sides", help="sides.json of `export-gold-takeover-sides`: its keys, content, digest "
-                                        "and pins stand for --key, --content, --no-digest and --pins.")
+                                        "and pins stand for --key, --content, --no-digest and --pins, and its "
+                                        "chunks are the ranges the comparison joins one at a time.")
     parser.add_argument("--runner-command",
                         help="Run each statement through this command (SQL on stdin, a JSON array of rows out) "
                              "over its own views `reference` and `candidate`, instead of the duckdb module.")
@@ -283,7 +343,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for name, path in zip(relations, (args.reference, args.candidate), strict=True):
             quoted = path.replace("\\", "/").replace("'", "''")
             connection.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{quoted}')")
-    found = compare(run, *relations, keys, "duckdb", content, digest)
+    found = compare(run, *relations, keys, "duckdb", content, digest, Chunks.of(sides.get("chunks")))
     pins = json.load(open(args.pins, encoding="utf-8")) if args.pins else sides.get("pins")
     snapshots = {name: sides[name] for name in ("table", "reference_snapshot", "candidate_snapshot") if name in sides}
     report = found.report(job=args.job, reference_engine=args.reference_engine, candidate_engine=args.candidate_engine,

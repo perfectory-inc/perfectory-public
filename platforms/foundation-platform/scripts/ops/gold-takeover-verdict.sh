@@ -21,7 +21,8 @@
 # a null member absent, a number its value, an instant its time), row_digest (a hash of the bytes) not
 # at all (ADR-0564 Revision 2026-11-22 (둘째)). The publisher writes the 시도's two sides as Parquet
 # with sides.json, and engine_equality.py compares them by key through the publisher's DuckDB (the
-# release images have no Python duckdb). Exits 0 when equal, 1 when not, 3 when a result check fails
+# release images have no Python duckdb), one 시군구 of the key at a time (sides.json `chunks`; the
+# 시도 joined whole ran out of memory on the served parcel boundaries, 2026-11-23 17:38Z). Exits 0 when equal, 1 when not, 3 when a result check fails
 # (a national aggregate or a document; the 시도's comparison is still made and recorded), any other
 # code on an error of the run (an empty 시도 is one); verdict.json, which names the 시도 and carries the
 # result checks, is the record.
