@@ -6,8 +6,8 @@ steps gold-versions-build.sh asks of it:
     gold_takeover_check.py declared <summary.json> <definitions dir> <state file>
         prints "<versions table> <시도>" when the run is a shadow build whose definition declares the
         check (the 시도 it names) and its head wants a verdict: a commit always, a run that kept the
-        head only until one verdict of that head has run to its end (the state file says which did);
-        prints nothing otherwise.
+        head only until one verdict of that head and of the build it shadows has run to its end (the
+        state file says which did); prints nothing otherwise.
     gold_takeover_check.py report <versions table> <시도> <verdict exit status> <verdict work dir> <state file>
         prints the Dagster Pipes `report_asset_check` line the op that ran the unit logs as the check's
         evaluation (orchestration/dagster/takeover_checks.py; the op gives it its declared severity),
@@ -29,7 +29,12 @@ def declared(summary, definitions, state):
     """(table, 시도) when this run's shadow head wants a verdict, or None."""
     if not summary.get("shadow_of") or summary.get("outcome") not in ("committed", "unchanged"):
         return None
-    if summary["outcome"] == "unchanged" and state.get("completed"):
+    # A head one verdict judged to its end is not judged again, unless the build it shadows moved
+    # under it: a shadow that writes nothing (the unit prices) keeps its head while Spark builds anew.
+    # A record from before it named the reference names none, and stands for this one.
+    reference = str(summary["shadow_of"].get("build"))
+    if (summary["outcome"] == "unchanged" and state.get("completed")
+            and str(state.get("reference_snapshot", reference)) == reference):
         return None
     table = summary["table"]
     for definition in definitions:
@@ -99,6 +104,7 @@ def main(argv):
         verdict = _read(work / "verdict.json")
         print(json.dumps(report(table, sido, status, verdict, _read(work / "checks.json")), ensure_ascii=False))
         state.write_text(json.dumps({"completed": completed(status, verdict), "exit_status": status,
+                                     "reference_snapshot": verdict.get("reference_snapshot"),
                                      "candidate_snapshot": verdict.get("candidate_snapshot")}) + "\n",
                          encoding="utf-8")
         return 0

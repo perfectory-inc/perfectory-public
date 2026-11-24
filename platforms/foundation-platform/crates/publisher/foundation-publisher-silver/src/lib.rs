@@ -163,6 +163,8 @@ pub mod place_id_join;
 pub mod place_id_release_stage;
 /// The register kinds' Gold in `DuckDB`: 총괄표제부, 철거·멸실 (root ADR-0450, ADR-0399).
 pub mod record_kind_stage;
+/// One vintage's unit prices in `DuckDB`, the Spark join they replace (root ADR-0317 §6).
+pub mod unit_official_price_stage;
 /// The unit price Gold in `DuckDB` (root ADR-0190, ADR-0564 §9 차례 4).
 pub mod unit_price_stage;
 

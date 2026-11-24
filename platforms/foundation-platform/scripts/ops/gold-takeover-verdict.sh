@@ -31,8 +31,15 @@ usage='usage: gold-takeover-verdict.sh <gold.<x>_versions> <시도> <work direct
 table="${1:?${usage}}"
 sido="${2:?${usage}}"
 work="${3:?${usage}}"
-[[ "${table}" =~ ^gold\.[a-z0-9_]+_versions$ ]] || {
-  echo "gold-takeover-verdict: ${table} is not a versions table (gold.<x>_versions)" >&2
+# The sides of a Gold come from its build and its shadow commit; the unit prices' from the Spark join's
+# newest batch and the same batch composed again at its pins (unit_official_price_versions_build).
+case "${table}" in
+  gold.*_versions) export_command=export-gold-takeover-sides ;;
+  silver.unit_official_price_versions) export_command=export-unit-official-price-takeover-sides ;;
+  *) export_command='' ;;
+esac
+[[ "${table}" =~ ^[a-z]+\.[a-z0-9_]+_versions$ && -n "${export_command}" ]] || {
+  echo "gold-takeover-verdict: ${table} is not a versions table a verdict compares" >&2
   exit 64
 }
 [[ "${sido}" =~ ^[0-9]{2}$ ]] || {
@@ -49,7 +56,7 @@ export FOUNDATION_PLATFORM_GOLD_TAKEOVER_WORK_DIR="${work}"
 export FOUNDATION_PLATFORM_GOLD_TAKEOVER_TEMP_DIRECTORY="${work}/spill"
 
 status=0
-"${PUBLISHER_BIN}" export-gold-takeover-sides >"${work}/export.out" 2>&1 || status=$?
+"${PUBLISHER_BIN}" "${export_command}" >"${work}/export.out" 2>&1 || status=$?
 tail -n 3 "${work}/export.out"
 failed=0
 if [[ "${status}" -ne 0 ]]; then

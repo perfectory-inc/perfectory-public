@@ -26,7 +26,7 @@ DEFINITION = {
                       "blocking": True, "sido": "11"}],
 }
 EQUAL = {"reference_rows": 9, "same": 9, "different": 0, "only_reference": 0, "only_candidate": 0,
-         "candidate_snapshot": "7", "scope": {"sido_rows": 9, "rows_nationally": 40}}
+         "reference_snapshot": "1", "candidate_snapshot": "7", "scope": {"sido_rows": 9, "rows_nationally": 40}}
 
 
 def run(outcome="committed", **changes):
@@ -50,6 +50,15 @@ class Declared(unittest.TestCase):
         self.assertEqual(check.declared(run(), [DEFINITION], {"completed": True}), (TABLE, "11"),
                          "a commit is a new head")
 
+    def test_a_kept_head_is_judged_again_when_the_build_it_shadows_moved(self):
+        # The unit prices' shadow writes nothing: its head stays while Spark appends a newer batch.
+        done = {"completed": True, "reference_snapshot": "1"}
+        self.assertIsNone(check.declared(run("unchanged"), [DEFINITION], done))
+        moved = run("unchanged", shadow_of={"table": TABLE[:-9], "build": "price:3|exclusive:4|vintage:209912"})
+        self.assertEqual(check.declared(moved, [DEFINITION], done), (TABLE, "11"))
+        self.assertIsNone(check.declared(moved, [DEFINITION], {"completed": True}),
+                          "a record that names no reference stands for the build it judged")
+
     def test_no_verdict_without_a_shadow_or_a_declared_check(self):
         self.assertIsNone(check.declared(run(shadow_of=None), [DEFINITION], {}))
         self.assertIsNone(check.declared(run(), [{"assets": DEFINITION["assets"]}], {}))
@@ -65,7 +74,8 @@ class Declared(unittest.TestCase):
         definitions = [json.loads(path.read_text(encoding="utf-8"))
                        for path in sorted((PLATFORM / "definitions").glob("*.definition.json"))]
         for table in ("gold.parcel_sub_parcels_versions", "gold.parcel_boundary_served_versions",
-                      "gold.parcel_panel_versions", "gold.unit_price_versions"):
+                      "gold.parcel_panel_versions", "gold.unit_price_versions",
+                      "silver.unit_official_price_versions"):
             with self.subTest(table=table):
                 self.assertEqual(check.declared(run(table=table), definitions, {}), (table, "41"))
         # A lane that took its table over shadows nothing and declares the check no more (root ADR-0564 §6-4).
@@ -124,7 +134,8 @@ class Report(unittest.TestCase):
         message = json.loads(done.stdout)
         self.assertEqual(message["__dagster_pipes_version"], "0.1")
         self.assertTrue(message["params"]["passed"])
-        self.assertEqual((state["completed"], state["candidate_snapshot"]), (True, "7"))
+        self.assertEqual((state["completed"], state["reference_snapshot"], state["candidate_snapshot"]),
+                         (True, "1", "7"))
         self.assertFalse(json.loads(crashed.stdout)["params"]["passed"])
         self.assertFalse(crashed_state["completed"], "the next run judges the head again")
 
