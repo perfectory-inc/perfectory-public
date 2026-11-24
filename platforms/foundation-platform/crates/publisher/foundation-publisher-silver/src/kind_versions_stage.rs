@@ -23,6 +23,7 @@ use crate::legal_dong_code_change_stage::{PAIR_ROWS_SQL, RENUMBERED_INTO_SQL};
 use crate::parcel_nearby_stage::Source;
 use crate::place_id_join::{place_ids_sql, BRIDGE_SOURCE};
 
+#[cfg(test)]
 pub(crate) use crate::kind_versions_parts::build_by_prefix;
 pub use crate::kind_versions_parts::{build_in_parts, BUILD_PART, PART_DIGITS};
 
