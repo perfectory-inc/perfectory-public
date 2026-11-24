@@ -62,7 +62,6 @@ fn each_part_builds_the_documents_one_build_of_everything_makes() -> anyhow::Res
         .checked_sub_days(chrono::Days::new(40))
         .context("a day forty days ago")?
         .to_string();
-    let (carried, own, other) = (pnu(NEW, 12, 0), pnu(NEW, 20, 0), pnu(OTHER, 30, 0));
     let deals = [
         deal("a-1", OLD_NAME, "12", &day, 1000.0),
         deal("b-1", NEW_NAME, "20", &day, 1000.0),
@@ -70,7 +69,8 @@ fn each_part_builds_the_documents_one_build_of_everything_makes() -> anyhow::Res
         // An address no 법정동 has: the deal names no part.
         deal("d-1", "합성도 합성시 없는동", "40", &day, 1000.0),
     ];
-    let parcels = [carried, own, other];
+    // The parcel the old code's deal is carried to, the new code's own, and the other part's.
+    let parcels = [pnu(NEW, 12, 0), pnu(NEW, 20, 0), pnu(OTHER, 30, 0)];
     let land: Vec<(String, &str, f64)> = parcels
         .iter()
         .map(|parcel| (parcel.clone(), "공장용지", 1000.0))
