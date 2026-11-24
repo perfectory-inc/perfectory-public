@@ -220,6 +220,57 @@ ai-server 의 지금 층(`run_jobs.py`·`systemd_pipes.py`·`start-scheduled-job
 4. 입력이 그대로일 때 관찰을 두 번 돌리면 요청 0.
 5. `takeover_equal`(시도 41)이 통과하고, 전국의 행 수·키 해시 합·내용 해시 합이 Spark 표와 같다.
 
+### 7. 공통 드라이버의 API (한 쪽)
+
+모든 Gold 판 레인은 드라이버 하나(`kind_versions_build::run`)와 단계의 trait 하나(`KindVersionsStage`)를 쓴다. 낱말은 둘이다: **파티션 = 시도**(커밋·상태·
+Dagster 의 키), **파트 = 시군구**(한 번에 메모리에 드는 양; 밖에서 보이지 않는다). 레인은 SQL 과 아래의 선언만 준다. 스풀·나눔·루프·이어 짓기·검사 알림을
+레인이 갖지 않는다.
+
+**드라이버가 하는 일(순서).**
+
+1. 계획: 핀·코드·판본 → 원하는 버전. 머리의 상태 표와 견줘 지을 시도를 고른다(결정 2).
+2. 읽기: 입력마다 한 번 스풀(`<이름>/sido=<시도>/part=<시군구>/`). **기준 쪽(옛 핀)은 움직인 입력만 읽는다.** 필지 핀과 판본이 기준과 같으면
+   `served_old` 는 `served` 다(두 번째 4 천만 행 읽기 없음).
+3. 바뀐 키: **한 번, 스풀에서.** 움직인 행 묶음의 새 스풀과 기준 스풀을 파트 파일끼리 견준다(같은 multiset 이면 그 파트에 대상이 없다). 결과는
+   전국의 `targets(pnu)` 다. 단계가 `changed_pnus` 를 따로 갖지 않는다(기본 규칙: 행 묶음의 열 전부의 multiset 차이 + 서빙 필지의 차이). 다른 규칙이
+   필요한 단계만 `changed_keys_sql` 을 준다.
+4. 시도마다, **대상이 있는 파트만**: 싣고(파트와 그 파트가 읽는 다른 파트), 짓고(`build_in_parts`), 머리의 현재 행을 **대상이 있는 시군구의
+   글자 범위**(`pnu >= 'ddddd' AND pnu < 'ddddd'+1`)로 읽어 diff 하고, 검사하고, 그 시도를 커밋한다. 대상이 없는 시도·파트는 싣지도 읽지도 않는다.
+5. 알림: 시도마다 `report_asset_check`(검사)와 `report_asset_materialization`(커밋 뒤), 요약에 단계별 밀리초(`spool`·`targets`·`load`·`build`·
+   `diff`·`checks`·`stage`·`commit`).
+
+**trait 에서 바뀌는 것.**
+
+| 무엇 | 모양 | 기본값 | 누가 쓰나 |
+|---|---|---|---|
+| 파트의 열쇠 | `RowSet.part_key: &'static str` — 행이 드는 파트를 내는 SQL 식 | `substr(pnu, 1, 5)` | 실거래: 주소 코드의 시군구 |
+| 파트 밖 읽기 | `fn reads_outside_part(&self, connection, source, suffix) -> Result<bool>` — 참이면 `part_links(part, reads_part)` 표를 남겼다(전국, 작다; `prepare` 뒤에 부른다) | `false`, 표 없음 | 실거래: 코드 짝·서빙 형태·계보가 잇는 시군구(시도를 넘어도 된다) |
+| 바뀐 키의 다른 규칙 | `fn changed_keys_sql(&self) -> Option<String>` | `None`(위 3 의 기본 규칙) | 부속지번·인허가가 필요하면 |
+| 결과 검사 | `fn result_checks(&self) -> Vec<ResultCheck>` — `ResultCheck { name, sql, blocking }`; SQL 은 그 시도의 `built`·`appended`·`current_rows` 위에서 어긴 행 수를 낸다 | 빈 목록 | 레인의 도메인 거부 |
+| 시도 통째로 짓기 | `fn whole_region_reason(&self) -> Option<&'static str>`(#1676) | `None` | 지금 없음 |
+| 지워지는 것 | `changed_pnus`, 단계마다의 `_old` 싣기 | — | — |
+
+파트 밖 읽기가 있는 단계에서 드라이버는 파트 P 를 지을 때 열쇠가 P 이거나 `part_links` 가 P 에 이은 파트인 행을 보이고, `built` 에는 **PNU 가 P 에
+드는 문서만** 남긴다(드라이버가 지운다 — 단계가 지키는지에 기대지 않는다). 다른 시도의 파트는 그 파트의 스풀 파일을 더 싣는 것이다. 파트는 그대로
+시군구이고 파티션은 그대로 시도다: 실거래의 자체 스풀·단위 묶음·예산 짜기·이어 짓기는 지운다.
+
+**모든 레인이 받는 검사**(드라이버가 돌리고 알린다; 단계가 쓰지 않는다): 시도의 행 수와 키 수, 키마다 현재 행 하나(지금의 거부), 바뀐 문서가 스키마
+레지스트리의 그 revision 을 지킴, ADR-0564 결정 3-4 의 두 한계. `blocking` 검사가 어기면 그 시도는 붙지 않는다. 검사는 커밋 **앞**에 돌고 Pipes 의
+`report_asset_check`(파티션 = 시도)로 알린다. Spark 모듈·Trino 로 돌던 검사는 넘겨받기와 함께 사라지고 이것이 남는다.
+
+**Pipes 줄.** 발행기가 문서로 정해진 Pipes 메시지를 표준 출력에 한 줄씩 쓴다(작은 공통 모듈 하나: `report_asset_materialization`,
+`report_asset_check`, 파티션과 데이터 버전을 실어). Dagster 의 Rust Pipes 구현을 쓰지 않는 까닭: 공식 클라이언트는 Python 뿐이다(확인할 것 — 있다면 그것을
+쓴다).
+
+**누가 무엇을 짜나**(구현은 하나, 차례대로 같은 가지 위에).
+
+| 차례 | 무엇 | 누가 |
+|---|---|---|
+| 1 | 시도마다 커밋·상태 표·받은 키(이 PR), 그 위에 드라이버 루프의 4·5(대상 없는 파트 건너뛰기, 글자 범위, 단계별 시간, 검사 틀과 Pipes 줄) | W97b |
+| 2 | 읽기 2 와 바뀐 키 3(움직인 입력만의 기준 스풀, 스풀에서 한 번 찾는 대상, `changed_pnus` 지우기), 부속지번·인허가 단계 | W95b |
+| 3 | `part_key`·`reads_outside_part` 로 실거래 단계를 옮기고 자체 스풀·묶음·이어 짓기를 지운다 | W81f |
+| 4 | 공통 검사의 내용(스키마 revision, 행·키)과 레인의 `result_checks` | W96b |
+
 ## Consequences
 
 - 전량 짓기 한 번이 커밋 17 개다. 상태 표가 머리에 있어 만료가 어느 시도의 기준도 지우지 않는다.
