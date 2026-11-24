@@ -32,7 +32,7 @@ use uuid::Uuid;
 
 use crate::bronze_object_storage::live_write_bronze_streaming_object_storage_from_env;
 use crate::bulk_streaming_bronze::BronzeStreamingObjectStorageWriter;
-use crate::content_spool::{spool_payload, SpoolDir};
+use crate::content_spool::{content_addressed_writer, spool_payload, SpoolDir};
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 use crate::vworld_credentials::{
     optional_vworld_password, optional_vworld_username, vworld_password_name, vworld_username_name,
@@ -1053,29 +1053,7 @@ where
     let object_key =
         build_bronze_content_object_key(&location.object_key, &spooled.checksum_sha256)
             .context("failed to name the content-addressed Bronze key")?;
-    let held = storage
-        .read_object_sha256_and_size_by_rehash(object_key.as_str())
-        .await
-        .with_context(|| format!("failed to read back {}", object_key.as_str()))?;
-    let writer = match held {
-        None => BronzeStreamingObjectStorageWriter::new(
-            storage,
-            content_type,
-            Arc::clone(&spooled).body_stream(),
-        ),
-        Some(held)
-            if held.checksum_sha256 == spooled.checksum_sha256
-                && held.size_bytes == spooled.size_bytes =>
-        {
-            BronzeStreamingObjectStorageWriter::already_present(storage, content_type)
-        }
-        Some(held) => bail!(
-            "{} holds sha256 {} ({} bytes), not the {expected_size_bytes} bytes it names",
-            object_key.as_str(),
-            held.checksum_sha256,
-            held.size_bytes
-        ),
-    };
+    let writer = content_addressed_writer(storage, spooled, &object_key, content_type).await?;
     Ok(PlannedPayload {
         object_key,
         expected_size_bytes,

@@ -27,12 +27,21 @@
 //! among zips): it lands as what it is.
 //!
 //! One file's failure does not stop the others (each commits on its own); the run fails at the end
-//! naming every file that failed. A run writes `..._OUTPUT_DIR/manifest.json` and a local copy of
-//! each file it fetched; its last stdout line says whether it landed a new file.
+//! naming every file that failed. A run writes `..._OUTPUT_DIR/manifest.json`; its last stdout line
+//! says whether it landed a new file.
+//!
+//! No file is held in memory. A download is written to the run's spool (`..._OUTPUT_DIR/spool`) while
+//! it is hashed, and uploaded from there through the shared content-addressed write port
+//! (`content_spool`, root ADR-0168): memory holds one chunk whatever the file's size, and the spooled
+//! file is removed once it is committed. The pension and employment-insurance collectors peaked at
+//! 1.7 GiB of their 2 GiB limit holding each edition whole and writing an unread local copy
+//! (measured 2026-11-22..23). A run that does not write (`..._LIVE_WRITE` unset) keeps its copy.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io::Read as _,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -40,16 +49,18 @@ use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, Utc};
 use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
 use collection_application::{
-    plan_public_data_bulk_file, BronzeCommitter, BronzePayload, PlannedBronzeObject,
-    PublicDataBulkFileIdentity, PublicDataBulkFilePlan, PublicDataBulkFilePlanInput,
+    plan_public_data_bulk_file_metadata, BronzeCommitter, PlannedStreamingBronzeObject,
+    PublicDataBulkFileIdentity, PublicDataBulkFileMetadataInput, PublicDataBulkFileMetadataPlan,
+    StreamingBronzeRecord,
 };
 use collection_domain::{
-    build_bronze_content_object_key, source_slug, BronzeObject, IngestionRun, IngestionRunStatus,
-    IngestionTrigger, SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat,
+    build_bronze_content_object_key, source_slug, CollectionError, IngestionRun,
+    IngestionRunStatus, IngestionTrigger, SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat,
 };
 use collection_infrastructure::PgBronzeIngestUnitOfWork;
-use foundation_outbox::ObjectStorageService;
-use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
+use foundation_outbox::ObjectStorageStreamingService;
+use foundation_shared_kernel::ids::{IngestionRunId, SourceCatalogId};
+use futures_util::{stream, StreamExt as _};
 use scraper::{Html, Selector};
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
@@ -57,9 +68,9 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::bronze_object_storage::{
-    live_write_bronze_object_storage_from_env, live_write_target_preflight,
-    BronzeObjectStorageWriter,
+    live_write_bronze_streaming_object_storage_from_env, live_write_target_preflight,
 };
+use crate::content_spool::{content_addressed_writer, spool_payload, SpoolDir, SpoolFile};
 use crate::data_go_kr_onbid_collect::{gzip_lines, read_answer, Answer, ResultCodes};
 use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
@@ -73,6 +84,8 @@ const MANIFEST_SCHEMA: &str = "foundation-platform.data_go_kr_file_data_collect.
 const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
 const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
 const ZIP_MAGIC: &[u8] = b"PK\x03\x04";
+/// How much of a file's start is read to tell what it is (a zip's magic, or markup instead of a CSV).
+const HEAD_BYTES: u64 = 512;
 const SERVICE_KEY_ENV: &str = "DATA_GO_KR_SERVICE_KEY";
 
 #[derive(Clone, Debug, Deserialize)]
@@ -250,12 +263,69 @@ pub(crate) fn provider_file_id(file: &ContractFile, announced: &Announced) -> St
 
 /// What a portal file arrived as: a zip opens with its magic, and anything else is read as the CSV
 /// (an earlier edition may differ from the current one, root ADR-0604).
-fn arrived(file: &ContractFile, bytes: &[u8]) -> FileFormat {
+fn arrived(file: &ContractFile, head: &[u8]) -> FileFormat {
     match file.format {
         FileFormat::StandardPages => FileFormat::StandardPages,
-        FileFormat::Zip | FileFormat::Csv if bytes.starts_with(ZIP_MAGIC) => FileFormat::Zip,
+        FileFormat::Zip | FileFormat::Csv if head.starts_with(ZIP_MAGIC) => FileFormat::Zip,
         FileFormat::Zip | FileFormat::Csv => FileFormat::Csv,
     }
+}
+
+/// What a plan and a check need of a file's bytes: the SHA-256 that names them, their length and
+/// how they start. The bytes themselves stay on disk.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Content {
+    pub(crate) checksum_sha256: String,
+    pub(crate) size_bytes: u64,
+    pub(crate) head: Vec<u8>,
+}
+
+/// A fetched file: its bytes in the run's spool, and what was read of them on the way in.
+pub(crate) struct Spooled {
+    pub(crate) file: Arc<SpoolFile>,
+    pub(crate) content: Content,
+}
+
+impl Spooled {
+    fn of(file: SpoolFile) -> anyhow::Result<Self> {
+        let mut head = Vec::new();
+        std::fs::File::open(file.path())
+            .and_then(|opened| opened.take(HEAD_BYTES).read_to_end(&mut head))
+            .with_context(|| format!("failed to read the start of {}", file.path().display()))?;
+        Ok(Self {
+            content: Content {
+                checksum_sha256: file.checksum_sha256.clone(),
+                size_bytes: file.size_bytes,
+                head,
+            },
+            file: Arc::new(file),
+        })
+    }
+}
+
+type Body = stream::BoxStream<'static, Result<bytes::Bytes, CollectionError>>;
+
+/// Writes a body to the spool while hashing it. `declared` is the length the body must have.
+async fn spool(
+    dir: &SpoolDir,
+    body: Body,
+    content_type: &str,
+    declared: u64,
+    file_id: &str,
+) -> anyhow::Result<Spooled> {
+    Spooled::of(spool_payload(dir, body, content_type, declared, file_id).await?)
+}
+
+/// Spools bytes a run built itself (a 표준데이터 pass), so every file lands through one path.
+pub(crate) async fn spool_bytes(
+    dir: &SpoolDir,
+    bytes: Vec<u8>,
+    content_type: &str,
+    file_id: &str,
+) -> anyhow::Result<Spooled> {
+    let declared = bytes.len() as u64;
+    let body = stream::once(async move { Ok(bytes::Bytes::from(bytes)) }).boxed();
+    spool(dir, body, content_type, declared, file_id).await
 }
 
 fn extension(format: FileFormat) -> &'static str {
@@ -341,23 +411,27 @@ impl Config {
 
 /// Refuses a download that is not the file: a zip must open as one, and a CSV is never markup
 /// (the portal answers a login or notice page with HTTP 200).
-fn check_download(file: &ContractFile, format: FileFormat, bytes: &[u8]) -> anyhow::Result<()> {
+fn check_download(
+    file: &ContractFile,
+    format: FileFormat,
+    content: &Content,
+) -> anyhow::Result<()> {
     match format {
         FileFormat::Zip => ensure!(
-            bytes.starts_with(ZIP_MAGIC),
+            content.head.starts_with(ZIP_MAGIC),
             "the {} download is not a zip ({} bytes)",
             file.dataset_slug,
-            bytes.len()
+            content.size_bytes
         ),
         // Read page by page in `fetch_standard`.
         FileFormat::StandardPages => {}
         FileFormat::Csv => {
-            let head = bytes.trim_ascii_start();
+            let head = content.head.trim_ascii_start();
             ensure!(
                 !head.is_empty() && !head.starts_with(b"<") && !head.starts_with(ZIP_MAGIC),
                 "the {} download is not a CSV ({} bytes)",
                 file.dataset_slug,
-                bytes.len()
+                content.size_bytes
             );
         }
     }
@@ -627,7 +701,10 @@ async fn announce(
     read_metadata(&response.text().await?)
 }
 
-/// Downloads the file a metadata answer named.
+/// Downloads the file a metadata answer named into the spool, hashing it on the way: the body is
+/// never held whole. The portal declares every file's length (`Content-Length`, measured
+/// 2026-11-24 on a 1 KB, a 115 MB and a 134 MB file); a download without one is refused before its
+/// body is read, since the spool reserves the room first.
 async fn download(
     contract: &SourceContract,
     http: &reqwest::Client,
@@ -635,7 +712,8 @@ async fn download(
     announced: &Announced,
     spacing: ProviderRequestSpacing,
     requests: &mut usize,
-) -> anyhow::Result<Vec<u8>> {
+    dir: &SpoolDir,
+) -> anyhow::Result<Spooled> {
     spacing.wait_before_request(*requests).await;
     *requests += 1;
     let mut query = contract.download.query.clone();
@@ -651,7 +729,38 @@ async fn download(
         "the file download answered HTTP {}",
         response.status()
     );
-    Ok(Vec::from(response.bytes().await?))
+    let declared = response
+        .content_length()
+        .context("the file download declares no Content-Length")?;
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    let body = stream::unfold(Some(response), |response| async move {
+        let mut response = response?;
+        match response.chunk().await {
+            Ok(Some(chunk)) => Some((Ok(chunk), Some(response))),
+            Ok(None) => None,
+            Err(error) => Some((
+                Err(CollectionError::Infrastructure(format!(
+                    "the file download broke off: {error}"
+                ))),
+                None,
+            )),
+        }
+    })
+    .fuse()
+    .boxed();
+    spool(
+        dir,
+        body,
+        &content_type,
+        declared,
+        &announced.attach_file_id,
+    )
+    .await
 }
 
 /// Asks one file's metadata, and the file when it is new. `None` when the last landed file is
@@ -663,7 +772,8 @@ pub(crate) async fn fetch(
     spacing: ProviderRequestSpacing,
     requests: &mut usize,
     last: Option<&str>,
-) -> anyhow::Result<Option<(Announced, Vec<u8>)>> {
+    dir: &SpoolDir,
+) -> anyhow::Result<Option<(Announced, Spooled)>> {
     let http = file_client(contract, file)?;
     let announced = announce(
         contract,
@@ -677,9 +787,12 @@ pub(crate) async fn fetch(
     if last == Some(announced.attach_file_id.as_str()) {
         return Ok(None);
     }
-    let bytes = download(contract, &http, base_uri, &announced, spacing, requests).await?;
-    check_download(file, file.format, &bytes)?;
-    Ok(Some((announced, bytes)))
+    let spooled = download(
+        contract, &http, base_uri, &announced, spacing, requests, dir,
+    )
+    .await?;
+    check_download(file, file.format, &spooled.content)?;
+    Ok(Some((announced, spooled)))
 }
 
 /// One earlier edition the dataset page lists: its own metadata key and the day it was registered.
@@ -797,7 +910,8 @@ pub(crate) fn owed_past<'l>(
 }
 
 /// Asks one earlier edition's metadata, and its file unless that file is one already landed
-/// (`landed`): the bytes are `None` then.
+/// (`landed`): the file is `None` then.
+#[allow(clippy::too_many_arguments)] // `fetch`'s seven, with the edition in place of the last id, plus what is landed
 pub(crate) async fn fetch_past(
     contract: &SourceContract,
     file: &ContractFile,
@@ -806,7 +920,8 @@ pub(crate) async fn fetch_past(
     spacing: ProviderRequestSpacing,
     requests: &mut usize,
     landed: &BTreeSet<String>,
-) -> anyhow::Result<(Announced, Option<Vec<u8>>)> {
+    dir: &SpoolDir,
+) -> anyhow::Result<(Announced, Option<Spooled>)> {
     let http = file_client(contract, file)?;
     let mut query = file.metadata_query.clone();
     query.insert("publicDataDetailPk".to_owned(), edition.detail_pk.clone());
@@ -814,24 +929,28 @@ pub(crate) async fn fetch_past(
     if landed.contains(&announced.attach_file_id) {
         return Ok((announced, None));
     }
-    let bytes = download(contract, &http, base_uri, &announced, spacing, requests).await?;
-    check_download(file, arrived(file, &bytes), &bytes)
+    let spooled = download(
+        contract, &http, base_uri, &announced, spacing, requests, dir,
+    )
+    .await?;
+    check_download(file, arrived(file, &spooled.content.head), &spooled.content)
         .with_context(|| format!("the past edition {}", edition.detail_pk))?;
-    Ok((announced, Some(bytes)))
+    Ok((announced, Some(spooled)))
 }
 
-/// Plans one file's Bronze object. The key names the dataset and the bytes (root ADR-0152:
-/// `<dataset>--sha256-<hex>.<ext>`), not the portal's file id, so a file the portal files again under
-/// a new id is the same object; the id stays in the ledger row (`provider_file_id`) as provenance.
+/// Plans one file's Bronze object from what was read of its bytes. The key names the dataset and the
+/// bytes (root ADR-0152: `<dataset>--sha256-<hex>.<ext>`), not the portal's file id, so a file the
+/// portal files again under a new id is the same object; the id stays in the ledger row
+/// (`provider_file_id`) as provenance.
 pub(crate) fn plan(
     file: &ContractFile,
-    bytes: Vec<u8>,
+    content: &Content,
     run_id: IngestionRunId,
     at: DateTime<Utc>,
-) -> anyhow::Result<PublicDataBulkFilePlan> {
+) -> anyhow::Result<PublicDataBulkFileMetadataPlan> {
     let leaf = file.dataset_slug.replace('_', "-");
-    let format = arrived(file, &bytes);
-    let mut plan = plan_public_data_bulk_file(PublicDataBulkFilePlanInput {
+    let format = arrived(file, &content.head);
+    let mut plan = plan_public_data_bulk_file_metadata(PublicDataBulkFileMetadataInput {
         source_slug: &source_slug(PROVIDER, &file.dataset_slug)?,
         ingest_date: at.date_naive(),
         ingestion_run_id: run_id,
@@ -843,7 +962,8 @@ pub(crate) fn plan(
             provider_file_id: leaf,
             provider_updated_at: None,
         },
-        raw_payload: bytes,
+        checksum_sha256: content.checksum_sha256.clone(),
+        size_bytes: content.size_bytes,
         content_type: content_type(format).to_owned(),
     })
     .with_context(|| format!("failed to plan the Bronze object for {}", file.dataset_slug))?;
@@ -860,7 +980,13 @@ fn content_type(format: FileFormat) -> &'static str {
     }
 }
 
-fn write_local_copy(output_dir: &Path, plan: &PublicDataBulkFilePlan) -> anyhow::Result<String> {
+/// Keeps a copy of a file fetched by a run that does not write: such a run's only output. The copy
+/// is made on disk, from the spool.
+fn keep_local_copy(
+    output_dir: &Path,
+    plan: &PublicDataBulkFileMetadataPlan,
+    spooled: &Spooled,
+) -> anyhow::Result<String> {
     let name = plan
         .object_key
         .as_str()
@@ -870,29 +996,26 @@ fn write_local_copy(output_dir: &Path, plan: &PublicDataBulkFilePlan) -> anyhow:
     let relative = format!("objects/{name}");
     let path = output_dir.join(&relative);
     std::fs::create_dir_all(output_dir.join("objects"))?;
-    std::fs::write(&path, &plan.raw_payload)
+    std::fs::copy(spooled.file.path(), &path)
         .with_context(|| format!("failed to write {}", path.display()))?;
     Ok(relative)
 }
 
-/// Commits one file: source row, run row, write-once object, ledger row. Returns the object key,
-/// checksum and the local copy's path relative to `output_dir`.
-#[allow(clippy::too_many_arguments)] // the registered-factory commit's seven, plus which file
+/// Commits one file: source row, run row, write-once object streamed from the spool, ledger row.
+/// Returns the object key and checksum. The spooled file is removed when the commit is over.
 pub(crate) async fn persist<Uow, Storage>(
     contract: &SourceContract,
     file: &ContractFile,
-    output_dir: &Path,
     announced: &Announced,
-    bytes: Vec<u8>,
+    spooled: Spooled,
     at: DateTime<Utc>,
     uow: &Uow,
     storage: &Storage,
-) -> anyhow::Result<(String, String, String)>
+) -> anyhow::Result<(String, String)>
 where
     Uow: BronzeIngestUnitOfWork + ?Sized,
-    Storage: ObjectStorageService + ?Sized,
+    Storage: ObjectStorageStreamingService + ?Sized,
 {
-    let writer = BronzeObjectStorageWriter::new(storage);
     let source = uow
         .upsert_source_catalog_entry(&source_catalog_entry(contract, file, at)?)
         .await
@@ -901,28 +1024,29 @@ where
         .create_ingestion_run(&ingestion_run(source.id, file, at))
         .await
         .with_context(|| format!("failed to create the {} run", file.dataset_slug))?;
-    let mut plan = plan(file, bytes, run.id, at)?;
-    // The local copy first, so the payload moves into the commit instead of being copied (the
-    // 상가(상권) zip is about 350 MB).
-    let local = write_local_copy(output_dir, &plan)?;
-    let record = bronze_object_record(&source, &run, at, &plan, file, announced);
+    let plan = plan(file, &spooled.content, run.id, at)?;
+    let record = streaming_record(&source, &run, at, &plan, file, announced)?;
+    let writer = content_addressed_writer(
+        storage,
+        spooled.file,
+        &plan.object_key,
+        plan.content_type.clone(),
+    )
+    .await?;
     let outcome = BRONZE_COMMITTER
-        .commit(
+        .commit_streaming_bulk(
             &writer,
             uow,
-            PlannedBronzeObject {
-                object_key: plan.object_key.as_str().to_owned(),
-                payload: BronzePayload::InMemory(std::mem::take(&mut plan.raw_payload)),
-                content_type: plan.content_type.clone(),
+            PlannedStreamingBronzeObject {
                 cache_control: BRONZE_CACHE_CONTROL.to_owned(),
-                checksum_sha256: plan.checksum_sha256.clone(),
+                expected_size_bytes: plan.size_bytes,
                 record,
             },
         )
         .await
         .with_context(|| format!("failed to commit {}", plan.object_key.as_str()))?;
     ensure!(
-        outcome.checksum_sha256 == plan.checksum_sha256,
+        outcome.checksum_sha256 == plan.checksum_sha256 && outcome.size_bytes == plan.size_bytes,
         "Bronze holds different bytes at {}",
         plan.object_key.as_str()
     );
@@ -936,37 +1060,39 @@ where
     })
     .await
     .with_context(|| format!("failed to complete the {} run", file.dataset_slug))?;
-    Ok((
-        plan.object_key.as_str().to_owned(),
-        plan.checksum_sha256.clone(),
-        local,
-    ))
+    Ok((plan.object_key.as_str().to_owned(), plan.checksum_sha256))
 }
 
-fn bronze_object_record(
+/// The ledger row of one file, less the checksum and size the streamed write reports: the row the
+/// in-memory commit recorded (same key, partition, dedupe key and provenance).
+fn streaming_record(
     source: &SourceCatalogEntry,
     run: &IngestionRun,
     at: DateTime<Utc>,
-    plan: &PublicDataBulkFilePlan,
+    plan: &PublicDataBulkFileMetadataPlan,
     file: &ContractFile,
     announced: &Announced,
-) -> BronzeObject {
+) -> anyhow::Result<StreamingBronzeRecord> {
     let file_id = provider_file_id(file, announced);
-    BronzeObject {
-        id: BronzeObjectId::new(Uuid::new_v4()),
+    let dedupe_key_prefix = plan
+        .dedupe_key
+        .strip_suffix(&format!(":sha256={}", plan.checksum_sha256))
+        .with_context(|| {
+            format!(
+                "the dedupe key {} does not end in its checksum",
+                plan.dedupe_key
+            )
+        })?
+        .to_owned();
+    Ok(StreamingBronzeRecord {
+        object_key: plan.object_key.clone(),
+        content_type: plan.content_type.clone(),
         source_catalog_id: source.id,
         ingestion_run_id: run.id,
-        source_record_id: None,
-        source_partition_key: Some(plan.source_partition_key.clone()),
+        source_partition_key: plan.source_partition_key.clone(),
         source_identity_key: plan.source_identity_key.clone(),
-        dedupe_key: plan.dedupe_key.clone(),
+        dedupe_key_prefix,
         request_params: plan.request_params.clone(),
-        object_key: plan.object_key.clone(),
-        checksum_sha256: plan.checksum_sha256.clone(),
-        content_type: plan.content_type.clone(),
-        size_bytes: plan.size_bytes,
-        logical_record_count: None,
-        collected_at: at,
         snapshot_period: plan.snapshot_period.clone(),
         snapshot_date: plan.snapshot_date,
         snapshot_granularity: plan.snapshot_granularity,
@@ -979,9 +1105,8 @@ fn bronze_object_record(
             .map(|(_, extension)| format!("{file_id}.{extension}")),
         provider_file_id: Some(file_id),
         provider_updated_at: None,
-        effective_date: None,
-        created_at: at,
-    }
+        collected_at: at,
+    })
 }
 
 fn source_catalog_entry(
@@ -1037,7 +1162,7 @@ fn ingestion_run(
 
 struct Live {
     uow: PgBronzeIngestUnitOfWork,
-    storage: Box<dyn ObjectStorageService>,
+    storage: Box<dyn ObjectStorageStreamingService>,
 }
 
 /// Lands one file when it is new; `None` when the landed one is current.
@@ -1048,6 +1173,7 @@ async fn collect_one(
     live: Option<&Live>,
     requests: &mut usize,
     now: DateTime<Utc>,
+    dir: &SpoolDir,
 ) -> anyhow::Result<Option<JsonValue>> {
     let last = last_accepted(&config.state_dir, file)?;
     let (fetched, openapi) = if file.format == FileFormat::StandardPages {
@@ -1072,7 +1198,14 @@ async fn collect_one(
                     rows,
                 )
                 .await;
-                (Some((announced, bytes)), Some(check))
+                let spooled = spool_bytes(
+                    dir,
+                    bytes,
+                    content_type(FileFormat::StandardPages),
+                    &announced.attach_file_id,
+                )
+                .await?;
+                (Some((announced, spooled)), Some(check))
             }
             None => (None, None),
         }
@@ -1084,14 +1217,15 @@ async fn collect_one(
             config.request_spacing,
             requests,
             last.as_deref(),
+            dir,
         )
         .await?;
         (fetched, None)
     };
-    let Some((announced, bytes)) = fetched else {
+    let Some((announced, spooled)) = fetched else {
         return Ok(None);
     };
-    let mut entry = land(contract, file, config, live, &announced, bytes, now).await?;
+    let mut entry = land(contract, file, config, live, &announced, spooled, now).await?;
     if live.is_some() {
         let state = state_path(&config.state_dir, file);
         std::fs::create_dir_all(state.parent().context("a state file has a directory")?)?;
@@ -1106,7 +1240,7 @@ async fn collect_one(
 
 /// Lands the earlier editions of a file not yet asked, at most `max_per_run`, oldest first; each
 /// one asked is recorded as it goes, so a run that stops keeps what it asked (root ADR-0604).
-#[allow(clippy::too_many_arguments)] // `collect_one`'s six, plus the cap and the manifest it adds to
+#[allow(clippy::too_many_arguments)] // `collect_one`'s seven, plus the cap and the manifest
 async fn collect_past(
     contract: &SourceContract,
     file: &ContractFile,
@@ -1115,6 +1249,7 @@ async fn collect_past(
     live: Option<&Live>,
     requests: &mut usize,
     now: DateTime<Utc>,
+    dir: &SpoolDir,
     landed: &mut Vec<JsonValue>,
 ) -> anyhow::Result<()> {
     let http = file_client(contract, file)?;
@@ -1137,7 +1272,7 @@ async fn collect_past(
             .cloned()
             .chain(current.clone())
             .collect::<BTreeSet<_>>();
-        let (announced, bytes) = fetch_past(
+        let (announced, spooled) = fetch_past(
             contract,
             file,
             edition,
@@ -1145,10 +1280,11 @@ async fn collect_past(
             config.request_spacing,
             requests,
             &known,
+            dir,
         )
         .await?;
-        if let Some(bytes) = bytes {
-            let mut entry = land(contract, file, config, live, &announced, bytes, now).await?;
+        if let Some(spooled) = spooled {
+            let mut entry = land(contract, file, config, live, &announced, spooled, now).await?;
             entry["past_edition"] =
                 json!({"detail_pk": edition.detail_pk, "registered": edition.registered});
             landed.push(entry);
@@ -1163,33 +1299,38 @@ async fn collect_past(
     Ok(())
 }
 
-/// Lands one fetched file: committed to Bronze when the run writes, else planned and copied only.
+/// Lands one fetched file: committed to Bronze from the spool when the run writes (no local copy:
+/// nothing reads one), else planned and copied only.
 async fn land(
     contract: &SourceContract,
     file: &ContractFile,
     config: &Config,
     live: Option<&Live>,
     announced: &Announced,
-    bytes: Vec<u8>,
+    spooled: Spooled,
     now: DateTime<Utc>,
 ) -> anyhow::Result<JsonValue> {
-    let size = bytes.len();
+    let size = spooled.content.size_bytes;
     let object = if let Some(live) = live {
-        let (key, checksum, local) = persist(
+        let (key, checksum) = persist(
             contract,
             file,
-            &config.output_dir,
             announced,
-            bytes,
+            spooled,
             now,
             &live.uow,
             live.storage.as_ref(),
         )
         .await?;
-        json!({"object_key": key, "checksum_sha256": checksum, "local_path": local, "written": true})
+        json!({"object_key": key, "checksum_sha256": checksum, "local_path": null, "written": true})
     } else {
-        let plan = plan(file, bytes, IngestionRunId::new(Uuid::new_v4()), now)?;
-        let local = write_local_copy(&config.output_dir, &plan)?;
+        let plan = plan(
+            file,
+            &spooled.content,
+            IngestionRunId::new(Uuid::new_v4()),
+            now,
+        )?;
+        let local = keep_local_copy(&config.output_dir, &plan, &spooled)?;
         json!({"object_key": plan.object_key.as_str(), "checksum_sha256": plan.checksum_sha256, "local_path": local, "written": false})
     };
     tracing::info!(
@@ -1230,40 +1371,52 @@ pub async fn run() -> anyhow::Result<()> {
             .context("failed to connect to the database for data.go.kr file collection")?;
         Some(Live {
             uow: PgBronzeIngestUnitOfWork::new(pool),
-            storage: live_write_bronze_object_storage_from_env()
+            storage: live_write_bronze_streaming_object_storage_from_env()
                 .await
                 .context("failed to configure object storage for data.go.kr file collection")?,
         })
     } else {
         None
     };
+    // One file at a time is in the spool: it is removed when its commit is over.
+    let dir = SpoolDir::open(&config.output_dir.join("spool"))?;
     let mut requests = 0;
     let mut landed = Vec::new();
     let mut failed = Vec::new();
     for file in files {
-        let collected =
-            match collect_one(&contract, file, &config, live.as_ref(), &mut requests, now).await {
-                Ok(entry) => {
-                    landed.extend(entry);
-                    match &file.past_editions {
-                        Some(past) => {
-                            collect_past(
-                                &contract,
-                                file,
-                                past,
-                                &config,
-                                live.as_ref(),
-                                &mut requests,
-                                now,
-                                &mut landed,
-                            )
-                            .await
-                        }
-                        None => Ok(()),
+        let collected = match collect_one(
+            &contract,
+            file,
+            &config,
+            live.as_ref(),
+            &mut requests,
+            now,
+            &dir,
+        )
+        .await
+        {
+            Ok(entry) => {
+                landed.extend(entry);
+                match &file.past_editions {
+                    Some(past) => {
+                        collect_past(
+                            &contract,
+                            file,
+                            past,
+                            &config,
+                            live.as_ref(),
+                            &mut requests,
+                            now,
+                            &dir,
+                            &mut landed,
+                        )
+                        .await
                     }
+                    None => Ok(()),
                 }
-                Err(error) => Err(error),
-            };
+            }
+            Err(error) => Err(error),
+        };
         if let Err(error) = collected {
             tracing::error!(dataset = %file.dataset_slug, error = %format!("{error:#}"), "data.go.kr file collection failed");
             failed.push(format!("{}: {error:#}", file.dataset_slug));
