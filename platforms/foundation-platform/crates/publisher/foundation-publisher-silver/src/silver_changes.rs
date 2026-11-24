@@ -361,10 +361,11 @@ pub fn removal_changes(
     removal_changes_in(stage, contract, head, (staged, out), complete, "TRUE", load)
 }
 
-/// [`removal_changes`] of a load whose object is the whole of one part of the table (`within`, a
-/// predicate over the table's columns): the staged rows are compared with that part's current rows
-/// alone, and a marker goes to each of its keys the object no longer holds. The 실거래 load's: an
-/// export is one dataset's whole month (root ADR-0349 §3).
+/// [`removal_changes`] of a load whose object is the whole of one part of the table.
+///
+/// `within` is a predicate over the table's columns: the staged rows are compared with that part's
+/// current rows alone, and a marker goes to each of its keys the object no longer holds. The 실거래
+/// load's: an export is one dataset's whole month (root ADR-0349 §3).
 ///
 /// # Errors
 /// Refuses a table that keeps no versions per key; returns a `DuckDB` failure.

@@ -28,7 +28,7 @@ pub struct Rejected {
 }
 
 /// A row of an export: its line and the Silver columns the export fills, by name.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Row {
     /// The line the record starts on, from 1.
     pub line: u32,
@@ -37,7 +37,7 @@ pub struct Row {
 }
 
 /// One export, parsed.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Parsed {
     /// The rows that passed the line checks, in the export's order.
     pub rows: Vec<Row>,

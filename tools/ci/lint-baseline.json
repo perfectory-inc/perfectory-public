@@ -653,7 +653,7 @@
    "SC2312": 1
   },
   "platforms/foundation-platform/scripts/ops/rt-molit-silver-load.sh": {
-   "SC2312": 3
+   "SC2312": 2
   },
   "platforms/foundation-platform/scripts/ops/run-now-dispatch.sh": {
    "SC2312": 9

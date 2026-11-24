@@ -377,7 +377,7 @@ pub fn reference_from_loaded(stage: &DuckDbParquetStage) -> anyhow::Result<()> {
 }
 
 /// What one export staged.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Staged {
     /// The rows that passed the line checks.
     pub rows: u64,
@@ -395,16 +395,19 @@ pub struct Staged {
     pub quarantined: Option<String>,
 }
 
-/// Stages one parsed export as `rt_deals_<index>` (its rows, each with the 법정동 its address names
-/// and the source PNU of its lot) and `rt_rejected_<index>` (the lines not loaded, in the rejected
-/// table's columns).
+/// Stages one parsed export as `rt_deals_<index>` and `rt_rejected_<index>`.
 ///
+/// The first holds its rows, each with the 법정동 its address names and the source PNU of its lot;
+/// the second the lines not loaded, in the rejected table's columns.
 /// A quarantined export stages no row and gains a marker line 0 (unless it was refused, which is
 /// its own line 0).
 ///
 /// # Errors
 /// Returns a `DuckDB` failure, or a load identity that holds a quote.
-#[allow(clippy::too_many_lines)] // one export, staged table by table
+#[allow(clippy::too_many_lines)]
+// one export, staged table by table
+// `{rows}` and `{out}` are placeholders of the SQL text, not format arguments.
+#[allow(clippy::literal_string_with_formatting_args)]
 pub fn stage_export(
     stage: &DuckDbParquetStage,
     contract: &LakehouseTableContract,
@@ -533,9 +536,10 @@ pub struct ParcelsRead {
     pub held: u64,
 }
 
-/// Reads, once a run, the served parcels the staged exports (`rt_deals_0..objects`) can ask about,
-/// as `parcels`: each source PNU under its current code and under the earlier forms of that code
-/// the served edition may still hold (root ADR-0482 §1).
+/// Reads, once a run, the served parcels the staged exports can ask about, as `parcels`.
+///
+/// The exports are `rt_deals_0..objects`; each source PNU is asked under its current code and
+/// under the earlier forms of that code the served edition may still hold (root ADR-0482 §1).
 ///
 /// 2026-10-31: read again per object, the parcels were most of each object's 1-3 minutes and a run
 /// of 60 objects outlived its unit's 40 minutes, every hour.
@@ -610,7 +614,7 @@ pub(crate) fn read_parcels_from(
 }
 
 /// How one export's rows linked.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Linked {
     /// The rows.
     pub rows: u64,
@@ -718,9 +722,11 @@ pub fn place_export(
     Ok(linked)
 }
 
-/// Builds `rt_changes` from `rt_staged`: the month's new or changed names and a removal marker per
-/// current name the export no longer holds, compared with that month's current rows at `head` only
-/// (an export is the whole month, root ADR-0349 §3). Returns (rows, of them markers).
+/// Builds `rt_changes` from `rt_staged`: what the month's export changes.
+///
+/// The month's new or changed names and a removal marker per current name the export no longer
+/// holds, compared with that month's current rows at `head` only (an export is the whole month,
+/// root ADR-0349 §3). Returns (rows, of them markers).
 ///
 /// # Errors
 /// Returns a `DuckDB` failure, or a load identity that holds a quote.

@@ -79,7 +79,10 @@ fn staged() -> anyhow::Result<(tempfile::TempDir, DuckDbParquetStage, Staged)> {
            ('{DONG}', '{DONG_NAME}', '존재')) AS t(region_cd, full_name, status);"
     ))?;
     reference_from_loaded(&stage)?;
-    let (source, parsed) = parsed()?;
+    let (mut source, parsed) = parsed()?;
+    // The export holds three bad lines of twenty on purpose; the contract's bound (0.1%) would
+    // quarantine it, which its own test covers.
+    source.max_rejected_share = 1.0;
     let staged = stage_export(
         &stage,
         contract(TABLE)?,
