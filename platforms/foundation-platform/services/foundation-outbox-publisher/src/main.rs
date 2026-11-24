@@ -214,6 +214,7 @@ enum Command {
     IntelligenceDocuments,
     CollectRtMolitRealTransaction,
     CollectCourtauctionGoKr,
+    CheckCourtauctionGoKrReach,
     LoadCourtauctionGoKrSilver,
     CollectDataGoKrFileData,
     CollectJusoElectronicMap,
@@ -459,6 +460,12 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         #[cfg(not(unix))]
         Command::CollectCourtauctionGoKr => Box::pin(async {
             bail!("collect-courtauction-go-kr runs on the Linux host only (BoringSSL)")
+        }),
+        #[cfg(unix)]
+        Command::CheckCourtauctionGoKrReach => Box::pin(courtauction_go_kr_collect::reach::run()),
+        #[cfg(not(unix))]
+        Command::CheckCourtauctionGoKrReach => Box::pin(async {
+            bail!("check-courtauction-go-kr-reach runs on Linux only (BoringSSL)")
         }),
         Command::CollectDataGoKrFileData => Box::pin(data_go_kr_file_data_collect::run()),
         Command::CollectJusoElectronicMap => Box::pin(juso_electronic_map_collect::run()),
@@ -986,6 +993,7 @@ where
         Some("intelligence-documents") => Ok(Command::IntelligenceDocuments),
         Some("collect-rt-molit-real-transaction") => Ok(Command::CollectRtMolitRealTransaction),
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
+        Some("check-courtauction-go-kr-reach") => Ok(Command::CheckCourtauctionGoKrReach),
         Some("load-courtauction-go-kr-silver") => Ok(Command::LoadCourtauctionGoKrSilver),
         Some("collect-data-go-kr-file-data") => Ok(Command::CollectDataGoKrFileData),
         Some("collect-juso-electronic-map") => Ok(Command::CollectJusoElectronicMap),

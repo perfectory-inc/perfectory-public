@@ -356,23 +356,13 @@ enum Paged {
     Stopped(Stop),
 }
 
-/// Asks one page of one condition. The page's line holds the request and the answer as received.
-async fn page(
-    asking: &Asking<'_>,
+/// The request of one page of one condition of a list search, and its body.
+pub(crate) fn list_request(
     contract: &SourceContract,
     search: &Search,
     condition: &BTreeMap<String, String>,
     page_no: u64,
-    now: &(dyn Fn() -> DateTime<Utc> + Sync),
-) -> anyhow::Result<Paged> {
-    let at = now();
-    if !may_ask(&asking.switches, at)? {
-        return Ok(Paged::Stopped(Stop::WindowEnded));
-    }
-    let gate = asking
-        .gates
-        .get(&search.pace_group)
-        .with_context(|| format!("no collection.pace group {:?}", search.pace_group))?;
+) -> (SiteRequest, JsonValue) {
     let body = json!({
         "dma_pageInfo": {"pageNo": page_no, "pageSize": search.page_size, "totalYn": "Y"},
         "dma_srchGdsDtlSrchInfo": condition,
@@ -390,6 +380,27 @@ async fn page(
             .collect(),
         body: Some(body.clone()),
     };
+    (request, body)
+}
+
+/// Asks one page of one condition. The page's line holds the request and the answer as received.
+async fn page(
+    asking: &Asking<'_>,
+    contract: &SourceContract,
+    search: &Search,
+    condition: &BTreeMap<String, String>,
+    page_no: u64,
+    now: &(dyn Fn() -> DateTime<Utc> + Sync),
+) -> anyhow::Result<Paged> {
+    let at = now();
+    if !may_ask(&asking.switches, at)? {
+        return Ok(Paged::Stopped(Stop::WindowEnded));
+    }
+    let gate = asking
+        .gates
+        .get(&search.pace_group)
+        .with_context(|| format!("no collection.pace group {:?}", search.pace_group))?;
+    let (request, body) = list_request(contract, search, condition, page_no);
     let line = |status: u16, text: &str| {
         serde_json::to_string(&json!({
             "operation": search.operation,
@@ -1458,6 +1469,7 @@ pub(crate) mod codes;
 pub(crate) mod detail;
 pub(crate) mod dividends;
 pub(crate) mod notices;
+pub(crate) mod reach;
 pub(crate) mod reports;
 pub(crate) mod specs;
 
