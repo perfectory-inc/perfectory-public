@@ -507,16 +507,9 @@ fn has_table(connection: &duckdb::Connection, name: &str) -> anyhow::Result<bool
     )? > 0)
 }
 
-/// The code crosswalk as tables (`crosswalk`, `ambiguous`, `served_forms`) from `code_changes` and
-/// `code_names`: the one place-identity resolver's (`place_identity_stage::reference_from_loaded`,
-/// root ADR-0288 §1), read back for the address codes.
-pub(crate) fn crosswalk_tables(
-    connection: &duckdb::Connection,
-) -> anyhow::Result<(BTreeMap<String, String>, BTreeSet<String>)> {
-    crosswalk_tables_from(connection, "code_changes", "code_names")
-}
-
-/// [`crosswalk_tables`] from the code change table `changes` and the code snapshot `names`, for a
+/// The code crosswalk as tables (`crosswalk`, `ambiguous`, `served_forms`): the one place-identity
+/// resolver's (`place_identity_stage::reference_from_loaded`, root ADR-0288 §1), read back for the
+/// address codes from the code change table `changes` and the code snapshot `names`, for a
 /// caller whose connection holds another `code_changes` (the shared versions build keeps its own,
 /// of the pairs in force only).
 pub(crate) fn crosswalk_tables_from(
@@ -600,16 +593,8 @@ fn address_codes(
         .collect()
 }
 
-/// `address_codes` from `code_names` (`region_cd`, `full_name`, `status`: the newest code snapshot).
-pub(crate) fn address_code_table(
-    connection: &duckdb::Connection,
-    remap: &BTreeMap<String, String>,
-    ambiguous: &BTreeSet<String>,
-) -> anyhow::Result<()> {
-    address_code_table_from(connection, "code_names", remap, ambiguous)
-}
-
-/// [`address_code_table`] from the code snapshot `code_names` is read as.
+/// `address_codes` from the code snapshot `code_names` names (`region_cd`, `full_name`, `status`:
+/// the newest code snapshot).
 pub(crate) fn address_code_table_from(
     connection: &duckdb::Connection,
     code_names: &str,

@@ -3,8 +3,6 @@
 //! documents are the ones one build of everything makes, and a row that names no part is counted
 //! and left out. A test's codes share their first five digits, so its parts are their first eight.
 
-use anyhow::Context as _;
-use chrono::Datelike as _;
 use duckdb::Connection;
 
 use super::*;
@@ -72,7 +70,7 @@ fn each_part_builds_the_documents_one_build_of_everything_makes() -> anyhow::Res
         // An address no 법정동 has: the deal names no part.
         deal("d-1", "합성도 합성시 없는동", "40", &day, 1000.0),
     ];
-    let parcels = [carried.clone(), own.clone(), other.clone()];
+    let parcels = [carried, own, other];
     let land: Vec<(String, &str, f64)> = parcels
         .iter()
         .map(|parcel| (parcel.clone(), "공장용지", 1000.0))

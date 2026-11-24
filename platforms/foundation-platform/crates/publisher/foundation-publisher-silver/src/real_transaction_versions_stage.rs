@@ -257,7 +257,7 @@ impl RealTransactionKind {
 
     /// Leaves [`READERS`]: the parts the crosswalk, the served forms and the lineage
     /// ([`LINEAGE_READ`]) link, each reading the rows of every other part of its group.
-    fn links(&self, connection: &Connection) -> anyhow::Result<()> {
+    fn links(self, connection: &Connection) -> anyhow::Result<()> {
         let digits = self.part_digits;
         let edges = connection
             .prepare(&format!(
@@ -282,7 +282,7 @@ impl RealTransactionKind {
     }
 
     /// The lineage rows with the part each lies in: its predecessor's, else its successor's.
-    fn lineage_query(&self) -> String {
+    fn lineage_query(self) -> String {
         format!(
             "SELECT *, substr(coalesce(predecessor_pnu, successor_pnu), 1, {}) AS node FROM {LINEAGE_READ}",
             self.part_digits
@@ -290,7 +290,7 @@ impl RealTransactionKind {
     }
 
     /// The deals with the part each lies in: the one its address names.
-    fn deals_query(&self) -> String {
+    fn deals_query(self) -> String {
         format!(
             "SELECT d.*, substr(c.source_legal_dong, 1, {}) AS node FROM {DEALS_READ} d \
              LEFT JOIN address_codes c ON c._address = rt_address_key(d.address_raw)",
@@ -299,7 +299,7 @@ impl RealTransactionKind {
     }
 
     /// The rows of `relation` (a `pnu` column) with the part each lies in.
-    fn pnu_query(&self, relation: &str) -> String {
+    fn pnu_query(self, relation: &str) -> String {
         format!(
             "SELECT *, substr(pnu, 1, {}) AS node FROM {relation}",
             self.part_digits
