@@ -59,7 +59,8 @@ class NoHostTest(unittest.TestCase):
                  "detail": contract["item_detail"], "code": contract["common_codes"],
                  "report": contract["appraisal_reports"], "spec": contract["sale_specifications"],
                  "notice": contract["sale_notices"], "dividend": contract["dividend_notices"],
-                 **dict(zip(("case", "survey", "appraisal", "filing", "tenant"), contract["case_documents"]["documents"]))}
+                 **dict(zip(("case", "survey", "appraisal", "filing", "tenant"), contract["case_documents"]["documents"],
+                            strict=True))}
         self.assertEqual([source for _name, _table, source in lane.plans()],
                          [lane.SOURCE_PREFIX + slugs[slug]["dataset_slug"] for _table, slug, _name in planned])
 
