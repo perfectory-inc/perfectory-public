@@ -17,7 +17,7 @@ last_reviewed: 2026-11-25
 | --- | --- | --- |
 | 월 예산 `perfectory-platform-monthly`(실제 100·150, 예측 150 USD 를 넘으면 메일) | AWS Budgets | 이 스택. 계정의 첫 자원 |
 | 상태 버킷 `perfectory-platform-tofu-state-091109217099` | S3, 같은 계정 | 이 스택(처음 한 번은 아래 절차) |
-| VPC `perfectory-platform`, 공개 서브넷 둘(태스크), 사설 서브넷 둘(DB), 인터넷 게이트웨이 | VPC, ap-northeast-2a·2c | 이 스택. NAT·ALB 없음 |
+| VPC `perfectory-platform`(/16, 주소 블록은 적용 때 `TF_VAR_vpc_cidr`), 공개 서브넷 둘(태스크), 사설 서브넷 둘(DB), 인터넷 게이트웨이 | VPC, ap-northeast-2a·2c | 이 스택. NAT·ALB 없음. VPC·서브넷은 `prevent_destroy` |
 | 예산 메일 주소 | 적용할 때의 환경 변수 `TF_VAR_budget_alert_emails` | 사람이 적용할 때 준다. 파일·저장소에 적지 않는다(공개 저장소) |
 | 프런트 도어의 CloudFront 전용 예산 `perfectory-cdn-free-tier` | AWS Budgets | `infra/cdn`(호스트의 엣지 적용, [엣지 설정](./edge-settings.md)) |
 
@@ -34,6 +34,10 @@ test "$(aws sts get-caller-identity --query Account --output text)" = \
      "$(python3 -c 'import json;print(json.load(open("../../config/aws-platform.contract.json"))["account"]["id"])')"
 # 2) 예산 메일 주소: 계정의 등록 주소를 JSON 목록으로. 화면 기록·파일에 남기지 않는다.
 export TF_VAR_budget_alert_emails='["<계정의 등록 주소>"]'
+# 3) VPC 의 주소 블록: VPC 가 있으면 AWS 에서 읽어 온다(공개 저장소에는 사설 주소를 적지 않는다).
+#    처음 한 번만 사람이 고른다: 우리가 잇는 어떤 망과도 겹치지 않는 RFC 1918 의 /16.
+export TF_VAR_vpc_cidr="$(aws ec2 describe-vpcs --filters Name=tag:Name,Values=perfectory-platform   --query 'Vpcs[0].CidrBlock' --output text)"
+test "$TF_VAR_vpc_cidr" != None   # 처음 적용이면 위 줄 대신 고른 블록을 넣는다
 tofu init -input=false
 tofu plan -input=false -out="$TF_DATA_DIR/plan"
 tofu apply "$TF_DATA_DIR/plan"

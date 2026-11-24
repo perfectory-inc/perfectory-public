@@ -39,6 +39,15 @@ variable "budget_alert_emails" {
   }
 }
 
+variable "vpc_cidr" {
+  description = "The VPC's address block, given at apply time (TF_VAR_vpc_cidr) because this public repository holds no private addressing. Once the VPC exists the runbook reads it back from AWS."
+  type        = string
+  validation {
+    condition     = can(cidrhost(var.vpc_cidr, 0)) && endswith(var.vpc_cidr, "/${local.contract.network.vpc_prefix_length}")
+    error_message = "The VPC block is a CIDR of the contract's prefix length."
+  }
+}
+
 provider "aws" {
   region              = local.contract.region
   allowed_account_ids = [local.contract.account.id]
@@ -148,11 +157,15 @@ resource "aws_s3_bucket_policy" "state" {
 # The network: no NAT gateway, no load balancer (root ADR-0616 §1). Tasks take a public IPv4 address
 # in a public subnet and accept nothing inbound; the database sits in subnets with no route out.
 resource "aws_vpc" "platform" {
-  cidr_block           = local.contract.network.vpc_cidr
+  cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
   tags = {
     Name = "perfectory-platform"
+  }
+  # A block other than the live one would replace the network; the plan stops here instead.
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -175,9 +188,12 @@ resource "aws_subnet" "public" {
   for_each          = local.contract.network.public_subnets
   vpc_id            = aws_vpc.platform.id
   availability_zone = each.key
-  cidr_block        = each.value
+  cidr_block        = cidrsubnet(var.vpc_cidr, local.contract.network.subnet_newbits, each.value)
   # A task asks for its address (assignPublicIp); nothing gets one by landing here.
   map_public_ip_on_launch = false
+  lifecycle {
+    prevent_destroy = true
+  }
   tags = {
     Name = "perfectory-platform-public-${each.key}"
     tier = "public"
@@ -188,7 +204,10 @@ resource "aws_subnet" "private" {
   for_each          = local.contract.network.private_subnets
   vpc_id            = aws_vpc.platform.id
   availability_zone = each.key
-  cidr_block        = each.value
+  cidr_block        = cidrsubnet(var.vpc_cidr, local.contract.network.subnet_newbits, each.value)
+  lifecycle {
+    prevent_destroy = true
+  }
   tags = {
     Name = "perfectory-platform-private-${each.key}"
     tier = "private"

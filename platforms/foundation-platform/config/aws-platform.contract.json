@@ -30,15 +30,17 @@
     "reason": "Owner approval 2026-11-25: collection on AWS at about 92 USD a month on ARM, 160 in a month with a bulk collection (root ADR-0616 §10, re-stated at Fargate ARM prices). Actual spend past 100 is the first notice, past 150 the second; a forecast past 150 tells before the month ends. The budget mails the account's own registered address (a variable at apply time, never committed: this repository is public); budget mail needs no confirmation. Budgets without actions cost nothing."
   },
   "network": {
-    "vpc_cidr": "10.60.0.0/16",
+    "vpc_prefix_length": 16,
+    "subnet_newbits": 4,
     "public_subnets": {
-      "ap-northeast-2a": "10.60.0.0/20",
-      "ap-northeast-2c": "10.60.16.0/20"
+      "ap-northeast-2a": 0,
+      "ap-northeast-2c": 1
     },
     "private_subnets": {
-      "ap-northeast-2a": "10.60.128.0/20",
-      "ap-northeast-2c": "10.60.144.0/20"
+      "ap-northeast-2a": 8,
+      "ap-northeast-2c": 9
     },
+    "address_reason": "The VPC's own address block is given at apply time (TF_VAR_vpc_cidr), not written here: this repository is public and holds no private network addressing (scripts/guard/public-repository-safety.sh). This file decides the shape: a /16 cut into /20 subnets, each subnet the netnum its zone has in public_subnets or private_subnets (cidrsubnet). Once the VPC exists the runbook reads its block back from AWS, and the VPC and its subnets refuse to be destroyed (prevent_destroy), so a wrong block stops the plan instead of replacing the network.",
     "reason": "No NAT gateway and no load balancer (root ADR-0616 §1, §10). Tasks run in the public subnets with a public IPv4 address and no inbound rule: they reach the sources, R2, GHCR and the AWS APIs through the internet gateway. The private subnets have no route out and hold only the database (RDS needs subnets in two zones). Two zones, because RDS requires them; 2a and 2c because every Fargate and RDS class is offered there. The account's default VPC is left as it is and used by nothing here."
   }
 }
