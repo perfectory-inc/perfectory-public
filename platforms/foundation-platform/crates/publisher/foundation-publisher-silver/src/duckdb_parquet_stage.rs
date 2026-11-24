@@ -70,6 +70,21 @@ pub struct LakehouseRead {
 }
 
 impl LakehouseRead {
+    /// What [`Self::from_env`] needs: the catalog with its token, which a `DuckDB` read cannot do
+    /// without, and the writer key pair.
+    #[must_use]
+    pub fn requirements() -> Vec<foundation_shared_kernel::env_source::Requirement> {
+        use foundation_shared_kernel::env_source::{merged, Requirement};
+        let token = [Requirement::Required(
+            lakehouse_infrastructure::LakehouseCatalogConfig::WRITER_TOKEN_ENV,
+        )];
+        merged(&[
+            lakehouse_infrastructure::LakehouseCatalogConfig::WRITER_REQUIREMENTS,
+            token.as_slice(),
+            foundation_outbox::object_storage::LAKEHOUSE_WRITER_REQUIREMENTS,
+        ])
+    }
+
     /// The publisher's own lakehouse settings: the catalog and token `LakehouseCatalogConfig`
     /// reads, and the key pair `R2ObjectStorageConfig` reads, with this release's extensions.
     ///

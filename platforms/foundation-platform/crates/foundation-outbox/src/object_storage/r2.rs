@@ -2,12 +2,14 @@
 
 mod conditional;
 mod copy;
+mod lakehouse_settings;
 mod namespace;
 mod read_retry;
 mod streaming;
 mod write_retry;
 
 pub use conditional::ConditionalWrite;
+pub use lakehouse_settings::{LAKEHOUSE_READER_REQUIREMENTS, LAKEHOUSE_WRITER_REQUIREMENTS};
 pub use namespace::{
     R2KeyNamespace, RUNTIME_ENVIRONMENT_ENV, STAGING_KEY_PREFIX, STAGING_MULTIPART_THRESHOLD_ENV,
 };
@@ -24,6 +26,7 @@ use aws_sdk_s3::{
     config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region},
     Client,
 };
+use foundation_shared_kernel::env_source::ProcessEnv;
 use sha2::{Digest as _, Sha256};
 
 use crate::errors::PublishError;
@@ -211,10 +214,7 @@ impl R2ObjectStorageConfig {
     ///
     /// Returns `PublishError` when a required R2 environment variable is missing.
     pub fn from_env() -> Result<Self, PublishError> {
-        Self::lakehouse_from_env(
-            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
-        )
+        Self::lakehouse_writer_from(&ProcessEnv)
     }
 
     /// Builds the same lakehouse configuration with the read-only key pair (root ADR-0152).
@@ -226,10 +226,7 @@ impl R2ObjectStorageConfig {
     ///
     /// Returns `PublishError` when a required R2 environment variable is missing.
     pub fn lakehouse_reader_from_env() -> Result<Self, PublishError> {
-        Self::lakehouse_from_env(
-            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
-        )
+        Self::lakehouse_reader_from(&ProcessEnv)
     }
 
     /// Builds the database recovery bucket's configuration with its read-only key pair, the
@@ -250,29 +247,6 @@ impl R2ObjectStorageConfig {
             secret_access_key: required_env(
                 "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY",
             )?,
-            namespace: R2KeyNamespace::from_env()?,
-        })
-    }
-
-    fn lakehouse_from_env(
-        access_key_env: &str,
-        secret_key_env: &str,
-    ) -> Result<Self, PublishError> {
-        let endpoint = optional_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT")?.map_or_else(
-            || {
-                required_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID")
-                    .map(|account_id| format!("https://{account_id}.r2.cloudflarestorage.com"))
-            },
-            Ok,
-        )?;
-
-        Ok(Self {
-            bucket_name: required_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET")?,
-            endpoint,
-            region: optional_env("FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION")?
-                .unwrap_or_else(|| "auto".to_owned()),
-            access_key_id: required_env(access_key_env)?,
-            secret_access_key: required_env(secret_key_env)?,
             namespace: R2KeyNamespace::from_env()?,
         })
     }

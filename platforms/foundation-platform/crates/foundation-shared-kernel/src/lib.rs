@@ -3,6 +3,9 @@
 //! Keep this crate intentionally small. It contains only cross-context identifiers, value
 //! objects, and event wire contracts shared by Foundation capabilities.
 
+/// Where settings are read from and what a configuration says it needs.
+pub mod env_source;
+
 /// Shared kernel error types.
 pub mod errors;
 
