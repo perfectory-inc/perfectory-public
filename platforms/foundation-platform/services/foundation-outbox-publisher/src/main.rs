@@ -61,6 +61,7 @@ mod data_go_kr_file_data_collect;
 mod data_go_kr_file_data_silver_load;
 mod data_go_kr_onbid_collect;
 mod dbase_table;
+mod describe_requirements;
 mod industrial_complex_address_resolution_build;
 mod industrial_complex_address_source_collect;
 mod industrial_complex_boundary_postgis_publish;
@@ -384,6 +385,14 @@ enum Command {
 }
 
 fn main() -> anyhow::Result<()> {
+    // `describe-requirements <command>...` names other commands, so it is read before the parser,
+    // which takes one word.
+    let words: Vec<String> = env::args().skip(1).collect();
+    if words.first().map(String::as_str) == Some(describe_requirements::COMMAND) {
+        let known = |command: &str| parse_command(["", command]).is_ok();
+        println!("{}", describe_requirements::answer(&words[1..], known));
+        return Ok(());
+    }
     let command = parse_command(env::args())?;
     run_command_runtime(command)
         .map_err(exit_if_refused)

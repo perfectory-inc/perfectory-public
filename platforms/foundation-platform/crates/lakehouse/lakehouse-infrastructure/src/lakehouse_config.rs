@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 
+use foundation_shared_kernel::env_source::Requirement;
 use thiserror::Error;
 
 const PROVIDER_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER";
@@ -65,6 +66,25 @@ pub struct LakehouseCatalogConfig {
 }
 
 impl LakehouseCatalogConfig {
+    /// What [`Self::from_env`] needs: the catalog, and the writer token where the catalog asks one.
+    pub const WRITER_REQUIREMENTS: &'static [Requirement] = &[
+        Requirement::Required(PROVIDER_ENV),
+        Requirement::Required(CATALOG_URI_ENV),
+        Requirement::Required(WAREHOUSE_ENV),
+        Requirement::Optional(TOKEN_ENV),
+    ];
+
+    /// The writer token's name: a `DuckDB` read cannot do without it (`LakehouseRead`).
+    pub const WRITER_TOKEN_ENV: &'static str = TOKEN_ENV;
+
+    /// What [`Self::reader_from_env`] needs: the same catalog with the read-only token.
+    pub const READER_REQUIREMENTS: &'static [Requirement] = &[
+        Requirement::Required(PROVIDER_ENV),
+        Requirement::Required(CATALOG_URI_ENV),
+        Requirement::Required(WAREHOUSE_ENV),
+        Requirement::Optional(READER_TOKEN_ENV),
+    ];
+
     /// Reads lakehouse catalog settings from process environment variables.
     ///
     /// # Errors

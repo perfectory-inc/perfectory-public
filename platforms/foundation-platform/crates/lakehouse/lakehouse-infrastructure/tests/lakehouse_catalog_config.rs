@@ -197,3 +197,65 @@ fn smoke_table_name_rejects_path_like_or_ambiguous_values() {
         ));
     }
 }
+
+#[test]
+fn the_declared_requirements_are_what_each_loader_needs() {
+    use foundation_shared_kernel::env_source::Requirement;
+
+    type Load = fn(
+        &BTreeMap<String, String>,
+    ) -> Result<LakehouseCatalogConfig, LakehouseCatalogConfigError>;
+    let loaders: [(&[Requirement], Load); 2] = [
+        (
+            LakehouseCatalogConfig::WRITER_REQUIREMENTS,
+            LakehouseCatalogConfig::from_vars,
+        ),
+        (
+            LakehouseCatalogConfig::READER_REQUIREMENTS,
+            LakehouseCatalogConfig::reader_from_vars,
+        ),
+    ];
+    for (requirements, load) in loaders {
+        // Every required name set and nothing else: enough. Any one of them gone: refused.
+        let enough: BTreeMap<String, String> = requirements
+            .iter()
+            .filter_map(|requirement| match requirement {
+                Requirement::Required(name) => Some(*name),
+                Requirement::OneOf(names) => names.first().copied(),
+                Requirement::Optional(_) => None,
+            })
+            .map(|name| {
+                let value = if name.ends_with("_PROVIDER") {
+                    "iceberg_rest"
+                } else {
+                    "synthetic"
+                };
+                (name.to_owned(), value.to_owned())
+            })
+            .collect();
+        assert!(load(&enough).is_ok(), "the declared names alone load");
+        for name in enough.keys() {
+            let mut without = enough.clone();
+            without.remove(name);
+            assert!(
+                load(&without).is_err(),
+                "{name} is declared required and is"
+            );
+        }
+        // The optional token is read when it is there.
+        let token = requirements
+            .iter()
+            .find_map(|requirement| match requirement {
+                Requirement::Optional(name) => Some(*name),
+                _ => None,
+            });
+        let mut with_token = enough.clone();
+        with_token.extend(token.map(|name| (name.to_owned(), "synthetic-token".to_owned())));
+        assert_eq!(
+            load(&with_token)
+                .ok()
+                .and_then(|config| config.catalog_token),
+            Some("synthetic-token".to_owned())
+        );
+    }
+}

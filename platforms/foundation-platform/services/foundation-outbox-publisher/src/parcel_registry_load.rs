@@ -65,6 +65,19 @@ fn to_snapshot() -> anyhow::Result<String> {
     Ok(asked)
 }
 
+/// What `probe-parcel-registry` and `load-parcel-registry` need from the unit's environment: the
+/// three configurations [`open`] loads. The stage directory and the step's own variables are the
+/// script's (`parcel-registry-cycle.sh`), not the unit's.
+pub(crate) fn requirements() -> Vec<foundation_shared_kernel::env_source::Requirement> {
+    let committer = foundation_publisher_core::lakehouse_requirements::data_committer();
+    let read = LakehouseRead::requirements();
+    foundation_shared_kernel::env_source::merged(&[
+        committer.as_slice(),
+        LakehouseCatalogConfig::WRITER_REQUIREMENTS,
+        read.as_slice(),
+    ])
+}
+
 struct Opened {
     committer: LakehouseDataCommitter,
     catalog: IcebergRestCatalog,
