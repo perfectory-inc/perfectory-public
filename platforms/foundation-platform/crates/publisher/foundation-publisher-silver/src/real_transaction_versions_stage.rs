@@ -1,61 +1,107 @@
-//! The 실거래 kind's Gold rows (root ADR-0350, ADR-0371) in `DuckDB`, one closed region at a time, for
-//! `gold.parcel_real_transaction_versions` (root ADR-0564 §6).
+//! The 실거래 kind's Gold rows (root ADR-0350, ADR-0371) as a stage of the shared versions build
+//! (root ADR-0564 §6, ADR-0615 §7), for `gold.parcel_real_transaction_versions`.
 //!
-//! Every input is read once into a spool split by 시군구 (a PNU's first five digits). The 시군구 are then
-//! joined into units no placement crosses: a code pair of the crosswalk, a served form and a lineage
-//! row each link the 시군구 of their two codes, so every hop `real_transaction_placement_stage::place`
-//! can take stays inside one unit (강원·전북's new codes, 광주·전남's merge, 군위's move to 대구).
-//! Each unit is placed and written (`real_transaction_gold_stage::gold_rows`) into `built`.
+//! A deal has no PNU until it is placed, and a placement may leave the deal's own 시군구: a code pair
+//! of the crosswalk, an earlier served form of a code and a lineage row each link the 시군구 of
+//! their two codes (강원·전북's new codes, 광주·전남's renumbering, 군위's move to 대구). So the
+//! stage reads its inputs itself ([`KindVersionsStage::spool_more`]) and gives each row a `part`:
+//! the 시군구 that reads it. A row is spooled once under its own 시군구 and once under every other
+//! 시군구 of its linked group (the connected component of those links: a lineage chain may cross
+//! three), so the build of one part holds every row a placement into it can touch and nothing else.
+//! The shared build shows the stage one part at a time; the stage places the part's deals
+//! (`real_transaction_placement_stage::place`), writes their documents
+//! (`real_transaction_gold_stage::gold_rows`) and keeps those whose PNU lies in the part.
 //!
-//! The 실거래 Silver is the one input read whole into the stage: its current rows are chosen per
-//! (dataset, 계약 달, row key), which no region bounds, and `history_coverage` is defined over all of it.
+//! Measured 2026-11-24 on production (the lineage and the code change table): 72 시군구 are linked,
+//! in 32 groups of 2 to 5, 28 of them across 시도; every other 시군구 reads itself alone.
+//!
+//! The stage owns no split, loop, budget or resume: on 2026-11-23 and 11-24 the lane's own spool
+//! by 시군구 (1,790 files) failed 16 runs of 16, first on the unit's open files and then on a
+//! register row without a PNU, whose 시군구 is none.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use anyhow::{ensure, Context as _};
-use chrono::NaiveDate;
+use chrono::{Datelike as _, NaiveDate};
 use duckdb::Connection;
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
+use crate::kind_versions_stage::{
+    elapsed, is_plain, KindVersionsStage, RowSet, BUILD_PART, PART_DIGITS,
+};
 use crate::parcel_nearby_stage::Source;
-use crate::place_id_join::{place_ids_sql, BRIDGE_SOURCE};
+use crate::place_id_join::BRIDGE_SOURCE;
 use crate::real_transaction_gold_stage as gold;
 use crate::real_transaction_placement_stage as placement;
 
-/// Every input, in the order the summary names them.
-pub const INPUTS: [&str; 9] = [
-    placement::RT_SOURCE,
-    placement::PARCEL_SOURCE,
-    placement::LAND_SOURCE,
-    placement::TITLE_SOURCE,
-    placement::OWNERSHIP_SOURCE,
-    placement::LINEAGE_SOURCE,
-    placement::CODE_CHANGE_SOURCE,
-    placement::LEGAL_DONG_SOURCE,
-    BRIDGE_SOURCE,
-];
-
-/// The deals a unit takes before the next one starts (a 시군구 component larger than this is one unit).
-///
-/// 경기 whole (4.8M deals) did not fit 12 GB in the 2026-11-21 verdict and 부산 whole (617k) not its
-/// documents' 12 GB before they were built per 시군구; the unit's `MemoryMax` is 8G, of which `DuckDB`
-/// takes three fifths. A first bound to measure, not a measured one.
-pub const UNIT_DEAL_BUDGET: u64 = 700_000;
-
 /// The rules version a change of which, with the SQL texts, rebuilds every PNU.
-const RULES_VERSION: &str = "rt-versions-1";
+const RULES_VERSION: &str = "rt-versions-2";
 
-/// The table each unit's rows are appended to: the replaced table's content columns, in its order.
+/// `rt-molit-real-transaction.contract.json`: the placement's inference rules and each dataset's
+/// first month.
+const RT_CONTRACT: &str =
+    include_str!("../../../../infra/lakehouse/contracts/rt-molit-real-transaction.contract.json");
+
+/// The table a part's rows are appended to: the replaced table's content columns, in its order.
 pub const BUILT_TABLE: &str = "CREATE OR REPLACE TABLE built (pnu VARCHAR, real_transaction_json VARCHAR, \
     transaction_total BIGINT, attached_via VARCHAR, place_id VARCHAR, main_lot_group_place_ids VARCHAR, \
     row_digest VARCHAR, source_snapshot_id VARCHAR, published_at_utc VARCHAR);";
 
-/// The build's code version: the placement's and the document's SQL, the spool's, and the rules.
-#[must_use]
-pub fn code_version(inference: &Value) -> String {
+/// The spools the stage writes, each row with the part that reads it, and the table
+/// `placement::place` reads each as.
+const PART_TABLES: [(&str, &str); 6] = [
+    ("rt_deals", "deals_raw"),
+    ("rt_parcels", "parcels"),
+    ("rt_land", "land"),
+    ("rt_titles", "titles"),
+    ("rt_ownership", "ownership"),
+    ("rt_lineage", "lineage"),
+];
+/// The (dataset, 계약 달) pairs the whole Silver holds: `history_coverage` reads every one.
+const MONTHS: &str = "rt_months";
+/// The code change table and the newest code snapshot, whole, as the placement reads them. The
+/// shared build keeps a `code_changes` of its own (the pairs in force only).
+const CODE_CHANGES: &str = "rt_code_changes";
+const CODE_NAMES: &str = "rt_code_names";
+/// `(node, part)`: the other 시군구 (`part`) that read a row of `node`.
+const READERS: &str = "rt_part_readers";
+
+/// The 실거래 kind.
+#[derive(Clone, Copy, Debug)]
+pub struct RealTransactionKind {
+    /// The leading digits of a code or PNU that name its part: a 시군구's five (a test's synthetic
+    /// codes share their first five, so it names more).
+    part_digits: usize,
+}
+
+/// The one 실거래 kind.
+pub const REAL_TRANSACTION: RealTransactionKind = RealTransactionKind {
+    part_digits: PART_DIGITS,
+};
+
+fn rt_contract() -> anyhow::Result<&'static Value> {
+    static CONTRACT: OnceLock<Option<Value>> = OnceLock::new();
+    CONTRACT
+        .get_or_init(|| serde_json::from_str(RT_CONTRACT).ok())
+        .as_ref()
+        .context("rt-molit-real-transaction.contract.json is not JSON")
+}
+
+/// The build month's first day, taken once: every document names it (`as_of_month`, and the
+/// windows it opens), so the code version carries it and a new month rebuilds every PNU.
+fn build_month() -> NaiveDate {
+    static MONTH: OnceLock<NaiveDate> = OnceLock::new();
+    *MONTH.get_or_init(|| {
+        let today = chrono::Utc::now().date_naive();
+        today.with_day(1).unwrap_or(today)
+    })
+}
+
+/// The rules' version: the placement's and the document's SQL, this stage's and the rules.
+fn rules_version(inference: &Value) -> String {
     let mut hash = Sha256::new();
     let document = gold::code_texts();
     let inference = inference.to_string();
@@ -63,21 +109,17 @@ pub fn code_version(inference: &Value) -> String {
         .into_iter()
         .chain(crate::lineage_carry_stage::SQL)
         .chain(document.iter().map(String::as_str))
-        .chain([RULES_VERSION, inference.as_str()])
+        .chain([
+            RULES_VERSION,
+            SPOOL_SQL,
+            CHANGED_PARTS_SQL,
+            inference.as_str(),
+        ])
     {
         hash.update(text.as_bytes());
         hash.update([0]);
     }
     format!("{:x}", hash.finalize())
-}
-
-/// One unit: the 시군구 it builds and the deals they hold.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Unit {
-    /// 시군구 codes (five digits).
-    pub nodes: BTreeSet<String>,
-    /// The deals whose address names one of them.
-    pub deals: u64,
 }
 
 /// The root of `node` in the union-find `parent`, every node on the way pointed at it.
@@ -96,110 +138,64 @@ fn root(parent: &mut BTreeMap<String, String>, node: &str) -> String {
     at
 }
 
-/// The units of `deals_by_node` (deals per 시군구) under `edges` (pairs of 시군구 a placement links).
-///
-/// Each connected component is whole; components are packed largest first into units of at most
-/// `budget` deals (a larger component alone). Deterministic: the same inputs give the same units.
+/// `(node, part)` for every two different 시군구 of one linked group under `edges`: `part` reads
+/// the rows of `node`. The group is the connected component, so a chain of links is one group.
 #[must_use]
-pub fn units(
-    deals_by_node: &BTreeMap<String, u64>,
-    edges: &[(String, String)],
-    budget: u64,
-) -> Vec<Unit> {
-    let mut parent: BTreeMap<String, String> = deals_by_node
-        .keys()
-        .chain(edges.iter().flat_map(|(a, b)| [a, b]))
-        .map(|node| (node.clone(), node.clone()))
-        .collect();
+pub fn readers(edges: &[(String, String)]) -> BTreeSet<(String, String)> {
+    let mut parent: BTreeMap<String, String> = BTreeMap::new();
     for (a, b) in edges {
-        let (ra, rb) = (root(&mut parent, a), root(&mut parent, b));
-        if ra != rb {
-            let (low, high) = if ra < rb { (ra, rb) } else { (rb, ra) };
-            parent.insert(high, low);
+        let (a, b) = (root(&mut parent, a), root(&mut parent, b));
+        if a != b {
+            parent.insert(a.clone(), b.clone());
         }
+        parent.entry(a).or_insert_with(|| b.clone());
+        parent.entry(b.clone()).or_insert(b);
     }
     let nodes: Vec<String> = parent.keys().cloned().collect();
-    let mut components: BTreeMap<String, Unit> = BTreeMap::new();
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for node in nodes {
-        let top = root(&mut parent, &node);
-        let unit = components.entry(top).or_insert_with(|| Unit {
-            nodes: BTreeSet::new(),
-            deals: 0,
-        });
-        unit.deals += deals_by_node.get(&node).copied().unwrap_or(0);
-        unit.nodes.insert(node);
+        groups
+            .entry(root(&mut parent, &node))
+            .or_default()
+            .push(node);
     }
-    let mut components: Vec<Unit> = components.into_values().collect();
-    components.sort_by(|a, b| b.deals.cmp(&a.deals).then_with(|| a.nodes.cmp(&b.nodes)));
-    let mut packed: Vec<Unit> = Vec::new();
-    for component in components {
-        match packed
-            .iter_mut()
-            .find(|unit| unit.deals + component.deals <= budget)
-        {
-            Some(unit) => {
-                unit.deals += component.deals;
-                unit.nodes.extend(component.nodes);
+    let mut pairs = BTreeSet::new();
+    for members in groups.values() {
+        for node in members {
+            for part in members.iter().filter(|part| *part != node) {
+                pairs.insert((node.clone(), part.clone()));
             }
-            None => packed.push(component),
         }
     }
-    packed
+    pairs
 }
 
-/// What one [`spool`] read and left.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct Spooled {
-    /// Current deals of the whole Silver.
-    pub deals: u64,
-    /// Of them, deals whose address names no 법정동 of the code snapshot (placed nowhere).
-    pub unaddressed: u64,
-    /// The served edition's parcels.
-    pub served_parcels: u64,
-    /// The (dataset, 계약 달 `YYYYMM`) pairs of the whole Silver, for `history_coverage`.
-    pub months: Vec<(String, String)>,
-    /// The units, in build order.
-    pub units: Vec<Unit>,
-    /// Milliseconds each input took to read, by table name.
-    pub read_millis: BTreeMap<String, u64>,
-    /// Per 시군구, a digest of every spooled row in it (rows and the sum of their hashes, per
-    /// table): a 시군구 whose digest stayed builds the same documents.
-    pub node_digests: BTreeMap<String, String>,
-    /// A digest of what every document reads whatever its 시군구: the code tables and the whole
-    /// Silver's (dataset, 계약 달) pairs.
-    pub global_digest: String,
-}
+/// One input with the 시군구 (`node`) each row lies in, written once for every part that reads it.
+///
+/// `@query@` holds a `node` column; a row without one names no place and is not spooled. The file
+/// carries the query's columns less `node`, then `part`; the 시도 is the directory.
+const SPOOL_SQL: &str = "CREATE OR REPLACE TABLE @shape@ AS \
+       SELECT * EXCLUDE (node), node AS part FROM (@query@) LIMIT 0; \
+     COPY (SELECT * EXCLUDE (node), substr(part, 1, 2) AS sido FROM ( \
+             SELECT t.*, t.node AS part FROM (@query@) t WHERE t.node IS NOT NULL \
+             UNION ALL \
+             SELECT t.*, r.part FROM (@query@) t JOIN rt_part_readers r ON r.node = t.node)) \
+     TO '@dir@/@name@' (FORMAT parquet, COMPRESSION zstd, PARTITION_BY (sido), OVERWRITE_OR_IGNORE);";
 
-fn sql_dir(dir: &Path) -> anyhow::Result<String> {
-    let text = dir
-        .to_str()
-        .context("the spool directory must be UTF-8")?
-        .replace('\\', "/");
-    ensure!(
-        !text.contains('\''),
-        "the spool directory must not contain a quote"
-    );
-    Ok(text)
-}
+/// The parts one spool's two reads differ in: a part's rows as a multiset, by their count and the
+/// sum of their hashes (a row added, removed or changed moves its part, and so every part that
+/// reads it, since the row is spooled under each).
+const CHANGED_PARTS_SQL: &str = "SELECT coalesce(a.part, b.part) AS part FROM \
+       (SELECT part, count(*) AS n, sum(hash(t)::HUGEINT) AS s \
+        FROM read_parquet('@dir@/@name@/*/*.parquet', hive_partitioning = false) t GROUP BY part) a \
+     FULL JOIN \
+       (SELECT part, count(*) AS n, sum(hash(t)::HUGEINT) AS s \
+        FROM read_parquet('@dir@/@name@_old/*/*.parquet', hive_partitioning = false) t GROUP BY part) b \
+     ON a.part = b.part \
+     WHERE a.n IS DISTINCT FROM b.n OR a.s IS DISTINCT FROM b.s";
 
-/// A spooled table's files, their `node` read back as text.
-fn spooled(dir: &str, name: &str) -> String {
-    format!(
-        "read_parquet('{dir}/{name}/*/*.parquet', hive_partitioning = true, hive_types_autocast = false)"
-    )
-}
-
-fn millis(at: Instant) -> u64 {
-    u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX)
-}
-
-/// `COPY` of `query` to `<dir>/<name>`, one directory per value of its `node` column.
-fn copy_by_node(connection: &Connection, query: &str, dir: &str, name: &str) -> anyhow::Result<()> {
-    connection.execute_batch(&format!(
-        "COPY ({query}) TO '{dir}/{name}' \
-         (FORMAT parquet, COMPRESSION zstd, PARTITION_BY (node), OVERWRITE_OR_IGNORE)"
-    ))?;
-    Ok(())
+fn fill(template: &str, values: &[(&str, &str)]) -> String {
+    crate::kind_versions_stage::fill(template, values)
 }
 
 fn count(connection: &Connection, sql: &str) -> anyhow::Result<u64> {
@@ -207,401 +203,384 @@ fn count(connection: &Connection, sql: &str) -> anyhow::Result<u64> {
     Ok(u64::try_from(value)?)
 }
 
-/// Leaves the code tables `place` reads whole from a spool [`spool`] wrote, so a run that resumes it
-/// reads nothing from the lakehouse again.
-///
-/// # Errors
-/// A spool without them, or a SQL error.
-pub fn load_reference(connection: &Connection, dir: &Path) -> anyhow::Result<()> {
-    let dir = sql_dir(dir)?;
-    connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE code_changes AS SELECT * FROM read_parquet('{dir}/code_changes.parquet');
-         CREATE OR REPLACE TABLE code_names AS SELECT * FROM read_parquet('{dir}/code_names.parquet');"
-    ))?;
-    Ok(())
-}
-
-/// Reads every input at `source` once, for the served `edition`, into `dir`, and leaves the code
-/// tables (`code_changes`, `code_names`, `crosswalk`, `ambiguous`, `served_forms`, `address_codes`).
-///
-/// # Errors
-/// An edition that is not a plain snapshot id or holds no parcel, a pin missing, a tie the contract
-/// forbids, or a SQL error.
-pub fn spool(
+/// Writes `query`'s rows (with their `node`) as the spool `name<suffix>`; returns the rows without
+/// a 시군구, which are not spooled.
+fn spool_by_part(
     connection: &Connection,
-    source: &Source<'_>,
-    edition: &str,
-    dir: &Path,
-) -> anyhow::Result<Spooled> {
-    let dir = sql_dir(dir)?;
-    let mut read_millis = BTreeMap::new();
-    let at = Instant::now();
-    placement::reference_tables(connection, source)?;
-    connection.execute_batch(&format!(
-        "COPY code_changes TO '{dir}/code_changes.parquet' (FORMAT parquet);
-         COPY code_names TO '{dir}/code_names.parquet' (FORMAT parquet);"
-    ))?;
-    let (remap, ambiguous) = placement::crosswalk_tables(connection)?;
-    placement::address_code_table(connection, &remap, &ambiguous)?;
-    read_millis.insert(placement::CODE_CHANGE_SOURCE.to_owned(), millis(at));
-
-    // The deals, once, by the 시군구 their address names (`deals.sql` reads the same key).
-    let at = Instant::now();
-    placement::deal_rows_into(connection, source, "deals_raw")?;
-    connection.execute_batch(placement::ADDRESS_KEY_MACRO)?;
-    copy_by_node(
-        connection,
-        "SELECT d.*, substr(c.source_legal_dong, 1, 5) AS node FROM deals_raw d \
-         JOIN address_codes c ON c._address = rt_address_key(d.address_raw)",
-        &dir,
-        "deals",
-    )?;
-    let deals = count(connection, "SELECT count(*) FROM deals_raw")?;
-    let addressed = count(
-        connection,
-        "SELECT count(*) FROM deals_raw d JOIN address_codes c ON c._address = rt_address_key(d.address_raw)",
-    )?;
-    let months = connection
-        .prepare(
-            "SELECT DISTINCT dataset_slug, deal_ym FROM deals_raw \
-             WHERE dataset_slug IS NOT NULL AND deal_ym IS NOT NULL ORDER BY 1, 2",
-        )?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<Vec<(String, String)>, _>>()?;
-    connection.execute_batch("DROP TABLE deals_raw")?;
-    read_millis.insert(placement::RT_SOURCE.to_owned(), millis(at));
-
-    // Each PNU-keyed input, once, by its PNU's 시군구.
-    for (input, table) in placement::PNU_INPUTS {
-        let at = Instant::now();
-        placement::pnu_rows_into(connection, source, input, table, edition)?;
-        copy_by_node(
-            connection,
-            &format!("SELECT *, substr(pnu, 1, 5) AS node FROM {table}"),
-            &dir,
-            table,
-        )?;
-        connection.execute_batch(&format!("DROP TABLE {table}"))?;
-        read_millis.insert(input.to_owned(), millis(at));
-    }
-    let served_parcels = count(
-        connection,
-        &format!("SELECT count(*) FROM read_parquet('{dir}/parcels/*/*.parquet')"),
-    )?;
-    ensure!(
-        served_parcels > 0,
-        "edition {edition} holds no served parcel"
-    );
-    let at = Instant::now();
-    copy_by_node(
-        connection,
-        &format!(
-            "SELECT predecessor_pnu, successor_pnu, relation, grade, evidence_kind, evidence_ref, \
-               substr(coalesce(predecessor_pnu, successor_pnu), 1, 5) AS node FROM {}",
-            source.of(placement::LINEAGE_SOURCE)?
-        ),
-        &dir,
-        "lineage",
-    )?;
-    read_millis.insert(placement::LINEAGE_SOURCE.to_owned(), millis(at));
-    let at = Instant::now();
-    copy_by_node(
-        connection,
-        &format!(
-            "SELECT pnu, place_id, substr(pnu, 1, 5) AS node FROM ({})",
-            place_ids_sql(source, "TRUE")?
-        ),
-        &dir,
-        "place_ids",
-    )?;
-    read_millis.insert(BRIDGE_SOURCE.to_owned(), millis(at));
-
-    // The units: 시군구 a code pair, a served form or a lineage row links are one.
-    let deals_by_node = connection
-        .prepare(&format!(
-            "SELECT node, count(*) FROM {} GROUP BY node",
-            spooled(&dir, "deals")
-        ))?
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })?
-        .map(|row| {
-            let (node, n) = row?;
-            Ok((node, u64::try_from(n)?))
-        })
-        .collect::<anyhow::Result<BTreeMap<String, u64>>>()?;
-    let edges = connection
-        .prepare(&format!(
-            "SELECT DISTINCT a, b FROM ( \
-               SELECT substr(old_code, 1, 5) AS a, substr(current_code, 1, 5) AS b FROM crosswalk \
-               UNION ALL SELECT substr(_code10, 1, 5), substr(_form10, 1, 5) FROM served_forms \
-               UNION ALL SELECT substr(predecessor_pnu, 1, 5), substr(successor_pnu, 1, 5) FROM {}) \
-             WHERE a IS NOT NULL AND b IS NOT NULL AND a <> b ORDER BY 1, 2",
-            spooled(&dir, "lineage")
-        ))?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<Vec<(String, String)>, _>>()?;
-    let node_digests = node_digests(connection, &dir)?;
-    let codes: String = connection.query_row(
-        "SELECT (SELECT count(*) || ':' || coalesce(sum(hash(t)::HUGEINT), 0) FROM code_changes t) || '/' || \
-                (SELECT count(*) || ':' || coalesce(sum(hash(t)::HUGEINT), 0) FROM code_names t)",
-        [],
-        |row| row.get(0),
-    )?;
-    let mut global = Sha256::new();
-    global.update(codes.as_bytes());
-    for (dataset, month) in &months {
-        global.update(format!("|{dataset}:{month}").as_bytes());
-    }
-    Ok(Spooled {
-        deals,
-        unaddressed: deals.saturating_sub(addressed),
-        served_parcels,
-        months,
-        units: units(&deals_by_node, &edges, UNIT_DEAL_BUDGET),
-        read_millis,
-        node_digests,
-        global_digest: format!("{:x}", global.finalize()),
-    })
-}
-
-/// The tables a spool holds by 시군구.
-const SPOOLED_TABLES: [&str; 7] = [
-    "deals",
-    "parcels",
-    "land",
-    "titles",
-    "ownership",
-    "lineage",
-    "place_ids",
-];
-
-/// Per 시군구 of the spool in `dir`, `<table>=<rows>:<sum of row hashes>` for each table that holds a
-/// row of it.
-///
-/// The same rows in any order give the same digest, and any row added, removed or changed
-/// in a 시군구 changes that 시군구's digest alone.
-///
-/// # Errors
-/// A spool that does not hold every table, or a SQL error.
-pub fn node_digests(
-    connection: &Connection,
-    dir: &str,
-) -> anyhow::Result<BTreeMap<String, String>> {
-    let union = SPOOLED_TABLES
-        .iter()
-        .map(|name| {
-            format!(
-                "SELECT '{name}' AS name, node, count(*) AS n, sum(hash(t)::HUGEINT) AS s FROM {} t GROUP BY node",
-                spooled(dir, name)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(" UNION ALL ");
-    let digests = connection
-        .prepare(&format!(
-            "SELECT node, string_agg(name || '=' || n || ':' || s, ',' ORDER BY name) FROM ({union}) GROUP BY node"
-        ))?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<BTreeMap<String, String>, _>>()?;
-    Ok(digests)
-}
-
-/// What every unit of one build shares.
-pub struct UnitBuild<'a> {
-    /// The 실거래 contract's `place_inference`.
-    pub inference: &'a Value,
-    /// The build month (its first day).
-    pub as_of: NaiveDate,
-    /// The whole Silver's coverage (`history_coverage`).
-    pub coverage: &'a [gold::Coverage],
-    /// The commit's `source_snapshot_id` stamp.
-    pub source_snapshot_id: &'a str,
-    /// The commit's `published_at_utc` stamp.
-    pub published_at_utc: &'a str,
-}
-
-/// Places `unit`'s deals and appends its Gold rows to `built` (created by [`BUILT_TABLE`]); returns
-/// the rows.
-///
-/// # Errors
-/// A 시군구 that is not five digits, a stamp that is not plain, a placement that leaves the unit (a
-/// link the units missed), or a SQL error.
-pub fn build_unit(
-    connection: &Connection,
-    dir: &Path,
-    unit: &Unit,
-    build: &UnitBuild<'_>,
+    query: &str,
+    name: &str,
+    suffix: &str,
+    dir_text: &str,
 ) -> anyhow::Result<u64> {
-    let dir = sql_dir(dir)?;
-    let (source_snapshot_id, published_at_utc) = (build.source_snapshot_id, build.published_at_utc);
-    for node in &unit.nodes {
-        ensure!(
-            node.len() == 5 && node.bytes().all(|b| b.is_ascii_digit()),
-            "the 시군구 {node:?} is not five digits"
-        );
-    }
-    for stamp in [source_snapshot_id, published_at_utc] {
-        ensure!(
-            stamp
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-_:.TZ".contains(&b)),
-            "the stamp {stamp:?} is not plain"
-        );
-    }
-    let nodes = unit
-        .nodes
-        .iter()
-        .map(|node| format!("'{node}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let sql = [
-        ("deals_raw", "deals"),
-        ("parcels", "parcels"),
-        ("land", "land"),
-        ("titles", "titles"),
-        ("ownership", "ownership"),
-        ("lineage", "lineage"),
-        ("place_ids", "place_ids"),
-    ]
-    .iter()
-    .map(|(table, name)| {
-        format!(
-            "CREATE OR REPLACE TABLE {table} AS SELECT * EXCLUDE (node) FROM {} WHERE node IN ({nodes});",
-            spooled(&dir, name)
-        )
-    })
-    .collect::<Vec<_>>()
-    .join("\n");
-    connection.execute_batch(&sql)?;
-    placement::place(connection, build.inference)?;
-    let outside = count(
+    connection
+        .execute_batch(&fill(
+            SPOOL_SQL,
+            &[
+                ("query", query),
+                ("shape", &format!("rt_shape_{name}")),
+                ("dir", dir_text),
+                ("name", &format!("{name}{suffix}")),
+            ],
+        ))
+        .with_context(|| format!("spooling {name}{suffix} by the part that reads each row"))?;
+    count(
         connection,
-        &format!(
-            "SELECT count(*) FROM placed WHERE pnu IS NOT NULL AND substr(pnu, 1, 5) NOT IN ({nodes})"
-        ),
-    )?;
-    ensure!(
-        outside == 0,
-        "{outside} deals of a unit were placed outside it: a link the units did not join"
-    );
-    gold::gold_rows(connection, build.as_of, build.coverage)?;
-    connection.execute_batch(&format!(
-        "INSERT INTO built SELECT pnu, real_transaction_json, transaction_total, attached_via, place_id, \
-           main_lot_group_place_ids, row_digest, '{source_snapshot_id}', '{published_at_utc}' FROM gold_rows;"
-    ))?;
-    count(connection, "SELECT count(*) FROM gold_rows")
+        &format!("SELECT count(*) FROM ({query}) WHERE node IS NULL"),
+    )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// The deals a read holds whole until they are spooled.
+const DEALS_READ: &str = "rt_deals_all";
+/// The lineage a read holds whole until it is spooled.
+const LINEAGE_READ: &str = "rt_lineage_all";
 
-    fn deals(rows: &[(&str, u64)]) -> BTreeMap<String, u64> {
-        rows.iter().map(|(n, d)| ((*n).to_owned(), *d)).collect()
-    }
-
-    fn edge(a: &str, b: &str) -> (String, String) {
-        (a.to_owned(), b.to_owned())
-    }
-
-    fn nodes(unit: &Unit) -> Vec<&str> {
-        unit.nodes.iter().map(String::as_str).collect()
-    }
-
-    /// A spool whose every table holds `rows` of `(시군구, value)`.
-    fn spool_of(rows: &[(&str, &str)]) -> anyhow::Result<(tempfile::TempDir, Connection, String)> {
-        let dir = tempfile::tempdir()?;
-        let connection = Connection::open_in_memory()?;
-        let text = sql_dir(dir.path())?;
-        let values = rows
-            .iter()
-            .map(|(node, value)| format!("('{node}', '{value}')"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        for name in SPOOLED_TABLES {
-            copy_by_node(
-                &connection,
-                &format!("SELECT * FROM (VALUES {values}) AS r(node, v)"),
-                &text,
-                name,
-            )?;
-        }
-        Ok((dir, connection, text))
-    }
-
-    #[test]
-    fn a_sigungu_digest_moves_with_its_own_rows_and_not_their_order() -> anyhow::Result<()> {
-        let (_a, a, a_dir) = spool_of(&[("99901", "x"), ("99901", "y"), ("99902", "z")])?;
-        let (_b, b, b_dir) = spool_of(&[("99902", "z"), ("99901", "y"), ("99901", "x")])?;
-        let (_c, c, c_dir) = spool_of(&[("99901", "x"), ("99901", "y"), ("99902", "w")])?;
-        let first = node_digests(&a, &a_dir)?;
-        assert_eq!(
-            first,
-            node_digests(&b, &b_dir)?,
-            "the order of the rows does not count"
-        );
-        let changed = node_digests(&c, &c_dir)?;
-        assert_eq!(
-            first.get("99901"),
-            changed.get("99901"),
-            "an untouched 시군구 keeps its digest"
-        );
-        assert_ne!(
-            first.get("99902"),
-            changed.get("99902"),
-            "a changed row moves its 시군구's"
-        );
+impl RealTransactionKind {
+    /// What the placement derives from the code tables ([`CODE_CHANGES`], [`CODE_NAMES`]): the
+    /// crosswalk, the codes that split, the served forms and the address codes.
+    fn reference(connection: &Connection) -> anyhow::Result<()> {
+        let (remap, ambiguous) =
+            placement::crosswalk_tables_from(connection, CODE_CHANGES, CODE_NAMES)?;
+        placement::address_code_table_from(connection, CODE_NAMES, &remap, &ambiguous)?;
+        connection.execute_batch(placement::ADDRESS_KEY_MACRO)?;
         Ok(())
     }
 
-    #[test]
-    fn a_link_across_two_sigungu_keeps_them_in_one_unit() {
-        // A moved 군 (old code 99901 -> 99951) and a lineage row out of 99902: the three are one unit
-        // however small the budget, the unlinked 99903 its own.
-        let built = units(
-            &deals(&[("99901", 5), ("99951", 5), ("99902", 5), ("99903", 5)]),
-            &[edge("99901", "99951"), edge("99951", "99902")],
-            1,
-        );
-        assert_eq!(built.len(), 2);
-        assert_eq!(nodes(&built[0]), ["99901", "99902", "99951"]);
-        assert_eq!(built[0].deals, 15);
-        assert_eq!(nodes(&built[1]), ["99903"]);
+    /// Leaves the (dataset, 계약 달) pairs [`DEALS_READ`] holds as `rt_months<suffix>`.
+    fn months(connection: &Connection, suffix: &str) -> anyhow::Result<()> {
+        connection.execute_batch(&format!(
+            "CREATE OR REPLACE TABLE {MONTHS}{suffix} AS \
+             SELECT DISTINCT dataset_slug, deal_ym FROM {DEALS_READ} \
+             WHERE dataset_slug IS NOT NULL AND deal_ym IS NOT NULL;"
+        ))?;
+        Ok(())
     }
 
-    #[test]
-    fn unlinked_sigungu_are_packed_up_to_the_budget_largest_first() {
-        let built = units(
-            &deals(&[("99901", 6), ("99902", 4), ("99903", 3), ("99904", 1)]),
-            &[],
-            7,
-        );
-        let sets: Vec<Vec<&str>> = built.iter().map(nodes).collect();
-        assert_eq!(sets, [vec!["99901", "99904"], vec!["99902", "99903"]]);
-        assert!(built.iter().all(|unit| unit.deals <= 7));
+    /// Leaves [`READERS`]: the parts the crosswalk, the served forms and the lineage
+    /// ([`LINEAGE_READ`]) link, each reading the rows of every other part of its group.
+    fn links(&self, connection: &Connection) -> anyhow::Result<()> {
+        let digits = self.part_digits;
+        let edges = connection
+            .prepare(&format!(
+                "SELECT DISTINCT a, b FROM ( \
+                   SELECT substr(old_code, 1, {digits}) AS a, substr(current_code, 1, {digits}) AS b FROM crosswalk \
+                   UNION ALL SELECT substr(_code10, 1, {digits}), substr(_form10, 1, {digits}) FROM served_forms \
+                   UNION ALL SELECT substr(predecessor_pnu, 1, {digits}), substr(successor_pnu, 1, {digits}) \
+                             FROM {LINEAGE_READ}) \
+                 WHERE a IS NOT NULL AND b IS NOT NULL AND a <> b ORDER BY 1, 2"
+            ))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<(String, String)>, _>>()?;
+        connection.execute_batch(&format!(
+            "CREATE OR REPLACE TABLE {READERS} (node VARCHAR, part VARCHAR);"
+        ))?;
+        let mut appender = connection.appender(READERS)?;
+        for (node, part) in readers(&edges) {
+            appender.append_row(duckdb::params![node, part])?;
+        }
+        appender.flush()?;
+        Ok(())
     }
 
-    #[test]
-    fn a_sigungu_only_an_edge_names_is_still_built() {
-        // A served form whose 시군구 holds no deal: its parcels still get documents.
-        let built = units(&deals(&[("99901", 2)]), &[edge("99901", "99909")], 10);
-        assert_eq!(built.len(), 1);
-        assert_eq!(nodes(&built[0]), ["99901", "99909"]);
+    /// The lineage rows with the part each lies in: its predecessor's, else its successor's.
+    fn lineage_query(&self) -> String {
+        format!(
+            "SELECT *, substr(coalesce(predecessor_pnu, successor_pnu), 1, {}) AS node FROM {LINEAGE_READ}",
+            self.part_digits
+        )
     }
 
-    #[test]
-    fn the_units_do_not_depend_on_the_order_of_their_inputs() {
-        let a = units(
-            &deals(&[("99901", 3), ("99902", 3), ("99903", 3)]),
-            &[edge("99903", "99901")],
-            4,
-        );
-        let b = units(
-            &deals(&[("99903", 3), ("99901", 3), ("99902", 3)]),
-            &[edge("99901", "99903")],
-            4,
-        );
-        assert_eq!(a, b);
+    /// The deals with the part each lies in: the one its address names.
+    fn deals_query(&self) -> String {
+        format!(
+            "SELECT d.*, substr(c.source_legal_dong, 1, {}) AS node FROM {DEALS_READ} d \
+             LEFT JOIN address_codes c ON c._address = rt_address_key(d.address_raw)",
+            self.part_digits
+        )
+    }
+
+    /// The rows of `relation` (a `pnu` column) with the part each lies in.
+    fn pnu_query(&self, relation: &str) -> String {
+        format!(
+            "SELECT *, substr(pnu, 1, {}) AS node FROM {relation}",
+            self.part_digits
+        )
+    }
+
+    /// The whole Silver's coverage as of the build month (`history_coverage`), from the months the
+    /// read left.
+    fn coverage(connection: &Connection, as_of: NaiveDate) -> anyhow::Result<Vec<gold::Coverage>> {
+        let contract = rt_contract()?;
+        let first_months: BTreeMap<String, String> = contract["datasets"]
+            .as_object()
+            .map(|datasets| {
+                datasets
+                    .iter()
+                    .filter_map(|(slug, dataset)| {
+                        Some((slug.clone(), dataset["first_month"].as_str()?.to_owned()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let recent = u32::try_from(
+            contract["recent_history_months"]
+                .as_u64()
+                .context("the 실거래 contract names no recent_history_months")?,
+        )?;
+        let months = connection
+            .prepare(&format!(
+                "SELECT dataset_slug, deal_ym FROM {MONTHS} ORDER BY 1, 2"
+            ))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<(String, String)>, _>>()?;
+        gold::history_coverage(
+            months
+                .iter()
+                .map(|(dataset, month)| (dataset.as_str(), month.as_str())),
+            &first_months,
+            as_of,
+            recent,
+        )
     }
 }
+
+impl KindVersionsStage for RealTransactionKind {
+    fn section_column(&self) -> &'static str {
+        "real_transaction_json"
+    }
+
+    fn inputs(&self) -> Vec<&'static str> {
+        vec![
+            placement::RT_SOURCE,
+            placement::PARCEL_SOURCE,
+            placement::LAND_SOURCE,
+            placement::TITLE_SOURCE,
+            placement::OWNERSHIP_SOURCE,
+            placement::LINEAGE_SOURCE,
+            placement::CODE_CHANGE_SOURCE,
+            placement::LEGAL_DONG_SOURCE,
+            BRIDGE_SOURCE,
+        ]
+    }
+
+    /// The code change table and the code snapshot: a new pair or name may move any deal.
+    fn whole_table_inputs(&self) -> Vec<&'static str> {
+        vec![placement::CODE_CHANGE_SOURCE, placement::LEGAL_DONG_SOURCE]
+    }
+
+    /// The rules' version and the build month.
+    fn code_version(&self) -> String {
+        let inference =
+            rt_contract().map_or(Value::Null, |contract| contract["place_inference"].clone());
+        let month = build_month();
+        format!(
+            "{}.{:04}-{:02}",
+            rules_version(&inference),
+            month.year(),
+            month.month()
+        )
+    }
+
+    /// None: no input is keyed by the parcel its document is on before the placement.
+    fn row_sets(&self) -> Vec<RowSet> {
+        Vec::new()
+    }
+
+    fn carries_place_id(&self) -> bool {
+        true
+    }
+
+    #[allow(clippy::too_many_lines)] // each input, once, in the order the placement reads them
+    fn spool_more(
+        &self,
+        connection: &Connection,
+        source: &Source<'_>,
+        suffix: &str,
+        dir_text: &str,
+    ) -> anyhow::Result<BTreeMap<String, u64>> {
+        let mut read_millis = BTreeMap::new();
+
+        // The code tables, whole (small), and what the placement derives from them.
+        let at = Instant::now();
+        connection.execute_batch(&format!(
+            "CREATE OR REPLACE TABLE {CODE_CHANGES} AS \
+               SELECT kind, old_code, new_code, level, effective_date, source FROM {changes}; \
+             CREATE OR REPLACE TABLE {CODE_NAMES} AS \
+               SELECT region_cd, full_name, status FROM {names} \
+               WHERE snapshot_date = (SELECT max(snapshot_date) FROM {names});",
+            changes = source.of(placement::CODE_CHANGE_SOURCE)?,
+            names = source.of(placement::LEGAL_DONG_SOURCE)?,
+        ))?;
+        Self::reference(connection)?;
+        read_millis.insert(placement::LEGAL_DONG_SOURCE.to_owned(), elapsed(at));
+
+        // The deals, once: their months, and each under the 시군구 its address names.
+        let at = Instant::now();
+        placement::deal_rows_into(connection, source, DEALS_READ)?;
+        Self::months(connection, suffix)?;
+        read_millis.insert(placement::RT_SOURCE.to_owned(), elapsed(at));
+
+        // The lineage, once: its links, then its rows.
+        let at = Instant::now();
+        connection.execute_batch(&format!(
+            "CREATE OR REPLACE TABLE {LINEAGE_READ} AS \
+             SELECT predecessor_pnu, successor_pnu, relation, grade, evidence_kind, evidence_ref FROM {};",
+            source.of(placement::LINEAGE_SOURCE)?
+        ))?;
+        self.links(connection)?;
+        let mut unkeyed = BTreeMap::new();
+        unkeyed.insert(
+            "rt_lineage",
+            spool_by_part(
+                connection,
+                &self.lineage_query(),
+                "rt_lineage",
+                suffix,
+                dir_text,
+            )?,
+        );
+        connection.execute_batch(&format!("DROP TABLE {LINEAGE_READ};"))?;
+        read_millis.insert(placement::LINEAGE_SOURCE.to_owned(), elapsed(at));
+
+        // A deal whose address names no 법정동 has no 시군구: it is placed nowhere.
+        unkeyed.insert(
+            "rt_deals",
+            spool_by_part(
+                connection,
+                &self.deals_query(),
+                "rt_deals",
+                suffix,
+                dir_text,
+            )?,
+        );
+        connection.execute_batch(&format!("DROP TABLE {DEALS_READ};"))?;
+
+        // The served parcels the shared build spooled, under the parts that read them.
+        spool_by_part(
+            connection,
+            &self.pnu_query(&format!(
+                "read_parquet('{dir_text}/served{suffix}/*/*.parquet', hive_partitioning = false)"
+            )),
+            "rt_parcels",
+            suffix,
+            dir_text,
+        )?;
+
+        // Each register, once, by its PNU's 시군구.
+        for (input, table, name) in [
+            (placement::LAND_SOURCE, "land", "rt_land"),
+            (placement::TITLE_SOURCE, "titles", "rt_titles"),
+            (placement::OWNERSHIP_SOURCE, "ownership", "rt_ownership"),
+        ] {
+            let at = Instant::now();
+            // The edition names the parcels only; a register is read by its own current rows.
+            placement::pnu_rows_into(connection, source, input, table, "registers")?;
+            unkeyed.insert(
+                name,
+                spool_by_part(connection, &self.pnu_query(table), name, suffix, dir_text)?,
+            );
+            connection.execute_batch(&format!("DROP TABLE {table};"))?;
+            read_millis.insert(input.to_owned(), elapsed(at));
+        }
+        let side = if suffix.is_empty() { "new" } else { "base" };
+        tracing::info!(side, ?unkeyed, "rows without a 시군구 are not spooled");
+        Ok(read_millis)
+    }
+
+    fn load_more(
+        &self,
+        connection: &Connection,
+        read: &dyn Fn(&str) -> Option<String>,
+        suffix: &str,
+    ) -> anyhow::Result<u64> {
+        let mut rows = 0;
+        for (name, _) in PART_TABLES {
+            let spool = format!("{name}{suffix}");
+            // A 시도 no row is read in holds the table empty, in its columns.
+            let from = read(&spool).unwrap_or_else(|| format!("rt_shape_{name}"));
+            connection.execute_batch(&format!(
+                "CREATE OR REPLACE TABLE {spool} AS SELECT * FROM {from};"
+            ))?;
+            rows += count(connection, &format!("SELECT count(*) FROM {spool}"))?;
+        }
+        Ok(rows)
+    }
+
+    fn part_tables(&self) -> Vec<&'static str> {
+        PART_TABLES.iter().map(|(name, _)| *name).collect()
+    }
+
+    /// The served parcels: a deal may be placed on any of them.
+    fn pnu_spools(&self) -> Vec<&'static str> {
+        vec!["served"]
+    }
+
+    fn create_built(&self, connection: &Connection) -> anyhow::Result<()> {
+        connection.execute_batch(BUILT_TABLE)?;
+        Ok(())
+    }
+
+    /// Every served PNU of a part whose rows moved (a deal has no PNU to name), and every served
+    /// PNU when the months the Silver holds moved: each document's coverage reads them all.
+    fn changed_keys_sql(&self) -> Option<String> {
+        let parts = PART_TABLES
+            .iter()
+            .map(|(name, _)| CHANGED_PARTS_SQL.replace("@name@", name))
+            .collect::<Vec<_>>()
+            .join(" UNION ");
+        let digits = self.part_digits;
+        Some(format!(
+            "SELECT s.pnu FROM read_parquet('@dir@/served/*/*.parquet', hive_partitioning = false) s \
+             WHERE substr(s.pnu, 1, {digits}) IN ({parts}) \
+                OR EXISTS (SELECT * FROM {MONTHS} EXCEPT SELECT * FROM {MONTHS}_old) \
+                OR EXISTS (SELECT * FROM {MONTHS}_old EXCEPT SELECT * FROM {MONTHS})"
+        ))
+    }
+
+    fn build(
+        &self,
+        connection: &Connection,
+        all: bool,
+        source_snapshot_id: &str,
+        published_at_utc: &str,
+    ) -> anyhow::Result<()> {
+        ensure!(
+            is_plain(source_snapshot_id) && is_plain(published_at_utc),
+            "the stamps {source_snapshot_id:?} and {published_at_utc:?} are not plain ids"
+        );
+        // The part's rows as the placement reads them: tables of their own, without `part`.
+        let tables = PART_TABLES
+            .iter()
+            .map(|(name, table)| {
+                format!("CREATE OR REPLACE TABLE {table} AS SELECT * EXCLUDE (part) FROM {name};")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        connection.execute_batch(&tables)?;
+        let inference = &rt_contract()?["place_inference"];
+        placement::place_from(connection, inference, CODE_CHANGES, CODE_NAMES)?;
+        let as_of = build_month();
+        gold::gold_rows(connection, as_of, &Self::coverage(connection, as_of)?)?;
+        // Only the part's documents: a deal it was shown may belong to a linked part, which builds it.
+        let targets = if all {
+            ""
+        } else {
+            " AND pnu IN (SELECT pnu FROM targets)"
+        };
+        connection.execute_batch(&format!(
+            "INSERT INTO built SELECT pnu, real_transaction_json, transaction_total, attached_via, place_id, \
+               main_lot_group_place_ids, row_digest, '{source_snapshot_id}', '{published_at_utc}' FROM gold_rows \
+             WHERE substr(pnu, 1, {digits}) = (SELECT part FROM {BUILD_PART}){targets};",
+            digits = self.part_digits
+        ))?;
+        let drops = PART_TABLES
+            .iter()
+            .map(|(_, table)| format!("DROP TABLE {table};"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        connection.execute_batch(&drops)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests;

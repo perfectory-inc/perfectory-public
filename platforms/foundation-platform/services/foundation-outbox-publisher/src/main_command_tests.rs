@@ -364,6 +364,10 @@ fn build_parcel_register_masters_versions_command_is_explicit() -> anyhow::Resul
             Command::BuildParcelOwnershipVersions,
         ),
         (
+            "build-parcel-real-transaction-versions",
+            Command::BuildParcelRealTransactionVersions,
+        ),
+        (
             "build-parcel-panel-versions",
             Command::BuildParcelPanelVersions,
         ),
