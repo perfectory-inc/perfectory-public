@@ -144,6 +144,7 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/data_go_k
 platforms/foundation-platform/services/foundation-outbox-publisher/src/data_go_kr_onbid_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_versions_change_set.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_versions_commit.rs:1
+platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_versions_support.rs:2
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_address_source_collect/tests.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_notice_collect.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect.rs:1
@@ -153,7 +154,6 @@ platforms/foundation-platform/services/foundation-outbox-publisher/src/media_ren
 platforms/foundation-platform/services/foundation-outbox-publisher/src/onbid_silver_load.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_matching_gate.rs:1
-platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_nearby_versions_build.rs:2
 platforms/foundation-platform/services/foundation-outbox-publisher/src/silver_load_objects.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/tests/administrative_boundary_publication.rs:1
 platforms/foundation-platform/services/foundation-outbox-publisher/tests/industrial_complex_boundary_publication.rs:1

@@ -54,8 +54,8 @@ use crate::{
         CURRENT_RECORDS_PROPERTY, FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY,
         SERVED_EDITION_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY, VERSION_SEQ_PROPERTY,
     },
+    gold_versions_support::{contract, lakehouse_read, write_summary, MEMORY_SHARE},
     onbid_silver_load::{served_snapshot_id, PARCEL_SOURCE},
-    parcel_nearby_versions_build::{contract, lakehouse_read, write_summary, MEMORY_SHARE},
     public_data_control_support::required_env_value,
 };
 

@@ -38,11 +38,12 @@ use foundation_publisher_silver::{
     factory_kind_stage::FACTORIES,
     kind_versions_stage::{
         build_in_parts, ensure_no_commit_tables, leave_input_batch, load_region, national_verdict,
-        spool, spool_base, targets_from_spools, KindVersionsStage, PARCEL_SOURCE,
+        spool, spool_base, targets_from_spools, ChangeExplanation, KindVersionsStage,
+        PARCEL_SOURCE,
     },
     land_ownership_stage::OWNERSHIP,
     onbid_kind_stage::PUBLIC_AUCTION,
-    parcel_nearby_stage::{NearbyPins, Source},
+    parcel_nearby_stage::{NearbyPins, Source, NEARBY},
     parcel_panel_stage::PANEL,
     process_memory,
     real_transaction_versions_stage::REAL_TRANSACTION,
@@ -61,7 +62,7 @@ use crate::{
         RECORDED_EXPLANATION_PROPERTY, SERVED_EDITION_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY,
         VERSION_SEQ_PROPERTY,
     },
-    parcel_nearby_versions_build::{
+    gold_versions_support::{
         contract, lakehouse_read, max_row_loss_fraction_of, served_edition, write_summary,
         MAX_CHANGED_KEY_FRACTION, MEMORY_SHARE, REBUILD_CONTRACT,
     },
@@ -225,6 +226,18 @@ pub(crate) const REAL_TRANSACTION_BUILD: KindBuild = KindBuild {
 /// (`pins_from`), and a build that shrinks the price histories of more of the current units than
 /// the contract allows refused before anything is appended (`national_checks`). Committed whole: that
 /// check judges every 시도 together.
+/// The parcel nearby kind (root ADR-0465): the nearest facilities, the store count and the highway
+/// list of each served parcel. A commit that only the stores moved records why (the stage's
+/// `change_explanation`, root ADR-0596). Committed whole: the explanation judges every 시도's diff.
+pub(crate) const NEARBY_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_nearby_versions",
+    lane: "parcel-nearby",
+    replaced: "gold.parcel_nearby",
+    job: "build-parcel-nearby-versions",
+    stage: &NEARBY,
+    per_sido_commits: false,
+};
+
 pub(crate) const UNIT_PRICE_BUILD: KindBuild = KindBuild {
     table: "gold.unit_price_versions",
     lane: "unit-price",
@@ -291,13 +304,16 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         pins.extend(host_pins(&catalog, kind.replaced).await?);
     }
     // What the driver holds only for a table committed whole: a check that judges every 시도
-    // together, and the batch a commit records (root ADR-0615 §7).
+    // together, the batch a commit records, and an explanation judged over every 시도's diff (root
+    // ADR-0615 §7).
     let national = stage.national_checks();
     let batch_input = stage.batch_input();
+    let explanation = stage.change_explanation();
     ensure!(
-        !kind.per_sido_commits || (national.is_empty() && batch_input.is_none()),
-        "{table} commits a 시도 at a time: a check of the whole build or a batch read holds only for a \
-         table committed whole (root ADR-0615 §7)"
+        !kind.per_sido_commits
+            || (national.is_empty() && batch_input.is_none() && explanation.is_none()),
+        "{table} commits a 시도 at a time: a check of the whole build, a batch read or an explanation \
+         of a change holds only for a table committed whole (root ADR-0615 §7)"
     );
     let base_batch = batch_input.and_then(|batch| {
         let base = base.as_ref()?;
@@ -538,6 +554,16 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             .execute_batch(&check.setup_sql)
             .with_context(|| format!("the check {} of {table} did not set up", check.name))?;
     }
+    let explaining = explaining(
+        explanation,
+        &moved,
+        base.is_some() && moved_code_or_edition.is_none(),
+    );
+    if let Some(explanation) = &explaining {
+        duck.connection()
+            .execute_batch(&explanation.setup_sql)
+            .with_context(|| format!("the explanation of {table} did not set up"))?;
+    }
     for sido in &sidos {
         if requested.as_ref().is_some_and(|keys| !keys.contains(sido)) {
             continue;
@@ -641,6 +667,11 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                     .with_context(|| {
                         format!("the check {} of {table} did not gather", check.name)
                     })?;
+            }
+            if let Some(explanation) = &explaining {
+                connection
+                    .execute_batch(&explanation.gather_sql)
+                    .with_context(|| format!("the explanation of {table} did not gather"))?;
             }
             let mut refused = run_result_checks(stage, connection, table, sido, &mut checks)?;
             if let Ok(rules) = &document_rules {
@@ -907,12 +938,25 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         }
         #[allow(clippy::cast_precision_loss)]
         let fraction = diff.keys() as f64 / (base.current_records.max(1)) as f64;
-        match moved_code_or_edition {
+        // The kind's own explanation is judged at any size, so commits under the bound are recorded
+        // too: several in a row while the bake is behind must not sum past its bound unexplained
+        // (root ADR-0596).
+        let explained = match (&moved_code_or_edition, &explaining) {
+            (Some(why), _) => Some(why.clone()),
+            (None, Some(explanation)) => (explanation.explain)(
+                duck.connection(),
+                (diff.added, diff.changed, diff.removed),
+                max_loss,
+            )?,
+            (None, None) => None,
+        };
+        match explained {
             Some(why) => recorded_explanation = Some(why),
             None if fraction > MAX_CHANGED_KEY_FRACTION => bail!(
                 "{} of {table}'s {} current rows changed ({fraction:.3}, over \
-                 {MAX_CHANGED_KEY_FRACTION}) with neither the code nor the served edition moved: \
-                 nothing was appended (root ADR-0564 §3.4)",
+                 {MAX_CHANGED_KEY_FRACTION}) with neither the code nor the served edition moved \
+                 and nothing the kind declares explaining it: nothing was appended (root ADR-0564 \
+                 §3.4)",
                 diff.keys(),
                 base.current_records
             ),
@@ -1025,6 +1069,25 @@ fn run_result_checks(
         }
     }
     Ok(refused)
+}
+
+/// The explanation a run gathers and judges: the kind's, on a run it can explain, one with a base
+/// in which neither the code nor the served edition moved (`unexplained`) and exactly the inputs it
+/// names did.
+fn explaining(
+    explanation: Option<ChangeExplanation>,
+    moved: &BTreeSet<String>,
+    unexplained: bool,
+) -> Option<ChangeExplanation> {
+    explanation.filter(|explanation| {
+        unexplained
+            && *moved
+                == explanation
+                    .moved
+                    .iter()
+                    .map(|input| (*input).to_owned())
+                    .collect::<BTreeSet<_>>()
+    })
 }
 
 /// Judges the kind's checks of the whole build over what its 시도 gathered, prints each as a
@@ -1326,7 +1389,7 @@ mod tests {
     }
 
     /// Every lane on the shared driver.
-    const LANES: [&KindBuild; 11] = [
+    const LANES: [&KindBuild; 12] = [
         &REGISTER_MASTERS_BUILD,
         &DEMOLITIONS_BUILD,
         &ENERGY_BUILD,
@@ -1338,6 +1401,7 @@ mod tests {
         &PUBLIC_AUCTION_BUILD,
         &REAL_TRANSACTION_BUILD,
         &UNIT_PRICE_BUILD,
+        &NEARBY_BUILD,
     ];
 
     /// A kind line that names `place_identity` gives its table a `place_id` column (by_pnu_kind
@@ -1355,6 +1419,29 @@ mod tests {
         Ok(())
     }
 
+    /// Root ADR-0596's cases the driver decides: an explanation is judged only on a run with a base
+    /// in which exactly its inputs moved and neither the code nor the served edition did.
+    #[test]
+    fn an_explanation_is_judged_only_where_it_alone_can_explain() {
+        let stores = foundation_publisher_silver::parcel_nearby_stage::STORE_SOURCE.to_owned();
+        let declared = || NEARBY.change_explanation();
+        assert!(explaining(declared(), &BTreeSet::from([stores.clone()]), true).is_some());
+        assert!(
+            explaining(
+                declared(),
+                &BTreeSet::from([stores.clone(), PARCEL_SOURCE.to_owned()]),
+                true
+            )
+            .is_none(),
+            "the parcels moved too"
+        );
+        assert!(
+            explaining(declared(), &BTreeSet::from([stores]), false).is_none(),
+            "the code or the edition moved, or there is no base"
+        );
+        assert!(explaining(None, &BTreeSet::new(), true).is_none());
+    }
+
     /// A check of the whole build and a batch read hold only for a table committed whole (the run
     /// refuses the rest at its start), and a check's bound is one the rebuild contract names.
     #[test]
@@ -1365,6 +1452,18 @@ mod tests {
             if kind.per_sido_commits {
                 assert!(national.is_empty(), "{}", kind.table);
                 assert!(kind.stage.batch_input().is_none(), "{}", kind.table);
+                assert!(kind.stage.change_explanation().is_none(), "{}", kind.table);
+            }
+            if let Some(explanation) = kind.stage.change_explanation() {
+                assert!(
+                    explanation
+                        .moved
+                        .iter()
+                        .all(|input| kind.stage.inputs().contains(input)
+                            && !kind.stage.whole_table_inputs().contains(input)),
+                    "{} explains a move a partial run never sees",
+                    kind.table
+                );
             }
             for bound in national.iter().filter_map(|check| check.bound) {
                 assert!(

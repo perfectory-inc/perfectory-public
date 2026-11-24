@@ -145,6 +145,27 @@ pub fn national_verdict(
     ))
 }
 
+/// What explains a change of any size when neither the code nor the served edition moved (root
+/// ADR-0346, ADR-0596): a rule the kind's own inputs give, judged over every 시도's diff before
+/// anything is appended. The commit records it, as it records a moved code version, and the bake
+/// reads it; without it a change past the bound on changed keys is refused.
+///
+/// The nearby Gold's stores: a store file's move changes the store counts near the stores that
+/// moved and nothing else. It belongs to a table committed whole, as a [`NationalCheck`] does, and is
+/// gathered and judged only on a run in which exactly `moved` moved.
+#[derive(Clone)]
+pub struct ChangeExplanation {
+    /// The inputs whose move alone it explains.
+    pub moved: Vec<&'static str>,
+    /// Statements run once, before the first 시도: the tables it gathers into.
+    pub setup_sql: String,
+    /// Statements run after each 시도's diff, over its `appended`, `current_rows` and loaded tables.
+    pub gather_sql: String,
+    /// Why the run's change is explained, or `None`, from what was gathered, the run's `(added,
+    /// changed, removed)` keys and the table's bound on lost rows.
+    pub explain: fn(&Connection, (u64, u64, u64), f64) -> anyhow::Result<Option<String>>,
+}
+
 /// An input the stage reads one batch of, rather than its current rows (root ADR-0615 §7): the unit
 /// prices read the newest vintage's batch, a vintage's ties broken by the order the table appended
 /// them (root ADR-0182).
@@ -256,8 +277,8 @@ pub trait KindVersionsStage: Sync {
     /// Reads what the kind places by its own rule rather than as a row set re-keyed to the served
     /// code (an auction's rounds: located, carried by the lineage, root ADR-0287 §7), once, into
     /// spools under `dir_text` split by the served PNU's 시도 (`<name><suffix>/sido=<시도>`, a `pnu`
-    /// column each), after the served parcels (`served<suffix>`) and the row sets; returns each
-    /// input's read time by table name. Nothing by default.
+    /// column each), after the served parcels (`served<suffix>`, of `edition`) and the row sets;
+    /// returns each input's read time by table name. Nothing by default.
     ///
     /// # Errors
     /// Returns an error when an input cannot be read or `DuckDB` refuses a statement.
@@ -265,6 +286,7 @@ pub trait KindVersionsStage: Sync {
         &self,
         _connection: &Connection,
         _source: &Source<'_>,
+        _edition: &str,
         _suffix: &str,
         _dir_text: &str,
     ) -> anyhow::Result<BTreeMap<String, u64>> {
@@ -311,6 +333,11 @@ pub trait KindVersionsStage: Sync {
     }
     /// The input the kind reads one batch of. `None` by default.
     fn batch_input(&self) -> Option<BatchInput> {
+        None
+    }
+    /// What explains a change of the kind's documents beyond a moved code version or edition.
+    /// `None` by default.
+    fn change_explanation(&self) -> Option<ChangeExplanation> {
         None
     }
     /// Why the kind's documents cannot be built one 시군구 at a time, when they cannot.
@@ -543,7 +570,7 @@ pub fn spool(
             read_millis.insert(set.source.to_owned(), elapsed(at));
         }
     }
-    read_millis.extend(stage.spool_more(connection, source, suffix, &dir_text)?);
+    read_millis.extend(stage.spool_more(connection, source, edition, suffix, &dir_text)?);
     // The place ids of the PNUs the kind's rows hold, once (`place_id_join`): the others have no
     // document to carry one.
     // A spool no row was written to has no directory, and none of its PNUs to ask about.

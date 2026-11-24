@@ -40,8 +40,6 @@ DECLARED = {
     "crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs":
         "spool_more of a stage on the shared driver: a deal is keyed by its address code, so the stage "
         "spools it once for every part that reads it (ADR-0615 §7 part_tables); the driver loads and splits it",
-    "services/foundation-outbox-publisher/src/parcel_nearby_versions_build.rs":
-        "own driver, not moved yet: a parcel's nearest facilities are searched over inputs loaded nationally",
     "services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs":
         "own driver, not moved yet: the served boundaries are projected straight from the parcel edition, "
         "a 시도 at a time, with their geometry",

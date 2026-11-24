@@ -55,8 +55,8 @@ use crate::{
         FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, SERVED_EDITION_PROPERTY,
         SOURCE_SNAPSHOTS_PROPERTY, VERSION_SEQ_PROPERTY,
     },
+    gold_versions_support::write_summary,
     kind_versions_build::{head_sidos, sido_range},
-    parcel_nearby_versions_build::write_summary,
     public_data_control_support::required_env_value,
 };
 
