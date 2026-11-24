@@ -365,3 +365,8 @@ Spark 작업은 옮기지 않는다(§2-2). 지금 그대로 옮긴다면 426 h 
 | 기본 기능 | `EcsRunLauncher`, `ecs/*` 태그, `PipesSubprocessClient`, 자산·파티션, `ScheduleDefinition`, `AutomationCondition` 과 그 센서의 `run_tags`, `RetryPolicy`, run monitoring 과 run 재시도, last-update 신선도 검사, 자산 검사; ECS·IAM·RDS·ECR·Secrets Manager·CloudWatch |
 | 임시 | 옮기는 동안 ai-server 에 남는 수집과 그 계층 |
 | 운영 | 정의 → 공장, IaC, 서명된 digest 릴리스, 발행기의 Pipes 메시지 |
+
+2026-11-25: 구현 점검 — Proposed 유지. main 에 있는 것: AWS 계정의 바탕(`platforms/foundation-platform/infra/aws/main.tf`, ADR-0619)과
+기준 레인(`platforms/foundation-platform/orchestration/dagster/court_auction_lane.py`, 그 시험
+`platforms/foundation-platform/orchestration/tests/test_dagster_court_auction_lane.py`). 없는 것: 열린 질문 1·2·4·6·7·9·10·12 의 답,
+§10 에서 값이 없는 줄(A4~A6 의 비용).

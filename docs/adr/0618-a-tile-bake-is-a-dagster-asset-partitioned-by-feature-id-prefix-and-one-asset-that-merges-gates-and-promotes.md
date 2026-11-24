@@ -348,3 +348,8 @@
   "구체화된 적 없음" 으로 남아 하류가 끝내 요청되지 않는다. 그래서 입력을 관측 자산으로 두고 접두는 늘 구체화한다.
 - **합치기·관문·승격을 자산 하나에.** 관문이나 승격이 실패하면 8 GiB 를 다시 합친다. ADR-0576 이 `joined/` 를 둔 까닭과 같다.
 - **접두마다 관문을 둔다.** id 관문은 "서빙 필지 전부, 그것만" 을 본다 — 전국의 물음이다.
+
+2026-11-25: 구현 점검 — Proposed 유지. main 에 있는 것: 합치기
+(`platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/pmtiles_merge.rs`, #1685)와 입력의 버전이 찾는 통째 빌드의
+표시(`foundation.build-scope`, `platforms/foundation-platform/services/foundation-outbox-publisher/src/gold_versions_commit.rs`).
+없는 것: §2 의 자산과 그 job 의 Dagster 정의, 열린 질문 1·3~8 의 답.
