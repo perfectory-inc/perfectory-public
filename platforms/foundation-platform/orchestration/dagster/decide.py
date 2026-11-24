@@ -26,9 +26,10 @@ Where Dagster does not do as Airflow did, by decision, with the incident each ru
 - **An input event missed while nothing evaluated still starts one run**: the data changed, and the one
   run is what reads it (the owner's rule, partial processing). Airflow dropped those (root ADR-0179) and
   the deploy started the job once instead (root ADR-0337).
-- **Capacity, not the clock, orders the starts** (root ADR-0435): every run carries its priority class,
-  then its queue weight, as `dagster/priority` (job_specs.dagster_priority: a writer before what reads it,
-  root ADR-0558), the queue starts higher ones first within dagster.yaml's limits, and the
+- **Capacity, not the clock, orders the starts** (root ADR-0435): every run carries its priority class
+  as `dagster/priority` (job_specs.dagster_priority), the queue starts a higher class first and inside a
+  class the run queued first, within dagster.yaml's limits; a run that follows a failed run of its job
+  queues in the `default` class at most (`_after_failure`), and the
   host's start (job_units.py pool-full) still holds back a start that would leave a higher claim no room,
   whoever starts it: a late run of a low class waits rather than run into a publish.
 
@@ -195,6 +196,16 @@ def _last_run_at(instance, job_name, output_keys=()):
     return max(starts, default=None)
 
 
+def _after_failure(instance, job_name):
+    """Whether the job's newest ended run failed (job_specs.dagster_priority). A cancelled run says nothing
+    of the job, and a run the host answered `waiting` ended in success."""
+    from dagster import DagsterRunStatus, RunsFilter
+
+    ended = instance.get_run_records(RunsFilter(job_name=job_name, statuses=[DagsterRunStatus.SUCCESS,
+                                                                            DagsterRunStatus.FAILURE]), limit=1)
+    return bool(ended) and ended[0].dagster_run.status == DagsterRunStatus.FAILURE
+
+
 def _events(instance, keys, after_id):
     from dagster import AssetRecordsFilter
 
@@ -241,7 +252,8 @@ def evaluator(spec, run_limit_seconds, clock=time.time, reconcilers=()):
         context.update_cursor(cursor.dump())
         if not requests:
             return SkipReason("a run of the job is open; what is due waits" if held else "nothing is due")
-        return [RunRequest(run_key=request.key, tags=spec.dagster_tags(request.kind)) for request in requests]
+        failed = _after_failure(context.instance, spec.dagster_job)
+        return [RunRequest(run_key=request.key, tags=spec.dagster_tags(request.kind, failed)) for request in requests]
 
     return evaluate
 

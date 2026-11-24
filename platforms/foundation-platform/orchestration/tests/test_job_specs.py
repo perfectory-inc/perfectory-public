@@ -1261,8 +1261,8 @@ class TheDagsterStage(unittest.TestCase):
         self.assertEqual(spec.dagster_job, f"foundation_job__{job['id']}")
         value = jobs["priority_classes"][job.get("priority_class", "default")]["value"]
         self.assertEqual(spec.dagster_tags("triggered"), {"foundation/run-kind": "triggered", "foundation/run": "job",
-                                                          # The class, then the queue weight (root ADR-0558).
-                                                          "dagster/priority": str(value * 1000 + spec.priority_weight),
+                                                          # The class and nothing else (root ADR-0605).
+                                                          "dagster/priority": str(value),
                                                           # Root ADR-0565 §9: run monitoring fails a run whose
                                                           # process died once its scheduled start's limit passed.
                                                           "dagster/max_runtime_seconds": str(60 * spec.timeout_minutes)})
