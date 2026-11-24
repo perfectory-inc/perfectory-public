@@ -4,11 +4,14 @@
 //! build replaced rows of, and the `_versions` table `DuckDB` built from the same input pins as its
 //! shadow.
 //!
-//! `export-gold-takeover-sides` checks the whole of both sides by aggregates alone, copying nothing
-//! (`checks.json`: rows, unique keys, the key hash sum, the content hash sum, non-null counts per
-//! column); renders the candidate's documents of one 시도 and holds each to the schema registry
-//! (`gold_documents_check`); and writes both sides' rows of that 시도 as Parquet with the columns
-//! they share and a `sides.json` naming them (root ADR-0559 and ADR-0564 revisions of 2026-11-22).
+//! `export-gold-takeover-sides` checks the whole of both sides by aggregates `DuckDB` computes over
+//! the table scan, bringing no row out (`checks.json`: rows, unique keys, the key hash sum, and of
+//! the columns that are not documents a hash sum and the non-null counts); renders the candidate's
+//! documents of one 시도 and holds each to the schema registry (`gold_documents_check`); and
+//! writes both sides' rows of that 시도, a 시군구 a Parquet file, with the columns they share and a
+//! `sides.json` naming them (root ADR-0559, ADR-0564 revisions of 2026-11-22 and 2026-11-24).
+//! Document content (`*_json`) is judged in that 시도 only: the switch's full bake is its national
+//! check.
 //! `query-takeover-sides` runs one SQL statement over the two files and prints its rows as JSON, so
 //! `engine_equality.py` reaches its verdict through this `DuckDB` (the release images have no Python
 //! `duckdb`).
@@ -16,9 +19,9 @@
 //! Both sides are compared as the values they say, not as the bytes a build wrote (root ADR-0564,
 //! Revision 2026-11-22 (둘째): a port does not reproduce Spark's `to_json`): every `*_json` cell is
 //! read by `foundation_publisher_core::json_values`, the reading the switch's content check holds
-//! the served documents to (a null member absent, a number its value, an instant its time), and
-//! the content hash sums each row's key with those values ([`values`]). `row_digest`, a hash of the
-//! bytes, is not compared; the content it stands for is, column by column.
+//! the served documents to (a null member absent, a number its value, an instant its time)
+//! ([`values`]). `row_digest`, a hash of the bytes, is not compared; the content it stands for is,
+//! column by column.
 //!
 //! `show-gold-takeover-switch` names that pair for the switch, whose full bake holds every
 //! document to the served one (`section_packs::takeover` of the by-PNU publisher).
@@ -96,29 +99,38 @@ fn sido_predicate(keys: &[&str], sido: &str) -> anyhow::Result<String> {
     ))
 }
 
-/// What the whole of one side holds, by aggregates alone: counts in one pass of `DuckDB`, the content
-/// hash in one pass of the publisher a 시군구 at a time ([`values::pass`]).
+/// What the whole of one side holds, by aggregates alone, in one pass of `DuckDB` over the scan.
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
 struct SideCounts {
     rows: i64,
     keys: i64,
     /// The sum of a hash of each row's key: the same keys on both sides, not only as many.
     key_hash_sum: String,
-    /// The sum of a hash of each row, its key with its content read as values
-    /// ([`values::compared_cell`]): the same content under the same keys on both sides.
-    content_hash_sum: String,
-    /// Non-null values per compared column, in the columns' order.
+    /// The sum of a hash of each row's columns that are not documents, the key among them, each
+    /// as its text: the same values under the same keys on both sides. A document (`*_json`) is
+    /// not in it: two engines write equal documents as different bytes, and they are judged as
+    /// values in the 시도 ([`values::write_chunks`]).
+    plain_hash_sum: String,
+    /// Non-null values per column that is not a document, in the columns' order.
     non_null: Vec<(String, i64)>,
 }
 
-/// The rows, distinct keys, key hash sum and non-null count of each of `columns` that `query`
-/// returns, in one aggregate; the content hash sum is the caller's ([`values::pass`]).
+/// The columns the national aggregates read: every compared column that is not a document.
+fn plain_columns<'a>(columns: &[&'a str]) -> Vec<&'a str> {
+    columns
+        .iter()
+        .copied()
+        .filter(|column| !column.ends_with(values::JSON_SUFFIX))
+        .collect()
+}
+
+/// The rows, distinct keys, key hash sum, hash sum of `columns` and non-null count of each of
+/// `columns` that `query` returns, in one aggregate.
 fn side_counts(
     connection: &Connection,
     query: &str,
     keys: &[&str],
     columns: &[&str],
-    content_hash_sum: u128,
 ) -> anyhow::Result<SideCounts> {
     let key_list = keys.join(", ");
     let distinct = if keys.len() == 1 {
@@ -131,23 +143,25 @@ fn side_counts(
         .map(|column| format!("count({column})"))
         .collect::<Vec<_>>()
         .join(", ");
+    let hash_sum =
+        |of: &str| format!("CAST(coalesce(sum(CAST(hash({of}) AS HUGEINT)), 0) AS VARCHAR)");
     let sql = format!(
-        "SELECT count(*), count(DISTINCT {distinct}), \
-           CAST(coalesce(sum(CAST(hash({key_list}) AS HUGEINT)), 0) AS VARCHAR), {counted} \
-         FROM ({query})"
+        "SELECT count(*), count(DISTINCT {distinct}), {}, {}, {counted} FROM ({query})",
+        hash_sum(&key_list),
+        hash_sum(&values::as_text_values(columns)),
     );
     let width = columns.len();
     connection
         .query_row(&sql, [], |row| {
             let mut non_null = Vec::with_capacity(width);
             for (index, column) in columns.iter().enumerate() {
-                non_null.push(((*column).to_owned(), row.get(index + 3)?));
+                non_null.push(((*column).to_owned(), row.get(index + 4)?));
             }
             Ok(SideCounts {
                 rows: row.get(0)?,
                 keys: row.get(1)?,
                 key_hash_sum: row.get(2)?,
-                content_hash_sum: content_hash_sum.to_string(),
+                plain_hash_sum: row.get(3)?,
                 non_null,
             })
         })
@@ -155,8 +169,8 @@ fn side_counts(
 }
 
 /// The national result checks: each side's keys unique, and both sides the same rows, the same
-/// keys (hash sum), the same content under the same keys (hash sum of the rows as values) and the
-/// same non-null count in every column.
+/// keys (hash sum), the same values under the same keys in the columns that are not documents
+/// (hash sum) and the same non-null count in each of those columns.
 /// Returns what failed, empty when every check holds.
 fn failed_checks(reference: &SideCounts, candidate: &SideCounts) -> Vec<String> {
     let mut failed = Vec::new();
@@ -181,11 +195,11 @@ fn failed_checks(reference: &SideCounts, candidate: &SideCounts) -> Vec<String> 
             &candidate.key_hash_sum,
         );
     }
-    if reference.content_hash_sum != candidate.content_hash_sum {
+    if reference.plain_hash_sum != candidate.plain_hash_sum {
         differ(
-            "content hash sum",
-            &reference.content_hash_sum,
-            &candidate.content_hash_sum,
+            "plain column hash sum",
+            &reference.plain_hash_sum,
+            &candidate.plain_hash_sum,
         );
     }
     for ((column, left), (_, right)) in reference.non_null.iter().zip(&candidate.non_null) {
@@ -264,9 +278,10 @@ async fn shadow_commit(
         })
 }
 
-/// Writes `checks.json`, then `reference.parquet`, `candidate.parquet` and `sides.json` for the
-/// versions table the environment names; fails after writing them when a result check failed (a
-/// national aggregate, or a document of the 시도), so the 시도's comparison is still made.
+/// Writes `checks.json`, then the 시도's two sides (`reference/<시군구>.parquet`,
+/// `candidate/<시군구>.parquet`) and `sides.json` for the versions table the environment names;
+/// fails after writing them when a result check failed (a national aggregate, or a document of the
+/// 시도), so the 시도's comparison is still made.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn export() -> anyhow::Result<()> {
     let table = required_env_value(&format!("{PREFIX}TABLE"))?;
@@ -316,61 +331,82 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         versions,
         &foundation_publisher_silver::duckdb_parquet_stage::table_at(&table, candidate),
     )?;
-    let listed = columns.join(", ");
-    let reference_rows =
-        |filter: &str| format!("SELECT {listed} FROM {reference_source} WHERE {filter}");
-    let candidate_rows =
-        |filter: &str| latest.current_rows_sql(&candidate_source, &columns, filter);
+    let reference_rows = |columns: &[&str], filter: &str| {
+        format!(
+            "SELECT {} FROM {reference_source} WHERE {filter}",
+            columns.join(", ")
+        )
+    };
+    let candidate_rows = |columns: &[&str], filter: &str| {
+        latest.current_rows_sql(&candidate_source, columns, filter)
+    };
 
-    // The whole of both sides, by aggregates and one pass each that also writes the 시도's rows.
-    let prefixes = values::prefixes(
+    // The whole of both sides: aggregates DuckDB computes over the scan. No row leaves the engine
+    // and no document column is read (2026-11-23: the passes that brought every row of both sides
+    // through the publisher took 26.5 minutes on the served parcel boundaries and were estimated
+    // at 80 to 100 on the building permits' 8.69 GB of documents a side).
+    let started = std::time::Instant::now();
+    let plain = plain_columns(&columns);
+    let reference_counts = side_counts(
         connection,
-        &[reference_source.as_str(), candidate_source.as_str()],
-        column,
+        &reference_rows(&plain, "TRUE"),
+        latest.key,
+        &plain,
     )?;
-    let sido_prefixes: Vec<String> = prefixes
-        .iter()
-        .filter(|prefix| prefix.starts_with(sido.as_str()))
-        .cloned()
-        .collect();
-    let reference_pass = values::pass(
+    println!(
+        "gold-takeover-sides national reference: {} rows in {:.1}s",
+        reference_counts.rows,
+        started.elapsed().as_secs_f64()
+    );
+    let started = std::time::Instant::now();
+    let candidate_counts = side_counts(
         connection,
-        &reference_rows,
+        &candidate_rows(&plain, "TRUE"),
+        latest.key,
+        &plain,
+    )?;
+    println!(
+        "gold-takeover-sides national candidate: {} rows in {:.1}s",
+        candidate_counts.rows,
+        started.elapsed().as_secs_f64()
+    );
+
+    // The judged 시도, a 시군구 at a time: the only rows that are brought out, as values.
+    let in_sido = sido_predicate(latest.key, &sido)?;
+    let sido_prefixes = values::prefixes(
+        connection,
+        &[
+            format!("({})", reference_rows(latest.key, &in_sido)).as_str(),
+            format!("({})", candidate_rows(latest.key, &in_sido)).as_str(),
+        ],
         column,
-        &prefixes,
-        &columns,
-        &sido,
-        "side_reference",
     )?;
     ensure!(
-        reference_pass.sido_rows > 0,
+        !sido_prefixes.is_empty(),
+        "neither side holds a row in 시도 {sido}: name a 시도 the table has"
+    );
+    let sido_rows = values::write_chunks(
+        connection,
+        &|filter: &str| reference_rows(&columns, filter),
+        column,
+        &sido_prefixes,
+        &columns,
+        "reference",
+        &work.join("reference"),
+    )?;
+    ensure!(
+        sido_rows > 0,
         "the reference holds no row in 시도 {sido}: name a 시도 the table has"
     );
-    let candidate_pass = values::pass(
+    values::write_chunks(
         connection,
-        &candidate_rows,
+        &|filter: &str| candidate_rows(&columns, filter),
         column,
-        &prefixes,
+        &sido_prefixes,
         &columns,
-        &sido,
-        "side_candidate",
+        "candidate",
+        &work.join("candidate"),
     )?;
-    let (reference_counts, candidate_counts) = (
-        side_counts(
-            connection,
-            &reference_rows("TRUE"),
-            latest.key,
-            &columns,
-            reference_pass.hash_sum,
-        )?,
-        side_counts(
-            connection,
-            &candidate_rows("TRUE"),
-            latest.key,
-            &columns,
-            candidate_pass.hash_sum,
-        )?,
-    );
     let mut failed = failed_checks(&reference_counts, &candidate_counts);
 
     // Every document the candidate serves in the 시도, rendered as the bake renders it and held to
@@ -420,15 +456,6 @@ pub(crate) async fn export() -> anyhow::Result<()> {
     std::fs::write(&checks_path, serde_json::to_vec_pretty(&checks)?)
         .with_context(|| format!("cannot write {}", checks_path.display()))?;
 
-    // The 시도's two sides, as values, for `engine_equality.py`.
-    for name in ["reference", "candidate"] {
-        let target = sql_path(&work.join(format!("{name}.parquet")))?;
-        connection
-            .execute_batch(&format!(
-                "COPY side_{name} TO '{target}' (FORMAT parquet, COMPRESSION zstd)"
-            ))
-            .with_context(|| format!("DuckDB failed to write {name}.parquet"))?;
-    }
     drop(stage);
     let keys = latest.key;
     let content: Vec<&str> = columns
@@ -442,11 +469,11 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         "pins": shadow.pins, "keys": keys, "content": content,
         // No digest: the content is compared as values, and a digest is of bytes ([`DIGEST`]).
         "digest": serde_json::Value::Null,
-        "sido": sido, "sido_rows": reference_pass.sido_rows,
+        "sido": sido, "sido_rows": sido_rows,
         "rows_nationally": reference_counts.rows,
-        // The ranges the two sides were written in: the comparison joins one at a time, as this
-        // pass read one at a time (2026-11-23 17:38Z: the join of 시도 41 of the served parcel
-        // boundaries whole, 5,211,798 geometries a side, ran out of the verdict's 4 GB).
+        // The chunks the two sides were written in, a file each: the comparison joins one at a
+        // time (2026-11-23 17:38Z: the join of 시도 41 of the served parcel boundaries whole,
+        // 5,211,798 geometries a side, ran out of the verdict's 4 GB).
         "chunks": {
             "column": column, "length": values::CHUNK_PREFIX, "prefixes": sido_prefixes,
         },
@@ -466,7 +493,7 @@ pub(crate) async fn export() -> anyhow::Result<()> {
          documents rendered {} {}",
         shadow.build,
         content.len(),
-        reference_pass.sido_rows,
+        sido_rows,
         reference_counts.rows,
         documents.rendered,
         documents.skipped.as_deref().map_or_else(
@@ -521,7 +548,8 @@ fn json_array(connection: &Connection, sql: &str) -> anyhow::Result<String> {
 }
 
 /// Runs the SQL statement on stdin over the views `reference` and `candidate` of the work
-/// directory's two files and prints its rows as the last stdout line.
+/// directory's two sides (a file a chunk: a statement over one chunk's range reads that chunk's
+/// file) and prints its rows as the last stdout line.
 pub(crate) fn query() -> anyhow::Result<()> {
     let work = required_env_value(&format!("{PREFIX}WORK_DIR"))?;
     let mut sql = String::new();
@@ -550,7 +578,7 @@ pub(crate) fn query() -> anyhow::Result<()> {
         }
     }
     for name in ["reference", "candidate"] {
-        let path = sql_path(&Path::new(&work).join(format!("{name}.parquet")))?;
+        let path = sql_path(&Path::new(&work).join(name).join("*.parquet"))?;
         connection.execute_batch(&format!(
             "CREATE VIEW {name} AS SELECT * FROM read_parquet('{path}')"
         ))?;
@@ -652,52 +680,49 @@ mod tests {
         Ok(())
     }
 
-    /// The national checks over the real passes: the same rows written by two engines agree; a
-    /// changed value, content that moved to another key, another key and a tied key are each seen.
+    /// The national checks, computed in `DuckDB`: the same rows agree whatever their documents'
+    /// bytes; a changed value, a value that moved to another key, another key and a tied key are
+    /// each seen; a document column is not read.
     #[test]
-    fn national_checks_see_counts_keys_and_content_as_values() -> anyhow::Result<()> {
+    fn national_checks_see_counts_keys_and_plain_columns() -> anyhow::Result<()> {
         let connection = Connection::open_in_memory()?;
         connection.execute_batch(
-            r#"CREATE TABLE a (pnu VARCHAR, v_json VARCHAR);
-               INSERT INTO a VALUES ('9999910100100010000', '{"area_m2":1.0E7,"note":null}'),
-                 ('9999920100100010000', '[{"seq":2}]');
-               CREATE TABLE same (pnu VARCHAR, v_json VARCHAR);
-               INSERT INTO same VALUES ('9999910100100010000', '{"area_m2":10000000.0}'),
-                 ('9999920100100010000', '[{"seq":2.0}]');
-               CREATE TABLE changed AS SELECT pnu, replace(v_json, '2', '3') AS v_json FROM a;
-               CREATE TABLE moved (pnu VARCHAR, v_json VARCHAR);
-               INSERT INTO moved VALUES ('9999910100100010000', '[{"seq":2}]'),
-                 ('9999920100100010000', '{"area_m2":10000000.0}');
-               CREATE TABLE swapped AS SELECT replace(pnu, '9999920', '9999930') AS pnu, v_json FROM a;
-               CREATE TABLE tied (pnu VARCHAR, v_json VARCHAR);
-               INSERT INTO tied VALUES ('9999910100100010000', '[]'), ('9999910100100010000', NULL);"#,
+            r#"CREATE TABLE a (pnu VARCHAR, n BIGINT, v_json VARCHAR);
+               INSERT INTO a VALUES ('9999910100100010000', 1, '{"area_m2":1.0E7,"note":null}'),
+                 ('9999920100100010000', 2, '[{"seq":2}]');
+               CREATE TABLE same (pnu VARCHAR, n INTEGER, v_json VARCHAR);
+               INSERT INTO same VALUES ('9999910100100010000', 1, '{"area_m2":10000000.0}'),
+                 ('9999920100100010000', 2, NULL);
+               CREATE TABLE changed AS SELECT pnu, n + 2 AS n, v_json FROM a;
+               CREATE TABLE moved (pnu VARCHAR, n BIGINT, v_json VARCHAR);
+               INSERT INTO moved VALUES ('9999910100100010000', 2, NULL),
+                 ('9999920100100010000', 1, NULL);
+               CREATE TABLE swapped AS
+                 SELECT replace(pnu, '9999920', '9999930') AS pnu, n, v_json FROM a;
+               CREATE TABLE tied (pnu VARCHAR, n BIGINT, v_json VARCHAR);
+               INSERT INTO tied VALUES ('9999910100100010000', 1, '[]'),
+                 ('9999910100100010000', NULL, NULL);"#,
         )?;
-        let columns = ["pnu", "v_json"];
-        let count = |table: &str| -> anyhow::Result<SideCounts> {
-            let side = |filter: &str| format!("SELECT pnu, v_json FROM {table} WHERE {filter}");
-            let prefixes = values::prefixes(&connection, &[table], "pnu")?;
-            let pass = values::pass(
-                &connection,
-                &side,
-                "pnu",
-                &prefixes,
-                &columns,
-                "99",
-                "side_test",
-            )?;
+        let plain = plain_columns(&["pnu", "n", "v_json"]);
+        assert_eq!(plain, ["pnu", "n"]);
+        let count = |table: &str| {
             side_counts(
                 &connection,
-                &side("TRUE"),
+                &format!("SELECT pnu, n FROM {table}"),
                 &["pnu"],
-                &columns,
-                pass.hash_sum,
+                &plain,
             )
         };
         let a = count("a")?;
+        assert_eq!(
+            a.non_null,
+            [("pnu".to_owned(), 2), ("n".to_owned(), 2)],
+            "the document column is not counted"
+        );
         assert!(failed_checks(&a, &count("same")?).is_empty());
         for (table, seen) in [
-            ("changed", "content hash sum"),
-            ("moved", "content hash sum"),
+            ("changed", "plain column hash sum"),
+            ("moved", "plain column hash sum"),
             ("swapped", "key hash sum"),
         ] {
             let found = failed_checks(&a, &count(table)?);
@@ -710,7 +735,7 @@ mod tests {
         assert!(tied
             .iter()
             .any(|line| line.starts_with("candidate holds 2 rows on 1 keys")));
-        assert!(tied.iter().any(|line| line.starts_with("v_json non-null")));
+        assert!(tied.iter().any(|line| line.starts_with("n non-null")));
         Ok(())
     }
 
