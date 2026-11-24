@@ -69,6 +69,17 @@ mutation Launch($params: ExecutionParams!) {
   }
 }
 """
+# The run of a job that has not started yet, if there is one (job_orchestrator.py waiting): the deploy's
+# start joins it instead of queueing another. NOT_STARTED is a run created and not yet handed to the queue.
+WAITING_RUN = """
+query Waiting($job: String!) {
+  runsOrError(filter: {pipelineName: $job, statuses: [QUEUED, NOT_STARTED]}, limit: 1) {
+    __typename
+    ... on Runs { results { runId } }
+    ... on PythonError { message }
+  }
+}
+"""
 RELOAD_LOCATION = """
 mutation Reload {
   reloadRepositoryLocation(repositoryLocationName: "foundation") { __typename }
@@ -166,6 +177,14 @@ def _pool_limit(variables) -> str | None:
     return None
 
 
+def _a_jobs_runs(variables) -> str | None:
+    job = (variables or {}).get("job")
+    if set(variables or {}) != {"job"} or not isinstance(job, str) \
+            or not (job.startswith(DAGSTER_JOB_PREFIX) and JOB_ID.fullmatch(job[len(DAGSTER_JOB_PREFIX):])):
+        return "runs of what is no job's Dagster job"
+    return None
+
+
 def _launch(key):
     def check(variables) -> str | None:
         if set(variables or {}) != {key}:
@@ -179,6 +198,7 @@ HOST = {
     normal(STOP_SENSOR): _one("id", STATE_ID),
     normal(START_SENSOR): _start,
     normal(LAUNCH_RUN): _launch("params"),
+    normal(WAITING_RUN): _a_jobs_runs,
     normal(RELOAD_LOCATION): _no_variables,
     normal(LOCATION_ERRORS): _no_variables,
     normal(POOL_LIMITS): _no_variables,

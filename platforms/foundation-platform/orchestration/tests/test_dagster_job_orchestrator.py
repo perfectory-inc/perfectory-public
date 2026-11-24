@@ -59,8 +59,9 @@ class Dagster:
     """Dagster's GraphQL as job_orchestrator asks it: sensor name -> status, and what it was told. Every
     request is first one the writable webserver's gate lets the host send (dagster_writes.HOST)."""
 
-    def __init__(self, sensors):
-        self.sensors, self.told = dict(sensors), []
+    def __init__(self, sensors, waiting=None):
+        # `waiting`: Dagster job name -> the id of its run that has not started, or an answer to give as is.
+        self.sensors, self.told, self.waiting = dict(sensors), [], dict(waiting or {})
 
     def __call__(self, query, variables):
         body = json.dumps({"query": query, "variables": variables}).encode()
@@ -80,6 +81,11 @@ class Dagster:
             self.told.append(("start", name))
             self.sensors[name] = "RUNNING"
             return {"startSensor": {"__typename": "Sensor"}}
+        if "runsOrError" in query:
+            found = self.waiting.get(variables["job"])
+            if isinstance(found, dict):
+                return {"runsOrError": found}
+            return {"runsOrError": {"__typename": "Runs", "results": [{"runId": found}] if found else []}}
         self.told.append(("launch", variables["params"]))
         return {"launchRun": {"__typename": "LaunchRunSuccess", "run": {"runId": "run-1"}}}
 
@@ -145,6 +151,33 @@ class TheJobsDagsterDecides(unittest.TestCase):
         self.assertEqual(tags, spec.dagster_tags("triggered"))
         self.assertEqual(tags[job_specs.PRIORITY_TAG], str(spec.priority * job_specs.QUEUE_WEIGHT_SPAN + spec.priority_weight))
         self.assertEqual(tags[job_specs.DECIDED_TAG], "dagster")
+
+    def test_a_deploys_start_joins_the_run_that_waits_to_start_and_an_operators_is_always_launched(self):
+        # 2026-11-23: the spark pool's one slot was taken for hours, a run the deploy owes stays recorded
+        # until its unit starts, and eleven deploys launched the same eight Gold rebuilds again (74 of 93
+        # queued runs were copies).
+        real = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))
+        dagster = Dagster({}, waiting={"foundation_job__gold_panel_rebuild": "run-0"})
+        status, out, _ = self.run_main("start", "gold_panel_rebuild", dagster=dagster, listing=real)
+        self.assertEqual((status, out), (0, "job-orchestrator: gold_panel_rebuild already waits to start as Dagster "
+                                            "run run-0; not started again\n"))
+        self.assertEqual(dagster.told, [], "nothing is launched")
+        status, out, _ = self.run_main("start", "gold_panel_rebuild", "requested", REQUEST, dagster=dagster, listing=real)
+        self.assertEqual((status, out), (0, "job-orchestrator: started gold_panel_rebuild as Dagster run run-1\n"))
+        self.assertEqual([what for what, _ in dagster.told], ["launch"])
+        # Another job's waiting run holds nothing back.
+        other = Dagster({}, waiting={"foundation_job__nightly": "run-0"})
+        self.assertEqual(self.run_main("start", "gold_panel_rebuild", dagster=other, listing=real)[1],
+                         "job-orchestrator: started gold_panel_rebuild as Dagster run run-1\n")
+
+    def test_a_dagster_that_does_not_say_what_waits_still_gets_the_start(self):
+        # A run the deploy owes is not dropped because the question failed: it is launched, as before.
+        real = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))
+        dagster = Dagster({}, waiting={"foundation_job__gold_panel_rebuild": {"__typename": "PythonError", "message": "busy"}})
+        status, out, err = self.run_main("start", "gold_panel_rebuild", dagster=dagster, listing=real)
+        self.assertEqual((status, out), (0, "job-orchestrator: started gold_panel_rebuild as Dagster run run-1\n"))
+        self.assertIn("starting gold_panel_rebuild without knowing", err)
+        self.assertIsNone(job_orchestrator.waiting("nightly", self.dagster()))
 
     def test_start_takes_only_a_kind_the_forced_command_reads(self):
         for kind in ("", "check", "triggered; reboot", "requested x"):
@@ -319,6 +352,19 @@ class AgainstDagster(unittest.TestCase):
                 # Dagster has no sensor for the other job: releasing it fails, loudly.
                 with self.assertRaises(job_orchestrator.Unanswered):
                     job_orchestrator.unpause(jobs, ["hourly"], post)
+                # A run that waits to start is the one a deploy's start joins; one in progress or ended is not.
+                from dagster import DagsterRun, DagsterRunStatus
+                from dagster._core.utils import make_new_run_id
+
+                self.assertIsNone(job_orchestrator.waiting("nightly", post))
+                for status in (DagsterRunStatus.STARTED, DagsterRunStatus.SUCCESS, DagsterRunStatus.CANCELED):
+                    instance.add_run(DagsterRun(job_name="foundation_job__nightly", run_id=make_new_run_id(), status=status))
+                instance.add_run(DagsterRun(job_name="foundation_job__other", run_id=make_new_run_id(),
+                                            status=DagsterRunStatus.QUEUED))
+                self.assertIsNone(job_orchestrator.waiting("nightly", post))
+                queued = make_new_run_id()
+                instance.add_run(DagsterRun(job_name="foundation_job__nightly", run_id=queued, status=DagsterRunStatus.QUEUED))
+                self.assertEqual(job_orchestrator.waiting("nightly", post), queued)
                 run_id = job_orchestrator.start(jobs, "nightly", f"requested {REQUEST}", post, job_specs.run_tags(300, f"requested {REQUEST}", 60 * 55))
                 run = instance.get_run_by_id(run_id)
                 self.assertEqual(run.job_name, "foundation_job__nightly")

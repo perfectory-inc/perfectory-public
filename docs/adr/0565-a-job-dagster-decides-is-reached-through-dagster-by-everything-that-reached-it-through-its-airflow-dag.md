@@ -274,3 +274,23 @@ Airflow 가 결정하는 동안은 `run` 과제의 재시도가 같은 유닛 ru
 
 §1 의 단계를 여는 PR 은 [ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md) §2 의 묶음 필드(`dagster_group`)와 "한 묶음의 켜진 작업은 단계 하나" 검사를 함께 연다.
 §10(Airflow 를 지우는 때)은 그대로이고, 이중 실행(`dual_run.py`)은 그보다 먼저, 첫 묶음이 옮긴 뒤 지운다([ADR-0583](./0583-jobs-move-to-dagster-in-four-groups-one-switch-each-and-the-per-job-dual-run-gate-retires-with-the-first.md) §4).
+
+## 개정 각주 — 2026-11-24, §5 의 조각: 배포의 빚진 run 은 시작을 기다리는 run 이 있으면 띄우지 않는다
+
+이 각주는 결정을 바꾸지 않는다. §5 의 "빚진 run 시작 = `triggered` 로 띄우기" 가 같은 빚을 배포마다 다시 띄우던 것을 좁힌다.
+
+- **사고(2026-11-23).** 배포 7단계는 빚 기록(`job_units.py deferred`)에 있는 작업을 모두 띄우고, 기록은 그 작업의 유닛이 호스트에서 시작할 때
+  지워진다. 띄운 run 이 풀이 차 큐에서 기다리는 동안에는 기록이 남으므로, 그날 07:43Z~20:10Z 의 배포 11번이 같은 Gold 재빌드 여덟과
+  `lineage_stewardship` 을 매번 다시 띄웠다(배포 로그 `it came due while the release built`). 11-24 00:16Z 에 큐의 run 93개 중 74개가 같은 작업의
+  둘째~열한째 사본이었고, 사본은 앞 run 이 끝난 뒤 차례로 시작하므로 호스트의 "열린 run 에 합류"(`start-scheduled-job.sh`)로는 걸러지지 않는다.
+- **규칙.** `job_orchestrator.py start` 의 `triggered` 는 그 작업의 run 이 시작을 기다리고 있으면(`QUEUED`·`NOT_STARTED`) 띄우지 않고 그 run 을
+  답한다. 기다리는 run 은 아직 아무것도 읽지 않았으므로 배포가 빚진 그 run 이다. 센서가 열린 run 이 있으면 시작하지 않는 것(`decide.py`
+  `held`)과 같은 물음이고, Dagster 의 run 저장소에 묻는다(새 상태 없음). 도는 run 은 덮지 않는다(릴리스 전에 시작했다): 그 뒤에 하나가 기다린다.
+  그래서 한 작업이 큐에 두는 배포의 run 은 많아야 하나다.
+- **운영자의 run-now(`requested <id>`)는 늘 띄운다.** 호스트가 요청 ID 로 답하는 run 이라(ADR-0282 §4) 다른 run 이 대신할 수 없다.
+- **물음이 답을 못 받으면 띄운다.** 문지기가 이 문서를 모르는 릴리스이거나 Dagster 가 오류를 답하면 예전처럼 띄운다: 빚진 run 을 잃는 것보다
+  사본 하나가 낫다.
+- **문지기.** 호스트가 보낼 수 있는 문서에 `WAITING_RUN` 하나를 더한다(읽기; 변수는 이 플랫폼 작업의 Dagster 작업 이름 하나).
+- **시험.** 규칙과 문지기는 `test_dagster_job_orchestrator.py`·`test_dagster_writer_gate.py`, 같은 물음을 실제 Dagster 의 run 저장소에 보내는 것은
+  `test_dagster_job_orchestrator.py` `AgainstDagster`(CI `dagster-observe`).
+- **정리.** 쌓인 사본 74개는 Dagster 의 `terminateRun` 으로 취소했다(작업마다 가장 오래 기다린 run 하나를 남김): 큐 93 → 16.
