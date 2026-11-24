@@ -29,8 +29,8 @@ use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
     factory_kind_stage::FACTORIES,
     kind_versions_stage::{
-        build_in_parts, ensure_no_commit_tables, load_region, spool, KindVersionsStage,
-        PARCEL_SOURCE,
+        build_in_parts, ensure_no_commit_tables, load_region, spool, spool_base,
+        targets_from_spools, KindVersionsStage, PARCEL_SOURCE,
     },
     land_ownership_stage::OWNERSHIP,
     onbid_kind_stage::PUBLIC_AUCTION,
@@ -369,6 +369,8 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         spool_dir.path(),
     )?;
     let mut sidos = read.sidos.clone();
+    // What finding the changed keys took: once, nationally (root ADR-0615 §7).
+    let mut targets_millis = 0_u64;
     if !every_pnu {
         let base = base.as_ref().context("a partial run has a base")?;
         let old_pins = NearbyPins(base.pins.clone());
@@ -376,7 +378,9 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             .served_edition
             .clone()
             .context("a partial run's base names its served edition")?;
-        let old = spool(
+        // The base side: only what moved is read again, and the changed keys are found once, from
+        // the two sides' spools; a 시도 with none is not loaded below.
+        let old = spool_base(
             stage,
             connection,
             &Source::Pinned {
@@ -384,9 +388,12 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                 pins: &old_pins,
             },
             &old_edition,
-            "_old",
             spool_dir.path(),
+            &moved,
         )?;
+        let at = Instant::now();
+        targets_from_spools(stage, connection, spool_dir.path(), &old.compared)?;
+        targets_millis = u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX);
         sidos.extend(old.sidos);
     }
     // A 시도 the head holds and the served edition no longer does (a merged 시도) is diffed too: its
@@ -423,6 +430,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let mut append_head = head;
     let max_loss = max_row_loss_fraction_of(kind.replaced)?;
     let mut phases = Phases::default();
+    *phases.0.entry("targets").or_default() += targets_millis;
     let mut checks = Vec::new();
     for sido in &sidos {
         if requested.as_ref().is_some_and(|keys| !keys.contains(sido)) {
@@ -450,19 +458,20 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         // The session's connection is borrowed for the 시도's work only: a commit below awaits.
         let named = {
             let connection = duck.connection();
-            let at = Instant::now();
-            rows += load_region(stage, connection, spool_dir.path(), "", sido)?;
+            // Asked before the 시도 is loaded: one with no changed key is not read at all.
             let named = if whole_sido {
                 None
             } else {
-                load_region(stage, connection, spool_dir.path(), "_old", sido)?;
-                phases.add("load", at);
-                let at = Instant::now();
-                let count = stage.changed_pnus(connection)?;
-                phases.add("targets", at);
-                Some(count)
+                let count: i64 = connection.query_row(
+                    &format!("SELECT count(*) FROM targets WHERE {}", sido_range(sido)?),
+                    [],
+                    |row| row.get(0),
+                )?;
+                Some(u64::try_from(count)?)
             };
-            if named.is_none() {
+            if named != Some(0) {
+                let at = Instant::now();
+                rows += load_region(stage, connection, spool_dir.path(), "", sido)?;
                 phases.add("load", at);
             }
             named

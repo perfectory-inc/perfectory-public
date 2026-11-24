@@ -121,7 +121,10 @@ fn a_partial_run_names_the_pnus_whose_rows_changed() -> anyhow::Result<()> {
     load(&connection, &rows, &[])?;
     crate::kind_versions_stage::read_for_test(&ENERGY, &connection, EDITION, "_old")?;
     crate::kind_versions_stage::read_for_test(&ENERGY, &connection, EDITION, "")?;
-    assert_eq!(ENERGY.changed_pnus(&connection)?, 0);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&ENERGY, &connection)?,
+        0
+    );
     // The same row twice is another month total: a change though the set of rows is the same.
     load(
         &connection,
@@ -129,7 +132,10 @@ fn a_partial_run_names_the_pnus_whose_rows_changed() -> anyhow::Result<()> {
         &[],
     )?;
     crate::kind_versions_stage::read_for_test(&ENERGY, &connection, EDITION, "")?;
-    assert_eq!(ENERGY.changed_pnus(&connection)?, 1);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&ENERGY, &connection)?,
+        1
+    );
     Ok(())
 }
 

@@ -288,7 +288,10 @@ fn a_partial_run_names_only_the_parcels_whose_rows_or_service_changed() -> anyho
     });
     load(&connection, &newer)?;
     crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
-    assert_eq!(OWNERSHIP.changed_pnus(&connection)?, 1);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&OWNERSHIP, &connection)?,
+        1
+    );
     OWNERSHIP.build(
         &connection,
         false,

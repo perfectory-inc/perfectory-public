@@ -260,7 +260,10 @@ fn a_partial_run_names_the_pnus_whose_factories_parcels_or_place_ids_changed() -
     read_for_test(&FACTORIES, &connection, EDITION, "_old")?;
     // Nothing changed: no PNU to rebuild.
     read_for_test(&FACTORIES, &connection, EDITION, "")?;
-    assert_eq!(FACTORIES.changed_pnus(&connection)?, 0);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&FACTORIES, &connection)?,
+        0
+    );
     // A new edition where 나공업 left the site; the place id of the renumbered parcel is released.
     let mut newer: Vec<_> = factories()
         .into_iter()
@@ -279,7 +282,10 @@ fn a_partial_run_names_the_pnus_whose_factories_parcels_or_place_ids_changed() -
         ],
     )?;
     read_for_test(&FACTORIES, &connection, EDITION, "")?;
-    assert_eq!(FACTORIES.changed_pnus(&connection)?, 2);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&FACTORIES, &connection)?,
+        2
+    );
     build(&connection, false)?;
     let rows = built(&connection)?;
     assert_eq!(

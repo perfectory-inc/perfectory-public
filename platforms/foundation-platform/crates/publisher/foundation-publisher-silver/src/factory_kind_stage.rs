@@ -137,31 +137,6 @@ impl KindVersionsStage for FactoryKind {
         Ok(())
     }
 
-    fn changed_pnus(&self, connection: &Connection) -> anyhow::Result<u64> {
-        let columns = RECORD_FIELDS.join(", ");
-        let mut parts = Vec::new();
-        for (a, b) in [("", "_old"), ("_old", "")] {
-            parts.push(format!(
-                "(SELECT pnu FROM (SELECT pnu, {columns} FROM rows{a} \
-                 EXCEPT ALL SELECT pnu, {columns} FROM rows{b}))"
-            ));
-            parts.push(format!(
-                "(SELECT pnu FROM served{a} EXCEPT SELECT pnu FROM served{b})"
-            ));
-            parts.push(format!(
-                "(SELECT pnu FROM (SELECT pnu, place_id FROM {PLACE_IDS}{a} \
-                 EXCEPT SELECT pnu, place_id FROM {PLACE_IDS}{b}))"
-            ));
-        }
-        connection.execute_batch(&format!(
-            "CREATE OR REPLACE TABLE targets AS SELECT DISTINCT pnu FROM ({});",
-            parts.join(" UNION ALL ")
-        ))?;
-        let count: i64 =
-            connection.query_row("SELECT count(*) FROM targets", [], |row| row.get(0))?;
-        Ok(u64::try_from(count)?)
-    }
-
     fn build(
         &self,
         connection: &Connection,
