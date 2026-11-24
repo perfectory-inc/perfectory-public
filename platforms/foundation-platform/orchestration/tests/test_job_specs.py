@@ -409,8 +409,9 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # it and it takes no turns (the mechanism goes with the host path, root ADR-0583's last PR).
         self.assertNotIn("takes_turns", bake(real_inputs()[0]))
         weights = {spec.job_id: spec.priority_weight for spec in job_specs.load_specs() if spec.pool == "spark"}
-        self.assertGreater(weights["rt_molit_real_transaction_silver"],
-                           max(weights["map_edit_fold_admin"], weights["map_edit_fold_complex"]))
+        # The 실거래 Silver load, once the heaviest of this pool's turns, left it for the publisher's DuckDB
+        # (root ADR-0559): it holds no Spark slot to rank.
+        self.assertNotIn("rt_molit_real_transaction_silver", weights)
         # Lineage names no tier: its place is just above the Gold rebuilds that read what it writes
         # (root ADR-0558), below the folds.
         self.assertGreater(weights["map_edit_fold_admin"], weights["lineage_stewardship"])

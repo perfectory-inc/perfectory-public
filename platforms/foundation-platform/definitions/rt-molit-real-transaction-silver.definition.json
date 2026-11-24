@@ -9,7 +9,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver load of 국토교통부 실거래가 (root ADR-0349; scripts/ops/rt-molit-silver-load.sh, infra/lakehouse/spark/jobs/rt_molit_real_transaction.py): the Bronze exports no commit of silver.real_transaction records (plan-silver-load-objects, R2 alone), oldest landing first, each in its own commit: for its (dataset, 계약 달) the rows whose name is new or whose content changed (a cancellation is a new version of the same row) and a removal marker for a name the month's export no longer holds, compared with that month's current rows only; the 법정동 code and PNU of each row from the one place-identity resolver (root ADR-0288). Hourly, after the collector; `unchanged` without starting Spark when nothing is owed. A load whose unmasked lots link below the contract's bound lands its rows and fails so it is seen.",
+      "description": "Silver load of 국토교통부 실거래가 (root ADR-0349, ADR-0559; scripts/ops/rt-molit-silver-load.sh → the publisher's load-rt-molit-real-transaction-silver, DuckDB inside the publisher: rt_molit_silver_stage): the Bronze exports no commit of silver.real_transaction records (plan-silver-load-objects, R2 alone), oldest landing first, each in its own commit: for its (dataset, 계약 달) the rows whose name is new or whose content changed (a cancellation is a new version of the same row) and a removal marker for a name the month's export no longer holds, compared with that month's current rows only; the lines an export carried that are not loaded go first to silver.real_transaction_rejected (root ADR-0364); the 법정동 code and PNU of each row by the one place-identity resolver's rules (root ADR-0288). Hourly, after the collector; `unchanged` without starting anything when nothing is owed. Every run reports the result checks of what it appended (silver_load_rows, silver_load_key_unique, silver_load_required_present). A load whose unmasked lots link below the contract's bound lands its rows and fails so it is seen.",
       "systemd_service": "foundation-rt-molit-silver-load.service",
       "systemd_timer": null,
       "state_paths": [
@@ -21,9 +21,8 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 40,
-      "memory_max": "512M",
-      "memory_measured_peak": "308M",
-      "memory_measured": "journal `memory peak` 2026-10-18..11-08, 141 runs, highest 2026-11-08 (foundation-rt-molit-silver-load)",
+      "memory_max": "3G",
+      "memory_measured": "not measured: no run of the publisher's DuckDB load yet (the unit ran only the script around a Spark container until now: 308M of 512M, journal 2026-10-18..11-08). 3G is the cap of the other DuckDB Silver loads (court_auction_silver peaked at 1,073 MiB); a run holds at most six exports of 13 to 16 MB, read one at a time, and the served parcels their lots ask about. The load prints memory_peak_bytes in its summary line: the first runs set memory_max from it (root ADR-0455, ADR-0574)",
       "per_run_cap": {
         "unit": "object",
         "limits": [
@@ -41,7 +40,7 @@
           "from_change": "#988 merged 2026-10-31T00:50:11Z, the cap measured after the 2026-10-30 40-minute kills"
         }
       },
-      "pool": "spark",
+      "pool": "default_pool",
       "priority_weight": 100,
       "retries": 0,
       "pipeline_graph_edges": [
@@ -88,8 +87,10 @@
         "collect-rt-molit-real-transaction",
         "platforms/foundation-platform/scripts/ops/rt-molit-collect.sh",
         "platforms/foundation-platform/scripts/ops/rt-molit-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/rt_molit_real_transaction.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/rt_molit_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/rt_molit_silver_stage.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_placement_stage.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs"
       ],
       "source_slugs": [
         "rtmolitgokr__real_transaction_apartment_presale",
@@ -108,12 +109,24 @@
       "description": "적재가 싣지 않은 줄을 Bronze 참조와 함께 남긴다(루트 ADR-0364)."
     }
   ],
-  "host_memory": {
-    "rt_molit_real_transaction_silver": [
-      {
-        "project": "foundation-platform-compute",
-        "service": "spark-small"
-      }
-    ]
-  }
+  "asset_checks": [
+    {
+      "asset": "silver-real-transaction-rejected",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-real-transaction-rejected",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-real-transaction-rejected",
+      "check": "silver_load_required_present",
+      "blocking": false,
+      "reads": []
+    }
+  ]
 }

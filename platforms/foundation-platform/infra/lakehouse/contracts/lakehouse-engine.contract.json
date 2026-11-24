@@ -274,9 +274,6 @@
       "regulation_zones_silver_to_gold": {
         "wave": 2
       },
-      "rt_molit_real_transaction": {
-        "wave": 1
-      },
       "silver_scalar_handoff_to_lakehouse": {
         "moved": {
           "pull_request": 1599,

@@ -100,24 +100,25 @@ class EveryStartTakesThePoolsSlots(unittest.TestCase):
 
     def test_a_job_an_operator_started_holds_the_slots_a_scheduled_start_needs(self):
         # The incident: a disabled one-off holding every spark slot, then FLOOR came due (2026-10-18).
-        # FLOOR has left the spark pool (root ADR-0599); a Silver load still in it stands for it.
+        # FLOOR has left the spark pool (root ADR-0599), and so has the 실거래 Silver load (root ADR-0559); the
+        # parcel registry, a scheduled job still in it, stands for them.
         jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
         # A run takes one slot (root ADR-0605), so any other spark job holds the pool's one.
-        whole = next(job for job in jobs if job["pool"] == "spark" and job["id"] != "rt_molit_real_transaction_silver")
-        result = self.pool_full("rt_molit_real_transaction_silver", {whole["systemd_service"]: "activating"})
+        whole = next(job for job in jobs if job["pool"] == "spark" and job["id"] != "parcel_registry")
+        result = self.pool_full("parcel_registry", {whole["systemd_service"]: "activating"})
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("no room for foundation-rt-molit-silver-load.service", result.stdout)
+        self.assertIn("no room for foundation-parcel-registry.service", result.stdout)
         self.assertIn(f"{whole['systemd_service']} holds 1", result.stdout)
 
     def test_room_is_an_empty_answer_and_a_stopped_unit_holds_nothing(self):
         for units in ({}, {"foundation-gold-panel-rebuild.service": "failed"},
                       {"foundation-gold-panel-rebuild.service": "inactive"}):
             with self.subTest(units=units):
-                result = self.pool_full("rt_molit_real_transaction_silver", units)
+                result = self.pool_full("parcel_registry", units)
                 self.assertEqual((result.returncode, result.stdout.strip()), (0, ""), result.stderr)
 
     def test_a_run_joins_itself_and_a_pool_without_slots_is_not_bounded_here(self):
-        result = self.pool_full("rt_molit_real_transaction_silver", {"foundation-rt-molit-silver-load.service": "activating"})
+        result = self.pool_full("parcel_registry", {"foundation-parcel-registry.service": "activating"})
         self.assertEqual(result.stdout.strip(), "", "a run in progress is joined, not counted against itself")
         result = self.pool_full("shape_ledger_check", {"foundation-gold-panel-rebuild.service": "activating"})
         self.assertEqual(result.stdout.strip(), "")
@@ -125,13 +126,13 @@ class EveryStartTakesThePoolsSlots(unittest.TestCase):
     def test_an_instance_of_a_templated_job_holds_slots_and_is_asked_about(self):
         # A parcel tile rehearsal is an instance of the bake template, not a job of its own.
         rehearsal = "foundation-parcel-tile-bake@rehearsal-bake.service"
-        result = self.pool_full("rt_molit_real_transaction_silver", {rehearsal: "activating"})
+        result = self.pool_full("parcel_registry", {rehearsal: "activating"})
         self.assertIn(f"{rehearsal} holds", result.stdout)
-        result = self.pool_full(rehearsal, {"foundation-rt-molit-silver-load.service": "activating"})
+        result = self.pool_full(rehearsal, {"foundation-parcel-registry.service": "activating"})
         self.assertIn(f"no room for {rehearsal}", result.stdout)
 
     def test_no_answer_from_systemd_and_an_unknown_job_are_refusals(self):
-        self.assertEqual(self.pool_full("rt_molit_real_transaction_silver", FAKE_DOWN="1").returncode, 2)
+        self.assertEqual(self.pool_full("parcel_registry", FAKE_DOWN="1").returncode, 2)
         self.assertEqual(self.pool_full("no_such_job").returncode, 64)
 
 
@@ -191,7 +192,7 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
         self.assertIn("yielded the spark pool to by_pnu_lane_cutover (first_publish)", yielded.stdout)
         # After the migration ended at its step boundary, no default or backfill start takes the pool
         # the cut-over waits for.
-        for job in ("unit_price_versions_migration", "rt_molit_real_transaction_silver"):
+        for job in ("unit_price_versions_migration", "parcel_registry"):
             with self.subTest(job=job):
                 held = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER])
                 self.assertEqual(held.returncode, 0, held.stderr)
@@ -223,7 +224,7 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
         # Root ADR-0462, the 2026-11-09 replay: the cut-over's claim (first_publish) was queued anew every
         # run, and a Silver load (default) refused at 07:00Z had no way past it. Its wait now ages it: four
         # hours in the queue tie a fresh claim; past them the start goes first.
-        job = "rt_molit_real_transaction_silver"
+        job = "parcel_registry"
         self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)
         queue = self.root / "queue"
         queue.mkdir()

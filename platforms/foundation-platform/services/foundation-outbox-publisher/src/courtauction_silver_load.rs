@@ -47,7 +47,7 @@ const PIPES_PROTOCOL_VERSION: &str = "0.1";
 
 /// The result checks of one table over the run's objects.
 #[derive(Default)]
-struct TableChecks {
+pub(crate) struct TableChecks {
     objects: u64,
     rows: u64,
     /// Objects whose commit added another count of records than the rows staged for it.
@@ -57,7 +57,7 @@ struct TableChecks {
 }
 
 impl TableChecks {
-    fn add(&mut self, object: &str, checks: ResultChecks, added: u64) {
+    pub(crate) fn add(&mut self, object: &str, checks: ResultChecks, added: u64) {
         self.objects += 1;
         self.rows += checks.rows;
         if added != checks.rows {
@@ -68,7 +68,7 @@ impl TableChecks {
     }
 
     /// The Pipes `report_asset_check` lines of the table's three checks.
-    fn pipes_lines(&self, table: &str) -> Vec<Value> {
+    pub(crate) fn pipes_lines(&self, table: &str) -> Vec<Value> {
         let line = |check: &str, passed: bool, detail: Value| {
             let mut metadata = serde_json::Map::new();
             for (name, value) in [

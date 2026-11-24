@@ -61,8 +61,14 @@ HISTORY_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duc
                       "a_parcel_number_change_file_is_the_first_append_into_the_empty_table")
 COURT_AUCTION_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
                             "a_court_auction_object_is_the_first_append_into_each_empty_table")
+REAL_TRANSACTION_FIRST_LOAD = ("rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests/real_transaction.rs::"
+                               "a_real_transaction_export_is_the_first_append_into_each_empty_table")
 # A table whose job writes it its own way: the test that loads its empty table, as module.Class.method.
 OWN_WRITERS = {
+    # The 실거래 Silver load's two tables (load-rt-molit-real-transaction-silver), appended by the publisher
+    # (root ADR-0559).
+    "silver.real_transaction": REAL_TRANSACTION_FIRST_LOAD,
+    "silver.real_transaction_rejected": REAL_TRANSACTION_FIRST_LOAD,
     "silver.administrative_boundaries": "test_silver_first_load_iceberg.AdministrativeBoundariesFirstLoadTest."
                                         "test_the_first_snapshot_into_an_empty_table_is_one_commit",
     "silver.map_edit_ledger": "test_silver_first_load_iceberg.MapEditLedgerFirstLoadTest."
@@ -359,8 +365,9 @@ class ObjectFirstLoadTest(unittest.TestCase):
         import lakehouse_ingest as ingest
         from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract
 
+        # No lane is left on append_source_object since the 실거래 load went to the publisher's DuckDB
+        # (root ADR-0559): the case holds for a Spark lane that writes through it again.
         lanes = tables_of("object")
-        self.assertIn("silver.real_transaction", lanes)
         for contract_name in lanes:
             with self.subTest(table=contract_name):
                 table, unquoted = target(contract_name)

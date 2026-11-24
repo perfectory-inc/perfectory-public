@@ -207,6 +207,8 @@ pub mod registered_factory_stage;
 /// Where each 실거래 deal belongs, in `DuckDB` (root ADR-0350 §1, ADR-0351, ADR-0405).
 pub mod real_transaction_placement_stage;
 pub mod real_transaction_versions_stage;
+/// The 국토교통부 실거래가 Silver load in `DuckDB` (root ADR-0348, ADR-0349, ADR-0559).
+pub mod rt_molit_silver_stage;
 
 pub mod release_compare_stage;
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and

@@ -84,8 +84,10 @@
         "collect-rt-molit-real-transaction",
         "platforms/foundation-platform/scripts/ops/rt-molit-collect.sh",
         "platforms/foundation-platform/scripts/ops/rt-molit-silver-load.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/rt_molit_real_transaction.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/rt_molit_silver_load.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/rt_molit_silver_stage.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_placement_stage.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_identity_stage.rs"
       ],
       "source_slugs": [
         "rtmolitgokr__real_transaction_apartment_presale",
@@ -108,6 +110,24 @@
     {
       "asset": "silver-real-transaction",
       "check": "parcel_source_resolution",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-real-transaction",
+      "check": "silver_load_rows",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-real-transaction",
+      "check": "silver_load_key_unique",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-real-transaction",
+      "check": "silver_load_required_present",
       "blocking": false,
       "reads": []
     }

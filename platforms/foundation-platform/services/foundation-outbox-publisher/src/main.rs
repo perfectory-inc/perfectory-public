@@ -182,6 +182,7 @@ mod parcel_number_change_history_load;
 mod parcel_registry_load;
 mod real_estate_broker_lookup_load;
 mod registered_factory_silver_load;
+mod rt_molit_silver_load;
 mod unit_official_price_projection_load;
 mod unit_price_versions_build;
 use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
@@ -213,6 +214,7 @@ enum Command {
     AppendLegalDongCodeChanges,
     IntelligenceDocuments,
     CollectRtMolitRealTransaction,
+    LoadRtMolitRealTransactionSilver,
     CollectCourtauctionGoKr,
     LoadCourtauctionGoKrSilver,
     CollectDataGoKrFileData,
@@ -451,6 +453,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::AppendLegalDongCodeChanges => Box::pin(legal_dong_pairing_load::append_changes()),
         Command::IntelligenceDocuments => Box::pin(intelligence_documents_load::run()),
         Command::LoadCourtauctionGoKrSilver => Box::pin(courtauction_silver_load::run()),
+        Command::LoadRtMolitRealTransactionSilver => Box::pin(rt_molit_silver_load::run()),
         Command::CollectRtMolitRealTransaction => {
             Box::pin(rt_molit_real_transaction_collect::run())
         }
@@ -985,6 +988,9 @@ where
         Some("append-legal-dong-code-changes") => Ok(Command::AppendLegalDongCodeChanges),
         Some("intelligence-documents") => Ok(Command::IntelligenceDocuments),
         Some("collect-rt-molit-real-transaction") => Ok(Command::CollectRtMolitRealTransaction),
+        Some("load-rt-molit-real-transaction-silver") => {
+            Ok(Command::LoadRtMolitRealTransactionSilver)
+        }
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
         Some("load-courtauction-go-kr-silver") => Ok(Command::LoadCourtauctionGoKrSilver),
         Some("collect-data-go-kr-file-data") => Ok(Command::CollectDataGoKrFileData),

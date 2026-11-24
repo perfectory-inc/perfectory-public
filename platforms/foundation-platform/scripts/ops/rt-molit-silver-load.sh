@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # 국토교통부 실거래가의 Silver 적재 절반 (root ADR-0348, ADR-0349). 등록된 작업 rt_molit_real_transaction_silver
-# (spark 1칸)가 매시간 돌린다. 작은 Spark(spark-small, 계약된 메모리 상한)로 돈다.
+# (duckdb 1칸)가 매시간 돌린다.
+#
+# 엔진(root ADR-0559): 발행기 load-rt-molit-real-transaction-silver 가 DuckDB 로 계획(${work}/duckdb/real_transaction)을
+# 읽어 쌓는다. Spark 는 띄우지 않는다.
 #
 # 쌓을 것은 R2 만 보고 정한다(plan-silver-load-objects: 12 원천의 Bronze 중 silver.real_transaction 의 커밋이
-# 아직 기록하지 않은 것, 계약의 window_days·max_objects 안, 내려앉은 순). rt_molit_real_transaction.py load 가
-# 객체(한 데이터셋의 한 달 전국 CSV)마다 커밋 하나로, 그 달의 새 이름·바뀐 행과 빠진 이름의 삭제 표지를 쌓는다.
-# 계약해제는 같은 이름의 새 판이다. 법정동·PNU 는 정본 해석기로 정한다(root ADR-0288).
+# 아직 기록하지 않은 것, 계약의 window_days·max_objects 안, 내려앉은 순). 적재가 객체(한 데이터셋의 한 달 전국 CSV)마다
+# 커밋 하나로, 싣지 않는 줄을 silver.real_transaction_rejected 에 먼저(root ADR-0364), 그 달의 새 이름·바뀐 행과 빠진
+# 이름의 삭제 표지를 silver.real_transaction 에 쌓는다. 계약해제는 같은 이름의 새 판이다. 법정동·PNU 는 정본 해석기의
+# 규칙으로 정한다(root ADR-0288).
 #
-# 쌓을 것이 없으면 Spark 를 띄우지 않고 unchanged 로 끝난다. 받은 사본은 성공하든 실패하든 지운다. 늦은
+# 쌓을 것이 없으면 아무것도 띄우지 않고 unchanged 로 끝난다. 받은 사본은 성공하든 실패하든 지운다. 늦은
 # 객체(window_days 보다 오래 기록 없이 남은 것)나 연결률이 계약의 하한 아래인 객체는 싣고 실패로 끝난다.
 set -Eeuo pipefail
 shopt -s inherit_errexit
@@ -17,14 +21,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 STATE_ROOT="${FOUNDATION_REAL_TRANSACTION_STATE_ROOT:-/var/lib/foundation-platform/real-transaction}"
 LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
 CONTRACT="${RELEASE_ROOT}/infra/lakehouse/contracts/rt-molit-real-transaction.contract.json"
-JOB="${RELEASE_ROOT}/infra/lakehouse/spark/jobs/rt_molit_real_transaction.py"
 journal="${STATE_ROOT}/journal.log"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${LAKEHOUSE_STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "rt.molit silver load FAILED at line ${LINENO} run=${run_id}" >&2; job_run_log_tail "${run_log}"' ERR
-trap 'rm -rf "${work}/plans"' EXIT
+trap 'rm -rf "${work}/duckdb"' EXIT
 
 # Root ADR-0364: the exports this run quarantined whole, as a node-exporter textfile; the alert
 # FoundationRealTransactionExportQuarantined fires on a run that quarantined one and clears on the next.
@@ -44,14 +47,15 @@ write_metrics() { # <quarantined exports> <rejected lines>
   } > "${tmp}" && mv -f "${tmp}" "${METRICS_DIR}/rt-molit-silver.prom" || true # a metrics write never fails the load
 }
 
-read -r window_days max_objects < <(python3 -I -c '
+read -r window_days max_objects slugs < <(python3 -I -c '
 import json, sys
-c = json.load(open(sys.argv[1], encoding="utf-8"))["silver_load"]
-print(c["window_days"], c["max_objects"])
+c = json.load(open(sys.argv[1], encoding="utf-8"))
+print(c["silver_load"]["window_days"], c["silver_load"]["max_objects"],
+      ",".join("rtmolitgokr__" + name for name in sorted(c["datasets"])))
 ' "${CONTRACT}")
-read -r table slugs < <(python3 -I "${JOB}" tables)
+table=silver.real_transaction
 
-plan_dir="${work}/plans/real_transaction"
+plan_dir="${work}/duckdb/real_transaction"
 env FOUNDATION_PLATFORM_SILVER_LOAD_TABLE="${table}" FOUNDATION_PLATFORM_SILVER_LOAD_SOURCE_SLUGS="${slugs}" \
   FOUNDATION_PLATFORM_SILVER_LOAD_WINDOW_DAYS="${window_days}" \
   FOUNDATION_PLATFORM_SILVER_LOAD_MAX_OBJECTS="${max_objects}" \
@@ -64,30 +68,12 @@ if [ "${owed}" = 0 ]; then
   printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
-chmod -R a+rX "${work}" # Spark 컨테이너는 uid 185 로 읽는다.
+FOUNDATION_PLATFORM_RT_MOLIT_PLAN_ROOT="${work}/duckdb" \
+  "${PUBLISHER_BIN}" load-rt-molit-real-transaction-silver >> "${run_log}" 2>&1
 
-# 힙은 컨테이너(spark-small 2560m) 안에 JVM 바깥 몫과 파이썬 워커를 함께 넣을 만큼만 준다. 내보내기는 파이썬
-# 워커가 줄 단위로 읽고(rt_molit_real_transaction.export_records), 드라이버는 행을 쥐지 않으며, 단계 사이 프레임은
-# 디스크에 둔다. 2g 힙은 2026-11-08 7 번 연속 137, 1500m 도 11-10 21:16Z·21:19Z·11-11 09:58Z 137(java 2.33~2.42 GB)
-# 이었다. 잰 값(2026-11-11, 실제 13~16 MB 내보내기 4개를 한 실행 8 객체로, 같은 2560m 컨테이너): 예전 경로 1500m 는
-# 익명 메모리 2.67 GB 에서 죽고, 새 경로는 1500m 2.39 GB, 1000m 1.76 GB(java 1,417 MB·파이썬 296 MB, 상한까지 31%).
-# 2026-11-12..17 한 실행 9 객체에서 17 번 137: 매번 java 2.26~2.41 GB(힙 1000m 바깥이 1.3~1.4 GB). 한 실행은 6 객체
-# (계약 silver_load.max_objects), JVM 은 끝날 때 범주별 네이티브 메모리를 run.log 에 남긴다(PrintNMTStatistics) —
-# 객체마다 무엇이 자라는지 다음 실행부터 잰다.
-
-lakehouse_run_log "${run_log}"
-FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
-FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-lakehouse_spark_run foundation-platform-compute \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark-small spark-submit --master 'local[2,8]' --driver-memory 1000m \
-  --conf 'spark.driver.extraJavaOptions=-XX:NativeMemoryTracking=summary -XX:+UnlockDiagnosticVMOptions -XX:+PrintNMTStatistics' \
-  --jars "${SPARK_RELEASE_JARS}" \
-  /workspace/infra/lakehouse/spark/jobs/rt_molit_real_transaction.py load \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/plans/real_transaction" \
-  --allow-non-smoke-write >> "${run_log}" 2>&1
-
+# The load's result checks, to the journal, where the op that ran this unit reads them as Dagster
+# asset check evaluations (orchestration/dagster/load_checks.py).
+grep '^{"__dagster_pipes_version"' "${run_log}" || true
 summary="$(grep '^rt-molit-real-transaction-summary-json ' "${run_log}" | tail -1)"
 read -r quarantined rejected < <(python3 -I -c '
 import json, sys

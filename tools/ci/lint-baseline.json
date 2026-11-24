@@ -49,9 +49,6 @@
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/regulation_zones_silver_to_gold.py": {
    "B905": 1
   },
-  "platforms/foundation-platform/infra/lakehouse/spark/jobs/rt_molit_real_transaction.py": {
-   "B905": 2
-  },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/served_gold_common.py": {
    "F401": 1
   },
@@ -155,9 +152,6 @@
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_register_sub_parcel_contract.py": {
    "E402": 1
-  },
-  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_rt_molit_real_transaction.py": {
-   "PLW1510": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_unit_price_panel_iceberg.py": {
    "F841": 1
