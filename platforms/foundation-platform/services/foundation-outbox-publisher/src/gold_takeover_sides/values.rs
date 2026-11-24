@@ -205,23 +205,24 @@ mod tests {
     }
 
     /// A side's 시도 is written a chunk a file, each cell as a value; a chunk the side has no row
-    /// in is an empty file, and rows of no named chunk are not written.
+    /// in is an empty file, and rows of no named chunk are not written. The key is a region code
+    /// (ten digits here), whose first five characters are the chunk as a PNU's are.
     #[test]
     fn a_side_is_written_a_chunk_a_file() -> anyhow::Result<()> {
         let connection = Connection::open_in_memory()?;
         connection.execute_batch(
-            r#"CREATE TABLE t (pnu VARCHAR, n BIGINT, d_json VARCHAR);
-               INSERT INTO t VALUES ('9999910100100010000', 1, '{"x":1.0E7}'),
-                 ('9999920100100010000', 2, '[1]'), ('9999930100100010000', 3, NULL),
-                 ('9999810100100010000', 4, '{}'), ('9900010100100010000', 5, '{}');"#,
+            r#"CREATE TABLE t (region_code VARCHAR, n BIGINT, d_json VARCHAR);
+               INSERT INTO t VALUES ('9999900001', 1, '{"x":1.0E7}'),
+                 ('9999900002', 2, '[1]'), ('9999900003', 3, NULL),
+                 ('9999800001', 4, '{}'), ('9900000001', 5, '{}');"#,
         )?;
-        let side = |filter: &str| format!("SELECT pnu, n, d_json FROM t WHERE {filter}");
-        let columns = ["pnu", "n", "d_json"];
+        let side = |filter: &str| format!("SELECT region_code, n, d_json FROM t WHERE {filter}");
+        let columns = ["region_code", "n", "d_json"];
         assert_eq!(
             prefixes(
                 &connection,
-                &["(SELECT pnu FROM t WHERE pnu >= '9999')"],
-                "pnu"
+                &["(SELECT region_code FROM t WHERE region_code >= '9999')"],
+                "region_code"
             )?,
             ["99998", "99999"]
         );
@@ -230,7 +231,7 @@ mod tests {
         let written = write_chunks(
             &connection,
             &side,
-            "pnu",
+            "region_code",
             &chunks,
             &columns,
             "reference",
@@ -242,7 +243,7 @@ mod tests {
         let rows = |prefix: &str| -> anyhow::Result<Vec<(String, Option<String>)>> {
             Ok(connection
                 .prepare(&format!(
-                    "SELECT n, d_json FROM read_parquet('{}') ORDER BY pnu",
+                    "SELECT n, d_json FROM read_parquet('{}') ORDER BY region_code",
                     file(prefix)?
                 ))?
                 .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
