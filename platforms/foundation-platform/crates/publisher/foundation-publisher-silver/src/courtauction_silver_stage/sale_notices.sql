@@ -11,9 +11,16 @@ SELECT line_number, json_extract_string(j, '$.operation') AS operation, ca_data(
 FROM ca_parsed
 WHERE read AND ca_data(body) IS NOT NULL;
 
--- Each detail line's key, read back from its request.
+-- Each detail line's key, read back from its request, and what the notice rows take from its data:
+-- the case count and the three lists, each a list of small objects (the data itself stays in this
+-- part: a whole object of them ran the stage out of memory, 2026-11-24).
 CREATE OR REPLACE TEMP TABLE ca_notice_detail_lines AS
-SELECT line_number, data,
+SELECT line_number,
+       ca_whole(json_extract(ca_object(ca_object(data, '$.result'), '$.dspslPbanc'), '$.csCnt')) AS case_count,
+       ca_objects(json_extract(ca_object(ca_object(ca_object(data, '$.result'), '$.dspslPbanc'), '$.pbancInfo'), '$.lst'))
+         AS sale_list,
+       ca_objects(json_extract(ca_object(data, '$.result'), '$.crrctPbancLst')) AS correction_list,
+       ca_objects(json_extract(ca_object(data, '$.result'), '$.rtrcnPbancLst')) AS cancellation_list,
        py_text(json_extract(asked, '$.cortOfcCd')) AS court_office_code,
        py_text(json_extract(asked, '$.jdbnCd')) AS department_code,
        onbid_ymd(json_extract(asked, '$.dspslDxdyYmd')) AS sale_date,
@@ -40,6 +47,10 @@ SELECT line_number, ordinal, item,
        py_text(json_extract(item, '$.bidDvsCd')) AS bid_kind_code
 FROM listed;
 
+-- The statements above read one part's lines (duckdb_parquet_stage::LineParts::InOrder); those below
+-- compare lines across the object, once, over every part's list rows and detail lines.
+-- @object ca_notice_listed ca_notice_detail_lines
+
 CREATE OR REPLACE TEMP TABLE ca_court_auction_sale_notice AS
 WITH notices AS (
   SELECT *
@@ -51,7 +62,7 @@ WITH notices AS (
 ), counts AS (
   -- The last detail line after the notice's list line sets its count (None when it gives none).
   SELECT n.court_office_code, n.department_code, n.sale_date, n.bid_kind_code,
-         ca_whole(json_extract(ca_object(ca_object(d.data, '$.result'), '$.dspslPbanc'), '$.csCnt')) AS case_count
+         d.case_count
   FROM notices n
   JOIN ca_notice_detail_lines d
     ON d.court_office_code = n.court_office_code AND d.department_code = n.department_code
@@ -90,13 +101,13 @@ WITH chosen AS (
                              ORDER BY line_number DESC) = 1
 ), lists AS (
   SELECT *, 'sale' AS list_name,
-         ca_objects(json_extract(ca_object(ca_object(ca_object(data, '$.result'), '$.dspslPbanc'), '$.pbancInfo'), '$.lst')) AS l
+         sale_list AS l
   FROM chosen
   UNION ALL
-  SELECT *, 'correction' AS list_name, ca_objects(json_extract(ca_object(data, '$.result'), '$.crrctPbancLst')) AS l
+  SELECT *, 'correction' AS list_name, correction_list AS l
   FROM chosen
   UNION ALL
-  SELECT *, 'cancellation' AS list_name, ca_objects(json_extract(ca_object(data, '$.result'), '$.rtrcnPbancLst')) AS l
+  SELECT *, 'cancellation' AS list_name, cancellation_list AS l
   FROM chosen
 ), items AS (
   SELECT court_office_code, department_code, sale_date, bid_kind_code, line_number, list_name,

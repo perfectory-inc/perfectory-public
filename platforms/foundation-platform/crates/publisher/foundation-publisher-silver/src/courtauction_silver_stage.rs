@@ -19,7 +19,7 @@ use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 
 use crate::data_go_kr_file_data_stage::{self, PlaceInputs};
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, PYTHON_VALUES_SQL};
+use crate::duckdb_parquet_stage::{DuckDbParquetStage, LineParts, PYTHON_VALUES_SQL};
 use crate::onbid_silver_stage::{snapshot_id, PLAN_SCHEMA};
 use crate::place_identity_stage;
 use crate::silver_changes::{self, content_columns, table_key};
@@ -469,6 +469,22 @@ impl CourtAuctionSource {
         )
     }
 
+    /// The JSON pointer of a line's case number for a role whose statements compare only the lines
+    /// of one case: every partition and join of the case documents and the 물건상세 holds the
+    /// case asked in the line's request, so their objects are read some cases at a time.
+    ///
+    /// # Errors
+    /// Returns an error when the contract lacks the role's request object.
+    pub fn case_pointer(&self, role: Role) -> anyhow::Result<Option<String>> {
+        if !role.is_case_document() && role != Role::ItemDetail {
+            return Ok(None);
+        }
+        Ok(Some(format!(
+            "/request/{}/csNo",
+            plain_name(self.field(role, "request_object")?)?
+        )))
+    }
+
     /// A role's SQL with the contract's values in it.
     ///
     /// # Errors
@@ -731,7 +747,65 @@ pub struct StagedTable {
     pub rows: u64,
 }
 
+/// Refuses `object` when a line of the role's keyed lines lacks its key (the 감정평가서 and
+/// 매각물건명세서 records, a case document or notice detail without its case).
+fn refuse_lines_without_key(
+    stage: &DuckDbParquetStage,
+    object: &PlannedObject,
+) -> anyhow::Result<()> {
+    let Some((lines, key)) = object.role.keyed_lines() else {
+        return Ok(());
+    };
+    let missing = count(
+        stage,
+        &format!(
+            "{lines} WHERE {}",
+            key.iter()
+                .map(|column| format!("{column} IS NULL"))
+                .collect::<Vec<_>>()
+                .join(" OR ")
+        ),
+    )?;
+    ensure!(
+        missing == 0,
+        "{}: {missing} line(s) without their key",
+        object.object_key
+    );
+    Ok(())
+}
+
+/// A role's SQL as the statements each part runs and, after `-- @object <tables>`, those run once
+/// over the named tables of every part (a role whose statements compare lines across parts).
+fn phases(sql: &str) -> (&str, Option<(&str, Vec<String>)>) {
+    sql.split_once("-- @object")
+        .map_or((sql, None), |(each, rest)| {
+            let (names, once) = rest.split_once('\n').unwrap_or((rest, ""));
+            (
+                each,
+                Some((once, names.split_whitespace().map(str::to_owned).collect())),
+            )
+        })
+}
+
+/// `lines.sql`'s failure as what it is: only `DuckDB`'s refusal of malformed JSON says a line is
+/// not JSON (2026-11-24 the load reported running out of memory as a line that is not JSON).
+fn lines_failure(error: duckdb::Error, object_key: &str) -> anyhow::Error {
+    let what = if error.to_string().contains("Malformed JSON") {
+        format!("{object_key} holds a line that is not JSON")
+    } else {
+        format!("DuckDB failed to read the lines of {object_key}")
+    };
+    anyhow::Error::new(error).context(what)
+}
+
 /// Reads `object` into one staging table per table its role writes.
+///
+/// The object is read in the parts the stage holds (`DuckDbParquetStage::read_line_parts`): the
+/// role's statements run on each part, so no statement reads more than a part of the object. A
+/// part keeps whole every case (the case documents and the 물건상세, whose statements compare only
+/// the lines of one case), or, for a role whose SQL ends in `-- @object <tables>`, the statements
+/// before the marker run on each part and those after it once, over the named tables of every
+/// part. Any other role is read whole.
 ///
 /// [`CourtAuctionSource::values_sql`] must have run on the stage.
 ///
@@ -744,7 +818,6 @@ pub fn read_object(
     object: &PlannedObject,
     ingested_at: DateTime<Utc>,
 ) -> anyhow::Result<Vec<StagedTable>> {
-    stage.load_lines(&object.path, "ca_lines")?;
     let fill = |sql: &str| -> anyhow::Result<String> {
         Ok(sql
             .replace("{object_key}", literal(&object.object_key)?)
@@ -754,33 +827,54 @@ pub fn read_object(
                 &ingested_at.timestamp().to_string(),
             ))
     };
-    stage
-        .connection()
-        .execute_batch(LINES_SQL)
-        .with_context(|| format!("{} holds a line that is not JSON", object.object_key))?;
-    stage
-        .connection()
-        .execute_batch(&fill(&source.role_sql(object.role)?)?)
-        .with_context(|| format!("DuckDB failed to build the rows of {}", object.object_key))?;
+    let role_sql = fill(&source.role_sql(object.role)?)?;
+    let (each_part, once) = phases(&role_sql);
+    let pages = matches!(object.role, Role::ItemSearch | Role::SaleResultSearch)
+        .then(|| search_pages_sql(source, object.role))
+        .transpose()?;
+    let case = source
+        .case_pointer(object.role)?
+        .into_iter()
+        .collect::<Vec<_>>();
+    let (parts, mut kept) = match &once {
+        Some((_, handed)) => (LineParts::InOrder, handed.clone()),
+        None if !case.is_empty() => (
+            LineParts::Grouped(&case),
+            object
+                .role
+                .tables()
+                .iter()
+                .map(|&(table, _)| Role::staged(table))
+                .collect(),
+        ),
+        None => (LineParts::Whole, Vec::new()),
+    };
+    kept.extend(pages.as_ref().map(|_| "ca_search_pages".to_owned()));
+    stage.read_line_parts(&object.path, "ca_lines", parts, &kept, || {
+        stage
+            .connection()
+            .execute_batch(LINES_SQL)
+            .map_err(|error| lines_failure(error, &object.object_key))?;
+        stage
+            .connection()
+            .execute_batch(each_part)
+            .with_context(|| format!("DuckDB failed to build the rows of {}", object.object_key))?;
+        refuse_lines_without_key(stage, object)?;
+        if let Some(sql) = &pages {
+            stage.connection().execute_batch(sql).with_context(|| {
+                format!("DuckDB failed to read the pages of {}", object.object_key)
+            })?;
+        }
+        Ok(())
+    })?;
+    if let Some((sql, _)) = &once {
+        stage
+            .connection()
+            .execute_batch(sql)
+            .with_context(|| format!("DuckDB failed to build the rows of {}", object.object_key))?;
+    }
     for (table, columns) in object.role.masked() {
         mask_columns(stage, &source.mask, &Role::staged(table), columns)?;
-    }
-    if let Some((lines, key)) = object.role.keyed_lines() {
-        let missing = count(
-            stage,
-            &format!(
-                "{lines} WHERE {}",
-                key.iter()
-                    .map(|column| format!("{column} IS NULL"))
-                    .collect::<Vec<_>>()
-                    .join(" OR ")
-            ),
-        )?;
-        ensure!(
-            missing == 0,
-            "{}: {missing} line(s) without their key",
-            object.object_key
-        );
     }
     object
         .role
@@ -962,18 +1056,11 @@ pub fn finish_search(
     Ok(found)
 }
 
-/// Whether the object's lines read every condition of the search to its last page.
-///
-/// As the job's `search_complete`: a condition ends at an empty page or once its pages hold
-/// `totalCnt` rows; a request without both fields of the search's `date_window` does not count.
-///
-/// # Errors
-/// Returns a `DuckDB` failure or a contract without the search's conditions.
-pub fn search_complete(
-    stage: &DuckDbParquetStage,
+/// The search's conditions and the request fields that tell them apart.
+fn search_conditions(
     source: &CourtAuctionSource,
     role: Role,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<(&[Value], Vec<String>)> {
     let search = source.section(role);
     let conditions = search["conditions"]
         .as_array()
@@ -988,6 +1075,15 @@ pub fn search_complete(
     for field in &fields {
         plain_name(field)?;
     }
+    Ok((conditions.as_slice(), fields))
+}
+
+/// One row per page of a search object's lines (`ca_search_pages`: its line, condition, rows and
+/// `totalCnt`), built from each part's `ca_parsed` by [`read_object`] and read by
+/// [`search_complete`].
+fn search_pages_sql(source: &CourtAuctionSource, role: Role) -> anyhow::Result<String> {
+    let search = source.section(role);
+    let (_, fields) = search_conditions(source, role)?;
     let window = search["date_window"].as_object().map(|window| {
         (
             window
@@ -1019,8 +1115,9 @@ pub fn search_complete(
         .map(|field| format!("coalesce(CAST(json_extract(asked, '$.{field}') AS VARCHAR), 'null')"))
         .collect::<Vec<_>>()
         .join(" || '\u{1f}' || ");
-    let sql = format!(
-        "SELECT line_number, {key} AS condition, \
+    Ok(format!(
+        "CREATE OR REPLACE TEMP TABLE ca_search_pages AS \
+         SELECT line_number, {key} AS condition, \
                 CASE WHEN json_type(json_extract(data, '$.dlt_srchResult')) = 'ARRAY' \
                      THEN json_array_length(json_extract(data, '$.dlt_srchResult')) ELSE 0 END AS rows, \
                 ca_whole(json_extract(data, '$.dma_pageInfo.totalCnt')) AS total \
@@ -1029,12 +1126,28 @@ pub fn search_complete(
                FROM ca_parsed \
                WHERE json_type(json_extract(j, '$.http_status')) IN ('BIGINT', 'UBIGINT', 'DOUBLE') \
                  AND TRY_CAST(json_extract(j, '$.http_status') AS DOUBLE) = 200) \
-         WHERE json_type(TRY_CAST(json_extract_string(j, '$.body') AS JSON)) = 'OBJECT' AND ({window_ok}) \
-         ORDER BY line_number"
-    );
+         WHERE json_type(TRY_CAST(json_extract_string(j, '$.body') AS JSON)) = 'OBJECT' AND ({window_ok})"
+    ))
+}
+
+/// Whether the object's lines read every condition of the search to its last page.
+///
+/// As the job's `search_complete`: a condition ends at an empty page or once its pages hold
+/// `totalCnt` rows; a request without both fields of the search's `date_window` does not count.
+///
+/// # Errors
+/// Returns a `DuckDB` failure or a contract without the search's conditions.
+pub fn search_complete(
+    stage: &DuckDbParquetStage,
+    source: &CourtAuctionSource,
+    role: Role,
+) -> anyhow::Result<bool> {
+    let (conditions, fields) = search_conditions(source, role)?;
+    let sql =
+        "SELECT line_number, condition, rows, total FROM ca_search_pages ORDER BY line_number";
     let mut read = std::collections::BTreeMap::<String, i64>::new();
     let mut ended = std::collections::BTreeSet::new();
-    let mut lines = stage.connection().prepare(&sql)?;
+    let mut lines = stage.connection().prepare(sql)?;
     let found = lines.query_map([], |row| {
         Ok((
             row.get::<_, String>(1)?,
