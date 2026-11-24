@@ -11,7 +11,6 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-import change_scope
 import foundation_ci_scope as scope
 
 
@@ -208,7 +207,8 @@ class FoundationCiScopeTest(unittest.TestCase):
             crates_answer="some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n",
             suites_answer="some\tno suite reads it\n", event_name="merge_group",
         )
-        self.assertNotIn("release-image", queued)
+        # Root ADR-0580 revision 2026-11-25: the merge group no longer runs the release dry run.
+        self.assertIn("release-image", queued)
         # A document: no crate, so neither Rust job runs.
         doc = scope.skipped_jobs(
             selected=set(), paths=["platforms/foundation-platform/README.md"],
@@ -216,35 +216,24 @@ class FoundationCiScopeTest(unittest.TestCase):
         self.assertIn("rust-quality", doc)
         self.assertIn("postgres-integration", doc)
 
-    def test_the_release_dry_run_runs_where_main_would_build_a_release(self) -> None:
-        """Root ADR-0345, from 2026-10-29 (#939): the release workflow's own scope decides."""
+    def test_the_release_dry_run_runs_only_when_started_by_hand(self) -> None:
+        """Root ADR-0345, from 2026-10-29 (#939): the release workflow's own scope decides, and root
+        ADR-0580 revision 2026-11-25: only a run started by hand (workflow_dispatch) asks it."""
         crate = "platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/schema_registry.rs"
-        self.assertTrue(scope.release_image_selected("merge_group", [crate]))
-        self.assertFalse(scope.release_image_selected("merge_group", ["products/gongzzang/apps/web/page.tsx"]))
-        self.assertTrue(scope.release_image_selected("merge_group", ["tools/release-build.contract.json"]))
-        self.assertTrue(scope.release_image_selected("merge_group", None), "unknown paths build")
+        self.assertTrue(scope.release_image_selected("workflow_dispatch", [crate]))
+        self.assertTrue(scope.release_image_selected("workflow_dispatch", ["tools/release-build.contract.json"]))
+        self.assertTrue(scope.release_image_selected("workflow_dispatch", None), "unknown paths build")
         self.assertTrue(scope.release_image_selected("workflow_dispatch", []))
-        # Root ADR-0580: a pull request leaves the dry run to the merge queue; main and the nightly
-        # run leave it to the release workflow, which builds main for real.
-        for event in ("pull_request", "push", "schedule"):
+        # The merge queue no longer waits on it (its longest job, up to 49 minutes of a 50-minute run on
+        # 2026-11-24); a pull request never ran it; main and the nightly run leave it to the release
+        # workflow, which builds main for real.
+        for event in ("merge_group", "pull_request", "push", "schedule"):
             with self.subTest(event=event):
                 self.assertFalse(scope.release_image_selected(event, [crate]))
                 self.assertFalse(scope.release_image_selected(event, None))
         web = scope.skipped_jobs(selected=set(), paths=["products/gongzzang/apps/web/page.tsx"],
                                  crates_answer="", suites_answer="", event_name="pull_request")
         self.assertIn(scope.RELEASE_JOB, web)
-
-    def test_foundation_ci_starts_wherever_the_release_scope_does(self) -> None:
-        # The dry run lives in Foundation CI, so every release input must start it.
-        workflows = json.loads((REPO_ROOT / "tools/ci/change-scope.json").read_text(encoding="utf-8"))["workflows"]
-        foundation = workflows["foundation-ci.yml"]["paths"]
-        for glob in workflows[scope.RELEASE_WORKFLOW]["paths"]:
-            with self.subTest(glob=glob):
-                self.assertTrue(
-                    glob in foundation or glob == ".github/workflows/foundation-ci.yml"
-                    or any(change_scope.glob_regex(f).match(glob) for f in foundation),
-                    f"{glob} starts a release build but not Foundation CI",
-                )
 
     def test_an_unreadable_or_full_answer_skips_none_of_its_jobs(self) -> None:
         for crates, suites in (("", ""), ("all\tpush verifies every crate\n", "all\tx\n")):
@@ -253,7 +242,8 @@ class FoundationCiScopeTest(unittest.TestCase):
                     selected=set(scope.GATES), paths=["x/y.md"], crates_answer=crates, suites_answer=suites,
                     event_name="merge_group",
                 )
-                # A document starts no release build, whatever the crate answer (root ADR-0345).
+                # The merge group runs no release dry run, whatever the crate answer (root ADR-0580
+                # revision 2026-11-25).
                 self.assertEqual(skipped, [scope.RELEASE_JOB])
                 # On a pull request the same answer still leaves Postgres integration to the queue.
                 self.assertEqual(
@@ -311,6 +301,8 @@ class FoundationCiScopeTest(unittest.TestCase):
                 self.assertIn(job, skipped)
         self.assertNotIn("rust-quality", skipped)
         self.assertNotIn("title=spark-runtime", out, "a gate the change does not reach is not announced")
+        # Root ADR-0580 revision 2026-11-25: the merge group runs no release dry run, so none is announced.
+        self.assertNotIn("title=release-image", out)
 
         out, skipped = run("merge_group", {crate})
         self.assertNotIn("::warning", out)

@@ -211,17 +211,19 @@ SUITE_JOB = "suites"
 SUPPLY_CHAIN_JOB = "supply-chain"
 # Root ADR-0345: the release build as a dry run (no attestation, no push). It has work exactly when
 # merging would give main a release build: the release workflow's own scope (root ADR-0309,
-# tools/ci/change-scope.json), asked of the same change. The merge queue runs it; a push to main and
-# the nightly run leave it to the release workflow, which builds main for real.
+# tools/ci/change-scope.json), asked of the same change. It runs only when someone starts Foundation
+# CI by hand on a branch (workflow_dispatch); a push to main and the nightly run leave it to the
+# release workflow, which builds main for real.
 # 2026-10-29: #939 compiled in a file the publisher image lacked; every pull request passed and
 # every release build on main failed for 11 hours.
-# Root ADR-0580: a pull request leaves it to the merge queue, as it leaves the boundary slice
-# (ADR-0199). The queue re-ran the same 11-minute build on a new base for every pull request
-# (2026-11-18: 12 runs in two hours, 131 runner-minutes, 234 s median wait for a runner); nothing
-# reaches main without the queue's run, so main still never gets a commit the dry run did not build.
+# Root ADR-0580 revision 2026-11-25 (owner): the merge queue no longer runs it. It was the longest
+# job of every queue run (25 green runs on 2026-11-24: median 1,053 s, the six slowest 2,340-3,312 s,
+# up to 49 minutes of a 50-minute run) while each entry waited on it, and the queue builds few
+# entries at once. A change that breaks the release now fails main's release build, which stops the
+# deploy and raises FoundationReleaseMissing (root ADR-0345 §4) instead of dropping the entry.
 RELEASE_JOB = "release-image"
 RELEASE_WORKFLOW = "foundation-release-build.yml"
-RELEASE_EVENTS = frozenset({"merge_group", "workflow_dispatch"})
+RELEASE_EVENTS = frozenset({"workflow_dispatch"})
 WORKSPACE = "platforms/foundation-platform"
 # What cargo-deny and the SBOM read, besides every Cargo.toml of the workspace and any lock (run
 # all). Advisories change without a commit: the nightly full run and dependency-advisories.yml.
@@ -497,8 +499,6 @@ def skipped_jobs_main(args: argparse.Namespace) -> int:
             # The gate jobs no longer start on a pull request, so their own warning (`--gate`) is
             # never printed there: the scope job says what the merge group will run.
             left = sorted(deferred_gates(args.event_name, by_path))
-            if release_image_selected("merge_group", paths):
-                left.append(RELEASE_JOB)
             left += left_to_the_queue(paths=paths, crates_answer=crates_answer, suites_answer=suites_answer)
             for job in left:
                 print(deferral_warning(job))
