@@ -54,9 +54,10 @@
 4. **꺼져 있어도, 멈춰 있어도 센다.** `scripts/ops/job_outcomes.py` 는 `landed` 를 선언한 작업의 시계열을
    `enabled` 와 상관없이 낸다(유닛·주인·런북 줄도). 기준 시각은 원장뿐이다: 마지막으로 읽은 때, 없으면 원장의
    첫 줄. `enabled_since` 로 다시 세지 않는다. 껐다 켠다고 잃은 밤이 돌아오지 않는다.
-5. **기한에서 바로 page 다.** `FoundationSourceNotRead` 는 기한을 넘기고 15 분 뒤 `severity: page` 로 울린다
-   (기존 page 길로 Slack). ticket 단계가 없고, 배포가 DAG 을 멈춰 둔 동안에도 울린다. 제공자는 그동안에도
-   내린다. `FoundationJobOutcomeMissing`·`Long` 은 `landed` 를 뺀다(한 사건, 한 알림).
+5. **기한에서 바로 page 다. 새 규칙은 없다.** ADR-0480 의 page 인 `FoundationJobOutcomeMissingLong` 이
+   `landed` 를 기한을 넘기고 15 분 뒤에 부른다(다른 기대는 지금처럼 기한 뒤 하루). 기존 page 길로 Slack 에 간다.
+   ticket 인 `FoundationJobOutcomeMissing` 은 `landed` 를 뺀다(한 사건, 한 알림). 이 page 는 배포가 DAG 을 멈춰 둔
+   동안에도 울린다. 제공자는 그동안에도 내린다.
 6. **기한은 작업의 한 차례보다 길다.** 일정 한 주기 + `time_limit_minutes` 이상이어야 한다.
 
 | 작업 | 기한 | 근거 |

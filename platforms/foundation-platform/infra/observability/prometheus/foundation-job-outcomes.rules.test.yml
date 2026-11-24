@@ -118,8 +118,9 @@ tests:
   # 2026-10-21..11-05 (root ADR-0614): the court auction collector was switched off and the site dropped
   # 16 nights of ended listings. A job that is off has no `done` or `change` series; its `landed` one
   # stays, with its unit's owner and runbook. Its last read is 29 hours before time 0 and its bound 30
-  # hours (108,000 s): it pages 15 minutes after the bound, with no ticket before, and a deploy that
-  # holds the DAGs paused does not quiet it.
+  # hours (108,000 s): the family's page (FoundationJobOutcomeMissingLong) calls it 15 minutes after the
+  # bound, with no ticket before and no day's wait, and a deploy that holds the DAGs paused does not
+  # quiet it.
   - interval: 1m
     input_series:
       - series: 'foundation_job_outcome_met_seconds{job_id="court_auction_collect",expectation="landed"}'
@@ -138,10 +139,10 @@ tests:
         values: '0+60x200'
     alert_rule_test:
       - eval_time: 1h10m
-        alertname: FoundationSourceNotRead
+        alertname: FoundationJobOutcomeMissingLong
         exp_alerts: []
       - eval_time: 1h20m
-        alertname: FoundationSourceNotRead
+        alertname: FoundationJobOutcomeMissingLong
         exp_alerts:
           - exp_labels:
               severity: page
@@ -152,14 +153,11 @@ tests:
               owner: collection
               runbook: docs/runbooks/court-auction.md
             exp_annotations:
-              summary: 'court_auction_collect 가 원천을 1d 6h 20m 0s 동안 끝까지 읽지 못했어요 — 이 제공자는 끝난 것을 내려서, 그동안 내려간 것은 다시 받을 수 없어요. 작업이 꺼져 있거나 멈춰 있어도 울려요. 주인 collection, 런북 docs/runbooks/court-auction.md'
+              summary: 'court_auction_collect 가 기대한 결과(landed)를 기한보다 20m 0s 더 내지 않았어요 — 주인 collection 가 고칠 차례예요. 런북 docs/runbooks/court-auction.md'
               runbook: docs/runbooks/job-outcomes.md
-      # The page is the only notice: neither the ticket nor the day-late page repeats it.
+      # The page is the only notice: the ticket never repeats it.
       - eval_time: 30h
         alertname: FoundationJobOutcomeMissing
-        exp_alerts: []
-      - eval_time: 30h
-        alertname: FoundationJobOutcomeMissingLong
         exp_alerts: []
 
   # The scheduler starts nothing: the newest outcome of any job stays at time 0. Reported after an hour

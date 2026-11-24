@@ -415,11 +415,16 @@ class ASourceWhoseProviderDropsWhatEndedIsHeldToItsReads(unittest.TestCase):
         self.assertEqual(missed([job], records, "2026-11-21T00:30:00Z", "2026-11-01T00:00:00Z"), set())
 
     def test_the_landing_alert_pages_at_the_bound(self):
-        self.assertIn("alert: FoundationSourceNotRead", RULES)
+        # One rule family (root ADR-0480): the page that calls a job a day past its bound calls `landed`
+        # at the bound, and the ticket leaves it out.
+        self.assertNotIn("FoundationSourceNotRead", RULES)
+        self.assertEqual(RULES.count('foundation_job_outcome_met_seconds{expectation!="landed"}'), 2)
+        self.assertEqual(RULES.count('foundation_job_outcome_met_seconds{expectation="landed"}'), 1)
         tests = (PLATFORM / "infra/observability/prometheus/foundation-job-outcomes.rules.test.yml").read_text(encoding="utf-8")
-        self.assertIn("alertname: FoundationSourceNotRead", tests)
+        self.assertIn("expectation: landed", tests)
         routes = (PLATFORM / "infra/observability/alertmanager/alertmanager.routes.test").read_text(encoding="utf-8")
-        self.assertIn("slack-page alertname=FoundationSourceNotRead", routes)
+        self.assertIn("slack-page alertname=FoundationJobOutcomeMissingLong service=job-outcome severity=page "
+                      "job_id=court_auction_collect expectation=landed", routes)
 
 
 if __name__ == "__main__":

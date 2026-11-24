@@ -1076,7 +1076,8 @@ groups:
         # While a deploy holds the DAGs paused nothing starts and the deploy's own alert says so
         # (2026-11-10 17:49Z, measured: the five-minute reconciler had no outcome for 1.5 hours of a
         # deploy); the jobs run again within minutes of the unpause, inside this rule's 15 minutes.
-        # `landed` is FoundationSourceNotRead's, a page at the bound (root ADR-0614).
+        # `landed` is FoundationJobOutcomeMissingLong's from the bound on: a page with no ticket first
+        # (root ADR-0614).
         expr: >-
           (
             time() - foundation_job_outcome_met_seconds{expectation!="landed"}
@@ -1093,11 +1094,25 @@ groups:
           runbook: docs/runbooks/job-outcomes.md
       - alert: FoundationJobOutcomeMissingLong
         # A day past its bound: the owner is called by name, as a unit failed for six hours is (root ADR-0445).
+        # `landed` (root ADR-0614) is called at the bound itself: the source's provider drops what has
+        # ended, so what it listed while nobody read it is lost for good. The court auction site drops a
+        # listing once its sale ends; 2026-10-21..11-05 its collector was switched off for 16 nights and
+        # a job that is off had no series at all, and the 11-12 night (out of memory) was a ticket in an
+        # hourly batch until a day past its bound, after the next night had begun. The series is there
+        # whether or not the job is enabled, and a deploy that holds the DAGs paused does not excuse it.
         expr: >-
           (
-            time() - foundation_job_outcome_met_seconds{expectation!="landed"}
-            - on (job_id, expectation) foundation_job_outcome_expected_seconds
-            > 86400
+            (
+              time() - foundation_job_outcome_met_seconds{expectation!="landed"}
+              - on (job_id, expectation) foundation_job_outcome_expected_seconds
+              > 86400
+            )
+            or
+            (
+              time() - foundation_job_outcome_met_seconds{expectation="landed"}
+              - on (job_id, expectation) foundation_job_outcome_expected_seconds
+              > 0
+            )
           )
           * on (job_id) group_left (unit, owner, runbook) foundation_job_outcome_info
         for: 15m
@@ -1106,27 +1121,6 @@ groups:
           service: job-outcome
         annotations:
           summary: '{{ $labels.job_id }} 가 기대한 결과({{ $labels.expectation }})를 기한보다 {{ $value | humanizeDuration }} 더 내지 않았어요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. 런북 {{ $labels.runbook }}'
-          runbook: docs/runbooks/job-outcomes.md
-      - alert: FoundationSourceNotRead
-        # A source whose provider drops what has ended was not read to its end within its bound (root
-        # ADR-0614): what it listed in that time is lost for good. The court auction site drops a
-        # listing once its sale ends; 2026-10-21..11-05 its collector was switched off for 16 nights
-        # and a job that is off had no series at all, and the 11-12 night (out of memory) was a ticket
-        # in an hourly batch until a day past its bound, after the next night had begun. So it is held
-        # whether or not the job is enabled, it pages at the bound with no ticket first, and a deploy
-        # that holds the DAGs paused does not excuse it: the provider drops its listings all the same.
-        expr: >-
-          (
-            time() - foundation_job_outcome_met_seconds{expectation="landed"}
-            > on (job_id, expectation) foundation_job_outcome_expected_seconds
-          )
-          * on (job_id) group_left (unit, owner, runbook) foundation_job_outcome_info
-        for: 15m
-        labels:
-          severity: page
-          service: job-outcome
-        annotations:
-          summary: '{{ $labels.job_id }} 가 원천을 {{ $value | humanizeDuration }} 동안 끝까지 읽지 못했어요 — 이 제공자는 끝난 것을 내려서, 그동안 내려간 것은 다시 받을 수 없어요. 작업이 꺼져 있거나 멈춰 있어도 울려요. 주인 {{ $labels.owner }}, 런북 {{ $labels.runbook }}'
           runbook: docs/runbooks/job-outcomes.md
       - alert: FoundationJobOutcomesSilent
         # The scheduler decided nothing: the reconciler itself runs every five minutes and a dozen jobs

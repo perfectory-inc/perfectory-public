@@ -49,7 +49,7 @@ grep -E 'foundation_job_outcome_(met|expected)_seconds' /var/lib/foundation-jobs
 - **`FoundationJobOutcomeMissing` (`change`)**: 실행은 끝나는데 쓴 것이 없다. 원천이 새 판을 냈는지(엔드포인트 카탈로그의
   `expected_cadence`, Bronze `catalog.ingestion_run`) 먼저 보고, 냈는데 안 쌓였으면 그 작업의 런북(알림의 `runbook` 라벨)대로 고친다.
   원천의 공개 주기가 실제로 바뀌었으면 `changes_within_hours` 와 `basis` 를 실측과 함께 고친다.
-- **`FoundationSourceNotRead` (`landed`, page)**: 끝난 것을 내리는 제공자의 원천을 기한 안에 끝까지 읽지 못했다. 그동안
+- **`FoundationJobOutcomeMissingLong` (`landed`, 기한에서 바로 page)**: 끝난 것을 내리는 제공자의 원천을 기한 안에 끝까지 읽지 못했다. 그동안
   내려간 것은 되찾을 수 없으니 바로 고친다. 작업이 꺼져 있으면(`enabled: false`·더니어 일시정지) 다시 켜고, 실패·대기면
   원장의 마지막 줄이 가리키는 것을 푼 뒤 **손으로 한 번 시작**해 다음 차례를 기다리지 않는다. 정말 더 수집하지 않을 원천이면
   카탈로그의 `provider_retention` 과 작업의 `landed_within_hours` 를 근거와 함께 고친다. 배포가 DAG 을 멈춰 둔 동안에도 울린다.
