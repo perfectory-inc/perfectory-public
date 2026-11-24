@@ -990,8 +990,10 @@ jobs:
     name: Boundary vertical slice
     runs-on: ubuntu-24.04
     # The slice compiles the publisher from source inside a pinned container before it can publish,
-    # so its budget is closer to compose-smoke's than to a test job's.
-    timeout-minutes: 30
+    # so its budget is closer to compose-smoke's than to a test job's. Through the compiler cache the
+    # build took 603-605 s warm and 1,627-1,672 s while five queue runs filled the empty cache at once
+    # (2026-11-24); the cold fill came within seconds of the old 30-minute limit and dropped #1709.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
