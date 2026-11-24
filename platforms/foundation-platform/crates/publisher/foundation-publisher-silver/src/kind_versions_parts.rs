@@ -107,7 +107,7 @@ pub(crate) fn build_by_prefix(
     connection.execute_batch(&format!(
         "CREATE OR REPLACE TABLE build_parts AS \
          SELECT part, row_number() OVER (ORDER BY part NULLS FIRST) AS part_no \
-         FROM ({prefixes}){targeted};"
+         FROM (SELECT DISTINCT part FROM ({prefixes})){targeted};"
     ))?;
     let parts: i64 =
         connection.query_row("SELECT count(*) FROM build_parts", [], |row| row.get(0))?;
