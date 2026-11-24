@@ -130,6 +130,9 @@ HELD_OFF = {
     # each run plans from the outcomes not yet written (root ADR-0477, ADR-0593).
     "intelligence_document_text": "paused by the owner 2026-11-20 until the Spark/Airflow transition ends",
     "intelligence_document_fact": "paused by the owner 2026-11-20 until the Spark/Airflow transition ends",
+    # 2026-11-24: its national join never finished (tile-join's time bound, six runs from 11-19) and its
+    # failing runs held the one spark slot 33.8 of 44 h; back on once root ADR-0613's release is live.
+    "parcel_tile_bake": "off until the publisher's own partition merge (root ADR-0613) is live",
 }
 
 
