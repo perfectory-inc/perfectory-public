@@ -238,19 +238,16 @@ class ExportScriptTest(unittest.TestCase):
         확인했다고 믿게 만드는, 없느니만 못한 검사였다.
 
         목록을 손으로 맞춰 두기만 하면 이름이 바뀌는 날 다시 갈라진다. 그래서 값을
-        베끼는 대신 `R2ObjectStorageConfig::from_env` 를 읽어 대조한다.
+        베끼는 대신 쓰기 설정이 스스로 선언한 요구(`LAKEHOUSE_WRITER_REQUIREMENTS`, 설정이
+        그 목록으로 읽고 거부한다)를 읽어 대조한다.
         """
-        source = (ROOT / "crates" / "foundation-outbox" / "src" / "object_storage" / "r2.rs").read_text(
-            encoding="utf-8"
-        )
-        # `from_env` (the writer) names its key pair and hands it to the shared lakehouse builder,
-        # which demands those two and the rest itself (root ADR-0169 added the reader beside it).
-        writer = source.split("fn from_env()", 1)[1].split("\n    }", 1)[0]
-        shared = source.split("fn lakehouse_from_env(", 1)[1].split("\n    }", 1)[0]
-        required = set(re.findall(r'"([A-Z0-9_]+)"', writer)) | set(
-            re.findall(r'required_env\(\s*"([A-Z0-9_]+)"', shared)
-        )
-        self.assertTrue(required, "r2.rs 에서 필수 변수를 못 읽었다 — 대조가 무의미해진다")
+        source = (
+            ROOT / "crates" / "foundation-outbox" / "src" / "object_storage" / "r2" / "lakehouse_settings.rs"
+        ).read_text(encoding="utf-8")
+        names = dict(re.findall(r'^const ([A-Z_]+): &str = "([A-Z0-9_]+)";', source, re.MULTILINE))
+        declared = source.split("pub const LAKEHOUSE_WRITER_REQUIREMENTS: &[Requirement] = &[", 1)[1].split("];", 1)[0]
+        required = {names[name] for name in re.findall(r"Requirement::Required\((\w+)\)", declared)}
+        self.assertTrue(required, "lakehouse_settings.rs 에서 필수 변수를 못 읽었다 — 대조가 무의미해진다")
 
         code = self._code()
         # 계정 id 는 끝점이 없을 때만 필수다. 그 둘은 아래에서 짝으로 확인한다. 기본값이 있는
