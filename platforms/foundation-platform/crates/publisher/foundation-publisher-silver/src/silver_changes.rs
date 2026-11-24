@@ -7,7 +7,7 @@
 use anyhow::{ensure, Context};
 use lakehouse_domain::{LakehouseRowVersions, LakehouseTableContract};
 
-use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG};
+use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage};
 
 /// Columns a load writes, not the source: never compared.
 pub const LOAD_COLUMNS: [&str; 5] = [
@@ -83,10 +83,7 @@ pub fn current_rows(
             columns.join(", ")
         ));
     };
-    let pinned = format!(
-        "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-        contract.table_name
-    );
+    let pinned = crate::duckdb_parquet_stage::table_at(contract.table_name, head);
     Ok(contract
         .current_rows_sql_template()
         .with_context(|| format!("{} keeps no versions per key", contract.table_name))?
@@ -156,12 +153,7 @@ pub fn changed_editions(
     staged: &str,
     out: &str,
 ) -> anyhow::Result<u64> {
-    let pinned = head.map(|head| {
-        format!(
-            "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-            contract.table_name
-        )
-    });
+    let pinned = head.map(|head| crate::duckdb_parquet_stage::table_at(contract.table_name, head));
     changed_editions_of(stage, contract, pinned.as_deref(), staged, out)
 }
 

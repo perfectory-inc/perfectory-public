@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     data_go_kr_file_data_stage::{column_names, count, epoch, literal, py_space},
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
 };
 
 /// The table this load appends to.
@@ -565,10 +565,7 @@ pub fn unheld(
 ) -> anyhow::Result<u64> {
     let table = match head {
         Some(head) => {
-            let pinned = format!(
-                "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-                contract.table_name
-            );
+            let pinned = crate::duckdb_parquet_stage::table_at(contract.table_name, head);
             with_contract_columns(stage.connection(), contract, &pinned)?
         }
         None => "(SELECT * FROM pnch_rows WHERE false)".to_owned(),

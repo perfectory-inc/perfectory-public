@@ -25,7 +25,7 @@ use serde_json::Value;
 
 use crate::{
     data_go_kr_file_data_stage::{column_names, count, literal},
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
 };
 
 /// The full-table snapshots the pairing reads one of.
@@ -80,10 +80,7 @@ pub fn at_head(
     contract: &LakehouseTableContract,
     head: i64,
 ) -> anyhow::Result<String> {
-    let pinned = format!(
-        "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-        contract.table_name
-    );
+    let pinned = crate::duckdb_parquet_stage::table_at(contract.table_name, head);
     with_contract_columns(stage.connection(), contract, &pinned)
 }
 

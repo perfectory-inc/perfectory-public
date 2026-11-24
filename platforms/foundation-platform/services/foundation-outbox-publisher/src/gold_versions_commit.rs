@@ -15,7 +15,7 @@ use foundation_publisher_core::lakehouse_data_commit::{
 };
 use foundation_publisher_silver::duckdb::Connection;
 use foundation_publisher_silver::duckdb_parquet_stage::{
-    with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG,
+    with_contract_columns, DuckDbParquetStage,
 };
 use lakehouse_domain::{LakehouseTableContract, GOLD_VERSIONS_PNU_PARTITION};
 use lakehouse_infrastructure::{IcebergRestCatalog, IcebergSnapshotSummary};
@@ -354,9 +354,9 @@ pub(crate) fn diff(
                 &with_contract_columns(
                     connection,
                     commit.versions,
-                    &format!(
-                        "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-                        commit.table
+                    &foundation_publisher_silver::duckdb_parquet_stage::table_at(
+                        commit.table,
+                        head,
                     ),
                 )?,
                 &commit.content_columns,

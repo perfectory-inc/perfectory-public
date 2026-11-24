@@ -17,7 +17,7 @@ use anyhow::Context;
 
 use lakehouse_domain::LakehouseTableContract;
 
-use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG};
+use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage};
 
 pub(crate) const REFERENCE_SQL: &str = include_str!("place_identity_stage/reference.sql");
 /// The macros that read an address (`address.sql`); [`offers`] runs them first.
@@ -51,7 +51,7 @@ pub struct PlacePins {
 }
 
 fn source(table: &str, snapshot: i64) -> String {
-    format!("{LAKEHOUSE_CATALOG}.{table} AT (VERSION => {snapshot})")
+    crate::duckdb_parquet_stage::table_at(table, snapshot)
 }
 
 /// Reads the code changes and the newest 법정동 snapshot at `pins`, and builds the crosswalk and the

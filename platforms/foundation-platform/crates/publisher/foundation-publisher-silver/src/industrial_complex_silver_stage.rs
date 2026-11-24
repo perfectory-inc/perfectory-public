@@ -29,9 +29,7 @@ use lakehouse_domain::{
     LakehouseTableContract,
 };
 
-use crate::duckdb_parquet_stage::{
-    with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG, PYTHON_VALUES_SQL,
-};
+use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, PYTHON_VALUES_SQL};
 
 /// The table this stage writes.
 pub const TABLE: &str = "silver.industrial_complexes";
@@ -331,7 +329,7 @@ fn current_rows(
     let latest = contract
         .current_row_latest()
         .with_context(|| format!("{TABLE} keeps no versions per key"))?;
-    let pinned = format!("{LAKEHOUSE_CATALOG}.{TABLE} AT (VERSION => {head})");
+    let pinned = crate::duckdb_parquet_stage::table_at(TABLE, head);
     Ok(latest.current_rows_sql(
         &with_contract_columns(connection, contract, &pinned)?,
         columns,

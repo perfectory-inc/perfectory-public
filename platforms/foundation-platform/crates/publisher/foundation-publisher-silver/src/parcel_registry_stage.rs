@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     data_go_kr_file_data_stage::{column_names, count, epoch, literal},
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
 };
 
 /// The table this step appends to.
@@ -151,10 +151,7 @@ fn registry_source(
             .join(", ");
         return Ok(format!("(SELECT {typed} WHERE false)"));
     };
-    let pinned = format!(
-        "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-        contract.table_name
-    );
+    let pinned = crate::duckdb_parquet_stage::table_at(contract.table_name, head);
     with_contract_columns(stage.connection(), contract, &pinned)
 }
 
@@ -162,7 +159,8 @@ fn registry_source(
 fn boundaries(pin: i64, snapshot: &str) -> anyhow::Result<String> {
     ensure!(is_snapshot_id(snapshot), "{snapshot:?} is no snapshot id");
     Ok(format!(
-        "(SELECT pnu FROM {LAKEHOUSE_CATALOG}.{BOUNDARY_TABLE} AT (VERSION => {pin}) WHERE source_snapshot_id = {})",
+        "(SELECT pnu FROM {} WHERE source_snapshot_id = {})",
+        crate::duckdb_parquet_stage::table_at(BOUNDARY_TABLE, pin),
         literal(snapshot)
     ))
 }
@@ -352,7 +350,7 @@ pub fn advance_regions(
         .filter(|(_, _, holds)| *holds)
         .map(|(sido, _, _)| sido.clone())
         .collect::<BTreeSet<_>>();
-    let lineage = format!("{LAKEHOUSE_CATALOG}.{LINEAGE_TABLE} AT (VERSION => {lineage_pin})");
+    let lineage = crate::duckdb_parquet_stage::table_at(LINEAGE_TABLE, lineage_pin);
     let mut pairs = connection.prepare(&format!(
         "SELECT DISTINCT from_snapshot_id FROM {lineage} WHERE to_snapshot_id = {to}"
     ))?;
@@ -884,11 +882,12 @@ fn carried_step(
     connection
         .execute_batch(&format!(
             "CREATE OR REPLACE TEMP TABLE lineage_read AS SELECT {LINEAGE_COLUMNS}, derivation_run_id \
-             FROM {LAKEHOUSE_CATALOG}.{LINEAGE_TABLE} AT (VERSION => {pin}) \
+             FROM {pinned} \
              WHERE from_snapshot_id = {} AND to_snapshot_id = {};
              CREATE OR REPLACE TEMP TABLE lineage_pair AS SELECT {LINEAGE_COLUMNS} FROM lineage_read;",
             literal(from),
-            literal(&request.to_snapshot)
+            literal(&request.to_snapshot),
+            pinned = crate::duckdb_parquet_stage::table_at(LINEAGE_TABLE, pin)
         ))
         .context("DuckDB failed to read the lineage pair")?;
     let lineage_runs = text_rows(

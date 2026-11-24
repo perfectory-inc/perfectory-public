@@ -1004,8 +1004,8 @@ fn replaced_as_of(work: &Path, replaced: &str, build: i64) -> anyhow::Result<Str
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
     let instant: Option<String> = duck.connection().query_row(
         &format!(
-            "SELECT CAST(max(published_at_utc) AS VARCHAR) FROM {LAKEHOUSE_CATALOG}.{replaced} \
-             AT (VERSION => {build})"
+            "SELECT CAST(max(published_at_utc) AS VARCHAR) FROM {pinned}",
+            pinned = foundation_publisher_silver::duckdb_parquet_stage::table_at(replaced, build)
         ),
         [],
         |row| row.get(0),
@@ -1040,7 +1040,8 @@ pub(crate) fn head_sidos(
 ) -> anyhow::Result<BTreeSet<String>> {
     connection
         .prepare(&format!(
-            "SELECT DISTINCT substr(pnu, 1, 2) FROM {LAKEHOUSE_CATALOG}.{table} AT (VERSION => {head})"
+            "SELECT DISTINCT substr(pnu, 1, 2) FROM {pinned}",
+            pinned = foundation_publisher_silver::duckdb_parquet_stage::table_at(table, head)
         ))?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<BTreeSet<_>, _>>()

@@ -29,7 +29,7 @@ use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 
 use crate::{
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
     onbid_silver_stage::PLAN_SCHEMA,
     place_identity_stage::{self, PlacePins, CODE_CHANGE_TABLE},
 };
@@ -802,10 +802,7 @@ pub fn current(
             format!("SELECT {typed} WHERE false")
         }
         Some(head) => {
-            let pinned = format!(
-                "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-                contract.table_name
-            );
+            let pinned = crate::duckdb_parquet_stage::table_at(contract.table_name, head);
             contract
                 .current_rows_sql_template()
                 .with_context(|| format!("{} keeps no versions per key", contract.table_name))?
@@ -1155,7 +1152,8 @@ pub fn changed_prefixes(
             "CREATE OR REPLACE TEMP TABLE {name} AS \
              SELECT DISTINCT coalesce(CAST(kind AS VARCHAR), '') AS kind, coalesce(old_code, '') AS old_code, \
                     coalesce(new_code, '') AS new_code, coalesce(CAST(level AS VARCHAR), '') AS level \
-             FROM {LAKEHOUSE_CATALOG}.{CODE_CHANGE_TABLE} AT (VERSION => {snapshot})"
+             FROM {pinned}",
+            pinned = crate::duckdb_parquet_stage::table_at(CODE_CHANGE_TABLE, snapshot)
         ))
     };
     read("file_changes_after", after).context("DuckDB failed to read the code change table")?;

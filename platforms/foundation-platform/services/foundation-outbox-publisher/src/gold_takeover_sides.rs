@@ -30,9 +30,7 @@ use std::{io::Read as _, path::Path};
 use anyhow::{ensure, Context};
 use foundation_publisher_silver::{
     duckdb::{Config, Connection},
-    duckdb_parquet_stage::{
-        with_contract_columns, DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
-    },
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LakehouseRead},
 };
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseTableContract, GOLD_VERSIONS_TABLE_SUFFIX,
@@ -311,15 +309,12 @@ pub(crate) async fn export() -> anyhow::Result<()> {
     let reference_source = with_contract_columns(
         connection,
         replaced,
-        &format!(
-            "{LAKEHOUSE_CATALOG}.{replaced_name} AT (VERSION => {})",
-            shadow.build
-        ),
+        &foundation_publisher_silver::duckdb_parquet_stage::table_at(replaced_name, shadow.build),
     )?;
     let candidate_source = with_contract_columns(
         connection,
         versions,
-        &format!("{LAKEHOUSE_CATALOG}.{table} AT (VERSION => {candidate})"),
+        &foundation_publisher_silver::duckdb_parquet_stage::table_at(&table, candidate),
     )?;
     let listed = columns.join(", ");
     let reference_rows =
