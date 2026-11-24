@@ -3,11 +3,14 @@
 //! `build-parcel-energy-versions`, `build-parcel-sub-parcels-versions`,
 //! `build-parcel-building-permits-versions`, `build-parcel-panel-versions`,
 //! `build-parcel-ownership-versions`, `build-parcel-factories-versions`,
-//! `build-parcel-public-auction-versions`, `build-parcel-real-transaction-versions`. `DuckDB`
-//! inside the publisher computes the kind
+//! `build-parcel-public-auction-versions`, `build-parcel-real-transaction-versions`,
+//! `build-unit-price-versions`. `DuckDB` inside the publisher computes the kind
 //! (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the publisher appends
 //! the keys that changed (`gold_versions_commit`). A new lane is a stage, a [`KindBuild`], a kind line
-//! and a job.
+//! and a job. What a lane needs beyond its SQL is declared, never a driver of its own (root ADR-0615
+//! §7): inputs pinned to another Gold's build (the rebuild contract's `pins_from`), an input read by
+//! one batch (`batch_input`), and checks of the whole build held before anything is appended
+//! (`national_checks`).
 //!
 //! While a lane serves the Spark table its versions table replaces, the versions table is its shadow:
 //! its inputs are pinned to that table's build-tag commit (`planned_inputs`), so the takeover verdict
@@ -18,7 +21,11 @@
 //! them against the head's current rows, refuse a build that loses or changes more than its bounds,
 //! and append.
 
-use std::{collections::BTreeSet, path::Path, time::Instant};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    time::Instant,
+};
 
 use anyhow::{bail, ensure, Context};
 use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
@@ -30,8 +37,8 @@ use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
     factory_kind_stage::FACTORIES,
     kind_versions_stage::{
-        build_in_parts, ensure_no_commit_tables, load_region, spool, spool_base,
-        targets_from_spools, KindVersionsStage, PARCEL_SOURCE,
+        build_in_parts, ensure_no_commit_tables, leave_input_batch, load_region, national_verdict,
+        spool, spool_base, targets_from_spools, KindVersionsStage, PARCEL_SOURCE,
     },
     land_ownership_stage::OWNERSHIP,
     onbid_kind_stage::PUBLIC_AUCTION,
@@ -40,9 +47,10 @@ use foundation_publisher_silver::{
     process_memory,
     real_transaction_versions_stage::REAL_TRANSACTION,
     record_kind_stage::{DEMOLITIONS, REGISTER_MASTERS},
+    unit_price_stage::UNIT_PRICE,
 };
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::{
     by_pnu_gateway_contract::ByPnuLane,
@@ -55,7 +63,7 @@ use crate::{
     },
     parcel_nearby_versions_build::{
         contract, lakehouse_read, max_row_loss_fraction_of, served_edition, write_summary,
-        MAX_CHANGED_KEY_FRACTION, MEMORY_SHARE,
+        MAX_CHANGED_KEY_FRACTION, MEMORY_SHARE, REBUILD_CONTRACT,
     },
     public_data_control_support::{optional_env_value, required_env_value},
 };
@@ -212,6 +220,20 @@ pub(crate) const REAL_TRANSACTION_BUILD: KindBuild = KindBuild {
     per_sido_commits: true,
 };
 
+/// The 호 공시가격 (root ADR-0190, ADR-0204): the newest price batch's rows (the stage's
+/// `batch_input`), the registers pinned to the building Gold's build once the lane is no shadow
+/// (`pins_from`), and a build that shrinks the price histories of more of the current units than
+/// the contract allows refused before anything is appended (`national_checks`). Committed whole: that
+/// check judges every 시도 together.
+pub(crate) const UNIT_PRICE_BUILD: KindBuild = KindBuild {
+    table: "gold.unit_price_versions",
+    lane: "unit-price",
+    replaced: "gold.unit_price",
+    job: "build-unit-price-versions",
+    stage: &UNIT_PRICE,
+    per_sido_commits: false,
+};
+
 /// Builds and appends `kind`'s changed keys.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
@@ -251,7 +273,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let lane = ByPnuLane::named(kind.lane)?
         .with_context(|| format!("the contract names no {} lane", kind.lane))?;
     let versions::Planned {
-        pins,
+        mut pins,
         served_edition: edition,
         shadow,
     } = versions::planned_inputs(
@@ -262,6 +284,30 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         served_edition()?,
     )
     .await?;
+    // Once the lane is no shadow, the inputs its rebuild contract entry names in `pins_from` are
+    // read at the snapshots the host Gold's build read (root ADR-0190: a unit's price lies under the
+    // PNU the building Gold places the unit at); a shadow reads its replaced build's pins.
+    if shadow.is_none() {
+        pins.extend(host_pins(&catalog, kind.replaced).await?);
+    }
+    // What the driver holds only for a table committed whole: a check that judges every 시도
+    // together, and the batch a commit records (root ADR-0615 §7).
+    let national = stage.national_checks();
+    let batch_input = stage.batch_input();
+    ensure!(
+        !kind.per_sido_commits || (national.is_empty() && batch_input.is_none()),
+        "{table} commits a 시도 at a time: a check of the whole build or a batch read holds only for a \
+         table committed whole (root ADR-0615 §7)"
+    );
+    let base_batch = batch_input.and_then(|batch| {
+        let base = base.as_ref()?;
+        history
+            .iter()
+            .find(|commit| commit.snapshot_id == base.snapshot_id)?
+            .summary
+            .get(batch.property)
+            .cloned()
+    });
     let shadow_build = shadow
         .as_ref()
         .map(|shadow| json!({"table": shadow.replaced, "build": shadow.build}));
@@ -357,6 +403,16 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     // before the next replaces it; one append commits them all.
     // Asked before the DuckDB session opens: the session is not `Send` across an await.
     let shape = committer.table_shape(table).await?;
+    // The ingest log a batch is chosen by, read here for the same reason.
+    let ingest_log = match &batch_input {
+        Some(batch) => Some(
+            catalog
+                .load_ingest_commit_log(batch.input)
+                .await?
+                .with_context(|| format!("{} does not exist", batch.input))?,
+        ),
+        None => None,
+    };
     // The renderer and schema every changed document is held to (root ADR-0615 §7), loaded here for
     // the same reason. The lane's renderer is found by the table its lane bakes: the replaced
     // table while this one shadows it, this one once the lane took it over.
@@ -380,17 +436,31 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     }
     let spool_dir = Spool::new(work.join("spool"))?;
     let new_pins = NearbyPins(pins.clone());
-    let read = spool(
-        stage,
-        connection,
-        &Source::Pinned {
-            catalog: LAKEHOUSE_CATALOG,
-            pins: &new_pins,
-        },
-        &edition,
-        "",
-        spool_dir.path(),
-    )?;
+    let source = Source::Pinned {
+        catalog: LAKEHOUSE_CATALOG,
+        pins: &new_pins,
+    };
+    // The batch the lane reads, chosen at the pins and left for its read.
+    let chosen_batch = match (batch_input, &ingest_log) {
+        (Some(batch), Some(log)) => {
+            let id = (batch.choose)(connection, &source, log)?;
+            leave_input_batch(connection, &id)?;
+            Some(id)
+        }
+        _ => None,
+    };
+    // A moved batch explains a change of any size too, as a moved code version does.
+    let moved_code_or_edition = moved_code_or_edition.or_else(|| {
+        let (batch, id) = (batch_input?, chosen_batch.as_ref()?);
+        (base.is_some() && base_batch.as_deref() != Some(id.as_str())).then(|| {
+            format!(
+                "the batch of {} moved {} -> {id}",
+                batch.input,
+                base_batch.as_deref().unwrap_or("-")
+            )
+        })
+    });
+    let read = spool(stage, connection, &source, &edition, "", spool_dir.path())?;
     let mut sidos = read.sidos.clone();
     // What finding the changed keys took: once, nationally (root ADR-0615 §7).
     let mut targets_millis = 0_u64;
@@ -425,9 +495,12 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         sidos.extend(head_sidos(connection, table, head)?);
     }
     duck.require_room(0)?;
-    let parcels_snapshot = pins
-        .get(PARCEL_SOURCE)
-        .context("the parcels are pinned")?
+    // Every row's `source_snapshot_id`: the served parcels' pin, or a batch read's, whose rows they
+    // are.
+    let stamp_input = batch_input.map_or(PARCEL_SOURCE, |batch| batch.input);
+    let source_snapshot = pins
+        .get(stamp_input)
+        .with_context(|| format!("{stamp_input} is not pinned"))?
         .to_string();
     let version_seq = base.as_ref().map_or(1, |base| base.version_seq + 1);
     let mut commit = Commit {
@@ -437,7 +510,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         head,
         base: base.clone(),
         version_seq,
-        source_snapshot_id: parcels_snapshot.clone(),
+        source_snapshot_id: source_snapshot.clone(),
         published_at_utc: stamp.clone(),
     };
     let run = versions::run_id(table, &pins, &code, &edition);
@@ -459,6 +532,11 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         checks.push(json!({
             "table": table, "check": DOCUMENTS_CHECK, "skipped": why, "blocking": true,
         }));
+    }
+    for check in national.iter().filter(|check| !check.setup_sql.is_empty()) {
+        duck.connection()
+            .execute_batch(&check.setup_sql)
+            .with_context(|| format!("the check {} of {table} did not set up", check.name))?;
     }
     for sido in &sidos {
         if requested.as_ref().is_some_and(|keys| !keys.contains(sido)) {
@@ -524,13 +602,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             let connection = duck.connection();
             let at = Instant::now();
             // One 시군구 at a time (rules.txt "per-sigungu is the shared default"): no statement holds a 시도.
-            build_in_parts(
-                stage,
-                connection,
-                named.is_none(),
-                &parcels_snapshot,
-                &stamp,
-            )?;
+            build_in_parts(stage, connection, named.is_none(), &source_snapshot, &stamp)?;
             phases.add("build", at);
             let at = Instant::now();
             ensure_no_commit_tables(connection)?;
@@ -562,6 +634,14 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             let sido_digests = versions::digests(connection, &commit)?;
             phases.add("diff", at);
             let at = Instant::now();
+            // The 시도's share of the checks of the whole build, judged after the last 시도.
+            for check in national.iter().filter(|check| !check.gather_sql.is_empty()) {
+                connection
+                    .execute_batch(&check.gather_sql)
+                    .with_context(|| {
+                        format!("the check {} of {table} did not gather", check.name)
+                    })?;
+            }
             let mut refused = run_result_checks(stage, connection, table, sido, &mut checks)?;
             if let Ok(rules) = &document_rules {
                 let found = rules.changed_documents_hold_their_schema(connection, table)?;
@@ -735,6 +815,14 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         started.elapsed().as_secs_f64(),
         process_memory::cgroup_peak_bytes()
     );
+    // The checks of the whole build, before anything is appended (a table committed whole).
+    run_national_checks(
+        &national,
+        duck.connection(),
+        table,
+        kind.replaced,
+        &mut checks,
+    )?;
     if kind.per_sido_commits {
         if state_owed {
             // The 시도 that had nothing to append: one commit of no file records their state.
@@ -846,6 +934,9 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     if let Some(as_of) = &as_of {
         properties.insert(AS_OF_PROPERTY.to_owned(), as_of.clone());
     }
+    if let (Some(batch), Some(id)) = (batch_input, &chosen_batch) {
+        properties.insert(batch.property.to_owned(), id.clone());
+    }
     let snapshot =
         versions::append(&committer, &catalog, &commit, &files, &run, properties).await?;
     drop(duck);
@@ -857,6 +948,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             "created_table": created, "snapshot_id": snapshot, "parent_snapshot_id": head,
             "version_seq": version_seq, "run": run, "pins": pins, "moved": moved,
             "served_edition": edition, "shadow_of": shadow_build, "code_version": code, "as_of": as_of,
+            "input_batch": chosen_batch,
             "every_pnu": every_pnu, "targets": targets, "recorded_explanation": recorded_explanation,
             "served_parcels": read.served_parcels, "rows": rows, "read_millis": read.read_millis,
             "phase_millis": phases.0, "checks": checks,
@@ -933,6 +1025,94 @@ fn run_result_checks(
         }
     }
     Ok(refused)
+}
+
+/// Judges the kind's checks of the whole build over what its 시도 gathered, prints each as a
+/// `gold-versions-check` line and adds it to `results`; a blocking one past its bound refuses the
+/// build, before anything is appended. A bound is the replaced table's entry in the rebuild contract.
+///
+/// # Errors
+/// Returns the refusals, or an error when a check does not run or names a bound the contract lacks.
+fn run_national_checks(
+    national: &[foundation_publisher_silver::kind_versions_stage::NationalCheck],
+    connection: &foundation_publisher_silver::duckdb::Connection,
+    table: &str,
+    replaced: &str,
+    results: &mut Vec<Value>,
+) -> anyhow::Result<()> {
+    if national.is_empty() {
+        return Ok(());
+    }
+    let contract: Value = serde_json::from_str(REBUILD_CONTRACT)?;
+    let entry = &contract["tables"][replaced];
+    let mut refusals = Vec::new();
+    for check in national {
+        let (breaches, of): (i64, i64) = connection
+            .query_row(&check.count_sql, [], |row| Ok((row.get(0)?, row.get(1)?)))
+            .with_context(|| format!("the check {} of {table} did not run", check.name))?;
+        let (breaches, of) = (u64::try_from(breaches)?, u64::try_from(of)?);
+        let bound = check
+            .bound
+            .map(|key| {
+                entry[key].as_f64().with_context(|| {
+                    format!("gold-panel-rebuild.contract.json names no {key} of {replaced}")
+                })
+            })
+            .transpose()?;
+        let refused = national_verdict(check, breaches, of, bound);
+        let result = json!({
+            "table": table, "check": check.name, "breaches": breaches, "of": of, "bound": bound,
+            "blocking": check.blocking, "passed": refused.is_none(),
+        });
+        println!("gold-versions-check {result}");
+        results.push(result);
+        if let Some(why) = refused.filter(|_| check.blocking) {
+            refusals.push(why);
+        }
+    }
+    ensure!(
+        refusals.is_empty(),
+        "{}: nothing of {table} was appended",
+        refusals.join("; ")
+    );
+    Ok(())
+}
+
+/// The pins the rebuild contract's `pins_from` of `replaced` names (root ADR-0190, ADR-0564 §6):
+/// the snapshots the host Gold's build-tag commit read of those inputs; none when it names none.
+async fn host_pins(
+    catalog: &IcebergRestCatalog,
+    replaced: &str,
+) -> anyhow::Result<BTreeMap<String, i64>> {
+    let contract: Value = serde_json::from_str(REBUILD_CONTRACT)?;
+    let from = &contract["tables"][replaced]["pins_from"];
+    if from.is_null() {
+        return Ok(BTreeMap::new());
+    }
+    let host = from["gold_table"].as_str().with_context(|| {
+        format!("the rebuild contract's pins_from of {replaced} names no gold_table")
+    })?;
+    // The host's build-tag commit and its pins, read as a shadow of the host reads them. When the
+    // host's lane serves its versions table, its takeover PR names that table in pins_from, whose
+    // build tag then moves instead (root ADR-0564 §6).
+    let shadow = versions::shadow_of(catalog, &format!("{host}_versions"), host)
+        .await?
+        .with_context(|| format!("{host} has no build to pin {replaced}'s inputs to"))?;
+    let mut pins = BTreeMap::new();
+    for input in from["inputs"]
+        .as_array()
+        .with_context(|| format!("the pins_from of {replaced} names no inputs"))?
+    {
+        let input = input
+            .as_str()
+            .context("a pins_from input is not a table name")?;
+        let snapshot = shadow
+            .pins
+            .get(input)
+            .with_context(|| format!("{host} build {} records no pin of {input}", shadow.build))?;
+        pins.insert(input.to_owned(), *snapshot);
+    }
+    Ok(pins)
 }
 
 /// The 시군구 (the first five digits) of `sido`'s changed keys in `targets`.
@@ -1145,28 +1325,58 @@ mod tests {
         Ok(())
     }
 
+    /// Every lane on the shared driver.
+    const LANES: [&KindBuild; 11] = [
+        &REGISTER_MASTERS_BUILD,
+        &DEMOLITIONS_BUILD,
+        &ENERGY_BUILD,
+        &SUB_PARCELS_BUILD,
+        &BUILDING_PERMITS_BUILD,
+        &PARCEL_PANEL_BUILD,
+        &OWNERSHIP_BUILD,
+        &FACTORIES_BUILD,
+        &PUBLIC_AUCTION_BUILD,
+        &REAL_TRANSACTION_BUILD,
+        &UNIT_PRICE_BUILD,
+    ];
+
     /// A kind line that names `place_identity` gives its table a `place_id` column (by_pnu_kind
     /// derive); a stage that did not carry it would write every row's id as null, and the takeover
     /// verdict would fail on every row (the factories are the first lane that carries it).
     #[test]
     fn every_lane_s_stage_carries_the_place_id_its_table_has() -> anyhow::Result<()> {
-        for kind in [
-            &REGISTER_MASTERS_BUILD,
-            &DEMOLITIONS_BUILD,
-            &ENERGY_BUILD,
-            &SUB_PARCELS_BUILD,
-            &BUILDING_PERMITS_BUILD,
-            &PARCEL_PANEL_BUILD,
-            &OWNERSHIP_BUILD,
-            &FACTORIES_BUILD,
-            &PUBLIC_AUCTION_BUILD,
-            &REAL_TRANSACTION_BUILD,
-        ] {
+        for kind in LANES {
             let has = contract(kind.replaced)?
                 .columns
                 .iter()
                 .any(|column| column.name == "place_id");
             assert_eq!(has, kind.stage.carries_place_id(), "{}", kind.table);
+        }
+        Ok(())
+    }
+
+    /// A check of the whole build and a batch read hold only for a table committed whole (the run
+    /// refuses the rest at its start), and a check's bound is one the rebuild contract names.
+    #[test]
+    fn what_a_lane_declares_beyond_its_sql_fits_how_it_commits() -> anyhow::Result<()> {
+        let rebuild: Value = serde_json::from_str(REBUILD_CONTRACT)?;
+        for kind in LANES {
+            let national = kind.stage.national_checks();
+            if kind.per_sido_commits {
+                assert!(national.is_empty(), "{}", kind.table);
+                assert!(kind.stage.batch_input().is_none(), "{}", kind.table);
+            }
+            for bound in national.iter().filter_map(|check| check.bound) {
+                assert!(
+                    rebuild["tables"][kind.replaced][bound].as_f64().is_some(),
+                    "{} names {bound}, which the rebuild contract does not give {}",
+                    kind.table,
+                    kind.replaced
+                );
+            }
+            if let Some(batch) = kind.stage.batch_input() {
+                assert!(kind.stage.inputs().contains(&batch.input), "{}", kind.table);
+            }
         }
         Ok(())
     }

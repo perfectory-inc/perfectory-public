@@ -58,7 +58,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Unit price Gold as a table of appended row versions (root ADR-0190, ADR-0204, ADR-0564 §9 차례 4; scripts/ops/gold-versions-build.sh unit-price → publisher build-unit-price-versions): gold.unit_price_versions, keyed by (pnu, building_id), computed by DuckDB inside the publisher (unit_price_stage: the registers placed once by the building panel's evidence rule, the newest price batch spooled by the 시도 of the PNU each unit is served under, each 시도 folded alone) and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the unit-price lane bakes gold.unit_price it is that table's shadow: it reads the input pins its foundation-gold-build tag commit recorded, so the takeover verdict compares the two engines over one set of inputs; once it serves, the registers are pinned to the building Gold's build (pins_from). Nothing to do when its inputs and code are the base commit's; otherwise every row is built (the reading is the cost) and only the changed keys are appended. A moved price batch explains a change of any size; a build in which more than max_price_history_shrink_fraction of the current units would keep fewer price records is refused before anything is appended. It starts no Spark session, so it queues in the documents pool on its own unit's memory_claim, at weight 3: a shadow serves nothing, so it waits behind the lanes that do. Nothing reads it until the unit-price lane's takeover PR names it as the lane's Gold.",
+      "description": "Unit price Gold as a table of appended row versions (root ADR-0190, ADR-0204, ADR-0564 §9 차례 4; scripts/ops/gold-versions-build.sh unit-price → publisher build-unit-price-versions): gold.unit_price_versions, keyed by (pnu, building_id), computed by DuckDB inside the publisher on the shared Gold versions driver (kind_versions_build UNIT_PRICE_BUILD, root ADR-0615 §7; unit_price_stage: the registers placed once by the building panel's evidence rule, the newest price batch spooled by the 시도 of the PNU each unit is served under, each 시도 built a 시군구 at a time) and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. While the unit-price lane bakes gold.unit_price it is that table's shadow: it reads the input pins its foundation-gold-build tag commit recorded, so the takeover verdict compares the two engines over one set of inputs; once it serves, the registers are pinned to the building Gold's build (pins_from). Nothing to do when its inputs and code are the base commit's; otherwise every row is built (the reading is the cost) and only the changed keys are appended. A moved price batch explains a change of any size; a build in which more than max_price_history_shrink_fraction of the current units would keep fewer price records is refused before anything is appended. It starts no Spark session, so it queues in the documents pool on its own unit's memory_claim, at weight 3: a shadow serves nothing, so it waits behind the lanes that do. Nothing reads it until the unit-price lane's takeover PR names it as the lane's Gold.",
       "systemd_service": "foundation-gold-versions@unit-price.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -134,7 +134,7 @@
       "owner": "foundation-platform",
       "evidence_refs": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/unit_price_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/unit_price_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "table_name": "gold.unit_price_versions",
       "runtime_bindings": [
@@ -219,7 +219,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/unit_price_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "그림자가 아닐 때 표제부·전유부는 건물 Gold 의 foundation-gold-build 태그 커밋이 읽은 스냅숏에 핀한다(gold-panel-rebuild.contract.json pins_from, 루트 ADR-0190): 두 문서가 한 호를 같은 PNU 아래에 둔다."
     },
@@ -229,7 +229,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/unit_price_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "그림자인 동안 옛 표의 foundation-gold-build 태그 커밋이 적은 입력 핀으로 짓는다(루트 ADR-0564 §6): 옛 표의 데이터가 아니라 그 빌드의 핀을 읽는다."
     },

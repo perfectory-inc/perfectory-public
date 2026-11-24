@@ -964,8 +964,8 @@ pub(crate) struct Shadow {
     pub replaced: String,
     /// The replaced table's commit its build tag names.
     pub build: i64,
-    /// The input pins that commit records: the only inputs the shadow reads; an input that build
-    /// did not read is absent here too.
+    /// The input pins that commit records. An input that build did not read is absent here, and
+    /// the shadow reads it at its head ([`planned_inputs`]).
     pub pins: BTreeMap<String, i64>,
     /// The served parcel edition that commit was built from, if it records one.
     pub served_edition: Option<String>,
@@ -1149,7 +1149,8 @@ pub(crate) async fn shadow_of(
 
 /// The pins and served edition one run of `versions` builds from, and its shadow, if any: while
 /// its lane serves the replaced table, the replaced table's build-tag commit's (the edition when it
-/// records none is `edition_now`); otherwise every input at its head and `edition_now`.
+/// records none is `edition_now`), and an input that build did not read at its head; otherwise
+/// every input at its head and `edition_now`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Planned {
     pub pins: BTreeMap<String, i64>,
@@ -1165,15 +1166,15 @@ pub(crate) async fn planned_inputs(
     inputs: &[&str],
     edition_now: String,
 ) -> anyhow::Result<Planned> {
-    if let Some(shadow) = shadow_of(catalog, versions, served).await? {
-        return Ok(Planned {
-            pins: shadow.pins.clone(),
-            served_edition: shadow.served_edition.clone().unwrap_or(edition_now),
-            shadow: Some(shadow),
-        });
-    }
-    let mut pins = BTreeMap::new();
-    for input in inputs {
+    let shadow = shadow_of(catalog, versions, served).await?;
+    let mut pins = shadow
+        .as_ref()
+        .map(|shadow| shadow.pins.clone())
+        .unwrap_or_default();
+    // An input the replaced build did not read has no pin to compare over (the unit prices' Spark
+    // build read neither the served parcels nor the code change table the shared renumbering
+    // reads): it is read at its head, as an input is once the lane is no shadow.
+    for input in inputs.iter().filter(|input| !pins.contains_key(**input)) {
         let head = catalog
             .load_main_snapshot_history(input)
             .await?
@@ -1183,10 +1184,14 @@ pub(crate) async fn planned_inputs(
             .with_context(|| format!("{input} holds no snapshot"))?;
         pins.insert((*input).to_owned(), head);
     }
+    let served_edition = shadow
+        .as_ref()
+        .and_then(|shadow| shadow.served_edition.clone())
+        .unwrap_or(edition_now);
     Ok(Planned {
         pins,
-        served_edition: edition_now,
-        shadow: None,
+        served_edition,
+        shadow,
     })
 }
 

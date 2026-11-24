@@ -17,6 +17,7 @@ use std::time::Instant;
 use anyhow::{bail, ensure, Context};
 use duckdb::Connection;
 use lakehouse_domain::LakehouseRowVersions;
+use lakehouse_infrastructure::IngestCommitLog;
 
 use crate::duckdb_parquet_stage::with_contract_columns;
 use crate::legal_dong_code_change_stage::{PAIR_ROWS_SQL, RENUMBERED_INTO_SQL};
@@ -84,6 +85,112 @@ pub struct ResultCheck {
     /// few, so a failure names what to look at without a second query. `None` when the count says
     /// it all.
     pub samples_sql: Option<String>,
+}
+
+/// A check of the whole build, held before anything is appended (root ADR-0615 §7): a rule over
+/// every 시도's result together, which no 시도's own [`ResultCheck`] can judge (a share of the
+/// nation's units; a unit that moved 시도 meets its new row in another 시도's result).
+///
+/// It belongs to a table committed whole: one that commits a 시도 at a time has appended its first
+/// 시도 before the last is built, and the driver refuses the two together. It judges the 시도 the
+/// run built: every 시도, for a lane whose every run is whole.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NationalCheck {
+    /// The check's name, as the orchestrator records it.
+    pub name: &'static str,
+    /// Whether a breach past the bound refuses the build: nothing is appended.
+    pub blocking: bool,
+    /// Statements run once, before the first 시도: the tables the check gathers into. Empty when it
+    /// reads what the stage's read left.
+    pub setup_sql: String,
+    /// Statements run after each 시도's diff, over its `built`, `appended` and `current_rows`. Empty
+    /// when nothing is gathered.
+    pub gather_sql: String,
+    /// One statement returning `(breaches, of)`: the rows that break the rule, and how many it was
+    /// judged over.
+    pub count_sql: String,
+    /// The key of the replaced table's entry in `gold-panel-rebuild.contract.json` that names the
+    /// share of `of` allowed to break; `None`: any breach is past the bound.
+    pub bound: Option<&'static str>,
+    /// Why the rule holds: what a refusal says beside the counts.
+    pub why: &'static str,
+}
+
+/// Why `breaches` of `of` refuse a build under `check`, when the share of them `bound` allows to
+/// break is passed (any breach, without a bound); `None` otherwise.
+#[must_use]
+pub fn national_verdict(
+    check: &NationalCheck,
+    breaches: u64,
+    of: u64,
+    bound: Option<f64>,
+) -> Option<String> {
+    #[allow(clippy::cast_precision_loss)]
+    let (breaches_f, of_f) = (breaches as f64, of as f64);
+    if breaches == 0 || bound.is_some_and(|share| breaches_f <= of_f * share) {
+        return None;
+    }
+    let allowed = bound.map_or_else(String::new, |share| {
+        format!(
+            "; at most {:.4}% may, gold-panel-rebuild.contract.json {}",
+            100.0 * share,
+            check.bound.unwrap_or("-")
+        )
+    });
+    Some(format!(
+        "{breaches} of {of} break {} ({:.4}%{allowed}): {}",
+        check.name,
+        100.0 * breaches_f / of_f.max(1.0),
+        check.why
+    ))
+}
+
+/// An input the stage reads one batch of, rather than its current rows (root ADR-0615 §7): the unit
+/// prices read the newest vintage's batch, a vintage's ties broken by the order the table appended
+/// them (root ADR-0182).
+///
+/// The driver reads the input's ingest log before the session opens (the session cannot await the
+/// catalog), has [`Self::choose`] pick the batch at the pins once it opens, and leaves the batch as
+/// [`INPUT_BATCH`] before [`spool`]. Every commit records the batch under `property`, and a batch
+/// that moved from the base commit's explains a change of any size, as a moved code version does
+/// (root ADR-0346). The rows are the batch's, so the input's pin stamps their `source_snapshot_id`.
+#[derive(Clone, Copy)]
+pub struct BatchInput {
+    /// The input.
+    pub input: &'static str,
+    /// The commit property that records the batch a commit read.
+    pub property: &'static str,
+    /// The batch to read, of those the input holds at the source, by the input's ingest log.
+    pub choose: fn(&Connection, &Source<'_>, &IngestCommitLog) -> anyhow::Result<String>,
+}
+
+/// The table (`id`) the driver leaves the batch of a [`BatchInput`] in, before [`spool`].
+pub const INPUT_BATCH: &str = "input_batch";
+
+/// Leaves `id` as [`INPUT_BATCH`].
+///
+/// # Errors
+/// Returns an error when `DuckDB` refuses the statements.
+pub fn leave_input_batch(connection: &Connection, id: &str) -> anyhow::Result<()> {
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE {INPUT_BATCH} (id VARCHAR);"
+    ))?;
+    connection.execute(&format!("INSERT INTO {INPUT_BATCH} VALUES (?)"), [id])?;
+    Ok(())
+}
+
+/// The batch [`INPUT_BATCH`] names, for the stage's [`KindVersionsStage::spool_more`].
+///
+/// # Errors
+/// Returns an error when the driver left none: the stage declares no [`BatchInput`].
+pub fn input_batch(connection: &Connection) -> anyhow::Result<String> {
+    connection
+        .query_row(&format!("SELECT id FROM {INPUT_BATCH}"), [], |row| {
+            row.get(0)
+        })
+        .with_context(|| {
+            format!("the driver left no {INPUT_BATCH}: the stage declares no batch input")
+        })
 }
 
 /// One parcel kind's Gold in `DuckDB`.
@@ -197,6 +304,15 @@ pub trait KindVersionsStage: Sync {
     fn result_checks(&self) -> Vec<ResultCheck> {
         Vec::new()
     }
+    /// The checks of the whole build the kind holds before anything is appended: its domain's
+    /// refusals over every 시도 together, and what its read dropped. None by default.
+    fn national_checks(&self) -> Vec<NationalCheck> {
+        Vec::new()
+    }
+    /// The input the kind reads one batch of. `None` by default.
+    fn batch_input(&self) -> Option<BatchInput> {
+        None
+    }
     /// Why the kind's documents cannot be built one 시군구 at a time, when they cannot.
     ///
     /// [`build_in_parts`] shows [`Self::build`] one 시군구 of the loaded 시도 at a time, which holds
@@ -284,6 +400,29 @@ pub(crate) fn sql_dir(dir: &Path) -> anyhow::Result<String> {
 pub(crate) const SPOOL_SQL: &str =
     "COPY (SELECT *, substr(pnu, 1, 2) AS sido FROM (@query@)) TO '@dir@/@name@' \
     (FORMAT parquet, COMPRESSION zstd, PARTITION_BY (sido), OVERWRITE_OR_IGNORE)";
+
+/// Writes `query` (which has a `pnu` column) as the spool `name` under `dir_text`, one directory per
+/// 시도 of its PNU (`SPOOL_SQL`, the one split of every spool): what a stage's
+/// [`KindVersionsStage::spool_more`] reads by its own rule. A row without a PNU is written under no
+/// 시도 (`DuckDB` 2.0 names its directory `sido=__HIVE_DEFAULT_PARTITION__`): no region load reads
+/// it, and a stage that counts or refuses such rows reads them back by `pnu IS NULL`.
+///
+/// # Errors
+/// Returns an error when `name` is not plain or `DuckDB` refuses the statement.
+pub fn spool_by_sido(
+    connection: &Connection,
+    query: &str,
+    dir_text: &str,
+    name: &str,
+) -> anyhow::Result<()> {
+    ensure!(is_plain(name), "{name:?} is not a plain spool name");
+    connection
+        .execute_batch(&fill(
+            SPOOL_SQL,
+            &[("query", query), ("dir", dir_text), ("name", name)],
+        ))
+        .with_context(|| format!("spooling {name} by the 시도 of its PNU"))
+}
 
 /// The spool query of a row set whose current rows a 시도's load chooses
 /// ([`KindVersionsStage::current_rows_per_region`]): the served PNU, the set's columns, and every

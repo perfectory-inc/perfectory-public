@@ -40,11 +40,6 @@ DECLARED = {
     "crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs":
         "spool_more of a stage on the shared driver: a deal is keyed by its address code, so the stage "
         "spools it once for every part that reads it (ADR-0615 §7 part_tables); the driver loads and splits it",
-    "crates/publisher/foundation-publisher-silver/src/unit_price_stage.rs":
-        "own driver, not moved yet: the unit price table is keyed by (pnu, building_id) and reads the newest "
-        "price batch by the order the table appended them",
-    "services/foundation-outbox-publisher/src/unit_price_versions_build.rs":
-        "own driver, not moved yet (see unit_price_stage.rs)",
     "services/foundation-outbox-publisher/src/parcel_nearby_versions_build.rs":
         "own driver, not moved yet: a parcel's nearest facilities are searched over inputs loaded nationally",
     "services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs":

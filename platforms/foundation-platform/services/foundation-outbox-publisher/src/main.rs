@@ -183,7 +183,6 @@ mod real_estate_broker_lookup_load;
 mod registered_factory_silver_load;
 mod unit_official_price_projection_load;
 mod unit_official_price_versions_build;
-mod unit_price_versions_build;
 use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
 use foundation_publisher_collection::vworld_dataset_collection_plan;
 use foundation_publisher_collection::vworld_dataset_file_ingest;
@@ -751,7 +750,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelPublicAuctionVersions => Box::pin(kind_versions_build::run(
             &kind_versions_build::PUBLIC_AUCTION_BUILD,
         )),
-        Command::BuildUnitPriceVersions => Box::pin(unit_price_versions_build::run()),
+        Command::BuildUnitPriceVersions => Box::pin(kind_versions_build::run(&kind_versions_build::UNIT_PRICE_BUILD)),
         Command::BuildUnitOfficialPriceVersions => {
             Box::pin(unit_official_price_versions_build::run())
         }

@@ -1,21 +1,30 @@
-//! The unit price rules on synthetic registers (PNUs under `99999`): placement under the building's
-//! PNU with evidence, the nil building without, one batch read, newest reference date first, units by
-//! id, an unplaced price counted, the refusals, the digest and the shrink verdict.
+//! The unit price rules on synthetic registers (PNUs under `99999`), read as the shared driver reads
+//! them (`kind_versions_stage::read_for_test`): placement under the building's PNU with evidence,
+//! the nil building without, one batch read, newest reference date first, units by id, an unplaced
+//! price counted, the refusals, the digest and the verdict of kept histories.
 
 use anyhow::Context;
 use duckdb::Connection;
 use serde_json::{json, Value};
 
 use super::*;
+use crate::kind_versions_stage::{leave_input_batch, national_verdict, read_for_test};
 
 const BUILDING_PNU: &str = "9999910100100010000";
 const UNIT_PNU: &str = "9999910100100020000";
+const EDITION: &str = "synthetic__parcel-209906";
 const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const BATCH: &str = "price:1|exclusive:2|vintage:209910";
 
 fn load(connection: &Connection, prices: &str) -> anyhow::Result<()> {
     connection.execute_batch(&format!(
         r"
+CREATE OR REPLACE TABLE silver_parcel_boundaries (pnu VARCHAR, geometry_wkb BLOB,
+  source_snapshot_id VARCHAR, valid_to_utc TIMESTAMP);
+INSERT INTO silver_parcel_boundaries VALUES
+  ('{BUILDING_PNU}', NULL, '{EDITION}', NULL), ('{UNIT_PNU}', NULL, '{EDITION}', NULL);
+CREATE OR REPLACE TABLE reference_legal_dong_code_change (kind VARCHAR, old_code VARCHAR,
+  new_code VARCHAR, level VARCHAR, effective_date VARCHAR, source VARCHAR);
 CREATE OR REPLACE TABLE silver_building_register_titles (mgm_bldrgst_pk VARCHAR, pnu VARCHAR,
   valid_from_utc TIMESTAMP, ingested_at_utc TIMESTAMP, row_state VARCHAR);
 INSERT INTO silver_building_register_titles VALUES
@@ -31,10 +40,10 @@ INSERT INTO silver_building_register_units VALUES
   ('u3', '{UNIT_PNU}', NULL, 'r3', NULL, NULL, NULL, NULL, NULL, TIMESTAMP '2099-01-01', TIMESTAMP '2099-01-01', NULL);
 CREATE OR REPLACE TABLE silver_unit_official_price (mgm_bldrgst_pk VARCHAR, pnu VARCHAR, base_date VARCHAR,
   price_won BIGINT, source_snapshot_id VARCHAR, vintage VARCHAR);
-INSERT INTO silver_unit_official_price VALUES {prices};
-CREATE OR REPLACE TEMP TABLE renumbering (src VARCHAR, dst VARCHAR);"
+INSERT INTO silver_unit_official_price VALUES {prices};"
     ))?;
-    Ok(())
+    // The batch the driver chose from the ingest log.
+    leave_input_batch(connection, BATCH)
 }
 
 fn prices() -> String {
@@ -52,11 +61,13 @@ fn prices() -> String {
     .join(", ")
 }
 
-fn read(connection: &Connection, dir: &Path) -> anyhow::Result<Spooled> {
-    let registers = read_registers(connection, &Source::Local)?;
-    assert_eq!(registers.titles_without_pnu, 1);
-    assert_eq!(registers.placed_units, 3);
-    spool_prices(connection, &Source::Local, BATCH, dir)
+/// The read's counts of what it dropped: `(breaches, judged)` of a reporting check.
+fn dropped(connection: &Connection, name: &str) -> anyhow::Result<(i64, i64)> {
+    Ok(connection.query_row(
+        &format!("SELECT breaches, judged FROM {READ_COUNTS} WHERE name = '{name}'"),
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?)
 }
 
 fn built(connection: &Connection) -> anyhow::Result<Vec<(String, String, Value)>> {
@@ -85,17 +96,13 @@ fn unit_id(connection: &Connection, key: &str) -> anyhow::Result<String> {
 fn units_are_served_under_their_building_with_newest_prices_first() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     load(&connection, &prices())?;
-    let dir = tempfile::tempdir()?;
-    let spooled = read(&connection, dir.path())?;
-    assert_eq!(
-        spooled,
-        Spooled {
-            sidos: ["99".to_owned()].into(),
-            unplaced_prices: 1,
-            unplaced_price_units: 1,
-        }
-    );
-    assert_eq!(load_region(&connection, dir.path(), "99")?, 4);
+    let read = read_for_test(&UNIT_PRICE, &connection, EDITION, "")?;
+    assert_eq!((read.served_parcels, read.rows), (2, 4));
+    // b9 has no PNU (of five register rows); u9's price places no unit (of four priced units).
+    assert_eq!(dropped(&connection, WITHOUT_PNU)?, (1, 5));
+    assert_eq!(dropped(&connection, UNPLACED)?, (1, 4));
+    let placed: i64 = connection.query_row("SELECT count(*) FROM placed", [], |row| row.get(0))?;
+    assert_eq!(placed, 3);
     build(&connection, "999990000000000001", "2099-03-01T00:00:00Z")?;
     let rows = built(&connection)?;
     let building: String = connection.query_row(
@@ -142,6 +149,11 @@ fn units_are_served_under_their_building_with_newest_prices_first() -> anyhow::R
             .collect::<Vec<_>>(),
         [1, 1, 2]
     );
+    // Every row names a building and holds a priced unit.
+    for check in UNIT_PRICE.result_checks() {
+        let breaches: i64 = connection.query_row(&check.sql, [], |row| row.get(0))?;
+        assert_eq!(breaches, 0, "{}", check.name);
+    }
     Ok(())
 }
 
@@ -149,17 +161,17 @@ fn units_are_served_under_their_building_with_newest_prices_first() -> anyhow::R
 fn a_register_row_under_a_renumbered_code_is_served_under_the_served_one() -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
     load(&connection, &prices())?;
-    // The registers still carry the 동's old code; the served edition holds the new one.
+    // The registers still carry the 동's old code; the served edition holds the new one, and the
+    // code change table pairs them.
     connection.execute_batch(
         "UPDATE silver_building_register_titles SET pnu = '9999910200' || substr(trim(pnu), 11) \
            WHERE pnu IS NOT NULL; \
          UPDATE silver_building_register_units SET pnu = '9999910200' || substr(pnu, 11); \
-         INSERT INTO renumbering VALUES ('9999910200', '9999910100');",
+         INSERT INTO reference_legal_dong_code_change VALUES \
+           ('pair', '9999910200', '9999910100', 'eupmyeondong', '2099-01-01', 'official:x');",
     )?;
-    let dir = tempfile::tempdir()?;
-    read(&connection, dir.path())?;
-    assert_eq!(load_region(&connection, dir.path(), "99")?, 4);
-    // The shared build, a 시군구 at a time, as the lane's driver runs it.
+    read_for_test(&UNIT_PRICE, &connection, EDITION, "")?;
+    // The shared build, a 시군구 at a time, as the driver runs it.
     crate::kind_versions_parts::build_in_parts(
         &UNIT_PRICE,
         &connection,
@@ -182,9 +194,7 @@ fn a_repeated_or_invalid_price_is_refused_placed_or_not() -> anyhow::Result<()> 
     ] {
         let connection = Connection::open_in_memory()?;
         load(&connection, &format!("{}, {extra}", prices()))?;
-        let dir = tempfile::tempdir()?;
-        let refused =
-            read(&connection, dir.path()).and_then(|_| load_region(&connection, dir.path(), "99"));
+        let refused = read_for_test(&UNIT_PRICE, &connection, EDITION, "");
         assert!(refused.is_err(), "{extra} was taken");
     }
     Ok(())
@@ -204,11 +214,32 @@ fn a_repeated_register_key_and_a_pnu_off_the_grammar_are_refused() -> anyhow::Re
         let connection = Connection::open_in_memory()?;
         load(&connection, &prices())?;
         connection.execute_batch(extra)?;
+        // The registers read under the shared renumbering, which the spool leaves; none here.
+        connection.execute_batch(
+            "CREATE OR REPLACE TEMP TABLE renumbering (src VARCHAR, dst VARCHAR);",
+        )?;
         assert!(
             read_registers(&connection, &Source::Local).is_err(),
             "{extra}"
         );
     }
+    Ok(())
+}
+
+/// The batch is the newest vintage's of those the table holds, and only a quote is refused from it.
+#[test]
+fn the_driver_s_batch_is_the_one_read() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    load(&connection, &prices())?;
+    let log = IngestCommitLog::default();
+    let chosen = (UNIT_PRICE.batch_input().context("a batch input")?.choose)(
+        &connection,
+        &Source::Local,
+        &log,
+    )?;
+    assert_eq!(chosen, BATCH);
+    leave_input_batch(&connection, "it's")?;
+    assert!(read_for_test(&UNIT_PRICE, &connection, EDITION, "").is_err());
     Ok(())
 }
 
@@ -250,13 +281,38 @@ fn every_content_column_moves_the_row_digest() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `test_unit_price_panel`'s shrink cases: none shrunk, within the bound, over it.
+/// `test_unit_price_panel`'s shrink cases: none shrunk, within the bound, over it; and the check's
+/// gathering over a 시도's diff tables, as the driver runs it.
 #[test]
-fn a_build_that_shrinks_many_histories_is_refused() {
-    assert_eq!(shrink_verdict(0, 1_000, 0.001), None);
-    assert_eq!(shrink_verdict(1, 1_000, 0.001), None);
-    assert!(shrink_verdict(2, 1_000, 0.001)
-        .is_some_and(|why| why.contains("2 of the current Gold's 1000 units")));
+fn a_build_that_shrinks_many_histories_is_refused() -> anyhow::Result<()> {
+    let checks = UNIT_PRICE.national_checks();
+    let kept = checks
+        .iter()
+        .find(|check| check.name == "price_histories_kept")
+        .context("the check of kept histories")?;
+    assert!(kept.blocking);
+    assert_eq!(national_verdict(kept, 0, 1_000, Some(0.001)), None);
+    assert_eq!(national_verdict(kept, 1, 1_000, Some(0.001)), None);
+    assert!(national_verdict(kept, 2, 1_000, Some(0.001))
+        .is_some_and(|why| why.contains("2 of 1000 break price_histories_kept")));
+
+    // A unit that kept one of its two records, in a 시도 whose head held it.
+    let connection = Connection::open_in_memory()?;
+    let units =
+        |records: &str| format!(r#"[{{"id": "x", "official_price_history": [{records}]}}]"#);
+    let two = units(r#"{"base_date": "20990101"}, {"base_date": "20980101"}"#);
+    let one = units(r#"{"base_date": "20990101"}"#);
+    connection.execute_batch(&format!(
+        "CREATE TABLE current_rows AS SELECT '{BUILDING_PNU}' AS pnu, 'b' AS building_id, \
+           '{two}' AS units_json; \
+         CREATE TABLE appended AS SELECT '{BUILDING_PNU}' AS pnu, 'b' AS building_id, \
+           '{one}' AS units_json, 'changed' AS change; {} {}",
+        kept.setup_sql, kept.gather_sql
+    ))?;
+    let (breaches, of): (i64, i64) =
+        connection.query_row(&kept.count_sql, [], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    assert_eq!((breaches, of), (1, 1));
+    Ok(())
 }
 
 #[test]

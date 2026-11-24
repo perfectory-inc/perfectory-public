@@ -260,7 +260,15 @@ Dagster 의 키), **파트 = 시군구**(한 번에 메모리에 드는 양; 밖
 | 바뀐 키의 다른 규칙 | `fn changed_keys_sql(&self) -> Option<String>` | `None`(위 3 의 기본 규칙) | 부속지번·인허가가 필요하면 |
 | 결과 검사 | `fn result_checks(&self) -> Vec<ResultCheck>` — `ResultCheck { name, sql, blocking }`; SQL 은 그 시도의 `built`·`appended`·`current_rows` 위에서 어긴 행 수를 낸다 | 빈 목록 | 레인의 도메인 거부 |
 | 시도 통째로 짓기 | `fn whole_region_reason(&self) -> Option<&'static str>`(#1676) | `None` | 지금 없음 |
+| 다른 Gold 의 빌드에 핀한 입력 | 단계가 아니라 재빌드 계약의 `tables.<옛 표>.pins_from`. 그림자가 아닐 때 드라이버가 읽어 그 입력을 호스트 Gold 의 빌드 태그 커밋이 읽은 스냅숏에 핀한다 | 계약에 없으면 머리 | 호 공시가격: 표제부·전유부를 건물 Gold 의 빌드에(루트 ADR-0190) |
+| 한 묶음으로 읽는 입력 | `fn batch_input(&self) -> Option<BatchInput>` — `BatchInput { input, property, choose }`. 드라이버가 세션을 열기 **전에** 그 입력의 적재 원장을 읽고(세션은 카탈로그를 기다릴 수 없다), 세션이 열리면 `choose` 가 핀에서 묶음을 골라 `input_batch(id)` 로 남긴다. 커밋은 묶음을 `property` 에 적고, 기준 커밋과 다른 묶음은 코드 버전처럼 크기와 상관없이 바뀜을 설명한다(루트 ADR-0346). 행의 `source_snapshot_id` 는 그 입력의 핀이다 | `None` | 호 공시가격: 가장 새 vintage 의 묶음, 동률은 표가 붙인 순서(루트 ADR-0182) |
+| 빌드 전체의 검사 | `fn national_checks(&self) -> Vec<NationalCheck>` — `NationalCheck { name, blocking, setup_sql, gather_sql, count_sql, bound, why }`. 시도마다 diff 뒤에 `gather_sql` 을 돌리고, 마지막 시도 뒤·붙이기 **전에** `count_sql` 의 `(breaches, of)` 를 재빌드 계약의 `bound` 몫과 견준다. `blocking` 이 넘으면 아무것도 붙지 않는다 | 빈 목록 | 호 공시가격: 줄어든 가격 이력(`max_price_history_shrink_fraction`, 시도를 옮긴 호는 전국에서 새 행을 만난다), 읽기가 버린 행(알리기만) |
 | 지워지는 것 | `changed_pnus`, 단계마다의 `_old` 싣기 | — | — |
+
+빌드 전체의 검사와 한 묶음 읽기는 **통째로 커밋하는 표에만** 선다: 시도마다 커밋하는 표는 마지막 시도를 짓기 전에 첫 시도를 붙였다. 드라이버가 run
+머리에서 둘이 함께 선언된 레인을 거부하고, 시험이 레인 목록 전부를 본다. 그림자의 옛 빌드가 읽지 않은 입력(호 공시가격의 Spark 빌드는 공통
+재배치가 읽는 서빙 필지와 코드 변경 표를 읽지 않았다)은 모든 레인에서 머리로 읽는다(`planned_inputs`): 견줄 핀이 없고, 전에는 핀이 없다는 오류였다.
+이 선언들로 호 공시가격의 자체 드라이버(`unit_price_versions_build.rs`)는 지워지고, 레인은 단계 하나와 `KindBuild` 한 줄이다.
 
 단계는 다른 파트가 읽는 행을 **읽는 파트마다 한 번씩** 스풀한다(`spool_more`): `part` 칸에 그 파트를 적고 그 파트의 시도 아래에 둔다. 드라이버는
 `part` 칸이 있는 표를 그 칸으로, 나머지를 PNU 앞 5자로 갈라 한 파트씩 보이고, 짓는 동안 `build_part(part)` 로 그 파트를 알린다. 단계는 **PNU 가
@@ -289,6 +297,7 @@ AWS 의 태스크 디스크도 그 값으로 잡는다(ADR-0616). 이 PR 들은 
 | 2 | 읽기 2 와 바뀐 키 3(움직인 입력만의 기준 스풀, 스풀에서 한 번 찾는 대상, `changed_pnus` 지우기), 부속지번·인허가 단계 | W95b |
 | 3 | `spool_more`·`load_more`·`part_tables`·`changed_keys_sql` 로 실거래 단계를 옮기고 자체 스풀·묶음·이어 짓기를 지운다 | W81f |
 | 4 | 공통 검사의 내용(스키마 revision, 행·키)과 레인의 `result_checks` | W96b |
+| 5 | 호 공시가격을 공통 드라이버로: 위 표의 셋(`pins_from`·`batch_input`·`national_checks`)과 자체 드라이버 지우기 | W97b |
 
 ## Consequences
 

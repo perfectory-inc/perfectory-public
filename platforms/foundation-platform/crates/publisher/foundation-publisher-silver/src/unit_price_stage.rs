@@ -1,4 +1,5 @@
-//! The twin of `unit_price_panel_silver_to_gold.py` (root ADR-0204).
+//! The twin of `unit_price_panel_silver_to_gold.py` (root ADR-0204), on the shared Gold versions
+//! driver (`kind_versions_build`, root ADR-0615 §7).
 //!
 //! One row per (PNU, building) holding the official price history of every priced unit placed there:
 //! a unit is placed under the PNU whose building document carries it (`building_unit_placement`, the
@@ -14,24 +15,37 @@
 //! and the served parcel edition), as every kind's rows are, so the day the served edition moves to
 //! new 법정동 codes a unit is still placed under the PNU its parcel is served by.
 //!
-//! Regional, one pass: the registers are read once and placed nationally (narrow: a key and two
-//! PNUs per unit), the chosen price batch is read once, joined to the placement and spooled by the
-//! 시도 of the PNU each unit is served under, and each 시도 is then loaded and folded alone. Every run
-//! builds every row: the reading is the cost, and a run that named the changed PNUs would read both
-//! its sides; the commit appends only the keys whose rows changed. The documents are written as
-//! `DuckDB` writes JSON; the takeover verdict compares them as values.
+//! What the lane gives the shared driver: the registers read and placed once, nationally
+//! ([`KindVersionsStage::prepare`]: narrow, a key and two PNUs per unit); the price table read by
+//! one batch ([`KindVersionsStage::batch_input`]: the newest vintage's, chosen by the table's ingest
+//! log); that batch joined to the placement and spooled by the 시도 of the PNU each unit is served
+//! under, by the shared split ([`KindVersionsStage::spool_more`]); a 시도 of it loaded
+//! ([`KindVersionsStage::load_more`]) and built a 시군구 at a time by the shared build. The registers
+//! are pinned to the building Gold's build by the rebuild contract's `pins_from`, which the driver
+//! reads. Every run builds every row: any input moves every document, the reading is the cost, and a
+//! run that named the changed PNUs would read both its sides; the commit appends only the keys whose
+//! rows changed. A build in which more of the current Gold's units would keep fewer price records
+//! than the contract allows is refused before anything is appended
+//! ([`KindVersionsStage::national_checks`]). The documents are written as `DuckDB` writes JSON; the
+//! takeover verdict compares them as values.
 
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    time::Instant,
+};
 
-use anyhow::{bail, ensure, Context};
+use anyhow::{ensure, Context};
 use duckdb::Connection;
+use lakehouse_infrastructure::IngestCommitLog;
 use sha2::{Digest, Sha256};
 
 use crate::building_unit_placement::{self, catalog_digest_sql, catalog_id_sql};
 use crate::duckdb_parquet_stage::with_contract_columns;
 use crate::kind_versions_stage::{
-    current_rows_query, fill, is_plain, renumbering_join, served_pnu, KindVersionsStage, RowSet,
-    CODE_CHANGE_SOURCE, PARCEL_SOURCE,
+    current_rows_query, elapsed, fill, input_batch, is_plain, renumbering_join, served_pnu,
+    spool_by_sido, BatchInput, KindVersionsStage, NationalCheck, ResultCheck, RowSet,
+    CODE_CHANGE_SOURCE, PARCEL_SOURCE, SHARED_SQL,
 };
 use crate::parcel_nearby_stage::Source;
 
@@ -45,10 +59,21 @@ pub const UNIT_SOURCE: &str = "silver.building_register_units";
 pub const PRICE_SOURCE: &str = "silver.unit_official_price";
 /// The building of a unit no evidenced link places in one.
 pub const UNLINKED_BUILDING_ID: &str = "00000000-0000-0000-0000-000000000000";
-/// The spool part of the prices no placed unit has (a 시도 is two digits, so it is never one).
-const UNPLACED: &str = "unplaced";
+/// The commit property that names the price batch a commit read (root ADR-0564 §9 차례 4).
+pub const PRICE_BATCH_PROPERTY: &str = "foundation.unit-price-batch";
+/// The spool, and a 시도's table, of the batch's prices joined to the placement.
+const PRICES: &str = "prices";
+/// What the read dropped, `(name, breaches, judged)`, for the checks that report it.
+const READ_COUNTS: &str = "unit_price_read";
+/// The check that reports the register rows without a PNU.
+const WITHOUT_PNU: &str = "register_rows_without_pnu";
+/// The check that reports the priced units no unit row is placed for.
+const UNPLACED: &str = "priced_units_not_placed";
 /// What the rules are; part of the build's code version.
 const RULES_VERSION: &str = "unit-price-duckdb-v1";
+/// Why the lane reads no base side.
+const WHOLE_RUNS: &str =
+    "the unit price lane builds every row on every run (any input moves every document): it reads no base side";
 
 /// A register's current rows, the PNU trimmed and put under the served code (`@served@` over
 /// `@join@`, the shared renumbering), as `<name>`: read once, the rows without a PNU counted from it
@@ -66,16 +91,20 @@ const TITLES_SQL: &str = "\
 CREATE OR REPLACE TABLE titles AS \
 SELECT mgm_bldrgst_pk, pnu, @id@ AS id FROM (SELECT *, @digest@ AS d FROM title_rows);";
 
-/// The price batch joined to the placement, spooled by the served PNU's 시도; a price of no placed
-/// unit lies in the [`UNPLACED`] part.
-const PRICE_SPOOL_SQL: &str = "\
-COPY (SELECT p.mgm_bldrgst_pk, p.base_date, p.price_won, pl.serving_pnu AS pnu, \
-        coalesce(pl.building_id, '@unlinked@') AS building_id, pl.unit_id, \
-        coalesce(substr(pl.serving_pnu, 1, 2), '@unplaced@') AS sido \
-      FROM (SELECT mgm_bldrgst_pk, base_date, price_won FROM @prices@ \
-            WHERE source_snapshot_id = '@batch@') p \
-      LEFT JOIN placed pl USING (mgm_bldrgst_pk)) \
-TO '@dir@/prices' (FORMAT parquet, COMPRESSION zstd, PARTITION_BY (sido), OVERWRITE_OR_IGNORE);";
+/// The price batch joined to the placement, the rows of the [`PRICES`] spool: a price of no placed
+/// unit has no PNU, and the shared split writes it under no 시도.
+const PRICE_QUERY: &str = "\
+SELECT p.mgm_bldrgst_pk, p.base_date, p.price_won, pl.serving_pnu AS pnu, \
+  coalesce(pl.building_id, '@unlinked@') AS building_id, pl.unit_id \
+FROM (SELECT mgm_bldrgst_pk, base_date, price_won FROM @prices@ \
+      WHERE source_snapshot_id = '@batch@') p \
+LEFT JOIN placed pl USING (mgm_bldrgst_pk)";
+
+/// A 시도 of the spool that holds no price.
+const NO_PRICES: &str = "SELECT CAST(NULL AS VARCHAR) AS mgm_bldrgst_pk, \
+    CAST(NULL AS VARCHAR) AS base_date, CAST(NULL AS BIGINT) AS price_won, \
+    CAST(NULL AS VARCHAR) AS pnu, CAST(NULL AS VARCHAR) AS building_id, \
+    CAST(NULL AS VARCHAR) AS unit_id WHERE FALSE";
 
 /// What a price part refuses (`building_panel.checked_prices`): a (register, reference date) twice,
 /// a register key absent, a date not of eight digits, a price absent or negative.
@@ -102,6 +131,29 @@ SELECT pnu, building_id, units_json, \
   '@source_snapshot_id@' AS source_snapshot_id, '@published_at_utc@' AS published_at_utc \
 FROM rows";
 
+/// A built row that names no building or holds no priced unit.
+const UNPRICED_ROW: &str = "building_id IS NULL OR units_json = '[]'";
+
+/// The tables the check of kept price histories gathers into: the unit histories of the rows each
+/// 시도's commit would replace and of those it would write, and the units its current rows hold.
+const SHRINK_SETUP_SQL: &str = "\
+CREATE OR REPLACE TABLE shrink_before (id VARCHAR, records BIGINT); \
+CREATE OR REPLACE TABLE shrink_after (id VARCHAR, records BIGINT); \
+CREATE OR REPLACE TABLE shrink_units (units BIGINT);";
+
+/// One 시도's share of them: `@before@` and `@after@` are [`history_lengths_sql`] of the rows the
+/// commit replaces and writes (a unit that moved 시도 meets its new row in the national count).
+const SHRINK_GATHER_SQL: &str = "\
+INSERT INTO shrink_before @before@; INSERT INTO shrink_after @after@; \
+INSERT INTO shrink_units \
+  SELECT CAST(coalesce(sum(json_array_length(units_json)), 0) AS BIGINT) FROM current_rows;";
+
+/// The units whose history would keep fewer records than it holds, and the current units.
+const SHRINK_COUNT_SQL: &str = "\
+SELECT (SELECT count(*) FROM shrink_before b LEFT JOIN shrink_after a USING (id) \
+          WHERE coalesce(a.records, 0) < b.records), \
+       (SELECT CAST(coalesce(sum(units), 0) AS BIGINT) FROM shrink_units)";
+
 /// What a read of the registers found.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct Registers {
@@ -109,8 +161,12 @@ pub struct Registers {
     pub titles_without_pnu: u64,
     /// Units without a PNU, dropped.
     pub units_without_pnu: u64,
+    /// Register rows read, titles and units, with a PNU or without.
+    pub rows_read: u64,
     /// Units placed.
     pub placed_units: u64,
+    /// Milliseconds each register took to read, by table name.
+    pub read_millis: BTreeMap<String, u64>,
 }
 
 /// The cadastral grammar a building document's PNU follows (`building_by_pnu_gateway.object_key`,
@@ -128,7 +184,8 @@ pub fn pnu_pattern() -> anyhow::Result<&'static str> {
 }
 
 /// The build's code version: a change of it rebuilds every row. It folds the SQL as it runs, the
-/// generated parts filled in (the placement, the evidence rule, the catalog ids, the PNU grammar).
+/// generated parts filled in (the placement, the evidence rule, the catalog ids, the PNU grammar),
+/// and the shared renumbering and split.
 #[must_use]
 pub fn code_version() -> String {
     let mut hash = Sha256::new();
@@ -141,12 +198,13 @@ pub fn code_version() -> String {
         RULES_VERSION,
         REGISTER_SQL,
         TITLES_SQL,
-        PRICE_SPOOL_SQL,
+        PRICE_QUERY,
         PRICE_REFUSALS_SQL,
         DOCUMENT_SQL,
     ]
-    .map(str::to_owned)
     .into_iter()
+    .chain(SHARED_SQL)
+    .map(str::to_owned)
     .chain(generated)
     .chain(building_unit_placement::code_texts());
     for text in texts {
@@ -163,14 +221,14 @@ fn count(connection: &Connection, sql: &str) -> anyhow::Result<u64> {
 
 /// Leaves `name` of `table`'s current rows (`columns`) with a present PNU, refuses a PNU off the
 /// grammar and a repeated or absent key (`building_panel.valid_pnus`, `assert_unique`), and returns
-/// how many rows had no PNU.
+/// how many rows had no PNU and how many were read.
 fn register(
     connection: &Connection,
     source: &Source<'_>,
     table: &str,
     columns: &[&str],
     name: &str,
-) -> anyhow::Result<u64> {
+) -> anyhow::Result<(u64, u64)> {
     let rows = current_rows_query(connection, source, table, columns, "TRUE")?;
     connection.execute_batch(&fill(
         REGISTER_SQL,
@@ -181,6 +239,7 @@ fn register(
             ("join", &renumbering_join("t.pnu", "r", "")),
         ],
     ))?;
+    let read = count(connection, &format!("SELECT count(*) FROM {name}"))?;
     let without = count(
         connection,
         &format!("SELECT count(*) FROM {name} WHERE pnu IS NULL OR pnu = ''"),
@@ -213,7 +272,7 @@ fn register(
         rows_held == keys,
         "{table} has a duplicate or absent identity [\"mgm_bldrgst_pk\"] ({rows_held} rows on {keys} keys)"
     );
-    Ok(without)
+    Ok((without, read))
 }
 
 /// Reads the titles and the units at `source` and leaves `titles` and `placed` (`mgm_bldrgst_pk`,
@@ -222,13 +281,16 @@ fn register(
 /// # Errors
 /// Returns an error when an input cannot be read or a register row is refused.
 pub fn read_registers(connection: &Connection, source: &Source<'_>) -> anyhow::Result<Registers> {
-    let titles_without_pnu = register(
+    let mut read_millis = BTreeMap::new();
+    let at = Instant::now();
+    let (titles_without_pnu, titles_read) = register(
         connection,
         source,
         TITLE_SOURCE,
         &["mgm_bldrgst_pk", "pnu"],
         "title_rows",
     )?;
+    read_millis.insert(TITLE_SOURCE.to_owned(), elapsed(at));
     connection.execute_batch(&fill(
         TITLES_SQL,
         &[
@@ -239,27 +301,19 @@ pub fn read_registers(connection: &Connection, source: &Source<'_>) -> anyhow::R
     let policy = building_unit_placement::policy()?;
     let mut unit_columns = vec!["mgm_bldrgst_pk", "pnu", "building_mgm_bldrgst_pk"];
     unit_columns.extend(policy.columns.iter().map(String::as_str));
-    let units_without_pnu = register(connection, source, UNIT_SOURCE, &unit_columns, "unit_rows")?;
+    let at = Instant::now();
+    let (units_without_pnu, units_read) =
+        register(connection, source, UNIT_SOURCE, &unit_columns, "unit_rows")?;
+    read_millis.insert(UNIT_SOURCE.to_owned(), elapsed(at));
     building_unit_placement::place(connection, "unit_rows", "titles", "placed")?;
     let placed_units = count(connection, "SELECT count(*) FROM placed")?;
     Ok(Registers {
         titles_without_pnu,
         units_without_pnu,
+        rows_read: titles_read + units_read,
         placed_units,
+        read_millis,
     })
-}
-
-/// A spool directory as `DuckDB` SQL text.
-fn sql_dir(dir: &Path) -> anyhow::Result<String> {
-    let text = dir
-        .to_str()
-        .context("the spool directory must be UTF-8")?
-        .replace('\\', "/");
-    ensure!(
-        !text.contains('\''),
-        "the spool directory must not contain a quote"
-    );
-    Ok(text)
 }
 
 /// The price table at `source`, with every contract column.
@@ -286,6 +340,20 @@ pub fn batch_ids(connection: &Connection, source: &Source<'_>) -> anyhow::Result
     Ok(ids.into_iter().map(Option::unwrap_or_default).collect())
 }
 
+/// The batch the Gold reads ([`BatchInput::choose`]): of the ids the price table holds at `source`,
+/// the newest vintage's, its ties broken by the order the table's ingest `log` appended them.
+///
+/// # Errors
+/// Returns an error when the table cannot be read or its batches cannot be ordered.
+pub fn choose_batch(
+    connection: &Connection,
+    source: &Source<'_>,
+    log: &IngestCommitLog,
+) -> anyhow::Result<String> {
+    let order = batch::order_batches(&log.ingested, log.head, &log.snapshots);
+    batch::chosen_batch(&batch_ids(connection, source)?, &order)
+}
+
 /// What a price part refuses, as the Spark job refuses the batch.
 fn refuse_prices(connection: &Connection, part: &str) -> anyhow::Result<()> {
     let (repeated, invalid, keyless): (i64, i64, i64) =
@@ -304,111 +372,7 @@ fn refuse_prices(connection: &Connection, part: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A part of the price spool, as `DuckDB` reads it.
-fn part(dir_text: &str, name: &str) -> String {
-    format!("read_parquet('{dir_text}/prices/sido={name}/*.parquet', hive_partitioning = false)")
-}
-
-/// What a spool holds: the 시도 with placed prices, and how many prices no unit is placed for.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
-pub struct Spooled {
-    /// The 시도 of the PNUs the priced units are served under.
-    pub sidos: BTreeSet<String>,
-    /// The batch's prices of registers no unit is placed for (`unplaced_price_unit_count` counts
-    /// their registers).
-    pub unplaced_prices: u64,
-    /// The registers of those prices.
-    pub unplaced_price_units: u64,
-}
-
-/// Spools the price batch `batch` at `source`, joined to `placed`, into `dir` by 시도.
-///
-/// The 시도 is the served PNU's. The invalid prices no unit is placed for are refused here, each
-/// 시도's when it is loaded.
-///
-/// # Errors
-/// Returns an error when the batch is not a plain id, the table cannot be read, or a price is
-/// refused.
-pub fn spool_prices(
-    connection: &Connection,
-    source: &Source<'_>,
-    batch: &str,
-    dir: &Path,
-) -> anyhow::Result<Spooled> {
-    // Any id the table holds is read, as the Spark job reads it; only a quote could leave the SQL.
-    ensure!(
-        !batch.contains('\''),
-        "the price batch {batch:?} holds a quote"
-    );
-    let prices = prices_relation(connection, source)?;
-    let dir_text = sql_dir(dir)?;
-    connection.execute_batch(&fill(
-        PRICE_SPOOL_SQL,
-        &[
-            ("prices", &prices),
-            ("batch", batch),
-            ("unlinked", UNLINKED_BUILDING_ID),
-            ("unplaced", UNPLACED),
-            ("dir", &dir_text),
-        ],
-    ))?;
-    let mut spooled = Spooled::default();
-    let root = dir.join("prices");
-    if !root.is_dir() {
-        return Ok(spooled);
-    }
-    for entry in
-        std::fs::read_dir(&root).with_context(|| format!("cannot list {}", root.display()))?
-    {
-        let name = entry?.file_name().to_string_lossy().into_owned();
-        match name.strip_prefix("sido=") {
-            Some(UNPLACED) => {
-                let unplaced = part(&dir_text, UNPLACED);
-                refuse_prices(connection, &unplaced)?;
-                spooled.unplaced_prices =
-                    count(connection, &format!("SELECT count(*) FROM {unplaced}"))?;
-                spooled.unplaced_price_units = count(
-                    connection,
-                    &format!("SELECT count(DISTINCT mgm_bldrgst_pk) FROM {unplaced}"),
-                )?;
-            }
-            Some(sido) if sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()) => {
-                spooled.sidos.insert(sido.to_owned());
-            }
-            _ => bail!("the price spool holds {name}, neither a 시도 nor the unplaced part"),
-        }
-    }
-    Ok(spooled)
-}
-
-/// Loads `sido` of the spool as `prices`, refuses its invalid prices and leaves an empty `built`.
-/// Returns its price rows.
-///
-/// # Errors
-/// Returns an error when `sido` is not two digits, the spool cannot be read or a price is refused.
-pub fn load_region(connection: &Connection, dir: &Path, sido: &str) -> anyhow::Result<u64> {
-    ensure!(
-        sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()),
-        "the 시도 {sido:?} is not two digits"
-    );
-    let dir_text = sql_dir(dir)?;
-    let body = if dir.join("prices").join(format!("sido={sido}")).is_dir() {
-        let held = part(&dir_text, sido);
-        refuse_prices(connection, &held)?;
-        format!("SELECT * FROM {held}")
-    } else {
-        "SELECT CAST(NULL AS VARCHAR) AS mgm_bldrgst_pk, CAST(NULL AS VARCHAR) AS base_date, \
-         CAST(NULL AS BIGINT) AS price_won, CAST(NULL AS VARCHAR) AS pnu, \
-         CAST(NULL AS VARCHAR) AS building_id, CAST(NULL AS VARCHAR) AS unit_id WHERE FALSE"
-            .to_owned()
-    };
-    connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE prices AS {body}; {BUILT_TABLE}"
-    ))?;
-    count(connection, "SELECT count(*) FROM prices")
-}
-
-/// Builds the rows of every PNU of the loaded 시도 into `built`.
+/// Builds the rows of every PNU of the loaded 시도 (or 시군구) into `built`.
 ///
 /// # Errors
 /// Returns an error when the stamps are not plain ids or `DuckDB` refuses the statement.
@@ -431,12 +395,8 @@ pub fn build(
     Ok(())
 }
 
-/// The unit price lane as the shared build sees it (root ADR-0615 §7): what the shared spool reads
-/// for it (the served parcels and the code change table, for the renumbering) and its build, which
-/// the shared [`crate::kind_versions_parts::build_in_parts`] runs one 시군구 of `prices` at a time.
-///
-/// The lane still has its own driver (`unit_price_versions_build`): the price batch's choice, the
-/// host's register pins and the national check of shrunk histories are not the shared driver's yet.
+/// The unit price lane as the shared driver builds it (root ADR-0615 §7, `kind_versions_build`
+/// `UNIT_PRICE_BUILD`).
 #[derive(Clone, Copy, Debug)]
 pub struct UnitPrice;
 
@@ -467,14 +427,183 @@ impl KindVersionsStage for UnitPrice {
         code_version()
     }
 
-    // The lane's own driver reads its registers and prices; the shared spool reads only the served
-    // parcels and the code changes for it.
+    // The registers are prepared and the prices spooled by the lane's own read; no Silver is a row
+    // set of it.
     fn row_sets(&self) -> Vec<RowSet> {
         Vec::new()
     }
 
+    // The registers and their placement, once, nationally (8,081,287 title and 19,902,649 unit rows,
+    // root ADR-0617's measurement of 2026-11-24), narrow: a key, two PNUs and two ids per unit. A
+    // unit is placed under its building's PNU, which its own row does not name, so no 시도 of the
+    // units is placed without every title.
+    fn prepare(
+        &self,
+        connection: &Connection,
+        source: &Source<'_>,
+        suffix: &str,
+    ) -> anyhow::Result<BTreeMap<String, u64>> {
+        ensure!(suffix.is_empty(), "{WHOLE_RUNS}");
+        let registers = read_registers(connection, source)?;
+        connection.execute_batch(&format!(
+            "CREATE OR REPLACE TABLE {READ_COUNTS} (name VARCHAR, breaches BIGINT, judged BIGINT); \
+             INSERT INTO {READ_COUNTS} VALUES ('{WITHOUT_PNU}', {}, {});",
+            registers.titles_without_pnu + registers.units_without_pnu,
+            registers.rows_read
+        ))?;
+        Ok(registers.read_millis)
+    }
+
+    // The batch the driver chose, once, joined to the placement and split by the shared spool; its
+    // prices of no placed unit are refused as the placed ones are, and counted.
+    fn spool_more(
+        &self,
+        connection: &Connection,
+        source: &Source<'_>,
+        suffix: &str,
+        dir_text: &str,
+    ) -> anyhow::Result<BTreeMap<String, u64>> {
+        ensure!(suffix.is_empty(), "{WHOLE_RUNS}");
+        let at = Instant::now();
+        let batch = input_batch(connection)?;
+        // Any id the table holds is read, as the Spark job reads it; only a quote could leave the SQL.
+        ensure!(
+            !batch.contains('\''),
+            "the price batch {batch:?} holds a quote"
+        );
+        let prices = prices_relation(connection, source)?;
+        spool_by_sido(
+            connection,
+            &fill(
+                PRICE_QUERY,
+                &[
+                    ("prices", &prices),
+                    ("batch", &batch),
+                    ("unlinked", UNLINKED_BUILDING_ID),
+                ],
+            ),
+            dir_text,
+            PRICES,
+        )?;
+        let read_millis = BTreeMap::from([(PRICE_SOURCE.to_owned(), elapsed(at))]);
+        let (unplaced, priced) = if Path::new(dir_text).join(PRICES).is_dir() {
+            let every = format!(
+                "read_parquet('{dir_text}/{PRICES}/*/*.parquet', hive_partitioning = false)"
+            );
+            let held = format!("(SELECT * FROM {every} WHERE pnu IS NULL)");
+            refuse_prices(connection, &held)?;
+            (
+                count(
+                    connection,
+                    &format!("SELECT count(DISTINCT mgm_bldrgst_pk) FROM {held}"),
+                )?,
+                count(
+                    connection,
+                    &format!("SELECT count(DISTINCT mgm_bldrgst_pk) FROM {every}"),
+                )?,
+            )
+        } else {
+            (0, 0)
+        };
+        connection.execute_batch(&format!(
+            "INSERT INTO {READ_COUNTS} VALUES ('{UNPLACED}', {unplaced}, {priced});"
+        ))?;
+        Ok(read_millis)
+    }
+
+    fn load_more(
+        &self,
+        connection: &Connection,
+        read: &dyn Fn(&str) -> Option<String>,
+        suffix: &str,
+    ) -> anyhow::Result<u64> {
+        ensure!(suffix.is_empty(), "{WHOLE_RUNS}");
+        let body = match read(PRICES) {
+            Some(held) => {
+                refuse_prices(connection, &held)?;
+                format!("SELECT * FROM {held}")
+            }
+            None => NO_PRICES.to_owned(),
+        };
+        connection.execute_batch(&format!("CREATE OR REPLACE TABLE {PRICES} AS {body};"))?;
+        count(connection, &format!("SELECT count(*) FROM {PRICES}"))
+    }
+
     fn pnu_spools(&self) -> Vec<&'static str> {
-        vec!["prices"]
+        vec![PRICES]
+    }
+
+    fn result_checks(&self) -> Vec<ResultCheck> {
+        vec![ResultCheck {
+            name: "every_row_has_a_building_and_a_priced_unit",
+            sql: format!("SELECT count(*) FROM built WHERE {UNPRICED_ROW}"),
+            blocking: true,
+            samples_sql: Some(format!("SELECT pnu FROM built WHERE {UNPRICED_ROW}")),
+        }]
+    }
+
+    fn national_checks(&self) -> Vec<NationalCheck> {
+        vec![
+            // `unit_price_panel.assert_price_histories_kept`.
+            NationalCheck {
+                name: "price_histories_kept",
+                blocking: true,
+                setup_sql: SHRINK_SETUP_SQL.to_owned(),
+                gather_sql: fill(
+                    SHRINK_GATHER_SQL,
+                    &[
+                        (
+                            "before",
+                            &history_lengths_sql(
+                                "SELECT c.units_json FROM current_rows c \
+                                 SEMI JOIN appended a USING (pnu, building_id)",
+                            ),
+                        ),
+                        (
+                            "after",
+                            &history_lengths_sql(
+                                "SELECT units_json FROM appended WHERE change <> 'removed'",
+                            ),
+                        ),
+                    ],
+                ),
+                count_sql: SHRINK_COUNT_SQL.to_owned(),
+                bound: Some("max_price_history_shrink_fraction"),
+                why:
+                    "a price vintage keeps every reference date it ever published (root ADR-0185), \
+                      so a vintage that lost records must not replace one that has them",
+            },
+            NationalCheck {
+                name: WITHOUT_PNU,
+                blocking: false,
+                setup_sql: String::new(),
+                gather_sql: String::new(),
+                count_sql: format!(
+                    "SELECT breaches, judged FROM {READ_COUNTS} WHERE name = '{WITHOUT_PNU}'"
+                ),
+                bound: None,
+                why: "a register row without a PNU places no unit",
+            },
+            NationalCheck {
+                name: UNPLACED,
+                blocking: false,
+                setup_sql: String::new(),
+                gather_sql: String::new(),
+                count_sql: format!(
+                    "SELECT breaches, judged FROM {READ_COUNTS} WHERE name = '{UNPLACED}'"
+                ),
+                bound: None,
+                why: "a price of a unit no register row places is served under no PNU",
+            },
+        ]
+    }
+
+    fn batch_input(&self) -> Option<BatchInput> {
+        Some(BatchInput {
+            input: PRICE_SOURCE,
+            property: PRICE_BATCH_PROPERTY,
+            choose: choose_batch,
+        })
     }
 
     fn create_built(&self, connection: &Connection) -> anyhow::Result<()> {
@@ -494,7 +623,7 @@ impl KindVersionsStage for UnitPrice {
 }
 
 /// The unit histories of the rows `rows` (a relation with `units_json`): `(id, records)` per unit,
-/// what the shrink check compares (`unit_price_panel.history_lengths`).
+/// what the check of kept histories compares (`unit_price_panel.history_lengths`).
 #[must_use]
 pub fn history_lengths_sql(rows: &str) -> String {
     format!(
@@ -502,27 +631,6 @@ pub fn history_lengths_sql(rows: &str) -> String {
            CAST(json_array_length(unit -> 'official_price_history') AS BIGINT) AS records \
          FROM (SELECT unnest(from_json(units_json, '[\"JSON\"]')) AS unit FROM ({rows}))"
     )
-}
-
-/// Why a build whose `shrunk` of the current `units` units lost price records is refused, or `None`.
-///
-/// `unit_price_panel.shrink_verdict`: a vintage keeps every reference date it ever published (root
-/// ADR-0185), so a unit's history only grows, and a vintage loaded in part shrinks many at once.
-#[must_use]
-pub fn shrink_verdict(shrunk: u64, units: u64, max_fraction: f64) -> Option<String> {
-    #[allow(clippy::cast_precision_loss)]
-    let (shrunk_f, units_f) = (shrunk as f64, units as f64);
-    if shrunk == 0 || shrunk_f <= units_f * max_fraction {
-        return None;
-    }
-    Some(format!(
-        "{shrunk} of the current Gold's {units} units would keep fewer price records than it holds \
-         ({:.4}%; at most {:.4}% may, gold-panel-rebuild.contract.json \
-         max_price_history_shrink_fraction): a price vintage that lost records must not replace one \
-         that has them",
-        100.0 * shrunk_f / units_f.max(1.0),
-        100.0 * max_fraction
-    ))
 }
 
 #[cfg(test)]
