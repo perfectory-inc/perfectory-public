@@ -48,6 +48,17 @@ Where Dagster does not do as Airflow did, by decision, with the incident each ru
   an input event newer than the job's newest run as owed (the deploy that moves a job here pauses its DAG,
   and Airflow drops an event for a paused DAG, root ADR-0337): one run, not the history.
 
+- **A run cancelled before it started did not do its decision's work, so the decision is asked once more.**
+  A run key is spent when the run is requested, and a run covers what came before it only once it has
+  started (above), so a decision whose run was cancelled in the queue was neither run nor asked again:
+  2026-11-23, in the queue outage, runs requested for that morning's ticks were cancelled before they
+  started and nothing ran until the next day's tick. While the job's newest run is such a run of this
+  sensor's, the sensor requests the same decision again under `<key>:again`: a tick by the missed-tick rule
+  above (only if the run would still end before the job's next tick, which otherwise does the same work),
+  an input event or an owed key at once. Once: a run of `<key>:again` cancelled before it starts is not
+  asked a third time, so an operator who cancels it twice has stopped it. A run the deploy or an operator
+  started carries no run key and is never asked again.
+
 Each request's run key names its decision (`tick:<iso>`, `inputs:<latest event>`, `reconcile:<key>`), so a
 repeated evaluation never starts a decision twice.
 """
@@ -76,6 +87,8 @@ OWED_OVERLAP_SECONDS = 2 * SENSOR_SECONDS
 OWED_WITHHELD = ("waiting", "skipped", "failed")
 # The run states in which a job's run holds it (a tick or an event waits behind it).
 OPEN_STATUSES = ("NOT_STARTED", "QUEUED", "STARTING", "STARTED", "CANCELING")
+# What the run key of a decision asked a second time ends with (its first run was cancelled before it started).
+AGAIN = ":again"
 # The metadata entry airlift puts on the materializations it makes from an Airflow run: the DAG run as the
 # Airflow REST API returned it, with its `start_date` (dagster-airlift 0.29.27, core/sensor/event_translation.py
 # get_common_metadata; core/runtime_representations.py DagRun.start_date).
@@ -117,15 +130,28 @@ def _iso(at):
     return datetime.datetime.fromtimestamp(at, datetime.UTC).isoformat()
 
 
+def _again(spec, run_limit_seconds, key, now):
+    """The request that asks the decision `key` once more, or None when its tick's work is the next tick's."""
+    kind, _, rest = key.partition(":")
+    if kind != "tick":
+        return Request(key=key + AGAIN, kind="triggered", at=now)
+    tick = datetime.datetime.fromisoformat(rest).timestamp()
+    if now + run_limit_seconds > _next_tick(spec, tick):
+        return None
+    return Request(key=key + AGAIN, kind="", at=tick)
+
+
 def decide(spec, run_limit_seconds, cursor, now, held, events, newest_event_id=0, owed=(), last_run_at=None,
-           newest_event_at=None):
+           newest_event_at=None, cancelled=None):
     """(requests, the next cursor) for one evaluation at `now`.
 
     `cursor` is the previous evaluation's (None on the first look), `held` whether a run of the job is
     open, `events` the (storage id, time) of the starting inputs' materializations after `cursor.event_id`,
     `newest_event_id` and `newest_event_at` the event log's newest storage id and its time on the first
     look, where taking starts, `owed` the keys the reconciler's runs since the last look say the job is
-    owed a run for, oldest first, and `last_run_at` when the job's newest run started (None: never).
+    owed a run for, oldest first, `last_run_at` when the job's newest run started (None: never), and
+    `cancelled` the run key of the job's newest run when that run was cancelled before it started and has
+    not been asked again (None otherwise).
     """
     inputs = spec.started_by == "inputs"
     if cursor is None:
@@ -161,6 +187,9 @@ def decide(spec, run_limit_seconds, cursor, now, held, events, newest_event_id=0
     if owed and not requests:
         # What the reconciler found owed is state, not an event: the newest key says all of it.
         requests.append(Request(key=f"reconcile:{owed[-1]}", kind="triggered", at=now))
+    if cancelled and not requests:
+        # Nothing newer is due: the decision whose run never started is asked once more.
+        requests += [again for again in [_again(spec, run_limit_seconds, cancelled, now)] if again is not None]
     return requests, Cursor(since=now, event_id=event_id)
 
 
@@ -193,6 +222,18 @@ def _last_run_at(instance, job_name, output_keys=()):
             if started:
                 starts.append(datetime.datetime.fromisoformat(started).timestamp())
     return max(starts, default=None)
+
+
+def _cancelled_before_start(instance, job_name):
+    """The run key of the job's newest run when it is this sensor's, was cancelled before it started and
+    was not itself a second ask; None otherwise."""
+    from dagster import DagsterRunStatus, RunsFilter
+
+    records = instance.get_run_records(RunsFilter(job_name=job_name), limit=1)
+    if not records or records[0].dagster_run.status != DagsterRunStatus.CANCELED or records[0].start_time is not None:
+        return None
+    key = records[0].dagster_run.tags.get("dagster/run_key")
+    return key if key and not key.endswith(AGAIN) else None
 
 
 def _events(instance, keys, after_id):
@@ -235,9 +276,11 @@ def evaluator(spec, run_limit_seconds, clock=time.time, reconcilers=()):
         events = _events(context.instance, inputs, cursor.event_id) if cursor is not None else []
         first_id, first_at = _newest_event(context.instance, inputs) if cursor is None else (0, None)
         owed = _owed(context.instance, reconcilers, spec.job_id, cursor.since) if cursor is not None and not held else []
+        cancelled = (_cancelled_before_start(context.instance, spec.dagster_job)
+                     if cursor is not None and not held else None)
         requests, cursor = decide(spec, run_limit_seconds, cursor, clock(), held, events, first_id, owed,
                                   _last_run_at(context.instance, spec.dagster_job, outputs if cursor is None else ()),
-                                  first_at)
+                                  first_at, cancelled)
         context.update_cursor(cursor.dump())
         if not requests:
             return SkipReason("a run of the job is open; what is due waits" if held else "nothing is due")

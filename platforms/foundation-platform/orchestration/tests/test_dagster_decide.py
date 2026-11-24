@@ -175,6 +175,37 @@ class ARunCoversWhatCameBeforeItTest(unittest.TestCase):
         self.assertEqual(self.decide(cursor, tick + 2 * STEP, last_run_at=tick + 1)[0], [])
         self.assertEqual(len(self.decide(cursor, tick + 2 * STEP, last_run_at=tick - 1)[0]), 1)
 
+    def test_a_decision_whose_run_was_cancelled_before_it_started_is_asked_once_more(self):
+        # 2026-11-23, the queue outage: runs requested for the morning's ticks were cancelled before they
+        # started; their run keys were spent, no run had started to cover the ticks, and nothing ran
+        # until the next day's tick.
+        import dual_run
+
+        spec = spec_of("gold_unit_price_rebuild")
+        now = at("2026-11-09T10:00:00")
+        _, cursor = self.decide(None, now)
+        tick, following = dual_run.schedule_ticks(spec.schedule, now, now + 3 * 86400)[:2]
+        key = f"tick:{datetime.datetime.fromtimestamp(tick, datetime.UTC).isoformat()}"
+        (request,), cursor = self.decide(cursor, tick + STEP)
+        self.assertEqual(request.key, key)
+        # Its run is cancelled in the queue: asked again under another key, as a clock start.
+        (again,), cursor = self.decide(cursor, tick + 2 * STEP, cancelled=key)
+        self.assertEqual((again.key, again.kind, again.at), (key + ":again", "", tick))
+        # A run that is open covers it; a second ask cancelled too is the sensor's last (the evaluator
+        # names no key that ends with :again); with no cancelled run nothing is asked.
+        self.assertEqual(self.decide(cursor, tick + 3 * STEP, cancelled=key, held=True)[0], [])
+        self.assertEqual(self.decide(cursor, tick + 3 * STEP)[0], [])
+        # Too late to end before the job's next tick: that tick does the same work.
+        late = following - limit_of(spec.job_id) + STEP
+        self.assertEqual(self.decide(cursor, late, cancelled=key)[0], [])
+        # A newer decision due now is the one run: the cancelled one folds into it.
+        (request,), _ = self.decide(cursor, following + STEP, cancelled=key)
+        self.assertTrue(request.key.startswith("tick:") and not request.key.endswith(":again"))
+        # An input event's or an owed key's run is asked again at once, as a triggered start.
+        for other in ("inputs:2026-11-09T09:00:00+00:00", "reconcile:0123abcd"):
+            (again,), _ = self.decide(cursor, tick + 3 * STEP, cancelled=other)
+            self.assertEqual((again.key, again.kind), (other + ":again", "triggered"))
+
     def test_the_first_look_owes_one_run_for_an_input_newer_than_the_jobs_newest_run(self):
         # The deploy that moves a job here paused its DAG; Airflow dropped the event (review M3, root ADR-0337).
         now = at("2026-11-09T10:00:00")
@@ -336,6 +367,27 @@ class TheSensorTest(unittest.TestCase):
             clock[0] += STEP
             context = build_sensor_context(instance=instance, cursor=context.cursor)
             self.assertIsInstance(evaluate(context), SkipReason, "the same event never starts a second run")
+            # The run of that decision is cancelled before it starts: the sensor asks once more, and a
+            # second ask cancelled too is the last. A cancelled run without a run key (the deploy's, an
+            # operator's) and a run that started are never asked again.
+            from dagster import DagsterRun, DagsterRunStatus
+            from dagster._core.utils import make_new_run_id
+
+            def cancelled(tags, **more):
+                instance.add_run(DagsterRun(job_name=sensor.job_name, run_id=make_new_run_id(),
+                                            status=DagsterRunStatus.CANCELED, tags=tags, **more))
+
+            def look():
+                clock[0] += STEP
+                return evaluate(build_sensor_context(instance=instance, cursor=context.cursor))
+
+            cancelled({"dagster/run_key": request.run_key})
+            (again,) = look()
+            self.assertEqual((again.run_key, again.tags["foundation/run-kind"]), (request.run_key + ":again", "triggered"))
+            cancelled({"dagster/run_key": again.run_key})
+            self.assertIsInstance(look(), SkipReason, "a second ask that is cancelled is not asked again")
+            cancelled({})
+            self.assertIsInstance(look(), SkipReason, "a run with no run key is not this sensor's decision")
 
     def test_the_first_look_counts_from_the_airflow_run_airlift_saw(self):
         # Root ADR-0583 §6: a job comes to `dagster` from Airflow with no Dagster run of its own. Its last
