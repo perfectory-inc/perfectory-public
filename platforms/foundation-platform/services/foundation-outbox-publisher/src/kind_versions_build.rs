@@ -796,6 +796,10 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             as_of.as_deref(),
         )?;
         properties.insert(
+            versions::BUILD_SCOPE_PROPERTY.to_owned(),
+            versions::build_scope(whole_sido).to_owned(),
+        );
+        properties.insert(
             versions::PARTITION_STATE_PROPERTY.to_owned(),
             states.property()?,
         );
@@ -863,6 +867,10 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                 .map_or(((0, 0), 0), |base| (base.fingerprint, base.current_records));
             let mut properties =
                 commit_properties(&commit, totals, &built_from, 0, as_of.as_deref())?;
+            properties.insert(
+                versions::BUILD_SCOPE_PROPERTY.to_owned(),
+                versions::build_scope(false).to_owned(),
+            );
             properties.insert(
                 versions::PARTITION_STATE_PROPERTY.to_owned(),
                 states.property()?,
@@ -972,6 +980,10 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         diff.keys(),
         None,
     )?;
+    properties.insert(
+        versions::BUILD_SCOPE_PROPERTY.to_owned(),
+        versions::build_scope(every_pnu).to_owned(),
+    );
     if let Some(why) = &recorded_explanation {
         properties.insert(RECORDED_EXPLANATION_PROPERTY.to_owned(), why.clone());
     }

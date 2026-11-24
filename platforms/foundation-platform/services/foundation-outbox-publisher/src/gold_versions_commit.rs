@@ -42,6 +42,20 @@ pub(crate) const RECORDED_EXPLANATION_PROPERTY: &str = "foundation.recorded-expl
 /// The instant a time-dependent kind's documents were built as of (an auction serves the rounds still
 /// open then, root ADR-0287 §7); absent on every other table's commits.
 pub(crate) const AS_OF_PROPERTY: &str = "foundation.as-of";
+/// Whether a commit's keys were found by building every PNU (`full`: a first build, a moved code
+/// version, edition or whole-table input) or only the PNUs whose inputs changed (`partial`, a
+/// parcel boundary fold). A reader that must start from a whole build, as a tile bake's input
+/// version does (root ADR-0618), finds it here.
+pub(crate) const BUILD_SCOPE_PROPERTY: &str = "foundation.build-scope";
+
+/// The [`BUILD_SCOPE_PROPERTY`] of a commit built from every PNU (`whole`) or from the changed ones.
+pub(crate) const fn build_scope(whole: bool) -> &'static str {
+    if whole {
+        "full"
+    } else {
+        "partial"
+    }
+}
 /// The tag on the commit the next run plans from (`gold_incremental.BUILD_TAG`, root ADR-0338).
 pub(crate) const BUILD_TAG: &str = "foundation-gold-build";
 /// The tag that keeps, on each input, the snapshot the table was last built from
