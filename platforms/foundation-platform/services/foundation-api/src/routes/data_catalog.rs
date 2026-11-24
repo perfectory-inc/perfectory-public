@@ -237,8 +237,6 @@ fn http() -> &'static reqwest::Client {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     /// Every GraphQL document this module and its submodules send, read from their source so a
     /// new one is checked without being listed: each `const ...: &str = "query...";`. Cargo runs
     /// a test in its package directory.

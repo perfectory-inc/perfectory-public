@@ -128,7 +128,7 @@ fn graph() -> Result<&'static JsonValue, ApiError> {
     })
 }
 
-fn nodes<'a>(graph: &'a JsonValue) -> impl Iterator<Item = &'a JsonValue> + 'a {
+fn nodes(graph: &JsonValue) -> impl Iterator<Item = &JsonValue> {
     graph["nodes"].as_array().into_iter().flatten()
 }
 
