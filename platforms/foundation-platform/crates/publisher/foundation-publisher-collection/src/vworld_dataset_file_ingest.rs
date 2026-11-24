@@ -656,30 +656,35 @@ where
         page_size: config.page_size,
         cookie_header: config.cookie_header.clone(),
     })?;
-    let downloaded = client
-        .open_file_stream_with_provider_file_name_fallback(
-            &download_request_from_inventory_file(file),
-            &file.provider_file_name,
+    let client = &client;
+    let fetch = || async move {
+        let downloaded = client
+            .open_file_stream_with_provider_file_name_fallback(
+                &download_request_from_inventory_file(file),
+                &file.provider_file_name,
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to open VWorld dataset file stream endpoint={} download_ds_id={} file_no={}",
+                    job.endpoint_slug, file.download_ds_id, file.file_no
+                )
+            })?;
+        let run_id = IngestionRunId::new(Uuid::new_v4());
+        persist_file_stream_with_adapters(
+            job,
+            file,
+            run_id,
+            started_at,
+            downloaded,
+            payload_key,
+            uow,
+            storage,
         )
         .await
-        .with_context(|| {
-            format!(
-                "failed to open VWorld dataset file stream endpoint={} download_ds_id={} file_no={}",
-                job.endpoint_slug, file.download_ds_id, file.file_no
-            )
-        })?;
-    let run_id = IngestionRunId::new(Uuid::new_v4());
-    let persisted = persist_file_stream_with_adapters(
-        job,
-        file,
-        run_id,
-        started_at,
-        downloaded,
-        payload_key,
-        uow,
-        storage,
-    )
-    .await?;
+    };
+    let persisted =
+        body_retry::asking_again_for_a_broken_body(&provider_file_id(file), fetch).await?;
 
     Ok(VWorldDatasetFileIngestItemEvidence {
         endpoint_slug: job.endpoint_slug.clone(),
@@ -1479,6 +1484,7 @@ fn truncate_failure_message(message: &str) -> String {
     format!("{}...", &message[..end])
 }
 
+mod body_retry;
 mod deferred_files;
 #[cfg(test)]
 mod deferred_files_tests;

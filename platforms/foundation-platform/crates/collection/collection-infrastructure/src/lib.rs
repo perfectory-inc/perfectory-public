@@ -26,4 +26,5 @@ pub use vworld_dataset_file::{
     VWorldDatasetFileConfig, VWorldDatasetFileDownloadRequest, VWorldDatasetFileInventoryItem,
     VWorldDatasetFileInventoryPage, VWorldDatasetFileInventorySelector, VWorldDatasetFileKind,
     VWorldDatasetFileStream, VWorldDatasetLoginClient, VWorldDatasetLoginConfig,
+    VWORLD_FILE_BODY_STREAM_FAILED,
 };
