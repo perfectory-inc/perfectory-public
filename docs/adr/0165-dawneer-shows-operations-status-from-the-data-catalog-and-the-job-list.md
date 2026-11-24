@@ -75,3 +75,5 @@
   [DataHub GraphQL runs](https://github.com/datahub-project/datahub/blob/v1.7.0.1/datahub-graphql-core/src/main/resources/runs.graphql),
   [Airflow FAB 토큰(OAuth 는 직접 구현)](https://airflow.apache.org/docs/apache-airflow-providers-fab/stable/auth-manager/token.html),
   [croner](https://github.com/hexagon/croner-rust).
+
+2026-11-23 각주: §1·§2 의 출처 칸은 [ADR-0609](./0609-the-data-catalogs-facts-live-in-files-and-apis-we-own-and-datahub-is-removed-run-history-from-dagster-quality-results-as-dagster-asset-checks-generated-from-the-contracts.md) 가 대체한다. 품질 칸은 이 PR(#1655)부터 Dagster 의 계약 검사(`contract_*`)를 읽고, 실행 기록은 PR 2 부터 Dagster run 을 읽는다.

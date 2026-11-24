@@ -1,9 +1,10 @@
 //! How the scheduled jobs ran and what the data contracts' checks found (root ADR-0165).
 //!
-//! Both facts already live in the data catalog: every Airflow run reports to it by `OpenLineage`
-//! (root ADR-0118 §2), and the quality job reports each contract check's result on its assertion
-//! (root ADR-0117 §6, ADR-0123). Foundation reads them back with fixed questions, as it does for
-//! search and lineage (root ADR-0119), and adds only what the catalog does not hold: the job list
+//! The runs live in the data catalog: every Airflow run reports to it by `OpenLineage` (root
+//! ADR-0118 §2). The contract checks' results live in Dagster: the quality job reports each rule as
+//! an asset check the code location declares from the contract files (root ADR-0609 §2), and this
+//! reads their newest evaluations from Dagster's read-only webserver. Foundation reads both with
+//! fixed questions, as it does for search and lineage (root ADR-0119), and adds only what they do not hold: the job list
 //! itself (`orchestration/jobs.v1.json`) and each job's next start, computed from its schedule
 //! there, and how long each job usually takes, from the durations of its recent succeeded runs.
 //!
@@ -228,7 +229,7 @@ fn links() -> OperationsLinks {
     }
 }
 
-/// Every data contract the catalog holds and the latest result of each of its checks.
+/// Every data contract's checks and the latest result of each, as Dagster holds them.
 #[utoipa::path(
     get,
     path = "/data-catalog/v1/quality-checks",
@@ -237,19 +238,21 @@ fn links() -> OperationsLinks {
         (status = 200, body = DataQualityStatus),
         (status = 401, description = "No staff identity"),
         (status = 403, description = "Principal may not read the data catalog"),
-        (status = 503, description = "The data catalog is not configured or not reachable", body = ApiErrorResponse),
+        (status = 503, description = "Dagster is not configured or not reachable", body = ApiErrorResponse),
     )
 )]
 pub(super) async fn quality_checks(
     State(_state): State<Arc<AppState>>,
 ) -> Result<Json<DataQualityStatus>, ApiError> {
-    let datasets = search_all(CONTRACTS_QUERY, json!({})).await?;
-    let mut contracts: Vec<DataContractQuality> =
-        datasets.iter().filter_map(contract_quality).collect();
-    contracts.sort_by(|a, b| a.contract_id.cmp(&b.contract_id));
+    let dagster = facts::dagster::Dagster::from_env()
+        .ok_or_else(|| ApiError::Unavailable("Dagster is not configured".to_owned()))?;
+    let checks = dagster
+        .contract_checks()
+        .await
+        .map_err(ApiError::Unavailable)?;
     Ok(Json(DataQualityStatus {
         read_at: Utc::now(),
-        contracts,
+        contracts: contract_quality(&checks),
     }))
 }
 
@@ -595,14 +598,6 @@ const FLOWS_QUERY: &str = "query($start: Int!, $count: Int!, $children: Int!, $r
           runs(start: 0, count: $runs) { runs { urn
             state(limit: 20) { status timestampMillis result { resultType nativeResultType } } } } } } } } } } } } }";
 
-const CONTRACTS_QUERY: &str = "query($start: Int!, $count: Int!) {
-  searchAcrossEntities(input: { types: [DATASET], query: \"*\", start: $start, count: $count,
-    orFilters: [{ and: [{ field: \"platform\", values: [\"urn:li:dataPlatform:odcs\"] }] }] }) {
-    total searchResults { entity { ... on Dataset { urn name platform { name } properties { name }
-      assertions(start: 0, count: 200) { assertions { urn
-        info { type fieldAssertion { fieldValuesAssertion { field { path } } } }
-        runEvents(limit: 1) { runEvents { timestampMillis result { type nativeResults { key value } } } } } } } } } } }";
-
 /// Every search result of `document`, page by page; refuses a catalog larger than `MAX_PAGES`.
 ///
 /// `document` takes `$start` and `$count`, and whatever else `variables` names.
@@ -635,71 +630,125 @@ async fn search_all(document: &str, variables: JsonValue) -> Result<Vec<JsonValu
     )))
 }
 
-/// One contract's checks with their latest results; `None` for anything but a contract dataset.
-fn contract_quality(dataset: &JsonValue) -> Option<DataContractQuality> {
-    if dataset["platform"]["name"].as_str() != Some("odcs") {
-        return None;
+/// The contract checks grouped by contract, by id, each with its newest result. A contract is its
+/// table: the asset key after its platform (`iceberg/gold/unit_price` is `gold.unit_price`).
+fn contract_quality(checks: &[facts::dagster::ContractCheck]) -> Vec<DataContractQuality> {
+    let mut contracts: BTreeMap<String, DataContractQuality> = BTreeMap::new();
+    for check in checks {
+        let contract_id = check.asset_key.get(1..).unwrap_or_default().join(".");
+        contracts
+            .entry(contract_id.clone())
+            .or_insert_with(|| DataContractQuality {
+                contract_id,
+                asset_key: check.asset_key.join("/"),
+                checks: Vec::new(),
+            })
+            .checks
+            .push(quality_check(check));
     }
-    let dataset_urn = dataset["urn"].as_str()?.to_owned();
-    let contract_id = text(&dataset["properties"]["name"]).or_else(|| text(&dataset["name"]))?;
-    let mut checks: Vec<DataQualityCheck> = dataset["assertions"]["assertions"]
+    contracts
+        .into_values()
+        .map(|mut contract| {
+            contract
+                .checks
+                .sort_by(|a, b| a.check_name.cmp(&b.check_name));
+            contract
+        })
+        .collect()
+}
+
+/// A contract check's allowed-values rule names its column after this.
+const ALLOWED_VALUES_CHECK: &str = "contract_allowed_values";
+/// The metadata of a check run on its own in Dagster: a re-statement of the newest report, empty when
+/// the quality job has reported none yet (`orchestration/dagster/takeover_checks.py` `RESTATED_FROM`).
+const RESTATED_FROM: &str = "restated_from_run";
+
+/// A check's result, from its newest executions (newest first): the newest one with an evaluation; a
+/// newest execution that failed to run is `Error`; a re-statement with nothing reported yet, or no
+/// evaluation at all, is `NotRun`.
+fn check_result(executions: &[JsonValue]) -> (DataQualityResult, Option<&JsonValue>) {
+    let judged = executions
+        .iter()
+        .find(|execution| execution["evaluation"].is_object());
+    if executions
+        .first()
+        .is_some_and(|newest| newest["status"].as_str() == Some("EXECUTION_FAILED"))
+    {
+        return (DataQualityResult::Error, judged);
+    }
+    let Some(execution) = judged else {
+        return (DataQualityResult::NotRun, None);
+    };
+    let evaluation = &execution["evaluation"];
+    let nothing_reported = evaluation["metadataEntries"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(quality_check)
-        .collect();
-    checks.sort_by(|a, b| {
-        (a.kind.as_str(), a.field.as_deref()).cmp(&(b.kind.as_str(), b.field.as_deref()))
-    });
-    Some(DataContractQuality {
-        contract_id,
-        dataset_urn,
-        checks,
-    })
+        .any(|entry| {
+            entry["label"].as_str() == Some(RESTATED_FROM) && entry["text"].as_str() == Some("")
+        });
+    if nothing_reported {
+        return (DataQualityResult::NotRun, None);
+    }
+    let result = if evaluation["success"].as_bool() == Some(true) {
+        DataQualityResult::Success
+    } else {
+        DataQualityResult::Failure
+    };
+    (result, Some(execution))
 }
 
-fn quality_check(assertion: &JsonValue) -> Option<DataQualityCheck> {
-    let assertion_urn = assertion["urn"].as_str()?.to_owned();
-    let info = &assertion["info"];
-    let latest = assertion["runEvents"]["runEvents"]
+fn quality_check(check: &facts::dagster::ContractCheck) -> DataQualityCheck {
+    let executions = check
+        .executions
         .as_array()
-        .and_then(|events| {
-            events
-                .iter()
-                .max_by_key(|event| event["timestampMillis"].as_i64())
-        });
-    let result = latest.map_or(DataQualityResult::NotRun, |event| {
-        match event["result"]["type"].as_str() {
-            Some("SUCCESS") => DataQualityResult::Success,
-            Some("FAILURE") => DataQualityResult::Failure,
-            Some("ERROR") => DataQualityResult::Error,
-            _ => DataQualityResult::NotRun,
-        }
-    });
-    let details = latest
-        .and_then(|event| event["result"]["nativeResults"].as_array())
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| {
-                    Some(DataQualityDetail {
-                        key: entry["key"].as_str()?.to_owned(),
-                        value: entry["value"].as_str()?.to_owned(),
-                    })
-                })
-                .collect()
-        })
+        .map(Vec::as_slice)
         .unwrap_or_default();
-    Some(DataQualityCheck {
-        assertion_urn,
-        kind: text(&info["type"]).unwrap_or_else(|| "UNKNOWN".to_owned()),
-        field: text(&info["fieldAssertion"]["fieldValuesAssertion"]["field"]["path"]),
+    let (result, judged) = check_result(executions);
+    let evaluation = judged.map_or(&JsonValue::Null, |execution| &execution["evaluation"]);
+    let field = check
+        .check_name
+        .strip_prefix(ALLOWED_VALUES_CHECK)
+        .and_then(|rest| rest.strip_prefix('_'))
+        .map(str::to_owned);
+    let kind = if field.is_some() {
+        ALLOWED_VALUES_CHECK.to_owned()
+    } else {
+        check.check_name.clone()
+    };
+    // The severity first (WARN while the contract only reports, ERROR once enforced), then what
+    // the quality job reported, as it wrote it.
+    let details = evaluation["severity"]
+        .as_str()
+        .map(|severity| DataQualityDetail {
+            key: "severity".to_owned(),
+            value: severity.to_owned(),
+        })
+        .into_iter()
+        .chain(
+            evaluation["metadataEntries"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| {
+                    let value = entry["text"]
+                        .as_str()
+                        .or_else(|| entry["intRepr"].as_str())?;
+                    Some(DataQualityDetail {
+                        key: entry["label"].as_str()?.to_owned(),
+                        value: value.to_owned(),
+                    })
+                }),
+        )
+        .collect();
+    DataQualityCheck {
+        check_name: check.check_name.clone(),
+        kind,
+        field,
         result,
-        checked_at: latest
-            .and_then(|event| event["timestampMillis"].as_i64())
-            .and_then(millis),
+        checked_at: judged.and_then(facts::dagster::execution_time),
         details,
-    })
+    }
 }
 
 #[cfg(test)]

@@ -27,8 +27,8 @@ function job(overrides: Partial<ScheduledJobStatus>): ScheduledJobStatus {
   };
 }
 
-function check(urn: string, result: DataContractQuality["checks"][number]["result"], checkedAt: string | null) {
-  return { assertion_urn: urn, kind: "FIELD", field: "kind", result, checked_at: checkedAt, details: [] };
+function check(name: string, result: DataContractQuality["checks"][number]["result"], checkedAt: string | null) {
+  return { check_name: name, kind: "contract_allowed_values", field: "kind", result, checked_at: checkedAt, details: [] };
 }
 
 describe("scheduled jobs", () => {
@@ -142,11 +142,11 @@ describe("running now", () => {
 describe("quality checks", () => {
   it("counts each result and puts failing, then unchecked, contracts first", () => {
     const contracts: DataContractQuality[] = [
-      { contract_id: "a.clean", dataset_urn: "urn:a", checks: [check("1", "success", "2026-01-02T07:20:00Z")] },
-      { contract_id: "b.unchecked", dataset_urn: "urn:b", checks: [check("2", "not_run", null)] },
+      { contract_id: "a.clean", asset_key: "iceberg/a/clean", checks: [check("1", "success", "2026-01-02T07:20:00Z")] },
+      { contract_id: "b.unchecked", asset_key: "iceberg/b/unchecked", checks: [check("2", "not_run", null)] },
       {
         contract_id: "c.failing",
-        dataset_urn: "urn:c",
+        asset_key: "iceberg/c/failing",
         checks: [check("3", "failure", "2026-01-02T07:21:00Z"), check("4", "success", "2026-01-01T07:20:00Z")],
       },
     ];

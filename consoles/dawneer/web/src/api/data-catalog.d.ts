@@ -79,7 +79,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every data contract the catalog holds and the latest result of each of its checks. */
+        /** Every data contract's checks and the latest result of each, as Dagster holds them. */
         get: operations["listDataQualityChecks"];
         put?: never;
         post?: never;
@@ -394,27 +394,33 @@ export interface components {
         };
         /** @description One data contract and the latest result of each of its checks. */
         DataContractQuality: {
+            /** @description The Dagster asset key of the contract's table (`iceberg/gold/unit_price`). */
+            asset_key: string;
             /** @description Its checks. */
             checks: components["schemas"]["DataQualityCheck"][];
             /** @description The contract's id (the dataset it promises). */
             contract_id: string;
-            /** @description The contract's entity in the data catalog. */
-            dataset_urn: string;
         };
         /** @description One check a data contract defines and its latest result. */
         DataQualityCheck: {
-            /** @description The check's identifier in the data catalog. */
-            assertion_urn: string;
+            /**
+             * @description The check's Dagster asset check name (for example `contract_columns_present` or
+             *     `contract_allowed_values_kind`), unique within its contract.
+             */
+            check_name: string;
             /**
              * Format: date-time
              * @description When that result was reported.
              */
             checked_at?: string | null;
-            /** @description What the job reported with it (counts, missing columns), as it wrote them. */
+            /**
+             * @description Its severity (`WARN` while the contract only reports, `ERROR` once enforced), then what the
+             *     job reported with it (counts, missing columns), as it wrote them.
+             */
             details: components["schemas"]["DataQualityDetail"][];
             /** @description The column it checks, for a column check. */
             field?: string | null;
-            /** @description The catalog's kind for it (for example `FIELD` or `DATA_SCHEMA`), as the catalog names it. */
+            /** @description Its kind: `contract_columns_present` or `contract_allowed_values`. */
             kind: string;
             /** @description Its latest result. */
             result: components["schemas"]["DataQualityResult"];
@@ -431,7 +437,7 @@ export interface components {
          * @enum {string}
          */
         DataQualityResult: "success" | "failure" | "error" | "not_run";
-        /** @description Every data contract the data catalog holds, with its checks' latest results. */
+        /** @description Every data contract's checks, with their latest results (root ADR-0609 §2). */
         DataQualityStatus: {
             /** @description The contracts, by id. */
             contracts: components["schemas"]["DataContractQuality"][];
@@ -1313,7 +1319,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The data catalog is not configured or not reachable */
+            /** @description Dagster is not configured or not reachable */
             503: {
                 headers: {
                     [name: string]: unknown;

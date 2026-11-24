@@ -161,18 +161,21 @@ def run_job(spec, transport=None, lineage_client=None):
         client = systemd_pipes.SystemdUnitPipesClient(
             transport=transport or ForcedCommand.from_environment(spec.timeout_minutes * 60))
         kind = context.run.tags.get(job_specs.RUN_KIND_TAG, "triggered")
+        reported = reported_checks(keys, job_id=spec.job_id)
         try:
             result = client.run(context=context, job_id=spec.job_id, kind=kind)
-        except Failure:
+            # Read both before logging either, and before the outcome is tagged: a report the run may
+            # not make fails it, with nothing logged and the run tagged failed.
+            materializations = result.materializations(keys)
+            evaluations = result.check_evaluations(keys, reported)
+        except Failure as failure:
+            log_failed_run_checks(context, spec, keys, reported, getattr(failure, "ran", None))
             context.instance.add_run_tags(context.run_id, {job_specs.OUTCOME_TAG: "failed"})
             raise
         tags = {job_specs.OUTCOME_TAG: result.outcome}
         if spec.reconciles or spec.requeues:
             tags[job_specs.OWED_TAG] = json.dumps([list(owed) for owed in result.owed])
         context.instance.add_run_tags(context.run_id, tags)
-        # Read both before logging either: a report the run may not make fails it with nothing logged.
-        materializations = result.materializations(keys)
-        evaluations = result.check_evaluations(keys, reported_checks(keys))
         for materialization in materializations:
             context.log_event(materialization)
         # After the materializations: a check the unit reported judges the head it just built or kept.
@@ -188,19 +191,55 @@ def run_job(spec, transport=None, lineage_client=None):
                description=spec.description)(runs_the_unit)
 
 
-def reported_checks(keys, graph=None):
+# The metadata key that names the failed run a runless evaluation came from.
+FAILED_RUN = "failed_run_id"
+
+
+def log_failed_run_checks(context, spec, keys, reported, ran):
+    """The quality job fails because an enforced contract rule failed: Dagster must still record the
+    ERROR that failed the run and every other result of it (root ADR-0609 §2). An op that raises loses
+    the events it logged (dagster 1.13.27 hands them on only when the op yields or returns), so they are
+    reported to the instance as runless evaluations, as Dagster's own `report_asset_check` endpoint
+    does, each naming the run. Any other job's failed run records nothing: a failed shadow build's
+    takeover verdict is not one. A report the failed run may not make is logged as a warning only; the
+    run already fails."""
+    import contract_checks
+    from dagster import AssetCheckEvaluation, Failure
+
+    if ran is None or spec.job_id != contract_checks.REPORTER:
+        return
+    try:
+        evaluations = ran.check_evaluations(keys, reported)
+    except Failure as refused:
+        context.log.warning(f"{spec.job_id}'s failed run reported a check it may not: {refused.description}")
+        return
+    for evaluation in evaluations:
+        context.instance.report_runless_asset_event(AssetCheckEvaluation(
+            asset_key=evaluation.asset_key, check_name=evaluation.check_name, passed=evaluation.passed,
+            severity=evaluation.severity, metadata={**evaluation.metadata, FAILED_RUN: context.run_id}))
+    context.log.info(f"{spec.job_id}'s failed run: {len(evaluations)} check evaluations recorded")
+
+
+def reported_checks(keys, graph=None, job_id=None):
     """(asset key, check name) -> declared severity, of every declared check on `keys` that the job's
     unit reports itself (takeover_checks.REPORTED, load_checks.REPORTED): what
-    systemd_pipes.SystemdRun.check_evaluations takes from the journal."""
+    systemd_pipes.SystemdRun.check_evaluations takes from the journal. For the quality job
+    (contract_checks.REPORTER) also every contract check, on whichever table, mapped to None: the unit
+    gives its severity (root ADR-0609 §2)."""
     import asset_checks
+    import contract_checks
     import load_checks
     import takeover_checks
 
     if graph is None:
         graph = observe_assets.contracts()[1]
     wanted = set(keys)
-    return {(item.key(), item.check): item.severity for item in asset_checks.declared(graph)
-            if item.check in takeover_checks.REPORTED | load_checks.REPORTED and item.key() in wanted}
+    declared = asset_checks.declared(graph)
+    found = {(item.key(), item.check): item.severity for item in declared
+             if item.check in takeover_checks.REPORTED | load_checks.REPORTED and item.key() in wanted}
+    if job_id == contract_checks.REPORTER:
+        found.update({(item.key(), item.check): None for item in declared if item.kind in contract_checks.KINDS})
+    return found
 
 
 def run_jobs(jobs=None, graph=None, transport=None, lineage_client=None):

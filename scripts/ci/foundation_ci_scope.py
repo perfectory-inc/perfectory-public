@@ -180,6 +180,7 @@ RULES = {
             "platforms/foundation-platform/orchestration/tests/test_dagster_dual_run.py",
             "platforms/foundation-platform/orchestration/tests/test_dagster_decide.py",
             "platforms/foundation-platform/orchestration/tests/test_dagster_publish_checks.py",
+            "platforms/foundation-platform/orchestration/tests/test_dagster_contract_checks.py",
             "platforms/foundation-platform/orchestration/tests/test_dagster_systemd_pipes.py",
             # What may change Dagster, and who may ask (root ADR-0565 §8): the gate's rules, the host's
             # writer, and their tests, which replay both callers' requests against Dagster itself.
@@ -192,6 +193,8 @@ RULES = {
         "prefixes": [
             # The definitions themselves: the asset groups and checks are read from them in place.
             "platforms/foundation-platform/definitions/",
+            # The data contracts: their machine rules are asset checks, read in place (root ADR-0609 §2).
+            "platforms/foundation-platform/contracts/data/",
             "platforms/foundation-platform/orchestration/dagster/",
             "platforms/foundation-platform/orchestration/airflow/",
             "platforms/foundation-platform/orchestration/tests/fixtures/",

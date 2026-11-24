@@ -232,7 +232,7 @@ describe("names", () => {
   });
 
   it("finds a dataset's data contract by its table", () => {
-    const contract = { contract_id: "gold.panel", dataset_urn: "urn:li:dataset:x", checks: [] };
+    const contract = { contract_id: "gold.panel", asset_key: "iceberg/gold/panel", checks: [] };
     expect(contractOf(graph.nodes[4] ?? { id: "x" }, [contract])).toBe(contract);
     expect(contractOf(graph.nodes[1] ?? { id: "x" }, [contract])).toBeNull();
   });

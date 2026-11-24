@@ -110,6 +110,7 @@ class DataQualityJobTests(unittest.TestCase):
         self.addCleanup(quiet.stop)
 
     def test_one_gms_503_does_not_fail_the_day(self):
+        # The one question the job still asks DataHub, once per contract (root ADR-0609 §2).
         answers = [http_error(503), FakeResponse(b'{"data": {"dataset": null}}')]
 
         def urlopen(request, timeout):
@@ -119,7 +120,7 @@ class DataQualityJobTests(unittest.TestCase):
             return answer
 
         with mock.patch.object(urllib.request, "urlopen", urlopen):
-            self.assertEqual(self.job.assertions_of("contract"), [])
+            self.assertFalse(self.job.checked_in_datahub("contract"))
         self.assertEqual(self.sleep.call_count, 1)
 
     def publisher_answers(self, *exits):

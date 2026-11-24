@@ -53,3 +53,5 @@ ADR-0117 은 사람이 보는 곳을 DataHub 하나로 정하고 DataHub 화면�
 - 출처: [DataHub OIDC 설정](https://docs.datahub.com/docs/authentication/guides/sso/configure-oidc-react),
   [DataHub #8369](https://github.com/datahub-project/datahub/issues/8369),
   [Zitadel back-channel logout](https://zitadel.com/docs/guides/integrate/back-channel-logout).
+
+2026-11-23 각주: §4·§5(Foundation 이 GMS 에 닿는 길과 그 보호)는 PR 2·3 이 GMS 읽기를 모두 옮긴 뒤 PR 4 에서 [ADR-0609](./0609-the-data-catalogs-facts-live-in-files-and-apis-we-own-and-datahub-is-removed-run-history-from-dagster-quality-results-as-dagster-asset-checks-generated-from-the-contracts.md) 가 대체한다. Foundation 은 계약·파이프라인 그래프·Iceberg REST·Dagster 의 읽기 전용 웹서버를 읽는다.

@@ -661,52 +661,139 @@ fn a_running_job_carries_the_typical_duration_of_its_own_catalog_job() {
     );
 }
 
+/// Two synthetic contracts' checks, each with the executions Dagster gave.
+fn synthetic_contract_checks() -> Vec<super::facts::dagster::ContractCheck> {
+    let check =
+        |key: &[&str], name: &str, executions: JsonValue| super::facts::dagster::ContractCheck {
+            asset_key: key.iter().map(|part| (*part).to_owned()).collect(),
+            check_name: name.to_owned(),
+            executions,
+        };
+    let synthetic = ["iceberg", "silver", "synthetic"];
+    vec![
+        check(
+            &synthetic,
+            "contract_columns_present",
+            json!([
+            // A check run planned after the report does not hide it.
+            { "status": "IN_PROGRESS", "timestamp": 1_800_000_900.0, "evaluation": null },
+            { "status": "FAILED", "timestamp": 1_800_000_000.5,
+              "evaluation": { "success": false, "severity": "ERROR", "metadataEntries": [
+                { "label": "missing_columns", "text": "row_digest" }] } }]),
+        ),
+        check(
+            &synthetic,
+            "contract_allowed_values_kind",
+            json!([
+            { "status": "SUCCEEDED", "timestamp": 1_800_000_100.0,
+              "evaluation": { "success": true, "severity": "WARN", "metadataEntries": [
+                { "label": "invalid_rows", "intRepr": "0" }] } }]),
+        ),
+        check(&synthetic, "contract_allowed_values_stage", json!([])),
+        check(
+            &synthetic,
+            "contract_allowed_values_zone",
+            json!([
+            { "status": "EXECUTION_FAILED", "timestamp": 1_800_000_200.0, "evaluation": null }]),
+        ),
+        // The check run alone before the quality job ever reported: a re-statement of nothing.
+        check(
+            &["perfectory", "intelligence", "synthetic_fact"],
+            "contract_columns_present",
+            json!([
+            { "status": "FAILED", "timestamp": 1_800_000_300.0,
+              "evaluation": { "success": false, "severity": "WARN", "metadataEntries": [
+                { "label": "restated_from_run", "text": "" }] } }]),
+        ),
+    ]
+}
+
 #[test]
-fn a_contract_shows_each_check_with_its_latest_result_and_skips_other_datasets() {
-    let dataset = json!({
-        "urn": "urn:li:dataset:(urn:li:dataPlatform:odcs,silver.synthetic,PROD)",
-        "name": "silver.synthetic",
-        "platform": { "name": "odcs" },
-        "properties": null,
-        "assertions": { "assertions": [
-            { "urn": "urn:li:assertion:schema", "info": { "type": "DATA_SCHEMA", "fieldAssertion": null },
-              "runEvents": { "runEvents": [
-                { "timestampMillis": ms("2026-01-02T07:21:00Z"), "result": { "type": "FAILURE",
-                  "nativeResults": [{ "key": "missing_columns", "value": "row_digest" }] } } ] } },
-            { "urn": "urn:li:assertion:kind", "info": { "type": "FIELD",
-                "fieldAssertion": { "fieldValuesAssertion": { "field": { "path": "kind" } } } },
-              "runEvents": { "runEvents": [
-                { "timestampMillis": ms("2026-01-02T07:20:00Z"), "result": { "type": "SUCCESS", "nativeResults": [] } } ] } },
-            { "urn": "urn:li:assertion:never", "info": { "type": "FIELD",
-                "fieldAssertion": { "fieldValuesAssertion": { "field": { "path": "stage" } } } },
-              "runEvents": { "runEvents": [] } }
-        ] }
-    });
-    let quality = contract_quality(&dataset).unwrap_or_else(|| unreachable!("a contract"));
-    assert_eq!(quality.contract_id, "silver.synthetic");
-    let by_urn = |urn: &str| quality.checks.iter().find(|c| c.assertion_urn == urn);
-    let schema = by_urn("urn:li:assertion:schema");
-    assert_eq!(schema.map(|c| c.result), Some(DataQualityResult::Failure));
+fn a_contract_shows_each_check_with_its_newest_evaluation_and_severity() {
+    let contracts = contract_quality(&synthetic_contract_checks());
+    let ids: Vec<(&str, &str)> = contracts
+        .iter()
+        .map(|c| (c.contract_id.as_str(), c.asset_key.as_str()))
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            (
+                "intelligence.synthetic_fact",
+                "perfectory/intelligence/synthetic_fact"
+            ),
+            ("silver.synthetic", "iceberg/silver/synthetic"),
+        ]
+    );
+    assert_eq!(
+        contracts[0]
+            .checks
+            .iter()
+            .map(|c| (c.result, c.checked_at))
+            .collect::<Vec<_>>(),
+        vec![(DataQualityResult::NotRun, None)]
+    );
+    let quality = &contracts[1];
+    let by_name = |name: &str| quality.checks.iter().find(|c| c.check_name == name);
+    let schema = by_name("contract_columns_present");
+    assert_eq!(
+        schema.map(|c| (c.result, c.kind.as_str(), c.field.clone())),
+        Some((DataQualityResult::Failure, "contract_columns_present", None))
+    );
     assert_eq!(
         schema.map(|c| c.details.clone()),
-        Some(vec![DataQualityDetail {
-            key: "missing_columns".to_owned(),
-            value: "row_digest".to_owned()
-        }])
+        Some(vec![
+            DataQualityDetail {
+                key: "severity".to_owned(),
+                value: "ERROR".to_owned()
+            },
+            DataQualityDetail {
+                key: "missing_columns".to_owned(),
+                value: "row_digest".to_owned()
+            },
+        ])
     );
     assert_eq!(
-        by_urn("urn:li:assertion:kind").map(|c| (c.result, c.field.clone())),
-        Some((DataQualityResult::Success, Some("kind".to_owned())))
+        schema
+            .and_then(|c| c.checked_at)
+            .map(|at| at.timestamp_millis()),
+        Some(1_800_000_000_500)
     );
-    let never = by_urn("urn:li:assertion:never");
     assert_eq!(
-        never.map(|c| (c.result, c.checked_at)),
-        Some((DataQualityResult::NotRun, None))
+        by_name("contract_allowed_values_kind").map(|c| (
+            c.result,
+            c.kind.as_str(),
+            c.field.clone()
+        )),
+        Some((
+            DataQualityResult::Success,
+            "contract_allowed_values",
+            Some("kind".to_owned())
+        ))
     );
-
-    let table =
-        json!({ "urn": "urn:li:dataset:x", "name": "x", "platform": { "name": "iceberg" } });
-    assert_eq!(contract_quality(&table), None, "only contract datasets");
+    assert_eq!(
+        by_name("contract_allowed_values_stage").map(|c| (c.result, c.checked_at, c.details.len())),
+        Some((DataQualityResult::NotRun, None, 0)),
+        "a check the quality job has not reported yet"
+    );
+    assert_eq!(
+        by_name("contract_allowed_values_zone").map(|c| c.result),
+        Some(DataQualityResult::Error),
+        "a newest execution that failed to run"
+    );
+    assert_eq!(
+        quality
+            .checks
+            .iter()
+            .map(|c| c.check_name.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "contract_allowed_values_kind",
+            "contract_allowed_values_stage",
+            "contract_allowed_values_zone",
+            "contract_columns_present"
+        ]
+    );
 }
 
 #[test]

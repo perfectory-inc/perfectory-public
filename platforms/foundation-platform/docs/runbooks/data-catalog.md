@@ -72,20 +72,26 @@ JSON 스키마로 계약을 검증한다(`validation_errors` 가 0 이어야 한
 
 ## 품질 검사
 
-Airflow 작업 `foundation_data_quality`(매일 07:20 UTC, `scripts/ops/data-quality-check.py`)가 계약에서 만든
-검사 항목 중 기계가 판정할 수 있는 둘을 레이크하우스에 돌리고 결과를 각 검사 항목에 기록한다.
+작업 `data_quality`(매일 07:20 UTC, `scripts/ops/data-quality-check.py`)가 계약 파일(`contracts/data`)의 기계 규칙을
+레이크하우스에 돌린다. 규칙마다 결과를 Dagster 자산 검사로 남긴다(루트 ADR-0609 §2). 검사는 코드 위치가 같은 계약
+파일에서 선언한다(`orchestration/dagster/contract_checks.py`). 유닛은 결과를 Pipes `report_asset_check` 줄로 저널에 쓰고,
+그 유닛을 돌린 op 가 평가로 기록한다.
 
 | 검사 | 판정 |
 |---|---|
-| 허용 값(FIELD_VALUES) | 값이 있고 `validValues` 에 없는 행이 하나라도 있으면 실패 |
-| 표 구조(DATA_SCHEMA) | 계약의 칸이 실제 표에 하나라도 없으면 실패 |
+| `contract_allowed_values_<칸>` | 값이 있고 `validValues` 에 없는 행이 하나라도 있으면 실패 |
+| `contract_columns_present` | 계약의 칸이 실제 표에 하나라도 없으면 실패 |
 
-글로 적은 규칙은 돌리지 않고 결과도 적지 않는다. 레이크하우스에 아직 없는 표는 실패가 아니라 "absent" 로 센다
-(지도의 implemented 는 코드가 있다는 뜻). 실패가 하나라도 있으면 작업이 실패로 끝나 알림이 간다.
+- 글로 적은 규칙은 돌리지 않고 결과도 적지 않는다.
+- 레이크하우스에 아직 없는 표는 실패가 아니라 "absent" 로 센다(지도의 implemented 는 코드가 있다는 뜻).
+- 처음 판정되는 계약은 7일 동안 WARN 으로만 남긴다(`warned`). 그 뒤와, DataHub 가 전에 판정한 계약은 ERROR 다.
+  집행되는 규칙이 하나라도 실패하면 작업이 실패로 끝나 알림이 간다.
+- 스냅숏과 규칙 지문이 직전 평가와 같은 표는 다시 세지 않는다. 직전 평가는 Dagster 의 읽기 전용 웹서버에서 읽는다.
+- 결과는 Dagster 화면의 자산 → Checks 와 더니어 운영 현황의 품질 칸(`GET /data-catalog/v1/quality-checks`)에서 본다.
 
 2026-10-01 첫 실행: 계약 35개, 통과 31, 실패 1, 표 없음 7. 실패는 `gold.parcel_panel` 에 계약의 `row_digest`
 (ADR-0099, 9/10 추가)와 `attached_via_json`(ADR-0113 §6, 9/30 추가)이 없는 것 — 운영 표가 9/9 이후 다시 만들어지지
-않았다.
+않았다. 2026-11-23 까지는 결과를 DataHub 의 검사 항목(assertion)에 적었고, DataHub 가 아는 35개만 기록이 남았다.
 
 ## 확인
 

@@ -5,7 +5,8 @@ says which of its own assets carries which check, whether the check blocks, and 
 reads. This module only turns each declaration into a Dagster asset check over the kind of check it
 names; the kinds are the code (unit_price_checks.KINDS, publish_checks.KINDS, place_identity_checks.KINDS,
 takeover_checks.KINDS and load_checks.KINDS: the ones a job's unit reports itself). No asset key, table or node id is written
-here, so a check moves, is added or turns blocking by editing the asset's own definition.
+here, so a check moves, is added or turns blocking by editing the asset's own definition. The data contracts' machine
+rules are checks too, declared from the contract files rather than a definition (contract_checks.py, root ADR-0609 §2).
 
 A blocking check (`blocking: true`) fails with severity ERROR and, in a run that materializes its
 asset, stops everything downstream of it (Dagster's blocking asset checks); a non-blocking one reports
@@ -37,6 +38,8 @@ class Declared:
     reads: tuple
     blocking: bool
     keys: dict
+    # The kind, when the check's name is not its kind's (a contract's per-column rule).
+    kind: str = ""
 
     @property
     def severity(self):
@@ -49,7 +52,7 @@ class Declared:
 def kinds():
     """Check name -> its kind (the modules imported at the end of this one)."""
     return {**unit_price_checks.KINDS, **publish_checks.KINDS, **place_identity_checks.KINDS,
-            **takeover_checks.KINDS, **load_checks.KINDS}
+            **takeover_checks.KINDS, **load_checks.KINDS, **contract_checks.KINDS}
 
 
 def definitions():
@@ -59,7 +62,9 @@ def definitions():
 
 
 def declared(graph, declarations=None):
-    """Every declared check, resolved: its node and the nodes it reads are the graph's, by id."""
+    """Every declared check, resolved: its node and the nodes it reads are the graph's, by id. Without
+    `declarations`, the definitions' checks and the contracts' (contract_checks.declared)."""
+    contracts = declarations is None
     declarations = definitions() if declarations is None else declarations
     nodes = {node["id"]: node for node in graph["nodes"]}
     keys = observe_assets.node_keys(graph)
@@ -72,9 +77,13 @@ def declared(graph, declarations=None):
                 raise observe_assets.job_specs.JobListError(f"{group}: asset check {check['check']} names nodes {missing} the pipeline graph has not")
             if check["check"] not in known:
                 raise observe_assets.job_specs.JobListError(f"{group}: asset check {check['check']} is not one the code location implements: {sorted(known)}")
+            if check["check"].startswith(contract_checks.PREFIX):
+                raise observe_assets.job_specs.JobListError(f"{group}: asset check {check['check']} is a contract's; contract_checks.py declares those from the contract files")
             found.append(Declared(group, check["check"], nodes[check["asset"]],
                                   tuple(nodes[node_id] for node_id in check.get("reads", [])),
                                   check["blocking"], keys))
+    if contracts:
+        found += contract_checks.declared(graph, keys)
     return found
 
 
@@ -83,7 +92,7 @@ def build(graph, declarations=None):
     known = kinds()
     checks = []
     for item in declared(graph, declarations):
-        kind = known[item.check]
+        kind = known[item.kind or item.check]
         checks.append(asset_check(
             asset=item.key(), name=item.check, blocking=item.blocking, description=kind.description,
             additional_deps=[item.key(node["id"]) for node in item.reads],
@@ -108,3 +117,4 @@ import publish_checks  # noqa: E402
 import unit_price_checks  # noqa: E402
 import takeover_checks  # noqa: E402
 import load_checks  # noqa: E402
+import contract_checks  # noqa: E402
