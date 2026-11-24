@@ -36,6 +36,7 @@ import decide  # noqa: E402
 import dual_run  # noqa: E402
 import observe_assets  # noqa: E402
 import run_jobs  # noqa: E402
+import source_read_checks  # noqa: E402
 from airflow3 import Airflow3Instance, AirflowTokenAuthBackend  # noqa: E402
 
 # The prefix of every asset key airlift makes for a DAG itself (`foundation_airflow/dag/<dag id>`).
@@ -59,12 +60,16 @@ def build(instance, jobs=None, graph=None):
         jobs, graph = observe_assets.contracts()
     dags = observe_assets.dag_ids(jobs, graph)
     prefix = jobs["dag_id_prefix"]
+    # A collector of a source whose provider drops what has ended, held to its reads (root ADR-0614).
+    read_checks = source_read_checks.checks(jobs)
+    read_job, read_schedule = source_read_checks.schedule(read_checks)
     return build_defs_from_airflow_instance(
         airflow_instance=instance,
         defs=Definitions(
-            assets=observe_assets.observed_assets(jobs, graph),
-            asset_checks=[*asset_checks.build(graph), *dual_run.checks(instance, jobs, graph)],
-            jobs=run_jobs.run_jobs(jobs, graph),
+            assets=[*observe_assets.observed_assets(jobs, graph), *source_read_checks.assets(jobs)],
+            asset_checks=[*asset_checks.build(graph), *dual_run.checks(instance, jobs, graph), *read_checks],
+            jobs=[*run_jobs.run_jobs(jobs, graph), *([read_job] if read_job else [])],
+            schedules=[read_schedule] if read_schedule else [],
             # A job at `dagster` is decided here too, by the rules the dual run proved (decide.py).
             sensors=decide.sensors(jobs, graph),
             # A check run's steps run in its own process, not one more process per step: the
