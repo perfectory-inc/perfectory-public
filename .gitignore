@@ -22,6 +22,16 @@ __pycache__/
 .env.local.*
 .env.*.local.*
 
+# OpenTofu working files: the working directory, local states, variable files (an address or a key
+# given at apply time) and the override file the AWS stack's first apply uses
+# (platforms/foundation-platform/docs/runbooks/aws-platform.md). This repository is public.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*_override.tf
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

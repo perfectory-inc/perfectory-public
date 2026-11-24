@@ -1,0 +1,46 @@
+{
+  "$comment": "Root ADR-0619. The base of the AWS account the data jobs move to (root ADR-0616): which account, which region, the tags every resource carries, the state bucket, the account's monthly budget and the network. infra/aws/main.tf reads this file and nothing else decides these values; the provider refuses every other account (allowed_account_ids), so an apply under the wrong profile stops before it reads or changes anything. Applied from the laptop with the SSO profile after the PR merges (docs/runbooks/aws-platform.md); nothing applies it on the data host.",
+  "schema_version": "foundation-platform.aws_platform.v1",
+  "decision": "docs/adr/0619-the-aws-platform-account-is-one-opentofu-stack-pinned-to-its-account-with-its-budget-first-and-images-from-ghcr.md",
+  "account": {
+    "id": "091109217099",
+    "name": "perfectory-platform-prod",
+    "reason": "The organization's platform account (made 2026-11-09 for the Seoul front door, root ADR-0461). The management account and the old gongzzang production account are never targets: they are not listed here, so the provider refuses them."
+  },
+  "region": "ap-northeast-2",
+  "tags": {
+    "project": "perfectory-platform",
+    "managed-by": "opentofu",
+    "decision": "root-adr-0619"
+  },
+  "state": {
+    "bucket": "perfectory-platform-tofu-state-091109217099",
+    "key": "aws-platform/terraform.tfstate",
+    "noncurrent_days": 90,
+    "reason": "The state of an AWS stack lives in its own account: the SSO role that applies it reads and writes it, so no second credential (the R2 keys the host's stacks use) reaches the laptop. Versioned so an apply that went wrong can be rolled back to the earlier state; old versions leave after 90 days. Locked by the S3 backend's own lock file (use_lockfile). The state holds no secret: no resource here has one."
+  },
+  "budget": {
+    "name": "perfectory-platform-monthly",
+    "limit_usd": "150",
+    "notifications": [
+      { "type": "ACTUAL", "over_usd": "100" },
+      { "type": "ACTUAL", "over_usd": "150" },
+      { "type": "FORECASTED", "over_usd": "150" }
+    ],
+    "reason": "Owner approval 2026-11-25: collection on AWS at about 92 USD a month on ARM, 160 in a month with a bulk collection (root ADR-0616 §10, re-stated at Fargate ARM prices). Actual spend past 100 is the first notice, past 150 the second; a forecast past 150 tells before the month ends. The budget mails the account's own registered address (a variable at apply time, never committed: this repository is public); budget mail needs no confirmation. Budgets without actions cost nothing."
+  },
+  "network": {
+    "vpc_prefix_length": 16,
+    "subnet_newbits": 4,
+    "public_subnets": {
+      "ap-northeast-2a": 0,
+      "ap-northeast-2c": 1
+    },
+    "private_subnets": {
+      "ap-northeast-2a": 8,
+      "ap-northeast-2c": 9
+    },
+    "address_reason": "The VPC's own address block is given at apply time (TF_VAR_vpc_cidr), not written here: this repository is public and holds no private network addressing (scripts/guard/public-repository-safety.sh). This file decides the shape: a /16 cut into /20 subnets, each subnet the netnum its zone has in public_subnets or private_subnets (cidrsubnet). Once the VPC exists the runbook reads its block back from AWS, and the VPC and its subnets refuse to be destroyed (prevent_destroy), so a wrong block stops the plan instead of replacing the network.",
+    "reason": "No NAT gateway and no load balancer (root ADR-0616 §1, §10). Tasks run in the public subnets with a public IPv4 address and no inbound rule: they reach the sources, R2, GHCR and the AWS APIs through the internet gateway. The private subnets have no route out and hold only the database (RDS needs subnets in two zones). Two zones, because RDS requires them; 2a and 2c because every Fargate and RDS class is offered there. The account's default VPC is left as it is and used by nothing here."
+  }
+}

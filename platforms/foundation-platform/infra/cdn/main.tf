@@ -1,8 +1,9 @@
 # The Seoul front door as code (root ADR-0461): a CloudFront distribution in front of each Cloudflare
 # Worker Korean visitors read, its ACM certificate (us-east-1, validated through the Cloudflare zone),
 # the DNS-only CNAME of each door config/cdn-front-door.contract.json has switched to CloudFront, and
-# the account's zero-spend budget. scripts/deploy/edge_settings.py applies it on the data host after
-# the console's edge, once the runtime-secrets group aws-cdn exists; until then nothing here exists.
+# the zero-spend budget of the front door's own CloudFront spend. scripts/deploy/edge_settings.py
+# applies it on the data host after the console's edge, once the runtime-secrets group aws-cdn exists;
+# until then nothing here exists.
 # The values are read from the files that decide them, never copied here: the doors, their origins,
 # the caching and the budget from the front door contract, each gateway's public hostname from the
 # R2 connection contract (generated from definitions/platform.definition.json).
@@ -278,6 +279,12 @@ resource "aws_budgets_budget" "free_tier" {
   limit_amount = local.contract.budget.limit_usd
   limit_unit   = "USD"
   time_unit    = "MONTHLY"
+
+  # The front door's own spend; the data jobs' spend has the account budget (infra/aws, root ADR-0619).
+  cost_filter {
+    name   = "Service"
+    values = [local.contract.budget.service]
+  }
 
   notification {
     comparison_operator        = "GREATER_THAN"

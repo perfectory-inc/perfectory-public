@@ -57,6 +57,7 @@
     "limit_usd": "1.00",
     "actual_over_usd": "0.01",
     "forecast_over_percent": 100,
-    "reason": "AWS's zero-spend template: the always-free tier (1 TB out and 10 million requests a month) is the whole plan, so the first cent of actual spend mails the identity platform's staff, and a forecast above the limit mails them before the month ends. Email subscribers need no confirmation."
+    "service": "Amazon CloudFront",
+    "reason": "AWS's zero-spend template, held to the front door's own service: the always-free tier (1 TB out and 10 million requests a month) is the whole plan, so the first cent CloudFront charges mails the identity platform's staff, and a forecast above the limit mails them before the month ends. Email subscribers need no confirmation. Only CloudFront counts because the account also runs the data jobs now (root ADR-0619): their spend has its own budget (config/aws-platform.contract.json), and an account-wide zero budget would mail at their first cent and stop meaning anything."
   }
 }
