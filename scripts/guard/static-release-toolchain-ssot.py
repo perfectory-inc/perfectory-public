@@ -64,7 +64,10 @@ def _contract_facts(contract: Mapping[str, Any], support: Any) -> set[str]:
 # `pmtiles` package (the PMTiles reader a Worker imports) shares its name with the `pmtiles` CLI but
 # is a different artifact whose version the package manager owns; its pin is not a copied tool
 # version. Copied contract facts (digests, URLs, hashes) are still rejected in these files.
-PACKAGE_MANAGER_PINS = frozenset({"package.json", "pnpm-lock.yaml", "package-lock.json"})
+# Cargo's lockfile is the same case: the `pmtiles` crate (the PMTiles reader and writer the
+# publisher links, root ADR-0613) is not the `pmtiles` CLI, and cargo owns its pin (2026-11-24: the
+# guard refused the lockfile line of the crate's first use).
+PACKAGE_MANAGER_PINS = frozenset({"package.json", "pnpm-lock.yaml", "package-lock.json", "Cargo.lock"})
 
 
 def _violations(path: pathlib.Path, facts: set[str]) -> Iterable[tuple[int, str]]:

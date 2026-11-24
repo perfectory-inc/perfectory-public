@@ -580,6 +580,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-stream"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2373,6 +2395,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6e8948ce679d00a02a94739ea185595dca7118ed04feb991127e443bd3d761f"
 
 [[package]]
+name = "fast_hilbert"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f551b382f601850b4f57052d064d1c60dca971aeee4ccb40ac103b87f766640"
+
+[[package]]
 name = "fastnum"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2924,6 +2952,7 @@ dependencies = [
  "foundation-publisher-core",
  "foundation-shared-kernel",
  "foundation-workspace-hack",
+ "pmtiles",
  "prost",
  "reqwest 0.12.28",
  "serde",
@@ -3049,6 +3078,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-core",
+ "twox-hash",
  "typenum",
  "uuid",
  "winapi",
@@ -4021,6 +4051,12 @@ name = "integer-encoding"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bb03732005da905c88227371639bf1ad885cc712789c011c31c5fb3ab3ccf02"
+
+[[package]]
+name = "integer-encoding"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14c00403deb17c3221a1fe4fb571b9ed0370b3dcd116553c77fa294a3d918699"
 
 [[package]]
 name = "interpolate_name"
@@ -5462,6 +5498,22 @@ name = "plain"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
+
+[[package]]
+name = "pmtiles"
+version = "0.28.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61219486719a766150c032f14204184ebcb97e83e79e4be124bc13d2fca29b14"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "fast_hilbert",
+ "flate2",
+ "futures-util",
+ "integer-encoding 4.1.0",
+ "thiserror 2.0.20",
+ "twox-hash",
+]
 
 [[package]]
 name = "png"
@@ -7390,7 +7442,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f650151e44bb59950b3adf32de0064813d1148f34f4884b7f5b539f29596859"
 dependencies = [
  "byteorder",
- "integer-encoding",
+ "integer-encoding 3.0.4",
  "ordered-float 3.9.2",
  "uuid",
 ]
@@ -8190,7 +8242,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

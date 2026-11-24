@@ -1,7 +1,6 @@
 //! Root ADR-0316: a partitioned unit's GDAL input (one CSV per partition) and the per-partition
 //! archives a bake reuses when a partition's rows and bake inputs did not change.
 
-use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -378,12 +377,12 @@ impl JoinNext {
     }
 }
 
-/// Root ADR-0316, ADR-0576: tile-join of the partition archives into `work/unit.pmtiles`. The
-/// result is kept create-only as the joined archive; a later run that finds it links it instead of
-/// joining again.
+/// Root ADR-0316, ADR-0576, ADR-0613: the partition archives merged into `work/unit.pmtiles`
+/// (`pmtiles_merge`: a tile one archive holds is copied as stored, a tile several hold is merged).
+/// The result is kept create-only as the joined archive; a later run that finds it links it
+/// instead of merging again.
 pub(super) async fn join_partitions(
     config: &super::Config,
-    images: &super::ImageSet,
     work: &Path,
     archives: &[(String, PathBuf)],
     bound: std::time::Duration,
@@ -401,35 +400,29 @@ pub(super) async fn join_partitions(
         );
         return Ok(out);
     }
-    let join = work.join("join");
-    std::fs::create_dir_all(&join)?;
-    let mut prefixes = Vec::with_capacity(archives.len());
-    for (prefix, archive) in archives {
-        std::fs::hard_link(archive, join.join(format!("{prefix}.pmtiles")))?;
-        prefixes.push(prefix.clone());
-    }
     let started = std::time::Instant::now();
-    let mut tile_join = super::run_args(
-        work,
-        &images.tippecanoe,
-        config.container_project.as_deref(),
-    );
-    // The image's entrypoint is tippecanoe; tile-join is installed beside it from the same commit.
-    let image = tile_join
-        .pop()
-        .context("docker run arguments end with the image")?;
-    tile_join.extend(["--entrypoint".into(), "tile-join".into(), image]);
-    tile_join.extend(tile_join_args(&prefixes));
-    super::docker(tile_join, bound, "tile-join").await?;
-    std::fs::remove_dir_all(&join)?;
+    let inputs: Vec<PathBuf> = archives
+        .iter()
+        .map(|(_, archive)| archive.clone())
+        .collect();
+    let (target, deadline) = (out.clone(), started + bound);
+    // The merge reads and writes files and never waits on the network: one blocking task.
+    let merged = tokio::task::spawn_blocking(move || {
+        super::pmtiles_merge::merge_archives(&inputs, &target, deadline)
+    })
+    .await
+    .context("the partition merge stopped")??;
     std::fs::create_dir_all(root.join("joined"))?;
     // Create-only: a named joined archive is never rewritten, and appears only once complete.
     std::fs::hard_link(&out, &joined)
         .with_context(|| format!("joined archive {}", joined.display()))?;
     println!(
-        "lakehouse-tile-bake-joined unit={} partitions={} seconds={}",
+        "lakehouse-tile-bake-joined unit={} partitions={} tiles={} copied={} merged={} seconds={}",
         config.unit_key,
-        archives.len(),
+        merged.archives,
+        merged.tiles,
+        merged.copied,
+        merged.merged,
         started.elapsed().as_secs()
     );
     Ok(out)
@@ -440,7 +433,6 @@ pub(super) async fn join_partitions(
 /// joined archive. `false` when there is no such join to do (and the run goes on as before).
 pub(super) async fn join_ahead(
     config: &super::Config,
-    images: &super::ImageSet,
     summary: &super::ServedSummary,
     work: &Path,
 ) -> anyhow::Result<bool> {
@@ -457,33 +449,13 @@ pub(super) async fn join_ahead(
     {
         return Ok(false);
     }
-    // The run does nothing else, so its tile-join may take what the unit's limit leaves (11-20: the
-    // one-tool bound stopped it at 3,600 s).
+    // The run does nothing else, so its join may take what the unit's limit leaves (11-20: the
+    // one-tool bound stopped tile-join at 3,600 s).
     let bound = deadline.saturating_duration_since(std::time::Instant::now());
-    join_partitions(config, images, work, &next.archives, bound).await?;
+    join_partitions(config, work, &next.archives, bound).await?;
     println!(
         "lakehouse-tile-bake-deferred unit={} gold_snapshot={} baked= remaining=gate,upload,promote",
         config.unit_key, summary.canonical_iceberg_snapshot_id
     );
     Ok(true)
-}
-
-/// tile-join's arguments after the image: every partition archive (linked as
-/// `/w/join/<prefix>.pmtiles`) into one archive, every tile kept whole.
-pub fn tile_join_args(prefixes: &[String]) -> Vec<OsString> {
-    let mut args: Vec<OsString> = [
-        "-o",
-        "/w/unit.pmtiles",
-        "--no-tile-size-limit",
-        "--force",
-        "--quiet",
-    ]
-    .map(OsString::from)
-    .into();
-    args.extend(
-        prefixes
-            .iter()
-            .map(|prefix| format!("/w/join/{prefix}.pmtiles").into()),
-    );
-    args
 }

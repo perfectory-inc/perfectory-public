@@ -37,6 +37,10 @@ npm_version='4.5.0'
 printf '{"dependencies": {"%s": "%s"}}\n' "$npm_library" "$npm_version" \
   > "$fixture/scripts/tiles/package.json"
 printf '  %s@%s:\n' "$npm_library" "$npm_version" > "$fixture/scripts/tiles/pnpm-lock.yaml"
+# The same for cargo's lockfile and the `pmtiles` crate the publisher links (root ADR-0613): the
+# first use of the crate was refused on its lockfile line (2026-11-24).
+printf '[[package]]\nname = "%s"\nversion = "%s"\n' "$npm_library" "$npm_version" \
+  > "$fixture/scripts/tiles/Cargo.lock"
 
 git -C "$fixture" init -q
 git -C "$fixture" config user.email guard@example.invalid

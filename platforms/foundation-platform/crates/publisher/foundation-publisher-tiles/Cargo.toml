@@ -21,6 +21,7 @@ flate2 = { workspace = true }
 foundation-outbox = { workspace = true }
 foundation-publisher-core = { workspace = true }
 foundation-shared-kernel = { workspace = true }
+pmtiles = { workspace = true }
 prost = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
