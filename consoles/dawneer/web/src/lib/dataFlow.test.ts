@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import type { PipelineGraph, ScheduledJobDataset, ScheduledJobRun, ScheduledJobStatus } from "../api/client";
 import {
-  catalogLineageUrl,
-  catalogUrnOf,
   contractOf,
   datasetState,
   datasetStage,
@@ -236,12 +234,6 @@ describe("names", () => {
     expect(contractOf(graph.nodes[4] ?? { id: "x" }, [contract])).toBe(contract);
     expect(contractOf(graph.nodes[1] ?? { id: "x" }, [contract])).toBeNull();
   });
-
-  it("opens a dataset's catalog entity by the name Foundation gives it", () => {
-    expect(catalogUrnOf("gold", jobs)).toBe("urn:li:dataset:(urn:li:dataPlatform:synthetic,gold,PROD)");
-    expect(catalogUrnOf("source", jobs)).toBe("urn:li:dataset:(urn:li:dataPlatform:synthetic,source,PROD)");
-    expect(catalogUrnOf("lonely", jobs)).toBeNull();
-  });
 });
 
 describe("what a dataset and an edge show", () => {
@@ -365,8 +357,6 @@ describe("problems (root ADR-0195)", () => {
     expect(schedulerUrl(dagster, "synthetic_load_b", null, { job_id: "load_b", decided_by: "airflow" })).toBe(
       "https://scheduler.example/dags/synthetic_load_b",
     );
-    expect(catalogLineageUrl(links, "urn:li:dataset:x")).toBe("https://catalog.example/dataset/urn%3Ali%3Adataset%3Ax/Lineage");
-    expect(catalogLineageUrl(links, null)).toBeNull();
   });
 });
 

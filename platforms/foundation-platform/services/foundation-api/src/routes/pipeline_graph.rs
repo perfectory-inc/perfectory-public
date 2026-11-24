@@ -54,6 +54,19 @@ fn pipeline_graph_artifacts() -> Result<&'static PipelineGraphArtifacts, Pipelin
     }
 }
 
+/// The pipeline graph as the release ships it, without the runtime overlay.
+///
+/// What the data catalog's search and entity routes read (root ADR-0609).
+///
+/// # Errors
+///
+/// Returns why the graph file could not be read or is not JSON.
+pub fn registry() -> Result<&'static JsonValue, String> {
+    pipeline_graph_artifacts()
+        .map(|artifacts| &artifacts.registry)
+        .map_err(|error| error.message)
+}
+
 fn pipeline_graph_response(snapshot: &RuntimeSnapshot) -> Result<JsonValue, PipelineGraphError> {
     pipeline_graph_response_from_artifacts(snapshot, pipeline_graph_artifacts()?)
 }

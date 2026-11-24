@@ -453,15 +453,6 @@ export function contractOf(node: RegistryNode, contracts: DataContractQuality[])
   return contracts.find((contract) => contract.contract_id === node.table_name) ?? null;
 }
 
-/** A dataset's entity in the data catalog, as Foundation names it for the jobs that touch it. */
-export function catalogUrnOf(nodeId: string, jobs: ScheduledJobStatus[]): string | null {
-  for (const job of jobs) {
-    const found = [...job.writes, ...job.reads].find((dataset) => dataset.node_id === nodeId);
-    if (found) return found.catalog_urn;
-  }
-  return null;
-}
-
 /** The state a dataset shows: the strongest of the jobs that write it. */
 export function datasetState(node: FlowNode, states: Map<string, JobState>): JobState | null {
   return strongest(node.writers.map((jobId) => states.get(jobId)));
@@ -544,11 +535,4 @@ export function schedulerUrl(
   if (!base) return null;
   const dag = `${base}/dags/${encodeURIComponent(dagId)}`;
   return runId ? `${dag}/runs/${encodeURIComponent(runId)}/tasks/run` : dag;
-}
-
-/** The data catalog's lineage page for a dataset. */
-export function catalogLineageUrl(links: OperationsLinks | undefined, urn: string | null): string | null {
-  const base = trimEnd(links?.catalog_url ?? "", "/");
-  if (!base || !urn) return null;
-  return `${base}/dataset/${encodeURIComponent(urn)}/Lineage`;
 }
