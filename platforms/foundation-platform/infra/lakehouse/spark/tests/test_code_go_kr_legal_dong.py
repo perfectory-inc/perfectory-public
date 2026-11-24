@@ -205,6 +205,26 @@ class PairingTest(unittest.TestCase):
         result = cg.pair_changes(as_rows(table_html(rows)), FLOOR)
         self.assertIn(("9811000000", "9911000000"), {(p["old_code"], p["new_code"]) for p in result.pairs})
 
+    def test_created_the_day_before_the_abolition_counts_as_the_same_day(self):
+        # The incident (강원, 2023-06): the new 시도 and everything under it is dated the day before the
+        # old one's 폐지일. The rule read the 폐지일 and the day after, and paired none of them.
+        rows = merged_table()
+        for cells in rows:
+            if cells[2] == "폐지":
+                cells[6] = cg._next_day(DAY)
+        result = cg.pair_changes(as_rows(table_html(rows)), FLOOR)
+        self.assertEqual({(p["old_code"], p["new_code"]) for p in result.pairs}, {
+            ("9800000000", "9900000000"), ("9811000000", "9911000000"),
+            ("9811010100", "9911010100"), ("9811010200", "9911010200"),
+        })
+        self.assertEqual(result.review, [])
+
+    def test_two_days_apart_is_not_the_same_change(self):
+        rows = merged_table()
+        rows[2] = row("9811000000", "합성도 가구", "폐지", "9800000000", abolished=cg._next_day(cg._next_day(DAY)))
+        result = cg.pair_changes(as_rows(table_html(rows)), FLOOR)
+        self.assertNotIn("9811000000", {p["old_code"] for p in result.pairs})
+
     def test_a_split_goes_to_the_steward(self):
         rows = merged_table()
         # 심은 분리: 갑동이 같은 이름의 두 동(가구·나구 아래)으로 나뉘었다.

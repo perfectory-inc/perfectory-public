@@ -24,7 +24,7 @@ fn read(path: &std::path::Path) -> anyhow::Result<Value> {
 
 #[test]
 fn the_floor_is_the_source_contracts() -> anyhow::Result<()> {
-    assert!(pairing_floor()? >= NaiveDate::from_ymd_opt(2026, 1, 1).context("day")?);
+    assert!(pairing_floor()? >= NaiveDate::from_ymd_opt(2023, 1, 1).context("day")?);
     Ok(())
 }
 
