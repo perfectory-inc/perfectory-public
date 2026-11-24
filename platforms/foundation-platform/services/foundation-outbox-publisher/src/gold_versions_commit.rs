@@ -151,6 +151,111 @@ pub(crate) fn run_id(
     format!("{}-{}", table.replace('.', "-"), &digest[..40])
 }
 
+/// Each 시도's state after the commit (root ADR-0615 §2-4), on every commit of a table that commits
+/// a 시도 at a time.
+///
+/// The newest commit alone says what every 시도 was built from, so a 시도 no run touched for longer
+/// than the snapshots are kept still has its base.
+pub(crate) const PARTITION_STATE_PROPERTY: &str = "foundation.partition-state";
+
+/// What a build of a 시도 read: its input pins, the code and the served parcel edition.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct BuiltFrom {
+    pub pins: BTreeMap<String, i64>,
+    pub code_version: String,
+    pub served_edition: String,
+}
+
+/// One 시도 at the head: the version it was built at and its current rows.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SidoState {
+    pub version: String,
+    pub current_records: u64,
+}
+
+/// [`PARTITION_STATE_PROPERTY`]: every 시도's state, and what each version they name was built from
+/// (kept once: after a whole run every 시도 names one version).
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PartitionStates {
+    pub versions: BTreeMap<String, BuiltFrom>,
+    pub sidos: BTreeMap<String, SidoState>,
+}
+
+impl PartitionStates {
+    /// The states the base commit of `history` (`main`'s lineage, newest first) records; none for a
+    /// table with no commit, or one whose commits were all of the whole table.
+    ///
+    /// # Errors
+    /// Returns an error when the property is not the states' JSON.
+    pub(crate) fn of(history: &[IcebergSnapshotSummary]) -> anyhow::Result<Self> {
+        history
+            .iter()
+            .find(|snapshot| snapshot.summary.contains_key(VERSION_SEQ_PROPERTY))
+            .and_then(|snapshot| snapshot.summary.get(PARTITION_STATE_PROPERTY))
+            .map_or_else(
+                || Ok(Self::default()),
+                |text| {
+                    serde_json::from_str(text).with_context(|| {
+                        format!("{PARTITION_STATE_PROPERTY} is not the 시도 states")
+                    })
+                },
+            )
+    }
+
+    /// What `sido` was built from, when the head records it.
+    pub(crate) fn built_from(&self, sido: &str) -> Option<&BuiltFrom> {
+        self.sidos
+            .get(sido)
+            .and_then(|state| self.versions.get(&state.version))
+    }
+
+    /// Records that `sido` now stands at `version`, built from `from`, with `current_records`
+    /// current rows; a version no 시도 names any more is dropped.
+    pub(crate) fn record(
+        &mut self,
+        sido: &str,
+        version: &str,
+        from: &BuiltFrom,
+        current_records: u64,
+    ) {
+        self.sidos.insert(
+            sido.to_owned(),
+            SidoState {
+                version: version.to_owned(),
+                current_records,
+            },
+        );
+        self.versions.insert(version.to_owned(), from.clone());
+        let named: BTreeSet<&String> = self.sidos.values().map(|state| &state.version).collect();
+        self.versions.retain(|version, _| named.contains(version));
+    }
+
+    /// The property's text.
+    ///
+    /// # Errors
+    /// Returns an error when the states cannot be written as JSON.
+    pub(crate) fn property(&self) -> anyhow::Result<String> {
+        Ok(serde_json::to_string(self)?)
+    }
+}
+
+/// The version a 시도 is built at (root ADR-0615 §2-1): what the build reads and, for a
+/// time-dependent kind, the instant it is built as of. Two builds at one version write the same rows.
+pub(crate) fn data_version(from: &BuiltFrom, as_of: Option<&str>) -> String {
+    let mut hash = Sha256::new();
+    for (input, snapshot) in &from.pins {
+        hash.update(format!("{input}={snapshot};").as_bytes());
+    }
+    hash.update([0]);
+    hash.update(from.code_version.as_bytes());
+    hash.update([0]);
+    hash.update(from.served_edition.as_bytes());
+    hash.update([0]);
+    hash.update(as_of.unwrap_or_default().as_bytes());
+    let digest = format!("{:x}", hash.finalize());
+    digest[..32].to_owned()
+}
+
 /// The pins as the summary property holds them: a JSON object of table to snapshot id text,
 /// sorted, without spaces (`gold_rebuild.pins_property_value`).
 pub(crate) fn pins_property(pins: &BTreeMap<String, i64>) -> anyhow::Result<String> {

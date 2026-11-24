@@ -68,6 +68,12 @@ pub(crate) struct KindBuild {
     pub replaced: &'static str,
     pub job: &'static str,
     pub stage: &'static (dyn KindVersionsStage + Sync),
+    /// Whether each 시도 is its own commit (root ADR-0615 §2-4): the head then records every
+    /// 시도's state, a run that died keeps the 시도 it had committed and the next run builds the
+    /// rest. A lane is switched on its own; `false` is the one commit of the whole table.
+    // one-off: until every kind lane commits a 시도 at a time (ADR-0615 §6): the whole-table
+    // branches of `run` go with it.
+    pub per_sido_commits: bool,
 }
 
 /// Lane 1: the 총괄표제부 (root ADR-0450).
@@ -77,6 +83,7 @@ pub(crate) const REGISTER_MASTERS_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_register_masters",
     job: "build-parcel-register-masters-versions",
     stage: &REGISTER_MASTERS,
+    per_sido_commits: false,
 };
 
 /// Lane 2: the 철거·멸실 reports (root ADR-0399).
@@ -86,6 +93,7 @@ pub(crate) const DEMOLITIONS_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_demolitions",
     job: "build-parcel-demolitions-versions",
     stage: &DEMOLITIONS,
+    per_sido_commits: false,
 };
 
 /// Lane 3: the building energy (root ADR-0398).
@@ -95,6 +103,7 @@ pub(crate) const ENERGY_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_energy",
     job: "build-parcel-energy-versions",
     stage: &ENERGY,
+    per_sido_commits: false,
 };
 
 /// Lane 4: the 부속지번, read from both of a link's parcels (root ADR-0399).
@@ -104,6 +113,7 @@ pub(crate) const SUB_PARCELS_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_sub_parcels",
     job: "build-parcel-sub-parcels-versions",
     stage: &SUB_PARCELS,
+    per_sido_commits: false,
 };
 
 /// Lane 5: the 건축인허가 and the other files of the permit family (root ADR-0451, ADR-0464).
@@ -113,6 +123,7 @@ pub(crate) const BUILDING_PERMITS_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_building_permits",
     job: "build-parcel-building-permits-versions",
     stage: &BUILDING_PERMITS,
+    per_sido_commits: false,
 };
 
 /// The parcel lane's host panel (root ADR-0096, ADR-0564 §9 차례 5): its lane is the host lane, whose
@@ -124,6 +135,7 @@ pub(crate) const PARCEL_PANEL_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_panel",
     job: "build-parcel-panel-versions",
     stage: &PANEL,
+    per_sido_commits: false,
 };
 
 /// Lane 6: the owners (root ADR-0361).
@@ -133,6 +145,7 @@ pub(crate) const OWNERSHIP_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_ownership",
     job: "build-parcel-ownership-versions",
     stage: &OWNERSHIP,
+    per_sido_commits: true,
 };
 
 /// Lane 7: the registered factories (root ADR-0449).
@@ -142,6 +155,7 @@ pub(crate) const FACTORIES_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_factories",
     job: "build-parcel-factories-versions",
     stage: &FACTORIES,
+    per_sido_commits: false,
 };
 
 /// Lane 8: the 공매 rounds (root ADR-0287, ADR-0340), built as of an instant.
@@ -151,6 +165,7 @@ pub(crate) const PUBLIC_AUCTION_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_public_auction",
     job: "build-parcel-public-auction-versions",
     stage: &PUBLIC_AUCTION,
+    per_sido_commits: false,
 };
 
 /// Builds and appends `kind`'s changed keys.
@@ -228,12 +243,29 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let moved = base
         .as_ref()
         .map_or_else(BTreeSet::new, |base| versions::moved(base, &pins));
-    let unchanged = base.as_ref().is_some_and(|base| {
-        moved.is_empty()
-            && base.code_version == code
-            && base.served_edition.as_deref() == Some(edition.as_str())
-            && base.as_of == as_of
-    });
+    // A table that commits a 시도 at a time (root ADR-0615): the head says what each 시도 was built
+    // from, and a 시도 already at the version this run would build is not built again.
+    let mut states = if kind.per_sido_commits {
+        versions::PartitionStates::of(&history)?
+    } else {
+        versions::PartitionStates::default()
+    };
+    let built_from = versions::BuiltFrom {
+        pins: pins.clone(),
+        code_version: code.clone(),
+        served_edition: edition.clone(),
+    };
+    let wanted = versions::data_version(&built_from, as_of.as_deref());
+    let unchanged = if states.sidos.is_empty() {
+        base.as_ref().is_some_and(|base| {
+            moved.is_empty()
+                && base.code_version == code
+                && base.served_edition.as_deref() == Some(edition.as_str())
+                && base.as_of == as_of
+        })
+    } else {
+        states.sidos.values().all(|state| state.version == wanted)
+    };
     if unchanged {
         write_summary(
             &summary_path,
@@ -335,7 +367,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         .context("the parcels are pinned")?
         .to_string();
     let version_seq = base.as_ref().map_or(1, |base| base.version_seq + 1);
-    let commit = Commit {
+    let mut commit = Commit {
         table,
         versions: versions_contract,
         content_columns,
@@ -348,50 +380,203 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let run = versions::run_id(table, &pins, &code, &edition);
     let (mut diff, mut digests, mut files) = (Diff::default(), Digests::default(), Vec::new());
     let (mut rows, mut targets) = (0, (!every_pnu).then_some(0));
+    // Of a table that commits a 시도 at a time: the 시도 this run committed, the ones it found at
+    // the wanted version, the newest commit, and whether a 시도 with nothing to append still waits
+    // for a commit to record its state.
+    let (mut built_sidos, mut current_sidos) = (Vec::new(), Vec::new());
+    let (mut newest, mut state_owed) = (None, false);
+    // Every 시도 is diffed against the head the run read (a commit of one 시도 changes no other's
+    // rows); each commit is appended at the head the one before it made.
+    let mut append_head = head;
+    let max_loss = max_row_loss_fraction_of(kind.replaced)?;
     for sido in &sidos {
-        rows += load_region(stage, connection, spool_dir.path(), "", sido)?;
-        let named = if every_pnu {
-            None
-        } else {
-            load_region(stage, connection, spool_dir.path(), "_old", sido)?;
-            Some(stage.changed_pnus(connection)?)
+        let recorded = states.sidos.get(sido).cloned();
+        if recorded
+            .as_ref()
+            .is_some_and(|state| state.version == wanted)
+        {
+            current_sidos.push(sido.clone());
+            continue;
+        }
+        // A 시도 is built from its changed PNUs only when it stands where the base commit does: one
+        // a run that died left behind is built whole.
+        let from = states.built_from(sido).cloned();
+        let at_base = from.as_ref().is_none_or(|from| {
+            base.as_ref().is_some_and(|base| {
+                from.pins == base.pins
+                    && from.code_version == base.code_version
+                    && Some(&from.served_edition) == base.served_edition.as_ref()
+            })
+        });
+        let whole_sido = every_pnu || !at_base || (kind.per_sido_commits && recorded.is_none());
+        // The session's connection is borrowed for the 시도's work only: a commit below awaits.
+        let (named, sido_diff, sido_digests, sido_files) = {
+            let connection = duck.connection();
+            rows += load_region(stage, connection, spool_dir.path(), "", sido)?;
+            let named = if whole_sido {
+                None
+            } else {
+                load_region(stage, connection, spool_dir.path(), "_old", sido)?;
+                Some(stage.changed_pnus(connection)?)
+            };
+            // One 시군구 at a time (rules.txt "per-sigungu is the shared default"): no statement holds a 시도.
+            build_in_parts(
+                stage,
+                connection,
+                named.is_none(),
+                &parcels_snapshot,
+                &stamp,
+            )?;
+            ensure_no_commit_tables(connection)?;
+            let invalid: i64 = connection.query_row(
+                &format!(
+                    "SELECT count(*) FROM built WHERE NOT regexp_full_match(pnu, '[0-9]{{19}}') \
+                     OR substr(pnu, 1, 2) <> '{sido}' OR {} IS NULL",
+                    stage.section_column()
+                ),
+                [],
+                |row| row.get(0),
+            )?;
+            ensure!(
+                invalid == 0,
+                "{invalid} built rows of 시도 {sido} have a malformed PNU, another 시도's or no section: \
+                 nothing was appended"
+            );
+            let in_sido = sido_range(sido)?;
+            let range = match named {
+                None => in_sido,
+                // A partial run that names no PNU here diffs nothing.
+                Some(0) => "FALSE".to_owned(),
+                Some(_) => format!("{in_sido} AND pnu IN (SELECT pnu FROM targets)"),
+            };
+            let sido_diff = versions::diff(connection, &commit, &range)?;
+            let sido_digests = versions::digests(connection, &commit)?;
+            let sido_files = versions::stage(&duck, &shape, &run, versions_contract)?;
+            (named, sido_diff, sido_digests, sido_files)
         };
-        // One 시군구 at a time (rules.txt "per-sigungu is the shared default"): no statement holds a 시도.
-        build_in_parts(
-            stage,
-            connection,
-            named.is_none(),
-            &parcels_snapshot,
-            &stamp,
-        )?;
-        ensure_no_commit_tables(connection)?;
-        let invalid: i64 = connection.query_row(
-            &format!(
-                "SELECT count(*) FROM built WHERE NOT regexp_full_match(pnu, '[0-9]{{19}}') \
-                 OR substr(pnu, 1, 2) <> '{sido}' OR {} IS NULL",
-                stage.section_column()
-            ),
-            [],
-            |row| row.get(0),
-        )?;
-        ensure!(
-            invalid == 0,
-            "{invalid} built rows of 시도 {sido} have a malformed PNU, another 시도's or no section: \
-             nothing was appended"
-        );
-        let in_sido = sido_range(sido)?;
-        let range = match named {
-            None => in_sido,
-            // A partial run that names no PNU here diffs nothing.
-            Some(0) => "FALSE".to_owned(),
-            Some(_) => format!("{in_sido} AND pnu IN (SELECT pnu FROM targets)"),
-        };
-        diff += versions::diff(connection, &commit, &range)?;
-        digests += versions::digests(connection, &commit)?;
-        files.extend(versions::stage(&duck, &shape, &run, versions_contract)?);
         if let (Some(total), Some(count)) = (targets.as_mut(), named) {
             *total += count;
         }
+        if !kind.per_sido_commits {
+            diff += sido_diff;
+            digests += sido_digests;
+            files.extend(sido_files);
+            continue;
+        }
+        // The 시도's own commit. Its bounds are the table's (root ADR-0564 §3-4), held to the 시도:
+        // the rows it had are the head's record, or what a whole diff read.
+        let rows_before = recorded
+            .as_ref()
+            .map(|state| state.current_records)
+            .or_else(|| named.is_none().then_some(sido_diff.current_in_range));
+        let rows_after = rows_before
+            .map(|rows_before| {
+                (rows_before + sido_diff.added)
+                    .checked_sub(sido_diff.removed)
+                    .with_context(|| format!("시도 {sido} removes more keys than it holds"))
+            })
+            .transpose()?;
+        let explained = from.as_ref().and_then(|from| {
+            if from.code_version != code {
+                Some(format!("the code version moved to {code}"))
+            } else if from.served_edition != edition {
+                Some(format!(
+                    "the served parcel edition moved {} -> {edition}",
+                    from.served_edition
+                ))
+            } else {
+                None
+            }
+        });
+        let explained = if from.is_none() {
+            moved_code_or_edition.clone()
+        } else {
+            explained
+        };
+        if let (Some(rows_before), Some(rows_after)) = (
+            rows_before.filter(|rows_before| *rows_before > 0),
+            rows_after,
+        ) {
+            #[allow(clippy::cast_precision_loss)]
+            let floor = (1.0 - max_loss) * rows_before as f64;
+            #[allow(clippy::cast_precision_loss)]
+            if (rows_after as f64) < floor {
+                bail!(
+                    "시도 {sido} of {table} would hold {rows_after} current rows, fewer than the {floor:.0} its \
+                     {rows_before} allow (gold-panel-rebuild.contract.json max_row_loss_fraction): \
+                     nothing of it was appended"
+                );
+            }
+            #[allow(clippy::cast_precision_loss)]
+            let fraction = sido_diff.keys() as f64 / rows_before as f64;
+            if explained.is_none() && fraction > MAX_CHANGED_KEY_FRACTION {
+                bail!(
+                    "{} of 시도 {sido}'s {rows_before} current rows of {table} changed ({fraction:.3}, over \
+                     {MAX_CHANGED_KEY_FRACTION}) with neither the code nor the served edition moved: \
+                     nothing of it was appended (root ADR-0564 §3.4)",
+                    sido_diff.keys()
+                );
+            }
+        }
+        let rows_after = rows_after.context(
+            "a 시도 built from its changed PNUs has its rows recorded at the head (root ADR-0615 §2-4)",
+        )?;
+        states.record(sido, &wanted, &built_from, rows_after);
+        built_sidos.push(sido.clone());
+        diff += sido_diff.clone();
+        if sido_files.is_empty() {
+            // Nothing to append: the next commit records the 시도's state with its own.
+            state_owed = true;
+            continue;
+        }
+        let (fingerprint, current_records) =
+            versions::after_digests(&commit, &sido_diff, sido_digests)?;
+        let mut properties = commit_properties(
+            &commit,
+            (fingerprint, current_records),
+            &built_from,
+            sido_diff.keys(),
+            as_of.as_deref(),
+        )?;
+        properties.insert(
+            versions::PARTITION_STATE_PROPERTY.to_owned(),
+            states.property()?,
+        );
+        if let Some(why) = &explained {
+            properties.insert(RECORDED_EXPLANATION_PROPERTY.to_owned(), why.clone());
+        }
+        let batch = format!("{run}-{sido}-{wanted}");
+        let read_head = std::mem::replace(&mut commit.head, append_head);
+        let snapshot = versions::append(
+            &committer,
+            &catalog,
+            &commit,
+            &sido_files,
+            &batch,
+            properties,
+        )
+        .await?;
+        commit.head = read_head;
+        append_head = Some(snapshot);
+        println!(
+            "committed {table} 시도 {sido}: snapshot {snapshot} version_seq={} keys_changed={}",
+            commit.version_seq,
+            sido_diff.keys()
+        );
+        // The table's totals and number go on from this commit.
+        commit.base = Some(versions::Base {
+            snapshot_id: snapshot,
+            version_seq: commit.version_seq,
+            pins: pins.clone(),
+            code_version: code.clone(),
+            served_edition: Some(edition.clone()),
+            current_records,
+            fingerprint,
+            as_of: as_of.clone(),
+        });
+        commit.version_seq += 1;
+        newest = Some(snapshot);
+        state_owed = false;
     }
     drop(spool_dir);
     println!(
@@ -402,6 +587,60 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         started.elapsed().as_secs_f64(),
         process_memory::cgroup_peak_bytes()
     );
+    if kind.per_sido_commits {
+        if state_owed {
+            // The 시도 that had nothing to append: one commit of no file records their state.
+            let totals = commit
+                .base
+                .as_ref()
+                .map_or(((0, 0), 0), |base| (base.fingerprint, base.current_records));
+            let mut properties =
+                commit_properties(&commit, totals, &built_from, 0, as_of.as_deref())?;
+            properties.insert(
+                versions::PARTITION_STATE_PROPERTY.to_owned(),
+                states.property()?,
+            );
+            let batch = format!("{run}-state-{wanted}");
+            commit.head = append_head;
+            newest = Some(
+                versions::append(&committer, &catalog, &commit, &[], &batch, properties).await?,
+            );
+        }
+        drop(duck);
+        let tags = match newest {
+            Some(snapshot) => Some(versions::pin(&catalog, table, snapshot, &pins).await?),
+            None => None,
+        };
+        write_summary(
+            &summary_path,
+            &json!({
+                "job": kind.job, "engine": "duckdb", "table": table,
+                "outcome": if newest.is_some() { "committed" } else { "unchanged" },
+                "created_table": created, "snapshot_id": newest, "parent_snapshot_id": head,
+                "run": run, "pins": pins, "moved": moved, "served_edition": edition,
+                "shadow_of": shadow_build, "code_version": code, "as_of": as_of,
+                "data_version": wanted,
+                "version_seq": commit.base.as_ref().map(|base| base.version_seq),
+                "current_records": commit.base.as_ref().map(|base| base.current_records),
+                "content_fingerprint": commit.base.as_ref().map(|base| versions::fingerprint_text(base.fingerprint)),
+                "partitions": {"built": built_sidos, "found_current": current_sidos},
+                "every_pnu": every_pnu, "targets": targets,
+                "served_parcels": read.served_parcels, "rows": rows, "read_millis": read.read_millis,
+                "sidos": sidos, "diff": diff, "tags": tags,
+                "duckdb_memory_limit_bytes": memory_limit,
+                "memory_peak_bytes": process_memory::cgroup_peak_bytes(),
+                "seconds": started.elapsed().as_secs_f64(),
+            }),
+        )?;
+        println!(
+            "committed {table} a 시도 at a time: {} built, {} already at {wanted}, keys_changed={} in {:.0}s",
+            built_sidos.len(),
+            current_sidos.len(),
+            diff.keys(),
+            started.elapsed().as_secs_f64()
+        );
+        return Ok(());
+    }
     if as_of.is_some() && diff.keys() == 0 && moved.is_empty() && moved_code_or_edition.is_none() {
         write_summary(
             &summary_path,
@@ -418,7 +657,6 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let (fingerprint, current_records) = versions::after_digests(&commit, &diff, digests)?;
     let mut recorded_explanation = None;
     if let Some(base) = &base {
-        let max_loss = max_row_loss_fraction_of(kind.replaced)?;
         #[allow(clippy::cast_precision_loss)]
         let floor = (1.0 - max_loss) * base.current_records as f64;
         #[allow(clippy::cast_precision_loss)]
@@ -446,24 +684,13 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     }
 
     // Commit.
-    let mut properties = std::collections::BTreeMap::from([
-        (VERSION_SEQ_PROPERTY.to_owned(), version_seq.to_string()),
-        (
-            CURRENT_RECORDS_PROPERTY.to_owned(),
-            current_records.to_string(),
-        ),
-        (
-            FINGERPRINT_PROPERTY.to_owned(),
-            versions::fingerprint_text(fingerprint),
-        ),
-        (
-            SOURCE_SNAPSHOTS_PROPERTY.to_owned(),
-            versions::pins_property(&pins)?,
-        ),
-        (KEYS_CHANGED_PROPERTY.to_owned(), diff.keys().to_string()),
-        (CODE_VERSION_PROPERTY.to_owned(), code.clone()),
-        (SERVED_EDITION_PROPERTY.to_owned(), edition.clone()),
-    ]);
+    let mut properties = commit_properties(
+        &commit,
+        (fingerprint, current_records),
+        &built_from,
+        diff.keys(),
+        None,
+    )?;
     if let Some(why) = &recorded_explanation {
         properties.insert(RECORDED_EXPLANATION_PROPERTY.to_owned(), why.clone());
     }
@@ -501,6 +728,45 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+/// The properties every commit of a kind's table records: its number, the table's current rows and
+/// fingerprint after it, what it was built from and the keys it changed.
+fn commit_properties(
+    commit: &Commit<'_>,
+    (fingerprint, current_records): ((u64, u128), u64),
+    from: &versions::BuiltFrom,
+    keys_changed: u64,
+    as_of: Option<&str>,
+) -> anyhow::Result<std::collections::BTreeMap<String, String>> {
+    let mut properties = std::collections::BTreeMap::from([
+        (
+            VERSION_SEQ_PROPERTY.to_owned(),
+            commit.version_seq.to_string(),
+        ),
+        (
+            CURRENT_RECORDS_PROPERTY.to_owned(),
+            current_records.to_string(),
+        ),
+        (
+            FINGERPRINT_PROPERTY.to_owned(),
+            versions::fingerprint_text(fingerprint),
+        ),
+        (
+            SOURCE_SNAPSHOTS_PROPERTY.to_owned(),
+            versions::pins_property(&from.pins)?,
+        ),
+        (KEYS_CHANGED_PROPERTY.to_owned(), keys_changed.to_string()),
+        (CODE_VERSION_PROPERTY.to_owned(), from.code_version.clone()),
+        (
+            SERVED_EDITION_PROPERTY.to_owned(),
+            from.served_edition.clone(),
+        ),
+    ]);
+    if let Some(as_of) = as_of {
+        properties.insert(AS_OF_PROPERTY.to_owned(), as_of.to_owned());
+    }
+    Ok(properties)
 }
 
 /// Whether `text` is a UTC instant as the builds write them (`YYYY-MM-DDTHH:MM:SSZ`, with an
