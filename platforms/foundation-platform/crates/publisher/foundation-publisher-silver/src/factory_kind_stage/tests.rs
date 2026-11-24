@@ -157,6 +157,26 @@ fn a_document_is_spark_s_bytes_by_name_with_blanks_null_and_the_place_id() -> an
                     {\"company_name\":\"나공업\",\"complex_name\":\"제1단지\",\"products\":\"부품\"}]}";
     assert_eq!(document, expected);
     assert_eq!(*total, 2);
+    // The lane's `spark_held_test` (root ADR-0418 §8c): exactly the registered schema's fields, as
+    // the deleted Spark job's test held it.
+    let schema: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../contracts/schema-registry/parcel_factories_by_pnu/1/1.schema.json"
+    ))?;
+    let (mut recorded, mut written) = (
+        std::collections::BTreeSet::new(),
+        std::collections::BTreeSet::new(),
+    );
+    crate::building_energy_stage::tests::schema_paths(
+        &schema["properties"]["factories"],
+        "factories",
+        &mut recorded,
+    );
+    crate::building_energy_stage::tests::json_paths(
+        &serde_json::from_str(document)?,
+        "factories",
+        &mut written,
+    );
+    assert_eq!(written, recorded);
     // The open period's id, not the closed one's or the code-pair line's.
     assert_eq!(place_id.as_deref(), Some("P-OPEN"));
     // Spark's row_digest: to_json of the content columns, the null attached_via left out.

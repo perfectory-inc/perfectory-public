@@ -1,5 +1,6 @@
-//! The parcel registered-factory kind's Gold in `DuckDB` (root ADR-0449, ADR-0564 §6): the twin of
-//! `registered_factory_silver_to_gold.py`.
+//! The parcel registered-factory kind's Gold in `DuckDB` (root ADR-0449, ADR-0564 §6): it carries the
+//! rules of the Spark job `registered_factory_silver_to_gold.py`, which it replaced when the lane was
+//! taken over.
 //!
 //! A PNU's document is `{"records": [...]}`: the parcel's distinct factories of the newest edition
 //! of `silver.registered_factory` (한국산업단지공단 전국등록공장현황; the edition chosen by the

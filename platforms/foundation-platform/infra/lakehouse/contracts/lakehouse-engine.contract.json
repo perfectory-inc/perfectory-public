@@ -269,7 +269,11 @@
         "wave": 1
       },
       "registered_factory_silver_to_gold": {
-        "wave": 3
+        "moved": {
+          "pull_request": 1680,
+          "rows": 123451,
+          "fingerprint": "rows:123451;content_hash_sum:1138936867614575571094734"
+        }
       },
       "regulation_zones_silver_to_gold": {
         "wave": 2
