@@ -152,30 +152,6 @@ impl KindVersionsStage for EnergyKind {
         Ok(())
     }
 
-    fn changed_pnus(&self, connection: &Connection) -> anyhow::Result<u64> {
-        let mut parts = Vec::new();
-        for (_, energy) in ENERGIES {
-            for (a, b) in [("", "_old"), ("_old", "")] {
-                parts.push(format!(
-                    "(SELECT pnu, use_ym, usage_amount FROM {energy}_rows{a} \
-                     EXCEPT ALL SELECT pnu, use_ym, usage_amount FROM {energy}_rows{b})"
-                ));
-            }
-        }
-        for (a, b) in [("", "_old"), ("_old", "")] {
-            parts.push(format!(
-                "(SELECT pnu, NULL, NULL FROM (SELECT pnu FROM served{a} EXCEPT SELECT pnu FROM served{b}))"
-            ));
-        }
-        connection.execute_batch(&format!(
-            "CREATE OR REPLACE TABLE targets AS SELECT DISTINCT pnu FROM ({});",
-            parts.join(" UNION ALL ")
-        ))?;
-        let count: i64 =
-            connection.query_row("SELECT count(*) FROM targets", [], |row| row.get(0))?;
-        Ok(u64::try_from(count)?)
-    }
-
     fn build(
         &self,
         connection: &Connection,

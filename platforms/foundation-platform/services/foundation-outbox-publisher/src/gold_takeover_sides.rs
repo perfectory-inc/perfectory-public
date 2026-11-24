@@ -7,7 +7,7 @@
 //! `export-gold-takeover-sides` checks the whole of both sides by aggregates alone, copying nothing
 //! (`checks.json`: rows, unique keys, the key hash sum, the content hash sum, non-null counts per
 //! column); renders the candidate's documents of one 시도 and holds each to the schema registry
-//! (`gold_takeover_documents`); and writes both sides' rows of that 시도 as Parquet with the columns
+//! (`gold_documents_check`); and writes both sides' rows of that 시도 as Parquet with the columns
 //! they share and a `sides.json` naming them (root ADR-0559 and ADR-0564 revisions of 2026-11-22).
 //! `query-takeover-sides` runs one SQL statement over the two files and prints its rows as JSON, so
 //! `engine_equality.py` reaches its verdict through this `DuckDB` (the release images have no Python
@@ -43,7 +43,7 @@ use serde_json::json;
 use foundation_publisher_by_pnu::building_by_pnu_serving_export::section_packs::sections::PackProvenance;
 
 use crate::{
-    gold_takeover_documents::{DocumentCheck, DocumentRules},
+    gold_documents_check::{DocumentCheck, DocumentRules},
     gold_versions_commit::{shadow_of, Shadow, PER_COMMIT_STAMPS, SOURCE_SNAPSHOTS_PROPERTY},
     public_data_control_support::{optional_env_value, required_env_value},
 };

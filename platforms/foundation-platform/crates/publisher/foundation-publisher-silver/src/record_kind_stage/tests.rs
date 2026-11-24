@@ -250,7 +250,10 @@ fn a_partial_run_names_the_pnus_whose_sites_or_parcels_changed() -> anyhow::Resu
     );
     load(&connection, &moved)?;
     crate::kind_versions_stage::read_for_test(&REGISTER_MASTERS, &connection, EDITION, "")?;
-    assert_eq!(REGISTER_MASTERS.changed_pnus(&connection)?, 2);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&REGISTER_MASTERS, &connection)?,
+        2
+    );
     REGISTER_MASTERS.build(
         &connection,
         false,
@@ -262,7 +265,10 @@ fn a_partial_run_names_the_pnus_whose_sites_or_parcels_changed() -> anyhow::Resu
     assert_eq!((rows[0].2, rows[1].2), (1, 2));
     // Nothing changed: no PNU to rebuild.
     crate::kind_versions_stage::read_for_test(&REGISTER_MASTERS, &connection, EDITION, "_old")?;
-    assert_eq!(REGISTER_MASTERS.changed_pnus(&connection)?, 0);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&REGISTER_MASTERS, &connection)?,
+        0
+    );
     Ok(())
 }
 

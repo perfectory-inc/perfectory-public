@@ -278,7 +278,10 @@ fn a_partial_run_names_the_parcels_whose_inputs_moved() -> anyhow::Result<()> {
         ),
     )?;
     read_for_test(&PANEL, &connection, EDITION, "")?;
-    assert_eq!(PANEL.changed_pnus(&connection)?, 3);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&PANEL, &connection)?,
+        3
+    );
     let named: Vec<String> = connection
         .prepare("SELECT pnu FROM targets ORDER BY pnu")?
         .query_map([], |row| row.get(0))?

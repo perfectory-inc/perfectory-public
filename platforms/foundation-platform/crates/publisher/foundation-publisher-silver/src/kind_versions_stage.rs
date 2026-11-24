@@ -23,6 +23,10 @@ use crate::legal_dong_code_change_stage::{PAIR_ROWS_SQL, RENUMBERED_INTO_SQL};
 use crate::parcel_nearby_stage::Source;
 use crate::place_id_join::{place_ids_sql, BRIDGE_SOURCE};
 
+#[cfg(test)]
+pub(crate) use crate::kind_versions_parts::build_by_prefix;
+pub use crate::kind_versions_parts::{build_in_parts, BUILD_PART, PART_DIGITS};
+
 /// The parcels; the served edition's are every kind's universe.
 pub const PARCEL_SOURCE: &str = crate::parcel_nearby_stage::PARCEL_SOURCE;
 /// The code change table a renumbering is read from.
@@ -63,6 +67,25 @@ pub struct RowSet {
     pub prepared: bool,
     /// Whether the table keeps a row once (the kind's rows are distinct on their columns).
     pub distinct: bool,
+}
+
+/// A check of one 시도's result, run before that 시도 is appended (root ADR-0615 §7).
+///
+/// `sql` counts the rows that break the rule, over the 시도's `built` (the documents the run built),
+/// `appended` (the rows it would append) and `current_rows` (the head's rows it diffed against).
+/// A `blocking` check that counts any row refuses the 시도: nothing of it is appended.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResultCheck {
+    /// The check's name, as the orchestrator records it.
+    pub name: &'static str,
+    /// One statement returning one count.
+    pub sql: String,
+    /// Whether a breach refuses the 시도.
+    pub blocking: bool,
+    /// One statement returning one text column, the breaching keys: the driver records the first
+    /// few, so a failure names what to look at without a second query. `None` when the count says
+    /// it all.
+    pub samples_sql: Option<String>,
 }
 
 /// One parcel kind's Gold in `DuckDB`.
@@ -121,7 +144,7 @@ pub trait KindVersionsStage: Sync {
     /// that instant (`as_of`, the Spark producers' `published_at_utc`), records it on the commit
     /// (`foundation.as-of`), builds a shadow as of the instant the replaced build was, leaves
     /// `as_of(instant_us)` (microseconds since the epoch) on the connection before [`spool`], and
-    /// builds every PNU on every run (root ADR-0326): [`Self::changed_pnus`] is never asked.
+    /// builds every PNU on every run (root ADR-0326): no partial run is planned for it.
     fn as_of_dependent(&self) -> bool {
         false
     }
@@ -155,10 +178,26 @@ pub trait KindVersionsStage: Sync {
     ) -> anyhow::Result<u64> {
         Ok(0)
     }
+    /// The tables [`Self::load_more`] leaves that carry their part in a `part` column rather than
+    /// in a PNU (root ADR-0615 §7): rows a document reads by another key (a deal by its address
+    /// code), and rows a part reads from another part.
+    ///
+    /// The stage spools such a row once for every part that reads it, with that part in `part` (and
+    /// under that part's 시도), so each part's build sees what it reads and nothing else; the build
+    /// writes only the documents whose PNU lies in the part ([`BUILD_PART`] names it). A document
+    /// built for another part's PNU would be built twice, which the diff refuses. None by default.
+    fn part_tables(&self) -> Vec<&'static str> {
+        Vec::new()
+    }
     /// The spools whose `pnu` column names the PNUs the place ids are read for: the row sets', by
     /// default.
     fn pnu_spools(&self) -> Vec<&'static str> {
         self.row_sets().iter().map(|set| set.name).collect()
+    }
+    /// The checks of a 시도's result the kind adds to the ones every table has: its domain's
+    /// refusals. None by default.
+    fn result_checks(&self) -> Vec<ResultCheck> {
+        Vec::new()
     }
     /// Why the kind's documents cannot be built one 시군구 at a time, when they cannot.
     ///
@@ -174,12 +213,15 @@ pub trait KindVersionsStage: Sync {
     /// # Errors
     /// Returns an error when `DuckDB` refuses the statement.
     fn create_built(&self, connection: &Connection) -> anyhow::Result<()>;
-    /// Leaves `targets(pnu)`, the PNUs whose rows or served parcel changed between the two reads,
-    /// and returns how many.
-    ///
-    /// # Errors
-    /// Returns an error when a side has not been read.
-    fn changed_pnus(&self, connection: &Connection) -> anyhow::Result<u64>;
+    /// PNUs a partial run rebuilds beside the ones [`targets_from_spools`] finds by itself (the rows
+    /// of a row set or the served parcels that differ between the two reads): one `SELECT` of a
+    /// `pnu` column, repeats allowed. `@dir@` in it is the spool directory; it reads the spools of
+    /// both sides (`<name>` and `<name>_old`) nationally and the tables [`Self::prepare`] left for
+    /// both. A stage that gives one has its whole base side read again ([`spool_base`]). `None` by
+    /// default.
+    fn changed_keys_sql(&self) -> Option<String> {
+        None
+    }
     /// Builds the documents of every PNU (`all`) or of `targets` into `built`.
     ///
     /// # Errors
@@ -397,6 +439,209 @@ pub fn spool(
         sidos,
         read_millis,
     })
+}
+
+/// What [`spool_base`] read of the base commit's pins: the spools a partial run compares.
+#[derive(Clone, Debug, Default)]
+pub struct BaseSpool {
+    /// The spools read at both pins (`<name>` and `<name>_old`): the only ones that can differ.
+    pub compared: Vec<String>,
+    /// The 시도 the base's served edition holds, when its served parcels were read again.
+    pub sidos: BTreeSet<String>,
+    /// Milliseconds each input took to read, by table name.
+    pub read_millis: BTreeMap<String, u64>,
+}
+
+/// The suffix of the base commit's side of a partial run.
+pub const BASE_SUFFIX: &str = "_old";
+
+/// The read's own renumbering in a row set's SQL: the one name a set may carry `@suffix@` in and
+/// still be read alone at the base's pins.
+const RENUMBERING_OF_READ: &str = "renumbering@suffix@";
+
+/// Reads the base commit's side of a partial run into `dir`, after [`spool`] read the new side.
+///
+/// Only what can differ is read again. When every input in `moved` is the Silver of a row set, and
+/// no row set reads what the stage prepared, only those row sets are spooled at `source` (the
+/// base's pins, as `<name>_old`): the served parcels, the code change table and so the renumbering
+/// are the new side's, and a row set whose Silver did not move holds the same rows. Any other move
+/// (the parcels, a table the stage prepares from, a stage whose `pnu_spools` names a spool that is
+/// no row set) reads the whole base side, as [`spool`] does.
+///
+/// On 2026-11-24 the 총괄표제부 lane's first partial run read all three inputs twice, the 39,861,511
+/// served parcels among them, and loaded both sides of each of 17 시도 to find 2,155 changed keys
+/// in 323 seconds, longer than its whole first build; only its Silver had moved.
+///
+/// # Errors
+/// As [`spool`].
+pub fn spool_base(
+    stage: &dyn KindVersionsStage,
+    connection: &Connection,
+    source: &Source<'_>,
+    edition: &str,
+    dir: &Path,
+    moved: &BTreeSet<String>,
+) -> anyhow::Result<BaseSpool> {
+    let sets = stage.row_sets();
+    let reads_itself_only = |set: &RowSet| {
+        !set.prepared
+            && set
+                .joins
+                .iter()
+                .chain(set.columns.iter().map(|(expression, _)| expression))
+                .all(|text| !text.replace(RENUMBERING_OF_READ, "").contains("@suffix@"))
+    };
+    let narrow = !moved.is_empty()
+        && stage.changed_keys_sql().is_none()
+        && stage
+            .pnu_spools()
+            .iter()
+            .all(|name| sets.iter().any(|set| set.name == *name))
+        && sets.iter().all(reads_itself_only)
+        && moved
+            .iter()
+            .all(|input| sets.iter().any(|set| set.source == input.as_str()));
+    if !narrow {
+        let read = spool(stage, connection, source, edition, BASE_SUFFIX, dir)?;
+        return Ok(BaseSpool {
+            compared: every_spool(stage),
+            sidos: read.sidos,
+            read_millis: read.read_millis,
+        });
+    }
+    let dir_text = sql_dir(dir)?;
+    // The parcels and the code change table stand where the new side read them.
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TEMP TABLE renumbering{BASE_SUFFIX} AS SELECT src, dst FROM renumbering;"
+    ))?;
+    let mut base = BaseSpool::default();
+    for set in sets.iter().filter(|set| moved.contains(set.source)) {
+        let at = Instant::now();
+        if stage.current_rows_per_region() {
+            spool_regional_row_set(connection, source, set, BASE_SUFFIX, &dir_text)?;
+        } else {
+            spool_row_set(connection, source, set, BASE_SUFFIX, &dir_text)?;
+        }
+        base.read_millis.insert(set.source.to_owned(), elapsed(at));
+        base.compared.push(set.name.to_owned());
+    }
+    Ok(base)
+}
+
+/// Every spool a read of `stage` may write: the served parcels, the row sets, the stage's own
+/// spools and the place ids.
+fn every_spool(stage: &dyn KindVersionsStage) -> Vec<String> {
+    let mut names = vec!["served".to_owned()];
+    names.extend(stage.row_sets().iter().map(|set| set.name.to_owned()));
+    names.extend(stage.pnu_spools().iter().map(|name| (*name).to_owned()));
+    names.push(PLACE_IDS.to_owned());
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The 시도 (`sido=<시도>` directories) a spool `name` holds under `dir`.
+fn spool_sidos(dir: &Path, name: &str) -> anyhow::Result<BTreeSet<String>> {
+    let path = dir.join(name);
+    let mut sidos = BTreeSet::new();
+    if !path.is_dir() {
+        // A spool no row was written to has no directory.
+        return Ok(sidos);
+    }
+    for entry in
+        std::fs::read_dir(&path).with_context(|| format!("cannot list {}", path.display()))?
+    {
+        let file_name = entry?.file_name();
+        let sido = file_name
+            .to_str()
+            .and_then(|text| text.strip_prefix("sido="));
+        if let Some(sido) = sido {
+            if sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()) {
+                sidos.insert(sido.to_owned());
+            }
+        }
+    }
+    Ok(sidos)
+}
+
+/// Leaves `targets(pnu)`: the PNUs a partial run rebuilds, found once from the two sides' spools.
+///
+/// For each spool of `compared` (`<name>` and `<name>_old` under `dir`) and each 시도 either side
+/// holds, the PNUs of the rows one side has and the other has not, as a multiset (a row twice is
+/// another total); a 시도 only one side holds gives every PNU of it. A 시도 whose two sides hold the
+/// same rows gives none, and the build never loads it. The stage's own rule
+/// ([`KindVersionsStage::changed_keys_sql`]) adds its PNUs. Only PNUs a side serves are kept (the
+/// spools hold rows of unserved PNUs too, which have no document on either side). For a kind whose
+/// current rows a 시도's load chooses the spools hold every version, so the set may be more than
+/// the changed PNUs: a PNU named for nothing builds the document it had and appends nothing.
+/// Returns the PNUs named.
+///
+/// # Errors
+/// Returns an error when a spool cannot be listed or `DuckDB` cannot read it.
+pub fn targets_from_spools(
+    stage: &dyn KindVersionsStage,
+    connection: &Connection,
+    dir: &Path,
+    compared: &[String],
+) -> anyhow::Result<u64> {
+    let dir_text = sql_dir(dir)?;
+    connection.execute_batch("CREATE OR REPLACE TABLE changed_row_pnus (pnu VARCHAR);")?;
+    for name in compared {
+        ensure!(is_plain(name), "{name:?} is not a plain spool name");
+        let base_name = format!("{name}{BASE_SUFFIX}");
+        let (new, base) = (spool_sidos(dir, name)?, spool_sidos(dir, &base_name)?);
+        let read = |side: &str, sido: &str| {
+            format!(
+                "read_parquet('{dir_text}/{side}/sido={sido}/*.parquet', hive_partitioning = false)"
+            )
+        };
+        for sido in new.union(&base) {
+            let pnus = match (new.contains(sido), base.contains(sido)) {
+                (true, true) => {
+                    let (a, b) = (read(name, sido), read(&base_name, sido));
+                    format!(
+                        "SELECT pnu FROM (SELECT * FROM {a} EXCEPT ALL SELECT * FROM {b}) \
+                         UNION ALL SELECT pnu FROM (SELECT * FROM {b} EXCEPT ALL SELECT * FROM {a})"
+                    )
+                }
+                (true, false) => format!("SELECT pnu FROM {}", read(name, sido)),
+                _ => format!("SELECT pnu FROM {}", read(&base_name, sido)),
+            };
+            connection
+                .execute_batch(&format!(
+                    "INSERT INTO changed_row_pnus SELECT DISTINCT pnu FROM ({pnus});"
+                ))
+                .with_context(|| format!("comparing the two reads of {name} in 시도 {sido}"))?;
+        }
+    }
+    if let Some(more) = stage.changed_keys_sql() {
+        connection
+            .execute_batch(&format!(
+                "INSERT INTO changed_row_pnus SELECT DISTINCT pnu FROM ({});",
+                fill(&more, &[("dir", &dir_text)])
+            ))
+            .context("the stage's own rule of changed keys")?;
+    }
+    // The served parcels of either side, read once and probed by the few PNUs named.
+    let served = ["served".to_owned(), format!("served{BASE_SUFFIX}")]
+        .iter()
+        .filter(|name| dir.join(name.as_str()).is_dir())
+        .map(|name| format!("'{dir_text}/{name}/*/*.parquet'"))
+        .collect::<Vec<_>>();
+    ensure!(
+        !served.is_empty(),
+        "no served parcels were spooled under {}",
+        dir.display()
+    );
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE targets AS \
+         SELECT DISTINCT s.pnu FROM read_parquet([{}], hive_partitioning = false) s \
+         WHERE s.pnu IN (SELECT pnu FROM changed_row_pnus); \
+         DROP TABLE changed_row_pnus;",
+        served.join(", ")
+    ))?;
+    let count: i64 = connection.query_row("SELECT count(*) FROM targets", [], |row| row.get(0))?;
+    Ok(u64::try_from(count)?)
 }
 
 fn contract(table: &str) -> anyhow::Result<&'static lakehouse_domain::LakehouseTableContract> {
@@ -883,121 +1128,6 @@ pub fn load_region(
     Ok(rows)
 }
 
-/// The leading digits of a PNU one part of a 시도's build shares: its 시군구.
-pub const PART_DIGITS: usize = 5;
-
-/// The suffix a 시도's table carries while a view of one part has its name.
-const WHOLE_REGION: &str = "__region";
-
-/// [`KindVersionsStage::build`] over the loaded 시도, one 시군구 at a time; returns the parts built.
-///
-/// A statement over a whole 시도 holds what does not spill (an ordered aggregate, a list) in
-/// memory at once: on 2026-11-23 the ownership shadow passed its 4.3 GiB four times out of four
-/// (15,345,613 owner rows in one 시도; its largest 시군구 has 1,299,963) and never had a first
-/// commit. So every kind is built in parts, here, and no stage carries its own split.
-///
-/// # Errors
-/// Returns the stage's refusal, or an error when `DuckDB` refuses a statement.
-pub fn build_in_parts(
-    stage: &dyn KindVersionsStage,
-    connection: &Connection,
-    all: bool,
-    source_snapshot_id: &str,
-    published_at_utc: &str,
-) -> anyhow::Result<u64> {
-    build_by_prefix(
-        stage,
-        connection,
-        all,
-        source_snapshot_id,
-        published_at_utc,
-        PART_DIGITS,
-    )
-}
-
-/// [`build_in_parts`] with parts of `digits` leading digits (a test's PNUs share their first five).
-///
-/// The stage reads the same names: each table of the 시도 that has a `pnu` column (the served
-/// parcels, the row sets, what `load_more` left, the place ids) is renamed aside and a view of one
-/// part's rows takes its name, then the tables take their names back, also when a part fails.
-/// A partial run builds only the parts `targets` names.
-pub(crate) fn build_by_prefix(
-    stage: &dyn KindVersionsStage,
-    connection: &Connection,
-    all: bool,
-    source_snapshot_id: &str,
-    published_at_utc: &str,
-    digits: usize,
-) -> anyhow::Result<u64> {
-    if stage.whole_region_reason().is_some() {
-        stage.build(connection, all, source_snapshot_id, published_at_utc)?;
-        return Ok(1);
-    }
-    let mut names = vec!["served".to_owned()];
-    names.extend(stage.row_sets().iter().map(|set| set.name.to_owned()));
-    names.extend(stage.pnu_spools().iter().map(|name| (*name).to_owned()));
-    names.push(PLACE_IDS.to_owned());
-    names.sort();
-    names.dedup();
-    let mut tables = Vec::new();
-    for name in names {
-        ensure!(is_plain(&name), "{name:?} is not a plain table name");
-        let held: i64 = connection.query_row(
-            "SELECT count(*) FROM information_schema.columns c \
-             JOIN information_schema.tables t USING (table_schema, table_name) \
-             WHERE t.table_schema = 'main' AND t.table_type = 'BASE TABLE' \
-               AND c.table_name = ? AND c.column_name = 'pnu'",
-            [name.as_str()],
-            |row| row.get(0),
-        )?;
-        if held == 1 {
-            tables.push(name);
-        }
-    }
-    let prefixes = tables
-        .iter()
-        .map(|name| format!("SELECT substr(pnu, 1, {digits}) AS part FROM {name}"))
-        .collect::<Vec<_>>()
-        .join(" UNION ");
-    let targeted = if all {
-        String::new()
-    } else {
-        format!(" WHERE part IN (SELECT substr(pnu, 1, {digits}) FROM targets)")
-    };
-    connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE build_parts AS \
-         SELECT part, row_number() OVER (ORDER BY part NULLS FIRST) AS part_no \
-         FROM ({prefixes}){targeted};"
-    ))?;
-    let parts: i64 =
-        connection.query_row("SELECT count(*) FROM build_parts", [], |row| row.get(0))?;
-    for name in &tables {
-        connection.execute_batch(&format!(
-            "ALTER TABLE {name} RENAME TO {name}{WHOLE_REGION};"
-        ))?;
-    }
-    let built = (1..=parts).try_for_each(|part| {
-        for name in &tables {
-            connection.execute_batch(&format!(
-                "CREATE OR REPLACE VIEW {name} AS SELECT * FROM {name}{WHOLE_REGION} \
-                 WHERE substr(pnu, 1, {digits}) IS NOT DISTINCT FROM \
-                   (SELECT part FROM build_parts WHERE part_no = {part});"
-            ))?;
-        }
-        stage
-            .build(connection, all, source_snapshot_id, published_at_utc)
-            .with_context(|| format!("part {part} of {parts} of the 시도"))
-    });
-    for name in &tables {
-        connection.execute_batch(&format!(
-            "DROP VIEW IF EXISTS {name}; ALTER TABLE {name}{WHOLE_REGION} RENAME TO {name};"
-        ))?;
-    }
-    connection.execute_batch("DROP TABLE build_parts;")?;
-    built?;
-    Ok(u64::try_from(parts)?)
-}
-
 /// What a test reads back: the served parcels and the kind's rows of its one 시도.
 #[cfg(test)]
 pub(crate) struct TestRead {
@@ -1014,26 +1144,93 @@ pub(crate) fn read_for_test(
     edition: &str,
     suffix: &str,
 ) -> anyhow::Result<TestRead> {
-    let dir = tempfile::tempdir()?;
-    let spooled = spool(
-        stage,
-        connection,
-        &Source::Local,
-        edition,
-        suffix,
-        dir.path(),
-    )?;
+    let dir = test_spool_dir()?;
+    // This side's spools of an earlier read go: a spool no row is written to leaves no directory.
+    for entry in std::fs::read_dir(&dir)? {
+        let path = entry?.path();
+        let of_base = path
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|name| name.ends_with(BASE_SUFFIX));
+        if of_base == (suffix == BASE_SUFFIX) {
+            std::fs::remove_dir_all(&path)?;
+        }
+    }
+    let spooled = spool(stage, connection, &Source::Local, edition, suffix, &dir)?;
     ensure!(
         spooled.sidos.len() == 1,
         "a test's served parcels lie in one 시도, not {:?}",
         spooled.sidos
     );
     let sido = spooled.sidos.iter().next().context("one 시도")?;
-    let rows = load_region(stage, connection, dir.path(), suffix, sido)?;
+    let rows = load_region(stage, connection, &dir, suffix, sido)?;
     Ok(TestRead {
         served_parcels: spooled.served_parcels,
         rows,
     })
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The spool directory of a test's reads ([`read_for_test`]): both sides in one, as a run's.
+    static TEST_SPOOL: std::cell::RefCell<Option<tempfile::TempDir>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The test thread's spool directory, made on first use and removed with the thread.
+#[cfg(test)]
+fn test_spool_dir() -> anyhow::Result<std::path::PathBuf> {
+    TEST_SPOOL.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        if kept.is_none() {
+            *kept = Some(tempfile::tempdir()?);
+        }
+        kept.as_ref()
+            .map(|dir| dir.path().to_path_buf())
+            .context("the test's spool directory")
+    })
+}
+
+/// Leaves `targets` from the two sides [`read_for_test`] last read (`_old` and none), comparing
+/// every spool as a run whose whole base side was read does; returns the PNUs named.
+#[cfg(test)]
+pub(crate) fn changed_for_test(
+    stage: &dyn KindVersionsStage,
+    connection: &Connection,
+) -> anyhow::Result<u64> {
+    targets_from_spools(stage, connection, &test_spool_dir()?, &every_spool(stage))
+}
+
+/// Reads two states of the connection's local tables as a partial run does, and loads the new one.
+///
+/// `new` leaves the tables as they are now and `base` as the base commit read them; `moved` names
+/// the inputs that differ. Returns what the base read compared and how many PNUs `targets` names.
+#[cfg(test)]
+pub(crate) fn partial_for_test(
+    stage: &dyn KindVersionsStage,
+    connection: &Connection,
+    edition: &str,
+    moved: &[&str],
+    base: &dyn Fn() -> anyhow::Result<()>,
+    new: &dyn Fn() -> anyhow::Result<()>,
+) -> anyhow::Result<(BaseSpool, u64)> {
+    let dir = tempfile::tempdir()?;
+    new()?;
+    let spooled = spool(stage, connection, &Source::Local, edition, "", dir.path())?;
+    base()?;
+    let moved = moved.iter().map(|input| (*input).to_owned()).collect();
+    let read = spool_base(
+        stage,
+        connection,
+        &Source::Local,
+        edition,
+        dir.path(),
+        &moved,
+    )?;
+    let targets = targets_from_spools(stage, connection, dir.path(), &read.compared)?;
+    let sido = spooled.sidos.iter().next().context("one 시도")?;
+    load_region(stage, connection, dir.path(), "", sido)?;
+    Ok((read, targets))
 }
 
 /// The tables the publisher's commit (`gold_versions_commit`) creates on the stage's connection.

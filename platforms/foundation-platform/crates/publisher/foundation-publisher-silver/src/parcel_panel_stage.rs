@@ -224,26 +224,25 @@ SELECT (SELECT count(*) - count(DISTINCT pnu) FROM valid_characteristics), \
   (SELECT count(*) FROM transfers WHERE @targets@ \
      AND (parcel_history_seq IS NULL OR trim(parcel_history_seq, ' ') = ''))";
 
-/// The PNUs whose documents can differ between the two reads: a row set's rows either way, a parcel
-/// that entered or left the served edition, a zone code whose anchor moved, a code whose name moved.
-const CHANGED_SQL: &str = "\
-CREATE OR REPLACE TABLE targets AS SELECT DISTINCT pnu FROM ( \
-  @row_sets@ \
-  UNION ALL SELECT pnu FROM (SELECT pnu FROM served EXCEPT SELECT pnu FROM served_old) \
-  UNION ALL SELECT pnu FROM (SELECT pnu FROM served_old EXCEPT SELECT pnu FROM served) \
-  UNION ALL SELECT pnu FROM zonings WHERE zone_code IN (SELECT zone_code FROM moved_anchors) \
-  UNION ALL SELECT pnu FROM zonings_old WHERE zone_code IN (SELECT zone_code FROM moved_anchors) \
-  UNION ALL SELECT pnu FROM served WHERE substr(pnu, 1, 10) IN (SELECT code FROM moved_names) \
-  UNION ALL SELECT pnu FROM served_old WHERE substr(pnu, 1, 10) IN (SELECT code FROM moved_names));";
-
-/// The zone codes and 법정동 codes whose lookup moved between the two reads.
-const MOVED_LOOKUPS_SQL: &str = "\
-CREATE OR REPLACE TEMP TABLE moved_anchors AS SELECT DISTINCT zone_code FROM ( \
+/// The PNUs a partial run rebuilds beside those whose rows or served parcel differ
+/// ([`KindVersionsStage::changed_keys_sql`]): the parcels zoned by a zone code whose anchor moved
+/// and the served parcels of a 법정동 whose name moved, on either side. It reads the two sides'
+/// spools nationally (`@dir@`) and the lookups `prepare` left for both.
+const CHANGED_KEYS_SQL: &str = "\
+WITH moved_anchors AS (SELECT DISTINCT zone_code FROM ( \
   (SELECT * FROM zone_anchors EXCEPT SELECT * FROM zone_anchors_old) \
-  UNION ALL (SELECT * FROM zone_anchors_old EXCEPT SELECT * FROM zone_anchors)); \
-CREATE OR REPLACE TEMP TABLE moved_names AS SELECT DISTINCT code FROM ( \
+  UNION ALL (SELECT * FROM zone_anchors_old EXCEPT SELECT * FROM zone_anchors))), \
+moved_names AS (SELECT DISTINCT code FROM ( \
   (SELECT * FROM legal_dong_names EXCEPT SELECT * FROM legal_dong_names_old) \
-  UNION ALL (SELECT * FROM legal_dong_names_old EXCEPT SELECT * FROM legal_dong_names));";
+  UNION ALL (SELECT * FROM legal_dong_names_old EXCEPT SELECT * FROM legal_dong_names))) \
+SELECT pnu FROM read_parquet('@dir@/zonings/*/*.parquet', hive_partitioning = false) \
+  WHERE zone_code IN (SELECT zone_code FROM moved_anchors) \
+UNION ALL SELECT pnu FROM read_parquet('@dir@/zonings_old/*/*.parquet', hive_partitioning = false) \
+  WHERE zone_code IN (SELECT zone_code FROM moved_anchors) \
+UNION ALL SELECT pnu FROM read_parquet('@dir@/served/*/*.parquet', hive_partitioning = false) \
+  WHERE substr(pnu, 1, 10) IN (SELECT code FROM moved_names) \
+UNION ALL SELECT pnu FROM read_parquet('@dir@/served_old/*/*.parquet', hive_partitioning = false) \
+  WHERE substr(pnu, 1, 10) IN (SELECT code FROM moved_names)";
 
 /// One row set of the panel: its table, its Silver and the columns it keeps, each as it is.
 fn row_set(
@@ -337,8 +336,7 @@ impl KindVersionsStage for ParcelPanel {
             DOCUMENT_SQL,
             VALID_SQL,
             REFUSED_SQL,
-            CHANGED_SQL,
-            MOVED_LOOKUPS_SQL,
+            CHANGED_KEYS_SQL,
             TRIMMED_OR_NULL,
             INTEGER_TEXT,
             &row_digest_sql(),
@@ -355,6 +353,10 @@ impl KindVersionsStage for ParcelPanel {
 
     fn current_rows_per_region(&self) -> bool {
         true
+    }
+
+    fn changed_keys_sql(&self) -> Option<String> {
+        Some(CHANGED_KEYS_SQL.to_owned())
     }
 
     fn row_sets(&self) -> Vec<RowSet> {
@@ -527,35 +529,6 @@ impl KindVersionsStage for ParcelPanel {
             columns.join(", ")
         ))?;
         Ok(())
-    }
-
-    fn changed_pnus(&self, connection: &Connection) -> anyhow::Result<u64> {
-        let row_sets = self
-            .row_sets()
-            .iter()
-            .map(|set| {
-                let columns = std::iter::once("CAST(pnu AS VARCHAR) AS pnu".to_owned())
-                    .chain(
-                        set.columns
-                            .iter()
-                            .map(|(_, column)| format!("CAST({column} AS VARCHAR) AS {column}")),
-                    )
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let (new, old) = (set.name, format!("{}_old", set.name));
-                format!(
-                    "SELECT pnu FROM (SELECT {columns} FROM {new} EXCEPT ALL SELECT {columns} FROM {old}) \
-                     UNION ALL SELECT pnu FROM (SELECT {columns} FROM {old} EXCEPT ALL \
-                     SELECT {columns} FROM {new})"
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" UNION ALL ");
-        connection.execute_batch(MOVED_LOOKUPS_SQL)?;
-        connection.execute_batch(&fill(CHANGED_SQL, &[("row_sets", &row_sets)]))?;
-        let count: i64 =
-            connection.query_row("SELECT count(*) FROM targets", [], |row| row.get(0))?;
-        Ok(u64::try_from(count)?)
     }
 
     fn build(

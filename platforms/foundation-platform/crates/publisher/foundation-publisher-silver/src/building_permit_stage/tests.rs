@@ -441,7 +441,10 @@ fn a_partial_run_follows_a_changed_parking_row_and_a_moved_title() -> anyhow::Re
     }
     moved.load(&connection)?;
     read_for_test(&BUILDING_PERMITS, &connection, EDITION, "")?;
-    assert_eq!(BUILDING_PERMITS.changed_pnus(&connection)?, 2);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&BUILDING_PERMITS, &connection)?,
+        2
+    );
     BUILDING_PERMITS.build(
         &connection,
         false,
@@ -455,6 +458,9 @@ fn a_partial_run_follows_a_changed_parking_row_and_a_moved_title() -> anyhow::Re
     assert_eq!(factory["records"][0]["indoor_self_parking_count"], "4");
     // Nothing changed: no PNU to rebuild.
     read_for_test(&BUILDING_PERMITS, &connection, EDITION, "_old")?;
-    assert_eq!(BUILDING_PERMITS.changed_pnus(&connection)?, 0);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&BUILDING_PERMITS, &connection)?,
+        0
+    );
     Ok(())
 }

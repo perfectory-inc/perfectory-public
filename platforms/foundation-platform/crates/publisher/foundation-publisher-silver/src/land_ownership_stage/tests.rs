@@ -288,7 +288,10 @@ fn a_partial_run_names_only_the_parcels_whose_rows_or_service_changed() -> anyho
     });
     load(&connection, &newer)?;
     crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
-    assert_eq!(OWNERSHIP.changed_pnus(&connection)?, 1);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&OWNERSHIP, &connection)?,
+        1
+    );
     OWNERSHIP.build(
         &connection,
         false,
@@ -368,5 +371,60 @@ fn a_partial_run_builds_only_the_parts_its_targets_name() -> anyhow::Result<()> 
     let rows = built(&connection)?;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, MOVED);
+    Ok(())
+}
+
+/// The largest part production holds, under a quarter of production's memory.
+///
+/// 2026-11-24, `silver.land_ownership`: the largest 시군구 of a release has 1,299,963 owner rows
+/// (경기 as a whole 15,345,613, which passed the session's 4.3 GiB four times on 2026-11-23). A
+/// synthetic 시군구 of that many rows, four owners a parcel, must build inside 1 GiB; a build that
+/// went back to one statement a 시도, or a statement that holds more than its part, fails here
+/// before it fails in production.
+#[test]
+fn the_largest_sigungu_builds_inside_a_gibibyte() -> anyhow::Result<()> {
+    use crate::kind_versions_stage::build_in_parts;
+    const PARCELS: i64 = 325_000;
+    const OWNERS_A_PARCEL: i64 = 4;
+    let spill = tempfile::tempdir()?;
+    let connection = Connection::open_in_memory()?;
+    connection.execute_batch(&format!(
+        "SET memory_limit = '1GiB'; SET temp_directory = '{}'; SET threads = 4;",
+        spill
+            .path()
+            .to_string_lossy()
+            .replace(std::path::MAIN_SEPARATOR, "/")
+    ))?;
+    connection.execute_batch(&format!(
+        "CREATE TABLE served AS \
+           SELECT '99999' || lpad(CAST(parcel AS VARCHAR), 14, '0') AS pnu \
+           FROM range({PARCELS}) t(parcel); \
+         CREATE TABLE ownership_rows AS \
+           SELECT s.pnu, CAST(NULL AS VARCHAR) AS collective_building_serial_no, \
+             '202610' AS base_year_month, '20261001' AS data_reference_date, \
+             lpad(CAST(owner AS VARCHAR), 6, '0') AS co_owner_serial_no, \
+             '01' AS ownership_kind_code, '개인' AS ownership_kind_name, \
+             '1' AS residence_kind_code, '거주' AS residence_kind_name, \
+             CAST(NULL AS VARCHAR) AS state_agency_kind_code, \
+             CAST(NULL AS VARCHAR) AS state_agency_kind_name, \
+             '03' AS ownership_change_reason_code, '매매' AS ownership_change_reason, \
+             '20200101' AS ownership_changed_on, {OWNERS_A_PARCEL} AS co_owner_count \
+           FROM served s, range({OWNERS_A_PARCEL}) o(owner);"
+    ))?;
+    OWNERSHIP.create_built(&connection)?;
+    let parts = build_in_parts(
+        &OWNERSHIP,
+        &connection,
+        true,
+        "999990000000000001",
+        "2099-03-01T00:00:00Z",
+    )?;
+    assert_eq!(parts, 1, "every synthetic parcel is in one 시군구");
+    let (documents, owners): (i64, i64) = connection.query_row(
+        "SELECT count(*), CAST(sum(owner_total) AS BIGINT) FROM built",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    assert_eq!((documents, owners), (PARCELS, PARCELS * OWNERS_A_PARCEL));
     Ok(())
 }

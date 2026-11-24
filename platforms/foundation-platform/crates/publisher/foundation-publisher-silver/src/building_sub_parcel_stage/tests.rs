@@ -288,7 +288,10 @@ fn a_partial_run_reaches_the_parcel_a_register_left() -> anyhow::Result<()> {
         ],
     )?;
     read_for_test(&SUB_PARCELS, &connection, EDITION, "")?;
-    assert_eq!(SUB_PARCELS.changed_pnus(&connection)?, 3);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&SUB_PARCELS, &connection)?,
+        3
+    );
     SUB_PARCELS.build(
         &connection,
         false,
@@ -300,6 +303,73 @@ fn a_partial_run_reaches_the_parcel_a_register_left() -> anyhow::Result<()> {
     assert_eq!(pnus, [site, MOVED.to_owned()]);
     // Nothing changed: no PNU to rebuild.
     read_for_test(&SUB_PARCELS, &connection, EDITION, "_old")?;
-    assert_eq!(SUB_PARCELS.changed_pnus(&connection)?, 0);
+    assert_eq!(
+        crate::kind_versions_stage::changed_for_test(&SUB_PARCELS, &connection)?,
+        0
+    );
+    Ok(())
+}
+
+/// The base side of a partial run is the Silver that moved and nothing else (the served parcels and
+/// the code changes are the new side's), and the changed PNUs are found once, from the two spools.
+#[test]
+fn a_partial_run_reads_the_base_of_the_moved_silver_only() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    let (site, annex) = (pnu(1), pnu(2));
+    let first = [row(
+        Some(&site),
+        Some(&annex),
+        "synthetic-1",
+        "0002",
+        "202610",
+    )];
+    // The register's newest set names another parcel: the annex leaves it.
+    let second = [
+        first[0].clone(),
+        row(Some(&site), Some(MOVED), "synthetic-1", "0004", "202611"),
+    ];
+    let base = || load(&connection, &first);
+    let new = || load(&connection, &second);
+    let (read, targets) = crate::kind_versions_stage::partial_for_test(
+        &SUB_PARCELS,
+        &connection,
+        EDITION,
+        &[SUB_PARCEL_SOURCE],
+        &base,
+        &new,
+    )?;
+    // Both directions of the one Silver, and no second read of the served parcels.
+    assert_eq!(read.compared.len(), DIRECTIONS.len());
+    assert!(!read.compared.iter().any(|name| name == "served"));
+    assert!(read.sidos.is_empty());
+    assert_eq!(targets, 3);
+    SUB_PARCELS.build(
+        &connection,
+        false,
+        "999990000000000002",
+        "2099-01-04T00:00:00Z",
+    )?;
+    let pnus: Vec<String> = built(&connection)?.into_iter().map(|row| row.0).collect();
+    assert_eq!(pnus, [site, MOVED.to_owned()]);
+    // The same rows on both sides: no PNU is named.
+    let (_, unchanged) = crate::kind_versions_stage::partial_for_test(
+        &SUB_PARCELS,
+        &connection,
+        EDITION,
+        &[SUB_PARCEL_SOURCE],
+        &new,
+        &new,
+    )?;
+    assert_eq!(unchanged, 0);
+    // A move of the parcels reads the whole base side again.
+    let (whole, _) = crate::kind_versions_stage::partial_for_test(
+        &SUB_PARCELS,
+        &connection,
+        EDITION,
+        &[crate::kind_versions_stage::PARCEL_SOURCE],
+        &new,
+        &new,
+    )?;
+    assert!(whole.compared.iter().any(|name| name == "served"));
     Ok(())
 }

@@ -23,8 +23,8 @@ use sha2::{Digest, Sha256};
 use duckdb::Connection;
 
 use crate::kind_versions_stage::{
-    elapsed, fill, is_plain, KindVersionsStage, RowSet, CODE_CHANGE_SOURCE, PARCEL_SOURCE,
-    PLACE_IDS, SHARED_SQL,
+    elapsed, fill, is_plain, KindVersionsStage, ResultCheck, RowSet, CODE_CHANGE_SOURCE,
+    PARCEL_SOURCE, PLACE_IDS, SHARED_SQL,
 };
 use crate::parcel_nearby_stage::Source;
 use crate::place_id_join::{place_ids_sql, BRIDGE_SOURCE};
@@ -76,9 +76,31 @@ pub struct FactoryKind;
 /// The one registered-factory kind.
 pub const FACTORIES: FactoryKind = FactoryKind;
 
+/// The documents of `built` that break the kind's bound: none listed, more listed than
+/// [`RECORD_BOUND`], or a total below the number listed. `select` names what is selected of them.
+fn documents_past_their_bound(select: &str) -> String {
+    format!(
+        "SELECT {select} FROM (SELECT pnu, factory_total, \
+           coalesce(json_array_length(factories_json, '$.records'), 0) AS listed FROM built) \
+         WHERE listed = 0 OR listed > {RECORD_BOUND} OR factory_total IS NULL OR factory_total < listed"
+    )
+}
+
 impl KindVersionsStage for FactoryKind {
     fn section_column(&self) -> &'static str {
         "factories_json"
+    }
+
+    /// A parcel's document lists its factories up to the bound and counts them all (root
+    /// ADR-0449): a document that lists none, lists past the bound, or counts fewer than it lists
+    /// is not one the kind writes. The rule held only by the shape of the build's SQL until now.
+    fn result_checks(&self) -> Vec<ResultCheck> {
+        vec![ResultCheck {
+            name: "factories_listed_within_their_total",
+            sql: documents_past_their_bound("count(*)"),
+            blocking: true,
+            samples_sql: Some(documents_past_their_bound("pnu")),
+        }]
     }
 
     fn inputs(&self) -> Vec<&'static str> {
@@ -135,31 +157,6 @@ impl KindVersionsStage for FactoryKind {
     fn create_built(&self, connection: &Connection) -> anyhow::Result<()> {
         connection.execute_batch(BUILT_TABLE)?;
         Ok(())
-    }
-
-    fn changed_pnus(&self, connection: &Connection) -> anyhow::Result<u64> {
-        let columns = RECORD_FIELDS.join(", ");
-        let mut parts = Vec::new();
-        for (a, b) in [("", "_old"), ("_old", "")] {
-            parts.push(format!(
-                "(SELECT pnu FROM (SELECT pnu, {columns} FROM rows{a} \
-                 EXCEPT ALL SELECT pnu, {columns} FROM rows{b}))"
-            ));
-            parts.push(format!(
-                "(SELECT pnu FROM served{a} EXCEPT SELECT pnu FROM served{b})"
-            ));
-            parts.push(format!(
-                "(SELECT pnu FROM (SELECT pnu, place_id FROM {PLACE_IDS}{a} \
-                 EXCEPT SELECT pnu, place_id FROM {PLACE_IDS}{b}))"
-            ));
-        }
-        connection.execute_batch(&format!(
-            "CREATE OR REPLACE TABLE targets AS SELECT DISTINCT pnu FROM ({});",
-            parts.join(" UNION ALL ")
-        ))?;
-        let count: i64 =
-            connection.query_row("SELECT count(*) FROM targets", [], |row| row.get(0))?;
-        Ok(u64::try_from(count)?)
     }
 
     fn build(

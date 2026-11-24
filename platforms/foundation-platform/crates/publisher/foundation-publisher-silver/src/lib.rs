@@ -144,6 +144,8 @@ pub mod building_unit_placement;
 /// The registered-factory kind's Gold in `DuckDB` (root ADR-0449).
 pub mod factory_kind_stage;
 pub mod intelligence_documents_stage;
+/// The build of one 시도 a 시군구 at a time, for every such kind (root ADR-0615 §7).
+pub mod kind_versions_parts;
 /// What every parcel kind Gold of appended row versions shares (root ADR-0564 §6).
 pub mod kind_versions_stage;
 /// The parcel ownership kind's Gold in `DuckDB` (root ADR-0361).

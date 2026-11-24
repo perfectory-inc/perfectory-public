@@ -193,25 +193,6 @@ impl KindVersionsStage for OwnershipKind {
         Ok(())
     }
 
-    fn changed_pnus(&self, connection: &Connection) -> anyhow::Result<u64> {
-        let kept = kept();
-        let columns = kept.join(", ");
-        let nulls = kept.iter().map(|_| "NULL").collect::<Vec<_>>().join(", ");
-        connection.execute_batch(&format!(
-            "CREATE OR REPLACE TABLE targets AS SELECT DISTINCT pnu FROM ( \
-               (SELECT pnu, {columns} FROM ownership_rows \
-                EXCEPT ALL SELECT pnu, {columns} FROM ownership_rows_old) \
-               UNION ALL (SELECT pnu, {columns} FROM ownership_rows_old \
-                EXCEPT ALL SELECT pnu, {columns} FROM ownership_rows) \
-               UNION ALL (SELECT pnu, {nulls} FROM ( \
-                 (SELECT pnu FROM served EXCEPT SELECT pnu FROM served_old) \
-                 UNION ALL (SELECT pnu FROM served_old EXCEPT SELECT pnu FROM served))));"
-        ))?;
-        let count: i64 =
-            connection.query_row("SELECT count(*) FROM targets", [], |row| row.get(0))?;
-        Ok(u64::try_from(count)?)
-    }
-
     fn build(
         &self,
         connection: &Connection,

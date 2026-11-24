@@ -509,30 +509,6 @@ impl KindVersionsStage for PermitKind {
         Ok(())
     }
 
-    fn changed_pnus(&self, connection: &Connection) -> anyhow::Result<u64> {
-        let mut parts = Vec::new();
-        for set in self.row_sets() {
-            let table = set.name;
-            for (a, b) in [("", "_old"), ("_old", "")] {
-                parts.push(format!(
-                    "(SELECT pnu FROM (SELECT * FROM {table}{a} EXCEPT ALL SELECT * FROM {table}{b}))"
-                ));
-            }
-        }
-        for (a, b) in [("", "_old"), ("_old", "")] {
-            parts.push(format!(
-                "(SELECT pnu FROM served{a} EXCEPT SELECT pnu FROM served{b})"
-            ));
-        }
-        connection.execute_batch(&format!(
-            "CREATE OR REPLACE TABLE targets AS SELECT DISTINCT pnu FROM ({});",
-            parts.join(" UNION ALL ")
-        ))?;
-        let count: i64 =
-            connection.query_row("SELECT count(*) FROM targets", [], |row| row.get(0))?;
-        Ok(u64::try_from(count)?)
-    }
-
     fn build(
         &self,
         connection: &Connection,

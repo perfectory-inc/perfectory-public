@@ -610,3 +610,80 @@ fn a_build_diffed_range_by_range_appends_and_counts_what_one_diff_does() -> anyh
     );
     Ok(())
 }
+
+fn built_from(snapshot: i64, code: &str) -> BuiltFrom {
+    BuiltFrom {
+        pins: BTreeMap::from([("silver.a".to_owned(), snapshot)]),
+        code_version: code.to_owned(),
+        served_edition: "synthetic__parcel-209906".to_owned(),
+    }
+}
+
+#[test]
+fn the_head_says_what_every_sido_was_built_from() -> anyhow::Result<()> {
+    // A table with no commit, and one whose commits were of the whole table, record no 시도.
+    assert_eq!(PartitionStates::of(&[])?, PartitionStates::default());
+    let whole = snapshot(1, &[(VERSION_SEQ_PROPERTY, "1")]);
+    assert_eq!(
+        PartitionStates::of(std::slice::from_ref(&whole))?,
+        PartitionStates::default()
+    );
+
+    // Two 시도 built at one version name it once; a 시도 built again leaves the other where it was.
+    let (old, new) = (built_from(11, "c"), built_from(12, "c"));
+    let (old_version, new_version) = (data_version(&old, None), data_version(&new, None));
+    let mut states = PartitionStates::default();
+    states.record("11", &old_version, &old, 5);
+    states.record("41", &old_version, &old, 7);
+    assert_eq!(states.versions.len(), 1);
+    states.record("11", &new_version, &new, 6);
+    assert_eq!(states.built_from("11"), Some(&new));
+    assert_eq!(states.built_from("41"), Some(&old));
+    assert_eq!(states.sidos["11"].current_records, 6);
+    assert_eq!(states.built_from("48"), None);
+    // The version no 시도 names any more is dropped.
+    states.record("41", &new_version, &new, 7);
+    assert_eq!(
+        states.versions.keys().collect::<Vec<_>>(),
+        [&new_version],
+        "the old version outlived its last 시도"
+    );
+
+    // The newest commit that records the sequence carries them, past a compaction.
+    let text = states.property()?;
+    let history = [
+        snapshot(3, &[("operation", "replace")]),
+        snapshot(
+            2,
+            &[
+                (VERSION_SEQ_PROPERTY, "2"),
+                (PARTITION_STATE_PROPERTY, text.as_str()),
+            ],
+        ),
+        whole,
+    ];
+    assert_eq!(PartitionStates::of(&history)?, states);
+    let broken = snapshot(
+        4,
+        &[
+            (VERSION_SEQ_PROPERTY, "3"),
+            (PARTITION_STATE_PROPERTY, "[]"),
+        ],
+    );
+    assert!(PartitionStates::of(&[broken]).is_err());
+    Ok(())
+}
+
+#[test]
+fn a_version_moves_with_a_pin_the_code_the_edition_or_the_instant() {
+    let from = built_from(11, "c");
+    let version = data_version(&from, None);
+    assert_eq!(version.len(), 32);
+    assert_eq!(version, data_version(&built_from(11, "c"), None));
+    assert_ne!(version, data_version(&built_from(12, "c"), None));
+    assert_ne!(version, data_version(&built_from(11, "d"), None));
+    let mut edition = built_from(11, "c");
+    edition.served_edition = "synthetic__parcel-209907".to_owned();
+    assert_ne!(version, data_version(&edition, None));
+    assert_ne!(version, data_version(&from, Some("2099-03-01T00:00:00Z")));
+}
