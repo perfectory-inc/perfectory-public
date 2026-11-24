@@ -171,6 +171,28 @@ pub(crate) struct BuiltFrom {
 pub(crate) struct SidoState {
     pub version: String,
     pub current_records: u64,
+    /// The 시도's own fingerprint: the digest sum of its current rows (the table fingerprint's
+    /// sum, of this 시도 alone), as text. It moves only when a row of the 시도 changes, whatever its
+    /// `version` does: what a reader that follows one 시도's content takes as its input version.
+    /// Absent for a 시도 whose rows were appended before the table kept it (a whole-table commit).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest_sum: Option<String>,
+}
+
+impl SidoState {
+    /// [`Self::digest_sum`] as a number.
+    ///
+    /// # Errors
+    /// Returns an error when the recorded sum is not a number.
+    pub(crate) fn digest_sum(&self) -> anyhow::Result<Option<u128>> {
+        self.digest_sum
+            .as_deref()
+            .map(|text| {
+                text.parse()
+                    .with_context(|| format!("the 시도 digest sum {text:?} is not a number"))
+            })
+            .transpose()
+    }
 }
 
 /// [`PARTITION_STATE_PROPERTY`]: every 시도's state, and what each version they name was built from
@@ -210,19 +232,22 @@ impl PartitionStates {
     }
 
     /// Records that `sido` now stands at `version`, built from `from`, with `current_records`
-    /// current rows; a version no 시도 names any more is dropped.
+    /// current rows whose digests sum to `digest_sum` (when known); a version no 시도 names any
+    /// more is dropped.
     pub(crate) fn record(
         &mut self,
         sido: &str,
         version: &str,
         from: &BuiltFrom,
         current_records: u64,
+        digest_sum: Option<u128>,
     ) {
         self.sidos.insert(
             sido.to_owned(),
             SidoState {
                 version: version.to_owned(),
                 current_records,
+                digest_sum: digest_sum.map(|sum| sum.to_string()),
             },
         );
         self.versions.insert(version.to_owned(), from.clone());

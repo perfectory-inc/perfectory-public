@@ -633,16 +633,19 @@ fn the_head_says_what_every_sido_was_built_from() -> anyhow::Result<()> {
     let (old, new) = (built_from(11, "c"), built_from(12, "c"));
     let (old_version, new_version) = (data_version(&old, None), data_version(&new, None));
     let mut states = PartitionStates::default();
-    states.record("11", &old_version, &old, 5);
-    states.record("41", &old_version, &old, 7);
+    states.record("11", &old_version, &old, 5, Some(50));
+    states.record("41", &old_version, &old, 7, None);
     assert_eq!(states.versions.len(), 1);
-    states.record("11", &new_version, &new, 6);
+    states.record("11", &new_version, &new, 6, Some(61));
     assert_eq!(states.built_from("11"), Some(&new));
     assert_eq!(states.built_from("41"), Some(&old));
     assert_eq!(states.sidos["11"].current_records, 6);
+    // A 시도's own fingerprint is kept as text and read back as the number; one never told stays unknown.
+    assert_eq!(states.sidos["11"].digest_sum()?, Some(61));
+    assert_eq!(states.sidos["41"].digest_sum()?, None);
     assert_eq!(states.built_from("48"), None);
     // The version no 시도 names any more is dropped.
-    states.record("41", &new_version, &new, 7);
+    states.record("41", &new_version, &new, 7, None);
     assert_eq!(
         states.versions.keys().collect::<Vec<_>>(),
         [&new_version],

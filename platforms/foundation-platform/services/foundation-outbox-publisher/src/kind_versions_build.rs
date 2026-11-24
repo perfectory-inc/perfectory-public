@@ -508,7 +508,13 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             // No key of this 시도 changed: nothing is built, read from the head or staged. A table
             // that commits a 시도 at a time still records that the 시도 stands at this version.
             if let Some(state) = &recorded {
-                states.record(sido, &wanted, &built_from, state.current_records);
+                states.record(
+                    sido,
+                    &wanted,
+                    &built_from,
+                    state.current_records,
+                    state.digest_sum()?,
+                );
                 built_sidos.push(sido.clone());
                 state_owed = true;
             }
@@ -648,7 +654,20 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         let rows_after = rows_after.context(
             "a 시도 built from its changed PNUs has its rows recorded at the head (root ADR-0615 §2-4)",
         )?;
-        states.record(sido, &wanted, &built_from, rows_after);
+        // The 시도's own fingerprint goes on from the one the head records; a 시도 that held no row
+        // starts at nothing. One appended before the table kept it stays unknown.
+        let digest_before = match &recorded {
+            Some(state) => state.digest_sum()?,
+            None => (rows_before == Some(0)).then_some(0),
+        };
+        let digest_after = digest_before
+            .map(|before| {
+                (before + sido_digests.added)
+                    .checked_sub(sido_digests.hidden)
+                    .with_context(|| format!("시도 {sido} hides digests it does not hold"))
+            })
+            .transpose()?;
+        states.record(sido, &wanted, &built_from, rows_after, digest_after);
         built_sidos.push(sido.clone());
         diff += sido_diff.clone();
         if sido_files.is_empty() {
