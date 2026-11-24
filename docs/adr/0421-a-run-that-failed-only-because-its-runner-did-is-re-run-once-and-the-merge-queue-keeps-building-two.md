@@ -54,3 +54,14 @@ merge queue 설정은 `tools/github/main-ruleset.json` 이 정본이다. 지금 
 - 일정 작업 하나가 10분마다 러너를 잠깐 쓴다. 하루 144번, 각 1분 미만이고 공개 저장소 표준 러너라 비용은 0 이다(계산).
 - merge queue 에서 러너 때문에 실패한 항목은 다시 큐에 넣어야 한다. 이 ADR 은 그것을 하지 않는다. keeper 가 PR 이 초록이면 다시
   넣는다.
+
+## Revision 2026-11-25: merge queue 는 동시에 다섯을 짓는다 (소유자 승인, W95c)
+
+- `tools/github/main-ruleset.json` 의 `max_entries_to_build` 는 5 다(`max_entries_to_merge` 5, `ALLGREEN`, 응답 제한 120분은
+  그대로). 살아 있는 저장소에는 병합 뒤 ADR-0552 의 절차(규칙 집합 PUT, 다시 읽기)로 적용한다.
+- §3 의 계산은 "항목 하나의 작업들이 동시 상한 20 을 두고 PR 작업과 다툰다"였다. 2026-11-24 의 측정은 다른 병목을 보였다: 큐
+  실행 25개 중 11개의 벽시계를 릴리스 빌드 시험 한 잡이 정했다(최근 셋은 50분 중 49분, [ADR-0580](./0580-a-runner-is-taken-only-by-a-job-whose-work-outweighs-its-setup-and-the-release-dry-run-runs-once-in-the-merge-queue.md) Revision 2026-11-25). 그 잡이 큐에서
+  빠지면 항목 하나의 실행은 남은 가장 긴 잡(경계 슬라이스·Postgres 통합 시험, 약 24분)으로 줄고(계산 p90 53 → 34분), 동시에
+  둘만 지으면 러너가 남아도 큐는 기다린다.
+- **대가(계산).** 다섯을 동시에 지으면 큐 작업이 상한 20 을 더 차지해 PR 작업의 러너 대기가 늘 수 있다. 적용 뒤 큐의 투입→병합
+  시간과 PR 작업의 대기를 재어 기록하고, PR 대기 p90 이 ADR-0420 의 1,231 s 를 크게 넘으면 다시 정한다.

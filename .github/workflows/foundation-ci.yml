@@ -1135,10 +1135,12 @@ jobs:
 
   # Root ADR-0345: the release build of .github/workflows/foundation-release-build.yml, built here as
   # a dry run: every image, the executable and the jars from the same script, read from main's build
-  # cache, and nothing attested, pushed or uploaded (this job holds no write permission). It runs when
-  # merging would give main a release build (foundation_ci_scope.py RELEASE_JOB). 2026-10-29: #939
-  # compiled in a file the publisher image did not copy; every pull request passed, every release
-  # build on main failed, and the host deployed nothing for 11 hours.
+  # cache, and nothing attested, pushed or uploaded (this job holds no write permission). It runs on a
+  # run started by hand when merging would give main a release build (foundation_ci_scope.py
+  # RELEASE_JOB). 2026-10-29: #939 compiled in a file the publisher image did not copy; every pull
+  # request passed, every release build on main failed, and the host deployed nothing for 11 hours.
+  # Root ADR-0580 revision 2026-11-25: the merge queue no longer runs it (up to 49 minutes of a
+  # 50-minute queue run); main's release build is the check.
   release-image:
     needs: [scope]
     if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'release-image') }}

@@ -114,3 +114,5 @@
 ---
 
 2026-11-19 개정 주: PR 은 릴리스 빌드 시험을 머지 큐에 맡긴다(큐만 돈다): [ADR-0580](./0580-a-runner-is-taken-only-by-a-job-whose-work-outweighs-its-setup-and-the-release-dry-run-runs-once-in-the-merge-queue.md).
+
+2026-11-25 개정 주: 머지 큐도 릴리스 빌드 시험을 돌지 않는다. 손으로 시작한 Foundation CI 실행만 돈다: [ADR-0580](./0580-a-runner-is-taken-only-by-a-job-whose-work-outweighs-its-setup-and-the-release-dry-run-runs-once-in-the-merge-queue.md) Revision 2026-11-25.

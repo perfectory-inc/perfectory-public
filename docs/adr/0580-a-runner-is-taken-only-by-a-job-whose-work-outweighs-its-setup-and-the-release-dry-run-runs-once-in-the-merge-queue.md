@@ -105,3 +105,24 @@
   한 번이 8~27초라, 합치면 러너 시작 7.6번과 러너 약 1.5분(중앙값 53분의 3%)이 준다(2026-11-18 20:00Z~11-19 04:20Z,
   큐 커밋 16개). 대신 영역 워크플로 아홉 개를 한 워크플로가 부르는 재사용 워크플로로 다시 써야 한다. scope 잡이 30초를
   넘거나 워크플로 수가 늘면 다시 잰다.
+
+## Revision 2026-11-25: 릴리스 빌드 시험은 머지 큐에서도 돌지 않는다 (소유자 승인, W95c)
+
+- **무엇.** `foundation_ci_scope.py` 의 `RELEASE_EVENTS` 는 `workflow_dispatch` 하나다. 머지 큐(`merge_group`)는 `release-image` 를
+  건너뛰고(scope 의 `skipped`), PR 에 "큐로 미룬다" 경고도 남기지 않는다. 잡과 `required/foundation` 의 자리는 그대로다: 손으로
+  시작한 Foundation CI 실행만 그것을 고르고, 그때는 결과가 필수 검사에 든다. main 의 push 와 야간 실행은 전처럼 릴리스 워크플로
+  (`foundation-release-build.yml`)가 진짜로 짓는다.
+- **왜(측정: 2026-11-24 01:10~16:15Z 의 초록 큐 실행 25개, Foundation Platform CI).** 릴리스 시험은 중앙값 1,053 s, 느린 여섯은
+  2,340~3,312 s 였고, 25개 중 11개에서 실행의 끝을 정했다. 가장 최근 셋은 실행 벽시계 2,700~3,406 s 중 2,666~3,312 s 가 이
+  잡이었다(50분 실행의 49분). 같은 실행에서 이 잡만 빼고 다시 센 벽시계(계산): p50 1,460 → 1,450 s, p75 2,039 → 1,657 s,
+  p90 3,162 → 2,027 s, 최대 3,793 → 2,300 s, 합 45,676 → 32,631 s(−29%). 가운데는 그대로이고 꼬리가 준다: 다음으로 긴 잡은
+  경계 슬라이스(선택될 때 약 1,400 s, 발행기를 컨테이너 안에서 처음부터 컴파일)와 Postgres 통합 시험(460~1,690 s)이다. 큐는 한
+  번에 둘만 지었으므로(ADR-0421 §3) 느린 항목 하나가 뒤의 모든 항목을 그만큼 늦췄다.
+- **대가.** 릴리스를 깨는 변경(2026-10-29 #939 꼴)은 이제 main 에 들어간 뒤 main 의 릴리스 빌드에서 실패한다. 그 커밋부터 릴리스가
+  없어 호스트는 앞 릴리스에 머물고 `FoundationReleaseMissing`(ADR-0345 §4, 90분)이 울린다. 큐에서 PR 하나가 빠지는 대신 main 의
+  다음 PR 이 고친다. 릴리스 입력(Dockerfile·`tools/release-build.contract.json`·릴리스 스크립트)을 바꾸는 PR 은 병합 전에 자기
+  가지에서 Foundation CI 를 손으로 시작해(`gh workflow run foundation-ci.yml --ref <가지>`) 같은 건조 실행을 돌릴 수 있다.
+- **시험.** `test_foundation_ci_scope.py` 가 merge_group·pull_request·push·schedule 에서 고르지 않고 workflow_dispatch 에서만
+  고르는 것, PR 에 릴리스 경고가 없는 것을 고정한다. 릴리스 범위의 경로가 Foundation CI 를 시작해야 한다던 시험은 이유가 사라져
+  지웠다: 손으로 시작한 실행은 경로로 거르지 않는다.
+- 같은 날 merge queue 의 `max_entries_to_build` 를 2 에서 5 로 올렸다: [ADR-0421](./0421-a-run-that-failed-only-because-its-runner-did-is-re-run-once-and-the-merge-queue-keeps-building-two.md) Revision 2026-11-25.
