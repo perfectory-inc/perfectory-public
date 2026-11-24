@@ -125,4 +125,4 @@
 - **시험.** `test_foundation_ci_scope.py` 가 merge_group·pull_request·push·schedule 에서 고르지 않고 workflow_dispatch 에서만
   고르는 것, PR 에 릴리스 경고가 없는 것을 고정한다. 릴리스 범위의 경로가 Foundation CI 를 시작해야 한다던 시험은 이유가 사라져
   지웠다: 손으로 시작한 실행은 경로로 거르지 않는다.
-- 같은 날 merge queue 의 `max_entries_to_build` 를 2 에서 5 로 올렸다: [ADR-0421](./0421-a-run-that-failed-only-because-its-runner-did-is-re-run-once-and-the-merge-queue-keeps-building-two.md) Revision 2026-11-25.
+- 같은 날 merge queue 의 `max_entries_to_build` 를 2 에서 5 로 올렸다: [ADR-0421](./0421-a-run-that-failed-only-because-its-runner-did-is-re-run-once-and-the-merge-queue-keeps-building-two.md) Revision 2026-11-25. 같은 날 2 로 되돌렸다(동시 상한 20 잡을 다섯 항목이 나눠 잡의 러너 대기가 늘었다): 같은 ADR 의 Revision 2026-11-25 (2).
