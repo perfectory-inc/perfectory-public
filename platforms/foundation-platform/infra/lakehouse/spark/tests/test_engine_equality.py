@@ -131,6 +131,77 @@ class Comparison(unittest.TestCase):
             engine_equality.keyed_diff_sql("reference", "candidate", ())
 
 
+def chunked(prefixes, length=7):
+    return engine_equality.Chunks("pnu", length, tuple(prefixes))
+
+
+class ComparisonByChunk(unittest.TestCase):
+    """The takeover verdict joins a chunk of the key at a time (2026-11-23: 시도 41 of the served
+    parcel boundaries joined whole ran out of the verdict's memory). Keys here are 99999 and two
+    digits of a chunk; `pnu(n)` puts n in the last digits, so 99999NN... is built by hand."""
+
+    @staticmethod
+    def key(chunk: int, n: int) -> str:
+        return f"99999{chunk:02d}{n:012d}"
+
+    def sides(self, reference: dict[str, str], candidate: dict[str, str]):
+        return database([(key, text, None) for key, text in reference.items()],
+                        [(key, text, None) for key, text in candidate.items()])
+
+    def test_the_chunks_sum_to_the_verdict_of_the_whole(self):
+        reference = {self.key(chunk, n): f"{chunk}-{n}" for chunk in (1, 2, 9) for n in range(30)}
+        candidate = dict(reference)
+        candidate[self.key(2, 3)] = "changed"
+        del candidate[self.key(9, 29)]
+        candidate[self.key(1, 99)] = "new"
+        connection = self.sides(reference, candidate)
+        whole = engine_equality.compare(runner(connection), "reference", "candidate", ("pnu",), "duckdb",
+                                        ("document",), None)
+        by_chunk = engine_equality.compare(runner(connection), "reference", "candidate", ("pnu",), "duckdb",
+                                           ("document",), None, chunked(["9999901", "9999902", "9999909"]))
+        self.assertEqual(by_chunk, whole)
+        self.assertEqual((by_chunk.same, by_chunk.different, by_chunk.only_reference, by_chunk.only_candidate),
+                         (88, 1, 1, 1))
+        self.assertFalse(by_chunk.equal)
+
+    def test_equal_sides_are_equal_by_chunk(self):
+        rows = {self.key(chunk, n): "a" for chunk in (9, 10) for n in range(5)}
+        found = engine_equality.compare(runner(self.sides(rows, rows)), "reference", "candidate", ("pnu",),
+                                        "duckdb", ("document",), None, chunked(["9999909", "9999910"]))
+        self.assertTrue(found.equal)
+        self.assertEqual(found.same, 10)
+
+    def test_a_row_outside_every_chunk_is_an_error_not_a_row_left_uncompared(self):
+        rows = {self.key(1, 1): "a", self.key(2, 1): "b"}
+        with self.assertRaisesRegex(RuntimeError, "outside them"):
+            engine_equality.compare(runner(self.sides(rows, rows)), "reference", "candidate", ("pnu",), "duckdb",
+                                    ("document",), None, chunked(["9999901"]))
+
+    def test_the_samples_stop_at_the_limit_across_chunks(self):
+        reference = {self.key(chunk, n): "a" for chunk in (1, 2) for n in range(15)}
+        found = engine_equality.compare(runner(self.sides(reference, {})), "reference", "candidate", ("pnu",),
+                                        "duckdb", ("document",), None, chunked(["9999901", "9999902"]))
+        self.assertEqual(found.only_reference, 30)
+        self.assertEqual(len(found.samples["only_reference"]), engine_equality.SAMPLE_LIMIT)
+
+    def test_a_shorter_code_and_the_last_code_are_each_read_once(self):
+        rows = {"99": "a", "9999999" + "0" * 12: "b", "9999998" + "0" * 12: "c"}
+        found = engine_equality.compare(runner(self.sides(rows, rows)), "reference", "candidate", ("pnu",),
+                                        "duckdb", ("document",), None, chunked(["99", "9999998", "9999999"]))
+        self.assertTrue(found.equal)
+        self.assertEqual(found.same, 3)
+
+    def test_chunks_that_are_not_ranges_of_digits_are_refused(self):
+        for declared in ({"column": "pnu", "length": 5, "prefixes": []},
+                         {"column": "pnu; DROP", "length": 5, "prefixes": ["99999"]},
+                         {"column": "pnu", "length": 5, "prefixes": ["99999", "99999"]}):
+            with self.assertRaises(ValueError):
+                engine_equality.Chunks.of(declared)
+        with self.assertRaises(ValueError):
+            chunked(["9999x"], 5).relation("reference", "9999x")
+        self.assertIsNone(engine_equality.Chunks.of(None))
+
+
 class Fingerprint(unittest.TestCase):
     def test_the_engine_free_fingerprint_is_the_producers(self):
         digests = [digest(str(n)) for n in range(1000)]
@@ -227,7 +298,8 @@ class RunnerCommand(unittest.TestCase):
             Path(work, "sides.json").write_text(json.dumps({
                 "table": "gold.example_versions", "replaced": "gold.example", "reference_snapshot": "1",
                 "candidate_snapshot": "2", "pins": {"silver.example": 7}, "keys": ["pnu"],
-                "content": ["document"], "digest": "row_digest"}), encoding="utf-8")
+                "content": ["document"], "digest": "row_digest",
+                "chunks": {"column": "pnu", "length": 5, "prefixes": ["99999"]}}), encoding="utf-8")
             command = " ".join(shlex.quote(part) for part in (sys.executable, "-I", str(Path(work, "runner.py")),
                                                                str(path), str(jobs)))
             with contextlib.redirect_stdout(io.StringIO()):

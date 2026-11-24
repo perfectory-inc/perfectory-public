@@ -444,6 +444,12 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         "digest": serde_json::Value::Null,
         "sido": sido, "sido_rows": reference_pass.sido_rows,
         "rows_nationally": reference_counts.rows,
+        // The ranges the two sides were written in: the comparison joins one at a time, as this
+        // pass read one at a time (2026-11-23 17:38Z: the join of 시도 41 of the served parcel
+        // boundaries whole, 5,211,798 geometries a side, ran out of the verdict's 4 GB).
+        "chunks": {
+            "column": column, "length": values::CHUNK_PREFIX, "prefixes": sido_prefixes,
+        },
     });
     let path = work.join("sides.json");
     std::fs::write(&path, serde_json::to_vec_pretty(&sides)?)
