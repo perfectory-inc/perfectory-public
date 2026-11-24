@@ -115,9 +115,19 @@ if which == "deferred":
     deploy = os.path.join(os.path.dirname(path), "..", "scripts", "deploy")
     if os.path.isfile(os.path.join(deploy, "job_units.py")):
         sys.path.insert(0, deploy)
-        from job_units import deferred
-        enabled = {job["id"] for job in json.load(open(path, encoding="utf-8"))["jobs"] if job["enabled"]}
-        print("\n".join(job for job in deferred() if job in enabled))
+        import job_units
+        listed = json.load(open(path, encoding="utf-8"))["jobs"]
+        # A record of a job this release no longer lists is dropped: nothing else ever would.
+        if hasattr(job_units, "forget_deferred"):
+            try:
+                gone = job_units.forget_deferred({job["id"] for job in listed})
+            except OSError as error:
+                gone = []
+                print(f"foundation-deploy: could not drop the owed-run records of deleted jobs: {error}", file=sys.stderr)
+            if gone:
+                print(f"foundation-deploy: dropped the owed-run records of jobs this release no longer lists: {' '.join(gone)}", file=sys.stderr)
+        enabled = {job["id"] for job in listed if job["enabled"]}
+        print("\n".join(job for job in job_units.deferred() if job in enabled))
 PY
 }
 mapfile -t jobs < <(jobs_of enabled)

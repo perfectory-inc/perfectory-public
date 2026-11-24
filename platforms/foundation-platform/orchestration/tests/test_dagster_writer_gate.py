@@ -49,6 +49,7 @@ class WhatTheHostMaySend(unittest.TestCase):
                     body(dagster_writes.START_SENSOR, {"sensor": {**dagster_writes.REPOSITORY,
                                                                    "sensorName": "foundation_decide__synthetic_nightly"}}),
                     body(dagster_writes.LAUNCH_RUN, {"params": launch_params()}),
+                    body(dagster_writes.WAITING_RUN, {"job": "foundation_job__synthetic_nightly"}),
                     body(dagster_writes.RELOAD_LOCATION),
                     body(dagster_writes.LOCATION_ERRORS),
                     # Whitespace is not a different document.
@@ -58,6 +59,12 @@ class WhatTheHostMaySend(unittest.TestCase):
         self.assertIsNone(host(b"", "GET", "/server_info"))
         self.assertIsNotNone(dagster_writes.refused(dagster_writes.HOST, "GET", "/server_info", b""),
                              "the readiness route is the host's only")
+
+    def test_the_waiting_run_is_asked_of_one_job_and_nothing_else(self):
+        for variables in ({"job": "__ASSET_JOB"}, {"job": "foundation_job__"}, {"job": 7}, {},
+                          {"job": "foundation_job__synthetic_nightly", "limit": 500}):
+            with self.subTest(variables):
+                self.assertIsNotNone(host(body(dagster_writes.WAITING_RUN, variables)))
 
     def test_any_other_document_or_shape_is_refused(self):
         cases = {

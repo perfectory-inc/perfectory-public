@@ -1282,10 +1282,15 @@ class TheWholeDeploy(unittest.TestCase):
         (deploy / "job_units.py").write_bytes((PLATFORM / "scripts/deploy/job_units.py").read_bytes())
         deferred = self.root / "deferred"
         deferred.mkdir()
-        for job in ("map_edit_fold_admin", "vworld_parcel_edition"):  # the second is switched off
+        # The second is switched off; the third is a job the release no longer lists (2026-11-24: three
+        # deleted Gold rebuilds were still recorded, with a queued run each).
+        for job in ("map_edit_fold_admin", "vworld_parcel_edition", "synthetic_deleted_rebuild"):
             (deferred / job).write_text("0\n")
         result = self.deploy(FOUNDATION_SCHEDULED_DEFERRED_DIR=str(deferred))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((deferred / "synthetic_deleted_rebuild").exists(), "a deleted job's record is dropped")
+        self.assertTrue((deferred / "vworld_parcel_edition").exists(), "a job switched off keeps its record")
+        self.assertIn("no longer lists: synthetic_deleted_rebuild", result.stdout + result.stderr)
         log = (self.root / "airflow.log").read_text().splitlines()
         self.assertEqual([line for line in log if line.startswith("dags trigger")],
                          ["dags trigger foundation_map_edit_fold_admin"])

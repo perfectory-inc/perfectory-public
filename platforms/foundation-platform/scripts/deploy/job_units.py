@@ -140,6 +140,21 @@ def deferred() -> list[str]:
     return sorted(name for name in names if JOB_ID.fullmatch(name))
 
 
+def forget_deferred(listed) -> list[str]:
+    """Removes the records of jobs the job list (`listed`, every id whether enabled or not) no longer
+    has, and says which. A job a release deleted can never start, so nothing would ever remove its
+    record (start-scheduled-job.sh removes one when its job starts). 2026-11-24: three Gold rebuilds
+    deleted the day before were still recorded, and each still had a run queued from the deploys that
+    read the record while they were listed."""
+    gone = [job for job in deferred() if job not in listed]
+    for job in gone:
+        try:
+            os.unlink(os.path.join(deferred_dir(), job))
+        except FileNotFoundError:
+            pass
+    return gone
+
+
 def is_running(active_state: str) -> bool:
     return active_state not in STOPPED_STATES
 

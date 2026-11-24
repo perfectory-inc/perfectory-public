@@ -527,6 +527,24 @@ class TheDeferredJobs(unittest.TestCase):
             self.assertEqual(self.ask("deferred", directory=directory).stdout.split(),
                              ["map_edit_fold_complex", "outbox_publish"])
 
+    def test_a_record_of_a_job_the_list_no_longer_has_is_forgotten(self):
+        sys.path.insert(0, str(JOB_UNITS.parent))
+        import job_units  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as directory:
+            for name in ("map_edit_fold_complex", "synthetic_deleted_rebuild", "not a job"):
+                (pathlib.Path(directory) / name).write_text("0\n")
+            before = os.environ.get("FOUNDATION_SCHEDULED_DEFERRED_DIR")
+            os.environ["FOUNDATION_SCHEDULED_DEFERRED_DIR"] = directory
+            try:
+                self.assertEqual(job_units.forget_deferred({"map_edit_fold_complex"}), ["synthetic_deleted_rebuild"])
+                self.assertEqual(job_units.forget_deferred({"map_edit_fold_complex"}), [])
+            finally:
+                if before is None:
+                    del os.environ["FOUNDATION_SCHEDULED_DEFERRED_DIR"]
+                else:
+                    os.environ["FOUNDATION_SCHEDULED_DEFERRED_DIR"] = before
+            self.assertEqual(sorted(os.listdir(directory)), ["map_edit_fold_complex", "not a job"])
+
 
 
 class WhatTheDeployHolds(unittest.TestCase):

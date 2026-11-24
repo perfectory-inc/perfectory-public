@@ -19,7 +19,13 @@ none. Which of the two a job is asked through is its `dagster_stage` in the job 
 - **start** launches the job's Dagster job once (orchestration/dagster/run_jobs.py) with the run kind the
   host's forced command reads: `triggered` (the default: the deploy starting a run it owes) or `requested
   <id>` (an operator's run-now, root ADR-0282 §4). A run already open is joined on the host, not doubled
-  (start-scheduled-job.sh).
+  (start-scheduled-job.sh). A `triggered` start launches nothing while a run of the job waits to start
+  (QUEUED): that run has read nothing yet, so it is the run the deploy owes, as the job's sensor starts
+  nothing while a run of it is open (decide.py). A run in progress does not cover it (it began before the
+  release), so one run queues behind it. An operator's request is always launched: the host answers it by
+  its id. 2026-11-23: a run the deploy owes stays recorded until its unit starts on the host
+  (job_units.py deferred), the spark pool's one slot was taken for hours, and eleven deploys each launched
+  the same eight Gold rebuilds again: 74 of 93 queued runs were a second to eleventh copy.
 
 Dagster is asked over the writable webserver's unix socket (dagster_writes.WRITER_SOCKET), in a directory
 only root opens; its gate answers these documents and nothing else (root ADR-0565 §8). Every reader asks
@@ -46,6 +52,7 @@ import job_specs  # noqa: E402
 
 SENSORS, STOP, START, LAUNCH = (dagster_writes.SENSORS, dagster_writes.STOP_SENSOR, dagster_writes.START_SENSOR,
                                 dagster_writes.LAUNCH_RUN)
+WAITING = dagster_writes.WAITING_RUN
 REPOSITORY = dagster_writes.REPOSITORY
 
 
@@ -192,6 +199,18 @@ def start(jobs, job_id, kind, post, tags):
     return found["run"]["runId"]
 
 
+def waiting(job_id, post):
+    """The id of a run of the job that waits to start, or None. An answer Dagster does not give (a gate of
+    a release before this question) is None: the start is launched, as before."""
+    try:
+        found = _expect(post(WAITING, {"job": job_specs.DAGSTER_JOB_PREFIX + job_id})["runsOrError"], "Runs",
+                        f"asking for a waiting run of {job_id}")
+    except Unanswered as error:
+        print(f"job-orchestrator: {error}; starting {job_id} without knowing", file=sys.stderr)
+        return None
+    return found["results"][0]["runId"] if found["results"] else None
+
+
 def main(argv, post=None, health=sensor_daemon_healthy):
     if len(argv) < 2 or argv[0] not in ("decided", "pause", "unpause", "start"):
         print(__doc__.split("\n\n")[1], file=sys.stderr)
@@ -209,8 +228,13 @@ def main(argv, post=None, health=sensor_daemon_healthy):
                 raise Refused("start names one job")
             kind = " ".join(argv[3:]) or "triggered"
             _named(jobs, [argv[2]])
-            run_id = start(jobs, argv[2], kind, post or poster(), launch_tags(jobs, argv[2], kind))
-            print(f"job-orchestrator: started {argv[2]} as Dagster run {run_id}")
+            post = post or poster()
+            run_id = waiting(argv[2], post) if kind == "triggered" else None
+            if run_id is not None:
+                print(f"job-orchestrator: {argv[2]} already waits to start as Dagster run {run_id}; not started again")
+            else:
+                run_id = start(jobs, argv[2], kind, post, launch_tags(jobs, argv[2], kind))
+                print(f"job-orchestrator: started {argv[2]} as Dagster run {run_id}")
     except Refused as error:
         print(f"job-orchestrator: refused: {error}", file=sys.stderr)
         return 64
