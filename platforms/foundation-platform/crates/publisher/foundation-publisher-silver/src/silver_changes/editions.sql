@@ -8,8 +8,10 @@
 -- Parameters: {source} (the table at the pinned head, or a query of none), {staged}, {out}, {per},
 -- {edition}, {maxima} (`max(x) AS m0, …`), {order} (`m0 DESC NULLS LAST, …`), {content},
 -- {per_match} (`r.x IS NOT DISTINCT FROM s.x` per group column), {columns}.
--- {source} is read inside a subquery: a table pinned with `AT (VERSION => n)` takes no alias after it
--- (2026-11-23: the first load onto a table that already held editions failed on `... r`).
+-- {source} is read inside a subquery: the caller names the table at its pinned head with DuckDB's
+-- time travel clause, which takes no alias after it (2026-11-23: the first load onto a table that already
+-- held editions failed on `... r`). This file reads no snapshot itself: the caller's read is the one the
+-- maintenance contract declares (silver_changes.rs, snapshot_expiry.reader_pins).
 CREATE OR REPLACE TEMP TABLE {out}_editions AS
 WITH editions AS (
   SELECT {per}, {edition}, {maxima}
