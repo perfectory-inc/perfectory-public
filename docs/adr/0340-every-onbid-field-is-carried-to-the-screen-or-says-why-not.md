@@ -107,3 +107,21 @@
 - dbt model contracts·sources — 모델이 내놓는 열을 선언하고 다르면 빌드가 실패한다. <https://docs.getdbt.com/docs/collaborate/govern/model-contracts>
 - OpenLineage column-level lineage — 열마다 어느 입력 열에서 왔는지 기록한다. <https://openlineage.io/docs/spec/facets/dataset-facets/column_lineage_facet>
 - GDPR Art.5(1)(c) data minimisation, 개인정보 보호법 제3조(최소처리).
+
+## 개정 메모 2026-11-24: 빈 목록은 빈 배열, 공고 회차의 상세는 하나 (W96)
+
+공매 레인의 넘겨받기 판정(`takeover_equal`, 유닛 run `20261122T225544Z`, 시도 41)이 같지 않다고 답했고, 유형마다 Bronze·Silver 와
+대조했다(운영에서 잰 값, 읽기 전용).
+
+| 유형 | 잰 것 | 원천이 말하는 것 | 틀린 쪽 | 고친 것 |
+|---|---|---|---|---|
+| 스키마가 배열이라 한 칸의 null (`atch_file_list`·`prcn_bid_clg_list`·`prpsl_evl_item_clg_list`), 시도의 문서 863/863 거부 | 두 표가 같은 null 을 쓴다(`atch_file_list` 3,893 필지, 양쪽 같음) | 제공자는 항목 없는 목록을 `[]` 로 보낸다(Bronze 한 객체: 공고 상세 15 건 중 6, 입찰정보 204 건 중 107). Silver 는 그 글을 두지 않는다 | 둘 다 | 글이 없는 목록은 빈 배열 |
+| `anncm_al_cont_omitted` 가 Spark 에서만 null (181 필지) | 상세가 없는 공고 회차 1,663 / 10,979 | 본문이 없으니 생략한 것도 없다 | Spark(조인 전에 계산) | 상세가 없어도 `false` |
+| `rltn_pbanc_mng_no`·`rltn_pbanc_nm`·`pbanc_rtrcn_rsn_cont` 가 양쪽에서 엇갈림 | 공고 회차 238 개가 상세 2~3 줄을 얻는다 | 상세 표의 현재 행 키는 (`pbanc_mng_no`, `pbct_no`), 공고 개정판(`…-00`·`…-01`)마다 한 줄이다. 두 엔진이 (`onbid_pbanc_no`, `pbct_no`) 로 이었다 | 둘 다 | 회차의 상세는 목록이 이름 댄 개정판, 없으면 가장 나중에 실린 것 하나 |
+| 문서 안에서 되풀이된 회차 246 건(45 필지, 양쪽 같음) | 245 건의 되풀이 수가 그 공고 회차의 상세 줄 수와 같다 | 위와 같은 부풀림 | 둘 다 | 위의 고침으로 한 번씩. 블록 표가 키마다 한 줄이 아니면 그 시도는 붙지 않는다(단계의 차단 결과 검사 셋) |
+| 회차 수가 다른 문서 19 개(전국), 모두 DuckDB 쪽이 한 회차 더 | 모두 256 KiB 상한에 닿은 문서(Spark 최대 261,299 자, DuckDB 261,282 자). Spark 의 회차가 DuckDB 에 없는 경우는 0 | 잃은 회차는 없다. 엔진마다 자기 JSON 길이로 자른다(바이트 흉내 금지) | 없음 | 고치지 않는다. DuckDB 쪽이 담는 회차는 Spark 쪽의 것을 모두 포함한다 |
+
+고침은 DuckDB 쪽(`onbid_kind_stage`)에만 들어간다. Spark 생산자는 전환 PR 이 지우므로 고치지 않는다(사장 2026-11-24: AWS 가
+전제, 대체될 것은 수리하지 않는다). 그래서 Spark 표와의 견줌은 위 네 유형만큼 다르게 남고, 그 다름은 이 표가 설명한다: 전환은
+"같음" 이 아니라 "다른 곳마다 원천과 대조해 DuckDB 쪽이 옳다" 를 근거로 한다. 그 뒤의 보호는 Spark 짝이 필요 없는 결과 검사다
+(행 수, 키 유일성, 스키마를 통과하는 문서, 블록 표가 키마다 한 줄이 아니면 거부).

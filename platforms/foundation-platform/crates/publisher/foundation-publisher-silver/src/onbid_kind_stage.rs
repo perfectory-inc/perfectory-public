@@ -71,6 +71,19 @@ const SOURCE_CONTRACT: &str =
 pub const DOCUMENT_BYTE_LIMIT: u64 = 256 * 1024;
 /// What the document keeps of its ceiling for its envelope.
 pub const DOCUMENT_ENVELOPE_BYTES: u64 = 1024;
+/// The detail of each announcement round: of its revisions' current rows, the revision the
+/// round's list row names, else the newest by snapshot, then by revision.
+const ONE_DETAIL_PER_ROUND: &str = "\
+    SELECT * EXCLUDE (picked) FROM ( \
+      SELECT revision.*, row_number() OVER ( \
+          PARTITION BY revision.onbid_pbanc_no, revision.pbct_no \
+          ORDER BY (revision.pbanc_mng_no IS NOT DISTINCT FROM named.pbanc_mng_no) DESC, \
+            revision.source_snapshot_id DESC NULLS LAST, revision.pbanc_mng_no DESC NULLS LAST) AS picked \
+      FROM announcement_detail_rows revision \
+      LEFT JOIN announcement_rows named \
+        ON named.onbid_pbanc_no = revision.onbid_pbanc_no AND named.pbct_no = revision.pbct_no) \
+    WHERE picked = 1";
+
 /// An announcement's text past this many characters is not served (`anncm_al_cont_omitted`).
 pub const ANNOUNCEMENT_TEXT_LIMIT: u32 = 20_000;
 /// The datasets a served round comes from (data.go.kr ids).
@@ -211,6 +224,10 @@ fn is_list(field: &Value) -> bool {
 /// The list a `*_json` text holds (`alias.<name>_json`), in the document's keys: parsed by the
 /// provider's keys, each value as text (the provider writes some numbers as text), an object the
 /// provider's V2 made an array of 0..1 (공매재산명세) read as that array.
+///
+/// No text is the empty list: the provider sends `[]` for a list with no entry and Silver keeps
+/// no text for it, and the registry's schema says a list is an array (2026-11-22: every document
+/// of the takeover verdict's 시도, 863 of 863, was refused for a null list).
 fn parsed_list(alias: &str, name: &str, keys: &[String]) -> String {
     let text = format!("{alias}.{name}_json");
     let wrapped = format!(
@@ -228,7 +245,7 @@ fn parsed_list(alias: &str, name: &str, keys: &[String]) -> String {
         .map(|key| format!("'{key}': e.\"{}\"", provider_key(key)))
         .collect::<Vec<_>>()
         .join(", ");
-    format!("list_transform(from_json({wrapped}, '{structure}'), lambda e: {{{element}}})")
+    format!("coalesce(list_transform(from_json({wrapped}, '{structure}'), lambda e: {{{element}}}), [])")
 }
 
 /// The struct of a block from `table` (aliased `alias`) by the registry's `properties`: a list from
@@ -243,7 +260,7 @@ fn object(table: &str, alias: &str, properties: &Value) -> anyhow::Result<String
                 if column_type(table, &format!("{name}_json"))?.is_some() {
                     parsed_list(alias, name, &element_keys(field)?)
                 } else {
-                    "NULL".to_owned()
+                    "[]".to_owned()
                 }
             } else {
                 column_type(table, name)?
@@ -432,6 +449,12 @@ fn item_blocks() -> anyhow::Result<String> {
 /// The statements that leave `announcement_blocks(onbid_pbanc_no, pbct_no, announcement_json)`
 /// of the announcement rounds `servable` names: the list's value of a field, else its opening
 /// state's, else its detail's; the text past its limit left out and said so.
+///
+/// An announcement round has one detail: the detail table keeps a row per revision of the
+/// announcement (`pbanc_mng_no`, `…-00`, `…-01`), so the round's is the revision its list names,
+/// else the one that landed last. 2026-11-22: joined on the round alone, 238 rounds got two or three
+/// details, each of their served rounds was repeated as often (246 repeats in 45 parcels), and
+/// which revision's fields a parcel showed was an accident of the engine.
 fn announcement_blocks() -> anyhow::Result<String> {
     let announcement = shape(&["public_auction", "announcements", "[]"])?;
     let tables = [
@@ -479,7 +502,7 @@ fn announcement_blocks() -> anyhow::Result<String> {
                      WHERE onbid_pbanc_no IS NOT NULL AND pbct_no IS NOT NULL) k \
                LEFT JOIN announcement_rows l USING (onbid_pbanc_no, pbct_no) \
                LEFT JOIN announcement_result_rows r USING (onbid_pbanc_no, pbct_no) \
-               LEFT JOIN announcement_detail_rows d USING (onbid_pbanc_no, pbct_no);",
+               LEFT JOIN ({ONE_DETAIL_PER_ROUND}) d USING (onbid_pbanc_no, pbct_no);",
             fields = fields.join(", ")
         ))
 }
@@ -538,6 +561,28 @@ fn rounds_without_their_media(select: &str) -> String {
     )
 }
 
+/// The block tables a served round is joined to by their key, each with the name of its check: a
+/// table with two rows of one key repeats every round that names it.
+const BLOCK_TABLES: [(&str, &str, &str); 3] = [
+    ("round_photos_once_per_item", "round_photos", "cltr_mng_no"),
+    ("item_blocks_once_per_item", "item_blocks", "cltr_mng_no"),
+    (
+        "announcement_blocks_once_per_round",
+        "announcement_blocks",
+        "onbid_pbanc_no, pbct_no",
+    ),
+];
+
+/// The keys of `table` that hold more than one row, as `block_key` (the key's values joined by
+/// `|`), `select` naming what is selected of them.
+fn repeated_block_keys(table: &str, key: &str, select: &str) -> String {
+    format!(
+        "SELECT {select} \
+         FROM (SELECT concat_ws('|', {key}) AS block_key FROM {table} \
+               GROUP BY {key} HAVING count(*) > 1)"
+    )
+}
+
 impl KindVersionsStage for PublicAuctionKind {
     fn section_column(&self) -> &'static str {
         "public_auction_json"
@@ -547,13 +592,24 @@ impl KindVersionsStage for PublicAuctionKind {
     /// Silver had rows while the served rounds showed none (the Trino check
     /// `rounds_carry_their_media`, which read the Spark table; this is the producer's own, over the
     /// media it read).
+    ///
+    /// A block table a round is joined to holds one row per key ([`BLOCK_TABLES`]). 2026-11-22: an
+    /// announcement round got a detail per revision of its announcement, and 246 served rounds were
+    /// repeated in 45 parcels; nothing refused it (root ADR-0564 Revision 2026-11-24 §3).
     fn result_checks(&self) -> Vec<ResultCheck> {
-        vec![ResultCheck {
+        let mut checks = vec![ResultCheck {
             name: "rounds_carry_their_media",
             sql: rounds_without_their_media("count(*)"),
             blocking: true,
             samples_sql: Some(rounds_without_their_media("DISTINCT cltr_mng_no")),
-        }]
+        }];
+        checks.extend(BLOCK_TABLES.iter().map(|&(name, table, key)| ResultCheck {
+            name,
+            sql: repeated_block_keys(table, key, "count(*)"),
+            blocking: true,
+            samples_sql: Some(repeated_block_keys(table, key, "block_key")),
+        }));
+        checks
     }
 
     fn inputs(&self) -> Vec<&'static str> {

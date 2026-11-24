@@ -245,8 +245,10 @@ fn a_document_serves_the_open_rounds_soonest_first_with_their_blocks_once() -> a
     );
     // The kind's result check: C1's item has a photo and its round carries it, so no round breaches.
     let checks = PUBLIC_AUCTION.result_checks();
-    assert_eq!(checks.len(), 1);
-    let check = &checks[0];
+    let check = checks
+        .iter()
+        .find(|check| check.name == "rounds_carry_their_media")
+        .context("the media check")?;
     assert!(check.blocking);
     let breaches =
         |connection: &Connection| connection.query_row(&check.sql, [], |row| row.get::<_, i64>(0));
@@ -259,6 +261,99 @@ fn a_document_serves_the_open_rounds_soonest_first_with_their_blocks_once() -> a
     let samples = check.samples_sql.clone().unwrap_or_default();
     let item: String = connection.query_row(&samples, [], |row| row.get(0))?;
     assert_eq!(item, "C2");
+    Ok(())
+}
+
+/// 2026-11-22, the takeover verdict of this lane: a null where the schema says a list, an
+/// announcement round with a detail per revision, and the rounds those repeated.
+#[test]
+fn a_list_without_entries_is_empty_and_an_announcement_round_has_one_detail() -> anyhow::Result<()>
+{
+    let connection = Connection::open_in_memory()?;
+    setup(&connection, &rounds())?;
+    // The list names revision M7. An earlier revision's detail landed in a later snapshot.
+    connection.execute_batch(&format!(
+        "UPDATE {} SET pbanc_mng_no = 'M7';",
+        ANNOUNCEMENT_SOURCE.replace('.', "_")
+    ))?;
+    insert(
+        &connection,
+        ANNOUNCEMENT_DETAIL_SOURCE,
+        "onbid_pbanc_no, pbct_no, pbanc_mng_no, rltn_pbanc_mng_no, source_snapshot_id",
+        &["(7, 1, 'M6', 'M5', '20990102')".to_owned()],
+    )?;
+    read_for_test(&PUBLIC_AUCTION, &connection, EDITION, "")?;
+    build(&connection)?;
+    let built = documents(&connection)?;
+    let document = &built[0].1;
+    // Each open round once, though its announcement round has two details.
+    assert_eq!(document["rounds"].as_array().map(Vec::len), Some(2));
+    let announcements = document["announcements"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(announcements.len(), 1);
+    // The named revision's detail, not the one that landed last.
+    assert_eq!(
+        announcements[0]["atch_file_list"][0]["btbd_atch_file_nm"],
+        "공고문.pdf"
+    );
+    assert_eq!(announcements[0]["rltn_pbanc_mng_no"], Value::Null);
+    // A list the provider sent empty (Silver keeps no text for it) is an empty list.
+    let detail = &document["items"][0]["detail"];
+    assert_eq!(detail["leas_inf_list"], Value::Array(Vec::new()));
+
+    // No revision named: the detail that landed last. No detail at all: nothing was left out, and
+    // its list is empty.
+    let unnamed = Connection::open_in_memory()?;
+    setup(&unnamed, &rounds())?;
+    insert(
+        &unnamed,
+        ANNOUNCEMENT_DETAIL_SOURCE,
+        "onbid_pbanc_no, pbct_no, pbanc_mng_no, rltn_pbanc_mng_no, source_snapshot_id",
+        &["(7, 1, 'M8', 'M7', '20990102')".to_owned()],
+    )?;
+    read_for_test(&PUBLIC_AUCTION, &unnamed, EDITION, "")?;
+    build(&unnamed)?;
+    let announcement = documents(&unnamed)?[0].1["announcements"][0].clone();
+    assert_eq!(announcement["rltn_pbanc_mng_no"], "M7");
+    assert_eq!(announcement["atch_file_list"], Value::Array(Vec::new()));
+    let bare = Connection::open_in_memory()?;
+    setup(&bare, &rounds())?;
+    bare.execute_batch(&format!(
+        "DELETE FROM {};",
+        ANNOUNCEMENT_DETAIL_SOURCE.replace('.', "_")
+    ))?;
+    read_for_test(&PUBLIC_AUCTION, &bare, EDITION, "")?;
+    build(&bare)?;
+    let announcement = documents(&bare)?[0].1["announcements"][0].clone();
+    assert_eq!(announcement["anncm_al_cont_omitted"], false);
+    assert_eq!(announcement["atch_file_list"], Value::Array(Vec::new()));
+
+    // The block checks: one row per key passes; a second row of one key refuses the 시도, by name.
+    let blocks = PUBLIC_AUCTION
+        .result_checks()
+        .into_iter()
+        .filter(|check| check.name.contains("_once_per_"))
+        .collect::<Vec<_>>();
+    assert_eq!(blocks.len(), 3);
+    let breaches =
+        |check: &ResultCheck| connection.query_row(&check.sql, [], |row| row.get::<_, i64>(0));
+    for check in &blocks {
+        assert!(check.blocking, "{}", check.name);
+        assert_eq!(breaches(check)?, 0, "{}", check.name);
+    }
+    connection.execute_batch(
+        "INSERT INTO announcement_blocks SELECT * FROM announcement_blocks LIMIT 1;",
+    )?;
+    let announcement_check = blocks
+        .iter()
+        .find(|check| check.name == "announcement_blocks_once_per_round")
+        .context("the announcement block check")?;
+    assert_eq!(breaches(announcement_check)?, 1);
+    let samples = announcement_check.samples_sql.clone().unwrap_or_default();
+    let key: String = connection.query_row(&samples, [], |row| row.get(0))?;
+    assert_eq!(key, "7|1");
     Ok(())
 }
 
