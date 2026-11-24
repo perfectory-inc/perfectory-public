@@ -22,6 +22,11 @@ use crate::{lakehouse_engine_contract::execution_profile, serving_scratch};
 /// The name a stage that reads the lakehouse attaches its catalog under.
 pub const LAKEHOUSE_CATALOG: &str = "lakehouse";
 
+mod line_parts;
+pub use line_parts::LineParts;
+#[cfg(test)]
+pub(crate) use line_parts::TEST_PART_BYTES;
+
 /// `table` of the lakehouse catalog as it was at `snapshot`: a relation a query may alias, join and
 /// filter like any other.
 ///
@@ -324,49 +329,15 @@ impl DuckDbParquetStage {
         Ok(Some(bytes))
     }
 
-    /// A gzip JSON Lines object as `table(line_number BIGINT, line VARCHAR)`: the non-blank lines,
-    /// numbered from 1, as Python's text reader split them (a `\r\n` ends a line like `\n`).
+    /// A gzip JSON Lines object as `table(line_number BIGINT, line VARCHAR)`, whole: the non-blank
+    /// lines, numbered from 1, as Python's text reader split them (a `\r\n` ends a line like `\n`).
+    /// A lane whose objects grow reads them in parts ([`Self::read_line_parts`]).
     ///
     /// # Errors
-    /// Returns an error when the file is neither gzip nor plain UTF-8 text, `table` is not a plain identifier, or
-    /// `DuckDB` refuses a row.
+    /// Returns an error when the file is neither gzip nor plain UTF-8 text, `table` is not a plain
+    /// identifier, or `DuckDB` refuses a row.
     pub fn load_lines(&self, path: &Path, table: &str) -> anyhow::Result<u64> {
-        use std::io::Read as _;
-
-        ensure!(
-            !table.is_empty()
-                && table
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
-            "{table:?} is not a plain table name"
-        );
-        let raw = std::fs::read(path).with_context(|| format!("cannot open {}", path.display()))?;
-        // gzip by its magic bytes, plain text otherwise (a run file an image wrote).
-        let text = if raw.starts_with(&[0x1f, 0x8b]) {
-            let mut text = String::new();
-            flate2::read::GzDecoder::new(raw.as_slice())
-                .read_to_string(&mut text)
-                .with_context(|| format!("{} is not gzip UTF-8 text", path.display()))?;
-            text
-        } else {
-            String::from_utf8(raw)
-                .with_context(|| format!("{} is not UTF-8 text", path.display()))?
-        };
-        self.connection.execute_batch(&format!(
-            "CREATE OR REPLACE TABLE {table} (line_number BIGINT NOT NULL, line VARCHAR NOT NULL)"
-        ))?;
-        let mut appender = self.connection.appender(table)?;
-        let mut number = 0_i64;
-        for line in text.split('\n') {
-            let line = line.strip_suffix('\r').unwrap_or(line);
-            if line.trim().is_empty() {
-                continue;
-            }
-            number += 1;
-            appender.append_row(duckdb::params![number, line])?;
-        }
-        appender.flush()?;
-        Ok(u64::try_from(number)?)
+        self.read_line_parts(path, table, LineParts::Whole, &[], || Ok(()))
     }
 
     /// The connection a transform loads its inputs into and computes on.

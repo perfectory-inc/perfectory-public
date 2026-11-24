@@ -70,3 +70,14 @@ SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq
 FROM ca_search_lines
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no, property_seq, item_seq
                            ORDER BY line_number DESC, n DESC) = 1;
+
+-- Read in parts (duckdb_parquet_stage::LineParts::InOrder), each part kept the row of the last line
+-- holding each 물건 among its own lines; across parts the later line wins the same way. Lines never
+-- span parts, so the line alone decides. One part: no row changes.
+-- @object ca_search_rows
+CREATE OR REPLACE TEMP TABLE ca_search_rows_merged AS
+SELECT * FROM ca_search_rows
+QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no, property_seq, item_seq
+                           ORDER BY source_line_number DESC) = 1;
+DROP TABLE ca_search_rows;
+ALTER TABLE ca_search_rows_merged RENAME TO ca_search_rows;

@@ -20,7 +20,7 @@ use lakehouse_domain::{
 use super::{
     planned_objects, read_object, CourtAuctionSource, Keep, PlannedObject, Role, PLAN_SCHEMA, ROLES,
 };
-use crate::duckdb_parquet_stage::DuckDbParquetStage;
+use crate::duckdb_parquet_stage::{DuckDbParquetStage, TEST_PART_BYTES};
 use crate::onbid_silver_stage::write;
 
 fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
@@ -605,7 +605,7 @@ fn a_search_row_takes_the_code_first_then_its_lot_then_its_road() -> anyhow::Res
 #[test]
 fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
     // One stage with only the value readers, and each case's lines only (`search_complete` reads
-    // `ca_parsed`): a stage per case with the search rows and the place-identity reference took over
+    // their pages): a stage per case with the search rows and the place-identity reference took over
     // 30 s in the dev profile's unoptimized DuckDB and timed out beside other tests (2026-11-23).
     let directory = tempfile::tempdir()?;
     let source = CourtAuctionSource::compiled()?;
@@ -625,6 +625,9 @@ fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
         std::fs::write(&path, lines)?;
         stage.load_lines(&path, "ca_lines")?;
         stage.connection().execute_batch(super::LINES_SQL)?;
+        stage
+            .connection()
+            .execute_batch(&super::search_pages_sql(&source, Role::ItemSearch)?)?;
         assert_eq!(
             super::search_complete(&stage, &source, Role::ItemSearch)?,
             case["complete"].as_bool().context("complete")?,
@@ -790,5 +793,91 @@ fn a_follow_places_again_the_rows_a_code_change_can_move_with_its_record() -> an
             "20990130000001|9999910100100070000|legal_dong_code|{record}|20990103T040506Z"
         )]
     );
+    Ok(())
+}
+
+/// What `read_object` left of `role`'s object: every staged table's rows (a search's rows and pages:
+/// its staging table is its placement's), each as text, sorted; and a search's completeness.
+fn read_rows(role: Role, part_bytes: Option<u64>) -> anyhow::Result<(Vec<String>, Option<bool>)> {
+    let directory = tempfile::tempdir()?;
+    let source = CourtAuctionSource::compiled()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage
+        .connection()
+        .execute_batch(&CourtAuctionSource::values_sql())?;
+    let ingested_at = chrono::Utc
+        .with_ymd_and_hms(2099, 1, 2, 3, 4, 5)
+        .single()
+        .context("a time")?;
+    TEST_PART_BYTES.set(part_bytes);
+    let staged = read_object(
+        &stage,
+        &source,
+        &object(directory.path(), role)?,
+        ingested_at,
+    );
+    TEST_PART_BYTES.set(None);
+    let staged = staged?;
+    let search = matches!(role, Role::ItemSearch | Role::SaleResultSearch);
+    let tables = if search {
+        vec!["ca_search_rows".to_owned(), "ca_search_pages".to_owned()]
+    } else {
+        staged.into_iter().map(|table| table.staged).collect()
+    };
+    let mut rows = Vec::new();
+    for table in tables {
+        let mut found = stage
+            .connection()
+            .prepare(&format!("SELECT CAST(t AS VARCHAR) FROM {table} t"))?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        found.sort();
+        rows.extend(found.into_iter().map(|row| format!("{table}: {row}")));
+    }
+    let complete = search
+        .then(|| super::search_complete(&stage, &source, role))
+        .transpose()?;
+    Ok((rows, complete))
+}
+
+#[test]
+fn every_role_stages_the_same_rows_read_in_parts_as_read_whole() -> anyhow::Result<()> {
+    // 2026-11-24 the load ran out of memory on a whole 394 MiB 물건 검색 object; it now reads an
+    // object in parts. Here every group of lines is a part of its own (a case, or a search line).
+    for role in ROLES {
+        if fixture(&format!("{}.jsonl", role.name())).is_err() {
+            continue;
+        }
+        let whole = read_rows(role, None)?;
+        assert_eq!(read_rows(role, Some(1))?, whole, "{}", role.name());
+    }
+    Ok(())
+}
+
+#[test]
+fn only_a_line_that_is_not_json_is_called_one() -> anyhow::Result<()> {
+    // 2026-11-24 21:35Z the load reported running out of memory as "a line that is not JSON".
+    let failure = |error: duckdb::Error| format!("{:#}", super::lines_failure(error, "k"));
+    let stage_directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(stage_directory.path())?;
+    let malformed = stage
+        .connection()
+        .execute_batch(
+            "CREATE TABLE l AS SELECT 'not json' AS line;              CREATE TABLE j AS SELECT CAST(line AS JSON) AS j FROM l",
+        )
+        .err()
+        .context("not JSON is refused")?;
+    assert!(failure(malformed).starts_with("k holds a line that is not JSON"));
+    let other = stage
+        .connection()
+        .execute_batch("SELECT * FROM no_such_table")
+        .err()
+        .context("an absent table is refused")?;
+    let other = failure(other);
+    assert!(
+        other.starts_with("DuckDB failed to read the lines of k"),
+        "{other}"
+    );
+    assert!(!other.contains("not JSON"), "{other}");
     Ok(())
 }
