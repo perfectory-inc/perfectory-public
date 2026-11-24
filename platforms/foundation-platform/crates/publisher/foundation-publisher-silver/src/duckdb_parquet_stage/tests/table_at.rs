@@ -3,7 +3,7 @@
 use crate::duckdb_parquet_stage::{table_at, table_at_in, DuckDbParquetStage, LAKEHOUSE_CATALOG};
 
 // 2026-11-21 the first release compares failed on `... AT (VERSION => n) g` and 2026-11-23 21:35Z
-// the court auction load on `... AT (VERSION => 5727726620661476238) r`: `DuckDB` takes no alias
+// the court auction load on `... AT (VERSION => n) r`: `DuckDB` takes no alias
 // after the clause, and each query had only ever read a table with no snapshot. Here `DuckDB`
 // itself reads the forms the loads use. The catalog is a local one of that name, which has no
 // snapshots to travel to: `DuckDB` may refuse the read, but only after it parsed the query.
@@ -16,10 +16,10 @@ fn a_table_read_at_a_snapshot_takes_an_alias_a_join_and_a_filter() -> anyhow::Re
          CREATE SCHEMA {LAKEHOUSE_CATALOG}.silver; \
          CREATE TABLE {LAKEHOUSE_CATALOG}.silver.editions AS SELECT 1 AS id, 'e1' AS edition"
     ))?;
-    let pinned = table_at("silver.editions", 5_727_726_620_661_476_238);
+    let pinned = table_at("silver.editions", 42);
     assert_eq!(
         pinned,
-        "(SELECT * FROM lakehouse.silver.editions AT (VERSION => 5727726620661476238))"
+        "(SELECT * FROM lakehouse.silver.editions AT (VERSION => 42))"
     );
     assert_eq!(
         table_at_in("other", "silver.editions", 7),

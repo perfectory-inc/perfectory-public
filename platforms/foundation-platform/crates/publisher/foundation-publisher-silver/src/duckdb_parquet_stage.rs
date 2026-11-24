@@ -26,7 +26,7 @@ pub const LAKEHOUSE_CATALOG: &str = "lakehouse";
 /// filter like any other.
 ///
 /// The one place that writes a time travel read. `DuckDB` takes no alias after
-/// `AT (VERSION => n)`, so the bare form read `... AT (VERSION => 5727726620661476238) r` as a
+/// `AT (VERSION => n)`, so the bare form read `... AT (VERSION => n) r` as a
 /// syntax error: 2026-11-21 the first release compares failed on `... g`, 2026-11-23 the court
 /// auction load's first compare against a table that already held editions failed on `... r`, each
 /// in a query whose every earlier run had read a table with no snapshot. Inside a subquery the

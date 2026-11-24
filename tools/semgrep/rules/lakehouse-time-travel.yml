@@ -6,7 +6,7 @@
 # (it is then a parenthesised query of no row), so the tests and every first run pass. 2026-11-21 the
 # first release compares in production failed on `... AT (VERSION => n) g`; the fix was local, and
 # 2026-11-23 21:35Z the court auction Silver load failed the same way on
-# `silver.court_auction_case_related AT (VERSION => 5727726620661476238) r`, its first compare against
+# `silver.court_auction_case_related AT (VERSION => n) r`, its first compare against
 # a table that already held editions, and the night's load was lost. `table_at` returns the read
 # closed in a subquery, which takes an alias, a join or a filter like any relation.
 #
