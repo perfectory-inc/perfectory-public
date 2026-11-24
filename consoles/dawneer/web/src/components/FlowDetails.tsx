@@ -9,7 +9,6 @@ import { useEffect, useRef, useState } from "react";
 
 import type { CatalogEntity, DataContractQuality, DatasetSnapshot, DawneerClient, OperationsLinks, ScheduledJobStatus } from "../api/client";
 import {
-  catalogLineageUrl,
   datasetKind,
   jobTitle,
   problemSentence,
@@ -295,11 +294,6 @@ export function FlowDetails({
         </button>
       </div>
       {node?.node.description ? <p className="mt-2 text-sm text-slate-700">{node.node.description}</p> : null}
-      {node ? (
-        <div className="mt-2">
-          <ExternalLink href={catalogLineageUrl(links, catalogUrn)}>DataHub 계보</ExternalLink>
-        </div>
-      ) : null}
 
       <h3 className="mt-4 text-sm font-semibold">{selection.kind === "job" ? "작업" : "이 데이터를 만드는 작업"}</h3>
       {makers.length === 0 ? (

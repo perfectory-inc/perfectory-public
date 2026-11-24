@@ -4,6 +4,10 @@
 //! Catalog support enters through configuration only; application code still sees the provider
 //! neutral `LakehouseCatalog` port.
 
+mod columns;
+
+pub use columns::IcebergColumn;
+
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
@@ -1221,6 +1225,10 @@ struct IcebergTableMetadata {
     refs: BTreeMap<String, IcebergRefMetadata>,
     #[serde(default)]
     properties: BTreeMap<String, String>,
+    #[serde(rename = "current-schema-id", default)]
+    current_schema_id: Option<i64>,
+    #[serde(default)]
+    schemas: Vec<columns::IcebergSchemaMetadata>,
 }
 
 #[derive(Debug, Deserialize)]

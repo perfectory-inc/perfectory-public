@@ -24,7 +24,6 @@ import { ParcelEditions } from "../components/ParcelEditions";
 import { ByPnuCutovers } from "../components/ByPnuCutovers";
 import { ServiceChecks } from "../components/ServiceChecks";
 import {
-  catalogUrnOf,
   contractOf,
   flowSummary,
   flowView,
@@ -144,7 +143,7 @@ export function FlowPage({ client, tab, focus }: { client: DawneerClient; tab: F
             jobs={jobList}
             states={states}
             contract={node ? contractOf(node.node, quality.data?.contracts ?? []) : null}
-            catalogUrn={node ? catalogUrnOf(node.id, jobList) : null}
+            catalogUrn={node ? node.id : null}
             links={jobs.data?.links}
             onSelectDataset={selectDataset}
             titleOf={titleOf}

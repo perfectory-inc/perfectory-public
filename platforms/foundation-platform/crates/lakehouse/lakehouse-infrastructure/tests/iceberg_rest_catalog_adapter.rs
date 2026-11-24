@@ -1097,6 +1097,66 @@ async fn a_resumed_load_reads_what_its_branch_records_or_mains_before_it_exists(
 }
 
 #[tokio::test]
+async fn reads_the_columns_of_the_current_schema_not_of_an_older_one() -> Result<(), Box<dyn Error>>
+{
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "prefix").await;
+    Mock::given(method("GET"))
+        .and(path("/v1/prefix/namespaces/gold/tables/synthetic_panel"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://bucket/gold/synthetic_panel/metadata/00004.json",
+            "metadata": {
+                "current-snapshot-id": 3,
+                "current-schema-id": 1,
+                "schemas": [
+                    {"schema-id": 0, "type": "struct", "fields": [
+                        {"id": 1, "name": "synthetic_key", "required": true, "type": "string"}
+                    ]},
+                    {"schema-id": 1, "type": "struct", "fields": [
+                        {"id": 1, "name": "synthetic_key", "required": true, "type": "string", "doc": " the key "},
+                        {"id": 2, "name": "amount", "required": false, "type": "decimal(18, 2)", "doc": ""},
+                        {"id": 3, "name": "parts", "required": false,
+                         "type": {"type": "list", "element-id": 4, "element": "string", "element-required": false}}
+                    ]}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/prefix/namespaces/gold/tables/never_made"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    let columns = catalog
+        .load_current_columns("gold.synthetic_panel")
+        .await?
+        .ok_or_else(|| std::io::Error::other("table should exist"))?;
+    let shown: Vec<(&str, &str, Option<&str>)> = columns
+        .iter()
+        .map(|column| {
+            (
+                column.name.as_str(),
+                column.data_type.as_str(),
+                column.doc.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        vec![
+            ("synthetic_key", "string", Some("the key")),
+            ("amount", "decimal(18, 2)", None),
+            ("parts", "list", None),
+        ]
+    );
+    assert_eq!(catalog.load_current_columns("gold.never_made").await?, None);
+    Ok(())
+}
+
+#[tokio::test]
 async fn reads_mains_snapshot_history_newest_first_without_other_branches(
 ) -> Result<(), Box<dyn Error>> {
     let server = MockServer::start().await;

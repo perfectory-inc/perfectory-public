@@ -1,17 +1,17 @@
-//! Staff routes that read the data catalog (root ADR-0117, ADR-0119).
+//! Staff routes that read the data catalog (root ADR-0117, ADR-0119, ADR-0609).
 //!
-//! The catalog's store is `DataHub`, reached only from Foundation on the shared metadata network;
-//! no browser talks to it. Every route is staff-only and authorized by the Identity Platform as
-//! `foundation.metadata:read`. Foundation asks fixed questions and returns its own types, so the
-//! console never depends on `DataHub`'s `GraphQL` schema and another store could stand behind it.
+//! No fact lives in a catalog store of its own (root ADR-0609 §1): a dataset is a node of the
+//! pipeline graph, its columns are its Iceberg table's current schema, its runs are the
+//! orchestrator's and its quality results are Dagster's asset check evaluations. Every route is
+//! staff-only and authorized by the Identity Platform as `foundation.metadata:read`. Foundation
+//! asks fixed questions and returns its own types, so the console depends on none of those stores.
 
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use axum::{
-    extract::{Query, State},
     routing::{get, post},
-    Json, Router,
+    Router,
 };
 use foundation_contracts::data_catalog::{
     AuditDigestView, AuditEventPage, AuditEventView, AuditImportSource, AuditImportStatusPage,
@@ -26,10 +26,8 @@ use foundation_contracts::data_catalog::{
     ScheduledJobStatus, ScheduledJobsStatus, ServiceChecks,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
-use serde::Deserialize;
-use serde_json::{json, Value as JsonValue};
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
-use utoipa::{IntoParams, Modify, OpenApi};
+use utoipa::{Modify, OpenApi};
 
 use super::api_error::ApiError;
 use crate::state::AppState;
@@ -37,6 +35,7 @@ use crate::state::AppState;
 mod alerts;
 mod audit;
 mod by_pnu_cutovers;
+mod entities;
 mod facts;
 mod health;
 mod main_red;
@@ -53,10 +52,6 @@ pub(super) use main_red::main_red_metrics;
 pub(super) use repository_drift::repository_drift_metrics;
 pub(super) use security_alerts::advisory_metrics as security_advisory_metrics;
 
-const GMS_URL_ENV: &str = "FOUNDATION_PLATFORM_DATAHUB_GMS_URL";
-const MAX_PAGE: u32 = 50;
-const MAX_NEIGHBOURS: u32 = 200;
-
 #[derive(OpenApi)]
 #[openapi(
     info(
@@ -65,8 +60,8 @@ const MAX_NEIGHBOURS: u32 = 200;
         description = "Find data and read its description, columns and one step of lineage either way (root ADR-0117, ADR-0119); see how the scheduled jobs ran and what the data contracts' checks found (root ADR-0165); and how the live hostnames are reached from Korea and how long pull request CI takes (root ADR-0209); and whether each cadastral edition is all there and who served which (root ADR-0379)."
     ),
     paths(
-        search,
-        entity,
+        entities::search,
+        entities::entity,
         operations::scheduled_jobs,
         operations::quality_checks,
         operator_actions::record_operator_action,
@@ -161,11 +156,11 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route(
             "/data-catalog/v1/search",
-            super::protected_route(get(search), state, read, None),
+            super::protected_route(get(entities::search), state, read, None),
         )
         .route(
             "/data-catalog/v1/entity",
-            super::protected_route(get(entity), state, read, None),
+            super::protected_route(get(entities::entity), state, read, None),
         )
         .route(
             "/data-catalog/v1/scheduled-jobs",
@@ -230,149 +225,6 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         )
 }
 
-/// What to search for.
-#[derive(Debug, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-struct SearchQuery {
-    /// Words to find in names and descriptions; `*` or empty lists everything.
-    q: Option<String>,
-    /// Zero-based offset of the first result.
-    start: Option<u32>,
-    /// Results per page, 1 to 50 (default 20).
-    count: Option<u32>,
-}
-
-/// Which entity to read.
-#[derive(Debug, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-struct EntityQuery {
-    /// The entity's `urn`, exactly as a search result or a neighbour gave it.
-    urn: String,
-}
-
-/// Finds datasets by name or description.
-#[utoipa::path(
-    get,
-    path = "/data-catalog/v1/search",
-    operation_id = "searchDataCatalog",
-    params(SearchQuery),
-    responses(
-        (status = 200, body = DataCatalogSearchPage),
-        (status = 400, description = "A page size outside 1..=50", body = ApiErrorResponse),
-        (status = 401, description = "No staff identity"),
-        (status = 403, description = "Principal may not read the data catalog"),
-        (status = 503, description = "The data catalog is not configured or not reachable", body = ApiErrorResponse),
-    )
-)]
-async fn search(
-    State(_state): State<Arc<AppState>>,
-    Query(query): Query<SearchQuery>,
-) -> Result<Json<DataCatalogSearchPage>, ApiError> {
-    let count = query.count.unwrap_or(20);
-    if count == 0 || count > MAX_PAGE {
-        return Err(ApiError::BadRequest(format!(
-            "count must be between 1 and {MAX_PAGE}"
-        )));
-    }
-    let start = query.start.unwrap_or(0);
-    let text = query
-        .q
-        .as_deref()
-        .map(str::trim)
-        .filter(|q| !q.is_empty())
-        .unwrap_or("*");
-    let data = graphql(
-        SEARCH_QUERY,
-        json!({ "q": text, "start": start, "count": count }),
-    )
-    .await?;
-    let found = &data["searchAcrossEntities"];
-    let results = found["searchResults"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| entity_from(&row["entity"]))
-                .collect()
-        })
-        .unwrap_or_default();
-    Ok(Json(DataCatalogSearchPage {
-        total: as_u32(&found["total"]),
-        start: as_u32(&found["start"]),
-        results,
-    }))
-}
-
-/// Reads one entity with its columns and one step of lineage either way.
-#[utoipa::path(
-    get,
-    path = "/data-catalog/v1/entity",
-    operation_id = "getDataCatalogEntity",
-    params(EntityQuery),
-    responses(
-        (status = 200, body = DataCatalogNeighbourhood),
-        (status = 401, description = "No staff identity"),
-        (status = 403, description = "Principal may not read the data catalog"),
-        (status = 404, description = "No such entity", body = ApiErrorResponse),
-        (status = 503, description = "The data catalog is not configured or not reachable", body = ApiErrorResponse),
-    )
-)]
-async fn entity(
-    State(_state): State<Arc<AppState>>,
-    Query(query): Query<EntityQuery>,
-) -> Result<Json<DataCatalogNeighbourhood>, ApiError> {
-    if !query.urn.starts_with("urn:li:dataset:") && !query.urn.starts_with("urn:li:dataJob:") {
-        return Err(ApiError::NotFound(
-            "only dataset and job urns are in the data catalog".to_owned(),
-        ));
-    }
-    let data = graphql(
-        ENTITY_QUERY,
-        json!({ "urn": query.urn, "count": MAX_NEIGHBOURS }),
-    )
-    .await?;
-    let node = &data["entity"];
-    let Some(entity) = entity_from(node) else {
-        return Err(ApiError::NotFound("no such data catalog entity".to_owned()));
-    };
-    let fields = node["schemaMetadata"]["fields"]
-        .as_array()
-        .map(|fields| {
-            fields
-                .iter()
-                .filter_map(|field| {
-                    Some(DataCatalogField {
-                        path: field["fieldPath"].as_str()?.to_owned(),
-                        native_type: text(&field["nativeDataType"]),
-                        description: text(&field["description"]),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    Ok(Json(DataCatalogNeighbourhood {
-        entity,
-        fields,
-        upstream: neighbours(&node["up"]),
-        downstream: neighbours(&node["down"]),
-    }))
-}
-
-const ENTITY_FRAGMENT: &str = "fragment E on Entity { urn type
-  ... on Dataset { name platform { name } properties { name description } editableProperties { description } }
-  ... on DataJob { jobId properties { name description } dataFlow { orchestrator } } }";
-
-const SEARCH_QUERY: &str = "query($q: String!, $start: Int!, $count: Int!) {
-  searchAcrossEntities(input: { types: [DATASET], query: $q, start: $start, count: $count }) {
-    total start searchResults { entity { ...E } } } }";
-
-const ENTITY_QUERY: &str = "query($urn: String!, $count: Int!) { entity(urn: $urn) { ...E
-  ... on Dataset { schemaMetadata { fields { fieldPath nativeDataType description } }
-    up: lineage(input: { direction: UPSTREAM, start: 0, count: $count }) { relationships { entity { ...E } } }
-    down: lineage(input: { direction: DOWNSTREAM, start: 0, count: $count }) { relationships { entity { ...E } } } }
-  ... on DataJob {
-    up: lineage(input: { direction: UPSTREAM, start: 0, count: $count }) { relationships { entity { ...E } } }
-    down: lineage(input: { direction: DOWNSTREAM, start: 0, count: $count }) { relationships { entity { ...E } } } } } }";
-
 fn http() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
@@ -381,96 +233,6 @@ fn http() -> &'static reqwest::Client {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new())
     })
-}
-
-/// Asks the catalog store one of the fixed entity questions above and returns its `data`.
-async fn graphql(query: &str, variables: JsonValue) -> Result<JsonValue, ApiError> {
-    ask(&format!("{query}\n{ENTITY_FRAGMENT}"), variables).await
-}
-
-/// Asks the catalog store one fixed `GraphQL` document and returns its `data`.
-async fn ask(document: &str, variables: JsonValue) -> Result<JsonValue, ApiError> {
-    let base = std::env::var(GMS_URL_ENV)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| ApiError::Unavailable("the data catalog is not configured".to_owned()))?;
-    let url = format!("{}/api/graphql", base.trim_end_matches('/'));
-    let body = json!({ "query": document, "variables": variables });
-    let response = http().post(url).json(&body).send().await.map_err(|error| {
-        tracing::warn!(%error, "data catalog unreachable");
-        ApiError::Unavailable("the data catalog is not reachable".to_owned())
-    })?;
-    if !response.status().is_success() {
-        return Err(ApiError::Unavailable(format!(
-            "the data catalog answered {}",
-            response.status()
-        )));
-    }
-    let mut answer: JsonValue = response
-        .json()
-        .await
-        .map_err(|error| ApiError::Internal(format!("data catalog answer is not JSON: {error}")))?;
-    if let Some(errors) = answer.get("errors").filter(|errors| !errors.is_null()) {
-        return Err(ApiError::Internal(format!(
-            "data catalog refused the query: {errors}"
-        )));
-    }
-    Ok(answer["data"].take())
-}
-
-fn text(value: &JsonValue) -> Option<String> {
-    value
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-}
-
-fn as_u32(value: &JsonValue) -> u32 {
-    value
-        .as_u64()
-        .and_then(|value| u32::try_from(value).ok())
-        .unwrap_or(0)
-}
-
-/// Turns one GraphQL entity into the wire type; anything but a dataset or job is left out.
-fn entity_from(value: &JsonValue) -> Option<DataCatalogEntity> {
-    let urn = value["urn"].as_str()?.to_owned();
-    let properties = &value["properties"];
-    match value["type"].as_str()? {
-        "DATASET" => Some(DataCatalogEntity {
-            name: text(&properties["name"])
-                .or_else(|| text(&value["name"]))
-                .unwrap_or_else(|| urn.clone()),
-            urn,
-            kind: DataCatalogEntityKind::Dataset,
-            platform: text(&value["platform"]["name"]),
-            // A description a person edited in the catalog wins over the one the source stated.
-            description: text(&value["editableProperties"]["description"])
-                .or_else(|| text(&properties["description"])),
-        }),
-        "DATA_JOB" => Some(DataCatalogEntity {
-            name: text(&properties["name"])
-                .or_else(|| text(&value["jobId"]))
-                .unwrap_or_else(|| urn.clone()),
-            urn,
-            kind: DataCatalogEntityKind::Job,
-            platform: text(&value["dataFlow"]["orchestrator"]),
-            description: text(&properties["description"]),
-        }),
-        _ => None,
-    }
-}
-
-fn neighbours(lineage: &JsonValue) -> Vec<DataCatalogEntity> {
-    lineage["relationships"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| entity_from(&row["entity"]))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -518,7 +280,7 @@ mod tests {
         // 2026-10-09 to 10-12 the flows query lacked one `}`: DataHub refused it, and every job
         // read as "runs could not be read" in production while the fake catalog never parsed it.
         let documents = graphql_documents()?;
-        assert!(documents.len() >= 4, "found only {documents:?}");
+        assert!(documents.len() >= 2, "found only {documents:?}");
         for (name, body) in documents {
             let mut open = Vec::new();
             for character in body.chars() {
@@ -542,53 +304,5 @@ mod tests {
             assert!(open.is_empty(), "{name} leaves {open:?} open");
         }
         Ok(())
-    }
-
-    #[test]
-    fn a_dataset_prefers_the_edited_description_and_falls_back_to_the_urn_for_a_name() {
-        let value = json!({
-            "urn": "urn:li:dataset:(urn:li:dataPlatform:synthetic,silver.synthetic,PROD)",
-            "type": "DATASET",
-            "name": null,
-            "platform": { "name": "synthetic" },
-            "properties": { "name": "silver.synthetic", "description": "stated" },
-            "editableProperties": { "description": "edited" }
-        });
-        let entity = entity_from(&value);
-        assert_eq!(
-            entity
-                .as_ref()
-                .map(|e| (e.name.as_str(), e.description.as_deref())),
-            Some(("silver.synthetic", Some("edited")))
-        );
-        let bare = json!({ "urn": "urn:li:dataset:x", "type": "DATASET" });
-        assert_eq!(
-            entity_from(&bare).map(|e| e.name),
-            Some("urn:li:dataset:x".to_owned())
-        );
-    }
-
-    #[test]
-    fn a_job_is_named_by_its_properties_and_other_types_are_left_out() {
-        let job = json!({
-            "urn": "urn:li:dataJob:x",
-            "type": "DATA_JOB",
-            "jobId": "build x",
-            "properties": { "name": "", "description": "declared" },
-            "dataFlow": { "orchestrator": "synthetic" }
-        });
-        let entity = entity_from(&job);
-        assert_eq!(
-            entity.map(|e| (e.kind, e.name, e.platform)),
-            Some((
-                DataCatalogEntityKind::Job,
-                "build x".to_owned(),
-                Some("synthetic".to_owned())
-            ))
-        );
-        assert_eq!(
-            entity_from(&json!({ "urn": "urn:li:chart:x", "type": "CHART" })),
-            None
-        );
     }
 }
