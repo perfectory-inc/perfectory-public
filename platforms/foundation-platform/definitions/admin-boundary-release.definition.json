@@ -54,6 +54,61 @@
         "changes_within_hours": null,
         "no_change_bound_reason": "Its provider publishes on no fixed day (expected_cadence `irregular` in docs/catalog/public-source-endpoint-catalog.v1.json), so a run that finds nothing new is healthy. That it keeps finishing is the done bound."
       }
+    },
+    {
+      "id": "gold_place_id_versions_build",
+      "dagster_group": "gold",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The place-id release as two tables of appended row versions (root ADR-0113 §8, ADR-0481, ADR-0564 §6-9; scripts/ops/gold-versions-build.sh place-id → publisher build-place-id-versions): gold.place_id_registry_versions and gold.place_id_bridge_versions, the parcel unit from silver.parcel_registry as of the served edition (read once, each region in turn: an id's region is the 시도 of its first row) and the admin unit from the snapshots of silver.administrative_boundaries, both with the legal-dong code crosswalk, computed by DuckDB inside the publisher and appended as the keys whose digest changed, one commit a table. A unit is rebuilt when one of its inputs, the served edition (parcel) or the code moved; nothing to do otherwise. While the Spark release writes gold.place_id_registry and gold.place_id_bridge it is their shadow: it reads the inputs as of the replaced registry's newest commit (the Spark release records no pins). The changelog stays with the Spark release until the switch. It starts no Spark session, so it queues in the duckdb pool on its own unit's memory_claim. Nothing reads it until the takeover PR moves place_id_join.",
+      "systemd_service": "foundation-gold-versions@place-id.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "40 11 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 60,
+      "memory_max": "8G",
+      "memory_measured_peak": "7373M",
+      "memory_measured": "its own: run 20261119T152616Z of foundation-gold-versions@parcel-nearby (2026-11-19 15:26-15:51Z, every served parcel, 39,861,511 rows committed in 1500 s), systemd's memory peak 7.2G, swap peak 13.5M; the publisher's own peak in its run log 7,733,563,392 bytes",
+      "memory_headroom_why": "The peak follows the cap, not the work: the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (parcel_nearby_versions_build MEMORY_SHARE) and DuckDB fills it and the page cache, so a larger memory_max would only raise the peak. The run fit: no timeout, 13.5M swap, under MemoryMax",
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1500,
+          "estimated_from": "computed, not measured: the first build reads silver.parcel_registry as of the served edition once (about 40 million rows: gold.place_id_registry held 39.9 million ids and gold.place_id_bridge 46.4 million rows on 2026-11-22, Trino) into a local spool, folds it into 17 regions and diffs each against an empty head, then the admin unit's few thousand ids; the same publisher's first parcel-nearby shadow read and committed 39,861,511 rows in 1,500 s (2026-11-19). About 1,500 s, inside the 3,240 s share of the 60-minute limit. Later runs rebuild only the unit whose inputs moved."
+        }
+      },
+      "pool": "duckdb",
+      "memory_claim": {
+        "units": [
+          "foundation-gold-versions@place-id.service"
+        ]
+      },
+      "priority_weight": 20,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-parcel-registry-to-gold-place-id-registry-versions",
+        "silver-administrative-boundaries-to-gold-place-id-registry-versions",
+        "reference-legal-dong-code-change-to-gold-place-id-registry-versions",
+        "silver-parcel-registry-to-gold-place-id-bridge-versions",
+        "silver-administrative-boundaries-to-gold-place-id-bridge-versions",
+        "reference-legal-dong-code-change-to-gold-place-id-bridge-versions",
+        "gold-place-id-registry-to-gold-place-id-registry-versions",
+        "gold-place-id-bridge-to-gold-place-id-bridge-versions"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-23T00:00:00Z",
+      "dagster_stage": "dagster",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333); a change bound here would report a source that published nothing."
+      }
     }
   ],
   "assets": [
@@ -128,6 +183,44 @@
           "value": "gold.place_id_changelog"
         }
       ]
+    },
+    {
+      "id": "gold-place-id-registry-versions",
+      "type": "gold_table",
+      "title": "발행 ID 목록(판을 쌓는 표)",
+      "description": "루트 ADR-0113 §8 의 발행 ID 목록를 판을 쌓는 표로(루트 ADR-0564 §1·§2): gold.place_id_registry 의 칸에 row_digest·version_seq·row_state 를 더해 바뀐 키의 행만 덧붙인다. 발행기 안의 DuckDB 가 계산하고 발행기가 추가 커밋으로 붙인다. Spark 발행이 옛 표를 쓰고 모든 종류 행의 place_id 가 거기서 읽히는 동안은 그 그림자다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_id_release_stage.rs",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/place_id_versions_build.rs"
+      ],
+      "table_name": "gold.place_id_registry_versions",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.place_id_registry_versions"
+        }
+      ]
+    },
+    {
+      "id": "gold-place-id-bridge-versions",
+      "type": "gold_table",
+      "title": "ID↔코드 연결표(판을 쌓는 표)",
+      "description": "루트 ADR-0113 §8 의 ID↔코드 연결표를 판을 쌓는 표로(루트 ADR-0564 §1·§2): gold.place_id_bridge 의 칸에 row_digest·version_seq·row_state 를 더해 바뀐 키의 행만 덧붙인다. 발행기 안의 DuckDB 가 계산하고 발행기가 추가 커밋으로 붙인다. Spark 발행이 옛 표를 쓰고 모든 종류 행의 place_id 가 거기서 읽히는 동안은 그 그림자다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_id_release_stage.rs",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/place_id_versions_build.rs"
+      ],
+      "table_name": "gold.place_id_bridge_versions",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.place_id_bridge_versions"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -182,6 +275,106 @@
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py"
       ]
+    },
+    {
+      "from": "silver-parcel-registry",
+      "to": "gold-place-id-registry-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_id_release_stage.rs"
+      ],
+      "description": "서빙 에디션까지의 원장 행을 한 번 읽어(루트 ADR-0490 §4a) 지역(처음 등록된 PNU 의 시도)마다 필지 unit 을 짓는다(DuckDB, 루트 ADR-0481). 원장이 움직였거나 서빙 에디션이 바뀌었을 때만 필지 unit 을 다시 짓는다."
+    },
+    {
+      "from": "silver-administrative-boundaries",
+      "to": "gold-place-id-registry-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_id_release_stage.rs"
+      ],
+      "description": "경계 스냅숏을 차례로 읽어 admin unit(national)을 짓는다(루트 ADR-0113 §8). 경계가 움직였을 때만 그 unit 을 다시 짓는다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-place-id-registry-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_id_release_stage.rs"
+      ],
+      "description": "변경표의 짝으로 옛 코드를 오늘의 코드에 잇는다(루트 ADR-0288 §3, place_identity_stage 의 crosswalk). 이 표가 바뀌면 두 unit 을 모두 다시 짓는다."
+    },
+    {
+      "from": "silver-parcel-registry",
+      "to": "gold-place-id-bridge-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_id_release_stage.rs"
+      ],
+      "description": "서빙 에디션까지의 원장 행을 한 번 읽어(루트 ADR-0490 §4a) 지역(처음 등록된 PNU 의 시도)마다 필지 unit 을 짓는다(DuckDB, 루트 ADR-0481). 원장이 움직였거나 서빙 에디션이 바뀌었을 때만 필지 unit 을 다시 짓는다."
+    },
+    {
+      "from": "silver-administrative-boundaries",
+      "to": "gold-place-id-bridge-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_id_release_stage.rs"
+      ],
+      "description": "경계 스냅숏을 차례로 읽어 admin unit(national)을 짓는다(루트 ADR-0113 §8). 경계가 움직였을 때만 그 unit 을 다시 짓는다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-place-id-bridge-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/place_id_release_stage.rs"
+      ],
+      "description": "변경표의 짝으로 옛 코드를 오늘의 코드에 잇는다(루트 ADR-0288 §3, place_identity_stage 의 crosswalk). 이 표가 바뀌면 두 unit 을 모두 다시 짓는다."
+    },
+    {
+      "from": "gold-place-id-registry",
+      "to": "gold-place-id-registry-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/place_id_versions_build.rs"
+      ],
+      "description": "그림자인 동안 옛 표의 가장 새 발행 커밋 시각의 입력으로 짓는다(루트 ADR-0564 §6, UNTAGGED_BUILDS: Spark 발행은 핀을 적지 않는다): 옛 표의 데이터가 아니라 그 발행이 읽은 입력을 읽는다."
+    },
+    {
+      "from": "gold-place-id-bridge",
+      "to": "gold-place-id-bridge-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/place_id_versions_build.rs"
+      ],
+      "description": "그림자인 동안 옛 표의 가장 새 발행 커밋 시각의 입력으로 짓는다(루트 ADR-0564 §6). 옛 표의 데이터는 읽지 않는다."
+    },
+    {
+      "from": "gold-place-id-registry-versions",
+      "to": "gongzzang-panel",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md"
+      ],
+      "description": "전환 뒤 저장해 둔 필지·링크가 옛 코드를 들고 와도 이 표의 현재 행과 넘겨줌을 따라 오늘의 땅을 연다(루트 ADR-0113 8항). 그때까지 아무도 읽지 않는 그림자다."
+    },
+    {
+      "from": "gold-place-id-bridge-versions",
+      "to": "gongzzang-panel",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md"
+      ],
+      "description": "전환 뒤 저장해 둔 필지·링크가 옛 코드를 들고 와도 이 표의 현재 행과 넘겨줌을 따라 오늘의 땅을 연다(루트 ADR-0113 8항). 그때까지 아무도 읽지 않는 그림자다."
     }
   ],
   "host_memory": {

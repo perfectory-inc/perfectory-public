@@ -894,17 +894,32 @@ pub(crate) fn shadow(
     }))
 }
 
-// one-off: until gold.parcel_boundary_served is replaced (its switch deletes the Spark job and this).
+// one-off: until gold.parcel_boundary_served and the place-id release are replaced (each switch
+// deletes its Spark job and its line here).
 /// The replaced tables whose builds carry no build tag and record no input pins, with the inputs
 /// their builds read: the Spark served-boundary job (root ADR-0133 §2) overwrites
 /// `gold.parcel_boundary_served` with plain Iceberg commits. It reads each input at its head (the
 /// ledger after appending the edits it was handed) and commits within the same run, under the bake's
 /// lock, so the inputs it read are each input as of its commit: Iceberg's time travel by commit
-/// time, taken here from the catalog's snapshot log.
-const UNTAGGED_BUILDS: &[(&str, &[&str])] = &[(
-    "gold.parcel_boundary_served",
-    &["silver.parcel_boundaries", "silver.map_edit_ledger"],
-)];
+/// time, taken here from the catalog's snapshot log. The place-id release (root ADR-0113 §8) reads
+/// its unit's inputs at their heads and overwrites a (unit, scope) partition each run; its units run
+/// one at a time (each holds every Spark slot), so the newest build read every input as of its commit.
+const UNTAGGED_BUILDS: &[(&str, &[&str])] = &[
+    (
+        "gold.parcel_boundary_served",
+        &["silver.parcel_boundaries", "silver.map_edit_ledger"],
+    ),
+    ("gold.place_id_registry", PLACE_ID_RELEASE_INPUTS),
+    ("gold.place_id_bridge", PLACE_ID_RELEASE_INPUTS),
+];
+
+/// What a place-id release reads: the parcel unit's registry, the admin unit's boundaries and the
+/// code change record both cross with.
+const PLACE_ID_RELEASE_INPUTS: &[&str] = &[
+    "silver.parcel_registry",
+    "silver.administrative_boundaries",
+    "reference.legal_dong_code_change",
+];
 
 /// The commit operation of a compaction, which rewrites files and keeps the rows.
 const COMPACTION_OPERATION: &str = "replace";

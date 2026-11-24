@@ -140,6 +140,7 @@ mod parcel_projection_digest;
 mod parcel_publication_contract;
 mod parcel_publication_evidence_sealer;
 mod parcel_publication_evidence_writer;
+mod place_id_versions_build;
 mod postgis_parcel_boundary_mirror_national_rebuild;
 mod postgis_parcel_boundary_mirror_rebuild;
 use foundation_publisher_collection::provider_acquisition_import;
@@ -324,6 +325,7 @@ enum Command {
     BuildParcelSubParcelsVersions,
     BuildParcelBuildingPermitsVersions,
     BuildLineageReviewQueueVersions,
+    BuildPlaceIdVersions,
     BuildParcelPanelVersions,
     BuildParcelOwnershipVersions,
     BuildParcelFactoriesVersions,
@@ -719,6 +721,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildLineageReviewQueueVersions => {
             Box::pin(lineage_review_queue_versions_build::run())
         }
+        Command::BuildPlaceIdVersions => Box::pin(place_id_versions_build::run()),
         Command::BuildParcelPanelVersions => Box::pin(kind_versions_build::run(
             &kind_versions_build::PARCEL_PANEL_BUILD,
         )),
@@ -927,6 +930,7 @@ where
             Ok(Command::BuildParcelBuildingPermitsVersions)
         }
         Some("build-lineage-review-queue-versions") => Ok(Command::BuildLineageReviewQueueVersions),
+        Some("build-place-id-versions") => Ok(Command::BuildPlaceIdVersions),
         Some("build-parcel-panel-versions") => Ok(Command::BuildParcelPanelVersions),
         Some("build-parcel-ownership-versions") => Ok(Command::BuildParcelOwnershipVersions),
         Some("build-parcel-factories-versions") => Ok(Command::BuildParcelFactoriesVersions),

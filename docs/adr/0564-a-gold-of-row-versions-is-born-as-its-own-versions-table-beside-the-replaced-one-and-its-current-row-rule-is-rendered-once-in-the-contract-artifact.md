@@ -543,3 +543,36 @@ CI 의 `a-release-keeps-the-jobs-it-switches-off` 가드가 켜진 작업을 지
 `takeover_equal` 이 그림자 머리 `5346468805212475492`(옛 표 빌드 `2185671848266213744` 의 핀)에 대해 통과했다(유닛 run `20261123T141344Z`,
 14:27Z; 시도 41 의 47,310 행 모두 같음, 전국 326,999 행·키 해시 합·내용 해시 합·non-null 수가 같음, 시도의 문서 47,310 개 모두 스키마 통과).
 판정받은 머리는 `version_seq` 2 다: 코드 버전이 움직여 모든 PNU 를 다시 지었고 바뀐 키가 0 이었다. 바뀐 키만 짓는 길은 돌지 않았다.
+
+## Revision 2026-11-23: 발행 ID 목록과 ID↔코드 연결표의 그림자 (결정 3·6-9, W97)
+
+**무엇.** `gold.place_id_registry` 와 `gold.place_id_bridge`(루트 ADR-0113 §8, ADR-0481)도 레인 밖 판 표다:
+`gold.place_id_registry_versions`·`gold.place_id_bridge_versions`, 옛 표의 키((unit, scope, place_id) 와
+(unit, scope, place_id, code, valid_from))와 파티션 (unit, scope) 그대로에 파생이 `row_digest`·`version_seq`·`row_state` 를
+더한다. 명령 하나(`build-place-id-versions`, 레인 `place-id`)가 두 표를 한 번의 읽기로 짓고 표마다 커밋 하나를 한다.
+
+- **계산.** 필지 unit 은 서빙 에디션까지의 `silver.parcel_registry`(루트 ADR-0490 §4a)를 레이크하우스에서 한 번 읽어 로컬에
+  내려 두고, 지역(scope)마다 그 지역의 행만 읽어 `parcel_place_id_release.registry_of`·`bridge_of` 와 같은 규칙으로 짓고 그
+  지역의 diff 와 파일을 만든다. 지역은 id 의 첫 행(valid_from 이 이른 것, 없으면 뒤; 다음 recorded_at_utc, pnu)의 시도라 뒤의 행이
+  다른 시도여도 바뀌지 않는다 — 그래서 원장은 통째로 읽는다(Spark 는 지역마다 통째로 읽었다). 읍면동 unit 은 경계 스냅숏을
+  차례로 읽는 `place_id_release.admin_release` 의 Rust 판이다. 두 unit 의 옛 코드 짝은 모든 독자가 쓰는 하나의 crosswalk
+  (`place_identity_stage` 의 `place_remap`·`place_ambiguous`)다.
+- **부분.** unit 은 그 입력(필지: 원장·서빙 에디션, 읍면동: 경계)이나 코드 변경표나 코드가 움직였을 때만 다시 짓는다. 입력에 행이 없는
+  지역은 diff 하지 않는다: Spark 발행도 읽지 않는 지역을 다시 쓰지 않는다. 빈 발행은 내지 않는다(옛 `release_changes` 의 규칙).
+- **그림자의 핀.** Spark 발행은 핀을 적지 않고 지역마다 (unit, scope) 파티션을 덮어쓴다. 그래서 두 표는 `UNTAGGED_BUILDS` 에
+  든다: 옛 registry 의 가장 새 발행 커밋 시각의 원장·경계·변경표다. 두 unit 의 발행은 저마다 Spark 칸을 모두 쥐어 같이 돌지
+  않으므로, 그 커밋을 쓴 실행이 읽은 입력이 그 시각의 입력이다.
+- **판정.** 한 시도(41)의 필지 unit — `scope` 칸이 시도다 — 에서 두 표가 모두 같아야 넘긴다(place_id 는 AI 조인 열쇠다: 그
+  시도의 모든 place_id 가 그대로여야 한다). 거짓 `not equal` 은 날 수 있다: 순환이 예산(100분)을 넘겨 41 을 다음 실행으로 미루면
+  옛 표의 41 은 그 핀보다 낡았다. 거짓 `equal` 은 날 수 없다: 값이 같다는 것은 값이 같다는 것이다. `release_id` 는 실행의
+  스탬프라 digest 도 판정도 읽지 않는다(`BUILD_STAMPS`). 판정 도구가 `scope` 칸을 시도로 읽게 넓히는 PR 이 두 표의
+  `asset_checks` 줄을 더한다.
+- **풀.** 다른 판 빌드처럼 `duckdb` 풀에서 무게 20, 자기 유닛의 `memory_claim` 이다(root ADR-0605).
+- **전환(넘겨받기 PR).** 하나뿐인 독자 `place_id_join` 의 `BRIDGE_SOURCE` 를 이 판 표의 현재 행으로 옮기고, 두 순환
+  (`parcel-registry-cycle.sh` 3단계, `admin-boundary-release.sh` 7단계)이 이 명령을 부르며, 변경 내역(`gold.place_id_changelog`)은 판
+  표의 diff 에서 낸다. 그때 Spark 작업과 그 시험을 지우고 엔진 장부 줄을 `moved` 로 옮긴다. 그때까지 변경 내역은 Spark 의 것이다:
+  사건 표를 두 번 쌓지 않는다.
+
+**기각한 대안.** 순환 안의 단계로 Spark 발행 바로 뒤에 짓기(같은 입력이 확실하지만 그림자가 Spark 유닛 안에 묶여 따로 서지 않고, 전환
+때 다시 옮겨야 한다). 지역마다 원장을 시도 접두로 걸러 읽기(시도를 옮긴 id 의 행을 놓친다). 창 함수로 지역 구하기(4천만 행을
+메모리에서 정렬한다 — 집계는 디스크로 흘린다).

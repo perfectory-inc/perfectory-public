@@ -49,17 +49,22 @@ use crate::{
 };
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_GOLD_TAKEOVER_";
-// one-off: with gold.parcel_boundary_served's switch, which deletes its Spark job.
+// one-off: each line with its table's switch, which deletes its Spark job.
 /// The lineage a replaced table's build stamps on the rows it writes besides [`PER_COMMIT_STAMPS`]:
 /// the Spark served-boundary job writes the Silver snapshot and the ledger position it read on every
 /// row of a full build, while its versions table keeps a row's stamps from the build that last
 /// changed the row's content (`row_digest`: the PNU, the geometry, its CRS and its origin). They name
 /// a build, not the parcel, so after the first shadow build they differ on every row neither build
 /// changed.
-const BUILD_STAMPS: &[(&str, &[&str])] = &[(
-    "gold.parcel_boundary_served",
-    &["silver_iceberg_snapshot_id", "edits_through_change_seq"],
-)];
+const BUILD_STAMPS: &[(&str, &[&str])] = &[
+    (
+        "gold.parcel_boundary_served",
+        &["silver_iceberg_snapshot_id", "edits_through_change_seq"],
+    ),
+    // The place-id release's run (`parcel-<run>`, `admin-<run>`): the versions tables stamp their own.
+    ("gold.place_id_registry", &["release_id"]),
+    ("gold.place_id_bridge", &["release_id"]),
+];
 /// The row digest (root ADR-0099): a hash of the bytes a build wrote, which two engines need not
 /// write alike. The verdict compares the content it stands for, as values, and not the digest.
 const DIGEST: &str = "row_digest";
