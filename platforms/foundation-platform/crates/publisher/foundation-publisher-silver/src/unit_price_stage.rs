@@ -1,5 +1,6 @@
-//! The twin of `unit_price_panel_silver_to_gold.py` (root ADR-0204), on the shared Gold versions
-//! driver (`kind_versions_build`, root ADR-0615 §7).
+//! The twin of `unit_price_panel_silver_to_gold.py` (root ADR-0204).
+//!
+//! It stands on the shared Gold versions driver (`kind_versions_build`, root ADR-0615 §7).
 //!
 //! One row per (PNU, building) holding the official price history of every priced unit placed there:
 //! a unit is placed under the PNU whose building document carries it (`building_unit_placement`, the
