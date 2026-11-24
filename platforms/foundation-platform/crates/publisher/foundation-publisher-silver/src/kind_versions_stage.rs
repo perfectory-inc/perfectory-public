@@ -146,6 +146,71 @@ pub fn national_verdict(
     ))
 }
 
+/// An input a 시도's load reads straight from the lakehouse by the run's key ranges, never spooled.
+///
+/// Root ADR-0615 §7: rows too wide to copy to the stage's disk, as the served parcel boundaries'
+/// geometries (39,861,511 parcels). The read of a table ordered by PNU skips the files
+/// outside the ranges, so each row is read once a run. Its input is one of the stage's whole-table
+/// inputs: a partial run finds the changed keys by comparing two spools, and a ranged read has none.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RangedRead {
+    /// The table the load leaves, with a `pnu` column: the build is shown a part of it at a time, as
+    /// it is a row set's.
+    pub name: &'static str,
+    /// The input it reads.
+    pub input: &'static str,
+    /// The `SELECT` of its rows: `@table@` is the input at its pin, `@edition@` the served edition and
+    /// `@range@` the predicate on `pnu` the load gives.
+    pub query: &'static str,
+}
+
+/// Loads `stage`'s ranged reads of the PNUs `range` names (a predicate on `pnu`) from `source`, each
+/// as its table; returns their rows.
+///
+/// # Errors
+/// Returns an error when the edition or a name is not plain, an input is not pinned, or `DuckDB`
+/// cannot read it.
+pub fn load_ranged(
+    stage: &dyn KindVersionsStage,
+    connection: &Connection,
+    source: &Source<'_>,
+    edition: &str,
+    range: &str,
+) -> anyhow::Result<u64> {
+    ensure!(
+        is_plain(edition),
+        "the edition {edition:?} is not a plain snapshot id"
+    );
+    let mut rows = 0;
+    for read in stage.ranged_reads() {
+        ensure!(
+            is_plain(read.name),
+            "{:?} is not a plain table name",
+            read.name
+        );
+        let query = fill(
+            read.query,
+            &[
+                ("table", &source.of(read.input)?),
+                ("edition", edition),
+                ("range", range),
+            ],
+        );
+        connection
+            .execute_batch(&format!(
+                "CREATE OR REPLACE TABLE {} AS {query};",
+                read.name
+            ))
+            .with_context(|| format!("reading {} of {} by its ranges", read.name, read.input))?;
+        let count: i64 =
+            connection.query_row(&format!("SELECT count(*) FROM {}", read.name), [], |row| {
+                row.get(0)
+            })?;
+        rows += u64::try_from(count)?;
+    }
+    Ok(rows)
+}
+
 /// What explains a change of any size when neither the code nor the served edition moved.
 ///
 /// A rule the kind's own inputs give (root ADR-0346, ADR-0596), judged over every 시도's diff
@@ -346,6 +411,24 @@ pub trait KindVersionsStage: Sync {
     /// `None` by default.
     fn change_explanation(&self) -> Option<ChangeExplanation> {
         None
+    }
+    /// The inputs a 시도's load reads by its key ranges instead of a spool ([`load_ranged`]). None by
+    /// default.
+    fn ranged_reads(&self) -> Vec<RangedRead> {
+        Vec::new()
+    }
+    /// The edition the replaced table's build served, read from its rows when that build records
+    /// none (a shadow builds the same edition): one text value over `@rows@`, the build's rows. The
+    /// served boundaries' source rows carry it. `None` by default: the build's recorded edition, else
+    /// the served one.
+    fn replaced_edition_sql(&self) -> Option<&'static str> {
+        None
+    }
+    /// The spools whose PNUs the kind builds a row for beside the served parcels' (a parcel an edit
+    /// adds to the served boundaries): a partial run's changed keys are kept when either names them
+    /// ([`targets_from_spools`]). None by default.
+    fn more_served_spools(&self) -> Vec<&'static str> {
+        Vec::new()
     }
     /// Why the kind's documents cannot be built one 시군구 at a time, when they cannot.
     ///
@@ -794,11 +877,21 @@ pub fn targets_from_spools(
             ))
             .context("the stage's own rule of changed keys")?;
     }
-    // The served parcels of either side, read once and probed by the few PNUs named.
-    let served = ["served".to_owned(), format!("served{BASE_SUFFIX}")]
+    // The served parcels of either side (and what else the kind builds a row for), read once and
+    // probed by the few PNUs named.
+    let served = std::iter::once("served")
+        .chain(stage.more_served_spools())
+        .flat_map(|name| [name.to_owned(), format!("{name}{BASE_SUFFIX}")])
+        .collect::<Vec<_>>();
+    // Each spool on its own: they hold other columns beside `pnu`.
+    let served = served
         .iter()
         .filter(|name| dir.join(name.as_str()).is_dir())
-        .map(|name| format!("'{dir_text}/{name}/*/*.parquet'"))
+        .map(|name| {
+            format!(
+                "SELECT pnu FROM read_parquet('{dir_text}/{name}/*/*.parquet', hive_partitioning = false)"
+            )
+        })
         .collect::<Vec<_>>();
     ensure!(
         !served.is_empty(),
@@ -807,10 +900,10 @@ pub fn targets_from_spools(
     );
     connection.execute_batch(&format!(
         "CREATE OR REPLACE TABLE targets AS \
-         SELECT DISTINCT s.pnu FROM read_parquet([{}], hive_partitioning = false) s \
+         SELECT DISTINCT s.pnu FROM ({}) s \
          WHERE s.pnu IN (SELECT pnu FROM changed_row_pnus); \
          DROP TABLE changed_row_pnus;",
-        served.join(", ")
+        served.join(" UNION ALL ")
     ))?;
     let count: i64 = connection.query_row("SELECT count(*) FROM targets", [], |row| row.get(0))?;
     Ok(u64::try_from(count)?)

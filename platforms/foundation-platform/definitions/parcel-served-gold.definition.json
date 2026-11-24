@@ -58,7 +58,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The served parcel boundaries as a table of appended row versions (root ADR-0602, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-boundary-served → publisher build-parcel-boundary-served-versions): gold.parcel_boundary_served_versions, the edition with every ledgered parcels edit applied, computed by DuckDB inside the publisher one 시도 at a time and appended as the parcels whose row_digest (PNU, geometry checksum, CRS, origin) changed, each commit one version_seq. While the parcel tile bake reads gold.parcel_boundary_served it is that table's shadow: the Spark job tags no build, so it follows that table's newest commit that is not a compaction, reads each input as of that commit and the edition its rows carry, hands nothing to the bake and appends no edit to the ledger; the takeover verdict (gold-takeover-verdict.sh, the check takeover_equal on 시도 41) compares the two engines over one set of inputs. Nothing to do when the base commit was built from the same pins, edition and code. Nothing reads it until the switch, in which the bake's gold half builds it instead of the Spark job.",
+      "description": "The served parcel boundaries as a table of appended row versions (root ADR-0602, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-boundary-served → publisher build-parcel-boundary-served-versions): gold.parcel_boundary_served_versions, the edition with every ledgered parcels edit applied, computed by DuckDB inside the publisher on the shared Gold versions driver (kind_versions_build BOUNDARY_SERVED_BUILD, root ADR-0615 §7: the edition's rows read a 시도 at a time by its key ranges and never spooled, the ledger's final edit states spooled by 시도, each 시군구 built from both) and appended as the parcels whose row_digest (PNU, geometry checksum, CRS, origin) changed, each 시도 its own commit (the head records every 시도's state, which the tile bake's inputs read, root ADR-0618). A run in which only the ledger moved is a fold: it rebuilds the PNUs whose final edit state moved, and every commit records foundation.build-scope full or partial. A rehearsal (FOUNDATION_PLATFORM_GOLD_VERSIONS_REHEARSAL_EDITION and _DIR, root ADR-0618 §9) builds a candidate edition, writes every built row a 시도 to Parquet with its rows and SHA-256 in the summary, and commits nothing. The edit store's handoff is appended to the ledger by its own command (append-map-edit-ledger), and the ai-server bake's v2 handoff is written from a committed snapshot or a rehearsal's files by export-parcel-boundary-handoff until the bake reads the served table (root ADR-0618 §10). While the parcel tile bake reads gold.parcel_boundary_served it is that table's shadow: the Spark job tags no build, so it follows that table's newest commit that is not a compaction, reads each input as of that commit and the edition its rows carry, hands nothing to the bake and appends no edit to the ledger; the takeover verdict (gold-takeover-verdict.sh, the check takeover_equal on 시도 41) compares the two engines over one set of inputs. Nothing to do when the base commit was built from the same pins, edition and code. Nothing reads it until the switch, in which the bake's gold half builds it instead of the Spark job.",
       "systemd_service": "foundation-gold-versions@parcel-boundary-served.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -132,7 +132,7 @@
       "evidence_refs": [
         "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_boundary_served_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "table_name": "gold.parcel_boundary_served_versions",
       "runtime_bindings": [
@@ -178,7 +178,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "옛 표의 빌드가 읽은 판(그 커밋 시각의 Silver)을 시도마다 한 번 읽는다(PNU 순 정렬, 시도 밖 파일은 건너뛴다)."
     },
@@ -188,9 +188,9 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
-      "description": "옛 표의 빌드가 적용한 필지 편집(그 커밋 시각의 원장)을 적용한다. 원장에 스냅숏이 없으면 편집 없이 짓는다."
+      "description": "옛 표의 빌드가 적용한 필지 편집(그 커밋 시각의 원장)을 적용한다. 그 빌드가 원장을 읽지 않았으면 원장의 머리를 읽는다(공통 planned_inputs)."
     },
     {
       "from": "gold-parcel-boundary-served",
@@ -198,7 +198,7 @@
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_boundary_served_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "그림자인 동안 옛 표의 압축이 아닌 가장 새 커밋을 따른다(루트 ADR-0564 §6): 그 커밋 시각의 입력과 그 행이 가진 판으로 짓는다. 옛 표의 데이터는 판 이름만 읽는다."
     },

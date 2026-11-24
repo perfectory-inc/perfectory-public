@@ -1,3 +1,4 @@
+use super::replaced::is_instant;
 use super::*;
 
 #[test]
@@ -34,7 +35,7 @@ fn a_run_is_asked_for_sido_by_their_two_digits_or_for_none() -> anyhow::Result<(
 }
 
 /// Every lane on the shared driver.
-const LANES: [&KindBuild; 13] = [
+const LANES: [&KindBuild; 14] = [
     &REGISTER_MASTERS_BUILD,
     &DEMOLITIONS_BUILD,
     &ENERGY_BUILD,
@@ -48,6 +49,7 @@ const LANES: [&KindBuild; 13] = [
     &UNIT_PRICE_BUILD,
     &NEARBY_BUILD,
     &COURT_AUCTION_BUILD,
+    &BOUNDARY_SERVED_BUILD,
 ];
 
 /// A kind line that names `place_identity` gives its table a `place_id` column (by_pnu_kind
@@ -122,7 +124,49 @@ fn what_a_lane_declares_beyond_its_sql_fits_how_it_commits() -> anyhow::Result<(
         if let Some(batch) = kind.stage.batch_input() {
             assert!(kind.stage.inputs().contains(&batch.input), "{}", kind.table);
         }
+        // A ranged read has no spool a partial run could compare: its input is whole-table.
+        for read in kind.stage.ranged_reads() {
+            assert!(
+                kind.stage.whole_table_inputs().contains(&read.input),
+                "{} reads {} by its ranges",
+                kind.table,
+                read.input
+            );
+        }
     }
+    Ok(())
+}
+
+/// A rehearsal writes every built row of a 시도, in PNU order, and records the file's rows and
+/// digest: what the bake's gates read from the file alone (root ADR-0618 §9).
+#[test]
+fn a_rehearsal_writes_every_built_row_of_a_sido_with_its_digest() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let rehearsal = Rehearsal {
+        edition: "synthetic__parcel-209906".to_owned(),
+        dir: dir.path().join("rehearsal"),
+    };
+    std::fs::create_dir_all(&rehearsal.dir)?;
+    let connection = foundation_publisher_silver::duckdb::Connection::open_in_memory()?;
+    connection.execute_batch(
+        "CREATE TABLE built AS SELECT * FROM (VALUES \
+           ('9999910100100020000', 'b', 'x'), ('9999910100100010000', 'a', 'y')) t(pnu, doc, other);",
+    )?;
+    let file = rehearsal.write(&connection, "99", &["pnu", "doc"])?;
+    assert_eq!(file["rows"], 2);
+    assert_eq!(file["path"], "sido=99.parquet");
+    let written = rehearsal.dir.join("sido=99.parquet");
+    let bytes = std::fs::read(&written)?;
+    assert_eq!(
+        file["sha256"],
+        format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&bytes))
+    );
+    let text = written.to_str().context("UTF-8")?.replace('\\', "/");
+    let pnus: Vec<String> = connection
+        .prepare(&format!("SELECT * FROM read_parquet('{text}')"))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<_, _>>()?;
+    assert_eq!(pnus, ["9999910100100010000", "9999910100100020000"]);
     Ok(())
 }
 

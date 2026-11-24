@@ -310,6 +310,28 @@ AWS 의 태스크 디스크도 그 값으로 잡는다(ADR-0616). 이 PR 들은 
 | 4 | 공통 검사의 내용(스키마 revision, 행·키)과 레인의 `result_checks` | W96b |
 | 5 | 호 공시가격을 공통 드라이버로: 위 표의 셋(`pins_from`·`batch_input`·`national_checks`)과 자체 드라이버 지우기 | W97b |
 | 6 | 주변을 공통 드라이버로: `change_explanation`, `spool_more` 의 판본, 상가 고리 수의 표, 자체 드라이버 지우기 | W97b |
+| 7 | 서빙 필지 경계를 공통 드라이버로(아래), 레인의 뜻과 전환 PR 은 W86d | W97b |
+
+**서빙 필지 경계가 공통 드라이버에서 짓는 법.** 행은 판 하나에 원장의 편집을 모두 적용한 경계다(루트 ADR-0133 §2). 넷이 공통 드라이버에 더해진다.
+
+| 무엇 | 모양 | 누가 쓰나 |
+|---|---|---|
+| 구간으로 읽는 입력 | `fn ranged_reads(&self) -> Vec<RangedRead>` — `RangedRead { name, input, query }`. 시도를 실을 때 그 시도(부분 run 이면 대상이 있는 시군구)의 PNU 구간으로 레이크하우스에서 바로 읽고 **스풀하지 않는다**. 입력은 통째 입력이어야 한다(견줄 스풀이 없다); 드라이버가 run 머리에서 거부한다 | 경계: 판의 열린 행(39,861,511 개의 기하를 단계 디스크에 복사하지 않는다) |
+| 서빙 필지 밖의 행 | `fn more_served_spools(&self) -> Vec<&'static str>` — 부분 run 의 대상은 서빙 필지 또는 이 스풀이 이름 지은 PNU 다 | 경계: 편집이 더하는 필지(판에 없는 PNU 의 upsert) |
+| 옛 빌드의 판 | `fn replaced_edition_sql(&self) -> Option<&'static str>` — 그림자의 옛 빌드가 판을 적지 않았을 때 그 빌드의 행(`@rows@`)에서 읽는다 | 경계: Spark 가 빌드에 태그도 판도 남기지 않는다 |
+| 읽는 쪽이 읽는 표 | `KindBuild.lane: Serves` — `ByPnuLane(이름)` 또는 by-PNU 레인 밖의 Gold 가 읽히는 표 `Table(이름)`(`gold_versions_tables_outside_the_lanes`) | 경계: 타일 굽기가 `gold.parcel_boundary_served` 를 읽는 동안 그림자 |
+
+접기(fold)는 공통 부분 run 이다: 원장만 움직였으면 두 읽기의 편집 스풀(편집된 PNU 마다 최종 상태 하나)을 견줘 최종 상태가 바뀐 PNU 만 짓는다. 판·필지 핀이
+움직이면 전부 짓는다. 커밋마다 `foundation.build-scope` = `full`|`partial` 을 적는다(모든 레인; 타일 입력 버전의 기준 표시, ADR-0618). 시도마다 커밋한다:
+머리의 상태 표가 타일 굽기의 입력이다. 접기의 부분 넘김(이웃 타일·변경 목록·종료 코드 3)과 `MAX_FOLD_TILES` 는 Gold 를 떠난다: 읽는 것이 없고(굽기는
+Spark 의 접기 출력을 읽었고 꺼져 있다), AWS 의 패치는 두 스냅숏 사이의 변경을 읽는다(ADR-0618 §11). 편집 저장소의 넘김을 원장에 붙이는 일은 빌드를 떠나 제
+명령(`append-map-edit-ledger`, 지문으로 한 번씩, 덧붙이기만)이 된다: 빌드는 원장을 핀에서 읽는다. ai-server 굽기의 v2 전체 넘김(JSONL 파트와 요약)은 임시
+명령(`export-parcel-boundary-handoff`)이 커밋된 스냅숏이나 예행의 파일에서 쓴다 — 굽기가 서빙 표의 시도 파티션을 바로 읽으면(ADR-0618 §10) 지운다.
+
+**예행은 아무것도 커밋하지 않는다(ADR-0618 §9, 모든 레인).** `FOUNDATION_PLATFORM_GOLD_VERSIONS_REHEARSAL_EDITION` 과 `…_DIR` 이 후보 판과 출력
+디렉터리(만들기만)를 이름 짓는다. 예행은 읽는 이의 키로 읽고, 입력의 머리에서(그림자가 아니라) 후보의 모든 행을 짓고 검사하고, 시도마다 **지은 행 전부**(머리와의
+차이가 아니라)를 `sido=<시도>.parquet` 로 내려놓고, 요약에 파일마다 행 수와 SHA-256 을 적는다. 표를 만들지도, 태그를 옮기지도, 커밋하지도 않는다. 행 수와 서빙
+ID 집합은 내려놓은 파일만으로 나온다(굽기의 ID 관문은 그 행에서 집합을 다시 짓는다). 승격은 평소의 서빙 빌드다.
 
 ## Consequences
 

@@ -1,4 +1,8 @@
 use super::*;
+use crate::kind_versions_stage::{load_ranged, partial_for_test, read_for_test};
+
+/// The ISO WKB type of a polygon.
+const WKB_POLYGON: u32 = 3;
 
 /// A little-endian ISO WKB polygon of one ring.
 fn polygon(points: &[(f64, f64)]) -> Vec<u8> {
@@ -38,54 +42,6 @@ fn edit(seq: i64, pnu: &str, op: Op, wkb: Option<Vec<u8>>) -> LedgerEdit {
         geometry_checksum_sha256: wkb.as_ref().map(|_| SUM.to_owned()),
         geometry_wkb: wkb,
     }
-}
-
-/// `tile_range_golden.json`: the boxes and ranges `land_use_zone_area_by_tile.py` and the bake's
-/// `lakehouse_tile_patch.rs` both compute; this port computes them too.
-#[test]
-fn the_tile_range_is_the_one_both_other_ports_compute() -> anyhow::Result<()> {
-    let golden: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../infra/lakehouse/spark/tests/fixtures/tile_range_golden.json"
-    ))?;
-    let zoom = u8::try_from(golden["zoom"].as_u64().unwrap_or_default())?;
-    let buffer = golden["buffer_pixels"].as_f64().unwrap_or_default();
-    let cases = golden["cases"].as_array().context("cases")?;
-    assert!(!cases.is_empty());
-    for case in cases {
-        let b: Vec<f64> = serde_json::from_value(case["bbox"].clone())?;
-        let expected: Option<(u32, u32, u32, u32)> =
-            serde_json::from_value::<Option<Vec<u32>>>(case["tiles"].clone())?
-                .map(|t| (t[0], t[1], t[2], t[3]));
-        assert_eq!(
-            tile_range((b[0], b[1], b[2], b[3]), zoom, buffer),
-            expected,
-            "{}",
-            case["case"]
-        );
-    }
-    Ok(())
-}
-
-#[test]
-fn a_polygon_s_box_is_read_from_its_wkb_and_anything_else_is_refused() -> anyhow::Result<()> {
-    assert_eq!(
-        wkb_bbox(&square(10.0, 20.0, 0.5))?,
-        (10.0, 20.0, 10.5, 20.5)
-    );
-    let mut multi = vec![1];
-    multi.extend(WKB_MULTIPOLYGON.to_le_bytes());
-    multi.extend(2_u32.to_le_bytes());
-    multi.extend(square(1.0, 1.0, 1.0));
-    multi.extend(square(5.0, 6.0, 1.0));
-    assert_eq!(wkb_bbox(&multi)?, (1.0, 1.0, 6.0, 7.0));
-    let mut trailing = square(0.0, 0.0, 1.0);
-    trailing.push(0);
-    assert!(wkb_bbox(&trailing).is_err());
-    assert!(wkb_bbox(&square(0.0, 0.0, 1.0)[..20]).is_err());
-    let mut point = vec![1];
-    point.extend(1_u32.to_le_bytes());
-    assert!(wkb_bbox(&point).is_err());
-    Ok(())
 }
 
 #[test]
@@ -175,65 +131,6 @@ fn each_edited_parcel_ends_as_its_last_edit_and_a_delete_of_nothing_is_counted()
 }
 
 #[test]
-fn a_fold_hands_the_neighbourhood_of_its_changes_and_a_wide_one_is_not_partial(
-) -> anyhow::Result<()> {
-    let buffer = membership_buffer_pixels()?;
-    let ledger = vec![
-        edit(
-            1,
-            "9999910100100010000",
-            Op::Upsert,
-            Some(square(10.0, 10.0, 0.0001)),
-        ),
-        edit(
-            2,
-            "9999910100100020000",
-            Op::Upsert,
-            Some(square(10.0002, 10.0, 0.0001)),
-        ),
-        edit(
-            3,
-            "9999910100100030000",
-            Op::Upsert,
-            Some(square(10.5, 10.5, 0.0001)),
-        ),
-    ];
-    // Served through 2: only edit 3 is new; its old box is the edition's.
-    let boxes = BTreeMap::from([(
-        "9999910100100030000".to_owned(),
-        (10.4, 10.4, 10.4001, 10.4001),
-    )]);
-    let FoldPlan::Partial {
-        after,
-        tiles,
-        ledger_pnus,
-        edited_in_neighbourhood,
-    } = plan(&ledger, 2, &boxes, buffer)?
-    else {
-        bail!("a small fold is partial");
-    };
-    assert_eq!(after.keys().collect::<Vec<_>>(), ["9999910100100030000"]);
-    assert!(!tiles.is_empty() && tiles.len() <= MAX_FOLD_TILES);
-    assert_eq!(ledger_pnus.len(), 3);
-    assert_eq!(edited_in_neighbourhood, ["9999910100100030000"]);
-    assert!(silver_predicate(&tiles, buffer).starts_with("((bbox_max_x >= "));
-    assert_eq!(silver_predicate(&[], buffer), "false");
-
-    let wide = vec![edit(
-        9,
-        "9999910100100040000",
-        Op::Upsert,
-        Some(square(10.0, 10.0, 1.0)),
-    )];
-    let FoldPlan::Full(why) = plan(&wide, 0, &BTreeMap::new(), buffer)? else {
-        bail!("a fold over a degree of tiles is not partial");
-    };
-    assert!(why.contains("past 512"), "{why}");
-    Ok(())
-}
-
-/// Printed by `CPython` for the same row with `served_gold_common.bake_handoff_line`.
-#[test]
 fn a_handoff_line_is_the_one_the_spark_job_wrote() {
     assert_eq!(
         handoff_line("9999910100100010000", &[0x01, 0x03, 0, 0, 0], "edit"),
@@ -241,45 +138,92 @@ fn a_handoff_line_is_the_one_the_spark_job_wrote() {
     );
 }
 
+/// The edition of the fixtures, its parcels under 시도 99, and an edition that is not served.
+fn inputs(connection: &Connection) -> anyhow::Result<()> {
+    connection.execute_batch(
+        "CREATE TABLE silver_parcel_boundaries (pnu VARCHAR, geometry_wkb BLOB,
+           geometry_checksum_sha256 VARCHAR, source_snapshot_id VARCHAR, valid_to_utc TIMESTAMP);
+         INSERT INTO silver_parcel_boundaries VALUES
+           ('9999910100100010000', '\\x01'::BLOB, 'aa', 'edition-b', NULL),
+           ('9999910100100020000', '\\x02'::BLOB, 'bb', 'edition-b', NULL),
+           ('9999920200100010000', '\\x03'::BLOB, 'cc', 'edition-b', NULL),
+           ('9999920200100020000', '\\x04'::BLOB, 'dd', 'edition-a', NULL);
+         CREATE TABLE reference_legal_dong_code_change (kind VARCHAR, old_code VARCHAR,
+           new_code VARCHAR, level VARCHAR, effective_date VARCHAR, source VARCHAR);
+         CREATE TABLE silver_map_edit_ledger (unit VARCHAR, change_seq BIGINT, feature_id VARCHAR,
+           op VARCHAR, geometry_srid INTEGER, geometry_wkb BLOB, geometry_checksum_sha256 VARCHAR,
+           properties_json VARCHAR, editor VARCHAR, edited_at VARCHAR);",
+    )?;
+    Ok(())
+}
+
+/// Ledgers `edit` as the parcels unit's.
+fn ledger(connection: &Connection, edit: &LedgerEdit) -> anyhow::Result<()> {
+    connection.execute(
+        "INSERT INTO silver_map_edit_ledger VALUES (?, ?, ?, ?, ?, ?, ?, '{}', 'e', '2099-01-01')",
+        duckdb::params![
+            UNIT,
+            edit.change_seq,
+            edit.feature_id,
+            if edit.op == Op::Upsert {
+                "upsert"
+            } else {
+                "delete"
+            },
+            edit.geometry_srid,
+            edit.geometry_wkb.as_deref(),
+            edit.geometry_checksum_sha256.as_deref(),
+        ],
+    )?;
+    Ok(())
+}
+
+fn built(connection: &Connection) -> anyhow::Result<Vec<(String, String, String)>> {
+    Ok(connection
+        .prepare("SELECT pnu, origin, source_snapshot_id FROM built ORDER BY pnu")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<_, _>>()?)
+}
+
 #[test]
 fn the_built_rows_are_the_edition_but_its_edited_parcels_and_the_digest_is_the_sql_s(
 ) -> anyhow::Result<()> {
     let connection = Connection::open_in_memory()?;
-    connection.execute_batch(
-        "CREATE TABLE edition (pnu VARCHAR, geometry_wkb BLOB, geometry_srid INTEGER,
-                               geometry_checksum_sha256 VARCHAR, source_snapshot_id VARCHAR);
-         INSERT INTO edition VALUES
-           ('9999910100100010000', '\\x01'::BLOB, 4326, 'aa', 'edition-b'),
-           ('9999910100100020000', '\\x02'::BLOB, 4326, 'bb', 'edition-b'),
-           ('9999920200100010000', '\\x03'::BLOB, 4326, 'cc', 'edition-b');",
+    inputs(&connection)?;
+    ledger(
+        &connection,
+        &edit(1, "9999910100100010000", Op::Delete, None),
     )?;
-    let ledger = vec![
-        edit(1, "9999910100100010000", Op::Delete, None),
-        edit(
+    ledger(
+        &connection,
+        &edit(
             2,
             "9999910100100030000",
             Op::Upsert,
             Some(square(0.0, 0.0, 1.0)),
         ),
-    ];
-    let present = BTreeSet::from(["9999910100100010000".to_owned()]);
-    let (states, _) = fold_edits(&ledger, &present);
-    load_edits(&connection, &states)?;
-    // The fixture's 시도 is 99 and every PNU here starts with it.
-    connection.execute_batch(&build_sido_sql(
-        "SELECT * FROM edition",
-        "(pnu >= '99')",
+    )?;
+    // As the shared driver reads a 시도: the spools, then the edition by the 시도's range.
+    read_for_test(&SERVED_BOUNDARIES, &connection, "edition-b", "")?;
+    assert_eq!(
+        load_ranged(
+            &SERVED_BOUNDARIES,
+            &connection,
+            &Source::Local,
+            "edition-b",
+            "(pnu >= '99')"
+        )?,
+        3
+    );
+    crate::kind_versions_parts::build_in_parts(
+        &SERVED_BOUNDARIES,
+        &connection,
         true,
         "42",
-        2,
         "2099-01-01T00:00:00Z",
-    )?)?;
-    let rows: Vec<(String, String, String)> = connection
-        .prepare("SELECT pnu, origin, source_snapshot_id FROM built ORDER BY pnu")?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-        .collect::<Result<_, _>>()?;
+    )?;
     assert_eq!(
-        rows,
+        built(&connection)?,
         [
             (
                 "9999910100100020000".into(),
@@ -298,13 +242,73 @@ fn the_built_rows_are_the_edition_but_its_edited_parcels_and_the_digest_is_the_s
             ),
         ]
     );
-    let digest: String = connection.query_row(
-        "SELECT row_digest FROM built WHERE pnu = '9999910100100020000'",
+    let (digest, through): (String, i64) = connection.query_row(
+        "SELECT row_digest, edits_through_change_seq FROM built WHERE pnu = '9999910100100020000'",
         [],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     assert_eq!(digest, row_digest("9999910100100020000", "bb", "source"));
-    assert!(build_sido_sql("SELECT 1", "(pnu >= '99')", true, "1'", 0, "x").is_err());
+    assert_eq!(through, 2);
+    assert!(SERVED_BOUNDARIES
+        .build(&connection, true, "1'", "x")
+        .is_err());
+    Ok(())
+}
+
+/// A fold: only the ledger moved, and the run rebuilds the parcel whose final state moved, an
+/// upsert of a parcel the edition does not hold among them.
+#[test]
+fn a_ledger_only_move_rebuilds_the_parcels_whose_final_state_moved() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    inputs(&connection)?;
+    ledger(
+        &connection,
+        &edit(1, "9999910100100010000", Op::Delete, None),
+    )?;
+    let (_, targets) = partial_for_test(
+        &SERVED_BOUNDARIES,
+        &connection,
+        "edition-b",
+        &[LEDGER_SOURCE],
+        &|| {
+            connection.execute_batch("DELETE FROM silver_map_edit_ledger WHERE change_seq = 2;")?;
+            Ok(())
+        },
+        &|| {
+            ledger(
+                &connection,
+                &edit(
+                    2,
+                    "9999910100100030000",
+                    Op::Upsert,
+                    Some(square(0.0, 0.0, 1.0)),
+                ),
+            )
+        },
+    )?;
+    assert_eq!(targets, 1);
+    load_ranged(
+        &SERVED_BOUNDARIES,
+        &connection,
+        &Source::Local,
+        "edition-b",
+        "(pnu >= '99')",
+    )?;
+    crate::kind_versions_parts::build_in_parts(
+        &SERVED_BOUNDARIES,
+        &connection,
+        false,
+        "42",
+        "2099-01-01T00:00:00Z",
+    )?;
+    assert_eq!(
+        built(&connection)?,
+        [(
+            "9999910100100030000".into(),
+            "edit".into(),
+            "map-edit-2".into()
+        )]
+    );
     Ok(())
 }
 
