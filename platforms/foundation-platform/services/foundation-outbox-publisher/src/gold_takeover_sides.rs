@@ -457,6 +457,14 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         .copied()
         .filter(|name| !keys.contains(name))
         .collect();
+    // A side read by a code's first characters is compared in those ranges; one read by a region's
+    // label and its ids' first character (the place ids: narrow rows) is compared whole.
+    let chunks = match parts {
+        values::Parts::Code(column) => json!({
+            "column": column, "length": values::CHUNK_PREFIX, "prefixes": sido_prefixes,
+        }),
+        values::Parts::Labelled { .. } => serde_json::Value::Null,
+    };
     let sides = json!({
         "table": table, "replaced": replaced_name,
         "reference_snapshot": shadow.build.to_string(), "candidate_snapshot": candidate.to_string(),
@@ -468,9 +476,7 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         // The ranges the two sides were written in: the comparison joins one at a time, as this
         // pass read one at a time (2026-11-23 17:38Z: the join of 시도 41 of the served parcel
         // boundaries whole, 5,211,798 geometries a side, ran out of the verdict's 4 GB).
-        "chunks": {
-            "column": column, "length": values::CHUNK_PREFIX, "prefixes": sido_prefixes,
-        },
+        "chunks": chunks,
     });
     let path = work.join("sides.json");
     std::fs::write(&path, serde_json::to_vec_pretty(&sides)?)
