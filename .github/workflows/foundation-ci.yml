@@ -990,8 +990,10 @@ jobs:
     name: Boundary vertical slice
     runs-on: ubuntu-24.04
     # The slice compiles the publisher from source inside a pinned container before it can publish,
-    # so its budget is closer to compose-smoke's than to a test job's.
-    timeout-minutes: 30
+    # so its budget is closer to compose-smoke's than to a test job's. Through the compiler cache the
+    # build took 603-605 s warm and 1,627-1,672 s while five queue runs filled the empty cache at once
+    # (2026-11-24); the cold fill came within seconds of the old 30-minute limit and dropped #1709.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -1002,6 +1004,24 @@ jobs:
       - name: Generate the declared artifacts (root ADR-0418)
         shell: bash
         run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
+
+      # The slice compiles the publisher and the migrator in its rust container. With a cold target
+      # that took about 22 of the job's 23 minutes in every merge-queue run (2026-11-24, 12 runs of
+      # 1,364-1,523 s). The container's rustc goes through the shared compiler cache on R2 (root
+      # ADR-0294): the setup below fetches the pinned sccache and probes the bucket on the host, and
+      # boundary-slice-proof.sh hands the binary and the settings to the build container. The probe
+      # runs outside the checkout, so the host compiles it with the runner's own toolchain and installs
+      # nothing; a failed probe leaves RUSTC_WRAPPER unset and the slice builds from scratch as before.
+      - name: Restore pinned release binaries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/pinned
+          key: pinned-release-binaries-v1-${{ runner.os }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+      - name: Set up sccache
+        working-directory: ${{ runner.temp }}
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/sccache-setup.sh"
 
       - name: Select boundary slice gate
         working-directory: ${{ github.workspace }}
@@ -1025,7 +1045,8 @@ jobs:
       # release the pointer names, and an MVT decoder asserting the layer and its properties. Every
       # step of it was already covered by some test; that a step's output is the next step's input
       # was not, and no amount of per-step testing can show it. It provisions its own Postgres and
-      # Martin from digest-pinned images and needs no credentials, so it runs here unchanged rather
+      # Martin from digest-pinned images and needs no credentials (the compiler cache's key above is
+      # optional), so it runs here unchanged rather
       # than as a second copy shaped for CI.
       #
       # It covers `admin` and `complex` in one run, sharing the containers rather than paying for a
@@ -1033,11 +1054,10 @@ jobs:
       # empty in a tile Martin cuts from a written-but-unpromoted load, and populated in the same
       # tile after the promotion.
       #
-      # It is slower than its work: the stock `rust` image does not carry the components
-      # `rust-toolchain.toml` asks for, so rustup fetches four of them at run time — the same hidden
-      # download that was moved into the verification image. Baking a slice image would remove it,
-      # and that is a separate change: this job's images are digest-pinned public ones, while the
-      # verification image is built locally and CI has no copy.
+      # The stock `rust` image does not carry the components `rust-toolchain.toml` asks for, and
+      # rustup fetched four of them in every container until 2026-11-24, when that download hung for
+      # 30 minutes and dropped #1675 from the queue. The script now runs the pinned channel the image
+      # carries (RUSTUP_TOOLCHAIN) and forbids rustup any download (RUSTUP_AUTO_INSTALL=0).
       - name: Prove the boundary serving path end to end
         working-directory: ${{ github.workspace }}
         run: |
