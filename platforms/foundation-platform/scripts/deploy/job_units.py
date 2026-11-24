@@ -220,18 +220,27 @@ def leftover_failed(jobs_file, systemctl: str = "systemctl", now=None) -> list[s
     file a release removed (systemd keeps its failed state after the file is gone; the 공매 bake
     retired 11-05 sat failed and not-found), and an instance of a job's template that no job names,
     a day after it failed (the parcel tile bake's operator rehearsals, failed 10-15/16 and still
-    failed three weeks later). A failed state is then always a declared unit that is broken now."""
+    failed three weeks later), and the unit of a job the list has switched off, which nothing starts
+    again so nothing would ever end its failed state (2026-11-20 the document text job was switched off
+    on the owner's word an hour before its last run failed; its unit paged as failed for four days). A
+    failed state is then always a declared unit that is broken now."""
     with open(jobs_file, encoding="utf-8") as handle:
-        services = {job["systemd_service"] for job in json.load(handle)["jobs"]}
+        jobs = json.load(handle)["jobs"]
+    services = {job["systemd_service"] for job in jobs}
+    # What a switched-on job runs: its service and its check's. A service only switched-off jobs name
+    # is started by no one.
+    started = {service for job in jobs if job.get("enabled", True)
+               for service in (job["systemd_service"], job.get("check_service")) if service}
     templates = {template(service) for service in services} - {None}
     listed = failed(systemctl)
     gone = {entry["unit"] for entry in listed if entry.get("load") == "not-found"}
+    off = {entry["unit"] for entry in listed if entry["unit"] in services - started and entry["unit"] not in gone}
     instances = {entry["unit"] for entry in listed
                  if entry["unit"] not in gone and template(entry["unit"]) in templates and entry["unit"] not in services}
     now = time.time() if now is None else now
     shown = show(sorted(instances), systemctl)
     old = {unit for unit in instances if now - since(shown.get(unit, {})) >= LEFTOVER_AFTER_SECONDS}
-    return sorted(gone | old)
+    return sorted(gone | old | off)
 
 
 def unretried_failed(systemctl: str = "systemctl") -> list[str]:

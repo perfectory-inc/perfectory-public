@@ -117,6 +117,25 @@ class TheDeployClearsOnlyLeftovers(unittest.TestCase):
                          ["foundation-by-pnu-public-auction-bake.service",
                           "foundation-parcel-tile-bake@rehearsal-bake.service"])
 
+    def test_the_failed_unit_of_a_job_switched_off_is_cleared_and_a_switched_on_job_s_is_not(self):
+        # 2026-11-20: the document text job was switched off while its last run was going; that run
+        # failed, nothing starts the unit again, and FoundationUnitFailedLong paged on it for four days.
+        self.jobs.write_text(json.dumps({"jobs": [
+            {"enabled": False, "systemd_service": "foundation-synthetic-document-text.service"},
+            {"enabled": True, "systemd_service": "foundation-zoning-tile-bake.service"},
+            # One service two jobs name: started while either is on.
+            {"enabled": False, "systemd_service": "foundation-synthetic-shared.service"},
+            {"enabled": True, "systemd_service": "foundation-synthetic-shared.service"},
+            # A switched-on job's check service is started too.
+            {"enabled": True, "systemd_service": "foundation-synthetic-load.service",
+             "check_service": "foundation-synthetic-check.service"},
+            {"enabled": False, "systemd_service": "foundation-synthetic-check.service"},
+        ]}), encoding="utf-8")
+        failed = [{"unit": unit, "load": "loaded"} for unit in (
+            "foundation-synthetic-document-text.service", "foundation-zoning-tile-bake.service",
+            "foundation-synthetic-shared.service", "foundation-synthetic-check.service")]
+        self.assertEqual(self.leftovers(failed, {}, now=0), ["foundation-synthetic-document-text.service"])
+
     def test_the_deploy_clears_them_after_the_reload(self):
         release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
         clear = release.index('job_units.py" leftover-failed "${jobs_file}"')
