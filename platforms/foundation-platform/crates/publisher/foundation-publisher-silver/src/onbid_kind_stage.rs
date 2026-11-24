@@ -34,8 +34,8 @@ use sha2::{Digest, Sha256};
 use crate::auction_placement_stage as placement;
 use crate::duckdb_parquet_stage::with_contract_columns;
 use crate::kind_versions_stage::{
-    elapsed, fill, is_plain, KindVersionsStage, RowSet, CODE_CHANGE_SOURCE, PARCEL_SOURCE,
-    PLACE_IDS, SHARED_SQL, SPOOL_SQL,
+    elapsed, fill, is_plain, KindVersionsStage, ResultCheck, RowSet, CODE_CHANGE_SOURCE,
+    PARCEL_SOURCE, PLACE_IDS, SHARED_SQL, SPOOL_SQL,
 };
 use crate::parcel_nearby_stage::Source;
 use crate::place_id_join::BRIDGE_SOURCE;
@@ -522,9 +522,38 @@ fn round_photos() -> anyhow::Result<String> {
         ))
 }
 
+/// The served rounds of `built` that carry no photo though their item has current round media
+/// in the session's `photo_rows`: each as its item, `select` naming what is selected of them.
+fn rounds_without_their_media(select: &str) -> String {
+    format!(
+        "SELECT {select} \
+         FROM (SELECT json_extract_string(round, '$.cltr_mng_no') AS cltr_mng_no, \
+                 coalesce(json_array_length(round, '$.photos'), 0) AS photos \
+               FROM (SELECT unnest(json_extract(public_auction_json, '$.rounds[*]')) AS round \
+                     FROM built)) served \
+         JOIN (SELECT DISTINCT cltr_mng_no FROM photo_rows WHERE media_kind IN ({round})) media \
+           USING (cltr_mng_no) \
+         WHERE served.photos = 0",
+        round = quoted_list(&ROUND_MEDIA_KINDS),
+    )
+}
+
 impl KindVersionsStage for PublicAuctionKind {
     fn section_column(&self) -> &'static str {
         "public_auction_json"
+    }
+
+    /// A served round whose item has current round media carries its photos. 2026-11-04: the photo
+    /// Silver had rows while the served rounds showed none (the Trino check
+    /// `rounds_carry_their_media`, which read the Spark table; this is the producer's own, over the
+    /// media it read).
+    fn result_checks(&self) -> Vec<ResultCheck> {
+        vec![ResultCheck {
+            name: "rounds_carry_their_media",
+            sql: rounds_without_their_media("count(*)"),
+            blocking: true,
+            samples_sql: Some(rounds_without_their_media("DISTINCT cltr_mng_no")),
+        }]
     }
 
     fn inputs(&self) -> Vec<&'static str> {

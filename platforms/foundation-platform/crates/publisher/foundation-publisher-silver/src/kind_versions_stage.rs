@@ -78,6 +78,10 @@ pub struct ResultCheck {
     pub sql: String,
     /// Whether a breach refuses the 시도.
     pub blocking: bool,
+    /// One statement returning one text column, the breaching keys: the driver records the first
+    /// few, so a failure names what to look at without a second query. `None` when the count says
+    /// it all.
+    pub samples_sql: Option<String>,
 }
 
 /// One parcel kind's Gold in `DuckDB`.

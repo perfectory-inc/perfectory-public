@@ -243,6 +243,22 @@ fn a_document_serves_the_open_rounds_soonest_first_with_their_blocks_once() -> a
         document["source_datasets"].as_array().map(Vec::len),
         Some(SOURCE_DATASETS.len())
     );
+    // The kind's result check: C1's item has a photo and its round carries it, so no round breaches.
+    let checks = PUBLIC_AUCTION.result_checks();
+    assert_eq!(checks.len(), 1);
+    let check = &checks[0];
+    assert!(check.blocking);
+    let breaches =
+        |connection: &Connection| connection.query_row(&check.sql, [], |row| row.get::<_, i64>(0));
+    assert_eq!(breaches(&connection)?, 0);
+    // An item whose media the session holds and whose served round shows none breaches, by name.
+    connection.execute_batch(
+        "INSERT INTO photo_rows (cltr_mng_no, sha256, media_kind) VALUES ('C2', 'zz', 'photo');",
+    )?;
+    assert_eq!(breaches(&connection)?, 1);
+    let samples = check.samples_sql.clone().unwrap_or_default();
+    let item: String = connection.query_row(&samples, [], |row| row.get(0))?;
+    assert_eq!(item, "C2");
     Ok(())
 }
 

@@ -180,6 +180,22 @@ fn a_document_is_spark_s_bytes_by_name_with_blanks_null_and_the_place_id() -> an
         serde_json::to_string(document)?
     );
     assert_eq!(digest, &format!("{:x}", Sha256::digest(content.as_bytes())));
+    // The kind's result check: what the build wrote keeps the bound, and a document that counts
+    // fewer than it lists breaches, by PNU.
+    let checks = FACTORIES.result_checks();
+    assert_eq!(checks.len(), 1);
+    let check = &checks[0];
+    assert!(check.blocking);
+    let breaches =
+        |connection: &Connection| connection.query_row(&check.sql, [], |row| row.get::<_, i64>(0));
+    assert_eq!(breaches(&connection)?, 0);
+    connection.execute_batch(&format!(
+        "UPDATE built SET factory_total = 1 WHERE pnu = '{SITE_PNU}';"
+    ))?;
+    assert_eq!(breaches(&connection)?, 1);
+    let samples = check.samples_sql.clone().unwrap_or_default();
+    let pnu: String = connection.query_row(&samples, [], |row| row.get(0))?;
+    assert_eq!(pnu, SITE_PNU);
     Ok(())
 }
 
