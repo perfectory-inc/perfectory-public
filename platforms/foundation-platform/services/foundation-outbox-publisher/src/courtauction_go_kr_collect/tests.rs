@@ -551,10 +551,7 @@ async fn the_reach_check_asks_once_and_says_what_the_site_answered() -> anyhow::
     assert_eq!(report["requests"], 1);
     assert_eq!(report["sessions_opened"], 1);
     let asked = server.received_requests().await.unwrap_or_default();
-    let searches = asked
-        .iter()
-        .filter(|r| r.method.to_string() == "POST")
-        .count();
+    let searches = asked.iter().filter(|r| r.method == "POST").count();
     assert_eq!(searches, 1, "one list search, the first page");
     Ok(())
 }
@@ -570,19 +567,7 @@ async fn a_blocked_address_is_reported_and_never_asked_again() -> anyhow::Result
     assert_eq!(report["why"], "IpCheck");
     assert_eq!(report["sessions_opened"], 1, "no session is renewed");
     let asked = server.received_requests().await.unwrap_or_default();
-    assert_eq!(
-        asked
-            .iter()
-            .filter(|r| r.method.to_string() == "POST")
-            .count(),
-        1
-    );
-    assert_eq!(
-        asked
-            .iter()
-            .filter(|r| r.method.to_string() == "GET")
-            .count(),
-        1
-    );
+    assert_eq!(asked.iter().filter(|r| r.method == "POST").count(), 1);
+    assert_eq!(asked.iter().filter(|r| r.method == "GET").count(), 1);
     Ok(())
 }
