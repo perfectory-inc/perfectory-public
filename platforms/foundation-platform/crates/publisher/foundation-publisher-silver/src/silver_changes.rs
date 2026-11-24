@@ -149,12 +149,30 @@ pub fn changed(
 /// # Errors
 /// Refuses a table that does not append editions and a group whose newest editions tie; returns a
 /// `DuckDB` failure.
-// `{name}` is a placeholder of the SQL text, not a format argument.
-#[allow(clippy::literal_string_with_formatting_args)]
 pub fn changed_editions(
     stage: &DuckDbParquetStage,
     contract: &LakehouseTableContract,
     head: Option<i64>,
+    staged: &str,
+    out: &str,
+) -> anyhow::Result<u64> {
+    let pinned = head.map(|head| {
+        format!(
+            "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
+            contract.table_name
+        )
+    });
+    changed_editions_of(stage, contract, pinned.as_deref(), staged, out)
+}
+
+/// [`changed_editions`] over `table`: the table as the load names it at its pinned head (`None`: it
+/// has no snapshot yet).
+// `{name}` is a placeholder of the SQL text, not a format argument.
+#[allow(clippy::literal_string_with_formatting_args)]
+fn changed_editions_of(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    table: Option<&str>,
     staged: &str,
     out: &str,
 ) -> anyhow::Result<u64> {
@@ -177,15 +195,8 @@ pub fn changed_editions(
         .copied()
         .filter(|name| !per.contains(name) && !LOAD_COLUMNS.contains(name))
         .collect::<Vec<_>>();
-    let source = match head {
-        Some(head) => with_contract_columns(
-            stage.connection(),
-            contract,
-            &format!(
-                "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-                contract.table_name
-            ),
-        )?,
+    let source = match table {
+        Some(table) => with_contract_columns(stage.connection(), contract, table)?,
         None => format!("(SELECT {} FROM {staged} WHERE false)", columns.join(", ")),
     };
     let per_match = per
@@ -395,3 +406,6 @@ pub fn removal_changes(
     )?;
     Ok((u64::try_from(rows)?, u64::try_from(removed)?))
 }
+
+#[cfg(test)]
+mod tests;
