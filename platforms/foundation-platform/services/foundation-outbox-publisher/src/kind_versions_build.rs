@@ -256,6 +256,7 @@ pub(crate) const COURT_AUCTION_BUILD: KindBuild = KindBuild {
     replaced: "gold.parcel_court_auction",
     job: "build-parcel-court-auction-versions",
     stage: &COURT_AUCTION,
+    per_sido_commits: false,
 };
 
 /// Builds and appends `kind`'s changed keys.

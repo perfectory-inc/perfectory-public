@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use anyhow::{bail, ensure, Context};
+use anyhow::{ensure, Context};
 use duckdb::Connection;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -811,12 +811,6 @@ impl KindVersionsStage for CourtAuctionKind {
     fn create_built(&self, connection: &Connection) -> anyhow::Result<()> {
         connection.execute_batch(BUILT_TABLE)?;
         Ok(())
-    }
-
-    fn changed_pnus(&self, _connection: &Connection) -> anyhow::Result<u64> {
-        bail!(
-            "the 경매 kind is built whole on every run (root ADR-0326); no PNU set is asked of it"
-        )
     }
 
     fn build(
