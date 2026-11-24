@@ -65,8 +65,8 @@
       "expected_outcome": {
         "changes_within_hours": 6,
         "basis": "onbid lists change continuously (expected_cadence continuous, 6..24 h); measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): changed in all 437 runs. Six hourly runs that wrote nothing are a collector that stopped collecting.",
-        "landed_within_hours": 6,
-        "landed_basis": "Onbid lists only what is on sale now (endpoint catalog provider_retention, group onbid_open_api). 6 h is the change bound already measured for this hourly job (changed in all 437 runs, 2026-10-12..11-11): six hours unread is a collector that stopped (root ADR-0614)."
+        "landed_within_hours": 12,
+        "landed_basis": "Onbid lists only what is on sale now (endpoint catalog provider_retention, group onbid_open_api); how soon an ended item leaves the list is not measured. The job runs hourly; measured 2026-11-24 from the outcome ledger, 7 days (read-only): 157 complete reads, longest gap 8.4 h (the 11-23 scheduler outage). 12 h is that gap and room: half a day unread is a collector that stopped (root ADR-0614)."
       }
     }
   ],

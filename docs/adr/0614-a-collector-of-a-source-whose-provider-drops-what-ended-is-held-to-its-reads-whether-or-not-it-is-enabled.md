@@ -62,7 +62,7 @@
 | 작업 | 기한 | 근거 |
 |---|---|---|
 | `court_auction_collect` | 30 시간 | 하루 + 상한 300 분 + 1 시간. 카탈로그의 원천 기한과 같다 |
-| `onbid_public_auction_collect` | 6 시간 | 이미 잰 `change` 기한(437 run 모두 `changed`) |
+| `onbid_public_auction_collect` | 12 시간 | 매시 작업. 원장 7 일(11-24): 끝까지 읽은 run 157, 가장 긴 틈 8.4 시간(11-23 스케줄러 장애) + 여유 |
 | `industrial_complex_notice_collect`, `industrial_land_sale_notice_ilis_collect`·`_kicox_collect` | 24 시간 | 매시 작업, 하루 못 읽음. 내려가는 속도는 재지 않았다 |
 | `industrial_land_sale_notice_factoryon_collect` | 30 시간 | 하루 + 상한 120 분 + 늦은 시작 |
 | `industrial_land_sale_notice_lh_collect` | 없음 | 한 번도 켜지지 않았다(제공자 관문이 거절, ADR-0603 §6) |
