@@ -138,12 +138,12 @@ class TheJobsDagsterDecides(unittest.TestCase):
         self.assertEqual(tags["foundation/run-kind"], f"requested {REQUEST}")
 
     def test_a_start_carries_the_tags_its_sensor_runs_carry(self):
-        # Root ADR-0605: the class and the queue weight, and the decided-by tag, read from the real list.
+        # Root ADR-0605: the class, and the decided-by tag, read from the real list.
         jobs = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))
         spec = next(spec for spec in job_specs.load_specs(jobs) if spec.job_id == "gold_panel_rebuild")
         tags = job_orchestrator.launch_tags(jobs, "gold_panel_rebuild", "triggered")
         self.assertEqual(tags, spec.dagster_tags("triggered"))
-        self.assertEqual(tags[job_specs.PRIORITY_TAG], str(spec.priority * job_specs.QUEUE_WEIGHT_SPAN + spec.priority_weight))
+        self.assertEqual(tags[job_specs.PRIORITY_TAG], str(spec.priority))
         self.assertEqual(tags[job_specs.DECIDED_TAG], "dagster")
 
     def test_start_takes_only_a_kind_the_forced_command_reads(self):

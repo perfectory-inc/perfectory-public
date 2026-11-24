@@ -330,12 +330,55 @@ class TheSensorTest(unittest.TestCase):
             self.assertIsInstance(request, RunRequest)
             self.assertTrue(request.run_key.startswith("inputs:"))
             self.assertEqual(request.tags["foundation/run-kind"], "triggered")
-            self.assertEqual(request.tags["dagster/priority"], str(spec.priority * 1000 + spec.priority_weight))
+            self.assertEqual(request.tags["dagster/priority"], str(spec.priority))
             # Held to the pools' slots together, apart from the runs Airflow hands Dagster (dagster.yaml).
             self.assertEqual(request.tags["foundation/decided-by"], "dagster")
             clock[0] += STEP
             context = build_sensor_context(instance=instance, cursor=context.cursor)
             self.assertIsInstance(evaluate(context), SkipReason, "the same event never starts a second run")
+
+    def test_a_run_after_a_failed_run_queues_in_the_default_class(self):
+        # 2026-11-23: the panel rebuild (class publish) failed nine times and each new run of it went ahead of
+        # the Gold rebuilds that had waited since the morning. Dagster's queue has no backoff (1.13.27), so the
+        # run that follows a failure carries the default class and waits its turn there.
+        import types
+
+        import observe_assets
+        from dagster import AssetMaterialization, DagsterInstance, DagsterRunStatus, build_sensor_context
+
+        import decide
+
+        spec = spec_of("gold_panel_rebuild")
+        self.assertGreater(spec.priority, spec.default_priority, "the panel rebuild is no longer above default")
+
+        def ended(*statuses):
+            asked = []
+
+            def get_run_records(filters, limit):
+                asked.append((filters.job_name, set(filters.statuses), limit))
+                return [types.SimpleNamespace(dagster_run=types.SimpleNamespace(status=status)) for status in statuses[:limit]]
+
+            return types.SimpleNamespace(get_run_records=get_run_records), asked
+
+        instance, asked = ended(DagsterRunStatus.FAILURE, DagsterRunStatus.SUCCESS)
+        self.assertTrue(decide._after_failure(instance, spec.dagster_job))
+        # The newest ended run alone: a cancelled or open run says nothing of the job.
+        self.assertEqual(asked, [(spec.dagster_job, {DagsterRunStatus.SUCCESS, DagsterRunStatus.FAILURE}, 1)])
+        self.assertFalse(decide._after_failure(ended(DagsterRunStatus.SUCCESS, DagsterRunStatus.FAILURE)[0], spec.dagster_job))
+        self.assertFalse(decide._after_failure(ended()[0], spec.dagster_job))
+
+        clock = [at("2026-11-09T10:00:00")]
+        evaluate = decide.evaluator(spec, limit_of(spec.job_id), clock=lambda: clock[0])
+        for failed, priority in ((True, spec.default_priority), (False, spec.priority)):
+            with self.subTest(failed=failed), DagsterInstance.ephemeral() as live, \
+                    mock.patch.object(decide, "_after_failure", lambda *_, failed=failed: failed):
+                key = observe_assets.asset_key(spec.starting_inputs[0])
+                context = build_sensor_context(instance=live)
+                evaluate(context)
+                live.report_runless_asset_event(AssetMaterialization(key))
+                clock[0] += STEP
+                (request,) = evaluate(build_sensor_context(instance=live, cursor=context.cursor))
+                self.assertEqual(request.tags["dagster/priority"], str(priority))
 
     def test_the_first_look_counts_from_the_airflow_run_airlift_saw(self):
         # Root ADR-0583 §6: a job comes to `dagster` from Airflow with no Dagster run of its own. Its last

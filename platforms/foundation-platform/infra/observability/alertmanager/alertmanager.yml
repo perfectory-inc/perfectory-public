@@ -109,6 +109,21 @@ inhibit_rules:
       - kind = "blocked"
     equal:
       - failed_job
+  # The job a blocked one waits on did not fail but did nothing either (its run waits in the queue, or
+  # was never started): it has no `failed` notice, and its missing outcome is the one to read. The
+  # outcome rules name their job as `failed_job` too, the label a blocked job names it by. 2026-11-24
+  # 01:20Z: 43 blocked notices were out, 27 of them behind eleven jobs whose missing outcome was already
+  # out (nine Gold rebuilds starved of the spark pool's slot, root ADR-0605), and the page for
+  # gold_public_auction_rebuild, 94 hours without a run, was read by nobody. Only `done`: a job that ran
+  # and changed nothing blocks no one, and `landed` (a source not read) is never a source or a target here.
+  - source_matchers:
+      - alertname =~ "FoundationJobOutcomeMissing(Long)?"
+      - expectation = "done"
+    target_matchers:
+      - alertname = "FoundationScheduledJobProblem"
+      - kind = "blocked"
+    equal:
+      - failed_job
   # A job that failed is not done: its failure notice, and its unit's, already say so (root ADR-0442 §5:
   # one event, one notice). A job that is not done and has not failed (it waits, is skipped, refused or
   # never started) has no other notice, and keeps this one.

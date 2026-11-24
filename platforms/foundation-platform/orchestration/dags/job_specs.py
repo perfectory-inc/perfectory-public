@@ -87,13 +87,9 @@ OUTCOME_TAG = "foundation/job-outcome"
 OWED_TAG = "foundation/asset-owed"
 # The run queue's view of a job run (orchestration/dagster/dagster.yaml): every job run is counted under
 # JOB_RUN_TAG apart from the observer's check runs, and Dagster's own `dagster/priority`, the order the
-# queue starts runs in, is dagster_priority (root ADR-0435, ADR-0558). Its pool is not a tag: it is the
+# queue starts runs in, is dagster_priority (root ADR-0435, ADR-0605). Its pool is not a tag: it is the
 # op's own Dagster pool (orchestration/dagster/run_jobs.py, root ADR-0605).
 JOB_RUN_TAG = "foundation/run"
-# A job's `dagster/priority` is its priority class's value times this, plus its queue weight: the class
-# orders first (root ADR-0435), and inside it a job that writes what another reads starts first (root
-# ADR-0558), as Airflow orders its pool's tasks by the weight. A weight never reaches this (load_specs).
-QUEUE_WEIGHT_SPAN = 1000
 # What may follow the job id in a start: nothing (the clock), `triggered`, or `requested <id>` (an
 # operator's run-now, root ADR-0282 §4); the host's forced command reads the same words.
 RUN_KIND = re.compile(r"(?:triggered|requested [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?")
@@ -153,15 +149,17 @@ class JobSpec:
     dagster_stage: str = "airflow"  # DAGSTER_STAGES
     dagster_group: str = ""  # DAGSTER_GROUPS
     priority: int = 100  # the value of its priority class (root ADR-0435)
+    default_priority: int = 100  # the value of the `default` class: where a run after a failure queues
 
     @property
     def dagster_job(self):
         """The Dagster job that runs this job once it is past `shadow` (DAGSTER_JOB_PREFIX)."""
         return DAGSTER_JOB_PREFIX + self.job_id
 
-    def dagster_tags(self, run_kind=""):
-        """The tags a Dagster run of this job carries: how it was started, and what the run queue reads."""
-        tags = run_tags(dagster_priority(self), run_kind, 60 * self.timeout_minutes)
+    def dagster_tags(self, run_kind="", after_failure=False):
+        """The tags a Dagster run of this job carries: how it was started, and what the run queue reads
+        (`after_failure`: the job's newest ended run failed, dagster_priority)."""
+        tags = run_tags(dagster_priority(self, after_failure), run_kind, 60 * self.timeout_minutes)
         if self.dagster_stage == "dagster":
             tags[DECIDED_TAG] = "dagster"
         return tags
@@ -191,12 +189,23 @@ def run_tags(priority, run_kind="", max_runtime_seconds=None):
     return tags
 
 
-def dagster_priority(spec):
-    """The order Dagster's queue starts the job's runs in (QUEUE_WEIGHT_SPAN): its class, then its weight.
-    2026-11-20: Gold moved to Dagster (root ADR-0583), whose queue knew the class alone, so a bake could
-    have started before the rebuild whose output it reads, and #1515's tile, served Gold and registry order
-    (priority_weight 31..33) would have been lost."""
-    return spec.priority * QUEUE_WEIGHT_SPAN + spec.priority_weight
+def dagster_priority(spec, after_failure=False):
+    """The order Dagster's queue starts the job's runs in (root ADR-0605 amended 2026-11-24): the value of
+    its priority class and nothing else. Dagster starts the higher `dagster/priority` first and, among equal
+    ones, the run queued first (1.13.27 queued_run_coordinator_daemon._priority_sort: a stable sort; its
+    queue has no aging and no backoff), so inside a class the queue is first in, first out, and a job that
+    is started again goes to the back of its class.
+
+    `after_failure`: the job's newest ended run failed. Its next run queues in the `default` class at most,
+    so a job that keeps failing takes its turn behind what waits there instead of the slot ahead of it.
+
+    2026-11-23..24, the spark pool's one slot: a per-job weight inside the class (root ADR-0558, 31..100)
+    put the tile bake (four failed runs of about two hours), the hourly real-transaction load and the
+    lineage steward ahead of nine Gold rebuilds of weight 20 for 15 to 17 hours, and the panel rebuild of
+    class `publish` failed nine times ahead of all of them; gold_public_auction_rebuild had not run since
+    11-20 02:05Z. A reader that starts before its writer reads what is there and is started again by the
+    writer's output (started_by inputs), so the weight bought an order the inputs already give."""
+    return min(spec.priority, spec.default_priority) if after_failure else spec.priority
 
 
 def asset_uri(dataset):
@@ -1139,12 +1148,11 @@ def load_specs(jobs=None, graph=None):
                 dagster_stage=dagster_stage(job, jobs),
                 dagster_group=dagster_group(job),
                 priority=jobs["priority_classes"][priority_class(jobs, job, job_id)]["value"],
+                default_priority=jobs["priority_classes"]["default"]["value"],
             )
         )
-    problems = [f"{spec.job_id}: queue weight {spec.priority_weight} reaches QUEUE_WEIGHT_SPAN; raise the span"
-                for spec in specs if spec.priority_weight >= QUEUE_WEIGHT_SPAN]
     start_circles(jobs, graph)
-    problems += dagster_order(jobs, feeders) + dagster_groups(jobs)
+    problems = dagster_order(jobs, feeders) + dagster_groups(jobs)
     if problems:
         raise JobListError("; ".join(problems))
     return specs

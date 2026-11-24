@@ -192,3 +192,41 @@ Dagster 1.13.27 에서 확인한 것(배포판 휠의 소스와 공식 문서):
 ## 개정 각주 — 2026-11-23, ADR-0612
 
 §6 의 "`foundation/decided-by=dagster` 한도 5" 줄은 [ADR-0612](./0612-the-dagster-run-queue-has-no-tag-limit-because-a-run-its-full-pool-holds-back-still-takes-a-place-of-every-tag-limit-it-carries.md) 가 대신한다. 줄에는 태그 한도가 없고, 자원마다의 한도는 이 ADR 의 풀뿐이다.
+
+## 개정 각주 — 2026-11-24, 줄의 순서는 등급뿐이고 등급 안은 선착순이다
+
+**무슨 일이 있었나.** 11-23 05Z 부터 `spark` 풀(1칸)의 줄에서 등급 `default`, 무게 20 인 Gold 재빌드 아홉이 15~17시간을 기다렸다.
+`gold_public_auction_rebuild` 는 11-20 02:05Z 뒤로 한 번도 돌지 못했다(94시간). 같은 등급의 무게 31~100 인 작업이 앞에 섰기 때문이다:
+필지 타일 굽기는 약 2시간짜리 run 이 네 번 실패하고 다시 시작됐고, 매시 실거래 Silver 적재와 계보 스튜어드가 그 사이를 채웠다.
+등급 `publish` 인 패널 재빌드는 아홉 번 실패하며 매번 모두의 앞에 섰다. 44시간 동안 칸은 33.8시간 찼다(운영 Dagster run 기록, 읽기 전용).
+
+**Dagster 가 주는 것.** 1.13.27 의 줄은 `dagster/priority` 가 큰 run 을 먼저, 같은 값끼리는 먼저 줄 선 run 을 먼저 시작한다
+(`queued_run_coordinator_daemon._priority_sort`: 안정 정렬. 공식 문서 "Customizing run queue priority" 도 같다). 기다린 시간으로 올려 주는 기능도,
+실패한 run 을 뒤로 보내는 기능도 없다.
+
+**결정.**
+
+1. run 의 `dagster/priority` 는 작업의 우선순위 등급 값 하나다(`job_specs.dagster_priority`). 등급 안의 작업별 무게(`priority_weight`,
+   [ADR-0558](./0558-a-job-outranks-every-job-of-its-pool-that-reads-what-it-writes-from-the-pipeline-graph.md))는 Dagster 의 줄에 싣지 않는다.
+   그래서 등급 안은 Dagster 자신의 선착순이고, 다시 시작된 작업은 그 등급의 맨 뒤에 선다.
+2. 작업의 가장 최근에 끝난 run 이 실패였으면 다음 run 은 `default` 등급을 넘지 않는다(`decide._after_failure`). 계속 실패하는 작업은
+   기다리던 작업들 뒤에서 차례를 받는다. 성공하면 다음 run 은 제 등급으로 돌아간다. 등급이 `default` 아래인 작업(backfill)은 그대로다.
+3. 기다린 시간으로 우선순위를 올리는 식(aging)은 만들지 않는다. 등급 안이 선착순이면 기다림은 앞에 선 run 들의 실행 시간 합으로 묶이고,
+   위 등급(`publish`)은 성공하는 run 만 앞에 서므로 그 양은 그 작업들의 실제 일이다(44시간에 약 9시간). 그 양이 칸을 다 채우게 되면
+   `FoundationDagsterRunQueuedOverBudget` 가 알리고, 답은 식이 아니라 칸이나 등급이다.
+
+**잃는 것.** 무게가 주던 "쓰는 작업이 읽는 작업보다 먼저"(ADR-0558)와 #1515 의 타일·served Gold·등기 순서(31~33)는 줄에서 사라진다.
+읽는 작업은 입력으로 시작되므로(`started_by: inputs`), 먼저 돌면 있는 것을 읽고 쓰는 작업의 출력이 다시 시작한다. 화면에 닿는 작업이
+먼저여야 하면 그 작업의 등급을 `publish` 로 선언한다. `priority_weight` 필드와 `queue_weights` 는 Airflow 의 DAG 가 읽는 동안 남고
+Airflow 삭제([ADR-0565](./0565-a-job-dagster-decides-is-reached-through-dagster-by-everything-that-reached-it-through-its-airflow-dag.md) §10)와 함께 지운다.
+
+**경보.** 이 일은 감지되고 있었다: `FoundationJobOutcomeMissingLong`(page)과 `FoundationJobQueueWaitOverBudget` 가 울렸다. 읽히지 않은 것은
+같은 원인의 메아리(`FoundationScheduledJobProblem` kind=blocked 43건) 속에 있었기 때문이다. 기다리는 작업이 이름으로 가리키는 작업의
+`FoundationJobOutcomeMissing`(expectation=done)이 울리는 동안 그 blocked 알림은 내지 않는다(`alertmanager.yml` inhibit_rules; 두 규칙이
+`failed_job` 레이블을 함께 가진다, #1679). 11-24 01:20Z 기준 43건 중 27건이 이렇게 하나로 줄어든다.
+
+| 구분 | 내용 |
+|---|---|
+| 기본 기능 | Dagster run 줄의 우선순위와 같은 값끼리의 선착순, Alertmanager inhibit_rules |
+| 임시 | 없음 |
+| 운영 | 등급 값만 싣는 것, 실패 뒤 `default` 등급으로 서는 것 |

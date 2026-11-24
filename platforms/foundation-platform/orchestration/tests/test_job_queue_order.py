@@ -1,8 +1,11 @@
-"""The order Dagster's queue starts job runs in (job_specs.dagster_priority, root ADR-0435, ADR-0558): a job's
-priority class first, then its queue weight, so inside a class a job that writes what another reads starts
-first, as Airflow orders its pool's tasks (queue_weights). 2026-11-20 the Gold group moved to Dagster (root
-ADR-0583), whose queue had read the class alone."""
+"""The order Dagster's queue starts job runs in (job_specs.dagster_priority, root ADR-0435, ADR-0605): a job's
+priority class and nothing else, so inside a class the queue is first in, first out (Dagster's own order
+among equal priorities), and a run that follows a failed run of its job queues in the `default` class at most.
 
+2026-11-23..24: a per-job weight inside the class kept nine Gold rebuilds behind a tile bake that failed four
+times, two hours each, for 15 to 17 hours on the spark pool's one slot."""
+
+import dataclasses
 import pathlib
 import sys
 import unittest
@@ -13,23 +16,37 @@ import job_specs  # noqa: E402
 
 
 class DagstersQueueOrder(unittest.TestCase):
-    def test_dagsters_queue_starts_a_writer_before_what_reads_it_and_a_class_before_its_weight(self):
-        # Root ADR-0558 as Airflow kept it (queue_weights), now in `dagster/priority` (dagster_priority).
-        specs = {spec.job_id: spec for spec in job_specs.load_specs()}
-        pairs = 0
-        for reader in specs.values():
-            for writer in reader.producers:
-                writer = specs[writer]
-                if writer.pool == reader.pool and writer.priority == reader.priority and writer.job_id != reader.job_id:
-                    pairs += 1
-                    self.assertGreaterEqual(job_specs.dagster_priority(writer), job_specs.dagster_priority(reader),
-                                            (writer.job_id, reader.job_id))
-        self.assertGreater(pairs, 0)
+    def setUp(self):
+        self.specs = job_specs.load_specs()
+
+    def test_a_runs_priority_is_its_class_so_a_class_is_first_in_first_out(self):
+        # No job has a place of its own inside its class: two jobs of one class carry one priority, and
+        # Dagster then starts the one queued first.
         by_class = {}
-        for spec in specs.values():
-            by_class.setdefault(spec.priority, []).append(job_specs.dagster_priority(spec))
-        for lower, higher in zip(sorted(by_class), sorted(by_class)[1:], strict=False):
-            self.assertLess(max(by_class[lower]), min(by_class[higher]))
+        for spec in self.specs:
+            self.assertEqual(job_specs.dagster_priority(spec), spec.priority, spec.job_id)
+            self.assertEqual(spec.dagster_tags()[job_specs.PRIORITY_TAG], str(spec.priority))
+            by_class.setdefault(spec.priority, set()).add(spec.priority_weight)
+        self.assertTrue(any(len(weights) > 1 for weights in by_class.values()),
+                        "the list still holds jobs of one class with different weights; the queue ignores them")
+
+    def test_a_run_after_a_failure_queues_in_the_default_class_at_most(self):
+        above = [spec for spec in self.specs if spec.priority > spec.default_priority]
+        below = [spec for spec in self.specs if spec.priority < spec.default_priority]
+        self.assertTrue(above, "no job of a class above default: this test proves nothing")
+        for spec in above:
+            self.assertEqual(job_specs.dagster_priority(spec, after_failure=True), spec.default_priority, spec.job_id)
+            self.assertEqual(spec.dagster_tags("triggered", after_failure=True)[job_specs.PRIORITY_TAG],
+                             str(spec.default_priority))
+        # A failure never raises a job: a backfill stays below the default class.
+        for spec in below:
+            self.assertEqual(job_specs.dagster_priority(spec, after_failure=True), spec.priority, spec.job_id)
+        ordinary = next(spec for spec in self.specs if spec.priority == spec.default_priority)
+        self.assertEqual(job_specs.dagster_priority(ordinary, after_failure=True), ordinary.priority)
+
+    def test_the_default_class_is_the_lists_own(self):
+        spec = dataclasses.replace(self.specs[0], priority=1000, default_priority=7)
+        self.assertEqual(job_specs.dagster_priority(spec, after_failure=True), 7)
 
 
 if __name__ == "__main__":

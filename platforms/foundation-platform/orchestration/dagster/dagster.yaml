@@ -21,8 +21,9 @@ storage:
 # names its Dagster pool (run_jobs.py) and `concurrency.pools` below counts runs, with the limits the
 # deploy sets from jobs.v1.json pools (writer_gate.py ask pools, root ADR-0605). The host's start
 # (job_units.py pool-full) counts the same slots for a start outside Dagster until root ADR-0583's last PR.
-# The queue starts higher `dagster/priority` first (the job's priority class, then its queue weight:
-# job_specs.dagster_priority), and a free place goes to the highest queued run its pool admits.
+# The queue starts higher `dagster/priority` first (the job's priority class and nothing else,
+# job_specs.dagster_priority) and, among equal ones, the run queued first; a free place goes to the first
+# such run its pool admits.
 #
 # No tag limit (root ADR-0612). Dagster's dequeue (1.13.27 and upstream master,
 # queued_run_coordinator_daemon._get_runs_to_dequeue) counts a run against every tag limit it carries
