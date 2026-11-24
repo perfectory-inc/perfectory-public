@@ -9,6 +9,11 @@
 //! cadastral grammar or whose key repeats is refused, and a price whose (unit, date) repeats or whose
 //! value is invalid is refused, priced unit or not, as the Spark job refuses them.
 //!
+//! A register row is read under the served code: its PNU is re-keyed through the shared renumbering
+//! (`kind_versions_stage::spool` leaves `renumbering(src, dst)` from `reference.legal_dong_code_change`
+//! and the served parcel edition), as every kind's rows are, so the day the served edition moves to
+//! new 법정동 codes a unit is still placed under the PNU its parcel is served by.
+//!
 //! Regional, one pass: the registers are read once and placed nationally (narrow: a key and two
 //! PNUs per unit), the chosen price batch is read once, joined to the placement and spooled by the
 //! 시도 of the PNU each unit is served under, and each 시도 is then loaded and folded alone. Every run
@@ -24,7 +29,10 @@ use sha2::{Digest, Sha256};
 
 use crate::building_unit_placement::{self, catalog_digest_sql, catalog_id_sql};
 use crate::duckdb_parquet_stage::with_contract_columns;
-use crate::kind_versions_stage::{current_rows_query, fill, is_plain};
+use crate::kind_versions_stage::{
+    current_rows_query, fill, is_plain, renumbering_join, served_pnu, KindVersionsStage, RowSet,
+    CODE_CHANGE_SOURCE, PARCEL_SOURCE,
+};
 use crate::parcel_nearby_stage::Source;
 
 pub mod batch;
@@ -42,10 +50,16 @@ const UNPLACED: &str = "unplaced";
 /// What the rules are; part of the build's code version.
 const RULES_VERSION: &str = "unit-price-duckdb-v1";
 
-/// A register's current rows, the PNU trimmed, as `<name>`: read once, the rows without a PNU
-/// counted from it and then dropped.
+/// A register's current rows, the PNU trimmed and put under the served code (`@served@` over
+/// `@join@`, the shared renumbering), as `<name>`: read once, the rows without a PNU counted from it
+/// and then dropped.
 const REGISTER_SQL: &str = "\
-CREATE OR REPLACE TABLE @name@ AS SELECT * REPLACE (trim(pnu, ' ') AS pnu) FROM (@rows@);";
+CREATE OR REPLACE TABLE @name@ AS SELECT t.* REPLACE (@served@ AS pnu) \
+FROM (SELECT * REPLACE (trim(pnu, ' ') AS pnu) FROM (@rows@)) t @join@;";
+
+/// `built`: the content columns of `gold.unit_price` and its digest.
+const BUILT_TABLE: &str = "CREATE OR REPLACE TABLE built (pnu VARCHAR, building_id VARCHAR, \
+    units_json VARCHAR, row_digest VARCHAR, source_snapshot_id VARCHAR, published_at_utc VARCHAR);";
 
 /// The titles as the placement reads them: key, PNU and catalog id.
 const TITLES_SQL: &str = "\
@@ -158,7 +172,15 @@ fn register(
     name: &str,
 ) -> anyhow::Result<u64> {
     let rows = current_rows_query(connection, source, table, columns, "TRUE")?;
-    connection.execute_batch(&fill(REGISTER_SQL, &[("name", name), ("rows", &rows)]))?;
+    connection.execute_batch(&fill(
+        REGISTER_SQL,
+        &[
+            ("name", name),
+            ("rows", &rows),
+            ("served", &served_pnu("t.pnu", "r")),
+            ("join", &renumbering_join("t.pnu", "r", "")),
+        ],
+    ))?;
     let without = count(
         connection,
         &format!("SELECT count(*) FROM {name} WHERE pnu IS NULL OR pnu = ''"),
@@ -381,9 +403,7 @@ pub fn load_region(connection: &Connection, dir: &Path, sido: &str) -> anyhow::R
             .to_owned()
     };
     connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE prices AS {body}; \
-         CREATE OR REPLACE TABLE built (pnu VARCHAR, building_id VARCHAR, units_json VARCHAR, \
-           row_digest VARCHAR, source_snapshot_id VARCHAR, published_at_utc VARCHAR);"
+        "CREATE OR REPLACE TABLE prices AS {body}; {BUILT_TABLE}"
     ))?;
     count(connection, "SELECT count(*) FROM prices")
 }
@@ -409,6 +429,68 @@ pub fn build(
         ],
     ))?;
     Ok(())
+}
+
+/// The unit price lane as the shared build sees it (root ADR-0615 §7): what the shared spool reads
+/// for it (the served parcels and the code change table, for the renumbering) and its build, which
+/// the shared [`crate::kind_versions_parts::build_in_parts`] runs one 시군구 of `prices` at a time.
+///
+/// The lane still has its own driver (`unit_price_versions_build`): the price batch's choice, the
+/// host's register pins and the national check of shrunk histories are not the shared driver's yet.
+#[derive(Clone, Copy, Debug)]
+pub struct UnitPrice;
+
+/// The one unit price lane.
+pub const UNIT_PRICE: UnitPrice = UnitPrice;
+
+impl KindVersionsStage for UnitPrice {
+    fn section_column(&self) -> &'static str {
+        "units_json"
+    }
+
+    fn inputs(&self) -> Vec<&'static str> {
+        vec![
+            PARCEL_SOURCE,
+            TITLE_SOURCE,
+            UNIT_SOURCE,
+            PRICE_SOURCE,
+            CODE_CHANGE_SOURCE,
+        ]
+    }
+
+    // Every run builds every row (the module's first lines): any input moves every document.
+    fn whole_table_inputs(&self) -> Vec<&'static str> {
+        self.inputs()
+    }
+
+    fn code_version(&self) -> String {
+        code_version()
+    }
+
+    // The lane's own driver reads its registers and prices; the shared spool reads only the served
+    // parcels and the code changes for it.
+    fn row_sets(&self) -> Vec<RowSet> {
+        Vec::new()
+    }
+
+    fn pnu_spools(&self) -> Vec<&'static str> {
+        vec!["prices"]
+    }
+
+    fn create_built(&self, connection: &Connection) -> anyhow::Result<()> {
+        connection.execute_batch(BUILT_TABLE)?;
+        Ok(())
+    }
+
+    fn build(
+        &self,
+        connection: &Connection,
+        _all: bool,
+        source_snapshot_id: &str,
+        published_at_utc: &str,
+    ) -> anyhow::Result<()> {
+        build(connection, source_snapshot_id, published_at_utc)
+    }
 }
 
 /// The unit histories of the rows `rows` (a relation with `units_json`): `(id, records)` per unit,

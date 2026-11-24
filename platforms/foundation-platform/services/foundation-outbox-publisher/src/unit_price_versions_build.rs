@@ -25,12 +25,14 @@ use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
 use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
-    kind_versions_stage::ensure_no_commit_tables,
+    kind_versions_stage::{
+        build_in_parts, ensure_no_commit_tables, spool, CODE_CHANGE_SOURCE, PARCEL_SOURCE,
+    },
     parcel_nearby_stage::{NearbyPins, Source},
     process_memory,
     unit_price_stage::{
-        self as stage, batch, build, history_lengths_sql, load_region, read_registers,
-        shrink_verdict, spool_prices, PRICE_SOURCE, TITLE_SOURCE, UNIT_SOURCE,
+        self as stage, batch, history_lengths_sql, load_region, read_registers, shrink_verdict,
+        spool_prices, PRICE_SOURCE, TITLE_SOURCE, UNIT_PRICE, UNIT_SOURCE,
     },
 };
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
@@ -45,7 +47,7 @@ use crate::{
     },
     kind_versions_build::{head_sidos, sido_range, Spool, SUMMARY_ENV},
     parcel_nearby_versions_build::{
-        contract, lakehouse_read, max_row_loss_fraction_of, write_summary,
+        contract, lakehouse_read, max_row_loss_fraction_of, served_edition, write_summary,
         MAX_CHANGED_KEY_FRACTION, MEMORY_SHARE, REBUILD_CONTRACT,
     },
     public_data_control_support::required_env_value,
@@ -58,8 +60,15 @@ const REPLACED: &str = "gold.unit_price";
 /// The by-PNU lane that serves it.
 const LANE: &str = "unit-price";
 const JOB: &str = "build-unit-price-versions";
-/// The inputs, every one the Spark job read.
-const INPUTS: [&str; 3] = [TITLE_SOURCE, UNIT_SOURCE, PRICE_SOURCE];
+/// The inputs: every one the Spark job read, and the two the shared renumbering reads (the served
+/// parcels and the code change table), so a register row is placed under the served code.
+const INPUTS: [&str; 5] = [
+    TITLE_SOURCE,
+    UNIT_SOURCE,
+    PRICE_SOURCE,
+    PARCEL_SOURCE,
+    CODE_CHANGE_SOURCE,
+];
 /// The summary property a commit names the price batch it read under.
 const PRICE_BATCH_PROPERTY: &str = "foundation.unit-price-batch";
 
@@ -148,19 +157,34 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let head = history.first().map(|snapshot| snapshot.snapshot_id);
     let lane =
         ByPnuLane::named(LANE)?.with_context(|| format!("the contract names no {LANE} lane"))?;
-    // The price table reads no served parcel edition; none is planned or recorded.
     let versions::Planned {
-        mut pins, shadow, ..
+        mut pins,
+        shadow,
+        served_edition: edition,
     } = versions::planned_inputs(
         &catalog,
         TABLE,
         by_pnu_serving_manifest_publish::gold_table(lane),
         &INPUTS,
-        String::new(),
+        served_edition()?,
     )
     .await?;
     if shadow.is_none() {
         pins.extend(host_pins(&catalog).await?);
+    }
+    // The Spark build a shadow follows read neither the parcels nor the code changes and so pins
+    // neither: the renumbering reads their heads.
+    for input in [PARCEL_SOURCE, CODE_CHANGE_SOURCE] {
+        if !pins.contains_key(input) {
+            let head = catalog
+                .load_main_snapshot_history(input)
+                .await?
+                .with_context(|| format!("{input} does not exist"))?
+                .first()
+                .map(|snapshot| snapshot.snapshot_id)
+                .with_context(|| format!("{input} holds no snapshot"))?;
+            pins.insert(input.to_owned(), head);
+        }
     }
     let shadow_build = shadow
         .as_ref()
@@ -210,8 +234,18 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         pins: &pinned,
     };
     let price_batch = batch::chosen_batch(&stage::batch_ids(connection, &source)?, &order)?;
-    let registers = read_registers(connection, &source)?;
     let spool_dir = Spool::new(work.join("spool"))?;
+    // The shared spool leaves the renumbering of the served edition (root ADR-0615 §7): the
+    // registers are read under the served codes, as every kind's rows are.
+    spool(
+        &UNIT_PRICE,
+        connection,
+        &source,
+        &edition,
+        "",
+        spool_dir.path(),
+    )?;
+    let registers = read_registers(connection, &source)?;
     let spooled = spool_prices(connection, &source, &price_batch, spool_dir.path())?;
     let mut sidos = spooled.sidos.clone();
     // A 시도 the head holds and the build no longer does is diffed too: its keys get removal markers.
@@ -243,7 +277,14 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let (mut rows, mut units_now) = (0, 0);
     for sido in &sidos {
         rows += load_region(connection, spool_dir.path(), sido)?;
-        build(connection, &price_snapshot, &published_at_utc)?;
+        // One 시군구 at a time: the histories are ordered lists, which do not spill.
+        build_in_parts(
+            &UNIT_PRICE,
+            connection,
+            true,
+            &price_snapshot,
+            &published_at_utc,
+        )?;
         ensure_no_commit_tables(connection)?;
         let invalid: i64 = connection.query_row(
             &format!(

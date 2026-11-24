@@ -31,7 +31,8 @@ INSERT INTO silver_building_register_units VALUES
   ('u3', '{UNIT_PNU}', NULL, 'r3', NULL, NULL, NULL, NULL, NULL, TIMESTAMP '2099-01-01', TIMESTAMP '2099-01-01', NULL);
 CREATE OR REPLACE TABLE silver_unit_official_price (mgm_bldrgst_pk VARCHAR, pnu VARCHAR, base_date VARCHAR,
   price_won BIGINT, source_snapshot_id VARCHAR, vintage VARCHAR);
-INSERT INTO silver_unit_official_price VALUES {prices};"
+INSERT INTO silver_unit_official_price VALUES {prices};
+CREATE OR REPLACE TEMP TABLE renumbering (src VARCHAR, dst VARCHAR);"
     ))?;
     Ok(())
 }
@@ -141,6 +142,33 @@ fn units_are_served_under_their_building_with_newest_prices_first() -> anyhow::R
             .collect::<Vec<_>>(),
         [1, 1, 2]
     );
+    Ok(())
+}
+
+#[test]
+fn a_register_row_under_a_renumbered_code_is_served_under_the_served_one() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    load(&connection, &prices())?;
+    // The registers still carry the 동's old code; the served edition holds the new one.
+    connection.execute_batch(
+        "UPDATE silver_building_register_titles SET pnu = '9999910200' || substr(trim(pnu), 11) \
+           WHERE pnu IS NOT NULL; \
+         UPDATE silver_building_register_units SET pnu = '9999910200' || substr(pnu, 11); \
+         INSERT INTO renumbering VALUES ('9999910200', '9999910100');",
+    )?;
+    let dir = tempfile::tempdir()?;
+    read(&connection, dir.path())?;
+    assert_eq!(load_region(&connection, dir.path(), "99")?, 4);
+    // The shared build, a 시군구 at a time, as the lane's driver runs it.
+    crate::kind_versions_parts::build_in_parts(
+        &UNIT_PRICE,
+        &connection,
+        true,
+        "999990000000000001",
+        "2099-03-01T00:00:00Z",
+    )?;
+    let pnus: Vec<String> = built(&connection)?.into_iter().map(|row| row.0).collect();
+    assert_eq!(pnus, [BUILDING_PNU, UNIT_PNU], "the rows kept the old code");
     Ok(())
 }
 
