@@ -43,6 +43,7 @@ last_reviewed: 2026-07-29
 - [호스트 디스크 배치 — OS 는 시스템 디스크, Docker·containerd 는 데이터 디스크](./host-layout.md)
 - [Worker 자동 배포 — 토큰 한 번 두기·켜고 끄기·확인](./worker-autodeploy.md)
 - [더니어 엣지 설정 — Access·Tunnel·DNS 를 호스트가 코드로 맞춘다](./edge-settings.md)
+- [AWS 플랫폼 계정의 바탕 — 예산·상태 버킷·망을 노트북에서 적용한다](./aws-platform.md)
 - [배포 경보 — 드레인·배포·DAG 멈춤이 길 때](./deploy-alerts.md)
 - [호스트 자원 경보 — 디스크·메모리·OOM·상한](./host-resources.md)
 - [호스트 크레이트 시험 — 하나뿐인 시험 이미지·공유 컴파일 캐시](./host-crate-tests.md)
