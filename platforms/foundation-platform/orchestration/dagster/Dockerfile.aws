@@ -1,0 +1,42 @@
+# The AWS code location image (root ADR-0616 §2-1, ADR-0619 §7). The Dagster webserver, the daemon
+# and every run task start from it: the run task does the work itself, so it carries the publisher of
+# the same commit for its own platform, with the DuckDB extension files beside it (the directory the
+# publisher loads them from, duckdb_extensions::release_directory), and the part of the platform tree
+# the definitions and the publisher read. Only AWS runs it, so the release workflow builds it for
+# linux/arm64 only (root ADR-0620); two named build contexts, local builds of the same run (*:local),
+# carry what it does not build:
+#   foundation-outbox-publisher:local  the publisher image of this commit for the target platform
+#   foundation-engine-extensions:local the extension files duckdb-extensions.contract.json pins for that
+#                                      platform, fetched by scripts/ci/fetch_pinned.py
+FROM python:3.14.10-slim-trixie@sha256:3cabfd7d7aaf394e6040e79fa1eec6ca1c52b74ed9188650472695d9a9326999
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DAGSTER_HOME=/opt/dagster/home
+
+# Wheels only, every one checked against the lock's hashes for both platforms: nothing is compiled
+# or resolved here.
+COPY orchestration/dagster/requirements-aws.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt \
+    && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin dagster \
+    && mkdir -p /opt/dagster/home \
+    && chown dagster:dagster /opt/dagster/home
+
+COPY --from=foundation-outbox-publisher:local /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=foundation-outbox-publisher:local /usr/local/bin/foundation-outbox-publisher /opt/foundation-platform/release/foundation-outbox-publisher
+COPY --from=foundation-engine-extensions:local / /opt/foundation-platform/release/duckdb-extensions/
+
+# What the code location reads at run time, at its paths in the platform tree (the generated
+# artifacts of root ADR-0418 are made before the build, as the release's are).
+COPY orchestration /opt/foundation-platform/current/orchestration
+COPY config /opt/foundation-platform/current/config
+COPY definitions /opt/foundation-platform/current/definitions
+COPY contracts /opt/foundation-platform/current/contracts
+COPY infra/lakehouse/contracts /opt/foundation-platform/current/infra/lakehouse/contracts
+COPY docs/catalog /opt/foundation-platform/current/docs/catalog
+
+ENV PATH="/opt/foundation-platform/release:${PATH}"
+USER dagster
+WORKDIR /opt/foundation-platform/current

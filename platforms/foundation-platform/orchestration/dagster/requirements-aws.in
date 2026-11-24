@@ -1,0 +1,14 @@
+# The AWS code location's direct dependencies (root ADR-0616 §1-§2, ADR-0619 §7): the same Dagster
+# as requirements.in, its ECS run launcher and Postgres storage, and nothing the data host's code
+# location needs to reach Airflow, SSH or Trino. requirements-aws.txt is the lock with hashes for
+# both platforms the image is built for (linux/amd64 and linux/arm64), compiled from this file only:
+#   uv pip compile requirements-aws.in --universal --generate-hashes --python-version 3.14 -o requirements-aws.txt
+# Dagster's packages move in lockstep: dagster X.Y.Z with its integrations at 0.(Y+16).Z.
+dagster==1.13.27
+dagster-webserver==1.13.27
+dagster-postgres==0.29.27
+dagster-aws==0.29.27
+pyyaml==6.0.3
+# Held as requirements.in holds it: dagster-postgres builds a bare postgresql:// URL while installing
+# psycopg2, which SQLAlchemy 2.1 hands to psycopg (3).
+sqlalchemy<2.1

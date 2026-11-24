@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "decision": "docs/adr/0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md",
-  "purpose": "Single source of truth for the DuckDB extension files a release carries beside the publisher (root ADR-0559 §6). The publisher's bundled DuckDB reads Bronze objects and Iceberg tables on R2 through them, loaded by path from the release and never downloaded at run time: automatic install and load stay off (root ADR-0127). The release build fetches each pinned download through scripts/ci/fetch_pinned.py, unpacks it, holds the file to the digest and size below, puts it under `directory` in the release's files, and then runs that release's own publisher with no network (`verify-lakehouse-engine-extensions`) before anything is signed; release admission holds the installed files to this contract again. A build of an extension only loads into the DuckDB it was built for, so `duckdb_version` and `platform` are what the bundled DuckDB must report, and raising the `duckdb` crate means raising every pin here in the same pull request.",
+  "purpose": "Single source of truth for the DuckDB extension files a release carries beside the publisher (root ADR-0559 §6). The publisher's bundled DuckDB reads Bronze objects and Iceberg tables on R2 through them, loaded by path from the release and never downloaded at run time: automatic install and load stay off (root ADR-0127). The release build fetches each pinned download through scripts/ci/fetch_pinned.py, unpacks it, holds the file to the digest and size below, puts it under `directory` in the release's files, and then runs that release's own publisher with no network (`verify-lakehouse-engine-extensions`) before anything is signed; release admission holds the installed files to this contract again. A build of an extension only loads into the DuckDB it was built for, so `duckdb_version` and the platform key are what the bundled DuckDB must report, and raising the `duckdb` crate means raising every pin here in the same pull request.",
   "duckdb_version": "v2.0.0",
-  "platform": "linux_amd64",
+  "platforms_reason": "Each distribution pins a file per platform, named as the publisher names its own (`<os>-<arch>` of the Rust target): linux-x86_64 for the data host's release, linux-aarch64 for the AWS images (Graviton, root ADR-0619 §7). The four arm64 files carry the same extension builds as the x86 ones (each file's metadata footer names v2.0.0, linux_arm64 and the extension_version below, read 2026-11-25).",
   "directory": "duckdb-extensions",
   "load_order": [
     "httpfs",
@@ -25,6 +25,16 @@
             "sha256": "77e6c429aa04f25da7962572f12b19113e0ce46080fa1365ad66017aadcdb68d",
             "size": 26929718
           }
+        },
+        "linux-aarch64": {
+          "url": "https://extensions.duckdb.org/v2.0.0/linux_arm64/httpfs.duckdb_extension.gz",
+          "sha256": "f524888fc7d74cc0c6c4a8f7ed5beedac5b12e71cb426503f882c72ce6afbd43",
+          "file": {
+            "name": "httpfs.duckdb_extension",
+            "compression": "gzip",
+            "sha256": "53f7aea1a0448ea62ef9b63f95da37c5766070084f14f14110e275e76382e7b2",
+            "size": 26476950
+          }
         }
       }
     },
@@ -39,6 +49,16 @@
             "compression": "gzip",
             "sha256": "3f37797ca9a4ef3b5a07e65278c653fe0a32f7edea1498c801022fed49afedc7",
             "size": 28342942
+          }
+        },
+        "linux-aarch64": {
+          "url": "https://extensions.duckdb.org/v2.0.0/linux_arm64/avro.duckdb_extension.gz",
+          "sha256": "1d240802771737ae14695b9d544ecac170832f38dda9a3edcb674ee1d546c2ca",
+          "file": {
+            "name": "avro.duckdb_extension",
+            "compression": "gzip",
+            "sha256": "3e8a61c8ae51851a8c70c49a5972fd3c3302c3ffa798f3286f7dca0746975607",
+            "size": 27148070
           }
         }
       }
@@ -55,6 +75,16 @@
             "sha256": "b93676e544e5c6843915fb3392e3b3c35859c065fa6ace7a26cb46ca4394e56d",
             "size": 57088302
           }
+        },
+        "linux-aarch64": {
+          "url": "https://extensions.duckdb.org/v2.0.0/linux_arm64/iceberg.duckdb_extension.gz",
+          "sha256": "dc5fc010b24a044ec2dc34294d8d251f481560cfbd5819c22f1fb1b6cc0032ae",
+          "file": {
+            "name": "iceberg.duckdb_extension",
+            "compression": "gzip",
+            "sha256": "5616c30201099564326826d223aeea19b59f15744a981b074a906fb2b9dd4f44",
+            "size": 55474598
+          }
         }
       }
     },
@@ -69,6 +99,16 @@
             "compression": "gzip",
             "sha256": "8ec99d875355200316c743ede176e2cb50d2b712d2fa192ccbf19cc245a8d0bc",
             "size": 108189118
+          }
+        },
+        "linux-aarch64": {
+          "url": "https://extensions.duckdb.org/v2.0.0/linux_arm64/spatial.duckdb_extension.gz",
+          "sha256": "f0bf8e87876af932f529ce0c57015e3ee39954de9c9eb5bc05f5eb9c212f4744",
+          "file": {
+            "name": "spatial.duckdb_extension",
+            "compression": "gzip",
+            "sha256": "93e481c254dad497a365edcedcb9788f2acddb536f6a9e631729314641490847",
+            "size": 98733990
           }
         }
       }

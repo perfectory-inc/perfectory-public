@@ -142,8 +142,13 @@ def keep_blob(source: Path, blobs: Path) -> tuple[str, int]:
 
 
 def build_image(release, name: str, dockerfile: str, context: str, args: dict, work: Path, blobs: Path,
-                cache_ref: str | None = None, cache_read_only: bool = False) -> tuple[dict, dict]:
-    """One image as an archive: its OCI blobs kept, its manifest and config digests returned."""
+                cache_ref: str | None = None, cache_read_only: bool = False, *, platform: str | None = None,
+                contexts: dict[str, str] | None = None) -> tuple[dict, dict]:
+    """One image as an archive: its OCI blobs kept, its manifest and config digests returned.
+
+    `platform` builds for another platform than the runner's default (the AWS images, root ADR-0619
+    §7, build linux/arm64 on GitHub's arm64 runner); `contexts` are BuildKit's named build contexts.
+    """
     builder = f"foundation-release-{name}"
     archive = work / f"{name}.oci.tar"
     run("docker", "buildx", "create", "--name", builder, "--driver", "docker-container",
@@ -152,6 +157,8 @@ def build_image(release, name: str, dockerfile: str, context: str, args: dict, w
     try:
         run("docker", "buildx", "build", "--builder", builder, "--pull", "--provenance=false", "--sbom=false",
             *(arg for key, value in args.items() for arg in ("--build-arg", f"{key}={value}")),
+            *(("--platform", platform) if platform else ()),
+            *(arg for key, value in (contexts or {}).items() for arg in ("--build-context", f"{key}={value}")),
             # Every layer of every stage (mode=max), so cargo-chef's dependency layer survives the run;
             # a cache that cannot be read or written only costs a full build (root ADR-0276 §14).
             *(("--cache-from", f"type=registry,ref={cache_ref}:buildcache-{name}") if cache_ref else ()),

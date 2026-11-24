@@ -29,7 +29,6 @@ const CONTRACT_SCHEMA_VERSION: u32 = 1;
 struct Contract {
     schema_version: u32,
     duckdb_version: String,
-    platform: String,
     directory: String,
     load_order: Vec<String>,
     distributions: BTreeMap<String, Distribution>,
@@ -133,9 +132,10 @@ pub fn load(connection: &Connection, directory: &Path) -> anyhow::Result<Vec<Loa
     for name in &contract.load_order {
         let distribution = &contract.distributions[name];
         let pin = distribution.platforms.get(&platform).with_context(|| {
+            let pinned: Vec<&str> = distribution.platforms.keys().map(String::as_str).collect();
             format!(
                 "the DuckDB extension {name} is not pinned for {platform} (only {})",
-                contract.platform
+                pinned.join(", ")
             )
         })?;
         ensure!(
@@ -223,9 +223,12 @@ mod tests {
             contract.load_order,
             ["httpfs", "avro", "iceberg", "spatial"]
         );
+        // The data host's release (x86) and the AWS images (Graviton, root ADR-0619 §7).
         for name in &contract.load_order {
-            let pin = &contract.distributions[name].platforms["linux-x86_64"];
-            assert_eq!(pin.file.name, format!("{name}.duckdb_extension"));
+            for platform in ["linux-x86_64", "linux-aarch64"] {
+                let pin = &contract.distributions[name].platforms[platform];
+                assert_eq!(pin.file.name, format!("{name}.duckdb_extension"));
+            }
             assert!(!contract.distributions[name].extension_version.is_empty());
         }
         Ok(())
@@ -252,7 +255,10 @@ mod tests {
             anyhow::bail!("an empty directory must be refused");
         };
         let message = format!("{refused:#}");
-        if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        if cfg!(all(
+            target_os = "linux",
+            any(target_arch = "x86_64", target_arch = "aarch64")
+        )) {
             assert!(
                 message.contains("carries no DuckDB extension file"),
                 "{message}"
