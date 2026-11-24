@@ -97,7 +97,12 @@ services:
     logging: *log-cap
     image: foundation-platform-airflow:local
     pull_policy: never
-    mem_limit: 768m
+    # Root ADR-0574's rule, measured max x 1.5: 390 MiB working set over three days to 2026-11-24 00:45Z
+    # (cAdvisor max_over_time, this container up since 11-11; memory.events max 0 in the last day), so
+    # 592m. The 176m it gives back are part of what the code server's cap takes (root ADR-0583 §8): with
+    # 768m here the 24G model no longer fit beside the standing services (every-container-has-a-memory-cap).
+    # No job is proxied any more, so nothing but staff and the read paths ask this server until it goes.
+    mem_limit: 592m
     restart: unless-stopped
     command: ["api-server"]
     environment:
