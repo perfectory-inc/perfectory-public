@@ -6,7 +6,7 @@
 use duckdb::Connection;
 
 use super::*;
-use crate::kind_versions_stage::build_by_prefix;
+use crate::kind_versions_parts::build_by_prefix;
 use crate::real_transaction_placement_stage::tests::{
     deal, inputs, pnu, NEW, NEW_NAME, OLD, OLD_NAME, OTHER, OTHER_NAME,
 };

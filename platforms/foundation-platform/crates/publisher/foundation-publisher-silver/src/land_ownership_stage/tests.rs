@@ -318,7 +318,7 @@ fn a_partial_run_names_only_the_parcels_whose_rows_or_service_changed() -> anyho
 
 #[test]
 fn the_parts_of_a_sido_build_the_documents_one_statement_would() -> anyhow::Result<()> {
-    use crate::kind_versions_stage::build_by_prefix;
+    use crate::kind_versions_parts::build_by_prefix;
     let connection = Connection::open_in_memory()?;
     load(&connection, &rows())?;
     crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
@@ -352,7 +352,7 @@ fn the_parts_of_a_sido_build_the_documents_one_statement_would() -> anyhow::Resu
 
 #[test]
 fn a_partial_run_builds_only_the_parts_its_targets_name() -> anyhow::Result<()> {
-    use crate::kind_versions_stage::build_by_prefix;
+    use crate::kind_versions_parts::build_by_prefix;
     let connection = Connection::open_in_memory()?;
     load(&connection, &rows())?;
     crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
