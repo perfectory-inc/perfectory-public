@@ -82,7 +82,9 @@ host_path() {
 REPO_HOST_PATH="$(host_path "$REPO_ROOT")"
 export MSYS_NO_PATHCONV=1
 
-# Every container that runs rustup's rustc or cargo gets RUST_CONTAINER. The image carries the channel
+mkdir -p "$RUN_DIR"
+
+# Every container that runs rustup's rustc or cargo reads RUST_ENV_FILE. The image carries the channel
 # rust-toolchain.toml pins and nothing else; read from /work, that file also asks for rustfmt, clippy,
 # rust-analyzer and rust-src, so rustup downloaded four components in every container before it ran
 # anything. On 2026-11-24 that download hung for 30 minutes in the merge queue and #1675 left the
@@ -93,18 +95,21 @@ export MSYS_NO_PATHCONV=1
 RUST_CHANNEL="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\([^"]*\)"[[:space:]]*$/\1/p' "$REPO_ROOT/rust-toolchain.toml")"
 [[ -n "$RUST_CHANNEL" && "$RUST_IMAGE" == "rust:${RUST_CHANNEL}-"* ]] ||
   fail "RUST_IMAGE ($RUST_IMAGE) is not the channel rust-toolchain.toml pins (${RUST_CHANNEL:-none})"
-RUST_CONTAINER=(-e "RUSTUP_TOOLCHAIN=$RUST_CHANNEL" -e RUSTUP_AUTO_INSTALL=0 -e CARGO_INCREMENTAL=0)
+RUST_ENV_FILE="$RUN_DIR/rust-container.env"
+printf '%s\n' "RUSTUP_TOOLCHAIN=$RUST_CHANNEL" RUSTUP_AUTO_INSTALL=0 CARGO_INCREMENTAL=0 > "$RUST_ENV_FILE"
 # The shared compiler cache on R2 (root ADR-0294), when the job set it up: scripts/ci/sccache-setup.sh
 # exports RUSTC_WRAPPER=sccache only after its probe reached the bucket. The pinned sccache is a static
-# musl build, so the host's binary runs in the container; the key is passed by name, never on a
-# command line. Without it (a laptop, a fork) the build compiles from scratch as before.
-if [[ "$(uname -s)" == Linux && "${RUSTC_WRAPPER:-}" == sccache && -n "${SCCACHE_BUCKET:-}" ]] &&
+# musl build, so a copy in the run directory (inside the /work mount) runs in the container. The other
+# lines are names only: docker passes the host's values, so no key is written to the file or appears
+# on a command line. Without it (a laptop, a fork) the build compiles from scratch as before.
+host_kernel="$(uname -s)"
+if [[ "$host_kernel" == Linux && "${RUSTC_WRAPPER:-}" == sccache && -n "${SCCACHE_BUCKET:-}" ]] &&
   sccache_binary="$(command -v sccache)"; then
-  RUST_CONTAINER+=(-v "$sccache_binary:/usr/local/bin/sccache:ro" -e RUSTC_WRAPPER=sccache
-    -e SCCACHE_BUCKET -e SCCACHE_ENDPOINT -e SCCACHE_REGION -e SCCACHE_S3_KEY_PREFIX
-    -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY)
+  cp "$sccache_binary" "$RUN_DIR/sccache"
+  printf '%s\n' "RUSTC_WRAPPER=/work/$RUN_RELATIVE/sccache" SCCACHE_BUCKET SCCACHE_ENDPOINT SCCACHE_REGION \
+    SCCACHE_S3_KEY_PREFIX AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY >> "$RUST_ENV_FILE"
 fi
-mkdir -p "$RUN_DIR"
+RUST_ENV_HOST_FILE="$(host_path "$RUST_ENV_FILE")"
 
 # `-v` removes the anonymous volume the postgres image declares for its data directory. Without it
 # each proof run orphans one, and nothing collects them — see the same fix in
@@ -163,7 +168,7 @@ run_publisher() {
   [[ "${1:-}" == "$RUST_IMAGE" ]] && shift
   docker run --rm --network "$NET" \
     -e FOUNDATION_PLATFORM_RUNTIME_ENV=ci \
-    "${RUST_CONTAINER[@]}" \
+    --env-file "$RUST_ENV_HOST_FILE" \
     -v "$REPO_HOST_PATH:/work" \
     -v perfectory-cargo-registry:/usr/local/cargo/registry \
     -v perfectory-rustup:/usr/local/rustup \
@@ -239,7 +244,7 @@ fetch_tile() {
 # on a fresh volume, which is what CI always has.
 build_started="$(date +%s)"
 docker run --rm \
-  "${RUST_CONTAINER[@]}" \
+  --env-file "$RUST_ENV_HOST_FILE" \
   -v "$REPO_HOST_PATH:/work" \
   -v perfectory-cargo-registry:/usr/local/cargo/registry \
   -v perfectory-rustup:/usr/local/rustup \
@@ -254,15 +259,16 @@ docker run --rm \
     ls /usr/lib/llvm-*/lib/libclang.so* >/dev/null 2>&1 || { printf "libclang install failed\n" >&2; exit 1; }
     cargo build --locked --quiet -p foundation-api --bin foundation-migrate
     cargo build --locked --quiet -p foundation-outbox-publisher
-    if [ "${RUSTC_WRAPPER:-}" = sccache ]; then
-      sccache --show-stats | sed -n 1,14p
-      sccache --stop-server >/dev/null 2>&1 || true
+    if [ -n "${RUSTC_WRAPPER:-}" ]; then
+      "$RUSTC_WRAPPER" --show-stats | sed -n 1,14p
+      "$RUSTC_WRAPPER" --stop-server >/dev/null 2>&1 || true
     fi
   '
-printf 'boundary-slice-proof: publisher and migrator built in %ss\n' "$(($(date +%s) - build_started))"
+build_finished="$(date +%s)"
+printf 'boundary-slice-proof: publisher and migrator built in %ss\n' "$((build_finished - build_started))"
 
 docker run --rm --network "$NET" \
-  "${RUST_CONTAINER[@]}" \
+  --env-file "$RUST_ENV_HOST_FILE" \
   -v "$REPO_HOST_PATH:/work" \
   -v perfectory-cargo-registry:/usr/local/cargo/registry \
   -v perfectory-rustup:/usr/local/rustup \
@@ -385,7 +391,7 @@ grep -q '"admin"' <<<"$martin_catalog"
 grep -q '"complex"' <<<"$martin_catalog"
 
 DECODER_RELATIVE="$RUN_RELATIVE/mvt-assert"
-docker run --rm "${RUST_CONTAINER[@]}" -v "$REPO_HOST_PATH:/work" -w /work "$RUST_IMAGE" \
+docker run --rm --env-file "$RUST_ENV_HOST_FILE" -v "$REPO_HOST_PATH:/work" -w /work "$RUST_IMAGE" \
   rustc --edition=2021 -D warnings scripts/tiles/mvt_assert.rs \
   -o "/work/$DECODER_RELATIVE"
 
