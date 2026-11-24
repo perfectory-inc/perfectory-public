@@ -318,7 +318,28 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
                           "by_pnu_parcel_demolitions_bake", "by_pnu_parcel_factories_bake",
                           "by_pnu_parcel_register_masters_bake", "by_pnu_parcel_real_transaction_bake",
                           # Root ADR-0457: switched on with its first run bounded by its own estimate (W71).
-                          "by_pnu_court_auction_bake"})
+                          "by_pnu_court_auction_bake",
+                          # Root ADR-0564 §6-4: the producers of the lanes that bake a versions table.
+                          "gold_parcel_nearby_rebuild", "gold_parcel_energy_versions_build",
+                          "gold_parcel_register_masters_versions_build", "gold_parcel_demolitions_versions_build",
+                          "gold_parcel_sub_parcels_versions_build"})
+        # A lane that bakes a table of appended row versions has that table's producer reconciled. 2026-11-23
+        # 15:36Z the 총괄표제부 lane's switch served its shadow, built from the pins of a Spark build that had
+        # failed since 11-20; the Silver commit of 11-21 23:16Z had been "covered" by the shadow's runs, so
+        # no event was left to start a build at the head, and none ran for 9.4 hours (the lane paged
+        # FoundationByPnuServingStale). By state the first tick after a switch owes the head build.
+        graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+        tables = {node["id"]: node["table_name"] for node in graph["nodes"] if node.get("table_name")}
+        edges = {edge["id"]: edge for edge in graph["edges"]}
+        jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+        baked = {tables[edges[edge]["from"]] for job in jobs["jobs"] if job["enabled"]
+                 for edge in job["pipeline_graph_edges"]
+                 if job_specs.by_pnu_lane_of(edges[edge]["to"]) and edges[edge]["from"] in tables}
+        versions = {table for table in baked if table.endswith("_versions")}
+        self.assertIn("gold.parcel_register_masters_versions", versions)
+        producers = {job["id"] for job in jobs["jobs"] if job["enabled"] for edge in job["pipeline_graph_edges"]
+                     if tables.get(edges[edge]["to"]) in versions}
+        self.assertLessEqual(producers, set(self.spec.reconciles))
         # Every enabled job that serves a by-PNU lane is reconciled (2026-10-29: the panel bake was not).
         # A job listed off is not (the reconciler starts enabled `inputs` jobs only); the change that
         # switches it on lists it here (the ownership bake, root ADR-0361).
