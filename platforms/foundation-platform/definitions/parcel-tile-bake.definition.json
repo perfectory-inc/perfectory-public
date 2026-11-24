@@ -28,6 +28,7 @@
         "limits": [],
         "deadline": "config/tile-bake-containers.contract.json#/partition_run_budget_seconds/parcels",
         "measured_run_seconds": null,
+        "unmeasured_reason": "Off since 2026-11-24 (disabled_reason) before any run of it finished: every run since 2026-11-19 ended at a time bound in the join, so there is no completed run to measure. first_run stays as the estimate its next first run is held to when root ADR-0613 turns it back on.",
         "first_run": {
           "estimate_seconds": 6000,
           "estimated_from": "computed from the national bake's steps measured on 2026-10-13 under contention (runbook parcel-tile-bake.md §4: GDAL 60 minutes, tippecanoe 109 minutes over 39.9M parcels) and the run budget of root ADR-0493: no partition starts after 4,200 s, and the largest 시도 (경북, about 12% of the parcels) takes about 1,600 s at z17 (12% of 169 minutes, and the 44% more tippecanoe time the Incheon sample measured for the added zoom, root ADR-0492), so a run ends by 4,200 + 1,600 + 120 s for its stop; the run that joins, gates and uploads after the last partition is in the cache reads only cached archives"
