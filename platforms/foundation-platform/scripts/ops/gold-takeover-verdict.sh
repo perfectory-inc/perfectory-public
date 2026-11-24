@@ -13,16 +13,19 @@
 #
 # The rows compared are one 시도's (two digits; default 41, 경기도, the largest; the lane's owner names
 # another when a verdict or a switch's content check found a difference in it before). The whole table
-# is checked by aggregates only, with no national copy (checks.json: rows, unique keys, the key hash
-# sum, the content hash sum, non-null counts per column; root ADR-0559 §5, ADR-0564 §6-3 revisions), and
+# is checked by aggregates DuckDB computes over the scan, with no row brought out (checks.json: rows,
+# unique keys, the key hash sum, and of the columns that are not documents a hash sum and the non-null
+# counts; root ADR-0559 §5, ADR-0564 §6-3 revisions, the last of 2026-11-24: a document's content is
+# judged in the 시도 only, and the switch's full bake is its national check), and
 # every candidate document of the 시도 is rendered by the lane's renderer and held to the schema
 # registry (checks.json `documents`; a table no lane bakes is not, and the record says why). Both sides
 # are compared as the values they say (foundation_publisher_core::json_values, the switch's reading:
 # a null member absent, a number its value, an instant its time), row_digest (a hash of the bytes) not
-# at all (ADR-0564 Revision 2026-11-22 (둘째)). The publisher writes the 시도's two sides as Parquet
-# with sides.json, and engine_equality.py compares them by key through the publisher's DuckDB (the
-# release images have no Python duckdb), one 시군구 of the key at a time (sides.json `chunks`; the
-# 시도 joined whole ran out of memory on the served parcel boundaries, 2026-11-23 17:38Z). Exits 0 when equal, 1 when not, 3 when a result check fails
+# at all (ADR-0564 Revision 2026-11-22 (둘째)). The publisher writes the 시도's two sides a 시군구 a
+# Parquet file (reference/, candidate/; one line a 시군구 in export.out) with sides.json, and
+# engine_equality.py compares them by key through the publisher's DuckDB (the release images have no
+# Python duckdb), one 시군구 at a time (sides.json `chunks`; the 시도 joined whole ran out of memory
+# on the served parcel boundaries, 2026-11-23 17:38Z). Exits 0 when equal, 1 when not, 3 when a result check fails
 # (a national aggregate or a document; the 시도's comparison is still made and recorded), any other
 # code on an error of the run (an empty 시도 is one); verdict.json, which names the 시도 and carries the
 # result checks, is the record.

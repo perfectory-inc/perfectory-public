@@ -1,13 +1,14 @@
-//! A side of the verdict read as values (`foundation_publisher_core::json_values`, the reading the
-//! switch's content check holds documents to), a 시군구 at a time.
+//! The judged 시도 of a side, read as values (`foundation_publisher_core::json_values`, the reading
+//! the switch's content check holds documents to), a 시군구 at a time.
 //!
-//! `DuckDB` hands the publisher a query's result whole, so a side is read in the ranges of its 시도
+//! `DuckDB` hands the publisher a query's result whole, so the 시도 is read in the ranges of its key
 //! column's first [`CHUNK_PREFIX`] characters (a 시군구's parcels, a few hundred thousand rows; both
-//! tables are ordered by that column, so a range skips the other files). Each row's `*_json` cells are
-//! read as the values they say; the row's hash (its key with them) is summed over the whole side, and
-//! the rows of the verdict's 시도 are written, as values, to the table its Parquet is copied from.
+//! tables are ordered by that column, so a range skips the other files). Each row's `*_json` cells
+//! are read as the values they say, and the 시군구's rows are written as one Parquet file. Only the
+//! judged 시도 comes through here: the whole of a side is aggregated inside `DuckDB` and no row of it
+//! is brought out (root ADR-0564 Revision 2026-11-24).
 
-use std::hash::{DefaultHasher, Hash as _, Hasher as _};
+use std::path::Path;
 
 use anyhow::{ensure, Context};
 use foundation_publisher_core::json_values::canonical_text;
@@ -69,6 +70,15 @@ pub(super) fn as_text(columns: &[&str]) -> String {
         .join(", ")
 }
 
+/// `columns` each as its text, as a list of values: what a row's hash is taken of.
+pub(super) fn as_text_values(columns: &[&str]) -> String {
+    columns
+        .iter()
+        .map(|column| format!("CAST({column} AS VARCHAR)"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// A cell as the verdict compares it: a `*_json` cell as the values it says (text that is not JSON
 /// as it is), any other as its text.
 pub(super) fn compared_cell(column: &str, cell: Option<String>) -> Option<String> {
@@ -78,48 +88,34 @@ pub(super) fn compared_cell(column: &str, cell: Option<String>) -> Option<String
     }
 }
 
-/// One row's hash: every cell, the key's with the content's, so content that moved to another key
-/// changes the sum.
-pub(super) fn row_hash(cells: &[Option<String>]) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    for cell in cells {
-        cell.as_deref().hash(&mut hasher);
-    }
-    hasher.finish()
-}
-
-/// What one pass over a side found: the sum of its rows' hashes and the rows of the 시도 it wrote.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(super) struct Pass {
-    pub hash_sum: u128,
-    pub sido_rows: u64,
-}
-
-/// Reads `side(filter)` (`columns`, each as text) a prefix at a time, sums its rows' hashes and
-/// appends the rows of the prefixes that begin with `sido` to `table` (its columns `columns`, all
-/// text), each cell as [`compared_cell`] reads it.
+/// Writes `side(filter)` (`columns`, each as text, each cell as [`compared_cell`] reads it) as
+/// `directory/<prefix>.parquet`, one file and one progress line for each of `prefixes`, and returns
+/// the rows written. A prefix the side has no row in still gets its (empty) file, so both sides
+/// hold a file for every chunk the comparison names.
 ///
 /// # Errors
-/// Returns an error when `DuckDB` cannot run a read or append a row.
-pub(super) fn pass(
+/// Returns an error when `DuckDB` cannot run a read, append a row or write a file.
+pub(super) fn write_chunks(
     connection: &Connection,
     side: &dyn Fn(&str) -> String,
     column: &str,
     prefixes: &[String],
     columns: &[&str],
-    sido: &str,
-    table: &str,
-) -> anyhow::Result<Pass> {
-    connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE {table} ({});",
-        columns
-            .iter()
-            .map(|column| format!("{column} VARCHAR"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    ))?;
-    let mut found = Pass::default();
+    name: &str,
+    directory: &Path,
+) -> anyhow::Result<u64> {
+    std::fs::create_dir_all(directory)
+        .with_context(|| format!("cannot create {}", directory.display()))?;
+    let table = format!("side_{name}");
+    let declared = columns
+        .iter()
+        .map(|column| format!("{column} VARCHAR"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut written = 0_u64;
     for prefix in prefixes {
+        let started = std::time::Instant::now();
+        connection.execute_batch(&format!("CREATE OR REPLACE TABLE {table} ({declared});"))?;
         let rows: Vec<Vec<Option<String>>> = connection
             .prepare(&format!(
                 "SELECT {} FROM ({})",
@@ -132,26 +128,34 @@ pub(super) fn pass(
                     .collect::<Result<Vec<_>, _>>()
             })?
             .collect::<Result<_, _>>()
-            .with_context(|| format!("DuckDB failed to read the prefix {prefix} of {table}"))?;
-        let in_sido = prefix.starts_with(sido);
-        let mut appender = in_sido.then(|| connection.appender(table)).transpose()?;
-        for row in rows {
-            let cells: Vec<Option<String>> = row
-                .into_iter()
-                .zip(columns)
-                .map(|(cell, column)| compared_cell(column, cell))
-                .collect();
-            found.hash_sum = found.hash_sum.wrapping_add(u128::from(row_hash(&cells)));
-            if let Some(appender) = appender.as_mut() {
+            .with_context(|| format!("DuckDB failed to read the chunk {prefix} of {name}"))?;
+        let count = rows.len();
+        {
+            let mut appender = connection.appender(&table)?;
+            for row in rows {
+                let cells: Vec<Option<String>> = row
+                    .into_iter()
+                    .zip(columns)
+                    .map(|(cell, column)| compared_cell(column, cell))
+                    .collect();
                 appender.append_row(appender_params_from_iter(cells.iter()))?;
-                found.sido_rows += 1;
             }
-        }
-        if let Some(mut appender) = appender {
             appender.flush()?;
         }
+        let target = super::sql_path(&directory.join(format!("{prefix}.parquet")))?;
+        connection
+            .execute_batch(&format!(
+                "COPY {table} TO '{target}' (FORMAT parquet, COMPRESSION zstd);"
+            ))
+            .with_context(|| format!("DuckDB failed to write the chunk {prefix} of {name}"))?;
+        written += u64::try_from(count)?;
+        println!(
+            "gold-takeover-sides chunk {name} {prefix}: {count} rows in {:.1}s",
+            started.elapsed().as_secs_f64()
+        );
     }
-    Ok(found)
+    connection.execute_batch(&format!("DROP TABLE IF EXISTS {table};"))?;
+    Ok(written)
 }
 
 #[cfg(test)]
@@ -178,27 +182,17 @@ mod tests {
         Ok(())
     }
 
-    /// Two writings of one value hash alike; the same content under another key does not.
+    /// A document cell is the values it says; any other cell, and a document that is not JSON, is
+    /// its text.
     #[test]
-    fn a_row_hashes_its_key_with_its_values() {
-        let spark = [
-            compared_cell("pnu", Some("9999910100100010000".to_owned())),
+    fn a_document_cell_is_read_as_its_values() {
+        assert_eq!(
             compared_cell(
                 "a_json",
-                Some(r#"{"area_m2":1.0E7,"note":null}"#.to_owned()),
+                Some(r#"{"area_m2":1.0E7,"note":null}"#.to_owned())
             ),
-        ];
-        let duckdb = [
-            compared_cell("pnu", Some("9999910100100010000".to_owned())),
-            compared_cell("a_json", Some(r#"{"area_m2":10000000.0}"#.to_owned())),
-        ];
-        assert_eq!(row_hash(&spark), row_hash(&duckdb));
-        let moved = [
-            compared_cell("pnu", Some("9999910100100020000".to_owned())),
-            compared_cell("a_json", Some(r#"{"area_m2":10000000.0}"#.to_owned())),
-        ];
-        assert_ne!(row_hash(&spark), row_hash(&moved));
-        // A column that is not a document is its text; a document cell that is not JSON stays text.
+            compared_cell("a_json", Some(r#"{"area_m2":10000000.0}"#.to_owned()))
+        );
         assert_eq!(
             compared_cell("v", Some("1.0E7".to_owned())).as_deref(),
             Some("1.0E7")
@@ -210,69 +204,60 @@ mod tests {
         assert_eq!(compared_cell("v_json", None), None);
     }
 
-    /// A pass sums every row of the side and writes only the 시도's, each cell as a value.
+    /// A side's 시도 is written a chunk a file, each cell as a value; a chunk the side has no row
+    /// in is an empty file, and rows of no named chunk are not written.
     #[test]
-    fn a_pass_sums_the_side_and_writes_the_sido() -> anyhow::Result<()> {
+    fn a_side_is_written_a_chunk_a_file() -> anyhow::Result<()> {
         let connection = Connection::open_in_memory()?;
         connection.execute_batch(
             r#"CREATE TABLE t (pnu VARCHAR, n BIGINT, d_json VARCHAR);
                INSERT INTO t VALUES ('9999910100100010000', 1, '{"x":1.0E7}'),
-                 ('9999920100100010000', 2, '[1]'), ('9999930100100010000', 3, NULL);"#,
+                 ('9999920100100010000', 2, '[1]'), ('9999930100100010000', 3, NULL),
+                 ('9999810100100010000', 4, '{}'), ('9900010100100010000', 5, '{}');"#,
         )?;
         let side = |filter: &str| format!("SELECT pnu, n, d_json FROM t WHERE {filter}");
         let columns = ["pnu", "n", "d_json"];
-        let found = prefixes(&connection, &["t"], "pnu")?;
-        assert_eq!(found, ["99999"]);
-        let written = pass(
+        assert_eq!(
+            prefixes(
+                &connection,
+                &["(SELECT pnu FROM t WHERE pnu >= '9999')"],
+                "pnu"
+            )?,
+            ["99998", "99999"]
+        );
+        let work = tempfile::tempdir()?;
+        let chunks = ["99997".to_owned(), "99998".to_owned(), "99999".to_owned()];
+        let written = write_chunks(
             &connection,
             &side,
             "pnu",
-            &found,
+            &chunks,
             &columns,
-            "99",
-            "side_reference",
+            "reference",
+            work.path(),
         )?;
-        assert_eq!(written.sido_rows, 3);
-        let rows: Vec<(String, Option<String>)> = connection
-            .prepare("SELECT n, d_json FROM side_reference ORDER BY pnu")?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<Result<_, _>>()?;
+        assert_eq!(written, 4);
+        let file =
+            |prefix: &str| super::super::sql_path(&work.path().join(format!("{prefix}.parquet")));
+        let rows = |prefix: &str| -> anyhow::Result<Vec<(String, Option<String>)>> {
+            Ok(connection
+                .prepare(&format!(
+                    "SELECT n, d_json FROM read_parquet('{}') ORDER BY pnu",
+                    file(prefix)?
+                ))?
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<_, _>>()?)
+        };
+        assert!(rows("99997")?.is_empty());
+        assert_eq!(rows("99998")?, [("4".to_owned(), Some("{}".to_owned()))]);
         assert_eq!(
-            rows,
+            rows("99999")?,
             [
                 ("1".to_owned(), Some(r#"{"x":10000000}"#.to_owned())),
                 ("2".to_owned(), Some("[1]".to_owned())),
                 ("3".to_owned(), None)
             ]
         );
-        // Every row of the side is summed, whether its 시도 is written or not.
-        let cells = |pnu: &str, n: &str, document: Option<&str>| {
-            [
-                Some(pnu.to_owned()),
-                Some(n.to_owned()),
-                compared_cell("d_json", document.map(str::to_owned)),
-            ]
-        };
-        let expected = [
-            cells("9999910100100010000", "1", Some(r#"{"x":10000000.0}"#)),
-            cells("9999920100100010000", "2", Some("[1]")),
-            cells("9999930100100010000", "3", None),
-        ]
-        .iter()
-        .fold(0_u128, |sum, row| {
-            sum.wrapping_add(u128::from(row_hash(row)))
-        });
-        assert_eq!(written.hash_sum, expected);
-        let elsewhere = pass(
-            &connection,
-            &side,
-            "pnu",
-            &found,
-            &columns,
-            "98",
-            "side_candidate",
-        )?;
-        assert_eq!((elsewhere.sido_rows, elsewhere.hash_sum), (0, expected));
         Ok(())
     }
 }
