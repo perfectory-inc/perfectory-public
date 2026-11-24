@@ -310,7 +310,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
                 &with_contract_columns(
                     connection,
                     versions_contract,
-                    &format!("{LAKEHOUSE_CATALOG}.{TABLE} AT (VERSION => {head})"),
+                    &foundation_publisher_silver::duckdb_parquet_stage::table_at(TABLE, head),
                 )?,
                 &queue_columns,
                 "TRUE",
@@ -322,7 +322,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             with_contract_columns(
                 connection,
                 contract(REPLACED)?,
-                &format!("{LAKEHOUSE_CATALOG}.{REPLACED} AT (VERSION => {replaced_head})"),
+                &foundation_publisher_silver::duckdb_parquet_stage::table_at(
+                    REPLACED,
+                    replaced_head
+                ),
             )?
         ),
     };

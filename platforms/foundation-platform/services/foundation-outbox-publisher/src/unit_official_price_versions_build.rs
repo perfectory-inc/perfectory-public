@@ -21,7 +21,7 @@ use std::{
 
 use anyhow::{ensure, Context};
 use foundation_publisher_silver::{
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{table_at, with_contract_columns, DuckDbParquetStage},
     unit_official_price_stage::{self as stage, BatchPins, EXCLUSIVE_TABLE, PRICE_TABLE, REPLACED},
     unit_price_stage::batch,
 };
@@ -130,11 +130,7 @@ pub(crate) async fn export_sides() -> anyhow::Result<()> {
     stage::load(connection, &pins)?;
     let composed = stage::compose(connection, &pins, Some(scope.as_str()))?;
     // Spark's rows of the batch in the 시도: the table is partitioned by it.
-    let spark = with_contract_columns(
-        connection,
-        replaced,
-        &format!("{LAKEHOUSE_CATALOG}.{REPLACED} AT (VERSION => {head})"),
-    )?;
+    let spark = with_contract_columns(connection, replaced, &table_at(REPLACED, head))?;
     let listed = columns.join(", ");
     connection
         .execute_batch(&format!(

@@ -16,7 +16,7 @@ use lakehouse_domain::{
     CURRENT_ROWS_COLUMNS, CURRENT_ROWS_FILTER, CURRENT_ROWS_SOURCE,
 };
 
-use crate::duckdb_parquet_stage::{with_contract_columns, LAKEHOUSE_CATALOG};
+use crate::duckdb_parquet_stage::{table_at, with_contract_columns};
 use crate::unit_price_stage::batch::batch_vintage;
 
 /// The table a batch's join appends to while the readers read it (root ADR-0182).
@@ -110,11 +110,7 @@ pub fn units_as_of_sql(source: &str, vintage: &str) -> anyhow::Result<String> {
 /// Returns an error when an input cannot be read at its pin (an expired snapshot is one).
 pub fn load(connection: &Connection, pins: &BatchPins) -> anyhow::Result<()> {
     let pinned = |table: &str, snapshot: i64| -> anyhow::Result<String> {
-        with_contract_columns(
-            connection,
-            contract(table)?,
-            &format!("{LAKEHOUSE_CATALOG}.{table} AT (VERSION => {snapshot})"),
-        )
+        with_contract_columns(connection, contract(table)?, &table_at(table, snapshot))
     };
     let units = units_as_of_sql(&pinned(EXCLUSIVE_TABLE, pins.exclusive)?, &pins.vintage)?;
     let prices = pinned(PRICE_TABLE, pins.price)?;

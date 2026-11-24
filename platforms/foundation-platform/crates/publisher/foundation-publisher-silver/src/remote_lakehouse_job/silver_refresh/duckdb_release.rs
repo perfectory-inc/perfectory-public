@@ -32,9 +32,7 @@ use sha2::{Digest, Sha256};
 use super::lane::LaneContract;
 use crate::{
     data_go_kr_file_data_stage::{epoch, literal},
-    duckdb_parquet_stage::{
-        sql_path, with_contract_columns, DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
-    },
+    duckdb_parquet_stage::{sql_path, with_contract_columns, DuckDbParquetStage, LakehouseRead},
     release_compare_stage::{
         buckets, check_pnu_null_share, check_release, compare_bucket, copy_release, edition_text,
         release_relation, tolerate, BucketChanges, CompareRule, GeometryTolerance, Stamp,
@@ -464,7 +462,7 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
         Some(head) => with_contract_columns(
             stage.connection(),
             table_contract,
-            &format!("{LAKEHOUSE_CATALOG}.{table} AT (VERSION => {head})"),
+            &crate::duckdb_parquet_stage::table_at(table, head),
         )?,
         // A table with no snapshot holds no row: every key of the release is new.
         None => format!("(SELECT * FROM {copied} WHERE false)"),

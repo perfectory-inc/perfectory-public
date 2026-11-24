@@ -1,0 +1,31 @@
+# A lakehouse table is read at a snapshot through one function, `duckdb_parquet_stage::table_at`
+# (`table_at_in` for a catalog attached under another name).
+#
+# Prevents: a query that writes `<table> AT (VERSION => n)` itself and then follows it with an alias.
+# DuckDB takes no alias after the clause, and the query parses as long as the table has no snapshot
+# (it is then a parenthesised query of no row), so the tests and every first run pass. 2026-11-21 the
+# first release compares in production failed on `... AT (VERSION => n) g`; the fix was local, and
+# 2026-11-23 21:35Z the court auction Silver load failed the same way on
+# `silver.court_auction_case_related AT (VERSION => n) r`, its first compare against
+# a table that already held editions, and the night's load was lost. `table_at` returns the read
+# closed in a subquery, which takes an alias, a join or a filter like any relation.
+#
+# A SQL file names the pinned table as a placeholder its caller fills from `table_at`. A test's
+# expected text spells the clause with a number and a comment with `n`; neither is a format
+# placeholder, which is what this matches.
+rules:
+  - id: a-lakehouse-table-is-read-at-a-snapshot-through-table-at
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      This writes `AT (VERSION => {…})` itself. Read the table through
+      duckdb_parquet_stage::table_at(table, snapshot): DuckDB takes no alias after the clause, and the
+      bare form fails only once the table holds a snapshot (2026-11-21, 2026-11-23).
+    paths:
+      include:
+        - /platforms/foundation-platform/**/*.rs
+        - /platforms/foundation-platform/**/*.sql
+        - /tools/semgrep/rules/lakehouse-time-travel.rs
+      exclude:
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage.rs
+    pattern-regex: AT\s*\(\s*VERSION\s*=>\s*\{

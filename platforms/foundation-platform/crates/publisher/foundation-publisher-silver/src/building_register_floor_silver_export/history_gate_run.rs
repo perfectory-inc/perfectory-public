@@ -26,9 +26,7 @@ use super::{
     history_gate::{identity_under_derivation, registered_append, verify_metadata},
     history_witness::HistoryWitness,
 };
-use crate::duckdb_parquet_stage::{
-    read_catalog_config, DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
-};
+use crate::duckdb_parquet_stage::{read_catalog_config, DuckDbParquetStage, LakehouseRead};
 
 /// The outcome's schema (unchanged from the Spark job).
 pub const OUTCOME_SCHEMA: &str = "foundation-platform.floor-history-check.v1";
@@ -126,8 +124,9 @@ fn lineage_at(
     };
     let mut statement = stage.connection().prepare(&format!(
         "SELECT source_snapshot_id, bronze_object_key, epoch_us(valid_from_utc), epoch_us(ingested_at_utc), \
-         count(*) FROM {LAKEHOUSE_CATALOG}.{TABLE} AT (VERSION => {snapshot}) {filter} \
-         GROUP BY ALL ORDER BY ALL LIMIT 3"
+         count(*) FROM {pinned} {filter} \
+         GROUP BY ALL ORDER BY ALL LIMIT 3",
+        pinned = crate::duckdb_parquet_stage::table_at(TABLE, snapshot)
     ))?;
     let rows = statement
         .query_map([], |row| {

@@ -19,9 +19,7 @@ use sha2::{Digest, Sha256};
 
 use duckdb::Connection;
 
-use crate::duckdb_parquet_stage::{
-    with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG, PYTHON_VALUES_SQL,
-};
+use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, PYTHON_VALUES_SQL};
 pub use crate::industrial_complex_notice_stage::{refuse_repeated, PlannedObject, PLAN_SCHEMA};
 
 /// The read record a load's plan is decided from (the lane contract's `read_from`).
@@ -186,7 +184,7 @@ fn current_attachments(
     let latest = contract
         .current_row_latest()
         .with_context(|| format!("{ATTACHMENT_TABLE} keeps no versions per key"))?;
-    let pinned = format!("{LAKEHOUSE_CATALOG}.{ATTACHMENT_TABLE} AT (VERSION => {head})");
+    let pinned = crate::duckdb_parquet_stage::table_at(ATTACHMENT_TABLE, head);
     Ok(latest.current_rows_sql(
         &with_contract_columns(connection, contract, &pinned)?,
         columns,

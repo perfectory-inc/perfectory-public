@@ -33,6 +33,7 @@ use lakehouse_infrastructure::IcebergSnapshotManifestList;
 use super::DuckDbParquetStage;
 
 mod pinned_head;
+mod table_at;
 
 /// Reads the objects of a table whose location is a local directory.
 struct LocalFiles;

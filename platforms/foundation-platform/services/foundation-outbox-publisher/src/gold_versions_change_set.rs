@@ -24,9 +24,7 @@ use anyhow::{ensure, Context};
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
 use foundation_publisher_silver::{
     duckdb_extensions,
-    duckdb_parquet_stage::{
-        with_contract_columns, DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
-    },
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LakehouseRead},
 };
 use lakehouse_domain::industrial_complex_lakehouse_contracts;
 use lakehouse_infrastructure::{
@@ -261,7 +259,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             .removal_column
             .context("a table of appended row versions names its removal column")?;
         let order = latest.newest_first.join(" DESC, ");
-        let source = |at: i64| format!("{LAKEHOUSE_CATALOG}.{table} AT (VERSION => {at})");
+        let source =
+            |at: i64| foundation_publisher_silver::duckdb_parquet_stage::table_at(&table, at);
         connection.execute_batch(&format!(
             "CREATE OR REPLACE TABLE moved AS SELECT pnu, {removal} = 'removed' AS removed FROM ( \
                SELECT pnu, {removal}, row_number() OVER (PARTITION BY pnu ORDER BY {order} DESC) AS newest \

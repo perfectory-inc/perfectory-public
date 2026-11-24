@@ -18,7 +18,7 @@ use serde_json::Value;
 use crate::{
     code_go_kr_legal_dong_contract::CONTRACT_JSON,
     data_go_kr_file_data_stage::{column_names, count, epoch, literal, py_space},
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
 };
 
 /// The table this load appends to.
@@ -555,10 +555,7 @@ pub fn previous_code_go_kr_row_count(
     let Some(head) = head else {
         return Ok(None);
     };
-    let pinned = format!(
-        "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-        contract.table_name
-    );
+    let pinned = crate::duckdb_parquet_stage::table_at(contract.table_name, head);
     let source = with_contract_columns(stage.connection(), contract, &pinned)?;
     previous_row_count_in(stage, &source, snapshot_date)
 }

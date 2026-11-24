@@ -21,6 +21,26 @@ use crate::{lakehouse_engine_contract::execution_profile, serving_scratch};
 
 /// The name a stage that reads the lakehouse attaches its catalog under.
 pub const LAKEHOUSE_CATALOG: &str = "lakehouse";
+
+/// `table` of the lakehouse catalog as it was at `snapshot`: a relation a query may alias, join and
+/// filter like any other.
+///
+/// The one place that writes a time travel read. `DuckDB` takes no alias after
+/// `AT (VERSION => n)`, so the bare form read `... AT (VERSION => n) r` as a
+/// syntax error: 2026-11-21 the first release compares failed on `... g`, 2026-11-23 the court
+/// auction load's first compare against a table that already held editions failed on `... r`, each
+/// in a query whose every earlier run had read a table with no snapshot. Inside a subquery the
+/// clause is closed, whatever follows.
+#[must_use]
+pub fn table_at(table: &str, snapshot: i64) -> String {
+    table_at_in(LAKEHOUSE_CATALOG, table, snapshot)
+}
+
+/// [`table_at`] in the catalog a stage attached under another name.
+#[must_use]
+pub fn table_at_in(catalog: &str, table: &str, snapshot: i64) -> String {
+    format!("(SELECT * FROM {catalog}.{table} AT (VERSION => {snapshot}))")
+}
 /// The Python Silver loads' readers of a JSON value (`py_text`, `py_truthy`, `py_json_dumps`, …).
 ///
 /// Every stage that reads a Bronze JSON object runs it first, so the loads that leave Spark read

@@ -24,7 +24,7 @@ use crate::{
         column_names, count, decode, epoch, literal, member_name, py_strip, PlaceInputs,
         PyCsvRecords, CONTRACT,
     },
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
     place_identity_stage,
 };
 
@@ -342,10 +342,7 @@ pub fn current(
             format!("SELECT {typed} WHERE false")
         }
         Some(head) => {
-            let pinned = format!(
-                "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-                contract.table_name
-            );
+            let pinned = crate::duckdb_parquet_stage::table_at(contract.table_name, head);
             format!(
                 "WITH versions AS (SELECT {columns} FROM {source}), \
                  newest AS (SELECT source_snapshot_id AS edition, ingested_at_utc AS loaded FROM versions \

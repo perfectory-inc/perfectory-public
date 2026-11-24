@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 
 use crate::{
     data_go_kr_file_data_stage::literal,
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
 };
 
 /// The attachment index the text job plans from.
@@ -61,10 +61,7 @@ pub fn relation(
         Some(head) => with_contract_columns(
             stage.connection(),
             contract,
-            &format!(
-                "{LAKEHOUSE_CATALOG}.{} AT (VERSION => {head})",
-                contract.table_name
-            ),
+            &crate::duckdb_parquet_stage::table_at(contract.table_name, head),
         ),
         None => Ok(format!(
             "(SELECT {} WHERE false)",

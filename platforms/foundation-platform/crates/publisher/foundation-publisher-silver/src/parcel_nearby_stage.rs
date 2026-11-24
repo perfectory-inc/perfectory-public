@@ -220,9 +220,10 @@ impl Source<'_> {
                             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
                     "the catalog must be a plain identifier"
                 );
-                Ok(format!(
-                    "{catalog}.{table} AT (VERSION => {})",
-                    pins.of(table)?
+                Ok(crate::duckdb_parquet_stage::table_at_in(
+                    catalog,
+                    table,
+                    pins.of(table)?,
                 ))
             }
             Self::Local => Ok(table.replace('.', "_")),

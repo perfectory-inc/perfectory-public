@@ -256,8 +256,12 @@ pub fn load_inputs(
     // A snapshot from before the removal column has none; the contract's column reads NULL there.
     let has_row_state = connection
         .prepare(&format!(
-            "DESCRIBE SELECT * FROM {catalog}.silver.land_transfer_history AT (VERSION => {})",
-            pins.history
+            "DESCRIBE SELECT * FROM {}",
+            crate::duckdb_parquet_stage::table_at_in(
+                catalog,
+                "silver.land_transfer_history",
+                pins.history
+            )
         ))?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?
@@ -266,11 +270,38 @@ pub fn load_inputs(
     let mut all_sido = group.from_sido.clone();
     all_sido.extend(group.to_sido.iter().cloned());
     let sql = INPUTS_SQL
-        .replace("{lakehouse}", catalog)
-        .replace("{boundaries_from}", &pins.boundaries.to_string())
-        .replace("{boundaries_to}", &pins.boundaries.to_string())
-        .replace("{code_changes}", &pins.code_changes.to_string())
-        .replace("{history}", &pins.history.to_string())
+        .replace(
+            "{boundaries_from}",
+            &crate::duckdb_parquet_stage::table_at_in(
+                catalog,
+                "silver.parcel_boundaries",
+                pins.boundaries,
+            ),
+        )
+        .replace(
+            "{boundaries_to}",
+            &crate::duckdb_parquet_stage::table_at_in(
+                catalog,
+                "silver.parcel_boundaries",
+                pins.boundaries,
+            ),
+        )
+        .replace(
+            "{code_changes}",
+            &crate::duckdb_parquet_stage::table_at_in(
+                catalog,
+                "reference.legal_dong_code_change",
+                pins.code_changes,
+            ),
+        )
+        .replace(
+            "{history}",
+            &crate::duckdb_parquet_stage::table_at_in(
+                catalog,
+                "silver.land_transfer_history",
+                pins.history,
+            ),
+        )
         .replace("{from_snapshot_id}", &group.from_snapshot_id)
         .replace("{to_snapshot_id}", &group.to_snapshot_id)
         .replace("{from_sido}", &in_sido("pnu", &group.from_sido)?)

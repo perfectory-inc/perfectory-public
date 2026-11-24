@@ -108,7 +108,9 @@ impl LakehouseReader {
 /// What a query names as `{source}`: `table` at `snapshot`, or as it is when it has none.
 pub(crate) fn source(table: &str, snapshot: Option<i64>) -> String {
     match snapshot {
-        Some(snapshot) => format!("{LAKEHOUSE_CATALOG}.{table} AT (VERSION => {snapshot})"),
+        Some(snapshot) => {
+            foundation_publisher_silver::duckdb_parquet_stage::table_at(table, snapshot)
+        }
         None => format!("{LAKEHOUSE_CATALOG}.{table}"),
     }
 }

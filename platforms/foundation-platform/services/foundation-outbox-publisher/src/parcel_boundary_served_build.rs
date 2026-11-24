@@ -32,7 +32,7 @@ use foundation_publisher_core::lakehouse_data_commit::{
 };
 use foundation_publisher_silver::{
     duckdb::Connection,
-    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
     parcel_boundary_served_stage::{
         self as served, build_fold_sql, build_sido_sql, change_list_line, check_ledger, fold_edits,
         handoff_line, load_edits, membership_buffer_pixels, plan, read_edit_handoff,
@@ -116,8 +116,9 @@ fn edition_sql(silver: i64, snapshot_id: &str) -> String {
     format!(
         "SELECT pnu, geometry_wkb, geometry_srid, geometry_checksum_sha256, source_snapshot_id, \
                 bbox_min_x, bbox_min_y, bbox_max_x, bbox_max_y \
-         FROM {LAKEHOUSE_CATALOG}.{PARCELS} AT (VERSION => {silver}) \
-         WHERE source_snapshot_id = '{snapshot_id}' AND valid_to_utc IS NULL"
+         FROM {pinned} \
+         WHERE source_snapshot_id = '{snapshot_id}' AND valid_to_utc IS NULL",
+        pinned = foundation_publisher_silver::duckdb_parquet_stage::table_at(PARCELS, silver)
     )
 }
 
@@ -258,7 +259,8 @@ fn read_ledger(
     let mut statement = connection.prepare(&format!(
         "SELECT change_seq, feature_id, op, geometry_srid, geometry_wkb, geometry_checksum_sha256, \
                 properties_json, editor, edited_at \
-         FROM {LAKEHOUSE_CATALOG}.{LEDGER} AT (VERSION => {head}) WHERE unit = '{UNIT}'"
+         FROM {pinned} WHERE unit = '{UNIT}'",
+        pinned = foundation_publisher_silver::duckdb_parquet_stage::table_at(LEDGER, head)
     ))?;
     let mut edits = Vec::new();
     let mut fingerprints = BTreeMap::new();
@@ -1064,8 +1066,9 @@ pub(crate) async fn run() -> anyhow::Result<()> {
 fn replaced_edition(connection: &Connection, build: i64) -> anyhow::Result<String> {
     let editions: Vec<String> = connection
         .prepare(&format!(
-            "SELECT DISTINCT source_snapshot_id FROM {LAKEHOUSE_CATALOG}.{REPLACED} \
-             AT (VERSION => {build}) WHERE origin = 'source' LIMIT 2"
+            "SELECT DISTINCT source_snapshot_id FROM {pinned} \
+             WHERE origin = 'source' LIMIT 2",
+            pinned = foundation_publisher_silver::duckdb_parquet_stage::table_at(REPLACED, build)
         ))?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<_, _>>()?;

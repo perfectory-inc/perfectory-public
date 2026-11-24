@@ -161,7 +161,7 @@ mod tests {
         };
         assert_eq!(
             statement(&asked, Some(42)),
-            "DESCRIBE SELECT * FROM lakehouse.silver.parcels AT (VERSION => 42)"
+            "DESCRIBE SELECT * FROM (SELECT * FROM lakehouse.silver.parcels AT (VERSION => 42))"
         );
         assert_eq!(
             statement(&asked, None),

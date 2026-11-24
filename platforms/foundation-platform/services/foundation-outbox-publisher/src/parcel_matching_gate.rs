@@ -13,7 +13,7 @@ use std::path::Path;
 
 use anyhow::{bail, ensure, Context};
 use foundation_publisher_silver::{
-    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead},
     parcel_matching_gate_stage::{
         verdict, verdict_file_bytes, waiting_verdict, GateRun, GateSources, Registry, ADMIN_TABLE,
         CODE_CHANGE_TABLE, CODE_LIST_TABLE, INPUT_ABSENT, PARCEL_TABLE, REGISTRY_TABLE,
@@ -94,8 +94,8 @@ async fn pinned(catalog: &IcebergRestCatalog, table: &str) -> anyhow::Result<Str
     let head = head_of(catalog, table)
         .await?
         .with_context(|| format!("{table} does not exist or holds no snapshot"))?;
-    Ok(format!(
-        "{LAKEHOUSE_CATALOG}.{table} AT (VERSION => {head})"
+    Ok(foundation_publisher_silver::duckdb_parquet_stage::table_at(
+        table, head,
     ))
 }
 

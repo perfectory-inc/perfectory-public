@@ -163,9 +163,9 @@ pub fn sido_of_edition(
     stage
         .connection()
         .prepare(&format!(
-            "SELECT DISTINCT substr(pnu, 1, 2) FROM {LAKEHOUSE_CATALOG}.{BOUNDARIES_TABLE} AT (VERSION => {}) \
+            "SELECT DISTINCT substr(pnu, 1, 2) FROM {} \
              WHERE source_snapshot_id = '{snapshot_id}' AND pnu IS NOT NULL",
-            pins.boundaries
+            crate::duckdb_parquet_stage::table_at(BOUNDARIES_TABLE, pins.boundaries)
         ))?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<Result<BTreeSet<_>, _>>()
@@ -185,9 +185,9 @@ pub fn superseded_since(
     from_sido: &[String],
 ) -> anyhow::Result<Option<DateTime<Utc>>> {
     let sql = format!(
-        "SELECT max(recorded_at_utc) FROM {LAKEHOUSE_CATALOG}.{CODE_CHANGE_TABLE} AT (VERSION => {}) \
+        "SELECT max(recorded_at_utc) FROM {} \
          WHERE kind = 'supersession' AND {}",
-        pins.code_changes,
+        crate::duckdb_parquet_stage::table_at(CODE_CHANGE_TABLE, pins.code_changes),
         in_sido("old_code", from_sido)?
     );
     let connection = stage.connection();
