@@ -130,8 +130,9 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
    스파이크 (b)-A 대로 버전이 바뀐 시도만 요청된다. 우리 센서는 없다. 관찰을 언제 돌리는가는 ADR-0616 의 것이다(레인의 cron).
 3. **짓기.** 자산의 몸은 받은 키·구간으로 일을 시작한다(결정 5). 드라이버는 시도마다: 시군구씩 짓고, **파티션 안에서는 지금처럼 바뀐 PNU 만**
    짓고(`changed_pnus`: 그 시도의 옛 핀과 새 핀 — ADR-0564 결정 3-2 의 부분 처리는 파티션 안에 그대로 남는다), 머리와 diff 하고, 그 시도의
-   Iceberg 추가 커밋 하나를 하고, `report_asset_materialization(partition, data_version)` 과 그 시도의 검사를 알린다. 바뀐 키가 0 인 시도도
-   materialization 을 알린다(커밋은 없다). 표가 이미 그 버전인 시도(앞 run 이 붙이고 죽었거나 운영자가 다시 돌린 것)도 observation 이 아니라
+   Iceberg 추가 커밋 하나를 하고, `report_asset_materialization(partition, data_version)` 과 그 시도의 검사를 알린다. 바뀐 키가 0 인 시도는 materialization 을 알리지
+   않는다: 행이 붙지 않았으므로 하류가 움직일 까닭이 없다. 그 시도가 이 버전에서 읽혔고 바뀐 것이 없다는 것은 통과한 자산 검사로
+   알리고(ADR-0616 §6), 머리의 상태 표는 그 시도의 버전을 올린다. 표가 이미 그 버전인 시도(앞 run 이 붙이고 죽었거나 운영자가 다시 돌린 것)도 observation 이 아니라
    **materialization** 으로 알린다(`found_current: true`): Dagster 는 그 시도를 모른다. materialization 은 데이터 버전이 같아도 하류의 `eager` 를
    움직인다(스파이크 (b)-C). 받아들인다: 이 일은 실패한 run 뒤와 운영자의 재실행에서만 일어나고, 하류도 표가 참이라 그 run 은 할 일 없이 끝난다.
 4. **커밋은 시도마다이고, 표의 머리 하나가 모든 시도의 상태를 든다**(ADR-0564 결정 3 을 고친다).
