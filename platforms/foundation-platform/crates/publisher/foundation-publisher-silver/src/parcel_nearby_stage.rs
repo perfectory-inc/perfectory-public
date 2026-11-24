@@ -1,5 +1,7 @@
-//! The parcel nearby kind's Gold in `DuckDB` inside the publisher (root ADR-0465, ADR-0559,
-//! ADR-0564 §9 turn 2).
+//! The parcel nearby kind's Gold in `DuckDB` inside the publisher.
+//!
+//! Root ADR-0465, ADR-0559, ADR-0564 §9 turn 2; on the shared Gold versions driver
+//! (`kind_versions_build`, root ADR-0615 §7).
 //!
 //! What is near each served parcel, from its boundary's centroid: the nearest 공항, 철도역,
 //! 도시철도역, 초중등학교 and 대학 with the distance on the WGS84 spheroid, the 상가(상권) stores in the
@@ -12,12 +14,18 @@
 //! exception ⓑ) and its tie rule: the nearest by distance, then the facility's `row_key`
 //! (`nearest.sql`).
 //!
-//! The caller pins every input once ([`NearbyPins`]); [`load_inputs`] reads them, and
-//! [`build_sido`] computes one 시도 into `built`. A 시도 at a time keeps the peak inside the stage's
-//! memory: nationally 39,861,511 parcels in 445.6 s with a 5.01 GiB peak (W81b, 2026-11-13, 4
-//! threads, a 5 GB `DuckDB` limit). Nothing here commits.
+//! What the lane gives the shared driver ([`NEARBY`]): the facilities, the highway list and the
+//! stores' ring counts, small, read once nationally ([`KindVersionsStage::prepare`]); the served
+//! parcels at their centroids, spooled by 시도 by the shared split ([`KindVersionsStage::spool_more`]);
+//! and its build, which the shared build shows one 시군구 at a time: a parcel's nearest facility is
+//! searched over the national facilities, so a part needs no other part's rows. A partial run
+//! rebuilds the parcels whose centroid or place id changed (the shared comparison of the two reads)
+//! and those near a cell whose store count moved ([`KindVersionsStage::changed_keys_sql`]); a commit
+//! that only store counts changed is recorded as such ([`KindVersionsStage::change_explanation`],
+//! root ADR-0596). Nationally 39,861,511 parcels took 445.6 s with a 5.01 GiB peak a 시도 at a time
+//! (W81b, 2026-11-13, 4 threads, a 5 GB `DuckDB` limit).
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::time::Instant;
 
 use anyhow::{ensure, Context};
@@ -27,8 +35,9 @@ use sha2::{Digest, Sha256};
 use duckdb::Connection;
 
 use crate::duckdb_parquet_stage::with_contract_columns;
-use crate::legal_dong_code_change_stage::{PAIR_ROWS_SQL, RENUMBERED_INTO_SQL};
-use crate::place_id_join::place_ids_sql;
+use crate::kind_versions_stage::{
+    elapsed, spool_by_sido, ChangeExplanation, KindVersionsStage, RowSet, BASE_SUFFIX, SHARED_SQL,
+};
 
 const NEAREST_SQL: &str = include_str!("parcel_nearby_stage/nearest.sql");
 const DOCUMENT_SQL: &str = include_str!("parcel_nearby_stage/document.sql");
@@ -112,17 +121,59 @@ pub const STORE_H3_RESOLUTION: u8 = 9;
 pub const STORE_H3_RING: u8 = 2;
 /// At most this many highway access points are listed (the total is always given).
 pub const RECORD_BOUND: u32 = 20;
+/// The document field a store-only commit may change, and nothing else (root ADR-0596).
+pub const STORE_COUNT_FIELD: &str = "commercial_store_count";
 /// The mainland, Jeju, Ulleung and Dokdo, with margin (degrees): a coordinate outside it, or not a
 /// number, is the source's error and not a candidate.
 pub const KOREA_LATITUDE: (f64, f64) = (32.5, 39.0); // public-repository-safety: reviewed-runtime-coordinate
 /// See [`KOREA_LATITUDE`].
 pub const KOREA_LONGITUDE: (f64, f64) = (124.0, 132.0); // public-repository-safety: reviewed-runtime-coordinate
-/// The coarse and fine candidate cells, in degrees (`nearest.sql`).
+/// The coarse and fine candidate cells, in degrees (`nearest.sql`); the fine ones also bucket the
+/// parcels a partial run looks up near a moved store.
 const COARSE_DEGREES: f64 = 0.05;
 const FINE_DEGREES: f64 = 0.005;
 
 /// What the rules are; part of the build's code version, with the SQL texts.
-pub const RULES_VERSION: &str = "parcel-nearby-duckdb-v1";
+pub const RULES_VERSION: &str = "parcel-nearby-duckdb-v2";
+
+/// The spool, and a 시도's table, of the served parcels at their centroids.
+const PARCELS: &str = "parcels";
+/// The served parcels of an edition at their boundaries' centroids: the [`PARCELS`] spool's rows.
+const PARCEL_POINTS_SQL: &str = "SELECT pnu, ST_X(g) AS lon, ST_Y(g) AS lat \
+    FROM (SELECT pnu, ST_Centroid(ST_GeomFromWKB(geometry_wkb)) AS g FROM {parcels} \
+          WHERE source_snapshot_id = '{edition}' AND ({predicate}) AND geometry_wkb IS NOT NULL)";
+/// The stores within [`STORE_H3_RING`] rings of each cell, `(cell, store_count)`, of a read.
+const STORE_RINGS: &str = "nearby_store_rings";
+/// The located stores of a read, `(stores)`.
+const LOCATED_STORES: &str = "nearby_located_stores";
+/// The cells whose ring count differs between the two reads of a partial run.
+const MOVED_CELLS: &str = "nearby_store_cells_moved";
+/// The fine buckets ([`FINE_DEGREES`]) those cells cover, with a bucket of margin.
+const MOVED_BUCKETS: &str = "nearby_store_buckets_moved";
+/// Each built parcel's stores within the rings of its cell: the cells (counted in the publisher)
+/// joined to the ring counts.
+const RING_SQL: &str = "CREATE OR REPLACE TABLE ring AS \
+    SELECT c.pnu, r.store_count FROM nearby_parcel_cells c JOIN nearby_store_rings r USING (cell);";
+/// The parcels a partial run rebuilds near a cell whose store count moved: every parcel of a fine
+/// bucket over such a cell (a parcel named for nothing builds the document it had).
+const NEAR_MOVED_STORES_SQL: &str = "SELECT p.pnu \
+    FROM read_parquet('@dir@/parcels/*/*.parquet', hive_partitioning = false) p \
+    JOIN nearby_store_buckets_moved b \
+      ON CAST(floor(p.lon / {fine}) AS BIGINT) = b.fx AND CAST(floor(p.lat / {fine}) AS BIGINT) = b.fy";
+/// What a store-only commit gathers of each 시도 (root ADR-0596): its changed rows that differ from
+/// the head's in more than [`STORE_COUNT_FIELD`], and the points of its changed parcels.
+const STORE_ONLY_SETUP_SQL: &str = "\
+CREATE OR REPLACE TABLE nearby_store_only_breaks (n BIGINT); \
+CREATE OR REPLACE TABLE nearby_changed_points (pnu VARCHAR, lat DOUBLE, lon DOUBLE);";
+const STORE_ONLY_GATHER_SQL: &str = "\
+INSERT INTO nearby_store_only_breaks \
+  SELECT count(*) FROM appended a JOIN current_rows c USING (pnu) WHERE a.change = 'changed' \
+  AND (json_extract(a.nearby_json, '$.{field}') IS NOT DISTINCT FROM json_extract(c.nearby_json, '$.{field}') \
+       OR json_merge_patch(a.nearby_json, '{\"{field}\": null}')::VARCHAR \
+          IS DISTINCT FROM json_merge_patch(c.nearby_json, '{\"{field}\": null}')::VARCHAR \
+       OR a.place_id IS DISTINCT FROM c.place_id OR a.attached_via IS DISTINCT FROM c.attached_via); \
+INSERT INTO nearby_changed_points \
+  SELECT a.pnu, p.lat, p.lon FROM appended a LEFT JOIN parcels p USING (pnu) WHERE a.change = 'changed';";
 
 /// Every input of the build, in the order the summary names them.
 #[must_use]
@@ -142,7 +193,7 @@ pub fn inputs() -> Vec<&'static str> {
 /// The inputs whose change may move any parcel's document.
 ///
 /// A facility file (any parcel's nearest point), the highway file and the code change table. A
-/// change of the parcels, the stores or the place ids moves only the 시도 it touches.
+/// change of the parcels, the stores or the place ids moves only the parcels it touches.
 #[must_use]
 pub fn whole_table_inputs() -> Vec<&'static str> {
     let mut tables: Vec<&'static str> = POINT_FILES.iter().map(|file| file.table).collect();
@@ -150,8 +201,8 @@ pub fn whole_table_inputs() -> Vec<&'static str> {
     tables
 }
 
-/// The build's code version: the rules version, the SQL texts and the shared code views it runs.
-/// A change of any of them recomputes every 시도.
+/// The build's code version: the rules version, the SQL texts and the shared code views and split
+/// it runs. A change of any of them recomputes every parcel.
 #[must_use]
 pub fn code_version() -> String {
     let mut hash = Sha256::new();
@@ -159,9 +210,12 @@ pub fn code_version() -> String {
         RULES_VERSION,
         NEAREST_SQL,
         DOCUMENT_SQL,
-        PAIR_ROWS_SQL,
-        RENUMBERED_INTO_SQL,
-    ] {
+        PARCEL_POINTS_SQL,
+        RING_SQL,
+    ]
+    .into_iter()
+    .chain(SHARED_SQL)
+    {
         hash.update(text.as_bytes());
         hash.update([0]);
     }
@@ -252,6 +306,11 @@ fn is_plain(text: &str) -> bool {
         && text
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
+}
+
+fn count(connection: &Connection, sql: &str) -> anyhow::Result<u64> {
+    let value: i64 = connection.query_row(sql, [], |row| row.get(0))?;
+    Ok(u64::try_from(value)?)
 }
 
 /// A header as a JSON path into `provider_fields_json` (Spark: `from_json(…, map<string,string>)[h]`).
@@ -360,28 +419,11 @@ fn inside(latitude: &str, longitude: &str) -> String {
     )
 }
 
-/// What [`load_inputs`] read.
-#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize)]
-pub struct NearbyInputs {
-    /// Served parcels with a centroid, by 시도.
-    pub parcels_by_sido: BTreeMap<String, u64>,
-    /// Located facilities per document key.
-    pub facilities: BTreeMap<String, u64>,
-    /// Located stores.
-    pub stores: u64,
-    /// 시군구 with highway access points.
-    pub highway_sigungu: u64,
-    /// Codes the renumbering translates.
-    pub renumbered_codes: u64,
-    /// Milliseconds each pinned input took to read, by table.
-    pub read_millis: BTreeMap<String, u64>,
-    /// The located stores per H3 cell, which [`build_sido`] counts the rings of.
-    #[serde(skip)]
-    pub store_cells: StoreCells,
-}
-
 /// The H3 cell (resolution [`STORE_H3_RESOLUTION`]) of a point, as Sedona's `ST_H3CellIDs` and the
 /// h3 library give it (H3 v4).
+///
+/// H3 is computed in the publisher with h3o (a Rust implementation of the H3 library): `DuckDB`'s
+/// community h3 extension loads only with unsigned extensions allowed, which the release refuses.
 fn cell(lat: f64, lon: f64) -> anyhow::Result<h3o::CellIndex> {
     let resolution = h3o::Resolution::try_from(STORE_H3_RESOLUTION)?;
     Ok(h3o::LatLng::new(lat, lon)
@@ -389,43 +431,72 @@ fn cell(lat: f64, lon: f64) -> anyhow::Result<h3o::CellIndex> {
         .to_cell(resolution))
 }
 
-/// The located stores per H3 cell.
+/// The store cell ([`STORE_H3_RESOLUTION`]) of a point.
 ///
-/// H3 is computed in the publisher with h3o (a Rust implementation of the H3 library): `DuckDB`'s
-/// community h3 extension loads only with unsigned extensions allowed, which the release refuses.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct StoreCells(HashMap<u64, u64>);
+/// # Errors
+/// Returns an error when the point is not a coordinate.
+pub fn store_cell(lat: f64, lon: f64) -> anyhow::Result<u64> {
+    Ok(u64::from(cell(lat, lon)?))
+}
 
-impl StoreCells {
-    /// The stores at `points` (latitude, longitude), counted per cell.
-    ///
-    /// # Errors
-    /// Returns an error when a point is not a coordinate.
-    pub fn from_points(points: &[(f64, f64)]) -> anyhow::Result<Self> {
-        let mut cells = HashMap::new();
-        for (lat, lon) in points {
-            *cells.entry(u64::from(cell(*lat, *lon)?)).or_insert(0) += 1;
+/// The stores within [`STORE_H3_RING`] rings of each cell, from the stores at `points` (latitude,
+/// longitude): a cell's count is every store whose cell is within the rings of it.
+///
+/// It equals counting, for each parcel, the stores in the rings around its cell (the Spark job's
+/// `ST_H3KRing`): the grid distance is symmetric, so a store lies in the rings of a parcel's cell
+/// exactly when that cell lies in the rings of the store's.
+///
+/// # Errors
+/// Returns an error when a point is not a coordinate.
+pub fn store_rings(points: &[(f64, f64)]) -> anyhow::Result<HashMap<u64, u64>> {
+    let mut stores: HashMap<u64, u64> = HashMap::new();
+    for (lat, lon) in points {
+        *stores.entry(store_cell(*lat, *lon)?).or_insert(0) += 1;
+    }
+    let mut rings: HashMap<u64, u64> = HashMap::new();
+    for (center, held) in &stores {
+        for ring in h3o::CellIndex::try_from(*center)?.grid_disk::<Vec<_>>(u32::from(STORE_H3_RING))
+        {
+            *rings.entry(u64::from(ring)).or_insert(0) += held;
         }
-        Ok(Self(cells))
     }
+    Ok(rings)
+}
 
-    /// Every store counted.
-    #[must_use]
-    pub fn total(&self) -> u64 {
-        self.0.values().sum()
+/// The fine buckets (`floor(degrees / FINE_DEGREES)` of longitude and latitude) that cover `cells`.
+///
+/// One bucket of margin goes around each cell's bounds: every parcel whose centroid lies in one of
+/// the cells lies in one of them.
+///
+/// # Errors
+/// Returns an error when a cell is not an H3 index.
+pub fn buckets_over(cells: &[u64]) -> anyhow::Result<BTreeSet<(i64, i64)>> {
+    let bucket = |degrees: f64| -> anyhow::Result<i64> {
+        let value = (degrees / FINE_DEGREES).floor();
+        ensure!(value.is_finite(), "{degrees} is no coordinate");
+        // A coordinate inside Korea is a few tens of thousands of buckets: no truncation.
+        #[allow(clippy::cast_possible_truncation)]
+        let bucketed = value as i64;
+        Ok(bucketed)
+    };
+    let mut buckets = BTreeSet::new();
+    for cell in cells {
+        let boundary = h3o::CellIndex::try_from(*cell)?.boundary();
+        let (mut lat_min, mut lat_max) = (f64::MAX, f64::MIN);
+        let (mut lon_min, mut lon_max) = (f64::MAX, f64::MIN);
+        for vertex in boundary.iter() {
+            lat_min = lat_min.min(vertex.lat());
+            lat_max = lat_max.max(vertex.lat());
+            lon_min = lon_min.min(vertex.lng());
+            lon_max = lon_max.max(vertex.lng());
+        }
+        for fx in (bucket(lon_min)? - 1)..=(bucket(lon_max)? + 1) {
+            for fy in (bucket(lat_min)? - 1)..=(bucket(lat_max)? + 1) {
+                buckets.insert((fx, fy));
+            }
+        }
     }
-
-    /// The stores in the cells within [`STORE_H3_RING`] rings of the cell of (`lat`, `lon`).
-    ///
-    /// # Errors
-    /// Returns an error when the point is not a coordinate.
-    pub fn ring_count(&self, lat: f64, lon: f64) -> anyhow::Result<u64> {
-        Ok(cell(lat, lon)?
-            .grid_disk::<Vec<_>>(u32::from(STORE_H3_RING))
-            .into_iter()
-            .filter_map(|ring| self.0.get(&u64::from(ring)))
-            .sum())
-    }
+    Ok(buckets)
 }
 
 /// The (latitude, longitude) rows `query` returns.
@@ -437,78 +508,14 @@ fn points(connection: &Connection, query: &str) -> anyhow::Result<Vec<(f64, f64)
         .context("DuckDB failed to read the points")
 }
 
-/// Reads every input from `source` into `connection`.
-///
-/// It defines the macros the build runs and leaves `parcels(pnu, lon, lat)` of the served
-/// `edition`, a `f_<key>` table per nearest kind, the stores per H3 cell, `highway(sigungu,
-/// highway_access_points)`, `place_ids(pnu, place_id)` and an empty `built`.
-///
-/// # Errors
-/// Returns an error when a snapshot cannot be read, an input ties where its contract forbids it, a
-/// served parcel appears twice, or the spatial extension measures distances wrong.
-#[allow(clippy::too_many_lines)]
-pub fn load_inputs(
+/// Reads the facility files and the 대학's rows into `f_<key>` (the 대학's placed in
+/// [`place_universities`], once the parcels are spooled) and the highway list into `highway`;
+/// returns each input's read time.
+fn read_facilities(
     connection: &Connection,
     source: &Source<'_>,
-    edition: &str,
-) -> anyhow::Result<NearbyInputs> {
-    ensure!(
-        is_plain(edition),
-        "the edition {edition:?} is not a plain snapshot id"
-    );
-    define_spheroid(connection)?;
+) -> anyhow::Result<BTreeMap<String, u64>> {
     let mut read_millis = BTreeMap::new();
-    let mut timed = |table: &str, at: Instant| {
-        read_millis.insert(
-            table.to_owned(),
-            u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX),
-        );
-    };
-    let at = Instant::now();
-    let parcels = contract(PARCEL_SOURCE)?;
-    let predicate = parcels
-        .current_row_predicate
-        .context("silver.parcel_boundaries names its current rows by a predicate")?;
-    connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE parcels AS \
-         SELECT pnu, ST_X(g) AS lon, ST_Y(g) AS lat \
-         FROM (SELECT pnu, ST_Centroid(ST_GeomFromWKB(geometry_wkb)) AS g \
-               FROM {parcels_table} \
-               WHERE source_snapshot_id = '{edition}' AND ({predicate}) AND geometry_wkb IS NOT NULL);",
-        parcels_table = source.of(PARCEL_SOURCE)?
-    ))?;
-    timed(PARCEL_SOURCE, at);
-    let (rows, keys): (i64, i64) = connection.query_row(
-        "SELECT count(*), count(DISTINCT pnu) FROM parcels",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
-    ensure!(rows > 0, "edition {edition} holds no served parcel");
-    ensure!(
-        rows == keys,
-        "edition {edition} holds {} parcels more than once",
-        rows - keys
-    );
-
-    // The code change table's pairs in force, and the codes the served edition holds of them.
-    let at = Instant::now();
-    connection.execute_batch(&format!(
-        "CREATE OR REPLACE TEMP TABLE code_changes AS \
-         SELECT kind, old_code, new_code, level, effective_date, source \
-         FROM {changes} WHERE kind IN ('pair', 'supersession');",
-        changes = source.of(CODE_CHANGE_SOURCE)?
-    ))?;
-    timed(CODE_CHANGE_SOURCE, at);
-    connection.execute_batch(PAIR_ROWS_SQL)?;
-    connection.execute_batch(
-        "CREATE OR REPLACE TEMP TABLE served_codes AS \
-         SELECT DISTINCT substr(pnu, 1, 10) AS code FROM parcels WHERE substr(pnu, 1, 10) IN ( \
-           SELECT old_code FROM pair_rows WHERE level IN ('eupmyeondong', 'ri') \
-           UNION SELECT new_code FROM pair_rows WHERE level IN ('eupmyeondong', 'ri'));",
-    )?;
-    connection.execute_batch(RENUMBERED_INTO_SQL)?;
-
-    let mut facilities = BTreeMap::new();
     for file in &POINT_FILES {
         let mut columns = vec![
             "row_key".to_owned(),
@@ -530,77 +537,28 @@ pub fn load_inputs(
             &columns,
             &format!("current_{}", file.key),
         )?;
-        timed(file.table, at);
+        read_millis.insert(file.table.to_owned(), elapsed(at));
         connection.execute_batch(&format!(
             "CREATE OR REPLACE TABLE f_{key} AS SELECT * FROM ({rows}) WHERE {inside};",
             key = file.key,
             inside = inside("lat", "lon")
         ))?;
     }
-    let (university_key, university_fields) = UNIVERSITY;
+    let (_, university_fields) = UNIVERSITY;
     let mut columns = vec!["row_key".to_owned(), "pnu".to_owned()];
     for (name, header) in university_fields {
         columns.push(format!("{} AS {name}", field(header)?));
     }
     let columns = columns.iter().map(String::as_str).collect::<Vec<_>>();
     let at = Instant::now();
-    let rows = current_rows(
+    current_rows(
         connection,
         source,
         UNIVERSITY_SOURCE,
         &columns,
         "current_university",
     )?;
-    timed(UNIVERSITY_SOURCE, at);
-    let picked = university_fields
-        .iter()
-        .map(|(name, _)| format!("u.{name}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    // A 대학 stands at the centroid of its (renumbered) parcel, read from every served parcel.
-    connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE f_{university_key} AS \
-         SELECT u.row_key, p.lat, p.lon, {picked} FROM ( \
-           SELECT r.* EXCLUDE (pnu), coalesce(n.dst || substr(r.pnu, 11, 9), r.pnu) AS pnu \
-           FROM ({rows}) r LEFT JOIN renumbering n ON substr(r.pnu, 1, 10) = n.src WHERE r.pnu IS NOT NULL \
-         ) u JOIN parcels p USING (pnu) WHERE {inside};",
-        inside = inside("p.lat", "p.lon")
-    ))?;
-    for key in POINT_FILES
-        .iter()
-        .map(|file| file.key)
-        .chain([university_key])
-    {
-        let located: i64 =
-            connection.query_row(&format!("SELECT count(*) FROM f_{key}"), [], |row| {
-                row.get(0)
-            })?;
-        ensure!(located > 0, "no located {key}: the build would name none");
-        facilities.insert(key.to_owned(), u64::try_from(located)?);
-    }
-
-    let (store_lat, store_lon) = STORE_COORDINATES;
-    let store_columns = [
-        format!("TRY_CAST(trim({}) AS DOUBLE) AS lat", field(store_lat)?),
-        format!("TRY_CAST(trim({}) AS DOUBLE) AS lon", field(store_lon)?),
-    ];
-    let store_columns = store_columns.iter().map(String::as_str).collect::<Vec<_>>();
-    let at = Instant::now();
-    let rows = current_rows(
-        connection,
-        source,
-        STORE_SOURCE,
-        &store_columns,
-        "current_stores",
-    )?;
-    timed(STORE_SOURCE, at);
-    let store_cells = StoreCells::from_points(&points(
-        connection,
-        &format!(
-            "SELECT lat, lon FROM ({rows}) WHERE {}",
-            inside("lat", "lon")
-        ),
-    )?)?;
+    read_millis.insert(UNIVERSITY_SOURCE.to_owned(), elapsed(at));
 
     let mut highway_columns = vec!["legal_dong_code".to_owned()];
     for (name, header) in HIGHWAY_FIELDS {
@@ -618,7 +576,7 @@ pub fn load_inputs(
         &highway_columns,
         "current_highway",
     )?;
-    timed(HIGHWAY_SOURCE, at);
+    read_millis.insert(HIGHWAY_SOURCE.to_owned(), elapsed(at));
     let record = HIGHWAY_FIELDS
         .iter()
         .map(|(name, _)| format!("'{name}': {name}"))
@@ -638,239 +596,192 @@ pub fn load_inputs(
                            'records': list_slice(list_sort(list({{{record}}})), 1, {RECORD_BOUND})}} AS highway_access_points \
          FROM k GROUP BY sigungu;"
     ))?;
+    Ok(read_millis)
+}
 
-    let at = Instant::now();
-    // The parcel place ids (`place_id_join`, the one rule every kind reads them by).
+/// Places each 대학 at the centroid of its (renumbered) parcel, read from the parcels spooled under
+/// `dir_text`, as `f_university`, and refuses a build with no located facility of a kind.
+fn place_universities(connection: &Connection, dir_text: &str) -> anyhow::Result<()> {
+    let (university_key, university_fields) = UNIVERSITY;
+    let picked = university_fields
+        .iter()
+        .map(|(name, _)| format!("u.{name}"))
+        .collect::<Vec<_>>()
+        .join(", ");
     connection.execute_batch(&format!(
-        "CREATE OR REPLACE TABLE place_ids AS {};",
-        place_ids_sql(source, "TRUE")?
+        "CREATE OR REPLACE TABLE f_{university_key} AS \
+         SELECT u.row_key, p.lat, p.lon, {picked} FROM ( \
+           SELECT r.* EXCLUDE (pnu), coalesce(n.dst || substr(r.pnu, 11, 9), r.pnu) AS pnu \
+           FROM current_university r LEFT JOIN renumbering n ON substr(r.pnu, 1, 10) = n.src \
+           WHERE r.pnu IS NOT NULL \
+         ) u JOIN read_parquet('{dir_text}/{PARCELS}/*/*.parquet', hive_partitioning = false) p \
+           USING (pnu) WHERE {inside};",
+        inside = inside("p.lat", "p.lon")
     ))?;
-    timed(BRIDGE_SOURCE, at);
-    connection.execute_batch(BUILT_TABLE)?;
-
-    let count = |sql: &str| -> anyhow::Result<u64> {
-        let value: i64 = connection.query_row(sql, [], |row| row.get(0))?;
-        Ok(u64::try_from(value)?)
-    };
-    let parcels_by_sido = connection
-        .prepare("SELECT substr(pnu, 1, 2), count(*) FROM parcels GROUP BY 1 ORDER BY 1")?
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        })?
-        .map(|row| {
-            let (sido, rows) = row?;
-            Ok((sido, u64::try_from(rows)?))
-        })
-        .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
-    Ok(NearbyInputs {
-        parcels_by_sido,
-        facilities,
-        stores: store_cells.total(),
-        highway_sigungu: count("SELECT count(*) FROM highway")?,
-        renumbered_codes: count("SELECT count(*) FROM renumbering")?,
-        read_millis,
-        store_cells,
-    })
-}
-
-/// What a move of the parcels, the stores or the place ids can change: the 시도, and the cells a
-/// store left or entered with every cell within [`STORE_H3_RING`] rings of one.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ChangedSidos {
-    /// The 시도 whose documents can change.
-    pub sidos: BTreeSet<String>,
-    /// The cells whose parcels' `commercial_store_count` the moved stores can change (empty when
-    /// the stores did not move).
-    pub store_cells: BTreeSet<u64>,
-    /// The located stores (a coordinate inside Korea) before and after, when the stores moved.
-    pub located_stores: Option<(u64, u64)>,
-}
-
-/// The 시도 whose documents a move of the parcels, the stores or the place ids can change.
-///
-/// Between `old` and `new` (the inputs [`load_inputs`] read): a parcel whose boundary or place id
-/// differs, and the parcels within [`STORE_H3_RING`] rings of a cell a store left or entered. Every
-/// other input is whole-table ([`whole_table_inputs`]): the caller recomputes every 시도 for those.
-///
-/// # Errors
-/// Returns an error when a snapshot cannot be read.
-pub fn changed_sidos(
-    connection: &Connection,
-    old: &Source<'_>,
-    new: &Source<'_>,
-    moved: &BTreeSet<String>,
-    edition: &str,
-) -> anyhow::Result<ChangedSidos> {
-    ensure!(
-        is_plain(edition),
-        "the edition {edition:?} is not a plain snapshot id"
-    );
-    let mut parts = Vec::new();
-    if moved.contains(PARCEL_SOURCE) {
-        let predicate = contract(PARCEL_SOURCE)?
-            .current_row_predicate
-            .context("silver.parcel_boundaries names its current rows by a predicate")?;
-        let side = |source: &Source<'_>| -> anyhow::Result<String> {
-            Ok(format!(
-                "SELECT pnu, md5(geometry_wkb) AS shape FROM {} WHERE source_snapshot_id = '{edition}' AND ({predicate})",
-                source.of(PARCEL_SOURCE)?
-            ))
-        };
-        let (before, after) = (side(old)?, side(new)?);
-        parts.push(format!(
-            "SELECT substr(pnu, 1, 2) AS sido FROM (({after}) EXCEPT ({before}))              UNION SELECT substr(pnu, 1, 2) FROM (({before}) EXCEPT ({after}))"
-        ));
-    }
-    if moved.contains(BRIDGE_SOURCE) {
-        let side =
-            |source: &Source<'_>| -> anyhow::Result<String> { place_ids_sql(source, "TRUE") };
-        let (before, after) = (side(old)?, side(new)?);
-        parts.push(format!(
-            "SELECT substr(pnu, 1, 2) FROM (({after}) EXCEPT ({before}))              UNION SELECT substr(pnu, 1, 2) FROM (({before}) EXCEPT ({after}))"
-        ));
-    }
-    let mut found = BTreeSet::new();
-    let (touched, located_stores) = if moved.contains(STORE_SOURCE) {
-        let (cells, before, after) = moved_store_cells(connection, old, new)?;
-        (cells, Some((before, after)))
-    } else {
-        (BTreeSet::new(), None)
-    };
-    if !touched.is_empty() {
-        let mut statement = connection.prepare("SELECT pnu, lat, lon FROM parcels")?;
-        let mut rows = statement.query([])?;
-        while let Some(row) = rows.next()? {
-            let pnu: String = row.get(0)?;
-            let prefix = pnu.get(..2).unwrap_or_default().to_owned();
-            if !found.contains(&prefix)
-                && touched.contains(&u64::from(cell(row.get(1)?, row.get(2)?)?))
-            {
-                found.insert(prefix);
-            }
-        }
-    }
-    if !parts.is_empty() {
-        let sidos = connection
-            .prepare(&format!(
-                "SELECT DISTINCT * FROM ({}) ORDER BY 1",
-                parts.join(" UNION ")
-            ))?
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()
-            .context("DuckDB failed to find the 시도 the moved inputs touch")?;
-        found.extend(sidos);
-    }
-    Ok(ChangedSidos {
-        sidos: found,
-        store_cells: touched,
-        located_stores,
-    })
-}
-
-/// The cells a store left or entered between `old` and `new` with every cell within
-/// [`STORE_H3_RING`] rings of one, and the located stores before and after.
-///
-/// # Errors
-/// Returns an error when a snapshot cannot be read or a point is not a coordinate.
-pub fn moved_store_cells(
-    connection: &Connection,
-    old: &Source<'_>,
-    new: &Source<'_>,
-) -> anyhow::Result<(BTreeSet<u64>, u64, u64)> {
-    let (lat, lon) = STORE_COORDINATES;
-    let columns = [
-        "row_key".to_owned(),
-        format!("TRY_CAST(trim({}) AS DOUBLE) AS lat", field(lat)?),
-        format!("TRY_CAST(trim({}) AS DOUBLE) AS lon", field(lon)?),
-    ];
-    let columns = columns.iter().map(String::as_str).collect::<Vec<_>>();
-    let side = |source: &Source<'_>, into: &str| -> anyhow::Result<BTreeSet<(String, u64)>> {
-        let query = format!(
-            "SELECT row_key, lat, lon FROM ({}) WHERE {}",
-            current_rows(connection, source, STORE_SOURCE, &columns, into)?,
-            inside("lat", "lon")
+    for key in POINT_FILES
+        .iter()
+        .map(|file| file.key)
+        .chain([university_key])
+    {
+        ensure!(
+            count(connection, &format!("SELECT count(*) FROM f_{key}"))? > 0,
+            "no located {key}: the build would name none"
         );
-        connection
-            .prepare(&query)?
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, f64>(1)?,
-                    row.get::<_, f64>(2)?,
-                ))
-            })?
-            .map(|row| {
-                let (key, lat, lon) = row?;
-                Ok((key, u64::from(cell(lat, lon)?)))
-            })
-            .collect()
-    };
-    let (before, after) = (
-        side(old, "current_stores_before")?,
-        side(new, "current_stores_after")?,
-    );
-    Ok((
-        cells_around_moves(&before, &after)?,
-        u64::try_from(before.len())?,
-        u64::try_from(after.len())?,
-    ))
-}
-
-/// The H3 cells within [`STORE_H3_RING`] rings of a cell a store (`row_key`, cell) left or entered
-/// between `before` and `after`: a store that moved counts at both its cells.
-fn cells_around_moves(
-    before: &BTreeSet<(String, u64)>,
-    after: &BTreeSet<(String, u64)>,
-) -> anyhow::Result<BTreeSet<u64>> {
-    let mut touched = BTreeSet::new();
-    for (_, moved_cell) in before.symmetric_difference(after) {
-        let center = h3o::CellIndex::try_from(*moved_cell)?;
-        for ring in center.grid_disk::<Vec<_>>(u32::from(STORE_H3_RING)) {
-            touched.insert(u64::from(ring));
-        }
     }
-    Ok(touched)
+    Ok(())
 }
 
-/// The store cell ([`STORE_H3_RESOLUTION`]) of a point, as [`ChangedSidos::store_cells`] names it.
-///
-/// # Errors
-/// Returns an error when the point is not a coordinate.
-pub fn store_cell(lat: f64, lon: f64) -> anyhow::Result<u64> {
-    Ok(u64::from(cell(lat, lon)?))
-}
-
-/// How many of the parcels `pnus` (a query of one `pnu` column) lie outside `cells`.
-///
-/// A parcel is outside when the cell ([`STORE_H3_RESOLUTION`]) of its point in `parcels` is none
-/// of `cells`, or `parcels` does not hold it.
-///
-/// # Errors
-/// Returns an error when the parcels cannot be read or a point is not a coordinate.
-pub fn parcels_outside_cells(
-    connection: &Connection,
-    cells: &BTreeSet<u64>,
-    pnus: &str,
-) -> anyhow::Result<u64> {
-    let mut statement = connection.prepare(&format!(
-        "SELECT p.lat, p.lon FROM ({pnus}) k LEFT JOIN parcels p USING (pnu)"
+/// Reads the stores at `source` and leaves their ring counts as `nearby_store_rings<suffix>` and
+/// how many were located as `nearby_located_stores<suffix>`; returns the read time.
+fn read_stores(connection: &Connection, source: &Source<'_>, suffix: &str) -> anyhow::Result<u64> {
+    let (store_lat, store_lon) = STORE_COORDINATES;
+    let store_columns = [
+        format!("TRY_CAST(trim({}) AS DOUBLE) AS lat", field(store_lat)?),
+        format!("TRY_CAST(trim({}) AS DOUBLE) AS lon", field(store_lon)?),
+    ];
+    let store_columns = store_columns.iter().map(String::as_str).collect::<Vec<_>>();
+    let at = Instant::now();
+    let rows = current_rows(
+        connection,
+        source,
+        STORE_SOURCE,
+        &store_columns,
+        &format!("current_stores{suffix}"),
+    )?;
+    let located = points(
+        connection,
+        &format!(
+            "SELECT lat, lon FROM ({rows}) WHERE {}",
+            inside("lat", "lon")
+        ),
+    )?;
+    let read = elapsed(at);
+    let rings = store_rings(&located)?;
+    let table = format!("{STORE_RINGS}{suffix}");
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE {table} (cell UBIGINT, store_count BIGINT); \
+         CREATE OR REPLACE TABLE {LOCATED_STORES}{suffix} AS SELECT CAST({} AS BIGINT) AS stores;",
+        located.len()
     ))?;
+    {
+        let mut appender = connection.appender(&table)?;
+        for (ring_cell, stores) in &rings {
+            appender.append_row(duckdb::params![*ring_cell, i64::try_from(*stores)?])?;
+        }
+        appender.flush()?;
+    }
+    Ok(read)
+}
+
+/// Leaves the cells whose ring count differs between the new read and the base's (`suffix`) as
+/// [`MOVED_CELLS`] and the fine buckets over them as [`MOVED_BUCKETS`].
+fn moved_store_cells(connection: &Connection, suffix: &str) -> anyhow::Result<()> {
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE {MOVED_CELLS} AS \
+         SELECT coalesce(n.cell, o.cell) AS cell FROM {STORE_RINGS} n \
+         FULL JOIN {STORE_RINGS}{suffix} o ON n.cell = o.cell \
+         WHERE n.store_count IS DISTINCT FROM o.store_count; \
+         CREATE OR REPLACE TABLE {MOVED_BUCKETS} (fx BIGINT, fy BIGINT);"
+    ))?;
+    let cells = connection
+        .prepare(&format!("SELECT cell FROM {MOVED_CELLS}"))?
+        .query_map([], |row| row.get::<_, u64>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut appender = connection.appender(MOVED_BUCKETS)?;
+    for (fx, fy) in buckets_over(&cells)? {
+        appender.append_row(duckdb::params![fx, fy])?;
+    }
+    appender.flush()?;
+    Ok(())
+}
+
+/// How many of the points (latitude, longitude; a null for a parcel the 시도 did not hold) `query`
+/// returns lie in none of `cells`.
+fn points_outside(
+    connection: &Connection,
+    cells: &HashSet<u64>,
+    query: &str,
+) -> anyhow::Result<u64> {
+    let mut statement = connection.prepare(query)?;
     let mut rows = statement.query([])?;
     let mut outside = 0;
     while let Some(row) = rows.next()? {
         let point: (Option<f64>, Option<f64>) = (row.get(0)?, row.get(1)?);
-        let inside = match point {
+        let within = match point {
             (Some(lat), Some(lon)) => cells.contains(&store_cell(lat, lon)?),
             _ => false,
         };
-        if !inside {
+        if !within {
             outside += 1;
         }
     }
     Ok(outside)
 }
 
-/// The table [`build_sido`] appends to: the Gold's columns but `version_seq` and `row_state`.
+/// Why a commit that only the stores moved is the stores' doing, or `None` (root ADR-0596).
+///
+/// It is when no key came or went, the located stores did not fall to none or move by more than `max_loss` of the
+/// base's (a broken or emptied store file would otherwise move every count), every changed row
+/// differs from the head's in [`STORE_COUNT_FIELD`] and in nothing else, and every changed parcel
+/// lies in a cell whose store count moved.
+///
+/// # Errors
+/// Returns an error when the gathered tables cannot be read or a point is not a coordinate.
+pub fn store_only(
+    connection: &Connection,
+    (added, changed, removed): (u64, u64, u64),
+    max_loss: f64,
+) -> anyhow::Result<Option<String>> {
+    // A run that read no base side (every parcel rebuilt) compared no stores.
+    let compared: i64 = connection.query_row(
+        &format!(
+            "SELECT count(*) FROM duckdb_tables() WHERE table_name IN \
+             ('{LOCATED_STORES}{BASE_SUFFIX}', '{MOVED_CELLS}')"
+        ),
+        [],
+        |row| row.get(0),
+    )?;
+    if added != 0 || removed != 0 || compared != 2 {
+        return Ok(None);
+    }
+    let before = count(
+        connection,
+        &format!("SELECT stores FROM {LOCATED_STORES}{BASE_SUFFIX}"),
+    )?;
+    let after = count(connection, &format!("SELECT stores FROM {LOCATED_STORES}"))?;
+    #[allow(clippy::cast_precision_loss)]
+    let moved_share = before.abs_diff(after) as f64 / before.max(1) as f64;
+    if before == 0 || after == 0 || moved_share > max_loss {
+        return Ok(None);
+    }
+    if count(
+        connection,
+        "SELECT CAST(coalesce(sum(n), 0) AS BIGINT) FROM nearby_store_only_breaks",
+    )? != 0
+    {
+        return Ok(None);
+    }
+    let cells = connection
+        .prepare(&format!("SELECT cell FROM {MOVED_CELLS}"))?
+        .query_map([], |row| row.get::<_, u64>(0))?
+        .collect::<Result<HashSet<_>, _>>()?;
+    if points_outside(
+        connection,
+        &cells,
+        "SELECT lat, lon FROM nearby_changed_points",
+    )? != 0
+    {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "store-only: {changed} changed keys, each differing from the head only in {STORE_COUNT_FIELD}, \
+         every one in one of the {} H3 cells whose stores within {STORE_H3_RING} rings moved in \
+         {STORE_SOURCE} ({before} -> {after} located stores)",
+        cells.len()
+    )))
+}
+
+/// The table the build appends to: the Gold's columns but `version_seq` and `row_state`.
 const BUILT_TABLE: &str = "CREATE OR REPLACE TABLE built (pnu VARCHAR, nearby_json VARCHAR, \
     attached_via VARCHAR, place_id VARCHAR, row_digest VARCHAR, source_snapshot_id VARCHAR, \
     published_at_utc VARCHAR);";
@@ -890,30 +801,34 @@ pub fn is_sido(sido: &str) -> bool {
     sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-/// Computes the rows of the parcels of `sido` into `built`: their documents, place ids and digests,
-/// each stamped `source_snapshot_id` (the parcels' pin) and `published_at_utc`. Returns the rows it
-/// added.
+/// Computes the rows of the loaded parcels (every one, or those `targets` names) into `built`.
+///
+/// Their documents, place ids and digests, each stamped `source_snapshot_id` (the parcels' pin) and
+/// `published_at_utc`. Returns the rows it added.
 ///
 /// # Errors
-/// Returns an error when `sido` is not two digits, a stamp is not plain text, or `DuckDB` fails.
-pub fn build_sido(
+/// Returns an error when a stamp is not plain text, a point is not a coordinate, or `DuckDB` fails.
+pub fn build(
     connection: &Connection,
-    stores: &StoreCells,
-    sido: &str,
+    all: bool,
     source_snapshot_id: &str,
     published_at_utc: &str,
 ) -> anyhow::Result<u64> {
-    ensure!(is_sido(sido), "{sido:?} is not a 시도 prefix");
     ensure!(
         is_plain(source_snapshot_id) && is_plain(published_at_utc),
         "a stamp holds characters a snapshot id or a timestamp does not use"
     );
-    let before: i64 = connection.query_row("SELECT count(*) FROM built", [], |row| row.get(0))?;
+    let before = count(connection, "SELECT count(*) FROM built")?;
+    let targeted = if all {
+        ""
+    } else {
+        " WHERE pnu IN (SELECT pnu FROM targets)"
+    };
     // Tables live in the stage's database file: a temporary table stays in memory and cannot spill.
     connection.execute_batch(&format!(
         "CREATE OR REPLACE TABLE sp AS SELECT *, floor(lon / {COARSE_DEGREES}) AS cx, floor(lat / {COARSE_DEGREES}) AS cy, \
          floor(lon / {FINE_DEGREES}) AS fx, floor(lat / {FINE_DEGREES}) AS fy \
-         FROM parcels WHERE pnu >= '{sido}' AND pnu < '{sido}:';"
+         FROM {PARCELS}{targeted};"
     ))?;
     let mut joins = Vec::new();
     let mut document = Vec::new();
@@ -948,27 +863,27 @@ pub fn build_sido(
         );
         connection
             .execute_batch(&sql)
-            .with_context(|| format!("DuckDB failed to find the nearest {kind} in {sido}"))?;
+            .with_context(|| format!("DuckDB failed to find the nearest {kind}"))?;
         joins.push(format!("LEFT JOIN n_{kind} USING (pnu)"));
         document.push(format!("'{kind}': {kind}"));
     }
-    document.push("'commercial_store_count': coalesce(r.store_count, 0)".to_owned());
+    document.push(format!("'{STORE_COUNT_FIELD}': coalesce(r.store_count, 0)"));
     document.push("'highway_access_points': h.highway_access_points".to_owned());
-    // Each parcel's stores within the rings of its cell.
-    connection.execute_batch("CREATE OR REPLACE TABLE ring (pnu VARCHAR, store_count BIGINT);")?;
+    // Each parcel's cell, counted here (h3o), then its stores within the rings of it.
+    connection.execute_batch(
+        "CREATE OR REPLACE TABLE nearby_parcel_cells (pnu VARCHAR, cell UBIGINT);",
+    )?;
     {
-        let mut appender = connection.appender("ring")?;
+        let mut appender = connection.appender("nearby_parcel_cells")?;
         let mut statement = connection.prepare("SELECT pnu, lat, lon FROM sp")?;
         let mut rows = statement.query([])?;
         while let Some(row) = rows.next()? {
             let pnu: String = row.get(0)?;
-            let count = i64::try_from(stores.ring_count(row.get(1)?, row.get(2)?)?)?;
-            if count > 0 {
-                appender.append_row(duckdb::params![pnu, count])?;
-            }
+            appender.append_row(duckdb::params![pnu, store_cell(row.get(1)?, row.get(2)?)?])?;
         }
         appender.flush()?;
     }
+    connection.execute_batch(RING_SQL)?;
     let (joins, document) = (joins.join(" "), format!("{{{}}}", document.join(", ")));
     let sql = fill(
         DOCUMENT_SQL,
@@ -981,16 +896,186 @@ pub fn build_sido(
     );
     connection
         .execute_batch(&sql)
-        .with_context(|| format!("DuckDB failed to assemble the documents of {sido}"))?;
-    let after: i64 = connection.query_row("SELECT count(*) FROM built", [], |row| row.get(0))?;
-    let parcels: i64 = connection.query_row("SELECT count(*) FROM sp", [], |row| row.get(0))?;
+        .with_context(|| "DuckDB failed to assemble the documents")?;
+    let after = count(connection, "SELECT count(*) FROM built")?;
+    let parcels = count(connection, "SELECT count(*) FROM sp")?;
     // Root ADR-0272: every served parcel has the section.
     ensure!(
         after - before == parcels,
-        "{sido}: {parcels} served parcels but {} documents",
+        "{parcels} served parcels but {} documents",
         after - before
     );
-    Ok(u64::try_from(after - before)?)
+    Ok(after - before)
+}
+
+/// The nearby lane as the shared driver builds it (`kind_versions_build` `NEARBY_BUILD`).
+#[derive(Clone, Copy, Debug)]
+pub struct ParcelNearby;
+
+/// The one nearby lane.
+pub const NEARBY: ParcelNearby = ParcelNearby;
+
+impl KindVersionsStage for ParcelNearby {
+    fn section_column(&self) -> &'static str {
+        "nearby_json"
+    }
+
+    fn inputs(&self) -> Vec<&'static str> {
+        inputs()
+    }
+
+    fn whole_table_inputs(&self) -> Vec<&'static str> {
+        whole_table_inputs()
+    }
+
+    fn code_version(&self) -> String {
+        code_version()
+    }
+
+    // The parcels are read by the served edition, not as a Silver's current rows, and the
+    // facilities are national: no Silver is a row set of it.
+    fn row_sets(&self) -> Vec<RowSet> {
+        Vec::new()
+    }
+
+    fn carries_place_id(&self) -> bool {
+        true
+    }
+
+    // Small and national: the facilities (thousands of points a kind), the highway list (one row a
+    // 시군구) and the stores' ring counts (at most 19 rows a store cell). The base side of a partial
+    // run reads only the stores, to find the cells whose count moved.
+    fn prepare(
+        &self,
+        connection: &Connection,
+        source: &Source<'_>,
+        suffix: &str,
+    ) -> anyhow::Result<BTreeMap<String, u64>> {
+        let mut read_millis = BTreeMap::new();
+        if suffix.is_empty() {
+            define_spheroid(connection)?;
+            read_millis.extend(read_facilities(connection, source)?);
+        }
+        read_millis.insert(
+            STORE_SOURCE.to_owned(),
+            read_stores(connection, source, suffix)?,
+        );
+        if !suffix.is_empty() {
+            moved_store_cells(connection, suffix)?;
+        }
+        Ok(read_millis)
+    }
+
+    // The served parcels at their centroids, once, split by the shared spool; then the 대학 at
+    // theirs.
+    fn spool_more(
+        &self,
+        connection: &Connection,
+        source: &Source<'_>,
+        edition: &str,
+        suffix: &str,
+        dir_text: &str,
+    ) -> anyhow::Result<BTreeMap<String, u64>> {
+        ensure!(
+            is_plain(edition),
+            "the edition {edition:?} is not a plain snapshot id"
+        );
+        let predicate = contract(PARCEL_SOURCE)?
+            .current_row_predicate
+            .context("silver.parcel_boundaries names its current rows by a predicate")?;
+        let at = Instant::now();
+        let name = format!("{PARCELS}{suffix}");
+        spool_by_sido(
+            connection,
+            &fill(
+                PARCEL_POINTS_SQL,
+                &[
+                    ("parcels", &source.of(PARCEL_SOURCE)?),
+                    ("edition", edition),
+                    ("predicate", predicate),
+                ],
+            ),
+            dir_text,
+            &name,
+        )?;
+        let read = elapsed(at);
+        let every =
+            format!("read_parquet('{dir_text}/{name}/*/*.parquet', hive_partitioning = false)");
+        let (rows, keys): (i64, i64) = connection.query_row(
+            &format!("SELECT count(*), count(DISTINCT pnu) FROM {every}"),
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        ensure!(
+            rows > 0,
+            "edition {edition} holds no served parcel with a boundary"
+        );
+        ensure!(
+            rows == keys,
+            "edition {edition} holds {} parcels more than once",
+            rows - keys
+        );
+        if suffix.is_empty() {
+            place_universities(connection, dir_text)?;
+        }
+        Ok(BTreeMap::from([(PARCEL_SOURCE.to_owned(), read)]))
+    }
+
+    fn load_more(
+        &self,
+        connection: &Connection,
+        read: &dyn Fn(&str) -> Option<String>,
+        suffix: &str,
+    ) -> anyhow::Result<u64> {
+        let name = format!("{PARCELS}{suffix}");
+        let body = read(&name).map_or_else(
+            || {
+                "SELECT CAST(NULL AS VARCHAR) AS pnu, CAST(NULL AS DOUBLE) AS lon, \
+                 CAST(NULL AS DOUBLE) AS lat WHERE FALSE"
+                    .to_owned()
+            },
+            |held| format!("SELECT pnu, lon, lat FROM {held}"),
+        );
+        connection.execute_batch(&format!("CREATE OR REPLACE TABLE {name} AS {body};"))?;
+        count(connection, &format!("SELECT count(*) FROM {name}"))
+    }
+
+    fn pnu_spools(&self) -> Vec<&'static str> {
+        vec![PARCELS]
+    }
+
+    // The parcels and the place ids are compared by the shared rule; a store's move reaches the
+    // parcels near the cells whose count it moved.
+    fn changed_keys_sql(&self) -> Option<String> {
+        Some(fill(
+            NEAR_MOVED_STORES_SQL,
+            &[("fine", &FINE_DEGREES.to_string())],
+        ))
+    }
+
+    fn change_explanation(&self) -> Option<ChangeExplanation> {
+        Some(ChangeExplanation {
+            moved: vec![STORE_SOURCE],
+            setup_sql: STORE_ONLY_SETUP_SQL.to_owned(),
+            gather_sql: fill(STORE_ONLY_GATHER_SQL, &[("field", STORE_COUNT_FIELD)]),
+            explain: store_only,
+        })
+    }
+
+    fn create_built(&self, connection: &Connection) -> anyhow::Result<()> {
+        connection.execute_batch(BUILT_TABLE)?;
+        Ok(())
+    }
+
+    fn build(
+        &self,
+        connection: &Connection,
+        all: bool,
+        source_snapshot_id: &str,
+        published_at_utc: &str,
+    ) -> anyhow::Result<()> {
+        build(connection, all, source_snapshot_id, published_at_utc).map(|_| ())
+    }
 }
 
 #[cfg(test)]

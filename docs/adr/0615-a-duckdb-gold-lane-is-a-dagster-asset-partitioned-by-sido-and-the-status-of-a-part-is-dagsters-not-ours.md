@@ -3,7 +3,8 @@
 - Status: Accepted
   - 정해진 것: 결정 1(파티션은 시도), 2-3~2-8(짓기·커밋·표가 참 — 발행기의 코드가 이 PR 에 있다), 4, 7(드라이버의 API).
   - 방향만 정해졌고 도는 데몬에서 확인한 뒤에 짜는 것: 결정 2-1·2-2(입력 관찰과 `eager`), 결정 6 의 PR 3 부터. "확인하지 못한 것"이 그 목록이다.
-    (저장소의 가드는 코드가 인용하는 ADR 이 Proposed 인 것을 거부한다. 그래서 정해진 것과 아닌 것을 여기서 가른다.)
+    (이 문서는 Proposed 로 올릴 수 없다: 결정 2-4 의 코드가 #1692 로 main 에 있고 이 ADR 을 인용하며, 저장소의 가드
+    `proposed-adr-cited-by-code` 는 코드가 인용하는 Proposed ADR 을 거부한다. 그래서 정해진 것과 아닌 것을 여기서 가른다.)
 - Date: 2026-11-24
 - 고치는 곳: [ADR-0564](./0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md)
   결정 3(전국 한 커밋)과 넷째 개정(이어 짓기), ADR-0333 §1(시도 파티션은 "레인이 Dagster 로 옮기면")의 실행.
@@ -45,7 +46,7 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
   <https://dagster.io/docs/examples/best-practices/partition-backfill-strategies>
 - 선언적 자동화: `AutomationCondition.eager()` 는 static·dynamic 파티션에서 모든 파티션을 본다. 상류가 **관찰**되면 데이터 버전이 바뀐 때만
   갱신으로 치고, **materialize** 되면 버전과 상관없이 갱신으로 친다. <https://dagster.io/docs/guides/automate/declarative-automation>
-- 동시 실행: 풀과 태그 한도는 run 에 건다. 파티션 하나가 run 하나면 지금의 `duckdb` 풀(ADR-0605)이 곧 파티션 한도다.
+- 동시 실행: 풀과 태그 한도는 run 에 건다(파티션 하나가 run 하나면 run 의 한도가 곧 파티션의 한도다). 무엇에 풀을 두는가는 ADR-0616 §5 다.
 
 **스파이크 둘(2026-11-24, 노트북의 임시 venv, `dagster==1.13.27`, `DagsterInstance.ephemeral()`; 운영에 닿지 않음).**
 
@@ -87,6 +88,9 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
 | `silver.unit_official_price` | `sido` | 없음 | **그렇다** |
 | `reference.legal_dong_code_change` | 없음 | 없음 | 아니다(전국 표, 작다) |
 
+**시도의 수**(ADR-0618 과 같은 문장): 살아 있는 시도 코드는 16 개다(11, 12, 26, 27, 28, 30, 31, 36, 41, 43, 44, 47, 48, 50, 51, 52). 없어진 코드는 넷이다(42→51, 45→52, 29·46→12; ADR-0095·0103). 2026-11-25 에 운영에서 센 것: 서빙 필지(`gold.parcel_boundary_served`)에는 그 16 개가 있고 29·46 은 없다. `silver.land_ownership` 에는 17 개가 있다 — 12 가 없고 옛 코드 29(2,679,133 행)·46(15,308,318 행)이 그대로다. 그 표가 법정동 코드 변경을 아직 따라가지 않았다는 뜻인지(사장의 규칙 2026-10-31: 모든 데이터가 코드 변경을 따른다), 읽는 쪽이 `views.changed_codes` 로 따라가는 설계인지는 이 문서가 정하지 않는다: 그 레인의 주인이 답할 열린 항목이다. 파티션 키의 수는 표마다 그 표가 가진 코드의 수이고, 이 결정들은 그 수에 기대지 않는다.
+토지소유의 Gold 는 서빙 필지의 코드로 쓴다: 종류 단계가 입력의 행을 읽을 때 변경표로 서빙하는 코드에 다시 놓고(`kind_versions_stage` 의 renumbering) 서빙 필지에 없는 PNU 의 문서는 짓지 않는다. 그래서 그 레인의 파티션은 입력의 17 개가 아니라 서빙 필지의 16 개다(입력의 29·46 행은 12 의 파티션에 든다).
+
 그러니 지금은 입력이 조금만 움직여도 17 시도의 버전이 모두 움직이고, 시도마다 읽으면 표를 17 번 훑는다(W95b 가 잰 것: 2,155 키를 짓는 데 308 초,
 17 시도를 모두 읽어서). "바뀐 시도만"이 얼마나 듣는가는 이 배치가 정한다.
 
@@ -126,8 +130,12 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
    버전은 옛 표가 다시 지어질 때만 움직인다), `pins_from` 이 있는 종류는 그 표의 핀이다. 시각에 달린 종류(공매: `as_of_dependent`)는 관찰의
    시각 칸(레인의 cron 한 칸)이 버전에 들어 매 칸 모든 파티션이 요청된다 — 지금 "매 실행 전량"과 같다. 시도로 놓이지 않은 입력의 핀은 표의
    스냅숏이라 17 시도의 버전이 같이 움직인다(지금의 `whole_table_inputs` 를 데이터로 말한 것).
-2. **Dagster 가 정한다.** 판 표는 `@asset(partitions_def=sido, automation_condition=AutomationCondition.eager(), deps=[입력 관찰])` 이다.
-   스파이크 (b)-A 대로 버전이 바뀐 시도만 요청된다. 우리 센서는 없다. 관찰을 언제 돌리는가는 ADR-0616 의 것이다(레인의 cron).
+2. **Dagster 가 정한다.** 판 표는 `@asset(partitions_def=sido, deps=[입력 관찰], output_required=False)` 이고 조건은 ADR-0616 의 것이다:
+   `eager() | (execution_failed() & 레인의 cron 칸이 지났다)`. `eager` 는 버전이 바뀐 시도만 요청하고(스파이크 (b)-A), 실패한 채 남은 시도는
+   둘째 항이 다음 cron 칸에 다시 요청한다(`eager` 혼자서는 버전이 움직일 때까지 그대로 둔다 — 스파이크 (c)). 우리 센서는 없다.
+   **레인을 켤 때의 첫 짓기는 그 PR 이 거는 백필 한 번이다**(모든 파티션, `single_run` 이라 run 하나). 조건에 `missing` 항을 두지 않는다:
+   자동화가 처음 평가되기 전에 관찰된 입력은 첫 칸이 요청하지 않고(스파이크 (c)), `missing` 은 새 시도 코드가 더해질 때마다 묻지 않은 run 을
+   연다 — 새 시도는 입력의 버전이 움직이므로 `eager` 가 이미 요청한다.
 3. **짓기.** 자산의 몸은 받은 키·구간으로 일을 시작한다(결정 5). 드라이버는 시도마다: 시군구씩 짓고, **파티션 안에서는 지금처럼 바뀐 PNU 만**
    짓고(`changed_pnus`: 그 시도의 옛 핀과 새 핀 — ADR-0564 결정 3-2 의 부분 처리는 파티션 안에 그대로 남는다), 머리와 diff 하고, 그 시도의
    Iceberg 추가 커밋 하나를 하고, `report_asset_materialization(partition, data_version)` 과 그 시도의 검사를 알린다. 바뀐 키가 0 인 시도는 materialization 을 알리지
@@ -175,7 +183,7 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
 |---|---|
 | `gold_versions_resume.rs` 전부(지문 디렉터리, 묶음 파일, 25 분 멈춤, `partial`), `FOUNDATION_PLATFORM_GOLD_VERSIONS_RESUME_DIR` | 시도마다의 커밋 + Dagster 의 파티션 상태·run 재시도(결정 2-5·2-6) |
 | "무엇을 지을지" 정하는 `for sido` 루프(공통 드라이버, 그 뒤 자체 드라이버 주변·호 공시가격·서빙 경계) | run 의 파티션 키·구간 |
-| op 안의 재시도 세기(`run_jobs.py`) — 파티션 자산에서 | `run_retries` |
+| op 안의 재시도 세기(`run_jobs.py`) — 파티션 자산에서 | ADR-0616 §4 의 재시도 표(죽은 run 은 run 재시도, 일의 실패는 `RetryPolicy`, 남은 실패는 조건의 둘째 항) |
 | `takeover-verdict.json`(`completed`, `last_judged`) | 검사 이력의 `candidate_snapshot`(결정 2-8) |
 | 지역마다의 결과 줄, `partial` 결과 | 파티션의 materialization·실패 사건 |
 
@@ -188,7 +196,7 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
 | 버전을 셈하는 것(지금은 짓기 안에서; 뒤에는 `plan-gold-versions`) | Dagster 는 Iceberg 의 핀을 모른다 | 버전의 재료(핀·코드 버전·판본)는 발행기만 안다. 돌려주는 모양은 기본(`DataVersionsByPartition`)이다 |
 | 시도마다의 커밋, 머리의 상태 표, "표가 참" | Pipes 가 실패한 run 의 사건을 적어 주는 것 | 기본 클라이언트가 실패하면 결과를 버린다(결정 2-5). 표의 상태는 Iceberg 의 것이다 |
 | `build_in_parts`, `changed_pnus` | — | 한 프로세스 안의 메모리와 키 고르기다. 상태가 없다 |
-| 판정을 시킬지 정하는 한 줄(검사 이력 읽기) | 자산 검사의 자동 재실행 | 판정은 유닛의 열쇠로 유닛 안에서 돈다 |
+| 판정을 시킬지 정하는 한 줄(검사 이력 읽기) | 자산 검사의 자동 재실행 | 판정은 레이크하우스 열쇠를 가진 일 안에서 돈다(데몬에는 열쇠가 없다) |
 | 일을 시작하는 층 | — (ADR-0616 이 정한다) | 아래 |
 
 **일을 시작하는 층에 기대는 것**(ADR-0616). 셋이다.
@@ -200,9 +208,9 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
 기대지 **않는** 것: 실패한 run 의 사건이 남는 것(결정 2-5: 기본 Pipes 클라이언트는 일이 끝난 뒤에만 결과를 돌려준다 — 표가 참이다).
 ai-server 의 지금 층(`run_jobs.py`·`systemd_pipes.py`·`start-scheduled-job.sh`)은 AWS 가 대신하므로 이 설계를 위해 고치지 않는다.
 
-**어디에 선언하나.** 작업 정의에 `partitioned_by: sido` 가 있으면 생성기가 그 작업의 출력을 `partitioned_assets.py` 의 `@asset` 과 입력 관찰로
-만든다. 그 노드는 `observe_assets` 의 `AssetSpec` 에서, 그 작업은 `run_jobs` 의 job 과 `decide` 의 센서에서 빠진다: 시작시키는 것은 `eager` 하나다.
-`job_specs`·선언 생성물·파이프라인 지도·메모리 가드는 같은 정의에서 읽으므로 새 칸 하나를 안다. 자산의 몸이 일을 어떻게 시작하는가는 ADR-0616 의 것이다.
+**어디에 선언하나.** 작업 정의에 `partitioned_by: sido` 가 있으면 생성기가 그 작업의 출력을 파티션 자산과 입력 관찰로 만든다. 그 노드는
+다른 길(지금의 job·센서)로는 시작되지 않는다: 시작시키는 것은 위의 조건 하나다. 자산의 몸이 일을 어떻게 시작하고 크기를 어떻게 정하는가는
+ADR-0616 의 것이다(크기 등급은 자동화가 run 에 다는 태그로 간다, §2-9).
 
 ### 6. 첫 레인, PR 의 차례, 확인
 
@@ -211,18 +219,17 @@ ai-server 의 지금 층(`run_jobs.py`·`systemd_pipes.py`·`start-scheduled-job
 
 | PR | 무엇 | 무엇을 증명하나 | 되돌리기 |
 |---|---|---|---|
-| 1 (이 PR) | 발행기: 시도마다의 커밋, 머리의 상태 표(`foundation.partition-state`), 표의 번호·합, 신원에 시도와 버전, "표가 참". 레인마다 켠다(`KindBuild.per_sido_commits`), 토지소유만 켠다 | 발행기 시험(상태 표·버전). 운영: 토지소유의 첫 빌드가 시도마다 커밋되고, 죽은 run 뒤의 run 이 남은 시도만 짓는다 | 표에 시도 커밋이 생긴 뒤 PR 을 되돌려도 표는 그대로 읽힌다(상태 표는 더한 속성이다) |
+| 1 (이 PR) | 발행기: 시도마다의 커밋, 머리의 상태 표(`foundation.partition-state`), 표의 번호·합, 신원에 시도와 버전, "표가 참". 레인마다 켠다(`KindBuild.per_sido_commits`), 토지소유만 켠다 | 발행기 시험(상태 표·버전·받은 키). 시도마다 붙이는 길은 레이크하우스가 있어야 돈다: 발행기가 도는 곳(AWS 의 첫 run)에서 토지소유가 시도마다 커밋되고, 죽은 run 뒤의 run 이 남은 시도만 짓는 것을 본다 | 표에 시도 커밋이 생긴 뒤 PR 을 되돌려도 표는 그대로 읽힌다(상태 표는 더한 속성이다) |
 | 2 (ADR-0616) | AWS 의 시작 층: 파티션 키가 일에 닿고 Pipes 줄이 파티션·데이터 버전을 지닌다 | 그 ADR 의 것 | — |
-| 3 | 발행기가 시도마다의 Pipes 줄을 낸다. 정의의 `partitioned_by`, 생성기, 가드, `partitioned_assets.py`(입력 관찰 + `eager`, `single_run`) | 임시 인스턴스의 시험: 한 시도를 실패시킨 대역 일에서 그 파티션만 FAILED 이고 다시 한 run 이 그것만 짓는다. 아래 "확인하지 못한 것" 셋을 **도는 데몬에서 정한 뒤에** 쓴다 | PR 되돌리기 |
+| 3 | 발행기가 시도마다의 Pipes 줄을 낸다. 정의의 `partitioned_by`, 생성기, 가드, `partitioned_assets.py`(입력 관찰 + `eager`, `single_run`) | 임시 인스턴스의 시험: 한 시도를 실패시킨 대역 일에서 그 파티션만 FAILED 이고 다시 한 run 이 그것만 짓는다. 아래 "확인하지 못한 것"의 Dagster 쪽 항목을 **도는 데몬에서 정한 뒤에** 쓴다 | PR 되돌리기 |
 | 4 | 나머지 종류 레인을 켠다(그림자 → 넘겨받은 셋). 굽기가 판본·코드가 한결같은 머리만 핀한다(결정 2-7)가 넘겨받은 레인의 조건이다 | 레인마다의 운영 확인 | 레인의 한 칸 |
 | 5 | `gold_versions_resume.rs` 와 표의 나머지를 지운다 | 지운 뒤 모든 레인의 시험 | PR 되돌리기 |
 
 운영 확인(Dagster 의 기록으로, 우리 탐침 없음).
 
 1. 17 파티션이 materialized 이고 저마다 데이터 버전을 가진다.
-2. run 의 유닛 메모리 최고가 선언한 `memory_max` 아래다.
-3. 실패 격리: 한 파티션의 run 을 작은 메모리 한도로 시작한다(ADR-0616 의 태스크 크기 덮어쓰기). 그 파티션만 FAILED 이고 다시 한 run 이
-   그것만 짓는다.
+2. 파티션 run 의 메모리 최고가 그 run 의 크기 등급 아래다(ADR-0616 §2-9).
+3. 실패 격리: 한 파티션의 run 을 가장 작은 크기 등급으로 시작한다(운영자의 run 태그). 그 파티션만 FAILED 이고 다시 한 run 이 그것만 짓는다.
 4. 입력이 그대로일 때 관찰을 두 번 돌리면 요청 0.
 5. `takeover_equal`(시도 41)이 통과하고, 전국의 행 수·키 해시 합·내용 해시 합이 Spark 표와 같다.
 
@@ -253,7 +260,26 @@ Dagster 의 키), **파트 = 시군구**(한 번에 메모리에 드는 양; 밖
 | 바뀐 키의 다른 규칙 | `fn changed_keys_sql(&self) -> Option<String>` | `None`(위 3 의 기본 규칙) | 부속지번·인허가가 필요하면 |
 | 결과 검사 | `fn result_checks(&self) -> Vec<ResultCheck>` — `ResultCheck { name, sql, blocking }`; SQL 은 그 시도의 `built`·`appended`·`current_rows` 위에서 어긴 행 수를 낸다 | 빈 목록 | 레인의 도메인 거부 |
 | 시도 통째로 짓기 | `fn whole_region_reason(&self) -> Option<&'static str>`(#1676) | `None` | 지금 없음 |
+| 다른 Gold 의 빌드에 핀한 입력 | 단계가 아니라 재빌드 계약의 `tables.<옛 표>.pins_from`. 그림자가 아닐 때 드라이버가 읽어 그 입력을 호스트 Gold 의 빌드 태그 커밋이 읽은 스냅숏에 핀한다 | 계약에 없으면 머리 | 호 공시가격: 표제부·전유부를 건물 Gold 의 빌드에(루트 ADR-0190) |
+| 한 묶음으로 읽는 입력 | `fn batch_input(&self) -> Option<BatchInput>` — `BatchInput { input, property, choose }`. 드라이버가 세션을 열기 **전에** 그 입력의 적재 원장을 읽고(세션은 카탈로그를 기다릴 수 없다), 세션이 열리면 `choose` 가 핀에서 묶음을 골라 `input_batch(id)` 로 남긴다. 커밋은 묶음을 `property` 에 적고, 기준 커밋과 다른 묶음은 코드 버전처럼 크기와 상관없이 바뀜을 설명한다(루트 ADR-0346). 행의 `source_snapshot_id` 는 그 입력의 핀이다 | `None` | 호 공시가격: 가장 새 vintage 의 묶음, 동률은 표가 붙인 순서(루트 ADR-0182) |
+| 빌드 전체의 검사 | `fn national_checks(&self) -> Vec<NationalCheck>` — `NationalCheck { name, blocking, setup_sql, gather_sql, count_sql, bound, why }`. 시도마다 diff 뒤에 `gather_sql` 을 돌리고, 마지막 시도 뒤·붙이기 **전에** `count_sql` 의 `(breaches, of)` 를 재빌드 계약의 `bound` 몫과 견준다. `blocking` 이 넘으면 아무것도 붙지 않는다 | 빈 목록 | 호 공시가격: 줄어든 가격 이력(`max_price_history_shrink_fraction`, 시도를 옮긴 호는 전국에서 새 행을 만난다), 읽기가 버린 행(알리기만) |
+| 바뀜의 설명 | `fn change_explanation(&self) -> Option<ChangeExplanation>` — `ChangeExplanation { moved, setup_sql, gather_sql, explain }`. 기준이 있고 코드·판본이 그대로이며 **정확히 `moved` 만** 움직인 run 에서만 모으고(시도마다 diff 뒤 `gather_sql`), 붙이기 전에 `explain` 이 까닭을 낸다. 까닭은 코드 버전의 움직임처럼 커밋에 적히고 크기와 상관없이 바뀜을 통과시킨다(루트 ADR-0346). 한계 아래에서도 적는다: 굽기가 밀린 동안 여러 커밋이 설명 없이 한계를 넘게 쌓이지 않도록 | `None` | 주변: 상가만 움직였고 바뀐 행이 상가 수만 다르며 모두 상가 수가 바뀐 H3 칸에 있다(루트 ADR-0596 의 store-only) |
+| 단계 스풀의 판본 | `spool_more` 가 서빙 판본(`edition`)도 받는다 | — | 주변: 필지를 그 판본의 경계 중심점으로 스풀한다 |
 | 지워지는 것 | `changed_pnus`, 단계마다의 `_old` 싣기 | — | — |
+
+빌드 전체의 검사, 한 묶음 읽기와 바뀜의 설명은 **통째로 커밋하는 표에만** 선다: 시도마다 커밋하는 표는 마지막 시도를 짓기 전에 첫 시도를 붙였다.
+드라이버가 run 머리에서 함께 선언된 레인을 거부하고, 시험이 레인 목록 전부를 본다. 그림자의 옛 빌드가 읽지 않은 입력(호 공시가격의 Spark 빌드는 공통
+재배치가 읽는 서빙 필지와 코드 변경 표를 읽지 않았다)은 모든 레인에서 머리로 읽는다(`planned_inputs`): 견줄 핀이 없고, 전에는 핀이 없다는 오류였다.
+이 선언들로 호 공시가격과 주변의 자체 드라이버(`unit_price_versions_build.rs`, `parcel_nearby_versions_build.rs`)는 지워지고, 레인은 단계 하나와
+`KindBuild` 한 줄이다. 남은 공통 도우미(계약·한계·서빙 판본·레이크하우스 읽기·요약)는 `gold_versions_support.rs` 하나다.
+
+**주변이 공통 드라이버에서 짓는 법.** 문서 하나는 제 필지의 중심점과 전국의 시설만 읽으므로 시군구씩 짓는다. 시설(종류마다 수천 점)·고속도로
+목록(시군구마다 한 줄)·상가의 고리 수(상가 칸마다 많아야 19 줄)는 작아서 한 번 전국으로 준비한다(`prepare`). 칸의 고리 수는 "필지 칸의 고리 안 상가"와
+같다: 격자 거리는 대칭이라 상가가 필지 칸의 고리 안에 있는 것은 필지 칸이 상가 칸의 고리 안에 있는 것과 같다. 필지의 H3 칸은 h3o 로 파트마다 센다
+(DuckDB 의 커뮤니티 h3 확장은 발행물이 거부한다). 부분 run 의 대상은 공통 비교(중심점·장소 ID 가 바뀐 필지)와 고리 수가 바뀐 칸을 덮는 0.005° 격자의
+필지(`changed_keys_sql`, 칸 경계에 한 칸 여유; 아무 일 없는 필지는 제 문서를 다시 짓고 아무것도 붙이지 않는다)다. 대가: 부분 run 의 기준 쪽은 공통
+경로대로 전부 다시 읽는다(서빙 필지의 경계를 포함). 단계 스풀도 움직인 입력만 다시 읽게 하는 것(행 묶음에 한 W95b 의 좁은 길을 단계 스풀로)은
+이 ADR 의 다음 일이다.
 
 단계는 다른 파트가 읽는 행을 **읽는 파트마다 한 번씩** 스풀한다(`spool_more`): `part` 칸에 그 파트를 적고 그 파트의 시도 아래에 둔다. 드라이버는
 `part` 칸이 있는 표를 그 칸으로, 나머지를 PNU 앞 5자로 갈라 한 파트씩 보이고, 짓는 동안 `build_part(part)` 로 그 파트를 알린다. 단계는 **PNU 가
@@ -264,6 +290,11 @@ Dagster 의 키), **파트 = 시군구**(한 번에 메모리에 드는 양; 밖
 **모든 레인이 받는 검사**(드라이버가 돌리고 알린다; 단계가 쓰지 않는다): 시도의 행 수와 키 수, 키마다 현재 행 하나(지금의 거부), 바뀐 문서가 스키마
 레지스트리의 그 revision 을 지킴, ADR-0564 결정 3-4 의 두 한계. `blocking` 검사가 어기면 그 시도는 붙지 않는다. 검사는 커밋 **앞**에 돌고 Pipes 의
 `report_asset_check`(파티션 = 시도)로 알린다. Spark 모듈·Trino 로 돌던 검사는 넘겨받기와 함께 사라지고 이것이 남는다.
+
+**임시 공간의 상한은 레인마다 잰 값이다.** 지금은 모든 DuckDB 단계가 레인의 크기와 상관없이 32 GiB 를 선언한다(`max_temp_directory_size` 의 기본). 2026-11-24 에
+ai-server 에서 토지소유와 발행 ID 의 그림자가 이 선언 때문에 시작도 못 했다(선언 32 GiB + 호스트 예약 30 GiB = 66.6 GB 가 필요했고 디스크에는
+56~65 GB 가 비어 있었다). 드라이버는 요약에 스풀과 임시 공간의 최고값(`stage_bytes_peak`)을 적고, 레인의 선언은 그 잰 값에서 온다.
+AWS 의 태스크 디스크도 그 값으로 잡는다(ADR-0616). 이 PR 들은 아직 그렇게 하지 않는다: 종류 레인의 요약에는 그 칸이 없다.
 
 **Pipes 줄.** 발행기가 문서로 정해진 Pipes 메시지를 표준 출력에 한 줄씩 쓴다(작은 공통 모듈 하나: `report_asset_materialization`,
 `report_asset_check`, 파티션과 데이터 버전을 실어). Dagster 의 Rust Pipes 구현을 쓰지 않는 까닭: 공식 클라이언트는 Python 뿐이다(확인할 것 — 있다면 그것을
@@ -277,11 +308,15 @@ Dagster 의 키), **파트 = 시군구**(한 번에 메모리에 드는 양; 밖
 | 2 | 읽기 2 와 바뀐 키 3(움직인 입력만의 기준 스풀, 스풀에서 한 번 찾는 대상, `changed_pnus` 지우기), 부속지번·인허가 단계 | W95b |
 | 3 | `spool_more`·`load_more`·`part_tables`·`changed_keys_sql` 로 실거래 단계를 옮기고 자체 스풀·묶음·이어 짓기를 지운다 | W81f |
 | 4 | 공통 검사의 내용(스키마 revision, 행·키)과 레인의 `result_checks` | W96b |
+| 5 | 호 공시가격을 공통 드라이버로: 위 표의 셋(`pins_from`·`batch_input`·`national_checks`)과 자체 드라이버 지우기 | W97b |
+| 6 | 주변을 공통 드라이버로: `change_explanation`, `spool_more` 의 판본, 상가 고리 수의 표, 자체 드라이버 지우기 | W97b |
 
 ## Consequences
 
 - 전량 짓기 한 번이 커밋 17 개다. 상태 표가 머리에 있어 만료가 어느 시도의 기준도 지우지 않는다.
-- 성공한 구간 run 은 시도마다 사건이 둘이다(일이 알린 것, run 끝의 것; 스파이크 (a) 에서 봄). 고치지 않는다.
+- 구간 run 의 끝에는 사건이 없다. 자산은 `output_required=False` 이고 Output 을 내지 않는다: 스파이크 (d)(2026-11-25, 임시 인스턴스)에서 그런 run 은
+  성공으로 끝나고 일이 알린 시도만 MATERIALIZED 였다(시도마다 사건 하나, 알리지 않은 시도는 그대로). Output 을 내면 구간의 모든 시도가
+  materialized 가 되어(스파이크 (a)) "바뀐 것 없음"을 materialization 없이 알릴 수 없고, 값을 돌려주면 기본 IO 관리자가 구간 run 을 거부한다.
 - 결정 3 의 ADR 전에는 입력이 움직이면 17 파티션이 모두 돈다(파티션 안에서는 바뀐 PNU 만). 짓는 양은 지금과 같다.
 - 한 표의 시도들이 서로 다른 입력 핀에 설 수 있다. 문서는 제 PNU 의 행만 읽으므로(#1676 에서 종류 단계 여덟을 확인) 맞는 표이고, 굽기와 판정은
   고른 머리만 본다(결정 2-7·2-8).
@@ -291,7 +326,15 @@ Dagster 의 키), **파트 = 시군구**(한 번에 메모리에 드는 양; 밖
 - Dagster 쪽 코드가 없다. 스파이크는 프로세스 안의 임시 인스턴스였다: 데몬이 도는 운영 Dagster 에서 같은지는 PR 3 전에 본다.
 - PR 1 의 발행기 코드는 노트북에서 컴파일하지 못했다(여유 메모리 2 GB): CI 가 판정한다. 상태 표와 버전은 단위 시험이 있고, 시도마다 붙이는
   길 자체는 레이크하우스가 있어야 돌아 운영의 토지소유 첫 빌드가 처음 쓴다.
-- `eager` 가 FAILED 파티션을 다시 요청하는지, `run_retries` 가 구간 run 에 어떻게 드는지 읽지도 돌리지도 않았다(PR 3 전에 도는 데몬에서 정한다).
+- **`eager` 는 FAILED 파티션을 다시 요청하지 않는다**(스파이크 (c), 2026-11-24, 프로세스 안의 임시 인스턴스, `dagster==1.13.27`): 구간 `11..48` 의 run 이 `28` 에서
+  죽은 뒤(`11·26·27` MATERIALIZED, `28·41·47·48` FAILED) 다음 칸도, 같은 버전을 다시 관찰한 뒤의 칸도 요청이 없었다. `28` 의 버전이 바뀌어야 `[28]` 이
+  요청됐다. 그래서 실패한 파티션은 재시도(ADR-0616 의 표)나 조건의 한 가지(`execution_failed()` 를 레인의 cron 칸에 묶는 것 — 기본 연산자다)가
+  다시 요청해야 한다. 어느 쪽인지는 PR 3 이 정한다.
+- **처음 짓기는 `eager` 가 요청하지 않을 수 있다**(같은 스파이크): 자동화가 처음 평가되기 전에 관찰된 입력은 "새로 움직인 것"이 아니라서 첫 칸이 아무것도
+  요청하지 않았다. 레인을 켤 때의 첫 짓기는 백필 한 번이거나 조건에 `missing` 을 더한다(PR 3).
+- run 재시도가 구간 run 에 어떻게 드는지는 데몬이 있어야 보인다: 아직 읽지도 돌리지도 않았다(PR 3 전에 도는 데몬에서 정한다).
+- 구간 run 안에서 일이 시도마다 낸 Pipes 줄(`report_asset_materialization` 에 파티션)이 그 파티션의 사건이 되는지: 스파이크는 자산의 몸이 직접 적었지
+  Pipes 를 거치지 않았다(ADR-0616 의 클라이언트로 PR 3 전에 본다).
 - `single_run` 과 `eager` 가 같이 있을 때 요청이 구간 run 으로 나가는지는 소스(`_build_run_requests_with_backfill_policy`)로만 보았다.
 - 실거래, Silver, 입력을 시도로 놓는 것은 이 ADR 밖이다.
 

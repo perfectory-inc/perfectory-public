@@ -115,6 +115,7 @@ mod gold_documents_check;
 mod gold_takeover_sides;
 mod gold_versions_change_set;
 mod gold_versions_commit;
+mod gold_versions_support;
 mod industrial_complex_notice_silver_load;
 mod industrial_complex_silver_load;
 mod industrial_land_sale_notice_silver_load;
@@ -126,7 +127,6 @@ mod map_edit_handoff_export;
 mod parcel_boundary_served_build;
 mod parcel_lineage_derive;
 mod parcel_matching_gate;
-mod parcel_nearby_versions_build;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;
@@ -183,7 +183,6 @@ mod real_estate_broker_lookup_load;
 mod registered_factory_silver_load;
 mod unit_official_price_projection_load;
 mod unit_official_price_versions_build;
-mod unit_price_versions_build;
 use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
 use foundation_publisher_collection::vworld_dataset_collection_plan;
 use foundation_publisher_collection::vworld_dataset_file_ingest;
@@ -715,7 +714,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelBoundaryServedVersions => {
             Box::pin(parcel_boundary_served_build::run_shadow())
         }
-        Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
+        Command::BuildParcelNearbyVersions => Box::pin(kind_versions_build::run(
+            &kind_versions_build::NEARBY_BUILD,
+        )),
         Command::BuildParcelRealTransactionVersions => Box::pin(kind_versions_build::run(
             &kind_versions_build::REAL_TRANSACTION_BUILD,
         )),
@@ -751,7 +752,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelPublicAuctionVersions => Box::pin(kind_versions_build::run(
             &kind_versions_build::PUBLIC_AUCTION_BUILD,
         )),
-        Command::BuildUnitPriceVersions => Box::pin(unit_price_versions_build::run()),
+        Command::BuildUnitPriceVersions => Box::pin(kind_versions_build::run(
+            &kind_versions_build::UNIT_PRICE_BUILD,
+        )),
         Command::BuildUnitOfficialPriceVersions => {
             Box::pin(unit_official_price_versions_build::run())
         }

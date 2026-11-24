@@ -51,7 +51,7 @@ use crate::{
         FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY,
         VERSION_SEQ_PROPERTY,
     },
-    parcel_nearby_versions_build::{contract, lakehouse_read, write_summary, MEMORY_SHARE},
+    gold_versions_support::{contract, lakehouse_read, write_summary, MEMORY_SHARE},
     public_data_control_support::required_env_value,
 };
 

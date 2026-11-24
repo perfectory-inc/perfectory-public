@@ -17,14 +17,13 @@ use std::time::Instant;
 use anyhow::{bail, ensure, Context};
 use duckdb::Connection;
 use lakehouse_domain::LakehouseRowVersions;
+use lakehouse_infrastructure::IngestCommitLog;
 
 use crate::duckdb_parquet_stage::with_contract_columns;
 use crate::legal_dong_code_change_stage::{PAIR_ROWS_SQL, RENUMBERED_INTO_SQL};
 use crate::parcel_nearby_stage::Source;
 use crate::place_id_join::{place_ids_sql, BRIDGE_SOURCE};
 
-#[cfg(test)]
-pub(crate) use crate::kind_versions_parts::build_by_prefix;
 pub use crate::kind_versions_parts::{build_in_parts, BUILD_PART, PART_DIGITS};
 
 /// The parcels; the served edition's are every kind's universe.
@@ -86,6 +85,140 @@ pub struct ResultCheck {
     /// few, so a failure names what to look at without a second query. `None` when the count says
     /// it all.
     pub samples_sql: Option<String>,
+}
+
+/// A check of the whole build, held before anything is appended (root ADR-0615 §7).
+///
+/// A rule over every 시도's result together, which no 시도's own [`ResultCheck`] can judge (a
+/// share of the nation's units; a unit that moved 시도 meets its new row in another 시도's result).
+///
+/// It belongs to a table committed whole: one that commits a 시도 at a time has appended its first
+/// 시도 before the last is built, and the driver refuses the two together. It judges the 시도 the
+/// run built: every 시도, for a lane whose every run is whole.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NationalCheck {
+    /// The check's name, as the orchestrator records it.
+    pub name: &'static str,
+    /// Whether a breach past the bound refuses the build: nothing is appended.
+    pub blocking: bool,
+    /// Statements run once, before the first 시도: the tables the check gathers into. Empty when it
+    /// reads what the stage's read left.
+    pub setup_sql: String,
+    /// Statements run after each 시도's diff, over its `built`, `appended` and `current_rows`. Empty
+    /// when nothing is gathered.
+    pub gather_sql: String,
+    /// One statement returning `(breaches, of)`: the rows that break the rule, and how many it was
+    /// judged over.
+    pub count_sql: String,
+    /// The key of the replaced table's entry in `gold-panel-rebuild.contract.json` that names the
+    /// share of `of` allowed to break; `None`: any breach is past the bound.
+    pub bound: Option<&'static str>,
+    /// Why the rule holds: what a refusal says beside the counts.
+    pub why: &'static str,
+}
+
+/// Why `breaches` of `of` refuse a build under `check`, when the share of them `bound` allows to
+/// break is passed (any breach, without a bound); `None` otherwise.
+#[must_use]
+pub fn national_verdict(
+    check: &NationalCheck,
+    breaches: u64,
+    of: u64,
+    bound: Option<f64>,
+) -> Option<String> {
+    #[allow(clippy::cast_precision_loss)]
+    let (breaches_f, of_f) = (breaches as f64, of as f64);
+    if breaches == 0 || bound.is_some_and(|share| breaches_f <= of_f * share) {
+        return None;
+    }
+    let allowed = bound.map_or_else(String::new, |share| {
+        format!(
+            "; at most {:.4}% may, gold-panel-rebuild.contract.json {}",
+            100.0 * share,
+            check.bound.unwrap_or("-")
+        )
+    });
+    Some(format!(
+        "{breaches} of {of} break {} ({:.4}%{allowed}): {}",
+        check.name,
+        100.0 * breaches_f / of_f.max(1.0),
+        check.why
+    ))
+}
+
+/// What explains a change of any size when neither the code nor the served edition moved.
+///
+/// A rule the kind's own inputs give (root ADR-0346, ADR-0596), judged over every 시도's diff
+/// before anything is appended. The commit records it, as it records a moved code version, and
+/// the bake reads it; without it a change past the bound on changed keys is refused.
+///
+/// The nearby Gold's stores: a store file's move changes the store counts near the stores that
+/// moved and nothing else. It belongs to a table committed whole, as a [`NationalCheck`] does, and is
+/// gathered and judged only on a run in which exactly `moved` moved.
+#[derive(Clone)]
+pub struct ChangeExplanation {
+    /// The inputs whose move alone it explains.
+    pub moved: Vec<&'static str>,
+    /// Statements run once, before the first 시도: the tables it gathers into.
+    pub setup_sql: String,
+    /// Statements run after each 시도's diff, over its `appended`, `current_rows` and loaded tables.
+    pub gather_sql: String,
+    /// Why the run's change is explained, or `None`, from what was gathered, the run's `(added,
+    /// changed, removed)` keys and the table's bound on lost rows.
+    pub explain: Explain,
+}
+
+/// How a [`ChangeExplanation`] judges: the connection after the last 시도, the run's `(added,
+/// changed, removed)` keys and the bound on lost rows; `Some` is why the change is explained.
+pub type Explain = fn(&Connection, (u64, u64, u64), f64) -> anyhow::Result<Option<String>>;
+
+/// An input the stage reads one batch of, rather than its current rows (root ADR-0615 §7).
+///
+/// The unit prices read the newest vintage's batch, a vintage's ties broken by the order the table
+/// appended them (root ADR-0182).
+///
+/// The driver reads the input's ingest log before the session opens (the session cannot await the
+/// catalog), has [`Self::choose`] pick the batch at the pins once it opens, and leaves the batch as
+/// [`INPUT_BATCH`] before [`spool`]. Every commit records the batch under `property`, and a batch
+/// that moved from the base commit's explains a change of any size, as a moved code version does
+/// (root ADR-0346). The rows are the batch's, so the input's pin stamps their `source_snapshot_id`.
+#[derive(Clone, Copy)]
+pub struct BatchInput {
+    /// The input.
+    pub input: &'static str,
+    /// The commit property that records the batch a commit read.
+    pub property: &'static str,
+    /// The batch to read, of those the input holds at the source, by the input's ingest log.
+    pub choose: fn(&Connection, &Source<'_>, &IngestCommitLog) -> anyhow::Result<String>,
+}
+
+/// The table (`id`) the driver leaves the batch of a [`BatchInput`] in, before [`spool`].
+pub const INPUT_BATCH: &str = "input_batch";
+
+/// Leaves `id` as [`INPUT_BATCH`].
+///
+/// # Errors
+/// Returns an error when `DuckDB` refuses the statements.
+pub fn leave_input_batch(connection: &Connection, id: &str) -> anyhow::Result<()> {
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE {INPUT_BATCH} (id VARCHAR);"
+    ))?;
+    connection.execute(&format!("INSERT INTO {INPUT_BATCH} VALUES (?)"), [id])?;
+    Ok(())
+}
+
+/// The batch [`INPUT_BATCH`] names, for the stage's [`KindVersionsStage::spool_more`].
+///
+/// # Errors
+/// Returns an error when the driver left none: the stage declares no [`BatchInput`].
+pub fn input_batch(connection: &Connection) -> anyhow::Result<String> {
+    connection
+        .query_row(&format!("SELECT id FROM {INPUT_BATCH}"), [], |row| {
+            row.get(0)
+        })
+        .with_context(|| {
+            format!("the driver left no {INPUT_BATCH}: the stage declares no batch input")
+        })
 }
 
 /// One parcel kind's Gold in `DuckDB`.
@@ -151,8 +284,8 @@ pub trait KindVersionsStage: Sync {
     /// Reads what the kind places by its own rule rather than as a row set re-keyed to the served
     /// code (an auction's rounds: located, carried by the lineage, root ADR-0287 §7), once, into
     /// spools under `dir_text` split by the served PNU's 시도 (`<name><suffix>/sido=<시도>`, a `pnu`
-    /// column each), after the served parcels (`served<suffix>`) and the row sets; returns each
-    /// input's read time by table name. Nothing by default.
+    /// column each), after the served parcels (`served<suffix>`, of `edition`) and the row sets;
+    /// returns each input's read time by table name. Nothing by default.
     ///
     /// # Errors
     /// Returns an error when an input cannot be read or `DuckDB` refuses a statement.
@@ -160,6 +293,7 @@ pub trait KindVersionsStage: Sync {
         &self,
         _connection: &Connection,
         _source: &Source<'_>,
+        _edition: &str,
         _suffix: &str,
         _dir_text: &str,
     ) -> anyhow::Result<BTreeMap<String, u64>> {
@@ -198,6 +332,20 @@ pub trait KindVersionsStage: Sync {
     /// refusals. None by default.
     fn result_checks(&self) -> Vec<ResultCheck> {
         Vec::new()
+    }
+    /// The checks of the whole build the kind holds before anything is appended: its domain's
+    /// refusals over every 시도 together, and what its read dropped. None by default.
+    fn national_checks(&self) -> Vec<NationalCheck> {
+        Vec::new()
+    }
+    /// The input the kind reads one batch of. `None` by default.
+    fn batch_input(&self) -> Option<BatchInput> {
+        None
+    }
+    /// What explains a change of the kind's documents beyond a moved code version or edition.
+    /// `None` by default.
+    fn change_explanation(&self) -> Option<ChangeExplanation> {
+        None
     }
     /// Why the kind's documents cannot be built one 시군구 at a time, when they cannot.
     ///
@@ -286,6 +434,30 @@ pub(crate) fn sql_dir(dir: &Path) -> anyhow::Result<String> {
 pub(crate) const SPOOL_SQL: &str =
     "COPY (SELECT *, substr(pnu, 1, 2) AS sido FROM (@query@)) TO '@dir@/@name@' \
     (FORMAT parquet, COMPRESSION zstd, PARTITION_BY (sido), OVERWRITE_OR_IGNORE)";
+
+/// Writes `query` (which has a `pnu` column) as the spool `name` under `dir_text`.
+///
+/// One directory per 시도 of its PNU (`SPOOL_SQL`, the one split of every spool): what a stage's
+/// [`KindVersionsStage::spool_more`] reads by its own rule. A row without a PNU is written under no
+/// 시도 (`DuckDB` 2.0 names its directory `sido=__HIVE_DEFAULT_PARTITION__`): no region load reads
+/// it, and a stage that counts or refuses such rows reads them back by `pnu IS NULL`.
+///
+/// # Errors
+/// Returns an error when `name` is not plain or `DuckDB` refuses the statement.
+pub fn spool_by_sido(
+    connection: &Connection,
+    query: &str,
+    dir_text: &str,
+    name: &str,
+) -> anyhow::Result<()> {
+    ensure!(is_plain(name), "{name:?} is not a plain spool name");
+    connection
+        .execute_batch(&fill(
+            SPOOL_SQL,
+            &[("query", query), ("dir", dir_text), ("name", name)],
+        ))
+        .with_context(|| format!("spooling {name} by the 시도 of its PNU"))
+}
 
 /// The spool query of a row set whose current rows a 시도's load chooses
 /// ([`KindVersionsStage::current_rows_per_region`]): the served PNU, the set's columns, and every
@@ -406,7 +578,7 @@ pub fn spool(
             read_millis.insert(set.source.to_owned(), elapsed(at));
         }
     }
-    read_millis.extend(stage.spool_more(connection, source, suffix, &dir_text)?);
+    read_millis.extend(stage.spool_more(connection, source, edition, suffix, &dir_text)?);
     // The place ids of the PNUs the kind's rows hold, once (`place_id_join`): the others have no
     // document to carry one.
     // A spool no row was written to has no directory, and none of its PNUs to ask about.
@@ -1128,111 +1300,6 @@ pub fn load_region(
     Ok(rows)
 }
 
-/// What a test reads back: the served parcels and the kind's rows of its one 시도.
-#[cfg(test)]
-pub(crate) struct TestRead {
-    pub served_parcels: u64,
-    pub rows: u64,
-}
-
-/// Spools the connection's local tables to a temporary directory and loads their one 시도, as the
-/// build does for each.
-#[cfg(test)]
-pub(crate) fn read_for_test(
-    stage: &dyn KindVersionsStage,
-    connection: &Connection,
-    edition: &str,
-    suffix: &str,
-) -> anyhow::Result<TestRead> {
-    let dir = test_spool_dir()?;
-    // This side's spools of an earlier read go: a spool no row is written to leaves no directory.
-    for entry in std::fs::read_dir(&dir)? {
-        let path = entry?.path();
-        let of_base = path
-            .file_name()
-            .and_then(std::ffi::OsStr::to_str)
-            .is_some_and(|name| name.ends_with(BASE_SUFFIX));
-        if of_base == (suffix == BASE_SUFFIX) {
-            std::fs::remove_dir_all(&path)?;
-        }
-    }
-    let spooled = spool(stage, connection, &Source::Local, edition, suffix, &dir)?;
-    ensure!(
-        spooled.sidos.len() == 1,
-        "a test's served parcels lie in one 시도, not {:?}",
-        spooled.sidos
-    );
-    let sido = spooled.sidos.iter().next().context("one 시도")?;
-    let rows = load_region(stage, connection, &dir, suffix, sido)?;
-    Ok(TestRead {
-        served_parcels: spooled.served_parcels,
-        rows,
-    })
-}
-
-#[cfg(test)]
-thread_local! {
-    /// The spool directory of a test's reads ([`read_for_test`]): both sides in one, as a run's.
-    static TEST_SPOOL: std::cell::RefCell<Option<tempfile::TempDir>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// The test thread's spool directory, made on first use and removed with the thread.
-#[cfg(test)]
-fn test_spool_dir() -> anyhow::Result<std::path::PathBuf> {
-    TEST_SPOOL.with(|kept| {
-        let mut kept = kept.borrow_mut();
-        if kept.is_none() {
-            *kept = Some(tempfile::tempdir()?);
-        }
-        kept.as_ref()
-            .map(|dir| dir.path().to_path_buf())
-            .context("the test's spool directory")
-    })
-}
-
-/// Leaves `targets` from the two sides [`read_for_test`] last read (`_old` and none), comparing
-/// every spool as a run whose whole base side was read does; returns the PNUs named.
-#[cfg(test)]
-pub(crate) fn changed_for_test(
-    stage: &dyn KindVersionsStage,
-    connection: &Connection,
-) -> anyhow::Result<u64> {
-    targets_from_spools(stage, connection, &test_spool_dir()?, &every_spool(stage))
-}
-
-/// Reads two states of the connection's local tables as a partial run does, and loads the new one.
-///
-/// `new` leaves the tables as they are now and `base` as the base commit read them; `moved` names
-/// the inputs that differ. Returns what the base read compared and how many PNUs `targets` names.
-#[cfg(test)]
-pub(crate) fn partial_for_test(
-    stage: &dyn KindVersionsStage,
-    connection: &Connection,
-    edition: &str,
-    moved: &[&str],
-    base: &dyn Fn() -> anyhow::Result<()>,
-    new: &dyn Fn() -> anyhow::Result<()>,
-) -> anyhow::Result<(BaseSpool, u64)> {
-    let dir = tempfile::tempdir()?;
-    new()?;
-    let spooled = spool(stage, connection, &Source::Local, edition, "", dir.path())?;
-    base()?;
-    let moved = moved.iter().map(|input| (*input).to_owned()).collect();
-    let read = spool_base(
-        stage,
-        connection,
-        &Source::Local,
-        edition,
-        dir.path(),
-        &moved,
-    )?;
-    let targets = targets_from_spools(stage, connection, dir.path(), &read.compared)?;
-    let sido = spooled.sidos.iter().next().context("one 시도")?;
-    load_region(stage, connection, dir.path(), "", sido)?;
-    Ok((read, targets))
-}
-
 /// The tables the publisher's commit (`gold_versions_commit`) creates on the stage's connection.
 ///
 /// A stage must not leave a table of these names: a `TEMP` one would shadow the commit's own (`DuckDB`
@@ -1269,94 +1336,15 @@ pub fn ensure_no_commit_tables(connection: &Connection) -> anyhow::Result<()> {
 pub(crate) const SHARED_SQL: [&str; 3] = [PAIR_ROWS_SQL, RENUMBERED_INTO_SQL, SPOOL_SQL];
 
 #[cfg(test)]
-mod commit_table_tests {
-    use super::*;
+mod test_reads;
+#[cfg(test)]
+pub(crate) use test_reads::{changed_for_test, partial_for_test, read_for_test};
 
-    /// The previous 시도's commit tables pass; a `TEMP` table of their names, which would shadow the
-    /// next commit's, is refused.
-    #[test]
-    fn only_a_temp_table_of_the_commit_s_names_is_refused() -> anyhow::Result<()> {
-        let connection = Connection::open_in_memory()?;
-        connection.execute_batch(
-            "CREATE OR REPLACE TABLE current_rows AS SELECT 1 AS pnu; \
-             CREATE OR REPLACE TABLE appended AS SELECT 1 AS pnu;",
-        )?;
-        ensure_no_commit_tables(&connection)?;
-        connection.execute_batch("CREATE TEMP TABLE appended AS SELECT 2 AS pnu;")?;
-        let refused = ensure_no_commit_tables(&connection)
-            .err()
-            .map(|error| error.to_string());
-        assert!(refused.is_some_and(|text| text.contains("appended")));
-        Ok(())
-    }
-}
+#[cfg(test)]
+mod commit_table_tests;
 
 /// The current-row rule a row set's spool is read and checked by, on synthetic rows: an editions
 /// table refuses two editions tied on its order, per group; a newest-per-key table refuses a key
 /// read twice.
 #[cfg(test)]
-mod rule_tests {
-    use super::*;
-
-    fn found_and_allowed(rule: &CurrentRule, rows: &str) -> anyhow::Result<(i64, i64)> {
-        let connection = Connection::open_in_memory()?;
-        let dir = tempfile::tempdir()?;
-        let dir_text = sql_dir(dir.path())?;
-        let carried = (0..rule.carried.len())
-            .map(|index| format!("{TIE_PREFIX}{index}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        connection.execute_batch(&format!(
-            "COPY (SELECT * FROM (VALUES {rows}) v({carried})) TO '{dir_text}/set.parquet' (FORMAT parquet);"
-        ))?;
-        Ok(connection.query_row(
-            &rule.check_sql(&format!("'{dir_text}/set.parquet'")),
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?)
-    }
-
-    #[test]
-    fn two_editions_tied_on_the_order_are_refused() -> anyhow::Result<()> {
-        let boundaries = contract("silver.administrative_boundaries")?;
-        let rule = CurrentRule::of(boundaries)?;
-        assert_eq!(
-            (rule.carried.as_slice(), rule.group, rule.editions),
-            (&["source_snapshot_id"][..], 0, true)
-        );
-        // Two rounds loaded at one instant: both are the newest, and the check refuses them.
-        assert_eq!(
-            found_and_allowed(&rule, "('round-a'), ('round-b')")?,
-            (2, 1)
-        );
-        assert_eq!(
-            found_and_allowed(&rule, "('round-b'), ('round-b')")?,
-            (1, 1)
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn each_group_holds_one_newest_edition() -> anyhow::Result<()> {
-        let schedule = contract("silver.court_auction_item_schedule")?;
-        let rule = CurrentRule::of(schedule)?;
-        assert_eq!((rule.carried.len(), rule.group), (4, 3));
-        let one_each = "('c', '1', '1', '2099-01-02'), ('c', '2', '1', '2099-01-01')";
-        assert_eq!(found_and_allowed(&rule, one_each)?, (2, 2));
-        let tied = "('c', '1', '1', '2099-01-02'), ('c', '1', '1', '2099-01-03')";
-        assert_eq!(found_and_allowed(&rule, tied)?, (2, 1));
-        Ok(())
-    }
-
-    #[test]
-    fn a_key_read_twice_is_refused_and_a_pinned_edition_table_is_not_a_row_set(
-    ) -> anyhow::Result<()> {
-        let rule = CurrentRule::of(contract("silver.onbid_item_bid_info")?)?;
-        assert!(!rule.editions);
-        assert_eq!(found_and_allowed(&rule, "('k1'), ('k1')")?, (2, 1));
-        assert_eq!(found_and_allowed(&rule, "('k1'), ('k2')")?, (2, 2));
-        // The parcels are read by the edition the caller names, never as a row set's newest.
-        assert!(CurrentRule::of(contract(PARCEL_SOURCE)?).is_err());
-        Ok(())
-    }
-}
+mod rule_tests;

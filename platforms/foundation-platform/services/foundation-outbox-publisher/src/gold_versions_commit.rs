@@ -42,6 +42,20 @@ pub(crate) const RECORDED_EXPLANATION_PROPERTY: &str = "foundation.recorded-expl
 /// The instant a time-dependent kind's documents were built as of (an auction serves the rounds still
 /// open then, root ADR-0287 §7); absent on every other table's commits.
 pub(crate) const AS_OF_PROPERTY: &str = "foundation.as-of";
+/// Whether a commit's keys were found by building every PNU (`full`: a first build, a moved code
+/// version, edition or whole-table input) or only the PNUs whose inputs changed (`partial`, a
+/// parcel boundary fold). A reader that must start from a whole build, as a tile bake's input
+/// version does (root ADR-0618), finds it here.
+pub(crate) const BUILD_SCOPE_PROPERTY: &str = "foundation.build-scope";
+
+/// The [`BUILD_SCOPE_PROPERTY`] of a commit built from every PNU (`whole`) or from the changed ones.
+pub(crate) const fn build_scope(whole: bool) -> &'static str {
+    if whole {
+        "full"
+    } else {
+        "partial"
+    }
+}
 /// The tag on the commit the next run plans from (`gold_incremental.BUILD_TAG`, root ADR-0338).
 pub(crate) const BUILD_TAG: &str = "foundation-gold-build";
 /// The tag that keeps, on each input, the snapshot the table was last built from
@@ -171,6 +185,28 @@ pub(crate) struct BuiltFrom {
 pub(crate) struct SidoState {
     pub version: String,
     pub current_records: u64,
+    /// The 시도's own fingerprint: the digest sum of its current rows (the table fingerprint's
+    /// sum, of this 시도 alone), as text. It moves only when a row of the 시도 changes, whatever its
+    /// `version` does: what a reader that follows one 시도's content takes as its input version.
+    /// Absent for a 시도 whose rows were appended before the table kept it (a whole-table commit).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest_sum: Option<String>,
+}
+
+impl SidoState {
+    /// [`Self::digest_sum`] as a number.
+    ///
+    /// # Errors
+    /// Returns an error when the recorded sum is not a number.
+    pub(crate) fn digest_sum(&self) -> anyhow::Result<Option<u128>> {
+        self.digest_sum
+            .as_deref()
+            .map(|text| {
+                text.parse()
+                    .with_context(|| format!("the 시도 digest sum {text:?} is not a number"))
+            })
+            .transpose()
+    }
 }
 
 /// [`PARTITION_STATE_PROPERTY`]: every 시도's state, and what each version they name was built from
@@ -210,19 +246,22 @@ impl PartitionStates {
     }
 
     /// Records that `sido` now stands at `version`, built from `from`, with `current_records`
-    /// current rows; a version no 시도 names any more is dropped.
+    /// current rows whose digests sum to `digest_sum` (when known); a version no 시도 names any
+    /// more is dropped.
     pub(crate) fn record(
         &mut self,
         sido: &str,
         version: &str,
         from: &BuiltFrom,
         current_records: u64,
+        digest_sum: Option<u128>,
     ) {
         self.sidos.insert(
             sido.to_owned(),
             SidoState {
                 version: version.to_owned(),
                 current_records,
+                digest_sum: digest_sum.map(|sum| sum.to_string()),
             },
         );
         self.versions.insert(version.to_owned(), from.clone());
@@ -939,8 +978,8 @@ pub(crate) struct Shadow {
     pub replaced: String,
     /// The replaced table's commit its build tag names.
     pub build: i64,
-    /// The input pins that commit records: the only inputs the shadow reads; an input that build
-    /// did not read is absent here too.
+    /// The input pins that commit records. An input that build did not read is absent here, and
+    /// the shadow reads it at its head ([`planned_inputs`]).
     pub pins: BTreeMap<String, i64>,
     /// The served parcel edition that commit was built from, if it records one.
     pub served_edition: Option<String>,
@@ -1124,7 +1163,8 @@ pub(crate) async fn shadow_of(
 
 /// The pins and served edition one run of `versions` builds from, and its shadow, if any: while
 /// its lane serves the replaced table, the replaced table's build-tag commit's (the edition when it
-/// records none is `edition_now`); otherwise every input at its head and `edition_now`.
+/// records none is `edition_now`), and an input that build did not read at its head; otherwise
+/// every input at its head and `edition_now`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Planned {
     pub pins: BTreeMap<String, i64>,
@@ -1140,15 +1180,20 @@ pub(crate) async fn planned_inputs(
     inputs: &[&str],
     edition_now: String,
 ) -> anyhow::Result<Planned> {
-    if let Some(shadow) = shadow_of(catalog, versions, served).await? {
-        return Ok(Planned {
-            pins: shadow.pins.clone(),
-            served_edition: shadow.served_edition.clone().unwrap_or(edition_now),
-            shadow: Some(shadow),
-        });
-    }
-    let mut pins = BTreeMap::new();
-    for input in inputs {
+    let shadow = shadow_of(catalog, versions, served).await?;
+    let mut pins = shadow
+        .as_ref()
+        .map(|shadow| shadow.pins.clone())
+        .unwrap_or_default();
+    // An input the replaced build did not read has no pin to compare over (the unit prices' Spark
+    // build read neither the served parcels nor the code change table the shared renumbering
+    // reads): it is read at its head, as an input is once the lane is no shadow.
+    let unpinned: Vec<&str> = inputs
+        .iter()
+        .copied()
+        .filter(|input| !pins.contains_key(*input))
+        .collect();
+    for input in unpinned {
         let head = catalog
             .load_main_snapshot_history(input)
             .await?
@@ -1156,12 +1201,16 @@ pub(crate) async fn planned_inputs(
             .first()
             .map(|snapshot| snapshot.snapshot_id)
             .with_context(|| format!("{input} holds no snapshot"))?;
-        pins.insert((*input).to_owned(), head);
+        pins.insert(input.to_owned(), head);
     }
+    let served_edition = shadow
+        .as_ref()
+        .and_then(|shadow| shadow.served_edition.clone())
+        .unwrap_or(edition_now);
     Ok(Planned {
         pins,
-        served_edition: edition_now,
-        shadow: None,
+        served_edition,
+        shadow,
     })
 }
 
