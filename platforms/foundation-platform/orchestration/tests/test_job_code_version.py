@@ -102,6 +102,19 @@ class Inference(unittest.TestCase):
         self.assertNotIn("infra/lakehouse/contracts/other.contract.json", reached)
         self.assertEqual(job_code_version.unit_files(EAST, self.root), ["infra/systemd/foundation-lane@.service"])
 
+    def test_a_services_open_files_drop_in_is_its_jobs_code_instance_or_not(self):
+        # 2026-11-23: the 실거래 versions build failed 11 runs at systemd's 1024 open files; the limit its job
+        # now states is rendered into <service>.d/50-open-files.conf, and a change to it is a change to the job.
+        for job, service, unit in ((A, "foundation-a.service", "foundation-a.service"),
+                                   (EAST, "foundation-lane@east.service", "foundation-lane@.service")):
+            with self.subTest(service=service):
+                before = job_code_version.version(job, self.root)
+                dropin = f"infra/systemd/{service}.d/50-open-files.conf"
+                (self.root / dropin).parent.mkdir(parents=True)
+                self.edit(dropin, "[Service]\nLimitNOFILE=65536\n")
+                self.assertEqual(job_code_version.unit_files(job, self.root), [f"infra/systemd/{unit}", dropin])
+                self.assertNotEqual(job_code_version.version(job, self.root), before)
+
 
 class TheRealTree(unittest.TestCase):
     """Each job reaches the file its 2026-11-10/11 fix changed, and not another job's script."""
