@@ -17,8 +17,8 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use super::{
     asked_condition, collect, gzip_lines, in_window, may_ask, night_summary, operator_window,
-    session_pool, source_contract, with_night, Asking, FailedPage, GzLines, SourceContract, Stop,
-    Window,
+    reach::reach, session_pool, source_contract, with_night, Asking, FailedPage, GzLines,
+    SourceContract, Stop, Window,
 };
 
 // Synthetic only: made-up case numbers and court codes (public repository).
@@ -536,5 +536,38 @@ fn a_detail_part_is_its_own_object_keyed_by_the_run() -> anyhow::Result<()> {
     );
     assert_ne!(first.dedupe_key, second.dedupe_key, "each part lands");
     assert!(contract.item_detail.commit_every_lines >= 1);
+    Ok(())
+}
+
+// The reach check (`check-courtauction-go-kr-reach`): before the lane moves to another network, one
+// question says whether the site answers that network's address.
+#[tokio::test]
+async fn the_reach_check_asks_once_and_says_what_the_site_answered() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let server = site(&contract, 3, 0).await;
+    let report = reach(&contract, &server.uri()).await?;
+    assert_eq!(report["verdict"], "answered");
+    assert_eq!(report["rows"], contract.item_search.page_size);
+    assert_eq!(report["requests"], 1);
+    assert_eq!(report["sessions_opened"], 1);
+    let asked = server.received_requests().await.unwrap_or_default();
+    let searches = asked.iter().filter(|r| r.method == "POST").count();
+    assert_eq!(searches, 1, "one list search, the first page");
+    Ok(())
+}
+
+// A block is the answer the check reports. The collector would wait, renew the session and ask
+// again; the check does neither.
+#[tokio::test]
+async fn a_blocked_address_is_reported_and_never_asked_again() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let server = site(&contract, 3, 1_000).await;
+    let report = reach(&contract, &server.uri()).await?;
+    assert_eq!(report["verdict"], "blocked");
+    assert_eq!(report["why"], "IpCheck");
+    assert_eq!(report["sessions_opened"], 1, "no session is renewed");
+    let asked = server.received_requests().await.unwrap_or_default();
+    assert_eq!(asked.iter().filter(|r| r.method == "POST").count(), 1);
+    assert_eq!(asked.iter().filter(|r| r.method == "GET").count(), 1);
     Ok(())
 }

@@ -1346,6 +1346,13 @@ fn courtauction_go_kr_collect_command_is_explicit() -> anyhow::Result<()> {
         parse_command(["foundation-outbox-publisher", "collect-courtauction-go-kr"])?,
         Command::CollectCourtauctionGoKr
     );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "check-courtauction-go-kr-reach"
+        ])?,
+        Command::CheckCourtauctionGoKrReach
+    );
     Ok(())
 }
 
