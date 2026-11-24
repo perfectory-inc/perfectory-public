@@ -38,6 +38,7 @@ import socket
 
 import lineage as lineage_module
 import observe_assets
+import source_read_checks
 import systemd_pipes
 
 job_specs = observe_assets.job_specs
@@ -109,10 +110,12 @@ class ForcedCommand:
         return lines(), wait
 
 
-def run_job(spec, transport=None, lineage_client=None):
+def run_job(spec, transport=None, lineage_client=None, held_to_reads=False):
     """The Dagster job of one job: one op, the unit through the forced command (`transport`, or the
     host's from the environment), reporting its runs to the data catalog when Dagster decides it
-    (lineage.py; `lineage_client`, or the environment's transport)."""
+    (lineage.py; `lineage_client`, or the environment's transport). `held_to_reads`: the job collects a
+    source whose provider drops what has ended, so a run that read it to the end says so
+    (source_read_checks.py, root ADR-0614)."""
     from dagster import Failure, OpExecutionContext, RetryPolicy, job, op
 
     keys = [observe_assets.asset_key(dataset) for dataset in spec.outputs]
@@ -181,6 +184,8 @@ def run_job(spec, transport=None, lineage_client=None):
         # After the materializations: a check the unit reported judges the head it just built or kept.
         for evaluation in evaluations:
             context.log_event(evaluation)
+        if held_to_reads and (read := source_read_checks.read(spec.job_id, result.outcome)) is not None:
+            context.log_event(read)
 
     def runs_the_unit():
         run.alias("run")()
@@ -246,5 +251,6 @@ def run_jobs(jobs=None, graph=None, transport=None, lineage_client=None):
     """The Dagster jobs of every job Dagster runs: those at `proxied` (and, from its slice, `dagster`)."""
     if jobs is None or graph is None:
         jobs, graph = observe_assets.contracts()
-    return [run_job(spec, transport, lineage_client) for spec in job_specs.load_specs(jobs, graph)
-            if spec.dagster_stage in job_specs.DAGSTER_RUNS]
+    held = source_read_checks.bounds(jobs)
+    return [run_job(spec, transport, lineage_client, held_to_reads=spec.job_id in held)
+            for spec in job_specs.load_specs(jobs, graph) if spec.dagster_stage in job_specs.DAGSTER_RUNS]

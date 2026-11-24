@@ -92,3 +92,24 @@
   없어서, 적으면 지킬 작업을 이름 지을 수 없다. 그래프가 그 읽기를 말하게 된 뒤에 적는다.
 - 온비드와 게시판 셋의 기한은 잰 값이 아니다. 실제로 내려가는 속도를 재면 `landed_basis` 와 함께 고친다.
 - 11-07 밤에 무엇이 울렸는지는 보관 기간 밖이라 확인하지 못했다.
+
+## Revision 2026-11-24: 같은 기한을 Dagster 의 신선도 검사로도 낸다
+
+사장 결정(11-24): AWS 가 전제이고 조각의 상태는 Dagster 가 든다. 위 4·5 의 장치(원장 → `job-outcomes.prom` →
+Prometheus 규칙)는 ai-server 의 작업 층에 붙어 있어 AWS 로 가지 않는다. 카탈로그의 사실과 작업 선언은 간다.
+그래서 같은 선언에서 Dagster 의 내장 신선도 검사를 만든다(`orchestration/dagster/source_read_checks.py`).
+
+| 조각 | Dagster 의 것 |
+|---|---|
+| 수집 작업마다 외부 자산 `source_read/<job id>` | `AssetSpec` |
+| 원천을 끝까지 읽은 run(`changed`·`unchanged`)이 그 자산의 materialization 을 남긴다 | `AssetMaterialization`, 작업을 돌리는 op 가 남긴다 |
+| 선언한 기한보다 오래되면 실패(ERROR) | `build_last_update_freshness_checks(lower_bound_delta=…)` |
+| 한 시간에 두 번 평가 | `ScheduleDefinition` |
+
+손으로 만든 것은 선언을 읽어 이 넷을 부르는 몇 줄뿐이다. 내장 신선도 센서(`build_sensor_for_freshness_checks`)는
+쓰지 않는다: 문서가 말하듯 실패한 검사를 다시 평가하지 않아, 둘째로 잃은 밤이 첫째에 아무것도 더하지 않는다.
+Dagster 공식 문서의 외부 자산 예도 일정으로 평가한다(dagster 1.13, "Data freshness checks").
+
+검사는 작업이 꺼져 있어도 있고, 근거는 Dagster 의 사건 기록이라 껐다 켜도 다시 세지 않는다. 호스트·유닛·파일을
+이름 짓지 않는다. 실패한 검사를 Slack 으로 보내는 길은 AWS 설계(ADR-0616)의 몫이다. 그 길이 생기면 위 4·5 의
+원장 쪽 장치는 지운다. 그때까지는 둘이 같은 선언을 읽는다.
