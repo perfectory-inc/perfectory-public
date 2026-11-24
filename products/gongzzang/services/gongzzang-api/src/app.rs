@@ -41,6 +41,7 @@ async fn async_main() -> Result<(), StartupError> {
     let database_url = required_env("DATABASE_URL")?;
     let dev_mode = env::var("AUTH_DEV_MODE").unwrap_or_default() == "true";
     let is_production = is_production_env();
+    startup::check_client_address_header(is_production)?;
 
     let pool = connect_postgres(&database_url).await?;
 
@@ -423,7 +424,11 @@ async fn async_main() -> Result<(), StartupError> {
             addr: addr.clone(),
             source,
         })?;
-    axum::serve(listener, app)
-        .await
-        .map_err(|source| StartupError::Serve { source })
+    // ConnectInfo: the TCP peer is the client address when no trusted edge header names one.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .map_err(|source| StartupError::Serve { source })
 }

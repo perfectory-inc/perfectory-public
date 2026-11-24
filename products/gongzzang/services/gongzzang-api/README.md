@@ -34,6 +34,13 @@ cargo run -p gongzzang-api        # API_LISTEN_ADDR, 기본 0.0.0.0:8080
 curl http://localhost:8080/healthz
 ```
 
+## 운영 배포에 꼭 있어야 하는 값
+
+- `CLIENT_ADDRESS_HEADER`: 앞문이 클라이언트 주소를 싣는 헤더 이름(Cloudflare 뒤 `cf-connecting-ip`). 속도 제한 열쇠와
+  감사 `ip_address` 가 이것으로 정해진다(`src/http/client_address.rs`; `X-Forwarded-For` 는 읽지 않는다). 운영
+  (`APP_ENV=production`)에서는 없으면 **시작하지 않는다**: 부하분산기 뒤의 TCP 상대 주소는 부하분산기라, 모든
+  사용자가 한 열쇠를 나누게 된다. 원본이 앞문에서 오는 요청만 받을 때만 그 헤더를 믿을 수 있다.
+
 ## 시험
 
 CI와 같은 명령은 모노레포 루트의 `cargo xtask verify gongzzang`이다(DB 없는 시험 묶음; 단계 정의 정본은
