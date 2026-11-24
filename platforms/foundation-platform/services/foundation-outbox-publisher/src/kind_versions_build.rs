@@ -3,7 +3,8 @@
 //! `build-parcel-energy-versions`, `build-parcel-sub-parcels-versions`,
 //! `build-parcel-building-permits-versions`, `build-parcel-panel-versions`,
 //! `build-parcel-ownership-versions`, `build-parcel-factories-versions`,
-//! `build-parcel-public-auction-versions`. `DuckDB` inside the publisher computes the kind
+//! `build-parcel-public-auction-versions`, `build-parcel-real-transaction-versions`. `DuckDB`
+//! inside the publisher computes the kind
 //! (`foundation_publisher_silver::kind_versions_stage`, one stage per kind) and the publisher appends
 //! the keys that changed (`gold_versions_commit`). A new lane is a stage, a [`KindBuild`], a kind line
 //! and a job.
@@ -37,6 +38,7 @@ use foundation_publisher_silver::{
     parcel_nearby_stage::{NearbyPins, Source},
     parcel_panel_stage::PANEL,
     process_memory,
+    real_transaction_versions_stage::REAL_TRANSACTION,
     record_kind_stage::{DEMOLITIONS, REGISTER_MASTERS},
 };
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
@@ -195,6 +197,19 @@ pub(crate) const PUBLIC_AUCTION_BUILD: KindBuild = KindBuild {
     job: "build-parcel-public-auction-versions",
     stage: &PUBLIC_AUCTION,
     per_sido_commits: false,
+};
+
+/// Lane 9: the 실거래 deals (root ADR-0350, ADR-0371): a deal is placed by its address, so the stage
+/// reads its own inputs by the part that reads each row (root ADR-0615 §7). A 시도 is its own
+/// commit: the first build is longer than one run of its unit, and the table keeps the 시도 a run
+/// committed.
+pub(crate) const REAL_TRANSACTION_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_real_transaction_versions",
+    lane: "parcel-real-transaction",
+    replaced: "gold.parcel_real_transaction",
+    job: "build-parcel-real-transaction-versions",
+    stage: &REAL_TRANSACTION,
+    per_sido_commits: true,
 };
 
 /// Builds and appends `kind`'s changed keys.
@@ -1126,6 +1141,7 @@ mod tests {
             &OWNERSHIP_BUILD,
             &FACTORIES_BUILD,
             &PUBLIC_AUCTION_BUILD,
+            &REAL_TRANSACTION_BUILD,
         ] {
             let has = contract(kind.replaced)?
                 .columns

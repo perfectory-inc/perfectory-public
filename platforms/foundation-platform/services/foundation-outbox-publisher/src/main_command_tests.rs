@@ -364,6 +364,10 @@ fn build_versions_commands_are_explicit() -> anyhow::Result<()> {
             Command::BuildParcelOwnershipVersions,
         ),
         (
+            "build-parcel-real-transaction-versions",
+            Command::BuildParcelRealTransactionVersions,
+        ),
+        (
             "build-parcel-panel-versions",
             Command::BuildParcelPanelVersions,
         ),

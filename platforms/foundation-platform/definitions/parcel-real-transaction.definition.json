@@ -69,7 +69,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "실거래 kind Gold as a table of appended row versions (root ADR-0350, ADR-0371, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-real-transaction → publisher build-parcel-real-transaction-versions): gold.parcel_real_transaction_versions, computed by DuckDB inside the publisher and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. Every input is read once into a spool split by 시군구; the 시군구 a code pair, a served form or a lineage row links are built together, so a placement never leaves its unit (real_transaction_versions_stage). While the lane serves gold.parcel_real_transaction it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover check compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code (with the build month every document names) are the base commit's; otherwise only the unit groups whose 시군구 summaries moved are rebuilt, and only the changed keys are appended. It starts on its inputs, as every versions build does: while it shadows, what it builds moves with the replaced table's build pins, and that build's commit (gold_parcel_real_transaction_rebuild, 09:50) is one of its inputs. Its fallback schedule, every two hours from 00:40, starts it even when no input moved, so a first build that goes on across runs (gold_versions_resume) resumes at least that often and fits before the next day's pins. Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
+      "description": "실거래 kind Gold as a table of appended row versions (root ADR-0350, ADR-0371, ADR-0564 §6; scripts/ops/gold-versions-build.sh parcel-real-transaction → publisher build-parcel-real-transaction-versions): gold.parcel_real_transaction_versions, computed by DuckDB inside the publisher and appended as the keys whose digest changed (a removal marker for a key that left), each commit one version_seq. It is a stage of the shared versions build (kind_versions_build, root ADR-0615 §7): a deal has no PNU before it is placed, so the stage reads its inputs itself, each row once under its own 시군구 and once under every other 시군구 a code pair, a served form or the lineage links it to (the linked group; 72 시군구 in 32 groups, measured 2026-11-24), and the shared build shows it one 시군구 at a time; it keeps the documents whose PNU lies there (real_transaction_versions_stage). A 시도 is its own commit. While the lane serves gold.parcel_real_transaction it is that table's shadow: it reads the input pins and served edition its foundation-gold-build tag commit recorded, so the takeover check compares the two engines over one set of inputs; its first build holds every key. Nothing to do when its inputs, the served parcel edition and its code (with the build month every document names) are the base commit's; otherwise only the 시군구 whose rows moved (and the ones that read them) are rebuilt, and only the changed keys are appended. It starts on its inputs, as every versions build does: while it shadows, what it builds moves with the replaced table's build pins, and that build's commit (gold_parcel_real_transaction_rebuild, 09:50) is one of its inputs. Its fallback schedule, every two hours from 00:40, starts it even when no input moved: a first build longer than one run keeps the 시도 it committed (the table says which), and the next run builds the rest. Nothing reads it until the lane's takeover PR names it as the lane's gold_table.",
       "systemd_service": "foundation-gold-versions@parcel-real-transaction.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -81,7 +81,7 @@
       "open_files": 65536,
       "open_files_measured": "2026-11-23 13:44Z..22:51Z: 11 runs of 11 failed at systemd's default soft limit 1024 with DuckDB's \"Too many open files\" while reading the spool back (1,790 parquet files: 7 tables of 250 to 263 시군구). DuckDB 2.0.0 opens a glob's files ahead of the scan (measured on a 260-file table of the same layout, 8 threads: 340 to 450 handles above the idle process for one table, 530 for the seven in one query; a partitioned write holds under 10), beside the lakehouse connections the run keeps. 65536 is 36 per spooled file, under systemd's hard limit 524288; systemd reports no open-files peak, so it is sized from the file count, not from a peak.",
       "memory_max": "8G",
-      "memory_measured": "not measured: no run yet (new job). 8G is the template's, the cap of every foundation-gold-versions@ instance; a unit group holds at most 700,000 deals (real_transaction_versions_stage UNIT_DEAL_BUDGET), sized to fit it, and the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (MEMORY_SHARE), so DuckDB spills before the cap. The first shadow run's systemd memory peak replaces this text",
+      "memory_measured": "not measured: no run yet (new job). 8G is the template's, the cap of every foundation-gold-versions@ instance; the shared build holds one 시도's rows and builds one 시군구 of them at a time, and the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (MEMORY_SHARE), so DuckDB spills before the cap. The first shadow run's systemd memory peak replaces this text",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -89,7 +89,7 @@
         "measured_run_seconds": null,
         "first_run": {
           "estimate_seconds": 1500,
-          "estimated_from": "computed, not measured: the first shadow build is whole, about 9,500 s of placing and writing (W81c's 2026-11-21 4-thread verdict: 세종·대전·울산·제주·대구, 1,570,597 deals, 769,542 rows in 750 s, scaled by deals to the nation's 19,936,743) plus the spool's one read of each input. It goes on across runs (gold_versions_resume): no unit group starts past 25 minutes, the run ends partial and the next resumes, so a run is bounded by 25 minutes and its last group, and the first build takes about seven runs: from the replaced build's 09:50 commit, at least one every two hours (its fallback schedule; an input's change starts one sooner), at most about fourteen hours and the pool's queue, inside the day the replaced build's pins hold. Later runs build only the groups whose 시군구 changed."
+          "estimated_from": "computed, not measured: the first shadow build is whole, about 9,500 s of placing and writing (W81c's 2026-11-21 4-thread verdict: 세종·대전·울산·제주·대구, 1,570,597 deals, 769,542 rows in 750 s, scaled by deals to the nation's 19,936,743) plus the spool's one read of each input. It goes on across runs: each 시도 is its own commit, a run the unit's hour ends keeps the 시도 it committed and the next run builds the rest, from the replaced build's 09:50 commit at least one run every two hours (its fallback schedule; an input's change starts one sooner). Not measured on the shared build yet. Later runs build only the 시군구 whose rows moved."
         }
       },
       "pool": "duckdb",
@@ -237,7 +237,7 @@
         "docs/adr/0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md",
         "platforms/foundation-platform/crates/lakehouse/lakehouse-domain/src/gold_versions_table.rs",
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "table_name": "gold.parcel_real_transaction_versions",
       "runtime_bindings": [
@@ -415,7 +415,7 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "the 실거래 Silver's current rows, read whole once (history_coverage is defined over all of it)"
     },
@@ -426,7 +426,7 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "the served edition's parcels, the PNUs a deal is placed on"
     },
@@ -437,7 +437,7 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "지목·면적·용도지역 the masked-lot inference and the comparables read"
     },
@@ -448,7 +448,7 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "the main buildings the masked-lot inference reads"
     },
@@ -459,7 +459,7 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "the ownership changes the masked-lot inference reads"
     },
@@ -470,7 +470,7 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "a deal on a retired parcel follows the lineage to its current successors"
     },
@@ -481,7 +481,7 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "an address's code carried to the current one (the crosswalk), and 시군구 a pair links built together"
     },
@@ -492,7 +492,7 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "an address's 법정동 looked up in the newest code snapshot"
     },
@@ -503,7 +503,7 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "each parcel's place id through the one reader place_id_join::place_ids_sql"
     },
@@ -514,7 +514,7 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/real_transaction_versions_stage.rs",
-        "platforms/foundation-platform/services/foundation-outbox-publisher/src/parcel_real_transaction_versions_build.rs"
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build.rs"
       ],
       "description": "the replaced table: while the lane serves it, the shadow is built at the pins its build tag recorded (root ADR-0564 §6)"
     },

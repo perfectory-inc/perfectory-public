@@ -507,16 +507,20 @@ fn has_table(connection: &duckdb::Connection, name: &str) -> anyhow::Result<bool
     )? > 0)
 }
 
-/// The code crosswalk as tables (`crosswalk`, `ambiguous`, `served_forms`) from `code_changes` and
-/// `code_names`: the one place-identity resolver's (`place_identity_stage::reference_from_loaded`,
-/// root ADR-0288 §1), read back for the address codes.
-pub(crate) fn crosswalk_tables(
+/// The code crosswalk as tables (`crosswalk`, `ambiguous`, `served_forms`): the one place-identity
+/// resolver's (`place_identity_stage::reference_from_loaded`, root ADR-0288 §1), read back for the
+/// address codes from the code change table `changes` and the code snapshot `names`, for a
+/// caller whose connection holds another `code_changes` (the shared versions build keeps its own,
+/// of the pairs in force only).
+pub(crate) fn crosswalk_tables_from(
     connection: &duckdb::Connection,
+    changes: &str,
+    names: &str,
 ) -> anyhow::Result<(BTreeMap<String, String>, BTreeSet<String>)> {
-    connection.execute_batch(
-        "CREATE OR REPLACE TEMP TABLE place_code_changes AS SELECT * FROM code_changes;
-         CREATE OR REPLACE TEMP TABLE place_dong_names AS SELECT * FROM code_names;",
-    )?;
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TEMP TABLE place_code_changes AS SELECT * FROM {changes};
+         CREATE OR REPLACE TEMP TABLE place_dong_names AS SELECT * FROM {names};"
+    ))?;
     crate::place_identity_stage::reference_from_loaded(connection)?;
     connection.execute_batch(
         "CREATE OR REPLACE TABLE crosswalk AS SELECT old_code, current_code FROM place_remap;
@@ -589,14 +593,18 @@ fn address_codes(
         .collect()
 }
 
-/// `address_codes` from `code_names` (`region_cd`, `full_name`, `status`: the newest code snapshot).
-pub(crate) fn address_code_table(
+/// `address_codes` from the code snapshot `code_names` names (`region_cd`, `full_name`, `status`:
+/// the newest code snapshot).
+pub(crate) fn address_code_table_from(
     connection: &duckdb::Connection,
+    code_names: &str,
     remap: &BTreeMap<String, String>,
     ambiguous: &BTreeSet<String>,
 ) -> anyhow::Result<()> {
     let names: Vec<(String, String, String)> = connection
-        .prepare("SELECT region_cd, coalesce(full_name, ''), coalesce(status, '') FROM code_names")?
+        .prepare(&format!(
+            "SELECT region_cd, coalesce(full_name, ''), coalesce(status, '') FROM {code_names}"
+        ))?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<_, _>>()?;
     let index = dong_index(
@@ -642,8 +650,22 @@ pub fn place(
     connection: &duckdb::Connection,
     inference: &Value,
 ) -> anyhow::Result<PlacementCounts> {
-    let (remap, ambiguous) = crosswalk_tables(connection)?;
-    address_code_table(connection, &remap, &ambiguous)?;
+    place_from(connection, inference, "code_changes", "code_names")
+}
+
+/// [`place`] with the code change table and the code snapshot under the names given: the shared
+/// versions build keeps a `code_changes` of its own on the connection (the pairs in force only).
+///
+/// # Errors
+/// As [`place`].
+pub fn place_from(
+    connection: &duckdb::Connection,
+    inference: &Value,
+    code_changes: &str,
+    code_names: &str,
+) -> anyhow::Result<PlacementCounts> {
+    let (remap, ambiguous) = crosswalk_tables_from(connection, code_changes, code_names)?;
+    address_code_table_from(connection, code_names, &remap, &ambiguous)?;
     connection.execute_batch(ADDRESS_KEY_MACRO)?;
     connection.execute_batch(DEALS_SQL)?;
     connection.execute_batch(RESOLVE_SQL)?;
