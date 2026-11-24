@@ -1,5 +1,7 @@
-//! The parcel nearby kind's Gold in `DuckDB` inside the publisher (root ADR-0465, ADR-0559,
-//! ADR-0564 §9 turn 2), on the shared Gold versions driver (`kind_versions_build`, root ADR-0615 §7).
+//! The parcel nearby kind's Gold in `DuckDB` inside the publisher.
+//!
+//! Root ADR-0465, ADR-0559, ADR-0564 §9 turn 2; on the shared Gold versions driver
+//! (`kind_versions_build`, root ADR-0615 §7).
 //!
 //! What is near each served parcel, from its boundary's centroid: the nearest 공항, 철도역,
 //! 도시철도역, 초중등학교 and 대학 with the distance on the WGS84 spheroid, the 상가(상권) stores in the
@@ -461,8 +463,9 @@ pub fn store_rings(points: &[(f64, f64)]) -> anyhow::Result<HashMap<u64, u64>> {
     Ok(rings)
 }
 
-/// The fine buckets (`floor(degrees / FINE_DEGREES)` of longitude and latitude) that cover `cells`,
-/// with one bucket of margin around each cell's bounds: every parcel whose centroid lies in one of
+/// The fine buckets (`floor(degrees / FINE_DEGREES)` of longitude and latitude) that cover `cells`.
+///
+/// One bucket of margin goes around each cell's bounds: every parcel whose centroid lies in one of
 /// the cells lies in one of them.
 ///
 /// # Errors
@@ -715,8 +718,9 @@ fn points_outside(
     Ok(outside)
 }
 
-/// Why a commit that only the stores moved is the stores' doing, or `None` (root ADR-0596): no key
-/// came or went, the located stores did not fall to none or move by more than `max_loss` of the
+/// Why a commit that only the stores moved is the stores' doing, or `None` (root ADR-0596).
+///
+/// It is when no key came or went, the located stores did not fall to none or move by more than `max_loss` of the
 /// base's (a broken or emptied store file would otherwise move every count), every changed row
 /// differs from the head's in [`STORE_COUNT_FIELD`] and in nothing else, and every changed parcel
 /// lies in a cell whose store count moved.
@@ -797,8 +801,9 @@ pub fn is_sido(sido: &str) -> bool {
     sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-/// Computes the rows of the loaded parcels (every one, or those `targets` names) into `built`:
-/// their documents, place ids and digests, each stamped `source_snapshot_id` (the parcels' pin) and
+/// Computes the rows of the loaded parcels (every one, or those `targets` names) into `built`.
+///
+/// Their documents, place ids and digests, each stamped `source_snapshot_id` (the parcels' pin) and
 /// `published_at_utc`. Returns the rows it added.
 ///
 /// # Errors

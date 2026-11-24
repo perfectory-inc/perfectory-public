@@ -3,14 +3,14 @@
 use super::*;
 
 /// What a test reads back: the served parcels and the kind's rows of its one 시도.
-pub(crate) struct TestRead {
+pub struct TestRead {
     pub served_parcels: u64,
     pub rows: u64,
 }
 
 /// Spools the connection's local tables to a temporary directory and loads their one 시도, as the
 /// build does for each.
-pub(crate) fn read_for_test(
+pub fn read_for_test(
     stage: &dyn KindVersionsStage,
     connection: &Connection,
     edition: &str,
@@ -63,7 +63,7 @@ fn test_spool_dir() -> anyhow::Result<std::path::PathBuf> {
 
 /// Leaves `targets` from the two sides [`read_for_test`] last read (`_old` and none), comparing
 /// every spool as a run whose whole base side was read does; returns the PNUs named.
-pub(crate) fn changed_for_test(
+pub fn changed_for_test(
     stage: &dyn KindVersionsStage,
     connection: &Connection,
 ) -> anyhow::Result<u64> {
@@ -74,7 +74,7 @@ pub(crate) fn changed_for_test(
 ///
 /// `new` leaves the tables as they are now and `base` as the base commit read them; `moved` names
 /// the inputs that differ. Returns what the base read compared and how many PNUs `targets` names.
-pub(crate) fn partial_for_test(
+pub fn partial_for_test(
     stage: &dyn KindVersionsStage,
     connection: &Connection,
     edition: &str,

@@ -1188,7 +1188,12 @@ pub(crate) async fn planned_inputs(
     // An input the replaced build did not read has no pin to compare over (the unit prices' Spark
     // build read neither the served parcels nor the code change table the shared renumbering
     // reads): it is read at its head, as an input is once the lane is no shadow.
-    for input in inputs.iter().filter(|input| !pins.contains_key(**input)) {
+    let unpinned: Vec<&str> = inputs
+        .iter()
+        .copied()
+        .filter(|input| !pins.contains_key(*input))
+        .collect();
+    for input in unpinned {
         let head = catalog
             .load_main_snapshot_history(input)
             .await?
@@ -1196,7 +1201,7 @@ pub(crate) async fn planned_inputs(
             .first()
             .map(|snapshot| snapshot.snapshot_id)
             .with_context(|| format!("{input} holds no snapshot"))?;
-        pins.insert((*input).to_owned(), head);
+        pins.insert(input.to_owned(), head);
     }
     let served_edition = shadow
         .as_ref()

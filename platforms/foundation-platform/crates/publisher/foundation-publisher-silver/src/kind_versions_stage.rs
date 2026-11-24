@@ -87,9 +87,10 @@ pub struct ResultCheck {
     pub samples_sql: Option<String>,
 }
 
-/// A check of the whole build, held before anything is appended (root ADR-0615 §7): a rule over
-/// every 시도's result together, which no 시도's own [`ResultCheck`] can judge (a share of the
-/// nation's units; a unit that moved 시도 meets its new row in another 시도's result).
+/// A check of the whole build, held before anything is appended (root ADR-0615 §7).
+///
+/// A rule over every 시도's result together, which no 시도's own [`ResultCheck`] can judge (a
+/// share of the nation's units; a unit that moved 시도 meets its new row in another 시도's result).
 ///
 /// It belongs to a table committed whole: one that commits a 시도 at a time has appended its first
 /// 시도 before the last is built, and the driver refuses the two together. It judges the 시도 the
@@ -145,10 +146,11 @@ pub fn national_verdict(
     ))
 }
 
-/// What explains a change of any size when neither the code nor the served edition moved (root
-/// ADR-0346, ADR-0596): a rule the kind's own inputs give, judged over every 시도's diff before
-/// anything is appended. The commit records it, as it records a moved code version, and the bake
-/// reads it; without it a change past the bound on changed keys is refused.
+/// What explains a change of any size when neither the code nor the served edition moved.
+///
+/// A rule the kind's own inputs give (root ADR-0346, ADR-0596), judged over every 시도's diff
+/// before anything is appended. The commit records it, as it records a moved code version, and
+/// the bake reads it; without it a change past the bound on changed keys is refused.
 ///
 /// The nearby Gold's stores: a store file's move changes the store counts near the stores that
 /// moved and nothing else. It belongs to a table committed whole, as a [`NationalCheck`] does, and is
@@ -163,12 +165,17 @@ pub struct ChangeExplanation {
     pub gather_sql: String,
     /// Why the run's change is explained, or `None`, from what was gathered, the run's `(added,
     /// changed, removed)` keys and the table's bound on lost rows.
-    pub explain: fn(&Connection, (u64, u64, u64), f64) -> anyhow::Result<Option<String>>,
+    pub explain: Explain,
 }
 
-/// An input the stage reads one batch of, rather than its current rows (root ADR-0615 §7): the unit
-/// prices read the newest vintage's batch, a vintage's ties broken by the order the table appended
-/// them (root ADR-0182).
+/// How a [`ChangeExplanation`] judges: the connection after the last 시도, the run's `(added,
+/// changed, removed)` keys and the bound on lost rows; `Some` is why the change is explained.
+pub type Explain = fn(&Connection, (u64, u64, u64), f64) -> anyhow::Result<Option<String>>;
+
+/// An input the stage reads one batch of, rather than its current rows (root ADR-0615 §7).
+///
+/// The unit prices read the newest vintage's batch, a vintage's ties broken by the order the table
+/// appended them (root ADR-0182).
 ///
 /// The driver reads the input's ingest log before the session opens (the session cannot await the
 /// catalog), has [`Self::choose`] pick the batch at the pins once it opens, and leaves the batch as
@@ -428,8 +435,9 @@ pub(crate) const SPOOL_SQL: &str =
     "COPY (SELECT *, substr(pnu, 1, 2) AS sido FROM (@query@)) TO '@dir@/@name@' \
     (FORMAT parquet, COMPRESSION zstd, PARTITION_BY (sido), OVERWRITE_OR_IGNORE)";
 
-/// Writes `query` (which has a `pnu` column) as the spool `name` under `dir_text`, one directory per
-/// 시도 of its PNU (`SPOOL_SQL`, the one split of every spool): what a stage's
+/// Writes `query` (which has a `pnu` column) as the spool `name` under `dir_text`.
+///
+/// One directory per 시도 of its PNU (`SPOOL_SQL`, the one split of every spool): what a stage's
 /// [`KindVersionsStage::spool_more`] reads by its own rule. A row without a PNU is written under no
 /// 시도 (`DuckDB` 2.0 names its directory `sido=__HIVE_DEFAULT_PARTITION__`): no region load reads
 /// it, and a stage that counts or refuses such rows reads them back by `pnu IS NULL`.
@@ -1330,7 +1338,7 @@ pub(crate) const SHARED_SQL: [&str; 3] = [PAIR_ROWS_SQL, RENUMBERED_INTO_SQL, SP
 #[cfg(test)]
 mod test_reads;
 #[cfg(test)]
-pub(crate) use test_reads::{changed_for_test, partial_for_test, read_for_test, TestRead};
+pub(crate) use test_reads::{changed_for_test, partial_for_test, read_for_test};
 
 #[cfg(test)]
 mod commit_table_tests;

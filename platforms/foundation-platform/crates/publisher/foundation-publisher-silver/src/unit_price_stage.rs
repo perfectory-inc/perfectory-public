@@ -183,9 +183,10 @@ pub fn pnu_pattern() -> anyhow::Result<&'static str> {
     )
 }
 
-/// The build's code version: a change of it rebuilds every row. It folds the SQL as it runs, the
-/// generated parts filled in (the placement, the evidence rule, the catalog ids, the PNU grammar),
-/// and the shared renumbering and split.
+/// The build's code version: a change of it rebuilds every row.
+///
+/// It folds the SQL as it runs, the generated parts filled in (the placement, the evidence rule, the
+/// catalog ids, the PNU grammar), and the shared renumbering and split.
 #[must_use]
 pub fn code_version() -> String {
     let mut hash = Sha256::new();
@@ -340,8 +341,10 @@ pub fn batch_ids(connection: &Connection, source: &Source<'_>) -> anyhow::Result
     Ok(ids.into_iter().map(Option::unwrap_or_default).collect())
 }
 
-/// The batch the Gold reads ([`BatchInput::choose`]): of the ids the price table holds at `source`,
-/// the newest vintage's, its ties broken by the order the table's ingest `log` appended them.
+/// The batch the Gold reads ([`BatchInput::choose`]).
+///
+/// Of the ids the price table holds at `source`, the newest vintage's, its ties broken by the order
+/// the table's ingest `log` appended them.
 ///
 /// # Errors
 /// Returns an error when the table cannot be read or its batches cannot be ordered.
@@ -487,7 +490,7 @@ impl KindVersionsStage for UnitPrice {
             PRICES,
         )?;
         let read_millis = BTreeMap::from([(PRICE_SOURCE.to_owned(), elapsed(at))]);
-        let (unplaced, priced) = if Path::new(dir_text).join(PRICES).is_dir() {
+        let (unplaced, units) = if Path::new(dir_text).join(PRICES).is_dir() {
             let every = format!(
                 "read_parquet('{dir_text}/{PRICES}/*/*.parquet', hive_partitioning = false)"
             );
@@ -507,7 +510,7 @@ impl KindVersionsStage for UnitPrice {
             (0, 0)
         };
         connection.execute_batch(&format!(
-            "INSERT INTO {READ_COUNTS} VALUES ('{UNPLACED}', {unplaced}, {priced});"
+            "INSERT INTO {READ_COUNTS} VALUES ('{UNPLACED}', {unplaced}, {units});"
         ))?;
         Ok(read_millis)
     }
