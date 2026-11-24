@@ -465,8 +465,8 @@ const RENUMBERING_OF_READ: &str = "renumbering@suffix@";
 /// no row set reads what the stage prepared, only those row sets are spooled at `source` (the
 /// base's pins, as `<name>_old`): the served parcels, the code change table and so the renumbering
 /// are the new side's, and a row set whose Silver did not move holds the same rows. Any other move
-/// (the parcels, a table the stage prepares from, a stage with spools of its own) reads the whole
-/// base side, as [`spool`] does.
+/// (the parcels, a table the stage prepares from, a stage whose `pnu_spools` names a spool that is
+/// no row set) reads the whole base side, as [`spool`] does.
 ///
 /// On 2026-11-24 the 총괄표제부 lane's first partial run read all three inputs twice, the 39,861,511
 /// served parcels among them, and loaded both sides of each of 17 시도 to find 2,155 changed keys
@@ -493,7 +493,10 @@ pub fn spool_base(
     };
     let narrow = !moved.is_empty()
         && stage.changed_keys_sql().is_none()
-        && stage.pnu_spools().is_empty()
+        && stage
+            .pnu_spools()
+            .iter()
+            .all(|name| sets.iter().any(|set| set.name == *name))
         && sets.iter().all(reads_itself_only)
         && moved
             .iter()
@@ -566,10 +569,12 @@ fn spool_sidos(dir: &Path, name: &str) -> anyhow::Result<BTreeSet<String>> {
 /// For each spool of `compared` (`<name>` and `<name>_old` under `dir`) and each 시도 either side
 /// holds, the PNUs of the rows one side has and the other has not, as a multiset (a row twice is
 /// another total); a 시도 only one side holds gives every PNU of it. A 시도 whose two sides hold the
-/// same rows gives none, and the build never loads it. The spools hold rows of unserved PNUs and,
-/// for a kind whose current rows a 시도's load chooses, of every version, so the set is the changed
-/// PNUs or more: a PNU named for nothing builds the document it had and appends nothing. The
-/// stage's own rule ([`KindVersionsStage::changed_keys_sql`]) adds its PNUs. Returns the PNUs named.
+/// same rows gives none, and the build never loads it. The stage's own rule
+/// ([`KindVersionsStage::changed_keys_sql`]) adds its PNUs. Only PNUs a side serves are kept (the
+/// spools hold rows of unserved PNUs too, which have no document on either side). For a kind whose
+/// current rows a 시도's load chooses the spools hold every version, so the set may be more than
+/// the changed PNUs: a PNU named for nothing builds the document it had and appends nothing.
+/// Returns the PNUs named.
 ///
 /// # Errors
 /// Returns an error when a spool cannot be listed or `DuckDB` cannot read it.
@@ -617,11 +622,24 @@ pub fn targets_from_spools(
             ))
             .context("the stage's own rule of changed keys")?;
     }
-    connection.execute_batch(
+    // The served parcels of either side, read once and probed by the few PNUs named.
+    let served = ["served".to_owned(), format!("served{BASE_SUFFIX}")]
+        .iter()
+        .filter(|name| dir.join(name.as_str()).is_dir())
+        .map(|name| format!("'{dir_text}/{name}/*/*.parquet'"))
+        .collect::<Vec<_>>();
+    ensure!(
+        !served.is_empty(),
+        "no served parcels were spooled under {}",
+        dir.display()
+    );
+    connection.execute_batch(&format!(
         "CREATE OR REPLACE TABLE targets AS \
-         SELECT DISTINCT pnu FROM changed_row_pnus WHERE pnu IS NOT NULL; \
+         SELECT DISTINCT s.pnu FROM read_parquet([{}], hive_partitioning = false) s \
+         WHERE s.pnu IN (SELECT pnu FROM changed_row_pnus); \
          DROP TABLE changed_row_pnus;",
-    )?;
+        served.join(", ")
+    ))?;
     let count: i64 = connection.query_row("SELECT count(*) FROM targets", [], |row| row.get(0))?;
     Ok(u64::try_from(count)?)
 }
