@@ -20,7 +20,6 @@ use std::time::Duration;
 use anyhow::Context as _;
 use chrono::{DateTime, NaiveDate, Utc};
 use collection_application::{ask, Asked, PaceGate, SiteMethod, SiteRequest};
-use foundation_outbox::ObjectStorageService;
 use foundation_shared_kernel::ObjectKeyPrefix;
 use futures_util::stream::{self, StreamExt as _};
 use serde::Deserialize;
@@ -28,7 +27,7 @@ use serde_json::{json, Value as JsonValue};
 use tokio::time::Instant;
 
 use super::{may_ask, Asking, Search, Stop};
-use crate::media_store::{store_bytes, Stored};
+use crate::media_store::{spool_response, store_spooled_shown, MediaStore, Stored};
 
 /// When the screen opens a specification: `date_field` less `days_before`, for one bid kind.
 #[derive(Clone, Debug, Deserialize)]
@@ -322,7 +321,7 @@ pub(crate) struct SpecAsking<'a> {
     pub(crate) gate: &'a PaceGate,
     pub(crate) http: reqwest::Client,
     pub(crate) prefix: ObjectKeyPrefix,
-    pub(crate) storage: Option<&'a dyn ObjectStorageService>,
+    pub(crate) storage: Option<MediaStore<'a>>,
     pub(crate) captcha_seen: AtomicBool,
 }
 
@@ -525,18 +524,18 @@ async fn fetch_one(
     {
         return Ok(Some((Outcome::NotStored, Some(Stored::Oversize), facts)));
     }
-    let bytes = match response.bytes().await {
-        Ok(bytes) => bytes,
+    // The file goes to disk as it arrives and is sent from there: it is not held whole.
+    let spooled = match spool_response(response, specs.max_file_bytes).await {
+        Ok(spooled) => spooled,
         Err(error) => {
-            facts["failure"] = json!(format!("reading the file failed: {error}"));
+            facts["failure"] = json!(format!("reading the file failed: {error:#}"));
             return Ok(Some((Outcome::Failed, None, facts)));
         }
     };
-    let Some(storage) = on.storage else {
-        let sniffed = foundation_shared_kernel::MediaFormat::sniff(&bytes);
-        facts["media_format"] = json!(sniffed.map(|format| format.extension()));
-        facts["size_bytes"] = json!(bytes.len());
-        let outcome = if sniffed.is_some() {
+    let Some(store) = on.storage else {
+        facts["media_format"] = json!(spooled.shown.then_some(spooled.format.extension()));
+        facts["size_bytes"] = json!(spooled.size_bytes);
+        let outcome = if spooled.shown {
             Outcome::Stored
         } else {
             Outcome::NotStored
@@ -544,14 +543,14 @@ async fn fetch_one(
         return Ok(Some((outcome, None, facts)));
     };
     // A file answer that is not a known format can be the viewer's CAPTCHA or error page.
-    if foundation_shared_kernel::MediaFormat::sniff(&bytes).is_none()
-        && String::from_utf8_lossy(&bytes[..bytes.len().min(4096)])
+    if !spooled.shown
+        && String::from_utf8_lossy(&spooled.start)
             .to_lowercase()
             .contains(&specs.captcha_marker)
     {
         return Ok(Some((Outcome::Captcha, None, facts)));
     }
-    let stored = store_bytes(&bytes, &on.prefix, storage, specs.max_file_bytes).await?;
+    let stored = store_spooled_shown(&spooled, &on.prefix, store).await?;
     let outcome = match &stored {
         Stored::New(_) | Stored::Deduplicated(_) => Outcome::Stored,
         Stored::Gone => Outcome::Gone,

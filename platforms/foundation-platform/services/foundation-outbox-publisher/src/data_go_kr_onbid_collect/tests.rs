@@ -1105,3 +1105,54 @@ fn a_seed_adds_only_the_closed_items_not_listed_and_not_owed_already() {
     let text = serde_json::to_string(&state).unwrap_or_default();
     assert_eq!(serde_json::from_str::<State>(&text).ok(), Some(state));
 }
+
+#[test]
+fn the_state_file_is_read_and_written_as_one_copy_and_an_earlier_file_still_reads(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("state.json");
+    assert_eq!(State::load(&path)?, State::default(), "no file yet");
+    let mut state = State::default();
+    state.listed.insert(
+        key("C-1", 1),
+        Listed {
+            bid_ends_kst: Some("20990102030405".to_owned()),
+            digest: "d1".to_owned(),
+        },
+    );
+    state.closed_owed.insert(key("C-2", 3), 2);
+    state.media.insert(
+        "https://media.invalid/a.jpg".to_owned(),
+        MediaRef {
+            sha256: "0".repeat(64),
+            media_format: "jpg".to_owned(),
+            size_bytes: 9,
+            cltr_mng_no: "C-1".to_owned(),
+            source: None,
+        },
+    );
+    state.save(&path)?;
+    assert_eq!(State::load(&path)?, state);
+    assert!(
+        !path.with_extension("json.tmp").exists(),
+        "installed by rename"
+    );
+    // The file an earlier release wrote (a JSON tree: keys in name order, a field no longer read)
+    // is the same state.
+    let earlier = json!({
+        "state": serde_json::to_value(&state)?,
+        "schema_version": super::STATE_SCHEMA,
+        "written_by": "an earlier release",
+    });
+    std::fs::write(&path, serde_json::to_vec_pretty(&earlier)?)?;
+    assert_eq!(State::load(&path)?, state);
+    // Another schema, or a file without a state, refuses.
+    std::fs::write(&path, r#"{"schema_version": "other.v9", "state": {}}"#)?;
+    assert!(State::load(&path).is_err());
+    std::fs::write(
+        &path,
+        format!(r#"{{"schema_version": "{}"}}"#, super::STATE_SCHEMA),
+    )?;
+    assert!(State::load(&path).is_err());
+    Ok(())
+}
