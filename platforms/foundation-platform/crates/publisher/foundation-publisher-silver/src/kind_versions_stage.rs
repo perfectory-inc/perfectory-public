@@ -160,6 +160,15 @@ pub trait KindVersionsStage: Sync {
     fn pnu_spools(&self) -> Vec<&'static str> {
         self.row_sets().iter().map(|set| set.name).collect()
     }
+    /// Why the kind's documents cannot be built one 시군구 at a time, when they cannot.
+    ///
+    /// [`build_in_parts`] shows [`Self::build`] one 시군구 of the loaded 시도 at a time, which holds
+    /// when a PNU's document reads only rows under PNUs of its own 시군구 (its own rows, as a rule).
+    /// A kind whose document reads another 시군구's rows names the rows here and is built a 시도 at
+    /// once. `None` by default.
+    fn whole_region_reason(&self) -> Option<&'static str> {
+        None
+    }
     /// Leaves an empty `built`, the table [`Self::build`] inserts into.
     ///
     /// # Errors
@@ -872,6 +881,121 @@ pub fn load_region(
         stage.create_built(connection)?;
     }
     Ok(rows)
+}
+
+/// The leading digits of a PNU one part of a 시도's build shares: its 시군구.
+pub const PART_DIGITS: usize = 5;
+
+/// The suffix a 시도's table carries while a view of one part has its name.
+const WHOLE_REGION: &str = "__region";
+
+/// [`KindVersionsStage::build`] over the loaded 시도, one 시군구 at a time; returns the parts built.
+///
+/// A statement over a whole 시도 holds what does not spill (an ordered aggregate, a list) in
+/// memory at once: on 2026-11-23 the ownership shadow passed its 4.3 GiB four times out of four
+/// (15,345,613 owner rows in one 시도; its largest 시군구 has 1,299,963) and never had a first
+/// commit. So every kind is built in parts, here, and no stage carries its own split.
+///
+/// # Errors
+/// Returns the stage's refusal, or an error when `DuckDB` refuses a statement.
+pub fn build_in_parts(
+    stage: &dyn KindVersionsStage,
+    connection: &Connection,
+    all: bool,
+    source_snapshot_id: &str,
+    published_at_utc: &str,
+) -> anyhow::Result<u64> {
+    build_by_prefix(
+        stage,
+        connection,
+        all,
+        source_snapshot_id,
+        published_at_utc,
+        PART_DIGITS,
+    )
+}
+
+/// [`build_in_parts`] with parts of `digits` leading digits (a test's PNUs share their first five).
+///
+/// The stage reads the same names: each table of the 시도 that has a `pnu` column (the served
+/// parcels, the row sets, what `load_more` left, the place ids) is renamed aside and a view of one
+/// part's rows takes its name, then the tables take their names back, also when a part fails.
+/// A partial run builds only the parts `targets` names.
+pub(crate) fn build_by_prefix(
+    stage: &dyn KindVersionsStage,
+    connection: &Connection,
+    all: bool,
+    source_snapshot_id: &str,
+    published_at_utc: &str,
+    digits: usize,
+) -> anyhow::Result<u64> {
+    if stage.whole_region_reason().is_some() {
+        stage.build(connection, all, source_snapshot_id, published_at_utc)?;
+        return Ok(1);
+    }
+    let mut names = vec!["served".to_owned()];
+    names.extend(stage.row_sets().iter().map(|set| set.name.to_owned()));
+    names.extend(stage.pnu_spools().iter().map(|name| (*name).to_owned()));
+    names.push(PLACE_IDS.to_owned());
+    names.sort();
+    names.dedup();
+    let mut tables = Vec::new();
+    for name in names {
+        ensure!(is_plain(&name), "{name:?} is not a plain table name");
+        let held: i64 = connection.query_row(
+            "SELECT count(*) FROM information_schema.columns c \
+             JOIN information_schema.tables t USING (table_schema, table_name) \
+             WHERE t.table_schema = 'main' AND t.table_type = 'BASE TABLE' \
+               AND c.table_name = ? AND c.column_name = 'pnu'",
+            [name.as_str()],
+            |row| row.get(0),
+        )?;
+        if held == 1 {
+            tables.push(name);
+        }
+    }
+    let prefixes = tables
+        .iter()
+        .map(|name| format!("SELECT substr(pnu, 1, {digits}) AS part FROM {name}"))
+        .collect::<Vec<_>>()
+        .join(" UNION ");
+    let targeted = if all {
+        String::new()
+    } else {
+        format!(" WHERE part IN (SELECT substr(pnu, 1, {digits}) FROM targets)")
+    };
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE build_parts AS \
+         SELECT part, row_number() OVER (ORDER BY part NULLS FIRST) AS part_no \
+         FROM ({prefixes}){targeted};"
+    ))?;
+    let parts: i64 =
+        connection.query_row("SELECT count(*) FROM build_parts", [], |row| row.get(0))?;
+    for name in &tables {
+        connection.execute_batch(&format!(
+            "ALTER TABLE {name} RENAME TO {name}{WHOLE_REGION};"
+        ))?;
+    }
+    let built = (1..=parts).try_for_each(|part| {
+        for name in &tables {
+            connection.execute_batch(&format!(
+                "CREATE OR REPLACE VIEW {name} AS SELECT * FROM {name}{WHOLE_REGION} \
+                 WHERE substr(pnu, 1, {digits}) IS NOT DISTINCT FROM \
+                   (SELECT part FROM build_parts WHERE part_no = {part});"
+            ))?;
+        }
+        stage
+            .build(connection, all, source_snapshot_id, published_at_utc)
+            .with_context(|| format!("part {part} of {parts} of the 시도"))
+    });
+    for name in &tables {
+        connection.execute_batch(&format!(
+            "DROP VIEW IF EXISTS {name}; ALTER TABLE {name}{WHOLE_REGION} RENAME TO {name};"
+        ))?;
+    }
+    connection.execute_batch("DROP TABLE build_parts;")?;
+    built?;
+    Ok(u64::try_from(parts)?)
 }
 
 /// What a test reads back: the served parcels and the kind's rows of its one 시도.
