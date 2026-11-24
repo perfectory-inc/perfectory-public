@@ -96,7 +96,9 @@ class OneRuleForAMissedTick(unittest.TestCase):
         reconciler = next(job for job in jobs["jobs"] if job.get("requeues_refused_starts_in"))
         by_id = {job["id"]: job for job in jobs["jobs"]}
         requeued = [job_id for job_id in job_specs.requeued(jobs, reconciler) if not by_id[job_id].get("takes_turns")]
-        candidates = [job_id for job_id in requeued if by_id[job_id].get("dagster_stage") != "dagster"]
+        # Every group is Dagster's now (root ADR-0583): one job goes back to Airflow's side to be caught up.
+        candidates = requeued[:1]
+        by_id[candidates[0]]["dagster_stage"] = "shadow"
         now = datetime.datetime(2099, 1, 2, tzinfo=datetime.UTC).timestamp()
 
         def owed():
@@ -105,7 +107,7 @@ class OneRuleForAMissedTick(unittest.TestCase):
             return {line.split()[1] for line in lines}
 
         self.assertIn(candidates[0], owed())
-        # The Gold group is decided by Dagster (root ADR-0583): none of its jobs is caught up here.
+        # A job Dagster decides (root ADR-0583) is not caught up here.
         self.assertFalse(owed() & {job_id for job_id in requeued if by_id[job_id].get("dagster_stage") == "dagster"})
         by_id[candidates[0]]["dagster_stage"] = "dagster"
         self.assertNotIn(candidates[0], owed())

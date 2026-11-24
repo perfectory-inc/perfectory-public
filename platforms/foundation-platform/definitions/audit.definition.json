@@ -38,7 +38,7 @@
       ],
       "enabled": true,
       "enabled_since": "2026-11-19T00:00:00Z",
-      "dagster_stage": "shadow",
+      "dagster_stage": "dagster",
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "An operation, not a data producer: a quarter hour without a deploy or an operator start is `unchanged`. That it keeps finishing is the done bound."
@@ -79,7 +79,7 @@
       ],
       "enabled": true,
       "enabled_since": "2026-11-19T00:00:00Z",
-      "dagster_stage": "shadow",
+      "dagster_stage": "dagster",
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "An operation, not a data producer: an hour without a new audit row is `unchanged`. The importer fails when a row has waited two hours for a witnessed digest, which bounds this job's silence."

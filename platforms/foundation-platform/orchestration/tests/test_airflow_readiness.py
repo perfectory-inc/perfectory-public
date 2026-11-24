@@ -11,7 +11,7 @@ PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 
 
 class ParserReadiness(unittest.TestCase):
-    def run_fixture(self, scenario):
+    def run_fixture(self, scenario, all_moved=False):
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
             (root / "scripts/deploy").mkdir(parents=True)
@@ -19,13 +19,19 @@ class ParserReadiness(unittest.TestCase):
             script = root / "scripts/deploy/airflow-runtime.sh"
             shutil.copyfile(PLATFORM / "scripts/deploy/airflow-runtime.sh", script)
             jobs = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text())
+            for job in jobs["jobs"]:
+                if all_moved:
+                    job["dagster_stage"] = "dagster"
+                elif job["dagster_group"] == "operations":
+                    # Every group is Dagster's (root ADR-0583); the last one goes back to Airflow's side here.
+                    job["dagster_stage"] = "shadow"
             (root / "orchestration/jobs.v1.json").write_text(json.dumps(jobs))
             # The DAG ids job_specs.py builds; the wrapper must wait for exactly these.
-            # A job Dagster decides has none (root ADR-0565), and the list holds such jobs (the Gold group, ADR-0583).
+            # A job Dagster decides has none (root ADR-0565).
             expected = [jobs["dag_id_prefix"] + job["id"] for job in jobs["jobs"]
                         if job.get("dagster_stage", "airflow") != "dagster"]
             self.assertLess(len(expected), len(jobs["jobs"]))
-            self.assertGreater(len(expected), 1)
+            self.assertEqual(not expected, all_moved)
             (root / "expected.json").write_text(json.dumps(expected))
             (root / "runtime.env").touch()
             (root / "oidc.env").touch()
@@ -43,7 +49,7 @@ if a[:2]==["dags","list"]:
     ids=json.loads((r/"expected.json").read_text()); mode=os.environ["FIXTURE_SCENARIO"]
     if mode=="cli_error": sys.exit(7)
     if mode=="malformed": print("not-json"); sys.exit(0)
-    if mode=="wrong_shape": print(json.dumps({"dag_id":ids[0]})); sys.exit(0)
+    if mode=="wrong_shape": print(json.dumps({"dag_id":"x"})); sys.exit(0)
     if mode=="missing" or (mode=="eventual" and n==1): ids=ids[:-1]
     if "--output" in a: print(json.dumps([{"dag_id":i} for i in ids]))
     else: print("\\n".join(ids))
@@ -79,6 +85,12 @@ else:
         self.assertEqual(actions[:len(pools)], [
             ["pools", "set", name, str(pool["slots"]), pool["description"]] for name, pool in pools.items()])
         self.assertEqual({action[2] for action in actions[len(pools):]}, set(expected))
+
+    def test_with_every_group_moved_airflow_is_owed_no_dag_and_the_deploy_goes_on(self):
+        result, mutations, _, expected = self.run_fixture("eventual", all_moved=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(expected, [])
+        self.assertTrue(all(json.loads(line)[0] == "pools" for line in mutations.splitlines()))
 
     def test_invalid_cli_results_never_mutate_scheduler_state(self):
         for scenario in ["cli_error", "malformed", "wrong_shape"]:

@@ -40,7 +40,7 @@
       "reads_data_contracts": true,
       "enabled": true,
       "enabled_since": "2026-11-14T00:00:00Z",
-      "dagster_stage": "proxied",
+      "dagster_stage": "dagster",
       "started_once_after_deploy": false,
       "expected_outcome": {
         "changes_within_hours": null,

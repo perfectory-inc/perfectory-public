@@ -26,7 +26,13 @@ def bake(jobs):
 
 def enabled(jobs):
     """The first switched-on job of a group not yet switched (root ADR-0583): a stage past `airflow` is only
-    a switched-on job's, and a switched group's jobs all stay at `dagster`."""
+    a switched-on job's, and a switched group's jobs all stay at `dagster`. Once every group is switched, the
+    last one goes back to `proxied` first (the reconciler, in it, runs in Dagster while the groups it starts
+    are Dagster's)."""
+    if set(job_specs.DAGSTER_GROUPS) <= switched_groups(jobs):
+        for job in jobs["jobs"]:
+            if job["dagster_group"] == job_specs.DAGSTER_GROUPS[-1] and job["enabled"]:
+                job["dagster_stage"] = "proxied"
     return next(job for job in jobs["jobs"] if job["enabled"] and job["dagster_group"] not in switched_groups(jobs))
 
 

@@ -60,7 +60,7 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-29T12:00:00Z",
-      "dagster_stage": "proxied",
+      "dagster_stage": "dagster",
       "requeues_refused_starts_in": [
         "spark",
         "duckdb",

@@ -97,7 +97,12 @@ services:
     logging: *log-cap
     image: foundation-platform-airflow:local
     pull_policy: never
-    mem_limit: 768m
+    # Root ADR-0574's rule, measured max x 1.5: 390 MiB working set over three days to 2026-11-24 00:45Z
+    # (cAdvisor max_over_time, this container up since 11-11; memory.events max 0 in the last day), so
+    # 592m. The 176m it gives back are part of what the code server's cap takes (root ADR-0583 §8): with
+    # 768m here the 24G model no longer fit beside the standing services (every-container-has-a-memory-cap).
+    # No job is proxied any more, so nothing but staff and the read paths ask this server until it goes.
+    mem_limit: 592m
     restart: unless-stopped
     command: ["api-server"]
     environment:
@@ -263,12 +268,15 @@ services:
   # process's size: 100 + 2 x 169 + 7 x 169 = 1,621 MiB. Root ADR-0574's rule holds it too: 2026-11-20 the
   # container peaked at 1,109 MiB (cAdvisor, 13 h), x1.5 = 1,664 MiB; a run's process held 172-181 MiB
   # VmRSS, the gRPC code process 209 MiB. The host's caps add up to its 62g (every-container-has-a-memory-cap).
+  # Measured again for the last group (root ADR-0583 §8): 2026-11-21 16:23Z to 11-23 01:10Z, with Gold and
+  # Silver decided here, the container reached 1,576 MiB working set and hit its 1700m cap 135 times
+  # (cAdvisor container_memory_events_max_total). The peak is held by the cap, so 1.5 x 1700m: 2550m.
   dagster-code-server:
     logging: *log-cap
     image: foundation-platform-dagster:local
     pull_policy: never
     profiles: ["dagster-observe"]
-    mem_limit: 1700m
+    mem_limit: 2550m
     restart: unless-stopped
     command: ["dagster", "code-server", "start", "-h", "0.0.0.0", "-p", "4000",
               "-f", "/opt/foundation-platform/current/orchestration/dagster/definitions.py",

@@ -568,17 +568,11 @@ def queue_weights(jobs, feeders):
 
 def priority_class(jobs, entry, name):
     """The host's priority class of a job or a capacity claimant (`priority_class`, `default` when
-    absent, root ADR-0435): one of the list's priority_classes. A class that yields at a step boundary
-    is only for a spark-pool job whose run commits as it goes, so yielding loses no committed step."""
+    absent, root ADR-0435): one of the list's priority_classes."""
     classes = jobs.get("priority_classes") or {}
     value = entry.get("priority_class", "default")
     if value not in classes or not isinstance(classes[value].get("value"), int):
         raise JobListError(f"{name}: priority_class {value!r} is not one of {sorted(classes)}")
-    if classes[value].get("yields_at_step_boundary") and (
-            entry.get("pool") != "spark" or entry.get("commits", "as_it_goes") != "as_it_goes"
-            or entry.get("interruptible") is False):
-        raise JobListError(f"{name}: priority_class {value} yields at a step boundary; only a spark-pool job"
-                           " that commits as it goes and is interruptible can")
     return value
 
 
@@ -647,8 +641,6 @@ def capacity_claimants(jobs, pools):
         if not isinstance(work, list) or not all(isinstance(unit, str) and re.fullmatch(r"[a-z0-9@*-]+\.service", unit)
                                                  for unit in work):
             raise JobListError(f"capacity claimant {name}: work_units must be systemd service names or patterns")
-        if (jobs["priority_classes"].get(claimant.get("priority_class")) or {}).get("yields_at_step_boundary"):
-            raise JobListError(f"capacity claimant {name}: a claimant does not yield; name another class")
         priority_class(jobs, claimant, f"capacity claimant {name}")
     return claimants
 

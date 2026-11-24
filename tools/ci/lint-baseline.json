@@ -673,7 +673,7 @@
    "SC2329": 1
   },
   "platforms/foundation-platform/scripts/ops/unit-price-versions-migrate.sh": {
-   "SC2312": 5
+   "SC2312": 3
   },
   "platforms/foundation-platform/scripts/ops/vworld-parcel-edition-collect.sh": {
    "SC2094": 2,
