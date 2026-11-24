@@ -312,3 +312,30 @@ fn a_partial_run_names_only_the_parcels_whose_rows_or_service_changed() -> anyho
     assert_eq!(*total, 1);
     Ok(())
 }
+
+#[test]
+fn the_parts_of_a_sido_build_the_documents_one_statement_would() -> anyhow::Result<()> {
+    let connection = Connection::open_in_memory()?;
+    load(&connection, &rows())?;
+    crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
+    let stamps = ("999990000000000001", "2099-03-01T00:00:00Z");
+    // One part: every synthetic PNU starts with 9.
+    build_in_parts(&connection, true, stamps.0, stamps.1, 1)?;
+    let whole = built(&connection)?;
+    assert_eq!(whole.len(), 4);
+    // Two parts: the moved parcel's 동 (99999103) and the others' (99999101).
+    OWNERSHIP.create_built(&connection)?;
+    build_in_parts(&connection, true, stamps.0, stamps.1, 8)?;
+    assert_eq!(built(&connection)?, whole);
+    // A part per parcel.
+    OWNERSHIP.create_built(&connection)?;
+    build_in_parts(&connection, true, stamps.0, stamps.1, 19)?;
+    assert_eq!(built(&connection)?, whole);
+    let left: i64 = connection.query_row(
+        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'ownership_parts'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(left, 0, "the parts table outlived the build");
+    Ok(())
+}

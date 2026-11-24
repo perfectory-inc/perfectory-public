@@ -15,6 +15,9 @@
 //! Only PNUs of the served parcel edition have a document, a row under a renumbered code is read
 //! under the served one; the lineage is not followed.
 //!
+//! A 시도's documents are built one 시군구 at a time ([`PART_DIGITS`]): a PNU's rows share its
+//! prefix, so the parts' documents are the 시도's, and the statement holds one 시군구's owners.
+//!
 //! The bytes are Spark's: `to_json` with every field written, a null as `null`
 //! (`ignoreNullFields` false), and `row_digest` the SHA-256 of `to_json` of the content columns with
 //! the null `attached_via` left out (Spark's default `ignoreNullFields`).
@@ -55,17 +58,35 @@ const ROW_FIELDS: [&str; 3] = [
     "base_year_month",
     "data_reference_date",
 ];
+/// The leading digits of a PNU the rows of one run of the document statement share: its 시군구.
+///
+/// The statement's owner lists are ordered aggregates, which `DuckDB` keeps in memory whole (they
+/// do not spill); a 시도 at once passed the session's 4.3 GiB four times on 2026-11-23 and the
+/// shadow never had its first commit.
+pub const PART_DIGITS: usize = 5;
 /// What the rules are; part of the build's code version.
 pub const RULES_VERSION: &str = "parcel-ownership-duckdb-v1";
 
-/// The rows of the PNUs of `targets` folded into one document each, inserted into `built`. The
-/// 공유인수 is read as the integer the Silver holds: a 시도 the spool holds nothing of loads every
-/// column as text.
+/// The parts of the PNUs of `targets`: the prefixes their rows have, numbered.
+///
+/// A row with no PNU is a part too, so the build refuses it as it did.
+const PARTS_SQL: &str = "\
+CREATE OR REPLACE TABLE ownership_parts AS \
+SELECT part, row_number() OVER (ORDER BY part NULLS FIRST) AS part_no \
+FROM (SELECT DISTINCT substr(pnu, 1, @digits@) AS part FROM ownership_rows WHERE @targets@)";
+
+/// The rows of the PNUs of `targets` in one part folded into one document each, inserted into
+/// `built`.
+///
+/// The 공유인수 is read as the integer the Silver holds: a 시도 the spool holds nothing of
+/// loads every column as text.
 const DOCUMENT_SQL: &str = "\
 INSERT INTO built \
 WITH picked AS ( \
   SELECT * REPLACE (CAST(co_owner_count AS INTEGER) AS co_owner_count) \
-  FROM ownership_rows WHERE @targets@), \
+  FROM ownership_rows \
+  WHERE @targets@ AND substr(pnu, 1, @digits@) IS NOT DISTINCT FROM \
+    (SELECT part FROM ownership_parts WHERE part_no = @part@)), \
 land AS ( \
   SELECT * FROM picked \
   WHERE collective_building_serial_no IS NULL OR regexp_matches(collective_building_serial_no, '@land@')), \
@@ -160,6 +181,7 @@ impl KindVersionsStage for OwnershipKind {
             LAND_ROW_SERIAL,
             &bound,
             &fields,
+            PARTS_SQL,
             DOCUMENT_SQL,
         ]
         .into_iter()
@@ -219,32 +241,61 @@ impl KindVersionsStage for OwnershipKind {
         source_snapshot_id: &str,
         published_at_utc: &str,
     ) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            is_plain(source_snapshot_id) && is_plain(published_at_utc),
-            "the stamps {source_snapshot_id:?} and {published_at_utc:?} are not plain ids"
-        );
-        let owner = OWNER_FIELDS
-            .iter()
-            .map(|field| format!("'{field}': {field}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let owner_order = OWNER_FIELDS
-            .iter()
-            .map(|field| format!("{field} ASC NULLS FIRST"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let targets = if all {
-            "TRUE"
-        } else {
-            "pnu IN (SELECT pnu FROM targets)"
-        };
-        let bound = OWNER_PAGE_BOUND.to_string();
+        build_in_parts(
+            connection,
+            all,
+            source_snapshot_id,
+            published_at_utc,
+            PART_DIGITS,
+        )
+    }
+}
+
+/// [`KindVersionsStage::build`], one run of the document statement for each `digits`-long PNU
+/// prefix of the targets' rows.
+fn build_in_parts(
+    connection: &Connection,
+    all: bool,
+    source_snapshot_id: &str,
+    published_at_utc: &str,
+    digits: usize,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        is_plain(source_snapshot_id) && is_plain(published_at_utc),
+        "the stamps {source_snapshot_id:?} and {published_at_utc:?} are not plain ids"
+    );
+    let owner = OWNER_FIELDS
+        .iter()
+        .map(|field| format!("'{field}': {field}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let owner_order = OWNER_FIELDS
+        .iter()
+        .map(|field| format!("{field} ASC NULLS FIRST"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let targets = if all {
+        "TRUE"
+    } else {
+        "pnu IN (SELECT pnu FROM targets)"
+    };
+    let bound = OWNER_PAGE_BOUND.to_string();
+    let digits = digits.to_string();
+    connection.execute_batch(&fill(
+        PARTS_SQL,
+        &[("targets", targets), ("digits", &digits)],
+    ))?;
+    let parts: i64 =
+        connection.query_row("SELECT count(*) FROM ownership_parts", [], |row| row.get(0))?;
+    for part in 1..=parts {
         let at = std::time::Instant::now();
         connection
             .execute_batch(&fill(
                 DOCUMENT_SQL,
                 &[
                     ("targets", targets),
+                    ("digits", &digits),
+                    ("part", &part.to_string()),
                     ("land", LAND_ROW_SERIAL),
                     ("owner", &owner),
                     ("owner_order", &owner_order),
@@ -256,12 +307,14 @@ impl KindVersionsStage for OwnershipKind {
             ))
             .map_err(|error| {
                 anyhow::anyhow!(
-                    "DuckDB refused the ownership document statement after {} ms: {error}",
+                    "DuckDB refused the ownership document statement of part {part} of {parts} \
+                     after {} ms: {error}",
                     elapsed(at)
                 )
             })?;
-        Ok(())
     }
+    connection.execute_batch("DROP TABLE ownership_parts;")?;
+    Ok(())
 }
 
 #[cfg(test)]
