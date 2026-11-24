@@ -346,30 +346,62 @@ mod keyed {
     }
 }
 
+/// The state file as read: parsed straight from the file into the state.
+#[derive(Deserialize)]
+struct StateFile {
+    schema_version: String,
+    state: State,
+}
+
+/// The state file as written: serialized straight from the state into the file.
+#[derive(Serialize)]
+struct StateFileRef<'s> {
+    schema_version: &'static str,
+    state: &'s State,
+}
+
 impl State {
+    /// Reads the state from its file, one copy of it in memory: the file is parsed as it is read,
+    /// into the state itself. Reading the whole file, parsing it into a JSON tree, cloning the
+    /// `state` subtree and only then building the state held four forms of it at once; the state
+    /// grows with the open items (every stored media URL), and a run that asked almost nothing
+    /// (2.5 s of CPU) still peaked at 821 MB (measured 2026-11-23).
     fn load(path: &Path) -> anyhow::Result<Self> {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let raw: JsonValue = serde_json::from_slice(
-            &std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?,
-        )
-        .with_context(|| format!("{} is not JSON", path.display()))?;
+        let file = std::fs::File::open(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let read: StateFile = serde_json::from_reader(std::io::BufReader::new(file))
+            .with_context(|| format!("{} does not hold a state", path.display()))?;
         ensure!(
-            raw["schema_version"] == STATE_SCHEMA,
+            read.schema_version == STATE_SCHEMA,
             "{} is not a {STATE_SCHEMA} file",
             path.display()
         );
-        serde_json::from_value(raw["state"].clone())
-            .with_context(|| format!("{} does not hold a state", path.display()))
+        Ok(read.state)
     }
 
+    /// Writes the state to its file as it is serialized (no JSON tree, no buffer of the whole file),
+    /// then installs it by rename.
     fn save(&self, path: &Path) -> anyhow::Result<()> {
         let tmp = path.with_extension("json.tmp");
-        write_json_file(
-            &tmp,
-            &json!({"schema_version": STATE_SCHEMA, "state": self}),
-        )?;
+        let mut writer = std::io::BufWriter::new(
+            std::fs::File::create(&tmp)
+                .with_context(|| format!("failed to write {}", tmp.display()))?,
+        );
+        serde_json::to_writer_pretty(
+            &mut writer,
+            &StateFileRef {
+                schema_version: STATE_SCHEMA,
+                state: self,
+            },
+        )
+        .with_context(|| format!("failed to write {}", tmp.display()))?;
+        writer
+            .flush()
+            .with_context(|| format!("failed to write {}", tmp.display()))?;
+        drop(writer);
         std::fs::rename(&tmp, path).with_context(|| format!("failed to install {}", path.display()))
     }
 
@@ -1047,7 +1079,6 @@ pub async fn run() -> anyhow::Result<()> {
     let mut state = State::load(&state_path)?;
     // Root ADR-0542 §3: the closed items from before the collector kept them, once.
     let seeded = closed::load_seed(&mut state, config.closed_owed_seed.as_deref())?;
-    let before = state.clone();
     let mut fetcher = Fetcher::new(
         &contract,
         &config.base_uri,
@@ -1057,9 +1088,14 @@ pub async fn run() -> anyhow::Result<()> {
     let mut report = match collect(&contract, &mut fetcher, &mut state, now).await {
         Ok(report) => report,
         Err(error) => {
-            // The calls were spent; only the counts are kept, so the next run asks again.
-            let mut spent = before;
-            spent.budget = state.budget;
+            // The calls were spent; only the counts are kept, so the next run asks again. The
+            // state as it stood is read again here, on the failure only, instead of a second copy
+            // of it being held through every run.
+            let budget = std::mem::take(&mut state.budget);
+            drop(state);
+            let mut spent = State::load(&state_path)?;
+            closed::load_seed(&mut spent, config.closed_owed_seed.as_deref())?;
+            spent.budget = budget;
             spent.save(&state_path)?;
             return Err(error);
         }
