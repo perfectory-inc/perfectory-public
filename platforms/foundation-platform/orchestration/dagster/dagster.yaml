@@ -44,7 +44,13 @@ run_coordinator:
     # was failed on "Unexpected error in IPC client"; its worker started later and was ignored, so the tick
     # was lost (the next one ran). A re-queued run is QUEUED, so such a late worker is still ignored and
     # the retry launches it once.
-    max_user_code_failure_retries: 3
+    #
+    # Ten, a minute apart: the wait outlasts the code server's own reloads. 2026-11-24 the deploy's step 5
+    # took 1 min 28 s to 5 min 18 s from its start to "dagster: observing" (seven deploys, the autodeploy
+    # journal), and at 04:46Z, under a staging smoke's load, the server did not answer for over three minutes:
+    # the daily 04:40 run of industrial_complex_address_source_collect used its three tries by 04:50 and was
+    # failed before its unit started. A daily job's tick has one run, so the day's collection was lost.
+    max_user_code_failure_retries: 10
     user_code_failure_retry_delay: 60
 
 # Dagster's own pools (root ADR-0605): a run holds one slot of its op's pool from dequeue to its end
