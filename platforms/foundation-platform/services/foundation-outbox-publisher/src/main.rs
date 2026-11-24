@@ -128,6 +128,7 @@ mod parcel_lineage_derive;
 mod parcel_matching_gate;
 mod parcel_nearby_versions_build;
 mod parcel_real_transaction_versions_build;
+use foundation_publisher_collection::content_spool;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;

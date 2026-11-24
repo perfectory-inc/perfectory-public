@@ -23,12 +23,16 @@ use std::{
 use anyhow::{bail, Context};
 use bytes::Bytes;
 use collection_domain::CollectionError;
+use foundation_outbox::ObjectStorageStreamingService;
+use foundation_shared_kernel::ObjectKey;
 use futures_util::{
     stream::{self, BoxStream},
     StreamExt as _,
 };
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+use crate::bulk_streaming_bronze::BronzeStreamingObjectStorageWriter;
 
 /// Free space the spool leaves on its filesystem beyond every reservation.
 pub const SPOOL_MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -234,6 +238,48 @@ pub async fn spool_payload(
         _reservation: reservation,
         checksum_sha256: crate::bulk_streaming_bronze::sha256_hex(&hasher.finalize()),
         size_bytes,
+    })
+}
+
+/// The write port that lands a spooled body under `object_key`, the key its SHA-256 names (root
+/// ADR-0152). Every lane that keys a file by its bytes writes through here.
+///
+/// The key is read back first: absent, the port uploads the spooled bytes from disk (multipart above
+/// the single-put size), so memory holds one chunk whatever the file's size; present with the same
+/// checksum and size, the port writes nothing and the committer reconciles the ledger row (a rerun,
+/// or the same bytes filed again); present with other bytes, the file is refused, since a key that
+/// names one checksum cannot hold another. The spooled file belongs to the port's body and is
+/// removed when that body is dropped, read or not.
+pub async fn content_addressed_writer<'a, Storage>(
+    storage: &'a Storage,
+    spooled: Arc<SpoolFile>,
+    object_key: &ObjectKey,
+    content_type: String,
+) -> anyhow::Result<BronzeStreamingObjectStorageWriter<'a, Storage>>
+where
+    Storage: ObjectStorageStreamingService + ?Sized,
+{
+    let held = storage
+        .read_object_sha256_and_size_by_rehash(object_key.as_str())
+        .await
+        .with_context(|| format!("failed to read back {}", object_key.as_str()))?;
+    Ok(match held {
+        None => {
+            BronzeStreamingObjectStorageWriter::new(storage, content_type, spooled.body_stream())
+        }
+        Some(held)
+            if held.checksum_sha256 == spooled.checksum_sha256
+                && held.size_bytes == spooled.size_bytes =>
+        {
+            BronzeStreamingObjectStorageWriter::already_present(storage, content_type)
+        }
+        Some(held) => bail!(
+            "{} holds sha256 {} ({} bytes), not the {} bytes it names",
+            object_key.as_str(),
+            held.checksum_sha256,
+            held.size_bytes,
+            spooled.size_bytes
+        ),
     })
 }
 

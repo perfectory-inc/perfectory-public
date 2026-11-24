@@ -7,9 +7,10 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{
     fetch, fetch_past, fetch_standard, openapi_check, owed_past, pass_id, plan, provider_file_id,
-    read_columns, read_metadata, read_past_editions, selected, source_contract, Announced,
-    ContractFile, SourceContract, PREFIX,
+    read_columns, read_metadata, read_past_editions, selected, source_contract, spool_bytes,
+    Announced, Content, ContractFile, SourceContract, PREFIX,
 };
+use crate::content_spool::SpoolDir;
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
 // Synthetic only: made-up file ids and payloads with no real rows (public repository).
@@ -24,6 +25,22 @@ fn zip_bytes() -> Vec<u8> {
     let mut bytes = b"PK\x03\x04".to_vec();
     bytes.extend_from_slice(b"synthetic");
     bytes
+}
+
+/// What the collector reads of a file's bytes on their way to the spool.
+fn content(bytes: &[u8]) -> Content {
+    Content {
+        checksum_sha256: sha256(bytes),
+        size_bytes: bytes.len() as u64,
+        head: bytes.iter().copied().take(512).collect(),
+    }
+}
+
+/// A spool in a directory of its own with room for anything; the directory goes with the guard.
+fn spool_dir() -> anyhow::Result<(tempfile::TempDir, SpoolDir)> {
+    let root = tempfile::tempdir()?;
+    let dir = SpoolDir::with_free_bytes(root.path(), |_| Ok(u64::MAX))?;
+    Ok((root, dir))
 }
 
 fn spacing() -> anyhow::Result<ProviderRequestSpacing> {
@@ -108,13 +125,15 @@ fn every_file_is_its_own_source_and_one_object_named_by_its_bytes() -> anyhow::R
         "registered-factory-file-000000000000001"
     );
     assert_eq!(
-        plan(factory, zip_bytes(), run, at)?.object_key.as_str(),
+        plan(factory, &content(&zip_bytes()), run, at)?
+            .object_key
+            .as_str(),
         format!(
             "bronze/source=datagokr__registered_factory/registered-factory--sha256-{}.zip",
             sha256(&zip_bytes())
         )
     );
-    let airport = plan(file(&contract, "airport")?, b"a,b\n".to_vec(), run, at)?;
+    let airport = plan(file(&contract, "airport")?, &content(b"a,b\n"), run, at)?;
     assert_eq!(
         (airport.object_key.as_str(), airport.content_type.as_str()),
         (
@@ -131,14 +150,19 @@ fn every_file_is_its_own_source_and_one_object_named_by_its_bytes() -> anyhow::R
         chrono::DateTime::parse_from_rfc3339("2099-02-03T04:05:06Z")?.with_timezone(&chrono::Utc);
     let again = foundation_shared_kernel::ids::IngestionRunId::new(Uuid::new_v4());
     assert_eq!(
-        plan(file(&contract, "airport")?, b"a,b\n".to_vec(), again, later)?
-            .object_key
-            .as_str(),
+        plan(
+            file(&contract, "airport")?,
+            &content(b"a,b\n"),
+            again,
+            later
+        )?
+        .object_key
+        .as_str(),
         airport.object_key.as_str()
     );
     for each in contract.files.values() {
         // Every file plans a canonical Bronze key (the slug is the catalog's dataset_slug).
-        plan(each, zip_bytes(), run, at)?;
+        plan(each, &content(&zip_bytes()), run, at)?;
     }
     assert!(PREFIX.starts_with("FOUNDATION_PLATFORM_"));
     Ok(())
@@ -153,6 +177,7 @@ async fn a_new_file_is_fetched_once_and_the_landed_one_is_not_fetched_again() ->
     let server = MockServer::start().await;
     portal(factory, FILE_ID, zip_bytes(), &server).await?;
     portal(airport, OTHER_ID, "공항명\n".as_bytes().to_vec(), &server).await?;
+    let (_root, dir) = spool_dir()?;
     let mut requests = 0;
     let fetched = fetch(
         &contract,
@@ -161,20 +186,32 @@ async fn a_new_file_is_fetched_once_and_the_landed_one_is_not_fetched_again() ->
         spacing()?,
         &mut requests,
         None,
+        &dir,
     )
     .await?;
-    let (announced, bytes) = fetched.ok_or_else(|| anyhow::anyhow!("a new file is fetched"))?;
+    let (announced, spooled) = fetched.ok_or_else(|| anyhow::anyhow!("a new file is fetched"))?;
+    // The file is on disk, not in memory: the spool holds its bytes, and what was read of them on
+    // the way in is what a plan needs.
+    let spooled_at = spooled.file.path().to_owned();
     assert_eq!(
-        (announced.attach_file_id.as_str(), bytes),
+        (
+            announced.attach_file_id.as_str(),
+            std::fs::read(&spooled_at)?
+        ),
         (FILE_ID, zip_bytes())
     );
+    assert_eq!(spooled.content, content(&zip_bytes()));
+    // Whoever holds the file last removes it: nothing is left in the spool after a commit.
+    drop(spooled);
+    assert!(!spooled_at.exists());
     assert!(fetch(
         &contract,
         factory,
         &server.uri(),
         spacing()?,
         &mut requests,
-        Some(FILE_ID)
+        Some(FILE_ID),
+        &dir,
     )
     .await?
     .is_none());
@@ -185,6 +222,7 @@ async fn a_new_file_is_fetched_once_and_the_landed_one_is_not_fetched_again() ->
         spacing()?,
         &mut requests,
         None,
+        &dir,
     )
     .await?;
     assert_eq!(
@@ -217,6 +255,7 @@ async fn a_download_that_is_not_the_file_is_refused() -> anyhow::Result<()> {
         let target = file(&contract, slug)?;
         let server = MockServer::start().await;
         portal(target, FILE_ID, body, &server).await?;
+        let (root, dir) = spool_dir()?;
         let mut requests = 0;
         assert!(
             fetch(
@@ -225,12 +264,15 @@ async fn a_download_that_is_not_the_file_is_refused() -> anyhow::Result<()> {
                 &server.uri(),
                 spacing()?,
                 &mut requests,
-                None
+                None,
+                &dir,
             )
             .await
             .is_err(),
             "{slug}"
         );
+        // A refused download leaves nothing in the spool.
+        assert_eq!(std::fs::read_dir(root.path())?.count(), 0, "{slug}");
     }
     Ok(())
 }
@@ -337,9 +379,13 @@ async fn a_standard_data_pass_asks_the_current_table_and_lands_only_when_its_row
     .is_none());
     let at =
         chrono::DateTime::parse_from_rfc3339("2099-01-02T03:04:05Z")?.with_timezone(&chrono::Utc);
+    let (_root, dir) = spool_dir()?;
+    let built = content(&bytes);
+    let spooled = spool_bytes(&dir, bytes, "application/gzip", &announced.attach_file_id).await?;
+    assert_eq!(spooled.content, built, "a pass lands through the spool too");
     let planned = plan(
         school,
-        bytes,
+        &spooled.content,
         foundation_shared_kernel::ids::IngestionRunId::new(Uuid::new_v4()),
         at,
     )?;
@@ -578,7 +624,8 @@ async fn a_past_edition_is_asked_by_its_own_key_lands_as_what_arrived_and_a_land
     ]))?;
     let mut requests = 0;
     let landed = std::collections::BTreeSet::from([OTHER_ID.to_owned()]);
-    let (announced, bytes) = fetch_past(
+    let (_root, dir) = spool_dir()?;
+    let (announced, spooled) = fetch_past(
         &contract,
         insurance,
         &editions[0],
@@ -586,14 +633,15 @@ async fn a_past_edition_is_asked_by_its_own_key_lands_as_what_arrived_and_a_land
         spacing()?,
         &mut requests,
         &landed,
+        &dir,
     )
     .await?;
-    let bytes = bytes.ok_or_else(|| anyhow::anyhow!("a new edition is fetched"))?;
+    let spooled = spooled.ok_or_else(|| anyhow::anyhow!("a new edition is fetched"))?;
     let at =
         chrono::DateTime::parse_from_rfc3339("2099-01-02T03:04:05Z")?.with_timezone(&chrono::Utc);
     let run = foundation_shared_kernel::ids::IngestionRunId::new(Uuid::new_v4());
     assert_eq!(announced.attach_file_id, FILE_ID);
-    let planned = plan(insurance, bytes, run, at)?;
+    let planned = plan(insurance, &spooled.content, run, at)?;
     assert_eq!(
         (planned.object_key.as_str(), planned.content_type.as_str()),
         (
@@ -613,9 +661,11 @@ async fn a_past_edition_is_asked_by_its_own_key_lands_as_what_arrived_and_a_land
         spacing()?,
         &mut requests,
         &landed,
+        &dir,
     )
     .await?;
-    assert_eq!((same.attach_file_id.as_str(), none), (OTHER_ID, None));
+    assert_eq!(same.attach_file_id, OTHER_ID);
+    assert!(none.is_none(), "a landed file is not fetched again");
     assert_eq!(requests, 3, "two metadata asks and one download");
     Ok(())
 }
