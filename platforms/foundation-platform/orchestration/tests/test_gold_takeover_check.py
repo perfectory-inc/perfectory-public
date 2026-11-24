@@ -80,7 +80,7 @@ class Declared(unittest.TestCase):
                 self.assertEqual(check.declared(run(table=table), definitions, {}), (table, "41"))
         # A lane that took its table over shadows nothing and declares the check no more (root ADR-0564 §6-4).
         for table in ("gold.parcel_energy_versions", "gold.parcel_register_masters_versions",
-                      "gold.parcel_demolitions_versions"):
+                      "gold.parcel_demolitions_versions", "gold.parcel_factories_versions"):
             with self.subTest(taken_over=table):
                 self.assertIsNone(check.declared(run(table=table, shadow_of=None), definitions, {}))
                 self.assertIsNone(check.declared(run(table=table), definitions, {}))

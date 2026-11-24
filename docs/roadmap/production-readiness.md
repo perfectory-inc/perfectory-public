@@ -232,7 +232,7 @@ last_reviewed: 2026-11-07
 | 토지 | 필지별 토지이용계획 (`silver.land_use_plan`) | `parcel` | — | 화면 |
 | 토지 | 용도지역지구 구역 (`silver.land_use_zone_area`) | `parcel-regulation-zones (꺼짐)` | `zoning-overlay-tiles` | 화면 |
 | 토지 | 용도지역 코드 사전 (`silver.land_use_zone_code`) | `parcel` | — | 화면 |
-| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-demolitions`<br>`parcel-energy`<br>`parcel-nearby`<br>`parcel-real-transaction`<br>`parcel-register-masters`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
+| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-demolitions`<br>`parcel-energy`<br>`parcel-factories`<br>`parcel-nearby`<br>`parcel-real-transaction`<br>`parcel-register-masters`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
 | 토지 | 필지 계보 (`silver.parcel_lineage`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
 | 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy` | — | 화면 |
 | 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy` | — | 화면 |

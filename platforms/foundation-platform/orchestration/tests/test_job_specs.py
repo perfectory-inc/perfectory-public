@@ -552,7 +552,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
                          ("gold_parcel_regulation_zones_rebuild",))
         self.assertEqual(specs["by_pnu_parcel_sub_parcels_bake"].producers, ("gold_parcel_sub_parcels_rebuild",))
         self.assertEqual(specs["by_pnu_parcel_energy_bake"].producers, ("gold_parcel_energy_versions_build",))
-        self.assertEqual(specs["by_pnu_parcel_factories_bake"].producers, ("gold_parcel_factories_rebuild",))
+        self.assertEqual(specs["by_pnu_parcel_factories_bake"].producers, ("gold_parcel_factories_versions_build",))
         self.assertEqual(specs["by_pnu_parcel_register_masters_bake"].producers,
                          ("gold_parcel_register_masters_versions_build",))
         self.assertEqual(specs["by_pnu_parcel_building_permits_bake"].producers,

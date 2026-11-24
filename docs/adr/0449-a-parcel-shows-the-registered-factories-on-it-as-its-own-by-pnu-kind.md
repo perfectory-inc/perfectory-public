@@ -47,3 +47,11 @@
 - **비용(계산).** 첫 전량 빌드는 22만 행 판 하나와 서빙 필지판 PNU 열 하나를 읽는다 — 멸실 종류(42만 필지)보다 작다.
   Gold 는 12만 행, 원문 수십 MB, R2 월 1원 아래. 이후 빌드는 판이 바뀔 때(연 1 회쯤)와 필지판이 움직일 때만 일을 한다.
 - 공장주소가 PNU 로 풀리지 않은 18.5% 는 보이지 않는다. 주소 DB(juso) 원천을 더하는 일은 ADR-0280 의 후속 그대로다.
+
+## 개정 메모 2026-11-24: 등록공장 종류의 생산자가 발행기 안의 DuckDB 로 넘어갔다
+
+레인의 표는 `gold.parcel_factories_versions` 이고 생산자는 `factory_kind_stage::FACTORIES`(발행기,
+`gold_parcel_factories_versions_build`)다. Spark 의 `registered_factory_silver_to_gold.py` 는 지웠고, `gold_parcel_factories_rebuild` 는
+꺼진 줄로 한 릴리스 남으며, `gold.parcel_factories` 는 쓰지 않고 남긴다(루트 ADR-0564 Revision 2026-11-24 넷째 넘겨받기). 문서와 경로는
+그대로다. Spark 시험이 지키던 것은 발행기 단계의 시험이 지킨다(`factory_kind_stage/tests.rs`: 가장 새 판만, 회사명 순서, 같은 공장은 한 번,
+빈 칸은 null, 재편 코드는 서빙 필지로, 상한과 전체 수, 레지스트리 스키마의 칸 그대로).
