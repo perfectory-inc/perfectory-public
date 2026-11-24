@@ -53,6 +53,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/b
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_major_repair_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_parking_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_site_location_silver_export.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_structure_ledger_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_permit_temporary_building_silver_export.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/building_register_apartment_price_silver_export.rs:1

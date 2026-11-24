@@ -229,11 +229,11 @@ class AJobDagsterRunsTest(unittest.TestCase):
         self.assertEqual(materialized, {})
 
     def shadow_build(self):
-        """A lane that still shadows (건축인허가): its output carries the declared `takeover_equal` check."""
+        """A lane that still shadows (등록공장): its output carries the declared `takeover_equal` check."""
         import observe_assets
 
         return next(spec for spec in observe_assets.job_specs.load_specs()
-                    if spec.job_id == "gold_parcel_building_permits_versions_build")
+                    if spec.job_id == "gold_parcel_factories_versions_build")
 
     def check_line(self, asset_key, check_name="takeover_equal", passed=False):
         return pipes_line("report_asset_check", {
@@ -257,20 +257,20 @@ class AJobDagsterRunsTest(unittest.TestCase):
 
         spec = self.shadow_build()
         result, tags, materialized, _ = self.execute(spec, [
-            self.check_line("iceberg/gold/parcel_building_permits_versions"), "foundation-job-outcome changed"])
+            self.check_line("iceberg/gold/parcel_factories_versions"), "foundation-job-outcome changed"])
         self.assertTrue(result.success)
         self.assertEqual(tags["foundation/job-outcome"], "changed")
         (evaluation,) = self.evaluations(result)
         self.assertEqual((evaluation.asset_key.to_user_string(), evaluation.check_name, evaluation.passed,
                           evaluation.severity),
-                         ("iceberg/gold/parcel_building_permits_versions", "takeover_equal", False,
+                         ("iceberg/gold/parcel_factories_versions", "takeover_equal", False,
                           AssetCheckSeverity.ERROR))
         self.assertEqual(evaluation.metadata["outcome"].value, "not equal")
         self.assertIn(evaluation.asset_key, materialized, "the commit it judged is materialized too")
 
     def test_a_run_that_kept_the_head_still_logs_the_verdict_it_ran(self):
         result, tags, materialized, _ = self.execute(self.shadow_build(), [
-            self.check_line("iceberg/gold/parcel_building_permits_versions", passed=True),
+            self.check_line("iceberg/gold/parcel_factories_versions", passed=True),
             "foundation-job-outcome unchanged"])
         self.assertTrue(result.success)
         self.assertEqual((tags["foundation/job-outcome"], materialized), ("unchanged", {}))
@@ -278,8 +278,8 @@ class AJobDagsterRunsTest(unittest.TestCase):
 
     def test_a_run_never_judges_a_check_its_unit_does_not_own(self):
         for spec, line in (
-                (self.shadow_build(), self.check_line("iceberg/gold/parcel_building_permits_versions", "rows_valid_per_sido")),
-                (self.shadow_build(), self.check_line("iceberg/gold/parcel_building_permits", passed=True)),
+                (self.shadow_build(), self.check_line("iceberg/gold/parcel_factories_versions", "rows_valid_per_sido")),
+                (self.shadow_build(), self.check_line("iceberg/gold/parcel_factories", passed=True)),
                 (self.spec(), self.check_line("iceberg/" + self.spec().outputs[0][1].replace(".", "/")))):
             with self.subTest(line=line):
                 result, _, materialized, _ = self.execute(spec, [line, "foundation-job-outcome changed"])
@@ -372,10 +372,10 @@ class AJobDagsterRunsTest(unittest.TestCase):
 
         instance = DagsterInstance.ephemeral()
         self.addCleanup(instance.dispose)
-        key = AssetCheckKey(AssetKey(["iceberg", "gold", "parcel_building_permits_versions"]), "takeover_equal")
+        key = AssetCheckKey(AssetKey(["iceberg", "gold", "parcel_factories_versions"]), "takeover_equal")
         self.assertIsNone(takeover_checks.reported_evaluation(instance, key, "any"))
         built = self.execute_with_instance(self.shadow_build(), [
-            self.check_line("iceberg/gold/parcel_building_permits_versions", passed=True),
+            self.check_line("iceberg/gold/parcel_factories_versions", passed=True),
             "foundation-job-outcome changed"], instance)
         found = takeover_checks.reported_evaluation(instance, key, "a later check run")
         self.assertEqual((found[0], found[1].passed), (built.run_id, True))

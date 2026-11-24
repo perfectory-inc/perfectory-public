@@ -98,7 +98,11 @@
         "wave": 2
       },
       "building_permit_silver_to_gold": {
-        "wave": 3
+        "moved": {
+          "pull_request": 1699,
+          "rows": 4332574,
+          "fingerprint": "rows:4332574;content_hash_sum:39937322914140333110256514"
+        }
       },
       "building_register_floor_history": {
         "moved": {

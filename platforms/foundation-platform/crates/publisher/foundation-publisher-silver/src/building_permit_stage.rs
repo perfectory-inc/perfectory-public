@@ -1,5 +1,7 @@
-//! The parcel building-permit kind's Gold in `DuckDB` (root ADR-0356, ADR-0451, ADR-0564 §6): the
-//! twin of `building_permit_silver_to_gold.py`.
+//! The parcel building-permit kind's Gold in `DuckDB` (root ADR-0356, ADR-0451, ADR-0564 §6).
+//!
+//! It carries the rules of the Spark job `building_permit_silver_to_gold.py`, which it replaced when
+//! the lane was taken over.
 //!
 //! A PNU's document holds, from the parcel's current rows:
 //!

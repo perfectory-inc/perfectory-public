@@ -78,7 +78,7 @@ class Reconciler(unittest.TestCase):
             # The court auction Gold follows code changes too (root ADR-0382).
             "reference.legal_dong_code_change": table(snap("61", None, 0)),
             # The building-permit and nearby lanes (root ADR-0468), caught up.
-            "gold.parcel_building_permits": table(snap("501", None, 0)),
+            "gold.parcel_building_permits_versions": table(snap("501", None, 0)),
             "gold.parcel_nearby_versions": table(snap("601", None, 0)),
             # The lanes switched on behind the loaders that fill them (root ADR-0468, revised 2026-11-10), caught up.
             "gold.parcel_ownership": table(snap("701", None, 0)),
@@ -202,7 +202,8 @@ class Reconciler(unittest.TestCase):
                                             # versions (root ADR-0564 §6-4).
                                             "gold_parcel_nearby_rebuild",
                                             *(f"gold_parcel_{kind}_versions_build" for kind in (
-                                                "energy", "register_masters", "demolitions", "factories", "sub_parcels")),
+                                                "energy", "register_masters", "demolitions", "factories", "sub_parcels",
+                                                "building_permits")),
                                             *(f"by_pnu_parcel_{kind}_bake" for kind in (
                                                 "ownership", "sub_parcels", "energy", "demolitions", "factories",
                                                 "register_masters", "real_transaction"))})
