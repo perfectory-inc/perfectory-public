@@ -1,6 +1,6 @@
 # ADR 0615: DuckDB 로 옮긴 Gold 레인은 시도로 나뉜 Dagster 자산이고, 파트의 상태는 Dagster 의 것이다
 
-- Status: Proposed (셋째 초안 — EGM 검토와 ADR-0616 의 시작 순서 B 반영; 결정 2-4 의 발행기 쪽 코드는 이 PR 에 있다)
+- Status: Proposed (셋째 초안 — EGM 검토와 AWS 전제 반영; 결정 2-4 의 발행기 쪽 코드는 이 PR 에 있다)
 - Date: 2026-11-24
 - 고치는 곳(Accepted 가 되면): [ADR-0564](./0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md)
   결정 3(전국 한 커밋)과 넷째 개정(이어 짓기), ADR-0333 §1(시도 파티션은 "레인이 Dagster 로 옮기면")의 실행.
@@ -105,12 +105,13 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
 
 ### 2. 바뀐 파트가 파티션 키가 되는 길
 
-**지금(일이 유닛으로 시작하는 동안, ADR-0616 의 순서 B)은 파티션을 하나씩 시작하지 않는다.** 레인의 지금 그 시작(입력이 움직였을 때·cron; 뒤에는
-레인 단위의 `on_cron`/`eager` 와 `single_run`)이 유닛을 시작하고, 유닛이 **낡은 시도를 모두** 지금 버전으로 올리고, 시도마다의 사건은 그 결과다.
-유닛은 키를 받지 않는다: 표가 참이므로(아래 4·5) 짓기가 스스로 원하는 버전을 셈하고, 머리의 상태가 다른 시도만 짓고, 같은 시도는 건너뛴다.
-그래서 강제 명령·유닛 틀·요청은 한 글자도 바뀌지 않고, 돌고 있는 유닛에 붙는 것도 맞다(같은 일을 하고 있다).
-아래 1·2 의 "입력 관찰 + 파티션마다의 `eager`"(스파이크 (b)-A)는 **Dagster 가 파티션 하나를 시작할 수 있게 된 뒤**(AWS 로 옮긴 뒤)의 길이고 지금 짓지
-않는다. 3 부터는 지금의 것이다.
+**목표는 AWS 다(사장 결정 2026-11-24; ADR-0616 이 AWS 를 전제로 다시 쓰인다).** 거기서는 Dagster 가 파티션 하나(또는 구간)를 일 하나로 직접
+시작하고(ECS 태스크), run 의 파티션 키가 일에 닿는다. 그래서 아래 1·2 의 "입력 관찰 + 파티션마다의 `eager`"(스파이크 (b)-A)가 본길이다.
+
+**짓기는 키를 받으면 그 시도만, 받지 않으면 낡은 시도를 모두 올린다**(`FOUNDATION_PLATFORM_GOLD_VERSIONS_PARTITIONS`, 쉼표로 이은 시도 — 자산의
+몸이 run 의 `partition_keys` 를 넣는다; Dagster 가 구간을 키로 풀어 주므로 짓기는 dynamic 파티션의 순서를 몰라도 된다). 표가 참이므로(아래 4·5)
+짓기는 어느 쪽이든 원하는 버전을 스스로 셈하고, 머리의 상태가 다른 시도만 짓고, 같은 시도는 건너뛴다. 키 없이 도는 길은 파티션을 하나씩 시작할
+수 없는 곳(지금의 유닛 시작)에서의 길이고, ai-server 의 시작 층은 이 ADR 때문에 고치지 않는다.
 
 1. **입력 관찰.** 레인마다 `@observable_source_asset(partitions_def=sido)` 하나가 `DataVersionsByPartition` 을 돌려준다. 값은 공통 드라이버의
    `plan-gold-versions <lane>` 이 낸 한 줄의 JSON(`{"partitions": {"11": "<버전>", ...}}`)이다. `plan` 은 상태를 갖지 않고, 레이크하우스 열쇠가
@@ -184,19 +185,18 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
 | 판정을 시킬지 정하는 한 줄(검사 이력 읽기) | 자산 검사의 자동 재실행 | 판정은 유닛의 열쇠로 유닛 안에서 돈다 |
 | 일을 시작하는 층 | `PipesDockerClient`(ADR-0616) | 아래 |
 
-**시작하는 층에 기대는 것**(지금의 `run_jobs.py`·`systemd_pipes.py`·`start-scheduled-job.sh`; ADR-0616 이 같은 줄을 든다). 둘뿐이다.
+**일을 시작하는 층에 기대는 것**(ADR-0616). 셋이다.
 
-1. 저널의 Pipes 줄(`report_asset_materialization`·`report_asset_check`)이 **파티션과 데이터 버전을 지닌 채** 사건이 된다(지금
-   `SystemdRun.materializations` 는 둘을 버리고 키마다 하나로 만든다). W82c 가 고친다.
-2. 결과가 `unchanged` 인 run 도 시도마다의 사건을 낸다(지금은 사건을 거둔다).
+1. run 의 파티션 키가 일의 환경에 닿는다(위의 환경 변수 하나; 없으면 낡은 시도 모두).
+2. 일의 Pipes 줄(`report_asset_materialization`·`report_asset_check`)이 **파티션과 데이터 버전을 지닌 채** 사건이 된다.
+3. 일의 종료 상태가 run 의 성패다.
 
-기대지 **않는** 것: 인자를 싣는 길(유닛은 키를 받지 않는다 — 운영자의 한 시도 실행과 시험을 위한 선택 환경 변수만 있다), 다른 키의 시작을
-거절하는 것, 실패한 run 의 사건이 남는 것(결정 2-5).
+기대지 **않는** 것: 실패한 run 의 사건이 남는 것(결정 2-5: 기본 Pipes 클라이언트는 일이 끝난 뒤에만 결과를 돌려준다 — 표가 참이다).
+ai-server 의 지금 층(`run_jobs.py`·`systemd_pipes.py`·`start-scheduled-job.sh`)은 AWS 가 대신하므로 이 설계를 위해 고치지 않는다.
 
 **어디에 선언하나.** 작업 정의에 `partitioned_by: sido` 가 있으면 생성기가 그 작업의 출력을 `partitioned_assets.py` 의 `@asset` 과 입력 관찰로
 만든다. 그 노드는 `observe_assets` 의 `AssetSpec` 에서, 그 작업은 `run_jobs` 의 job 과 `decide` 의 센서에서 빠진다: 시작시키는 것은 `eager` 하나다.
-`job_specs`·선언 생성물·파이프라인 지도·메모리 가드는 같은 정의에서 읽으므로 새 칸 하나를 안다. 순서 B 에서는 자산의 몸이 지금의 op 와
-같은 요청(작업 id·종류)으로 유닛을 시작한다.
+`job_specs`·선언 생성물·파이프라인 지도·메모리 가드는 같은 정의에서 읽으므로 새 칸 하나를 안다. 자산의 몸이 일을 어떻게 시작하는가는 ADR-0616 의 것이다.
 
 ### 6. 첫 레인, PR 의 차례, 확인
 
@@ -206,7 +206,7 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
 | PR | 무엇 | 무엇을 증명하나 | 되돌리기 |
 |---|---|---|---|
 | 1 (이 PR) | 발행기: 시도마다의 커밋, 머리의 상태 표(`foundation.partition-state`), 표의 번호·합, 신원에 시도와 버전, "표가 참". 레인마다 켠다(`KindBuild.per_sido_commits`), 토지소유만 켠다 | 발행기 시험(상태 표·버전). 운영: 토지소유의 첫 빌드가 시도마다 커밋되고, 죽은 run 뒤의 run 이 남은 시도만 짓는다 | 표에 시도 커밋이 생긴 뒤 PR 을 되돌려도 표는 그대로 읽힌다(상태 표는 더한 속성이다) |
-| 2 (W82c) | 저널의 Pipes 읽기가 파티션·데이터 버전을 지닌다 | 층의 시험 | PR 되돌리기 |
+| 2 (ADR-0616) | AWS 의 시작 층: 파티션 키가 일에 닿고 Pipes 줄이 파티션·데이터 버전을 지닌다 | 그 ADR 의 것 | — |
 | 3 | 빌드 스크립트가 시도마다의 Pipes 줄을 낸다. `partitioned_by`, 생성기, 가드, `partitioned_assets.py`(레인 단위의 시작, `single_run`) | `test_dagster_observe` 의 임시 인스턴스: 한 시도를 실패시킨 대역 유닛에서 그 파티션만 FAILED 이고 재시도가 그것만 짓는다. 아래 "확인하지 못한 것" 셋을 도는 데몬에서 정한 뒤에 쓴다 | PR 되돌리기 |
 | 4 | 나머지 종류 레인을 켠다(그림자 → 넘겨받은 셋). 굽기가 판본·코드가 한결같은 머리만 핀한다(결정 2-7)가 넘겨받은 레인의 조건이다 | 레인마다의 운영 확인 | 레인의 한 칸 |
 | 5 | `gold_versions_resume.rs` 와 표의 나머지를 지운다 | 지운 뒤 모든 레인의 시험 | PR 되돌리기 |
@@ -259,8 +259,8 @@ materialization 하나를 알린다. Dagster 는 시도를 모른다.
 
 받지 않은 것: static 시도 목록(zoom-out) — 더하기만 하는 dynamic 이 같은 안전을 PR 없이 준다.
 
-검토 뒤에 바뀐 것(셋째 초안): ADR-0616 의 EGM 이 순서 B(일은 계속 유닛으로 시작한다)를 골랐다. 표가 참이므로 유닛은 키를 받지 않아도 된다는
-것을 W82c 와 맞췄고, 인자를 싣는 길과 `plan` 명령을 지금의 범위에서 뺐다(결정 2 의 머리, 결정 5).
+검토 뒤에 바뀐 것(셋째 초안): 사장이 AWS 를 전제로 정했다(2026-11-24). 파티션을 Dagster 가 직접 시작하는 것이 본길이 되었고, 표가 참이므로
+키 없이도 도는 짓기를 W82c 와 맞췄다(결정 2 의 머리, 결정 5). ai-server 의 시작 층은 고치지 않는다.
 
 ## 기각한 대안
 

@@ -54,10 +54,38 @@ use crate::{
         contract, lakehouse_read, max_row_loss_fraction_of, served_edition, write_summary,
         MAX_CHANGED_KEY_FRACTION, MEMORY_SHARE,
     },
-    public_data_control_support::required_env_value,
+    public_data_control_support::{optional_env_value, required_env_value},
 };
 
 pub(crate) const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY";
+/// The 시도 a run is asked for, comma-separated (root ADR-0615 §2: the partition keys the
+/// orchestrator hands a run). Absent, the run brings every 시도 that is not at the wanted version
+/// up to it.
+pub(crate) const PARTITIONS_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_PARTITIONS";
+
+/// The 시도 [`PARTITIONS_ENV`] names.
+///
+/// # Errors
+/// Refuses a key that is not two digits, and an empty list: a run asked for nothing was asked wrongly.
+pub(crate) fn requested_partitions(text: Option<&str>) -> anyhow::Result<Option<BTreeSet<String>>> {
+    let Some(text) = text else {
+        return Ok(None);
+    };
+    let keys: BTreeSet<String> = text
+        .split(',')
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned)
+        .collect();
+    ensure!(!keys.is_empty(), "{PARTITIONS_ENV} names no 시도");
+    for key in &keys {
+        ensure!(
+            key.len() == 2 && key.bytes().all(|byte| byte.is_ascii_digit()),
+            "{PARTITIONS_ENV} names {key:?}, not a 시도"
+        );
+    }
+    Ok(Some(keys))
+}
 
 /// One lane's build: the versions table, its by-PNU lane (whose served Gold says whether this run
 /// is a shadow, root ADR-0564 §6), the table whose columns it carries and whose build a shadow
@@ -245,6 +273,11 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         .map_or_else(BTreeSet::new, |base| versions::moved(base, &pins));
     // A table that commits a 시도 at a time (root ADR-0615): the head says what each 시도 was built
     // from, and a 시도 already at the version this run would build is not built again.
+    let requested = requested_partitions(optional_env_value(PARTITIONS_ENV)?.as_deref())?;
+    ensure!(
+        kind.per_sido_commits || requested.is_none(),
+        "{table} is committed whole: a run of it cannot be asked for some 시도 ({PARTITIONS_ENV})"
+    );
     let mut states = if kind.per_sido_commits {
         versions::PartitionStates::of(&history)?
     } else {
@@ -390,6 +423,9 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let mut append_head = head;
     let max_loss = max_row_loss_fraction_of(kind.replaced)?;
     for sido in &sidos {
+        if requested.as_ref().is_some_and(|keys| !keys.contains(sido)) {
+            continue;
+        }
         let recorded = states.sidos.get(sido).cloned();
         if recorded
             .as_ref()
@@ -623,7 +659,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                 "version_seq": commit.base.as_ref().map(|base| base.version_seq),
                 "current_records": commit.base.as_ref().map(|base| base.current_records),
                 "content_fingerprint": commit.base.as_ref().map(|base| versions::fingerprint_text(base.fingerprint)),
-                "partitions": {"built": built_sidos, "found_current": current_sidos},
+                "partitions": {"built": built_sidos, "found_current": current_sidos, "requested": requested},
                 "every_pnu": every_pnu, "targets": targets,
                 "served_parcels": read.served_parcels, "rows": rows, "read_millis": read.read_millis,
                 "sidos": sidos, "diff": diff, "tags": tags,
@@ -867,6 +903,22 @@ impl Drop for Spool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_is_asked_for_sido_by_their_two_digits_or_for_none() -> anyhow::Result<()> {
+        assert_eq!(requested_partitions(None)?, None);
+        assert_eq!(
+            requested_partitions(Some("41, 11,41"))?,
+            Some(BTreeSet::from(["11".to_owned(), "41".to_owned()]))
+        );
+        for bad in ["", " , ", "4", "411", "4a", "11,national"] {
+            assert!(
+                requested_partitions(Some(bad)).is_err(),
+                "{bad:?} was taken"
+            );
+        }
+        Ok(())
+    }
 
     /// A kind line that names `place_identity` gives its table a `place_id` column (by_pnu_kind
     /// derive); a stage that did not carry it would write every row's id as null, and the takeover
