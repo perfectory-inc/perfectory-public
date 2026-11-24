@@ -356,6 +356,31 @@ class AJobDagsterRunsTest(unittest.TestCase):
         self.assertEqual(asked, [f"{spec.job_id} triggered"])
         self.assertIsNone(run_jobs.run_job(spec, transport=Stand([])).graph.node_defs[0].retry_policy)
 
+    def test_a_start_the_host_refused_waits_in_its_run_and_is_never_a_success(self):
+        # 2026-11-24: the host answered `waiting: the spark pool has no room`, the run ended SUCCESS in thirty
+        # seconds, and gold_public_auction_rebuild went 94 hours without a build while its runs "succeeded".
+        import observe_assets
+        import run_jobs
+        from dagster import RetryRequested
+
+        spec = self.decided_by_dagster()
+        asked = run_jobs.waits(spec)
+        delay = observe_assets.job_specs.RETRY_DELAY_MINUTES
+        self.assertIsInstance(asked, RetryRequested)
+        self.assertEqual((asked.max_retries, asked.seconds_to_wait), (max(1, spec.timeout_minutes // delay), 60 * delay))
+        # The op asks Dagster to try again; with no try left (so the test does not sleep) the run fails.
+        with mock.patch.object(run_jobs, "waits", lambda _: RetryRequested(max_retries=0)):
+            result, tags, materialized, asked_of_host = self.execute(
+                spec, ["foundation-job-outcome waiting the spark pool has no room"], check=["has work"])
+        self.assertFalse(result.success, "a start the host refused is not a success")
+        self.assertEqual((tags["foundation/job-outcome"], materialized), ("waiting", {}))
+        self.assertEqual(asked_of_host[-1], f"{spec.job_id} triggered")
+        # A proxied job's waiting is Airflow's to retry: its run answers as before.
+        proxied = dataclasses.replace(spec, dagster_stage="proxied")
+        result, tags, _, _ = self.execute(proxied, ["foundation-job-outcome waiting the spark pool has no room"])
+        self.assertTrue(result.success)
+        self.assertEqual(tags["foundation/job-outcome"], "waiting")
+
     def test_a_job_dagster_decides_is_retried_as_airflow_retried_it(self):
         import observe_assets
         import run_jobs

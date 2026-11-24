@@ -113,7 +113,7 @@ def run_job(spec, transport=None, lineage_client=None):
     """The Dagster job of one job: one op, the unit through the forced command (`transport`, or the
     host's from the environment), reporting its runs to the data catalog when Dagster decides it
     (lineage.py; `lineage_client`, or the environment's transport)."""
-    from dagster import Failure, OpExecutionContext, RetryPolicy, job, op
+    from dagster import Failure, OpExecutionContext, RetryPolicy, RetryRequested, job, op
 
     keys = [observe_assets.asset_key(dataset) for dataset in spec.outputs]
     decided_here = spec.dagster_stage == "dagster"
@@ -140,6 +140,11 @@ def run_job(spec, transport=None, lineage_client=None):
         lineage.started(retry_number, record.create_timestamp.timestamp() if record else None)
         try:
             runs_once(context)
+        except RetryRequested as waiting:
+            # The host did not start the unit: no try of the job to report, unless this was the last wait.
+            if retry_number >= waiting.max_retries:
+                lineage.ended(retry_number, succeeded=False, last_try=True)
+            raise
         except BaseException:
             lineage.ended(retry_number, succeeded=False, last_try=retry_number >= spec.retries)
             raise
@@ -170,6 +175,9 @@ def run_job(spec, transport=None, lineage_client=None):
         if spec.reconciles or spec.requeues:
             tags[job_specs.OWED_TAG] = json.dumps([list(owed) for owed in result.owed])
         context.instance.add_run_tags(context.run_id, tags)
+        if decided_here and result.outcome == "waiting":
+            context.log.info(f"the host did not start {spec.job_id}: {result.reason}; the run waits and asks again")
+            raise waits(spec)
         # Read both before logging either: a report the run may not make fails it with nothing logged.
         materializations = result.materializations(keys)
         evaluations = result.check_evaluations(keys, reported_checks(keys))
@@ -186,6 +194,23 @@ def run_job(spec, transport=None, lineage_client=None):
     return job(name=spec.dagster_job, tags={key: value for key, value in spec.dagster_tags().items()
                                              if key != job_specs.RUN_KIND_TAG},
                description=spec.description)(runs_the_unit)
+
+
+def waits(spec):
+    """What a run of a job Dagster decides raises when the host answered `waiting` (its pool has no room
+    beside work Dagster does not count, a release build runs, the deploy holds the job): Dagster's own
+    request to try the op again, in the same run. The run stays open, so the job's sensor starts no second
+    one, its place in Dagster's pool says it waits for the host, and the unit starts as soon as the host
+    lets it. It asks every RETRY_DELAY_MINUTES for as long as one start may take (the job's own limit, which
+    run monitoring holds the run to as well); past that the run fails and says so.
+
+    Until 2026-11-24 a `waiting` answer ended the run in SUCCESS after about thirty seconds:
+    gold_public_auction_rebuild "succeeded" thirteen times in 44 hours without its unit starting once (94
+    hours without a build), and each of those runs let the next decision start another."""
+    from dagster import RetryRequested
+
+    delay = job_specs.RETRY_DELAY_MINUTES
+    return RetryRequested(max_retries=max(1, spec.timeout_minutes // delay), seconds_to_wait=60 * delay)
 
 
 def reported_checks(keys, graph=None):
