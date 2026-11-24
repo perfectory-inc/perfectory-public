@@ -705,6 +705,7 @@ impl KindVersionsStage for CourtAuctionKind {
         &self,
         connection: &Connection,
         source: &Source<'_>,
+        _edition: &str,
         suffix: &str,
         dir_text: &str,
     ) -> anyhow::Result<BTreeMap<String, u64>> {
