@@ -164,6 +164,7 @@ pub struct PublicDataPageCommitOutcome {
     /// Identifier of the recorded `bronze_object` row.
     pub bronze_object_id: BronzeObjectId,
     /// The compiled plan the committer derived, for downstream schema-profile + accounting reuse.
+    /// Its `raw_payload` is empty: the bytes went to storage, and a page is held once.
     pub plan: PublicDataBronzePagePlan,
 }
 
@@ -937,7 +938,7 @@ impl BronzeCommitter {
         // validation + logical-items pointer + candidate-key suffixes through the trait, producing the
         // SHARED page plan. The page-size / operation-collapse / cadastral-scope / semantic-guard rules
         // plug in INSIDE this compile (the lane impl or its shared `plan_public_data_bronze_page`).
-        let plan = input
+        let mut plan = input
             .request
             .compile_bronze_page_plan(
                 input.source_slug,
@@ -977,7 +978,9 @@ impl BronzeCommitter {
 
         let planned = PlannedBronzeObject {
             object_key: plan.object_key.as_str().to_owned(),
-            payload: BronzePayload::InMemory(plan.raw_payload.clone()),
+            // Moved, not copied: the outcome's plan is read for its accounting and schema
+            // observations, never for the bytes.
+            payload: BronzePayload::InMemory(std::mem::take(&mut plan.raw_payload)),
             content_type: input.content_type,
             cache_control: input.cache_control,
             checksum_sha256: plan.checksum_sha256.clone(),

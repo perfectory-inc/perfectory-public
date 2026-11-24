@@ -101,6 +101,24 @@ fn public_data_bronze_plan_builds_provider_neutral_metadata_for_any_json_api() -
         .ok_or("expected tradeId schema observation")?;
     assert_eq!(trade_id.observed_type, SchemaObservedType::String);
     assert!(trade_id.candidate_key_score > 0.99);
+    assert_eq!(trade_id.sample_values, json!(["11680-202605-1"]));
+
+    // An object or array field is counted and typed but not sampled: its sample was a whole copy of
+    // the records under it (a bulk answer's records array is one field seen once).
+    for container in [
+        "response",
+        "response.body.items",
+        "response.body.items.item",
+        "response.body.items.item[]",
+    ] {
+        let field = plan
+            .schema_observations
+            .iter()
+            .find(|field| field.field_path == container)
+            .ok_or("expected a container schema observation")?;
+        assert_eq!(field.nonnull_count, 1, "{container}");
+        assert_eq!(field.sample_values, json!([]), "{container}");
+    }
     Ok(())
 }
 

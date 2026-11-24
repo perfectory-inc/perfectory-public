@@ -185,40 +185,61 @@ pub async fn run() -> anyhow::Result<()> {
     } else {
         None
     };
-    let mut fetched = fetch_bulk_datasets(&config, &client).await?;
-    if let (Some(target), true) = (target.as_ref(), config.detail_complex_codes.is_empty()) {
-        if let Some(list) = fetched
-            .iter()
-            .find(|item| item.dataset.dataset_slug == COMPLEX_LIST_DATASET_SLUG)
-        {
-            let profile_codes = newest_profile_codes(&target.pool, target.storage.as_ref()).await?;
-            config.detail_complex_codes = unlisted_profile_codes(&profile_codes, &list.payload);
+    let uow = target
+        .as_ref()
+        .map(|target| PgBronzeIngestUnitOfWork::new(target.pool.clone()));
+    let live = uow
+        .as_ref()
+        .zip(target.as_ref())
+        .map(|(uow, target)| (uow, target.storage.as_ref()));
+    // Each answer is fetched, committed and dropped before the next request: a run holds one
+    // answer at a time, never the 13.5 MB notice list beside the complex list and the details
+    // until the last of them is in.
+    let mut report = AddressSourceCollectReport {
+        requests_sent: 0,
+        datasets: Vec::new(),
+    };
+    within_budget(&config)?;
+    let mut derived_codes = None;
+    if config.collect_bulk_datasets {
+        for dataset in ILIS_DATASETS {
+            let item = fetch_bulk_dataset(&config, &client, dataset, report.requests_sent).await?;
+            if let (Some(target), true, true) = (
+                target.as_ref(),
+                config.detail_complex_codes.is_empty(),
+                dataset.dataset_slug == COMPLEX_LIST_DATASET_SLUG,
+            ) {
+                let profile_codes =
+                    newest_profile_codes(&target.pool, target.storage.as_ref()).await?;
+                derived_codes = Some(unlisted_profile_codes(&profile_codes, &item.payload));
+            }
+            land(&config, live, run_id, started_at, item, &mut report).await?;
         }
     }
-    let sent = fetched.len();
-    fetched.extend(fetch_detail_datasets(&config, &client, sent).await?);
+    if let Some(codes) = derived_codes {
+        config.detail_complex_codes = codes;
+    }
+    if !config.detail_complex_codes.is_empty() {
+        within_budget(&config)?;
+        // Derived codes come from a workbook, not the operator: held to the operator's rule all
+        // the same, since each is a path segment of a provider request.
+        let codes = detail_complex_codes(Some(&config.detail_complex_codes.join(",")))?;
+        for code in &codes {
+            let item = fetch_detail_dataset(&config, &client, code, report.requests_sent).await?;
+            land(&config, live, run_id, started_at, item, &mut report).await?;
+        }
+    }
 
-    let Some(target) = target else {
+    if live.is_none() {
         tracing::info!(
-            requests_sent = fetched.len(),
-            datasets = fetched.len(),
+            requests_sent = report.requests_sent,
+            datasets = report.requests_sent,
             "ILIS industrial-complex address-source dry run succeeded; set {}_LIVE_WRITE=1 to \
              commit the Bronze objects",
             PREFIX
         );
         return Ok(());
-    };
-
-    let uow = PgBronzeIngestUnitOfWork::new(target.pool.clone());
-    let report = persist_with_adapters(
-        &config,
-        run_id,
-        started_at,
-        &fetched,
-        &uow,
-        target.storage.as_ref(),
-    )
-    .await?;
+    }
     if let Some(summary_path) = config.summary_path.as_ref() {
         write_json_file(summary_path, &summary_json(&config, &report))?;
     }
@@ -371,74 +392,84 @@ fn within_budget(config: &AddressSourceCollectConfig) -> anyhow::Result<usize> {
     Ok(planned)
 }
 
-async fn fetch_bulk_datasets(
+/// Asks one bulk dataset, after the provider's spacing.
+async fn fetch_bulk_dataset(
     config: &AddressSourceCollectConfig,
     client: &IlisIndustrialComplexApiClient,
-) -> anyhow::Result<Vec<FetchedDataset>> {
-    let planned = within_budget(config)?;
-    let mut fetched = Vec::with_capacity(planned);
-    let mut request_index = 0_usize;
-    if config.collect_bulk_datasets {
-        for dataset in ILIS_DATASETS {
-            config
-                .request_spacing
-                .wait_before_request(request_index)
-                .await;
-            request_index += 1;
-            let page = client
-                .fetch_page(dataset.endpoint_path, 1, dataset.page_size)
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to fetch the ILIS {} bulk page from {}",
-                        dataset.dataset_slug, dataset.endpoint_path
-                    )
-                })?;
-            assert_records_present(dataset, &page.payload)?;
-            fetched.push(fetched_dataset(
-                *dataset,
-                NATIONAL_SCOPE_PARTITION_NAME,
-                NATIONAL_SCOPE_PARTITION_VALUE,
-                page.raw_payload,
-                page.payload,
-            )?);
-        }
-    }
-    Ok(fetched)
+    dataset: &IlisDataset,
+    request_index: usize,
+) -> anyhow::Result<FetchedDataset> {
+    config
+        .request_spacing
+        .wait_before_request(request_index)
+        .await;
+    let page = client
+        .fetch_page(dataset.endpoint_path, 1, dataset.page_size)
+        .await
+        .with_context(|| {
+            format!(
+                "failed to fetch the ILIS {} bulk page from {}",
+                dataset.dataset_slug, dataset.endpoint_path
+            )
+        })?;
+    assert_records_present(dataset, &page.payload)?;
+    fetched_dataset(
+        *dataset,
+        NATIONAL_SCOPE_PARTITION_NAME,
+        NATIONAL_SCOPE_PARTITION_VALUE,
+        page.raw_payload,
+        page.payload,
+    )
 }
 
-async fn fetch_detail_datasets(
+/// Asks one complex's detail, after the provider's spacing.
+async fn fetch_detail_dataset(
     config: &AddressSourceCollectConfig,
     client: &IlisIndustrialComplexApiClient,
-    already_sent: usize,
-) -> anyhow::Result<Vec<FetchedDataset>> {
-    if config.detail_complex_codes.is_empty() {
-        return Ok(Vec::new());
-    }
-    within_budget(config)?;
-    // Derived codes come from a workbook, not the operator: held to the operator's rule all the
-    // same, since each is a path segment of a provider request.
-    let codes = detail_complex_codes(Some(&config.detail_complex_codes.join(",")))?;
-    let mut fetched = Vec::with_capacity(codes.len());
-    for (request_index, code) in (already_sent..).zip(codes.iter()) {
-        config
-            .request_spacing
-            .wait_before_request(request_index)
-            .await;
-        let page = client
-            .fetch_detail(ILIS_DETAIL_DATASET.endpoint_path, code)
-            .await
-            .with_context(|| format!("failed to fetch the ILIS detail for complex {code}"))?;
-        assert_records_present(&ILIS_DETAIL_DATASET, &page.payload)?;
-        fetched.push(fetched_dataset(
-            ILIS_DETAIL_DATASET,
-            COMPLEX_PARTITION_NAME,
-            code.as_str(),
-            page.raw_payload,
-            page.payload,
-        )?);
-    }
-    Ok(fetched)
+    code: &str,
+    request_index: usize,
+) -> anyhow::Result<FetchedDataset> {
+    config
+        .request_spacing
+        .wait_before_request(request_index)
+        .await;
+    let page = client
+        .fetch_detail(ILIS_DETAIL_DATASET.endpoint_path, code)
+        .await
+        .with_context(|| format!("failed to fetch the ILIS detail for complex {code}"))?;
+    assert_records_present(&ILIS_DETAIL_DATASET, &page.payload)?;
+    fetched_dataset(
+        ILIS_DETAIL_DATASET,
+        COMPLEX_PARTITION_NAME,
+        code,
+        page.raw_payload,
+        page.payload,
+    )
+}
+
+/// Commits one fetched answer in a live run and drops it; a dry run only counts the request.
+async fn land(
+    config: &AddressSourceCollectConfig,
+    live: Option<(&PgBronzeIngestUnitOfWork, &dyn ObjectStorageService)>,
+    run_id: IngestionRunId,
+    started_at: chrono::DateTime<Utc>,
+    item: FetchedDataset,
+    report: &mut AddressSourceCollectReport,
+) -> anyhow::Result<()> {
+    report.requests_sent += 1;
+    let Some((uow, storage)) = live else {
+        return Ok(());
+    };
+    // The run's id goes to the first dataset; every further dataset is its own run.
+    let dataset_run_id = if report.datasets.is_empty() {
+        run_id
+    } else {
+        IngestionRunId::new(Uuid::new_v4())
+    };
+    report
+        .datasets
+        .push(persist_dataset(config, dataset_run_id, started_at, item, uow, storage).await?);
+    Ok(())
 }
 
 fn fetched_dataset(
@@ -507,68 +538,65 @@ fn collect_array_pointers(prefix: &str, value: &JsonValue, found: &mut Vec<Strin
     }
 }
 
-async fn persist_with_adapters<Uow, Storage>(
+/// Commits one fetched dataset and consumes it: its bytes and parsed answer are moved into the
+/// commit and dropped there, not copied.
+///
+/// Each dataset is its own source catalog entry and its own ingestion run: they are separate
+/// datasets, and folding them into one run would make the ledger claim a single collection that
+/// never happened.
+async fn persist_dataset<Uow, Storage>(
     config: &AddressSourceCollectConfig,
-    run_id: IngestionRunId,
+    dataset_run_id: IngestionRunId,
     started_at: chrono::DateTime<Utc>,
-    fetched: &[FetchedDataset],
+    item: FetchedDataset,
     uow: &Uow,
     storage: &Storage,
-) -> anyhow::Result<AddressSourceCollectReport>
+) -> anyhow::Result<AddressSourceDatasetReport>
 where
     Uow: BronzeIngestUnitOfWork + ?Sized,
     Storage: ObjectStorageService + ?Sized,
 {
-    if fetched.is_empty() {
-        bail!("ILIS address-source collection produced no Bronze page plans");
-    }
-    let mut datasets = Vec::with_capacity(fetched.len());
-    for (dataset_index, item) in fetched.iter().enumerate() {
-        // Each dataset is its own source catalog entry and its own ingestion run: they are two
-        // datasets, and folding them into one run would make the ledger claim a single collection
-        // that never happened.
-        let dataset_run_id = if dataset_index == 0 {
-            run_id
-        } else {
-            IngestionRunId::new(Uuid::new_v4())
-        };
-        let plan = compile_plan(item, dataset_run_id, started_at)?;
-        let entry = source_catalog_entry(config, item, started_at);
-        let report = collect_planned_pages(
-            &IlisLane,
-            entry.clone(),
-            ingestion_run(
-                SourceCatalogId::new(Uuid::nil()),
-                dataset_run_id,
-                started_at,
-                request_params(item),
-            ),
-            item.source_slug.as_str(),
-            started_at,
-            &[CollectablePage {
-                plan: plan.clone(),
-                request: item.request.clone(),
-                raw_payload: item.raw_payload.clone(),
-                payload: item.payload.clone(),
-            }],
-            uow,
-            storage,
-        )
-        .await?;
-        let written = recorded_by_run(uow, &entry, plan.object_key.as_str(), report.run_id).await?;
-        datasets.push(AddressSourceDatasetReport {
-            source_slug: item.source_slug.clone(),
-            object_key: plan.object_key.as_str().to_owned(),
-            checksum_sha256: plan.checksum_sha256.clone(),
-            size_bytes: plan.size_bytes,
-            logical_record_count: plan.logical_record_count,
-            written,
-        });
-    }
-    Ok(AddressSourceCollectReport {
-        requests_sent: fetched.len(),
-        datasets,
-    })
+    let plan = compile_plan(&item, dataset_run_id, started_at)?;
+    let entry = source_catalog_entry(config, &item, started_at);
+    let run = ingestion_run(
+        SourceCatalogId::new(Uuid::nil()),
+        dataset_run_id,
+        started_at,
+        request_params(&item),
+    );
+    let landed = AddressSourceDatasetReport {
+        source_slug: item.source_slug.clone(),
+        object_key: plan.object_key.as_str().to_owned(),
+        checksum_sha256: plan.checksum_sha256.clone(),
+        size_bytes: plan.size_bytes,
+        logical_record_count: plan.logical_record_count,
+        written: false,
+    };
+    let FetchedDataset {
+        source_slug,
+        request,
+        raw_payload,
+        payload,
+        ..
+    } = item;
+    let report = collect_planned_pages(
+        &IlisLane,
+        entry.clone(),
+        run,
+        source_slug.as_str(),
+        started_at,
+        vec![CollectablePage {
+            plan,
+            request,
+            raw_payload,
+            payload,
+        }],
+        uow,
+        storage,
+    )
+    .await?;
+    let written = recorded_by_run(uow, &entry, &landed.object_key, report.run_id).await?;
+    Ok(AddressSourceDatasetReport { written, ..landed })
 }
 
 /// Whether this run recorded the ledger row of `object_key`: the answer is new to Bronze.

@@ -1,7 +1,7 @@
 use super::{
     assert_records_present, compile_plan, detail_complex_codes, fetched_dataset,
-    live_write_enabled, persist_with_adapters, planned_request_count, request_spacing,
-    unlisted_profile_codes, AddressSourceCollectConfig, AddressSourceCollectReport, FetchedDataset,
+    live_write_enabled, persist_dataset, planned_request_count, request_spacing,
+    unlisted_profile_codes, AddressSourceCollectConfig, AddressSourceDatasetReport, FetchedDataset,
     IlisDataset, ILIS_DATASETS, ILIS_DETAIL_DATASET, MIN_REQUEST_SPACING,
     NATIONAL_SCOPE_PARTITION_NAME, NATIONAL_SCOPE_PARTITION_VALUE, PROVIDER,
 };
@@ -343,12 +343,12 @@ async fn collect(
     storage: &FileObjectStorage,
     answer: FetchedDataset,
     at: DateTime<Utc>,
-) -> anyhow::Result<AddressSourceCollectReport> {
-    persist_with_adapters(
+) -> anyhow::Result<AddressSourceDatasetReport> {
+    persist_dataset(
         &live_config()?,
         IngestionRunId::new(Uuid::new_v4()),
         at,
-        &[answer],
+        answer,
         uow,
         storage,
     )
@@ -389,7 +389,7 @@ async fn a_new_answer_lands_beside_the_hand_load_and_the_same_answer_is_unchange
     write_object(&root, HAND_LOAD_KEY, HAND_LOAD_BYTES)?;
 
     let first = collect(&uow, &storage, list_answer(&["99999A", "99999B"])?, at()).await?;
-    let landed = &first.datasets[0];
+    let landed = &first;
     assert!(landed.written);
     assert_eq!(
         landed.object_key,
@@ -409,14 +409,14 @@ async fn a_new_answer_lands_beside_the_hand_load_and_the_same_answer_is_unchange
         at() + Duration::days(1),
     )
     .await?;
-    assert!(!again.datasets[0].written);
-    assert_eq!(again.datasets[0].object_key, landed.object_key);
+    assert!(!again.written);
+    assert_eq!(again.object_key, landed.object_key);
     assert_eq!(recorded(&uow)?, 1);
 
     // The same rows in another order, as the notice list comes back: other bytes, a new object.
     let reordered = collect(&uow, &storage, list_answer(&["99999B", "99999A"])?, at()).await?;
-    assert!(reordered.datasets[0].written);
-    assert_ne!(reordered.datasets[0].object_key, landed.object_key);
+    assert!(reordered.written);
+    assert_ne!(reordered.object_key, landed.object_key);
     assert_eq!(recorded(&uow)?, 2);
     std::fs::remove_dir_all(&root)?;
     Ok(())
@@ -435,8 +435,8 @@ async fn an_answer_bronze_holds_without_a_row_is_recorded_not_refused() -> anyho
     write_object(&root, planned.object_key.as_str(), &answer.raw_payload)?;
 
     let report = collect(&uow, &storage, answer, at()).await?;
-    assert_eq!(report.datasets[0].object_key, planned.object_key.as_str());
-    assert!(report.datasets[0].written);
+    assert_eq!(report.object_key, planned.object_key.as_str());
+    assert!(report.written);
     assert_eq!(recorded(&uow)?, 1);
     std::fs::remove_dir_all(&root)?;
     Ok(())

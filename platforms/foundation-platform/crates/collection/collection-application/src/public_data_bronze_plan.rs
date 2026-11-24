@@ -218,7 +218,7 @@ pub struct PublicDataSchemaObservation {
     pub nonnull_count: u64,
     /// Number of null samples.
     pub null_count: u64,
-    /// Representative sample values.
+    /// Up to three scalar sample values; none for an object or array field (its leaves carry them).
     pub sample_values: JsonValue,
     /// Heuristic usefulness as a source key.
     pub candidate_key_score: f64,
@@ -627,7 +627,14 @@ impl FieldAccumulator {
             Some(existing) if existing == observed_type => existing,
             Some(_) => SchemaObservedType::Mixed,
         });
-        if self.sample_values.len() < 3 {
+        // Only a scalar is a sample. An object or array is sampled by its own leaves under their own
+        // paths, and cloning it whole copied the response: the records array of a bulk answer is
+        // one field seen once, so its sample was every record (ILIS's complex list held its 2.57 MB
+        // twice in `catalog.schema_profile`, as `result` and `result.dataList`, and every plan of
+        // the 13.5 MB notice list two more parsed copies of it, measured 2026-11-23).
+        if self.sample_values.len() < 3
+            && !matches!(value, JsonValue::Object(_) | JsonValue::Array(_))
+        {
             self.sample_values.push(value.clone());
         }
     }
