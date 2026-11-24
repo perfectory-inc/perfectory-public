@@ -34,9 +34,15 @@ READ = re.compile(
     r"|TIMESTAMP AS OF"
     r"|as-of-timestamp"
     r"|\.load_snapshot_manifest_list\("
-    # DuckDB inside the publisher (root ADR-0559): `table AT (VERSION => id)`, in SQL files it runs too.
+    # DuckDB inside the publisher (root ADR-0559): a call of the one function that writes
+    # `table AT (VERSION => id)` (duckdb_parquet_stage::table_at, table_at_in), not its definition.
+    r"|(?<!fn )\btable_at(?:_in)?\("
+    # The clause written by hand: tools/semgrep/rules/lakehouse-time-travel.yml refuses it, and it is
+    # still counted here so that a read the rule's paths miss is not an undeclared one.
     r"|AT \(VERSION =>"
 )
+# The one file that writes the clause: its callers are the readers, each declared for itself.
+WRITER = "crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage.rs"
 SOURCES = (".py", ".rs", ".sh", ".sql")
 SKIPPED_DIRS = {"tests", "target", "node_modules", "__pycache__", ".venv"}
 
@@ -59,9 +65,10 @@ def read_sites() -> Counter:
             path = Path(directory) / name
             if path.suffix not in SOURCES or is_test(path):
                 continue
-            count = len(READ.findall(code_of(path)))
+            relative = path.relative_to(PLATFORM).as_posix()
+            count = 0 if relative == WRITER else len(READ.findall(code_of(path)))
             if count:
-                found[path.relative_to(PLATFORM).as_posix()] = count
+                found[relative] = count
     return found
 
 
@@ -102,9 +109,12 @@ class SnapshotReadersArePinned(unittest.TestCase):
         for line in ('spark.read.format("iceberg").option("snapshot-id", s)',
                      "SELECT * FROM t VERSION AS OF 1", "r2.t FOR VERSION AS OF 1",
                      "catalog.load_snapshot_manifest_list(table, id)",
-                     '.option( "start-snapshot-id", a)', "FROM lakehouse.silver.t AT (VERSION => 1)"):
+                     '.option( "start-snapshot-id", a)', "FROM lakehouse.silver.t AT (VERSION => 1)",
+                     "let pinned = table_at(contract.table_name, head);",
+                     "crate::duckdb_parquet_stage::table_at_in(catalog, table, pin)"):
             self.assertTrue(READ.search(line), line)
-        for line in ("ALTER TABLE t CREATE TAG `x` AS OF VERSION 1", '{"snapshot-id": head}'):
+        for line in ("ALTER TABLE t CREATE TAG `x` AS OF VERSION 1", '{"snapshot-id": head}',
+                     "pub fn table_at(table: &str, snapshot: i64) -> String {", "/// [`table_at`] in the catalog"):
             self.assertFalse(READ.search(line), line)
 
 
