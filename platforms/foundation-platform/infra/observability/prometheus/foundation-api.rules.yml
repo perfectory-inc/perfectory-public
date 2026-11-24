@@ -1089,6 +1089,9 @@ groups:
         labels:
           severity: ticket
           service: job-outcome
+          # The name Alertmanager's inhibit rules match a job by: a job blocked behind this one carries it
+          # (FoundationScheduledJobProblem kind=blocked, root ADR-0591).
+          failed_job: '{{ $labels.job_id }}'
         annotations:
           summary: '{{ $labels.job_id }} 가 기대한 결과({{ $labels.expectation }})를 {{ $value | humanizeDuration }} 동안 내지 않았어요 — 유닛이 성공해도 일을 안 한 거예요. 주인 {{ $labels.owner }}, 런북 {{ $labels.runbook }}. 더니어 지도의 그 작업 결과 줄과 journalctl -u {{ $labels.unit }} 를 보세요'
           runbook: docs/runbooks/job-outcomes.md
@@ -1119,6 +1122,9 @@ groups:
         labels:
           severity: page
           service: job-outcome
+          # The name Alertmanager's inhibit rules match a job by: a job blocked behind this one carries it
+          # (FoundationScheduledJobProblem kind=blocked, root ADR-0591).
+          failed_job: '{{ $labels.job_id }}'
         annotations:
           summary: '{{ $labels.job_id }} 가 기대한 결과({{ $labels.expectation }})를 기한보다 {{ $value | humanizeDuration }} 더 내지 않았어요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. 런북 {{ $labels.runbook }}'
           runbook: docs/runbooks/job-outcomes.md

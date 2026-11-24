@@ -44,6 +44,7 @@ tests:
               severity: ticket
               service: job-outcome
               job_id: shape_ledger_check
+              failed_job: shape_ledger_check
               expectation: done
               unit: foundation-shape-ledger-check.service
               owner: platform
@@ -61,6 +62,7 @@ tests:
               severity: page
               service: job-outcome
               job_id: shape_ledger_check
+              failed_job: shape_ledger_check
               expectation: done
               unit: foundation-shape-ledger-check.service
               owner: platform
@@ -107,6 +109,7 @@ tests:
               severity: ticket
               service: job-outcome
               job_id: data_go_kr_file_data
+              failed_job: data_go_kr_file_data
               expectation: change
               unit: foundation-data-go-kr-file-data.service
               owner: collection
@@ -148,6 +151,7 @@ tests:
               severity: page
               service: job-outcome
               job_id: court_auction_collect
+              failed_job: court_auction_collect
               expectation: landed
               unit: foundation-court-auction-collect.service
               owner: collection
