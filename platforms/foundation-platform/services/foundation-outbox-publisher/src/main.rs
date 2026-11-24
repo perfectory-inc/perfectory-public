@@ -714,7 +714,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelBoundaryServedVersions => {
             Box::pin(parcel_boundary_served_build::run_shadow())
         }
-        Command::BuildParcelNearbyVersions => Box::pin(kind_versions_build::run(&kind_versions_build::NEARBY_BUILD)),
+        Command::BuildParcelNearbyVersions => Box::pin(kind_versions_build::run(
+            &kind_versions_build::NEARBY_BUILD,
+        )),
         Command::BuildParcelRealTransactionVersions => Box::pin(kind_versions_build::run(
             &kind_versions_build::REAL_TRANSACTION_BUILD,
         )),
@@ -750,7 +752,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelPublicAuctionVersions => Box::pin(kind_versions_build::run(
             &kind_versions_build::PUBLIC_AUCTION_BUILD,
         )),
-        Command::BuildUnitPriceVersions => Box::pin(kind_versions_build::run(&kind_versions_build::UNIT_PRICE_BUILD)),
+        Command::BuildUnitPriceVersions => Box::pin(kind_versions_build::run(
+            &kind_versions_build::UNIT_PRICE_BUILD,
+        )),
         Command::BuildUnitOfficialPriceVersions => {
             Box::pin(unit_official_price_versions_build::run())
         }

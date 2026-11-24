@@ -31,7 +31,7 @@ use serde_json::json;
 
 use crate::{
     gold_takeover_sides::sql_path,
-    parcel_nearby_versions_build::{lakehouse_read, write_summary},
+    gold_versions_support::{lakehouse_read, write_summary},
     public_data_control_support::{optional_env_value, required_env_value},
 };
 
