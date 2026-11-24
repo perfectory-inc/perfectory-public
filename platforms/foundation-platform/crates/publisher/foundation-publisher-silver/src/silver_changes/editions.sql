@@ -8,10 +8,12 @@
 -- Parameters: {source} (the table at the pinned head, or a query of none), {staged}, {out}, {per},
 -- {edition}, {maxima} (`max(x) AS m0, …`), {order} (`m0 DESC NULLS LAST, …`), {content},
 -- {per_match} (`r.x IS NOT DISTINCT FROM s.x` per group column), {columns}.
+-- {source} is read inside a subquery: a table pinned with `AT (VERSION => n)` takes no alias after it
+-- (2026-11-23: the first load onto a table that already held editions failed on `... r`).
 CREATE OR REPLACE TEMP TABLE {out}_editions AS
 WITH editions AS (
   SELECT {per}, {edition}, {maxima}
-  FROM {source} r
+  FROM (SELECT * FROM {source}) r
   WHERE EXISTS (SELECT 1 FROM {staged} s WHERE {per_match})
   GROUP BY ALL
 )
@@ -20,7 +22,7 @@ FROM editions
 QUALIFY foundation_edition_rank = 1;
 
 CREATE OR REPLACE TEMP TABLE {out}_current AS
-SELECT {columns} FROM {source} r
+SELECT {columns} FROM (SELECT * FROM {source}) r
 WHERE EXISTS (SELECT 1 FROM {out}_editions s WHERE {per_match}
               AND r.{edition} IS NOT DISTINCT FROM s.{edition});
 
