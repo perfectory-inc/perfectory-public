@@ -34,7 +34,9 @@
       },
       "expected_outcome": {
         "changes_within_hours": null,
-        "no_change_bound_reason": "The provider publishes notices on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+        "no_change_bound_reason": "The provider publishes notices on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1).",
+        "landed_within_hours": 30,
+        "landed_basis": "the board keeps a notice only while its provider lists it (endpoint catalog provider_retention, group industrial_land_sale_notice). 30 h = one daily turn + the 120-minute limit + room for a late start; how soon a post leaves the board is not measured (root ADR-0614)."
       },
       "pool": "default_pool",
       "retries": 0,
@@ -80,7 +82,9 @@
       },
       "expected_outcome": {
         "changes_within_hours": null,
-        "no_change_bound_reason": "The provider publishes sale notices on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+        "no_change_bound_reason": "The provider publishes sale notices on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1).",
+        "landed_within_hours": 24,
+        "landed_basis": "the board keeps a notice only while its provider lists it (endpoint catalog provider_retention, group industrial_land_sale_notice). The job runs hourly; how soon a post leaves the board is not measured, so the bound is one day unread, 24 hourly turns (root ADR-0614)."
       },
       "pool": "default_pool",
       "retries": 0,
@@ -126,7 +130,9 @@
       },
       "expected_outcome": {
         "changes_within_hours": null,
-        "no_change_bound_reason": "The provider publishes board posts on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+        "no_change_bound_reason": "The provider publishes board posts on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1).",
+        "landed_within_hours": 24,
+        "landed_basis": "the board keeps a post only while its provider lists it (endpoint catalog provider_retention, group industrial_land_sale_notice). The job runs hourly; how soon a post leaves the board is not measured, so the bound is one day unread, 24 hourly turns (root ADR-0614)."
       },
       "pool": "default_pool",
       "retries": 0,
@@ -169,7 +175,9 @@
       },
       "expected_outcome": {
         "changes_within_hours": null,
-        "no_change_bound_reason": "The provider publishes land notices on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+        "no_change_bound_reason": "The provider publishes land notices on no fixed day (endpoint catalog expected_cadence irregular, group industrial_land_sale_notice); that the job runs and finishes is its done expectation (root ADR-0480 §1).",
+        "landed_within_hours": null,
+        "no_landed_bound_reason": "Never switched on: the provider's gateway refuses until the usage application is approved (disabled_reason, root ADR-0603 §6), so there is no read to keep up. The PR that enables the job declares landed_within_hours with its first answered list (root ADR-0614)."
       },
       "pool": "default_pool",
       "retries": 0,
