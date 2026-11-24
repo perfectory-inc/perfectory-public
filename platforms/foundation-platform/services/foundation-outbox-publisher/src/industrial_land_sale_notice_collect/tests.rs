@@ -62,23 +62,28 @@ fn every_source_of_the_lane_contract_parses_into_its_client() -> anyhow::Result<
     Ok(())
 }
 
+// No assertion races two timers: a step either is done when first asked or never ends, so the answer
+// is the window's alone. A 1 ms sleep against an already closed window finished first on a busy
+// runner (the flake after #1656).
 #[tokio::test]
 async fn a_notice_that_outlasts_what_is_left_of_the_stall_window_is_the_run_stalling(
 ) -> anyhow::Result<()> {
-    let stall = Duration::from_millis(200);
+    let stall = Duration::from_millis(10);
     let settled_at = Instant::now();
     assert_eq!(
         within_stall(settled_at, stall, async { 7 }).await.ok(),
         Some(7)
     );
-    let slow = tokio::time::sleep(Duration::from_secs(5));
-    assert!(within_stall(settled_at, stall, slow).await.is_err());
-    // The window runs from the last thing settled, not from the notice's own start.
+    let never = std::future::pending::<()>();
+    assert!(within_stall(settled_at, stall, never).await.is_err());
+    // The window runs from the last thing settled, not from the notice's own start: one settled a
+    // whole window ago has nothing left, however wide the window is.
+    let wide = Duration::from_secs(1);
     let long_ago = Instant::now()
-        .checked_sub(stall)
+        .checked_sub(wide)
         .context("the clock is younger than the window")?;
-    let short = tokio::time::sleep(Duration::from_millis(1));
-    assert!(within_stall(long_ago, stall, short).await.is_err());
+    let never = std::future::pending::<()>();
+    assert!(within_stall(long_ago, wide, never).await.is_err());
     Ok(())
 }
 
