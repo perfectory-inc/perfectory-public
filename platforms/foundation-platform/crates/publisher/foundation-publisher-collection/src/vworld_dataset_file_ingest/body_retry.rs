@@ -17,8 +17,9 @@ const ATTEMPTS: u32 = 3;
 /// The pause before the second ask; the third waits twice as long.
 const PAUSE: Duration = Duration::from_secs(5);
 
-/// Whether the file's body broke after its response started, wherever in the chain the reader
-/// wrapped the client's error.
+/// Whether the file's body broke after its response started.
+///
+/// True wherever in the chain the reader wrapped the client's error.
 pub(super) fn body_broke_mid_download(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         matches!(
@@ -29,9 +30,11 @@ pub(super) fn body_broke_mid_download(error: &anyhow::Error) -> bool {
     })
 }
 
-/// Runs `fetch` (open the file and persist its body) and, while its body broke mid-download, runs
-/// it again, up to [`ATTEMPTS`] times in all. Any other failure, and a body that broke every time,
-/// is returned as it is: the file is still `failed` and the run still ends as failed.
+/// Runs `fetch` again while the file's body broke mid-download.
+///
+/// `fetch` opens the file and persists its body; it runs up to [`ATTEMPTS`] times in all. Any other
+/// failure, and a body that broke every time, is returned as it is: the file is still `failed` and
+/// the run still ends as failed.
 pub(super) async fn asking_again_for_a_broken_body<T, Fetch, Fetching>(
     provider_file_id: &str,
     fetch: Fetch,

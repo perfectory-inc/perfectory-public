@@ -13,11 +13,12 @@ use outbound_http_infrastructure::{
     ResilienceAudit, ResilienceCtx, RetryDecision, VWORLD_FILE,
 };
 
-/// How a file body that broke after its response started is reported: the connection ended or the
-/// bytes could not be decoded before `Content-Length` was reached. The request is retried up to
-/// the response (`send_file_request`); once the stream starts only the caller can ask again, and
-/// it knows this failure by this prefix (`foundation-publisher-collection`
-/// `vworld_dataset_file_ingest`).
+/// How a file body that broke after its response started is reported.
+///
+/// The connection ended or the bytes could not be decoded before `Content-Length` was reached. The
+/// request is retried up to the response (`send_file_request`); once the stream starts only the
+/// caller can ask again, and it knows this failure by this prefix
+/// (`foundation-publisher-collection` `vworld_dataset_file_ingest`).
 pub const VWORLD_FILE_BODY_STREAM_FAILED: &str = "VWorld dataset file response body stream failed";
 
 /// Provider label for the dataset file/inventory client (audit + error messages).
