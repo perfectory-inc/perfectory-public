@@ -1,6 +1,6 @@
 # ADR 0615: DuckDB 로 옮긴 Gold 레인은 시도로 나뉜 Dagster 자산이고, 파트의 상태는 Dagster 의 것이다
 
-- Status: Proposed (셋째 초안 — EGM 검토와 AWS 전제 반영; 결정 2-4 의 발행기 쪽 코드는 이 PR 에 있다)
+- Status: Accepted
 - Date: 2026-11-24
 - 고치는 곳(Accepted 가 되면): [ADR-0564](./0564-a-gold-of-row-versions-is-born-as-its-own-versions-table-beside-the-replaced-one-and-its-current-row-rule-is-rendered-once-in-the-contract-artifact.md)
   결정 3(전국 한 커밋)과 넷째 개정(이어 짓기), ADR-0333 §1(시도 파티션은 "레인이 Dagster 로 옮기면")의 실행.
