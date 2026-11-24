@@ -315,27 +315,58 @@ fn a_partial_run_names_only_the_parcels_whose_rows_or_service_changed() -> anyho
 
 #[test]
 fn the_parts_of_a_sido_build_the_documents_one_statement_would() -> anyhow::Result<()> {
+    use crate::kind_versions_stage::build_by_prefix;
     let connection = Connection::open_in_memory()?;
     load(&connection, &rows())?;
     crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
-    let stamps = ("999990000000000001", "2099-03-01T00:00:00Z");
-    // One part: every synthetic PNU starts with 9.
-    build_in_parts(&connection, true, stamps.0, stamps.1, 1)?;
-    let whole = built(&connection)?;
+    let whole = build_all(&connection)?;
     assert_eq!(whole.len(), 4);
-    // Two parts: the moved parcel's 동 (99999103) and the others' (99999101).
-    OWNERSHIP.create_built(&connection)?;
-    build_in_parts(&connection, true, stamps.0, stamps.1, 8)?;
-    assert_eq!(built(&connection)?, whole);
-    // A part per parcel.
-    OWNERSHIP.create_built(&connection)?;
-    build_in_parts(&connection, true, stamps.0, stamps.1, 19)?;
-    assert_eq!(built(&connection)?, whole);
+    let stamps = ("999990000000000001", "2099-03-01T00:00:00Z");
+    // One part (every synthetic PNU starts with 99999), the two 동 (99999101, 99999103), and a
+    // part a parcel.
+    for (digits, parts) in [(5, 1), (8, 2), (19, 5)] {
+        OWNERSHIP.create_built(&connection)?;
+        let built_parts =
+            build_by_prefix(&OWNERSHIP, &connection, true, stamps.0, stamps.1, digits)?;
+        assert_eq!(built_parts, parts, "{digits} digits");
+        assert_eq!(built(&connection)?, whole, "{digits} digits");
+    }
+    // The 시도's tables have their names back and nothing of the split is left.
     let left: i64 = connection.query_row(
-        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'ownership_parts'",
+        "SELECT count(*) FROM duckdb_tables() WHERE table_name = 'build_parts' \
+           OR ends_with(table_name, '__region')",
         [],
         |row| row.get(0),
     )?;
-    assert_eq!(left, 0, "the parts table outlived the build");
+    let views: i64 = connection.query_row(
+        "SELECT count(*) FROM duckdb_views() WHERE NOT internal",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!((left, views), (0, 0));
+    Ok(())
+}
+
+#[test]
+fn a_partial_run_builds_only_the_parts_its_targets_name() -> anyhow::Result<()> {
+    use crate::kind_versions_stage::build_by_prefix;
+    let connection = Connection::open_in_memory()?;
+    load(&connection, &rows())?;
+    crate::kind_versions_stage::read_for_test(&OWNERSHIP, &connection, EDITION, "")?;
+    connection.execute_batch(&format!(
+        "CREATE OR REPLACE TABLE targets AS SELECT '{MOVED}' AS pnu;"
+    ))?;
+    let parts = build_by_prefix(
+        &OWNERSHIP,
+        &connection,
+        false,
+        "999990000000000002",
+        "2099-03-02T00:00:00Z",
+        8,
+    )?;
+    assert_eq!(parts, 1);
+    let rows = built(&connection)?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, MOVED);
     Ok(())
 }

@@ -29,7 +29,8 @@ use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
     factory_kind_stage::FACTORIES,
     kind_versions_stage::{
-        ensure_no_commit_tables, load_region, spool, KindVersionsStage, PARCEL_SOURCE,
+        build_in_parts, ensure_no_commit_tables, load_region, spool, KindVersionsStage,
+        PARCEL_SOURCE,
     },
     land_ownership_stage::OWNERSHIP,
     onbid_kind_stage::PUBLIC_AUCTION,
@@ -355,7 +356,14 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             load_region(stage, connection, spool_dir.path(), "_old", sido)?;
             Some(stage.changed_pnus(connection)?)
         };
-        stage.build(connection, named.is_none(), &parcels_snapshot, &stamp)?;
+        // One 시군구 at a time (rules.txt "per-sigungu is the shared default"): no statement holds a 시도.
+        build_in_parts(
+            stage,
+            connection,
+            named.is_none(),
+            &parcels_snapshot,
+            &stamp,
+        )?;
         ensure_no_commit_tables(connection)?;
         let invalid: i64 = connection.query_row(
             &format!(
