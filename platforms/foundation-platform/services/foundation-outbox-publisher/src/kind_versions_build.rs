@@ -44,6 +44,7 @@ use serde_json::json;
 
 use crate::{
     by_pnu_gateway_contract::ByPnuLane,
+    gold_documents_check::DocumentRules,
     gold_versions_commit::{
         self as versions, Commit, Diff, Digests, AS_OF_PROPERTY, CODE_VERSION_PROPERTY,
         CURRENT_RECORDS_PROPERTY, FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY,
@@ -341,6 +342,13 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     // before the next replaces it; one append commits them all.
     // Asked before the DuckDB session opens: the session is not `Send` across an await.
     let shape = committer.table_shape(table).await?;
+    // The renderer and schema every changed document is held to (root ADR-0615 §7), loaded here for
+    // the same reason. The lane's renderer is found by the table its lane bakes: the replaced
+    // table while this one shadows it, this one once the lane took it over.
+    let document_rules = match DocumentRules::load(kind.replaced).await? {
+        Ok(rules) => Ok(rules),
+        Err(_) => DocumentRules::load(table).await?,
+    };
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
     let memory_limit = duck.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
     duck.require_room(0)?;
@@ -432,6 +440,11 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let mut phases = Phases::default();
     *phases.0.entry("targets").or_default() += targets_millis;
     let mut checks = Vec::new();
+    if let Err(why) = &document_rules {
+        checks.push(json!({
+            "table": table, "check": DOCUMENTS_CHECK, "skipped": why, "blocking": true,
+        }));
+    }
     for sido in &sidos {
         if requested.as_ref().is_some_and(|keys| !keys.contains(sido)) {
             continue;
@@ -528,7 +541,20 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             let sido_digests = versions::digests(connection, &commit)?;
             phases.add("diff", at);
             let at = Instant::now();
-            let refused = run_result_checks(stage, connection, table, sido, &mut checks)?;
+            let mut refused = run_result_checks(stage, connection, table, sido, &mut checks)?;
+            if let Ok(rules) = &document_rules {
+                let found = rules.changed_documents_hold_their_schema(connection, table)?;
+                let result = json!({
+                    "table": table, "sido": sido, "check": DOCUMENTS_CHECK,
+                    "breaches": found.refused, "rendered": found.rendered,
+                    "samples": found.samples, "blocking": true, "passed": found.refused == 0,
+                });
+                println!("gold-versions-check {result}");
+                checks.push(result);
+                if found.refused != 0 {
+                    refused.push(DOCUMENTS_CHECK);
+                }
+            }
             phases.add("checks", at);
             ensure!(
                 refused.is_empty(),
@@ -832,6 +858,12 @@ impl Phases {
     }
 }
 
+/// The check every lane's changed documents get: rendered by the lane's renderer and held to its
+/// schema-registry revision.
+const DOCUMENTS_CHECK: &str = "changed_documents_hold_their_schema";
+/// The keys a failing check shows.
+const CHECK_SAMPLES: usize = 5;
+
 /// Runs the kind's result checks on the 시도 the connection holds, prints each as a
 /// `gold-versions-check` line (a run a check refuses writes no summary), adds them to `results` and
 /// returns the blocking ones that counted a row.
@@ -847,9 +879,18 @@ fn run_result_checks(
         let breaches: i64 = connection
             .query_row(&check.sql, [], |row| row.get(0))
             .with_context(|| format!("the check {} of {table} did not run", check.name))?;
+        // The first keys that break it, when the check names them.
+        let samples = match &check.samples_sql {
+            Some(sql) if breaches != 0 => connection
+                .prepare(&format!("SELECT * FROM ({sql}) LIMIT {CHECK_SAMPLES}"))?
+                .query_map([], |row| row.get::<_, Option<String>>(0))?
+                .collect::<Result<Vec<_>, _>>()
+                .with_context(|| format!("the samples of {} of {table} did not run", check.name))?,
+            _ => Vec::new(),
+        };
         let result = json!({
             "table": table, "sido": sido, "check": check.name, "breaches": breaches,
-            "blocking": check.blocking, "passed": breaches == 0,
+            "samples": samples, "blocking": check.blocking, "passed": breaches == 0,
         });
         println!("gold-versions-check {result}");
         results.push(result);
