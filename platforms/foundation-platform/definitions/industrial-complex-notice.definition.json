@@ -36,7 +36,9 @@
       },
       "expected_outcome": {
         "changes_within_hours": null,
-        "no_change_bound_reason": "The provider publishes notices on no fixed day (endpoint catalog expected_cadence irregular, ilis-industrial_complex_notice_detail); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+        "no_change_bound_reason": "The provider publishes notices on no fixed day (endpoint catalog expected_cadence irregular, ilis-industrial_complex_notice_detail); that the job runs and finishes is its done expectation (root ADR-0480 §1).",
+        "landed_within_hours": 24,
+        "landed_basis": "the board keeps a notice only while its provider lists it (endpoint catalog provider_retention, group ilis). The job runs hourly; how soon a post leaves the board is not measured, so the bound is one day unread, 24 hourly turns (root ADR-0614)."
       },
       "pool": "default_pool",
       "retries": 0,

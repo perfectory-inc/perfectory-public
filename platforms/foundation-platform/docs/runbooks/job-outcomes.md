@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-24
 ---
 
 # 작업 결과 — 유닛이 성공했는데 일을 안 한 작업
@@ -16,6 +16,7 @@ last_reviewed: 2026-11-11
 |---|---|---|
 | `done` | `changed` 또는 `unchanged` 로 끝난 실행·확인 | 일정 한 주기 + `time_limit_minutes` + `wait_limit_minutes` + 1시간 (`done_within_hours` 가 더 길면 그것) |
 | `change` | `changed` 로 끝난 실행 | `changes_within_hours` (null 이면 기대 없음, 이유는 `no_change_bound_reason`) |
+| `landed` | 원천을 끝까지 읽은 실행(`changed` 또는 `unchanged`; 조정기의 `current` 는 아님) | `landed_within_hours` — 끝난 것을 내리는 제공자(카탈로그 `provider_retention.keeps_history: false`)의 수집 작업만. **작업이 꺼져 있어도 센다**([루트 ADR-0614](../../../../docs/adr/0614-a-collector-of-a-source-whose-provider-drops-what-ended-is-held-to-its-reads-whether-or-not-it-is-enabled.md)) |
 
 `waiting`·`skipped`·풀 거절·`failed`·시작조차 안 됨은 `done` 이 아니다. 실패는 이미 `FoundationScheduledJobProblem`·
 `FoundationUnitFailedLong` 이 알리므로 그 둘이 울리는 동안 `done` 알림은 Alertmanager 가 누른다. 원장이 생기기 전과 작업을
@@ -48,6 +49,10 @@ grep -E 'foundation_job_outcome_(met|expected)_seconds' /var/lib/foundation-jobs
 - **`FoundationJobOutcomeMissing` (`change`)**: 실행은 끝나는데 쓴 것이 없다. 원천이 새 판을 냈는지(엔드포인트 카탈로그의
   `expected_cadence`, Bronze `catalog.ingestion_run`) 먼저 보고, 냈는데 안 쌓였으면 그 작업의 런북(알림의 `runbook` 라벨)대로 고친다.
   원천의 공개 주기가 실제로 바뀌었으면 `changes_within_hours` 와 `basis` 를 실측과 함께 고친다.
+- **`FoundationSourceNotRead` (`landed`, page)**: 끝난 것을 내리는 제공자의 원천을 기한 안에 끝까지 읽지 못했다. 그동안
+  내려간 것은 되찾을 수 없으니 바로 고친다. 작업이 꺼져 있으면(`enabled: false`·더니어 일시정지) 다시 켜고, 실패·대기면
+  원장의 마지막 줄이 가리키는 것을 푼 뒤 **손으로 한 번 시작**해 다음 차례를 기다리지 않는다. 정말 더 수집하지 않을 원천이면
+  카탈로그의 `provider_retention` 과 작업의 `landed_within_hours` 를 근거와 함께 고친다. 배포가 DAG 을 멈춰 둔 동안에도 울린다.
 - **`FoundationJobOutcomeMissingLong`**: 위와 같고, 기한을 하루 넘겼다. 주인이 그날 고친다.
 - **`FoundationJobOutcomesSilent`**: 한 시간 동안 어떤 작업도 결과를 남기지 않았다. Airflow 스케줄러·SSH 통로
   (`start-scheduled-job`)·러너의 `record-outcome` 오류(`cannot record the outcome`)를 본다.
@@ -74,4 +79,5 @@ python3 /opt/foundation-platform/current/orchestration/dags/job_code_version.py 
 ## 기대를 바꿀 때
 
 정의 파일만 고치고 `python3 scripts/catalog/declared_definitions.py generate` 로 생성본을 다시 만든다.
-`orchestration/tests/test_job_outcomes.py` 가 모든 작업의 선언, 주기보다 짧은 기한, 원천 카탈로그보다 이른 기한을 거부한다.
+`orchestration/tests/test_job_outcomes.py` 가 모든 작업의 선언, 주기보다 짧은 기한, 원천 카탈로그보다 이른 기한,
+끝난 것을 내리는 제공자의 수집 작업에 `landed_within_hours` 가 없는 것을 거부한다.

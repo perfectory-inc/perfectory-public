@@ -23,6 +23,7 @@ slack-security alertname=FoundationSecurityAdvisoriesUnreadable service=security
 # Pages: one message per rule with a channel mention while it fires.
 slack-page alertname=FoundationUnitFailedLong service=unit-state severity=page unit=foundation-source-sweep.service
 slack-page alertname=FoundationJobOutcomeMissingLong service=job-outcome severity=page job_id=media_reconcile expectation=done
+slack-page alertname=FoundationSourceNotRead service=job-outcome severity=page job_id=court_auction_collect expectation=landed
 slack-page alertname=FoundationByPnuServingStale service=serving-freshness severity=page bake_job=by_pnu_parcel_real_transaction_bake
 slack-page alertname=FoundationHostDiskAlmostFull service=host severity=page mountpoint=/data
 slack-page alertname=FoundationPlatformApiScrapeDown service=foundation-api severity=page

@@ -62,7 +62,8 @@ class EveryJobDeclaresItsOutcome(unittest.TestCase):
             with self.subTest(job=job["id"]):
                 declared = job.get("expected_outcome")
                 self.assertIsInstance(declared, dict, "jobs.v1.json expected_outcome is missing (root ADR-0480)")
-                self.assertLessEqual(set(declared), {"changes_within_hours", "basis", "no_change_bound_reason", "done_within_hours"})
+                self.assertLessEqual(set(declared), {"changes_within_hours", "basis", "no_change_bound_reason", "done_within_hours",
+                                                     "landed_within_hours", "landed_basis", "no_landed_bound_reason"})
                 hours = declared.get("changes_within_hours", "absent")
                 if hours is None:
                     self.assertTrue(declared.get("no_change_bound_reason", "").strip())
@@ -218,9 +219,11 @@ class TheVerdicts(unittest.TestCase):
         # The newest run's outcome stays what the readiness report shows.
         self.assertEqual(outcomes.expectations(bake, summary)[0]["last"], "skipped")
 
-    def test_a_job_switched_off_is_not_judged(self):
+    def test_a_job_switched_off_that_owes_no_landing_is_not_judged(self):
         job = {**BY_ID["data_go_kr_file_data"], "enabled": False}
+        self.assertIsNone(outcomes.landed_hours(job))
         self.assertEqual(missed([job], [], "2026-12-31T00:00:00Z", "2026-11-01T00:00:00Z"), set())
+        self.assertNotIn("data_go_kr_file_data", outcomes.textfile([job], {"first_at": 1}, lambda service: ""))
 
     def test_no_job_is_judged_for_the_time_before_the_ledger(self):
         # The ledger begins on its first deploy: a monthly lane is not reported for the month before.
@@ -306,6 +309,117 @@ class TheFiveIncidentsWouldHaveFired(unittest.TestCase):
         self.assertEqual(missed([job], daily, "2026-12-15T12:00:00Z", "2026-11-01T00:00:00Z"), set())
         self.assertEqual(missed([job], daily, "2026-12-25T12:00:00Z", "2026-11-01T00:00:00Z"),
                          {("data_go_kr_file_data", "change")})
+
+
+def source_groups():
+    """{source node id: endpoint catalog group}, from the declared definitions."""
+    found = {}
+    for path in sorted((PLATFORM / "definitions").glob("*.definition.json")):
+        for asset in json.loads(path.read_text(encoding="utf-8")).get("assets", []):
+            if asset.get("type") == "source_group" and asset.get("endpoint_catalog_group"):
+                found[asset["id"]] = asset["endpoint_catalog_group"]
+    return found
+
+
+def dropping_groups():
+    """The endpoint catalog groups with an endpoint whose provider keeps no history."""
+    return {e["group"] for e in ENDPOINTS["endpoints"] if (e.get("provider_retention") or {}).get("keeps_history") is False}
+
+
+def collectors_of(groups):
+    """{collect job: the `groups` whose source node its pipeline edges leave}."""
+    nodes = {node: group for node, group in source_groups().items() if group in groups}
+    return {job["id"]: {group for node, group in nodes.items()
+                        if any(edge.startswith(node + "-to-") for edge in job.get("pipeline_graph_edges", []))}
+            for job in JOBS["jobs"] if job.get("dagster_group") == "collect"}
+
+
+class ASourceWhoseProviderDropsWhatEndedIsHeldToItsReads(unittest.TestCase):
+    """Root ADR-0614. The court auction site drops a listing once its sale ends. 2026-10-21..11-05 its
+    collector was switched off for 16 nights, 11-07 a latch refused it and 11-12 it ran out of memory:
+    18 nights whose ended listings can never be read again. A job that is off was judged by nothing
+    (`done` and `change` are an enabled job's), the 11-12 night was a ticket in an hourly batch until
+    a day past its bound, and a notice board has no Bronze age bound at all (its endpoints are
+    irregular)."""
+
+    def test_the_catalog_says_which_providers_keep_no_history_and_why(self):
+        self.assertIn("provider_that_drops_history_has_a_landing_bound", ENDPOINTS["rules"])
+        self.assertIn("court_auction", dropping_groups())
+        for endpoint in ENDPOINTS["endpoints"]:
+            declared = endpoint.get("provider_retention")
+            if declared is None:
+                continue
+            with self.subTest(endpoint=endpoint["endpoint_slug"]):
+                self.assertEqual(set(declared), {"keeps_history", "basis_ko"})
+                self.assertIs(declared["keeps_history"], False, "a provider that keeps its history declares nothing")
+                self.assertTrue(declared["basis_ko"].strip())
+
+    def test_every_collector_of_such_a_source_declares_its_landing_bound_and_no_other_job_does(self):
+        reads = collectors_of(dropping_groups())
+        self.assertLessEqual(dropping_groups(), set().union(*reads.values()),
+                             "a group whose provider drops history is read by no collect job the graph knows")
+        for job in JOBS["jobs"]:
+            declared = job["expected_outcome"]
+            with self.subTest(job=job["id"]):
+                if not reads.get(job["id"]):
+                    self.assertFalse({"landed_within_hours", "landed_basis", "no_landed_bound_reason"} & set(declared))
+                    continue
+                self.assertIn("landed_within_hours", declared, "its provider drops what has ended (root ADR-0614)")
+                hours = declared["landed_within_hours"]
+                if hours is None:
+                    self.assertFalse(job["enabled"], "only a job that never ran owes no read")
+                    self.assertTrue(declared.get("no_landed_bound_reason", "").strip())
+                    self.assertNotIn("landed_basis", declared)
+                else:
+                    self.assertIsInstance(hours, int)
+                    self.assertTrue(declared.get("landed_basis", "").strip())
+                    self.assertNotIn("no_landed_bound_reason", declared)
+                    # Shorter than one turn and the run's limit would report every healthy run.
+                    self.assertGreaterEqual(hours * 3600, outcomes.cron_period_seconds(job["schedule"]) + 60 * job["time_limit_minutes"])
+
+    def test_the_sixteen_nights_switched_off_would_have_been_reported(self):
+        # 2026-10-20 16:05Z the last night before the collector was switched off; it ran again 11-06.
+        job = {**BY_ID["court_auction_collect"], "enabled": False}
+        records = [record(job["id"], "2026-10-20T17:30:00Z", "changed")]
+        self.assertEqual(missed([job], records, "2026-10-21T23:00:00Z", "2026-10-01T00:00:00Z"), set())
+        self.assertEqual(missed([job], records, "2026-10-22T00:00:00Z", "2026-10-01T00:00:00Z"),
+                         {("court_auction_collect", "landed")})
+        # Switched on again with no line yet: the day it was switched on is not when its source was last read.
+        back = enabled("court_auction_collect", "2026-11-05T00:00:00Z")
+        self.assertEqual(missed([back], [], "2026-11-05T12:00:00Z", "2026-10-01T00:00:00Z"),
+                         {("court_auction_collect", "landed")})
+        text = outcomes.textfile([job], outcomes.fold({"first_at": int(at("2026-10-01T00:00:00Z"))}, records), lambda service: "")
+        self.assertIn('foundation_job_outcome_info{job_id="court_auction_collect"', text)
+        self.assertIn(f'foundation_job_outcome_met_seconds{{job_id="court_auction_collect",expectation="landed"}} {int(at("2026-10-20T17:30:00Z"))}', text)
+        self.assertIn('foundation_job_outcome_expected_seconds{job_id="court_auction_collect",expectation="landed"} 108000', text)
+        self.assertNotIn('expectation="done"', text)
+
+    def test_the_night_that_ran_out_of_memory_is_reported_before_the_next_one(self):
+        # 2026-11-11 the night landed; 11-12 16:05Z the run failed (out of memory); the next turn is 11-13 16:05Z.
+        job = enabled("court_auction_collect", "2026-10-30T13:30:00Z")
+        records = [record(job["id"], "2026-11-11T17:20:00Z", "changed"),
+                   record(job["id"], "2026-11-12T16:40:00Z", "failed", "systemd result=oom-kill")]
+        found = missed([job], records, "2026-11-13T00:00:00Z", "2026-11-01T00:00:00Z")
+        self.assertIn(("court_auction_collect", "landed"), found)
+        self.assertLess(at("2026-11-11T17:20:00Z") + 30 * 3600, at("2026-11-13T16:05:00Z"))
+
+    def test_a_reconcilers_current_is_not_a_read_of_the_source(self):
+        job = enabled("court_auction_collect", "2026-10-30T13:30:00Z")
+        summary = outcomes.fold({"first_at": int(at("2026-11-01T00:00:00Z"))}, [record(job["id"], "2026-11-11T17:20:00Z", "changed")])
+        summary = outcomes.fold_current(summary, {job["id"]}, at("2026-11-13T00:00:00Z"))
+        self.assertEqual({found["expectation"] for found in outcomes.overdue([job], summary, at("2026-11-13T00:05:00Z"))}, {"landed"})
+
+    def test_a_board_with_nothing_new_has_still_been_read(self):
+        job = enabled("industrial_complex_notice_collect", "2026-11-10T21:00:00Z")
+        records = [record(job["id"], f"2026-11-20T{hour:02d}:21:00Z", "unchanged") for hour in range(24)]
+        self.assertEqual(missed([job], records, "2026-11-21T00:30:00Z", "2026-11-01T00:00:00Z"), set())
+
+    def test_the_landing_alert_pages_at_the_bound(self):
+        self.assertIn("alert: FoundationSourceNotRead", RULES)
+        tests = (PLATFORM / "infra/observability/prometheus/foundation-job-outcomes.rules.test.yml").read_text(encoding="utf-8")
+        self.assertIn("alertname: FoundationSourceNotRead", tests)
+        routes = (PLATFORM / "infra/observability/alertmanager/alertmanager.routes.test").read_text(encoding="utf-8")
+        self.assertIn("slack-page alertname=FoundationSourceNotRead", routes)
 
 
 if __name__ == "__main__":

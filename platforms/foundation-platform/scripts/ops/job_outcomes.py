@@ -14,6 +14,14 @@ is held to two outcomes, read from the outcome ledger the scheduler's runner app
   rebuild while their outputs stayed current, and both read as overdue.
 - `change`, a job whose `expected_outcome.changes_within_hours` is a number: a run that ended
   `changed` within that many hours. A job that runs and writes nothing misses it.
+- `landed`, a job whose `expected_outcome.landed_within_hours` is a number (root ADR-0614): a run that
+  read its source to the end (`changed` or `unchanged`) within that many hours. It is declared by the
+  jobs that collect a source whose provider drops what has ended (the endpoint catalog's
+  `provider_retention.keeps_history: false`), where a missed read is lost for good. It is held
+  whether or not the job is enabled and is measured from the ledger alone, never from when the job
+  was switched on: 2026-10-21..11-05 the court auction collector was switched off for 16 nights and,
+  being off, was judged by nothing; the site had dropped those nights' ended listings by the time
+  it ran again.
 
 A job with no line yet is measured from when it was switched on or from the ledger's first line,
 whichever is later, so a deploy does not report the time before the ledger existed. The asset
@@ -34,14 +42,14 @@ ENDED = ("changed", "unchanged", "failed")
 CURRENT = "current"
 # A scheduler's lag on top of a job's own limits: Airflow's queue, a deploy's paused DAGs.
 GRACE_SECONDS = 3600
-EXPECTATIONS = ("done", "change")
+EXPECTATIONS = ("done", "change", "landed")
 METRICS_NAME = "job-outcomes.prom"
 SUMMARY_FILE = "job-outcomes.json"
-HELP = """# HELP foundation_job_outcome_met_seconds When an enabled job last met an expected outcome (root ADR-0480); a job that never did is measured from when it was switched on or the ledger began.
+HELP = """# HELP foundation_job_outcome_met_seconds When a job last met an expected outcome (root ADR-0480); a job that never did is measured from when it was switched on or the ledger began (`landed`, root ADR-0614: from the ledger alone, and for a job that is switched off too).
 # TYPE foundation_job_outcome_met_seconds gauge
-# HELP foundation_job_outcome_expected_seconds How long an enabled job may go without meeting an expected outcome (jobs.v1.json expected_outcome, root ADR-0480).
+# HELP foundation_job_outcome_expected_seconds How long a job may go without meeting an expected outcome (jobs.v1.json expected_outcome, root ADR-0480).
 # TYPE foundation_job_outcome_expected_seconds gauge
-# HELP foundation_job_outcome_info The unit, owner and runbook of an enabled job, from its unit file (root ADR-0445).
+# HELP foundation_job_outcome_info The unit, owner and runbook of a job held to an outcome, from its unit file (root ADR-0445).
 # TYPE foundation_job_outcome_info gauge
 # HELP foundation_job_outcomes_last_recorded_seconds When the scheduler's runner last recorded an outcome of any job.
 # TYPE foundation_job_outcomes_last_recorded_seconds gauge
@@ -115,26 +123,47 @@ def enabled_since(job: dict) -> float | None:
     return datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
 
 
+def landed_hours(job: dict) -> int | None:
+    """The hours within which `job` must have read its source to the end, when it declares them."""
+    return (job.get("expected_outcome") or {}).get("landed_within_hours") or None
+
+
+def judged(job: dict) -> bool:
+    """Whether `job` is held to any outcome: it is enabled, or it owes `landed` though it is not."""
+    return bool(job.get("enabled") or landed_hours(job))
+
+
 def expectations(job: dict, summary: dict) -> list[dict]:
-    """[{expectation, expected_seconds, met_at, last}] for an enabled job, from the folded ledger."""
+    """[{expectation, expected_seconds, met_at, last}] for a judged job, from the folded ledger:
+    `done` and `change` while it is enabled, `landed` whenever it declares it."""
     kept = summary.get("jobs", {}).get(job["id"], {})
-    baseline = max(filter(None, (enabled_since(job), summary.get("first_at"))), default=None)
-    done = max((kept.get(outcome, 0) for outcome in (*DONE, CURRENT)), default=0) or None
-    ran = {outcome: stamp for outcome, stamp in kept.items() if outcome != CURRENT}
-    rows = [{"expectation": "done", "expected_seconds": done_budget_seconds(job),
-             "met_at": done or baseline, "last": max(ran.items(), key=lambda item: item[1])[0] if ran else None}]
-    hours = (job.get("expected_outcome") or {}).get("changes_within_hours")
+    rows = []
+    if job.get("enabled"):
+        baseline = max(filter(None, (enabled_since(job), summary.get("first_at"))), default=None)
+        done = max((kept.get(outcome, 0) for outcome in (*DONE, CURRENT)), default=0) or None
+        ran = {outcome: stamp for outcome, stamp in kept.items() if outcome != CURRENT}
+        rows.append({"expectation": "done", "expected_seconds": done_budget_seconds(job),
+                     "met_at": done or baseline, "last": max(ran.items(), key=lambda item: item[1])[0] if ran else None})
+        hours = (job.get("expected_outcome") or {}).get("changes_within_hours")
+        if hours:
+            rows.append({"expectation": "change", "expected_seconds": int(hours * 3600),
+                         "met_at": kept.get("changed") or baseline, "last": None})
+    hours = landed_hours(job)
     if hours:
-        rows.append({"expectation": "change", "expected_seconds": int(hours * 3600),
-                     "met_at": kept.get("changed") or baseline, "last": None})
+        # A run that ended, not the reconciler's `current`: outputs as new as their inputs say nothing
+        # of a source nobody read. Measured from the ledger's first line, not from `enabled_since`:
+        # switching the job off and on again does not give the source back the nights it lost.
+        read = max((kept.get(outcome, 0) for outcome in DONE), default=0) or None
+        rows.append({"expectation": "landed", "expected_seconds": int(hours * 3600),
+                     "met_at": read or summary.get("first_at"), "last": None})
     return rows
 
 
 def overdue(jobs: list[dict], summary: dict, now: float) -> list[dict]:
-    """Every expected outcome an enabled job has missed: {job, expectation, overdue_seconds, ...}."""
+    """Every expected outcome a judged job has missed: {job, expectation, overdue_seconds, ...}."""
     found = []
     for job in jobs:
-        if not job.get("enabled"):
+        if not judged(job):
             continue
         for row in expectations(job, summary):
             if row["met_at"] is not None and now - row["met_at"] > row["expected_seconds"]:
@@ -154,11 +183,11 @@ def label(value: str) -> str:
 
 
 def textfile(jobs: list[dict], summary: dict, unit_text) -> str:
-    """job-outcomes.prom: each enabled job's expected outcomes as met time and allowed age, and its
+    """job-outcomes.prom: each judged job's expected outcomes as met time and allowed age, and its
     unit, owner and runbook; `unit_text(service)` reads a service's unit file."""
     lines = []
     for job in jobs:
-        if not job.get("enabled"):
+        if not judged(job):
             continue
         try:
             owner, runbook = owner_and_runbook(unit_text(job["systemd_service"]))

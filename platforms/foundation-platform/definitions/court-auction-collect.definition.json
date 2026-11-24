@@ -78,7 +78,9 @@
       "dagster_stage": "dagster",
       "expected_outcome": {
         "changes_within_hours": 54,
-        "basis": "court sale notices change every day (expected_cadence daily, 30 h); two daily turns. measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): longest gap 479.1 h, the 10-19..11-07 refusal (root ADR-0446), which this bound reports on its third day."
+        "basis": "court sale notices change every day (expected_cadence daily, 30 h); two daily turns. measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): longest gap 479.1 h, the 10-19..11-07 refusal (root ADR-0446), which this bound reports on its third day.",
+        "landed_within_hours": 30,
+        "landed_basis": "the site drops a listing once its sale ends (endpoint catalog provider_retention, group court_auction): a night not read is lost for good. 30 h = one daily turn + the 300-minute limit + an hour, the catalog's own bound for these sources. 2026-10-21..11-05 (switched off, 16 nights), 11-07 (latch) and 11-12 (out of memory) landed nothing and those nights' ended listings cannot be read again (root ADR-0614)."
       }
     }
   ],

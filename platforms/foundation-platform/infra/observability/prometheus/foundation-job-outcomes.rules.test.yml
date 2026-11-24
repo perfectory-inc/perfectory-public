@@ -115,6 +115,53 @@ tests:
               summary: 'data_go_kr_file_data 가 기대한 결과(change)를 46d 0h 20m 0s 동안 내지 않았어요 — 유닛이 성공해도 일을 안 한 거예요. 주인 collection, 런북 docs/runbooks/data-go-kr-registered-factory.md. 더니어 지도의 그 작업 결과 줄과 journalctl -u foundation-data-go-kr-file-data.service 를 보세요'
               runbook: docs/runbooks/job-outcomes.md
 
+  # 2026-10-21..11-05 (root ADR-0614): the court auction collector was switched off and the site dropped
+  # 16 nights of ended listings. A job that is off has no `done` or `change` series; its `landed` one
+  # stays, with its unit's owner and runbook. Its last read is 29 hours before time 0 and its bound 30
+  # hours (108,000 s): it pages 15 minutes after the bound, with no ticket before, and a deploy that
+  # holds the DAGs paused does not quiet it.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_job_outcome_met_seconds{job_id="court_auction_collect",expectation="landed"}'
+        values: '-104400x200'
+      - series: 'foundation_job_outcome_expected_seconds{job_id="court_auction_collect",expectation="landed"}'
+        values: '108000x200'
+      - series: 'foundation_job_outcome_info{job_id="court_auction_collect",unit="foundation-court-auction-collect.service",owner="collection",runbook="docs/runbooks/court-auction.md"}'
+        values: '1x200'
+      - series: 'foundation_deploy_dags_paused_since_timestamp_seconds'
+        values: '0x200'
+      - series: 'foundation_job_outcomes_last_recorded_seconds'
+        values: '0+60x200'
+      - series: 'foundation_job_outcomes_recorded'
+        values: '1+1x200'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/job-outcomes.prom"}'
+        values: '0+60x200'
+    alert_rule_test:
+      - eval_time: 1h10m
+        alertname: FoundationSourceNotRead
+        exp_alerts: []
+      - eval_time: 1h20m
+        alertname: FoundationSourceNotRead
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: job-outcome
+              job_id: court_auction_collect
+              expectation: landed
+              unit: foundation-court-auction-collect.service
+              owner: collection
+              runbook: docs/runbooks/court-auction.md
+            exp_annotations:
+              summary: 'court_auction_collect 가 원천을 1d 6h 20m 0s 동안 끝까지 읽지 못했어요 — 이 제공자는 끝난 것을 내려서, 그동안 내려간 것은 다시 받을 수 없어요. 작업이 꺼져 있거나 멈춰 있어도 울려요. 주인 collection, 런북 docs/runbooks/court-auction.md'
+              runbook: docs/runbooks/job-outcomes.md
+      # The page is the only notice: neither the ticket nor the day-late page repeats it.
+      - eval_time: 30h
+        alertname: FoundationJobOutcomeMissing
+        exp_alerts: []
+      - eval_time: 30h
+        alertname: FoundationJobOutcomeMissingLong
+        exp_alerts: []
+
   # The scheduler starts nothing: the newest outcome of any job stays at time 0. Reported after an hour
   # and fifteen minutes; while a deploy holds the DAGs paused it is the deploy's alert instead.
   - interval: 1m
