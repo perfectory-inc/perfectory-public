@@ -422,6 +422,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     // rows); each commit is appended at the head the one before it made.
     let mut append_head = head;
     let max_loss = max_row_loss_fraction_of(kind.replaced)?;
+    let mut phases = Phases::default();
     for sido in &sidos {
         if requested.as_ref().is_some_and(|keys| !keys.contains(sido)) {
             continue;
@@ -446,15 +447,38 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         });
         let whole_sido = every_pnu || !at_base || (kind.per_sido_commits && recorded.is_none());
         // The session's connection is borrowed for the 시도's work only: a commit below awaits.
-        let (named, sido_diff, sido_digests, sido_files) = {
+        let named = {
             let connection = duck.connection();
+            let at = Instant::now();
             rows += load_region(stage, connection, spool_dir.path(), "", sido)?;
             let named = if whole_sido {
                 None
             } else {
                 load_region(stage, connection, spool_dir.path(), "_old", sido)?;
-                Some(stage.changed_pnus(connection)?)
+                phases.add("load", at);
+                let at = Instant::now();
+                let count = stage.changed_pnus(connection)?;
+                phases.add("targets", at);
+                Some(count)
             };
+            if named.is_none() {
+                phases.add("load", at);
+            }
+            named
+        };
+        if named == Some(0) {
+            // No key of this 시도 changed: nothing is built, read from the head or staged. A table
+            // that commits a 시도 at a time still records that the 시도 stands at this version.
+            if let Some(state) = &recorded {
+                states.record(sido, &wanted, &built_from, state.current_records);
+                built_sidos.push(sido.clone());
+                state_owed = true;
+            }
+            continue;
+        }
+        let (sido_diff, sido_digests, sido_files) = {
+            let connection = duck.connection();
+            let at = Instant::now();
             // One 시군구 at a time (rules.txt "per-sigungu is the shared default"): no statement holds a 시도.
             build_in_parts(
                 stage,
@@ -463,6 +487,8 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                 &parcels_snapshot,
                 &stamp,
             )?;
+            phases.add("build", at);
+            let at = Instant::now();
             ensure_no_commit_tables(connection)?;
             let invalid: i64 = connection.query_row(
                 &format!(
@@ -478,17 +504,23 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                 "{invalid} built rows of 시도 {sido} have a malformed PNU, another 시도's or no section: \
                  nothing was appended"
             );
-            let in_sido = sido_range(sido)?;
             let range = match named {
-                None => in_sido,
-                // A partial run that names no PNU here diffs nothing.
-                Some(0) => "FALSE".to_owned(),
-                Some(_) => format!("{in_sido} AND pnu IN (SELECT pnu FROM targets)"),
+                None => sido_range(sido)?,
+                // The head is read by the literal ranges of the 시군구 that hold a changed key, so
+                // the scan skips every other row group; `pnu IN (subquery)` alone is a semi-join
+                // the scan does not see, and read the whole 시도 from the lakehouse.
+                Some(_) => format!(
+                    "({}) AND pnu IN (SELECT pnu FROM targets)",
+                    part_ranges(&target_parts(connection, sido)?)?
+                ),
             };
             let sido_diff = versions::diff(connection, &commit, &range)?;
             let sido_digests = versions::digests(connection, &commit)?;
+            phases.add("diff", at);
+            let at = Instant::now();
             let sido_files = versions::stage(&duck, &shape, &run, versions_contract)?;
-            (named, sido_diff, sido_digests, sido_files)
+            phases.add("stage", at);
+            (sido_diff, sido_digests, sido_files)
         };
         if let (Some(total), Some(count)) = (targets.as_mut(), named) {
             *total += count;
@@ -582,6 +614,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             properties.insert(RECORDED_EXPLANATION_PROPERTY.to_owned(), why.clone());
         }
         let batch = format!("{run}-{sido}-{wanted}");
+        let at = Instant::now();
         let read_head = std::mem::replace(&mut commit.head, append_head);
         let snapshot = versions::append(
             &committer,
@@ -594,6 +627,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         .await?;
         commit.head = read_head;
         append_head = Some(snapshot);
+        phases.add("commit", at);
         println!(
             "committed {table} 시도 {sido}: snapshot {snapshot} version_seq={} keys_changed={}",
             commit.version_seq,
@@ -662,6 +696,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                 "partitions": {"built": built_sidos, "found_current": current_sidos, "requested": requested},
                 "every_pnu": every_pnu, "targets": targets,
                 "served_parcels": read.served_parcels, "rows": rows, "read_millis": read.read_millis,
+            "phase_millis": phases.0,
                 "sidos": sidos, "diff": diff, "tags": tags,
                 "duckdb_memory_limit_bytes": memory_limit,
                 "memory_peak_bytes": process_memory::cgroup_peak_bytes(),
@@ -746,6 +781,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             "served_edition": edition, "shadow_of": shadow_build, "code_version": code, "as_of": as_of,
             "every_pnu": every_pnu, "targets": targets, "recorded_explanation": recorded_explanation,
             "served_parcels": read.served_parcels, "rows": rows, "read_millis": read.read_millis,
+            "phase_millis": phases.0,
             "sidos": sidos,
             "diff": diff, "current_records": current_records,
             "content_fingerprint": versions::fingerprint_text(fingerprint),
@@ -764,6 +800,56 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         started.elapsed().as_secs_f64()
     );
     Ok(())
+}
+
+/// The milliseconds a run spent in each phase of its 시도 (`load`, `targets`, `build`, `diff`,
+/// `stage`, `commit`), summed over them: what the summary shows of where a run's time went.
+#[derive(Debug, Default)]
+struct Phases(std::collections::BTreeMap<&'static str, u64>);
+
+impl Phases {
+    fn add(&mut self, phase: &'static str, since: Instant) {
+        *self.0.entry(phase).or_default() +=
+            u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX);
+    }
+}
+
+/// The 시군구 (the first five digits) of `sido`'s changed keys in `targets`.
+fn target_parts(
+    connection: &foundation_publisher_silver::duckdb::Connection,
+    sido: &str,
+) -> anyhow::Result<Vec<String>> {
+    Ok(connection
+        .prepare(&format!(
+            "SELECT DISTINCT substr(pnu, 1, 5) FROM targets WHERE {} ORDER BY 1",
+            sido_range(sido)?
+        ))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// The key ranges of `parts` (시군구), as a predicate on `pnu` of literals a scan can skip by.
+///
+/// # Errors
+/// Refuses a part that is not five digits, and no part at all.
+pub(crate) fn part_ranges(parts: &[String]) -> anyhow::Result<String> {
+    ensure!(!parts.is_empty(), "no 시군구 holds a changed key");
+    let ranges = parts
+        .iter()
+        .map(|part| {
+            let number: u32 = part
+                .parse()
+                .ok()
+                .filter(|_| part.len() == 5 && part.bytes().all(|byte| byte.is_ascii_digit()))
+                .with_context(|| format!("the 시군구 {part:?} is not five digits"))?;
+            Ok(if number == 99_999 {
+                format!("(pnu >= '{part}')")
+            } else {
+                format!("(pnu >= '{part}' AND pnu < '{:05}')", number + 1)
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(ranges.join(" OR "))
 }
 
 /// The properties every commit of a kind's table records: its number, the table's current rows and
@@ -903,6 +989,23 @@ impl Drop for Spool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_head_is_read_by_the_literal_ranges_of_the_changed_sigungu() -> anyhow::Result<()> {
+        assert_eq!(
+            part_ranges(&["41110".to_owned(), "41199".to_owned(), "99999".to_owned()])?,
+            "(pnu >= '41110' AND pnu < '41111') OR (pnu >= '41199' AND pnu < '41200') OR (pnu >= '99999')"
+        );
+        assert_eq!(
+            part_ranges(&["09999".to_owned()])?,
+            "(pnu >= '09999' AND pnu < '10000')"
+        );
+        assert!(part_ranges(&[]).is_err());
+        for bad in ["4111", "411100", "4111a", ""] {
+            assert!(part_ranges(&[bad.to_owned()]).is_err(), "{bad:?} was taken");
+        }
+        Ok(())
+    }
 
     #[test]
     fn a_run_is_asked_for_sido_by_their_two_digits_or_for_none() -> anyhow::Result<()> {
