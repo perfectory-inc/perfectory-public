@@ -41,7 +41,8 @@ use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
 
 use crate::bronze_object_storage::{
-    live_write_bronze_object_storage_from_env, live_write_target_preflight,
+    live_write_bronze_object_storage_from_env, live_write_bronze_streaming_object_storage_from_env,
+    live_write_target_preflight,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
@@ -1114,6 +1115,14 @@ pub async fn run() -> anyhow::Result<()> {
         let storage = live_write_bronze_object_storage_from_env()
             .await
             .context("failed to configure object storage for Onbid collection")?;
+        // Media are sent from disk through the streaming port (no file held whole).
+        let streaming = live_write_bronze_streaming_object_storage_from_env()
+            .await
+            .context("failed to configure streaming storage for Onbid collection")?;
+        let media_store = crate::media_store::MediaStore {
+            head: storage.as_ref(),
+            stream: streaming.as_ref(),
+        };
         // ADR-0296 §2 / ADR-0297: mirror this run's 물건상세 photos & appraisal attachments to the
         // shared content-addressed store, using the just-fetched (fresh, not-yet-expired) URLs, and
         // rewrite the detail lines to point at each stored blob by hash (root ADR-0290 §7) so the
@@ -1152,7 +1161,7 @@ pub async fn run() -> anyhow::Result<()> {
                         &mut state.media,
                         &settings,
                         state.budget.media_downloads,
-                        storage.as_ref(),
+                        media_store,
                         http,
                     )
                     .await;
@@ -1184,7 +1193,7 @@ pub async fn run() -> anyhow::Result<()> {
                 &mut state.media,
                 &settings,
                 state.budget.media_downloads,
-                storage.as_ref(),
+                media_store,
                 http,
             )
             .await;

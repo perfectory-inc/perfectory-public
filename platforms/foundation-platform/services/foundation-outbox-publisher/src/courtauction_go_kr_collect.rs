@@ -59,9 +59,10 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::bronze_object_storage::{
-    live_write_bronze_object_storage_from_env, live_write_target_preflight,
-    BronzeObjectStorageWriter,
+    live_write_bronze_object_storage_from_env, live_write_bronze_streaming_object_storage_from_env,
+    live_write_target_preflight, BronzeObjectStorageWriter,
 };
+use crate::media_store::MediaStore;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
 
 /// `infra/lakehouse/contracts/courtauction-go-kr.contract.json`, as compiled in.
@@ -946,7 +947,7 @@ async fn run_reports(
     contract: &SourceContract,
     asking: &Asking<'_>,
     deadline: Instant,
-    storage: Option<&dyn ObjectStorageService>,
+    storage: Option<MediaStore<'_>>,
 ) -> anyhow::Result<(reports::ReportsResult, Option<Stop>, JsonValue)> {
     let item = &contract.appraisal_reports;
     if storage.is_none() {
@@ -986,7 +987,7 @@ async fn run_specs(
     asking: &Asking<'_>,
     deadline: Instant,
     offered: Vec<specs::WantedSpec>,
-    storage: Option<&dyn ObjectStorageService>,
+    storage: Option<MediaStore<'_>>,
 ) -> anyhow::Result<(specs::SpecsResult, Option<Stop>, JsonValue)> {
     let item = &contract.sale_specifications;
     if storage.is_none() {
@@ -1054,14 +1055,23 @@ pub async fn run() -> anyhow::Result<()> {
     let asking = Asking::new(&contract, &pool, deadline, switches);
     let uow;
     let storage;
-    let live = if config.live_write {
+    // Fetched files (appraisal reports, sale specifications) are sent from disk through this port.
+    let streaming;
+    let (live, files) = if config.live_write {
         live_write_target_preflight().context("court auction live-write preflight failed")?;
         let pool = PgPool::connect(&required_env_value("DATABASE_URL")?).await?;
         uow = PgBronzeIngestUnitOfWork::new(pool);
         storage = live_write_bronze_object_storage_from_env().await?;
-        Some((&uow, storage.as_ref()))
+        streaming = live_write_bronze_streaming_object_storage_from_env().await?;
+        (
+            Some((&uow, storage.as_ref())),
+            Some(MediaStore {
+                head: storage.as_ref(),
+                stream: streaming.as_ref(),
+            }),
+        )
     } else {
-        None
+        (None, None)
     };
     let (results, mut stop) = collect(&contract, &asking, Utc::now).await?;
     // The lists commit as soon as they are read: a run killed later keeps them (root ADR-0540 §2).
@@ -1312,14 +1322,8 @@ pub async fn run() -> anyhow::Result<()> {
     if matches!(stop, None | Some(Stop::TimeBudget)) {
         if let Some((total, _)) = details.as_mut() {
             let offered = std::mem::take(&mut total.specs);
-            let (result, specs_stop, report) = run_specs(
-                &contract,
-                &asking,
-                specs_deadline,
-                offered,
-                live.map(|(_, s)| s),
-            )
-            .await?;
+            let (result, specs_stop, report) =
+                run_specs(&contract, &asking, specs_deadline, offered, files).await?;
             stop = specs_stop.or(stop);
             sale_specifications = Some((result, report));
         }
@@ -1340,7 +1344,7 @@ pub async fn run() -> anyhow::Result<()> {
     let mut appraisal_reports = None;
     if matches!(stop, None | Some(Stop::TimeBudget)) && details.is_some() {
         let (result, reports_stop, report) =
-            run_reports(&contract, &asking, reports_deadline, live.map(|(_, s)| s)).await?;
+            run_reports(&contract, &asking, reports_deadline, files).await?;
         stop = reports_stop.or(stop);
         appraisal_reports = Some((result, report));
     }

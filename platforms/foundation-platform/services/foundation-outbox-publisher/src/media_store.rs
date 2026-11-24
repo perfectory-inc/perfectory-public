@@ -127,10 +127,27 @@ pub(crate) struct MediaStore<'a> {
     pub(crate) stream: &'a dyn ObjectStorageStreamingService,
 }
 
+#[cfg(test)]
+impl<'a> MediaStore<'a> {
+    /// Both ports of one adapter that is both (the file store the tests write to).
+    pub(crate) fn of<Storage>(storage: &'a Storage) -> Self
+    where
+        Storage: ObjectStorageService + ObjectStorageStreamingService,
+    {
+        Self {
+            head: storage,
+            stream: storage,
+        }
+    }
+}
+
 /// How much of a spooled file stays in memory for its format and image size: every signature but
 /// HWP's is a prefix (the spool watches for that one across the whole file), and an image's header
 /// lies in its first kilobytes.
 const SPOOL_HEAD_BYTES: usize = 1 << 20;
+/// How much of a spooled file's start is kept beside it, for a caller that reads what a file that is
+/// not the file says (a CAPTCHA or error page).
+const SPOOL_START_BYTES: usize = 4096;
 
 /// A file written to disk as it arrives and hashed chunk by chunk (root ADR-0603, 2026-11-23
 /// revision §3), so a file of any size passes through one chunk of memory: holding a notice
@@ -155,6 +172,12 @@ pub(crate) struct Spooled {
     pub(crate) sha256: Sha256Hex,
     pub(crate) size_bytes: u64,
     pub(crate) format: MediaFormat,
+    /// Whether [`MediaFormat::sniff`] names the format: a photo source stores only such a file.
+    pub(crate) shown: bool,
+    /// The file's first bytes (at most [`SPOOL_START_BYTES`]).
+    // Read by the court auction collector, which is built on unix only.
+    #[cfg_attr(not(any(unix, test)), allow(dead_code))]
+    pub(crate) start: Vec<u8>,
     pub(crate) oversize: bool,
     longest_px: Option<u32>,
 }
@@ -241,6 +264,8 @@ impl Spool {
             sha256,
             size_bytes: self.size_bytes,
             format,
+            shown: MediaFormat::sniff(&self.head).is_some(),
+            start: self.head[..self.head.len().min(SPOOL_START_BYTES)].to_vec(),
             oversize: self.size_bytes > self.max_bytes,
             longest_px,
         })
@@ -330,6 +355,37 @@ pub(crate) async fn store_spooled(
     }
 }
 
+/// Stores a spooled photo-source file as [`store_bytes`] stores one in hand, without holding it:
+/// an over-cap file or a format [`MediaFormat::sniff`] does not name is not stored, a format every
+/// screen reads is sent from disk ([`store_spooled`]). Only a raster no screen reads (BMP, TIFF) is
+/// read back, since its display master is made from its pixels (root ADR-0503).
+///
+/// Every source that fetches media over HTTP stores through here ([`spool_response`] first):
+/// holding each response whole, and a copy of it for the put, is what a photo source's memory was
+/// bounded by (Onbid: up to `max_file_bytes` 134 MB, six at a time).
+///
+/// # Errors
+/// The store refused the HEAD or the write (retried by a later run), or the spool could not be read.
+pub(crate) async fn store_spooled_shown(
+    spooled: &Spooled,
+    prefix: &ObjectKeyPrefix,
+    store: MediaStore<'_>,
+) -> anyhow::Result<Stored> {
+    if spooled.oversize {
+        return Ok(Stored::Oversize);
+    }
+    if !spooled.shown {
+        return Ok(Stored::UnknownFormat);
+    }
+    if spooled.format.is_served() {
+        return store_spooled(spooled, prefix, store).await;
+    }
+    let bytes = tokio::fs::read(&spooled.path)
+        .await
+        .context("failed to read the spool file")?;
+    store_bytes(&bytes, prefix, store.head, u64::MAX).await
+}
+
 /// Stores a file as received under `<prefix>/sha256/<hex>.<ext>`.
 async fn store_served(
     bytes: &[u8],
@@ -400,7 +456,7 @@ mod tests {
         content_addressed_key, MediaFormat, ObjectKeyPrefix, Sha256Hex,
     };
 
-    use super::{store_spooled, MediaStore, Spool, Stored};
+    use super::{store_spooled, store_spooled_shown, MediaStore, Spool, Stored};
     use foundation_outbox::ObjectStorageService;
 
     fn pattern(length: usize) -> Vec<u8> {
@@ -484,6 +540,54 @@ mod tests {
         let spooled = spool.finish().await?;
         assert_eq!(spooled.format, MediaFormat::Hwp);
         assert_eq!(MediaFormat::sniff_document(&body), MediaFormat::Hwp);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_photo_source_stores_from_disk_only_what_a_screen_can_show() -> anyhow::Result<()> {
+        let root = tempfile::tempdir()?;
+        let storage = FileObjectStorage::new(root.path())?;
+        let store = MediaStore::of(&storage);
+        let prefix = ObjectKeyPrefix::parse("media")?;
+        // A page in place of the file (an expired link, a CAPTCHA): not stored, and its start is
+        // kept for the caller that reads what it says.
+        let mut page = b"<html>synthetic notice</html>".to_vec();
+        page.extend(pattern(10_000));
+        let mut spool = Spool::create(u64::MAX)?;
+        spool.push(&page).await?;
+        let spooled = spool.finish().await?;
+        assert!(!spooled.shown);
+        assert_eq!(spooled.start, page[..4096]);
+        assert!(matches!(
+            store_spooled_shown(&spooled, &prefix, store).await?,
+            Stored::UnknownFormat
+        ));
+        // A format a screen reads is sent from disk under its content key, once.
+        let mut body = b"%PDF-1.7\n".to_vec();
+        body.extend(pattern(2 * 1024 * 1024));
+        let mut spool = Spool::create(u64::MAX)?;
+        for chunk in body.chunks(50_000) {
+            spool.push(chunk).await?;
+        }
+        let spooled = spool.finish().await?;
+        assert!(spooled.shown);
+        assert!(matches!(
+            store_spooled_shown(&spooled, &prefix, store).await?,
+            Stored::New(_)
+        ));
+        let key = content_addressed_key(&prefix, &spooled.sha256, MediaFormat::Pdf)?;
+        assert_eq!(storage.read_object_bytes(key.as_str()).await?, body);
+        assert!(matches!(
+            store_spooled_shown(&spooled, &prefix, store).await?,
+            Stored::Deduplicated(_)
+        ));
+        // Past the cap nothing is stored, whatever the format.
+        let mut spool = Spool::create(100)?;
+        spool.push(&body[..1_000]).await?;
+        assert!(matches!(
+            store_spooled_shown(&spool.finish().await?, &prefix, store).await?,
+            Stored::Oversize
+        ));
         Ok(())
     }
 }

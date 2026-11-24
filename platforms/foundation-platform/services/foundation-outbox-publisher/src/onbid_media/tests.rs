@@ -356,8 +356,16 @@ async fn a_line_settles_whole_reuses_stored_urls_and_stops_at_a_line_boundary() 
     ];
 
     // A cap of 4: lines 0 and 1 fit (2 + 2), line 2 (2 more) does not start, line 3 is all memo.
-    let mirrored =
-        mirror_detail_lines(&lines, &[], &mut memo, &settings(4), 0, &storage, &http).await;
+    let mirrored = mirror_detail_lines(
+        &lines,
+        &[],
+        &mut memo,
+        &settings(4),
+        0,
+        crate::media_store::MediaStore::of(&storage),
+        &http,
+    )
+    .await;
     let outcomes = mirrored
         .outcomes
         .iter()
@@ -383,7 +391,7 @@ async fn a_line_settles_whole_reuses_stored_urls_and_stops_at_a_line_boundary() 
         &mut memo,
         &settings(10),
         0,
-        &storage,
+        crate::media_store::MediaStore::of(&storage),
         &http,
     )
     .await;
@@ -460,7 +468,7 @@ async fn a_run_that_runs_out_mid_way_stores_every_items_photos_before_any_apprai
         &mut BTreeMap::new(),
         &settings,
         0,
-        &storage,
+        crate::media_store::MediaStore::of(&storage),
         &reqwest::Client::new(),
     )
     .await;
@@ -561,7 +569,7 @@ async fn every_lines_thumbnails_land_before_any_original_and_an_original_complet
         &mut memo,
         &settings(2),
         0,
-        &storage,
+        crate::media_store::MediaStore::of(&storage),
         &reqwest::Client::new(),
     )
     .await;
@@ -578,7 +586,7 @@ async fn every_lines_thumbnails_land_before_any_original_and_an_original_complet
         &mut memo,
         &settings(10),
         0,
-        &storage,
+        crate::media_store::MediaStore::of(&storage),
         &reqwest::Client::new(),
     )
     .await;
@@ -666,7 +674,7 @@ async fn a_thumbnail_sized_original_is_counted_and_the_ladder_is_made_from_the_t
         &mut memo,
         &settings,
         0,
-        &storage,
+        crate::media_store::MediaStore::of(&storage),
         &reqwest::Client::new(),
     )
     .await;
@@ -767,7 +775,7 @@ async fn one_run(
         &mut BTreeMap::new(),
         &settings,
         0,
-        &storage,
+        crate::media_store::MediaStore::of(&storage),
         &reqwest::Client::new(),
     )
     .await;
