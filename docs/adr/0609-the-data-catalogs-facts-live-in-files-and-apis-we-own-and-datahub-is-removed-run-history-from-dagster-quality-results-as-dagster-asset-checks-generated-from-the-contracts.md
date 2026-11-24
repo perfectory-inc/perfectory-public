@@ -154,4 +154,4 @@ DataHub 는 지금 세 가지 일을 한다. 셋 모두 사실을 만들지 않�
   앞뒤 흐름 그림이 그 일을 한다. 작업 목록 응답의 `catalog_urn`·`catalog_url` 은 PR 4 가 이름 규칙과 함께 지운다.
 - **지운 것.** Foundation 의 DataHub GraphQL 호출(`SEARCH_QUERY`·`ENTITY_QUERY`)과 `FOUNDATION_PLATFORM_DATAHUB_GMS_URL` 읽기. 이 PR 뒤
   Foundation 은 DataHub 를 부르지 않는다(품질 작업의 "전에 판정됨" 한 번 묻기만 남고, PR 4 가 지운다).
-- **시험.** `entities.rs`(노드→엔티티, 검색·쪽, 이웃), `iceberg_rest_catalog_adapter.rs`(현재 스키마의 칸, 없는 표). OpenAPI 문서는 바뀌지 않는다.
+- **시험.** `entities.rs`(노드→엔티티, 검색·쪽, 이웃), `iceberg_rest_catalog_adapter.rs`(현재 스키마의 칸, 없는 표). OpenAPI 문서는 두 경로의 태그만 바뀐다(핸들러가 `entities` 모듈로 가서, 다른 하위 모듈의 경로처럼 모듈 이름이 붙는다).
