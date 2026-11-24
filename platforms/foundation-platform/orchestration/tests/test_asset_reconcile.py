@@ -82,7 +82,7 @@ class Reconciler(unittest.TestCase):
             "gold.parcel_nearby_versions": table(snap("601", None, 0)),
             # The lanes switched on behind the loaders that fill them (root ADR-0468, revised 2026-11-10), caught up.
             "gold.parcel_ownership": table(snap("701", None, 0)),
-            "gold.parcel_sub_parcels": table(snap("702", None, 0)),
+            "gold.parcel_sub_parcels_versions": table(snap("702", None, 0)),
             "gold.parcel_energy_versions": table(snap("703", None, 0)),
             "gold.parcel_demolitions_versions": table(snap("704", None, 0)),
             "gold.parcel_factories_versions": table(snap("705", None, 0)),

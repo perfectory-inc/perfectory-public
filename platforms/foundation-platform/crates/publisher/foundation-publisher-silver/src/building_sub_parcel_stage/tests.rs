@@ -2,8 +2,8 @@
 //! parcels, an unserved end has no document, a row naming its own parcel is no link, a null PNU keeps
 //! the provider's 지번, a row with no 대지 PNU still reaches its 부속 지번, only a register's newest
 //! vintage counts, the bound, a renumbered code at either end, the bytes Spark writes, and the
-//! partial diff that reaches a parcel a register left. The national judgement against the Spark job
-//! is its takeover verdict.
+//! partial diff that reaches a parcel a register left, and the document's fields as the schema
+//! registry records them. The national judgement against the Spark job was its takeover verdict.
 
 use duckdb::Connection;
 use sha2::{Digest, Sha256};
@@ -172,6 +172,40 @@ fn a_row_without_a_site_pnu_still_reaches_its_annex() -> anyhow::Result<()> {
             entry("synthetic-1", None, "99999-10100-0-0001-0000"),
         )
     );
+    Ok(())
+}
+
+/// The lane's `spark_held_test` (root ADR-0418 §8c): the document this stage writes carries exactly
+/// the fields of the subject's registered schema, as the deleted Spark job's test held it.
+#[test]
+fn a_document_carries_exactly_the_registry_s_fields() -> anyhow::Result<()> {
+    let schema: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../contracts/schema-registry/parcel_sub_parcels_by_pnu/1/1.schema.json"
+    ))?;
+    let mut recorded = std::collections::BTreeSet::new();
+    crate::building_energy_stage::tests::schema_paths(
+        &schema["properties"]["sub_parcels"],
+        "sub_parcels",
+        &mut recorded,
+    );
+    let connection = Connection::open_in_memory()?;
+    let (site, annex) = (pnu(1), pnu(2));
+    // A link in each direction on the 대지, so both lists carry an entry.
+    let rows = build_all(
+        &connection,
+        &[
+            row(Some(&site), Some(&annex), "synthetic-1", "0002", "202610"),
+            row(Some(&annex), Some(&site), "synthetic-2", "0001", "202610"),
+        ],
+    )?;
+    assert_eq!(rows[0].0, site);
+    let mut written = std::collections::BTreeSet::new();
+    crate::building_energy_stage::tests::json_paths(
+        &serde_json::from_str(&rows[0].1)?,
+        "sub_parcels",
+        &mut written,
+    );
+    assert_eq!(written, recorded);
     Ok(())
 }
 

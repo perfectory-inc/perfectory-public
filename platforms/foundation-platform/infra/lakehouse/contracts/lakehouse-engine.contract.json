@@ -115,7 +115,11 @@
         }
       },
       "building_sub_parcel_silver_to_gold": {
-        "wave": 3
+        "moved": {
+          "pull_request": 1673,
+          "rows": 1639313,
+          "fingerprint": "rows:1639313;content_hash_sum:15123884932718686327242686"
+        }
       },
       "by_pnu_kind_silver_to_gold": {
         "wave": 2
