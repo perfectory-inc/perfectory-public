@@ -55,12 +55,15 @@ OOM 으로 죽었거나 `MemoryHigh` 를 커널의 회수 여유(CPU 마다 64 �
 한도를 바꾸는 곳은 작업 정의 하나다(ADR-0574 §8): `definitions/<무리>.definition.json` 의 그 작업에 `time_limit_minutes`
 옆의 `memory_max`·`memory_measured`(·`memory_measured_peak`·`memory_headroom_why`). 템플릿(`x@.service`)의 인스턴스 작업은
 제 값을 적을 수 있다; 템플릿보다 작으면 생성기가 `infra/systemd/<instance>.service.d/50-time-limit.conf`·`50-memory.conf` 를
-쓴다. 고친 뒤:
+쓴다. 한 run 이 파일을 1024 개(systemd 의 기본 soft 한도)보다 많이 여는 작업은 같은 자리에 `open_files`·`open_files_measured`
+(그 수가 어디서 왔나)를 적고, 생성기가 그 서비스에 `infra/systemd/<service>.d/50-open-files.conf`(`LimitNOFILE=`)를 쓴다 —
+인스턴스든 아니든. 적지 않은 작업은 기본값 그대로다(2026-11-23: 실거래 판 표 그림자가 시군구 스풀 1,790 파일을 읽다 11 번
+모두 "Too many open files" 로 실패). 고친 뒤:
 
 ```sh
 bash scripts/ci/generate-declared.sh                     # 저장소 뿌리에서: 작업 목록과 메모리 계약
 python3 scripts/ci/unit_memory.py --write                # 유닛과 인스턴스 드롭인의 메모리 줄
-cargo run -q -p foundation-jobs -- generate              # platforms/foundation-platform 에서: TimeoutStartSec 과 그 드롭인
+cargo run -q -p foundation-jobs -- generate              # platforms/foundation-platform 에서: TimeoutStartSec·LimitNOFILE 과 그 드롭인
 bash scripts/guard/every-container-has-a-memory-cap.sh   # 합이 호스트에 드는지
 ```
 
@@ -68,6 +71,6 @@ bash scripts/guard/every-container-has-a-memory-cap.sh   # 합이 호스트에 �
 남은 드롭인을 지운다(그 인스턴스는 템플릿 값으로 돌아간다):
 
 ```sh
-sudo rm -f /etc/systemd/system/foundation-*@*.service.d/50-time-limit.conf /etc/systemd/system/foundation-*@*.service.d/50-memory.conf
+sudo rm -f /etc/systemd/system/foundation-*@*.service.d/50-time-limit.conf /etc/systemd/system/foundation-*@*.service.d/50-memory.conf /etc/systemd/system/foundation-*.service.d/50-open-files.conf
 sudo systemctl daemon-reload
 ```

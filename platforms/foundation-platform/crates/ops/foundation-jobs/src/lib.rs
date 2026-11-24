@@ -3,7 +3,8 @@
 //! A job's facts are stated once, in the list. The parts of its systemd unit that repeat one of them
 //! are rendered from the list, and this crate's test refuses a committed unit that says anything
 //! else. Today that is the unit's `TimeoutStartSec=` line, from the job's `time_limit_minutes`, and
-//! the `ReadWritePaths=` line of a `ProtectSystem=strict` unit, from its `state_paths` (root ADR-0266).
+//! the `ReadWritePaths=` line of a `ProtectSystem=strict` unit, from its `state_paths` (root ADR-0266),
+//! and a service's `LimitNOFILE=` drop-in, from its job's `open_files` (root ADR-0574 §8).
 //! It also renders the host's `tmpfiles.d` file that creates the job state directories, with their
 //! mode and owner, before any unit or container uses them.
 
@@ -11,6 +12,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::Deserialize;
+
+mod open_files;
+
+pub use open_files::{
+    open_files_dropin, render_open_files_dropin, DEFAULT_HARD_LIMIT, DEFAULT_SOFT_LIMIT,
+    OPEN_FILES_DROPIN,
+};
 
 /// The job list, relative to the platform root.
 pub const JOB_LIST: &str = "orchestration/jobs.v1.json";
@@ -96,6 +104,12 @@ pub struct Job {
     /// The longest stretch the runner lets the command print nothing, in minutes.
     #[serde(default)]
     pub stall_limit_minutes: Option<u32>,
+    /// How many files one run may hold open, when it needs more than systemd's default 1024.
+    #[serde(default)]
+    pub open_files: Option<u32>,
+    /// Where `open_files` comes from: the run that failed at the default, or the measured count.
+    #[serde(default)]
+    pub open_files_measured: Option<String>,
 }
 
 /// What a job unit repeats from the job list. Jobs that share a unit must state the same.
@@ -140,7 +154,10 @@ pub fn unit_file_name(service: &str) -> String {
     }
 }
 
-/// The time-limit drop-ins committed beside the units in `units`, relative to it, sorted.
+/// The drop-ins this crate writes: an instance's time limit and a service's open files.
+pub const DROPINS: [&str; 2] = [TIME_LIMIT_DROPIN, OPEN_FILES_DROPIN];
+
+/// The drop-ins of [`DROPINS`] committed beside the units in `units`, relative to it, sorted.
 #[must_use]
 pub fn committed_dropins(units: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(units) else {
@@ -150,8 +167,9 @@ pub fn committed_dropins(units: &Path) -> Vec<String> {
         .filter_map(Result::ok)
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter(|name| name.ends_with(".service.d"))
-        .filter(|name| units.join(name).join(TIME_LIMIT_DROPIN).is_file())
-        .map(|name| format!("{name}/{TIME_LIMIT_DROPIN}"))
+        .flat_map(|name| DROPINS.map(|dropin| (name.clone(), dropin)))
+        .filter(|(name, dropin)| units.join(name).join(dropin).is_file())
+        .map(|(name, dropin)| format!("{name}/{dropin}"))
         .collect();
     found.sort();
     found
@@ -497,6 +515,9 @@ pub fn render(
             }
         })
         .collect();
+    let (open_files, open_files_problems) = open_files::render(&list.jobs, read);
+    units.extend(open_files);
+    problems.extend(open_files_problems);
     for (file, (facts, _)) in by_unit {
         let unit = read(&file).and_then(|current| {
             render_unit(&current, &facts).map(|rendered| Unit {
@@ -548,7 +569,7 @@ pub fn check(
                 .filter(|unit| unit.current != unit.rendered)
                 .map(|unit| {
                     format!(
-                        "{}: TimeoutStartSec or ReadWritePaths is not what the job list says; run: {GENERATE}",
+                        "{}: TimeoutStartSec, ReadWritePaths or LimitNOFILE is not what the job list says; run: {GENERATE}",
                         unit.file
                     )
                 })
@@ -561,7 +582,7 @@ pub fn check(
     }
 }
 
-/// The committed time-limit drop-ins (`committed`) that no rendered unit is.
+/// The committed drop-ins of [`DROPINS`] (`committed`) that no rendered unit is.
 ///
 /// What `generate` removes. Another drop-in in the same directory is not this crate's.
 #[must_use]
@@ -569,7 +590,11 @@ pub fn stale_dropins(units: &[Unit], committed: &[String]) -> Vec<String> {
     let rendered: BTreeSet<&str> = units.iter().map(|unit| unit.file.as_str()).collect();
     committed
         .iter()
-        .filter(|file| file.ends_with(&format!(".service.d/{TIME_LIMIT_DROPIN}")))
+        .filter(|file| {
+            DROPINS
+                .iter()
+                .any(|dropin| file.ends_with(&format!(".service.d/{dropin}")))
+        })
         .filter(|file| !rendered.contains(file.as_str()))
         .cloned()
         .collect()
@@ -616,6 +641,8 @@ mod tests {
                     state_paths: Vec::new(),
                     command: None,
                     stall_limit_minutes: None,
+                    open_files: None,
+                    open_files_measured: None,
                 })
                 .collect(),
         }
@@ -921,10 +948,14 @@ TimeoutStartSec=150m
             "foundation-x@a.service.d/50-time-limit.conf".to_owned(),
             "foundation-x@gone.service.d/50-time-limit.conf".to_owned(),
             "foundation-x@gone.service.d/10-other.conf".to_owned(),
+            "foundation-x@gone.service.d/50-open-files.conf".to_owned(),
         ];
         assert_eq!(
             stale_dropins(&units, &committed),
-            vec!["foundation-x@gone.service.d/50-time-limit.conf".to_owned()]
+            vec![
+                "foundation-x@gone.service.d/50-time-limit.conf".to_owned(),
+                "foundation-x@gone.service.d/50-open-files.conf".to_owned(),
+            ]
         );
         Ok(())
     }
