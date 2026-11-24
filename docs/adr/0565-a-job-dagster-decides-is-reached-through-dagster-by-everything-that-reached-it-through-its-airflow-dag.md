@@ -294,3 +294,6 @@ Airflow 가 결정하는 동안은 `run` 과제의 재시도가 같은 유닛 ru
 - **시험.** 규칙과 문지기는 `test_dagster_job_orchestrator.py`·`test_dagster_writer_gate.py`, 같은 물음을 실제 Dagster 의 run 저장소에 보내는 것은
   `test_dagster_job_orchestrator.py` `AgainstDagster`(CI `dagster-observe`).
 - **정리.** 쌓인 사본 74개는 Dagster 의 `terminateRun` 으로 취소했다(작업마다 가장 오래 기다린 run 하나를 남김): 큐 93 → 16.
+- **지워진 작업의 빚 기록.** 빚 기록은 그 작업이 시작할 때만 지워지므로(`start-scheduled-job.sh`), 릴리스가 지운 작업의 기록은 영원히 남는다.
+  7단계가 빚 기록을 읽을 때 그 릴리스의 작업 목록에 없는 작업의 기록을 지우고 무엇을 지웠는지 말한다(`job_units.py forget_deferred`). 꺼진
+  작업(`enabled: false`)의 기록은 둔다: 다시 켜지면 빚이다. 11-24 에 전날 지운 Gold 재빌드 셋의 기록과 큐의 run 하나씩이 남아 있었다(run 은 취소).
