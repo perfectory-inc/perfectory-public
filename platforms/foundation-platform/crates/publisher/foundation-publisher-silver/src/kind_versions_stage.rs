@@ -65,6 +65,21 @@ pub struct RowSet {
     pub distinct: bool,
 }
 
+/// A check of one 시도's result, run before that 시도 is appended (root ADR-0615 §7).
+///
+/// `sql` counts the rows that break the rule, over the 시도's `built` (the documents the run built),
+/// `appended` (the rows it would append) and `current_rows` (the head's rows it diffed against).
+/// A `blocking` check that counts any row refuses the 시도: nothing of it is appended.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResultCheck {
+    /// The check's name, as the orchestrator records it.
+    pub name: &'static str,
+    /// One statement returning one count.
+    pub sql: String,
+    /// Whether a breach refuses the 시도.
+    pub blocking: bool,
+}
+
 /// One parcel kind's Gold in `DuckDB`.
 pub trait KindVersionsStage: Sync {
     /// The column that holds the document.
@@ -159,6 +174,11 @@ pub trait KindVersionsStage: Sync {
     /// default.
     fn pnu_spools(&self) -> Vec<&'static str> {
         self.row_sets().iter().map(|set| set.name).collect()
+    }
+    /// The checks of a 시도's result the kind adds to the ones every table has: its domain's
+    /// refusals. None by default.
+    fn result_checks(&self) -> Vec<ResultCheck> {
+        Vec::new()
     }
     /// Why the kind's documents cannot be built one 시군구 at a time, when they cannot.
     ///

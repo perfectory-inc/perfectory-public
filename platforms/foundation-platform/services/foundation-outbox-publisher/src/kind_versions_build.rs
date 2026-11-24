@@ -423,6 +423,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let mut append_head = head;
     let max_loss = max_row_loss_fraction_of(kind.replaced)?;
     let mut phases = Phases::default();
+    let mut checks = Vec::new();
     for sido in &sidos {
         if requested.as_ref().is_some_and(|keys| !keys.contains(sido)) {
             continue;
@@ -517,6 +518,14 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             let sido_diff = versions::diff(connection, &commit, &range)?;
             let sido_digests = versions::digests(connection, &commit)?;
             phases.add("diff", at);
+            let at = Instant::now();
+            let refused = run_result_checks(stage, connection, table, sido, &mut checks)?;
+            phases.add("checks", at);
+            ensure!(
+                refused.is_empty(),
+                "시도 {sido} of {table} breaks {}: nothing of it was appended",
+                refused.join(", ")
+            );
             let at = Instant::now();
             let sido_files = versions::stage(&duck, &shape, &run, versions_contract)?;
             phases.add("stage", at);
@@ -696,7 +705,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                 "partitions": {"built": built_sidos, "found_current": current_sidos, "requested": requested},
                 "every_pnu": every_pnu, "targets": targets,
                 "served_parcels": read.served_parcels, "rows": rows, "read_millis": read.read_millis,
-            "phase_millis": phases.0,
+            "phase_millis": phases.0, "checks": checks,
                 "sidos": sidos, "diff": diff, "tags": tags,
                 "duckdb_memory_limit_bytes": memory_limit,
                 "memory_peak_bytes": process_memory::cgroup_peak_bytes(),
@@ -781,7 +790,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             "served_edition": edition, "shadow_of": shadow_build, "code_version": code, "as_of": as_of,
             "every_pnu": every_pnu, "targets": targets, "recorded_explanation": recorded_explanation,
             "served_parcels": read.served_parcels, "rows": rows, "read_millis": read.read_millis,
-            "phase_millis": phases.0,
+            "phase_millis": phases.0, "checks": checks,
             "sidos": sidos,
             "diff": diff, "current_records": current_records,
             "content_fingerprint": versions::fingerprint_text(fingerprint),
@@ -812,6 +821,34 @@ impl Phases {
         *self.0.entry(phase).or_default() +=
             u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX);
     }
+}
+
+/// Runs the kind's result checks on the 시도 the connection holds, prints each as a
+/// `gold-versions-check` line (a run a check refuses writes no summary), adds them to `results` and
+/// returns the blocking ones that counted a row.
+fn run_result_checks(
+    stage: &dyn KindVersionsStage,
+    connection: &foundation_publisher_silver::duckdb::Connection,
+    table: &str,
+    sido: &str,
+    results: &mut Vec<serde_json::Value>,
+) -> anyhow::Result<Vec<&'static str>> {
+    let mut refused = Vec::new();
+    for check in stage.result_checks() {
+        let breaches: i64 = connection
+            .query_row(&check.sql, [], |row| row.get(0))
+            .with_context(|| format!("the check {} of {table} did not run", check.name))?;
+        let result = json!({
+            "table": table, "sido": sido, "check": check.name, "breaches": breaches,
+            "blocking": check.blocking, "passed": breaches == 0,
+        });
+        println!("gold-versions-check {result}");
+        results.push(result);
+        if check.blocking && breaches != 0 {
+            refused.push(check.name);
+        }
+    }
+    Ok(refused)
 }
 
 /// The 시군구 (the first five digits) of `sido`'s changed keys in `targets`.
