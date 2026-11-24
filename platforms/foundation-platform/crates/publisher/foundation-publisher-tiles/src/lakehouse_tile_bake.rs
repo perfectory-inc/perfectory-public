@@ -20,7 +20,7 @@
 //!    files under the work directory. A unit the contract partitions (root ADR-0316: parcels by
 //!    시도) is split by feature-id prefix in step 2, only the partitions whose rows or bake inputs
 //!    changed are baked, each into a create-only archive kept under the work root, and every
-//!    partition's archive is joined into the unit's with tile-join;
+//!    partition's archive is merged into the unit's (`pmtiles_merge`, root ADR-0613);
 //! 5. gate: the archive is PMTiles v3 MVT over the layer's zoom range, and its maxzoom tiles carry
 //!    exactly the served feature ids, read by streaming the archive without decoding geometry;
 //! 6. upload create-only and rehash, record the result, promote (the unit is left with no fallback);
@@ -70,6 +70,8 @@ use crate::tile_derivative_object_storage::TileDerivativeR2Config;
 
 #[path = "pmtiles_feature_ids.rs"]
 pub mod pmtiles_feature_ids;
+#[path = "pmtiles_merge.rs"]
+pub mod pmtiles_merge;
 #[path = "subpixel.rs"]
 pub mod subpixel;
 #[path = "tile_equivalence.rs"]
@@ -102,8 +104,8 @@ use gate::classify_missing;
 pub use gate::{check_pmtiles_header, gate_archive, IdGate, Missing, ServedLayer};
 pub use min_zoom::{FeatureMinZoom, LowZoomGeneralization};
 pub use partitions::{
-    bake_partitions, joined_archive, partition_archive, tile_join_args, warm_partitions, CsvOut,
-    CsvPart, JoinNext, PartitionedCsv, Warmed,
+    bake_partitions, joined_archive, partition_archive, warm_partitions, CsvOut, CsvPart, JoinNext,
+    PartitionedCsv, Warmed,
 };
 use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
 use upload::{bake_and_upload, compared_with, ensure_comparable, rehearse, Upload};
@@ -163,7 +165,7 @@ pub struct BakeContract {
     /// the run started; the run ends deferred and the next start continues from the cache.
     #[serde(default)]
     pub partition_run_budget_seconds: std::collections::BTreeMap<String, u64>,
-    /// Root ADR-0576: the run that only joins bounds its tile-join this many seconds after the run
+    /// Root ADR-0576, ADR-0613: the run that only joins bounds its merge this many seconds after the run
     /// started, in place of the one-tool bound; past it the run fails and keeps no joined archive.
     #[serde(default)]
     pub tile_join_run_budget_seconds: std::collections::BTreeMap<String, u64>,
@@ -683,7 +685,7 @@ struct Config {
     tile_max_zoom: Option<u8>,
     /// Root ADR-0493: when this run starts no more partitions, if the contract budgets them.
     partition_deadline: Option<std::time::Instant>,
-    /// Root ADR-0576: when the tile-join of a run that only joins is stopped, if the contract says.
+    /// Root ADR-0576, ADR-0613: when the merge of a run that only joins is stopped, if the contract says.
     join_deadline: Option<std::time::Instant>,
 }
 
@@ -1030,7 +1032,7 @@ async fn build_archive(
         .into_iter()
         .map(|(prefix, archive, _)| (prefix, archive))
         .collect();
-    partitions::join_partitions(config, images, work, &archives, config.tool_timeout).await
+    partitions::join_partitions(config, work, &archives, config.tool_timeout).await
 }
 
 /// Everything besides the rows that decides a baked tile's bytes. ADR-0316: the tippecanoe
@@ -1284,7 +1286,7 @@ async fn bake_in(
     // Root ADR-0576: the join the last run left waiting runs alone, before the handoff is read.
     if newborn.is_none()
         && summary.partial.is_none()
-        && partitions::join_ahead(config, &contract.images, &summary, work).await?
+        && partitions::join_ahead(config, &summary, work).await?
     {
         return Ok(());
     }

@@ -136,6 +136,10 @@ flate2 = "1.1"
 # MVT tiles are protobuf. The lakehouse tile bake's maxzoom gate decodes their ids with it
 # (root ADR-0133 §3) instead of a hand-written wire decoder.
 prost = { version = "0.14", default-features = false, features = ["derive", "std"] }
+# PMTiles archives are read and written through it where a bake merges its partition archives
+# (root ADR-0613): the sync reader's entry walk (`iter`) and the stream writer (`write`). No
+# backend but a local file, so no async runtime feature and no HTTP or S3 client comes with it.
+pmtiles = { version = "0.28.1", default-features = false, features = ["iter", "write"] }
 # The publisher's Iceberg data commit (root ADR-0560): apache/iceberg-rust writes the manifest,
 # the manifest list and the commit of an append; only `lakehouse_data_commit` calls it. It brings
 # its own arrow/parquet 58.4 beside the workspace's 60 until it moves to 60. S3 storage only.

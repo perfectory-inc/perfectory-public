@@ -1,0 +1,26 @@
+The tile-join reference the partition merge is held to in CI without the tool (root ADR-0613,
+src/pmtiles_merge.rs). Run once on 2026-11-24 with the pinned tippecanoe
+(foundation-tippecanoe:2.79.0-local, config/tile-bake-containers.contract.json), in a directory
+holding the two .geojsons:
+
+  a.geojsons, b.geojsons  36 squares each around (0, 0), ids 99999...: no real place or parcel
+  a.pmtiles, b.pmtiles    each baked with a subset of the bake's flags (z10 to z14, layer
+                          parcels; no --full-detail, no feature filter)
+  joined.pmtiles          tile-join of the two: 21 tiles, 8 of them in both partitions
+
+joined.pmtiles is the takeover's evidence and is frozen: nothing runs tile-join after ADR-0613.
+If the pinned tippecanoe changes, bake a and b again with the first two commands below and keep holding the
+merge to the features of the two (the test's other assertions), not to a new tile-join output.
+
+The commands, as they were run (not a script the repository runs):
+
+    set -euo pipefail
+    image="foundation-tippecanoe:2.79.0-local"
+    run() { docker run --rm --network none --cpus 1 --memory 512m --user "$(id -u):$(id -g)" -v "$PWD:/w" "$@"; }
+    for part in a b; do
+      run "$image" -o "/w/$part.pmtiles" -P -l parcels -Z 10 -z 14 --no-feature-limit \
+        --no-tile-size-limit --no-tiny-polygon-reduction --detect-shared-borders --force --quiet \
+        -y pnu -y jimok -y area -y note "/w/$part.geojsons"
+    done
+    run --entrypoint tile-join "$image" -o /w/joined.pmtiles --no-tile-size-limit --force --quiet \
+      /w/a.pmtiles /w/b.pmtiles

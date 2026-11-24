@@ -31,12 +31,13 @@ last_reviewed: 2026-10-29
    통과하면 R2 에 create-only 로 올리고 승격한다. 승격 전 실패는 서비스에 아무것도 바꾸지 않는다.
    필지는 시도마다 따로 굽는다(루트 ADR-0316, 계약 `partition_by_feature_id_prefix`). 행·굽기 입력이 그대로인
    시도는 `<WORK_ROOT>/parcels-partitions/<시도>/<내용 해시>.pmtiles` 를 다시 쓰고, 바뀐 시도만 GDAL·tippecanoe 를
-   돌린 뒤 `tile-join` 으로 전국 판을 만든다. 저널 줄 `lakehouse-tile-bake-partitions` 에 구운 시도와 재사용 수가 있다.
-   모든 시도가 캐시에 차면 `tile-join` 은 다음 run 에서 혼자 돌고(`remaining=tile-join`), 합친 판은
+   돌린 뒤 시도 판을 합쳐 전국 판을 만든다(발행기 안의 합치기, 루트 ADR-0613; tile-join 은 돌지 않는다). 저널 줄 `lakehouse-tile-bake-partitions` 에 구운 시도와 재사용 수가 있다.
+   모든 시도가 캐시에 차면 합치기는 다음 run 에서 혼자 돌고(`remaining=tile-join` — 단계의 이름이다), 합친 판은
    `parcels-partitions/joined/` 에 create-only 로 남는다. 그다음 run 이 관문·업로드·승격을 한다(root ADR-0576). 저널 줄
    `lakehouse-tile-bake-joined` 에 합치기 초(`seconds=`) 또는 재사용(`reused=`)이 있다.
-   합치기 run 의 tile-join 은 도구 1회 상한이 아니라 계약 `tile_join_run_budget_seconds`(run 시작부터 6300초)에
-   묶인다. 그 안에 못 끝나면 `tile-join exceeded its time bound` 로 실패하고 합친 판은 남지 않는다.
+   합치기 run 의 합치기는 도구 1회 상한이 아니라 계약 `tile_join_run_budget_seconds`(run 시작부터 6300초)에
+   묶인다. 그 안에 못 끝나면 `the partition merge exceeded its time bound` 로 실패하고 합친 판은 남지 않는다. 끝나면 저널 줄
+   `lakehouse-tile-bake-joined … tiles= copied= merged= seconds=` 가 걸린 시간과 풀어 합친 타일 수를 낸다.
    이 폴더는 쌓기만 하며 지우지 않는다(판마다 바뀐 시도 몫만 늘어난다).
 5. 필지는 4단계 앞에서 먼저 **패치**를 시도한다(루트 ADR-0323, 계약 `vector_tile_gateway.patches`).
    - 핸드오프를 한 번 읽어 feature 색인(id·내용 해시·상자)을 만든다.

@@ -1018,26 +1018,6 @@ async fn only_a_changed_partition_is_rebaked_and_an_unchanged_archive_is_left_un
 }
 
 #[test]
-fn tile_join_reads_every_partition_and_keeps_tiles_whole() {
-    let args: Vec<String> = tile_join_args(&["11".to_owned(), "26".to_owned()])
-        .into_iter()
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(
-        args,
-        [
-            "-o",
-            "/w/unit.pmtiles",
-            "--no-tile-size-limit",
-            "--force",
-            "--quiet",
-            "/w/join/11.pmtiles",
-            "/w/join/26.pmtiles",
-        ]
-    );
-}
-
-#[test]
 fn the_contract_registers_zoning_partitioned_by_its_layer_code() -> anyhow::Result<()> {
     let contract = BakeContract::parse(CONTRACT_JSON)?;
     let zoning = contract

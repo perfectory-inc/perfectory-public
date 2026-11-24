@@ -8,10 +8,12 @@
 //! MVT `Feature.geometry` field is not declared below, so the decoder skips it. Memory is one
 //! directory and one tile at a time.
 //!
-//! Candidates: the `pmtiles` crate reads tiles by coordinate through an async mmap or HTTP
-//! backend and does not expose the entry walk this gate needs without pulling those backends in;
-//! the directory format is a few varint arrays (spec: `protomaps/PMTiles` `spec/v3/spec.md`), so
-//! it is read here. MVT is protobuf, so it is decoded with `prost` rather than by hand.
+//! Candidates: when this was written the `pmtiles` crate read tiles by coordinate through an async
+//! mmap or HTTP backend and did not expose the entry walk this gate needs; the directory format is
+//! a few varint arrays (spec: `protomaps/PMTiles` `spec/v3/spec.md`), so it is read here. Since
+//! 0.28.1 the crate has a sync reader with that walk, and the partition merge uses it
+//! (`pmtiles_merge`, root ADR-0613); moving this gate and the patch writer onto it is the work
+//! that ADR leaves. MVT is protobuf, so it is decoded with `prost` rather than by hand.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
