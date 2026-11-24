@@ -55,3 +55,5 @@ DuckDB 를 먼저 의심했다(층 내보내기의 임시 저장소). `libduckdb
 - 시험 하나가 어떤 이유로든 1분을 넘으면, 잡 시간을 조용히 늘리는 대신 이름이 찍힌 실패가 된다.
   한도를 올리려면 그 시험의 이름으로 재정의를 더하고 이유를 적는다.
 - 생산자 증거의 의미(실행 파일 전체 바이트의 SHA-256)는 바뀌지 않는다.
+
+- 2026-11-23 개정 주석: §1 의 최적화하는 의존성에 `libduckdb-sys`(opt-level 1)가 더해졌다. 그 뒤 더해진 DuckDB 단계 시험의 제한 시간 재정의 둘은 지워졌다([ADR-0610](./0610-foundation-test-builds-optimize-the-bundled-duckdb-at-level-one-and-its-stage-tests-keep-the-default-limit.md)).
