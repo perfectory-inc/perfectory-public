@@ -546,10 +546,9 @@ export function schedulerUrl(
   return runId ? `${dag}/runs/${encodeURIComponent(runId)}/tasks/run` : dag;
 }
 
-/** The data catalog's lineage page for a dataset or job. */
+/** The data catalog's lineage page for a dataset. */
 export function catalogLineageUrl(links: OperationsLinks | undefined, urn: string | null): string | null {
   const base = trimEnd(links?.catalog_url ?? "", "/");
   if (!base || !urn) return null;
-  const kind = urn.startsWith("urn:li:dataJob:") ? "tasks" : "dataset";
-  return `${base}/${kind}/${encodeURIComponent(urn)}/Lineage`;
+  return `${base}/dataset/${encodeURIComponent(urn)}/Lineage`;
 }

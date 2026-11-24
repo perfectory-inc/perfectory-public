@@ -61,7 +61,7 @@ function dataset(id: string): ScheduledJobDataset {
 }
 
 function run(outcome: ScheduledJobRun["outcome"], startedAt = "2026-01-02T11:00:00Z", finishedAt: string | null = null): ScheduledJobRun {
-  return { run_urn: `urn:li:dataProcessInstance:${outcome}-${startedAt}`, started_at: startedAt, finished_at: finishedAt, outcome };
+  return { run_urn: `synthetic-run-${outcome}-${startedAt}`, started_at: startedAt, finished_at: finishedAt, outcome };
 }
 
 function job(id: string, overrides: Partial<ScheduledJobStatus>): ScheduledJobStatus {
@@ -366,7 +366,6 @@ describe("problems (root ADR-0195)", () => {
       "https://scheduler.example/dags/synthetic_load_b",
     );
     expect(catalogLineageUrl(links, "urn:li:dataset:x")).toBe("https://catalog.example/dataset/urn%3Ali%3Adataset%3Ax/Lineage");
-    expect(catalogLineageUrl(links, "urn:li:dataJob:y")).toBe("https://catalog.example/tasks/urn%3Ali%3AdataJob%3Ay/Lineage");
     expect(catalogLineageUrl(links, null)).toBeNull();
   });
 });

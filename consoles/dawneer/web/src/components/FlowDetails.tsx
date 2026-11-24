@@ -75,7 +75,6 @@ function JobCard({
         <ExternalLink href={schedulerUrl(links, job.dag_id, failed?.kind === "failed" ? failed.scheduler_run_id : null, job)}>
           {failed ? "실패 로그" : "실행 기록"}
         </ExternalLink>
-        <ExternalLink href={catalogLineageUrl(links, job.catalog_job_urn ?? null)}>DataHub 계보</ExternalLink>
       </div>
       <p className="mt-2 text-xs text-slate-600">{job.description}</p>
       <dl className="mt-2 grid grid-cols-[5rem_1fr] gap-x-2 gap-y-1 text-xs">

@@ -54,12 +54,7 @@ pub(super) async fn dataset_snapshots(
 ) -> Result<Json<DatasetSnapshots>, ApiError> {
     let (list, dependencies) = read_registry()?;
     let facts = facts::current(Arc::clone(&list), Arc::clone(&dependencies)).await;
-    let statuses = job_statuses(
-        &list,
-        &dependencies,
-        facts.flows.as_deref().unwrap_or_default(),
-        Utc::now(),
-    );
+    let statuses = job_statuses(&list, &dependencies, &facts.runs.by_job, Utc::now());
     Ok(Json(snapshots_of(
         &query.node_id,
         &statuses,
@@ -254,7 +249,7 @@ mod tests {
     fn a_silver_snapshot_names_its_run_and_the_gold_snapshot_built_from_it() {
         let run = ScheduledJobRun {
             queued_at: None,
-            run_urn: "urn:run-1".to_owned(),
+            run_urn: "synthetic-run-1".to_owned(),
             started_at: Utc.timestamp_millis_opt(1_000).single(),
             finished_at: Utc.timestamp_millis_opt(5_000).single(),
             outcome: ScheduledJobRunOutcome::Succeeded,
@@ -299,7 +294,7 @@ mod tests {
         assert_eq!(first.snapshot_id, "7");
         assert_eq!(
             (first.job_id.as_deref(), first.run_urn.as_deref()),
-            (Some("load"), Some("urn:run-1"))
+            (Some("load"), Some("synthetic-run-1"))
         );
         assert_eq!(first.added_records, Some(12));
         assert_eq!(first.ingested_objects, vec!["bronze/x.zip"]);

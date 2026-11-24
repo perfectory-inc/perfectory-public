@@ -13,6 +13,11 @@ last_reviewed: 2026-10-01
 플랫폼 관리자만 SSH 터널로 쓴다. Foundation API 는 공유 네트워크 `metadata-shared` 에서 `datahub-gms` 로 닿는다.
 Foundation 과 같은 장비에서 돈다.
 
+예약 작업의 실행 기록(운영 현황의 예약 작업 칸과 Slack 경보, `GET /data-catalog/v1/scheduled-jobs`)은 DataHub 에서
+읽지 않는다. 그 작업을 돌린 오케스트레이터에서 읽는다: Dagster 의 run, 2026-11-25 까지 Airflow 가 돌리는 작업은 그
+DAG 의 run 이다(루트 ADR-0609 §1). 실행이 OpenLineage 로 DataHub 에 보내는 기록은 DataHub 를 걷어 낼 때까지(같은 ADR
+§4) 쌓이기만 하고 아무도 읽지 않는다.
+
 ## 무엇이 어디 있나
 
 | 무엇 | 위치 |

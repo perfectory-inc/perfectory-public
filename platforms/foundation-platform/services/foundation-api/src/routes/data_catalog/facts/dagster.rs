@@ -1,8 +1,9 @@
-//! The run facts of the jobs Dagster decides (root ADR-0565 §8), read from Dagster's read-only
-//! webserver (`dagster-webserver --read-only`, `compose.orchestration.yml`): it answers the same
-//! GraphQL as the operating one and holds no mutation, so the API can ask it and change nothing.
+//! The run facts of the jobs Dagster runs (root ADR-0565 §8, ADR-0609 §1), read from Dagster's
+//! read-only webserver (`dagster-webserver --read-only`, `compose.orchestration.yml`): it answers the
+//! same GraphQL as the operating one and holds no mutation, so the API can ask it and change nothing.
 //!
-//! A job at `dagster` has no DAG: its runs are its Dagster job's (`foundation_job__<id>`). Its run op
+//! A job at `proxied` or `dagster` runs as its Dagster job (`foundation_job__<id>`): its runs are that
+//! job's runs, whether its sensor or (while `proxied`) its DAG's `run` task launched them. Its run op
 //! logs every line the host's forced command streams (`orchestration/dagster/systemd_pipes.py`), so a
 //! failed run's lines are that run's message events, framed by `start-scheduled-job` as an Airflow
 //! task log was, and the same `classify` and `mask` read them.
@@ -11,16 +12,19 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use chrono::{DateTime, TimeZone, Utc};
+use foundation_contracts::data_catalog::{ScheduledJobRun, ScheduledJobRunOutcome};
 use serde_json::{json, Value as JsonValue};
 
 use super::super::health::FailedRunLog;
+use super::super::operations::RUNS_PER_JOB;
 use super::{classify, waiting_reason};
 
 /// The read-only webserver's address inside the runtime.
 const API_URL_ENV: &str = "FOUNDATION_PLATFORM_DAGSTER_API_URL";
 /// A job's Dagster job (`orchestration/dags/job_specs.py` `DAGSTER_JOB_PREFIX`).
-pub(super) const JOB_PREFIX: &str = "foundation_job__";
-/// The tag a run's outcome is on (`job_specs.OUTCOME_TAG`): a run that ended waiting succeeded.
+pub(in crate::routes::data_catalog) const JOB_PREFIX: &str = "foundation_job__";
+/// The tag a run's outcome is on (`job_specs.OUTCOME_TAG`): a run that ended waiting, or skipped,
+/// succeeded (`run_jobs.py`), as Airflow skipped the run task of one (root ADR-0260, ADR-0282).
 const OUTCOME_TAG: &str = "foundation/job-outcome";
 /// Message events per page of a run's log, and the most pages read: a run's journal is thousands of
 /// lines, never this many.
@@ -102,28 +106,20 @@ impl Dagster {
         Ok(in_progress_runs(&data))
     }
 
-    /// The log of `job_id`'s latest failed run, or with `waited` of its latest run that ended
-    /// waiting, read for the data catalog's run `run_urn`.
-    pub(super) async fn latest_log(
+    /// By job id, the newest runs of each job's Dagster job, newest first: one question for all.
+    pub(super) async fn job_runs(
         &self,
-        job_id: &str,
-        run_urn: &str,
-        waited: bool,
-    ) -> Result<FailedRunLog, String> {
-        let mut filter = json!({ "pipelineName": format!("{JOB_PREFIX}{job_id}") });
-        if waited {
-            filter["statuses"] = json!(["SUCCESS"]);
-            filter["tags"] = json!([{ "key": OUTCOME_TAG, "value": "waiting" }]);
-        } else {
-            filter["statuses"] = json!(["FAILURE"]);
+        job_ids: &[&str],
+    ) -> Result<BTreeMap<String, Vec<ScheduledJobRun>>, String> {
+        if job_ids.is_empty() {
+            return Ok(BTreeMap::new());
         }
-        let runs = self
-            .ask(RUNS_QUERY, json!({ "filter": filter, "limit": 1 }))
-            .await?;
-        let run_id = runs["runsOrError"]["results"][0]["runId"]
-            .as_str()
-            .ok_or_else(|| format!("Dagster holds no such run of {job_id}"))?
-            .to_owned();
+        let data = self.ask(&runs_query(job_ids), json!({})).await?;
+        runs_of(job_ids, &data)
+    }
+
+    /// The log of the Dagster run `run_id`, which failed or ended waiting.
+    pub(super) async fn log_of(&self, run_id: &str) -> Result<FailedRunLog, String> {
         let mut lines = Vec::new();
         let mut after = JsonValue::Null;
         for _ in 0..LOG_PAGES {
@@ -145,8 +141,7 @@ impl Dagster {
         }
         let (cause, cause_line) = classify(&lines);
         Ok(FailedRunLog {
-            run_urn: run_urn.to_owned(),
-            scheduler_run_id: Some(run_id),
+            run_id: run_id.to_owned(),
             cause,
             cause_line,
             waiting: waiting_reason(&lines),
@@ -233,6 +228,90 @@ fn executions_query(checks: &[ContractCheck]) -> String {
     query
 }
 
+/// One query for the newest runs of every job's Dagster job, each under the alias `j<index>`.
+fn runs_query(job_ids: &[&str]) -> String {
+    let mut query = String::from("{");
+    for (index, job_id) in job_ids.iter().enumerate() {
+        let _ = write!(
+            query,
+            " j{index}: runsOrError(filter: {{pipelineName: {}}}, limit: {RUNS_PER_JOB}) \
+             {{ __typename ... on Runs {{ results {{ runId status creationTime startTime endTime \
+             tags {{ key value }} }} }} }}",
+            json!(format!("{JOB_PREFIX}{job_id}"))
+        );
+    }
+    query.push_str(" }");
+    query
+}
+
+/// Each job's runs in a `runs_query` answer; a job whose runs Dagster could not list refuses the
+/// whole answer, so no job reads as never run because of it.
+fn runs_of(
+    job_ids: &[&str],
+    data: &JsonValue,
+) -> Result<BTreeMap<String, Vec<ScheduledJobRun>>, String> {
+    job_ids
+        .iter()
+        .enumerate()
+        .map(|(index, job_id)| {
+            let answer = &data[format!("j{index}")];
+            let listed = answer["__typename"].as_str();
+            if listed != Some("Runs") {
+                return Err(format!(
+                    "Dagster could not list the runs of {JOB_PREFIX}{job_id}: {}",
+                    listed.unwrap_or("no answer")
+                ));
+            }
+            let runs = answer["results"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(run_of)
+                .collect();
+            Ok(((*job_id).to_owned(), runs))
+        })
+        .collect()
+}
+
+/// One Dagster run: made (`creationTime`) when it was queued, started when its op could start (after
+/// its pool's wait), ended when its last try did. An op tries again inside the same run, so a run
+/// waiting for its next try is still running. A run that succeeded saying it waits, or that it was
+/// skipped, is a success here as the data catalog showed it (its word stays in `native_result`): on
+/// 2026-11-23 counting those as no success would have called 19 more jobs late (15 to 34), the Gold
+/// builds that wait for their inputs every day among them.
+fn run_of(run: &JsonValue) -> Option<ScheduledJobRun> {
+    let status = run["status"].as_str()?;
+    let outcome_tag = run["tags"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|tag| tag["key"].as_str() == Some(OUTCOME_TAG))
+        .and_then(|tag| tag["value"].as_str())
+        .filter(|outcome| !outcome.is_empty());
+    let outcome = match status {
+        "SUCCESS" => ScheduledJobRunOutcome::Succeeded,
+        // Cancelled: stopped before its work ended (its time limit, or the DAG that launched it was
+        // stopped), which is no success.
+        "FAILURE" | "CANCELED" => ScheduledJobRunOutcome::Failed,
+        "QUEUED" | "NOT_STARTED" | "STARTING" | "STARTED" | "CANCELING" => {
+            ScheduledJobRunOutcome::Running
+        }
+        _ => ScheduledJobRunOutcome::Unknown,
+    };
+    let finished = matches!(status, "SUCCESS" | "FAILURE" | "CANCELED");
+    Some(ScheduledJobRun {
+        run_urn: run["runId"].as_str()?.to_owned(),
+        queued_at: epoch(&run["creationTime"]),
+        started_at: epoch(&run["startTime"]),
+        finished_at: finished.then(|| epoch(&run["endTime"])).flatten(),
+        outcome,
+        native_result: finished.then(|| {
+            outcome_tag.map_or_else(|| status.to_owned(), |said| format!("{status} {said}"))
+        }),
+        rows_written: None,
+    })
+}
+
 /// When an execution started, as Dagster gives it.
 pub(in crate::routes::data_catalog) fn execution_time(
     execution: &JsonValue,
@@ -297,10 +376,111 @@ fn message_lines(connection: &JsonValue) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        contract_checks_of, executions_query, in_progress_runs, message_lines, unfinished,
-        ContractCheck,
+        contract_checks_of, executions_query, in_progress_runs, message_lines, runs_of, runs_query,
+        unfinished, ContractCheck,
     };
+    use foundation_contracts::data_catalog::ScheduledJobRunOutcome;
     use serde_json::{json, Value as JsonValue};
+
+    #[test]
+    fn every_jobs_newest_runs_are_asked_in_one_query() {
+        let query = runs_query(&["synthetic_load", "synthetic_bake"]);
+        assert!(query.starts_with("{ j0: runsOrError(filter: {pipelineName: \"foundation_job__synthetic_load\"}, limit: 10) { __typename ... on Runs { results { runId status creationTime startTime endTime tags { key value } } } }"));
+        assert!(query.contains(" j1: runsOrError(filter: {pipelineName: \"foundation_job__synthetic_bake\"}, limit: 10)"));
+        assert!(query.ends_with(" }"));
+    }
+
+    /// The shape of Dagster's `runsOrError` (1.13), ids made up.
+    fn synthetic_runs() -> JsonValue {
+        let tag = |outcome: &str| json!([{ "key": "foundation/run", "value": "job" }, { "key": "foundation/job-outcome", "value": outcome }]);
+        json!({ "j0": { "__typename": "Runs", "results": [
+            // Waiting for its pool: made, not started.
+            { "runId": "r-queued", "status": "QUEUED", "creationTime": 1_800_007_200.0, "startTime": null, "endTime": null, "tags": [] },
+            // Its op failed a try and waits for the next: the run is still going, from its first start.
+            { "runId": "r-retrying", "status": "STARTED", "creationTime": 1_800_003_600.0, "startTime": 1_800_003_660.5, "endTime": null, "tags": tag("failed") },
+            { "runId": "r-waited", "status": "SUCCESS", "creationTime": 1_800_000_000.0, "startTime": 1_800_000_010.0, "endTime": 1_800_000_020.0, "tags": tag("waiting") },
+            { "runId": "r-changed", "status": "SUCCESS", "creationTime": 1_799_996_400.0, "startTime": 1_799_996_401.0, "endTime": 1_799_997_000.0, "tags": tag("changed") },
+            { "runId": "r-failed", "status": "FAILURE", "creationTime": 1_799_992_800.0, "startTime": 1_799_992_801.0, "endTime": 1_799_993_000.0, "tags": tag("failed") },
+            { "runId": "r-cancelled", "status": "CANCELED", "creationTime": 1_799_989_200.0, "startTime": 1_799_989_201.0, "endTime": 1_799_989_300.0, "tags": [] },
+            { "runId": "r-odd", "status": "SOMETHING_NEW", "creationTime": 1_799_985_600.0, "tags": [] },
+        ] } })
+    }
+
+    #[test]
+    fn a_dagster_run_is_queued_when_made_works_from_its_start_and_says_how_it_ended() {
+        use ScheduledJobRunOutcome::{Failed, Running, Succeeded, Unknown};
+        let runs = runs_of(&["synthetic_load"], &synthetic_runs())
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let runs = &runs["synthetic_load"];
+        let outcomes: Vec<(&str, ScheduledJobRunOutcome, Option<&str>)> = runs
+            .iter()
+            .map(|run| {
+                (
+                    run.run_urn.as_str(),
+                    run.outcome,
+                    run.native_result.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            outcomes,
+            vec![
+                ("r-queued", Running, None),
+                ("r-retrying", Running, None),
+                ("r-waited", Succeeded, Some("SUCCESS waiting")),
+                ("r-changed", Succeeded, Some("SUCCESS changed")),
+                ("r-failed", Failed, Some("FAILURE failed")),
+                ("r-cancelled", Failed, Some("CANCELED")),
+                ("r-odd", Unknown, None),
+            ],
+            "newest first, as Dagster gave them"
+        );
+        let millis = |run: usize| {
+            let run = &runs[run];
+            [run.queued_at, run.started_at, run.finished_at]
+                .map(|at| at.map(|at| at.timestamp_millis()))
+        };
+        assert_eq!(
+            millis(0),
+            [Some(1_800_007_200_000), None, None],
+            "still waits for its pool"
+        );
+        assert_eq!(
+            millis(1),
+            [Some(1_800_003_600_000), Some(1_800_003_660_500), None],
+            "a retry runs inside the run, which keeps its first start and has no end yet"
+        );
+        assert_eq!(
+            millis(3),
+            [
+                Some(1_799_996_400_000),
+                Some(1_799_996_401_000),
+                Some(1_799_997_000_000)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_job_whose_runs_dagster_could_not_list_refuses_the_whole_answer() {
+        let mut data = synthetic_runs();
+        data["j1"] = json!({ "__typename": "PythonError" });
+        assert_eq!(
+            runs_of(&["synthetic_load", "synthetic_bake"], &data),
+            Err(
+                "Dagster could not list the runs of foundation_job__synthetic_bake: PythonError"
+                    .to_owned()
+            )
+        );
+        let never = runs_of(
+            &["synthetic_new"],
+            &json!({ "j0": { "__typename": "Runs", "results": [] } }),
+        );
+        assert_eq!(
+            never.map(|runs| runs.get("synthetic_new").map(Vec::len)),
+            Ok(Some(0)),
+            "a job with no run yet is listed with none"
+        );
+    }
 
     #[test]
     fn the_contract_checks_are_the_assets_checks_named_so_by_asset_and_name() {

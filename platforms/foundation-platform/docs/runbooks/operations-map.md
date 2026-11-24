@@ -15,9 +15,11 @@ last_reviewed: 2026-10-13
 
 ## 1. 서버에 만들 파일 하나 — `/etc/foundation-platform/operations-map.env`
 
-지도는 DataHub 말고 세 곳을 더 읽는다: Airflow(실패 로그), 레이크하우스 카탈로그(표의 스냅숏), 그리고 직원이 여는 화면 주소.
-그 자격과 주소를 이 파일 하나가 갖는다. 파일이 없어도 지도는 뜨고, 무엇을 못 읽었는지 말한다(`scheduler_error`,
-`lakehouse_error`).
+지도는 작업의 실행 기록과 실패 로그를 그 작업을 돌린 오케스트레이터에서 읽는다(루트 ADR-0609 §1). `proxied`·`dagster`
+작업은 Dagster 의 읽기 전용 웹서버(주소는 `compose.orchestration-bridge.yml` 이 정한다), 아직 Airflow 가 돌리는 작업은
+Airflow 다(2026-11-25 Airflow 가 빠질 때까지). 그 밖에 레이크하우스 카탈로그(표의 스냅숏)와 직원이 여는 화면 주소를 읽는다.
+Airflow 자격, 카탈로그 토큰과 화면 주소를 이 파일 하나가 갖는다. 파일이 없어도 지도는 뜨고, 무엇을 못 읽었는지
+말한다(`run_history_error`, `scheduler_error`, `lakehouse_error`).
 
 | 항목 | 값 |
 |---|---|
@@ -64,7 +66,7 @@ shred -u ~/operations-map.set
 
 확인:
 
-- `GET /data-catalog/v1/scheduled-jobs` 의 `lakehouse_error`, `scheduler_error` 가 둘 다 `null`.
+- `GET /data-catalog/v1/scheduled-jobs` 의 `run_history_error`, `lakehouse_error`, `scheduler_error` 가 모두 `null`.
 - `curl -s 127.0.0.1:<foundation-api 포트>/metrics | grep foundation_scheduled_jobs_readable` 이 `1`.
 
 ## 2. Slack 알림 — 무엇이 언제 오나
@@ -91,7 +93,7 @@ Slack #alerts   "TICKET FoundationScheduledJobProblem (N)" + 작업마다 한 �
 | 새 실행이 다른 원인으로 실패 | 원인 줄이 바뀌므로 새 문제다. 같은 규칙의 묶음에 들어가 다음 묶음 메시지에 보인다 |
 | 앞 작업 실패로 멈춘(`blocked`) 작업 | 실패 알림이 떠 있는 동안 보내지 않는다(`inhibit_rules`) |
 | 꺼진 작업 | 보내지 않는다 |
-| 지도가 실행 기록을 못 읽음 | 문제 시계열을 내지 않는다. 30분 지속되면 `FoundationScheduledJobsUnreadable` 한 번 |
+| 지도가 실행 기록을 못 읽음(Dagster 든 Airflow 든 하나라도) | 문제 시계열을 내지 않는다. 30분 지속되면 `FoundationScheduledJobsUnreadable` 한 번 |
 
 `systemd` 의 `OnFailure` 알림(`notify-unit-failure.sh`, "<유닛> 실패")은 그대로다. 그건 유닛이 죽었다는 사실을,
 이 알림은 지도가 읽은 원인 한 줄과 링크를 준다.
