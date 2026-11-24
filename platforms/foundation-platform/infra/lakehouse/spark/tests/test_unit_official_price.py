@@ -127,6 +127,25 @@ class UnitOfficialPriceTest(unittest.TestCase):
         # Only expired batches: nothing says which is newest, so it is refused, not guessed.
         with self.assertRaisesRegex(ValueError, "2 batches of vintage 209909 and their order is unknown"):
             newest_batch([expired_a, expired_b], order)
+        # 2026-11-22 (shape of vintage 202610, ids synthetic): a hub compaction made the join write the
+        # vintage twice and expiry removed both appends. Batches that hold the same rows are one batch,
+        # and the largest id stands for it; batches that differ are still refused.
+        asked = []
+        self.assertEqual(
+            newest_batch([expired_a, expired_b], order, lambda batches: asked.append(set(batches)) or True),
+            max(expired_a, expired_b))
+        self.assertEqual(asked, [{expired_a, expired_b}])
+        with self.assertRaisesRegex(ValueError, "2 batches of vintage 209909 and their order is unknown"):
+            newest_batch([expired_a, expired_b], order, lambda batches: False)
+
+        # The rows are compared only when the order is lost: an ordered vintage is never scanned,
+        # and neither is one with a batch the registry does not record.
+        def never(batches):
+            self.fail(f"compared the rows of a vintage whose order is not lost: {sorted(batches)}")
+
+        self.assertEqual(newest_batch([expired_a, expired_b, tagged, on_main], order, never), on_main)
+        with self.assertRaisesRegex(ValueError, "order is unknown"):
+            newest_batch([expired_a, batch_source_snapshot_id(4, 9, "209909")], order, never)
         # A batch the registry does not record at all is still refused.
         unrecorded = batch_source_snapshot_id(4, 9, "209909")
         with self.assertRaisesRegex(ValueError, "order is unknown"):
