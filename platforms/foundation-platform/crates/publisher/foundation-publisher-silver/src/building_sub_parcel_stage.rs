@@ -1,6 +1,7 @@
-//! The parcel sub-parcel kind's Gold in `DuckDB` (root ADR-0395, ADR-0399, ADR-0564 §6): it carries
-//! the rules of the Spark job `building_sub_parcel_silver_to_gold.py`, which it replaced when the
-//! lane was taken over.
+//! The parcel sub-parcel kind's Gold in `DuckDB` (root ADR-0395, ADR-0399, ADR-0564 §6).
+//!
+//! It carries the rules of the Spark job `building_sub_parcel_silver_to_gold.py`, which it replaced
+//! when the lane was taken over.
 //!
 //! A 부속지번 row ties two parcels: the register's own 대지 (`pnu`) and another parcel its building
 //! also stands on (`sub_pnu`). A PNU's document reads the same rows from both ends:
