@@ -105,6 +105,8 @@ CASE_DOCUMENT_SOURCES = (RELATED_DOC, CASE_OBJECT_DOC, PARTY_DOC, SURVEY_DOC, SU
                          REPORT_DOC, FILING_DOC, DELIVERY_DOC, TENANT_DOC, NOTICE_ITEM_DOC, DIVIDEND_DOC)
 DOCUMENT_SOURCES = (CASE_DOC, SPEC_DOC, SCHEDULE_DOC, OBJECT_DOC, ANNEX_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
 CASE_DOCUMENTS = (CASE_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
+# A 매각공고 row names its case by the user number (2099타경1), not by `case_no`: the case table gives the key.
+NOTICE_OWNER = ("court_office_code", "user_case_no", "property_seq")
 # The site's 공통코드 (root ADR-0540 §5): the name of each code a document carries.
 CODE_SOURCE = "silver.court_auction_code"
 CODE_GROUP = ("system_code", "owner_code", "group_code")
@@ -565,6 +567,29 @@ def document_round_keys(gold: Any) -> Any:
             .select("pnu", *[F.col(f"_r.{k}").alias(k) for k in KEY]))
 
 
+def owner_columns(source: str) -> tuple[str, ...]:
+    """The columns of a document table that name whose document a row is: its changed rows are compared
+    by them. Every one is a column of the table (`test_court_auction_gold.DocumentOwnersTest`).
+
+    2026-11-22..23 the incremental rebuild failed five times with `changed_rows keys ['case_no'] are
+    not columns of the compared rows`: the 매각공고 table was compared by the case key, which it does
+    not carry, the first time it changed between two builds, and the served 경매 Gold stood still."""
+    if source == NOTICE_ITEM_DOC:
+        return NOTICE_OWNER
+    return CASE if source in CASE_DOCUMENTS else PROPERTY
+
+
+def notice_owners(named: Any, cases: Any) -> Any:
+    """`named` (the court office, user case number and property of changed 매각공고 rows) as property
+    keys, through the case table's user number, as `documents` reads a notice."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    numbers = (cases.where(F.col("user_case_no").isNotNull())
+               .select("court_office_code", "user_case_no", "case_no").distinct())
+    return (named.where(F.col("user_case_no").isNotNull() & F.col("property_seq").isNotNull())
+            .join(numbers, ["court_office_code", "user_case_no"]).select(*PROPERTY).distinct())
+
+
 def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, current_gold: Any,
                   previous_as_of: str | None, changed: list[str], place_change: Any = None) -> Any:
     """The PNUs whose document can differ from the current Gold's (root ADR-0312 §2).
@@ -592,8 +617,12 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
     for source in DOCUMENT_SOURCES:
         if source in changed and source in old and source in new:
             # A document row is its property's, or its case's (every property of it serves it).
-            by = CASE if source in CASE_DOCUMENTS else PROPERTY
+            by = owner_columns(source)
             owners = incremental.changed_rows(old[source], new[source], by).select(*by).distinct()
+            if source == NOTICE_ITEM_DOC:
+                if CASE_DOC not in new:
+                    continue  # no case table, no case a notice can name: the build serves none either
+                owners, by = notice_owners(owners, new[CASE_DOC]), PROPERTY
             touched.append(new[ITEM_SOURCE].join(owners, list(by), "left_semi").select(*KEY))
     if CODE_SOURCE in changed and CODE_SOURCE in old and CODE_SOURCE in new:
         touched.extend(named_code_owners(old[CODE_SOURCE], new[CODE_SOURCE], new))

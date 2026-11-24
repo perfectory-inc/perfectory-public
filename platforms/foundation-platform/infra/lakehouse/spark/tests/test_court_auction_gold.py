@@ -331,6 +331,31 @@ def versioned(case, pnu_value, snap, sale_date, row_state=None):
     return ("B", case, 1, 1, pnu_value, row_state, snap, "Y", sale_date)
 
 
+class DocumentOwnersTest(unittest.TestCase):
+    """2026-11-22..23: the incremental rebuild failed five times with `changed_rows keys ['case_no']
+    are not columns of the compared rows`. The 매각공고 table names its case by the user number and
+    was compared by the case key; no test built the changed keys of every document table, and the
+    Spark tests that build some do not run without the Spark runtime."""
+
+    def test_every_document_table_is_compared_by_columns_it_carries(self):
+        from platform_contracts import load_lakehouse_contract
+
+        for source in job.DOCUMENT_SOURCES:
+            with self.subTest(source=source):
+                names = {c["name"] for c in load_lakehouse_contract(source)["columns"]}
+                self.assertLessEqual(set(job.owner_columns(source)), names)
+
+    def test_a_notice_is_owned_through_the_case_tables_user_number(self):
+        from platform_contracts import load_lakehouse_contract
+
+        self.assertEqual(job.owner_columns(job.NOTICE_ITEM_DOC), job.NOTICE_OWNER)
+        self.assertNotIn("case_no", {c["name"] for c in load_lakehouse_contract(job.NOTICE_ITEM_DOC)["columns"]})
+        cases = {c["name"] for c in load_lakehouse_contract(job.CASE_DOC)["columns"]}
+        self.assertLessEqual({"court_office_code", "user_case_no", "case_no"}, cases)
+        self.assertEqual(job.owner_columns(job.CASE_DOC), job.CASE)
+        self.assertEqual(job.owner_columns(job.SPEC_DOC), job.PROPERTY)
+
+
 class NamedCodesTest(unittest.TestCase):
     """Root ADR-0540 §5: which column a 공통코드 group names is the source contract's one record."""
 
