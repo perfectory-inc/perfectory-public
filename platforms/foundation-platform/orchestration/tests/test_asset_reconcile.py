@@ -202,7 +202,7 @@ class Reconciler(unittest.TestCase):
                                             # versions (root ADR-0564 §6-4).
                                             "gold_parcel_nearby_rebuild",
                                             *(f"gold_parcel_{kind}_versions_build" for kind in (
-                                                "energy", "register_masters", "demolitions", "sub_parcels")),
+                                                "energy", "register_masters", "demolitions", "factories", "sub_parcels")),
                                             *(f"by_pnu_parcel_{kind}_bake" for kind in (
                                                 "ownership", "sub_parcels", "energy", "demolitions", "factories",
                                                 "register_masters", "real_transaction"))})
