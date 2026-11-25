@@ -57,14 +57,17 @@ for lane_dir in "${root}"/*/; do
   fi
   for run in "${runs[@]}"; do
     [[ -n "${current}" && "${run}" -ef "${current}" ]] && continue
-    # Every stage of the run, the verdict's under verdict/ included.
-    while IFS= read -r -d '' stage; do
+    # Every stage of the run, the verdict's under verdict/ included (the publisher names them, so no
+    # path holds a newline).
+    stages="$(find "${run}" -mindepth 1 -type d -name '.duckdb-stage-*' -prune)"
+    while IFS= read -r stage; do
+      [[ -n "${stage}" ]] || continue
       bytes="$(du -sb -- "${stage}" | cut -f1)"
       rm -rf -- "${stage}"
       printf 'removed %s bytes=%s lane=%s state=%s\n' "${stage}" "${bytes}" "${lane}" "${state}"
       count=$((count + 1))
       total=$((total + bytes))
-    done < <(find "${run}" -mindepth 1 -type d -name '.duckdb-stage-*' -prune -print0)
+    done <<<"${stages}"
   done
 done
 printf 'stage orphans removed=%s bytes=%s\n' "${count}" "${total}"
