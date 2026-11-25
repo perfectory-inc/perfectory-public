@@ -10,7 +10,8 @@
 //! `parcel_lineage.cardinality` returned for it before the job was removed, one line per row,
 //! sorted; `fixtures/summary.json` its reconciliation and counts. The engine-equality verdict the
 //! move was made on compared `derive.sql` with production's rows of sixteen groups; this keeps
-//! the binary on those rules.
+//! the binary on those rules. The fixture predates the `VWorld` 30527 records (rules v2): its
+//! number change table is empty, and the renumber test below holds what they add.
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -21,7 +22,7 @@ use serde_json::Value;
 
 use super::{
     derivation_run_id, in_sido, stage_group, LineageGroup, LineagePins, UnrecordedDongCodes,
-    LINEAGE_TABLE,
+    LINEAGE_TABLE, RULES_VERSION,
 };
 use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
@@ -35,6 +36,7 @@ const PINS: LineagePins = LineagePins {
     boundaries: 11,
     code_changes: 12,
     history: 13,
+    number_changes: 14,
 };
 
 fn shape() -> anyhow::Result<TableShape> {
@@ -78,7 +80,9 @@ fn fixture(stage: &DuckDbParquetStage, drop_after: Option<&str>) -> anyhow::Resu
          CREATE TABLE code_changes (kind VARCHAR, old_code VARCHAR, new_code VARCHAR, level VARCHAR, \
          effective_date VARCHAR, source VARCHAR); \
          CREATE TABLE history (pnu VARCHAR, reason_code VARCHAR, reason VARCHAR, moved_at VARCHAR, \
-         erased_at VARCHAR, land_category_code VARCHAR, area_m2 DOUBLE, transfer_history_seq BIGINT)",
+         erased_at VARCHAR, land_category_code VARCHAR, area_m2 DOUBLE, transfer_history_seq BIGINT); \
+         CREATE TABLE number_changes (old_pnu VARCHAR, new_pnu VARCHAR, is_dong_level BOOLEAN, \
+         reason_code VARCHAR, changed_on DATE, quarantine_reason VARCHAR)",
     )?;
     for (table, key) in [("before_raw", "before"), ("after_raw", "after")] {
         let mut insert = connection.prepare(&format!("INSERT INTO {table} VALUES (?)"))?;
@@ -153,7 +157,7 @@ fn the_staged_rows_are_the_rows_the_spark_kernels_derived() -> anyhow::Result<()
     let named: i64 = stage.connection().query_row(
         &format!(
             "SELECT count(*) FROM read_parquet('{path}') WHERE from_snapshot_id = 'synthetic__parcel-209906' \
-             AND to_snapshot_id = 'synthetic__parcel-209909' AND rules_version = 'parcel-lineage.v1' \
+             AND to_snapshot_id = 'synthetic__parcel-209909' AND rules_version = '{RULES_VERSION}' \
              AND derivation_run_id = '{}'",
             staged.derivation_run_id
         ),
@@ -194,9 +198,10 @@ fn a_group_whose_code_change_table_is_behind_is_refused_with_its_codes() -> anyh
 }
 
 #[test]
-fn the_run_id_is_the_one_the_spark_job_gave_the_same_inputs() -> anyhow::Result<()> {
+fn the_run_id_is_the_digest_of_the_pins_and_rules() -> anyhow::Result<()> {
     // A group production derived on 2026-10-16 with the Spark job: its editions, dates, sido and the
-    // Iceberg snapshots its inputs were pinned at. The rows it appended carry this run id.
+    // Iceberg snapshots its inputs were pinned at; rules v1 gave it parcel-lineage-26a0f1dd6bff3742d25d1e90.
+    // Rules v2 writes the same text with the number change history among the inputs.
     let group = LineageGroup {
         from_snapshot_id: "vworldkr__parcel-202606".to_owned(),
         to_snapshot_id: "vworldkr__parcel-202609".to_owned(),
@@ -209,10 +214,11 @@ fn the_run_id_is_the_one_the_spark_job_gave_the_same_inputs() -> anyhow::Result<
         boundaries: 6_498_754_906_780_223_795,
         code_changes: 4_923_715_983_584_928_762,
         history: 755_692_870_280_159_514,
+        number_changes: 1_129_381_147_395_120_671,
     };
     assert_eq!(
         derivation_run_id(&group, pins)?,
-        "parcel-lineage-26a0f1dd6bff3742d25d1e90"
+        "parcel-lineage-0cd274d98840c809ae686481"
     );
     // The prefixes are a set: their order and repeats do not make another run.
     let renumbered = |from: &[&str]| LineageGroup {
@@ -224,6 +230,80 @@ fn the_run_id_is_the_one_the_spark_job_gave_the_same_inputs() -> anyhow::Result<
         derivation_run_id(&renumbered(&["46", "29", "46"]), pins)?,
         derivation_run_id(&renumbered(&["29", "46"]), pins)?
     );
+    Ok(())
+}
+
+/// A lot the provider renumbered with no code change (like Incheon's 997): the `VWorld` 30527 record
+/// is its only evidence, and it links the two lots `official` (root ADR-0113 §4, ADR-0144 §3.3).
+/// The records the rules do not admit link nothing: a quarantined one, one dated on the window's
+/// end, a whole-동 move, one whose new lot the later edition does not hold.
+#[test]
+fn a_renumber_the_provider_records_links_the_lots_without_a_code_change() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(root.path())?;
+    let lot = |main: &str| format!("99999601001{main}0000");
+    let (kept, old, new) = (lot("0001"), lot("0997"), lot("1500"));
+    let (quarantined, late, dong, missing) = (lot("0998"), lot("0999"), lot("1000"), lot("1001"));
+    let values = |pnus: &[&String]| {
+        pnus.iter()
+            .map(|pnu| format!("('{pnu}')"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let before = values(&[&kept, &old, &quarantined, &late, &dong, &missing]);
+    let after = values(&[&kept, &new, &lot("1501"), &lot("1502"), &lot("1503")]);
+    stage.connection().execute_batch(&format!(
+        "CREATE TABLE before_raw (pnu VARCHAR); INSERT INTO before_raw VALUES {before}; \
+         CREATE TABLE after_raw (pnu VARCHAR); INSERT INTO after_raw VALUES {after}; \
+         CREATE TABLE code_changes (kind VARCHAR, old_code VARCHAR, new_code VARCHAR, level VARCHAR, \
+         effective_date VARCHAR, source VARCHAR); \
+         CREATE TABLE history (pnu VARCHAR, reason_code VARCHAR, reason VARCHAR, moved_at VARCHAR, \
+         erased_at VARCHAR, land_category_code VARCHAR, area_m2 DOUBLE, transfer_history_seq BIGINT); \
+         CREATE TABLE number_changes (old_pnu VARCHAR, new_pnu VARCHAR, is_dong_level BOOLEAN, \
+         reason_code VARCHAR, changed_on DATE, quarantine_reason VARCHAR); \
+         INSERT INTO number_changes VALUES \
+         ('{old}', '{new}', false, '60', DATE '2099-08-01', NULL), \
+         ('{old}', '{new}', false, '60', DATE '2099-08-01', NULL), \
+         ('{quarantined}', '{}', false, '60', DATE '2099-08-01', 'implausible_land_mov_ymd'), \
+         ('{late}', '{}', false, '60', DATE '2099-09-01', NULL), \
+         ('{dong}', '{}', true, '60', DATE '2099-08-01', NULL), \
+         ('{missing}', '{}', false, '60', DATE '2099-08-01', NULL)",
+        lot("1501"),
+        lot("1502"),
+        lot("1503"),
+        lot("1599"),
+    ))?;
+    let group = LineageGroup {
+        from_snapshot_id: "synthetic__parcel-209906".to_owned(),
+        to_snapshot_id: "synthetic__parcel-209909".to_owned(),
+        from_date: "2099-06-01".to_owned(),
+        to_date: "2099-09-01".to_owned(),
+        from_sido: vec!["99".to_owned()],
+        to_sido: vec!["99".to_owned()],
+    };
+    let staged = stage_group(&stage, &shape()?, &group, PINS, derived_at()?)?;
+    let file = staged.file.context("a staged file")?;
+    let path = file
+        .local_path
+        .to_str()
+        .context("UTF-8")?
+        .replace('\\', "/");
+    let lines = stage
+        .connection()
+        .prepare(&format!(
+            "SELECT {LINE} FROM read_parquet('{path}') ORDER BY 1"
+        ))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    assert_eq!(
+        lines,
+        [format!(
+            "{old}|{new}|other|1:1|2099-08-01|official|number_change_history|60"
+        )]
+    );
+    assert_eq!(staged.summary.links_by_grade.get("official"), Some(&1));
+    assert_eq!(staged.summary.reconciliation.vanished_explained, 1);
+    assert_eq!(staged.summary.reconciliation.appeared_explained, 1);
     Ok(())
 }
 

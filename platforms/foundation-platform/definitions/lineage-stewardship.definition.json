@@ -51,6 +51,7 @@
         "reference-legal-dong-code-snapshot-to-gold-complex-catalog",
         "silver-industrial-complexes-to-serving-industrial-complex",
         "silver-land-transfer-history-to-silver-parcel-lineage",
+        "silver-parcel-number-change-history-to-silver-parcel-lineage",
         "serving-lineage-stewardship-to-silver-parcel-lineage",
         "silver-parcel-lineage-to-gold-lineage-review-queue",
         "gold-lineage-review-queue-to-serving-lineage-stewardship",
@@ -372,6 +373,16 @@
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs"
       ]
+    },
+    {
+      "from": "silver-parcel-number-change-history",
+      "to": "silver-parcel-lineage",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/parcel_lineage_stage.rs"
+      ],
+      "description": "필지고유번호변동연혁(VWorld 30527)의 옛 PNU → 새 PNU 기록은 공식 계보다: 동 단위가 아니고 날짜가 창 안이며 두 끝이 두 판에 있는 기록(루트 ADR-0113 §4, ADR-0144 §3.3). 그 창에 기록이 늦게 더해지면 그 묶음을 다시 도출한다(루트 ADR-0329 §3 개정)."
     },
     {
       "from": "silver-building-register-titles",

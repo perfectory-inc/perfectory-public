@@ -7,8 +7,9 @@
 //! A prefix both editions hold is its own group; the prefixes only one edition holds (a sido
 //! renumbered or merged, 29+46 -> 12) form one group, because their parcels pair only with each
 //! other. A group is held when `silver.parcel_lineage` has a row of that pair and rules version
-//! whose successor lies in it, unless official evidence withdrew a 동 pair of the group after
-//! that row was derived (root ADR-0329 §3): then that group alone is derived again.
+//! whose successor lies in it, unless official evidence changed after that row was derived: a 동
+//! pair of the group was withdrawn, or the number change history gained a record dated in its
+//! window (root ADR-0329 §3 and its revision 2026-11-25). Then that group alone is derived again.
 
 use std::collections::BTreeSet;
 
@@ -30,6 +31,8 @@ pub const BOUNDARIES_TABLE: &str = "silver.parcel_boundaries";
 pub const CODE_CHANGE_TABLE: &str = "reference.legal_dong_code_change";
 /// The land movement history.
 pub const HISTORY_TABLE: &str = "silver.land_transfer_history";
+/// The provider's official old -> new PNU records (`VWorld` 30527).
+pub const NUMBER_CHANGE_TABLE: &str = "silver.parcel_number_change_history";
 
 /// One edition of the source contract, as the lineage reads it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -190,8 +193,47 @@ pub fn superseded_since(
         crate::duckdb_parquet_stage::table_at(CODE_CHANGE_TABLE, pins.code_changes),
         in_sido("old_code", from_sido)?
     );
+    newest(stage, &sql, "recorded_at_utc")
+}
+
+/// When the number change history last gained a record that may be a link of the group.
+///
+/// To the whole second: the newest `ingested_at_utc` of a lot-level, dated, unquarantined row of
+/// the pinned table whose old PNU lies in the group's earlier sido and whose date lies in its
+/// window, or `None`. The provider publishes a renumber months late, after its group was derived (root
+/// ADR-0329 §3, revision 2026-11-25).
+///
+/// # Errors
+/// Returns an error when a date is not `YYYY-MM-DD` or the snapshot cannot be read.
+pub fn number_changes_since(
+    stage: &DuckDbParquetStage,
+    pins: LineagePins,
+    group: &LineageGroup,
+) -> anyhow::Result<Option<DateTime<Utc>>> {
+    for date in [&group.from_date, &group.to_date] {
+        chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .with_context(|| format!("{date:?} must be YYYY-MM-DD"))?;
+    }
+    let sql = format!(
+        "SELECT max(ingested_at_utc) FROM {} \
+         WHERE NOT is_dong_level AND coalesce(quarantine_reason, '') = '' \
+         AND changed_on >= DATE '{}' AND changed_on < DATE '{}' AND {}",
+        crate::duckdb_parquet_stage::table_at(NUMBER_CHANGE_TABLE, pins.number_changes),
+        group.from_date,
+        group.to_date,
+        in_sido("old_pnu", &group.from_sido)?
+    );
+    newest(stage, &sql, "ingested_at_utc")
+}
+
+/// The one timestamp the aggregate `sql` returns, to the whole second, or `None`.
+fn newest(
+    stage: &DuckDbParquetStage,
+    sql: &str,
+    column: &str,
+) -> anyhow::Result<Option<DateTime<Utc>>> {
     let connection = stage.connection();
-    let mut statement = connection.prepare(&sql)?;
+    let mut statement = connection.prepare(sql)?;
     let mut rows = statement.query([])?;
     let row = rows.next()?.context("an aggregate returns one row")?;
     let microseconds = match row.get_ref(0)? {
@@ -200,15 +242,12 @@ pub fn superseded_since(
         ValueRef::Timestamp(TimeUnit::Millisecond, value) => value.checked_mul(1_000),
         ValueRef::Timestamp(TimeUnit::Microsecond, value) => Some(value),
         ValueRef::Timestamp(TimeUnit::Nanosecond, value) => Some(value / 1_000),
-        other => bail!(
-            "recorded_at_utc is not a timestamp: {:?}",
-            other.data_type()
-        ),
+        other => bail!("{column} is not a timestamp: {:?}", other.data_type()),
     }
-    .context("recorded_at_utc is out of range")?;
+    .with_context(|| format!("{column} is out of range"))?;
     DateTime::from_timestamp(microseconds.div_euclid(1_000_000), 0)
         .map(Some)
-        .context("recorded_at_utc is out of range")
+        .with_context(|| format!("{column} is out of range"))
 }
 
 /// Whether `silver.parcel_lineage` already holds the group: a row of its pair and rules version

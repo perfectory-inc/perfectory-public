@@ -1,7 +1,9 @@
 -- Parcel lineage for one pair of editions and one group of sido prefixes (root ADR-0113 §1·§4·§5).
 -- Inputs: before_raw(pnu), after_raw(pnu), code_changes(kind, old_code, new_code, level,
 -- effective_date, source), history(pnu, reason_code, reason, moved_at, erased_at,
--- land_category_code, area_m2, transfer_history_seq): the current rows of the pinned land movement history.
+-- land_category_code, area_m2, transfer_history_seq): the current rows of the pinned land movement history,
+-- number_changes(old_pnu, new_pnu, is_dong_level, reason_code, changed_on, quarantine_reason): the
+-- pinned VWorld 30527 records.
 -- Parameters: {from_date}, {to_date} (YYYY-MM-DD), {from_day}, {to_day} (YYYYMMDD), {ws}: the
 -- characters Python's str.strip() and \s take for white space, as a regular expression class body.
 
@@ -103,13 +105,30 @@ FROM spelled s
 LEFT JOIN dong_reverse r ON r.new_code = substr(s.predecessor, 1, 10)
 LEFT JOIN dong_pairs p ON p.old_code = substr(s.successor, 1, 10);
 
--- New parcels the history marks as moved in by a jurisdiction change, among those that appeared.
+-- number_change_links: the provider's official old -> new PNU record (VWorld 30527; root ADR-0113 §4,
+-- ADR-0144 §3.3), the one evidence of a lot renumbered with no code change. A record is a link when it
+-- moves one lot (not a whole 동, which the code change table already pairs), its date is readable and in
+-- the window, and both ends are in the editions. The codes of LAND_MOV_RSN_CD are not mapped to the
+-- relations yet: the relation is `other` and the raw code is the evidence.
+CREATE OR REPLACE TEMP TABLE number_change_links AS
+SELECT DISTINCT n.old_pnu AS predecessor_pnu, n.new_pnu AS successor_pnu, coalesce(n.reason_code, '') AS evidence_ref,
+       strftime(n.changed_on, '%Y-%m-%d') AS effective_date
+FROM number_changes n
+WHERE NOT n.is_dong_level AND coalesce(n.quarantine_reason, '') = '' AND n.changed_on IS NOT NULL
+  AND n.changed_on >= DATE '{from_date}' AND n.changed_on < DATE '{to_date}'
+  AND n.old_pnu <> n.new_pnu
+  AND n.old_pnu IN (SELECT pnu FROM before_pnus) AND n.new_pnu IN (SELECT pnu FROM after_pnus);
+
+-- New parcels the history marks as moved in by a jurisdiction change, among those that appeared and
+-- no official record already names.
 CREATE OR REPLACE TEMP TABLE moved_in AS
-SELECT DISTINCT e.pnu FROM window_events e WHERE e.reason_code = '52' AND e.pnu IN (SELECT pnu FROM appeared);
+SELECT DISTINCT e.pnu FROM window_events e WHERE e.reason_code = '52' AND e.pnu IN (SELECT pnu FROM appeared)
+  AND e.pnu NOT IN (SELECT successor_pnu FROM number_change_links);
 
 -- The attribute-evidence pool: vanished parcels no official link accounts for.
 CREATE OR REPLACE TEMP TABLE pool AS
-SELECT pnu FROM vanished WHERE pnu NOT IN (SELECT predecessor_pnu FROM history_links);
+SELECT pnu FROM vanished WHERE pnu NOT IN (SELECT predecessor_pnu FROM history_links)
+  AND pnu NOT IN (SELECT predecessor_pnu FROM number_change_links);
 
 -- The pre-window events of the pool, spelled as the earlier snapshot numbers them.
 CREATE OR REPLACE TEMP TABLE old_events AS
@@ -160,6 +179,9 @@ SELECT before_pnu AS predecessor_pnu, after_pnu AS successor_pnu, 'code_change' 
 FROM carried WHERE after_pnu <> before_pnu
 UNION ALL
 SELECT predecessor_pnu, successor_pnu, relation, 'official', 'history_text', evidence_ref, effective_date FROM history_links
+UNION ALL
+SELECT predecessor_pnu, successor_pnu, 'other', 'official', 'number_change_history', evidence_ref, effective_date
+FROM number_change_links
 UNION ALL
 SELECT predecessor_pnu, successor_pnu, 'jurisdiction_transfer', grade, evidence_kind, '', '' FROM attribute_links;
 

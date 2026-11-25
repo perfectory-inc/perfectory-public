@@ -328,11 +328,11 @@ last_reviewed: 2026-11-07
 | 주변 생활 | 행정동 세대원수별 세대수 (`silver.household_count`) | — | — | 없음 |
 | 행정·내부 | 행정경계(읍면동) (`silver.administrative_boundaries`) | — | `admin-tiles` | 화면 |
 | 행정·내부 | 지도 편집 원장 (`silver.map_edit_ledger`) | — | `admin-tiles`<br>`complex-tiles`<br>`parcel-tiles (꺼짐)` | 화면 |
+| 행정·내부 | 필지고유번호변동연혁 (`silver.parcel_number_change_history`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
 | 행정·내부 | 법정동 연계정보 (`silver.adm_dong_code_linkage`) | — | — | 없음 |
 | 행정·내부 | 건축물대장 공동주택가격 판 버전 (`silver.building_register_apartment_price_versions`) | — | — | 없음 |
 | 행정·내부 | 승강기 설치 현황 (`silver.elevator_installation`) | — | — | 없음 |
 | 행정·내부 | 지식산업센터 (`silver.knowledge_industry_center`) | — | — | 없음 |
-| 행정·내부 | 필지고유번호변동연혁 (`silver.parcel_number_change_history`) | — | — | 없음 |
 | 행정·내부 | 필지 ID 원장 (`silver.parcel_registry`) | — | — | 없음 |
 | 행정·내부 | 중개사무소 소속 인원 (`silver.real_estate_broker_member`) | — | — | 없음 |
 | 행정·내부 | 중개사무소 등록 (`silver.real_estate_broker_office`) | — | — | 없음 |
@@ -589,6 +589,7 @@ ADR-0011의 후속 작업은 발견한 테스트를 나중에 잡는 데서 멈�
 | [0022 "현재"는 오늘이다](../adr/0022-current-means-today-and-one-view-says-so.md) | 3 | 2 | `CURRENT_DATE` 시간대 미지정, `as_of` 파라미터 보류 (`parcel.complex_id` 항목은 3단계가 컬럼을 지워 해소) | 2 |
 | [0023 편집은 원장의 행이다](../adr/0023-an-edit-is-a-row-in-the-ledger-not-only-in-the-row.md) | 4 | 4 | 필지 지오메트리 편집 경로 부재, `kind`의 기준값이 R2에 없음, 원장 표 이름이 내용보다 좁음, `building_register_floor` writer 부재 | 1 |
 | [0024 서빙 투영은 계약이 지명한 것만 싣는다](../adr/0024-the-serving-projection-carries-only-what-the-tile-contract-names.md) | 3 | 3 | 발행 표에 생산자 부재(채우는 표와 서빙하는 표가 다름), 뷰가 계약보다 많이 싣는 것을 막는 검사 부재, 두 서빙 표의 `complex_id` 처분 미정 | 1 |
+| [0113 필지 계보](../adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md) | 1 | 1 | 필지고유번호변동연혁 사유 코드(`LAND_MOV_RSN_CD`) → 계보 관계 대응, 공식 코드표 수집 뒤 | 3 |
 
 2026-08-06에 0018이 더해졌다(기록 3, 열림 2). 세 번째 항목은 0017 남은 부채 3과 **같은 건**이므로
 열림으로 세지 않는다 — 같은 일을 두 번 세는 것이 이 표가 피하려는 것이다.
@@ -625,6 +626,9 @@ ADR-0006이 "승인된 편집이 있는 단위"를 PostGIS로 제공한다고 �
 `serving_postgis.parcel_boundary_mirror`를 채우고 Martin은 `parcel_boundary_publication`을 읽는다.
 0024는 그 표에 필지를 넣지 못하게 막던 제약을 치웠을 뿐 둘을 잇지 않으며, 잇는 것이 필지 타일
 슬라이스의 본체다. 표 합계는 기록 61, 열림 37이다.
+
+2026-11-25에 0113이 더해졌다(기록 1, 열림 1). 필지고유번호변동연혁 기록을 공식 계보로 읽으며 그 사유 코드는
+원천 값 그대로 근거에 두었고, 관계로 옮기는 대응은 공식 코드표가 들어온 뒤의 일이다. 표 합계는 기록 62, 열림 38이다.
 
 대조에서 나온 두 가지를 여기 적어 둔다. **2026-08-05 대조 시점의 열린 19개 중 상당수는 코드로 닫히지 않는다** — 자격증명
 (5타깃), 정본 실버의 소유자(parcels 적재기), 클라이언트 구현(멱등성 키 발급)처럼 결정이 먼저인

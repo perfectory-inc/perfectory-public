@@ -1,8 +1,9 @@
 -- The inputs of one lineage group, read once from the pinned snapshots of the lakehouse
 -- (root ADR-0113 §1): `derive.sql` reads only these tables.
--- Parameters: {boundaries_from}, {boundaries_to}, {code_changes}, {history} (each table at its pinned
--- snapshot, from `duckdb_parquet_stage::table_at_in`), {from_snapshot_id}, {to_snapshot_id} (parcel editions),
--- {from_sido}, {to_sido}, {every_sido}: `pnu` predicates. A predicate is a range per sido prefix, so
+-- Parameters: {boundaries_from}, {boundaries_to}, {code_changes}, {history}, {number_changes} (each table
+-- at its pinned snapshot, from `duckdb_parquet_stage::table_at_in`), {from_snapshot_id}, {to_snapshot_id}
+-- (parcel editions), {from_sido}, {to_sido}, {every_sido}: `pnu` predicates, {from_old_pnu}: the same
+-- as {from_sido} on `old_pnu`. A predicate is a range per sido prefix, so
 -- the scan skips the files of every other sido by their bounds; `substr(pnu, 1, 2) IN (…)` reads
 -- the whole edition. {row_state}: the removal column, or a NULL where the pinned snapshot is from
 -- before the column.
@@ -37,3 +38,12 @@ FROM (
   ) h
 )
 WHERE newest = 1 AND (row_state IS NULL OR row_state <> 'removed');
+
+-- The provider's official old -> new PNU records (VWorld 30527) whose old parcel lies in the earlier
+-- edition's sido. The table is events: a load appends only the events it does not hold, so every
+-- row is read, never one file (its canonical reader `official_links`, root ADR-0318 §8);
+-- `derive.sql` keeps the ones the rules admit.
+CREATE OR REPLACE TEMP TABLE number_changes AS
+SELECT DISTINCT old_pnu, new_pnu, is_dong_level, reason_code, changed_on, quarantine_reason
+FROM {number_changes}
+WHERE {from_old_pnu};
