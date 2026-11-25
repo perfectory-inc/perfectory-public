@@ -123,7 +123,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             table_name: LEDGER_SOURCE,
             contract: contract(LEDGER_SOURCE)?,
             files: &[file],
-            batch: &[batch.clone()],
+            batch: std::slice::from_ref(&batch),
             already_ingested: &already,
             summary: BTreeMap::new(),
         })
