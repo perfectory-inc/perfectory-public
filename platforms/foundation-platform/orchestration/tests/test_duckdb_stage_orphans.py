@@ -17,6 +17,7 @@ import unittest
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = PLATFORM / "scripts/ops/duckdb-stage-orphans.sh"
 BUILD = PLATFORM / "scripts/ops/gold-versions-build.sh"
+UNIT = PLATFORM / "infra/systemd/foundation-gold-versions@.service"
 
 # systemd as scripts/deploy/job_units.py asks it whether a lane's unit runs: `systemctl list-units
 # --all --full --plain --no-legend --type=service <unit>`. $STATES holds `<lane>=<ActiveState>`; a
@@ -48,10 +49,11 @@ class TheOrphans(unittest.TestCase):
         self.states = self.temp / "states"
         self.path = f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
 
-    def stage(self, lane, run, size=1000):
-        """A run of `lane` with a log and a stage holding `size` bytes; the stage's path."""
+    def stage(self, lane, run, size=1000, under=""):
+        """A run of `lane` with a log and a stage holding `size` bytes (in the run's `under`
+        directory, e.g. `verdict`); the stage's path."""
         directory = self.root / lane / "runs" / run
-        stage = directory / ".duckdb-stage-AbC123"
+        stage = directory / under / ".duckdb-stage-AbC123"
         (stage / "spill").mkdir(parents=True)
         (stage / "stage.duckdb").write_bytes(b"\0" * size)
         (directory / "run.log").write_text("ran\n", encoding="utf-8")
@@ -59,8 +61,11 @@ class TheOrphans(unittest.TestCase):
 
     def run_script(self, lane, run, states):
         self.states.write_text("".join(f"{name}={state}\n" for name, state in states.items()), encoding="utf-8")
-        current = self.root / lane / "runs" / run
-        current.mkdir(parents=True, exist_ok=True)
+        if run == "--stopped":
+            current = run
+        else:
+            current = self.root / lane / "runs" / run
+            current.mkdir(parents=True, exist_ok=True)
         return subprocess.run(
             ["bash", str(SCRIPT), str(self.root), lane, str(current)],
             env={"PATH": self.path, "STATES": str(self.states)},
@@ -117,6 +122,37 @@ class TheOrphans(unittest.TestCase):
         self.assertEqual(result.stdout, "stage orphans removed=0 bytes=0\n")
         self.assertTrue((current / "stage.duckdb").exists())
         self.assertTrue((newest / "stage.duckdb").exists())
+
+    def test_a_dead_runs_verdict_stage_goes_too(self):
+        # 2026-11-25: three killed takeover verdicts of parcel-building-permits and one of the served
+        # boundaries had left 33 GB under runs/<id>/verdict/, which the sweep never looked into.
+        verdict = self.stage("parcel-building-permits", "20261123T153928Z", 2000, under="verdict")
+        current_verdict = self.stage("parcel-building-permits", "20261125T160855Z", 10, under="verdict")
+        result = self.run_script("parcel-building-permits", "20261125T160855Z", {})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(verdict.exists(), result.stdout)
+        self.assertTrue(verdict.parent.exists(), "the run's verdict record stays")
+        self.assertTrue((current_verdict / "stage.duckdb").exists())
+        self.assertIn(f"removed {verdict} ", result.stdout)
+
+    def test_a_stopped_lanes_every_run_is_dead(self):
+        # 2026-11-25: a parcel-ownership run killed at its hour left a 14.6 GB stage; the unit's
+        # ExecStopPost sweeps with --stopped, its newest run included. Another lane's newest stays.
+        killed = self.stage("parcel-ownership", "20261125T165420Z", 3000)
+        killed_verdict = self.stage("parcel-ownership", "20261125T165420Z", 300, under="verdict")
+        other_newest = self.stage("parcel-nearby", "20261125T120000Z", 10)
+        result = self.run_script("parcel-ownership", "--stopped", {"parcel-nearby": "inactive"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(killed.exists(), result.stdout)
+        self.assertFalse(killed_verdict.exists(), result.stdout)
+        self.assertTrue((other_newest / "stage.duckdb").exists())
+        last = dict(field.split("=", 1) for field in result.stdout.splitlines()[-1].split()[2:])
+        self.assertEqual(last["removed"], "2")
+
+    def test_the_lane_unit_sweeps_its_runs_however_they_end(self):
+        text = UNIT.read_text(encoding="utf-8")
+        self.assertIn("ExecStopPost=/opt/foundation-platform/current/scripts/ops/duckdb-stage-orphans.sh "
+                      "%S/foundation-gold-versions %i --stopped", text)
 
     def test_the_lane_script_clears_them_before_its_publisher_runs(self):
         text = BUILD.read_text(encoding="utf-8")
