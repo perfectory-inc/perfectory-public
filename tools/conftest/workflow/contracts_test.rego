@@ -253,6 +253,13 @@ test_actions_write_only_in_the_two_schedule_only_files if {
 	refused(array.concat(one(valid), named("ci-cache-budget.yml", object.union(pruner, {"true": {"push": {"branches": ["main"]}}}))))
 }
 
+test_security_events_write_only_in_the_daily_advisory_scan if {
+	scanner := json.patch(advisory, [{"op": "replace", "path": "/jobs/issue/permissions", "value": {"contents": "read", "security-events": "write"}}])
+	accepted(array.concat(one(valid), named("dependency-advisories.yml", scanner)))
+	refused(array.concat(one(valid), named("other.yml", scanner)))
+	refused(array.concat(one(valid), named("dependency-advisories.yml", object.union(scanner, {"true": {"push": {"branches": ["main"]}}}))))
+}
+
 test_local_action_is_refused if {
 	refused(one(with_job("test", "steps", [{"uses": "./.github/actions/setup"}])))
 }

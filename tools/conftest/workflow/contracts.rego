@@ -112,6 +112,10 @@ extra_writes(path, document) := {"id-token", "attestations", "packages"} if {
 } else := {"actions"} if {
 	file_name(path) in {"ci-cache-budget.yml", "rerun-runner-failures.yml"}
 	schedule_only(document)
+} else := {"security-events"} if {
+	# Root ADR-0414 (revision 2026-11-25): the daily OSV scan of main files code scanning alerts.
+	file_name(path) == "dependency-advisories.yml"
+	schedule_only(document)
 } else := set()
 
 release_signer(path, document) if "id-token" in extra_writes(path, document)
