@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "PNU마다 그 필지에 걸친 대장을 양쪽에서 담는 데이터 종류 표(루트 ADR-0399): 이 필지가 대지인 대장이 함께 걸친 다른 필지, 다른 필지가 대지인 대장이 이 필지에도 걸친 것. 항목마다 대장(관리건축물대장PK·대장종류명)과 상대 필지(PNU·지번), 방향마다 100건까지와 전체 수. 계약의 종류 한 줄(parcel-sub-parcels)이 자기 생산자를 이름 짓는다. 서빙 필지판의 PNU만, 양 끝의 바뀐 필지만 다시 계산한다."
+  purpose: "PNU마다 그 필지에 걸친 대장을 양쪽에서 담는 데이터 종류 표(루트 ADR-0399): 이 필지가 대지인 대장이 함께 걸친 다른 필지, 다른 필지가 대지인 대장이 이 필지에도 걸친 것. 항목마다 대장(관리건축물대장PK·대장종류명)과 상대 필지(PNU·지번), 방향마다 100건까지와 전체 수. 계약의 종류 한 줄(parcel-sub-parcels)이 자기 생산자를 이름 짓는다. 서빙 필지판의 PNU만, 양 끝의 바뀐 필지만 다시 계산한다. 넘겨받기(루트 ADR-0564 §6-4) 뒤로는 쓰지 않고 남긴다(쌓기만 한다): 레인은 gold.parcel_sub_parcels_versions 를 굽는다."
 team:
   name: "foundation-platform"
 servers:
@@ -71,6 +71,4 @@ customProperties:
     value:
       - "pnu"
   - property: "upstreamDatasets"
-    value:
-      - "reference.legal_dong_code_change"
-      - "silver.building_register_sub_parcel"
+    value: []

@@ -82,7 +82,7 @@ class Reconciler(unittest.TestCase):
             "gold.parcel_nearby_versions": table(snap("601", None, 0)),
             # The lanes switched on behind the loaders that fill them (root ADR-0468, revised 2026-11-10), caught up.
             "gold.parcel_ownership": table(snap("701", None, 0)),
-            "gold.parcel_sub_parcels": table(snap("702", None, 0)),
+            "gold.parcel_sub_parcels_versions": table(snap("702", None, 0)),
             "gold.parcel_energy_versions": table(snap("703", None, 0)),
             "gold.parcel_demolitions_versions": table(snap("704", None, 0)),
             "gold.parcel_factories_versions": table(snap("705", None, 0)),
@@ -102,6 +102,15 @@ class Reconciler(unittest.TestCase):
                       "parcel-factories": {"read_snapshot_id": "705", "outcome": "served"},
                       "parcel-register-masters": {"read_snapshot_id": "706", "outcome": "served"},
                       "parcel-real-transaction": {"read_snapshot_id": "707", "outcome": "served"}}
+        # A lane's table of appended row versions is reconciled as a Gold too (root ADR-0564 §6-4): each
+        # is caught up, its head recording the heads of its inputs.
+        for asset in self.assets.values():
+            if asset.gold and asset.gold.endswith("_versions"):
+                for name in asset.inputs:
+                    self.catalog.setdefault(name, table(snap(f"9{len(self.catalog):02}", None, 0)))
+                head = self.catalog[asset.gold]["head"]
+                self.catalog[asset.gold] = table(snap(head, None, 0, pins={
+                    name: self.catalog[name]["head"] for name in asset.inputs}))
         self.running, self.full, self.unpublished = set(), set(), set()
 
     def tick(self, now_minutes=40, state=None, panel=False, current=None):
@@ -161,12 +170,39 @@ class Reconciler(unittest.TestCase):
             self.assertFalse(published("parcel-energy"))
             self.assertFalse(published("parcel-nearby"))
 
+    def test_2026_11_23_a_switched_lane_whose_table_holds_old_pins_is_owed_a_build_at_the_head(self):
+        # 15:36Z the 총괄표제부 lane's switch served its shadow commit, built from the pins of the Spark build
+        # it replaced, while its Silver had moved on 11-21 23:16Z; the shadow's own runs had covered that
+        # event, and no build at the head ran for 9.4 hours. By state the first tick owes it, once.
+        job = "gold_parcel_register_masters_versions_build"
+        owed = lambda: [line for line in self.tick()[0] if line.split()[1] == job]  # noqa: E731
+        self.assertEqual(owed(), [], "caught up: nothing owed")
+        silver = "silver.building_register_master"
+        self.assertIn(silver, self.assets[job].inputs)
+        read = self.catalog[silver]["head"]
+        self.catalog[silver] = table(snap(read, None, 0), snap("990", read, 30))
+        first = owed()
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first, owed(), "the same versions are one key: started once")
+        # The head build's commit records the new pin: nothing is owed.
+        head = self.catalog["gold.parcel_register_masters_versions"]
+        pins = json.loads(head["snapshots"][-1]["summary"]["foundation.source-iceberg-snapshots"])
+        self.catalog["gold.parcel_register_masters_versions"] = table(
+            *head["snapshots"], snap("991", head["head"], 35, pins={**pins, silver: "990"}))
+        self.reads["parcel-register-masters"] = {"read_snapshot_id": "991", "outcome": "served"}
+        self.assertEqual(owed(), [])
+
     def test_the_assets_are_those_the_reconciler_names_each_one_asset(self):
         # The court auction bake joined when it was switched on (root ADR-0353, ADR-0457).
         # The parcel-nearby bake is back with its DuckDB-born Gold (root ADR-0567).
         self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake",
                                             "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake",
                                             "by_pnu_court_auction_bake",
+                                            # The producers of the lanes that bake a table of appended row
+                                            # versions (root ADR-0564 §6-4).
+                                            "gold_parcel_nearby_rebuild",
+                                            *(f"gold_parcel_{kind}_versions_build" for kind in (
+                                                "energy", "register_masters", "demolitions", "factories", "sub_parcels")),
                                             *(f"by_pnu_parcel_{kind}_bake" for kind in (
                                                 "ownership", "sub_parcels", "energy", "demolitions", "factories",
                                                 "register_masters", "real_transaction"))})

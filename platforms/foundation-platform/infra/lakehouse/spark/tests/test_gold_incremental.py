@@ -431,7 +431,9 @@ class CommitCallers(unittest.TestCase):
                     callers += 1
                     with self.subTest(path=path.name, line=node.lineno):
                         self.assertLessEqual(required, {keyword.arg for keyword in node.keywords})
-        self.assertGreater(callers, 10)
+        # Only that the walk found the callers: each takeover deletes a Spark producer (root ADR-0564
+        # §6-4), so a count floor fails the next takeover, as #1680 and #1675 brought it to 10.
+        self.assertGreater(callers, 0)
 
 
 if __name__ == "__main__":

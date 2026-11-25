@@ -56,7 +56,13 @@
         "by_pnu_parcel_factories_bake",
         "by_pnu_parcel_register_masters_bake",
         "by_pnu_parcel_real_transaction_bake",
-        "by_pnu_court_auction_bake"
+        "by_pnu_court_auction_bake",
+        "gold_parcel_nearby_rebuild",
+        "gold_parcel_energy_versions_build",
+        "gold_parcel_register_masters_versions_build",
+        "gold_parcel_demolitions_versions_build",
+        "gold_parcel_factories_versions_build",
+        "gold_parcel_sub_parcels_versions_build"
       ],
       "enabled": true,
       "enabled_since": "2026-10-29T12:00:00Z",
