@@ -20,7 +20,7 @@ last_reviewed: 2026-11-26
 | VPC `perfectory-platform`(/16, 주소 블록은 적용 때 `TF_VAR_vpc_cidr`), 공개 서브넷 둘(태스크), 사설 서브넷 둘(DB), 인터넷 게이트웨이 | VPC, ap-northeast-2a·2c | 이 스택. NAT·ALB 없음. VPC·서브넷은 `prevent_destroy` |
 | Dagster(A1, [루트 ADR-0616](../../../../docs/adr/0616-data-jobs-run-as-dagster-assets-on-aws-ecs-and-the-host-job-layer-is-not-ported.md)): ECS 클러스터 `perfectory-platform`, 늘 켠 서비스 `dagster`(웹서버 + 데몬, Fargate ARM 0.5 vCPU / 2 GB), run 마다 태스크(`EcsRunLauncher`) | ECS, 공개 서브넷(들어오는 규칙 없음) | 이 스택(`infra/aws/dagster.tf`). 이미지는 적용 때 `TF_VAR_dagster_image`(릴리스의 `<commit>-aws-code-location` digest). 일은 아직 없다 |
 | Dagster 의 저장소: RDS PostgreSQL 17 `perfectory-platform`(db.t4g.micro, 20 GB, 사설 서브넷만) | RDS. Dagster 와 그 run 은 이 데이터베이스만 가진 역할 `dagster` 로 붙는다(비밀 `perfectory-platform/dagster-database`, 상태 파일에 없다). master 의 비밀은 부트스트랩 태스크만 읽는다 | 이 스택. 삭제 보호·마지막 스냅숏·`prevent_destroy` |
-| 경보 `perfectory-platform-dagster-not-running`(10 분 동안 Dagster 태스크가 없으면) → SNS `perfectory-platform-alarms` | CloudWatch·SNS | 이 스택. Slack 으로 잇는 AWS Chatbot 은 사장이 Slack 작업 공간을 한 번 허가한 뒤의 다음 걸음이다. 그때까지는 CloudWatch 에서만 보인다 |
+| 경보 `perfectory-platform-dagster-not-running`(10 분 동안 Dagster 태스크가 없으면) → SNS `perfectory-platform-alarms` → Slack 채널 하나 | CloudWatch·SNS(ap-northeast-2). 채널 묶음 AWS Chatbot `perfectory-platform-alarms` 는 그 서비스의 제어 리전 us-east-2 | 이 스택(`infra/aws/chatbot.tf`). 저장하는 토큰은 없다. 사장이 Slack 작업 공간을 콘솔에서 한 번 허가한다(아래 'Slack 으로 잇기'). 작업 공간·채널 ID 는 적용 때 `TF_VAR_slack_team_id`·`TF_VAR_slack_channel_id` |
 | 예산 메일 주소 | 적용할 때의 환경 변수 `TF_VAR_budget_alert_emails` | 사람이 적용할 때 준다. 파일·저장소에 적지 않는다(공개 저장소) |
 | 프런트 도어의 CloudFront 전용 예산 `perfectory-cdn-free-tier` | AWS Budgets | `infra/cdn`(호스트의 엣지 적용, [엣지 설정](./edge-settings.md)) |
 
@@ -43,6 +43,10 @@ export TF_VAR_vpc_cidr="$(aws ec2 describe-vpcs --filters Name=tag:Name,Values=p
 test "$TF_VAR_vpc_cidr" != None   # 처음 적용이면 위 줄 대신 고른 블록을 넣는다
 # 4) Dagster 의 이미지: 돌릴 릴리스의 AWS 코드 위치를 digest 로(아래 'Dagster 의 이미지 고르기').
 export TF_VAR_dagster_image="ghcr.io/perfectory-inc/foundation-release@$digest"
+# 5) 경보의 Slack 작업 공간과 채널: 이은 설정에서 읽어 온다(처음이면 아래 'Slack 으로 잇기').
+chatbot() { aws chatbot describe-slack-channel-configurations --region us-east-2 \
+  --query "SlackChannelConfigurations[?ConfigurationName=='perfectory-platform-alarms'] | [0].$1" --output text; }
+export TF_VAR_slack_team_id="$(chatbot SlackTeamId)" TF_VAR_slack_channel_id="$(chatbot SlackChannelId)"
 tofu init -input=false
 tofu plan -input=false -out="$TF_DATA_DIR/plan"
 tofu apply "$TF_DATA_DIR/plan"
@@ -116,6 +120,39 @@ gh attestation verify "oci://ghcr.io/perfectory-inc/foundation-release@$digest" 
 새 digest 로 적용하면 태스크 정의의 새 개정이 생기고 서비스가 옛 태스크를 멈춘 뒤 새 태스크를 띄운다(데몬은 언제나 하나).
 그 사이 몇 분은 Dagster 가 없다. 일이 들어온 뒤(A2)에는 진행 중인 run 태스크는 그대로 돈다.
 
+## Slack 으로 잇기 (AWS Chatbot, 처음 한 번)
+
+경보는 SNS `perfectory-platform-alarms` 에서 Slack 채널 하나로 간다. 저장하는 토큰은 없다. Slack 작업 공간을 AWS 에 허가하는 것만
+사람이 콘솔에서 한 번 한다(Slack 의 OAuth). 채널 묶음과 어느 경보가 가는지는 코드다(`infra/aws/chatbot.tf`, 주제에 알리는 경보).
+이 서비스는 서울에 제어 평면이 없다. 콘솔은 us-east-2 에만 있고, 설정도 us-east-2 로 다룬다(계약의 `alarms.chatbot`).
+주제·경보·다른 모든 자원은 ap-northeast-2 에 있다. 바깥으로 나가는 것은 채널 설정과 알림뿐이다.
+
+**규칙(코디네이터 2026-11-26).** 이 서비스는 알림을 네 리전(서울 밖) 어디서든 두고 처리한다. 그래서 이 주제에는 개인 정보나
+사업 데이터를 싣지 않는 경보만 알린다. 경보의 이름·상태·지표와 플랫폼 자원의 이름 같은 메타데이터다(예: 'Dagster 가 돌지 않는다').
+데이터를 실을 경보는 이 주제를 쓰지 않는다. 주제에 경보를 더하는 PR 은 이 규칙을 지키는지 본다.
+
+사장이 하는 것(한 번):
+
+1. AWS 콘솔에 로그인하고 역할 전환으로 플랫폼 계정에 들어간다:
+   `https://signin.aws.amazon.com/switchrole?account=091109217099&roleName=OrganizationAccountAccessRole&displayName=perfectory-platform-prod`.
+   오른쪽 위 계정 번호가 0911-0921-7099 인지 본다. 관리 계정에서는 하지 않는다.
+2. `https://console.aws.amazon.com/chatbot/` 에서 채팅 클라이언트로 **Slack** 을 고르고 **Configure** 를 누른다.
+3. Slack 의 허가 화면 오른쪽 위에서 작업 공간을 고르고 **Allow** 를 누른다. 채널 구성(**Configure new channel**)은 누르지 않는다. 코드가 만든다.
+4. Slack 에서 경보를 받을 채널에 `/invite @Amazon Q` 를 입력하고 **Invite Them**. 채널 이름을 오른쪽 클릭해 링크를 복사해 보낸다
+   (링크 끝의 `C…` 가 채널 ID 다).
+
+적용하는 사람이 하는 것(작업 공간 ID 는 AWS 에서 읽는다):
+
+```bash
+export TF_VAR_slack_team_id="$(aws chatbot describe-slack-workspaces --region us-east-2 --query 'SlackWorkspaces[0].SlackTeamId' --output text)"
+export TF_VAR_slack_channel_id=<받은 링크 끝의 C…>
+# 위 '적용' 그대로(plan → apply). 그다음 경보를 한 번 일부러 울려 채널에 뜨는지 본다.
+# 경보는 다음 평가(5 분 안)에 실제 상태로 돌아가고, 그것도 채널에 뜬다.
+aws cloudwatch set-alarm-state --alarm-name perfectory-platform-dagster-not-running --state-value ALARM --state-reason 'Slack 연결 확인'
+```
+
+Slack 이 앱 승인을 요구하면 작업 공간 관리자가 승인한다. 채널을 바꾸려면 `TF_VAR_slack_channel_id` 만 바꿔 적용한다.
+
 ## Dagster 의 UI 열기 (SSM 포트 포워딩)
 
 공개 주소도 부하 분산기도 없다. ECS Exec 의 SSM 세션으로 노트북의 포트를 웹서버로 잇는다. AWS CLI 의 Session Manager 플러그인이 있어야 한다.
@@ -150,6 +187,7 @@ tofu plan -input=false -detailed-exitcode   # 0 이면 코드와 계정이 같�
 
 - 예산·망: 계약이나 `main.tf` 를 되돌리는 PR 을 병합하고 위의 적용을 한다. 망을 지우는 적용은 그 안에 태스크·DB 가 없을 때만 된다.
 - 상태: 버킷은 버전을 지닌다(지난 판은 90일). 잘못된 적용 뒤의 상태는 그 객체의 앞 판으로 되돌린다.
+- Slack: 채널 묶음을 끊으려면 `infra/aws/chatbot.tf` 를 지우는 PR 을 병합하고 적용한다. 경보는 CloudWatch 에 남는다.
 - Dagster: 앞 릴리스의 digest 로 `TF_VAR_dagster_image` 를 주고 다시 적용한다. 서비스를 멈추려면 `desired_count` 를 0 으로 하는 PR 을 병합하고 적용한다.
 - 데이터베이스는 삭제 보호와 `prevent_destroy` 다. 지우는 일은 이 런북이 하지 않는다. 마지막 스냅숏 `perfectory-platform-final` 이 남는다.
 - 상태 버킷은 `prevent_destroy` 다. 스택 전체를 내리는 일은 이 런북이 하지 않는다.

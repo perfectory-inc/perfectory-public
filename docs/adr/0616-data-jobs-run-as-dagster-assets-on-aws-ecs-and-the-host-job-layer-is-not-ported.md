@@ -269,6 +269,11 @@ W101 의 시제품이 센 121,608 은 키로 줄이기 전의 물건 수다: 검
   - "데이터가 낡지 않았는가": `build_last_update_freshness_checks(deadline_cron=…, lower_bound_delta=…)`. 원천이 실제로 바뀌는 박자를 아는 자산에만 건다.
 - **Dagster 자신**은 Dagster 가 지키지 못한다: ECS 서비스의 건강 검사가 태스크를 다시 띄우고, 서비스가 원하는 수만큼 돌지 않으면
   CloudWatch 경보가 Slack 으로 간다. 이것은 처음부터 CloudWatch 의 일이다.
+  그 길은 AWS Chatbot(Amazon Q Developer in chat applications)이다(사장 결정 2026-11-26). SNS 주제 하나가 Slack 채널 하나로 가고,
+  저장하는 토큰은 없다. Slack 으로 가는 경보는 그 주제에 알리는 경보, 곧 코드다(처음은 'Dagster 가 돌지 않는다' 하나).
+  사장이 Slack 작업 공간을 콘솔에서 한 번 허가하고, 채널 묶음은 `infra/aws/chatbot.tf` 다. 이 서비스는 서울에 제어 평면이 없다
+  (us-east-2·us-west-2·ap-southeast-1·eu-west-1). 설정은 us-east-2 로 다루고, 주제와 경보는 서울에 남는다.
+  알림은 그 네 리전에서 처리되므로, 이 주제에는 개인 정보나 사업 데이터를 싣지 않는 경보(메타데이터)만 알린다(코디네이터 결정 2026-11-26).
 - 경보: Dagster OSS 에는 경보 정책이 없다(**확인 필요**). run 실패·검사 실패·신선도 넘김을 Slack 으로 보내는 길은 Dagster 의 센서
   (`dagster-slack` 의 run 실패 센서 등)를 먼저 본다. 그것으로 안 되는 것만 CloudWatch 경보로 한다. Prometheus·Alertmanager 를 AWS 에 세우지 않는다(열린 질문 4).
 
