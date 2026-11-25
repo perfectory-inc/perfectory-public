@@ -7,6 +7,8 @@ import connectionContract from "../../../config/r2-connections.contract.json";
 const policy = connectionContract.map_edit_gateway;
 type UnitKey = keyof typeof policy.units;
 interface UnitPolicy {
+  // Root ADR-0621 §1: parcel geometry is the legal record and takes no edits; its overlay stays readable.
+  editable: boolean;
   feature_id_property: string;
   feature_id_pattern: string;
   properties: Readonly<Record<string, string>>;
@@ -197,6 +199,7 @@ async function readJson(request: Request, maxBytes = policy.geometry.max_body_by
 }
 
 async function appendEdit(request: Request, env: Env, unit: UnitKey): Promise<Response> {
+  if (units[unit]?.editable !== true) throw new Rejected(422, "unit_not_editable");
   const body = await readJson(request);
   const { feature_id: featureId, op, editor, idempotency_key: key } = body;
   if (typeof featureId !== "string" || !(featureIdPatterns.get(unit)?.test(featureId) ?? false)) {

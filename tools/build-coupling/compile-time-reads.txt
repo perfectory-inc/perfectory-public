@@ -1,5 +1,6 @@
 # Every Rust source file that reads a file at compile time, and how many times (root ADR-0556).
 # Checked by scripts/guard/build-coupling-baseline.sh; rewrite with its --write and commit.
+platforms/foundation-platform/crates/catalog/catalog-domain/src/map_edit.rs:1
 platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/industrial_complex_transaction_participant.rs:1
 platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/parcel_complex_membership.rs:1
 platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/spatial_tile_publication.rs:1

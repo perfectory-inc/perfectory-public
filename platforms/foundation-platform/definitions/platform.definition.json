@@ -903,6 +903,7 @@
         "compatibility_date": "2026-04-26",
         "units": {
           "complex": {
+            "editable": true,
             "feature_id_property": "complex_id",
             "feature_id_pattern": "[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
             "properties": {
@@ -910,6 +911,7 @@
             }
           },
           "admin": {
+            "editable": true,
             "feature_id_property": "administrative_unit_id",
             "feature_id_pattern": "[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
             "properties": {
@@ -919,6 +921,8 @@
             }
           },
           "parcels": {
+            "editable": false,
+            "not_editable_decision": "docs/adr/0621-a-map-edit-is-pinned-to-the-source-state-it-was-made-over-and-a-build-applies-it-only-while-that-state-holds.md",
             "feature_id_property": "pnu",
             "feature_id_pattern": "[0-9]{19}",
             "properties": {}

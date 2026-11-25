@@ -158,6 +158,21 @@ describe("appending edits", () => {
     expect(await response.json()).toEqual({ error: code });
   });
 
+  it("refuses every edit of a unit that takes none, and stores nothing (root ADR-0621 §1)", async () => {
+    // A synthetic PNU in the reserved 99999 namespace.
+    const parcel = "9999900000100010001";
+    for (const body of [
+      { feature_id: parcel, op: "upsert", geometry: square, properties: {}, editor: "synthetic-staff", idempotency_key: "p1" },
+      { feature_id: parcel, op: "delete", editor: "synthetic-staff", idempotency_key: "p2" },
+    ]) {
+      const response = await write("/edits/parcels", body);
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({ error: "unit_not_editable" });
+    }
+    expect((await db.prepare("SELECT COUNT(*) AS n FROM map_edit").first<{ n: number }>())?.n).toBe(0);
+    expect((await call("/overlay/parcels", { headers: { Origin: origin } })).status).toBe(200);
+  });
+
   it("refuses a delete that carries geometry", async () => {
     const response = await write("/edits/complex", {
       feature_id: featureA, op: "delete", geometry: square, editor: "synthetic-staff", idempotency_key: "k1",

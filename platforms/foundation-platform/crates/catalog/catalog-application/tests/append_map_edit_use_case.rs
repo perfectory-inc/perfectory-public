@@ -86,6 +86,27 @@ async fn a_valid_upsert_and_delete_reach_the_store_as_checked() -> Result<(), Ap
 }
 
 #[tokio::test]
+async fn a_parcel_edit_is_refused_before_the_store_is_asked() {
+    // Root ADR-0621 §1: parcel geometry is the legal record. A synthetic PNU (reserved 99999).
+    let store = Arc::new(RecordingStore::default());
+    let use_case = AppendMapEdit::new(store.clone());
+    for (operation, geometry) in [("upsert", Some(square())), ("delete", None)] {
+        let mut edit = input(operation, geometry, None);
+        edit.unit = "parcels".to_owned();
+        edit.feature_id = "9999900000100010001".to_owned();
+        let result = use_case.execute(edit).await;
+        assert!(
+            matches!(
+                &result,
+                Err(AppendMapEditError::Invalid(MapEditError::UnitNotEditable(unit))) if unit == "parcels"
+            ),
+            "{operation}: {result:?}"
+        );
+    }
+    assert!(store.records.lock().is_ok_and(|records| records.is_empty()));
+}
+
+#[tokio::test]
 async fn refused_edits_never_reach_the_store() {
     let store = Arc::new(RecordingStore::default());
     let use_case = AppendMapEdit::new(store.clone());

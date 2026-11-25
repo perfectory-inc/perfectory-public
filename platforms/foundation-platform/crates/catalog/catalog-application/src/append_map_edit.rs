@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use catalog_domain::{MapEditError, MapEditGeometry, MapEditOperation};
+use catalog_domain::{check_unit_takes_edits, MapEditError, MapEditGeometry, MapEditOperation};
 use foundation_shared_kernel::ids::StaffId;
 
 use crate::ports::{MapEditAppended, MapEditRecord, MapEditStore, MapEditStoreError};
@@ -53,13 +53,14 @@ impl AppendMapEdit {
     ///
     /// # Errors
     ///
-    /// Returns [`AppendMapEditError::Invalid`] when the operation is unknown, when an upsert has
-    /// no geometry or a delete has one, or when the geometry is not a valid polygon; the store is
-    /// not called. Returns [`AppendMapEditError::Store`] when the store refuses or is unreachable.
+    /// Returns [`AppendMapEditError::Invalid`] when the unit takes no edits (root ADR-0621 §1),
+    /// when the operation is unknown, when an upsert has no geometry or a delete has one, or when
+    /// the geometry is not a valid polygon; the store is not called. Returns [`AppendMapEditError::Store`] when the store refuses or is unreachable.
     pub async fn execute(
         &self,
         input: AppendMapEditInput,
     ) -> Result<MapEditAppended, AppendMapEditError> {
+        check_unit_takes_edits(&input.unit)?;
         let operation = MapEditOperation::parse(&input.operation)?;
         let geometry = match (operation, input.geometry, &input.properties) {
             (MapEditOperation::Upsert, Some(geometry), _) => {

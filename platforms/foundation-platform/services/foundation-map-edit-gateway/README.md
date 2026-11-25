@@ -36,7 +36,9 @@ last_reviewed: 2026-09-28
   `{feature_id, op: upsert|delete, geometry?, properties?, editor, idempotency_key}`. 구조 검사만
   한다(도형 종류·닫힌 고리·2차원 좌표·국토 범위·꼭짓점 상한·속성 목록). 자기교차 같은 위상 검사는
   작성자가 저장 전에 한다. 같은 idempotency key 의 재요청은 같은 `change_seq` 를 200 으로,
-  다른 내용이면 409 다. 대기 편집이 상한에 닿으면 409 `fold_required` 다.
+  다른 내용이면 409 다. 대기 편집이 상한에 닿으면 409 `fold_required` 다. 계약이 `editable: false` 로
+  적은 유닛(필지, 루트 ADR-0621 §1)의 편집은 본문을 읽기 전에 422 `unit_not_editable` 이고 아무것도
+  저장하지 않는다. 그 유닛의 오버레이는 그대로 읽힌다.
 - `GET /edits/{unit}?after=&limit=` — 작성자 전용. 레이크하우스 편집 원장으로 내보낼 행을
   `change_seq` 순으로 준다.
 - `POST /folds/{unit}` — 작성자 전용. `{folded_through_change_seq, release_id}`. 새 타일이 승격된

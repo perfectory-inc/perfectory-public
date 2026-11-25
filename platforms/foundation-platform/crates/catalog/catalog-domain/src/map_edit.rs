@@ -6,8 +6,45 @@
 //! multipolygon overlap — is decided here, once, before the edit is sent. A geometry that fails
 //! these rules would draw wrongly on every customer's map until the next bake.
 
+use std::collections::BTreeSet;
+use std::sync::LazyLock;
+
 use geo::{Coord, LineString, MultiPolygon, Polygon, Validation as _};
 use serde_json::Value;
+
+/// The connection contract whose `map_edit_gateway.units` the edit store reads too.
+const CONNECTION_CONTRACT: &str = include_str!("../../../../config/r2-connections.contract.json");
+
+/// The units whose contract entry says `editable: true`; none if the contract cannot be read.
+static EDITABLE_UNITS: LazyLock<BTreeSet<String>> = LazyLock::new(|| {
+    serde_json::from_str::<Value>(CONNECTION_CONTRACT)
+        .ok()
+        .and_then(|contract| contract.pointer("/map_edit_gateway/units").cloned())
+        .and_then(|units| units.as_object().cloned())
+        .map(|units| {
+            units
+                .into_iter()
+                .filter(|(_, spec)| spec.get("editable").and_then(Value::as_bool) == Some(true))
+                .map(|(unit, _)| unit)
+                .collect()
+        })
+        .unwrap_or_default()
+});
+
+/// Checks that `unit` takes edits.
+///
+/// Parcel geometry is the legal record and takes none (root ADR-0621 §1); a correction goes to
+/// the source. The contract's `map_edit_gateway.units` says which units take edits.
+///
+/// # Errors
+/// Returns [`MapEditError::UnitNotEditable`] for a unit the contract does not mark editable.
+pub fn check_unit_takes_edits(unit: &str) -> Result<(), MapEditError> {
+    if EDITABLE_UNITS.contains(unit) {
+        Ok(())
+    } else {
+        Err(MapEditError::UnitNotEditable(unit.to_owned()))
+    }
+}
 
 /// What an edit does to the feature it names.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -101,6 +138,9 @@ pub enum MapEditError {
     /// An upsert carries no geometry, or a delete carries one.
     #[error("an upsert needs a geometry and a delete must not carry one")]
     GeometryDoesNotMatchOperation,
+    /// The unit takes no edits (root ADR-0621 §1).
+    #[error("map edit unit {0} takes no edits")]
+    UnitNotEditable(String),
 }
 
 fn array(value: &Value) -> Result<&Vec<Value>, MapEditError> {
@@ -250,6 +290,19 @@ mod tests {
                 MapEditGeometry::parse(value.clone()),
                 Err(expected),
                 "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_contract_lets_complexes_and_admin_boundaries_take_edits_and_never_parcels() {
+        assert_eq!(check_unit_takes_edits("complex"), Ok(()));
+        assert_eq!(check_unit_takes_edits("admin"), Ok(()));
+        for unit in ["parcels", "zoning", "unknown"] {
+            assert_eq!(
+                check_unit_takes_edits(unit),
+                Err(MapEditError::UnitNotEditable(unit.to_owned())),
+                "{unit}"
             );
         }
     }
