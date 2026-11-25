@@ -280,6 +280,8 @@ class ParcelServedGoldIcebergTest(unittest.TestCase):
             "geometry_geojson": "{}", "geometry_wkb_hex": wkb.hex(), "geometry_srid": SRID,
             "geometry_checksum_sha256": hashlib.sha256(wkb).hexdigest(), "properties_json": "{}",
             "editor": "synthetic", "edited_at": "2099-01-01T00:00:00Z",
+            # Root ADR-0621 §3: every handoff line names its pin, here none.
+            "base_release_id": None, "base_served_snapshot_id": None,
         }) + "\n", encoding="utf-8")
         out = Path(self.workspace.name) / "fold-1"
         summary = self.run_main(out, "--edits-input", str(edits), "--fold")
