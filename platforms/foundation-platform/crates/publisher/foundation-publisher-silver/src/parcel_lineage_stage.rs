@@ -25,7 +25,7 @@ use crate::duckdb_parquet_stage::DuckDbParquetStage;
 /// The table the derivation appends to.
 pub const LINEAGE_TABLE: &str = "silver.parcel_lineage";
 /// The rules a row was derived under; a group is derived once per pair, group and rules version.
-/// v2 (2026-11-25): the VWorld 30527 records are official links (root ADR-0113 §4).
+/// v2 (2026-11-25): the `VWorld` 30527 records are official links (root ADR-0113 §4).
 pub const RULES_VERSION: &str = "parcel-lineage.v2";
 /// The catalog name the Spark job's provenance spelled its inputs under; part of the run id.
 const PROVENANCE_CATALOG: &str = "lakehouse";

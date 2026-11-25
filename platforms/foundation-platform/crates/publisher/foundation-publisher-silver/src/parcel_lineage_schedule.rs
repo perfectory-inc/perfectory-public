@@ -31,7 +31,7 @@ pub const BOUNDARIES_TABLE: &str = "silver.parcel_boundaries";
 pub const CODE_CHANGE_TABLE: &str = "reference.legal_dong_code_change";
 /// The land movement history.
 pub const HISTORY_TABLE: &str = "silver.land_transfer_history";
-/// The provider's official old -> new PNU records (VWorld 30527).
+/// The provider's official old -> new PNU records (`VWorld` 30527).
 pub const NUMBER_CHANGE_TABLE: &str = "silver.parcel_number_change_history";
 
 /// One edition of the source contract, as the lineage reads it.
@@ -196,10 +196,11 @@ pub fn superseded_since(
     newest(stage, &sql, "recorded_at_utc")
 }
 
-/// When the number change history last gained a record that may be a link of the group, to the
-/// whole second: the newest `ingested_at_utc` of a lot-level, dated, unquarantined row of the
-/// pinned table whose old PNU lies in the group's earlier sido and whose date lies in its window,
-/// or `None`. The provider publishes a renumber months late, after its group was derived (root
+/// When the number change history last gained a record that may be a link of the group.
+///
+/// To the whole second: the newest `ingested_at_utc` of a lot-level, dated, unquarantined row of
+/// the pinned table whose old PNU lies in the group's earlier sido and whose date lies in its
+/// window, or `None`. The provider publishes a renumber months late, after its group was derived (root
 /// ADR-0329 §3, revision 2026-11-25).
 ///
 /// # Errors

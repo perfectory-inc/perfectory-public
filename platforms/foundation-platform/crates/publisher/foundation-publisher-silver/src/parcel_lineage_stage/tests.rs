@@ -10,7 +10,7 @@
 //! `parcel_lineage.cardinality` returned for it before the job was removed, one line per row,
 //! sorted; `fixtures/summary.json` its reconciliation and counts. The engine-equality verdict the
 //! move was made on compared `derive.sql` with production's rows of sixteen groups; this keeps
-//! the binary on those rules. The fixture predates the VWorld 30527 records (rules v2): its
+//! the binary on those rules. The fixture predates the `VWorld` 30527 records (rules v2): its
 //! number change table is empty, and the renumber test below holds what they add.
 
 use anyhow::Context;
@@ -233,7 +233,7 @@ fn the_run_id_is_the_digest_of_the_pins_and_rules() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A lot the provider renumbered with no code change (like Incheon's 997): the VWorld 30527 record
+/// A lot the provider renumbered with no code change (like Incheon's 997): the `VWorld` 30527 record
 /// is its only evidence, and it links the two lots `official` (root ADR-0113 §4, ADR-0144 §3.3).
 /// The records the rules do not admit link nothing: a quarantined one, one dated on the window's
 /// end, a whole-동 move, one whose new lot the later edition does not hold.
