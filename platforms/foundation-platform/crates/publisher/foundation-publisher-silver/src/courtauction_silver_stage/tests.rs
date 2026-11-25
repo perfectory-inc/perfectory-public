@@ -802,31 +802,24 @@ fn a_follow_places_again_the_rows_a_code_change_can_move_with_its_record() -> an
     Ok(())
 }
 
-/// What `read_object` left of `role`'s object: every staged table's rows (a search's rows and pages:
-/// its staging table is its placement's), each as text, sorted; and a search's completeness. With
-/// `one_group_a_part`, the contract's memory per byte is so large that every group of lines is a
-/// part of its own.
-fn read_rows(role: Role, one_group_a_part: bool) -> anyhow::Result<(Vec<String>, Option<bool>)> {
-    let directory = tempfile::tempdir()?;
+/// What `read_object` left of `role`'s object on `stage`: every staged table's rows (a search's rows
+/// and pages: its staging table is its placement's), each as text, sorted; and a search's
+/// completeness. `memory_per_byte` replaces the contract's figure, so a test chooses the part size.
+fn read_rows(
+    stage: &DuckDbParquetStage,
+    directory: &std::path::Path,
+    role: Role,
+    memory_per_byte: Option<u64>,
+) -> anyhow::Result<(Vec<String>, Option<bool>)> {
     let mut source = CourtAuctionSource::compiled()?;
-    if one_group_a_part {
-        source.contract["silver_load"]["memory_per_line_byte"]["bytes"] =
-            serde_json::json!(u64::MAX);
+    if let Some(bytes) = memory_per_byte {
+        source.contract["silver_load"]["memory_per_line_byte"]["bytes"] = serde_json::json!(bytes);
     }
-    let stage = DuckDbParquetStage::open(directory.path())?;
-    stage
-        .connection()
-        .execute_batch(&CourtAuctionSource::values_sql())?;
     let ingested_at = chrono::Utc
         .with_ymd_and_hms(2099, 1, 2, 3, 4, 5)
         .single()
         .context("a time")?;
-    let staged = read_object(
-        &stage,
-        &source,
-        &object(directory.path(), role)?,
-        ingested_at,
-    )?;
+    let staged = read_object(stage, &source, &object(directory, role)?, ingested_at)?;
     let search = matches!(role, Role::ItemSearch | Role::SaleResultSearch);
     let tables = if search {
         vec!["ca_search_rows".to_owned(), "ca_search_pages".to_owned()]
@@ -844,21 +837,46 @@ fn read_rows(role: Role, one_group_a_part: bool) -> anyhow::Result<(Vec<String>,
         rows.extend(found.into_iter().map(|row| format!("{table}: {row}")));
     }
     let complete = search
-        .then(|| super::search_complete(&stage, &source, role))
+        .then(|| super::search_complete(stage, &source, role))
         .transpose()?;
     Ok((rows, complete))
 }
 
 #[test]
-fn every_role_stages_the_same_rows_read_in_parts_as_read_whole() -> anyhow::Result<()> {
+fn a_role_stages_the_same_rows_read_in_parts_as_read_whole() -> anyhow::Result<()> {
     // 2026-11-24 the load ran out of memory on a whole 394 MiB 물건 검색 object; it now reads an
-    // object in parts. Here every group of lines is a part of its own (a case, or a search line).
-    for role in ROLES {
-        if fixture(&format!("{}.jsonl", role.name())).is_err() {
-            continue;
-        }
-        let whole = read_rows(role, false)?;
-        assert_eq!(read_rows(role, true)?, whole, "{}", role.name());
+    // object in parts. Each fixture is read whole, then in parts of half its lines, so a part
+    // boundary falls inside it. One role of each way of parting: cases grouped (사건상세, and
+    // 현황조사 by round), the 물건상세 grouped with its photos, a search in order with its merge,
+    // and the 매각공고 in order with its once-phase. (A part per group of every role took about a
+    // minute in the dev profile, whose DuckDB plans the role SQL slowly.)
+    for role in [
+        Role::CaseDetail,
+        Role::CaseSurvey,
+        Role::ItemDetail,
+        Role::ItemSearch,
+        Role::SaleNotices,
+    ] {
+        let text = fixture(&format!("{}.jsonl", role.name()))?;
+        let bytes = text
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(str::len)
+            .sum::<usize>();
+        let directory = tempfile::tempdir()?;
+        let stage = DuckDbParquetStage::open(directory.path())?;
+        stage
+            .connection()
+            .execute_batch(&CourtAuctionSource::values_sql())?;
+        let whole = read_rows(&stage, directory.path(), role, None)?;
+        let half = (u64::try_from(bytes)? / 2).max(1);
+        let parted = read_rows(
+            &stage,
+            directory.path(),
+            role,
+            Some(stage.memory_limit_bytes()? / half),
+        )?;
+        assert_eq!(parted, whole, "{}", role.name());
     }
     Ok(())
 }
