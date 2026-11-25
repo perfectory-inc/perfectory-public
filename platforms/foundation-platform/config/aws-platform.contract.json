@@ -67,7 +67,15 @@
     "master_username": "platform_admin",
     "app_username": "dagster",
     "app_secret": "perfectory-platform/dagster-database",
-    "reason": "Dagster's storage (runs, events, schedules; 1,001 MB on ai-server) on RDS PostgreSQL, one zone, the smallest Graviton class (root ADR-0616 §1, §10: 18.25 USD a month plus 0.131 a GB). In the private subnets only, reached from the tasks' security group only, TLS required (PostgreSQL 15+ on RDS forces SSL by default). Least privilege: Dagster and every run task connect as app_username, a role that owns only this database, with its own secret (app_secret, in the shape Secrets Manager's RDS rotation reads; the password is written write-only, never in the state). The master user (master_username, its password RDS's own in Secrets Manager) is read only by the one-off bootstrap task that creates that role (infra/aws/database-bootstrap.sql). The Bronze ledger gets its own database on this instance in A1b. Deletion protection and a final snapshot, so neither an apply nor a mistaken delete removes it."
+    "foundation": {
+      "name": "foundation",
+      "migrator_username": "foundation_migrator",
+      "runtime_username": "foundation_api",
+      "migrator_secret": "perfectory-platform/foundation-migrator",
+      "runtime_secret": "perfectory-platform/foundation-runtime",
+      "reason": "The Bronze ledger's place (root ADR-0616 A1b, coordinator 2026-11-26): the data host's foundation schema on this instance, made by the same sqlx migrations (foundation-migrate from the release's arm64 runtime image), empty until a collector moves in (A2). The role names are the ones the migrations and infra/compose/grant-foundation-runtime.sql name (the runtime role is the one the collectors connect as on the data host). The migrator owns the schema; the runtime role reads and writes rows; each has its own secret, written write-only. Every rollout runs bootstrap, migrate, grants and finalize before the service moves (infra/aws/pre-deploy.sh)."
+    },
+    "reason": "Dagster's storage (runs, events, schedules; 1,001 MB on ai-server) on RDS PostgreSQL, one zone, the smallest Graviton class (root ADR-0616 §1, §10: 18.25 USD a month plus 0.131 a GB). In the private subnets only, reached from the tasks' security group only, TLS required (PostgreSQL 15+ on RDS forces SSL by default). Least privilege: Dagster and every run task connect as app_username, a role that owns only this database, with its own secret (app_secret, in the shape Secrets Manager's RDS rotation reads; the password is written write-only, never in the state). The master user (master_username, its password RDS's own in Secrets Manager) is read only by the one-off bootstrap task that creates that role (infra/aws/database-bootstrap.sql). The Bronze ledger has its own database on this instance (foundation). Deletion protection and a final snapshot, so neither an apply nor a mistaken delete removes it."
   },
   "alarms": {
     "topic": "perfectory-platform-alarms",

@@ -11,9 +11,13 @@ of the same commit has pushed its release. AWS runs on Graviton, so:
 - the code location (orchestration/dagster/Dockerfile.aws) is built for linux/arm64 only, because only
   AWS runs it: <commit>-aws-code-location. It carries the arm64 publisher and the arm64 DuckDB extension
   files the contract pins, and before anything is pushed its publisher loads them with no network.
+- the runtime image (the compose build of services/foundation-api/Dockerfile, the same entry and build
+  arguments as the release's) is built for linux/arm64 too, because AWS runs its foundation-migrate before
+  every rollout (root ADR-0616 A1b): <commit>-aws-runtime. Before anything is pushed its migrator starts
+  with no network and asks for its database URL.
 
 Every manifest is pushed by digest into the release package (public, so ECS pulls it anonymously) and
-read back; subjects.sha256 names the two digests the job then attests.
+read back; subjects.sha256 names the three digests the job then attests.
 
     <out>/subjects.sha256    sha256 and name of each image, for actions/attest-build-provenance
     <out>/aws-images.json    foundation-platform.aws_images.v1: each image's tag, digest and platforms
@@ -36,6 +40,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PLATFORM_TREE = ROOT / "platforms" / "foundation-platform"
 EXTENSIONS_CONTRACT = PLATFORM_TREE / "infra" / "lakehouse" / "contracts" / "duckdb-extensions.contract.json"
 CODE_LOCATION_DOCKERFILE = "orchestration/dagster/Dockerfile.aws"
+# The release's compose image that carries the migrator (foundation-release-build.py compose_builds).
+RUNTIME_IMAGE = "foundation-platform-runtime"
 TARGET = "linux/arm64"
 # The contract's platform key for TARGET, as the publisher names its own (`<os>-<arch>` of the Rust target).
 TARGET_KEY = "linux-aarch64"
@@ -85,6 +91,21 @@ def loads_offline(archive: Path, config: str) -> None:
         "import dagster, dagster_aws, dagster_postgres; print('aws-images: dagster', dagster.__version__)")
 
 
+def migrator_starts(archive: Path, config: str) -> None:
+    """The runtime image's migrator runs on this platform: with no database URL it refuses, by name."""
+    loaded = run("docker", "load", "--input", str(archive), capture=True)
+    match = re.search(r"Loaded image ID: (sha256:[0-9a-f]{64})", loaded)
+    if (match.group(1) if match else None) != config:
+        raise SystemExit(f"FAIL aws-images: the loaded runtime is not {config}: {loaded.strip()}")
+    result = subprocess.run(["docker", "run", "--rm", "--network", "none", "--entrypoint",
+                             "/usr/local/bin/foundation-migrate", config], cwd=PLATFORM_TREE, text=True,
+                            capture_output=True)
+    if result.returncode == 0 or "FOUNDATION_MIGRATOR_DATABASE_URL is required" not in result.stderr + result.stdout:
+        raise SystemExit(f"FAIL aws-images: the runtime's migrator did not start as expected "
+                         f"(exit {result.returncode}): {(result.stderr + result.stdout).strip()[-400:]}")
+    print("aws-images: runtime foundation-migrate starts on linux/arm64", flush=True)
+
+
 def push(layout: Path, name: str, digest: str, reference: str) -> None:
     """One manifest of the layout, byte for byte, read back by digest."""
     run("skopeo", "copy", "--quiet", "--retry-times", "3", "--preserve-digests", f"oci:{layout}:{name}", f"docker://{reference}")
@@ -121,7 +142,9 @@ def main() -> int:
     commit = run("git", "rev-parse", "HEAD", capture=True).strip()
     release.require_sha(commit)
     repository = arguments.repository
-    publisher = next(entry for entry in build.image_builds(release) if entry[0] == "publisher")
+    builds = build.image_builds(release)
+    publisher = next(entry for entry in builds if entry[0] == "publisher")
+    runtime = next(entry for entry in builds if entry[0] == RUNTIME_IMAGE)
     with tempfile.TemporaryDirectory(prefix="aws-images-") as temporary:
         work = Path(temporary)
         extensions = work / "engine-extensions"
@@ -136,10 +159,14 @@ def main() -> int:
             contexts={"foundation-outbox-publisher:local":
                       f"oci-layout://{work / 'publisher-arm64.oci'}@{images['publisher-arm64']['oci_manifest']}",
                       "foundation-engine-extensions:local": str(extensions)})
+        _, dockerfile, context, args = runtime
+        images["runtime-arm64"], measured["runtime-arm64"] = build.build_image(
+            release, "runtime-arm64", dockerfile, context, args, work, blobs, repository, platform=TARGET)
         for name, entry in measured.items():
             print(f"aws-images {name}: {entry['seconds']}s peak_memory={entry['peak_memory_bytes']} "
                   f"blob_bytes={entry['blob_bytes']}", flush=True)
         loads_offline(work / "code-location-arm64.oci.tar", images["code-location-arm64"]["config"])
+        migrator_starts(work / "runtime-arm64.oci.tar", images["runtime-arm64"]["config"])
     # One OCI layout over the kept blobs, each manifest named, as the release's own (release-push.sh).
     (out / "oci-layout").write_text('{"imageLayoutVersion": "1.0.0"}\n', encoding="utf-8")
     (out / "index.json").write_text(json.dumps({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json",
@@ -157,11 +184,16 @@ def main() -> int:
     code_location = f"{repository}:{commit}-aws-code-location"
     run("docker", "buildx", "imagetools", "create", "--tag", code_location,
         f"{repository}@{images['code-location-arm64']['oci_manifest']}")
+    runtime_tag = f"{repository}:{commit}-aws-runtime"
+    run("docker", "buildx", "imagetools", "create", "--tag", runtime_tag,
+        f"{repository}@{images['runtime-arm64']['oci_manifest']}")
     record = {"schema_version": SCHEMA, "source_commit": commit, "images": {
         "publisher": {"tag": joined, "digest": index_digest(joined), "platforms": ["linux/amd64", TARGET],
                       "linux/amd64": arguments.release_publisher, TARGET: images["publisher-arm64"]["oci_manifest"]},
         "code-location": {"tag": code_location, "digest": index_digest(code_location), "platforms": [TARGET],
-                          TARGET: images["code-location-arm64"]["oci_manifest"]}},
+                          TARGET: images["code-location-arm64"]["oci_manifest"]},
+        "runtime": {"tag": runtime_tag, "digest": index_digest(runtime_tag), "platforms": [TARGET],
+                    TARGET: images["runtime-arm64"]["oci_manifest"]}},
         "measured": measured}
     (out / "aws-images.json").write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     (out / "subjects.sha256").write_text("".join(
