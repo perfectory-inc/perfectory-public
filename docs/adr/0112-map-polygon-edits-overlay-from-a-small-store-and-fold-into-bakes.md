@@ -161,3 +161,7 @@ ADR-0111 A 단계로 필지·행정경계·산업단지 세 레이어가 R2 정�
 > 타일의 행만 넘긴다. 부분일 수 없거나 굽기가 거절하면 강제 Gold 전량(선언된 full 예외)으로 간다.
 > 마커 앵커는 ADR-0225 가 v2 유닛으로 옮겨 이 단계에서 할 일이 없다. fallback 제거는 첫 레이크하우스 필지 기본판
 > 승격(build kind `lakehouse_bake`, 위 각주 ③)이 한다.
+
+> **Revision (2026-11-25):** [ADR-0621](./0621-a-map-edit-is-pinned-to-the-source-state-it-was-made-over-and-a-build-applies-it-only-while-that-state-holds.md)
+> 이 대체한다: 2번의 행 칸(편집은 놓인 원천 상태에 핀으로 묶인다), 3번의 대상 존재 확인, 각주 ①의 "모든 편집"(Gold 빌드는 핀이
+> 그대로인 편집만 적용하고 나머지는 stale 로 둔다), 각주 ④, 2026-11-19 개정(필지 도형은 편집할 수 없다).
