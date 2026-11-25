@@ -3,8 +3,6 @@ use super::{
     blocking::Cancellation, scratch_blob::ScratchBlobCodec, ExportConfig, JsonlRowWriter,
     ObjectExportReport, SilverRowWriter,
 };
-#[cfg(test)]
-use crate::serving_scratch;
 use crate::{
     bounded_bytes::BoundedBytes, building_register_zip_lines::decode_zip_lines,
     duckdb_parquet_stage::engine_config, serving_scratch::CURSOR_BYTES,
@@ -45,31 +43,17 @@ pub(super) struct FloorScratch {
 }
 
 impl FloorScratch {
-    #[cfg(test)]
-    fn new(output: &Path, maximum_bytes: u64) -> anyhow::Result<Self> {
-        Self::with_cancellation(output, maximum_bytes, Cancellation::default())
-    }
-
     pub(super) fn with_cancellation(
         output: &Path,
-        maximum_bytes: u64,
         cancellation: Cancellation,
     ) -> anyhow::Result<Self> {
-        Self::open(output, maximum_bytes, CURSOR_BYTES, cancellation)
+        Self::open(output, CURSOR_BYTES, cancellation)
     }
 
-    #[cfg(test)]
-    fn new_with_cursor_bytes(
-        output: &Path,
-        maximum_bytes: u64,
-        cursor_bytes: usize,
-    ) -> anyhow::Result<Self> {
-        Self::open(output, maximum_bytes, cursor_bytes, Cancellation::default())
-    }
-
+    /// A scratch whose spill and memory are every `DuckDB`'s (`engine_config`): the share of what
+    /// the process may still take, and `DuckDB`'s own spill ceiling on the disk of `output`.
     fn open(
         output: &Path,
-        maximum_bytes: u64,
         cursor_bytes: usize,
         cancellation: Cancellation,
     ) -> anyhow::Result<Self> {
@@ -77,10 +61,6 @@ impl FloorScratch {
         ensure!(
             (1..=CURSOR_BYTES).contains(&cursor_bytes),
             "invalid floor cursor byte budget"
-        );
-        ensure!(
-            maximum_bytes > 0,
-            "floor spill byte budget must be positive"
         );
         let parent = output
             .parent()
@@ -97,12 +77,6 @@ impl FloorScratch {
                 .context("floor spill path must be UTF-8")?,
         ))?;
         let writer = Connection::open_in_memory_with_flags(config)?;
-        // Apply to the live buffer manager. In 1.5.6 startup configuration can
-        // report this setting while leaving actual spill allocation uncapped.
-        writer.execute(
-            "SET max_temp_directory_size = ?",
-            [format!("{maximum_bytes}B")],
-        )?;
         // DuckDB must accept the explicit spill directory before external access is disabled.
         writer.execute_batch("SET enable_external_access=false")?;
         let reader = writer.try_clone()?;

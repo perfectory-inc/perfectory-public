@@ -563,7 +563,6 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     };
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &read)?;
     let memory_limit = duck.memory_limit_bytes()?;
-    duck.require_room(0)?;
     let connection = duck.connection();
     // The instant a time-dependent stage serves as of, in microseconds since the epoch: compared
     // with the rows' instants by `epoch_us`, whatever the session's time zone.
@@ -635,7 +634,6 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     if let Some(head) = head {
         sidos.extend(head_sidos(connection, table, head)?);
     }
-    duck.require_room(0)?;
     // Every row's `source_snapshot_id`: the served parcels' pin, or a batch read's, whose rows they
     // are.
     let stamp_input = batch_input.map_or(PARCEL_SOURCE, |batch| batch.input);

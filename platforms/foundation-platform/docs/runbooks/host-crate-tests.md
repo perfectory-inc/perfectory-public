@@ -29,17 +29,16 @@ I/O 압력은 64% 였다(단가 Spark 이주 중). 그 위의 대상과 sccache 
 - 대상은 실행마다 자기 것을 쓰고, 끝나면 지운다. 공유 대상은 다른 작업의 낡은 크레이트를 내준다.
 - 컴파일 캐시는 `~/claude-scratch/sccache` 하나를 모두가 나눈다. 이미지가 정한 상한은 `SCCACHE_CACHE_SIZE=20G` 다.
 
-시작 전에 SSD 의 여유를 선언된 예약과 대조한다. 예약은 `config/host-layout.contract.json` 의 `duckdb_stage_reserve_bytes`
-(30 GiB)이고, 운영 Postgres 와 DuckDB 단계가 쓰는 몫이다. 한 크레이트의 대상과 sccache 가 더 쓸 몫을 빼고도 예약이 남아야 시작한다.
-2026-11-21 ai-server 의 SSD(`/`, `sdb`)는 217 GB 중 82 GB 가 비어 있었다. 예약을 빼면 시험에 쓸 몫은 약 52 GB 로, 대상 둘과
+시작 전에 SSD 의 여유를 본다. 한 크레이트의 대상과 sccache 가 더 쓸 몫을 빼고도 30 GiB 가 남아야 시작한다: 운영 Postgres 와
+DuckDB 단계의 몫이다(단계의 임시 파일 상한은 DuckDB 의 기본값, 처음 쏟을 때 그 디스크 남은 자리의 90% 다).
+2026-11-21 ai-server 의 SSD(`/`, `sdb`)는 217 GB 중 82 GB 가 비어 있었다. 그 몫을 빼면 시험에 쓸 몫은 약 52 GB 로, 대상 둘과
 sccache 하나가 들어간다. 슬롯(`hostslot.sh`)은 한 번에 하나다. 그래도 이 대조는 DuckDB 단계와 같은 디스크를 나누기 때문에 둔다.
 
 ```bash
 w=<작업 ID>; scratch=~/claude-scratch
 mkdir -p "${scratch}/${w}-target" "${scratch}/sccache"
-reserve="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["duckdb_stage_reserve_bytes"])' \
-  /opt/foundation-platform/current/config/host-layout.contract.json)"
 gib=$((1024 * 1024 * 1024))
+reserve=$((30 * gib))
 cache="$(du -sb "${scratch}/sccache" | cut -f1)"
 # 한 크레이트의 대상(어림 20 GiB)과, sccache 가 상한 20 GiB 까지 더 쓸 몫
 need=$((20 * gib + (cache < 20 * gib ? 20 * gib - cache : 0)))

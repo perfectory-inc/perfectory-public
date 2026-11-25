@@ -39,3 +39,9 @@ fn another_libraries_config() -> PublisherConfig {
     // ok: duckdb-memory-and-threads-come-from-engine-config
     PublisherConfig::default()
 }
+
+fn a_spill_ceiling_of_its_own(connection: &Connection, bytes: u64) -> anyhow::Result<()> {
+    // ruleid: duckdb-memory-and-threads-come-from-engine-config
+    connection.execute("SET max_temp_directory_size = ?", [format!("{bytes}B")])?;
+    Ok(())
+}

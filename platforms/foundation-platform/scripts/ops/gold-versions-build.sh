@@ -66,7 +66,8 @@ mkdir -p "${work}"
 mapfile -t kept < <(ls -1d "${STATE_ROOT}"/runs/*/ 2>/dev/null)
 ((${#kept[@]} <= 30)) || rm -rf -- "${kept[@]:0:${#kept[@]}-30}"
 # Before this run opens its DuckDB stage, the stages dead runs of any lane left go
-# (duckdb-stage-orphans.sh says which are no one's): they hold the SSD's reserve (root ADR-0599).
+# (duckdb-stage-orphans.sh says which are no one's): they hold the SSD's free space, which bounds
+# every stage's spill (root ADR-0599).
 # Each removal is a journal line; a cleanup that fails is one too, and the run goes on.
 if orphans="$(bash "$(dirname "${BASH_SOURCE[0]}")/duckdb-stage-orphans.sh" "${STATE_ROOT%/*}" "${lane}" "${work}" 2>&1)"; then
   while IFS= read -r line; do

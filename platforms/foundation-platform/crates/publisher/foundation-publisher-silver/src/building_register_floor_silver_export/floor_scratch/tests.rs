@@ -2,13 +2,31 @@ use super::*;
 use std::io::Write as _;
 use zip::{write::SimpleFileOptions, ZipWriter};
 
+impl FloorScratch {
+    fn new(output: &Path) -> anyhow::Result<Self> {
+        Self::with_cancellation(output, Cancellation::default())
+    }
+
+    fn new_with_cursor_bytes(output: &Path, cursor_bytes: usize) -> anyhow::Result<Self> {
+        Self::open(output, cursor_bytes, Cancellation::default())
+    }
+
+    /// A scratch whose spill stops at `maximum_bytes`, as a small task disk would stop it: set on
+    /// the live buffer manager, as `DuckDB` applies its own default there.
+    fn with_spill_cap(output: &Path, maximum_bytes: u64) -> anyhow::Result<Self> {
+        let scratch = Self::new(output)?;
+        scratch.connection()?.execute(
+            "SET max_temp_directory_size = ?",
+            [format!("{maximum_bytes}B")],
+        )?;
+        Ok(scratch)
+    }
+}
+
 #[test]
 fn floor_stage_uses_duckdb() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
-    let scratch = FloorScratch::new(
-        &root.path().join("floor.jsonl"),
-        serving_scratch::DEFAULT_MAX_DATABASE_BYTES,
-    )?;
+    let scratch = FloorScratch::new(&root.path().join("floor.jsonl"))?;
     let version = scratch
         .connection()?
         .query_row("SELECT version()", [], |row| row.get::<_, String>(0));
@@ -172,7 +190,7 @@ fn interleaved_rows_preserve_exact_export_bytes() -> anyhow::Result<()> {
         let proposal_path = root.path().join(format!("proposals/{extension}.jsonl"));
         let mut output = SilverRowWriter::new(&config.output_path, None, format)?;
         let mut proposals = JsonlRowWriter::new(&proposal_path, None)?;
-        let mut scratch = FloorScratch::new(&config.output_path, MAXIMUM_BYTES)?;
+        let mut scratch = FloorScratch::with_spill_cap(&config.output_path, MAXIMUM_BYTES)?;
         scratch.load_titles(std::slice::from_ref(&title_path))?;
         let report = scratch
             .export_object(&config, &path, key, &mut output, Some(&mut proposals), None)
@@ -234,7 +252,7 @@ fn title_stage_keeps_first_parseable_observation_in_decoder_order() -> anyhow::R
         .join("\n"),
     )?;
     let output = root.path().join("silver/floor.jsonl");
-    let scratch = FloorScratch::new(&output, serving_scratch::DEFAULT_MAX_DATABASE_BYTES)?;
+    let scratch = FloorScratch::new(&output)?;
     scratch.load_titles(&[path])?;
     let a: (Option<i64>, Option<i64>) = scratch.connection()?.query_row(
         "SELECT above_ground, below_ground FROM title_counts WHERE pk = 'building-a'",
@@ -273,11 +291,7 @@ fn complete_group_budget_rejects_before_hydration_or_output() -> anyhow::Result<
     let row = parse_building_register_floor_source_row_from_hub_bulk_text_line(&line, key, 1)?;
     let each = accounted_source_bytes(&row)?;
     let config = config(root.path())?;
-    let mut scratch = FloorScratch::new_with_cursor_bytes(
-        &config.output_path,
-        serving_scratch::DEFAULT_MAX_DATABASE_BYTES,
-        each + 1,
-    )?;
+    let mut scratch = FloorScratch::new_with_cursor_bytes(&config.output_path, each + 1)?;
     assert_eq!(scratch.stage_source_rows(&path, key, None)?, 2);
     let error = scratch
         .resolve_groups(&config, key)
@@ -315,10 +329,7 @@ fn small_resolved_building_groups_preserve_output() -> anyhow::Result<()> {
         "both small buildings must fit one byte batch"
     );
     let config = config(root.path())?;
-    let mut scratch = FloorScratch::new(
-        &config.output_path,
-        serving_scratch::DEFAULT_MAX_DATABASE_BYTES,
-    )?;
+    let mut scratch = FloorScratch::new(&config.output_path)?;
     let mut output =
         SilverRowWriter::new(&config.output_path, None, super::super::OutputFormat::Jsonl)?;
     let report = scratch
@@ -354,22 +365,14 @@ fn owned_string_bytes_make_one_wide_row_cost_more_than_three_narrow_rows() -> an
     let narrow_path = root.path().join("narrow.zip");
     zip(&narrow_path, &format!("{narrow}\n{narrow}\n{narrow}\n"))?;
     let config = config(root.path())?;
-    let mut scratch = FloorScratch::new_with_cursor_bytes(
-        &config.output_path,
-        serving_scratch::DEFAULT_MAX_DATABASE_BYTES,
-        budget,
-    )?;
+    let mut scratch = FloorScratch::new_with_cursor_bytes(&config.output_path, budget)?;
     assert_eq!(scratch.stage_source_rows(&narrow_path, key, None)?, 3);
     scratch.resolve_groups(&config, key)?;
     scratch.close()?;
 
     let wide_path = root.path().join("wide.zip");
     zip(&wide_path, &wide)?;
-    let scratch = FloorScratch::new_with_cursor_bytes(
-        &config.output_path,
-        serving_scratch::DEFAULT_MAX_DATABASE_BYTES,
-        budget,
-    )?;
+    let scratch = FloorScratch::new_with_cursor_bytes(&config.output_path, budget)?;
     let error = scratch
         .stage_source_rows(&wide_path, key, None)
         .err()
@@ -396,11 +399,7 @@ fn single_record_budget_rejects_before_stage_write() -> anyhow::Result<()> {
     let row = parse_building_register_floor_source_row_from_hub_bulk_text_line(&line, key, 1)?;
     let limit = accounted_source_bytes(&row)? - 1;
     let output = root.path().join("silver/floor.jsonl");
-    let scratch = FloorScratch::new_with_cursor_bytes(
-        &output,
-        serving_scratch::DEFAULT_MAX_DATABASE_BYTES,
-        limit,
-    )?;
+    let scratch = FloorScratch::new_with_cursor_bytes(&output, limit)?;
     let error = scratch
         .stage_source_rows(&path, key, None)
         .err()
@@ -448,11 +447,7 @@ fn proposal_byte_budget_rejects_before_resolved_stage_write() -> anyhow::Result<
     let limit = proposal.len() - 1;
     assert!(accounted_source_bytes(&source)? <= limit);
     assert!(serde_json::to_vec(&rows[0])?.len() <= limit);
-    let mut scratch = FloorScratch::new_with_cursor_bytes(
-        &config.output_path,
-        serving_scratch::DEFAULT_MAX_DATABASE_BYTES,
-        limit,
-    )?;
+    let mut scratch = FloorScratch::new_with_cursor_bytes(&config.output_path, limit)?;
     assert_eq!(scratch.stage_source_rows(&path, key, None)?, 1);
     let error = scratch
         .resolve_groups(&config, key)
@@ -477,7 +472,7 @@ fn spill_exhaustion_keeps_foreign_sentinel_and_closes_own_scratch() -> anyhow::R
     std::fs::write(&sentinel, b"keep")?;
     // Hold data, memory and CPU constant; change only the spill cap.
     for maximum_bytes in [64 * 1024 * 1024, 64 * 1024] {
-        let scratch = FloorScratch::new(&output, maximum_bytes)?;
+        let scratch = FloorScratch::with_spill_cap(&output, maximum_bytes)?;
         scratch
             .connection()?
             .execute_batch("SET memory_limit='16MiB'; SET threads=1")?;
@@ -556,10 +551,7 @@ fn identifier_bytes_and_first_title_across_files_are_preserved() -> anyhow::Resu
             .join("\n"),
     )?;
     let config = config(root.path())?;
-    let mut scratch = FloorScratch::new(
-        &config.output_path,
-        serving_scratch::DEFAULT_MAX_DATABASE_BYTES,
-    )?;
+    let mut scratch = FloorScratch::new(&config.output_path)?;
     scratch.load_titles(&[first, second])?;
     let count: i64 =
         scratch
@@ -610,11 +602,8 @@ fn identifier_bytes_and_first_title_across_files_are_preserved() -> anyhow::Resu
 fn interrupted_fetch_returns_error_and_detaches_before_cleanup() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let cancellation = Cancellation::default();
-    let scratch = FloorScratch::with_cancellation(
-        &root.path().join("floor.jsonl"),
-        1024 * 1024,
-        cancellation.clone(),
-    )?;
+    let scratch =
+        FloorScratch::with_cancellation(&root.path().join("floor.jsonl"), cancellation.clone())?;
     let mut statement = scratch
         .connection()?
         .prepare("SELECT i FROM range(100000000) t(i)")?;
@@ -640,7 +629,7 @@ async fn flush_failure_cleans_worker_scratch_without_ready_summary() -> anyhow::
     let summary = root.path().join("ready.json");
     let worker_summary = summary.clone();
     let error = blocking::run(move |cancellation| {
-        let scratch = FloorScratch::with_cancellation(&worker_summary, 1024 * 1024, cancellation)?;
+        let scratch = FloorScratch::with_cancellation(&worker_summary, cancellation)?;
         let mut batch = Batch::new(scratch.connection()?, "title_observations")?;
         for _ in 0..2 {
             batch.append(params![1_i64, "same", 1_i64, 0_i64], 64)?;

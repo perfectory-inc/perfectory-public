@@ -242,11 +242,7 @@ async fn prepare_handoff(
         path.extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
     }) {
-        let scratch = FloorScratch::with_cancellation(
-            &config.output_path,
-            crate::serving_scratch::configured_maximum_bytes()?,
-            cancellation.clone(),
-        )?;
+        let scratch = FloorScratch::with_cancellation(&config.output_path, cancellation.clone())?;
         Some(scratch)
     } else {
         None

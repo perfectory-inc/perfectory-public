@@ -10,8 +10,9 @@
 //! [`MEMORY_SHARE`] of the memory the process may still take, read from whatever runs it
 //! (`process_memory::available_bytes`: a unit's `MemoryMax`/`MemoryHigh`, a container's or a task's
 //! cgroup), `DuckDB`'s own thread count (it follows the cgroup's CPU quota), a spill directory the
-//! call owns, and no extension installed or loaded at run time. A stage that does not read the
-//! lakehouse also reads and writes no file outside its directory.
+//! call owns with `DuckDB`'s own ceiling on the disk under it, and no extension installed or loaded
+//! at run time. A stage that does not read the lakehouse also reads and writes no file outside its
+//! directory.
 
 use std::path::Path;
 
@@ -19,8 +20,6 @@ use anyhow::{bail, ensure, Context};
 use duckdb::{Config, Connection};
 use foundation_publisher_core::lakehouse_data_commit::{StagedFile, TableShape};
 use lakehouse_domain::LakehouseTableContract;
-
-use crate::serving_scratch;
 
 /// What a `DuckDB` may hold before it spills, as a share of the memory its process may still take.
 ///
@@ -36,8 +35,11 @@ pub const MEMORY_SHARE: (u64, u64) = (3, 5);
 /// connection opens; a platform that publishes no limit (not Linux) keeps `DuckDB`'s own default.
 /// `threads` is never set: `DuckDB` reads the cgroup's CPU quota itself (`cpu.max`, or v1's CFS
 /// quota) and takes the hardware threads when there is none (v2.0.0 `DBConfig::GetSystemMaxThreads`,
-/// `CGroups::GetCPULimit`), so a task's vCPU count reaches it unchanged. This is the only place a
-/// memory limit or a thread count is written (`tools/semgrep/rules/duckdb-settings.yml`).
+/// `CGroups::GetCPULimit`), so a task's vCPU count reaches it unchanged. `max_temp_directory_size`
+/// is never set either: `DuckDB` caps the spill at 90% of what the disk of `spill` has free when it
+/// first spills (`TemporaryFileManager::GetDefaultMax`), so the task's own disk bounds it, with no
+/// reserve or ceiling of ours. This is the only place a memory limit, a thread count or a spill
+/// ceiling is written (`tools/semgrep/rules/duckdb-settings.yml`).
 ///
 /// # Errors
 /// `DuckDB` refuses a setting.
@@ -230,9 +232,6 @@ pub fn read_catalog_config() -> anyhow::Result<lakehouse_infrastructure::Lakehou
 pub struct DuckDbParquetStage {
     connection: Connection,
     directory: tempfile::TempDir,
-    /// The spill ceiling this stage set on its buffer manager (`max_temp_directory_size`): what
-    /// [`Self::require_room`] counts it may still write.
-    spill_ceiling: u64,
 }
 
 impl DuckDbParquetStage {
@@ -248,12 +247,6 @@ impl DuckDbParquetStage {
         let root = sql_path(directory.path())?;
         let connection =
             Connection::open_in_memory_with_flags(engine_config(Some(&format!("{root}/spill")))?)?;
-        let spill_ceiling = serving_scratch::configured_maximum_bytes()?;
-        // Applied to the live buffer manager, as the floor stage does (root ADR-0127).
-        connection.execute(
-            "SET max_temp_directory_size = ?",
-            [format!("{spill_ceiling}B")],
-        )?;
         // The stage directory is the only place a statement may read or write.
         connection.execute_batch(&format!(
             "SET allowed_directories=['{root}']; SET enable_external_access=false"
@@ -261,7 +254,6 @@ impl DuckDbParquetStage {
         Ok(Self {
             connection,
             directory,
-            spill_ceiling,
         })
     }
 
@@ -293,11 +285,6 @@ impl DuckDbParquetStage {
         let connection = Connection::open_with_flags(
             directory.path().join("stage.duckdb"),
             engine_config(Some(&format!("{root}/spill")))?,
-        )?;
-        let spill_ceiling = serving_scratch::configured_maximum_bytes()?;
-        connection.execute(
-            "SET max_temp_directory_size = ?",
-            [format!("{spill_ceiling}B")],
         )?;
         crate::duckdb_extensions::load(&connection, &read.extensions)?;
         for value in [
@@ -335,7 +322,6 @@ impl DuckDbParquetStage {
         Ok(Self {
             connection,
             directory,
-            spill_ceiling,
         })
     }
 
@@ -343,27 +329,6 @@ impl DuckDbParquetStage {
     #[must_use]
     pub const fn connection(&self) -> &Connection {
         &self.connection
-    }
-
-    /// Refuses work that would eat the reserve of the stage's disk (`config/host-layout.contract.json`
-    /// `duckdb_stage_reserve_bytes`: the disk also holds the runtime Postgres).
-    ///
-    /// `expected_bytes` is what the caller is about to write beside the stage (a release copy, its
-    /// staged files); the stage's own spill may reach its ceiling on top of it.
-    ///
-    /// # Errors
-    /// The free space, less the spill ceiling and `expected_bytes`, is under the reserve, or it
-    /// cannot be measured.
-    pub fn require_room(&self, expected_bytes: u64) -> anyhow::Result<()> {
-        let free = foundation_publisher_core::free_space::free_bytes(self.directory.path())?;
-        let spill = self.spill_ceiling;
-        ensure!(
-            leaves_reserve(free, spill, expected_bytes, stage_reserve_bytes()?),
-            "the disk of {} has {free} bytes free; this stage may spill {spill} and expects to write {expected_bytes} more, which would leave less than the {} bytes reserved on that disk (host-layout duckdb_stage_reserve_bytes). Free space or wait for the other stage to finish",
-            self.directory.path().display(),
-            stage_reserve_bytes()?
-        );
-        Ok(())
     }
 
     /// Lets the next statements reuse the blocks of the tables this stage has replaced or dropped.
@@ -672,19 +637,6 @@ pub fn with_contract_columns(
         return Ok(source.to_owned());
     }
     Ok(format!("(SELECT *, {} FROM {source})", added.join(", ")))
-}
-
-/// The bytes a stage's disk keeps free of stage work, from the host layout contract.
-fn stage_reserve_bytes() -> anyhow::Result<u64> {
-    const HOST_LAYOUT: &str = include_str!("../../../../config/host-layout.contract.json");
-    serde_json::from_str::<serde_json::Value>(HOST_LAYOUT)?["duckdb_stage_reserve_bytes"]
-        .as_u64()
-        .context("host-layout.contract.json declares no duckdb_stage_reserve_bytes")
-}
-
-/// Whether `free` bytes, less a stage's spill ceiling and what it expects to write, keep `reserve`.
-const fn leaves_reserve(free: u64, spill: u64, expected: u64, reserve: u64) -> bool {
-    free.saturating_sub(spill).saturating_sub(expected) >= reserve
 }
 
 #[cfg(test)]
