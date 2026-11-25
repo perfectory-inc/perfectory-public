@@ -99,7 +99,7 @@
       },
       "building_permit_silver_to_gold": {
         "moved": {
-          "pull_request": 1699,
+          "pull_request": 1720,
           "rows": 4332574,
           "fingerprint": "rows:4332574;content_hash_sum:39937322914140333110256514"
         }
