@@ -42,8 +42,6 @@ TYPE_VALUES = {
     "jsonb": "'{}'", "json": "'{}'", "bytea": "'\\x00'", "inet": "'192.0.2.1'", "cidr": "'192.0.2.0/24'",
     "tstzrange": "tstzrange('2026-01-01T00:00:00Z', null)", "daterange": "daterange('2026-01-01', null)",
     "int4range": "int4range(1, null)", "int8range": "int8range(1, null)",
-    # The audit digest's ranges (2026-11-19 migration): the snapshot the insert itself runs in.
-    "pg_snapshot": "pg_current_snapshot()",
 }
 # A geometry by its kind, in WGS84 inside the reserved synthetic box (public-fixture-safety); the
 # column's SRID is reached by ST_Transform.
@@ -205,9 +203,13 @@ def column_value(column: dict, checks: list[dict], enums: dict, hints: dict) -> 
     return value
 
 
-def seed(db: Database, tables: list[str], hints: dict, settings: dict) -> list[str]:
+def seed(db: Database, tables: list[str], hints: dict, settings: dict, made_by: dict | None = None) -> list[str]:
     """One synthetic row in each of `tables` and in every parent they reference. Returns failures.
-    `settings` are the session settings a writer runs under (the publisher's capability flags)."""
+    `settings` are the session settings a writer runs under (the publisher's capability flags).
+    `made_by` names the tables whose row only a function of the database makes, with the tables it
+    reads: a self-verifying record (the audit digest checks itself against the rows it covers), whose
+    row the seed makes the way production's job does, after those tables hold theirs."""
+    made_by = made_by or {}
     session = "".join(f"set {name} = {quote(value)};\n" for name, value in settings.items())
     columns, keys, checks = db.rows(COLUMNS), db.rows(FOREIGN_KEYS), db.rows(CHECKS)
     enums = db.rows(ENUM_FIRST)
@@ -226,6 +228,8 @@ def seed(db: Database, tables: list[str], hints: dict, settings: dict) -> list[s
             parent = f"{key['parent_schema']}.{key['parent']}"
             if parent != table:
                 visit(parent, (*path, table))
+        for before in made_by.get(table, {}).get("after", []):
+            visit(before, (*path, table))
         order.append(table)
 
     for table in tables:
@@ -233,6 +237,13 @@ def seed(db: Database, tables: list[str], hints: dict, settings: dict) -> list[s
             visit(table, ())
     failures, seeded = [], set()
     for table in order:
+        if table in made_by:
+            result = db.run(session + made_by[table]["sql"])
+            if result.returncode == 0 and db.rows(f"select coalesce(json_agg(1), '[]') from {table}"):
+                seeded.add(table)
+            else:
+                failures.append(f"{table}: {(result.stderr.strip() or 'its function made no row').splitlines()[0]}")
+            continue
         schema, name = table.split(".", 1)
         table_checks = [check for check in checks if f"{check['schema']}.{check['table']}" == table]
         nullable = {column["column"] for column in by_table[table] if not column["not_null"]}
@@ -242,7 +253,13 @@ def seed(db: Database, tables: list[str], hints: dict, settings: dict) -> list[s
         values: dict[str, str] = {}
         for column in by_table[table]:
             if column["column"] not in generated:
-                values[column["column"]] = column_value(column, table_checks, enums, hints)
+                try:
+                    values[column["column"]] = column_value(column, table_checks, enums, hints)
+                except LookupError:
+                    # A type with no synthetic value is the column default's to fill, as production's
+                    # writers leave it (audit.event.txid: pg_current_xact_id(), the writing transaction).
+                    if not column["has_default"]:
+                        raise
         for key in parents.get(table, []):
             parent = f"{key['parent_schema']}.{key['parent']}"
             pairs = [(child, parent_column) for child, parent_column in zip(key["columns"], key["parent_columns"])
@@ -340,7 +357,7 @@ def main() -> int:
         raise ValueError(f"{SHAPE.name} schema_version is not {SHAPE_SCHEMA}")
     hints = json.loads(HINTS.read_text(encoding="utf-8"))
     tables = shape["tables_with_rows"]
-    failures = seed(db, tables, hints["values"], hints["session_settings"])
+    failures = seed(db, tables, hints["values"], hints["session_settings"], hints.get("made_by"))
     problems = seed_problems(failures, hints["not_yet_seeded"], tables)
     for problem in problems:
         print(f"postgres-production-shape: SEED {problem}", file=sys.stderr)
