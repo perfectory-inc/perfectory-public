@@ -42,6 +42,8 @@ TYPE_VALUES = {
     "jsonb": "'{}'", "json": "'{}'", "bytea": "'\\x00'", "inet": "'192.0.2.1'", "cidr": "'192.0.2.0/24'",
     "tstzrange": "tstzrange('2026-01-01T00:00:00Z', null)", "daterange": "daterange('2026-01-01', null)",
     "int4range": "int4range(1, null)", "int8range": "int8range(1, null)",
+    # The audit digest's ranges (2026-11-19 migration): the snapshot the insert itself runs in.
+    "pg_snapshot": "pg_current_snapshot()",
 }
 # A geometry by its kind, in WGS84 inside the reserved synthetic box (public-fixture-safety); the
 # column's SRID is reached by ST_Transform.

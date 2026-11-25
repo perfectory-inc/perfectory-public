@@ -8,6 +8,8 @@
     "catalog.real_estate_broker_lookup_load.office_watermark": "'2099-01-01 00:00:00.000000 UTC'",
     "catalog.real_estate_broker_lookup_load.member_watermark": "'2099-01-01 00:00:00.000000 UTC'",
     "catalog.industrial_complex.id": "catalog.industrial_complex_id_for('synthetic')",
+    "audit.digest.rows_sha256": "decode(repeat('00', 32), 'hex')",
+    "audit.digest.digest_sha256": "decode(repeat('00', 32), 'hex')",
     "catalog.administrative_unit_identifier.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",
     "catalog.administrative_unit_parent.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",
     "serving_postgis.administrative_unit_boundary_publication.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",
