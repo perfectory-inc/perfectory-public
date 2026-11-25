@@ -306,6 +306,18 @@ def _next_day(value: str) -> str:
     return (datetime.strptime(value, "%Y%m%d") + timedelta(days=1)).strftime("%Y%m%d")
 
 
+def _previous_day(value: str) -> str:
+    return (datetime.strptime(value, "%Y%m%d") - timedelta(days=1)).strftime("%Y%m%d")
+
+
+def _change_days(abolished_on: str) -> tuple[str, str, str]:
+    """The days a code's successor may be dated on: its 폐지일, the day after (폐지일 = 생성일 − 1) and
+    the day before. The table dates one change either way round: 강원 51 was created 2023-06-11 and
+    42 abolished 2023-06-12, and the rule that read the day after alone paired none of its 1,473
+    codes (measured 2026-11-25)."""
+    return abolished_on, _next_day(abolished_on), _previous_day(abolished_on)
+
+
 def _under(code: str, ancestor: str) -> bool:
     """Whether `code` lies below `ancestor` in the code's own digits."""
 
@@ -415,7 +427,7 @@ def pair_changes(
        earlier run's) stands: the ledger is append-only, so what one run recorded is not undone by
        a later run that lacks its evidence.
     1. **Date + name** (`derived:code-go-kr:date+name:<day>`): a code created the same day (or the
-       day after: 폐지일 = 생성일 − 1 counts as the same day), at the same level, under a related
+       day after or before: the table dates one change either way round, `_change_days`), at the same level, under a related
        parent (the same parent, or one the pairs already carry to it), whose name below the 시도 is
        the same. Exactly one such code is a pair. It runs top-down, so a 시군구 paired here relates
        the 읍면동 under it.
@@ -517,7 +529,7 @@ def pair_changes(
         return sorted(
             {
                 new["region_cd"]
-                for when in (day, _next_day(day))
+                for when in _change_days(day)
                 for new in created.get(when, [])
                 if new["region_cd"] != old
                 and code_level(new["region_cd"]) == code_level(old)
@@ -565,7 +577,9 @@ def pair_changes(
 
     def change_window(old: str) -> set[str]:
         """The days `old`'s own change is dated on: its 폐지일 and the day after (폐지일 = 생성일 − 1
-        is the same change, as the name rule reads it), or none when the table gives no 폐지일."""
+        is the same change), or none when the table gives no 폐지일. The name rule also reads the
+        day before (`_change_days`); the official and 지번 evidence keep this window, so no recorded
+        pair is judged against evidence it was not judged against before."""
 
         row = by_code.get(old)
         day = row.get("abolished_date", "") if row else ""
