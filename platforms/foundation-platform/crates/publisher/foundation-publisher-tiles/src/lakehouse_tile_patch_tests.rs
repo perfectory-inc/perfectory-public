@@ -3,9 +3,10 @@ use std::io::Cursor;
 
 use serde_json::json;
 
-use super::super::pmtiles_feature_ids::tests::{archive, gzip, tile, written};
-use super::super::pmtiles_feature_ids::{tile_id, zoom_range, Entry};
-use super::super::pmtiles_write::{directories, write_archive};
+use super::super::pmtiles_feature_ids::tests::{archive, tile, written};
+use super::super::pmtiles_feature_ids::{
+    for_each_entry, open, open_seekable, stored, tile_id, zoom_range,
+};
 use super::super::prepare_handoff;
 use super::*;
 
@@ -102,8 +103,9 @@ fn the_contract_patches_parcels_and_derives_keys_beside_the_base() -> anyhow::Re
 }
 
 #[test]
-fn the_writer_round_trips_through_the_reader_with_leaf_directories() -> anyhow::Result<()> {
-    // Enough tiles that the root no longer fits 16 KiB, so leaves are written and walked.
+fn a_written_patch_reads_back_its_tiles_its_base_header_and_its_metadata_with_leaf_directories(
+) -> anyhow::Result<()> {
+    // Enough tiles that the root no longer fits the first 16 KiB, so leaves are written and walked.
     let (first, _) = zoom_range(14);
     // Pseudo-random gaps and sizes (an LCG), so the directory cannot compress into the root.
     let mut state = 0x9e37_79b9_7f4a_7c15_u64;
@@ -115,55 +117,73 @@ fn the_writer_round_trips_through_the_reader_with_leaf_directories() -> anyhow::
     };
     let mut id = first;
     let tiles: Vec<(u64, Vec<u8>)> = (0..40_000)
-        .map(|_| {
+        .map(|n: u32| {
             id += next(5_000);
-            (id, vec![7; next(400) as usize])
+            // Distinct bytes, so no two tiles share their content.
+            let mut bytes = n.to_le_bytes().to_vec();
+            bytes.resize(4 + next(400) as usize, 7);
+            (id, bytes)
         })
         .collect();
-    let mut template = archive(14, 16, &[]);
-    template.truncate(HEADER_BYTES);
-    let mut bytes = Vec::new();
-    let written_bytes = write_archive(&mut bytes, &template, &gzip(b"{}"), &tiles)?;
-    assert_eq!(written_bytes, bytes.len() as u64);
-    let leaves = u64::from_le_bytes(bytes[48..56].try_into()?);
-    let root = u64::from_le_bytes(bytes[16..24].try_into()?);
-    assert!(
-        leaves > 0 && root <= 16_384 - HEADER_BYTES as u64,
-        "root {root}, leaves {leaves}"
+    let file = tempfile::NamedTempFile::new()?;
+    let base = base(14, 16);
+    let metadata = r#"{"vector_layers":[{"id":"parcels"}]}"#;
+    write_patch(file.path(), &base, Some(metadata), &tiles)?;
+    let reader = open(file.path())?;
+    let header = reader.get_header();
+    assert!(header.leaf_length() > 0, "leaf directories were written");
+    assert_eq!(
+        BaseHeader {
+            addressed_tiles: 1_000,
+            ..BaseHeader::of(header)
+        },
+        base,
+        "the base's zooms, bounds and centre"
     );
-    let mut reader = Archive::open(Cursor::new(bytes))?;
-    assert_eq!(reader.header().addressed_tiles, 40_000);
-    for (id, stored) in [&tiles[0], &tiles[17_777], &tiles[39_999]] {
-        let entry = reader
-            .find_entry(*id)?
-            .unwrap_or_else(|| panic!("tile {id}"));
-        assert_eq!(&reader.entry_raw(&entry)?, stored);
+    assert_eq!(BaseHeader::of(header).addressed_tiles, 40_000);
+    assert_eq!(reader.get_metadata()?, metadata);
+    for (id, bytes) in [&tiles[0], &tiles[17_777], &tiles[39_999]] {
+        assert_eq!(
+            stored(&reader, *id)?.as_deref(),
+            Some(bytes.as_slice()),
+            "tile {id}"
+        );
     }
-    assert!(reader.find_entry(first)?.is_none());
-    let mut seen = 0;
-    reader.for_each_entry((0, u64::MAX), &mut |_, _| {
-        seen += 1;
+    assert!(stored(&reader, first)?.is_none());
+    let mut walked = Vec::new();
+    for_each_entry(&reader, (0, u64::MAX), |entry| {
+        walked.push(entry.tile_id());
         Ok(())
     })?;
-    assert_eq!(seen, 40_000);
+    assert_eq!(
+        walked,
+        tiles.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+        "every tile, in tile-id order"
+    );
     Ok(())
 }
 
 #[test]
-fn the_writer_refuses_unordered_or_empty_tiles_and_small_directories_stay_in_the_root(
+fn the_patch_writer_refuses_unordered_or_empty_tiles_and_writes_tombstones_as_tiles(
 ) -> anyhow::Result<()> {
-    let mut template = archive(14, 16, &[]);
-    template.truncate(HEADER_BYTES);
-    let mut out = Vec::new();
-    assert!(write_archive(&mut out, &template, &[], &[(2, vec![1]), (1, vec![1])]).is_err());
-    assert!(write_archive(&mut out, &template, &[], &[(1, Vec::new())]).is_err());
-    let entries = [Entry {
-        tile_id: 5,
-        offset: 0,
-        length: 3,
-        run_length: 1,
-    }];
-    assert!(directories(&entries)?.1.is_empty());
+    let file = tempfile::NamedTempFile::new()?;
+    let base = base(14, 16);
+    assert!(write_patch(file.path(), &base, None, &[(2, vec![1]), (1, vec![1])]).is_err());
+    assert!(write_patch(file.path(), &base, None, &[(1, Vec::new())]).is_err());
+    // Repeated tombstones are stored once and read back at every id.
+    let (first, _) = zoom_range(14);
+    let tombstone = empty_tile()?;
+    let tiles = [
+        (first, tombstone.clone()),
+        (first + 1, tombstone.clone()),
+        (first + 7, tombstone.clone()),
+    ];
+    write_patch(file.path(), &base, None, &tiles)?;
+    let reader = open(file.path())?;
+    assert_eq!(reader.get_metadata()?, "{}");
+    for (id, bytes) in &tiles {
+        assert_eq!(stored(&reader, *id)?.as_deref(), Some(bytes.as_slice()));
+    }
     Ok(())
 }
 
@@ -243,17 +263,22 @@ fn a_box_inside_one_tile_dirties_one_tile_per_zoom_and_the_buffer_reaches_a_neig
     let edge = [west as f32 + 1e-6, 10.0, west as f32 + 2e-6, 10.0];
     assert_eq!(tile_range(edge, 16).map(|range| range.0), Some(x - 1));
     let dirty = dirty_tiles(&[[10.0, 10.0, 10.0, 10.0]], (14, 16), 100)
+        .unwrap()
         .unwrap_or_else(|| panic!("within the limit"));
     assert_eq!(dirty.len(), 3);
-    assert!(dirty.contains(&tile_id(16, x, y)));
-    assert!(dirty_tiles(&[[10.0, 10.0, 10.0, 10.0]], (14, 16), 2).is_none());
-    assert!(dirty_tiles(&[EMPTY_BBOX], (14, 16), 0).is_some_and(|tiles| tiles.is_empty()));
+    assert!(dirty.contains(&tile_id(16, x, y).unwrap()));
+    assert!(dirty_tiles(&[[10.0, 10.0, 10.0, 10.0]], (14, 16), 2)
+        .unwrap()
+        .is_none());
+    assert!(dirty_tiles(&[EMPTY_BBOX], (14, 16), 0)
+        .unwrap()
+        .is_some_and(|tiles| tiles.is_empty()));
 }
 
 #[test]
 fn the_neighbourhood_is_every_row_touching_a_dirty_tiles_minzoom_ancestor() -> anyhow::Result<()> {
     let (x, y) = z16_tile();
-    let dirty = BTreeSet::from([tile_id(16, x, y)]);
+    let dirty = BTreeSet::from([tile_id(16, x, y)?]);
     let tiles = neighbourhood(&dirty, 14)?;
     assert_eq!(tiles, HashSet::from([(x >> 2, y >> 2)]));
     let near = [
@@ -284,15 +309,17 @@ fn the_neighbourhood_is_every_row_touching_a_dirty_tiles_minzoom_ancestor() -> a
     Ok(())
 }
 
-fn local(bytes: Vec<u8>) -> anyhow::Result<Archive<Cursor<Vec<u8>>>> {
-    Archive::open(Cursor::new(bytes))
+fn local(
+    bytes: Vec<u8>,
+) -> anyhow::Result<Archive<super::super::pmtiles_feature_ids::Seekable<Cursor<Vec<u8>>>>> {
+    open_seekable(Cursor::new(bytes))
 }
 
 #[test]
 fn the_patch_takes_dirty_tiles_whole_tombstones_the_rest_and_keeps_the_previous_generation(
 ) -> anyhow::Result<()> {
     let (first, _) = zoom_range(14);
-    let mut baked = local(archive(
+    let baked = local(archive(
         14,
         16,
         &[
@@ -300,7 +327,7 @@ fn the_patch_takes_dirty_tiles_whole_tombstones_the_rest_and_keeps_the_previous_
             (first + 9, tile("parcels", &[C])),
         ],
     ))?;
-    let mut previous = local(archive(
+    let previous = local(archive(
         14,
         16,
         &[
@@ -311,25 +338,34 @@ fn the_patch_takes_dirty_tiles_whole_tombstones_the_rest_and_keeps_the_previous_
     // first: rebaked; first + 1: dirty but gone, so a tombstone; first + 5: kept from the
     // previous generation; first + 9: baked but not dirty, so not taken.
     let dirty = BTreeSet::from([first, first + 1]);
-    let (tiles, empty) = assemble(Some(&mut baked), Some(&mut previous), &dirty)?;
+    let (tiles, empty) = assemble(Some(&baked), Some(&previous), &dirty)?;
     let ids: Vec<u64> = tiles.iter().map(|(id, _)| *id).collect();
     assert_eq!(ids, vec![first, first + 1, first + 5]);
     assert_eq!(tiles[0].1, tile("parcels", &[A]));
     assert_eq!(tiles[1].1, empty_tile()?);
     assert_eq!(tiles[2].1, tile("parcels", &[D]));
     assert_eq!(empty, 1);
-    let (only_tombstones, empty) =
-        assemble::<Cursor<Vec<u8>>, Cursor<Vec<u8>>>(None, None, &dirty)?;
+    let (only_tombstones, empty) = assemble::<std::fs::File, std::fs::File>(None, None, &dirty)?;
     assert_eq!((only_tombstones.len(), empty), (2, 2));
     Ok(())
 }
 
 fn patch_file(tiles: &[(u64, Vec<u8>)]) -> anyhow::Result<tempfile::NamedTempFile> {
-    let mut template = archive(14, 16, &[]);
-    template.truncate(HEADER_BYTES);
-    let mut bytes = Vec::new();
-    write_archive(&mut bytes, &template, &gzip(b"{}"), tiles)?;
-    written(&bytes)
+    let file = tempfile::NamedTempFile::new()?;
+    write_patch(file.path(), &base(14, 16), None, tiles)?;
+    Ok(file)
+}
+
+/// A base over zooms `min..=max` with bounds and a centre, as a patch repeats them.
+fn base(min_zoom: u8, max_zoom: u8) -> BaseHeader {
+    BaseHeader {
+        min_zoom,
+        max_zoom,
+        bounds: [9.5, 9.75, 10.5, 10.25],
+        center: (10.0, 10.0, min_zoom),
+        addressed_tiles: 1_000,
+        gzip_tiles: true,
+    }
 }
 
 fn served(ids: &[&str]) -> ServedIds {
@@ -492,7 +528,9 @@ pub(crate) fn zoning_index(rows: &[String]) -> anyhow::Result<Vec<Record>> {
 
 /// Every tile of `zooms` a box touches, as the dirty set names them.
 fn touched(bbox: [f32; 4], zooms: (u8, u8)) -> BTreeSet<u64> {
-    dirty_tiles(&[bbox], zooms, usize::MAX).unwrap_or_default()
+    dirty_tiles(&[bbox], zooms, usize::MAX)
+        .unwrap()
+        .unwrap_or_default()
 }
 
 #[test]
@@ -522,7 +560,7 @@ fn a_changed_zone_re_tiles_only_the_tiles_it_touches() -> anyhow::Result<()> {
     assert_eq!(upserted, expected, "a renamed zone is a changed zone too");
     assert!(changes.deleted.is_empty());
 
-    let dirty = dirty_tiles(&changes.boxes, zooms, usize::MAX).unwrap_or_default();
+    let dirty = dirty_tiles(&changes.boxes, zooms, usize::MAX)?.unwrap_or_default();
     let box_of = |records: &[Record], id: &str| {
         records
             .iter()

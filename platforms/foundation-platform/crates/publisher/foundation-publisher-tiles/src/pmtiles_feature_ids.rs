@@ -1,172 +1,173 @@
-//! Streams the feature ids out of one zoom of a PMTiles v3 archive of MVT tiles (root ADR-0133 §3).
+//! The bake's PMTiles reads, all through the `pmtiles` crate (root ADR-0613 §4), and the feature
+//! ids streamed out of one zoom of an archive of MVT tiles (root ADR-0133 §3).
 //!
 //! The lakehouse tile bake's maxzoom gate used to run `tippecanoe-decode`, which turns every tile
 //! into GeoJSON — geometry included — and the bake then held that whole document in memory. At
-//! the 40M parcels of a national bake that is tens of gigabytes. This reader walks the archive's
-//! directories in tile-id order, reads only the tiles of the asked zoom, and decodes from each
-//! only the layer names, the property tables and the features' tags. Geometry is left unread: the
-//! MVT `Feature.geometry` field is not declared below, so the decoder skips it. Memory is one
-//! directory and one tile at a time.
+//! the 40M parcels of a national bake that is tens of gigabytes. The walk here reads the asked
+//! zoom's entries in tile-id order and decodes from each tile only the layer names, the property
+//! tables and the features' tags. Geometry is left unread: the MVT `Feature.geometry` field is not
+//! declared below, so the decoder skips it.
 //!
-//! Candidates: when this was written the `pmtiles` crate read tiles by coordinate through an async
-//! mmap or HTTP backend and did not expose the entry walk this gate needs; the directory format is
-//! a few varint arrays (spec: `protomaps/PMTiles` `spec/v3/spec.md`), so it is read here. Since
-//! 0.28.1 the crate has a sync reader with that walk, and the partition merge uses it
-//! (`pmtiles_merge`, root ADR-0613); moving this gate and the patch writer onto it is the work
-//! that ADR leaves. MVT is protobuf, so it is decoded with `prost` rather than by hand.
+//! The header, the directories, the tiles and the tile ids are the crate's: [`PmTilesReader`]
+//! over a local file or over any seekable bytes ([`Seekable`]: an R2 object read by range), with a
+//! directory cache so a tile looked up by id reads its leaf once; [`TileId`] and [`TileCoord`] for
+//! the Hilbert numbering. What is here is the glue: the walk of one tile-id range, and the MVT
+//! fields the gate reads (`prost`).
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::Mutex;
 
 use anyhow::{bail, ensure, Context as _};
-use flate2::read::GzDecoder;
+use bytes::Bytes;
+use pmtiles::{
+    BackendResponse, DirEntry, HashMapCache, PmTilesReader, PmtError, PmtResult, SyncBackend,
+    TileCoord, TileId, TileType, MAX_ZOOM, PYRAMID_SIZE_BY_ZOOM,
+};
 use prost::Message as _;
 
-pub const HEADER_BYTES: usize = 127;
-/// Leaf directories may point at further leaves; real archives use one level.
-const MAX_DIRECTORY_DEPTH: usize = 4;
-/// A directory or tile larger than this is not something tippecanoe writes; refuse instead of
-/// allocating whatever a corrupt length says.
-const MAX_BLOCK_BYTES: u64 = 512 << 20;
+/// An archive as the bake reads it: the crate's reader with a directory cache.
+pub type Archive<B> = PmTilesReader<B, HashMapCache>;
 
-/// The PMTiles v3 header fields the gate reads.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Header {
-    pub root_directory: (u64, u64),
-    pub leaf_directories_offset: u64,
-    pub tile_data_offset: u64,
-    pub internal_compression: u8,
-    pub tile_compression: u8,
-    pub tile_type: u8,
-    pub min_zoom: u8,
-    pub max_zoom: u8,
-    /// The number of addressed tiles; 0 when the writer did not count them.
-    pub addressed_tiles: u64,
-}
+/// Any seekable bytes as the crate's sync backend: one positioned read at a time.
+pub struct Seekable<R>(Mutex<R>);
 
-/// Compression codes of the PMTiles v3 header.
-pub const COMPRESSION_NONE: u8 = 1;
-pub const COMPRESSION_GZIP: u8 = 2;
-/// Tile type code of MVT.
-pub const TILE_TYPE_MVT: u8 = 1;
-
-fn le_u64(bytes: &[u8], at: usize) -> u64 {
-    let mut word = [0_u8; 8];
-    word.copy_from_slice(&bytes[at..at + 8]);
-    u64::from_le_bytes(word)
-}
-
-impl Header {
-    pub fn parse(bytes: &[u8]) -> anyhow::Result<Self> {
-        ensure!(
-            bytes.len() >= HEADER_BYTES,
-            "archive is shorter than a PMTiles header"
-        );
-        ensure!(
-            &bytes[..7] == b"PMTiles" && bytes[7] == 3,
-            "archive is not PMTiles v3"
-        );
-        Ok(Self {
-            root_directory: (le_u64(bytes, 8), le_u64(bytes, 16)),
-            leaf_directories_offset: le_u64(bytes, 40),
-            tile_data_offset: le_u64(bytes, 56),
-            internal_compression: bytes[97],
-            tile_compression: bytes[98],
-            tile_type: bytes[99],
-            min_zoom: bytes[100],
-            max_zoom: bytes[101],
-            addressed_tiles: le_u64(bytes, 72),
-        })
+impl<R: Read + Seek + Send> SyncBackend for Seekable<R> {
+    fn read(&self, offset: u64, length: usize) -> PmtResult<BackendResponse> {
+        let mut reader = self
+            .0
+            .lock()
+            .map_err(|_| PmtError::Reading(std::io::Error::other("the reader lock is poisoned")))?;
+        reader.seek(SeekFrom::Start(offset))?;
+        let mut bytes = Vec::with_capacity(length);
+        (&mut *reader)
+            .take(u64::try_from(length).unwrap_or(u64::MAX))
+            .read_to_end(&mut bytes)?;
+        Ok(BackendResponse::new(Bytes::from(bytes)))
     }
 }
 
-/// One directory entry. `run_length == 0` points at a leaf directory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Entry {
-    pub tile_id: u64,
-    pub offset: u64,
-    pub length: u64,
-    pub run_length: u64,
+/// Opens a local archive of MVT tiles.
+///
+/// # Errors
+/// The file cannot be opened, its header or root directory is not a PMTiles v3 one, or its tiles
+/// are not MVT.
+pub fn open(path: &Path) -> anyhow::Result<Archive<File>> {
+    let file = File::open(path).with_context(|| format!("archive {}", path.display()))?;
+    mvt(PmTilesReader::try_from_source_and_cache(
+        file,
+        HashMapCache::default(),
+    )?)
+    .with_context(|| format!("archive {}", path.display()))
 }
 
-fn read_varint(bytes: &[u8], at: &mut usize) -> anyhow::Result<u64> {
-    let mut value = 0_u64;
-    for shift in (0..64).step_by(7) {
-        let byte = *bytes.get(*at).context("directory ends inside a varint")?;
-        *at += 1;
-        value |= u64::from(byte & 0x7f) << shift;
-        if byte & 0x80 == 0 {
-            return Ok(value);
-        }
-    }
-    bail!("directory varint is longer than 64 bits")
+/// Opens an archive of MVT tiles over any seekable bytes (an R2 object read by range).
+///
+/// # Errors
+/// Its header or root directory cannot be read or is not a PMTiles v3 one, or its tiles are not
+/// MVT.
+pub fn open_seekable<R: Read + Seek + Send>(reader: R) -> anyhow::Result<Archive<Seekable<R>>> {
+    mvt(PmTilesReader::try_from_source_and_cache(
+        Seekable(Mutex::new(reader)),
+        HashMapCache::default(),
+    )?)
 }
 
-/// Decodes an uncompressed directory: count, then tile-id deltas, run lengths, lengths, offsets.
-pub fn decode_directory(bytes: &[u8]) -> anyhow::Result<Vec<Entry>> {
-    let mut at = 0;
-    let count = usize::try_from(read_varint(bytes, &mut at)?)?;
-    // Every entry takes at least four bytes, so a count the bytes cannot hold is corruption.
+/// Every archive the bake reads holds MVT tiles.
+fn mvt<B: SyncBackend + Send + Sync>(archive: Archive<B>) -> anyhow::Result<Archive<B>> {
     ensure!(
-        count <= bytes.len(),
-        "directory claims {count} entries in {} bytes",
-        bytes.len()
+        archive.get_header().tile_type == TileType::Mvt,
+        "archive tiles are not MVT"
     );
-    let mut entries = vec![
-        Entry {
-            tile_id: 0,
-            offset: 0,
-            length: 0,
-            run_length: 0,
-        };
-        count
-    ];
-    let mut tile_id = 0_u64;
-    for entry in &mut entries {
-        tile_id = tile_id
-            .checked_add(read_varint(bytes, &mut at)?)
-            .context("directory tile id overflows")?;
-        entry.tile_id = tile_id;
-    }
-    for entry in &mut entries {
-        entry.run_length = read_varint(bytes, &mut at)?;
-    }
-    for entry in &mut entries {
-        entry.length = read_varint(bytes, &mut at)?;
-    }
-    for index in 0..count {
-        let raw = read_varint(bytes, &mut at)?;
-        entries[index].offset = if raw == 0 && index > 0 {
-            entries[index - 1]
-                .offset
-                .checked_add(entries[index - 1].length)
-                .context("directory offset overflows")?
-        } else {
-            raw.checked_sub(1).context("directory offset is zero")?
-        };
-    }
-    ensure!(at == bytes.len(), "directory has trailing bytes");
-    Ok(entries)
+    Ok(archive)
 }
 
-/// The first tile id of zoom `z`: the tiles of every lower zoom come before it.
-pub fn first_tile_id(zoom: u8) -> u64 {
-    (0..u32::from(zoom)).map(|z| 1_u64 << (2 * z)).sum()
+/// The tile id of `z/x/y`.
+///
+/// # Errors
+/// The coordinate is not one of its zoom.
+pub fn tile_id(zoom: u8, x: u32, y: u32) -> anyhow::Result<u64> {
+    Ok(TileId::from(TileCoord::new(zoom, x, y)?).value())
 }
 
-fn decompress(bytes: Vec<u8>, compression: u8, what: &str) -> anyhow::Result<Vec<u8>> {
-    match compression {
-        COMPRESSION_NONE => Ok(bytes),
-        COMPRESSION_GZIP => {
-            let mut out = Vec::new();
-            GzDecoder::new(bytes.as_slice())
-                .read_to_end(&mut out)
-                .with_context(|| format!("{what} is not valid gzip"))?;
-            Ok(out)
+/// The `z/x/y` of a tile id.
+///
+/// # Errors
+/// The id is beyond the deepest zoom.
+pub fn tile_zxy(id: u64) -> anyhow::Result<(u8, u32, u32)> {
+    let coord = TileCoord::from(TileId::new(id)?);
+    Ok((coord.z(), coord.x(), coord.y()))
+}
+
+/// The tile-id range `[start, end)` of one zoom: every lower zoom comes first.
+pub fn zoom_range(zoom: u8) -> (u64, u64) {
+    let start = PYRAMID_SIZE_BY_ZOOM
+        .get(usize::from(zoom))
+        .copied()
+        .unwrap_or(u64::MAX);
+    let end = if zoom >= MAX_ZOOM {
+        u64::MAX
+    } else {
+        PYRAMID_SIZE_BY_ZOOM
+            .get(usize::from(zoom) + 1)
+            .copied()
+            .unwrap_or(u64::MAX)
+    };
+    (start, end)
+}
+
+/// Calls `on_entry` with every tile entry overlapping tile ids `[start, end)`, in tile-id order.
+/// The crate walks the root and then each leaf in turn; the order is checked, not assumed, so the
+/// walk can stop after the range.
+///
+/// # Errors
+/// A directory cannot be read, the entries are out of tile-id order, or `on_entry` fails.
+pub fn for_each_entry<B: SyncBackend + Send + Sync>(
+    archive: &Archive<B>,
+    (start, end): (u64, u64),
+    mut on_entry: impl FnMut(DirEntry) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let mut covered = 0_u64;
+    for entry in archive.entries() {
+        let entry = entry.context("an archive directory could not be read")?;
+        let first = entry.tile_id();
+        ensure!(
+            first >= covered,
+            "archive entries are out of tile-id order at tile {first}"
+        );
+        if first >= end {
+            break;
         }
-        other => bail!("{what} compression {other} is not one this reader decodes"),
+        covered = first.saturating_add(u64::from(entry.run_length()));
+        if covered > start {
+            on_entry(entry)?;
+        }
     }
+    Ok(())
+}
+
+/// The stored bytes of the tile with this id, still in the archive's tile compression (root
+/// ADR-0323: a patch copies tiles between archives without re-encoding them), or `None`.
+///
+/// # Errors
+/// The id is not a tile id, or the archive cannot be read there.
+pub fn stored<B: SyncBackend + Send + Sync>(
+    archive: &Archive<B>,
+    id: u64,
+) -> anyhow::Result<Option<Bytes>> {
+    Ok(archive.get_tile(TileId::new(id)?)?)
+}
+
+/// The decompressed bytes of the tile with this id, or `None`.
+///
+/// # Errors
+/// The id is not a tile id, or the tile cannot be read or decompressed.
+pub fn tile<B: SyncBackend + Send + Sync>(
+    archive: &Archive<B>,
+    id: u64,
+) -> anyhow::Result<Option<Bytes>> {
+    Ok(archive.get_tile_decompressed(TileId::new(id)?)?)
 }
 
 /// MVT, declaring only what the gate reads. Undeclared fields (geometry, extent) are skipped.
@@ -200,213 +201,6 @@ pub struct Value {
     pub string_value: Option<String>,
 }
 
-/// The tile id of `z/x/y`: every lower zoom first, then the Hilbert position on the zoom (spec v3).
-pub fn tile_id(zoom: u8, x: u32, y: u32) -> u64 {
-    let (mut x, mut y) = (u64::from(x), u64::from(y));
-    let mut position = 0_u64;
-    let side = 1_u64 << zoom;
-    let mut s = side >> 1;
-    while s > 0 {
-        let rx = u64::from(x & s > 0);
-        let ry = u64::from(y & s > 0);
-        position += s * s * ((3 * rx) ^ ry);
-        // Encoding rotates within the whole side, decoding within the current quadrant.
-        rotate(side, &mut x, &mut y, rx, ry);
-        s >>= 1;
-    }
-    first_tile_id(zoom) + position
-}
-
-/// The `z/x/y` of a tile id, the inverse of [`tile_id`].
-pub fn tile_zxy(id: u64) -> anyhow::Result<(u8, u32, u32)> {
-    let mut first = 0_u64;
-    for zoom in 0..32_u8 {
-        let count = 1_u64 << (2 * u32::from(zoom));
-        if id < first + count {
-            let (mut x, mut y, mut t, mut s) = (0_u64, 0_u64, id - first, 1_u64);
-            while s < (1_u64 << zoom) {
-                let rx = 1 & (t / 2);
-                let ry = 1 & (t ^ rx);
-                rotate(s, &mut x, &mut y, rx, ry);
-                x += s * rx;
-                y += s * ry;
-                t /= 4;
-                s *= 2;
-            }
-            return Ok((zoom, u32::try_from(x)?, u32::try_from(y)?));
-        }
-        first += count;
-    }
-    bail!("tile id {id} is beyond zoom 31")
-}
-
-fn rotate(s: u64, x: &mut u64, y: &mut u64, rx: u64, ry: u64) {
-    if ry == 0 {
-        if rx == 1 {
-            *x = s - 1 - *x;
-            *y = s - 1 - *y;
-        }
-        std::mem::swap(x, y);
-    }
-}
-
-/// The tile-id range `[start, end)` of one zoom.
-pub fn zoom_range(zoom: u8) -> (u64, u64) {
-    (first_tile_id(zoom), first_tile_id(zoom + 1))
-}
-
-/// A PMTiles v3 archive of MVT tiles over any seekable bytes: the local file a bake just wrote, or
-/// an R2 object read by range. Only the directories and tiles asked for are read.
-pub struct Archive<R> {
-    reader: R,
-    header: Header,
-}
-
-impl<R: Read + Seek> Archive<R> {
-    pub fn open(mut reader: R) -> anyhow::Result<Self> {
-        let mut bytes = vec![0_u8; HEADER_BYTES];
-        reader.seek(SeekFrom::Start(0))?;
-        reader
-            .read_exact(&mut bytes)
-            .context("archive is shorter than a PMTiles header")?;
-        let header = Header::parse(&bytes)?;
-        ensure!(
-            header.tile_type == TILE_TYPE_MVT,
-            "archive tiles are not MVT"
-        );
-        Ok(Self { reader, header })
-    }
-
-    fn read_block(&mut self, offset: u64, length: u64, what: &str) -> anyhow::Result<Vec<u8>> {
-        ensure!(
-            length <= MAX_BLOCK_BYTES,
-            "{what} claims {length} bytes, more than any tile or directory this bake writes"
-        );
-        self.reader.seek(SeekFrom::Start(offset))?;
-        let mut bytes = vec![0_u8; usize::try_from(length)?];
-        self.reader
-            .read_exact(&mut bytes)
-            .with_context(|| format!("{what} runs past the end of the archive"))?;
-        Ok(bytes)
-    }
-
-    fn directory_at(&mut self, offset: u64, length: u64) -> anyhow::Result<Vec<Entry>> {
-        let raw = self.read_block(offset, length, "a directory")?;
-        decode_directory(&decompress(
-            raw,
-            self.header.internal_compression,
-            "a directory",
-        )?)
-    }
-
-    fn leaf_offset(&self, entry: &Entry) -> anyhow::Result<u64> {
-        self.header
-            .leaf_directories_offset
-            .checked_add(entry.offset)
-            .context("leaf directory offset overflows")
-    }
-
-    /// The decompressed bytes of one tile entry.
-    pub fn entry_tile(&mut self, entry: &Entry) -> anyhow::Result<Vec<u8>> {
-        let at = self
-            .header
-            .tile_data_offset
-            .checked_add(entry.offset)
-            .context("tile offset overflows")?;
-        let raw = self.read_block(at, entry.length, "a tile")?;
-        decompress(raw, self.header.tile_compression, "a tile")
-    }
-
-    /// The stored bytes of one tile entry, still in the archive's tile compression (root ADR-0323:
-    /// a patch copies tiles between archives without re-encoding them).
-    pub fn entry_raw(&mut self, entry: &Entry) -> anyhow::Result<Vec<u8>> {
-        let at = self
-            .header
-            .tile_data_offset
-            .checked_add(entry.offset)
-            .context("tile offset overflows")?;
-        self.read_block(at, entry.length, "a tile")
-    }
-
-    pub fn header(&self) -> &Header {
-        &self.header
-    }
-
-    /// The decompressed bytes of the tile with this id, or `None` when the archive has no such tile.
-    pub fn tile(&mut self, id: u64) -> anyhow::Result<Option<Vec<u8>>> {
-        match self.find_entry(id)? {
-            Some(entry) => self.entry_tile(&entry).map(Some),
-            None => Ok(None),
-        }
-    }
-
-    /// The tile entry holding this id, or `None` when the archive has no such tile.
-    pub fn find_entry(&mut self, id: u64) -> anyhow::Result<Option<Entry>> {
-        let (mut offset, mut length) = self.header.root_directory;
-        for _ in 0..MAX_DIRECTORY_DEPTH {
-            let entries = self.directory_at(offset, length)?;
-            let Some(entry) = entries
-                .partition_point(|entry| entry.tile_id <= id)
-                .checked_sub(1)
-                .and_then(|index| entries.get(index).copied())
-            else {
-                return Ok(None);
-            };
-            if entry.run_length == 0 {
-                offset = self.leaf_offset(&entry)?;
-                length = entry.length;
-                continue;
-            }
-            return Ok((id < entry.tile_id.saturating_add(entry.run_length)).then_some(entry));
-        }
-        bail!("archive directories nest deeper than {MAX_DIRECTORY_DEPTH}")
-    }
-
-    /// Calls `on_entry` with every tile entry overlapping tile ids `[start, end)`, in tile-id order,
-    /// reading only the leaf directories that can hold them.
-    pub fn for_each_entry(
-        &mut self,
-        range: (u64, u64),
-        on_entry: &mut dyn FnMut(&mut Self, Entry) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
-        let root = self.header.root_directory;
-        self.walk(root, 0, u64::MAX, range, on_entry)
-    }
-
-    fn walk(
-        &mut self,
-        (offset, length): (u64, u64),
-        depth: usize,
-        limit: u64,
-        range: (u64, u64),
-        on_entry: &mut dyn FnMut(&mut Self, Entry) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
-        ensure!(
-            depth < MAX_DIRECTORY_DEPTH,
-            "archive directories nest deeper than {MAX_DIRECTORY_DEPTH}"
-        );
-        let entries = self.directory_at(offset, length)?;
-        for (index, entry) in entries.iter().enumerate() {
-            let next = entries.get(index + 1).map_or(limit, |next| next.tile_id);
-            if entry.run_length == 0 {
-                // A leaf holds tile ids [entry.tile_id, next); skip it when that misses the range.
-                if next <= range.0 || entry.tile_id >= range.1 {
-                    continue;
-                }
-                let leaf = (self.leaf_offset(entry)?, entry.length);
-                self.walk(leaf, depth + 1, next, range, on_entry)?;
-            } else {
-                let end = entry.tile_id.saturating_add(entry.run_length);
-                if end <= range.0 || entry.tile_id >= range.1 {
-                    continue;
-                }
-                on_entry(self, *entry)?;
-            }
-        }
-        Ok(())
-    }
-}
-
 /// What the walk expects of every tile it reads.
 pub struct Expect<'a> {
     pub zoom: u8,
@@ -416,24 +210,26 @@ pub struct Expect<'a> {
     pub properties: &'a [String],
 }
 
-/// Calls `on_id` with the tile id and the id property of every feature in every tile of
+/// Calls `on_id` with the tile id and the id property of every feature in every tile entry of
 /// `expect.zoom`, in tile-id order. A feature appears once per tile it is in, so the same id can
-/// come many times. Returns the number of tiles read.
+/// come many times. Returns the number of tile entries read.
+///
+/// # Errors
+/// The archive cannot be read, a tile is not MVT, or a tile breaks what `expect` says.
 pub fn for_each_feature_id(
     archive: &Path,
     expect: &Expect<'_>,
     mut on_id: impl FnMut(u64, &str) -> anyhow::Result<()>,
 ) -> anyhow::Result<u64> {
-    let file = File::open(archive).with_context(|| format!("archive {}", archive.display()))?;
-    let mut archive = Archive::open(file)?;
+    let archive = open(archive)?;
     let mut tiles = 0_u64;
-    archive.for_each_entry(zoom_range(expect.zoom), &mut |archive, entry| {
-        let bytes = archive.entry_tile(&entry)?;
-        let tile_id = entry.tile_id;
-        let tile = Tile::decode(bytes.as_slice())
+    for_each_entry(&archive, zoom_range(expect.zoom), |entry| {
+        let tile_id = entry.tile_id();
+        let bytes = tile(&archive, tile_id)?.with_context(|| format!("tile {tile_id}"))?;
+        let decoded = Tile::decode(bytes.as_ref())
             .with_context(|| format!("tile {tile_id} is not an MVT tile"))?;
         tiles += 1;
-        for layer in &tile.layers {
+        for layer in &decoded.layers {
             ensure!(
                 layer.name == expect.layer,
                 "tile {tile_id} carries layer {:?}, the bake writes only {:?}",

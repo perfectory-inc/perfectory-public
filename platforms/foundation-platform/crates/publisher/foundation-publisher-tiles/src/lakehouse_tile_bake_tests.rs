@@ -259,33 +259,35 @@ fn complex_layer() -> ServedLayer {
     }
 }
 
-fn header(min: u8, max: u8, tile_type: u8) -> Vec<u8> {
-    let mut header = vec![0_u8; 127];
-    header[..7].copy_from_slice(b"PMTiles");
-    header[7] = 3;
-    header[97] = 2;
-    header[98] = 2;
-    header[99] = tile_type;
-    header[100] = min;
-    header[101] = max;
-    header
+/// The header check over an empty archive the crate writes with these zooms, tile type and tile
+/// compression.
+fn check_header(
+    (min, max): (u8, u8),
+    tile_type: pmtiles::TileType,
+    compression: pmtiles::Compression,
+) -> anyhow::Result<()> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    pmtiles::PmTilesWriter::new(tile_type)
+        .precompressed(compression)
+        .min_zoom(min)
+        .max_zoom(max)
+        .create(&mut out)?
+        .finalize()?;
+    let reader = pmtiles::PmTilesReader::try_from_source(bytes::Bytes::from(out.into_inner()))?;
+    check_pmtiles_header(reader.get_header(), &complex_layer())
 }
 
 #[test]
 fn the_archive_header_must_be_mvt_over_the_layer_zooms() {
-    assert!(check_pmtiles_header(&header(6, 16, 1), &complex_layer()).is_ok());
-    assert!(check_pmtiles_header(&header(6, 14, 1), &complex_layer()).is_err());
+    use pmtiles::{Compression, TileType};
+    assert!(check_header((6, 16), TileType::Mvt, Compression::Gzip).is_ok());
+    assert!(check_header((6, 16), TileType::Mvt, Compression::None).is_ok());
+    assert!(check_header((6, 14), TileType::Mvt, Compression::Gzip).is_err());
     assert!(
-        check_pmtiles_header(&header(6, 16, 2), &complex_layer()).is_err(),
+        check_header((6, 16), TileType::Png, Compression::Gzip).is_err(),
         "not MVT"
     );
-    let mut v2 = header(6, 16, 1);
-    v2[7] = 2;
-    assert!(check_pmtiles_header(&v2, &complex_layer()).is_err());
-    let mut zstd = header(6, 16, 1);
-    zstd[98] = 4;
-    assert!(check_pmtiles_header(&zstd, &complex_layer()).is_err());
-    assert!(check_pmtiles_header(&[0; 10], &complex_layer()).is_err());
+    assert!(check_header((6, 16), TileType::Mvt, Compression::Zstd).is_err());
 }
 
 /// The pmtiles fixture tiles carry `pnu` and `kind` in layer `parcel`; zoom 2 is tile ids 5..21.
@@ -1283,9 +1285,9 @@ fn the_tile_bytes_gate_names_the_largest_tile_of_each_zoom_and_refuses_over_budg
         1,
         2,
         &[
-            (pmtiles_feature_ids::tile_id(1, 0, 0), small.clone()),
-            (pmtiles_feature_ids::tile_id(2, 0, 0), small.clone()),
-            (pmtiles_feature_ids::tile_id(2, 1, 0), large.clone()),
+            (pmtiles_feature_ids::tile_id(1, 0, 0)?, small.clone()),
+            (pmtiles_feature_ids::tile_id(2, 0, 0)?, small.clone()),
+            (pmtiles_feature_ids::tile_id(2, 1, 0)?, large.clone()),
         ],
     ))?;
     let largest = gate::tile_bytes_gate(file.path(), None)?;
@@ -1294,11 +1296,11 @@ fn the_tile_bytes_gate_names_the_largest_tile_of_each_zoom_and_refuses_over_budg
         [
             (
                 1,
-                (small.len() as u64, pmtiles_feature_ids::tile_id(1, 0, 0))
+                (small.len() as u64, pmtiles_feature_ids::tile_id(1, 0, 0)?)
             ),
             (
                 2,
-                (large.len() as u64, pmtiles_feature_ids::tile_id(2, 1, 0))
+                (large.len() as u64, pmtiles_feature_ids::tile_id(2, 1, 0)?)
             ),
         ]
         .into()

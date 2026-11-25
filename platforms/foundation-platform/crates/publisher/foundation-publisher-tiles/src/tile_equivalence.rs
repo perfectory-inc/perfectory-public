@@ -37,7 +37,11 @@ use prost::Message as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::pmtiles_feature_ids::{tile_id, tile_zxy, zoom_range, Archive};
+use pmtiles::SyncBackend;
+
+use super::pmtiles_feature_ids::{
+    self, for_each_entry, open_seekable, tile_id, tile_zxy, zoom_range, Archive,
+};
 use super::ServedIds;
 
 pub const SAMPLE_CONTRACT_JSON: &str =
@@ -234,15 +238,15 @@ fn prefix(id: &str, chars: usize) -> &str {
 
 /// The `limit` maxzoom tiles with the longest directory entries — the most bytes — read from the
 /// directory alone.
-pub fn densest_tiles<R: Read + Seek>(
-    archive: &mut Archive<R>,
+pub fn densest_tiles<B: SyncBackend + Send + Sync>(
+    archive: &Archive<B>,
     zoom: u8,
     limit: usize,
 ) -> anyhow::Result<Vec<u64>> {
     let mut heap: BinaryHeap<Reverse<(u64, u64)>> = BinaryHeap::new();
-    archive.for_each_entry(zoom_range(zoom), &mut |_, entry| {
+    for_each_entry(archive, zoom_range(zoom), |entry| {
         if limit > 0 {
-            heap.push(Reverse((entry.length, entry.tile_id)));
+            heap.push(Reverse((u64::from(entry.length()), entry.tile_id())));
             if heap.len() > limit {
                 heap.pop();
             }
@@ -268,14 +272,15 @@ pub fn sample_tiles(
         .filter(|zoom| (min_zoom..=max_zoom).contains(zoom))
         .collect();
     let mut samples: BTreeMap<u64, BTreeSet<String>> = BTreeMap::new();
-    let mut add = |x: u32, y: u32, why: &str| {
+    let mut add = |x: u32, y: u32, why: &str| -> anyhow::Result<()> {
         for zoom in &zooms {
             let shift = max_zoom - zoom;
             samples
-                .entry(tile_id(*zoom, x >> shift, y >> shift))
+                .entry(tile_id(*zoom, x >> shift, y >> shift)?)
                 .or_default()
                 .insert(why.to_owned());
         }
+        Ok(())
     };
     for (key, extent) in regions {
         let why = format!("region:{key}");
@@ -291,7 +296,7 @@ pub fn sample_tiles(
             extent.min.1 + (extent.max.1 - extent.min.1) / 2,
         );
         for (x, y) in [centre, (x0, y0), (x1, y0), (x0, y1), (x1, y1)] {
-            add(x, y, &why);
+            add(x, y, &why)?;
         }
     }
     for (tiles, why) in [(densest, "densest"), (random, "random")] {
@@ -301,7 +306,7 @@ pub fn sample_tiles(
                 zoom == max_zoom,
                 "sample tile {tile} is not at maxzoom {max_zoom}"
             );
-            add(x, y, why);
+            add(x, y, why)?;
         }
     }
     Ok(samples)
@@ -798,7 +803,7 @@ fn maxzoom_tile_under(
         let within = position.clamp(0, extent - 1) * scale / extent;
         Ok(u32::try_from(i64::from(origin) * scale + within)?)
     };
-    Ok(tile_id(max_zoom, at(x, px)?, at(y, py)?))
+    tile_id(max_zoom, at(x, px)?, at(y, py)?)
 }
 
 /// Compares one tile of each archive, adding to `outcome`. `active_maxzoom` returns the ids of the
@@ -918,9 +923,9 @@ pub fn compare_tile(
 
 /// Decodes every sample tile from both archives and compares them. `regions` are the region keys
 /// the collector saw, so a region no sample reached reports zero rather than nothing.
-pub fn compare_archives<A: Read + Seek, B: Read + Seek>(
-    active: &mut Archive<A>,
-    new: &mut Archive<B>,
+pub fn compare_archives<A: SyncBackend + Send + Sync, B: SyncBackend + Send + Sync>(
+    active: &Archive<A>,
+    new: &Archive<B>,
     samples: &BTreeMap<u64, BTreeSet<String>>,
     compare: &Compare<'_>,
     regions: impl IntoIterator<Item = String>,
@@ -934,8 +939,8 @@ pub fn compare_archives<A: Read + Seek, B: Read + Seek>(
     };
     let mut cache: BTreeMap<u64, BTreeSet<String>> = BTreeMap::new();
     for (tile, why) in samples {
-        let before = active.tile(*tile)?;
-        let after = new.tile(*tile)?;
+        let before = pmtiles_feature_ids::tile(active, *tile)?;
+        let after = pmtiles_feature_ids::tile(new, *tile)?;
         let passed = compare_tile(
             before.as_deref(),
             after.as_deref(),
@@ -946,7 +951,7 @@ pub fn compare_archives<A: Read + Seek, B: Read + Seek>(
                     return Ok(ids.clone());
                 }
                 let ids = tile_ids(
-                    active.tile(under)?.as_deref(),
+                    pmtiles_feature_ids::tile(active, under)?.as_deref(),
                     compare.layer,
                     compare.id_property,
                 )?;
@@ -984,7 +989,7 @@ pub fn skipped(origin: ActiveOrigin) -> Option<Value> {
 
 /// Runs the whole gate over an active and a new archive: densest tiles from the active directory,
 /// the samples, the comparison. Returns the outcome; the caller refuses when it did not pass.
-pub fn first_release_gate<A: Read + Seek, B: Read + Seek>(
+pub fn first_release_gate<A: Read + Seek + Send, B: Read + Seek + Send>(
     active: A,
     new: B,
     contract: &SampleContract,
@@ -993,18 +998,18 @@ pub fn first_release_gate<A: Read + Seek, B: Read + Seek>(
     collector: &SampleCollector,
     served: &ServedIds,
 ) -> anyhow::Result<Equivalence> {
-    let mut active = Archive::open(active).context("the active archive")?;
-    let mut new = Archive::open(new).context("the new archive")?;
+    let active = open_seekable(active).context("the active archive")?;
+    let new = open_seekable(new).context("the new archive")?;
     // Root ADR-0492: a release cut deeper than the one it replaces is compared at the zooms both
     // carry. Its own maxzoom is the id gate's, which reads every tile of it.
     let collected_at = max_zoom;
-    let max_zoom = max_zoom.min(active.header().max_zoom);
+    let max_zoom = max_zoom.min(active.get_header().max_zoom);
     ensure!(
         min_zoom <= max_zoom,
         "the active archive ends at z{max_zoom}, before the new one starts at z{min_zoom}"
     );
     let (regions, reservoir) = collected_at_zoom(collector, collected_at, max_zoom)?;
-    let densest = densest_tiles(&mut active, max_zoom, contract.densest_tiles)?;
+    let densest = densest_tiles(&active, max_zoom, contract.densest_tiles)?;
     let samples = sample_tiles(
         contract,
         (min_zoom, max_zoom),
@@ -1013,8 +1018,8 @@ pub fn first_release_gate<A: Read + Seek, B: Read + Seek>(
         &reservoir,
     )?;
     let mut outcome = compare_archives(
-        &mut active,
-        &mut new,
+        &active,
+        &new,
         &samples,
         &Compare {
             layer,
@@ -1068,7 +1073,7 @@ fn collected_at_zoom(
     let mut reservoir = Vec::with_capacity(collector.reservoir.len());
     for tile in &collector.reservoir {
         let (_, x, y) = tile_zxy(*tile)?;
-        let parent = tile_id(to, x >> shift, y >> shift);
+        let parent = tile_id(to, x >> shift, y >> shift)?;
         if !reservoir.contains(&parent) {
             reservoir.push(parent);
         }

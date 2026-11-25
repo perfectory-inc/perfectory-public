@@ -4,6 +4,11 @@ use super::super::pmtiles_feature_ids::tests::{archive, gzip};
 use super::super::{id_hash, ServedIds};
 use super::*;
 
+/// The tile id of a coordinate the test knows is on its zoom.
+fn tid(zoom: u8, x: u32, y: u32) -> u64 {
+    tile_id(zoom, x, y).unwrap()
+}
+
 /// The bounding box of an MVT command stream, in tile units.
 fn geometry_bounds(packed: &[u8]) -> anyhow::Result<Option<(i64, i64, i64, i64)>> {
     Ok(geometry_points(packed)?
@@ -313,11 +318,7 @@ fn an_inside_extra_is_classified_tiny_addition_or_unexplained() -> anyhow::Resul
     )?;
     assert!(!passed, "an unexplained extra fails its tile");
     assert_eq!(outcome.extra_inside.unexplained.count, 1);
-    assert_eq!(
-        asked,
-        [tile_id(2, 0, 0)],
-        "its position at z1 is z2 tile 0/0"
-    );
+    assert_eq!(asked, [tid(2, 0, 0)], "its position at z1 is z2 tile 0/0");
     assert!(outcome.refusal()["extra_inside"]["unexplained"]["ids"]
         .as_array()
         .is_some_and(|ids| ids.len() == 1));
@@ -334,7 +335,7 @@ fn the_maxzoom_tile_under_a_feature_is_found_from_a_vertex_inside_the_tile() -> 
         4096,
         2,
     )?;
-    assert_eq!(under, tile_id(2, 3, 0));
+    assert_eq!(under, tid(2, 3, 0));
     // No vertex inside: the centre of the clipped part decides.
     let crossing = maxzoom_tile_under(
         &[(-50, 100), (5000, 100)],
@@ -343,7 +344,7 @@ fn the_maxzoom_tile_under_a_feature_is_found_from_a_vertex_inside_the_tile() -> 
         4096,
         2,
     )?;
-    assert_eq!(crossing, tile_id(2, 1, 0));
+    assert_eq!(crossing, tid(2, 1, 0));
     Ok(())
 }
 
@@ -508,11 +509,11 @@ fn densest_tiles_are_the_longest_maxzoom_entries() -> anyhow::Result<()> {
             (7, mvt(&many[..2])),
         ],
     );
-    let mut archive = Archive::open(Cursor::new(bytes))?;
-    let mut densest = densest_tiles(&mut archive, 2, 2)?;
+    let archive = open_seekable(Cursor::new(bytes))?;
+    let mut densest = densest_tiles(&archive, 2, 2)?;
     densest.sort_unstable();
     assert_eq!(densest, [6, 7], "z1 tile 1 is not maxzoom");
-    assert!(densest_tiles(&mut archive, 2, 0)?.is_empty());
+    assert!(densest_tiles(&archive, 2, 0)?.is_empty());
     Ok(())
 }
 
@@ -526,27 +527,20 @@ fn samples_cover_region_centres_and_corners_and_the_ancestors_of_every_tile() ->
             max: (3, 3),
         },
     )]);
-    let samples = sample_tiles(&contract(), (1, 2), &regions, &[tile_id(2, 3, 0)], &[])?;
+    let samples = sample_tiles(&contract(), (1, 2), &regions, &[tid(2, 3, 0)], &[])?;
     // Centre (1,1) and corners inset to (0,0)..(3,3) at z2, and their z1 ancestors.
     for (zoom, x, y) in [(2, 1, 1), (2, 0, 0), (2, 3, 3), (1, 0, 0), (1, 1, 1)] {
         assert!(
             samples
-                .get(&tile_id(zoom, x, y))
+                .get(&tid(zoom, x, y))
                 .is_some_and(|why| why.contains("region:11")),
             "{zoom}/{x}/{y}"
         );
     }
     assert!(samples
-        .get(&tile_id(1, 1, 0))
+        .get(&tid(1, 1, 0))
         .is_some_and(|why| why.contains("densest")));
-    assert!(sample_tiles(
-        &contract(),
-        (1, 2),
-        &BTreeMap::new(),
-        &[tile_id(1, 0, 0)],
-        &[]
-    )
-    .is_err());
+    assert!(sample_tiles(&contract(), (1, 2), &BTreeMap::new(), &[tid(1, 0, 0)], &[]).is_err());
     let narrow = sample_tiles(&contract(), (2, 2), &regions, &[], &[])?;
     assert!(
         narrow
@@ -566,8 +560,8 @@ fn the_collector_records_region_extents_and_a_seeded_reservoir() -> anyhow::Resu
         contract.region_id_prefix_chars = BTreeMap::from([("parcels".to_owned(), 2)]);
         let mut collector = SampleCollector::new(&contract, "parcels");
         for (x, y) in [(0, 0), (3, 1), (2, 2), (1, 3), (0, 3)] {
-            collector.observe(tile_id(2, x, y), "11-synthetic")?;
-            collector.observe(tile_id(2, x, y), "22-synthetic")?;
+            collector.observe(tid(2, x, y), "11-synthetic")?;
+            collector.observe(tid(2, x, y), "22-synthetic")?;
         }
         Ok(collector)
     };
@@ -595,8 +589,8 @@ fn the_collector_records_region_extents_and_a_seeded_reservoir() -> anyhow::Resu
 fn a_region_no_sample_reached_reports_zero() -> anyhow::Result<()> {
     let (active, new, _) = pair(&[inside("9999911111")]);
     let outcome = compare_archives(
-        &mut Archive::open(Cursor::new(active))?,
-        &mut Archive::open(Cursor::new(new))?,
+        &open_seekable(Cursor::new(active))?,
+        &open_seekable(Cursor::new(new))?,
         &BTreeMap::new(),
         &compare(),
         ["unsampled".to_owned()],
@@ -900,7 +894,7 @@ fn the_collector_records_the_dongs_of_a_unit_baked_from_an_edition() -> anyhow::
     contract.edition_change = BTreeMap::from([("parcels".to_owned(), EDITION)]);
     let mut collector = SampleCollector::new(&contract, "parcels");
     for id in ["9999911111", "9999911222", "8888822222"] {
-        collector.observe(tile_id(2, 0, 0), id)?;
+        collector.observe(tid(2, 0, 0), id)?;
     }
     let dongs = collector
         .edition
@@ -950,7 +944,7 @@ fn a_new_archive_cut_a_zoom_deeper_is_compared_at_the_zooms_both_carry() -> anyh
     let (active, _, _) = pair(&[inside("9999911111")]);
     let child = |tile: u64| -> anyhow::Result<u64> {
         let (_, x, y) = tile_zxy(tile)?;
-        Ok(tile_id(3, 2 * x, 2 * y))
+        Ok(tid(3, 2 * x, 2 * y))
     };
     let (deep_5, deep_6) = (child(5)?, child(6)?);
     let new = archive(

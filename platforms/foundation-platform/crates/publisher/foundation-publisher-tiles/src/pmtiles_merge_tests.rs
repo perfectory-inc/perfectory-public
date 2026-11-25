@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use super::super::pmtiles_feature_ids;
 use super::*;
 
 /// An MVT `Value`, to write test tiles and to read a value whatever bytes wrote it.
@@ -502,13 +503,15 @@ fn the_merge_of_two_baked_partitions_is_what_tile_join_writes() -> anyhow::Resul
             (None, None) => panic!("tile {id} is in neither partition"),
         }
     }
-    // The bake's own reader (the id gate, the byte budget, the patch path) reads what the crate's
-    // writer wrote: the same tiles, in tile-id order, the same bytes once decompressed.
-    let mut archive = super::super::pmtiles_feature_ids::Archive::open(File::open(&out)?)?;
+    // The bake's walk (the id gate, the byte budget, the patch path) reads what the writer wrote:
+    // the same tiles, in tile-id order, the same bytes once decompressed.
+    let archive = pmtiles_feature_ids::open(&out)?;
     let mut walked = Vec::new();
-    archive.for_each_entry((0, u64::MAX), &mut |archive, entry| {
-        for step in 0..entry.run_length {
-            walked.push((entry.tile_id + step, archive.entry_tile(&entry)?));
+    pmtiles_feature_ids::for_each_entry(&archive, (0, u64::MAX), |entry| {
+        for step in 0..u64::from(entry.run_length()) {
+            let id = entry.tile_id() + step;
+            let tile = pmtiles_feature_ids::tile(&archive, id)?.context("a walked tile")?;
+            walked.push((id, tile.to_vec()));
         }
         Ok(())
     })?;
@@ -556,5 +559,80 @@ fn a_directory_merges_its_archives_in_name_order_as_the_list_does() -> anyhow::R
     let refused = merge_directory(inputs.path(), &out, later()).map_err(|error| error.to_string());
     assert!(refused.is_err_and(|error| error.contains("exists")));
     assert_eq!(std::fs::read(&out)?, std::fs::read(&listed)?);
+    Ok(())
+}
+
+/// The bake's reads (the id gate, the byte budget, the patch path) find in the frozen tile-join
+/// output, which tippecanoe wrote, what the spec lays out. The values were recorded when the bake's
+/// own reader gave way to the crate's (root ADR-0613 §4), by a reader written from the spec alone
+/// (`protomaps/PMTiles` `spec/v3/spec.md`, the MVT 2.1 protobuf): every tile's stored and
+/// decompressed bytes, and the gate's id walk at its maxzoom and minzoom.
+#[test]
+fn the_bakes_reads_find_in_the_tile_join_fixture_what_the_spec_lays_out() -> anyhow::Result<()> {
+    use sha2::{Digest as _, Sha256};
+
+    let path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?)
+        .join("tests/fixtures/tile-join/joined.pmtiles");
+    let archive = pmtiles_feature_ids::open(&path)?;
+    let (mut stored, mut plain, mut tiles) = (Sha256::new(), Sha256::new(), 0);
+    pmtiles_feature_ids::for_each_entry(&archive, (0, u64::MAX), |entry| {
+        for id in entry.tile_id()..entry.tile_id() + u64::from(entry.run_length()) {
+            for (digest, bytes) in [
+                (&mut stored, pmtiles_feature_ids::stored(&archive, id)?),
+                (&mut plain, pmtiles_feature_ids::tile(&archive, id)?),
+            ] {
+                let bytes = bytes.context("a tile the walk met")?;
+                digest.update(id.to_le_bytes());
+                digest.update((bytes.len() as u64).to_le_bytes());
+                digest.update(&bytes);
+            }
+            tiles += 1;
+        }
+        Ok(())
+    })?;
+    assert_eq!(tiles, 21);
+    assert_eq!(
+        format!("{:x}", stored.finalize()),
+        "599b7b88f3670e5079fdec286ac956c205235c64fa672a4dc816ccfb5c72c7b2"
+    );
+    assert_eq!(
+        format!("{:x}", plain.finalize()),
+        "1882a14a3cfd0af1e0b807516b0b1efa973d168da423d3b7d78bb554a0758b18"
+    );
+    let properties = ["pnu", "jimok", "area", "note"].map(str::to_owned);
+    for (zoom, entries, ids, expected) in [
+        (
+            14,
+            8,
+            105,
+            "312b8a216132ff4b5eb5d7b7b9a555ab6f570a0692acb8b68b2f1df6067cd845",
+        ),
+        (
+            10,
+            4,
+            112,
+            "fa85fc995c7d1363590bacc5fae168408fea14a15f7bffd2114340b32e02a2ce",
+        ),
+    ] {
+        let (mut walk, mut seen) = (Sha256::new(), 0);
+        let read = pmtiles_feature_ids::for_each_feature_id(
+            &path,
+            &pmtiles_feature_ids::Expect {
+                zoom,
+                layer: "parcels",
+                id_property: "pnu",
+                properties: &properties,
+            },
+            |tile, id| {
+                walk.update(tile.to_le_bytes());
+                walk.update(id.as_bytes());
+                walk.update(b"\n");
+                seen += 1;
+                Ok(())
+            },
+        )?;
+        assert_eq!((read, seen), (entries, ids), "z{zoom}");
+        assert_eq!(format!("{:x}", walk.finalize()), expected, "z{zoom}");
+    }
     Ok(())
 }

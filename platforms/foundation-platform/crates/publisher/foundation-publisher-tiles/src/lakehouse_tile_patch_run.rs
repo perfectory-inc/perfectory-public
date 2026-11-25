@@ -3,7 +3,7 @@
 //! and move the manifest by compare-and-swap. The pure parts are in `lakehouse_tile_patch.rs`.
 
 use std::fs::File;
-use std::io::{BufWriter, Read as _};
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ use sha2::{Digest as _, Sha256};
 use sqlx::PgPool;
 
 use super::patch::{self, Manifest, PatchObject, PatchPolicy};
-use super::pmtiles_feature_ids::{Archive, Header, COMPRESSION_GZIP, HEADER_BYTES};
+use super::pmtiles_feature_ids;
 use super::{
     bake_inputs, bake_unit, create_only_upload_and_rehash, gate::classify_missing, prepare_handoff,
     read_active_static, recipe_digest, record_fold, required_env_value, unchanged, ActiveStatic,
@@ -98,13 +98,11 @@ async fn read_manifest(
     )))
 }
 
-async fn base_header(reader: &R2ObjectStorage, key: &str) -> anyhow::Result<(Vec<u8>, Header)> {
-    let mut base = reader.open_seekable_object(key, READ_CHUNK_BYTES).await?;
+async fn base_header(reader: &R2ObjectStorage, key: &str) -> anyhow::Result<patch::BaseHeader> {
+    let base = reader.open_seekable_object(key, READ_CHUNK_BYTES).await?;
     tokio::task::spawn_blocking(move || {
-        let mut bytes = vec![0_u8; HEADER_BYTES];
-        base.read_exact(&mut bytes)?;
-        let header = Header::parse(&bytes)?;
-        Ok((bytes, header))
+        let archive = pmtiles_feature_ids::open_seekable(base)?;
+        Ok(patch::BaseHeader::of(archive.get_header()))
     })
     .await
     .context("the base header read stopped")?
@@ -171,8 +169,8 @@ pub async fn try_patch(
             &format!("snapshot {served} has no feature index under these bake inputs"),
         );
     }
-    let (template, base) = base_header(&reader, &active.pmtiles_object_key).await?;
-    if base.addressed_tiles == 0 || base.tile_compression != COMPRESSION_GZIP {
+    let base = base_header(&reader, &active.pmtiles_object_key).await?;
+    if base.addressed_tiles == 0 || !base.gzip_tiles {
         return full(
             unit,
             "the base archive does not count its tiles or is not gzip",
@@ -231,7 +229,7 @@ pub async fn try_patch(
     }
     let zooms = (active.layer.tile_min_zoom, active.layer.tile_max_zoom);
     let Some(dirty) =
-        patch::dirty_tiles(&changes.boxes, zooms, limit.saturating_sub(previous_tiles))
+        patch::dirty_tiles(&changes.boxes, zooms, limit.saturating_sub(previous_tiles))?
     else {
         return full(
             unit,
@@ -277,7 +275,7 @@ pub async fn try_patch(
             .and_then(|(manifest, _)| manifest.patch.clone())
     } else {
         let built = build_patch(
-            config, contract, &publish, &template, work, indexed, &changes, &dirty,
+            config, contract, &publish, &base, work, indexed, &changes, &dirty,
         )
         .await?;
         let Some((path, tiles, empty_tiles)) = built else {
@@ -316,7 +314,7 @@ async fn build_patch(
     config: &Config,
     contract: &BakeContract,
     publish: &Publish<'_>,
-    template: &[u8],
+    base: &patch::BaseHeader,
     work: &Path,
     indexed: &Indexed,
     changes: &patch::Changes,
@@ -404,30 +402,29 @@ async fn build_patch(
         }
         None => None,
     };
-    let (dirty, path, template) = (dirty.clone(), work.join("patch.pmtiles"), template.to_vec());
-    let limit = (publish.policy.max_patched_tile_ratio
-        * Header::parse(&template)?.addressed_tiles as f64) as usize;
+    let (dirty, path, base) = (dirty.clone(), work.join("patch.pmtiles"), *base);
+    let limit = (publish.policy.max_patched_tile_ratio * base.addressed_tiles as f64) as usize;
     let written = {
         let path = path.clone();
         tokio::task::spawn_blocking(move || -> anyhow::Result<Option<(u64, u64)>> {
-            let (mut baked, metadata) = if kept > 0 {
+            // A patch with no baked neighbourhood (every dirty tile a tombstone) carries the
+            // writer's empty metadata.
+            let (baked, metadata) = if kept > 0 {
                 (
-                    Some(Archive::open(File::open(&neighbourhood)?)?),
-                    patch::template_and_metadata(&neighbourhood)?.1,
+                    Some(pmtiles_feature_ids::open(&neighbourhood)?),
+                    Some(patch::metadata(&neighbourhood)?),
                 )
             } else {
-                (None, patch::empty_metadata()?)
+                (None, None)
             };
-            let mut previous = previous.map(Archive::open).transpose()?;
-            let (tiles, empty) = patch::assemble(baked.as_mut(), previous.as_mut(), &dirty)?;
+            let previous = previous
+                .map(pmtiles_feature_ids::open_seekable)
+                .transpose()?;
+            let (tiles, empty) = patch::assemble(baked.as_ref(), previous.as_ref(), &dirty)?;
             if tiles.len() > limit {
                 return Ok(None);
             }
-            let mut out = BufWriter::new(File::create(&path)?);
-            super::pmtiles_write::write_archive(&mut out, &template, &metadata, &tiles)?;
-            out.into_inner()
-                .map_err(|error| error.into_error())?
-                .sync_all()?;
+            patch::write_patch(&path, &base, metadata.as_deref(), &tiles)?;
             Ok(Some((tiles.len() as u64, empty)))
         })
         .await
