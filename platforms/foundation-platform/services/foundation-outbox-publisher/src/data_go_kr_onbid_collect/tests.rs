@@ -919,15 +919,7 @@ async fn one_api_of_one_run_is_one_gzip_object_of_its_lines() -> anyhow::Result<
         std::fs::read(root.path().join(object.local_path.unwrap_or_default()))?.as_slice(),
     )
     .read_to_string(&mut text)?;
-    assert_eq!(
-        text,
-        format!(
-            "{}
-{}
-",
-            lines[0], lines[1]
-        )
-    );
+    assert_eq!(text, format!("{}\n{}\n", lines[0], lines[1]));
     assert!(PREFIX.starts_with("FOUNDATION_PLATFORM_"));
     Ok(())
 }

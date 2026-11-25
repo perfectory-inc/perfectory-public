@@ -362,17 +362,7 @@ async fn a_standard_data_pass_asks_the_current_table_and_lands_only_when_its_row
         .as_slice(),
     )
     .read_to_string(&mut text)?;
-    assert_eq!(
-        text,
-        format!(
-            "{}
-",
-            lines.join(
-                "
-"
-            )
-        )
-    );
+    assert_eq!(text, format!("{}\n", lines.join("\n")));
     Ok(())
 }
 

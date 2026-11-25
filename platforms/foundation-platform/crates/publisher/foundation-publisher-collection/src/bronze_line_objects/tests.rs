@@ -129,7 +129,7 @@ fn the_contract_closes_an_object_after_a_positive_interval() {
 }
 
 #[tokio::test]
-async fn lines_land_as_the_bytes_the_three_old_helpers_made() {
+async fn lines_land_as_the_text_helpers_bytes_and_as_the_value_helpers_lines() {
     let values = fixture_values();
     let lines: Vec<String> = values
         .iter()
@@ -150,10 +150,13 @@ async fn lines_land_as_the_bytes_the_three_old_helpers_made() {
         old_text_helper(&lines),
         "the court and onbid helpers"
     );
+    // The industrial notice helper serialized each value into the gzip stream token by token, and
+    // the deflate stream flate2 writes depends on how its input arrives in writes: the same lines,
+    // other bytes. The text is what Bronze holds for its readers, and it is the same.
     assert_eq!(
-        bytes,
-        old_value_helper(&values),
-        "the industrial notice helper"
+        text_of(&bytes),
+        text_of(&old_value_helper(&values)),
+        "the industrial notice helper's lines"
     );
     assert_eq!(objects[0].lines, lines.len());
     assert_eq!(objects[0].size_bytes, bytes.len() as u64);
