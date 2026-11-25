@@ -57,17 +57,19 @@ for lane_dir in "${root}"/*/; do
   fi
   for run in "${runs[@]}"; do
     [[ -n "${current}" && "${run}" -ef "${current}" ]] && continue
-    # Every stage of the run, the verdict's under verdict/ included (the publisher names them, so no
-    # path holds a newline).
-    stages="$(find "${run}" -mindepth 1 -type d -name '.duckdb-stage-*' -prune)"
-    while IFS= read -r stage; do
-      [[ -n "${stage}" ]] || continue
+    # Every stage of the run, the verdict's under verdict/ included. NUL-separated, so no name can
+    # split into another path; and nothing is removed that is not a real stage directory inside the
+    # run (no symbolic link, no `..`).
+    # shellcheck disable=SC2312 # a run that vanishes while it is read has no stage left to remove
+    while IFS= read -r -d '' stage; do
+      [[ "${stage}" == "${run}"/* && "${stage##*/}" == .duckdb-stage-* && "${stage}" != *"/../"* &&
+        -d "${stage}" && ! -L "${stage}" ]] || continue
       bytes="$(du -sb -- "${stage}" | cut -f1)"
       rm -rf -- "${stage}"
       printf 'removed %s bytes=%s lane=%s state=%s\n' "${stage}" "${bytes}" "${lane}" "${state}"
       count=$((count + 1))
       total=$((total + bytes))
-    done <<<"${stages}"
+    done < <(find "${run}" -mindepth 1 -type d -name '.duckdb-stage-*' -prune -print0)
   done
 done
 printf 'stage orphans removed=%s bytes=%s\n' "${count}" "${total}"
