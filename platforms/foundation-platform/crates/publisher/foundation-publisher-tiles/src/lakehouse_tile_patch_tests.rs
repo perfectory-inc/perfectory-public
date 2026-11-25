@@ -361,8 +361,8 @@ fn base(min_zoom: u8, max_zoom: u8) -> BaseHeader {
     BaseHeader {
         min_zoom,
         max_zoom,
-        bounds: [124.5, 33.0, 131.0, 38.75],
-        center: (127.75, 35.875, min_zoom),
+        bounds: [9.5, 9.75, 10.5, 10.25],
+        center: (10.0, 10.0, min_zoom),
         addressed_tiles: 1_000,
         gzip_tiles: true,
     }
