@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use catalog_application::verify_real_estate_broker::{BrokerRegister, VerifyRealEstateBroker};
 use catalog_application::{
-    ports::{JobSwitchBoard, MapEditStore, RuntimeManifestPublicationCapability, ServedReleases},
+    ports::{JobSwitchBoard, MapEditStore, RuntimeManifestPublicationCapability},
     AppendMapEdit, ArchiveIndustrialComplex, PromoteVectorTileManifest, RecordOperatorAction,
     RegisterIndustrialComplex, RollbackVectorTileManifest, RuntimeManifestReleases,
     UpdateIndustrialComplex,
@@ -801,9 +801,13 @@ impl AppState {
     }
 
     /// Pins admin polygon edits to the releases this names instead of the catalog's runtime
-    /// manifest (root ADR-0621 §3).
+    /// manifest (root ADR-0621 §3). Tests only: a deployment reads the catalog.
+    #[cfg(test)]
     #[must_use]
-    pub fn with_served_releases(mut self, releases: Arc<dyn ServedReleases>) -> Self {
+    pub fn with_served_releases(
+        mut self,
+        releases: Arc<dyn catalog_application::ports::ServedReleases>,
+    ) -> Self {
         self.append_map_edit = self.append_map_edit.with_releases(releases);
         self
     }
