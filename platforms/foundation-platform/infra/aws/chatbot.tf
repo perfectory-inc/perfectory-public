@@ -65,6 +65,10 @@ resource "aws_iam_role_policy_attachment" "chatbot" {
   policy_arn = aws_iam_policy.chatbot_notifications.arn
 }
 
+# The rule for what goes through it (coordinator, 2026-11-26): the service may store and process a
+# notification in any of its four Regions, outside ap-northeast-2. So only alarms whose message carries no
+# personal or business data publish to the topic: metadata such as "Dagster not running" (an alarm's name,
+# state, metric and the platform's own resource names). An alarm that would carry data does not use this topic.
 resource "aws_chatbot_slack_channel_configuration" "alarms" {
   region                = local.chatbot.control_region
   configuration_name    = local.chatbot.configuration_name

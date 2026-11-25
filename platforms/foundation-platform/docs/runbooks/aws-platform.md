@@ -123,6 +123,11 @@ gh attestation verify "oci://ghcr.io/perfectory-inc/foundation-release@$digest" 
 경보는 SNS `perfectory-platform-alarms` 에서 Slack 채널 하나로 간다. 저장하는 토큰은 없다. Slack 작업 공간을 AWS 에 허가하는 것만
 사람이 콘솔에서 한 번 한다(Slack 의 OAuth). 채널 묶음과 어느 경보가 가는지는 코드다(`infra/aws/chatbot.tf`, 주제에 알리는 경보).
 이 서비스는 서울에 제어 평면이 없다. 콘솔은 us-east-2 에만 있고, 설정도 us-east-2 로 다룬다(계약의 `alarms.chatbot`).
+주제·경보·다른 모든 자원은 ap-northeast-2 에 있다. 바깥으로 나가는 것은 채널 설정과 알림뿐이다.
+
+**규칙(코디네이터 2026-11-26).** 이 서비스는 알림을 네 리전(서울 밖) 어디서든 두고 처리한다. 그래서 이 주제에는 개인 정보나
+사업 데이터를 싣지 않는 경보만 알린다. 경보의 이름·상태·지표와 플랫폼 자원의 이름 같은 메타데이터다(예: 'Dagster 가 돌지 않는다').
+데이터를 실을 경보는 이 주제를 쓰지 않는다. 주제에 경보를 더하는 PR 은 이 규칙을 지키는지 본다.
 
 사장이 하는 것(한 번):
 
