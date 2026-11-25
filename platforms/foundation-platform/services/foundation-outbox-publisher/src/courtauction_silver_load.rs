@@ -44,7 +44,6 @@ use crate::onbid_silver_load::{contract, head, locked, pinned, served_snapshot_i
 use crate::public_data_control_support::required_env_value;
 
 const PLAN_ROOT_ENV: &str = "FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT";
-const PIPES_PROTOCOL_VERSION: &str = "0.1";
 
 /// The result checks of one table over the run's objects.
 #[derive(Default)]
@@ -70,28 +69,18 @@ impl TableChecks {
 
     /// The Pipes `report_asset_check` lines of the table's three checks.
     fn pipes_lines(&self, table: &str) -> Vec<Value> {
+        let asset = crate::pipes::asset_key(table);
         let line = |check: &str, passed: bool, detail: Value| {
-            let mut metadata = serde_json::Map::new();
-            for (name, value) in [
-                ("objects", json!(self.objects)),
-                ("rows", json!(self.rows)),
-                ("detail", detail),
-            ] {
-                metadata.insert(
-                    name.to_owned(),
-                    json!({"raw_value": value, "type": "__infer__"}),
-                );
-            }
-            json!({
-                "__dagster_pipes_version": PIPES_PROTOCOL_VERSION,
-                "method": "report_asset_check",
-                "params": {
-                    "asset_key": format!("iceberg/{}", table.replace('.', "/")),
-                    "check_name": check,
-                    "passed": passed,
-                    "metadata": metadata,
-                },
-            })
+            crate::pipes::asset_check(
+                &asset,
+                check,
+                passed,
+                [
+                    ("objects".to_owned(), json!(self.objects)),
+                    ("rows".to_owned(), json!(self.rows)),
+                    ("detail".to_owned(), detail),
+                ],
+            )
         };
         vec![
             line(

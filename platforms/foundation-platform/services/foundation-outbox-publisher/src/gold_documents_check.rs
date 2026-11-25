@@ -55,13 +55,13 @@ pub(crate) struct DocumentRules {
 }
 
 impl DocumentRules {
-    /// The rules of the lane that bakes `table`, or why its documents cannot be checked: no lane
-    /// bakes it, or the registry lists no document schema for the lane.
+    /// The lane whose documents a build of `table` holds to the registry, or why none: no by-PNU
+    /// lane bakes it, or the registry lists no document schema for the lane. [`Self::load`] loads
+    /// that lane's rules; `describe-checks` declares the check where this finds a lane.
     ///
     /// # Errors
-    /// Returns an error when the contract cannot be read, the schema does not compile, or the
-    /// renderer's inputs cannot be read.
-    pub(crate) async fn load(table: &str) -> anyhow::Result<Result<Self, String>> {
+    /// Returns an error when the by-PNU lane contract cannot be read.
+    pub(crate) fn checked_lane(table: &str) -> anyhow::Result<Result<ByPnuLane, String>> {
         let Some(lane) = ByPnuLane::all()?
             .into_iter()
             .find(|lane| sections::gold_table(*lane).table_name == table)
@@ -74,6 +74,20 @@ impl DocumentRules {
                 lane.name()
             )));
         }
+        Ok(Ok(lane))
+    }
+
+    /// The rules of the lane that bakes `table`, or why its documents cannot be checked: no lane
+    /// bakes it, or the registry lists no document schema for the lane.
+    ///
+    /// # Errors
+    /// Returns an error when the contract cannot be read, the schema does not compile, or the
+    /// renderer's inputs cannot be read.
+    pub(crate) async fn load(table: &str) -> anyhow::Result<Result<Self, String>> {
+        let lane = match Self::checked_lane(table)? {
+            Ok(lane) => lane,
+            Err(why) => return Ok(Err(why)),
+        };
         let validator = validator(lane)?;
         Ok(Ok(Self {
             lane,

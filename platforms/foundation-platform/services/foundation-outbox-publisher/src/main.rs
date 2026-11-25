@@ -61,6 +61,7 @@ mod data_go_kr_file_data_collect;
 mod data_go_kr_file_data_silver_load;
 mod data_go_kr_onbid_collect;
 mod dbase_table;
+mod describe_checks;
 mod describe_requirements;
 mod industrial_complex_address_resolution_build;
 mod industrial_complex_address_source_collect;
@@ -76,6 +77,7 @@ mod industrial_complex_notice_collect;
 mod industrial_land_sale_notice_collect;
 mod lakehouse_object_listing;
 mod onbid_silver_load;
+mod pipes;
 mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
@@ -388,12 +390,17 @@ enum Command {
 }
 
 fn main() -> anyhow::Result<()> {
-    // `describe-requirements <command>...` names other commands, so it is read before the parser,
-    // which takes one word.
+    // `describe-requirements <command>...` and `describe-checks <command>...` name other commands,
+    // so they are read before the parser, which takes one word.
     let words: Vec<String> = env::args().skip(1).collect();
     if words.first().map(String::as_str) == Some(describe_requirements::COMMAND) {
         let known = |command: &str| parse_command(["", command]).is_ok();
         println!("{}", describe_requirements::answer(&words[1..], known));
+        return Ok(());
+    }
+    if words.first().map(String::as_str) == Some(describe_checks::COMMAND) {
+        let known = |command: &str| parse_command(["", command]).is_ok();
+        println!("{}", describe_checks::answer(&words[1..], known)?);
         return Ok(());
     }
     let command = parse_command(env::args())?;

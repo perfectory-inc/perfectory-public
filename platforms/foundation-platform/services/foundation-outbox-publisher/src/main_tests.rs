@@ -1,5 +1,5 @@
 use super::runtime_environment::{validate_catalog_driver, RuntimeEnvironment};
-use super::{parse_command, Command};
+use super::{kind_versions_build::KIND_BUILDS, parse_command, Command};
 
 #[test]
 fn catalog_publisher_policy_allows_explicit_local_and_ci_adapters() {
@@ -30,4 +30,16 @@ fn parses_canonical_release_proof_command() {
     .expect("canonical release proof command should parse");
 
     assert_eq!(command, Command::WriteCanonicalReleaseProof);
+}
+
+/// `describe-checks` answers for the lanes the driver builds: each is a command of this program.
+#[test]
+fn every_lane_the_driver_builds_is_a_command() {
+    for kind in KIND_BUILDS {
+        assert!(
+            parse_command(["foundation-outbox-publisher", kind.job]).is_ok(),
+            "{} is no command",
+            kind.job
+        );
+    }
 }
