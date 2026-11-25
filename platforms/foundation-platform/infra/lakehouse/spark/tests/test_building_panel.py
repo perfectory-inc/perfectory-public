@@ -8,7 +8,7 @@ import json
 import unittest
 from pathlib import Path
 
-import test_industrial_complex_gold_schema_evolution  # Reuse the import-only stub.
+import pyspark_import_stub  # noqa: F401,E402  Import-only PySpark stub.
 import building_panel_silver_to_gold as job
 from test_deferred_pyspark_names_resolve import unresolved
 

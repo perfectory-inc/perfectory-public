@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
 use super::{
-    export_entry, parse_max_concurrency, profile_document, write_artifact_create_only,
-    ProfileExportConfig, ProfileOutput, ProfileOutputConfig,
+    complex_index, export_entry, parse_max_concurrency, profile_document,
+    write_artifact_create_only, ProfileExportConfig, ProfileOutput, ProfileOutputConfig,
 };
 use foundation_shared_kernel::ObjectUrlTemplate;
 use profile_document::GoldSnapshotProvenance;
@@ -167,5 +167,53 @@ fn export_concurrency_is_explicitly_bounded() -> anyhow::Result<()> {
     assert_eq!(parse_max_concurrency("32")?, 32);
     assert!(parse_max_concurrency("0").is_err());
     assert!(parse_max_concurrency("33").is_err());
+    Ok(())
+}
+
+/// A version of [`row`] in the catalog's versions table: the same content and the table's own
+/// columns.
+fn version(
+    complex_id: &str,
+    version_seq: i64,
+    row_state: Option<&str>,
+) -> JsonMap<String, JsonValue> {
+    let mut row = row();
+    row.insert("complex_id".to_owned(), json!(complex_id));
+    row.insert(
+        "row_digest".to_owned(),
+        json!(format!("digest-{version_seq}")),
+    );
+    row.insert("version_seq".to_owned(), json!(version_seq));
+    row.insert(
+        "row_state".to_owned(),
+        row_state.map_or(JsonValue::Null, |state| json!(state)),
+    );
+    row
+}
+
+/// The export reads the catalog's current rows by the contract's rule, with the replaced table's
+/// columns only: the newest version of a complex is its row, a complex whose newest version is a
+/// removal is gone, and a row's content hash is the one its profile had before the takeover.
+#[test]
+fn the_export_reads_the_current_rows_with_the_catalog_s_columns() -> anyhow::Result<()> {
+    let (kept, removed) = (
+        "0196e7e0-3c20-7000-8000-100000000002",
+        "0196e7e0-3c20-7000-8000-100000000003",
+    );
+    let mut older = version(kept, 1, None);
+    older.insert("name".to_owned(), json!("fixture complex, before"));
+    let rows = vec![
+        older,
+        version(kept, 2, None),
+        version(removed, 1, None),
+        version(removed, 2, Some("removed")),
+    ];
+    let current = crate::complex_catalog_current::current_rows(&rows)?;
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0], row());
+    assert_eq!(
+        complex_index::content_sha256(&current[0])?,
+        complex_index::content_sha256(&row())?
+    );
     Ok(())
 }

@@ -19,7 +19,7 @@
   ],
   "dependencies": [
     {
-      "from": "gold-complex-catalog",
+      "from": "gold-complex-catalog-versions",
       "to": "industrial-complex-gold-pointer-publish",
       "relation": "feeds",
       "status": "implemented",

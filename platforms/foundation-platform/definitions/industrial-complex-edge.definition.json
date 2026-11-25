@@ -9,7 +9,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The industrial-complex edge (root ADR-0456; its own job since root ADR-0563 §3; scripts/ops/industrial-complex-edge-export.sh): the publisher reads the current gold.complex_catalog and gold.complex_document_facts, writes a create-only profile only for the complexes whose content hash differs from the one the edge index holds, and publishes a new index generation only when an entry changed (`changed`); otherwise it writes nothing (`unchanged`). No Spark, so it holds no spark slot: started when a run of the lineage cycle (the complexes' region codes) or of the fact job (a complex's document facts) says it changed its table, and daily as the fallback for a hand-rebuilt Gold (root ADR-0171). A stopped run leaves profiles no index points at; the next run finds them byte-identical and publishes the index.",
+      "description": "The industrial-complex edge (root ADR-0456; its own job since root ADR-0563 §3; scripts/ops/industrial-complex-edge-export.sh): the publisher reads the current rows of gold.complex_catalog_versions and gold.complex_document_facts, writes a create-only profile only for the complexes whose content hash differs from the one the edge index holds, and publishes a new index generation only when an entry changed (`changed`); otherwise it writes nothing (`unchanged`). No Spark, so it holds no spark slot: started when a build of the catalog (gold_complex_catalog_versions_build) or a run of the fact job (a complex's document facts) says it changed its table, and daily as the fallback for a hand-rebuilt Gold (root ADR-0171). A stopped run leaves profiles no index points at; the next run finds them byte-identical and publishes the index.",
       "systemd_service": "foundation-industrial-complex-edge-export.service",
       "systemd_timer": null,
       "state_paths": [
@@ -38,7 +38,7 @@
       "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
-        "gold-complex-catalog-to-industrial-complex-edge-documents",
+        "gold-complex-catalog-versions-to-industrial-complex-edge-documents",
         "gold-complex-document-facts-to-industrial-complex-edge-documents"
       ],
       "enabled": true,
@@ -68,7 +68,7 @@
   ],
   "dependencies": [
     {
-      "from": "gold-complex-catalog",
+      "from": "gold-complex-catalog-versions",
       "to": "industrial-complex-edge-documents",
       "relation": "feeds",
       "status": "implemented",
@@ -76,7 +76,7 @@
         "platforms/foundation-platform/scripts/ops/industrial-complex-edge-export.sh",
         "export-industrial-complex-gold-profiles"
       ],
-      "description": "단지의 Gold 줄이 프로필의 본문이고 목록의 항목이다. 내용 해시가 바뀐 단지만 다시 쓴다."
+      "description": "판을 쌓는 표의 현재 행(계약의 규칙, 루트 ADR-0267)이 프로필의 본문이고 목록의 항목이다. 내용 해시가 바뀐 단지만 다시 쓴다."
     },
     {
       "from": "gold-complex-document-facts",

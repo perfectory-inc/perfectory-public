@@ -1,4 +1,5 @@
-//! Loads `gold.complex_catalog` into the canonical `catalog.industrial_complex` table.
+//! Loads the industrial-complex catalog (the current rows of `gold.complex_catalog_versions` since
+//! its takeover, root ADR-0564 §6) into the canonical `catalog.industrial_complex` table.
 //!
 //! This is the producer that table did not have. `GET /catalog/v1/complexes` reads
 //! `catalog.industrial_complex` directly, so until something wrote the sourced complexes into it
@@ -50,6 +51,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use crate::complex_catalog_current::{self, CATALOG_VERSIONS};
 use crate::lakehouse_snapshot_scan::{scan_snapshot_rows, LakehouseObjectReader};
 use crate::public_data_control_support::required_env_value;
 
@@ -70,15 +72,10 @@ pub async fn run() -> anyhow::Result<()> {
     )
     .context("failed to build the Iceberg catalog client")?;
     let snapshot = catalog
-        .load_current_snapshot_manifest_list(GOLD_COMPLEX_CATALOG.table_name)
+        .load_current_snapshot_manifest_list(CATALOG_VERSIONS)
         .await
         .context("failed to resolve the Gold catalog snapshot")?
-        .with_context(|| {
-            format!(
-                "{} has no current Iceberg snapshot to load",
-                GOLD_COMPLEX_CATALOG.table_name
-            )
-        })?;
+        .with_context(|| format!("{CATALOG_VERSIONS} has no current Iceberg snapshot to load"))?;
 
     // A read: the read-only pair (root ADR-0152), so the lineage stewardship unit that runs this
     // after it follows a code change (root ADR-0426) needs no writer key.
@@ -86,24 +83,32 @@ pub async fn run() -> anyhow::Result<()> {
         R2ObjectStorageConfig::lakehouse_reader_from_env()
             .context("failed to configure lakehouse R2 reads")?,
     );
-    let scanned = scan_snapshot_rows(&GOLD_COMPLEX_CATALOG, &lakehouse, &snapshot).await?;
+    let scanned = scan_snapshot_rows(
+        complex_catalog_current::versions_contract()?,
+        &lakehouse,
+        &snapshot,
+    )
+    .await?;
     let scanned_row_count =
         u64::try_from(scanned.rows.len()).context("scanned row count overflow")?;
-    if let Some(expected_row_count) = config.expected_row_count {
-        ensure!(
-            expected_row_count == scanned_row_count,
-            "{} snapshot {} holds {scanned_row_count} rows but {expected_row_count} were expected",
-            snapshot.table_name,
-            snapshot.snapshot_id
-        );
-    }
     ensure!(
         scanned_row_count == scanned.live_record_count(),
         "scanned {scanned_row_count} rows but the manifests declared {} rows",
         scanned.live_record_count()
     );
+    let current = complex_catalog_current::current_rows(&scanned.rows)?;
+    if let Some(expected_row_count) = config.expected_row_count {
+        let current_row_count =
+            u64::try_from(current.len()).context("current row count overflow")?;
+        ensure!(
+            expected_row_count == current_row_count,
+            "{} snapshot {} holds {current_row_count} current rows but {expected_row_count} were expected",
+            snapshot.table_name,
+            snapshot.snapshot_id
+        );
+    }
 
-    let plan = plan_catalog_rows(&scanned.rows)?;
+    let plan = plan_catalog_rows(&current)?;
 
     let pool = PgPool::connect(config.database_url.as_str())
         .await

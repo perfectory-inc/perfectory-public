@@ -1038,7 +1038,7 @@ pub(crate) fn shadow(
     }))
 }
 
-// one-off: until gold.parcel_boundary_served, the place-id release and gold.complex_catalog are
+// one-off: until gold.parcel_boundary_served and the place-id release are
 // replaced (each switch deletes its Spark job and its line here).
 /// The replaced tables whose builds carry no build tag and record no input pins, with the inputs
 /// their builds read: the Spark served-boundary job (root ADR-0133 §2) overwrites
@@ -1048,20 +1048,10 @@ pub(crate) fn shadow(
 /// time, taken here from the catalog's snapshot log. The place-id release (root ADR-0113 §8) reads
 /// its unit's inputs at their heads and overwrites a (unit, scope) partition each run; its units run
 /// one at a time (each holds every Spark slot), so the newest build read every input as of its commit.
-/// `gold.complex_catalog` was written by hand (`industrial_complex_silver_to_gold.py`, then its
-/// `--follow-region-codes` merges), each reading every input at its head and committing in the same run.
 const UNTAGGED_BUILDS: &[(&str, &[&str])] = &[
     ("gold.parcel_boundary_served", &["silver.parcel_boundaries"]),
     ("gold.place_id_registry", PLACE_ID_RELEASE_INPUTS),
     ("gold.place_id_bridge", PLACE_ID_RELEASE_INPUTS),
-    (
-        "gold.complex_catalog",
-        &[
-            "silver.industrial_complexes",
-            "reference.legal_dong_code_change",
-            "reference.legal_dong_code_snapshot",
-        ],
-    ),
 ];
 
 /// What a place-id release reads: the parcel unit's registry, the admin unit's boundaries and the

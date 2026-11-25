@@ -677,3 +677,32 @@ CI 의 `a-release-keeps-the-jobs-it-switches-off` 가드가 켜진 작업을 지
 
 **확인하지 못한 것.** 순환 안에서 빌드가 도는 첫 회차는 운영에서 돌지 않았다. 코드 버전과 입력 핀이 움직이므로 그 회차는 두 unit 을 모두 다시 셈한다.
 판정이 같았으므로 붙는 항목은 그 사이 움직인 입력만큼이어야 한다.
+
+## Revision 2026-11-27: 여덟째 넘겨받기 — 산업단지 목록 (결정 6-9, W103)
+
+산업단지 목록(`gold.complex_catalog`)이 넘겨받는다. 판의 빌드는 공통 판 드라이버의 통째 표 레인이다(ADR-0615, 2026-11-26 개정).
+
+**판정(운영의 자산 검사, 잰 값).** `takeover_equal` 이 그림자의 첫 커밋 `3815819634600759681`(version_seq 1, 1,442 키)을 옛 표의 가장 새 빌드 `5367547663421496057`(Spark)과
+같은 입력 핀에서 견줘 통과했다(유닛 run `20261126T072538Z`, 2026-11-26 07:26Z). 시도 41(`sido_code`, 레인이 선언한 칸)에서는 219 개 단지가 모두
+같았다(다름 0, 한쪽에만 0, 내용 칸 30). 전국에서는 1,442 행의 키 해시 합(`12936367720332501499973`)·내용 해시 합(`13045544053772042723337`)·칸마다의
+non-null 수가 같았다. 빌드는 20 초, 메모리 최고점 153 MB, 단계의 디스크 3.8 MB 였다(판정 단계 0.5 MB). 다음 회차(10:36Z)는 입력이 그대로라 `unchanged` 였다.
+
+**바꾸는 것.**
+- **읽는 쪽이 이 표의 현재 행을 읽는다.** 정본 적재(`load-industrial-complex-canonical`)와 프로필·엣지 내보내기(`export-industrial-complex-gold-profiles`)가
+  `gold.complex_catalog_versions` 의 현재 행을 계약의 규칙(ADR-0267)으로 읽는다. 둘 다 한 함수(`complex_catalog_current`)에서 읽고, 옛 표의 칸만 남긴다.
+  판 표의 칸(`row_digest`·`version_seq`·`row_state`)은 단지의 내용이 아니다. 그래서 넘겨받기 전에 쓴 프로필의 내용 해시가 그대로이고, 다시 쓰는 프로필이 없다.
+  둘은 지금처럼 얼린 스냅숏 독자로 읽는다(새 호출 파일은 없다). 둘이 함께 DuckDB 로 옮기는 일은 손 독자를 지울 때 한다(ADR-0622 열린 질문 1).
+- **정본 적재가 제 작업이다.** `industrial_complex_canonical_load` 가 판의 빌드의 `changed` 를 받아 돈다(`started_by: inputs`). 그 전에는 스튜어드 순환이
+  Spark 의 코드 따라가기(`--follow-region-codes`) 뒤에 이 적재를 불렀다. 이제는 판의 빌드가 짓기마다 효력 있는 코드 쌍을 따른다. 그래서 순환에서 그
+  단계를 지우고, 적재는 입력을 따라가는 자산이 된다(AWS 에서도 같은 모양이다). 적재의 유닛은 읽기 키 쌍과 DB 주소의 재료만 갖는다.
+  `gold-versions@` 에 DB 자격은 들어가지 않는다.
+- **엣지 내보내기를 시작하는 쪽**이 순환에서 판의 빌드로 바뀐다(간선 `gold-complex-catalog-versions → industrial-complex-edge-documents`).
+- **그림자가 끝난다.** 레인이 제 표를 읽는다(`Serves::Table("gold.complex_catalog_versions")`). 그래서 공통 커밋의 `UNTAGGED_BUILDS` 줄, 판정의
+  `BUILD_STAMPS` 줄, 정의의 `takeover_equal` 검사가 지워진다.
+- **지우는 것.** `industrial_complex_silver_to_gold.py` 와 그 시험 둘을 지운다. 다른 Spark 시험 열하나가 그 시험을 PySpark 가짜로 import 하고 있었다.
+  그 가짜는 `pyspark_import_stub.py` 로 옮긴다. 순환의 0a' 단계와 그 상태 파일도 지운다. 엔진 장부의 줄은 `moved` 다. 그래프에서 옛 표는
+  `unscheduled: replaced` 로 남는다. 옛 표로 들어오던 간선(Silver·법정동 두 표·그림자의 읽기)은 지운다. 옛 표에서 나가던 간선(포인터 발행·품질 관문·계보 사건·엣지)은
+  이 표에서 나간다.
+
+**확인하지 못한 것.** 정본 적재가 제 작업으로 도는 첫 회차와, 엣지 내보내기가 이 표에서 읽는 첫 회차는 운영에서 아직 돌지 않았다. 두 판정이 같았으므로 첫 적재는
+`unchanged` 여야 하고(넣거나 고친 행 0), 첫 내보내기는 프로필을 다시 쓰지 않아야 한다(내용 해시가 그대로).

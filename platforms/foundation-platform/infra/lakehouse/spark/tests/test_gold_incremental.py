@@ -13,7 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
-import test_industrial_complex_gold_schema_evolution  # noqa: F401  Import-only PySpark stub.
+import pyspark_import_stub  # noqa: F401,E402  Import-only PySpark stub.
 import gold_incremental as incremental  # noqa: E402
 import gold_rebuild as rebuild  # noqa: E402
 import building_panel_silver_to_gold as building  # noqa: E402

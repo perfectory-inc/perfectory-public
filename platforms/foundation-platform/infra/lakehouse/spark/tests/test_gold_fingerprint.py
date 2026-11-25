@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
-import test_industrial_complex_gold_schema_evolution  # noqa: F401  Import-only PySpark stub.
+import pyspark_import_stub  # noqa: F401,E402  Import-only PySpark stub.
 import by_pnu_panel_delta as delta  # noqa: E402
 import gold_fingerprint  # noqa: E402
 

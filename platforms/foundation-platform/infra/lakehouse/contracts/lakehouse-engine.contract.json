@@ -185,7 +185,11 @@
         }
       },
       "industrial_complex_silver_to_gold": {
-        "wave": 3
+        "moved": {
+          "pull_request": 1765,
+          "rows": 1442,
+          "fingerprint": "rows:1442;content_hash_sum:13045544053772042723337"
+        }
       },
       "industryland_or_kr": {
         "moved": {

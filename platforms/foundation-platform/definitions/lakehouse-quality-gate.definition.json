@@ -19,13 +19,14 @@
   ],
   "dependencies": [
     {
-      "from": "gold-complex-catalog",
+      "from": "gold-complex-catalog-versions",
       "to": "lakehouse-quality-gate",
       "relation": "validates",
       "status": "implemented",
       "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py"
-      ]
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/kind_versions_build/checks.rs"
+      ],
+      "description": "판의 빌드가 결과 검사(rows_and_keys 와 레인의 검사)를 어기면 덧붙이지 않는다(루트 ADR-0615 §7, ADR-0564 §6). 넘겨받기 전에는 Spark 작업의 품질 검사였다."
     }
   ]
 }

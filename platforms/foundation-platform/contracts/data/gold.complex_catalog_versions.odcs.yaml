@@ -199,7 +199,6 @@ customProperties:
       - "complex_id"
   - property: "upstreamDatasets"
     value:
-      - "gold.complex_catalog"
       - "reference.legal_dong_code_change"
       - "reference.legal_dong_code_snapshot"
       - "silver.industrial_complexes"

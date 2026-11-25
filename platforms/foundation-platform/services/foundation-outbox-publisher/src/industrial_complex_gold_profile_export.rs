@@ -1,7 +1,8 @@
 //! Industrial-complex Gold profile artifact export.
 //!
-//! Reads `gold.complex_catalog` from the Iceberg catalog and writes one immutable profile object
-//! per industrial complex, create-only. Its summary is the input
+//! Reads the current rows of `gold.complex_catalog_versions` from the Iceberg catalog (the catalog's
+//! table since its takeover, root ADR-0564 §6) and writes one immutable profile object per
+//! industrial complex, create-only. Its summary is the input
 //! `publish-industrial-complex-gold-pointer` needs: the object key, its checksum, its size, and the
 //! snapshot it represents.
 //!
@@ -30,7 +31,7 @@ use anyhow::{bail, ensure, Context};
 use chrono::{SecondsFormat, Utc};
 use foundation_shared_kernel::{ObjectKey, ObjectUrlTemplate};
 use futures_util::{stream, StreamExt as _, TryStreamExt as _};
-use lakehouse_domain::{GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_DOCUMENT_FACTS};
+use lakehouse_domain::GOLD_COMPLEX_DOCUMENT_FACTS;
 use lakehouse_infrastructure::{
     IcebergRestCatalog, IcebergSnapshotManifestList, LakehouseCatalogConfig,
 };
@@ -38,6 +39,7 @@ use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use uuid::Uuid;
 
+use crate::complex_catalog_current::{self, CATALOG_VERSIONS};
 use crate::industrial_complex_gold_profile_store::{
     local_root, ProfileObjectStore as ProfileOutput, ProfileStoreConfig as ProfileOutputConfig,
 };
@@ -70,15 +72,10 @@ pub async fn run() -> anyhow::Result<()> {
     )
     .context("failed to build the Iceberg catalog client")?;
     let snapshot = catalog
-        .load_current_snapshot_manifest_list(GOLD_COMPLEX_CATALOG.table_name)
+        .load_current_snapshot_manifest_list(CATALOG_VERSIONS)
         .await
         .context("failed to resolve the Gold catalog snapshot")?
-        .with_context(|| {
-            format!(
-                "{} has no current Iceberg snapshot to export",
-                GOLD_COMPLEX_CATALOG.table_name
-            )
-        })?;
+        .with_context(|| format!("{CATALOG_VERSIONS} has no current Iceberg snapshot to export"))?;
 
     // Absent until the fact job's first fold: then no profile carries document facts.
     let facts_snapshot = catalog
@@ -245,25 +242,33 @@ async fn export(
         manifest_list_location: snapshot.manifest_list_location.clone(),
     };
 
-    let rows = scan_snapshot_rows(&GOLD_COMPLEX_CATALOG, lakehouse, snapshot).await?;
-    let data_file_count = rows.data_file_count;
-    let scanned_row_count = u64::try_from(rows.rows.len()).context("scanned row count overflow")?;
+    let scanned = scan_snapshot_rows(
+        complex_catalog_current::versions_contract()?,
+        lakehouse,
+        snapshot,
+    )
+    .await?;
+    let data_file_count = scanned.data_file_count;
+    let scanned_row_count =
+        u64::try_from(scanned.rows.len()).context("scanned row count overflow")?;
+    ensure!(
+        scanned_row_count == scanned.live_record_count(),
+        "scanned {scanned_row_count} rows but the manifests declared {} rows",
+        scanned.live_record_count()
+    );
+    let rows = complex_catalog_current::current_rows(&scanned.rows)?;
     if let Some(expected_row_count) = config.expected_row_count {
+        let current = u64::try_from(rows.len()).context("current row count overflow")?;
         ensure!(
-            expected_row_count == scanned_row_count,
-            "{} snapshot {} holds {scanned_row_count} rows but {expected_row_count} were expected",
+            expected_row_count == current,
+            "{} snapshot {} holds {current} current rows but {expected_row_count} were expected",
             snapshot.table_name,
             snapshot.snapshot_id
         );
     }
-    ensure!(
-        scanned_row_count == rows.live_record_count(),
-        "scanned {scanned_row_count} rows but the manifests declared {} rows",
-        rows.live_record_count()
-    );
 
     let mut complex_ids = BTreeSet::new();
-    for row in &rows.rows {
+    for row in &rows {
         let complex_id = required_row_string(row, "complex_id")?;
         ensure!(
             complex_ids.insert(complex_id.clone()),
@@ -285,10 +290,10 @@ async fn export(
         .flat_map(|index| index.complexes.iter())
         .map(|entry| (entry.complex_id.as_str(), entry))
         .collect();
-    let mut index_entries = Vec::with_capacity(rows.rows.len());
+    let mut index_entries = Vec::with_capacity(rows.len());
     let mut changed = Vec::new();
     let mut document_facts_complex_count = 0_u64;
-    for row in &rows.rows {
+    for row in &rows {
         let complex_facts = facts_of(facts, row);
         document_facts_complex_count += u64::from(complex_facts.is_some());
         let content =
@@ -357,10 +362,10 @@ async fn export(
             .context("created object count overflow")?,
         reused_object_count: u64::try_from(entries.len() - created_object_count)
             .context("reused object count overflow")?,
-        placeholder_parcel_count_row_count: count_rows(&rows.rows, |row| {
+        placeholder_parcel_count_row_count: count_rows(&rows, |row| {
             row.get("parcel_count").and_then(JsonValue::as_i64) == Some(0)
         })?,
-        null_calculated_area_row_count: count_rows(&rows.rows, |row| {
+        null_calculated_area_row_count: count_rows(&rows, |row| {
             row.get("calculated_area_sqm")
                 .is_none_or(JsonValue::is_null)
         })?,

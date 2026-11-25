@@ -63,8 +63,6 @@ const BUILD_STAMPS: &[(&str, &[&str])] = &[
     // The place-id release's run (`parcel-<run>`, `admin-<run>`): the versions tables stamp their own.
     ("gold.place_id_registry", &["release_id"]),
     ("gold.place_id_bridge", &["release_id"]),
-    // The Silver snapshot the industrial-complex catalog's build read, on every row it wrote.
-    ("gold.complex_catalog", &["iceberg_snapshot_id"]),
 ];
 /// The row digest (root ADR-0099): a hash of the bytes a build wrote, which two engines need not
 /// write alike. The verdict compares the content it stands for, as values, and not the digest.

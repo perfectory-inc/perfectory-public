@@ -252,8 +252,8 @@ Lineage event contract 는
 `foundation-outbox-publisher publish-lakehouse-lineage-event` 가 emit 전에
 `LakehouseLineagePublisher::validate_event` 로 artifact 를 검증한다. (별도 fixture shape gate 였던
 `check-lineage-contract` 는 2026-06-22 self-verifying evidence-gate ceremony 정리에서 삭제되었다.)
-`industrial_complex_silver_to_gold.py` 는 materialized write 성공 시 `--lineage-output` 경로에 같은
-schema 의 runtime lineage artifact 를 쓴다. 아직 OpenLineage / Marquez receiver E2E 는 없다.
+넘겨받기(W103) 전까지 Spark 작업 `industrial_complex_silver_to_gold.py` 가 materialized write 성공 시
+`--lineage-output` 경로에 같은 schema 의 runtime lineage artifact 를 썼다; 판의 빌드는 그것을 쓰지 않는다. 아직 OpenLineage / Marquez receiver E2E 는 없다.
 
 Lineage artifact 를 endpoint 로 보내기 전에는 dry-run plan 을 먼저 생성한다.
 
@@ -288,62 +288,17 @@ persisted row count 가 candidate row count 와 같은 최신 row 만 반환한�
 산업단지 Silver 의 R2 Data Catalog / Iceberg 쓰기는 작업 `silver_industrial_complexes` 의 발행기 추가 커밋 하나다(Spark 의
 `industrial_complexes_smoke` 쓰기 smoke 는 그 job 과 함께 지웠다). 아래 Gold smoke 의 입력 smoke 테이블은 그 전에 쓰인 것이다.
 
-### Industrial-complex Gold projection write smoke
+### Industrial-complex catalog build (`gold.complex_catalog_versions`)
 
-Silver handoff 또는 smoke 입력이 있으면 Gold `complex_catalog` projection을 전용 Iceberg
-smoke 테이블에 기록한다.
+산업단지 목록은 판을 쌓는 표 `gold.complex_catalog_versions` 다(root ADR-0426, ADR-0564 §6). 공통 판 드라이버의
+통째 표 레인(root ADR-0615, 2026-11-26 개정)이 짓는다: `scripts/ops/gold-versions-build.sh complex-catalog` →
+`publisher build-complex-catalog-versions`. 단지마다 `silver.industrial_complexes` 의 현재 행을 읽고, 시도·시군구를
+효력 있는 법정동 코드 쌍으로 현재 코드까지 옮기고, 현재 시도의 이름을 붙여, 내용(`row_digest`)이 바뀐 단지만
+덧붙인다. 입력이나 코드 버전이 움직이지 않았으면 할 일이 없다. 손으로 다시 짓는 경로는 없다: 입력이 움직이면
+작업(`gold_complex_catalog_versions_build`)이 스스로 돈다.
 
-```bash
-docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI="<catalog-uri>" \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE="foundation-platform" \
-  -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN="<catalog-token>" \
-  spark spark-submit \
-  --conf spark.jars.ivy=/tmp/.ivy2 \
-  --packages "$(python3 -c 'import sys; sys.path.insert(0, "infra/lakehouse/spark/jobs"); from lakehouse_engine import iceberg_packages; print(iceberg_packages())')" \
-  /workspace/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py \
-  --input-mode iceberg \
-  --write-mode iceberg \
-  --source-iceberg-table industrial_complexes_smoke \
-  --target-iceberg-table complex_catalog_smoke \
-  --iceberg-snapshot-id "<source-snapshot-id>" \
-  --summary-output /workspace/target/lakehouse/smoke/summaries/gold_complex_catalog_iceberg.json \
-  --lineage-output /workspace/target/lakehouse/smoke/summaries/gold_complex_catalog_iceberg_lineage.json
-```
-
-#### 실 테이블 재실행 (`gold.complex_catalog`)
-
-계약이 넓어졌을 때 실 테이블을 다시 만드는 경로다. smoke 실행과 다른 점은 세 가지다.
-
-```bash
-  --source-iceberg-table industrial_complexes \
-  --target-iceberg-table complex_catalog \
-  --iceberg-write-mode overwrite \
-  --allow-non-smoke-overwrite \
-```
-
-- **`overwrite` 이지 `append` 가 아니다.** `gold.complex_catalog` 는 투영이고 품질 게이트가
-  `complex_id` 당 한 행을 요구한다. append 하면 같은 단지가 두 행이 되고, 잡이 쓴 뒤 다시 읽어
-  검증하는 `assert_unique_complex_ids` 가 그 자리에서 실패한다. 통과하더라도 canonical 적재기가
-  `official_complex_code` 중복으로 전체를 거부한다. 데이터를 잃는 선택이 아니다 — Iceberg 의
-  overwrite 는 새 스냅샷을 만들 뿐이고 이전 스냅샷은 시간여행으로 그대로 남는다.
-- **`--allow-non-smoke-overwrite` 가 필요하다.** 잡이 실 테이블 overwrite 를 기본으로 거부한다.
-- **스키마 진화가 먼저 돈다.** 실 테이블은 이전 계약으로 만들어져 있으므로, 쓰기 전에 계약에
-  있고 표에 없는 컬럼을 `ALTER TABLE ... ADD COLUMN` 으로 맞춘다. 어떤 컬럼이 더해졌는지는
-  실행 요약의 `schema_evolution_added_columns` 에 나온다. 이미 맞는 표에는 아무것도 하지 않는다.
-
-기본 target은 `gold.complex_catalog_smoke`다. job은 non-smoke
-flag is present, and it refuses fixture input for non-smoke targets. The Spark job emits a
-`foundation-platform.spark_run_summary.v1` summary with `contract = gold.complex_catalog`,
-`persisted_row_count`, source snapshot ids, and blocking quality metrics, applies the lakehouse
-quality rules (`foundation-outbox-publisher evaluate-lakehouse-quality-rules`), writes the
-`--lineage-output`, and is verified against the `foundation-platform.lakehouse_lineage_event.v1` contract.
-
-전체 Silver-to-Gold chain을 검증하려면 같은 전용 smoke 테이블을 대상으로 Bronze-to-Silver
-job 다음 Silver-to-Gold job을 순서대로 실행한다. Silver job은
-`silver.industrial_complexes_smoke`, and the Gold job reads that Iceberg table as its source and
-writes `gold.complex_catalog_smoke`. The Gold run summary must show `input.kind = iceberg` and
-`input.qualified_table = r2.silver.industrial_complexes_smoke`.
+넘겨받기(W103) 전의 `gold.complex_catalog` 는 Spark 작업 `industrial_complex_silver_to_gold.py` 가 지었고, 지금은
+쓰지 않고 남긴다.
 
 ### 계약이 넓어졌을 때의 실 테이블 재실행 3단계 (root ADR-0044)
 
@@ -356,19 +311,18 @@ writes `gold.complex_catalog_smoke`. The Gold run summary must show `input.kind 
 2. **Silver 재실행** — `--iceberg-write-mode overwrite --allow-non-smoke-overwrite`.
    `append` 는 안 된다: 같은 `source_snapshot_id` 로 두 번 쓰면
    `(official_complex_code, source_snapshot_id)` 유일성 게이트가 쓰고 다시 읽는 자리에서 실패한다.
-3. **Gold 재실행** — 같은 이유로 `overwrite` + `--allow-non-smoke-overwrite`, 그리고 2단계가 만든
-   Silver 스냅샷 id 를 `--iceberg-snapshot-id` 로 넘긴다.
+3. **Gold** — 손으로 하지 않는다. 판의 빌드가 2단계의 새 Silver 스냅샷을 입력으로 보고 다시 짓는다(계약이
+   넓어지면 코드 버전도 움직인다).
 
-두 잡 모두 쓰기 직전에 **스키마 진화 단계**를 돈다. 발행된 표는 이전 계약으로 만들어져 있고
+Silver 잡은 쓰기 직전에 **스키마 진화 단계**를 돈다. 발행된 표는 이전 계약으로 만들어져 있고
 `CREATE TABLE IF NOT EXISTS` 는 없는 표만 만들므로, 넓힌 계약이 살아 있는 표에 닿는 길은 이
 단계뿐이다. 어떤 컬럼이 더해졌는지는 실행 요약의 `schema_evolution_added_columns` 에 나오고,
-이미 계약과 같은 표에는 아무것도 하지 않는다. 단계 자체는 두 잡이 공유하는
-`platform_contracts.evolve_iceberg_table_to_contract` 하나다 — 같은 코드를 두 벌 두면 한쪽 표만
-넓히는 일이 가능해진다.
+이미 계약과 같은 표에는 아무것도 하지 않는다. 단계 자체는
+`platform_contracts.evolve_iceberg_table_to_contract` 하나다.
 
 ### Industrial-complex Gold profile artifact export
 
-`gold.complex_catalog` 를 Iceberg 카탈로그에서 읽어 산업단지 하나마다 프로필 객체 하나를
+`gold.complex_catalog_versions` 의 현재 행(계약의 규칙, root ADR-0267)을 Iceberg 카탈로그에서 읽어 산업단지 하나마다 프로필 객체 하나를
 `gold/industrial-complex/profiles/{artifact_id}.json` 에 create-only 로 쓴다(root ADR-0036).
 포인터는 발행하지 않는다 — 요약 JSON 이 다음 단계의 입력이다.
 
@@ -433,7 +387,7 @@ cargo run -p foundation-outbox-publisher -- publish-industrial-complex-gold-poin
 
 ### Industrial-complex canonical load (Gold → Postgres)
 
-`gold.complex_catalog` 의 현재 Iceberg 스냅샷을 읽어 `catalog.industrial_complex` 에
+`gold.complex_catalog_versions` 의 현재 행(계약의 규칙, root ADR-0267)을 읽어 `catalog.industrial_complex` 에
 `official_complex_code` 자연키로 upsert 한다(root ADR-0040). `GET /catalog/v1/complexes` 가 읽는
 표가 바로 이것이므로, 이 커맨드가 그 엔드포인트의 생산자다.
 
@@ -451,8 +405,9 @@ cargo run -p foundation-outbox-publisher -- load-industrial-complex-canonical
 요약 JSON 이 읽은 행수 · 삽입 · 갱신 · 무변경 · 건너뜀을 낸다.
 
 시도·시군구 코드와 `sido_name` 은 Gold 를 지을 때 기록된 법정동 코드 쌍으로 현재 코드까지 옮긴 값이다(root ADR-0426).
-코드 변경 기록이 바뀌면 `lineage_stewardship` 이 `industrial_complex_silver_to_gold.py --follow-region-codes` 로 그 짝이
-닿는 단지만 Gold 에서 다시 놓고 이 커맨드를 돌린다. 손으로 할 일은 없다.
+판의 빌드가 짓기마다 그 짝을 따르므로, 코드 변경 기록이 바뀌면 다음 빌드가 그 단지를 다시 놓는다. 이 커맨드는 제
+작업 `industrial_complex_canonical_load`(`scripts/ops/industrial-complex-canonical-load.sh`)로, 판의 빌드가
+`changed` 를 알리면 돈다(W103). 손으로 할 일은 없다.
 
 주소·상태·지정일·착공일·준공일·관리기관·시행자·시도/시군구 코드에 더해, 분양상태·조성진행률·
 사업기간(원문과 파생 두 달)·지정근거법·개발방식·조성목적·유치업종이 모두 신원 필드와 같은 Gold
