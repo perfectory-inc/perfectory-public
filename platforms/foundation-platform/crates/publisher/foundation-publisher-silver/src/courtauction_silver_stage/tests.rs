@@ -614,6 +614,11 @@ fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;
     let cases: serde_json::Value = serde_json::from_str(&fixture("item_search_complete.json")?)?;
+    // searches.sql's first statement reads the answers the pages are built from.
+    let role_sql = source.role_sql(Role::ItemSearch)?;
+    let answers = &role_sql[..role_sql
+        .find("CREATE OR REPLACE TEMP TABLE ca_search_lines")
+        .context("searches.sql reads its answers first")?];
     for case in cases.as_array().context("cases")? {
         let path = stage.directory().join("case.jsonl");
         let lines = case["lines"]
@@ -623,11 +628,11 @@ fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
             .map(|line| line.to_string() + "\n")
             .collect::<String>();
         std::fs::write(&path, lines)?;
-        stage.connection().execute_batch(&super::search_pages_sql(
-            &source,
-            Role::ItemSearch,
-            &sql_path(&path)?,
-        )?)?;
+        stage.connection().execute_batch(&format!(
+            "{}{}",
+            answers.replace("{object_path}", &sql_path(&path)?),
+            super::search_pages_sql(&source, Role::ItemSearch)?
+        ))?;
         assert_eq!(
             super::search_complete(&stage, &source, Role::ItemSearch)?,
             case["complete"].as_bool().context("complete")?,
@@ -859,28 +864,27 @@ fn pages_before_typed_read(source: &CourtAuctionSource, role: Role) -> anyhow::R
     ))
 }
 
-#[test]
-fn a_search_reads_its_file_as_lines_sql_read_it() -> anyhow::Result<()> {
-    // 2026-11-25 a search reads its file itself, typed (root ADR-0616 §3-1); its rows, its pages and
-    // its completeness are the ones lines.sql and the search's first statement of that day built.
-    // The other roles read their file through lines.sql, and their Spark fixtures are their oracle.
-    let role = Role::ItemSearch;
-    let directory = tempfile::tempdir()?;
-    let source = CourtAuctionSource::compiled()?;
-    let stage = DuckDbParquetStage::open(directory.path())?;
-    stage
-        .connection()
-        .execute_batch(&CourtAuctionSource::values_sql())?;
+/// A search's rows, pages and completeness.
+type SearchRead = (Vec<String>, Vec<String>, bool);
+
+/// The search `object` as [`read_object`] stages it, then as the SQL before the typed read
+/// (2026-11-25) and the declared shape (2026-11-26) built it (`fixtures/before_typed_read/`:
+/// lines.sql, the search's first statement and its rows statement over `json_extract`), with the
+/// real legal-dong code fields both times.
+fn search_read_now_and_before(
+    stage: &DuckDbParquetStage,
+    source: &CourtAuctionSource,
+    object: &PlannedObject,
+) -> anyhow::Result<(SearchRead, SearchRead)> {
     let ingested_at = chrono::Utc
         .with_ymd_and_hms(2099, 1, 2, 3, 4, 5)
         .single()
         .context("a time")?;
-    let object = object(stage.directory(), role)?;
-    read_object(&stage, &source, &object, ingested_at)?;
-    let typed = (
-        sorted_rows(&stage, "ca_search_rows")?,
-        sorted_rows(&stage, "ca_search_pages")?,
-        super::search_complete(&stage, &source, role)?,
+    read_object(stage, source, object, ingested_at)?;
+    let now = (
+        sorted_rows(stage, "ca_search_rows")?,
+        sorted_rows(stage, "ca_search_pages")?,
+        super::search_complete(stage, source, object.role)?,
     );
     stage.load_lines(&object.path, "ca_lines")?;
     stage
@@ -889,12 +893,17 @@ fn a_search_reads_its_file_as_lines_sql_read_it() -> anyhow::Result<()> {
     stage
         .connection()
         .execute_batch(&fixture("before_typed_read/search_lines.sql")?)?;
-    let role_sql = source.role_sql(role)?;
-    let rows = &role_sql[role_sql
-        .find("CREATE OR REPLACE TEMP TABLE ca_search_rows")
-        .context("searches.sql builds its rows")?..];
+    let from_code = &source.contract["pnu_resolution"]["from_code"];
+    let code = source.code_sql(&from_code["legal_dong_code_fields"], |field| {
+        format!("json_extract(item, '$.{field}')")
+    })?;
     stage.connection().execute_batch(
-        &rows
+        &fixture("before_typed_read/search_rows.sql")?
+            .replace("{code_fields}", &code)
+            .replace(
+                "{lot_field}",
+                from_code["lot_field"].as_str().context("the lot field")?,
+            )
             .replace("{object_key}", super::literal(&object.object_key)?)
             .replace("{snapshot_id}", super::literal(&object.source_snapshot_id)?)
             .replace(
@@ -904,14 +913,122 @@ fn a_search_reads_its_file_as_lines_sql_read_it() -> anyhow::Result<()> {
     )?;
     stage
         .connection()
-        .execute_batch(&pages_before_typed_read(&source, role)?)?;
+        .execute_batch(&pages_before_typed_read(source, object.role)?)?;
     let before = (
-        sorted_rows(&stage, "ca_search_rows")?,
-        sorted_rows(&stage, "ca_search_pages")?,
-        super::search_complete(&stage, &source, role)?,
+        sorted_rows(stage, "ca_search_rows")?,
+        sorted_rows(stage, "ca_search_pages")?,
+        super::search_complete(stage, source, object.role)?,
     );
-    assert!(!typed.0.is_empty(), "the fixture stages rows");
-    assert_eq!(typed, before);
+    Ok((now, before))
+}
+
+#[test]
+fn a_search_reads_its_fixture_as_the_sql_before_its_typed_read() -> anyhow::Result<()> {
+    // 2026-11-25 a search reads its file itself and 2026-11-26 each 물건 in its declared shape (root
+    // ADR-0616 §3-1); the other roles read their file through lines.sql, and their Spark fixtures
+    // are their oracle. The fixture's 물건 hold the legal-dong code fields or not: the code check
+    // fires on some rows and not on others.
+    let directory = tempfile::tempdir()?;
+    let source = CourtAuctionSource::compiled()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage
+        .connection()
+        .execute_batch(&CourtAuctionSource::values_sql())?;
+    let object = object(stage.directory(), Role::ItemSearch)?;
+    let (now, before) = search_read_now_and_before(&stage, &source, &object)?;
+    let coded = super::count(
+        &stage,
+        "ca_search_rows WHERE source_code_pnu_raw IS NOT NULL",
+    )?;
+    assert!(
+        coded > 0 && coded < u64::try_from(now.0.len())?,
+        "the code check fires on some rows, not all: {coded} of {}",
+        now.0.len()
+    );
+    assert_eq!(now, before);
+    Ok(())
+}
+
+/// A synthetic 물건 of `case_no`, keyed, with `fields` over its defaults.
+fn search_item(case_no: &str, fields: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    let mut item = serde_json::json!({
+        "boCd": "B999999", "saNo": case_no, "maemulSer": "1", "mokmulSer": 1, "jiwonNm": null,
+        "maeGiil": "20990115", "daepyoLotno": "7", "wgs84Xcordi": null,
+    });
+    for (field, value) in fields.as_object().context("the fields")? {
+        item[field] = value.clone();
+    }
+    Ok(item)
+}
+
+#[test]
+fn a_search_of_edge_answers_reads_as_the_sql_before_its_typed_read() -> anyhow::Result<()> {
+    // Answers the fixture does not hold: the code fields as numbers, null, short or with blanks;
+    // other fields present as null; a number for totalCnt; an empty body object, a body list, a
+    // `data` that is no object, an empty page. Every 물건 is keyed (one without its key refuses the
+    // object, before as now).
+    let request = serde_json::json!({"dma_srchGdsDtlSrchInfo": {
+        "cortAuctnSrchCondCd": "0004601", "lclDspslGdsLstUsgCd": "10000",
+        "bidBgngYmd": "20990101", "bidEndYmd": "20991231",
+    }});
+    let answer = |body: serde_json::Value| {
+        serde_json::json!({
+            "operation": "searchControllerMain", "request": request, "http_status": 200,
+            "body": body.to_string(),
+        })
+        .to_string()
+    };
+    let items = [
+        search_item(
+            "20990130000101",
+            &serde_json::json!({"daepyoSidoCd": 99, "daepyoSiguCd": 999, "daepyoDongCd": 101, "daepyoRdCd": 10}),
+        )?,
+        search_item(
+            "20990130000102",
+            &serde_json::json!({"daepyoSidoCd": "99", "daepyoSiguCd": null, "daepyoDongCd": "101", "daepyoRdCd": "00"}),
+        )?,
+        search_item(
+            "20990130000103",
+            &serde_json::json!({"daepyoSidoCd": "9", "daepyoSiguCd": "999", "daepyoDongCd": "101", "daepyoRdCd": "00"}),
+        )?,
+        search_item(
+            "20990130000104",
+            &serde_json::json!({"daepyoSidoCd": " 99", "daepyoSiguCd": "999 ", "daepyoDongCd": "101", "daepyoRdCd": "00", "daepyoLotno": null}),
+        )?,
+        search_item(
+            "20990130000105",
+            &serde_json::json!({"daepyoSidoCd": "99", "daepyoSiguCd": "999", "daepyoDongCd": "101", "daepyoRdCd": "00", "daepyoLotno": "산 12-3"}),
+        )?,
+    ];
+    let lines = [
+        answer(
+            serde_json::json!({"data": {"dma_pageInfo": {"totalCnt": 5}, "dlt_srchResult": items}}),
+        ),
+        answer(serde_json::json!({})),
+        answer(serde_json::json!([1, 2])),
+        answer(serde_json::json!({"data": 5})),
+        answer(
+            serde_json::json!({"data": {"dma_pageInfo": {"totalCnt": "5"}, "dlt_srchResult": []}}),
+        ),
+    ];
+    let directory = tempfile::tempdir()?;
+    let source = CourtAuctionSource::compiled()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage
+        .connection()
+        .execute_batch(&CourtAuctionSource::values_sql())?;
+    let path = stage.directory().join("edges.jsonl");
+    std::fs::write(&path, lines.join("\n") + "\n")?;
+    let object = PlannedObject {
+        object_key: OBJECT_KEY.to_owned(),
+        role: Role::ItemSearch,
+        source_snapshot_id: "20990102T030405Z".to_owned(),
+        path,
+    };
+    let (now, before) = search_read_now_and_before(&stage, &source, &object)?;
+    assert_eq!(now.0.len(), 5, "every 물건 is a row");
+    assert!(!now.1.is_empty(), "the answers are pages");
+    assert_eq!(now, before);
     Ok(())
 }
 

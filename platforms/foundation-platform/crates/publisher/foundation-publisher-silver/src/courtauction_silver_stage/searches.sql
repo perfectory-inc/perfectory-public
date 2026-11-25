@@ -6,62 +6,78 @@
 -- its two addresses to the one place-identity resolver (place_identity_stage).
 -- Parameters: {object_path}, {code_fields} (`code_of(item, FROM_CODE)` of `item`), {lot_field}, {object_key},
 -- {snapshot_id}, {ingested_at_epoch_seconds}.
--- The file is read here, not through lines.sql (root ADR-0616 §3-1): a search answers up to 165 KiB a line,
--- and its body is parsed once by json_transform straight into the list of 물건 (each a JSON value), so no
--- statement holds a whole line or a whole body. Line numbers as lines.sql numbers them.
+-- The file is read here once, not through lines.sql (root ADR-0616 §3-1): a search answers up to 165 KiB
+-- a line, and each body is parsed once by json_transform into what this file and the pages read
+-- (`ca_search_answers`: the 물건 list, each 물건 in its declared shape of the fields this file and
+-- {code_fields} read, each a JSON value so the value rules read what they read before, and the
+-- answer's totalCnt), with whether the body is an object; the pages
+-- (`courtauction_silver_stage::search_pages_sql`) are read from it, not from the file again. No
+-- statement holds a whole body or a whole 물건, and no 물건 is parsed again per field (2026-11-25:
+-- 38 parses a 물건, and the file read twice, needed over 2 GiB for one day's search). A field present
+-- as null reads as a missing one does, as `item.get` reads both. Line numbers as lines.sql numbers
+-- them.
+CREATE OR REPLACE TEMP TABLE ca_search_answers AS
+SELECT ordinality AS line_number, request,
+       CASE WHEN json_valid(json_extract_string(body, '$'))
+            THEN json_transform(json_extract_string(body, '$'), '{"data": {"dlt_srchResult": [{
+                     "boCd": "JSON", "saNo": "JSON", "maemulSer": "JSON", "mokmulSer": "JSON", "srnSaNo": "JSON",
+                     "jiwonNm": "JSON", "jpDeptNm": "JSON", "gamevalAmt": "JSON", "minmaePrice": "JSON",
+                     "maeGiil": "JSON", "maeHh1": "JSON", "maegyuljGiil": "JSON", "maePlace": "JSON",
+                     "yuchalCnt": "JSON", "maeAmt": "JSON", "jinstatCd": "JSON", "mulStatcd": "JSON",
+                     "mulJinYn": "JSON", "lclsUtilCd": "JSON", "mclsUtilCd": "JSON", "sclsUtilCd": "JSON",
+                     "hjguSido": "JSON", "hjguSigu": "JSON", "hjguDong": "JSON", "hjguRd": "JSON",
+                     "daepyoSidoCd": "JSON", "daepyoSiguCd": "JSON", "daepyoDongCd": "JSON", "daepyoRdCd": "JSON",
+                     "daepyoLotno": "JSON", "rdNm": "JSON", "buldNo": "JSON", "buldNm": "JSON", "printSt": "JSON",
+                     "wgs84Xcordi": "JSON", "wgs84Ycordi": "JSON"}], "dma_pageInfo": {"totalCnt": "JSON"}}}') END AS b,
+       coalesce(left(ltrim(json_extract_string(body, '$'), ' ' || chr(9) || chr(10) || chr(13)), 1) = '{', false) AS object_body
+FROM read_json('{object_path}', format = 'newline_delimited', records = true, maximum_object_size = 33554432,
+               columns = {request: 'JSON', http_status: 'JSON', body: 'JSON'})
+     WITH ORDINALITY
+WHERE json_type(http_status) IN ('BIGINT', 'UBIGINT', 'DOUBLE')
+  AND TRY_CAST(http_status AS DOUBLE) = 200;
+
 CREATE OR REPLACE TEMP TABLE ca_search_lines AS
-WITH answers AS (
-  SELECT ordinality AS line_number,
-         CASE WHEN json_valid(json_extract_string(body, '$'))
-              THEN json_transform(json_extract_string(body, '$'), '{"data": {"dlt_srchResult": ["JSON"]}}').data.dlt_srchResult
-         END AS l
-  FROM read_json('{object_path}', format = 'newline_delimited', records = true, maximum_object_size = 33554432,
-                 columns = {http_status: 'JSON', body: 'JSON'})
-       WITH ORDINALITY
-  -- `line.get("http_status") != 200`: the number 200 (a text "200" is no answer).
-  WHERE json_type(http_status) IN ('BIGINT', 'UBIGINT', 'DOUBLE')
-    AND TRY_CAST(http_status AS DOUBLE) = 200
-), listed AS (
+WITH listed AS (
   SELECT line_number, unnest(l) AS item, generate_subscripts(l, 1) AS n
-  FROM (SELECT line_number, coalesce(l, []) AS l FROM answers)
+  FROM (SELECT line_number, coalesce(b.data.dlt_srchResult, []) AS l FROM ca_search_answers)
 )
 SELECT line_number, n, item,
-       trim(coalesce(py_str(json_extract(item, '$.boCd')), 'None'), py_ws()) AS court_office_code,
-       trim(coalesce(py_str(json_extract(item, '$.saNo')), 'None'), py_ws()) AS case_no,
-       ca_whole(json_extract(item, '$.maemulSer')) AS property_seq,
-       ca_whole(json_extract(item, '$.mokmulSer')) AS item_seq
+       trim(coalesce(py_str(item.boCd), 'None'), py_ws()) AS court_office_code,
+       trim(coalesce(py_str(item.saNo), 'None'), py_ws()) AS case_no,
+       ca_whole(item.maemulSer) AS property_seq,
+       ca_whole(item.mokmulSer) AS item_seq
 FROM listed;
 
 CREATE OR REPLACE TEMP TABLE ca_search_rows AS
 SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq, CAST(item_seq AS INTEGER) AS item_seq,
-       py_text(json_extract(item, '$.srnSaNo')) AS user_case_no,
-       py_text(json_extract(item, '$.jiwonNm')) AS court_name,
-       py_text(json_extract(item, '$.jpDeptNm')) AS department_name,
-       ca_whole(json_extract(item, '$.gamevalAmt')) AS appraisal_amount_krw,
-       ca_whole(json_extract(item, '$.minmaePrice')) AS minimum_bid_price_krw,
-       onbid_ymd(json_extract(item, '$.maeGiil')) AS sale_date,
-       py_text(json_extract(item, '$.maeHh1')) AS sale_time_raw,
-       onbid_ymd(json_extract(item, '$.maegyuljGiil')) AS sale_decision_date,
-       py_text(json_extract(item, '$.maePlace')) AS sale_place,
-       CAST(ca_whole(json_extract(item, '$.yuchalCnt')) AS INTEGER) AS failed_bid_count,
-       nullif(ca_whole(json_extract(item, '$.maeAmt')), 0) AS sale_amount_krw,
-       py_text(json_extract(item, '$.jinstatCd')) AS case_status_code,
-       py_text(json_extract(item, '$.mulStatcd')) AS item_status_code,
-       py_text(json_extract(item, '$.mulJinYn')) AS item_in_progress_yn,
-       py_text(json_extract(item, '$.lclsUtilCd')) AS usage_lcls_code,
-       py_text(json_extract(item, '$.mclsUtilCd')) AS usage_mcls_code,
-       py_text(json_extract(item, '$.sclsUtilCd')) AS usage_scls_code,
-       py_text(json_extract(item, '$.hjguSido')) AS address_sido_name,
-       py_text(json_extract(item, '$.hjguSigu')) AS address_sigungu_name,
-       py_text(json_extract(item, '$.hjguDong')) AS address_dong_name,
-       py_text(json_extract(item, '$.hjguRd')) AS address_ri_name,
-       py_text(json_extract(item, '$.daepyoLotno')) AS representative_lot_raw,
-       py_text(json_extract(item, '$.rdNm')) AS road_name,
-       py_text(json_extract(item, '$.buldNo')) AS building_no_raw,
-       py_text(json_extract(item, '$.buldNm')) AS building_name,
-       py_text(json_extract(item, '$.printSt')) AS print_address_raw,
-       ca_decimal(json_extract(item, '$.wgs84Xcordi')) AS wgs84_x,
-       ca_decimal(json_extract(item, '$.wgs84Ycordi')) AS wgs84_y,
+       py_text(item.srnSaNo) AS user_case_no,
+       py_text(item.jiwonNm) AS court_name,
+       py_text(item.jpDeptNm) AS department_name,
+       ca_whole(item.gamevalAmt) AS appraisal_amount_krw,
+       ca_whole(item.minmaePrice) AS minimum_bid_price_krw,
+       onbid_ymd(item.maeGiil) AS sale_date,
+       py_text(item.maeHh1) AS sale_time_raw,
+       onbid_ymd(item.maegyuljGiil) AS sale_decision_date,
+       py_text(item.maePlace) AS sale_place,
+       CAST(ca_whole(item.yuchalCnt) AS INTEGER) AS failed_bid_count,
+       nullif(ca_whole(item.maeAmt), 0) AS sale_amount_krw,
+       py_text(item.jinstatCd) AS case_status_code,
+       py_text(item.mulStatcd) AS item_status_code,
+       py_text(item.mulJinYn) AS item_in_progress_yn,
+       py_text(item.lclsUtilCd) AS usage_lcls_code,
+       py_text(item.mclsUtilCd) AS usage_mcls_code,
+       py_text(item.sclsUtilCd) AS usage_scls_code,
+       py_text(item.hjguSido) AS address_sido_name,
+       py_text(item.hjguSigu) AS address_sigungu_name,
+       py_text(item.hjguDong) AS address_dong_name,
+       py_text(item.hjguRd) AS address_ri_name,
+       py_text(item.daepyoLotno) AS representative_lot_raw,
+       py_text(item.rdNm) AS road_name,
+       py_text(item.buldNo) AS building_no_raw,
+       py_text(item.buldNm) AS building_name,
+       py_text(item.printSt) AS print_address_raw,
+       ca_decimal(item.wgs84Xcordi) AS wgs84_x,
+       ca_decimal(item.wgs84Ycordi) AS wgs84_y,
        -- code_lot_pnu: the 10-digit code and the lot (산 -> ledger 2) as a 19-digit PNU, or none; a lot
        -- over 9999 names none.
        (SELECT CASE WHEN {code_fields} IS NOT NULL AND x.main <> ''
@@ -70,7 +86,7 @@ SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq
                          || lpad(CAST(place_int(x.main) AS VARCHAR), 4, '0')
                          || lpad(CAST(coalesce(place_int(nullif(x.sub, '')), 0) AS VARCHAR), 4, '0') END
         FROM (SELECT unnest(regexp_extract(
-                regexp_replace(coalesce(py_text(json_extract(item, '$.{lot_field}')), ''), '[' || py_ws() || ']+', '', 'g'),
+                regexp_replace(coalesce(py_text(item.{lot_field}), ''), '[' || py_ws() || ']+', '', 'g'),
                 place_lot_re(), ['mountain', 'main', 'sub']))) x) AS source_code_pnu_raw,
        '{object_key}' AS source_record_id, CAST(line_number AS INTEGER) AS source_line_number,
        '{snapshot_id}' AS source_snapshot_id, to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc

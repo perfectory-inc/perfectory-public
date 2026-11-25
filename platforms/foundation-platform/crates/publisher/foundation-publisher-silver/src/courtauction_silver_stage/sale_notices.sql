@@ -23,7 +23,8 @@ FROM (SELECT ordinality AS line_number, operation, request, read_outcome, py_tru
            WITH ORDINALITY)
 WHERE coalesce(json_extract_string(read_outcome, '$') = 'read', false)
   AND truthy AND json_valid(text) AND left(ltrim(text, ' ' || chr(9) || chr(10) || chr(13)), 1) = '{'
-  AND json_type(json_extract(text, '$.data')) = 'OBJECT';
+  -- json_type with the path asks the type in the parse: json_extract would write `data` out again.
+  AND json_type(text, '$.data') = 'OBJECT';
 
 -- Each detail line's key, read back from its request, and what the notice rows take from its data:
 -- the case count and the three lists, each of its objects only (`_list`).
