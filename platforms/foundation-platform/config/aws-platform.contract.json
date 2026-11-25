@@ -1,5 +1,5 @@
 {
-  "$comment": "Root ADR-0619. The base of the AWS account the data jobs move to (root ADR-0616): which account, which region, the tags every resource carries, the state bucket, the account's monthly budget and the network. infra/aws/main.tf reads this file and nothing else decides these values; the provider refuses every other account (allowed_account_ids), so an apply under the wrong profile stops before it reads or changes anything. Applied from the laptop with the SSO profile after the PR merges (docs/runbooks/aws-platform.md); nothing applies it on the data host.",
+  "$comment": "Root ADR-0619. The base of the AWS account the data jobs move to (root ADR-0616): which account, which region, the tags every resource carries, the state bucket, the account's monthly budget, the network, and Dagster's place: its cluster, service, database and alarm (root ADR-0616 A1). infra/aws/main.tf reads this file and nothing else decides these values; the provider refuses every other account (allowed_account_ids), so an apply under the wrong profile stops before it reads or changes anything. Applied from the laptop with the SSO profile after the PR merges (docs/runbooks/aws-platform.md); nothing applies it on the data host.",
   "schema_version": "foundation-platform.aws_platform.v1",
   "decision": "docs/adr/0619-the-aws-platform-account-is-one-opentofu-stack-pinned-to-its-account-with-its-budget-first-and-images-from-ghcr.md",
   "account": {
@@ -17,7 +17,7 @@
     "bucket": "perfectory-platform-tofu-state-091109217099",
     "key": "aws-platform/terraform.tfstate",
     "noncurrent_days": 90,
-    "reason": "The state of an AWS stack lives in its own account: the SSO role that applies it reads and writes it, so no second credential (the R2 keys the host's stacks use) reaches the laptop. Versioned so an apply that went wrong can be rolled back to the earlier state; old versions leave after 90 days. Locked by the S3 backend's own lock file (use_lockfile). The state holds no secret: no resource here has one."
+    "reason": "The state of an AWS stack lives in its own account: the SSO role that applies it reads and writes it, so no second credential (the R2 keys the host's stacks use) reaches the laptop. Versioned so an apply that went wrong can be rolled back to the earlier state; old versions leave after 90 days. Locked by the S3 backend's own lock file (use_lockfile). The state holds no secret: the database's password is RDS's own (manage_master_user_password), kept in Secrets Manager, and the state holds only that secret's ARN."
   },
   "budget": {
     "name": "perfectory-platform-monthly",
@@ -42,5 +42,32 @@
     },
     "address_reason": "The VPC's own address block is given at apply time (TF_VAR_vpc_cidr), not written here: this repository is public and holds no private network addressing (scripts/guard/public-repository-safety.sh). This file decides the shape: a /16 cut into /20 subnets, each subnet the netnum its zone has in public_subnets or private_subnets (cidrsubnet). Once the VPC exists the runbook reads its block back from AWS, and the VPC and its subnets refuse to be destroyed (prevent_destroy), so a wrong block stops the plan instead of replacing the network.",
     "reason": "No NAT gateway and no load balancer (root ADR-0616 §1, §10). Tasks run in the public subnets with a public IPv4 address and no inbound rule: they reach the sources, R2, GHCR and the AWS APIs through the internet gateway. The private subnets have no route out and hold only the database (RDS needs subnets in two zones). Two zones, because RDS requires them; 2a and 2c because every Fargate and RDS class is offered there. The account's default VPC is left as it is and used by nothing here."
+  },
+  "ecs": {
+    "cluster": "perfectory-platform",
+    "reason": "One cluster for the Dagster service and every run task it launches (root ADR-0616 §1-§2). Container Insights stays off: the alarm reads the service metrics ECS publishes for free."
+  },
+  "dagster": {
+    "service": "dagster",
+    "cpu": 512,
+    "memory": 2048,
+    "log_group": "/perfectory-platform/dagster",
+    "log_retention_days": 30,
+    "workspace": "/opt/foundation-platform/current/orchestration/dagster/aws/workspace.yaml",
+    "reason": "Owner approval 2026-11-25 (root ADR-0616 A1): the webserver and the daemon in one always-on Fargate ARM task of 0.5 vCPU and 2 GB (on ai-server the three containers use 687 MiB together). The image is the release's AWS code location by digest (root ADR-0620), given at apply time; the workspace is the AWS code location, which holds no job until A2 moves collectors one at a time. Runs are tasks of their own (EcsRunLauncher), sized per run. No inbound rule and no public address of its own beyond the task's IPv4 for egress; the UI is reached by SSM port forwarding (ECS Exec)."
+  },
+  "database": {
+    "identifier": "perfectory-platform",
+    "engine_version": "17",
+    "instance_class": "db.t4g.micro",
+    "allocated_storage_gb": 20,
+    "backup_retention_days": 7,
+    "name": "dagster",
+    "username": "dagster",
+    "reason": "Dagster's storage (runs, events, schedules; 1,001 MB on ai-server) on RDS PostgreSQL, one zone, the smallest Graviton class (root ADR-0616 §1, §10: 18.25 USD a month plus 0.131 a GB). In the private subnets only, reached from the tasks' security group only, TLS required (PostgreSQL 15+ on RDS forces SSL by default). RDS keeps the master password in Secrets Manager and rotates it; the Dagster task reads it through its task definition's secrets (the service's own credential, root ADR-0616 §2-8). The Bronze ledger gets its own database on this instance in A1b. Deletion protection and a final snapshot, so neither an apply nor a mistaken delete removes it."
+  },
+  "alarms": {
+    "topic": "perfectory-platform-alarms",
+    "reason": "Every alarm of this account publishes to one SNS topic. Urgent alarms go to Slack (owner, 2026-11-20); the Slack channel is bound to this topic by AWS Chatbot once the owner has authorized the Slack workspace in the console (a later step: this stack applies without it). Until then the alarm is visible in CloudWatch only."
   }
 }

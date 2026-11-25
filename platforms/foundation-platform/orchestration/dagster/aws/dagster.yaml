@@ -1,0 +1,44 @@
+# The Dagster instance on AWS (root ADR-0616 §1-§2, A1). The image puts this file in DAGSTER_HOME
+# (Dockerfile.aws); infra/aws/dagster.tf gives the database's address and the password, which RDS keeps
+# in Secrets Manager and ECS injects.
+storage:
+  postgres:
+    postgres_db:
+      hostname:
+        env: DAGSTER_PG_HOST
+      port:
+        env: DAGSTER_PG_PORT
+      db_name:
+        env: DAGSTER_PG_DB
+      username:
+        env: DAGSTER_PG_USERNAME
+      password:
+        env: DAGSTER_PG_PASSWORD
+      params:
+        sslmode: require
+
+run_coordinator:
+  module: dagster._core.run_coordinator
+  class: QueuedRunCoordinator
+
+# Every run is an ECS task of its own (root ADR-0616 §2-1), its task definition derived from the daemon's
+# container (cluster, subnets, security group, roles, environment and secrets), with the image the code
+# location says (DAGSTER_CURRENT_IMAGE). A run's size and role come from its tags (§2-8, §2-9).
+run_launcher:
+  module: dagster_aws.ecs
+  class: EcsRunLauncher
+  config:
+    use_current_ecs_task_config: true
+    include_sidecars: false
+
+# A run task that died (Spot, memory) is found by the launcher's health check and failed; a dead run is
+# retried once, a run whose asset or op failed is not (root ADR-0616 §2-7, ADR-0565 §3).
+run_monitoring:
+  enabled: true
+run_retries:
+  enabled: true
+  max_retries: 1
+  retry_on_asset_or_op_failure: false
+
+telemetry:
+  enabled: false

@@ -1,0 +1,6 @@
+# The AWS code location (root ADR-0616 A1): loaded in process by the webserver and the daemon of the one
+# Dagster task (infra/aws/dagster.tf), from the image's platform tree.
+load_from:
+  - python_file:
+      relative_path: definitions.py
+      location_name: foundation-aws

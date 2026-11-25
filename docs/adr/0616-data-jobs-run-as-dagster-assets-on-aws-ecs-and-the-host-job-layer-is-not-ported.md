@@ -104,6 +104,9 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
      (읽기만, 레이크하우스 쓰기, 원천 수집). 종류는 작업 정의의 한 낱말이다.
    - 비밀: 태스크 정의에 싣지 않는다. 일의 진입점이 제 태스크 역할로 Secrets Manager 에서 읽는다. 그래서 역할이 읽을 수 있는 비밀만 읽힌다.
      Dagster 서비스의 역할은 그 비밀을 읽지 못한다.
+   - Dagster 서비스 자신의 DB 비밀번호는 일의 비밀이 아니다(코디네이터 결정 2026-11-25, A1). RDS 가 Secrets Manager 에 두고 돌린다.
+     서비스의 태스크 정의는 그 비밀의 ARN 만 `secrets` 의 `valueFrom` 으로 든다. 값은 정의에도 상태 파일에도 없다.
+     run 태스크는 그것을 물려받는다. 실행기가 데몬의 컨테이너 정의를 복제하고, run 의 프로세스가 사건을 그 DB 에 쓰기 때문이다.
 9. **크기를 run 에 싣는 길.** 선언형 자동화가 만든 run 의 태그는 그 자동화 센서의 `run_tags` 에서 온다
    (`AutomationConditionSensorDefinition(target=…, run_tags=…)`, 1.13.27 에서 확인). 그래서 크기는 작업마다의 수가 아니라 **크기 등급**이다:
    등급마다 센서 하나가 그 등급의 자산을 고르고 `ecs/cpu`·`ecs/memory`·`ecs/ephemeral_storage`·역할(8)을 싣는다. 예약으로 도는 job 은 job 의 태그다.
