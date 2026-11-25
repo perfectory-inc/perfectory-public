@@ -1,8 +1,7 @@
 //! What every Gold versions build of the publisher reads besides its own stage: the table contracts,
 //! the rebuild contract's bounds, the served parcel edition, the lakehouse read and the run summary
 //! (root ADR-0564, ADR-0615 §7). The builds are `kind_versions_build` (every by-PNU kind lane),
-//! `place_id_versions_build`, `lineage_review_queue_versions_build` and
-//! `parcel_boundary_served_build`.
+//! `place_id_versions_build` and `lineage_review_queue_versions_build`.
 
 use anyhow::Context;
 use foundation_outbox::object_storage::R2ObjectStorageConfig;
@@ -76,6 +75,28 @@ pub(crate) fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
         warehouse: catalog.warehouse,
         catalog_token: catalog
             .catalog_token
+            .context("the lakehouse catalog token is required")?,
+        s3_endpoint: storage.endpoint,
+        s3_access_key_id: storage.access_key_id,
+        s3_secret_access_key: storage.secret_access_key,
+    })
+}
+
+/// The lakehouse read of a run that writes nothing (a rehearsal, a verdict): the data files with the
+/// read-only pair (root ADR-0152), the catalog with the run's own catalog settings (its read-only
+/// token).
+pub(crate) fn lakehouse_reader_read(
+    catalog: &LakehouseCatalogConfig,
+) -> anyhow::Result<LakehouseRead> {
+    let storage = R2ObjectStorageConfig::lakehouse_reader_from_env()
+        .context("failed to configure lakehouse R2 reads with the reader pair")?;
+    Ok(LakehouseRead {
+        extensions: duckdb_extensions::release_directory()?,
+        catalog_uri: catalog.catalog_uri.clone(),
+        warehouse: catalog.warehouse.clone(),
+        catalog_token: catalog
+            .catalog_token
+            .clone()
             .context("the lakehouse catalog token is required")?,
         s3_endpoint: storage.endpoint,
         s3_access_key_id: storage.access_key_id,

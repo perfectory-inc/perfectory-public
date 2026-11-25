@@ -124,7 +124,8 @@ mod lineage_review_items_load;
 mod lineage_review_queue_versions_build;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
-mod parcel_boundary_served_build;
+mod map_edit_ledger_append;
+mod parcel_boundary_handoff_export;
 mod parcel_lineage_derive;
 mod parcel_matching_gate;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
@@ -315,7 +316,8 @@ enum Command {
     LoadIndustrialComplexSilver,
     CheckBuildingRegisterFloorHistory,
     LoadBuildingRegisterFloorSilver,
-    BuildParcelBoundaryServed,
+    AppendMapEditLedger,
+    ExportParcelBoundaryHandoff,
     BuildParcelBoundaryServedVersions,
     BuildParcelNearbyVersions,
     BuildParcelRealTransactionVersions,
@@ -746,9 +748,10 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::LoadBuildingRegisterFloorSilver => {
             Box::pin(building_register_floor_silver_load::run())
         }
-        Command::BuildParcelBoundaryServed => Box::pin(parcel_boundary_served_build::run()),
+        Command::AppendMapEditLedger => Box::pin(map_edit_ledger_append::run()),
+        Command::ExportParcelBoundaryHandoff => Box::pin(parcel_boundary_handoff_export::run()),
         Command::BuildParcelBoundaryServedVersions => {
-            Box::pin(parcel_boundary_served_build::run_shadow())
+            Box::pin(kind_versions_build::run(&kind_versions_build::BOUNDARY_SERVED_BUILD))
         }
         Command::BuildParcelNearbyVersions => Box::pin(kind_versions_build::run(
             &kind_versions_build::NEARBY_BUILD,
@@ -976,7 +979,8 @@ where
             Ok(Command::CheckBuildingRegisterFloorHistory)
         }
         Some("load-building-register-floor-silver") => Ok(Command::LoadBuildingRegisterFloorSilver),
-        Some("build-parcel-boundary-served") => Ok(Command::BuildParcelBoundaryServed),
+        Some("append-map-edit-ledger") => Ok(Command::AppendMapEditLedger),
+        Some("export-parcel-boundary-handoff") => Ok(Command::ExportParcelBoundaryHandoff),
         Some("build-parcel-boundary-served-versions") => {
             Ok(Command::BuildParcelBoundaryServedVersions)
         }

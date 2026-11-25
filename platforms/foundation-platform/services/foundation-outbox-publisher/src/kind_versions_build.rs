@@ -38,12 +38,12 @@ use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
     factory_kind_stage::FACTORIES,
     kind_versions_stage::{
-        build_in_parts, ensure_no_commit_tables, leave_input_batch, load_region, national_verdict,
-        spool, spool_base, targets_from_spools, ChangeExplanation, KindVersionsStage,
-        PARCEL_SOURCE,
+        build_in_parts, ensure_no_commit_tables, leave_input_batch, load_ranged, load_region,
+        spool, spool_base, targets_from_spools, KindVersionsStage, PARCEL_SOURCE,
     },
     land_ownership_stage::OWNERSHIP,
     onbid_kind_stage::PUBLIC_AUCTION,
+    parcel_boundary_served_stage::SERVED_BOUNDARIES,
     parcel_nearby_stage::{NearbyPins, Source, NEARBY},
     parcel_panel_stage::PANEL,
     process_memory,
@@ -51,6 +51,7 @@ use foundation_publisher_silver::{
     record_kind_stage::{DEMOLITIONS, REGISTER_MASTERS},
     unit_price_stage::UNIT_PRICE,
 };
+use lakehouse_domain::{GOLD_VERSIONS_REMOVAL_COLUMN, GOLD_VERSION_SEQ_COLUMN};
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::{json, Value};
 
@@ -64,11 +65,19 @@ use crate::{
         VERSION_SEQ_PROPERTY,
     },
     gold_versions_support::{
-        contract, lakehouse_read, max_row_loss_fraction_of, served_edition, write_summary,
-        MAX_CHANGED_KEY_FRACTION, MEMORY_SHARE, REBUILD_CONTRACT,
+        contract, lakehouse_read, lakehouse_reader_read, max_row_loss_fraction_of, served_edition,
+        write_summary, MAX_CHANGED_KEY_FRACTION, MEMORY_SHARE, REBUILD_CONTRACT,
     },
     public_data_control_support::{optional_env_value, required_env_value},
 };
+
+mod checks;
+mod rehearsal;
+mod replaced;
+
+use checks::{explaining, run_national_checks, run_result_checks};
+use rehearsal::Rehearsal;
+use replaced::{replaced_as_of, replaced_edition};
 
 pub(crate) const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY";
 /// The 시도 a run is asked for, comma-separated (root ADR-0615 §2: the partition keys the
@@ -100,12 +109,22 @@ pub(crate) fn requested_partitions(text: Option<&str>) -> anyhow::Result<Option<
     Ok(Some(keys))
 }
 
-/// One lane's build: the versions table, its by-PNU lane (whose served Gold says whether this run
-/// is a shadow, root ADR-0564 §6), the table whose columns it carries and whose build a shadow
-/// follows, and the stage that computes it.
+/// What a lane's reader reads, which says whether a run of the lane is a shadow (root ADR-0564 §6).
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Serves {
+    /// A by-PNU lane: the lane contract names the Gold it bakes.
+    ByPnuLane(&'static str),
+    /// A Gold outside the by-PNU lanes (`gold_versions_tables_outside_the_lanes`): its reader reads
+    /// this table.
+    Table(&'static str),
+}
+
+/// One lane's build: the versions table, what its reader reads (whether this run is a shadow, root
+/// ADR-0564 §6), the table whose columns it carries and whose build a shadow follows, and the stage
+/// that computes it.
 pub(crate) struct KindBuild {
     pub table: &'static str,
-    pub lane: &'static str,
+    pub lane: Serves,
     pub replaced: &'static str,
     pub job: &'static str,
     pub stage: &'static (dyn KindVersionsStage + Sync),
@@ -120,7 +139,7 @@ pub(crate) struct KindBuild {
 /// Lane 1: the 총괄표제부 (root ADR-0450).
 pub(crate) const REGISTER_MASTERS_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_register_masters_versions",
-    lane: "parcel-register-masters",
+    lane: Serves::ByPnuLane("parcel-register-masters"),
     replaced: "gold.parcel_register_masters",
     job: "build-parcel-register-masters-versions",
     stage: &REGISTER_MASTERS,
@@ -130,7 +149,7 @@ pub(crate) const REGISTER_MASTERS_BUILD: KindBuild = KindBuild {
 /// Lane 2: the 철거·멸실 reports (root ADR-0399).
 pub(crate) const DEMOLITIONS_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_demolitions_versions",
-    lane: "parcel-demolitions",
+    lane: Serves::ByPnuLane("parcel-demolitions"),
     replaced: "gold.parcel_demolitions",
     job: "build-parcel-demolitions-versions",
     stage: &DEMOLITIONS,
@@ -140,7 +159,7 @@ pub(crate) const DEMOLITIONS_BUILD: KindBuild = KindBuild {
 /// Lane 3: the building energy (root ADR-0398).
 pub(crate) const ENERGY_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_energy_versions",
-    lane: "parcel-energy",
+    lane: Serves::ByPnuLane("parcel-energy"),
     replaced: "gold.parcel_energy",
     job: "build-parcel-energy-versions",
     stage: &ENERGY,
@@ -150,7 +169,7 @@ pub(crate) const ENERGY_BUILD: KindBuild = KindBuild {
 /// Lane 4: the 부속지번, read from both of a link's parcels (root ADR-0399).
 pub(crate) const SUB_PARCELS_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_sub_parcels_versions",
-    lane: "parcel-sub-parcels",
+    lane: Serves::ByPnuLane("parcel-sub-parcels"),
     replaced: "gold.parcel_sub_parcels",
     job: "build-parcel-sub-parcels-versions",
     stage: &SUB_PARCELS,
@@ -160,7 +179,7 @@ pub(crate) const SUB_PARCELS_BUILD: KindBuild = KindBuild {
 /// Lane 5: the 건축인허가 and the other files of the permit family (root ADR-0451, ADR-0464).
 pub(crate) const BUILDING_PERMITS_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_building_permits_versions",
-    lane: "parcel-building-permits",
+    lane: Serves::ByPnuLane("parcel-building-permits"),
     replaced: "gold.parcel_building_permits",
     job: "build-parcel-building-permits-versions",
     stage: &BUILDING_PERMITS,
@@ -172,7 +191,7 @@ pub(crate) const BUILDING_PERMITS_BUILD: KindBuild = KindBuild {
 /// bakes `gold.parcel_panel` this table is its shadow.
 pub(crate) const PARCEL_PANEL_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_panel_versions",
-    lane: "parcel",
+    lane: Serves::ByPnuLane("parcel"),
     replaced: "gold.parcel_panel",
     job: "build-parcel-panel-versions",
     stage: &PANEL,
@@ -182,7 +201,7 @@ pub(crate) const PARCEL_PANEL_BUILD: KindBuild = KindBuild {
 /// Lane 6: the owners (root ADR-0361).
 pub(crate) const OWNERSHIP_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_ownership_versions",
-    lane: "parcel-ownership",
+    lane: Serves::ByPnuLane("parcel-ownership"),
     replaced: "gold.parcel_ownership",
     job: "build-parcel-ownership-versions",
     stage: &OWNERSHIP,
@@ -192,7 +211,7 @@ pub(crate) const OWNERSHIP_BUILD: KindBuild = KindBuild {
 /// Lane 7: the registered factories (root ADR-0449).
 pub(crate) const FACTORIES_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_factories_versions",
-    lane: "parcel-factories",
+    lane: Serves::ByPnuLane("parcel-factories"),
     replaced: "gold.parcel_factories",
     job: "build-parcel-factories-versions",
     stage: &FACTORIES,
@@ -202,7 +221,7 @@ pub(crate) const FACTORIES_BUILD: KindBuild = KindBuild {
 /// Lane 8: the 공매 rounds (root ADR-0287, ADR-0340), built as of an instant.
 pub(crate) const PUBLIC_AUCTION_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_public_auction_versions",
-    lane: "parcel-public-auction",
+    lane: Serves::ByPnuLane("parcel-public-auction"),
     replaced: "gold.parcel_public_auction",
     job: "build-parcel-public-auction-versions",
     stage: &PUBLIC_AUCTION,
@@ -215,7 +234,7 @@ pub(crate) const PUBLIC_AUCTION_BUILD: KindBuild = KindBuild {
 /// committed.
 pub(crate) const REAL_TRANSACTION_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_real_transaction_versions",
-    lane: "parcel-real-transaction",
+    lane: Serves::ByPnuLane("parcel-real-transaction"),
     replaced: "gold.parcel_real_transaction",
     job: "build-parcel-real-transaction-versions",
     stage: &REAL_TRANSACTION,
@@ -232,16 +251,36 @@ pub(crate) const REAL_TRANSACTION_BUILD: KindBuild = KindBuild {
 /// `change_explanation`, root ADR-0596). Committed whole: the explanation judges every 시도's diff.
 pub(crate) const NEARBY_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_nearby_versions",
-    lane: "parcel-nearby",
+    lane: Serves::ByPnuLane("parcel-nearby"),
     replaced: "gold.parcel_nearby",
     job: "build-parcel-nearby-versions",
     stage: &NEARBY,
     per_sido_commits: false,
 };
 
+/// The served parcel boundaries (root ADR-0133 §2, ADR-0602): one edition with every ledgered edit
+/// applied, read a 시도 at a time by its key ranges (the stage's ranged read). A run in which only
+/// the ledger moved is a fold over the PNUs whose final edit state moved. A 시도 is its own commit:
+/// the tile bake's inputs are each 시도's state (root ADR-0618). The tile bake reads the replaced
+/// table until its switch names this one.
+pub(crate) const BOUNDARY_SERVED_BUILD: KindBuild = KindBuild {
+    table: "gold.parcel_boundary_served_versions",
+    lane: Serves::Table(lakehouse_domain::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED.table_name),
+    replaced: lakehouse_domain::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED.table_name,
+    job: "build-parcel-boundary-served-versions",
+    stage: &SERVED_BOUNDARIES,
+    per_sido_commits: true,
+};
+
+/// The candidate edition a rehearsal builds (root ADR-0618 §9).
+pub(crate) const REHEARSAL_EDITION_ENV: &str =
+    "FOUNDATION_PLATFORM_GOLD_VERSIONS_REHEARSAL_EDITION";
+/// Where a rehearsal writes what it built (create-only: a rehearsal's files are evidence).
+pub(crate) const REHEARSAL_DIR_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_REHEARSAL_DIR";
+
 pub(crate) const UNIT_PRICE_BUILD: KindBuild = KindBuild {
     table: "gold.unit_price_versions",
-    lane: "unit-price",
+    lane: Serves::ByPnuLane("unit-price"),
     replaced: "gold.unit_price",
     job: "build-unit-price-versions",
     stage: &UNIT_PRICE,
@@ -252,7 +291,7 @@ pub(crate) const UNIT_PRICE_BUILD: KindBuild = KindBuild {
 /// of an instant.
 pub(crate) const COURT_AUCTION_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_court_auction_versions",
-    lane: "parcel-court-auction",
+    lane: Serves::ByPnuLane("parcel-court-auction"),
     replaced: "gold.parcel_court_auction",
     job: "build-parcel-court-auction-versions",
     stage: &COURT_AUCTION,
@@ -267,10 +306,13 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let summary_path = required_env_value(SUMMARY_ENV)?;
     let published_at_utc = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let versions_contract = contract(table)?;
-    let content_columns: Vec<&'static str> = contract(kind.replaced)?
+    // The versions table's columns but the two each commit adds: the replaced table's, and the
+    // digest a replaced table whose producer wrote none gains (the served boundaries).
+    let content_columns: Vec<&'static str> = versions_contract
         .columns
         .iter()
         .map(|column| column.name)
+        .filter(|name| ![GOLD_VERSION_SEQ_COLUMN, GOLD_VERSIONS_REMOVAL_COLUMN].contains(name))
         .collect();
     // The kind line's `place_identity` gave the table its place id; the stage must carry it.
     ensure!(
@@ -284,19 +326,41 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             "does not carry"
         }
     );
-    let catalog = IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?;
-    let committer = LakehouseDataCommitter::from_env().await?;
-    let created = committer.create_table_if_absent(versions_contract).await?;
+    // A rehearsal reads with the reader's catalog token and writes nothing (root ADR-0618 §9).
+    let rehearsal = Rehearsal::from_env()?;
+    let catalog_config = if rehearsal.is_some() {
+        LakehouseCatalogConfig::reader_from_env()?
+    } else {
+        LakehouseCatalogConfig::from_env()?
+    };
+    let catalog = IcebergRestCatalog::new(catalog_config.clone())?;
+    let committer = match rehearsal {
+        Some(_) => None,
+        None => Some(LakehouseDataCommitter::from_env().await?),
+    };
+    let created = match &committer {
+        Some(committer) => committer.create_table_if_absent(versions_contract).await?,
+        None => false,
+    };
 
     // Plan.
-    let history = catalog
-        .load_main_snapshot_history(table)
-        .await?
-        .with_context(|| format!("{table} does not exist after its creation"))?;
+    // A rehearsal of a table that does not exist yet rehearses its first build.
+    let history = catalog.load_main_snapshot_history(table).await?;
+    ensure!(
+        rehearsal.is_some() || history.is_some(),
+        "{table} does not exist after its creation"
+    );
+    let history = history.unwrap_or_default();
     let base = versions::base(&history)?;
     let head = history.first().map(|snapshot| snapshot.snapshot_id);
-    let lane = ByPnuLane::named(kind.lane)?
-        .with_context(|| format!("the contract names no {} lane", kind.lane))?;
+    let served_table = match kind.lane {
+        Serves::ByPnuLane(name) => by_pnu_serving_manifest_publish::gold_table(
+            ByPnuLane::named(name)?
+                .with_context(|| format!("the contract names no {name} lane"))?,
+        ),
+        Serves::Table(served) => served,
+    };
+    // A rehearsal builds its candidate from the inputs' heads, never as a shadow.
     let versions::Planned {
         mut pins,
         served_edition: edition,
@@ -304,11 +368,25 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     } = versions::planned_inputs(
         &catalog,
         table,
-        by_pnu_serving_manifest_publish::gold_table(lane),
+        if rehearsal.is_some() {
+            table
+        } else {
+            served_table
+        },
         &stage.inputs(),
         served_edition()?,
     )
     .await?;
+    let edition = rehearsal
+        .as_ref()
+        .map_or(edition, |rehearsal| rehearsal.edition.clone());
+    let ranged = stage.ranged_reads();
+    let whole = stage.whole_table_inputs();
+    ensure!(
+        ranged.iter().all(|read| whole.contains(&read.input)),
+        "{table} reads an input by its ranges that is not whole-table: a partial run has no spool \
+         of it to compare (root ADR-0615 §7)"
+    );
     // Once the lane is no shadow, the inputs its rebuild contract entry names in `pins_from` are
     // read at the snapshots the host Gold's build read (root ADR-0190: a unit's price lies under the
     // PNU the building Gold places the unit at); a shadow reads its replaced build's pins.
@@ -340,7 +418,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         .as_ref()
         .map(|shadow| json!({"table": shadow.replaced, "build": shadow.build}));
     let code = stage.code_version();
-    if let Some(base) = &base {
+    if let (Some(base), None) = (&base, &rehearsal) {
         versions::pin(&catalog, table, base.snapshot_id, &base.pins).await?;
     }
     let work = Path::new(&summary_path)
@@ -358,6 +436,13 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         None
     };
     let stamp = as_of.clone().unwrap_or_else(|| published_at_utc.clone());
+    // A shadow whose replaced build records no edition builds the one that build's rows carry.
+    let edition = match (&shadow, stage.replaced_edition_sql()) {
+        (Some(shadow), Some(sql)) if shadow.served_edition.is_none() => {
+            replaced_edition(work, &shadow.replaced, shadow.build, sql)?
+        }
+        _ => edition,
+    };
     let moved = base
         .as_ref()
         .map_or_else(BTreeSet::new, |base| versions::moved(base, &pins));
@@ -389,7 +474,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     } else {
         states.sidos.values().all(|state| state.version == wanted)
     };
-    if unchanged {
+    if unchanged && rehearsal.is_none() {
         write_summary(
             &summary_path,
             &json!({
@@ -401,9 +486,10 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         println!("gold-versions {table} nothing to do: its inputs, edition and code are the base commit's");
         return Ok(());
     }
-    let whole = stage.whole_table_inputs();
-    let every_pnu = base.as_ref().is_none_or(|base| {
-        base.code_version != code
+    // A rehearsal builds every row of its candidate.
+    let every_pnu = rehearsal.is_some()
+        || base.as_ref().is_none_or(|base| {
+            base.code_version != code
             || base.served_edition.as_deref() != Some(edition.as_str())
             || moved.iter().any(|input| whole.contains(&input.as_str()))
             || !base.pins.keys().all(|input| pins.contains_key(input))
@@ -411,7 +497,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             // whole, from one read of its inputs (root ADR-0326: finding the change would read them
             // twice), and appends only the keys whose digest changed.
             || as_of.is_some()
-    });
+        });
     // A moved code version or served edition explains a change of any size (root ADR-0346).
     let moved_code_or_edition = base.as_ref().and_then(|base| {
         if base.code_version != code {
@@ -430,7 +516,10 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     // read once into a local spool split by 시도, then each 시도 is loaded, built, diffed and staged
     // before the next replaces it; one append commits them all.
     // Asked before the DuckDB session opens: the session is not `Send` across an await.
-    let shape = committer.table_shape(table).await?;
+    let shape = match &committer {
+        Some(committer) => Some(committer.table_shape(table).await?),
+        None => None,
+    };
     // The ingest log a batch is chosen by, read here for the same reason.
     let ingest_log = match &batch_input {
         Some(batch) => Some(
@@ -448,7 +537,12 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         Ok(rules) => Ok(rules),
         Err(_) => DocumentRules::load(table).await?,
     };
-    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
+    let read = if rehearsal.is_some() {
+        lakehouse_reader_read(&catalog_config)?
+    } else {
+        lakehouse_read()?
+    };
+    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &read)?;
     let memory_limit = duck.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
     duck.require_room(0)?;
     let connection = duck.connection();
@@ -556,6 +650,8 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let mut phases = Phases::default();
     *phases.0.entry("targets").or_default() += targets_millis;
     let mut checks = Vec::new();
+    // What a rehearsal wrote, a file a 시도.
+    let mut rehearsed = Vec::new();
     if let Err(why) = &document_rules {
         checks.push(json!({
             "table": table, "check": DOCUMENTS_CHECK, "skipped": why, "blocking": true,
@@ -616,6 +712,18 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             if named != Some(0) {
                 let at = Instant::now();
                 rows += load_region(stage, connection, spool_dir.path(), "", sido)?;
+                // What the stage reads by its ranges: the 시도's, or the 시군구 that hold a changed
+                // key.
+                if !ranged.is_empty() {
+                    let range = match named {
+                        None => sido_range(sido)?,
+                        Some(_) => format!(
+                            "({}) AND pnu IN (SELECT pnu FROM targets)",
+                            part_ranges(&target_parts(connection, sido)?)?
+                        ),
+                    };
+                    rows += load_ranged(stage, connection, &source, &edition, &range)?;
+                }
                 phases.add("load", at);
             }
             named
@@ -706,12 +814,31 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                 refused.join(", ")
             );
             let at = Instant::now();
-            let sido_files = versions::stage(&duck, &shape, &run, versions_contract)?;
+            // A rehearsal writes every built row of the 시도; a run that commits stages the changed
+            // ones.
+            let sido_files = match &rehearsal {
+                Some(rehearsal) => {
+                    rehearsed.push(rehearsal.write(connection, sido, &commit.content_columns)?);
+                    Vec::new()
+                }
+                None => versions::stage(
+                    &duck,
+                    shape
+                        .as_ref()
+                        .context("a run that commits knows its table's shape")?,
+                    &run,
+                    versions_contract,
+                )?,
+            };
             phases.add("stage", at);
             (sido_diff, sido_digests, sido_files)
         };
         if let (Some(total), Some(count)) = (targets.as_mut(), named) {
             *total += count;
+        }
+        if rehearsal.is_some() {
+            diff += sido_diff;
+            continue;
         }
         if !kind.per_sido_commits {
             diff += sido_diff;
@@ -822,7 +949,9 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         let at = Instant::now();
         let read_head = std::mem::replace(&mut commit.head, append_head);
         let snapshot = versions::append(
-            &committer,
+            committer
+                .as_ref()
+                .context("a run that commits has a committer")?,
             &catalog,
             &commit,
             &sido_files,
@@ -870,6 +999,30 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         kind.replaced,
         &mut checks,
     )?;
+    // A rehearsal stops here: what it built is in its files, and nothing is appended or tagged.
+    if let Some(rehearsal) = &rehearsal {
+        drop(duck);
+        let summary = json!({
+            "job": kind.job, "engine": "duckdb", "table": table, "outcome": "rehearsed",
+            "rehearsed_edition": edition, "pins": pins, "code_version": code,
+            "files": rehearsed, "rows": rows, "diff_against_head": diff, "checks": checks,
+            "phase_millis": phases.0, "read_millis": read.read_millis,
+            "duckdb_memory_limit_bytes": memory_limit,
+            "memory_peak_bytes": process_memory::cgroup_peak_bytes(),
+            "seconds": started.elapsed().as_secs_f64(),
+        });
+        write_summary(&summary_path, &summary)?;
+        write_summary(
+            &rehearsal.dir.join("summary.json").display().to_string(),
+            &summary,
+        )?;
+        println!(
+            "rehearsed {table} edition {edition}: {} 시도 written to {}, nothing committed",
+            rehearsed.len(),
+            rehearsal.dir.display()
+        );
+        return Ok(());
+    }
     if kind.per_sido_commits {
         if state_owed {
             // The 시도 that had nothing to append: one commit of no file records their state.
@@ -890,7 +1043,17 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             let batch = format!("{run}-state-{wanted}");
             commit.head = append_head;
             newest = Some(
-                versions::append(&committer, &catalog, &commit, &[], &batch, properties).await?,
+                versions::append(
+                    committer
+                        .as_ref()
+                        .context("a run that commits has a committer")?,
+                    &catalog,
+                    &commit,
+                    &[],
+                    &batch,
+                    properties,
+                )
+                .await?,
             );
         }
         drop(duck);
@@ -1005,8 +1168,17 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     if let (Some(batch), Some(id)) = (batch_input, &chosen_batch) {
         properties.insert(batch.property.to_owned(), id.clone());
     }
-    let snapshot =
-        versions::append(&committer, &catalog, &commit, &files, &run, properties).await?;
+    let snapshot = versions::append(
+        committer
+            .as_ref()
+            .context("a run that commits has a committer")?,
+        &catalog,
+        &commit,
+        &files,
+        &run,
+        properties,
+    )
+    .await?;
     drop(duck);
     let tags = versions::pin(&catalog, table, snapshot, &pins).await?;
     write_summary(
@@ -1055,116 +1227,6 @@ impl Phases {
 /// The check every lane's changed documents get: rendered by the lane's renderer and held to its
 /// schema-registry revision.
 const DOCUMENTS_CHECK: &str = "changed_documents_hold_their_schema";
-/// The keys a failing check shows.
-const CHECK_SAMPLES: usize = 5;
-
-/// Runs the kind's result checks on the 시도 the connection holds, prints each as a
-/// `gold-versions-check` line (a run a check refuses writes no summary), adds them to `results` and
-/// returns the blocking ones that counted a row.
-fn run_result_checks(
-    stage: &dyn KindVersionsStage,
-    connection: &foundation_publisher_silver::duckdb::Connection,
-    table: &str,
-    sido: &str,
-    results: &mut Vec<serde_json::Value>,
-) -> anyhow::Result<Vec<&'static str>> {
-    let mut refused = Vec::new();
-    for check in stage.result_checks() {
-        let breaches: i64 = connection
-            .query_row(&check.sql, [], |row| row.get(0))
-            .with_context(|| format!("the check {} of {table} did not run", check.name))?;
-        // The first keys that break it, when the check names them.
-        let samples = match &check.samples_sql {
-            Some(sql) if breaches != 0 => connection
-                .prepare(&format!("SELECT * FROM ({sql}) LIMIT {CHECK_SAMPLES}"))?
-                .query_map([], |row| row.get::<_, Option<String>>(0))?
-                .collect::<Result<Vec<_>, _>>()
-                .with_context(|| format!("the samples of {} of {table} did not run", check.name))?,
-            _ => Vec::new(),
-        };
-        let result = json!({
-            "table": table, "sido": sido, "check": check.name, "breaches": breaches,
-            "samples": samples, "blocking": check.blocking, "passed": breaches == 0,
-        });
-        println!("gold-versions-check {result}");
-        results.push(result);
-        if check.blocking && breaches != 0 {
-            refused.push(check.name);
-        }
-    }
-    Ok(refused)
-}
-
-/// The explanation a run gathers and judges: the kind's, on a run it can explain, one with a base
-/// in which neither the code nor the served edition moved (`unexplained`) and exactly the inputs it
-/// names did.
-fn explaining(
-    explanation: Option<ChangeExplanation>,
-    moved: &BTreeSet<String>,
-    unexplained: bool,
-) -> Option<ChangeExplanation> {
-    explanation.filter(|explanation| {
-        unexplained
-            && *moved
-                == explanation
-                    .moved
-                    .iter()
-                    .map(|input| (*input).to_owned())
-                    .collect::<BTreeSet<_>>()
-    })
-}
-
-/// Judges the kind's checks of the whole build over what its 시도 gathered, prints each as a
-/// `gold-versions-check` line and adds it to `results`; a blocking one past its bound refuses the
-/// build, before anything is appended. A bound is the replaced table's entry in the rebuild contract.
-///
-/// # Errors
-/// Returns the refusals, or an error when a check does not run or names a bound the contract lacks.
-fn run_national_checks(
-    national: &[foundation_publisher_silver::kind_versions_stage::NationalCheck],
-    connection: &foundation_publisher_silver::duckdb::Connection,
-    table: &str,
-    replaced: &str,
-    results: &mut Vec<Value>,
-) -> anyhow::Result<()> {
-    if national.is_empty() {
-        return Ok(());
-    }
-    let contract: Value = serde_json::from_str(REBUILD_CONTRACT)?;
-    let entry = &contract["tables"][replaced];
-    let mut refusals = Vec::new();
-    for check in national {
-        let (breaches, of): (i64, i64) = connection
-            .query_row(&check.count_sql, [], |row| Ok((row.get(0)?, row.get(1)?)))
-            .with_context(|| format!("the check {} of {table} did not run", check.name))?;
-        let (breaches, of) = (u64::try_from(breaches)?, u64::try_from(of)?);
-        let bound = check
-            .bound
-            .map(|key| {
-                entry[key].as_f64().with_context(|| {
-                    format!("gold-panel-rebuild.contract.json names no {key} of {replaced}")
-                })
-            })
-            .transpose()?;
-        let refused = national_verdict(check, breaches, of, bound);
-        let result = json!({
-            "table": table, "check": check.name, "breaches": breaches, "of": of, "bound": bound,
-            "blocking": check.blocking, "passed": refused.is_none(),
-        });
-        println!("gold-versions-check {result}");
-        results.push(result);
-        if let Some(why) = refused.filter(|_| check.blocking) {
-            refusals.push(why);
-        }
-    }
-    ensure!(
-        refusals.is_empty(),
-        "{}: nothing of {table} was appended",
-        refusals.join("; ")
-    );
-    Ok(())
-}
-
 /// The pins the rebuild contract's `pins_from` of `replaced` names (root ADR-0190, ADR-0564 §6):
 /// the snapshots the host Gold's build-tag commit read of those inputs; none when it names none.
 async fn host_pins(
@@ -1277,46 +1339,6 @@ fn commit_properties(
         properties.insert(AS_OF_PROPERTY.to_owned(), as_of.to_owned());
     }
     Ok(properties)
-}
-
-/// Whether `text` is a UTC instant as the builds write them (`YYYY-MM-DDTHH:MM:SSZ`, with an
-/// optional fraction): safe to write into SQL as a literal.
-fn is_instant(text: &str) -> bool {
-    chrono::DateTime::parse_from_rfc3339(text).is_ok()
-        && text.ends_with('Z')
-        && text
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'-' | b':' | b'T' | b'Z' | b'.'))
-}
-
-/// The instant the replaced table's build commit was built as of: its rows' newest
-/// `published_at_utc` (`onbid_public_auction_silver_to_gold.previous_build_time`; a merge that
-/// rebuilt some PNUs leaves its own instant on those and the older one on the rest).
-///
-/// # Errors
-/// Returns an error when the table cannot be read at `build`, holds no row, or its instant is not one.
-fn replaced_as_of(work: &Path, replaced: &str, build: i64) -> anyhow::Result<String> {
-    ensure!(
-        replaced
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'_' | b'.')),
-        "{replaced} is not a plain table name"
-    );
-    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
-    let instant: Option<String> = duck.connection().query_row(
-        &format!(
-            "SELECT CAST(max(published_at_utc) AS VARCHAR) FROM {pinned}",
-            pinned = foundation_publisher_silver::duckdb_parquet_stage::table_at(replaced, build)
-        ),
-        [],
-        |row| row.get(0),
-    )?;
-    let instant = instant.with_context(|| format!("{replaced} holds no row at {build}"))?;
-    ensure!(
-        is_instant(&instant),
-        "{replaced} at {build} was built as of {instant:?}, not a UTC instant"
-    );
-    Ok(instant)
 }
 
 /// The key range of one 시도, as a predicate on `pnu` that skips the files outside it.

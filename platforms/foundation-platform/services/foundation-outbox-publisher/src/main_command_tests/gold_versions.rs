@@ -64,6 +64,15 @@ fn build_versions_commands_are_explicit() -> anyhow::Result<()> {
             "build-parcel-court-auction-versions",
             Command::BuildParcelCourtAuctionVersions,
         ),
+        ("append-map-edit-ledger", Command::AppendMapEditLedger),
+        (
+            "export-parcel-boundary-handoff",
+            Command::ExportParcelBoundaryHandoff,
+        ),
+        (
+            "build-parcel-boundary-served-versions",
+            Command::BuildParcelBoundaryServedVersions,
+        ),
     ] {
         assert_eq!(
             parse_command(["foundation-outbox-publisher", name])?,
@@ -71,25 +80,6 @@ fn build_versions_commands_are_explicit() -> anyhow::Result<()> {
             "{name}"
         );
     }
-    Ok(())
-}
-
-#[test]
-fn build_parcel_boundary_served_commands_are_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-parcel-boundary-served"
-        ])?,
-        Command::BuildParcelBoundaryServed
-    );
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "build-parcel-boundary-served-versions"
-        ])?,
-        Command::BuildParcelBoundaryServedVersions
-    );
     Ok(())
 }
 

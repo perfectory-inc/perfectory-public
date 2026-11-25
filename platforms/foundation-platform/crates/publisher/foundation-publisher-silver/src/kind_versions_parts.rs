@@ -67,6 +67,7 @@ pub(crate) fn build_by_prefix(
     names.extend(stage.row_sets().iter().map(|set| set.name.to_owned()));
     names.extend(stage.pnu_spools().iter().map(|name| (*name).to_owned()));
     names.extend(stage.part_tables().iter().map(|name| (*name).to_owned()));
+    names.extend(stage.ranged_reads().iter().map(|read| read.name.to_owned()));
     names.push(PLACE_IDS.to_owned());
     names.sort();
     names.dedup();
