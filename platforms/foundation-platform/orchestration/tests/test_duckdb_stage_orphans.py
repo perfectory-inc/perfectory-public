@@ -150,9 +150,29 @@ class TheOrphans(unittest.TestCase):
         self.assertEqual(last["removed"], "2")
 
     def test_the_lane_unit_sweeps_its_runs_however_they_end(self):
+        # The unit's ExecStopPost is `gold-versions-build.sh cleanup` of the release its run started
+        # with (pinned-cleanup.sh, root ADR-0270 §3): the --stopped sweep of the lane its
+        # RuntimeDirectory names.
         text = UNIT.read_text(encoding="utf-8")
-        self.assertIn("ExecStopPost=/opt/foundation-platform/current/scripts/ops/duckdb-stage-orphans.sh "
-                      "%S/foundation-gold-versions %i --stopped", text)
+        self.assertIn("ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh "
+                      "gold-versions-build.sh\n", text)
+        self.assertIn("RuntimeDirectory=%N\n", text)
+        killed = self.stage("parcel-ownership", "20261125T165420Z", 3000)
+        other_newest = self.stage("parcel-nearby", "20261125T120000Z", 10)
+        self.states.write_text("parcel-nearby=inactive\n", encoding="utf-8")
+        env = {"PATH": self.path, "STATES": str(self.states), "FOUNDATION_GOLD_VERSIONS_STATE_ROOT": str(self.root)}
+
+        def cleanup(runtime):
+            return subprocess.run(["bash", str(BUILD), "cleanup"], env={**env, **runtime},
+                                  capture_output=True, text=True, timeout=60, check=False)
+
+        result = cleanup({"RUNTIME_DIRECTORY": str(self.temp / "foundation-gold-versions@parcel-ownership")})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(killed.exists(), result.stdout)
+        self.assertTrue((other_newest / "stage.duckdb").exists())
+        self.assertEqual(cleanup({}).returncode, 64, "a cleanup outside the lane's unit names no lane")
+        self.assertEqual(cleanup({"RUNTIME_DIRECTORY": str(self.temp / "foundation-gold-versions@no-such-lane")}).returncode,
+                         64, "a lane the script does not build is refused")
 
     def test_the_lane_script_clears_them_before_its_publisher_runs(self):
         text = BUILD.read_text(encoding="utf-8")

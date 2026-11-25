@@ -32,8 +32,22 @@
 # 그림자 커밋 뒤에는(그리고 그 머리의 판정이 끝까지 돌 때까지 다음 실행마다) 같은 유닛이 넘겨받기 판정
 # (gold-takeover-verdict.sh)을 선언된 시도에서 돌려 Dagster 의 자산 검사 `takeover_equal` 로 알린다(journal 의
 # Pipes 줄, orchestration/dagster/takeover_checks.py; ADR-0564 §6-3). 판정의 실패는 검사의 것이고 빌드의 커밋은 선다.
+#
+#   gold-versions-build.sh cleanup      the unit's ExecStopPost, through pinned-cleanup.sh: the release the
+#                                       run started with sweeps the stages its stopped run left, however it
+#                                       ended (duckdb-stage-orphans.sh --stopped; root ADR-0270 §3, ADR-0599).
+#                                       The lane is the unit's instance, named by its RuntimeDirectory.
 set -Eeuo pipefail
-lane="${1:?usage: gold-versions-build.sh <lane>}"
+if [[ "${1:-}" == cleanup ]]; then
+  [[ "$#" == 1 ]] || { echo "gold-versions-build: cleanup takes no arguments" >&2; exit 64; }
+  runtime="${RUNTIME_DIRECTORY:-}"
+  runtime="${runtime%%:*}"
+  lane="${runtime##*/foundation-gold-versions@}"
+  [[ -n "${runtime}" && "${lane}" != "${runtime}" ]] ||
+    { echo "gold-versions-build: cleanup runs as foundation-gold-versions@<lane>'s ExecStopPost (its RuntimeDirectory names the lane)" >&2; exit 64; }
+else
+  lane="${1:?usage: gold-versions-build.sh <lane>|cleanup}"
+fi
 case "${lane}" in
   parcel-nearby) command=build-parcel-nearby-versions ;;
   parcel-register-masters) command=build-parcel-register-masters-versions ;;
@@ -55,6 +69,10 @@ case "${lane}" in
   complex-catalog) command=build-complex-catalog-versions ;;
   *) echo "gold-versions-build: ${lane} has no table of appended row versions the publisher builds" >&2; exit 64 ;;
 esac
+if [[ "${1}" == cleanup ]]; then
+  exec bash "$(dirname "${BASH_SOURCE[0]}")/duckdb-stage-orphans.sh" \
+    "${FOUNDATION_GOLD_VERSIONS_STATE_ROOT:-/var/lib/foundation-gold-versions}" "${lane}" --stopped
+fi
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 # journal 의 줄과 실패한 실행 로그의 끝은 유닛 저널에도 간다(루트 ADR-0174).
 source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
