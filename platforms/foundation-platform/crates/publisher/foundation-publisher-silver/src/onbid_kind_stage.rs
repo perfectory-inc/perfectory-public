@@ -147,13 +147,13 @@ pub struct PublicAuctionKind;
 /// The one 공매 kind.
 pub const PUBLIC_AUCTION: PublicAuctionKind = PublicAuctionKind;
 
-fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
+pub(crate) fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
     lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(table)
         .with_context(|| format!("no lakehouse contract for {table}"))
 }
 
 /// The logical type of `column` of `table`, if the table has it.
-fn column_type(table: &str, column: &str) -> anyhow::Result<Option<&'static str>> {
+pub(crate) fn column_type(table: &str, column: &str) -> anyhow::Result<Option<&'static str>> {
     Ok(contract(table)?
         .columns
         .iter()
@@ -163,7 +163,7 @@ fn column_type(table: &str, column: &str) -> anyhow::Result<Option<&'static str>
 
 /// The SQL value of `alias.column` as the document writes it: an instant as `YYYY-MM-DDTHH:MM:SSZ`
 /// (whatever the session's time zone), every other type as `DuckDB`'s `to_json` writes it.
-fn value(alias: &str, column: &str, logical_type: &str) -> String {
+pub(crate) fn value(alias: &str, column: &str, logical_type: &str) -> String {
     if logical_type == "timestamp" {
         format!("strftime(make_timestamp(epoch_us({alias}.{column})), '%Y-%m-%dT%H:%M:%SZ')")
     } else {
@@ -304,7 +304,7 @@ fn quoted_list(values: &[&str]) -> String {
 
 /// The current rows of `table` at `source` into the temporary table `into` (the contract's one
 /// rendering, root ADR-0564 §4): every column of its contract.
-fn load_current(
+pub(crate) fn load_current(
     connection: &Connection,
     source: &Source<'_>,
     table: &str,

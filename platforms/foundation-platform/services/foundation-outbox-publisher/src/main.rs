@@ -333,6 +333,7 @@ enum Command {
     BuildUnitPriceVersions,
     BuildUnitOfficialPriceVersions,
     ExportUnitOfficialPriceTakeoverSides,
+    BuildParcelCourtAuctionVersions,
     ExportGoldVersionsChangeSet,
     ExportGoldTakeoverSides,
     ShowGoldTakeoverSwitch,
@@ -761,6 +762,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportUnitOfficialPriceTakeoverSides => {
             Box::pin(unit_official_price_versions_build::export_sides())
         }
+        Command::BuildParcelCourtAuctionVersions => Box::pin(kind_versions_build::run(
+            &kind_versions_build::COURT_AUCTION_BUILD,
+        )),
         Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
         Command::ExportGoldTakeoverSides => Box::pin(gold_takeover_sides::export()),
         Command::ShowGoldTakeoverSwitch => Box::pin(gold_takeover_sides::switch()),
@@ -968,6 +972,7 @@ where
         Some("export-unit-official-price-takeover-sides") => {
             Ok(Command::ExportUnitOfficialPriceTakeoverSides)
         }
+        Some("build-parcel-court-auction-versions") => Ok(Command::BuildParcelCourtAuctionVersions),
         Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
         Some("export-gold-takeover-sides") => Ok(Command::ExportGoldTakeoverSides),
         Some("show-gold-takeover-switch") => Ok(Command::ShowGoldTakeoverSwitch),

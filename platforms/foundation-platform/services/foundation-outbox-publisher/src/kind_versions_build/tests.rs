@@ -34,7 +34,7 @@ fn a_run_is_asked_for_sido_by_their_two_digits_or_for_none() -> anyhow::Result<(
 }
 
 /// Every lane on the shared driver.
-const LANES: [&KindBuild; 12] = [
+const LANES: [&KindBuild; 13] = [
     &REGISTER_MASTERS_BUILD,
     &DEMOLITIONS_BUILD,
     &ENERGY_BUILD,
@@ -47,6 +47,7 @@ const LANES: [&KindBuild; 12] = [
     &REAL_TRANSACTION_BUILD,
     &UNIT_PRICE_BUILD,
     &NEARBY_BUILD,
+    &COURT_AUCTION_BUILD,
 ];
 
 /// A kind line that names `place_identity` gives its table a `place_id` column (by_pnu_kind
