@@ -19,7 +19,7 @@ last_reviewed: 2026-11-25
 | 상태 버킷 `perfectory-platform-tofu-state-091109217099` | S3, 같은 계정 | 이 스택(처음 한 번은 아래 절차) |
 | VPC `perfectory-platform`(/16, 주소 블록은 적용 때 `TF_VAR_vpc_cidr`), 공개 서브넷 둘(태스크), 사설 서브넷 둘(DB), 인터넷 게이트웨이 | VPC, ap-northeast-2a·2c | 이 스택. NAT·ALB 없음. VPC·서브넷은 `prevent_destroy` |
 | Dagster(A1, [루트 ADR-0616](../../../../docs/adr/0616-data-jobs-run-as-dagster-assets-on-aws-ecs-and-the-host-job-layer-is-not-ported.md)): ECS 클러스터 `perfectory-platform`, 늘 켠 서비스 `dagster`(웹서버 + 데몬, Fargate ARM 0.5 vCPU / 2 GB), run 마다 태스크(`EcsRunLauncher`) | ECS, 공개 서브넷(들어오는 규칙 없음) | 이 스택(`infra/aws/dagster.tf`). 이미지는 적용 때 `TF_VAR_dagster_image`(릴리스의 `<commit>-aws-code-location` digest). 일은 아직 없다 |
-| Dagster 의 저장소: RDS PostgreSQL 17 `perfectory-platform`(db.t4g.micro, 20 GB, 사설 서브넷만) | RDS. 비밀번호는 RDS 가 Secrets Manager 에 두고 돌린다 | 이 스택. 삭제 보호·마지막 스냅숏·`prevent_destroy` |
+| Dagster 의 저장소: RDS PostgreSQL 17 `perfectory-platform`(db.t4g.micro, 20 GB, 사설 서브넷만) | RDS. Dagster 와 그 run 은 이 데이터베이스만 가진 역할 `dagster` 로 붙는다(비밀 `perfectory-platform/dagster-database`, 상태 파일에 없다). master 의 비밀은 부트스트랩 태스크만 읽는다 | 이 스택. 삭제 보호·마지막 스냅숏·`prevent_destroy` |
 | 경보 `perfectory-platform-dagster-not-running`(10 분 동안 Dagster 태스크가 없으면) → SNS `perfectory-platform-alarms` | CloudWatch·SNS | 이 스택. Slack 으로 잇는 AWS Chatbot 은 사장이 Slack 작업 공간을 한 번 허가한 뒤의 다음 걸음이다. 그때까지는 CloudWatch 에서만 보인다 |
 | 예산 메일 주소 | 적용할 때의 환경 변수 `TF_VAR_budget_alert_emails` | 사람이 적용할 때 준다. 파일·저장소에 적지 않는다(공개 저장소) |
 | 프런트 도어의 CloudFront 전용 예산 `perfectory-cdn-free-tier` | AWS Budgets | `infra/cdn`(호스트의 엣지 적용, [엣지 설정](./edge-settings.md)) |
@@ -69,6 +69,32 @@ tofu init -input=false -migrate-state -force-copy
 tofu plan -input=false -detailed-exitcode   # 0 = 바뀔 것 없음. 옮긴 상태가 맞다는 증거
 rm -f "$TF_DATA_DIR/bootstrap.tfstate" "$TF_DATA_DIR/bootstrap.tfstate.backup"
 ```
+
+## Dagster 의 데이터베이스 역할 (A1 처음 한 번, 그리고 그 비밀번호를 바꾼 뒤)
+
+Dagster 는 RDS 의 master 사용자로 붙지 않는다. `infra/aws/database-bootstrap.sql` 이 이 데이터베이스만 가진 역할을 만들고 비밀번호를 맞춘다.
+그 SQL 은 일회성 태스크 `perfectory-platform-database-bootstrap` 이 master 로 돌린다. master 의 비밀을 읽는 것은 그 태스크의 실행 역할뿐이다.
+SQL 은 몇 번을 돌려도 같다. 서비스가 처음 뜨기 전에 한 번 돌린다.
+
+```bash
+# 1) 데이터베이스, 두 비밀, 부트스트랩의 역할·태스크 정의, 그리고 태스크가 DB 에 닿을 규칙만 먼저
+tofu apply -input=false -target=aws_ecs_task_definition.database_bootstrap -target=aws_ecs_cluster.platform \
+  -target=aws_vpc_security_group_egress_rule.tasks_https -target=aws_vpc_security_group_egress_rule.tasks_database \
+  -target=aws_vpc_security_group_ingress_rule.database_from_tasks
+# 2) 부트스트랩을 한 번 돌리고, 끝 코드가 0 인지 본다(로그: /perfectory-platform/dagster 의 database-bootstrap/…)
+sg="$(aws ec2 describe-security-groups --filters Name=group-name,Values=perfectory-platform-tasks --query 'SecurityGroups[0].GroupId' --output text)"
+subnet="$(aws ec2 describe-subnets --filters Name=tag:Name,Values=perfectory-platform-public-ap-northeast-2a --query 'Subnets[0].SubnetId' --output text)"
+task="$(aws ecs run-task --cluster perfectory-platform --task-definition perfectory-platform-database-bootstrap --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[$subnet],securityGroups=[$sg],assignPublicIp=ENABLED}" --query 'tasks[0].taskArn' --output text)"
+aws ecs wait tasks-stopped --cluster perfectory-platform --tasks "$task"
+aws ecs describe-tasks --cluster perfectory-platform --tasks "$task" --query 'tasks[0].containers[0].exitCode' --output text   # 0
+# 3) 이제 나머지(서비스·경보)
+tofu apply -input=false
+```
+
+비밀번호를 바꿀 때: `dagster.tf` 의 `secret_string_wo_version` 을 하나 올리는 PR 을 병합하고 적용한다. 그다음 위 2) 를 돌리고,
+서비스가 새 비밀번호로 다시 뜨게 한다(`aws ecs update-service --cluster perfectory-platform --service dagster --force-new-deployment`).
+ECS 는 비밀을 태스크가 뜰 때 넣는다.
 
 ## Dagster 의 이미지 고르기 (A1, 적용마다)
 
