@@ -27,8 +27,9 @@ use foundation_publisher_core::lakehouse_data_commit::{
 use foundation_publisher_silver::{
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
     parcel_lineage_schedule::{
-        awaits_load, edition_pairs, is_held, sido_groups, sido_of_edition, superseded_since,
-        Edition, BOUNDARIES_TABLE, CODE_CHANGE_TABLE, HISTORY_TABLE,
+        awaits_load, edition_pairs, is_held, number_changes_since, sido_groups, sido_of_edition,
+        superseded_since, Edition, BOUNDARIES_TABLE, CODE_CHANGE_TABLE, HISTORY_TABLE,
+        NUMBER_CHANGE_TABLE,
     },
     parcel_lineage_stage::{
         load_inputs, stage_group, LineageGroup, LineagePins, UnrecordedDongCodes, LINEAGE_TABLE,
@@ -165,7 +166,10 @@ async fn run_pair(
         let mut entry = group_json(&group.from_sido, &group.to_sido);
         let is_held = {
             let stage = run.stage()?;
-            let since = superseded_since(&stage, pins, &group.from_sido)?;
+            // Official evidence that changed after the group was derived: a withdrawn 동 pair, or a
+            // renumber the provider published late (root ADR-0329 §3 and its 2026-11-25 revision).
+            let since = superseded_since(&stage, pins, &group.from_sido)?
+                .max(number_changes_since(&stage, pins, &group)?);
             is_held(&stage, &group, since)?
         };
         if is_held {
@@ -199,6 +203,7 @@ async fn run_pair(
             "boundaries_to": {"table": BOUNDARIES_TABLE, "snapshot_id": pins.boundaries},
             "code_changes": {"table": CODE_CHANGE_TABLE, "snapshot_id": pins.code_changes},
             "history": {"table": HISTORY_TABLE, "snapshot_id": pins.history},
+            "number_changes": {"table": NUMBER_CHANGE_TABLE, "snapshot_id": pins.number_changes},
         },
         "derived": derived, "held": held, "deferred": deferred, "refused": refused,
     }))
@@ -250,6 +255,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             boundaries: current_snapshot(&catalog, BOUNDARIES_TABLE).await?,
             code_changes: current_snapshot(&catalog, CODE_CHANGE_TABLE).await?,
             history: current_snapshot(&catalog, HISTORY_TABLE).await?,
+            number_changes: current_snapshot(&catalog, NUMBER_CHANGE_TABLE).await?,
         };
         pairs.push(run_pair(&run, &from, &to, pins, deadline).await?);
     }

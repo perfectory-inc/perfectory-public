@@ -5,8 +5,8 @@
 //! `parcel_lineage_to_silver.py`, whose Python kernels read both editions of a group on the
 //! driver. `inputs.sql` reads the pinned inputs from the lakehouse once; `derive.sql` holds every
 //! rule the scheduled derivation applies (the 동 pairs of the code change table, lots carried
-//! under a paired 동, what the land movement history states, and area and category that single
-//! a pair out); the caller appends the staged file once
+//! under a paired 동, what the land movement history states, the provider's official old -> new
+//! PNU records, and area and category that single a pair out); the caller appends the staged file once
 //! (`foundation_publisher_core::lakehouse_data_commit`).
 //!
 //! The run id is the digest of the inputs, as the Spark job computed it, so a group derived by
@@ -25,7 +25,8 @@ use crate::duckdb_parquet_stage::DuckDbParquetStage;
 /// The table the derivation appends to.
 pub const LINEAGE_TABLE: &str = "silver.parcel_lineage";
 /// The rules a row was derived under; a group is derived once per pair, group and rules version.
-pub const RULES_VERSION: &str = "parcel-lineage.v1";
+/// v2 (2026-11-25): the VWorld 30527 records are official links (root ADR-0113 §4).
+pub const RULES_VERSION: &str = "parcel-lineage.v2";
 /// The catalog name the Spark job's provenance spelled its inputs under; part of the run id.
 const PROVENANCE_CATALOG: &str = "lakehouse";
 
@@ -61,6 +62,8 @@ pub struct LineagePins {
     pub code_changes: i64,
     /// `silver.land_transfer_history`.
     pub history: i64,
+    /// `silver.parcel_number_change_history`.
+    pub number_changes: i64,
 }
 
 /// A group whose code change table is behind: 동 codes that held parcels before and none after,
@@ -138,11 +141,12 @@ pub struct StagedLineage {
     pub summary: LineageSummary,
 }
 
-/// The run id of a derivation: the Spark job's, byte for byte.
+/// The run id of a derivation: the digest of its pins and rules.
 ///
-/// `parcel_lineage_to_silver.derivation_run_id` hashed `json.dumps(provenance, sort_keys=True,
-/// separators=(",", ":"))`; this writes the same text. A run without building-register or
-/// ownership inputs, the only kind the schedule ever made, has `null` for them.
+/// The text is the one `parcel_lineage_to_silver.derivation_run_id` hashed (`json.dumps(provenance,
+/// sort_keys=True, separators=(",", ":"))`), with the number change history among the Iceberg inputs
+/// since rules v2. A run without building-register or ownership inputs, the only kind the schedule
+/// ever made, has `null` for them.
 ///
 /// # Errors
 /// Refuses a value that is not what the job's parser admitted (a snapshot id, a date, a sido
@@ -178,7 +182,7 @@ pub fn derivation_run_id(group: &LineageGroup, pins: LineagePins) -> anyhow::Res
         key,
         "{{\"building_source_snapshot_ids\":{{\"from\":null,\"to\":null}},\"from_date\":\"{}\",\"from_sido\":[{}],\
          \"from_snapshot_id\":\"{}\",\"iceberg_inputs\":{{\"boundaries_from\":{},\"boundaries_to\":{},\
-         \"code_changes\":{},\"history\":{}}},\"ownership_sha256\":{{\"new\":null,\"old\":null}},\
+         \"code_changes\":{},\"history\":{},\"number_changes\":{}}},\"ownership_sha256\":{{\"new\":null,\"old\":null}},\
          \"rules_version\":\"{RULES_VERSION}\",\"to_date\":\"{}\",\"to_sido\":[{}],\"to_snapshot_id\":\"{}\"}}",
         group.from_date,
         sido(&group.from_sido)?,
@@ -187,6 +191,7 @@ pub fn derivation_run_id(group: &LineageGroup, pins: LineagePins) -> anyhow::Res
         input("silver.parcel_boundaries", pins.boundaries),
         input("reference.legal_dong_code_change", pins.code_changes),
         input("silver.land_transfer_history", pins.history),
+        input("silver.parcel_number_change_history", pins.number_changes),
         group.to_date,
         sido(&group.to_sido)?,
         group.to_snapshot_id,
@@ -302,11 +307,20 @@ pub fn load_inputs(
                 pins.history,
             ),
         )
+        .replace(
+            "{number_changes}",
+            &crate::duckdb_parquet_stage::table_at_in(
+                catalog,
+                "silver.parcel_number_change_history",
+                pins.number_changes,
+            ),
+        )
         .replace("{from_snapshot_id}", &group.from_snapshot_id)
         .replace("{to_snapshot_id}", &group.to_snapshot_id)
         .replace("{from_sido}", &in_sido("pnu", &group.from_sido)?)
         .replace("{to_sido}", &in_sido("pnu", &group.to_sido)?)
         .replace("{every_sido}", &in_sido("pnu", &all_sido)?)
+        .replace("{from_old_pnu}", &in_sido("old_pnu", &group.from_sido)?)
         .replace(
             "{row_state}",
             if has_row_state {
