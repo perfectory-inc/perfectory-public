@@ -110,6 +110,7 @@ struct AppendRequest<'a> {
     properties: Option<&'a serde_json::Value>,
     editor: String,
     idempotency_key: &'a str,
+    base_release_id: String,
 }
 
 #[derive(Deserialize)]
@@ -135,6 +136,7 @@ impl MapEditStore for HttpMapEditStore {
             properties: record.properties.as_ref(),
             editor: record.editor.to_string(),
             idempotency_key: &record.idempotency_key,
+            base_release_id: record.base_release_id.to_string(),
         };
         let response = self
             .client
@@ -221,6 +223,9 @@ mod tests {
             properties: Some(json!({"official_complex_code": "SYN"})),
             editor: StaffId::new(uuid::Uuid::nil()),
             idempotency_key: "synthetic-key".to_owned(),
+            base_release_id: foundation_shared_kernel::ids::VectorTileReleaseId::new(
+                uuid::Uuid::from_u128(0x0000_0000_0000_7000_8000_0000_0000_0001),
+            ),
         })
     }
 
@@ -272,6 +277,7 @@ mod tests {
                 "properties": {"official_complex_code": "SYN"},
                 "editor": uuid::Uuid::nil().to_string(),
                 "idempotency_key": "synthetic-key",
+                "base_release_id": "00000000-0000-7000-8000-000000000001",
             })))
             .respond_with(
                 ResponseTemplate::new(201)

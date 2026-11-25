@@ -57,7 +57,9 @@ pub mod update_complex;
 /// Use cases for the static vector tile build lifecycle.
 pub mod vector_tile_build_lifecycle;
 
-pub use append_map_edit::{AppendMapEdit, AppendMapEditError, AppendMapEditInput};
+pub use append_map_edit::{
+    AppendMapEdit, AppendMapEditError, AppendMapEditInput, RuntimeManifestReleases,
+};
 pub use archive_complex::{ArchiveIndustrialComplex, ArchiveIndustrialComplexInput};
 pub use complex_search::{
     ComplexSearchPaging, ComplexSearchQuery, ComplexSearchQueryError, ComplexSearchResult,

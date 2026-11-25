@@ -52,6 +52,7 @@ interface EditRow {
   properties: string;
   editor: string;
   edited_at: string;
+  base_release_id?: string | null;
 }
 
 class Rejected extends Error {
@@ -208,6 +209,12 @@ async function appendEdit(request: Request, env: Env, unit: UnitKey): Promise<Re
   if (op !== "upsert" && op !== "delete") throw new Rejected(422, "invalid_op");
   if (typeof editor !== "string" || editor.length === 0 || editor.length > 128) throw new Rejected(422, "invalid_editor");
   if (typeof key !== "string" || !keyPattern.test(key)) throw new Rejected(422, "invalid_idempotency_key");
+  // Root ADR-0621 §3: the release the unit served when the writer saved the edit. Not part of the
+  // request digest: a retry after a promotion is the same edit, and the first row stands.
+  const baseRelease = body.base_release_id ?? null;
+  if (baseRelease !== null && (typeof baseRelease !== "string" || !releasePattern.test(baseRelease))) {
+    throw new Rejected(422, "invalid_base_release_id");
+  }
   let geometry: string | null = null;
   let properties: Record<string, string> = {};
   if (op === "upsert") {
@@ -221,15 +228,16 @@ async function appendEdit(request: Request, env: Env, unit: UnitKey): Promise<Re
   const db = binding(env);
   const inserted = await db
     .prepare(
-      `INSERT INTO map_edit (unit, feature_id, op, geometry, properties, editor, edited_at, idempotency_key, request_sha256)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+      `INSERT INTO map_edit (unit, feature_id, op, geometry, properties, editor, edited_at, idempotency_key, request_sha256,
+         base_release_id)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?11
        WHERE (SELECT COUNT(*) FROM map_edit WHERE unit = ?1 AND change_seq > COALESCE(
          (SELECT folded_through_change_seq FROM map_edit_fold WHERE unit = ?1), 0)) < ?10
        ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING change_seq`,
     )
     .bind(unit, featureId, op, geometry, propertiesText, editor, new Date().toISOString(), key, requestSha,
-      policy.max_pending_edits_per_unit)
+      policy.max_pending_edits_per_unit, baseRelease)
     .first<{ change_seq: number }>();
   if (inserted !== null) return json(201, { unit, change_seq: inserted.change_seq });
   const prior = await db
@@ -253,7 +261,7 @@ async function listEdits(url: URL, env: Env, unit: UnitKey): Promise<Response> {
   }
   const { results } = await binding(env)
     .prepare(
-      `SELECT change_seq, feature_id, op, geometry, properties, editor, edited_at
+      `SELECT change_seq, feature_id, op, geometry, properties, editor, edited_at, base_release_id
        FROM map_edit WHERE unit = ?1 AND change_seq > ?2 ORDER BY change_seq LIMIT ?3`,
     )
     .bind(unit, after, limit)
