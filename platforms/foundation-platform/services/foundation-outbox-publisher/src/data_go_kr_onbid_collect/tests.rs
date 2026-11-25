@@ -1,15 +1,9 @@
-use std::{collections::BTreeSet, io::Read as _, sync::Mutex, time::Duration};
+use std::{collections::BTreeSet, io::Read as _, time::Duration};
 
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
-use collection_domain::{
-    BronzeObject, CollectionError, IngestionRun, SchemaProfile, SourceCatalogEntry,
-};
-use foundation_outbox::FileObjectStorage;
-use foundation_shared_kernel::ids::SourceCatalogId;
+use collection_infrastructure::PgBronzeIngestUnitOfWork;
+use foundation_outbox::ObjectStorageService;
 use serde_json::{json, Value};
-use uuid::Uuid;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -896,134 +890,44 @@ async fn the_gateway_quota_answer_waits_for_tomorrow_and_a_refusal_fails_the_run
     Ok(())
 }
 
-#[derive(Default)]
-struct RecordingUow {
-    runs: Mutex<Vec<IngestionRun>>,
-    objects: Mutex<Vec<BronzeObject>>,
-}
-
-fn poisoned(_: impl std::fmt::Debug) -> CollectionError {
-    CollectionError::Infrastructure("lock poisoned".to_owned())
-}
-
-#[async_trait]
-impl BronzeIngestUnitOfWork for RecordingUow {
-    async fn upsert_source_catalog_entry(
-        &self,
-        entry: &SourceCatalogEntry,
-    ) -> Result<SourceCatalogEntry, CollectionError> {
-        // An upsert returns the source's one id, as the database does.
-        let mut source = entry.clone();
-        source.id = SourceCatalogId::new(Uuid::new_v5(&Uuid::NAMESPACE_OID, entry.slug.as_bytes()));
-        Ok(source)
-    }
-
-    async fn create_ingestion_run(
-        &self,
-        run: &IngestionRun,
-    ) -> Result<IngestionRun, CollectionError> {
-        self.runs.lock().map_err(poisoned)?.push(run.clone());
-        Ok(run.clone())
-    }
-
-    async fn complete_ingestion_run(
-        &self,
-        command: CompleteIngestionRunCommand,
-    ) -> Result<IngestionRun, CollectionError> {
-        self.runs
-            .lock()
-            .map_err(poisoned)?
-            .iter()
-            .find(|run| run.id == command.id)
-            .cloned()
-            .ok_or_else(|| CollectionError::IngestionRunNotFound(command.id.to_string()))
-    }
-
-    async fn find_bronze_object_by_object_key(
-        &self,
-        source_catalog_id: SourceCatalogId,
-        object_key: &str,
-    ) -> Result<Option<BronzeObject>, CollectionError> {
-        Ok(self
-            .objects
-            .lock()
-            .map_err(poisoned)?
-            .iter()
-            .find(|o| {
-                o.source_catalog_id == source_catalog_id && o.object_key.as_str() == object_key
-            })
-            .cloned())
-    }
-
-    async fn record_bronze_object(
-        &self,
-        object: &BronzeObject,
-    ) -> Result<BronzeObject, CollectionError> {
-        self.objects.lock().map_err(poisoned)?.push(object.clone());
-        Ok(object.clone())
-    }
-
-    async fn upsert_schema_profile(
-        &self,
-        profile: &SchemaProfile,
-    ) -> Result<SchemaProfile, CollectionError> {
-        Ok(profile.clone())
-    }
-}
-
 #[tokio::test]
 async fn one_api_of_one_run_is_one_gzip_object_of_its_lines() -> anyhow::Result<()> {
     let contract = source_contract()?;
     let now = at("2099-01-02T03:04:05Z");
-    let root = std::env::temp_dir().join(format!("onbid-{}", Uuid::new_v4()));
-    let storage = FileObjectStorage::new(root.join("bronze"))?;
-    let uow = RecordingUow::default();
+    let root = tempfile::tempdir()?;
     let lines = vec![
         r#"{"operation":"getRlstCltrList2","body":"{}"}"#.to_owned(),
         "{}".to_owned(),
     ];
-    let object = persist(
+    let object = persist::<PgBronzeIngestUnitOfWork, dyn ObjectStorageService>(
         &contract,
-        &root.join("out"),
+        root.path(),
         Api::ItemList,
         &lines,
         now,
-        Some((&uow, &storage)),
+        None,
     )
     .await?;
-    assert!(object.written);
+    assert!(!object.written);
     assert_eq!(
         object.object_key,
         "bronze/source=datagokr__onbid_real_estate_item/item-list-20990102t030405z.gz"
     );
+    assert_eq!(object.lines, 2);
     let mut text = String::new();
     flate2::read::GzDecoder::new(
-        std::fs::read(root.join("bronze").join(&object.object_key))?.as_slice(),
+        std::fs::read(root.path().join(object.local_path.unwrap_or_default()))?.as_slice(),
     )
     .read_to_string(&mut text)?;
-    assert_eq!(text, format!("{}\n{}\n", lines[0], lines[1]));
     assert_eq!(
-        std::fs::read(root.join("out").join(&object.local_path))?,
-        std::fs::read(root.join("bronze").join(&object.object_key))?
+        text,
+        format!(
+            "{}
+{}
+",
+            lines[0], lines[1]
+        )
     );
-    // A retry of the same run is the committer's idempotent success, not a second object.
-    persist(
-        &contract,
-        &root.join("out"),
-        Api::ItemList,
-        &lines,
-        now,
-        Some((&uow, &storage)),
-    )
-    .await?;
-    assert_eq!(
-        uow.objects
-            .lock()
-            .map_err(|_| anyhow::anyhow!("lock"))?
-            .len(),
-        1
-    );
-    std::fs::remove_dir_all(&root)?;
     assert!(PREFIX.starts_with("FOUNDATION_PLATFORM_"));
     Ok(())
 }

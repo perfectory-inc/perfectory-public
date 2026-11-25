@@ -181,9 +181,15 @@ Iceberg 표로 두지 않고 쓸 때 Parquet 으로 바꾸지 않는다: 원천�
 W101 의 시제품이 센 121,608 은 키로 줄이기 전의 물건 수다: 검색은 네 조건을 묻고(25,572 + 29,602 + 32,431 + 34,003), 한 조건 안에서는
 겹치지 않으며, 40,721 개가 둘 이상의 조건에 나온다. 키마다 한 줄이면 64,059 다.
 
-**쓰는 쪽 하나(결정, 나중 단계).** 모든 수집기는 `BronzeCommitter` 위의 공통 JSON Lines 객체 작성기 하나로 쓴다. 인터페이스는
-`push_group(&[줄])` 하나이고, 묶음(group)은 쪼개지 않는다. 지우는 것: gzip 도우미 셋, 저장 몸통 둘, `write_local_copy` 둘, 개수로 굴리는
-설정 둘(`commit_every_lines`·`commit_every`). SSOT 를 위한 결정이지 메모리 때문이 아니다: 지금은 크기로 굴리지 않는다.
+**쓰는 쪽 하나(결정, W104 에서 만듦).** 모든 수집기는 `BronzeCommitter` 위의 공통 JSON Lines 객체 작성기 하나로 쓴다
+(`foundation-publisher-collection` 의 `bronze_line_objects`). 인터페이스는 `push_group(&[줄])` 하나이고, 묶음(group)은 쪼개지 않는다.
+지운 것: gzip 도우미 셋, 저장 몸통(경매·온비드·산업단지 공고·분양공고), `write_local_copy` 둘, 개수로 굴리는 설정 둘
+(`commit_every_lines`·`commit_every`). SSOT 를 위한 결정이지 메모리 때문이 아니다: 크기로 굴리지 않는다. 그 개수 설정이 지키던 것(죽은 run 이
+커밋한 것을 지키기)은 시간이 맡는다(코디네이터 결정 2026-11-25): 작성기는 채우던 객체의 첫 묶음에서 계약
+`bronze-line-objects.contract.json` 의 `close_after_seconds` 가 지나면 다음 묶음 경계에서 그 객체를 닫는다(Kinesis Data Firehose 의
+버퍼 간격, Kafka Connect S3 sink 의 `rotate.interval.ms`). 멈춤·오류 경로도 읽은 것을 커밋한다. 검색은 묶음 하나라 얼마나 걸리든 객체 하나다.
+키 모양은 레인마다 지금대로 둔다(Bronze 가 바뀌지 않는다). Silver 가 키 모양을 읽지 않고 등록부(`catalog.bronze_object`)로 객체를 찾게
+되면 그때 모양을 하나로 한다(후속).
 
 **넣지 않는 것.**
 - 다른 Silver 레인(온비드, 산업단지 공고·분양공고, 산업단지 Silver, data.go.kr 파일)은 지금처럼 통째로 읽는다. 저마다 형식 지정 읽기로

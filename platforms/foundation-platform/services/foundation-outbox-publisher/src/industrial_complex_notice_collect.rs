@@ -10,33 +10,26 @@
 //! disk as it arrives and sent from there, so a file of any size passes through one chunk of
 //! memory (root ADR-0603, 2026-11-23 revision §3). The detail
 //! lands in Bronze with each attachment annotated by its hash, format, size, source URL and
-//! outcome, `commit_every` notices to a gzip JSON Lines object, so a stopped run loses at most one
-//! batch. The Silver load (`load-industrial-complex-notice-silver`) turns the lines into
+//! outcome, one notice a group of the one Bronze line writer (`bronze_line_objects`, root ADR-0616
+//! §3-1), which closes an object every `close_after_seconds`, so a stopped run loses at most what it
+//! read since. The Silver load (`load-industrial-complex-notice-silver`) turns the lines into
 //! the read record and the attachment index.
 //!
 //! It reads nothing inside the files: text, OCR and extraction belong to the intelligence platform,
 //! on ai-server, later (root ADR-0484 §1).
 
-use std::{collections::HashSet, io::Write as _, path::PathBuf, time::Duration};
+use std::{collections::HashSet, path::PathBuf, time::Duration};
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, Utc};
-use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
-use collection_application::{
-    plan_public_data_bulk_file, BronzeCommitter, BronzePayload, PlannedBronzeObject,
-    PublicDataBulkFileIdentity, PublicDataBulkFilePlan, PublicDataBulkFilePlanInput,
-};
-use collection_domain::{
-    source_slug, BronzeObject, IngestionRun, IngestionRunStatus, IngestionTrigger, SourceAuthKind,
-    SourceCatalogEntry, SourcePayloadFormat,
-};
+use collection_domain::{source_slug, SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat};
 use collection_infrastructure::{
     IlisFileDownload, IlisIndustrialComplexApiClient, IlisIndustrialComplexApiConfig,
     PgBronzeIngestUnitOfWork,
 };
 use foundation_outbox::object_storage::ObjectStorageStreamingService;
 use foundation_outbox::ObjectStorageService;
-use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
+use foundation_shared_kernel::ids::SourceCatalogId;
 use foundation_shared_kernel::ObjectKeyPrefix;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
@@ -44,9 +37,10 @@ use sqlx::PgPool;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use crate::bronze_line_objects::{JsonLinesWriter, LineObjects, Target};
 use crate::bronze_object_storage::{
     live_write_bronze_object_storage_from_env, live_write_bronze_streaming_object_storage_from_env,
-    live_write_target_preflight, BronzeObjectStorageWriter,
+    live_write_target_preflight,
 };
 use crate::media_store::{spool_response, store_spooled, MediaStore, Spooled, Stored};
 use crate::provider_request_spacing::ProviderRequestSpacing;
@@ -59,8 +53,6 @@ const PROVIDER: &str = "industryland.or.kr";
 const PREFIX: &str = "FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_NOTICE";
 const USER_AGENT: &str =
     "foundation-platform-industrial-complex-notice/1.0 (+https://github.com/perfectory)";
-const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
-const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
 /// The provider's politeness floor (the address-source collector's): the contract may only slow it.
 const MIN_REQUEST_SPACING: Duration = Duration::from_secs(2);
 
@@ -89,7 +81,6 @@ pub(crate) struct NoticeDetail {
     pub(crate) result_pointer: String,
     pub(crate) files_field: String,
     pub(crate) per_run_limit: usize,
-    pub(crate) commit_every: usize,
     pub(crate) run_time_budget_seconds: u64,
     pub(crate) stop_after_consecutive_failures: u32,
     pub(crate) read_from: String,
@@ -556,140 +547,13 @@ pub(crate) enum Stop {
     SiteFailing,
 }
 
-pub(crate) fn gzip_lines(lines: &[JsonValue]) -> anyhow::Result<Vec<u8>> {
-    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    for line in lines {
-        serde_json::to_writer(&mut encoder, line)?;
-        encoder.write_all(b"\n")?;
-    }
-    Ok(encoder.finish()?)
-}
-
-pub(crate) fn plan(
-    detail: &NoticeDetail,
-    bytes: Vec<u8>,
-    run: IngestionRunId,
-    at: DateTime<Utc>,
-    batch: usize,
-) -> anyhow::Result<PublicDataBulkFilePlan> {
-    let file_id = format!(
-        "{}-{}-{batch:03}",
+/// The provider file id of the run's detail object number `n`: `<dataset>-<run>-NNN`.
+pub(crate) fn file_id(detail: &NoticeDetail, at: DateTime<Utc>, n: u32) -> String {
+    format!(
+        "{}-{}-{n:03}",
         detail.dataset_slug.replace('_', "-"),
         at.format("%Y%m%dt%H%M%Sz")
-    );
-    plan_public_data_bulk_file(PublicDataBulkFilePlanInput {
-        source_slug: &source_slug(PROVIDER, &detail.dataset_slug)?,
-        ingest_date: at.date_naive(),
-        ingestion_run_id: run,
-        identity: PublicDataBulkFileIdentity {
-            operation: detail.operation.clone(),
-            provider_file_period: None,
-            provider_snapshot_date: Some(at.date_naive()),
-            provider_file_id: file_id.clone(),
-            provider_file_name: format!("{file_id}.gz"),
-            provider_updated_at: None,
-        },
-        raw_payload: bytes,
-        content_type: "application/gzip".to_owned(),
-    })
-    .with_context(|| {
-        format!(
-            "failed to plan the Bronze object for {}",
-            detail.dataset_slug
-        )
-    })
-}
-
-/// Commits one batch of lines as one Bronze object and returns its key.
-async fn persist(
-    contract: &SourceContract,
-    lines: &[JsonValue],
-    at: DateTime<Utc>,
-    batch: usize,
-    uow: &dyn BronzeIngestUnitOfWork,
-    storage: &dyn ObjectStorageService,
-) -> anyhow::Result<String> {
-    let detail = &contract.notice_detail;
-    let bytes = gzip_lines(lines)?;
-    let writer = BronzeObjectStorageWriter::new(storage);
-    let source = uow
-        .upsert_source_catalog_entry(&source_catalog_entry(contract, at)?)
-        .await
-        .context("failed to upsert the ILIS notice detail source")?;
-    let run = uow
-        .create_ingestion_run(&IngestionRun {
-            id: IngestionRunId::new(Uuid::new_v4()),
-            source_catalog_id: source.id,
-            trigger: IngestionTrigger::Scheduled,
-            status: IngestionRunStatus::Running,
-            request_params: json!({"operation": detail.operation, "batch": batch}),
-            started_at: at,
-            finished_at: None,
-            logical_records_seen: 0,
-            objects_written: 0,
-            error_message: None,
-            created_at: at,
-            updated_at: at,
-            version: 1,
-        })
-        .await
-        .context("failed to create the ILIS notice detail run")?;
-    let plan = plan(detail, bytes, run.id, at, batch)?;
-    let outcome = BRONZE_COMMITTER
-        .commit(
-            &writer,
-            uow,
-            PlannedBronzeObject {
-                object_key: plan.object_key.as_str().to_owned(),
-                payload: BronzePayload::InMemory(plan.raw_payload.clone()),
-                content_type: plan.content_type.clone(),
-                cache_control: BRONZE_CACHE_CONTROL.to_owned(),
-                checksum_sha256: plan.checksum_sha256.clone(),
-                record: BronzeObject {
-                    id: BronzeObjectId::new(Uuid::new_v4()),
-                    source_catalog_id: source.id,
-                    ingestion_run_id: run.id,
-                    source_record_id: None,
-                    source_partition_key: Some(plan.source_partition_key.clone()),
-                    source_identity_key: plan.source_identity_key.clone(),
-                    dedupe_key: plan.dedupe_key.clone(),
-                    request_params: plan.request_params.clone(),
-                    object_key: plan.object_key.clone(),
-                    checksum_sha256: plan.checksum_sha256.clone(),
-                    content_type: plan.content_type.clone(),
-                    size_bytes: plan.size_bytes,
-                    logical_record_count: u64::try_from(lines.len()).ok(),
-                    collected_at: at,
-                    snapshot_period: plan.snapshot_period.clone(),
-                    snapshot_date: plan.snapshot_date,
-                    snapshot_granularity: plan.snapshot_granularity,
-                    snapshot_basis: plan.snapshot_basis,
-                    provider_file_id: None,
-                    provider_file_name: None,
-                    provider_updated_at: None,
-                    effective_date: None,
-                    created_at: at,
-                },
-            },
-        )
-        .await
-        .with_context(|| format!("failed to commit {}", plan.object_key.as_str()))?;
-    ensure!(
-        outcome.checksum_sha256 == plan.checksum_sha256,
-        "Bronze holds different bytes at {}",
-        plan.object_key.as_str()
-    );
-    uow.complete_ingestion_run(CompleteIngestionRunCommand {
-        id: run.id,
-        status: IngestionRunStatus::Succeeded,
-        finished_at: Utc::now(),
-        logical_records_seen: u64::try_from(lines.len()).unwrap_or(u64::MAX),
-        objects_written: 1,
-        error_message: None,
-    })
-    .await
-    .context("failed to complete the ILIS notice detail run")?;
-    Ok(plan.object_key.as_str().to_owned())
+    )
 }
 
 fn source_catalog_entry(
@@ -800,47 +664,65 @@ pub async fn run() -> anyhow::Result<()> {
 
     let mut report = AttachmentReport::default();
     let mut counts = std::collections::BTreeMap::<&str, u64>::new();
-    let mut objects = Vec::new();
-    let mut batch = Vec::new();
     let mut consecutive_failures = 0_u32;
     let mut stop = None;
-    for notice in &owed {
-        if Instant::now() >= deadline {
-            stop = Some(Stop::TimeBudget);
-            break;
+    let detail = &contract.notice_detail;
+    let mut writer = JsonLinesWriter::new(
+        LineObjects {
+            source: source_catalog_entry(&contract, started_at)?,
+            operation: &detail.operation,
+            collected_at: started_at,
+            file_id: Box::new(move |n| file_id(detail, started_at, n)),
+            content_qualified: false,
+            params: Box::new(|| JsonValue::Null),
+        },
+        Target::of(
+            live.as_ref()
+                .map(|(uow, storage, _)| (uow, storage.as_ref())),
+            &config.output_dir,
+        ),
+    )?;
+    let read: anyhow::Result<()> = async {
+        for notice in &owed {
+            if Instant::now() >= deadline {
+                stop = Some(Stop::TimeBudget);
+                break;
+            }
+            if consecutive_failures >= contract.notice_detail.stop_after_consecutive_failures {
+                stop = Some(Stop::SiteFailing);
+                break;
+            }
+            let store = live.as_ref().map(|(_, head, stream)| MediaStore {
+                head: head.as_ref(),
+                stream: stream.as_ref(),
+            });
+            let (outcome, line) =
+                read_notice(&contract, &mut asker, *notice, &prefix, store, &mut report).await?;
+            consecutive_failures = if outcome == ReadOutcome::Failed {
+                consecutive_failures + 1
+            } else {
+                0
+            };
+            *counts
+                .entry(match outcome {
+                    ReadOutcome::Read => "read",
+                    ReadOutcome::Incomplete => "incomplete",
+                    ReadOutcome::Failed => "failed",
+                })
+                .or_default() += 1;
+            writer.push_group(&[serde_json::to_string(&line)?]).await?;
         }
-        if consecutive_failures >= contract.notice_detail.stop_after_consecutive_failures {
-            stop = Some(Stop::SiteFailing);
-            break;
-        }
-        let store = live.as_ref().map(|(_, head, stream)| MediaStore {
-            head: head.as_ref(),
-            stream: stream.as_ref(),
-        });
-        let (outcome, line) =
-            read_notice(&contract, &mut asker, *notice, &prefix, store, &mut report).await?;
-        consecutive_failures = if outcome == ReadOutcome::Failed {
-            consecutive_failures + 1
-        } else {
-            0
-        };
-        *counts
-            .entry(match outcome {
-                ReadOutcome::Read => "read",
-                ReadOutcome::Incomplete => "incomplete",
-                ReadOutcome::Failed => "failed",
-            })
-            .or_default() += 1;
-        batch.push(line);
-        if batch.len() >= contract.notice_detail.commit_every {
-            objects
-                .push(flush(&contract, &config, &live, &batch, started_at, objects.len()).await?);
-            batch.clear();
-        }
+        Ok(())
     }
-    if !batch.is_empty() {
-        objects.push(flush(&contract, &config, &live, &batch, started_at, objects.len()).await?);
-    }
+    .await;
+    // What was read is committed, also when a read failed part way.
+    let objects: Vec<String> = writer
+        .finish()
+        .await?
+        .into_iter()
+        .map(|object| object.local_path.unwrap_or(object.object_key))
+        .collect();
+    read?;
 
     let asked: u64 = counts.values().sum();
     let summary = json!({
@@ -878,40 +760,6 @@ type Live = Option<(
     Box<dyn ObjectStorageService>,
     Box<dyn ObjectStorageStreamingService>,
 )>;
-
-async fn flush(
-    contract: &SourceContract,
-    config: &Config,
-    live: &Live,
-    lines: &[JsonValue],
-    at: DateTime<Utc>,
-    batch: usize,
-) -> anyhow::Result<String> {
-    if let Some((uow, storage, _)) = live {
-        return persist(contract, lines, at, batch, uow, storage.as_ref()).await;
-    }
-    // A dry run keeps the batch on disk for an operator to read.
-    let plan = plan(
-        &contract.notice_detail,
-        gzip_lines(lines)?,
-        IngestionRunId::new(Uuid::new_v4()),
-        at,
-        batch,
-    )?;
-    let name = plan
-        .object_key
-        .as_str()
-        .rsplit('/')
-        .next()
-        .context("a Bronze object key has a leaf")?
-        .to_owned();
-    std::fs::create_dir_all(config.output_dir.join("objects"))?;
-    std::fs::write(
-        config.output_dir.join("objects").join(&name),
-        &plan.raw_payload,
-    )?;
-    Ok(format!("objects/{name}"))
-}
 
 #[cfg(test)]
 mod tests;

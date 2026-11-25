@@ -11,14 +11,13 @@
     "key_field": "ref_seq"
   },
   "notice_detail": {
-    "$comment": "고시 하나의 상세(GET <path>/<ref_seq>)가 첨부 목록(saveFiles)을 싣는다. 부분: Silver 읽은 기록(read_from)의 마지막 읽기가 끝난(settled) 고시는 다시 읽지 않는다 — 고시는 관보처럼 한 번 낸 뒤 고치지 않고, 바꿀 때는 새 고시(새 ref_seq)를 낸다. 새 것부터(ref_seq 큰 것부터) per_run_limit 건, run_time_budget_seconds 가 지나면 새 고시를 시작하지 않는다. 상한(계산): 고시 하나 = 상세 1 + 첨부 평균 1.05(실측 표본 60 건) 요청 × 2 초 간격 ≈ 4.1 초 + 받기 ≈ 4.5 초 → 1,800 초에 ~400 건; 첫 바퀴 18,793 건 ÷ 400 ≈ 47 run(매시 ~2 일). commit_every 건마다 Bronze 객체 하나를 커밋해, 멈춘 run 은 그 묶음만 잃는다.",
+    "$comment": "고시 하나의 상세(GET <path>/<ref_seq>)가 첨부 목록(saveFiles)을 싣는다. 부분: Silver 읽은 기록(read_from)의 마지막 읽기가 끝난(settled) 고시는 다시 읽지 않는다 — 고시는 관보처럼 한 번 낸 뒤 고치지 않고, 바꿀 때는 새 고시(새 ref_seq)를 낸다. 새 것부터(ref_seq 큰 것부터) per_run_limit 건, run_time_budget_seconds 가 지나면 새 고시를 시작하지 않는다. 상한(계산): 고시 하나 = 상세 1 + 첨부 평균 1.05(실측 표본 60 건) 요청 × 2 초 간격 ≈ 4.1 초 + 받기 ≈ 4.5 초 → 1,800 초에 ~400 건; 첫 바퀴 18,793 건 ÷ 400 ≈ 47 run(매시 ~2 일). 상세는 고시 하나씩 Bronze 줄 쓰기(bronze-line-objects.contract.json)에 넘기고, 쓰기가 close_after_seconds 마다 객체 하나를 커밋해 멈춘 run 은 그 뒤에 읽은 것만 잃는다.",
     "dataset_slug": "industrial_complex_notice_detail",
     "operation": "danrefDet",
     "path": "il/danref/det.do",
     "result_pointer": "/result",
     "files_field": "saveFiles",
     "per_run_limit": 400,
-    "commit_every": 50,
     "run_time_budget_seconds": 1800,
     "stop_after_consecutive_failures": 5,
     "read_from": "silver.industrial_complex_notice_detail"
@@ -34,7 +33,7 @@
     "max_file_bytes": 268435456
   },
   "silver_load": {
-    "$comment": "plan-silver-load-objects 가 읽은 기록 표가 아직 기록하지 않은 Bronze 객체를 오래된 것부터 max_objects 개 받는다. 객체 하나 = 고시 commit_every 건. window_days 보다 오래 안 실린 객체가 있으면 적재가 실패해 알린다.",
+    "$comment": "plan-silver-load-objects 가 읽은 기록 표가 아직 기록하지 않은 Bronze 객체를 오래된 것부터 max_objects 개 받는다. 객체 하나 = 한 run 에서 close_after_seconds(bronze-line-objects.contract.json) 동안 읽은 고시. window_days 보다 오래 안 실린 객체가 있으면 적재가 실패해 알린다.",
     "window_days": 3,
     "max_objects": 60
   }

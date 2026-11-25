@@ -15,11 +15,34 @@ use tokio::time::Instant;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
+use collection_infrastructure::PgBronzeIngestUnitOfWork;
+use foundation_outbox::ObjectStorageService;
+
 use super::{
-    asked_condition, collect, gzip_lines, in_window, may_ask, night_summary, operator_window,
-    reach::reach, session_pool, source_contract, with_night, Asking, FailedPage, GzLines,
-    SourceContract, Stop, Window,
+    asked_condition, collect, in_window, may_ask, night_summary, objects_of, operator_window,
+    reach::reach, session_pool, source_contract, Asking, FailedPage, Search, SourceContract, Stop,
+    Window,
 };
+use crate::bronze_line_objects::{JsonLinesWriter, LineObject};
+
+/// A dry run's writer of `search`'s objects into `dir`.
+fn dry_objects<'a>(
+    search: &'a Search,
+    dir: &'a std::path::Path,
+) -> anyhow::Result<JsonLinesWriter<'a, PgBronzeIngestUnitOfWork, dyn ObjectStorageService>> {
+    objects_of(search, night(), true, || json!({}), dir, None)
+}
+
+/// The text of a dry run's object.
+fn text_of(dir: &std::path::Path, object: &LineObject) -> anyhow::Result<String> {
+    let bytes = std::fs::read(dir.join(object.local_path.as_deref().unwrap_or_default()))?;
+    let mut text = String::new();
+    std::io::Read::read_to_string(
+        &mut flate2::read::GzDecoder::new(bytes.as_slice()),
+        &mut text,
+    )?;
+    Ok(text)
+}
 
 // Synthetic only: made-up case numbers and court codes (public repository).
 
@@ -397,14 +420,6 @@ fn every_object_records_the_runs_requests_blocks_renewals_and_sessions() {
     assert_eq!(summary["asking"]["blocks"].as_u64(), Some(12));
     assert_eq!(summary["asking"]["renewals"].as_u64(), Some(12));
     assert_eq!(summary["stopped"], json!("TimeBudget"));
-    let params = with_night(
-        &json!({"operation": "searchControllerMain"}),
-        1_125,
-        &summary,
-    );
-    assert_eq!(params["operation"], "searchControllerMain");
-    assert_eq!(params["requests_in_object"].as_u64(), Some(1_125));
-    assert_eq!(params["night"]["requests_sent"].as_u64(), Some(1_540));
 }
 
 /// A site that opens sessions and answers every 물건상세 with one synthetic photo, blocking the
@@ -458,28 +473,45 @@ async fn the_details_ride_the_same_pool_a_block_renews_and_photos_become_hashes(
         storage: None,
     };
     let asked = [wanted("20990130000001"), wanted("20990130000002")];
-    let (result, stop) =
-        super::detail::collect_details(&contract, &asking, asking.deadline, &asked, &store, night)
-            .await?;
+    let dir = tempfile::tempdir()?;
+    let search = contract.item_detail.as_search();
+    let mut objects = dry_objects(&search, dir.path())?;
+    let (result, stop) = super::detail::collect_details(
+        &contract,
+        &asking,
+        asking.deadline,
+        &asked,
+        &store,
+        night,
+        &mut objects,
+    )
+    .await?;
     assert_eq!(stop, None);
     assert_eq!(
         (result.asked, result.failed, result.photos.photos),
         (2, 0, 2)
     );
     assert_eq!(asking.tally.counts().blocks, 1);
-    let mut text = String::new();
-    std::io::Read::read_to_string(
-        &mut flate2::read::GzDecoder::new(result.lines.finish()?.as_slice()),
-        &mut text,
-    )?;
+    let landed = objects.finish().await?;
+    assert_eq!(landed.len(), 1, "both properties inside one interval");
+    let text = text_of(dir.path(), &landed[0])?;
     assert_eq!(text.lines().count(), 2);
     assert!(text
         .lines()
         .all(|line| line.contains("sha256:") && !line.contains("/9j/4AAQ")));
 
-    let (result, stop) =
-        super::detail::collect_details(&contract, &asking, Instant::now(), &asked, &store, night)
-            .await?;
+    let mut objects = dry_objects(&search, dir.path())?;
+    let (result, stop) = super::detail::collect_details(
+        &contract,
+        &asking,
+        Instant::now(),
+        &asked,
+        &store,
+        night,
+        &mut objects,
+    )
+    .await?;
+    assert!(objects.finish().await?.is_empty());
     assert_eq!(
         (stop, result.asked),
         (Some(Stop::TimeBudget), 0),
@@ -488,54 +520,61 @@ async fn the_details_ride_the_same_pool_a_block_renews_and_photos_become_hashes(
     Ok(())
 }
 
-#[test]
-fn lines_held_gzipped_land_as_the_same_object_as_lines_held_as_text() -> anyhow::Result<()> {
-    use std::io::Read as _;
-
-    let lines = vec![
-        r#"{"operation":"selectAuctnCsSrchRslt","n":1}"#.to_owned(),
-        r#"{"operation":"selectAuctnCsSrchRslt","n":2}"#.to_owned(),
-    ];
-    let mut held = GzLines::default();
-    for line in &lines {
-        held.push(line)?;
-    }
-    assert_eq!(held.len(), 2);
-    let bytes = held.finish()?;
-    let mut text = String::new();
-    flate2::read::GzDecoder::new(bytes.as_slice()).read_to_string(&mut text)?;
-    assert_eq!(
-        text,
-        format!(
-            "{}
-{}
-",
-            lines[0], lines[1]
-        )
+#[tokio::test]
+async fn every_search_keeps_its_key_form_and_the_detail_parts_are_keyed_by_the_run(
+) -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let at = at("2099-01-02T16:05:04Z");
+    let dir = tempfile::tempdir()?;
+    let detail = contract.item_detail.as_search();
+    let mut objects = dry_objects(&detail, dir.path())?;
+    objects.push_group(&["{}"]).await?;
+    let landed = objects.finish().await?;
+    assert!(
+        landed[0]
+            .object_key
+            .ends_with("/auction-item-detail-part0001-20990101t170000z.gz"),
+        "{}",
+        landed[0].object_key
     );
     assert_eq!(
-        bytes,
-        gzip_lines(&lines)?,
-        "one way to write a Bronze object"
+        super::file_id(&detail, at, Some(2)),
+        "auction-item-detail-part0002-20990102t160504z"
+    );
+    let notices = contract.sale_notices.as_search();
+    assert_eq!(
+        super::file_id(&notices, at, None),
+        format!(
+            "{}-20990102t160504z",
+            notices.dataset_slug.replace('_', "-")
+        )
     );
     Ok(())
 }
 
+/// The writer closes a 물건상세 object every close_after_seconds, and the detail phase ends before
+/// the three phases after it start: a night's objects must fit one Silver load's max_objects, or
+/// the load falls a night behind every night.
 #[test]
-fn a_detail_part_is_its_own_object_keyed_by_the_run() -> anyhow::Result<()> {
+fn a_nights_detail_objects_fit_one_silver_load() -> anyhow::Result<()> {
     let contract = source_contract()?;
-    let search = contract.item_detail.as_search();
-    let at = at("2099-01-02T16:05:04Z");
-    let run = foundation_shared_kernel::ids::IngestionRunId::new(uuid::Uuid::new_v4());
-    let first = super::plan(&search, gzip_lines(&["{}".to_owned()])?, run, at, Some(1))?;
-    let second = super::plan(&search, gzip_lines(&["{}".to_owned()])?, run, at, Some(2))?;
-    let key = first.object_key.as_str();
+    let close_after = crate::bronze_line_objects::close_after_seconds()?;
+    let phase = contract
+        .collection
+        .session
+        .run_time_budget_seconds
+        .saturating_sub(contract.sale_specifications.run_time_budget_seconds)
+        .saturating_sub(contract.case_documents.run_time_budget_seconds)
+        .saturating_sub(contract.appraisal_reports.run_time_budget_seconds);
+    let most = phase / close_after + 1;
+    let raw: Value = serde_json::from_str(super::CONTRACT_JSON)?;
+    let max_objects = raw["silver_load"]["max_objects"]
+        .as_u64()
+        .ok_or_else(|| anyhow::anyhow!("silver_load.max_objects"))?;
     assert!(
-        key.ends_with("auction-item-detail-part0001-20990102t160504z.gz"),
-        "{key}"
+        most <= max_objects,
+        "{most} 물건상세 objects a night (a {phase} s phase closed every {close_after} s) > silver_load.max_objects {max_objects}"
     );
-    assert_ne!(first.dedupe_key, second.dedupe_key, "each part lands");
-    assert!(contract.item_detail.commit_every_lines >= 1);
     Ok(())
 }
 

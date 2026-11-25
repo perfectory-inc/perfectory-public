@@ -28,14 +28,8 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, NaiveDate, Utc};
-use collection_application::{
-    plan_public_data_bulk_file, BronzeCommitter, PublicDataBulkFileIdentity,
-    PublicDataBulkFilePlan, PublicDataBulkFilePlanInput,
-};
-use collection_domain::source_slug;
 use collection_infrastructure::PgBronzeIngestUnitOfWork;
 use foundation_outbox::ObjectStorageService;
-use foundation_shared_kernel::ids::IngestionRunId;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
@@ -55,9 +49,6 @@ const PREFIX: &str = "FOUNDATION_PLATFORM_DATA_GO_KR_ONBID";
 const SERVICE_KEY_ENV: &str = "DATA_GO_KR_SERVICE_KEY";
 const MANIFEST_SCHEMA: &str = "foundation-platform.data_go_kr_onbid_collect.v1";
 const STATE_SCHEMA: &str = "foundation-platform.data_go_kr_onbid_state.v1";
-const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
-const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
-const CONTENT_TYPE: &str = "application/gzip";
 const KST_HOURS: i64 = 9;
 
 /// The four APIs, by the contract's names for them.
@@ -1027,42 +1018,6 @@ pub(crate) fn run_id(at: DateTime<Utc>) -> String {
     at.format("%Y%m%dT%H%M%SZ").to_string()
 }
 
-pub(crate) fn gzip_lines(lines: &[String]) -> anyhow::Result<Vec<u8>> {
-    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    for line in lines {
-        encoder.write_all(line.as_bytes())?;
-        encoder.write_all(b"\n")?;
-    }
-    Ok(encoder.finish()?)
-}
-
-pub(crate) fn plan(
-    contract: &SourceContract,
-    api: Api,
-    bytes: Vec<u8>,
-    run_id: IngestionRunId,
-    at: DateTime<Utc>,
-) -> anyhow::Result<PublicDataBulkFilePlan> {
-    let endpoint = contract.endpoint(api);
-    let file_id = file_id(api, at);
-    plan_public_data_bulk_file(PublicDataBulkFilePlanInput {
-        source_slug: &source_slug(PROVIDER, &endpoint.dataset_slug)?,
-        ingest_date: at.date_naive(),
-        ingestion_run_id: run_id,
-        identity: PublicDataBulkFileIdentity {
-            operation: endpoint.operation.clone(),
-            provider_file_period: None,
-            provider_snapshot_date: Some(at.date_naive()),
-            provider_file_id: file_id.clone(),
-            provider_file_name: format!("{file_id}.gz"),
-            provider_updated_at: None,
-        },
-        raw_payload: bytes,
-        content_type: CONTENT_TYPE.to_owned(),
-    })
-    .with_context(|| format!("failed to plan the Bronze object for {}", api.name()))
-}
-
 /// Collects every due request into Bronze and writes the run's manifest.
 ///
 /// # Errors
@@ -1302,7 +1257,7 @@ mod coverage;
 mod media_contract;
 pub(crate) use media_contract::{Media, MediaFields, OriginalRule, RenditionBudget};
 mod bronze;
-pub(crate) use bronze::{file_id, persist};
+pub(crate) use bronze::persist;
 mod closed;
 mod follow_ups;
 #[cfg(test)]

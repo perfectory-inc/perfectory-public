@@ -41,6 +41,7 @@ mod administrative_boundary_postgis_publish;
 mod administrative_boundary_runtime_promote;
 mod administrative_boundary_static_release_publish;
 mod administrative_spatial_scope_registry;
+use foundation_publisher_collection::bronze_line_objects;
 use foundation_publisher_collection::bronze_object_members;
 use foundation_publisher_collection::bronze_object_storage;
 use foundation_publisher_collection::bronze_schema_profile;

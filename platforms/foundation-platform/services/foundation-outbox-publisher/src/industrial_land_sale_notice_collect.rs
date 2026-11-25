@@ -12,8 +12,10 @@
 //! still in use is downloaded to disk as it arrives and stored once from there, whatever its format
 //! and size, in the shared content-addressed media store
 //! (`industrial_complex_notice_collect::store_attachment`, root ADR-0298, ADR-0484 §2),
-//! and annotated in the line's `attachments`. `commit_every` reads make one gzip JSON Lines Bronze
-//! object under a content-qualified key (root ADR-0152), so a stopped run loses at most one batch.
+//! and annotated in the line's `attachments`. Each read is one group of the one Bronze line writer
+//! (`bronze_line_objects`, root ADR-0616 §3-1), whose gzip JSON Lines objects close every
+//! `close_after_seconds` under a content-qualified key (root ADR-0152), so a stopped run loses at
+//! most what it read since.
 //! The Silver load (`load-industrial-land-sale-notice-silver`) turns the lines into the read record
 //! and the attachment index. Nothing inside a notice or a file is read here (root ADR-0484 §1).
 
@@ -30,19 +32,18 @@ use std::{
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Timelike, Utc};
-use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
 use collection_application::{
-    plan_public_data_bulk_file, BronzeCommitter, BronzePayload, PlannedBronzeObject,
-    PublicDataBulkFileIdentity, PublicDataBulkFilePlan, PublicDataBulkFilePlanInput,
+    plan_public_data_bulk_file, PublicDataBulkFileIdentity, PublicDataBulkFilePlan,
+    PublicDataBulkFilePlanInput,
 };
 use collection_domain::{
-    build_bronze_content_object_key, source_slug, BronzeObject, IngestionRun, IngestionRunStatus,
-    IngestionTrigger, SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat,
+    build_bronze_content_object_key, source_slug, SourceAuthKind, SourceCatalogEntry,
+    SourcePayloadFormat,
 };
 use collection_infrastructure::PgBronzeIngestUnitOfWork;
 use foundation_outbox::object_storage::ObjectStorageStreamingService;
 use foundation_outbox::ObjectStorageService;
-use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
+use foundation_shared_kernel::ids::{IngestionRunId, SourceCatalogId};
 use foundation_shared_kernel::ObjectKeyPrefix;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
@@ -51,12 +52,13 @@ use sqlx::PgPool;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use crate::bronze_line_objects::{commit_object, JsonLinesWriter, LineObjects, Target};
 use crate::bronze_object_storage::{
     live_write_bronze_object_storage_from_env, live_write_bronze_streaming_object_storage_from_env,
-    live_write_target_preflight, BronzeObjectStorageWriter,
+    live_write_target_preflight,
 };
 use crate::industrial_complex_notice_collect::{
-    gzip_lines, media_prefix, store_attachment, AttachmentReport, StoreOutcome,
+    media_prefix, store_attachment, AttachmentReport, StoreOutcome,
 };
 use crate::media_store::{MediaStore, Spooled};
 use crate::provider_request_spacing::ProviderRequestSpacing;
@@ -68,8 +70,6 @@ pub(crate) const CONTRACT_JSON: &str =
 const PREFIX: &str = "FOUNDATION_PLATFORM_INDUSTRIAL_LAND_SALE_NOTICE";
 pub(crate) const USER_AGENT: &str =
     "foundation-platform-industrial-land-sale-notice/1.0 (+https://github.com/perfectory)";
-const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
-const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
 /// What the run prints before its summary when the provider refuses the lane's access itself (LH
 /// before the owner's data.go.kr usage application): the script ends the run with 78 (EX_CONFIG).
 pub(crate) const REFUSED_MARKER: &str = "industrial-land-sale-notice-refused";
@@ -77,7 +77,6 @@ pub(crate) const REFUSED_MARKER: &str = "industrial-land-sale-notice-refused";
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct LaneContract {
     pub(crate) request_spacing_ms: u64,
-    pub(crate) commit_every: usize,
     pub(crate) stall_minutes: u64,
     pub(crate) stop_after_consecutive_failures: u32,
     pub(crate) retry_after_hours: i64,
@@ -765,7 +764,7 @@ pub(crate) fn plan(
 }
 
 /// The id of a detail batch object: `<dataset with dashes>-<run>-<batch>`.
-pub(crate) fn batch_file_id(dataset_slug: &str, at: DateTime<Utc>, batch: usize) -> String {
+pub(crate) fn batch_file_id(dataset_slug: &str, at: DateTime<Utc>, batch: u32) -> String {
     format!(
         "{}-{}-{batch:03}",
         dataset_slug.replace('_', "-"),
@@ -784,114 +783,6 @@ pub(crate) fn list_file_id(dataset_slug: &str, page_no: u32) -> String {
 struct Committed {
     object_key: String,
     new: bool,
-}
-
-/// Commits `plan` as one Bronze object of the source `entry` names, in an ingestion run of its own.
-async fn persist(
-    entry: &SourceCatalogEntry,
-    plan: &PublicDataBulkFilePlan,
-    request_params: JsonValue,
-    records: usize,
-    at: DateTime<Utc>,
-    uow: &dyn BronzeIngestUnitOfWork,
-    storage: &dyn ObjectStorageService,
-) -> anyhow::Result<Committed> {
-    let writer = BronzeObjectStorageWriter::new(storage);
-    let source = uow
-        .upsert_source_catalog_entry(entry)
-        .await
-        .with_context(|| format!("failed to upsert the source {}", entry.slug))?;
-    let run = uow
-        .create_ingestion_run(&IngestionRun {
-            id: IngestionRunId::new(Uuid::new_v4()),
-            source_catalog_id: source.id,
-            trigger: IngestionTrigger::Scheduled,
-            status: IngestionRunStatus::Running,
-            request_params,
-            started_at: at,
-            finished_at: None,
-            logical_records_seen: 0,
-            objects_written: 0,
-            error_message: None,
-            created_at: at,
-            updated_at: at,
-            version: 1,
-        })
-        .await
-        .with_context(|| format!("failed to create the {} run", entry.slug))?;
-    let outcome = BRONZE_COMMITTER
-        .commit(
-            &writer,
-            uow,
-            PlannedBronzeObject {
-                object_key: plan.object_key.as_str().to_owned(),
-                payload: BronzePayload::InMemory(plan.raw_payload.clone()),
-                content_type: plan.content_type.clone(),
-                cache_control: BRONZE_CACHE_CONTROL.to_owned(),
-                checksum_sha256: plan.checksum_sha256.clone(),
-                record: BronzeObject {
-                    id: BronzeObjectId::new(Uuid::new_v4()),
-                    source_catalog_id: source.id,
-                    ingestion_run_id: run.id,
-                    source_record_id: None,
-                    source_partition_key: Some(plan.source_partition_key.clone()),
-                    source_identity_key: plan.source_identity_key.clone(),
-                    dedupe_key: plan.dedupe_key.clone(),
-                    request_params: plan.request_params.clone(),
-                    object_key: plan.object_key.clone(),
-                    checksum_sha256: plan.checksum_sha256.clone(),
-                    content_type: plan.content_type.clone(),
-                    size_bytes: plan.size_bytes,
-                    logical_record_count: u64::try_from(records).ok(),
-                    collected_at: at,
-                    snapshot_period: plan.snapshot_period.clone(),
-                    snapshot_date: plan.snapshot_date,
-                    snapshot_granularity: plan.snapshot_granularity,
-                    snapshot_basis: plan.snapshot_basis,
-                    provider_file_id: None,
-                    provider_file_name: None,
-                    provider_updated_at: None,
-                    effective_date: None,
-                    created_at: at,
-                },
-            },
-        )
-        .await
-        .with_context(|| format!("failed to commit {}", plan.object_key.as_str()))?;
-    ensure!(
-        outcome.checksum_sha256 == plan.checksum_sha256,
-        "Bronze holds different bytes at {}",
-        plan.object_key.as_str()
-    );
-    uow.complete_ingestion_run(CompleteIngestionRunCommand {
-        id: run.id,
-        status: IngestionRunStatus::Succeeded,
-        finished_at: Utc::now(),
-        logical_records_seen: u64::try_from(records).unwrap_or(u64::MAX),
-        objects_written: 1,
-        error_message: None,
-    })
-    .await
-    .with_context(|| format!("failed to complete the {} run", entry.slug))?;
-    let row = uow
-        .find_bronze_object_by_object_key(source.id, plan.object_key.as_str())
-        .await
-        .with_context(|| {
-            format!(
-                "failed to read the ledger row of {}",
-                plan.object_key.as_str()
-            )
-        })?
-        .with_context(|| {
-            format!(
-                "the ledger holds no row for the committed {}",
-                plan.object_key.as_str()
-            )
-        })?;
-    Ok(Committed {
-        object_key: plan.object_key.as_str().to_owned(),
-        new: row.ingestion_run_id == run.id,
-    })
 }
 
 fn source_catalog_entry(
@@ -1036,10 +927,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let mut report = AttachmentReport::default();
     let mut counts = BTreeMap::<&str, u64>::new();
-    let mut objects = Vec::new();
-    let mut new_objects = 0_usize;
     let mut list_objects: Vec<Committed> = Vec::new();
-    let mut batch = Vec::new();
     let mut consecutive_failures = 0_u32;
     let mut stop = None;
     let mut asked = 0_usize;
@@ -1047,143 +935,147 @@ pub async fn run() -> anyhow::Result<()> {
     let mut pages = 0_u32;
     let mut asked_ever: HashSet<String> = last.keys().cloned().collect();
     let mut blocked = None;
-    'walk: for page_no in 1_u32.. {
-        if settled_at.elapsed() >= stall {
-            stop = Some(Stop::Stalled);
-            break;
-        }
-        asker.pace().await;
-        let (page, raw_list) = match asker.client.page(page_no).await {
-            Ok(page) => page,
-            Err(error) if is_blocked(&error) => {
-                blocked = Some(format!("{error:#}"));
-                stop = Some(Stop::Blocked);
-                break;
-            }
-            Err(error) => {
-                // A refusal, or the first page failing, ends the run: nothing to walk.
-                if refused(&error) || page_no == 1 {
-                    return Err(error.context(format!("failed to read the {} list", source.name())));
-                }
-                // A later page failing ends the walk; what was read is kept, the next run continues.
-                eprintln!(
-                    "the {} list page {page_no} failed: {error:#}",
-                    source.name()
-                );
-                stop = Some(Stop::SiteFailing);
-                break;
-            }
-        };
-        pages = page_no;
-        settled_at = Instant::now();
-        listed_total = page.total.or(listed_total);
-        if let (true, Some(raw), Some((uow, storage, _))) = (keeps_list, raw_list, live.as_ref()) {
-            list_objects.push(
-                persist_list(
-                    &contract,
-                    source,
-                    page_no,
-                    raw,
-                    started_at,
-                    uow,
-                    storage.as_ref(),
-                )
-                .await?,
-            );
-        }
-        let mut owed_here = 0_usize;
-        for listed in &page.rows {
-            let print = fingerprint(&listed.row, &fields);
-            if !owes(
-                last.get(&listed.id),
-                &print,
-                started_at,
-                contract.retry_after_hours,
-            ) {
-                continue;
-            }
-            owed_here += 1;
+    let detail_dataset = &common.detail_dataset_slug;
+    let mut writer = JsonLinesWriter::new(
+        LineObjects {
+            source: detail_entry,
+            operation: "detail",
+            collected_at: started_at,
+            file_id: Box::new(move |n| batch_file_id(detail_dataset, started_at, n)),
+            content_qualified: true,
+            params: Box::new(move || json!({ "source": source })),
+        },
+        Target::of(
+            live.as_ref()
+                .map(|(uow, storage, _)| (uow, storage.as_ref())),
+            &config.output_dir,
+        ),
+    )?;
+    let walk: anyhow::Result<()> = async {
+        'walk: for page_no in 1_u32.. {
             if settled_at.elapsed() >= stall {
                 stop = Some(Stop::Stalled);
-                break 'walk;
+                break;
             }
-            if consecutive_failures >= contract.stop_after_consecutive_failures {
-                stop = Some(Stop::SiteFailing);
-                break 'walk;
-            }
-            let run = RunContext {
-                contract: &contract,
-                source,
-                prefix: &prefix,
-                store: media_of(&live),
+            asker.pace().await;
+            let (page, raw_list) = match asker.client.page(page_no).await {
+                Ok(page) => page,
+                Err(error) if is_blocked(&error) => {
+                    blocked = Some(format!("{error:#}"));
+                    stop = Some(Stop::Blocked);
+                    break;
+                }
+                Err(error) => {
+                    // A refusal, or the first page failing, ends the run: nothing to walk.
+                    if refused(&error) || page_no == 1 {
+                        return Err(
+                            error.context(format!("failed to read the {} list", source.name()))
+                        );
+                    }
+                    // A later page failing ends the walk; what was read is kept, the next run continues.
+                    eprintln!(
+                        "the {} list page {page_no} failed: {error:#}",
+                        source.name()
+                    );
+                    stop = Some(Stop::SiteFailing);
+                    break;
+                }
             };
-            let reading = within_stall(
-                settled_at,
-                stall,
-                read_notice(&run, &mut asker, listed, &print, &mut report),
-            );
-            let (outcome, line) = match reading.await {
-                Err(_) => {
+            pages = page_no;
+            settled_at = Instant::now();
+            listed_total = page.total.or(listed_total);
+            if let (true, Some(raw), Some((uow, storage, _))) =
+                (keeps_list, raw_list, live.as_ref())
+            {
+                list_objects.push(
+                    persist_list(
+                        &contract,
+                        source,
+                        page_no,
+                        raw,
+                        started_at,
+                        uow,
+                        storage.as_ref(),
+                    )
+                    .await?,
+                );
+            }
+            let mut owed_here = 0_usize;
+            for listed in &page.rows {
+                let print = fingerprint(&listed.row, &fields);
+                if !owes(
+                    last.get(&listed.id),
+                    &print,
+                    started_at,
+                    contract.retry_after_hours,
+                ) {
+                    continue;
+                }
+                owed_here += 1;
+                if settled_at.elapsed() >= stall {
                     stop = Some(Stop::Stalled);
                     break 'walk;
                 }
-                Ok(Ok(read)) => read,
-                Ok(Err(error)) if is_blocked(&error) => {
-                    blocked = Some(format!("{error:#}"));
-                    stop = Some(Stop::Blocked);
+                if consecutive_failures >= contract.stop_after_consecutive_failures {
+                    stop = Some(Stop::SiteFailing);
                     break 'walk;
                 }
-                Ok(Err(error)) => {
-                    refused(&error);
-                    return Err(error);
-                }
-            };
-            asked += 1;
-            asked_ever.insert(listed.id.clone());
-            consecutive_failures = if outcome == ReadOutcome::Failed {
-                consecutive_failures + 1
-            } else {
-                settled_at = Instant::now();
-                0
-            };
-            *counts.entry(outcome.name()).or_default() += 1;
-            batch.push(line);
-            if batch.len() >= contract.commit_every {
-                let committed = flush(
-                    &config,
-                    &common,
-                    &detail_entry,
-                    &live,
-                    &batch,
-                    started_at,
-                    objects.len(),
-                )
-                .await?;
-                new_objects += usize::from(committed.new);
-                objects.push(committed.object_key);
-                batch.clear();
+                let run = RunContext {
+                    contract: &contract,
+                    source,
+                    prefix: &prefix,
+                    store: media_of(&live),
+                };
+                let reading = within_stall(
+                    settled_at,
+                    stall,
+                    read_notice(&run, &mut asker, listed, &print, &mut report),
+                );
+                let (outcome, line) = match reading.await {
+                    Err(_) => {
+                        stop = Some(Stop::Stalled);
+                        break 'walk;
+                    }
+                    Ok(Ok(read)) => read,
+                    Ok(Err(error)) if is_blocked(&error) => {
+                        blocked = Some(format!("{error:#}"));
+                        stop = Some(Stop::Blocked);
+                        break 'walk;
+                    }
+                    Ok(Err(error)) => {
+                        refused(&error);
+                        return Err(error);
+                    }
+                };
+                asked += 1;
+                asked_ever.insert(listed.id.clone());
+                consecutive_failures = if outcome == ReadOutcome::Failed {
+                    consecutive_failures + 1
+                } else {
+                    settled_at = Instant::now();
+                    0
+                };
+                *counts.entry(outcome.name()).or_default() += 1;
+                writer.push_group(&[serde_json::to_string(&line)?]).await?;
+            }
+            let walked_enough = page_no >= recent_pages
+                && owed_here == 0
+                && walk_done(asked_ever.len(), listed_total);
+            if page.last || (!full_walk && walked_enough) {
+                break;
             }
         }
-        let walked_enough =
-            page_no >= recent_pages && owed_here == 0 && walk_done(asked_ever.len(), listed_total);
-        if page.last || (!full_walk && walked_enough) {
-            break;
-        }
+        Ok(())
     }
-    if !batch.is_empty() {
-        let committed = flush(
-            &config,
-            &common,
-            &detail_entry,
-            &live,
-            &batch,
-            started_at,
-            objects.len(),
-        )
-        .await?;
-        new_objects += usize::from(committed.new);
-        objects.push(committed.object_key);
-    }
+    .await;
+    // What was read is committed, also when the walk failed part way.
+    let landed = writer.finish().await?;
+    walk?;
+    let new_objects = landed.iter().filter(|object| object.new).count();
+    let objects: Vec<String> = landed
+        .into_iter()
+        .map(|object| object.local_path.unwrap_or(object.object_key))
+        .collect();
     let list_changed = list_objects.iter().any(|committed| committed.new);
 
     let summary = json!({
@@ -1285,18 +1177,6 @@ async fn persist_list(
         .as_str()
         .context("the list names its operation")?;
     let file_id = list_file_id(dataset, page_no);
-    let run = IngestionRunId::new(Uuid::new_v4());
-    let plan = plan(
-        &common.provider,
-        dataset,
-        operation,
-        &file_id,
-        &format!("{file_id}.json"),
-        raw,
-        "application/json",
-        run,
-        at,
-    )?;
     let entry = source_catalog_entry(
         &common.provider,
         dataset,
@@ -1306,67 +1186,32 @@ async fn persist_list(
         &format!("industrial_land_sale_notice_{}_collect", source.name()),
         at,
     )?;
-    persist(
-        &entry,
-        &plan,
-        json!({"operation": operation}),
-        1,
-        at,
+    let committed = commit_object(
         uow,
         storage,
-    )
-    .await
-}
-
-async fn flush(
-    config: &Config,
-    common: &SourceCommon,
-    entry: &SourceCatalogEntry,
-    live: &Live,
-    lines: &[JsonValue],
-    at: DateTime<Utc>,
-    batch: usize,
-) -> anyhow::Result<Committed> {
-    let file_id = batch_file_id(&common.detail_dataset_slug, at, batch);
-    let plan = plan(
-        &common.provider,
-        &common.detail_dataset_slug,
-        "detail",
-        &file_id,
-        &format!("{file_id}.gz"),
-        gzip_lines(lines)?,
-        "application/gzip",
-        IngestionRunId::new(Uuid::new_v4()),
+        &entry,
+        |run| {
+            plan(
+                &common.provider,
+                dataset,
+                operation,
+                &file_id,
+                &format!("{file_id}.json"),
+                raw,
+                "application/json",
+                run,
+                at,
+            )
+        },
+        json!({"operation": operation}),
+        &JsonValue::Null,
+        1,
         at,
-    )?;
-    if let Some((uow, storage, _)) = live {
-        return persist(
-            entry,
-            &plan,
-            json!({"operation": "detail", "source": config.source, "batch": batch}),
-            lines.len(),
-            at,
-            uow,
-            storage.as_ref(),
-        )
-        .await;
-    }
-    // A dry run keeps the batch on disk for an operator to read.
-    let name = plan
-        .object_key
-        .as_str()
-        .rsplit('/')
-        .next()
-        .context("a Bronze object key has a leaf")?
-        .to_owned();
-    std::fs::create_dir_all(config.output_dir.join("objects"))?;
-    std::fs::write(
-        config.output_dir.join("objects").join(&name),
-        &plan.raw_payload,
-    )?;
+    )
+    .await?;
     Ok(Committed {
-        object_key: format!("objects/{name}"),
-        new: false,
+        object_key: committed.object_key,
+        new: committed.new,
     })
 }
 
