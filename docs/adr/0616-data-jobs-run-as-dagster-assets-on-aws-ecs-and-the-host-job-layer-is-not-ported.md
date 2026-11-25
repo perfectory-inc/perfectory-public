@@ -78,6 +78,7 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
 | UI 접근 | SSM 포트 포워딩. 공개 주소 없음 | — |
 
 계정은 조직의 platform 계정이다(SSO 프로필 `perfectory-org-admin`). 공짱 운영 계정과 286958704196 은 쓰지 않는다.
+그 계정과 리전은 ADR-0619 가 `platforms/foundation-platform/config/aws-platform.contract.json` 의 `account`·`region` 에 고정한다. 이 ADR 은 id 를 다시 적지 않고 그것을 따른다.
 
 ### 2. 일을 시작하는 길
 
