@@ -115,6 +115,8 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/r
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/silver_refresh/lane.rs:14
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/silver_refresh/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/tests.rs:2
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/rt_molit_silver_stage.rs:5
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/rt_molit_silver_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/sigungu_crosswalk.rs:3
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/silver_changes.rs:3
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/unit_official_price_stage.rs:1
