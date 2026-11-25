@@ -15,8 +15,8 @@ export AWS_SECRET_ACCESS_KEY="${FOUNDATION_PLATFORM_POSTGRES_RECOVERY_READER_SEC
 source "${script_dir}/identity-backup-lib.sh"
 # The pinned references tools/technology-versions.contract.json lists; the drill refuses to run when
 # a live database or Zitadel runs another one (a dump restores into the version it came from).
-PG_IMAGE="postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
-SOCAT_IMAGE="alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
+PG_IMAGE="postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73"
+SOCAT_IMAGE="alpine/socat:1.8.1.3@sha256:5aa280c6fc5bee94dbd2bbdf2a58d30f50396eaa110be84b03636945b157ae68"
 ZITADEL_IMAGE="ghcr.io/zitadel/zitadel:v2.65.1@sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c"
 drill="identity-restore-drill-$(date -u +%Y%m%d%H%M%S)"
 # Tries one second apart; a loaded host makes each `docker exec` slower, so the bound is generous.

@@ -2,7 +2,7 @@
 # dagster-observe). The image holds the locked dependencies and the instance config only; the code
 # location and the contracts it is generated from are the release's, mounted read-only at
 # /opt/foundation-platform/current as Airflow's DAGs are, so both orchestrators read one tree.
-FROM python:3.14.10-slim-trixie@sha256:3cabfd7d7aaf394e6040e79fa1eec6ca1c52b74ed9188650472695d9a9326999
+FROM python:3.14.10-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

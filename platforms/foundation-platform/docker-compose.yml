@@ -26,7 +26,7 @@ include:
 
 services:
   postgres:
-    image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+    image: postgis/postgis:17-3.5-alpine@sha256:894f570c0cf0664ed5576a8fd5d5bfb8fb1b19d592885b686c3a88c8bd90c41f
     # Measured on ai-server 2026-11-07: cgroup memory.peak 503 MiB over 19 days (page cache included;
     # anonymous 13 MiB, shared_buffers 160 MiB). 1536m is three times that peak (was 4g).
     mem_limit: 1536m
@@ -79,7 +79,7 @@ services:
   # Create bounded database roles before applying migrations.
   foundation-bootstrap:
     logging: *log-cap
-    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
     mem_limit: 256m
     restart: "no"
     user: "70:70"
@@ -114,7 +114,7 @@ services:
 
   foundation-runtime-grants:
     logging: *log-cap
-    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
     mem_limit: 256m
     restart: "no"
     user: "70:70"
@@ -132,7 +132,7 @@ services:
 
   foundation-finalize:
     logging: *log-cap
-    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
     mem_limit: 256m
     restart: "no"
     user: "70:70"
@@ -227,7 +227,7 @@ services:
 
   valkey:
     logging: *log-cap
-    image: valkey/valkey:8-alpine@sha256:a038175878d66b9d274fbf8be73c0305e93798b83917647f167e18cef3c71eec
+    image: valkey/valkey:8-alpine@sha256:9971099af41c36e887aabdfe22b80c0fe45df949163dfc9cb434febc57cfc3fc
     mem_limit: 256m
     restart: unless-stopped
     ports:

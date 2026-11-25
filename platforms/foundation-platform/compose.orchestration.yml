@@ -59,7 +59,7 @@ x-dagster-environment: &dagster-environment
 services:
   airflow-db:
     logging: *log-cap
-    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
     mem_limit: 512m
     restart: unless-stopped
     environment:
@@ -126,7 +126,7 @@ services:
   # ADR-0081); inside the API server's network namespace this forwards that port to Zitadel.
   airflow-zitadel-loopback:
     logging: *log-cap
-    image: "alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
+    image: "alpine/socat:1.8.1.3@sha256:5aa280c6fc5bee94dbd2bbdf2a58d30f50396eaa110be84b03636945b157ae68"
     mem_limit: 64m
     oom_score_adj: -900
     restart: unless-stopped

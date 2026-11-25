@@ -15,7 +15,7 @@ COPY Cargo.toml Cargo.lock /workspace/
 COPY server /workspace/server
 RUN cargo build --locked --release -p dawneer-server
 
-FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df AS runtime
+FROM debian:bookworm-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e AS runtime
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /workspace/target/release/dawneer-server /usr/local/bin/dawneer-server
 COPY --from=web /web/dist /usr/local/share/dawneer/web

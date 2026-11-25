@@ -2,7 +2,7 @@
 # Tesseract (kor) for the pages that are scans, drawn first at a fixed resolution by Ghostscript, LibreOffice with the H2Orestart filter to print
 # HWP 5 / HWPX to PDF. The tools run as child processes of `python -m document_text.run`.
 # Build from platforms/intelligence-platform: docker build -f jobs/document_text/Dockerfile .
-FROM python:3.14.10-slim-trixie@sha256:3cabfd7d7aaf394e6040e79fa1eec6ca1c52b74ed9188650472695d9a9326999
+FROM python:3.14.10-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

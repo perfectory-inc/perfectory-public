@@ -5,7 +5,7 @@ RUN cargo build --locked --release -p identity-api --bin identity-api \
     -p identity-database-migrator --bin identity-database-migrator \
     -p identity-service-provisioner --bin identity-service-provisioner
 
-FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df AS runtime
+FROM debian:bookworm-slim@sha256:e67eeead736ff7bbe258ef088bff683635c561b1fcfefad0806c1df4ab49ce0e AS runtime
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /workspace/target/release/identity-api /usr/local/bin/identity-api
 COPY --from=builder /workspace/target/release/identity-database-migrator /usr/local/bin/identity-database-migrator

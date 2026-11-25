@@ -18,7 +18,7 @@ x-log-cap: &log-cap
 services:
   identity-netns:
     logging: *log-cap
-    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    image: alpine/socat:1.8.1.3@sha256:5aa280c6fc5bee94dbd2bbdf2a58d30f50396eaa110be84b03636945b157ae68
     entrypoint: ["sleep", "infinity"]
     mem_limit: 16m
     oom_score_adj: -900
@@ -43,7 +43,7 @@ services:
 
   zitadel-loopback:
     logging: *log-cap
-    image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    image: alpine/socat:1.8.1.3@sha256:5aa280c6fc5bee94dbd2bbdf2a58d30f50396eaa110be84b03636945b157ae68
     mem_limit: 64m
     oom_score_adj: -900
     restart: unless-stopped

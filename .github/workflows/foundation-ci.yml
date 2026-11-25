@@ -560,7 +560,7 @@ jobs:
 
     services:
       postgres:
-        image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+        image: postgis/postgis:17-3.5-alpine@sha256:894f570c0cf0664ed5576a8fd5d5bfb8fb1b19d592885b686c3a88c8bd90c41f
         ports:
           - 5432/tcp
         env:
@@ -761,7 +761,7 @@ jobs:
             --env POSTGRES_DB=foundation_platform \
             --health-cmd "pg_isready -U foundation_platform -d foundation_platform" \
             --health-interval 5s --health-timeout 5s --health-retries 10 \
-            postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
+            postgis/postgis:17-3.5-alpine@sha256:894f570c0cf0664ed5576a8fd5d5bfb8fb1b19d592885b686c3a88c8bd90c41f
           for _ in $(seq 1 60); do
             if [ "$(docker inspect --format '{{.State.Health.Status}}' foundation-kafka-postgres)" = healthy ]; then
               echo "DATABASE_URL=postgres://foundation_platform:foundation_platform_dev_2026@localhost:5432/foundation_platform" >> "$GITHUB_ENV"
