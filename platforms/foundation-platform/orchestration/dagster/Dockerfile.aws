@@ -36,6 +36,8 @@ COPY definitions /opt/foundation-platform/current/definitions
 COPY contracts /opt/foundation-platform/current/contracts
 COPY infra/lakehouse/contracts /opt/foundation-platform/current/infra/lakehouse/contracts
 COPY docs/catalog /opt/foundation-platform/current/docs/catalog
+# The instance on AWS (root ADR-0616 A1): Postgres storage, EcsRunLauncher; the workspace is aws/workspace.yaml.
+COPY orchestration/dagster/aws/dagster.yaml /opt/dagster/home/dagster.yaml
 
 ENV PATH="/opt/foundation-platform/release:${PATH}"
 USER dagster
