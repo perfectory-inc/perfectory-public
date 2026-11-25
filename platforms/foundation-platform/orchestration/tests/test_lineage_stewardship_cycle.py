@@ -70,5 +70,27 @@ class TheDerivationRunsInThePublisher(unittest.TestCase):
         self.assertIn('lineage derive engine=$(json_field "${work}/derive-summary.json" \'["engine"]\')', text)
 
 
+class QueueTakenOver(unittest.TestCase):
+    """The steward queue is the publisher's table (root ADR-0564 §6-9): the cycle builds it after the
+    fold and loads each unit's handoff from it; no queue job goes to Spark."""
+
+    def test_the_cycle_builds_the_queue_after_the_fold_and_loads_both_units(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        for gone in ("lineage_review_queue_to_gold", "place_reference_queue_to_gold", "lineage-queue-check"):
+            self.assertNotIn(gone, text)
+        build = text.index('"${PUBLISHER_BIN}" build-lineage-review-queue-versions')
+        self.assertLess(text.index('"${PUBLISHER_BIN}" append-lineage-steward-fold'), build)
+        self.assertIn('FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_DIR="${queue_dir}"', text[:build])
+        load = text[build:]
+        self.assertIn("for unit in parcel place_reference; do", load)
+        self.assertIn('FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT="${queue_dir}/${unit}.json"', load)
+
+    def test_a_cycle_before_the_lineage_exists_waits(self):
+        text = SCRIPT.read_text(encoding="utf-8")
+        build = text.index('"${PUBLISHER_BIN}" build-lineage-review-queue-versions')
+        waiting = text.index('[ "${queue_outcome}" = waiting ]', build)
+        self.assertIn("foundation-job-outcome waiting silver.parcel_lineage does not exist yet", text[waiting:])
+
+
 if __name__ == "__main__":
     unittest.main()

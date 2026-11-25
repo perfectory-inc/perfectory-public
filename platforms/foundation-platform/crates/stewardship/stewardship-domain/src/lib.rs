@@ -140,7 +140,7 @@ fn is_digits(code: &str, n: usize) -> bool {
 }
 
 /// `silver.<table>|<reason>|<10-digit 법정동 code or ->`, the subject of a place-reference item
-/// (`place_reference_queue.subject`): lowercase snake-case names, as the contracts write them.
+/// (`lineage_review_queue_stage::place_reference_items`): lowercase snake-case names, as the contracts write them.
 fn is_place_reference(code: &str) -> bool {
     let name = |part: &str| {
         !part.is_empty()
@@ -160,7 +160,7 @@ fn is_place_reference(code: &str) -> bool {
 }
 
 /// What the place-reference queue recorded for one (source, reason, 법정동 code), stored as the
-/// item's `candidates_json` (root ADR-0483 §5); `place_reference_queue.items` writes it.
+/// item's `candidates_json` (root ADR-0483 §5); `lineage_review_queue_stage::place_reference_items` writes it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlaceReferenceEvidence {

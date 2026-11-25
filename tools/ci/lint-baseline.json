@@ -37,9 +37,6 @@
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py": {
    "F401": 1
   },
-  "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py": {
-   "B023": 1
-  },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/platform_contracts.py": {
    "B905": 1
   },

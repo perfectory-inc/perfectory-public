@@ -1,8 +1,9 @@
 //! The one steward queue's items, computed by the publisher.
 //!
-//! The twins of `lineage_review_queue.review_queue` (unit `parcel`, from `silver.parcel_lineage`)
-//! and of `place_reference_queue.items` over `place_reference_queue_to_gold.unresolved` (unit
-//! `place_reference`, from every parcel source Silver the resolver placed), root ADR-0564 §6-9.
+//! Unit `parcel` from `silver.parcel_lineage` (the rules of `lineage_review_queue.review_queue`) and
+//! unit `place_reference` from every parcel source Silver the resolver placed; they replaced the
+//! Spark jobs `lineage_review_queue_to_gold` and `place_reference_queue_to_gold` on the queue's
+//! takeover (root ADR-0564 §6-9).
 //!
 //! A parcel is on the queue when the best derived row of its newest derivations is `needs_review`
 //! or `pending` and no standing steward decision closes it; its candidates and fingerprint are the
@@ -210,7 +211,7 @@ pub struct UnresolvedGroup {
 
 /// The groups of `table`'s current rows at `source` that hold no `pnu`.
 ///
-/// The twin of `place_reference_queue_to_gold.unresolved`. A row's key is its contract key (or
+/// As the Spark job `place_reference_queue_to_gold` read them. A row's key is its contract key (or
 /// `row_key`), each part as text joined by `|` with a null part left out.
 ///
 /// # Errors
@@ -302,7 +303,7 @@ pub fn load_unresolved(
         .collect()
 }
 
-/// `table`'s place reference items, one per group (`place_reference_queue.items`), without their
+/// `table`'s place reference items, one per group, without their
 /// snapshot pair (the caller's: the snapshot read before and the one read now).
 ///
 /// # Errors
@@ -382,8 +383,16 @@ pub fn code_version() -> String {
     format!("{:x}", hash.finalize())
 }
 
+/// What the queue reads: the lineage (the parcel unit), then each place reference source.
+#[must_use]
+pub fn inputs() -> Vec<&'static str> {
+    std::iter::once(LINEAGE_SOURCE)
+        .chain(place_reference_sources())
+        .collect()
+}
+
 /// The Silver tables whose rows the resolver placed: those whose contract carries a `pnu` and its
-/// reason (`place_reference_queue.sources`), by name.
+/// reason, by name.
 #[must_use]
 pub fn place_reference_sources() -> Vec<&'static str> {
     let mut found: Vec<&'static str> = lakehouse_domain::industrial_complex_lakehouse_contracts()

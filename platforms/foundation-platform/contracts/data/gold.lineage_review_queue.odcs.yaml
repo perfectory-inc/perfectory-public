@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "계보의 최선 등급이 needs_review·pending 이고 스튜어드 결정이 없는 필지만 모은다. 결정은 이 표가 아니라 계보 행으로 쌓인다(루트 ADR-0113 10항)."
+  purpose: "계보의 최선 등급이 needs_review·pending 이고 스튜어드 결정이 없는 필지만 모은다. 결정은 이 표가 아니라 계보 행으로 쌓인다(루트 ADR-0113 10항). 넘겨받기(루트 ADR-0564 §6-9) 뒤로는 쓰지 않고 남긴다(쌓기만 한다): 스튜어드 순환은 gold.lineage_review_queue_versions 를 짓고 싣는다."
 team:
   name: "foundation-platform"
 servers:
@@ -81,17 +81,4 @@ customProperties:
     value:
       - "subject_code"
   - property: "upstreamDatasets"
-    value:
-      - "silver.airport"
-      - "silver.commercial_district"
-      - "silver.court_auction_item"
-      - "silver.court_auction_sale_result"
-      - "silver.onbid_real_estate_item"
-      - "silver.parcel_lineage"
-      - "silver.port"
-      - "silver.railway_station"
-      - "silver.real_transaction"
-      - "silver.registered_factory"
-      - "silver.school_location"
-      - "silver.subway_station"
-      - "silver.university"
+    value: []

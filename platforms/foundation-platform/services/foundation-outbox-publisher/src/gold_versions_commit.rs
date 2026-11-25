@@ -17,7 +17,6 @@ use foundation_publisher_silver::duckdb::Connection;
 use foundation_publisher_silver::duckdb_parquet_stage::{
     with_contract_columns, DuckDbParquetStage,
 };
-use foundation_publisher_silver::lineage_review_queue_stage as queue_stage;
 use lakehouse_domain::{LakehouseTableContract, GOLD_VERSIONS_PNU_PARTITION};
 use lakehouse_infrastructure::{IcebergRestCatalog, IcebergSnapshotSummary};
 use serde_json::{json, Value};
@@ -1063,98 +1062,6 @@ const PLACE_ID_RELEASE_INPUTS: &[&str] = &[
     "reference.legal_dong_code_change",
 ];
 
-// one-off: until gold.lineage_review_queue is replaced (its switch deletes the Spark jobs and this).
-/// A replaced table whose builds record their input pins under properties of their own and carry no
-/// build tag: the inputs it may read, the first of which every build records, and the input each
-/// property names.
-pub(crate) struct RecordedBuild {
-    table: &'static str,
-    inputs: fn() -> Vec<&'static str>,
-    input_of: fn(&str) -> Option<&str>,
-}
-
-/// The replaced tables whose builds record their own pins: the steward queue's two Spark jobs, the
-/// lineage's snapshot (`lineage_review_queue_to_gold.LINEAGE_SNAPSHOT_PROPERTY`) and each place
-/// reference source's (`place_reference_queue_to_gold.SNAPSHOT_PREFIX`), on every commit.
-const RECORDED_BUILDS: &[RecordedBuild] = &[RecordedBuild {
-    table: "gold.lineage_review_queue",
-    inputs: queue_inputs,
-    input_of: queue_input_of,
-}];
-
-/// The steward queue's inputs: the lineage, then each place reference source.
-fn queue_inputs() -> Vec<&'static str> {
-    std::iter::once(queue_stage::LINEAGE_SOURCE)
-        .chain(queue_stage::place_reference_sources())
-        .collect()
-}
-
-/// The queue input a property of its Spark jobs' commits pins.
-fn queue_input_of(property: &str) -> Option<&str> {
-    if property == "foundation.lineage-snapshot-id" {
-        Some(queue_stage::LINEAGE_SOURCE)
-    } else {
-        property.strip_prefix("foundation.place-reference-snapshot.")
-    }
-}
-
-/// The shadow of `versions` whose replaced table records its own pins ([`RECORDED_BUILDS`]): the
-/// build is the replaced table's head, and each input is pinned at the newest snapshot the kept
-/// history records for it, or at its head (`heads`) when the history names none: the jobs read every
-/// input that moved, each run, so one they did not name did not move since.
-///
-/// # Errors
-/// Refuses a lane that serves neither table, a replaced table with no snapshot, a recorded pin that
-/// is not a snapshot id, and a history that records the first input nowhere.
-pub(crate) fn recorded_shadow(
-    versions: &str,
-    served: &str,
-    build: &RecordedBuild,
-    history: &[IcebergSnapshotSummary],
-    heads: &BTreeMap<String, i64>,
-) -> anyhow::Result<Shadow> {
-    let replaced = replaced_of(versions)?;
-    ensure!(
-        served == replaced,
-        "the lane serves {served}, neither {versions} nor the {replaced} it replaces"
-    );
-    let head = history
-        .first()
-        .with_context(|| format!("{replaced} holds no snapshot: there is no build to shadow"))?;
-    let mut recorded: BTreeMap<String, i64> = BTreeMap::new();
-    for snapshot in history {
-        for (property, value) in &snapshot.summary {
-            let Some(input) = (build.input_of)(property) else {
-                continue;
-            };
-            if !recorded.contains_key(input) {
-                let pin = value.parse().with_context(|| {
-                    format!(
-                        "{replaced} snapshot {} records {property}={value}",
-                        snapshot.snapshot_id
-                    )
-                })?;
-                recorded.insert(input.to_owned(), pin);
-            }
-        }
-    }
-    let first = (build.inputs)().first().copied().unwrap_or_default();
-    ensure!(
-        recorded.contains_key(first),
-        "{replaced} records no pin of {first} in its kept history: nothing to shadow"
-    );
-    let pins = heads
-        .iter()
-        .map(|(input, head)| (input.clone(), *recorded.get(input).unwrap_or(head)))
-        .collect();
-    Ok(Shadow {
-        replaced: replaced.to_owned(),
-        build: head.snapshot_id,
-        pins,
-        served_edition: None,
-    })
-}
-
 /// The commit operation of a compaction, which rewrites files and keeps the rows.
 const COMPACTION_OPERATION: &str = "replace";
 
@@ -1215,8 +1122,7 @@ pub(crate) fn untagged_shadow(
 }
 
 /// [`shadow`], read from the catalog: the replaced table's refs and `main` lineage (and, for an
-/// untagged build, its inputs' lineages, [`untagged_shadow`]; for a build that records its own pins,
-/// its inputs' heads, [`recorded_shadow`]).
+/// untagged build, its inputs' lineages, [`untagged_shadow`]).
 pub(crate) async fn shadow_of(
     catalog: &IcebergRestCatalog,
     versions: &str,
@@ -1226,23 +1132,6 @@ pub(crate) async fn shadow_of(
         return Ok(None);
     }
     let replaced = replaced_of(versions)?;
-    if let Some(build) = RECORDED_BUILDS.iter().find(|build| build.table == replaced) {
-        let history = catalog
-            .load_main_snapshot_history(replaced)
-            .await?
-            .with_context(|| format!("{replaced} does not exist"))?;
-        let mut heads = BTreeMap::new();
-        for input in (build.inputs)() {
-            let head = catalog
-                .load_main_snapshot_history(input)
-                .await?
-                .and_then(|lineage| lineage.first().map(|snapshot| snapshot.snapshot_id));
-            if let Some(head) = head {
-                heads.insert(input.to_owned(), head);
-            }
-        }
-        return recorded_shadow(versions, served, build, &history, &heads).map(Some);
-    }
     if let Some((_, inputs)) = UNTAGGED_BUILDS.iter().find(|(table, _)| *table == replaced) {
         let history = catalog
             .load_main_snapshot_history(replaced)

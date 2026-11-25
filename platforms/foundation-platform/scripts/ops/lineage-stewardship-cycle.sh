@@ -97,12 +97,6 @@ publisher() {
 }
 
 # One line per refused lineage group, naming the 동 codes the code change table does not pair (Slack).
-# The queue was built from the lineage's current snapshot ($1, from lineage-queue-check.py) and its
-# last load succeeded ($2, the summary kept only after a load): the queue run would change nothing.
-queue_unchanged() {
-  [[ "$1" == "unchanged "* ]] && [ -s "$2" ]
-}
-
 lineage_refusal_text() {
   PYTHONIOENCODING=utf-8 python3 - "$1" <<'PY'
 import json, sys
@@ -168,23 +162,6 @@ job_journal "${journal}" "lineage derive engine=$(json_field "${work}/derive-sum
 # A refused group did not stop the others or the steps below; the unit still fails at the end.
 grep -a '^parcel-lineage-refused ' "${run_log}" >&2 || true
 
-# 0. 계보 표가 아직 없으면(9월 필지 적재 전) 할 일이 없다 — 조용히 넘기지 않고 그렇다고 남긴다.
-# `|| probe_rc=$?`, not `set +e`: the ERR trap fires even with errexit off, so "no lineage yet"
-# (exit 3) was logged and posted to Slack as a failure on every run (found 2026-10-01). A command
-# on the left of `||` does not trip the trap.
-probe_rc=0
-spark lineage_review_queue_to_gold.py --probe-only --summary-output "${container_work}/probe.json" \
-  || probe_rc=$?
-if [ "${probe_rc}" = 3 ]; then
-  job_journal "${journal}" "stewardship waiting: silver.parcel_lineage does not exist yet"
-  notify_slack "⏳ 필지 계보 검토: 계보 표가 아직 없음 — 필지 스냅숏 적재 뒤 자동 시작"
-  printf 'foundation-job-outcome waiting silver.parcel_lineage does not exist yet\n'
-  exit 0
-elif [ "${probe_rc}" != 0 ]; then
-  on_error "probe"
-  exit "${probe_rc}"
-fi
-
 # 1. 접기
 FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_OUTPUT="${work}/fold.json" \
   "${PUBLISHER_BIN}" export-lineage-steward-fold >> "${run_log}" 2>&1
@@ -200,50 +177,40 @@ if [ "$(json_field "${work}/fold.json" '["row_count"]')" != 0 ]; then
   folded="$(json_field "${work}/fold-summary.json" '["rows"]')"
 fi
 
-# 2–3. 목록과 적재. 계보가 지난 목록 이후 그대로면(ADR-0277 의 모양) Spark 도 적재도 건너뛴다: 목록은
-# 그 스냅숏으로 이미 만들어졌고, 적재는 성공했을 때만 남긴 요약이 증명한다. 접기가 계보에 쌓았으면 스냅숏이
-# 달라져 여기서 다시 만든다.
-last_queue_summary="${STATE_ROOT}/last-queue-summary.json"
-queue_check="$(python3 "$(dirname "${BASH_SOURCE[0]}")/lineage-queue-check.py")"
-queue_rebuilt=0
-if queue_unchanged "${queue_check}" "${last_queue_summary}"; then
-  job_journal "${journal}" "stewardship queue unchanged run=${run_id}: ${queue_check}; no Spark, no load"
-  cp "${last_queue_summary}" "${work}/queue-summary.json"
-else
-  spark lineage_review_queue_to_gold.py --allow-non-smoke-write \
-    --summary-output "${container_work}/queue-summary.json" --handoff-output "${container_work}/queue.json"
-  FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT="${work}/queue.json" \
-  FOUNDATION_PLATFORM_LINEAGE_REVIEW_LOAD_CONFIRM=true \
-    "${PUBLISHER_BIN}" load-lineage-review-items >> "${run_log}" 2>&1
-  cp "${work}/queue-summary.json" "${last_queue_summary}"
-  queue_rebuilt=1
+# 2–3. 목록과 적재 (root ADR-0564 §6-9, 넘겨받은 큐). 발행기 안의 DuckDB 가 두 unit(계보의 parcel, 해석기가 못
+# 놓은 원천 행의 place_reference)을 입력의 머리에서 다시 셈하고 바뀐 항목만 gold.lineage_review_queue_versions 에
+# 붙인다(접기 뒤라 오늘 정한 결정이 빠진다). 그 표의 현재 행에서 unit 마다 넘김 파일을 쓴다. 표가 그대로이고 DB 가
+# 그 목록을 이미 받았으면 적재를 건너뛴다. 받은 기록은 두 unit 의 적재가 성공한 뒤에만 남는다 — 그래야 더니어 검토
+# 화면이 같은 목록을 본다. 계보 표가 아직 없으면(9월 필지 적재 전) 기다린다고 남기고 끝낸다.
+queue_dir="${work}/queue"
+FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY="${work}/queue-summary.json" \
+FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_DIR="${queue_dir}" \
+  "${PUBLISHER_BIN}" build-lineage-review-queue-versions >> "${run_log}" 2>&1
+queue_outcome="$(json_field "${work}/queue-summary.json" '["outcome"]')"
+if [ "${queue_outcome}" = waiting ]; then
+  job_journal "${journal}" "stewardship waiting: silver.parcel_lineage does not exist yet"
+  notify_slack "⏳ 필지 계보 검토: 계보 표가 아직 없음 — 필지 스냅숏 적재 뒤 자동 시작"
+  printf 'foundation-job-outcome waiting silver.parcel_lineage does not exist yet\n'
+  exit 0
 fi
-
-# 3b. 못 놓인 원천 행 (root ADR-0483 §5): 해석기가 놓은 모든 필지 원천의 미해결 현재 행을 같은 큐의
-# unit place_reference 에 (원천, 이유, 법정동) 항목으로 세운다. 지난 큐 뒤 스냅숏이 움직인 원천만 읽고,
-# 그 원천의 항목만 MERGE 한다. 실패해도 위 단계는 그대로 두고 회차 끝에 실패로 낸다.
-reference_rc=0
-# 3c. 그 목록을 스튜어드 DB 로 (같은 load-lineage-review-items, unit 째로 바꿈): 큐가 바뀌었거나 DB 가 아직 받은 적이
-# 없을 때만. 받은 기록은 적재가 성공한 뒤에만 남는다 — 그래야 더니어 검토 화면이 같은 목록을 본다.
-last_reference_load="${STATE_ROOT}/last-place-reference-load.json"
-spark place_reference_queue_to_gold.py --allow-non-smoke-write   --summary-output "${container_work}/place-reference.json" \
-  --handoff-output "${container_work}/place-reference-handoff.json" || reference_rc=$?
-reference_wrote=0
-if [ "${reference_rc}" = 0 ]; then
-  [ "$(json_field "${work}/place-reference.json" '["outcome"]')" = written ] && reference_wrote=1
-  job_journal "${journal}" "place-reference queue run=${run_id} read=$(json_field "${work}/place-reference.json" '["read"]') open=$(json_field "${work}/place-reference.json" '["open"]')"
-  if [ "${reference_wrote}" = 1 ] || [ ! -s "${last_reference_load}" ]; then
-    FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT="${work}/place-reference-handoff.json" \
+last_queue_load="${STATE_ROOT}/last-queue-load.json"
+queue_rebuilt=0
+if [ "${queue_outcome}" = committed ] || [ ! -s "${last_queue_load}" ]; then
+  for unit in parcel place_reference; do
+    FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT="${queue_dir}/${unit}.json" \
     FOUNDATION_PLATFORM_LINEAGE_REVIEW_LOAD_CONFIRM=true \
-      "${PUBLISHER_BIN}" load-lineage-review-items >> "${run_log}" 2>&1 || reference_rc=$?
-    if [ "${reference_rc}" = 0 ]; then cp "${work}/place-reference.json" "${last_reference_load}"; fi
-  fi
+      "${PUBLISHER_BIN}" load-lineage-review-items >> "${run_log}" 2>&1
+  done
+  cp "${work}/queue-summary.json" "${last_queue_load}"
+  queue_rebuilt=1
+else
+  job_journal "${journal}" "stewardship queue unchanged run=${run_id}; the database holds it, no load"
 fi
 
 # 4. 요약
 summary="$(python3 - "${work}/queue-summary.json" "${folded}" <<'PY'
 import json, sys
-s = json.load(open(sys.argv[1]))
+s = json.load(open(sys.argv[1])).get("queue") or {}
 regions = ", ".join(f"{k} {v}" for k, v in sorted(s.get("open_by_sido", {}).items())) or "없음"
 print(f"🗂 필지 계보 검토: 대기 {s.get('open', 0)}건 (ownership 불일치 {s.get('open_needs_review', 0)}, 짝 없음 {s.get('open_pending', 0)}) · "
       f"지역 {regions} · 오늘 반영된 결정 {sys.argv[2]}건 · 새 근거로 다시 열림 {s.get('reopened_by_new_evidence', 0)}건")
@@ -257,12 +224,6 @@ if [ "${complex_region_rc}" != 0 ]; then
   printf 'foundation-job-outcome failed industrial-complex region codes\n'
   exit 1
 fi
-if [ "${reference_rc}" != 0 ]; then
-  job_journal "${journal}" "stewardship FAILED: place-reference queue rc=${reference_rc} run=${run_id}" >&2
-  job_run_log_tail "${run_log}"
-  printf 'foundation-job-outcome failed place-reference queue\n'
-  exit 1
-fi
 if [ "${derive_refused}" != 0 ]; then
   job_journal "${journal}" "stewardship FAILED: ${derive_refused} lineage group(s) refused run=${run_id}" >&2
   # What a person acts on: which group, and which 동 codes the code change table does not pair.
@@ -274,7 +235,7 @@ fi
 # pairing, a derived group, a folded decision, a rebuilt queue (10-24..27 said `changed` daily on
 # derived=0, folded 0, queue unchanged).
 if [ "${legal_dong_code_wrote}" != 0 ] || [ "${complex_region_wrote}" != 0 ] || [ "$(json_field "${work}/derive-summary.json" '["derived"]')" != 0 ] \
-  || [ "${folded}" != 0 ] || [ "${queue_rebuilt}" != 0 ] || [ "${reference_wrote}" != 0 ]; then
+  || [ "${folded}" != 0 ] || [ "${queue_rebuilt}" != 0 ]; then
   printf 'foundation-job-outcome changed\n'
 else
   printf 'foundation-job-outcome unchanged\n'

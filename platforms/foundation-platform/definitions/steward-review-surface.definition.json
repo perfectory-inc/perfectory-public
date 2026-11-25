@@ -17,7 +17,7 @@
   ],
   "dependencies": [
     {
-      "from": "gold-lineage-review-queue",
+      "from": "gold-lineage-review-queue-versions",
       "to": "steward-review-surface",
       "relation": "feeds",
       "status": "planned",

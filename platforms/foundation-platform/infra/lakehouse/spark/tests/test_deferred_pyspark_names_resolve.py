@@ -59,7 +59,6 @@ MODULES = (
     "legal_dong_code_snapshot_to_reference",
     "parcel_registry_frames",
     "place_id_release_to_gold",
-    "lineage_review_queue_to_gold",
     "vworld_parcel_number_change_history",
     "onbid_public_auction_document",
     "address_pnu",
