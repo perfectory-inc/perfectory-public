@@ -91,15 +91,14 @@ class Declared(unittest.TestCase):
     def test_the_repository_s_shadow_lanes_declare_the_check(self):
         definitions = [json.loads(path.read_text(encoding="utf-8"))
                        for path in sorted((PLATFORM / "definitions").glob("*.definition.json"))]
-        for table in ("gold.parcel_building_permits_versions", "gold.parcel_boundary_served_versions",
-                      "gold.parcel_panel_versions", "gold.unit_price_versions",
+        for table in ("gold.parcel_boundary_served_versions", "gold.parcel_panel_versions", "gold.unit_price_versions",
                       "silver.unit_official_price_versions"):
             with self.subTest(table=table):
                 self.assertEqual(check.declared(run(table=table), definitions, {}), [(table, "41")])
         # A lane that took its table over shadows nothing and declares the check no more (root ADR-0564 §6-4).
         for table in ("gold.parcel_energy_versions", "gold.parcel_register_masters_versions",
                       "gold.parcel_demolitions_versions", "gold.parcel_factories_versions",
-                      "gold.parcel_sub_parcels_versions"):
+                      "gold.parcel_sub_parcels_versions", "gold.parcel_building_permits_versions"):
             with self.subTest(taken_over=table):
                 self.assertEqual(check.declared(run(table=table, shadow_of=None), definitions, {}), [])
                 self.assertEqual(check.declared(run(table=table), definitions, {}), [])
@@ -113,11 +112,11 @@ class Declared(unittest.TestCase):
     def test_a_commit_clears_the_last_head_s_record(self):
         with tempfile.TemporaryDirectory() as work:
             work = pathlib.Path(work)
-            (work / "summary.json").write_text(json.dumps(run(table="gold.parcel_building_permits_versions")), encoding="utf-8")
+            (work / "summary.json").write_text(json.dumps(run(table="gold.parcel_panel_versions")), encoding="utf-8")
             state = work / "state.json"
             state.write_text(json.dumps({"completed": True}), encoding="utf-8")
             done = cli("declared", str(work / "summary.json"), str(PLATFORM / "definitions"), str(state))
-            self.assertEqual(done.stdout.split(), ["gold.parcel_building_permits_versions", "41"])
+            self.assertEqual(done.stdout.split(), ["gold.parcel_panel_versions", "41"])
             self.assertFalse(state.exists())
             judged = {"gold.parcel_energy_versions": {"completed": True}, check.LAST: "gold.parcel_energy_versions"}
             state.write_text(json.dumps(judged), encoding="utf-8")

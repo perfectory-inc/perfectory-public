@@ -322,7 +322,8 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
                           # Root ADR-0564 §6-4: the producers of the lanes that bake a versions table.
                           "gold_parcel_nearby_rebuild", "gold_parcel_energy_versions_build",
                           "gold_parcel_register_masters_versions_build", "gold_parcel_demolitions_versions_build",
-                          "gold_parcel_factories_versions_build", "gold_parcel_sub_parcels_versions_build"})
+                          "gold_parcel_factories_versions_build", "gold_parcel_sub_parcels_versions_build",
+                          "gold_parcel_building_permits_versions_build"})
         # A lane that bakes a table of appended row versions has that table's producer reconciled. 2026-11-23
         # 15:36Z the 총괄표제부 lane's switch served its shadow, built from the pins of a Spark build that had
         # failed since 11-20; the Silver commit of 11-21 23:16Z had been "covered" by the shadow's runs, so

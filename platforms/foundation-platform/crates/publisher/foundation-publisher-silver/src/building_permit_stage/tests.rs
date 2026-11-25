@@ -2,8 +2,8 @@
 //! dates, a tied repeat once, blanks null, a permit's parking by key, an unserved or unplaced permit
 //! left out, the bound, a renumbered code on the served parcel, each other file a `{total, records}`
 //! list or null, an inspection on the parcel of the one 표제부 its key names, the bytes Spark writes,
-//! and the partial diff a changed parking row or 표제부 reaches. The national judgement against the
-//! Spark job is its takeover verdict.
+//! the partial diff a changed parking row or 표제부 reaches, and the document's fields as the schema
+//! registry records them. The national judgement against the Spark job was its takeover verdict.
 
 use std::collections::BTreeMap;
 
@@ -462,5 +462,45 @@ fn a_partial_run_follows_a_changed_parking_row_and_a_moved_title() -> anyhow::Re
         crate::kind_versions_stage::changed_for_test(&BUILDING_PERMITS, &connection)?,
         0
     );
+    Ok(())
+}
+
+/// The lane's `spark_held_test` (root ADR-0418 §8c): the document this stage writes carries exactly
+/// the fields of the subject's registered schema, as the deleted Spark job's test held it.
+#[test]
+fn a_document_carries_exactly_the_registry_s_fields() -> anyhow::Result<()> {
+    let schema: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../contracts/schema-registry/parcel_building_permits_by_pnu/1/4.schema.json"
+    ))?;
+    let mut recorded = std::collections::BTreeSet::new();
+    crate::building_energy_stage::tests::schema_paths(
+        &schema["properties"]["building_permits"],
+        "building_permits",
+        &mut recorded,
+    );
+    // A permit with its parking, a row of every other file of the family and a linked inspection,
+    // all on the factory: every list holds a record.
+    let mut inputs = inspections()
+        .with(
+            PERMIT_SOURCE,
+            permit("k1", Some(FACTORY), "공장", "1", "", "20990101"),
+        )
+        .with(PARKING_SOURCE, parking("k1", Some("3"), None, None));
+    for file in DETAILS
+        .iter()
+        .filter(|file| file.source != INSPECTION_SOURCE)
+    {
+        inputs = inputs.with(file.source, detail(file.source, "d1", FACTORY, "1"));
+    }
+    let connection = Connection::open_in_memory()?;
+    let rows = build_all(&connection, &inputs)?;
+    assert_eq!(rows[0].0, FACTORY);
+    let mut written = std::collections::BTreeSet::new();
+    crate::building_energy_stage::tests::json_paths(
+        &serde_json::from_str(&rows[0].1)?,
+        "building_permits",
+        &mut written,
+    );
+    assert_eq!(written, recorded);
     Ok(())
 }

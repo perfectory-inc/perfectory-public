@@ -54,3 +54,11 @@ ADR-0356 은 소비자를 "건물 by-PNU 패널의 수명 칸" 으로 적었다.
   작다. Gold 는 374만 행 안팎, R2 월 수십 원. 이후 빌드는 새 판이 허가를 바꿀 때(월 1 회)와 필지판이 움직일 때만 일을 한다.
 - 건축구분이 빈칸인 허가(33%)는 주용도만 제목에 보인다. 건축인허가의 다른 표(동별개요·층별개요·주차장·대수선 등)는 이 종류에
   넣지 않는다. 각각 Silver 가 먼저 있어야 하고(지금 주차장만 적재됨), 붙일 때는 이 문서의 레코드에 관리허가대장PK 로 잇는다.
+
+## 개정 메모 2026-11-24: 건축인허가 종류의 생산자가 발행기 안의 DuckDB 로 넘어갔다
+
+레인의 표는 `gold.parcel_building_permits_versions` 이고 생산자는 `building_permit_stage::BUILDING_PERMITS`(발행기,
+`gold_parcel_building_permits_versions_build`)다. Spark 의 `building_permit_silver_to_gold.py` 는 지웠고, `gold_parcel_building_permits_rebuild` 는
+꺼진 줄로 한 릴리스 남으며, `gold.parcel_building_permits` 는 쓰지 않고 남긴다(루트 ADR-0564 Revision 2026-11-24 둘째, 다섯째 넘겨받기). 문서와
+경로는 그대로다. Spark 시험이 지키던 것은 발행기 단계의 시험이 지킨다(`building_permit_stage/tests.rs`: 새 허가부터, 같은 허가는 한 번, 주차장은
+키로, 다른 파일은 저마다의 목록, 정기점검은 표제부 하나를 거쳐, 레지스트리 스키마의 칸 그대로).

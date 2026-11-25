@@ -62,7 +62,8 @@
         "gold_parcel_register_masters_versions_build",
         "gold_parcel_demolitions_versions_build",
         "gold_parcel_factories_versions_build",
-        "gold_parcel_sub_parcels_versions_build"
+        "gold_parcel_sub_parcels_versions_build",
+        "gold_parcel_building_permits_versions_build"
       ],
       "enabled": true,
       "enabled_since": "2026-10-29T12:00:00Z",
