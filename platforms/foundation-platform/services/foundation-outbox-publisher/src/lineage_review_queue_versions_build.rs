@@ -552,7 +552,8 @@ mod tests {
         assert_eq!(report["open"], json!(2));
         assert_eq!(report["open_needs_review"], json!(1));
         assert_eq!(report["open_pending"], json!(1));
-        assert_eq!(report["open_by_sido"], json!({"11": 1, "26": 1}));
+        // Both synthetic PNUs lie under the code 99999.
+        assert_eq!(report["open_by_sido"], json!({"99": 2}));
         assert_eq!(report["reopened_by_new_evidence"], json!(1));
         let parcel = parse_handoff(&std::fs::read_to_string(out.join("parcel.json"))?)
             .map_err(|error| anyhow::anyhow!("{error}"))?;
@@ -576,7 +577,7 @@ mod tests {
         let subject = "9999911000100010000";
         connection.execute_batch(&format!(
             "CREATE TABLE current AS SELECT * FROM (VALUES \
-               ('{PARCEL_UNIT}', '{subject}', '{}', 'needs_review', '[]', 'not-the-etag', NULL, NULL)) \
+               ('{PARCEL_UNIT}', '{subject}', '{}', 'needs_review', '[]', 'not-the-etag', NULL::VARCHAR, NULL::VARCHAR)) \
              AS t(unit, subject_code, item_id, status, candidates_json, evidence_etag, from_snapshot_id, to_snapshot_id);",
             queue::item_id(PARCEL_UNIT, subject),
         ))?;
