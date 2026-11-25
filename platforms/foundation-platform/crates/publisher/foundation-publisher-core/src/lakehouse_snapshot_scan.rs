@@ -4,6 +4,11 @@
 //! everything below that is object reads. This module owns that walk — manifest list, manifests,
 //! Parquet data files — for every command that needs canonical rows, so a second implementation of
 //! Iceberg manifest decoding never appears (root ADR-0040 decision 8).
+//!
+//! Frozen: since root ADR-0559 the publisher's `DuckDB` reads lakehouse tables with its own
+//! Iceberg extension, and this reader takes no new caller (today's are listed in
+//! `tools/semgrep/rules/hand-written-iceberg-scan.yml`). It is deleted once `DuckDB`'s pushdown is
+//! measured against what they need.
 
 pub mod iceberg_scan;
 #[cfg(test)]
