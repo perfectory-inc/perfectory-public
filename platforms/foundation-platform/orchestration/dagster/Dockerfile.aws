@@ -8,7 +8,7 @@
 #   foundation-outbox-publisher:local  the publisher image of this commit for the target platform
 #   foundation-engine-extensions:local the extension files duckdb-extensions.contract.json pins for that
 #                                      platform, fetched by scripts/ci/fetch_pinned.py
-FROM python:3.14.10-slim-trixie@sha256:3cabfd7d7aaf394e6040e79fa1eec6ca1c52b74ed9188650472695d9a9326999
+FROM python:3.14.10-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
