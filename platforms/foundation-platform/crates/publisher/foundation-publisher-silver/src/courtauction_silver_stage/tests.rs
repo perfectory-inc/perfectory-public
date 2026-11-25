@@ -125,7 +125,7 @@ fn the_staged_rows_are_the_rows_the_spark_job_built(role: Role) -> anyhow::Resul
     let staged = read_object(
         &stage,
         &source,
-        &object(directory.path(), role)?,
+        &object(stage.directory(), role)?,
         ingested_at,
     )?;
     assert_eq!(
@@ -234,7 +234,7 @@ fn a_case_document_read_without_its_case_refuses_the_object() -> anyhow::Result<
     stage
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;
-    let path = directory.path().join("keyless.gz");
+    let path = stage.directory().join("keyless.gz");
     let mut gzip = flate2::write::GzEncoder::new(
         std::fs::File::create(&path)?,
         flate2::Compression::default(),
@@ -268,7 +268,7 @@ fn a_notice_detail_without_its_key_refuses_the_object() -> anyhow::Result<()> {
     stage
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;
-    let path = directory.path().join("keyless.gz");
+    let path = stage.directory().join("keyless.gz");
     let mut gzip = flate2::write::GzEncoder::new(
         std::fs::File::create(&path)?,
         flate2::Compression::default(),
@@ -303,7 +303,7 @@ fn a_report_read_without_its_key_refuses_the_object() -> anyhow::Result<()> {
     stage
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;
-    let path = directory.path().join("keyless.gz");
+    let path = stage.directory().join("keyless.gz");
     let mut gzip = flate2::write::GzEncoder::new(
         std::fs::File::create(&path)?,
         flate2::Compression::default(),
@@ -523,7 +523,7 @@ fn the_search_rows_and_their_offers_are_the_spark_jobs() -> anyhow::Result<()> {
     let staged = read_object(
         &stage,
         &source,
-        &object(directory.path(), Role::ItemSearch)?,
+        &object(stage.directory(), Role::ItemSearch)?,
         chrono::Utc::now(),
     )?;
     assert_eq!(staged[0].rows, 5);
@@ -561,7 +561,7 @@ fn a_search_row_takes_the_code_first_then_its_lot_then_its_road() -> anyhow::Res
     read_object(
         &stage,
         &source,
-        &object(directory.path(), Role::ItemSearch)?,
+        &object(stage.directory(), Role::ItemSearch)?,
         chrono::Utc::now(),
     )?;
     let table = contract("silver.court_auction_item")?;
@@ -615,7 +615,7 @@ fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
         .execute_batch(&CourtAuctionSource::values_sql())?;
     let cases: serde_json::Value = serde_json::from_str(&fixture("item_search_complete.json")?)?;
     for case in cases.as_array().context("cases")? {
-        let path = directory.path().join("case.jsonl");
+        let path = stage.directory().join("case.jsonl");
         let lines = case["lines"]
             .as_array()
             .context("lines")?
@@ -709,7 +709,7 @@ fn a_case_detail_object_of_wide_answers_is_read_within_its_memory_budget() -> an
     stage
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;
-    let object = large_object(directory.path(), Role::CaseDetail, 0, 150, 10)?;
+    let object = large_object(stage.directory(), Role::CaseDetail, 0, 150, 10)?;
     read_object(&stage, &source, &object, chrono::Utc::now())?;
     let cases: i64 =
         stage
@@ -727,7 +727,7 @@ fn a_follow_places_again_the_rows_a_code_change_can_move_with_its_record() -> an
     read_object(
         &stage,
         &source,
-        &object(directory.path(), Role::ItemSearch)?,
+        &object(stage.directory(), Role::ItemSearch)?,
         chrono::Utc::now(),
     )?;
     let table = contract("silver.court_auction_item")?;
@@ -872,7 +872,7 @@ fn a_search_reads_its_file_as_lines_sql_read_it() -> anyhow::Result<()> {
         .with_ymd_and_hms(2099, 1, 2, 3, 4, 5)
         .single()
         .context("a time")?;
-    let object = object(directory.path(), role)?;
+    let object = object(stage.directory(), role)?;
     read_object(&stage, &source, &object, ingested_at)?;
     let typed = (
         sorted_rows(&stage, "ca_search_rows")?,
@@ -929,7 +929,7 @@ fn an_object_larger_than_the_stage_holds_for_its_role_is_refused_with_the_reason
     let Err(refused) = read_object(
         &stage,
         &source,
-        &object(directory.path(), role)?,
+        &object(stage.directory(), role)?,
         chrono::Utc::now(),
     ) else {
         anyhow::bail!("an object above the stage's limit was read");
@@ -954,7 +954,7 @@ fn only_a_line_that_is_not_json_is_called_one() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
     let stage = DuckDbParquetStage::open(directory.path())?;
     let read = |lines: &str| -> anyhow::Result<duckdb::Error> {
-        let path = directory.path().join("lines.jsonl");
+        let path = stage.directory().join("lines.jsonl");
         std::fs::write(&path, lines)?;
         stage
             .connection()

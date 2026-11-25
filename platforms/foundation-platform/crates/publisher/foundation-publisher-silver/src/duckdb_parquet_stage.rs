@@ -228,6 +228,13 @@ impl DuckDbParquetStage {
         })
     }
 
+    /// The stage's own directory: the only place an [`Self::open`] stage may read, so a test puts the
+    /// files it reads here.
+    #[cfg(test)]
+    pub(crate) fn directory(&self) -> &Path {
+        self.directory.path()
+    }
+
     /// Opens a `DuckDB` that reads the lakehouse on R2 through its own Iceberg reader, attached as
     /// `LAKEHOUSE_CATALOG`.
     ///
