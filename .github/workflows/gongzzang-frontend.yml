@@ -37,7 +37,7 @@ jobs:
     outputs:
       affected: ${{ steps.select.outputs.affected }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -88,7 +88,7 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (SHA pin, ADR 0028)
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
       - name: Generate the declared artifacts (root ADR-0418)
@@ -99,7 +99,7 @@ jobs:
         with:
           version: 12.21.0
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0 (SHA pin, ADR 0028)
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0 (SHA pin, ADR 0028)
         with:
           node-version: "24.20.0"
       # setup-node's own pnpm cache saves on every ref, so each merge-queue branch kept a copy
@@ -237,7 +237,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Require the frontend gate

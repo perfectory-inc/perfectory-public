@@ -41,7 +41,7 @@ jobs:
     outputs:
       affected: ${{ steps.select.outputs.affected }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 0
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           filter: blob:none
@@ -151,7 +151,7 @@ jobs:
       IDENTITY_PROVISIONER_TEST_DATABASE_URL: postgres://identity_admin:identity_ci@localhost:5432/identity
       IDENTITY_MIGRATOR_DATABASE_URL: postgres://identity_admin:identity_ci@localhost:5432/identity
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
           filter: blob:none
@@ -206,7 +206,7 @@ jobs:
       IDENTITY_API_PORT: 18080
       IDENTITY_POLICY_EVENT_ENDPOINT: http://host.docker.internal:18090/identity-events
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Generate the declared artifacts (root ADR-0418)
@@ -303,7 +303,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Require every Identity gate
