@@ -894,12 +894,12 @@ fn search_read_now_and_before(
         .connection()
         .execute_batch(&fixture("before_typed_read/search_lines.sql")?)?;
     let from_code = &source.contract["pnu_resolution"]["from_code"];
-    let code_fields = source.code_sql(&from_code["legal_dong_code_fields"], |field| {
+    let code = source.code_sql(&from_code["legal_dong_code_fields"], |field| {
         format!("json_extract(item, '$.{field}')")
     })?;
     stage.connection().execute_batch(
         &fixture("before_typed_read/search_rows.sql")?
-            .replace("{code_fields}", &code_fields)
+            .replace("{code_fields}", &code)
             .replace(
                 "{lot_field}",
                 from_code["lot_field"].as_str().context("the lot field")?,
