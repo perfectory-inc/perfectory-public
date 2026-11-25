@@ -374,7 +374,7 @@ describe("Foundation polygon layer setup", () => {
         () => undefined,
       );
 
-      expect(mb.layerIds()).toEqual(["parcels-fill", "parcels-edits-fill"]);
+      expect(mb.layerIds()).toEqual(["parcels-fill"]);
       expect(mb.sources.has("complex")).toBe(false);
       // Silence is what makes "not promoted yet" indistinguishable from "registration threw".
       expect(info.mock.calls.map(([, payload]) => String(payload))).toContainEqual(
