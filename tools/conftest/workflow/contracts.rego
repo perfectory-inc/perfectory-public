@@ -22,7 +22,8 @@ package workflow
 
 import rego.v1
 
-trusted_runners := {"ubuntu-24.04", "windows-2022"}
+# GitHub-hosted only. ubuntu-24.04-arm builds what AWS runs on Graviton natively (root ADR-0620).
+trusted_runners := {"ubuntu-24.04", "ubuntu-24.04-arm", "windows-2022"}
 
 terminal_run := "bash scripts/ci/require-successful-needs.sh"
 
@@ -170,6 +171,11 @@ deny contains msg if {
 	msg := sprintf("%s: job %s: only the signing job may write the release package", [path, id])
 }
 
+# The release build signs in two named jobs at most, in the one workflow whose identity the release is
+# verified by: build (the data host's release) and aws-images (the AWS images of the same commit, root
+# ADR-0620). Any other signing job, or a second job under another name, is refused.
+release_signing_jobs := {"build", "aws-images"}
+
 deny contains msg if {
 	some [path, document] in workflows
 	signers := {id |
@@ -179,7 +185,8 @@ deny contains msg if {
 		"id-token" in object.keys(permissions)
 	}
 	count(signers) > 1
-	msg := sprintf("%s: only one job may sign the release (%v)", [path, signers])
+	count(signers - release_signing_jobs) > 0
+	msg := sprintf("%s: only the release's named jobs may sign (%v)", [path, signers - release_signing_jobs])
 }
 
 # --- continue-on-error, fake-pass fallbacks, defaults ---------------------------------------------
