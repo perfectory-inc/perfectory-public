@@ -177,9 +177,11 @@ resource "aws_iam_role" "dagster" {
 
 data "aws_iam_policy_document" "dagster" {
   statement {
-    sid       = "LaunchRunsInThisCluster"
-    actions   = ["ecs:RunTask"]
-    resources = ["arn:aws:ecs:${local.contract.region}:${local.contract.account.id}:task-definition/*"]
+    sid     = "LaunchRunsInThisCluster"
+    actions = ["ecs:RunTask"]
+    # Only the family EcsRunLauncher registers runs in (every revision): never the database bootstrap,
+    # which carries the master user's secret (orchestration/tests/test_aws_dagster_secrets.py).
+    resources = ["arn:aws:ecs:${local.contract.region}:${local.contract.account.id}:task-definition/${local.dagster.run_task_definition_prefix}_*"]
     condition {
       test     = "ArnEquals"
       variable = "ecs:cluster"
@@ -245,6 +247,8 @@ locals {
     { name = "DAGSTER_PG_USERNAME", value = local.database.app_username },
     # The image a run task runs (EcsRunLauncher refuses to launch without it for a location in this image).
     { name = "DAGSTER_CURRENT_IMAGE", value = var.dagster_image },
+    # The family the launcher registers runs in; the role may start that family only.
+    { name = "DAGSTER_RUN_TASK_DEFINITION_PREFIX", value = local.dagster.run_task_definition_prefix },
   ]
   # The database role's password, by reference: the task definition holds the secret's ARN, never the
   # value, and never the master user's (the run tasks inherit this list).

@@ -30,6 +30,9 @@ run_launcher:
   config:
     use_current_ecs_task_config: true
     include_sidecars: false
+    # The run task definitions' family prefix; Dagster's role may start no other family (infra/aws/dagster.tf).
+    task_definition_prefix:
+      env: DAGSTER_RUN_TASK_DEFINITION_PREFIX
 
 # A run task that died (Spot, memory) is found by the launcher's health check and failed; a dead run is
 # retried once, a run whose asset or op failed is not (root ADR-0616 §2-7, ADR-0565 §3).

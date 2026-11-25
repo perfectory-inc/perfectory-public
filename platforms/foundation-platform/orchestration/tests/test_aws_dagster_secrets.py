@@ -4,13 +4,18 @@ EcsRunLauncher copies the daemon's container definition into every run task, so 
 service's task definition names, every job would carry. infra/aws/dagster.tf therefore gives Dagster the
 database role's own secret, and only the one-off bootstrap reads the master user's. A later edit that
 names the master secret anywhere else (the service's secrets, its execution role, a shared local) fails here.
+Nor may Dagster start the bootstrap: its role starts only the family EcsRunLauncher registers runs in.
 """
 
+import json
 import pathlib
 import re
 import unittest
 
-STACK = pathlib.Path(__file__).resolve().parents[2] / "infra" / "aws" / "dagster.tf"
+PLATFORM = pathlib.Path(__file__).resolve().parents[2]
+STACK = PLATFORM / "infra" / "aws" / "dagster.tf"
+CONTRACT = PLATFORM / "config" / "aws-platform.contract.json"
+INSTANCE = PLATFORM / "orchestration" / "dagster" / "aws" / "dagster.yaml"
 HEADER = re.compile(r'^(resource|data|ephemeral|variable|output|locals)\b(?:\s+"([^"]+)")?(?:\s+"([^"]+)")?\s*\{\s*$')
 MASTER = "master_user_secret"
 APP = "aws_secretsmanager_secret.dagster_database"
@@ -65,6 +70,22 @@ class DagsterNeverCarriesTheMasterSecret(unittest.TestCase):
         task = self.by_header["resource aws_ecs_task_definition dagster"]
         self.assertIn("execution_role_arn       = aws_iam_role.dagster_execution.arn", task)
         self.assertNotIn("database_bootstrap", task)
+
+    def test_dagster_starts_only_its_run_family(self) -> None:
+        policy = self.by_header["data aws_iam_policy_document dagster"]
+        self.assertNotIn("task-definition/*", policy)
+        statement = re.search(r'sid\s*=\s*"LaunchRunsInThisCluster"(.*?)\n  \}', policy, re.S).group(1)
+        self.assertEqual(re.findall(r'"([^"]*task-definition/[^"]*)"', statement),
+                         ["arn:aws:ecs:${local.contract.region}:${local.contract.account.id}:task-definition/"
+                          "${local.dagster.run_task_definition_prefix}_*"])
+        prefix = json.loads(CONTRACT.read_text(encoding="utf-8"))["dagster"]["run_task_definition_prefix"]
+        self.assertLess(len(prefix), 32, "dagster-aws asserts a prefix under 32 characters")
+        bootstrap = re.search(r'family\s*=\s*"([^"]+)"', self.by_header["resource aws_ecs_task_definition database_bootstrap"]).group(1)
+        self.assertFalse(bootstrap.startswith(f"{prefix}_"), "the run family pattern would match the bootstrap")
+        # The launcher registers runs under the prefix the role allows: the instance reads it from the stack.
+        self.assertIn("task_definition_prefix:\n      env: DAGSTER_RUN_TASK_DEFINITION_PREFIX", INSTANCE.read_text(encoding="utf-8"))
+        shared = next(body for header, body in self.blocks if header == "locals" and "dagster_environment" in body)
+        self.assertIn('{ name = "DAGSTER_RUN_TASK_DEFINITION_PREFIX", value = local.dagster.run_task_definition_prefix }', shared)
 
 
 if __name__ == "__main__":
