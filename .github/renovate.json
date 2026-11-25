@@ -5,7 +5,8 @@
     "Version pins live in tools/technology-versions.contract.json (root ADR-0097): the custom managers below update the contract in the same branch as every file that copies a pin, so the version guards see one value.",
     "Patch and digest updates and lockfile maintenance open ready pull requests with GitHub's auto-merge on, which adds them to the merge queue once CI is green (root ADR-0585); minor and major (non-security) updates open as drafts for a person to review.",
     "Security (vulnerability) updates automerge once CI is green, even a major: the vulnerability risk outweighs the regression risk and CI is the gate (ADR-0302 amends ADR-0097 for security only).",
-    "The dependency dashboard is one issue listing pending, blocked and rate-limited updates, with the manual-run checkbox (root ADR-0568 8)."
+    "The dependency dashboard is one issue listing pending, blocked and rate-limited updates, with the manual-run checkbox (root ADR-0568 8).",
+    "Python pins are the uv-compiled requirements.txt files (their header names the uv pip compile command): the pip-compile manager moves the direct pins of the requirements.in beside each and regenerates the hashed file, so security fixes reach them too."
   ],
   "extends": ["config:recommended"],
   "timezone": "Asia/Seoul",
@@ -29,7 +30,10 @@
     "automerge": true,
     "schedule": ["before 9am on monday"]
   },
-  "enabledManagers": ["cargo", "npm", "github-actions", "custom.regex"],
+  "enabledManagers": ["cargo", "npm", "github-actions", "custom.regex", "pip-compile"],
+  "pip-compile": {
+    "managerFilePatterns": ["/(^|/)requirements\\.txt$/"]
+  },
   "ignorePaths": [
     "**/node_modules/**",
     "scripts/guard/container-runtime-policy-self-test.sh",
@@ -59,6 +63,16 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "description": "The Spark version the lakehouse engine contract names is the apache/spark image one (the Spark runtime test asserts they are equal), so it moves in the same group branch as the image copies.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine\\.contract\\.json$/"],
+      "matchStrings": ["\"spark\": \\{\\s*\"version\": \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""],
+      "depNameTemplate": "apache/spark",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker",
+      "extractVersionTemplate": "^(?<version>\\d+\\.\\d+\\.\\d+)-scala2\\.12-java17-python3-ubuntu$"
     },
     {
       "description": "Every copy of a pinned image reference, the same pattern scripts/catalog/sync-container-images.py checks against the contract.",
@@ -116,6 +130,12 @@
       "automerge": true
     },
     {
+      "matchDatasources": ["pypi"],
+      "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
+      "groupName": "python patch updates",
+      "automerge": true
+    },
+    {
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["patch", "digest", "pin", "pinDigest"],
       "groupName": "github-actions patch updates",
@@ -137,6 +157,12 @@
       "matchDatasources": ["docker"],
       "matchUpdateTypes": ["minor"],
       "groupName": "container image minor updates",
+      "draftPR": true
+    },
+    {
+      "matchDatasources": ["pypi"],
+      "matchUpdateTypes": ["minor"],
+      "groupName": "python minor updates",
       "draftPR": true
     },
     {
