@@ -54,6 +54,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ledger-iceberg-table", default="map_edit_ledger")
     parser.add_argument("--served-iceberg-namespace", default="gold")
     parser.add_argument("--served-iceberg-table", default="administrative_boundary_served")
+    parser.add_argument("--stale-iceberg-namespace", default="gold")
+    parser.add_argument("--stale-iceberg-table", default="map_edit_stale")
     parser.add_argument(
         "--code-list-table",
         default="reference.legal_dong_code_snapshot",
@@ -78,13 +80,15 @@ def validate_args(args: argparse.Namespace) -> None:
         "ledger_iceberg_table",
         "served_iceberg_namespace",
         "served_iceberg_table",
+        "stale_iceberg_namespace",
+        "stale_iceberg_table",
     ):
         if not IDENTIFIER_PATTERN.match(getattr(args, label)):
             raise ValueError(f"{label.replace('_', ' ')} is not a plain identifier")
     parts = args.code_list_table.split(".")
     if len(parts) != 2 or not all(IDENTIFIER_PATTERN.match(p) for p in parts):
         raise ValueError("--code-list-table must be namespace.table")
-    for table in (args.ledger_iceberg_table, args.served_iceberg_table):
+    for table in (args.ledger_iceberg_table, args.served_iceberg_table, args.stale_iceberg_table):
         if not table.endswith("_smoke") and not args.allow_non_smoke_write:
             raise ValueError(
                 f"writing {table} needs --allow-non-smoke-write; only *_smoke tables are written by default"
@@ -186,6 +190,15 @@ def read_newest_silver(spark: Any, table: str) -> tuple[list[dict[str, Any]], st
     return rows, source_snapshot, common.current_snapshot(spark, table)
 
 
+def base_checksums(boundaries: Any) -> dict[str, str]:
+    """Each unit's geometry checksum in a Silver boundaries frame, of the edition the map shows."""
+
+    return {
+        row[FEATURE_ID_PROPERTY]: row["geometry_checksum_sha256"]
+        for row in current_rows(boundaries, SILVER_CONTRACT).select(FEATURE_ID_PROPERTY, "geometry_checksum_sha256").collect()
+    }
+
+
 def matching_gate(
     spark: Any, catalog: str, code_list_table: str, served_table: str, served: list[dict[str, Any]], ledger: list[dict[str, Any]]
 ) -> map_matching_gate.GateReport:
@@ -232,21 +245,27 @@ def main(argv: list[str] | None = None) -> int:
             qualified(catalog, args.ledger_iceberg_namespace, args.ledger_iceberg_table),
             catalog, args.ledger_iceberg_namespace, common.LEDGER_CONTRACT,
         )
-        appended, ledger = common.append_to_ledger(spark, ledger_table, UNIT, handoff, batch_id, now)
-        base, source_snapshot, silver_snapshot = read_newest_silver(
-            spark, qualified(catalog, args.iceberg_namespace, args.iceberg_table)
-        )
-        served, counts = apply_edits(base, ledger)
-        if len(served) > args.max_rows:
-            raise ValueError(f"{len(served)} served rows exceed --max-rows {args.max_rows}")
-        through = max((int(row["change_seq"]) for row in ledger), default=0)
-
         served_table = common.ensure_table(
             spark,
             qualified(catalog, args.served_iceberg_namespace, args.served_iceberg_table),
             catalog, args.served_iceberg_namespace, SERVED_CONTRACT,
         )
-        gate_report = matching_gate(spark, catalog, args.code_list_table, served_table, served, ledger)
+        silver_table = qualified(catalog, args.iceberg_namespace, args.iceberg_table)
+
+        def pin(fresh: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return common.resolve_pins(spark, served_table=served_table, silver_table=silver_table, fresh=fresh,
+                                       base_checksums=base_checksums)
+
+        appended, ledger = common.append_to_ledger(spark, ledger_table, UNIT, handoff, batch_id, now, pin)
+        base, source_snapshot, silver_snapshot = read_newest_silver(spark, silver_table)
+        applicable, stale = common.judge(ledger, {row[FEATURE_ID_PROPERTY]: row["geometry_checksum_sha256"] for row in base})
+        served, counts = apply_edits(base, applicable)
+        if len(served) > args.max_rows:
+            raise ValueError(f"{len(served)} served rows exceed --max-rows {args.max_rows}")
+        through = max((int(row["change_seq"]) for row in ledger), default=0)
+
+        # Only an applied delete removed a place on purpose; a stale one did not (root ADR-0621 §4).
+        gate_report = matching_gate(spark, catalog, args.code_list_table, served_table, served, applicable)
         if not gate_report.passed:
             raise ValueError(gate_report.message())
         spark.createDataFrame(
@@ -273,6 +292,13 @@ def main(argv: list[str] | None = None) -> int:
         if persisted != len(served):
             raise ValueError(f"served table read back {persisted} rows, wrote {len(served)}")
         gold_snapshot = common.current_snapshot(spark, served_table)
+        stale_table = common.ensure_table(
+            spark,
+            qualified(catalog, args.stale_iceberg_namespace, args.stale_iceberg_table),
+            catalog, args.stale_iceberg_namespace, common.STALE_CONTRACT,
+        )
+        changes = common.record_outcomes(spark, stale_table, UNIT, ledger, stale, silver_snapshot, batch_id, now)
+        counts.update(common.stale_counts(stale, changes))
     finally:
         spark.stop()
 

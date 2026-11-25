@@ -73,6 +73,25 @@ pub(super) const SILVER_MAP_EDIT_LEDGER_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "timestamp",
         required: true,
     },
+    // Root ADR-0621 §3: the source state the edit is pinned to, written once when it is first
+    // ledgered: the release it was saved over, the Silver snapshot that release was built from, and
+    // the target's geometry checksum there (null when the source lacked the id). An edit whose
+    // `base_source_snapshot_id` is null could not be pinned, and is stale.
+    LakehouseColumn {
+        name: "base_release_id",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "base_source_snapshot_id",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "base_geometry_checksum_sha256",
+        logical_type: "string",
+        required: false,
+    },
 ];
 
 /// Append-only lakehouse ledger of admin polygon edits (root ADR-0112 §7).
@@ -97,6 +116,83 @@ pub const SILVER_MAP_EDIT_LEDGER: LakehouseTableContract = LakehouseTableContrac
         "append_only",
     ],
     // 한 번의 내보내기가 편집 묶음 하나를 덧붙인다. 같은 change_seq 는 두 번 들어가지 않는다.
+    load: LakehouseLoadUnit::Run {
+        column: "export_batch_id",
+    },
+};
+
+pub(super) const GOLD_MAP_EDIT_STALE_COLUMNS: &[LakehouseColumn] = &[
+    LakehouseColumn {
+        name: "unit",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "change_seq",
+        logical_type: "long",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "feature_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "op",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "outcome",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "reason",
+        logical_type: "string",
+        required: false,
+    },
+    LakehouseColumn {
+        name: "silver_iceberg_snapshot_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "export_batch_id",
+        logical_type: "string",
+        required: true,
+    },
+    LakehouseColumn {
+        name: "judged_at_utc",
+        logical_type: "timestamp",
+        required: true,
+    },
+];
+
+/// The staff edits a served-Gold build does not apply (root ADR-0621 §4·§5).
+///
+/// The source changed under them. A row is appended each time an edit's outcome changes, so the
+/// current list is, per unit and feature, the newest edit whose newest row is `stale`. Customers
+/// see the official polygon for those; staff redraw them through the edit API.
+pub const GOLD_MAP_EDIT_STALE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "gold.map_edit_stale",
+    layer: LakehouseLayer::Gold,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Projection,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: None,
+    },
+    columns: GOLD_MAP_EDIT_STALE_COLUMNS,
+    partition_spec: &[],
+    sort_order: &["unit", "change_seq"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "outcome is stale or applied; reason names why a stale edit is not applied and is null for an applied one",
+        "a row is appended only when an edit's outcome changes; an edit with no row was applied",
+        "append_only",
+    ],
+    // 접기 한 번(그 내보내기 묶음)이 결과가 바뀐 편집의 행을 덧붙인다.
     load: LakehouseLoadUnit::Run {
         column: "export_batch_id",
     },

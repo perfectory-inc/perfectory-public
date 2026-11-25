@@ -9,9 +9,10 @@ starts here:
    root ADR-0042);
 2. they are appended to `silver.map_edit_ledger`, once each: an edit already in the ledger with the
    same content is skipped, one with different content under the same `change_seq` is refused;
-3. the served table is rewritten as the current official Silver boundaries with **every** ledgered
-   edit of the unit applied in `change_seq` order. Every edit, not only the new ones: after a fold
-   the store forgets an edit, so the ledger is the only place it still exists;
+3. the served table is rewritten as the current official Silver boundaries with every ledgered edit
+   of the unit whose target is as it was pinned applied in `change_seq` order (root ADR-0621 §4);
+   every edit is judged again, not only the new ones: after a fold the store forgets an edit, so the
+   ledger is the only place it still exists. The others are stale and listed in `gold.map_edit_stale`;
 4. the committed Gold snapshot, the Silver snapshot it read and the last edit it includes are
    written to the summary, with a create-only JSONL of the served rows for the tile bake.
 
@@ -73,6 +74,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ledger-iceberg-table", default="map_edit_ledger")
     parser.add_argument("--served-iceberg-namespace", default="gold")
     parser.add_argument("--served-iceberg-table", default="industrial_complex_boundary_served")
+    parser.add_argument("--stale-iceberg-namespace", default="gold")
+    parser.add_argument("--stale-iceberg-table", default="map_edit_stale")
     parser.add_argument(
         "--allow-non-smoke-write",
         action="store_true",
@@ -97,9 +100,11 @@ def validate_args(args: argparse.Namespace) -> None:
         "ledger_iceberg_table",
         "served_iceberg_namespace",
         "served_iceberg_table",
+        "stale_iceberg_namespace",
+        "stale_iceberg_table",
     ):
         validate_identifier(label.replace("_", " "), getattr(args, label))
-    for table in (args.ledger_iceberg_table, args.served_iceberg_table):
+    for table in (args.ledger_iceberg_table, args.served_iceberg_table, args.stale_iceberg_table):
         if not table.endswith("_smoke") and not args.allow_non_smoke_write:
             raise ValueError(
                 f"writing {table} needs --allow-non-smoke-write; only *_smoke tables are written by default"
@@ -152,6 +157,15 @@ def apply_edits(
     return sorted(served.values(), key=lambda row: row["complex_id"]), counts
 
 
+def base_checksums(boundaries: Any, F: Any) -> dict[str, str]:
+    """Each complex's geometry checksum in a Silver boundaries frame, chosen as the map chooses them."""
+
+    return {
+        row["complex_id"]: row["geometry_checksum_sha256"]
+        for row in current_official_boundaries(boundaries, F).select("complex_id", "geometry_checksum_sha256").collect()
+    }
+
+
 def bake_handoff_lines(rows: list[dict[str, Any]]) -> str:
     return common.bake_handoff_lines(rows, FEATURE_ID_PROPERTY, TILE_PROPERTIES, GEOMETRY_SRID)
 
@@ -191,23 +205,30 @@ def main(argv: list[str] | None = None) -> int:
             qualified_table(args.iceberg_catalog_name, args.ledger_iceberg_namespace, args.ledger_iceberg_table),
             args.iceberg_catalog_name, args.ledger_iceberg_namespace, LEDGER_CONTRACT,
         )
-        appended, ledger = common.append_to_ledger(spark, ledger_table, UNIT, handoff, batch_id, now)
+        served_table = common.ensure_table(
+            spark,
+            qualified_table(args.iceberg_catalog_name, args.served_iceberg_namespace, args.served_iceberg_table),
+            args.iceberg_catalog_name, args.served_iceberg_namespace, SERVED_CONTRACT,
+        )
+        silver_table = qualified_table(args.iceberg_catalog_name, args.iceberg_namespace, args.iceberg_table)
+
+        def pin(fresh: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return common.resolve_pins(spark, served_table=served_table, silver_table=silver_table, fresh=fresh,
+                                       base_checksums=lambda frame: base_checksums(frame, F))
+
+        appended, ledger = common.append_to_ledger(spark, ledger_table, UNIT, handoff, batch_id, now, pin)
 
         boundaries, complexes, silver_snapshot = read_sources(spark, args)
         selected = current_official_boundaries(boundaries, F)
         base = [row.asDict() for row in project(selected, complexes, F).collect()]
         if len(base) != selected.count():
             raise ValueError("a current official boundary names a complex the Silver complexes table lacks")
-        served, counts = apply_edits(base, ledger)
+        applicable, stale = common.judge(ledger, {row[FEATURE_ID_PROPERTY]: row["geometry_checksum_sha256"] for row in base})
+        served, counts = apply_edits(base, applicable)
         if len(served) > args.max_rows:
             raise ValueError(f"{len(served)} served rows exceed --max-rows {args.max_rows}")
         through = max((int(row["change_seq"]) for row in ledger), default=0)
 
-        served_table = common.ensure_table(
-            spark,
-            qualified_table(args.iceberg_catalog_name, args.served_iceberg_namespace, args.served_iceberg_table),
-            args.iceberg_catalog_name, args.served_iceberg_namespace, SERVED_CONTRACT,
-        )
         spark.createDataFrame(
             [
                 {
@@ -232,6 +253,13 @@ def main(argv: list[str] | None = None) -> int:
         if persisted != len(served):
             raise ValueError(f"served table read back {persisted} rows, wrote {len(served)}")
         gold_snapshot = current_snapshot(spark, served_table)
+        stale_table = common.ensure_table(
+            spark,
+            qualified_table(args.iceberg_catalog_name, args.stale_iceberg_namespace, args.stale_iceberg_table),
+            args.iceberg_catalog_name, args.stale_iceberg_namespace, common.STALE_CONTRACT,
+        )
+        changes = common.record_outcomes(spark, stale_table, UNIT, ledger, stale, silver_snapshot, batch_id, now)
+        counts.update(common.stale_counts(stale, changes))
     finally:
         spark.stop()
 
