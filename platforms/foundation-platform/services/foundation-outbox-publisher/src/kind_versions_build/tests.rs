@@ -1,3 +1,4 @@
+use super::rehearsal::Rehearsal;
 use super::replaced::is_instant;
 use super::*;
 

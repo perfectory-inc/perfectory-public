@@ -28,8 +28,6 @@ use std::{
 };
 
 use anyhow::{bail, ensure, Context};
-use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
-use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     building_energy_stage::ENERGY,
     building_permit_stage::BUILDING_PERMITS,
@@ -51,12 +49,11 @@ use foundation_publisher_silver::{
     record_kind_stage::{DEMOLITIONS, REGISTER_MASTERS},
     unit_price_stage::UNIT_PRICE,
 };
-use lakehouse_domain::{GOLD_VERSIONS_REMOVAL_COLUMN, GOLD_VERSION_SEQ_COLUMN};
-use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
+use lakehouse_infrastructure::IcebergRestCatalog;
 use serde_json::{json, Value};
 
+use self::plan::{content_columns, plan, whole_table_bounds, Plan};
 use crate::{
-    by_pnu_gateway_contract::ByPnuLane,
     gold_documents_check::DocumentRules,
     gold_versions_commit::{
         self as versions, Commit, Diff, Digests, AS_OF_PROPERTY, CODE_VERSION_PROPERTY,
@@ -72,12 +69,12 @@ use crate::{
 };
 
 mod checks;
+mod plan;
 mod rehearsal;
 mod replaced;
 
 pub(crate) use checks::{declared, report};
 use checks::{explaining, run_national_checks, run_result_checks, DOCUMENTS_CHECK};
-use rehearsal::Rehearsal;
 use replaced::{replaced_as_of, replaced_edition};
 
 pub(crate) const SUMMARY_ENV: &str = "FOUNDATION_PLATFORM_GOLD_VERSIONS_SUMMARY";
@@ -324,14 +321,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let summary_path = required_env_value(SUMMARY_ENV)?;
     let published_at_utc = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let versions_contract = contract(table)?;
-    // The versions table's columns but the two each commit adds: the replaced table's, and the
-    // digest a replaced table whose producer wrote none gains (the served boundaries).
-    let content_columns: Vec<&'static str> = versions_contract
-        .columns
-        .iter()
-        .map(|column| column.name)
-        .filter(|name| ![GOLD_VERSION_SEQ_COLUMN, GOLD_VERSIONS_REMOVAL_COLUMN].contains(name))
-        .collect();
+    let content_columns = content_columns(versions_contract);
     // The kind line's `place_identity` gave the table its place id; the stage must carry it.
     ensure!(
         content_columns.contains(&"place_id") == stage.carries_place_id(),
@@ -344,60 +334,19 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             "does not carry"
         }
     );
-    // A rehearsal reads with the reader's catalog token and writes nothing (root ADR-0618 §9).
-    let rehearsal = Rehearsal::from_env()?;
-    let catalog_config = if rehearsal.is_some() {
-        LakehouseCatalogConfig::reader_from_env()?
-    } else {
-        LakehouseCatalogConfig::from_env()?
-    };
-    let catalog = IcebergRestCatalog::new(catalog_config.clone())?;
-    let committer = match rehearsal {
-        Some(_) => None,
-        None => Some(LakehouseDataCommitter::from_env().await?),
-    };
-    let created = match &committer {
-        Some(committer) => committer.create_table_if_absent(versions_contract).await?,
-        None => false,
-    };
-
-    // Plan.
-    // A rehearsal of a table that does not exist yet rehearses its first build.
-    let history = catalog.load_main_snapshot_history(table).await?;
-    ensure!(
-        rehearsal.is_some() || history.is_some(),
-        "{table} does not exist after its creation"
-    );
-    let history = history.unwrap_or_default();
-    let base = versions::base(&history)?;
-    let head = history.first().map(|snapshot| snapshot.snapshot_id);
-    let served_table = match kind.lane {
-        Serves::ByPnuLane(name) => by_pnu_serving_manifest_publish::gold_table(
-            ByPnuLane::named(name)?
-                .with_context(|| format!("the contract names no {name} lane"))?,
-        ),
-        Serves::Table(served) => served,
-    };
-    // A rehearsal builds its candidate from the inputs' heads, never as a shadow.
-    let versions::Planned {
+    let Plan {
+        rehearsal,
+        catalog_config,
+        catalog,
+        committer,
+        created,
+        history,
+        base,
+        head,
         mut pins,
-        served_edition: edition,
+        edition,
         shadow,
-    } = versions::planned_inputs(
-        &catalog,
-        table,
-        if rehearsal.is_some() {
-            table
-        } else {
-            served_table
-        },
-        &stage.inputs(),
-        served_edition()?,
-    )
-    .await?;
-    let edition = rehearsal
-        .as_ref()
-        .map_or(edition, |rehearsal| rehearsal.edition.clone());
+    } = plan(table, kind.lane, &stage.inputs(), served_edition()?).await?;
     let ranged = stage.ranged_reads();
     let whole = stage.whole_table_inputs();
     ensure!(
@@ -1132,46 +1081,26 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         return Ok(());
     }
     let (fingerprint, current_records) = versions::after_digests(&commit, &diff, digests)?;
-    let mut recorded_explanation = None;
-    if let Some(base) = &base {
-        #[allow(clippy::cast_precision_loss)]
-        let floor = (1.0 - max_loss) * base.current_records as f64;
-        #[allow(clippy::cast_precision_loss)]
-        if (current_records as f64) < floor {
-            bail!(
-                "{table} would hold {current_records} current rows, fewer than the {floor:.0} its \
-                 {} allow (gold-panel-rebuild.contract.json max_row_loss_fraction): \
-                 nothing was appended",
-                base.current_records
-            );
-        }
-        #[allow(clippy::cast_precision_loss)]
-        let fraction = diff.keys() as f64 / (base.current_records.max(1)) as f64;
-        // The kind's own explanation is judged at any size, so commits under the bound are recorded
-        // too: several in a row while the bake is behind must not sum past its bound unexplained
-        // (root ADR-0596).
-        let explained = match (&moved_code_or_edition, &explaining) {
-            (Some(why), _) => Some(why.clone()),
-            (None, Some(explanation)) => (explanation.explain)(
-                duck.connection(),
-                (diff.added, diff.changed, diff.removed),
-                max_loss,
-            )?,
-            (None, None) => None,
-        };
-        match explained {
-            Some(why) => recorded_explanation = Some(why),
-            None if fraction > MAX_CHANGED_KEY_FRACTION => bail!(
-                "{} of {table}'s {} current rows changed ({fraction:.3}, over \
-                 {MAX_CHANGED_KEY_FRACTION}) with neither the code nor the served edition moved \
-                 and nothing the kind declares explaining it: nothing was appended (root ADR-0564 \
-                 §3.4)",
-                diff.keys(),
-                base.current_records
-            ),
-            None => {}
-        }
-    }
+    // The kind's own explanation is judged at any size, so commits under the bound are recorded
+    // too: several in a row while the bake is behind must not sum past its bound unexplained
+    // (root ADR-0596).
+    let recorded_explanation = whole_table_bounds(
+        table,
+        base.as_ref(),
+        (current_records, diff.keys()),
+        max_loss,
+        || {
+            Ok(match (&moved_code_or_edition, &explaining) {
+                (Some(why), _) => Some(why.clone()),
+                (None, Some(explanation)) => (explanation.explain)(
+                    duck.connection(),
+                    (diff.added, diff.changed, diff.removed),
+                    max_loss,
+                )?,
+                (None, None) => None,
+            })
+        },
+    )?;
 
     // Commit.
     let mut properties = commit_properties(
