@@ -1751,7 +1751,6 @@
       "silver-map-edit-ledger-to-gold-administrative-boundary-served",
       "gold-administrative-boundary-served-to-admin-tiles",
       "silver-parcel-boundaries-to-gold-parcel-boundary-served",
-      "silver-map-edit-ledger-to-gold-parcel-boundary-served",
       "silver-parcel-registry-to-gold-parcel-boundary-served",
       "silver-parcel-boundaries-to-parcel-edition-readiness",
       "gold-parcel-boundary-served-to-parcel-tiles",

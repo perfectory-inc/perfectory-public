@@ -376,7 +376,7 @@ fn at(id: i64, ms: i64, operation: &str) -> IcebergSnapshotSummary {
 }
 
 /// The Spark served-boundary job tags no build: the shadow follows its newest commit that is not a
-/// compaction, with each input as of that commit, and an input with no snapshot by then is absent.
+/// compaction, with its input as of that commit.
 #[test]
 fn an_untagged_build_is_its_newest_commit_but_compactions_with_its_inputs_as_of_then(
 ) -> anyhow::Result<()> {
@@ -385,20 +385,14 @@ fn an_untagged_build_is_its_newest_commit_but_compactions_with_its_inputs_as_of_
         at(20, 2_000, "overwrite"),
         at(10, 1_000, "overwrite"),
     ];
-    let inputs = BTreeMap::from([
-        (
-            "silver.parcel_boundaries".to_owned(),
-            vec![
-                at(7, 2_500, "append"),
-                at(6, 1_500, "replace"),
-                at(5, 500, "append"),
-            ],
-        ),
-        (
-            "silver.map_edit_ledger".to_owned(),
-            vec![at(9, 2_100, "append")],
-        ),
-    ]);
+    let inputs = BTreeMap::from([(
+        "silver.parcel_boundaries".to_owned(),
+        vec![
+            at(7, 2_500, "append"),
+            at(6, 1_500, "replace"),
+            at(5, 500, "append"),
+        ],
+    )]);
     let found = untagged_shadow(
         "gold.parcel_boundary_served_versions",
         "gold.parcel_boundary_served",
@@ -410,7 +404,7 @@ fn an_untagged_build_is_its_newest_commit_but_compactions_with_its_inputs_as_of_
     assert_eq!(
         found.pins,
         BTreeMap::from([("silver.parcel_boundaries".to_owned(), 6)]),
-        "the parcels as of the build; the ledger had no snapshot yet"
+        "the parcels as of the build"
     );
     assert_eq!(found.served_edition, None);
     Ok(())

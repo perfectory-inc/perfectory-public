@@ -209,10 +209,7 @@ function setupParcelLayers(
       return;
     }
     const registered = registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "parcels");
-    if (registered.length > 0) {
-      registerMapEditOverlayLayers(mb, "parcels");
-      registerRuntimeParcelClick(mb, onParcelClick);
-    }
+    if (registered.length > 0) registerRuntimeParcelClick(mb, onParcelClick);
   } catch (err) {
     logMapLayerFailure("parcels-fill", err, { kind: "core", source: "parcels" });
   }
@@ -226,11 +223,6 @@ function registerRuntimeParcelClick(mb: MapboxGLLike, onParcelClick: (pnu: strin
     if (typeof pnu === "string" && pnu.length > 0) onParcelClick(pnu);
   };
   mb.on("click", "parcels-fill", handler);
-  // An edited parcel is drawn from the edit overlay while its base polygon is hidden, so the same
-  // click must work there too (root ADR-0112).
-  if (mb.getLayer?.(mapEditOverlayFillLayerId("parcels"))) {
-    mb.on("click", mapEditOverlayFillLayerId("parcels"), handler);
-  }
 }
 
 function setupAdminLayers(mb: MapboxLayerApi, runtimeManifest: VectorTileRuntimeManifest): void {

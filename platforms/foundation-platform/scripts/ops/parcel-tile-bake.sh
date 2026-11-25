@@ -20,8 +20,9 @@
 #    (ADR-0133 §5). Its input silver.parcel_registry is the parcel_registry job's (ADR-0243); until
 #    that table exists the gate exits 3 and this half (a rehearsal's too) waits: `unchanged`,
 #    nothing written (root ADR-0265).
-# 3. The served Gold (parcel_boundary_served_gold.py, ADR-0133 §2): the edition with every ledgered
-#    `parcels` edit applied, committed to gold.parcel_boundary_served, and the v2 handoff parts.
+# 3. The served Gold (parcel_boundary_served_gold.py, ADR-0133 §2): the edition's parcels as the
+#    source holds them (parcel geometry takes no edits, root ADR-0621 §1), committed to
+#    gold.parcel_boundary_served, and the v2 handoff parts.
 #    The run directory is recorded as ready; the last line is `changed`, which starts the bake.
 # bake:
 # 4. bake-lakehouse-tiles over the ready run. Each 시도 is baked into the partition cache first; a
@@ -82,9 +83,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/job-journal.sh"
 STATE_ROOT="${FOUNDATION_PARCEL_TILE_BAKE_STATE_ROOT:-/var/lib/foundation-parcel-tile-bake}"
 journal="${STATE_ROOT}/journal.log"
 baked_file="${STATE_ROOT}/baked-edition"
-# Written by a bake that declined a partial map edit fold: the next gold half rebuilds the served
-# Gold with every edit (root ADR-0375 §2).
-fold_wants_gold="${STATE_ROOT}/fold-wants-gold"
 # `<snapshot id> <run directory>` of the Gold the next bake takes; the rehearsal keeps its own.
 if [[ "${MODE}" == rehearsal-* ]]; then
   ready_file="${STATE_ROOT}/rehearsal-ready"
@@ -220,11 +218,6 @@ prune_handoffs() {
 prune_handoffs
 
 if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
-  # Root ADR-0375 §2: a bake declined the partial fold handoff; this run rebuilds the served Gold.
-  if [[ "${MODE}" == gold && -z "${FORCE}" && -s "${fold_wants_gold}" ]]; then
-    FORCE="the bake declined a partial map edit fold: $(head -c 300 "${fold_wants_gold}")"
-  fi
-  FOLD=""
   if [[ "${MODE}" == gold && -z "${FORCE}" ]]; then
     served_done=""
     # Not the ledger's length: a promotion rolled back before its tiles were baked (root ADR-0490 §7) is
@@ -237,23 +230,6 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
       served_done="the parcel tiles already serve ${snapshot}"
     elif [[ -s "${ready_file}" && "$(cut -d' ' -f1 "${ready_file}")" == "${snapshot}" ]]; then
       served_done="the Gold of ${snapshot} waits for the bake"
-    fi
-    # Root ADR-0112 §7·§8: staff edits of the parcels come before a rehearsal. On tiles of this
-    # edition the lakehouse bake made, they are folded (the keyed Gold write and its neighbourhood,
-    # which the bake half patches in); on the release from before the lakehouse bake there is no
-    # index to patch, so the edition's served Gold is rebuilt with them and the bake half rebases.
-    if [[ -n "${served_done}" && -n "${FOUNDATION_PLATFORM_MAP_EDIT_GATEWAY_BASE_URL:-}" ]]; then
-      source "$(dirname "${BASH_SOURCE[0]}")/map-edit-pending.sh"
-      map_edit_pending parcels
-      if ((pending > 0)); then
-        if [[ "${served_kind}" == bootstrap ]]; then
-          FORCE="${pending} staff edit(s) of the parcels; the tiles have no lakehouse base to patch"
-        elif [[ -s "${baked_file}" && "$(cat "${baked_file}")" == "${snapshot}" ]]; then
-          FOLD="${pending}"
-        fi
-        # A Gold that waits for the bake folds them at its next run, once it is served.
-        [[ -z "${FORCE}${FOLD}" ]] || served_done=""
-      fi
     fi
     if [[ -n "${served_done}" ]]; then
       # Root ADR-0490 §4: with nothing to do for the served edition, the half rehearses the candidate.
@@ -305,34 +281,6 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
   allow=()
   [[ "${MODE}" == rehearsal-gold ]] && allow=(--allow-non-served-edition)
 
-  # 1a. Root ADR-0112 §7: the edit store's parcel edits not folded yet go to the ledger with this
-  # run's Gold (once each; a rehearsal reads the ledger as it is).
-  edits=()
-  if [[ "${MODE}" == gold && -n "${FOUNDATION_PLATFORM_MAP_EDIT_GATEWAY_BASE_URL:-}" ]]; then
-    FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_UNIT=parcels \
-    FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_SRID=4326 \
-    FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_OUTPUT="${work}/edits.jsonl" \
-      "${PUBLISHER_BIN}" export-map-edit-handoff >>"${run_log}" 2>&1
-    edits=(--edits-input "${container_work}/edits.jsonl")
-  fi
-  # 1b. Root ADR-0375 §2: a fold writes only the edited PNUs and hands the bake their
-  # neighbourhood; the edition already passed its gate when it was baked. A fold that cannot be
-  # partial writes nothing (exit 3) and the run goes on as a forced one: the declared full exception.
-  if [[ -n "${FOLD}" ]]; then
-    fold_status=0
-    spark parcel_boundary_served_gold.py --source-snapshot-id "${snapshot}" "${edits[@]}" --fold \
-      --output-dir "${container_work}/served" --summary-output "${container_work}/served-summary.json" \
-      --allow-non-smoke-write || fold_status=$?
-    if ((fold_status == 0)); then
-      printf '%s %s\n' "${snapshot}" "${work}" >"${ready_file}.tmp"
-      mv "${ready_file}.tmp" "${ready_file}"
-      job_journal "${journal}" "fold of ${FOLD} edit(s) on ${snapshot}: partial handoff in $((SECONDS - started))s, waits for the bake"
-      echo "foundation-job-outcome changed"; exit 0
-    fi
-    ((fold_status == 3)) || { on_error "${LINENO}"; exit "${fold_status}"; }
-    reason="$(grep -oE 'parcel-boundary-fold-not-partial .*' "${run_log}" | tail -1 || true)"
-    job_journal "${journal}" "fold of ${FOLD} edit(s) not partial (${reason:-no reason logged}): the served Gold is rebuilt with every edit"
-  fi
 
   # 2. The matching gate: a refusal is exit 1 with a verdict that did not pass. Any other failure —
   # a crash exits 1 too, with no verdict — stops the run, a rehearsal's included.
@@ -363,13 +311,12 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
 
   # 3. The served Gold and its handoff parts.
   step=${SECONDS}
-  spark parcel_boundary_served_gold.py --source-snapshot-id "${snapshot}" "${allow[@]}" "${edits[@]}" \
+  spark parcel_boundary_served_gold.py --source-snapshot-id "${snapshot}" "${allow[@]}" \
     --output-dir "${container_work}/served" --summary-output "${container_work}/served-summary.json" \
     --allow-non-smoke-write
   job_journal "${journal}" "${MODE}: served Gold of ${snapshot} in $((SECONDS - step))s, handoff $(du -sb "${work}/served" | cut -f1) bytes, total $((SECONDS - started))s"
   printf '%s %s\n' "${snapshot}" "${work}" >"${ready_file}.tmp"
   mv "${ready_file}.tmp" "${ready_file}"
-  [[ "${MODE}" != gold ]] || rm -f "${fold_wants_gold}"
   # A rehearsal the job started hands its Gold to the bake half like a served one (root ADR-0490 §4).
   if [[ "${MODE}" == gold || -n "${REHEARSED_BY_JOB:-}" ]]; then echo "foundation-job-outcome changed"; else echo "foundation-job-outcome unchanged"; fi
   exit 0
@@ -420,8 +367,6 @@ step=${SECONDS}
 rehearsal=0
 bake_status=0
 [[ "${MODE}" == rehearsal-bake ]] && rehearsal=1
-# The edit store comes from the unit's map-edit.env: a Gold that folds edits records the fold there
-# once its tiles are served (root ADR-0112 §7); the oven refuses such a Gold without one.
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_CONFIRM=1 \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_REHEARSAL="${rehearsal}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_UNIT=parcels \
@@ -433,17 +378,6 @@ FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_CONTAINER_PROJECT="foundation-parcel-til
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_BUILD_IDEMPOTENCY_KEY="parcel-tile-bake-${run_id}-build" \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_PROMOTE_IDEMPOTENCY_KEY="parcel-tile-bake-${run_id}-promote" \
   "${PUBLISHER_BIN}" bake-lakehouse-tiles >>"${run_log}" 2>&1 || bake_status=$?
-# Root ADR-0375 §2: a partial fold handoff is patched or declined, never baked as a base. Declined
-# (the patch would pass its share of the base, the base was cut otherwise), the Gold half rebuilds
-# the served Gold with every edit at its next run and this half then rebases.
-if ((bake_status == 65)) && grep -q 'lakehouse-tile-bake-partial-declined' "${run_log}"; then
-  declined="$(grep -oE 'lakehouse-tile-bake-partial-declined .*' "${run_log}" | tail -1)"
-  printf '%s\n' "${declined}" >"${fold_wants_gold}.tmp"
-  mv "${fold_wants_gold}.tmp" "${fold_wants_gold}"
-  rm -f "${ready_file}"
-  job_journal "${journal}" "the partial fold of ${snapshot} was declined (${declined}); the Gold half rebuilds it with every edit"
-  echo "foundation-job-outcome waiting the Gold half rebuilds the served Gold with every edit"; exit 0
-fi
 ((bake_status == 0)) || { on_error "${LINENO}"; exit "${bake_status}"; }
 # Root ADR-0493: the run reached its partition budget before any Catalog or R2 write. The baked
 # partitions are in the cache; the Gold stays ready and the next start continues.

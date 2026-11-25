@@ -21,28 +21,12 @@ from parcel_boundary_served_gold import (  # noqa: E402
     GEOMETRY_SRID,
     SERVED_COLUMNS,
     TILE_PROPERTIES,
-    check_ledger,
-    fold_edits,
     parse_args,
     validate_args,
 )
 
-# Synthetic PNUs: the 99999 prefix is no real district.
+# A synthetic PNU: the 99999 prefix is no real district.
 P1 = "9999910100100010000"
-P2 = "9999910100100020000"
-P3 = "9999910100100030000"
-
-
-def edit(seq, pnu, op, srid=GEOMETRY_SRID):
-    upsert = op == "upsert"
-    return {
-        "change_seq": seq,
-        "feature_id": pnu,
-        "op": op,
-        "geometry_srid": srid,
-        "geometry_wkb_hex": f"0106{seq:04x}" if upsert else None,
-        "geometry_checksum_sha256": f"{seq:064x}" if upsert else None,
-    }
 
 
 def v1_args(served):
@@ -66,52 +50,19 @@ class ContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "allow-non-smoke-write"):
             validate_args(args)
 
+    def test_the_job_takes_no_edits(self):
+        # Root ADR-0621 §1: parcel geometry takes no staff edits, so there is no ledger and no fold.
+        for flag in ("--edits-input", "--fold", "--ledger-iceberg-table"):
+            with self.subTest(flag=flag), self.assertRaises(SystemExit):
+                parse_args(["--source-snapshot-id", "synthetic-1", "--allow-non-served-edition",
+                            "--output-dir", "parts", flag, "x"])
+
     def test_a_snapshot_id_that_could_break_out_of_the_query_is_refused(self):
         args = parse_args(
             ["--source-snapshot-id", "x' OR '1'='1", "--allow-non-served-edition", "--output-dir", "parts", "--allow-non-smoke-write"]
         )
         with self.assertRaisesRegex(ValueError, "snapshot id"):
             validate_args(args)
-
-
-class LedgerTest(unittest.TestCase):
-    def test_an_edit_in_another_crs_is_refused(self):
-        with self.assertRaisesRegex(ValueError, "EPSG:5186"):
-            check_ledger([edit(1, P1, "upsert", srid=5186)])
-
-    def test_an_edit_that_names_no_pnu_or_carries_no_geometry_is_refused(self):
-        for bad in (
-            dict(edit(1, P1, "upsert"), feature_id="not-a-pnu"),
-            dict(edit(1, P1, "upsert"), geometry_wkb_hex=None),
-            dict(edit(1, P1, "upsert"), geometry_checksum_sha256=""),
-            dict(edit(1, P1, "delete"), op="move"),
-        ):
-            with self.subTest(bad=bad), self.assertRaises(ValueError):
-                check_ledger([bad])
-
-    def test_a_repeated_change_seq_is_refused(self):
-        with self.assertRaisesRegex(ValueError, "change_seq 1"):
-            check_ledger([edit(1, P1, "delete"), edit(1, P2, "delete")])
-
-
-class FoldTest(unittest.TestCase):
-    def test_edits_apply_in_change_order_and_the_last_one_wins(self):
-        final, counts = fold_edits(
-            [edit(3, P1, "upsert"), edit(1, P1, "delete"), edit(2, P2, "delete"), edit(4, P3, "upsert")],
-            present={P1, P2},
-        )
-        self.assertEqual(final[P1]["change_seq"], 3, "deleted at 1, upserted again at 3")
-        self.assertIsNone(final[P2])
-        self.assertEqual(final[P3]["change_seq"], 4)
-        self.assertEqual(counts, {"upserts": 2, "deletes": 2, "deletes_of_absent_features": 0})
-
-    def test_a_delete_of_an_absent_parcel_is_counted(self):
-        _, counts = fold_edits([edit(1, P3, "delete")], present=set())
-        self.assertEqual(counts["deletes_of_absent_features"], 1)
-
-    def test_a_second_delete_counts_the_parcel_the_first_one_removed_as_absent(self):
-        _, counts = fold_edits([edit(1, P1, "delete"), edit(2, P1, "delete")], present={P1})
-        self.assertEqual(counts["deletes_of_absent_features"], 1)
 
 
 class HandoffLineTest(unittest.TestCase):

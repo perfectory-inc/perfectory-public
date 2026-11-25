@@ -30,7 +30,7 @@ last_reviewed: 2026-11-25
    → `bake-lakehouse-tiles`(GDAL·tippecanoe 굽기, 관문, R2, 승격, 접기 기록).
 5. 성공·실패 모두 `#alerts` 에 한 줄, journal 에 한 줄.
 
-1·2 는 `scripts/ops/map-edit-pending.sh` 의 `map_edit_pending <unit>` 하나가 하고, 필지도 같은 것을 쓴다.
+1·2 는 `scripts/ops/map-edit-pending.sh` 의 `map_edit_pending <unit>` 하나가 한다.
 
 ### 원천이 바뀐 편집은 적용하지 않는다 (루트 ADR-0621)
 
@@ -47,22 +47,12 @@ stale 의 까닭은 `source_changed`(같은 id, 다른 기하), `source_removed_
 `pin_unreadable`(release 나 그 스냅숏을 읽을 수 없음)이다. 직원은 목록을 보고 편집 API 로 다시 그린다.
 새 편집은 지금 release 에 묶이므로 적용된다. 필지는 편집을 받지 않는다(ADR-0621 §1).
 
-### 필지(`parcels`)는 필지 굽기의 Gold 반쪽이 접는다
+### 필지(`parcels`)는 편집을 받지 않는다
 
-필지는 전국 약 4천만 행이라 위 매시간 작업이 아니라 `parcel_served_gold`(`foundation-parcel-tile-bake@gold`,
-매일 07:30, 루트 ADR-0112 §8 의 초기 주기)가 접는다. 편집과 Gold 는 서로를 읽는 한 고리(편집 → 원장 → Gold →
-타일)라서 별도 작업으로 두면 같은 자원 묶음 무게를 나눠 매시간 접기들을 굶긴다.
-손님은 오버레이로 편집을 곧바로 보므로 하루 한 번 접어도 화면은 늦지 않다.
-
-| 상황 | Gold 반쪽이 하는 일 | 굽기 반쪽 |
-|---|---|---|
-| 서빙판을 레이크하우스 굽기가 이미 구웠고 접히지 않은 필지 편집이 있다 | 편집 내보내기·원장 → `parcel_boundary_served_gold.py --fold`: 바뀐 PNU 만 `MERGE`, 그 z14 이웃만 handoff + 바뀐 목록(루트 ADR-0375 §2) | 패치로 접고 접기를 기록한다 |
-| `--fold` 가 부분일 수 없다(종료 3: 서빙 Gold 가 다른 판, z14 타일 512개 초과 등) | 같은 run 이 관문 + 모든 편집을 담은 Gold 전량(선언된 full 예외) | 패치 또는 새 기본판 |
-| 굽기가 부분 handoff 를 거절했다(종료 65, `lakehouse-tile-bake-partial-declined`) | `fold-wants-gold` 표시를 보고 다음 run 이 강제 Gold 전량 | 새 기본판 |
-| 서빙판이 레이크하우스 이전 release 다(부트스트랩) | 접을 색인이 없으므로 강제 Gold 전량 | 첫 레이크하우스 기본판 |
-
-굽기 유닛(`foundation-parcel-tile-bake@.service`)은 `map-edit.env` 를 읽는다: 편집을 담은 Gold 를 구운 굽기가
-타일 서빙 뒤에 `/folds/parcels` 를 기록해야 오버레이가 그 편집을 놓는다.
+필지 도형은 법적 기록이라 편집하지 않는다(루트 ADR-0621 §1). 틀린 필지는 원천에 알린다. foundation-api 와
+편집 저장소 Worker 가 필지의 upsert·delete 를 저장 전에 거부하고, 계약의 `map_edit_gateway.units.parcels` 는
+`editable: false` 다. 그래서 필지 굽기(`parcel_served_gold`·`parcel_tile_bake`)는 편집을 접지 않는다: 서빙 Gold 는
+판을 원천 그대로 담고, 굽기 유닛은 편집 저장소(`map-edit.env`)를 읽지 않으며, 웹 지도는 필지 오버레이를 묻지 않는다.
 
 ## 호스트에 필요한 것
 

@@ -12,10 +12,8 @@ Type=oneshot
 User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
-# map-edit.env is the edit store: a bake whose Gold folds staff edits records the fold there once
-# its tiles are served (root ADR-0112 §7), so the overlay forgets them.
+# No edit store: parcel geometry takes no edits, so this bake folds none (root ADR-0621 §1).
 EnvironmentFile=/etc/foundation-platform/recovery.env
-EnvironmentFile=/etc/foundation-platform/map-edit.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
 EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/parcel-tile-bake.sh %i

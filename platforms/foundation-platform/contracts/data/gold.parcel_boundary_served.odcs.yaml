@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "필지 경계 Silver 한 판에 원장의 필지 편집을 적용한 모습이다. 굽기 입력은 여러 조각으로 넘긴다(루트 ADR-0133 2항)."
+  purpose: "필지 경계 Silver 한 판을 원천 그대로 서빙하는 모습이다(필지 도형은 편집하지 않는다, 루트 ADR-0621 §1). 굽기 입력은 여러 조각으로 넘긴다(루트 ADR-0133 2항)."
 team:
   name: "foundation-platform"
 servers:
@@ -79,6 +79,5 @@ customProperties:
       - "pnu"
   - property: "upstreamDatasets"
     value:
-      - "silver.map_edit_ledger"
       - "silver.parcel_boundaries"
       - "silver.parcel_registry"
