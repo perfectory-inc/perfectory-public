@@ -66,6 +66,27 @@ rules:
           metavariable: $KEY
           regex: .*(fs\.s3a\.|\.s3\.retry\.|\.http-client\.)
 
+  - id: duckdb-reads-r2-through-the-stage-opener
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      Gives a DuckDB an S3 secret or httpfs retry settings outside the stage opener. A DuckDB reads
+      R2 through DuckDbParquetStage::open_reading_lakehouse, which sets the engine contract's
+      r2_read retries (root ADR-0102) and holds the read-only key pair only.
+    paths:
+      # The publisher's DuckDB is the Rust side's other R2 reader (root ADR-0559): its retries are
+      # httpfs settings, written in one place from the contract. Tests may name them.
+      include:
+        - /platforms/foundation-platform/**/*.rs
+        - /platforms/foundation-platform/**/*.sql
+        - /tools/semgrep/rules/r2-read-paths.rs
+      exclude:
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage.rs
+        - "**/tests/**"
+        - "**/tests.rs"
+        - "**/*_tests.rs"
+    pattern-regex: (?i)\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:PERSISTENT\s+|TEMPORARY\s+)?SECRET\b[^;]*?\bTYPE\s+s3\b|\bhttp_(?:retries|retry_wait_ms|retry_backoff|timeout|keep_alive)\b
+
   - id: workers-read-r2-through-the-binding
     languages: [typescript, javascript]
     severity: ERROR

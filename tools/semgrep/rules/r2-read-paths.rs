@@ -21,3 +21,15 @@ fn not_an_s3_client() {
     // ok: r2-client-is-built-in-its-areas-place
     let storage = R2ObjectStorage::from_config(config);
 }
+
+fn a_duckdb_of_its_own_reading_r2(connection: &Connection, key: &str, secret: &str) {
+    // ruleid: duckdb-reads-r2-through-the-stage-opener
+    connection.execute_batch(&format!("CREATE SECRET objects (TYPE s3, KEY_ID '{key}', SECRET '{secret}')"));
+    // ruleid: duckdb-reads-r2-through-the-stage-opener
+    connection.execute_batch("SET http_retries = 3");
+}
+
+fn through_the_stage_opener(work: &Path) -> anyhow::Result<DuckDbParquetStage> {
+    // ok: duckdb-reads-r2-through-the-stage-opener
+    DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)
+}

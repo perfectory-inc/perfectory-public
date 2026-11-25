@@ -174,6 +174,27 @@ pub const LAKEHOUSE_CATALOG: &str = "lakehouse";
 /// every reader of a table depends on (root ADR-0559 §4); the publisher commits (root ADR-0560 §2).
 pub const LAKEHOUSE_ACCESS: &str = "READ_ONLY";
 
+/// How httpfs widens the wait between two R2 requests: it doubles, as ADR-0102's reads do
+/// (`R2ReadPolicy::delay` in foundation-outbox, Spark's `S3FileIO`).
+const HTTP_RETRY_BACKOFF: f32 = 2.0;
+
+/// The engine contract's R2 read retries (`r2_read`, root ADR-0102) as `DuckDB`'s own httpfs
+/// settings, for every request of the stage: the data files' ranged reads and the Iceberg REST
+/// catalog's calls (duckdb-iceberg's requests take the same session parameters).
+///
+/// httpfs (77392a7, the extension pinned for v2.0.0) asks again on a transport error, a 408, 429
+/// or 5xx, on a new connection, after `http_retry_wait_ms × http_retry_backoff^(n-1)` with full
+/// jitter, capped at 20 s by `DuckDB` (`HTTPRetryBudget::MAX_BACKOFF_MS`, not a setting; the
+/// contract's `max_wait_ms` is 30 s). A body cut short by the connection is a transport error and
+/// is asked again.
+fn r2_read_settings() -> anyhow::Result<String> {
+    let policy = crate::lakehouse_engine_contract::r2_read_policy()?;
+    Ok(format!(
+        "SET http_retries = {}; SET http_retry_wait_ms = {}; SET http_retry_backoff = {HTTP_RETRY_BACKOFF};",
+        policy.num_retries, policy.min_wait_ms
+    ))
+}
+
 /// The statement that attaches `warehouse` at `catalog_uri` as [`LAKEHOUSE_CATALOG`].
 fn attach_lakehouse(warehouse: &str, catalog_uri: &str) -> String {
     format!(
@@ -387,6 +408,7 @@ impl DuckDbParquetStage {
             Some(&directory.path().join("spill")),
         )?;
         crate::duckdb_extensions::load(&connection, &read.extensions)?;
+        connection.execute_batch(&r2_read_settings()?)?;
         for value in [
             &read.catalog_uri,
             &read.warehouse,
