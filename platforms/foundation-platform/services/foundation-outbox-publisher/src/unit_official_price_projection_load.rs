@@ -22,8 +22,6 @@ mod publication;
 use publication::{prepare_stage, promote};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_UNIT_PRICE_";
-/// What the load's `DuckDB` may hold before it spills into its work directory.
-const DUCKDB_MEMORY_MIB: u64 = 600;
 /// COPY lines handed from the read to the `COPY` at once, and how many such batches may wait.
 const COPY_BATCH_BYTES: usize = 1024 * 1024;
 const COPY_BATCHES_WAITING: usize = 4;
@@ -243,10 +241,7 @@ async fn load_province(
 /// Refuses invalid configuration, incomplete snapshots, failed reads, COPY or promotion.
 pub async fn run() -> anyhow::Result<()> {
     let config = Config::from_env()?;
-    let reader = Arc::new(LakehouseReader::open(
-        Path::new(&config.work),
-        DUCKDB_MEMORY_MIB,
-    )?);
+    let reader = Arc::new(LakehouseReader::open(Path::new(&config.work))?);
     let provinces = provinces(&reader, &config)?;
     let mut conn = PgConnection::connect(&config.database_url).await?;
     prepare_stage(&mut conn).await?;

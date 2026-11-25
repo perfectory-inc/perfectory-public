@@ -91,7 +91,6 @@ trap 'on_error ${LINENO}' ERR
 # of both sides took 26.5 of the 30 minutes this bound was, which left the comparison 3.5; a full
 # build before it takes about 12 (20261122T230957Z, 16 시도), so 40 keep both inside the unit's hour.
 TAKEOVER_SECONDS=2400
-TAKEOVER_MEMORY_LIMIT=4GB      # DuckDB's, under the unit's MemoryHigh (foundation-gold-versions@.service)
 takeover_check() {
   local run_dir="$1" check state declared table sido status=0
   check="$(dirname "${BASH_SOURCE[0]}")/gold_takeover_check.py"
@@ -102,8 +101,7 @@ takeover_check() {
   # One verdict a run: the unit's hour holds the build and one verdict. A run that built two tables (the
   # place-id lane) judges the first line, which starts after the table judged last (a record a table).
   read -r table sido <<<"${declared}"
-  FOUNDATION_PLATFORM_GOLD_TAKEOVER_MEMORY_LIMIT="${TAKEOVER_MEMORY_LIMIT}" \
-    timeout "${TAKEOVER_SECONDS}" bash "$(dirname "${BASH_SOURCE[0]}")/gold-takeover-verdict.sh" \
+  timeout "${TAKEOVER_SECONDS}" bash "$(dirname "${BASH_SOURCE[0]}")/gold-takeover-verdict.sh" \
     "${table}" "${sido}" "${run_dir}/verdict" >> "${run_dir}/verdict.log" 2>&1 || status=$?
   python3 -I -B "${check}" report "${table}" "${sido}" "${status}" "${run_dir}/verdict" "${state}" || return 1
   job_journal "${journal}" "gold versions ${lane} takeover verdict ${table} sido=${sido} exit=${status} run=${run_id}"

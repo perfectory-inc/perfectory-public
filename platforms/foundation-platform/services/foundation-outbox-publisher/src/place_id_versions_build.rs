@@ -54,7 +54,7 @@ use crate::{
         CURRENT_RECORDS_PROPERTY, FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY,
         SERVED_EDITION_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY, VERSION_SEQ_PROPERTY,
     },
-    gold_versions_support::{contract, lakehouse_read, write_summary, MEMORY_SHARE},
+    gold_versions_support::{contract, lakehouse_read, write_summary},
     onbid_silver_load::{served_snapshot_id, PARCEL_SOURCE},
     public_data_control_support::required_env_value,
 };
@@ -239,7 +239,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .unwrap_or_else(|| Path::new("."));
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
     duck.require_room(0)?;
-    let memory_limit = duck.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
+    let memory_limit = duck.memory_limit_bytes()?;
     let connection = duck.connection();
     connection.execute_batch("SET preserve_insertion_order = false;")?;
     let new_pins = NearbyPins(pins.clone());

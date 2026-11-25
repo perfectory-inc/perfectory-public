@@ -47,8 +47,6 @@ const FOLD_APPEND_FILE: &str = "fold-append.jsonl";
 /// The admitted gate as the fold writes it, written by `intelligence_documents.py gate`.
 const GATE_FILE: &str = "gate.json";
 const TABLES: [&str; 4] = [TEXT_OUTCOME, TEXT_PAGE, FACT, FACT_OUTCOME];
-/// What `DuckDB` may hold in a step, under the units' `MemoryMax` (1 GiB).
-const STAGE_MEMORY_MIB: u64 = 384;
 
 /// The store's prefix, read through the pointer the intelligence contract names into foundation's
 /// (`platforms/foundation-platform/<file>#/<path>`).
@@ -115,9 +113,6 @@ impl Lakehouse {
             &directory.join("stage"),
             &LakehouseRead::from_env()?,
         )?;
-        // The jobs' units are capped at 1 GiB (the image runs in its own container): DuckDB
-        // spills before that. The tables read here are tens of thousands of rows.
-        stage.limit_memory(STAGE_MEMORY_MIB)?;
         Ok(Self {
             committer,
             catalog: IcebergRestCatalog::new(LakehouseCatalogConfig::from_env()?)?,

@@ -7,10 +7,10 @@ use super::{
 use crate::serving_scratch;
 use crate::{
     bounded_bytes::BoundedBytes, building_register_zip_lines::decode_zip_lines,
-    lakehouse_engine_contract::execution_profile, serving_scratch::CURSOR_BYTES,
+    duckdb_parquet_stage::engine_config, serving_scratch::CURSOR_BYTES,
 };
 use anyhow::{ensure, Context};
-use duckdb::{params, Config, Connection};
+use duckdb::{params, Connection};
 use foundation_normalization_domain::BuildingFloorCounts;
 use lakehouse_application::{
     normalize_building_register_floor_silver_rows_with_title_counts,
@@ -90,19 +90,12 @@ impl FloorScratch {
         let directory = tempfile::Builder::new()
             .prefix(".floor-scratch-")
             .tempdir_in(parent)?;
-        let profile = execution_profile()?;
-        let config = Config::default()
-            .max_memory(&format!("{}MiB", profile.memory_mib / 2))?
-            .threads(i64::from(profile.cpu_slots))?
-            .with(
-                "temp_directory",
-                directory
-                    .path()
-                    .to_str()
-                    .context("floor spill path must be UTF-8")?,
-            )?
-            .with("autoload_known_extensions", "false")?
-            .with("autoinstall_known_extensions", "false")?;
+        let config = engine_config(Some(
+            directory
+                .path()
+                .to_str()
+                .context("floor spill path must be UTF-8")?,
+        ))?;
         let writer = Connection::open_in_memory_with_flags(config)?;
         // Apply to the live buffer manager. In 1.5.6 startup configuration can
         // report this setting while leaving actual spill allocation uncapped.

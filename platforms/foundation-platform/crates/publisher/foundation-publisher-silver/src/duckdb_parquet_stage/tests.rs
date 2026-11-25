@@ -32,6 +32,7 @@ use lakehouse_infrastructure::IcebergSnapshotManifestList;
 
 use super::DuckDbParquetStage;
 
+mod engine_config;
 mod pinned_head;
 mod table_at;
 

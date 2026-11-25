@@ -1,0 +1,37 @@
+# A DuckDB of the foundation publisher takes its memory and threads from one function,
+# `duckdb_parquet_stage::engine_config`: one share (`MEMORY_SHARE`) of what the process may still
+# take, read from the cgroup of whatever runs it (a unit, a container, an AWS task), and DuckDB's
+# own thread count, which follows the cgroup's CPU quota (DuckDB v2.0.0 `GetSystemMaxThreads`).
+#
+# Prevents: seven ways to set it. Every stage held half the engine contract's compiled
+# `execution_profile` (4096 MiB / 2) and two threads whatever its unit held; 2026-11-22 the court
+# auction Silver load's first production run stopped on a 사건상세 object above that 2 GiB under a
+# 3G unit, and the read was rewritten to fit the number (#1646). Beside it grew a share of the
+# cgroup (two copies of 3/5), `limit_memory`, fixed MiB constants per loader (384, 600, 600), a
+# 300 MiB environment value from the quality check, a `4GB` one from the Gold verdict, and a copy of
+# the whole configuration in the FLOOR scratch: a task of 16 GiB on AWS would still have given most
+# of them 2 GiB (root ADR-0616 §5: memory is the task's size).
+#
+# A test may hold a stage to a small budget to provoke a spill: test files (`tests.rs`, `tests/`,
+# `*_tests.rs`) are left out. An inline `#[cfg(test)]` module of a source file is held to the rule
+# (the engine cannot exclude it), so such a test lives in its sibling test file.
+rules:
+  - id: duckdb-memory-and-threads-come-from-engine-config
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      This sets a DuckDB memory limit, thread count or configuration of its own. Open the DuckDB
+      with duckdb_parquet_stage::engine_config (or a DuckDbParquetStage): its memory is the one share
+      of what the task may still take and DuckDB counts the task's CPUs itself.
+    paths:
+      include:
+        - /platforms/foundation-platform/**/*.rs
+        - /platforms/foundation-platform/**/*.sql
+        - /tools/semgrep/rules/duckdb-settings.rs
+      exclude:
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage.rs
+        - "**/tests.rs"
+        - "**/tests/**"
+        - "**/*_tests.rs"
+    pattern-regex: >-
+      (?i)\bConfig::default\(\)|\.max_memory\(|\.threads\(|\.with\(\s*"(?:memory_limit|max_memory|threads|worker_threads)"|\b(?:SET|PRAGMA|RESET)\s+(?:GLOBAL\s+|SESSION\s+|LOCAL\s+)?(?:memory_limit|max_memory|threads|worker_threads)\b
