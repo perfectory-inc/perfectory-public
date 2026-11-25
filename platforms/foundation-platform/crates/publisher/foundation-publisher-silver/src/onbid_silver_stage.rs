@@ -276,6 +276,19 @@ impl OnbidSource {
         })
     }
 
+    /// What the load's statements took in memory per byte of lines, measured (`silver_load.
+    /// memory_per_line_byte`): a part of an object holds at most the stage's memory limit divided by it.
+    ///
+    /// # Errors
+    /// Returns an error when the contract records none.
+    pub fn memory_per_line_byte(&self) -> anyhow::Result<u64> {
+        self.contract
+            .pointer("/silver_load/memory_per_line_byte/bytes")
+            .and_then(Value::as_u64)
+            .filter(|bytes| *bytes > 0)
+            .context("data-go-kr-onbid.contract.json records no silver_load.memory_per_line_byte")
+    }
+
     fn text(&self, pointer: &str) -> anyhow::Result<&str> {
         self.contract
             .pointer(pointer)
@@ -681,12 +694,6 @@ fn load_column(name: &str) -> Option<&'static str> {
     }
 }
 
-/// How the load reads an object's lines: whole, its statements comparing the lines of an object
-/// (the latest answer of a key wins).
-const READ: LineParts<'static> = LineParts::Whole(
-    "the largest objects measured 2026-11-25: real_estate_item 146.0 MiB of lines, \n     announcement_detail 59.2 MiB; the load's highest memory 1,795 of 2,048 MiB (jobs.v1.json \n     memory_measured)",
-);
-
 /// One Bronze object a plan fetched, and the table it loads into.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlannedObject {
@@ -849,7 +856,6 @@ pub fn read_object(
     object: &PlannedObject,
     ingested_at: DateTime<Utc>,
 ) -> anyhow::Result<ReadObject> {
-    let lines = stage.read_line_parts(&object.path, "onbid_lines", READ, &[], || Ok(()))?;
     let connection = stage.connection();
     let answers = source.answers_sql()?;
     let (init, line, pass) = answer_steps(&answers)?;
@@ -859,10 +865,12 @@ pub fn read_object(
             .with_context(|| format!("DuckDB failed to read {}", object.object_key))
     };
     read(init)?;
-    // A line at a time: a line is a page of up to a thousand items, and a chunk of them outgrew 2 GB.
-    for number in 1..=lines {
-        read(&line.replace("{line_number}", &number.to_string()))?;
-    }
+    // A part of the lines at a time: a line is a page of up to a thousand items, and a whole
+    // object's pages in one chunk outgrew 2 GB. The line step appends each part's answers itself.
+    let parts = LineParts::InOrder {
+        memory_per_byte: source.memory_per_line_byte()?,
+    };
+    stage.read_line_parts(&object.path, "onbid_lines", parts, &[], || read(line))?;
     read(pass)?;
     let rows = source
         .rows_sql(object.role, contract)?

@@ -812,7 +812,10 @@ fn lines_failure(error: duckdb::Error, object_key: &str) -> anyhow::Error {
 
 /// How the roles that compare lines across the whole object read it (공통코드, 감정평가서,
 /// 매각물건명세서, 배당요구종기): whole.
-const READ_WHOLE: &str = "the largest objects measured 2026-11-25: dividend_notice 53.6 MiB of lines      (highest memory 205 MiB under 2 GiB), appraisal_report 2.4 MiB, sale_specification 1.4 MiB,      common_code 0.1 MiB";
+const READ_WHOLE: &str =
+    "the largest objects measured 2026-11-25: dividend_notice 53.6 MiB of lines \
+     (highest memory 205 MiB under 2 GiB), appraisal_report 2.4 MiB, sale_specification 1.4 MiB, \
+     common_code 0.1 MiB";
 
 /// Reads `object` into one staging table per table its role writes.
 ///

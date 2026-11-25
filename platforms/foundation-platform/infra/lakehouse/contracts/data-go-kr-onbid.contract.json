@@ -174,6 +174,10 @@
       "silver.onbid_announcement": "announcement_list",
       "silver.onbid_announcement_bid_result": "announcement_bid_result_list",
       "silver.onbid_announcement_detail": "announcement_detail"
+    },
+    "memory_per_line_byte": {
+      "$comment": "What the load's statements took in memory per byte of an object's lines: a part of an object holds at most the stage's memory limit divided by this (duckdb_parquet_stage::read_line_parts). Measured 2026-11-25 with the load's own answers.sql on DuckDB 2.0.0 at 2048 MiB and 2 threads: the item_list object of 2026-10-19 (146.0 MiB of lines, 95 pages of about 1.5 MB) passes in parts of 32 and 64 MiB with the same answers and items and fails in parts of 128 MiB, so the figure lies between 16 and 32; this is the upper one. Measure again when answers.sql changes.",
+      "bytes": 32
     }
   },
   "pnu": {

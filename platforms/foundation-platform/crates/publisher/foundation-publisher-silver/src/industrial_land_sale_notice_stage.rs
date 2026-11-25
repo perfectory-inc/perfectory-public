@@ -26,7 +26,8 @@ pub use crate::industrial_complex_notice_stage::{refuse_repeated, PlannedObject,
 
 /// How the load reads an object's lines: whole, its statements comparing the notices of an object.
 const READ: LineParts<'static> = LineParts::Whole(
-    "the largest objects measured 2026-11-25: kicoxorkr 11.9 MiB of lines, industrylandorkr \n     5.8 MiB, factoryongokr 3.2 MiB (industrial_land_sale_notice_detail, 50 lines each)",
+    "the largest objects measured 2026-11-25: kicoxorkr 11.9 MiB of lines, industrylandorkr \
+     5.8 MiB, factoryongokr 3.2 MiB (industrial_land_sale_notice_detail, 50 lines each)",
 );
 
 /// The read record a load's plan is decided from (the lane contract's `read_from`).

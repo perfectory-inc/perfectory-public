@@ -38,7 +38,8 @@ pub const TABLE: &str = "silver.industrial_complexes";
 
 /// How the export's handoff is read: whole, its statements comparing every complex.
 const READ: LineParts<'static> = LineParts::Whole(
-    "one line per complex, 1,442 lines nationally (the export's input is one workbook and four \n     answers of a few megabytes, industrial_complex_silver_load)",
+    "one line per complex, 1,442 lines nationally (the export's input is one workbook and four \
+     answers of a few megabytes, industrial_complex_silver_load)",
 );
 
 const LINES_SQL: &str = include_str!("industrial_complex_silver_stage/lines.sql");

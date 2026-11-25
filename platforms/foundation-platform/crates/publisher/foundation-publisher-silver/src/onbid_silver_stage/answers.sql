@@ -2,12 +2,13 @@
 -- was `data_go_kr_onbid.answer_items` and `item_pass_complete`: what that Python read from each line.
 --
 -- Input: onbid_lines(line_number BIGINT, line VARCHAR): the object's non-blank lines, numbered from 1.
--- Three parts, split by `-- step:` lines: `init` once, `line` once per line ({line_number}), `pass`
--- once at the end. A line holds a page of up to a thousand items (1.4 MB) and DuckDB keeps every
--- parse of a chunk until the chunk ends: a whole object in one chunk outgrew 2 GB, a line at a time
--- holds one page.
+-- Three parts, split by `-- step:` lines: `init` once, `line` once per part of the object's lines
+-- (duckdb_parquet_stage::read_line_parts hands it a part at a time in onbid_lines), `pass` once at
+-- the end. A line holds a page of up to a thousand items (1.5 MB) and DuckDB keeps every parse of a
+-- chunk until the chunk ends: a whole object in one chunk outgrew 2 GB; a part holds at most the
+-- stage's memory limit divided by the contract's silver_load.memory_per_line_byte.
 -- Parameters: {ok_code}, {no_data_code} (the source contract's result codes), {combos} (a VALUES list
--- of every (prptDivCd, pvctTrgtYn) an item list pass asks), {line_number}.
+-- of every (prptDivCd, pvctTrgtYn) an item list pass asks).
 -- A 200 whose body is not JSON is not an answer (2026-11-17: the provider sent its "503 - Service
 -- Unavailable" HTML page with a 200, and the object stopped every hourly load): it is read as a
 -- request that was not answered, like any other status, and counted (`unreadable`).
@@ -31,7 +32,7 @@ FROM (
          coalesce(json_valid(json_extract_string(parts[3], '$')), false) AS is_json,
          parts[3] AS body
   FROM (SELECT line_number, json_extract(line, ['$.request', '$.http_status', '$.body']) AS parts
-        FROM onbid_lines WHERE line_number = {line_number})
+        FROM onbid_lines)
 );
 
 CREATE OR REPLACE TEMP TABLE onbid_body_parts AS

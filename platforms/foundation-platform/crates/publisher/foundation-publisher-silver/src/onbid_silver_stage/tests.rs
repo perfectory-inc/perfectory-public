@@ -322,3 +322,42 @@ fn the_roles_are_the_tables_the_source_contract_lists() -> anyhow::Result<()> {
     assert_eq!(listed, roles);
     Ok(())
 }
+
+/// The rows `read_object` staged of `role`'s fixture object, each as text, sorted, and how many
+/// answers it could not read. With `one_line_a_part`, the contract's memory per byte is so large
+/// that every line is a part of its own.
+fn staged_rows(role: Role, one_line_a_part: bool) -> anyhow::Result<(Vec<String>, u64)> {
+    let mut source = OnbidSource::compiled()?;
+    if one_line_a_part {
+        source.contract["silver_load"]["memory_per_line_byte"]["bytes"] =
+            serde_json::json!(u64::MAX);
+    }
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage.connection().execute_batch(&source.values_sql()?)?;
+    let ingested_at = chrono::DateTime::from_timestamp(4_070_000_000, 0).context("an instant")?;
+    let read = read_object(
+        &stage,
+        &source,
+        contract(role.table())?,
+        &object(directory.path(), role)?,
+        ingested_at,
+    )?;
+    let mut rows = stage
+        .connection()
+        .prepare("SELECT CAST(t AS VARCHAR) FROM onbid_rows t")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    rows.sort();
+    Ok((rows, read.unreadable_answers))
+}
+
+#[test]
+fn every_role_stages_the_same_rows_read_a_line_a_part_as_read_in_one_part() -> anyhow::Result<()> {
+    // 2026-11-25 the load moved from its own loop over lines to the shared reader's parts.
+    for role in ROLES {
+        let whole = staged_rows(role, false)?;
+        assert_eq!(staged_rows(role, true)?, whole, "{}", role.name());
+    }
+    Ok(())
+}

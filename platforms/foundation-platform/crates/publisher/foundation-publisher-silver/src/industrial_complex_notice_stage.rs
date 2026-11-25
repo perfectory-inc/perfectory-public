@@ -107,7 +107,8 @@ pub struct PlannedObject {
 
 /// How the load reads an object's lines: whole, its statements comparing the notices of an object.
 const READ: LineParts<'static> = LineParts::Whole(
-    "the largest object measured 2026-11-25: 0.4 MiB of lines (industrylandorkr \n     industrial_complex_notice_detail, 50 lines)",
+    "the largest object measured 2026-11-25: 0.4 MiB of lines (industrylandorkr \
+     industrial_complex_notice_detail, 50 lines)",
 );
 
 /// The run id in an object key.

@@ -618,8 +618,13 @@ fn push_pages(sink: &mut RowSink<'_>, file: &FetchedFile, header: &[String]) -> 
 }
 
 /// How a CSV or a zip's member is read: whole, its bytes and then its text (a 표준데이터 pass is
-/// streamed a line at a time). The decoder and the Python `csv` reader read the whole text.
-const WHOLE: &str = "the largest files measured 2026-11-25: employment_insurance_workplace zip 501.9 MiB,      commercial_district zip 332.9 MiB, standard_land_price csv 133.0 MiB, pension_workplace csv      115.3 MiB; the load's peak under 3 GiB is not measured yet (jobs.v1.json memory_measured)";
+/// streamed a line at a time). The decoder and the Python `csv` reader read the whole text. The
+/// follow-up is `DuckDB`'s own `read_csv`, which streams a file (cp949 through its `encodings`
+/// extension, which the stage would have to carry), not a CSV reader of this crate.
+const WHOLE: &str = "the largest files measured 2026-11-25: employment_insurance_workplace zip \
+     501.9 MiB, commercial_district zip 332.9 MiB, standard_land_price csv 133.0 MiB, \
+     pension_workplace csv 115.3 MiB; the load's peak under 3 GiB is not measured yet \
+     (jobs.v1.json memory_measured)";
 
 /// Reads the file at `path` as `file_rows`; returns how many data rows it holds.
 ///

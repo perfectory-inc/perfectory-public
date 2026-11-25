@@ -49,7 +49,8 @@ DECLARED = {
 
 # A reason with a size measured on the lane's own files, or one that says the file is not Bronze.
 MEASURED = re.compile(r"\d[\d,.]*\s*(?:MiB|MB|GiB|KiB|lines)\b|not Bronze")
-LITERAL = r'"((?:[^"\\]|\\.)*)"'
+# A Rust string literal; `\` then a line break continues it.
+LITERAL = r'"((?:[^"\\]|\\[\s\S])*)"'
 WHOLE_LITERAL = re.compile(r"LineParts::Whole\(\s*" + LITERAL)
 WHOLE_NAMED = re.compile(r"(?:LineParts::Whole|\.read_whole|\.open_whole)\(\s*([A-Z][A-Z0-9_]*)\s*\)")
 WHOLE_ANY = re.compile(r"LineParts::Whole\(|\.read_whole\(|\.open_whole\(")
