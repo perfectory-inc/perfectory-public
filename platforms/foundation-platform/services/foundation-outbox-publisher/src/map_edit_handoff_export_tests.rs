@@ -18,6 +18,8 @@ fn edit<'a>(op: &'a str, geometry: Option<&'a Value>, properties: &'a Value) -> 
         properties,
         editor: "00000000-0000-0000-0000-000000000000",
         edited_at: "2099-01-01T00:00:00Z",
+        base_release_id: Some("00000000-0000-7000-8000-000000000001"),
+        base_served_snapshot_id: Some("900000000000000001"),
     }
 }
 
@@ -80,6 +82,17 @@ fn an_upsert_becomes_a_little_endian_wkb_multipolygon_in_the_silver_crs() -> any
         Some(serde_json::to_string(&geometry)?.as_str())
     );
     assert_eq!(row.properties_json, r#"{"official_complex_code":"SYN"}"#);
+    // Root ADR-0621 §3: the base release and its Gold snapshot travel to the served-Gold job.
+    assert_eq!(
+        (
+            row.base_release_id.as_deref(),
+            row.base_served_snapshot_id.as_deref()
+        ),
+        (
+            Some("00000000-0000-7000-8000-000000000001"),
+            Some("900000000000000001")
+        )
+    );
     Ok(())
 }
 

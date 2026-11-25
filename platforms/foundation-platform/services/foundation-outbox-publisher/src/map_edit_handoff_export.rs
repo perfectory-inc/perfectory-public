@@ -7,7 +7,12 @@
 //! unit's Silver CRS (`FOUNDATION_PLATFORM_MAP_EDIT_HANDOFF_SRID`). The original GeoJSON travels too, so the lakehouse ledger keeps
 //! exactly what the administrator saved. Each geometry is checked again with the same OGC validity
 //! rules the save path applied: this command is the last step before the edit becomes lakehouse data.
+//!
+//! Each row also carries the release the edit was saved over and that release's canonical Gold
+//! snapshot, read from the catalog (`DATABASE_URL`): the served-Gold job resolves the two into the
+//! source state the edit is pinned to (root ADR-0621 §3).
 
+use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -18,6 +23,8 @@ use proj4rs::{proj::Proj, transform::transform};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
+use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::public_data_control_support::{optional_env_value, required_env_value};
 
@@ -50,6 +57,10 @@ struct StoredEdit {
     properties: Value,
     editor: String,
     edited_at: String,
+    /// The release the unit served when the edit was saved; `None` on a row saved before the
+    /// store kept it.
+    #[serde(default)]
+    base_release_id: Option<String>,
 }
 
 /// One handoff row: the edit as saved, plus its polygon in the Silver CRS.
@@ -68,6 +79,11 @@ pub(crate) struct EditHandoffRow {
     pub(crate) properties_json: String,
     pub(crate) editor: String,
     pub(crate) edited_at: String,
+    /// The release the edit was saved over (root ADR-0621 §3).
+    pub(crate) base_release_id: Option<String>,
+    /// That release's canonical Gold snapshot; `None` when the edit names no release the catalog
+    /// knows, and then its pin cannot be resolved (the edit is stale).
+    pub(crate) base_served_snapshot_id: Option<String>,
 }
 
 /// Carries EPSG:4326 longitude/latitude into a unit's Silver CRS: through proj for EPSG:5186,
@@ -207,6 +223,8 @@ pub(crate) fn handoff_row(
         properties_json: serde_json::to_string(edit.properties)?,
         editor: edit.editor.to_owned(),
         edited_at: edit.edited_at.to_owned(),
+        base_release_id: edit.base_release_id.map(ToOwned::to_owned),
+        base_served_snapshot_id: edit.base_served_snapshot_id.map(ToOwned::to_owned),
     })
 }
 
@@ -219,6 +237,36 @@ pub(crate) struct StoredEditView<'a> {
     pub(crate) properties: &'a Value,
     pub(crate) editor: &'a str,
     pub(crate) edited_at: &'a str,
+    pub(crate) base_release_id: Option<&'a str>,
+    pub(crate) base_served_snapshot_id: Option<&'a str>,
+}
+
+/// The canonical Gold snapshot of each release the edits name, from the catalog. A name that is
+/// not a release id, or a release the catalog does not hold, is left out.
+async fn served_snapshots(edits: &[StoredEdit]) -> anyhow::Result<BTreeMap<String, String>> {
+    let releases: Vec<Uuid> = edits
+        .iter()
+        .filter_map(|edit| edit.base_release_id.as_deref())
+        .filter_map(|release| Uuid::parse_str(release).ok())
+        .collect();
+    if releases.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let pool = PgPool::connect(&required_env_value("DATABASE_URL")?)
+        .await
+        .context("failed to connect to DATABASE_URL for the edits' base releases")?;
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, canonical_iceberg_snapshot_id FROM catalog.vector_tile_release WHERE id = ANY($1)",
+    )
+    .bind(&releases)
+    .fetch_all(&pool)
+    .await
+    .context("reading the canonical snapshots of the edits' base releases")?;
+    pool.close().await;
+    Ok(rows
+        .into_iter()
+        .map(|(release, snapshot)| (release.to_string(), snapshot))
+        .collect())
 }
 
 /// Reads every unfolded edit of `unit`, in change order, one page at a time.
@@ -295,6 +343,7 @@ pub async fn run() -> anyhow::Result<()> {
         .context("SRID must be an integer")?
         .unwrap_or(SILVER_SRID);
     let projection = SilverProjection::for_srid(srid)?;
+    let snapshots = served_snapshots(&edits).await?;
     // Never overwritten: a handoff is evidence of what one fold carried.
     let mut file = std::fs::OpenOptions::new()
         .write(true)
@@ -312,6 +361,12 @@ pub async fn run() -> anyhow::Result<()> {
                 properties: &edit.properties,
                 editor: &edit.editor,
                 edited_at: &edit.edited_at,
+                base_release_id: edit.base_release_id.as_deref(),
+                base_served_snapshot_id: edit
+                    .base_release_id
+                    .as_ref()
+                    .and_then(|release| snapshots.get(release))
+                    .map(String::as_str),
             },
             &projection,
         )?;

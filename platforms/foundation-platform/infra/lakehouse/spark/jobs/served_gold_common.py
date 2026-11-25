@@ -6,6 +6,17 @@ Gold table, and hands the tile bake one create-only JSONL plus a summary. The un
 only where the base rows come from and which properties a tile carries; everything below is the
 same for every unit, so it lives once.
 
+## Which edits a build applies (root ADR-0621)
+
+An edit holds only while its target is as it was when the edit was saved. The first build that
+ledgers an edit pins it once (`resolve_pins`): the release it was saved over names the Silver
+snapshot that release was built from, and the edit keeps its target's geometry checksum there
+(none when the source lacked the id). Every build then `judge`s each ledgered edit against the
+current Silver: the same id with the same checksum, or still absent for an edit that added the
+feature, applies; anything else is stale. A stale edit is not applied, so customers see the
+official polygon; `record_outcomes` lists it in `gold.map_edit_stale`. No edit moves to another
+id, and no overlap picks a target (root ADR-0113 §4).
+
 The bake handoff is unit-agnostic: one row per feature,
 
     {"feature_id": ..., "properties": {<tile property>: <text>}, "geometry_wkb_hex": ...,
@@ -42,7 +53,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from lakehouse_engine import current_snapshot
 from platform_contracts import (
@@ -63,6 +74,16 @@ PART_NAME_PATTERN = re.compile(r"^part-[0-9]{5}\.jsonl$")
 JOBS_DIR = str(Path(__file__).resolve().parent)
 LEDGER_CONTRACT = load_lakehouse_contract("silver.map_edit_ledger")
 LEDGER_COLUMNS: tuple[str, ...] = column_names(LEDGER_CONTRACT)
+STALE_CONTRACT = load_lakehouse_contract("gold.map_edit_stale")
+STALE_COLUMNS: tuple[str, ...] = column_names(STALE_CONTRACT)
+# Why a standing edit is not applied (root ADR-0621 §4). An edit with no reason applies.
+STALE_REASONS: tuple[str, ...] = (
+    "pin_unreadable",  # the release it was saved over names no Silver snapshot that can be read
+    "source_changed",  # the same id, another geometry
+    "source_removed_id",  # the target is gone (a merge, a split, a deletion or a renumber)
+    "source_gained_id",  # the edit added the feature, and the source now has that id
+    "absent_at_base",  # a delete of an id the source did not have
+)
 # The edit handoff `export-map-edit-handoff` writes; checked by name so a rename fails here.
 EDIT_HANDOFF_COLUMNS: tuple[str, ...] = (
     "unit",
@@ -76,7 +97,13 @@ EDIT_HANDOFF_COLUMNS: tuple[str, ...] = (
     "properties_json",
     "editor",
     "edited_at",
+    # Root ADR-0621 §3: the release the edit was saved over and that release's canonical Gold
+    # snapshot, from the catalog. Either may be null; the edit's pin is then unreadable.
+    "base_release_id",
+    "base_served_snapshot_id",
 )
+# The pin a build writes on the edit the first time it ledgers it.
+PIN_COLUMNS: tuple[str, ...] = ("base_release_id", "base_source_snapshot_id", "base_geometry_checksum_sha256")
 
 
 def read_edit_handoff(
@@ -335,10 +362,147 @@ def ensure_table(spark: Any, qualified: str, catalog: str, namespace: str, contr
     return qualified
 
 
+def snapshot_exists(spark: Any, table: str, snapshot: Any) -> bool:
+    """Whether `table` still holds the Iceberg snapshot `snapshot` (a metadata read, no data file)."""
+
+    if not str(snapshot).isdigit():
+        return False
+    return bool(spark.sql(f"SELECT 1 FROM {table}.snapshots WHERE snapshot_id = {int(snapshot)}").take(1))
+
+
+def read_at(spark: Any, table: str, snapshot: Any) -> Any:
+    """`table` as it was at `snapshot`: how an edit's pin is resolved, once (root ADR-0621 §3)."""
+
+    return spark.read.option("snapshot-id", str(int(snapshot))).table(table)
+
+
+def resolve_pins(
+    spark: Any, *, served_table: str, silver_table: str, fresh: list[dict[str, Any]],
+    base_checksums: Callable[[Any], dict[str, str]],
+) -> list[dict[str, Any]]:
+    """Each fresh edit with its pin, to be written once with it to the ledger (root ADR-0621 §3).
+
+    `base_served_snapshot_id` is the canonical Gold snapshot of the release the edit was saved over.
+    Its rows name the Silver snapshot that Gold was built from (`silver_iceberg_snapshot_id`), and
+    the edit's base checksum is its target's in `base_checksums(<Silver at that snapshot>)`, none when
+    the source lacked the id. When either snapshot is gone the pin stays empty: the edit is stale.
+    """
+
+    pins: dict[str, tuple[str, dict[str, str]] | None] = {}
+    pinned = []
+    for row in fresh:
+        gold = row.get("base_served_snapshot_id") or None
+        if gold is not None and gold not in pins:
+            pins[gold] = _pin_of(spark, served_table, silver_table, gold, base_checksums)
+        pin = pins.get(gold) if gold is not None else None
+        pinned.append({
+            **row,
+            "base_source_snapshot_id": None if pin is None else pin[0],
+            "base_geometry_checksum_sha256": None if pin is None else pin[1].get(row["feature_id"]),
+        })
+    return pinned
+
+
+def _pin_of(
+    spark: Any, served_table: str, silver_table: str, gold: str, base_checksums: Callable[[Any], dict[str, str]]
+) -> tuple[str, dict[str, str]] | None:
+    if not snapshot_exists(spark, served_table, gold):
+        return None
+    silver = [row[0] for row in read_at(spark, served_table, gold).select("silver_iceberg_snapshot_id").distinct().collect()]
+    if len(silver) != 1 or not snapshot_exists(spark, silver_table, silver[0]):
+        return None
+    return str(silver[0]), base_checksums(read_at(spark, silver_table, silver[0]))
+
+
+def judge(ledger: list[dict[str, Any]], current: dict[str, str]) -> tuple[list[dict[str, Any]], dict[int, str]]:
+    """The ledgered edits a build applies, and why each other one is stale (root ADR-0621 §4).
+
+    `current` maps each feature id the current Silver serves to its geometry checksum. An edit applies
+    only while its target is as pinned: the same checksum, or still absent when an upsert added the
+    feature. Each edit is judged on its own, so a redraw saved over a newer release applies while the
+    edit it replaces stays stale.
+    """
+
+    applied: list[dict[str, Any]] = []
+    stale: dict[int, str] = {}
+    for row in sorted(ledger, key=lambda item: int(item["change_seq"])):
+        now = current.get(row["feature_id"])
+        base = row.get("base_geometry_checksum_sha256") or None
+        if not row.get("base_source_snapshot_id"):
+            reason = "pin_unreadable"
+        elif base is None:
+            reason = ("source_gained_id" if now is not None
+                      else None if row["op"] == "upsert" else "absent_at_base")
+        elif now is None:
+            reason = "source_removed_id"
+        else:
+            reason = None if now == base else "source_changed"
+        if reason is None:
+            applied.append(row)
+        else:
+            stale[int(row["change_seq"])] = reason
+    return applied, stale
+
+
+def outcome_changes(
+    previous: dict[int, str], ledger: list[dict[str, Any]], stale: dict[int, str]
+) -> list[dict[str, Any]]:
+    """The edits whose outcome this build changed (root ADR-0621 §5).
+
+    `previous` maps a change_seq to its newest recorded outcome; an edit with no row was applied, so a
+    build that applies every edit writes nothing.
+    """
+
+    changes = []
+    for row in sorted(ledger, key=lambda item: int(item["change_seq"])):
+        seq = int(row["change_seq"])
+        outcome = "stale" if seq in stale else "applied"
+        if previous.get(seq, "applied") != outcome:
+            changes.append({"change_seq": seq, "feature_id": row["feature_id"], "op": row["op"],
+                            "outcome": outcome, "reason": stale.get(seq)})
+    return changes
+
+
+def record_outcomes(
+    spark: Any, stale_table: str, unit: str, ledger: list[dict[str, Any]], stale: dict[int, str],
+    silver_snapshot: str, batch_id: str, now: Any,
+) -> list[dict[str, Any]]:
+    """Appends one `gold.map_edit_stale` row for each edit whose outcome this build changed."""
+
+    previous = {
+        int(row["change_seq"]): row["outcome"]
+        for row in spark.sql(
+            f"SELECT change_seq, outcome FROM (SELECT change_seq, outcome, row_number() OVER (PARTITION BY "
+            f"change_seq ORDER BY judged_at_utc DESC, export_batch_id DESC) AS newest FROM {stale_table} "
+            f"WHERE unit = '{unit}') WHERE newest = 1"
+        ).collect()
+    }
+    changes = outcome_changes(previous, ledger, stale)
+    if changes:
+        spark.createDataFrame(
+            [{**change, "unit": unit, "silver_iceberg_snapshot_id": str(silver_snapshot),
+              "export_batch_id": batch_id, "judged_at_utc": now} for change in changes],
+            schema=contract_schema(STALE_CONTRACT),
+        ).select(*STALE_COLUMNS).createOrReplaceTempView("map_edit_stale_append")
+        admit_write(STALE_CONTRACT["table_name"], "append", target=stale_table)
+        spark.sql(f"INSERT INTO {stale_table} SELECT {', '.join(STALE_COLUMNS)} FROM map_edit_stale_append")
+    return changes
+
+
+def stale_counts(stale: dict[int, str], changes: list[dict[str, Any]]) -> dict[str, int]:
+    """The summary's stale counts: every edit this build left out, and the ones that went stale now."""
+
+    return {"edits_stale": len(stale), "edits_newly_stale": sum(1 for c in changes if c["outcome"] == "stale")}
+
+
 def append_to_ledger(
-    spark: Any, ledger_table: str, unit: str, handoff: list[dict[str, Any]], batch_id: str, now: Any
+    spark: Any, ledger_table: str, unit: str, handoff: list[dict[str, Any]], batch_id: str, now: Any,
+    pin: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
 ) -> tuple[int, list[dict[str, Any]]]:
-    """Appends the unit's unledgered edits once each, then returns every ledgered edit of the unit."""
+    """Appends the unit's unledgered edits once each, then returns every ledgered edit of the unit.
+
+    `pin` adds each fresh edit's pin before it is written (`resolve_pins`); without it the pin is empty.
+    """
 
     existing = spark.sql(
         f"SELECT change_seq, feature_id, op, geometry_checksum_sha256, properties_json, "
@@ -346,11 +510,15 @@ def append_to_ledger(
     ).collect()
     ledgered = {int(row["change_seq"]): edit_fingerprint(row.asDict()) for row in existing}
     fresh = new_ledger_rows(ledgered, handoff)
+    if fresh and pin is not None:
+        fresh = pin(fresh)
     if fresh:
         spark.createDataFrame(
             [
                 {
-                    **{name: row[name] for name in EDIT_HANDOFF_COLUMNS if name != "geometry_wkb_hex"},
+                    **{name: row[name] for name in EDIT_HANDOFF_COLUMNS
+                       if name not in ("geometry_wkb_hex", *PIN_COLUMNS, "base_served_snapshot_id")},
+                    **{name: row.get(name) for name in PIN_COLUMNS},
                     "change_seq": int(row["change_seq"]),
                     "geometry_srid": int(row["geometry_srid"]),
                     "geometry_wkb": bytes.fromhex(row["geometry_wkb_hex"]) if row["geometry_wkb_hex"] else None,
@@ -367,7 +535,8 @@ def append_to_ledger(
         row.asDict()
         for row in spark.sql(
             f"SELECT change_seq, feature_id, op, lower(hex(geometry_wkb)) AS geometry_wkb_hex, "
-            f"geometry_checksum_sha256, properties_json FROM {ledger_table} WHERE unit = '{unit}'"
+            f"geometry_checksum_sha256, properties_json, base_source_snapshot_id, "
+            f"base_geometry_checksum_sha256 FROM {ledger_table} WHERE unit = '{unit}'"
         ).collect()
     ]
     return len(fresh), ledger

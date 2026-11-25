@@ -41,6 +41,8 @@
       "priority_weight": 50,
       "pipeline_graph_edges": [
         "map-edit-store-to-silver-map-edit-ledger",
+        "silver-map-edit-ledger-to-gold-map-edit-stale",
+        "gold-map-edit-stale-to-map-edit-stale-alert",
         "silver-map-edit-ledger-to-gold-administrative-boundary-served",
         "gold-administrative-boundary-served-to-admin-tiles"
       ],
@@ -86,6 +88,36 @@
           "value": "silver.map_edit_ledger"
         }
       ]
+    },
+    {
+      "id": "gold-map-edit-stale",
+      "type": "gold_table",
+      "title": "적용되지 않은 지도 편집",
+      "description": "원천이 바뀌어 서빙 Gold 가 적용하지 않은 관리자 편집이다(루트 ADR-0621). 편집의 결과가 바뀔 때만 행이 붙는다. 손님은 그 자리에서 공식 폴리곤을 보고, 직원은 이 목록을 보고 다시 그린다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "gold.map_edit_stale",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.map_edit_stale"
+        }
+      ]
+    },
+    {
+      "id": "map-edit-stale-alert",
+      "type": "serving_surface",
+      "title": "적용되지 않은 지도 편집 알림",
+      "description": "접기가 새로 stale 이 된 편집의 유닛과 건수를 Slack #alerts 에 한 줄로 알린다(루트 ADR-0621 §5). 직원은 gold.map_edit_stale 을 보고 편집 API 로 다시 그린다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/scripts/ops/map-edit-fold.sh"
+      ],
+      "surface_kind": "alert"
     },
     {
       "id": "gold-administrative-boundary-served",
@@ -151,6 +183,25 @@
       "status": "implemented",
       "via": [
         "bake-lakehouse-tiles",
+        "platforms/foundation-platform/scripts/ops/map-edit-fold.sh"
+      ]
+    },
+    {
+      "from": "silver-map-edit-ledger",
+      "to": "gold-map-edit-stale",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/administrative_boundary_served_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py"
+      ]
+    },
+    {
+      "from": "gold-map-edit-stale",
+      "to": "map-edit-stale-alert",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
         "platforms/foundation-platform/scripts/ops/map-edit-fold.sh"
       ]
     }

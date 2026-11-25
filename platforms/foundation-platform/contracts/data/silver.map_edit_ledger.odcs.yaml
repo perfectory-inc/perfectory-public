@@ -72,6 +72,18 @@ schema:
         physicalType: "timestamp"
         logicalType: "timestamp"
         required: true
+      - name: "base_release_id"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "base_source_snapshot_id"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "base_geometry_checksum_sha256"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
     quality:
       - type: "text"
         description: "geometry_srid is the Silver CRS of the unit"

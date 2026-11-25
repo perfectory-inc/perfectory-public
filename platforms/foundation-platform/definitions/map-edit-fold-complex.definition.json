@@ -41,6 +41,8 @@
       "priority_weight": 50,
       "pipeline_graph_edges": [
         "map-edit-store-to-silver-map-edit-ledger",
+        "silver-map-edit-ledger-to-gold-map-edit-stale",
+        "gold-map-edit-stale-to-map-edit-stale-alert",
         "silver-map-edit-ledger-to-gold-industrial-complex-boundary-served",
         "gold-industrial-complex-boundary-served-to-complex-tiles"
       ],

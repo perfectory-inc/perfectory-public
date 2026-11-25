@@ -104,6 +104,13 @@ lakehouse_spark_run foundation-platform-compute \
   --summary-output "${container_work}/served-summary.json" \
   --allow-non-smoke-write >> "${run_log}" 2>&1
 
+# Root ADR-0621 §5: edits this build left out because the source changed under them.
+newly_stale="$(python3 -c 'import json,sys; print(int(json.load(open(sys.argv[1])).get("edits_newly_stale", 0)))' \
+  "${work}/served-summary.json")"
+if [ "${newly_stale}" -gt 0 ]; then
+  notify_slack "🟠 지도 편집 ${newly_stale}건이 원천이 바뀌어 ${UNIT} 타일에 적용되지 않는다 — 손님은 공식 폴리곤을 본다. 목록 gold.map_edit_stale, 다시 그려야 한다"
+fi
+
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_CONFIRM=1 \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_UNIT="${UNIT}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_SERVED_HANDOFF="${work}/served.jsonl" \

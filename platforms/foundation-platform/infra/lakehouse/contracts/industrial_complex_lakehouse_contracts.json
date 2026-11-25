@@ -6145,6 +6145,21 @@
           "name": "ingested_at_utc",
           "logical_type": "timestamp",
           "required": true
+        },
+        {
+          "name": "base_release_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "base_source_snapshot_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "base_geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [],
@@ -6158,6 +6173,80 @@
         "(unit, change_seq) unique",
         "op is upsert or delete",
         "an upsert carries geometry_wkb and geometry_geojson; a delete carries neither",
+        "append_only"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "export_batch_id"
+      }
+    },
+    "gold.map_edit_stale": {
+      "table_name": "gold.map_edit_stale",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "current_rows_sql": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": null
+      },
+      "columns": [
+        {
+          "name": "unit",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "change_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "feature_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "op",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "outcome",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "silver_iceberg_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "export_batch_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "judged_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "unit",
+        "change_seq"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "outcome is stale or applied; reason names why a stale edit is not applied and is null for an applied one",
+        "a row is appended only when an edit's outcome changes; an edit with no row was applied",
         "append_only"
       ],
       "load": {

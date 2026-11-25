@@ -51,6 +51,8 @@ def edit(seq, feature_id, op, code="9999999900"):
         "properties_json": json.dumps(properties) if upsert else "{}",
         "editor": "00000000-0000-0000-0000-000000000000",
         "edited_at": "2099-01-01T00:00:00Z",
+        "base_release_id": "00000000-0000-7000-8000-000000000001",
+        "base_served_snapshot_id": "900000000000000001",
     }
 
 

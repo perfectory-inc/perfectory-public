@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-19
+last_reviewed: 2026-11-25
 ---
 
 # 지도 편집 접기 — 설치·운영·확인 런북
@@ -31,6 +31,21 @@ last_reviewed: 2026-11-19
 5. 성공·실패 모두 `#alerts` 에 한 줄, journal 에 한 줄.
 
 1·2 는 `scripts/ops/map-edit-pending.sh` 의 `map_edit_pending <unit>` 하나가 하고, 필지도 같은 것을 쓴다.
+
+### 원천이 바뀐 편집은 적용하지 않는다 (루트 ADR-0621)
+
+| 단계 | 무엇 |
+|---|---|
+| 저장 | foundation-api 가 그 유닛이 서빙하는 release 를 편집 저장소 행의 `base_release_id` 로 적는다 |
+| 내보내기 | `export-map-edit-handoff` 가 카탈로그에서 그 release 의 Gold 스냅숏을 찾아 함께 넘긴다(`DATABASE_URL`) |
+| 처음 원장에 적힐 때 | 서빙 작업이 그 Gold 가 읽은 Silver 스냅숏과, 거기서의 대상 기하 체크섬을 핀으로 한 번 적는다 |
+| 빌드마다 | 대상이 그대로(같은 id, 같은 체크섬, 또는 편집이 더한 feature 를 원천이 아직 안 가짐)면 적용, 아니면 stale |
+| stale | 적용하지 않는다. 손님은 공식 폴리곤을 본다. `gold.map_edit_stale` 에 결과가 바뀔 때만 한 행이 붙고, 새 stale 이 생긴 접기는 `#alerts` 에 🟠 한 줄을 보낸다 |
+
+stale 의 까닭은 `source_changed`(같은 id, 다른 기하), `source_removed_id`(병합·분할·삭제·번호 바뀜),
+`source_gained_id`(편집이 더한 id 를 원천이 새로 가짐), `absent_at_base`(원천에 없던 id 의 삭제),
+`pin_unreadable`(release 나 그 스냅숏을 읽을 수 없음)이다. 직원은 목록을 보고 편집 API 로 다시 그린다.
+새 편집은 지금 release 에 묶이므로 적용된다. 필지는 편집을 받지 않는다(ADR-0621 §1).
 
 ### 필지(`parcels`)는 필지 굽기의 Gold 반쪽이 접는다
 
