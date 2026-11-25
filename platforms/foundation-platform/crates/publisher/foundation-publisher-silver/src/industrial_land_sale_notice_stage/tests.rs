@@ -14,7 +14,7 @@ use super::{
     detail_source_slugs, planned_objects, snapshot_id, stage_object, PlannedObject,
     ATTACHMENT_TABLE, PLAN_SCHEMA, READ_TABLE,
 };
-use crate::duckdb_parquet_stage::DuckDbParquetStage;
+use crate::duckdb_parquet_stage::{DuckDbParquetStage, FetchedFile};
 
 const OBJECT: &str = include_str!("fixtures/object.jsonl");
 const KEY: &str = "bronze/source=industrylandorkr__industrial_land_sale_notice_detail/industrial-land-sale-notice-detail-20990102t030405z-000--sha256-0000000000000000000000000000000000000000000000000000000000000000.gz";
@@ -56,7 +56,7 @@ fn object(directory: &std::path::Path, lines: &str) -> anyhow::Result<PlannedObj
     Ok(PlannedObject {
         object_key: KEY.to_owned(),
         source_snapshot_id: snapshot_id(KEY)?,
-        path,
+        path: FetchedFile::at(path),
     })
 }
 

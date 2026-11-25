@@ -20,7 +20,7 @@ use lakehouse_domain::{
 use super::{
     planned_objects, read_object, CourtAuctionSource, Keep, PlannedObject, Role, PLAN_SCHEMA, ROLES,
 };
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, TEST_PART_BYTES};
+use crate::duckdb_parquet_stage::{DuckDbParquetStage, FetchedFile, LineParts};
 use crate::onbid_silver_stage::write;
 
 fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
@@ -69,7 +69,7 @@ fn object(directory: &std::path::Path, role: Role) -> anyhow::Result<PlannedObje
         object_key: OBJECT_KEY.to_owned(),
         role,
         source_snapshot_id: "20990102T030405Z".to_owned(),
-        path,
+        path: FetchedFile::at(path),
     })
 }
 
@@ -250,7 +250,7 @@ fn a_case_document_read_without_its_case_refuses_the_object() -> anyhow::Result<
         object_key: OBJECT_KEY.to_owned(),
         role: Role::CaseDetail,
         source_snapshot_id: "20990102T030405Z".to_owned(),
-        path,
+        path: FetchedFile::at(path),
     };
     let refused = read_object(&stage, &source, &object, chrono::Utc::now());
     assert!(
@@ -285,7 +285,7 @@ fn a_notice_detail_without_its_key_refuses_the_object() -> anyhow::Result<()> {
         object_key: OBJECT_KEY.to_owned(),
         role: Role::SaleNotices,
         source_snapshot_id: "20990102T030405Z".to_owned(),
-        path,
+        path: FetchedFile::at(path),
     };
     let refused = read_object(&stage, &source, &object, chrono::Utc::now());
     assert!(
@@ -314,7 +314,7 @@ fn a_report_read_without_its_key_refuses_the_object() -> anyhow::Result<()> {
         object_key: OBJECT_KEY.to_owned(),
         role: Role::AppraisalReports,
         source_snapshot_id: "20990102T030405Z".to_owned(),
-        path,
+        path: FetchedFile::at(path),
     };
     let refused = read_object(&stage, &source, &object, chrono::Utc::now());
     assert!(refused.is_err(), "a read without its key is refused");
@@ -623,7 +623,13 @@ fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
             .map(|line| line.to_string() + "\n")
             .collect::<String>();
         std::fs::write(&path, lines)?;
-        stage.load_lines(&path, "ca_lines")?;
+        stage.read_line_parts(
+            &FetchedFile::at(path),
+            "ca_lines",
+            LineParts::Whole("a case of the fixture: a few lines"),
+            &[],
+            || Ok(()),
+        )?;
         stage.connection().execute_batch(super::LINES_SQL)?;
         stage
             .connection()
@@ -690,7 +696,7 @@ fn large_object(
         object_key: OBJECT_KEY.to_owned(),
         role,
         source_snapshot_id: "20990102T030405Z".to_owned(),
-        path,
+        path: FetchedFile::at(path),
     })
 }
 
@@ -797,10 +803,16 @@ fn a_follow_places_again_the_rows_a_code_change_can_move_with_its_record() -> an
 }
 
 /// What `read_object` left of `role`'s object: every staged table's rows (a search's rows and pages:
-/// its staging table is its placement's), each as text, sorted; and a search's completeness.
-fn read_rows(role: Role, part_bytes: Option<u64>) -> anyhow::Result<(Vec<String>, Option<bool>)> {
+/// its staging table is its placement's), each as text, sorted; and a search's completeness. With
+/// `one_group_a_part`, the contract's memory per byte is so large that every group of lines is a
+/// part of its own.
+fn read_rows(role: Role, one_group_a_part: bool) -> anyhow::Result<(Vec<String>, Option<bool>)> {
     let directory = tempfile::tempdir()?;
-    let source = CourtAuctionSource::compiled()?;
+    let mut source = CourtAuctionSource::compiled()?;
+    if one_group_a_part {
+        source.contract["silver_load"]["memory_per_line_byte"]["bytes"] =
+            serde_json::json!(u64::MAX);
+    }
     let stage = DuckDbParquetStage::open(directory.path())?;
     stage
         .connection()
@@ -809,15 +821,12 @@ fn read_rows(role: Role, part_bytes: Option<u64>) -> anyhow::Result<(Vec<String>
         .with_ymd_and_hms(2099, 1, 2, 3, 4, 5)
         .single()
         .context("a time")?;
-    TEST_PART_BYTES.set(part_bytes);
     let staged = read_object(
         &stage,
         &source,
         &object(directory.path(), role)?,
         ingested_at,
-    );
-    TEST_PART_BYTES.set(None);
-    let staged = staged?;
+    )?;
     let search = matches!(role, Role::ItemSearch | Role::SaleResultSearch);
     let tables = if search {
         vec!["ca_search_rows".to_owned(), "ca_search_pages".to_owned()]
@@ -848,8 +857,8 @@ fn every_role_stages_the_same_rows_read_in_parts_as_read_whole() -> anyhow::Resu
         if fixture(&format!("{}.jsonl", role.name())).is_err() {
             continue;
         }
-        let whole = read_rows(role, None)?;
-        assert_eq!(read_rows(role, Some(1))?, whole, "{}", role.name());
+        let whole = read_rows(role, false)?;
+        assert_eq!(read_rows(role, true)?, whole, "{}", role.name());
     }
     Ok(())
 }

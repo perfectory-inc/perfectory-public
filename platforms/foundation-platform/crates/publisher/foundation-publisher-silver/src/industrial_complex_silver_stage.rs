@@ -29,10 +29,17 @@ use lakehouse_domain::{
     LakehouseTableContract,
 };
 
-use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, PYTHON_VALUES_SQL};
+use crate::duckdb_parquet_stage::{
+    with_contract_columns, DuckDbParquetStage, FetchedFile, LineParts, PYTHON_VALUES_SQL,
+};
 
 /// The table this stage writes.
 pub const TABLE: &str = "silver.industrial_complexes";
+
+/// How the export's handoff is read: whole, its statements comparing every complex.
+const READ: LineParts<'static> = LineParts::Whole(
+    "one line per complex, 1,442 lines nationally (the export's input is one workbook and four \n     answers of a few megabytes, industrial_complex_silver_load)",
+);
 
 const LINES_SQL: &str = include_str!("industrial_complex_silver_stage/lines.sql");
 const ROWS_SQL: &str = include_str!("industrial_complex_silver_stage/rows.sql");
@@ -357,7 +364,13 @@ pub fn stage_export(
         "{} is not {TABLE}",
         contract.table_name
     );
-    stage.load_lines(jsonl, "complex_lines")?;
+    stage.read_line_parts(
+        &FetchedFile::at(jsonl.to_path_buf()),
+        "complex_lines",
+        READ,
+        &[],
+        || Ok(()),
+    )?;
     let connection = stage.connection();
     connection
         .execute_batch(PYTHON_VALUES_SQL)

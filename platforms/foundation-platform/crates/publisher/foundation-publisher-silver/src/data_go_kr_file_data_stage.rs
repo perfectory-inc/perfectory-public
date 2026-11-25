@@ -18,10 +18,7 @@
 //! were made against ([`follow_record`]); [`changed_prefixes`] and [`affected`] select the current
 //! rows a later change can reach, and they are linked again.
 
-use std::{
-    io::Read as _,
-    path::{Path, PathBuf},
-};
+use std::{io::Read as _, path::PathBuf};
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, Utc};
@@ -29,7 +26,7 @@ use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 
 use crate::{
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
+    duckdb_parquet_stage::{for_each_line, with_contract_columns, DuckDbParquetStage, FetchedFile},
     onbid_silver_stage::PLAN_SCHEMA,
     place_identity_stage::{self, PlacePins, CODE_CHANGE_TABLE},
 };
@@ -284,7 +281,7 @@ pub struct PlannedFile {
     /// The dataset it is an edition of.
     pub slug: String,
     /// Where the plan put it.
-    pub path: PathBuf,
+    pub path: FetchedFile,
 }
 
 impl PlannedFile {
@@ -342,7 +339,7 @@ pub fn planned_files(
             files.push(PlannedFile {
                 object_key: key.to_owned(),
                 slug: file.slug.clone(),
-                path: plan_dir.join(local),
+                path: FetchedFile::at(plan_dir.join(local)),
             });
         }
     }
@@ -571,16 +568,12 @@ fn page_cell(value: Option<&Value>) -> anyhow::Result<String> {
 /// One 표준데이터 pass: the collector's raw lines, one `columns` answer (`totalCount`), then each
 /// `rows` answer (a JSON array of rows keyed by column code). A row's fields go in header order
 /// (an absent or null field is empty); row n is numbered n + 1, as a CSV line would be.
-fn push_pages(sink: &mut RowSink<'_>, path: &Path, header: &[String]) -> anyhow::Result<()> {
-    let mut text = String::new();
-    flate2::read::GzDecoder::new(std::fs::File::open(path)?)
-        .read_to_string(&mut text)
-        .context("the pass is not gzip UTF-8 text")?;
+fn push_pages(sink: &mut RowSink<'_>, file: &FetchedFile, header: &[String]) -> anyhow::Result<()> {
     let mut total = None;
     let mut rows = 0_usize;
-    for line in text.lines() {
+    for_each_line(file, |_, line| {
         if py_strip(line).is_empty() {
-            continue;
+            return Ok(());
         }
         let answer: Value = serde_json::from_str(line)?;
         let body: Value = serde_json::from_str(
@@ -593,7 +586,7 @@ fn push_pages(sink: &mut RowSink<'_>, path: &Path, header: &[String]) -> anyhow:
                 Value::String(count) => count.trim().parse::<usize>()?,
                 count => usize::try_from(count.as_u64().context("totalCount is no count")?)?,
             });
-            continue;
+            return Ok(());
         }
         let Some(items) = body.as_array().filter(|_| answer["kind"] == "rows") else {
             bail!("a line is neither the column list nor a page of rows");
@@ -615,7 +608,8 @@ fn push_pages(sink: &mut RowSink<'_>, path: &Path, header: &[String]) -> anyhow:
                 .collect::<anyhow::Result<Vec<_>>>()?;
             sink.push(rows + 1, &cells)?;
         }
-    }
+        Ok(())
+    })?;
     ensure!(
         Some(rows) == total,
         "{rows} rows, but the column list reports {total:?}"
@@ -623,13 +617,21 @@ fn push_pages(sink: &mut RowSink<'_>, path: &Path, header: &[String]) -> anyhow:
     Ok(())
 }
 
+/// How a CSV or a zip's member is read: whole, its bytes and then its text (a 표준데이터 pass is
+/// streamed a line at a time). The decoder and the Python `csv` reader read the whole text.
+const WHOLE: &str = "the largest files measured 2026-11-25: employment_insurance_workplace zip 501.9 MiB,      commercial_district zip 332.9 MiB, standard_land_price csv 133.0 MiB, pension_workplace csv      115.3 MiB; the load's peak under 3 GiB is not measured yet (jobs.v1.json memory_measured)";
+
 /// Reads the file at `path` as `file_rows`; returns how many data rows it holds.
 ///
 /// # Errors
 /// The file does not decode strictly in the contract's encoding, a header is not the contract's,
 /// a row has another width, a zip holds no member (or more than the one) the contract names, or a
 /// pass's rows are not the total it reports.
-pub fn read_file(stage: &DuckDbParquetStage, file: &FileEntry, path: &Path) -> anyhow::Result<u64> {
+pub fn read_file(
+    stage: &DuckDbParquetStage,
+    file: &FileEntry,
+    path: &FetchedFile,
+) -> anyhow::Result<u64> {
     let header = file.header()?;
     let connection = stage.connection();
     connection.execute_batch(
@@ -646,7 +648,7 @@ pub fn read_file(stage: &DuckDbParquetStage, file: &FileEntry, path: &Path) -> a
         }
         "csv" => {
             let encoding = text(&file.entry["encoding"], "encoding")?;
-            let text = decode(&std::fs::read(path)?, encoding).with_context(|| slug.clone())?;
+            let text = decode(&path.read_whole(WHOLE)?, encoding).with_context(|| slug.clone())?;
             push_csv(&mut sink, &text, &header, slug)?;
         }
         "zip" => {
@@ -655,7 +657,7 @@ pub fn read_file(stage: &DuckDbParquetStage, file: &FileEntry, path: &Path) -> a
             let encoding = text(&member["encoding"], "member.encoding")?;
             let every = member["every_match"].as_bool().unwrap_or(false);
             let pattern = regex::Regex::new(pattern)?;
-            let mut archive = zip::ZipArchive::new(std::fs::File::open(path)?)?;
+            let mut archive = zip::ZipArchive::new(path.open_whole(WHOLE)?)?;
             let mut found = 0_usize;
             for index in 0..archive.len() {
                 let mut entry = archive.by_index(index)?;

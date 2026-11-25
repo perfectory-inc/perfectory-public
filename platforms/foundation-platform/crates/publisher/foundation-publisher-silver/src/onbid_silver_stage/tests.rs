@@ -22,7 +22,7 @@ use super::{
     planned_objects, read_object, snapshot_id, write, OnbidSource, PlannedObject, Role,
     PLAN_SCHEMA, ROLES,
 };
-use crate::duckdb_parquet_stage::DuckDbParquetStage;
+use crate::duckdb_parquet_stage::{DuckDbParquetStage, FetchedFile};
 
 fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
     industrial_complex_lakehouse_contract_by_table_name(table)
@@ -70,7 +70,7 @@ fn object(directory: &std::path::Path, role: Role) -> anyhow::Result<PlannedObje
         object_key: OBJECT_KEY.to_owned(),
         role,
         source_snapshot_id: "20990102T030405Z".to_owned(),
-        path,
+        path: FetchedFile::at(path),
     })
 }
 
@@ -213,7 +213,7 @@ fn a_200_whose_body_is_not_json_is_counted_and_read_as_no_answer() -> anyhow::Re
             object_key: OBJECT_KEY.to_owned(),
             role,
             source_snapshot_id: "20990102T030405Z".to_owned(),
-            path,
+            path: FetchedFile::at(path),
         },
         ingested_at,
     )?;

@@ -14,7 +14,7 @@ use super::{
     Changes, FileEntry, PlaceInputs, PlaceLink, PlannedFile, PyCsvRecords,
 };
 use crate::{
-    duckdb_parquet_stage::{DuckDbParquetStage, PYTHON_VALUES_SQL},
+    duckdb_parquet_stage::{DuckDbParquetStage, FetchedFile, PYTHON_VALUES_SQL},
     place_identity_stage::PlacePins,
 };
 
@@ -101,7 +101,7 @@ fn a_csv_edition_is_keyed_by_its_provider_key_and_keeps_every_cell() -> anyhow::
         directory.path(),
         "역이름,주소,비고\r\n가상역,합성도 가상시 가나동 8,\"줄\n바꿈 \"\"인용\"\"\"\r\n,,\r\n나상역,,\r\n",
     )?;
-    assert_eq!(read_file(&stage, &file, &path)?, 2);
+    assert_eq!(read_file(&stage, &file, &FetchedFile::at(path))?, 2);
     keyed(&stage, &file)?;
     let rows: Vec<(String, String, i32)> = stage
         .connection()
@@ -127,7 +127,7 @@ fn a_csv_edition_is_keyed_by_its_provider_key_and_keeps_every_cell() -> anyhow::
     );
 
     let wrong = write_cp949(directory.path(), "역이름,주소\r\n가상역,어디\r\n")?;
-    let Err(refused) = read_file(&stage, &file, &wrong) else {
+    let Err(refused) = read_file(&stage, &file, &FetchedFile::at(wrong)) else {
         anyhow::bail!("another header was read");
     };
     assert!(refused.to_string().contains("header"), "{refused}");
@@ -135,7 +135,7 @@ fn a_csv_edition_is_keyed_by_its_provider_key_and_keeps_every_cell() -> anyhow::
         directory.path(),
         "역이름,주소,비고\r\n가상역,,\r\n가상역,,\r\n",
     )?;
-    read_file(&stage, &file, &repeated)?;
+    read_file(&stage, &file, &FetchedFile::at(repeated))?;
     let Err(refused) = keyed(&stage, &file) else {
         anyhow::bail!("a repeated key was kept");
     };
@@ -155,7 +155,7 @@ fn a_row_without_a_provider_key_is_keyed_by_its_sha256() -> anyhow::Result<()> {
         }),
     );
     let path = write_cp949(directory.path(), "도,시군구\n합성도,가상시\n")?;
-    read_file(&stage, &file, &path)?;
+    read_file(&stage, &file, &FetchedFile::at(path))?;
     keyed(&stage, &file)?;
     let key: String =
         stage
@@ -199,7 +199,7 @@ fn a_standard_pass_is_read_in_header_order_and_counted() -> anyhow::Result<()> {
         out.finish()?;
         Ok(path)
     };
-    assert_eq!(read_file(&stage, &file, &pass(2)?)?, 2);
+    assert_eq!(read_file(&stage, &file, &FetchedFile::at(pass(2)?))?, 2);
     let rows: Vec<(i32, String)> = stage
         .connection()
         .prepare("SELECT source_line_number, cells FROM file_rows ORDER BY _row")?
@@ -212,7 +212,7 @@ fn a_standard_pass_is_read_in_header_order_and_counted() -> anyhow::Result<()> {
             (3, r#"["S2","",""]"#.to_owned())
         ]
     );
-    let Err(refused) = read_file(&stage, &file, &pass(3)?) else {
+    let Err(refused) = read_file(&stage, &file, &FetchedFile::at(pass(3)?)) else {
         anyhow::bail!("a short pass was read");
     };
     assert!(format!("{refused:#}").contains("reports"), "{refused:#}");
@@ -387,7 +387,7 @@ fn an_edition_id_is_the_bronze_leaf_without_its_extension() {
     let planned = PlannedFile {
         object_key: "bronze/source=datagokr__port/port-12345.csv".to_owned(),
         slug: "port".to_owned(),
-        path: std::path::PathBuf::new(),
+        path: FetchedFile::at(std::path::PathBuf::new()),
     };
     assert_eq!(planned.snapshot_id(), "port-12345");
 }

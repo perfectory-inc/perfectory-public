@@ -19,7 +19,7 @@ use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 
 use crate::data_go_kr_file_data_stage::{self, PlaceInputs};
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, LineParts, PYTHON_VALUES_SQL};
+use crate::duckdb_parquet_stage::{DuckDbParquetStage, FetchedFile, LineParts, PYTHON_VALUES_SQL};
 use crate::onbid_silver_stage::{snapshot_id, PLAN_SCHEMA};
 use crate::place_identity_stage;
 use crate::silver_changes::{self, content_columns, table_key};
@@ -485,6 +485,18 @@ impl CourtAuctionSource {
         )))
     }
 
+    /// What the load's statements took in memory per byte of lines, measured (`silver_load.
+    /// memory_per_line_byte`): a part of an object holds at most the stage's memory limit divided by it.
+    ///
+    /// # Errors
+    /// Returns an error when the contract records none.
+    pub fn memory_per_line_byte(&self) -> anyhow::Result<u64> {
+        self.contract["silver_load"]["memory_per_line_byte"]["bytes"]
+            .as_u64()
+            .filter(|bytes| *bytes > 0)
+            .context("courtauction-go-kr.contract.json records no silver_load.memory_per_line_byte")
+    }
+
     /// A role's SQL with the contract's values in it.
     ///
     /// # Errors
@@ -614,7 +626,7 @@ pub struct PlannedObject {
     /// The run id the collector put in the key.
     pub source_snapshot_id: String,
     /// Where the plan put the object.
-    pub path: PathBuf,
+    pub path: FetchedFile,
 }
 
 /// Every object the plans in `plan_dirs` fetched, with its role, oldest run first.
@@ -676,7 +688,7 @@ pub fn planned_objects(
                 object_key: key.to_owned(),
                 role,
                 source_snapshot_id: snapshot_id(key)?,
-                path: plan_dir.join(local),
+                path: FetchedFile::at(plan_dir.join(local)),
             });
         }
     }
@@ -798,6 +810,10 @@ fn lines_failure(error: duckdb::Error, object_key: &str) -> anyhow::Error {
     anyhow::Error::new(error).context(what)
 }
 
+/// How the roles that compare lines across the whole object read it (공통코드, 감정평가서,
+/// 매각물건명세서, 배당요구종기): whole.
+const READ_WHOLE: &str = "the largest objects measured 2026-11-25: dividend_notice 53.6 MiB of lines      (highest memory 205 MiB under 2 GiB), appraisal_report 2.4 MiB, sale_specification 1.4 MiB,      common_code 0.1 MiB";
+
 /// Reads `object` into one staging table per table its role writes.
 ///
 /// The object is read in the parts the stage holds (`DuckDbParquetStage::read_line_parts`): the
@@ -836,10 +852,14 @@ pub fn read_object(
         .case_pointer(object.role)?
         .into_iter()
         .collect::<Vec<_>>();
+    let memory_per_byte = source.memory_per_line_byte()?;
     let (parts, mut kept) = match &once {
-        Some((_, handed)) => (LineParts::InOrder, handed.clone()),
+        Some((_, handed)) => (LineParts::InOrder { memory_per_byte }, handed.clone()),
         None if !case.is_empty() => (
-            LineParts::Grouped(&case),
+            LineParts::Grouped {
+                pointers: &case,
+                memory_per_byte,
+            },
             object
                 .role
                 .tables()
@@ -847,7 +867,7 @@ pub fn read_object(
                 .map(|&(table, _)| Role::staged(table))
                 .collect(),
         ),
-        None => (LineParts::Whole, Vec::new()),
+        None => (LineParts::Whole(READ_WHOLE), Vec::new()),
     };
     kept.extend(pages.as_ref().map(|_| "ca_search_pages".to_owned()));
     stage.read_line_parts(&object.path, "ca_lines", parts, &kept, || {

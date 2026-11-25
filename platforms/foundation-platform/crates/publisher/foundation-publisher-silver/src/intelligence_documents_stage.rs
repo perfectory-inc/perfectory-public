@@ -22,8 +22,14 @@ use serde_json::{json, Value};
 
 use crate::{
     data_go_kr_file_data_stage::literal,
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage},
+    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, FetchedFile, LineParts},
 };
+
+/// How a run file is read: whole. Not Bronze: the image writes it in this run's own directory, one
+/// line per row of the run, under the load's `STAGE_MEMORY_MIB` (384 MiB); not measured here.
+const READ: LineParts<'static> = LineParts::Whole(
+    "not Bronze: the run file the image wrote, one line per row of this run's documents",
+);
 
 /// The attachment index the text job plans from.
 pub const ATTACHMENT_TABLE: &str = "silver.industrial_complex_notice_attachment";
@@ -445,10 +451,11 @@ pub fn stage_run_rows(
     stage
         .connection()
         .execute_batch("DROP TABLE IF EXISTS id_run_rows; DROP TABLE IF EXISTS id_run_lines")?;
-    if !path.exists() {
+    let file = FetchedFile::at(path.to_path_buf());
+    if !file.exists() {
         return Ok(0);
     }
-    stage.load_lines(path, "id_run_lines")?;
+    stage.read_line_parts(&file, "id_run_lines", READ, &[], || Ok(()))?;
     let declared = in_list(&columns[..columns.len() - 1]);
     let unlike: i64 = stage.connection().query_row(
         &format!(

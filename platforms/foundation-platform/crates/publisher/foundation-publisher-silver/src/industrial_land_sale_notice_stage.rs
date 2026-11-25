@@ -19,8 +19,15 @@ use sha2::{Digest, Sha256};
 
 use duckdb::Connection;
 
-use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, PYTHON_VALUES_SQL};
+use crate::duckdb_parquet_stage::{
+    with_contract_columns, DuckDbParquetStage, FetchedFile, LineParts, PYTHON_VALUES_SQL,
+};
 pub use crate::industrial_complex_notice_stage::{refuse_repeated, PlannedObject, PLAN_SCHEMA};
+
+/// How the load reads an object's lines: whole, its statements comparing the notices of an object.
+const READ: LineParts<'static> = LineParts::Whole(
+    "the largest objects measured 2026-11-25: kicoxorkr 11.9 MiB of lines, industrylandorkr \n     5.8 MiB, factoryongokr 3.2 MiB (industrial_land_sale_notice_detail, 50 lines each)",
+);
 
 /// The read record a load's plan is decided from (the lane contract's `read_from`).
 pub const READ_TABLE: &str = "silver.industrial_land_sale_notice_read";
@@ -123,7 +130,7 @@ pub fn planned_objects(plan_dir: &Path, slugs: &[String]) -> anyhow::Result<Vec<
             Ok(PlannedObject {
                 object_key: key.to_owned(),
                 source_snapshot_id: snapshot_id(key)?,
-                path: plan_dir.join(local),
+                path: FetchedFile::at(plan_dir.join(local)),
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -207,7 +214,7 @@ pub fn stage_object(
     ingested_at: DateTime<Utc>,
 ) -> anyhow::Result<StagedSaleNotices> {
     let (reads_shape, attachments_shape) = shapes;
-    stage.load_lines(&object.path, "sale_lines")?;
+    stage.read_line_parts(&object.path, "sale_lines", READ, &[], || Ok(()))?;
     let sql = ROWS_SQL
         .replace("{object_key}", &quote(&object.object_key)?)
         .replace("{snapshot_id}", &quote(&object.source_snapshot_id)?)

@@ -98,6 +98,27 @@ fn records(files: &[&ScannedDataFile]) -> u64 {
         .fold(0, u64::saturating_add)
 }
 
+/// Units of measured size, in their order, packed into parts under `cap`: a part closes before the
+/// unit that would take it past `cap`, and a unit larger than `cap` is a part of its own (a unit is
+/// never cut). Returns each unit's part, from 0. The one packing rule of a part plan: a Bronze
+/// object's line groups are packed by it under the bytes a stage holds
+/// (`foundation_publisher_silver::duckdb_parquet_stage::read_line_parts`).
+#[must_use]
+pub fn pack_in_order(sizes: &[u64], cap: u64) -> Vec<usize> {
+    let (mut part, mut held) = (0, 0_u64);
+    sizes
+        .iter()
+        .map(|&size| {
+            if held > 0 && held.saturating_add(size) > cap {
+                part += 1;
+                held = 0;
+            }
+            held = held.saturating_add(size);
+            part
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -171,5 +192,15 @@ mod tests {
             prefixes(&plan),
             ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
         );
+    }
+
+    #[test]
+    fn units_are_packed_in_order_under_the_cap_and_a_large_unit_stands_alone() {
+        assert_eq!(
+            pack_in_order(&[3, 3, 3, 9, 1, 1], 6),
+            vec![0, 0, 1, 2, 3, 3]
+        );
+        assert_eq!(pack_in_order(&[5, 5], u64::MAX), vec![0, 0]);
+        assert_eq!(pack_in_order(&[], 1), Vec::<usize>::new());
     }
 }

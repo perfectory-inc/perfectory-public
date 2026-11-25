@@ -9,7 +9,7 @@
 //! appends the attachments first, then the reads, each in a commit that records the object, even
 //! when it holds no row (`lakehouse_data_commit::append_at_head`).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, Utc};
@@ -19,7 +19,9 @@ use sha2::{Digest, Sha256};
 
 use duckdb::Connection;
 
-use crate::duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, PYTHON_VALUES_SQL};
+use crate::duckdb_parquet_stage::{
+    with_contract_columns, DuckDbParquetStage, FetchedFile, LineParts, PYTHON_VALUES_SQL,
+};
 
 /// The read record a load's plan is decided from (`notice_detail.read_from`).
 pub const DETAIL_TABLE: &str = "silver.industrial_complex_notice_detail";
@@ -100,8 +102,13 @@ pub struct PlannedObject {
     /// The run id the collector put in the key (`…-20990102t030405z-000.gz` → `20990102T030405Z`).
     pub source_snapshot_id: String,
     /// Where the plan put the object.
-    pub path: PathBuf,
+    pub path: FetchedFile,
 }
+
+/// How the load reads an object's lines: whole, its statements comparing the notices of an object.
+const READ: LineParts<'static> = LineParts::Whole(
+    "the largest object measured 2026-11-25: 0.4 MiB of lines (industrylandorkr \n     industrial_complex_notice_detail, 50 lines)",
+);
 
 /// The run id in an object key.
 ///
@@ -171,7 +178,7 @@ pub fn planned_objects(
             Ok(PlannedObject {
                 object_key: key.to_owned(),
                 source_snapshot_id: snapshot_id(key)?,
-                path: plan_dir.join(local),
+                path: FetchedFile::at(plan_dir.join(local)),
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -256,7 +263,7 @@ pub fn stage_object(
     ingested_at: DateTime<Utc>,
 ) -> anyhow::Result<StagedNotice> {
     let (reads_shape, attachments_shape) = shapes;
-    stage.load_lines(&object.path, "notice_lines")?;
+    stage.read_line_parts(&object.path, "notice_lines", READ, &[], || Ok(()))?;
     let sql = ROWS_SQL
         .replace("{result_field}", &source.result_field)
         .replace("{files_field}", &source.files_field)

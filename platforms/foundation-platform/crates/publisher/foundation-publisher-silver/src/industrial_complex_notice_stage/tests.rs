@@ -22,7 +22,7 @@ use super::{
     notice_source, planned_objects, snapshot_id, stage_object, PlannedObject, ATTACHMENT_TABLE,
     DETAIL_TABLE, PLAN_SCHEMA,
 };
-use crate::duckdb_parquet_stage::DuckDbParquetStage;
+use crate::duckdb_parquet_stage::{DuckDbParquetStage, FetchedFile};
 
 const OBJECT: &str = include_str!("fixtures/object.jsonl");
 const META: &str = include_str!("fixtures/object.json");
@@ -71,7 +71,7 @@ fn object(directory: &std::path::Path) -> anyhow::Result<PlannedObject> {
             .context("object_key")?
             .to_owned(),
         source_snapshot_id: meta["run"].as_str().context("run")?.to_owned(),
-        path,
+        path: FetchedFile::at(path),
     })
 }
 

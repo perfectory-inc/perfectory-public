@@ -26,7 +26,7 @@ use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, PYTHON_VALUES_SQL};
+use crate::duckdb_parquet_stage::{DuckDbParquetStage, FetchedFile, LineParts, PYTHON_VALUES_SQL};
 use crate::silver_changes::{self, same, table_key, LOAD_COLUMNS};
 
 /// The plan file `plan-silver-load-objects` writes.
@@ -681,6 +681,12 @@ fn load_column(name: &str) -> Option<&'static str> {
     }
 }
 
+/// How the load reads an object's lines: whole, its statements comparing the lines of an object
+/// (the latest answer of a key wins).
+const READ: LineParts<'static> = LineParts::Whole(
+    "the largest objects measured 2026-11-25: real_estate_item 146.0 MiB of lines, \n     announcement_detail 59.2 MiB; the load's highest memory 1,795 of 2,048 MiB (jobs.v1.json \n     memory_measured)",
+);
+
 /// One Bronze object a plan fetched, and the table it loads into.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlannedObject {
@@ -691,7 +697,7 @@ pub struct PlannedObject {
     /// The run id the collector put in the key (`…-20990102t030405z.gz` → `20990102T030405Z`).
     pub source_snapshot_id: String,
     /// Where the plan put the object.
-    pub path: PathBuf,
+    pub path: FetchedFile,
 }
 
 /// The run id in an object key.
@@ -766,7 +772,7 @@ pub fn planned_objects(
                 object_key: key.to_owned(),
                 role,
                 source_snapshot_id: snapshot_id(key)?,
-                path: plan_dir.join(local),
+                path: FetchedFile::at(plan_dir.join(local)),
             });
         }
     }
@@ -843,7 +849,7 @@ pub fn read_object(
     object: &PlannedObject,
     ingested_at: DateTime<Utc>,
 ) -> anyhow::Result<ReadObject> {
-    let lines = stage.load_lines(&object.path, "onbid_lines")?;
+    let lines = stage.read_line_parts(&object.path, "onbid_lines", READ, &[], || Ok(()))?;
     let connection = stage.connection();
     let answers = source.answers_sql()?;
     let (init, line, pass) = answer_steps(&answers)?;
