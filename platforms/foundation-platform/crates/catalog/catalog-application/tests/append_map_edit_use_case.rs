@@ -3,10 +3,12 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use catalog_application::ports::{MapEditAppended, MapEditRecord, MapEditStore, MapEditStoreError};
+use catalog_application::ports::{
+    MapEditAppended, MapEditRecord, MapEditStore, MapEditStoreError, ServedReleases,
+};
 use catalog_application::{AppendMapEdit, AppendMapEditError, AppendMapEditInput};
-use catalog_domain::{MapEditError, MapEditOperation};
-use foundation_shared_kernel::ids::StaffId;
+use catalog_domain::{CatalogError, MapEditError, MapEditOperation};
+use foundation_shared_kernel::ids::{StaffId, VectorTileReleaseId};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -28,6 +30,26 @@ impl MapEditStore for RecordingStore {
             replayed: false,
         })
     }
+}
+
+/// The release every unit serves in these tests, or none.
+struct Serving(Option<VectorTileReleaseId>);
+
+const RELEASE: VectorTileReleaseId =
+    VectorTileReleaseId::new(Uuid::from_u128(0x0000_0000_0000_7000_8000_0000_0000_0001));
+
+#[async_trait]
+impl ServedReleases for Serving {
+    async fn active_release(
+        &self,
+        _unit: &str,
+    ) -> Result<Option<VectorTileReleaseId>, CatalogError> {
+        Ok(self.0)
+    }
+}
+
+fn use_case(store: Arc<RecordingStore>) -> AppendMapEdit {
+    AppendMapEdit::new(store, Arc::new(Serving(Some(RELEASE))))
 }
 
 // The reserved synthetic coordinate namespace of scripts/guard/public-fixture-safety.py.
@@ -56,7 +78,7 @@ fn input(
 #[tokio::test]
 async fn a_valid_upsert_and_delete_reach_the_store_as_checked() -> Result<(), AppendMapEditError> {
     let store = Arc::new(RecordingStore::default());
-    let use_case = AppendMapEdit::new(store.clone());
+    let use_case = use_case(store.clone());
     let upsert = use_case
         .execute(input(
             "upsert",
@@ -82,14 +104,33 @@ async fn a_valid_upsert_and_delete_reach_the_store_as_checked() -> Result<(), Ap
     );
     assert_eq!(records[1].operation, MapEditOperation::Delete);
     assert!(records[1].geometry.is_none());
+    // Root ADR-0621 §3: every edit is pinned to the release its unit serves.
+    assert!(records
+        .iter()
+        .all(|record| record.base_release_id == RELEASE));
     Ok(())
+}
+
+#[tokio::test]
+async fn a_unit_that_serves_no_release_takes_no_edit() {
+    let store = Arc::new(RecordingStore::default());
+    let use_case = AppendMapEdit::new(store.clone(), Arc::new(Serving(None)));
+    let result = use_case.execute(input("delete", None, None)).await;
+    assert!(
+        matches!(
+            &result,
+            Err(AppendMapEditError::Store(MapEditStoreError::Conflict(code))) if code == "no_served_release"
+        ),
+        "{result:?}"
+    );
+    assert!(store.records.lock().is_ok_and(|records| records.is_empty()));
 }
 
 #[tokio::test]
 async fn a_parcel_edit_is_refused_before_the_store_is_asked() {
     // Root ADR-0621 §1: parcel geometry is the legal record. A synthetic PNU (reserved 99999).
     let store = Arc::new(RecordingStore::default());
-    let use_case = AppendMapEdit::new(store.clone());
+    let use_case = use_case(store.clone());
     for (operation, geometry) in [("upsert", Some(square())), ("delete", None)] {
         let mut edit = input(operation, geometry, None);
         edit.unit = "parcels".to_owned();
@@ -109,7 +150,7 @@ async fn a_parcel_edit_is_refused_before_the_store_is_asked() {
 #[tokio::test]
 async fn refused_edits_never_reach_the_store() {
     let store = Arc::new(RecordingStore::default());
-    let use_case = AppendMapEdit::new(store.clone());
+    let use_case = use_case(store.clone());
     let bow_tie = json!({"type": "Polygon", "coordinates": [[
         [127.123, 36.123], [127.1239, 36.1239], [127.1239, 36.123], [127.123, 36.1239], [127.123, 36.123]
     ]]});

@@ -1,7 +1,10 @@
 //! The admin map-edit route (root ADR-0112): who may call it, and what each outcome answers.
 
 use super::*;
-use catalog_application::ports::{MapEditAppended, MapEditRecord, MapEditStore, MapEditStoreError};
+use catalog_application::ports::{
+    MapEditAppended, MapEditRecord, MapEditStore, MapEditStoreError, ServedReleases,
+};
+use foundation_shared_kernel::ids::VectorTileReleaseId;
 
 /// Grants exactly the staff map-edit capability and records what it was asked.
 #[derive(Default)]
@@ -54,6 +57,21 @@ impl MapEditStore for RecordingMapEditStore {
     }
 }
 
+/// Every unit serves one synthetic release, so no test reads the catalog.
+struct OneServedRelease;
+
+#[async_trait]
+impl ServedReleases for OneServedRelease {
+    async fn active_release(
+        &self,
+        _unit: &str,
+    ) -> Result<Option<VectorTileReleaseId>, catalog_domain::CatalogError> {
+        Ok(Some(VectorTileReleaseId::new(uuid::Uuid::from_u128(
+            0x0000_0000_0000_7000_8000_0000_0000_0001,
+        ))))
+    }
+}
+
 // The reserved synthetic coordinate namespace of scripts/guard/public-fixture-safety.py; the range
 // is half-open, so every corner stays strictly inside it.
 const SQUARE: &str = r#"{"type":"Polygon","coordinates":[[[127.1231,36.1231],[127.1234,36.1231],[127.1234,36.1234],[127.1231,36.1234],[127.1231,36.1231]]]}"#;
@@ -83,6 +101,7 @@ async fn a_map_edit_without_a_token_is_refused_before_anything_runs() -> Result<
     let state = AppState::bootstrap_for_test_with_identity_authorization(Arc::new(
         StaffMapEditAuthorization::default(),
     ))?
+    .with_served_releases(Arc::new(OneServedRelease))
     .with_map_edit_store(store.clone());
     let response = router(Arc::new(state))
         .oneshot(post(edit(SQUARE), false)?)
@@ -98,6 +117,7 @@ async fn an_authorized_edit_is_saved_under_the_staff_spatial_map_edit_capability
     let authorization = Arc::new(StaffMapEditAuthorization::default());
     let store = Arc::new(RecordingMapEditStore::default());
     let state = AppState::bootstrap_for_test_with_identity_authorization(authorization.clone())?
+        .with_served_releases(Arc::new(OneServedRelease))
         .with_map_edit_store(store.clone());
     let response = router(Arc::new(state))
         .oneshot(post(edit(SQUARE), true)?)
@@ -135,6 +155,7 @@ async fn an_invalid_polygon_answers_422_and_never_reaches_the_store() -> Result<
     let state = AppState::bootstrap_for_test_with_identity_authorization(Arc::new(
         StaffMapEditAuthorization::default(),
     ))?
+    .with_served_releases(Arc::new(OneServedRelease))
     .with_map_edit_store(store.clone());
     let response = router(Arc::new(state))
         .oneshot(post(edit(BOW_TIE), true)?)
@@ -149,7 +170,8 @@ async fn without_a_configured_store_an_edit_answers_503_not_success() -> Result<
 {
     let state = AppState::bootstrap_for_test_with_identity_authorization(Arc::new(
         StaffMapEditAuthorization::default(),
-    ))?;
+    ))?
+    .with_served_releases(Arc::new(OneServedRelease));
     let response = router(Arc::new(state))
         .oneshot(post(edit(SQUARE), true)?)
         .await?;
@@ -166,6 +188,7 @@ async fn an_edit_is_audited_before_and_after_the_store_without_its_geometry(
     let state = AppState::bootstrap_for_test_with_identity_authorization(Arc::new(
         StaffMapEditAuthorization::default(),
     ))?
+    .with_served_releases(Arc::new(OneServedRelease))
     .with_map_edit_store(store.clone())
     .with_audit_event_store(audit.clone());
     let response = router(Arc::new(state))

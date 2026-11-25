@@ -3,10 +3,16 @@
 
 use std::sync::Arc;
 
-use catalog_domain::{check_unit_takes_edits, MapEditError, MapEditGeometry, MapEditOperation};
-use foundation_shared_kernel::ids::StaffId;
+use async_trait::async_trait;
+use catalog_domain::{
+    check_unit_takes_edits, CatalogError, MapEditError, MapEditGeometry, MapEditOperation,
+};
+use foundation_shared_kernel::ids::{StaffId, VectorTileReleaseId};
 
-use crate::ports::{MapEditAppended, MapEditRecord, MapEditStore, MapEditStoreError};
+use crate::ports::{
+    CatalogRepository, MapEditAppended, MapEditRecord, MapEditStore, MapEditStoreError,
+    ServedReleases,
+};
 
 /// An edit as the caller sent it.
 pub struct AppendMapEditInput {
@@ -37,16 +43,30 @@ pub enum AppendMapEditError {
     Store(#[from] MapEditStoreError),
 }
 
-/// Checks an edit's operation and topology, then appends it to the edit store.
+/// Checks an edit's unit, operation and topology, pins it to the release its unit serves, then
+/// appends it to the edit store.
 pub struct AppendMapEdit {
     store: Arc<dyn MapEditStore>,
+    releases: Arc<dyn ServedReleases>,
 }
 
 impl AppendMapEdit {
-    /// Creates the use case over an edit store.
+    /// Creates the use case over an edit store and the releases the units serve.
     #[must_use]
-    pub fn new(store: Arc<dyn MapEditStore>) -> Self {
-        Self { store }
+    pub fn new(store: Arc<dyn MapEditStore>, releases: Arc<dyn ServedReleases>) -> Self {
+        Self { store, releases }
+    }
+
+    /// The same use case over another edit store.
+    #[must_use]
+    pub fn with_store(self, store: Arc<dyn MapEditStore>) -> Self {
+        Self { store, ..self }
+    }
+
+    /// The same use case over another account of the served releases.
+    #[must_use]
+    pub fn with_releases(self, releases: Arc<dyn ServedReleases>) -> Self {
+        Self { releases, ..self }
     }
 
     /// Saves one edit.
@@ -55,7 +75,10 @@ impl AppendMapEdit {
     ///
     /// Returns [`AppendMapEditError::Invalid`] when the unit takes no edits (root ADR-0621 §1),
     /// when the operation is unknown, when an upsert has no geometry or a delete has one, or when
-    /// the geometry is not a valid polygon; the store is not called. Returns [`AppendMapEditError::Store`] when the store refuses or is unreachable.
+    /// the geometry is not a valid polygon; the store is not called. Returns
+    /// [`AppendMapEditError::Store`] as a conflict when the unit serves no release (an edit is
+    /// pinned to one, root ADR-0621 §3), as unavailable when the served release cannot be read,
+    /// and when the store refuses or is unreachable.
     pub async fn execute(
         &self,
         input: AppendMapEditInput,
@@ -69,6 +92,16 @@ impl AppendMapEdit {
             (MapEditOperation::Delete, None, None) => None,
             _ => return Err(MapEditError::GeometryDoesNotMatchOperation.into()),
         };
+        // Root ADR-0621 §3: the edit is pinned to the release its unit serves now. The writer
+        // stamps it, never the client; the Gold build resolves it to the source state.
+        let base_release_id = self
+            .releases
+            .active_release(&input.unit)
+            .await
+            .map_err(|error| {
+                MapEditStoreError::Unavailable(format!("the served release is unreadable: {error}"))
+            })?
+            .ok_or_else(|| MapEditStoreError::Conflict("no_served_release".to_owned()))?;
         let record = MapEditRecord {
             unit: input.unit,
             feature_id: input.feature_id,
@@ -77,7 +110,41 @@ impl AppendMapEdit {
             properties: input.properties,
             editor: input.editor,
             idempotency_key: input.idempotency_key,
+            base_release_id,
         };
         Ok(self.store.append(&record).await?)
+    }
+}
+
+/// The served releases as the active runtime manifest names them: the release each unit's tiles
+/// come from, which the staff map draws an edit over.
+pub struct RuntimeManifestReleases {
+    repository: Arc<dyn CatalogRepository>,
+}
+
+impl RuntimeManifestReleases {
+    /// Reads the releases from this catalog.
+    #[must_use]
+    pub fn new(repository: Arc<dyn CatalogRepository>) -> Self {
+        Self { repository }
+    }
+}
+
+#[async_trait]
+impl ServedReleases for RuntimeManifestReleases {
+    async fn active_release(
+        &self,
+        unit: &str,
+    ) -> Result<Option<VectorTileReleaseId>, CatalogError> {
+        Ok(self
+            .repository
+            .get_active_vector_tile_runtime_manifest()
+            .await?
+            .and_then(|manifest| {
+                manifest
+                    .publication_units
+                    .get(unit)
+                    .map(|published| published.active_release_id)
+            }))
     }
 }

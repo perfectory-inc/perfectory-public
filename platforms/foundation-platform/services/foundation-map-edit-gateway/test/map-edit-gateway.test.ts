@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 
 import { Miniflare } from "miniflare";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -28,10 +28,13 @@ let db: D1Database;
 let env: Record<string, string | D1Database>;
 
 async function applyMigrations(database: D1Database): Promise<void> {
-  const sql = await readFile(new URL("../migrations/0001_map_edit.sql", import.meta.url), "utf8");
-  for (const chunk of sql.split(/\n\s*\n/)) {
-    const statement = chunk.split("\n").filter((line) => !line.startsWith("--")).join("\n").trim();
-    if (statement !== "") await database.prepare(statement).run();
+  const directory = new URL("../migrations/", import.meta.url);
+  for (const name of (await readdir(directory)).filter((file) => file.endsWith(".sql")).sort()) {
+    const sql = await readFile(new URL(name, directory), "utf8");
+    for (const chunk of sql.split(/\n\s*\n/)) {
+      const statement = chunk.split("\n").filter((line) => !line.startsWith("--")).join("\n").trim();
+      if (statement !== "") await database.prepare(statement).run();
+    }
   }
 }
 
@@ -171,6 +174,25 @@ describe("appending edits", () => {
     }
     expect((await db.prepare("SELECT COUNT(*) AS n FROM map_edit").first<{ n: number }>())?.n).toBe(0);
     expect((await call("/overlay/parcels", { headers: { Origin: origin } })).status).toBe(200);
+  });
+
+  it("keeps the writer's base release on the row and lists it for the ledger export (root ADR-0621 §3)", async () => {
+    const stamped = { feature_id: featureA, op: "delete", editor: "synthetic-staff", base_release_id: releaseId };
+    expect((await write("/edits/complex", { ...stamped, idempotency_key: "k1" })).status).toBe(201);
+    // A retry after a promotion carries another release: the same edit, answered by the first row.
+    const retry = await write("/edits/complex", { ...stamped, idempotency_key: "k1",
+      base_release_id: "00000000-0000-7000-8000-000000000002" });
+    expect(retry.status).toBe(200);
+    expect((await write("/edits/complex", { ...stamped, idempotency_key: "k2", base_release_id: undefined })).status)
+      .toBe(201);
+    const response = await call("/edits/complex?after=0", { headers: { Authorization: `Bearer ${token}` } });
+    const body = await response.json() as { edits: Array<{ base_release_id: string | null }> };
+    expect(body.edits.map((edit) => edit.base_release_id)).toEqual([releaseId, null]);
+    for (const bad of ["release", 7, "0000000A-0000-7000-8000-000000000001"]) {
+      const refused = await write("/edits/complex", { ...stamped, idempotency_key: `bad-${bad}`, base_release_id: bad });
+      expect(refused.status).toBe(422);
+      expect(await refused.json()).toEqual({ error: "invalid_base_release_id" });
+    }
   });
 
   it("refuses a delete that carries geometry", async () => {

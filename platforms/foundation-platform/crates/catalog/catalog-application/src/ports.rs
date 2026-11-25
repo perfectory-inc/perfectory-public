@@ -1066,6 +1066,9 @@ pub struct MapEditRecord {
     pub editor: foundation_shared_kernel::ids::StaffId,
     /// The caller's retry identity; the same key with the same edit is answered, not repeated.
     pub idempotency_key: String,
+    /// The release the unit served when the edit was saved: the Gold build resolves it to the
+    /// source state the edit is pinned to (root ADR-0621 §3).
+    pub base_release_id: VectorTileReleaseId,
 }
 
 /// What the edit store answered for an appended edit.
@@ -1100,6 +1103,18 @@ pub trait MapEditStore: Send + Sync {
     ///
     /// Returns [`MapEditStoreError`] when the store refuses the edit or cannot be reached.
     async fn append(&self, record: &MapEditRecord) -> Result<MapEditAppended, MapEditStoreError>;
+}
+
+/// The release each publication unit serves now, which an edit is made over (root ADR-0621 §3).
+#[async_trait]
+pub trait ServedReleases: Send + Sync {
+    /// The release `unit` serves now; `None` when it serves none.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError`] when the catalog cannot be read.
+    async fn active_release(&self, unit: &str)
+        -> Result<Option<VectorTileReleaseId>, CatalogError>;
 }
 
 /// One operator request as the ledger records it (root ADR-0282 §2).

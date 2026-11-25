@@ -7,7 +7,8 @@ use catalog_application::verify_real_estate_broker::{BrokerRegister, VerifyRealE
 use catalog_application::{
     ports::{JobSwitchBoard, MapEditStore, RuntimeManifestPublicationCapability},
     AppendMapEdit, ArchiveIndustrialComplex, PromoteVectorTileManifest, RecordOperatorAction,
-    RegisterIndustrialComplex, RollbackVectorTileManifest, UpdateIndustrialComplex,
+    RegisterIndustrialComplex, RollbackVectorTileManifest, RuntimeManifestReleases,
+    UpdateIndustrialComplex,
 };
 use catalog_infrastructure::{
     FileJobSwitchBoard, PgAuditEventStore, PgCatalogRepository, PgCatalogUnitOfWork,
@@ -795,7 +796,19 @@ impl AppState {
     /// Sends admin polygon edits to this store instead of refusing them (ADR-0112).
     #[must_use]
     pub fn with_map_edit_store(mut self, store: Arc<dyn MapEditStore>) -> Self {
-        self.append_map_edit = AppendMapEdit::new(store);
+        self.append_map_edit = self.append_map_edit.with_store(store);
+        self
+    }
+
+    /// Pins admin polygon edits to the releases this names instead of the catalog's runtime
+    /// manifest (root ADR-0621 §3). Tests only: a deployment reads the catalog.
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_served_releases(
+        mut self,
+        releases: Arc<dyn catalog_application::ports::ServedReleases>,
+    ) -> Self {
+        self.append_map_edit = self.append_map_edit.with_releases(releases);
         self
     }
 
@@ -844,6 +857,13 @@ impl AppState {
     ) -> Self {
         // Catalog mutations and matching outbox writes share one transaction boundary.
         let catalog_repo = Arc::new(PgCatalogRepository::new(pool.clone()));
+        // Fail closed like publication below: without a configured store an edit is refused,
+        // never silently dropped. An edit is pinned to the release the runtime manifest names
+        // for its unit (root ADR-0621 §3).
+        let append_map_edit = AppendMapEdit::new(
+            Arc::new(UnconfiguredMapEditStore),
+            Arc::new(RuntimeManifestReleases::new(catalog_repo.clone())),
+        );
         let industrial_complex_gold_pointer_reader =
             Arc::new(PgIndustrialComplexGoldPointerReader::new(pool.clone()));
         let catalog_uow = Arc::new(PgCatalogUnitOfWork::new(pool.clone()));
@@ -892,9 +912,7 @@ impl AppState {
             archive_complex,
             promote_vector_tile_manifest,
             rollback_vector_tile_manifest,
-            // Fail closed like publication below: without a configured store an edit is refused,
-            // never silently dropped.
-            append_map_edit: AppendMapEdit::new(Arc::new(UnconfiguredMapEditStore)),
+            append_map_edit,
             record_lakehouse_batch_run,
             register_lakehouse_object_artifact,
             submit_normalization_proposal,

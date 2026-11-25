@@ -33,7 +33,9 @@ last_reviewed: 2026-09-28
   국가는 Cloudflare 값이며, 중계(웹 미리보기)가 붙인 `X-Rum-Viewer-Country` 가 있으면 그 값을 쓴다.
 - `POST /edits/{unit}` — 신뢰된 작성자(foundation-api) 전용. `Authorization: Bearer` 가 쓰기 토큰
   secret 과 같아야 하고 브라우저 Origin 이 붙으면 403 이다. 본문은
-  `{feature_id, op: upsert|delete, geometry?, properties?, editor, idempotency_key}`. 구조 검사만
+  `{feature_id, op: upsert|delete, geometry?, properties?, editor, idempotency_key, base_release_id?}`.
+  `base_release_id` 는 편집을 저장할 때 그 유닛이 서빙하던 release 로, 작성자가 카탈로그에서 찍는다(루트
+  ADR-0621 §3). 요청 digest 에 들지 않으므로, 승격 뒤의 재요청은 같은 편집으로 첫 행이 답한다. 구조 검사만
   한다(도형 종류·닫힌 고리·2차원 좌표·국토 범위·꼭짓점 상한·속성 목록). 자기교차 같은 위상 검사는
   작성자가 저장 전에 한다. 같은 idempotency key 의 재요청은 같은 `change_seq` 를 200 으로,
   다른 내용이면 409 다. 대기 편집이 상한에 닿으면 409 `fold_required` 다. 계약이 `editable: false` 로
