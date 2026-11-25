@@ -5,10 +5,10 @@ set +x
 # Disposable cross-repository Task 9 smoke. This script provisions all credentials and state at
 # runtime, prints only assertion status/counts, and removes every resource on exit.
 
-POSTGRES_IMAGE="postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193"
+POSTGRES_IMAGE="postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73"
 BUSYBOX_IMAGE="busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
 ZITADEL_IMAGE="ghcr.io/zitadel/zitadel:v2.65.1@sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c"
-PYTHON_IMAGE="python:3.11-bookworm@sha256:b7ae8a4dcc0ab327e333c5e46a3eaa6c1b0ff585bed77e01cd6de4be1325837e"
+PYTHON_IMAGE="python:3.11-bookworm@sha256:fe71a3421cd55bbcd2e97d0505851e3cf713d567e794a0f29893745826ff323d"
 CURL_CONNECT_TIMEOUT_SECONDS="${CURL_CONNECT_TIMEOUT_SECONDS:-5}"
 CURL_MAX_TIME_SECONDS="${CURL_MAX_TIME_SECONDS:-30}"
 DOCKER_COMMAND_TIMEOUT_SECONDS="${DOCKER_COMMAND_TIMEOUT_SECONDS:-120}"

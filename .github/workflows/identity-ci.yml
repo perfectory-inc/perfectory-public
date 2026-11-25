@@ -126,7 +126,7 @@ jobs:
     timeout-minutes: 20
     services:
       identity_postgres:
-        image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+        image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
         env:
           POSTGRES_DB: identity
           POSTGRES_USER: identity_admin

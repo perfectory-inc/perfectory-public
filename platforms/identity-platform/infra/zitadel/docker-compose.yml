@@ -14,7 +14,7 @@ x-log-cap: &log-cap
 services:
   zitadel-db:
     logging: *log-cap
-    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    image: postgres:17-alpine@sha256:f9cf3e1f0066f0eb0c48707d864f0ac5941e9ff454a072077d97a4d278d07d73
     # Measured on ai-server 2026-11-07: cgroup memory.peak 132 MiB over 22 days (was 1g).
     mem_limit: 256m
     oom_score_adj: -900

@@ -30,7 +30,7 @@
     "scope": "Apache Sedona's spatial SQL (ST_KNN nearest-neighbour join, ST_DistanceSpheroid, the H3 functions ST_H3CellIDs and ST_H3KRing) for the Gold producers that compute what is near a parcel (root ADR-0465). Frozen with the release like the blocks above (lakehouse_engine.iceberg_packages); a session opts in with lakehouse_engine.with_sedona, which adds the extension beside Iceberg's. The Rust Silver loaders submit only the Iceberg and Hadoop blocks: they run no spatial SQL. The shaded artifact for Spark 3.5 / Scala 2.12 (the spark block), measured 2026-11-09 on Maven Central: 82,601,139 bytes, the wrapper 31,949,894."
   },
   "spark": {
-    "version": "3.5.6",
+    "version": "3.5.9",
     "scala_binary_version": "2.12",
     "artifact_suffix_reason": "The Iceberg runtime artifact name embeds both, so the artifacts above are only valid for this pair."
   },

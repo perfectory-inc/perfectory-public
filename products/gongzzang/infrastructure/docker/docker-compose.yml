@@ -2,7 +2,7 @@
 # `docker buildx imagetools inspect` on 2026-07-23.
 services:
   postgres:
-    image: postgis/postgis:17-3.5@sha256:404171ea9058c801f405af25d63b3b8e5c9e50f2759e49390dbcc3c7ee533f4d
+    image: postgis/postgis:17-3.5@sha256:01a6a70e41e6c4467c8f55f6063555ed72db2d6662cd0d571040d42eadaeb6f6
     container_name: gongzzang-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-gongzzang}
@@ -18,7 +18,7 @@ services:
       timeout: 3s
       retries: 10
   valkey:
-    image: valkey/valkey:8-alpine@sha256:a038175878d66b9d274fbf8be73c0305e93798b83917647f167e18cef3c71eec
+    image: valkey/valkey:8-alpine@sha256:9971099af41c36e887aabdfe22b80c0fe45df949163dfc9cb434febc57cfc3fc
     container_name: gongzzang-valkey
     ports: ["127.0.0.1:${VALKEY_HOST_PORT:-6379}:6379"]
     healthcheck:

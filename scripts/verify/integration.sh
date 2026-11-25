@@ -38,7 +38,7 @@ DB="perfectory-it-db-${AREA}-$$"
 case "$AREA" in
   foundation)
     AREA_DIR="platforms/foundation-platform"
-    DB_IMAGE="postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da"
+    DB_IMAGE="postgis/postgis:17-3.5-alpine@sha256:894f570c0cf0664ed5576a8fd5d5bfb8fb1b19d592885b686c3a88c8bd90c41f"
     PG_USER="foundation_platform"
     PG_PASS="foundation_platform_dev_2026"   # disposable CI-grade throwaway, not a secret
     PG_DB="foundation_platform"

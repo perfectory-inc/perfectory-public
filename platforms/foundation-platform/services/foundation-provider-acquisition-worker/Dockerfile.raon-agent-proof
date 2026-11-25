@@ -1,4 +1,4 @@
-FROM python:3.11-bookworm@sha256:b7ae8a4dcc0ab327e333c5e46a3eaa6c1b0ff585bed77e01cd6de4be1325837e
+FROM python:3.11-bookworm@sha256:fe71a3421cd55bbcd2e97d0505851e3cf713d567e794a0f29893745826ff323d
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
