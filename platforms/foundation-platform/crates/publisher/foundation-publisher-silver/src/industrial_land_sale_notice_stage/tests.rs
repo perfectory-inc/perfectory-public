@@ -198,11 +198,8 @@ fn a_plan_is_read_oldest_run_first_and_refuses_what_is_not_this_loads() -> anyho
     ]))?;
     let objects = planned_objects(root.path(), &slugs)?;
     assert_eq!(
-        objects
-            .iter()
-            .map(|o| o.path.file_name())
-            .collect::<Vec<_>>(),
-        ["a.gz", "b.gz"].map(|name| Some(std::ffi::OsStr::new(name)))
+        objects.iter().map(|o| o.path.clone()).collect::<Vec<_>>(),
+        ["a.gz", "b.gz"].map(|name| FetchedFile::at(root.path().join("objects").join(name)))
     );
     write(serde_json::json!([entry(
         "industrylandorkr__industrial_complex_notice_detail",
