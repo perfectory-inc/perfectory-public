@@ -14,9 +14,8 @@
 //! null when the table has no snapshot yet (the SQL reads it as it is). A query `DuckDB` refuses
 //! answers `"error"`, and the run goes on to the next.
 //!
-//! The work directory is `FOUNDATION_PLATFORM_LAKEHOUSE_QUERY_WORK` (the calling job's state), and
-//! `DuckDB` holds at most `FOUNDATION_PLATFORM_LAKEHOUSE_QUERY_MEMORY_MIB` (default 600) before it
-//! spills there.
+//! The work directory is `FOUNDATION_PLATFORM_LAKEHOUSE_QUERY_WORK` (the calling job's state):
+//! `DuckDB` spills there past its share of what the calling unit may still hold (`open_engine`).
 
 use std::io::BufRead as _;
 use std::path::Path;
@@ -25,11 +24,9 @@ use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::lakehouse_reader::{source, LakehouseReader};
-use crate::public_data_control_support::{optional_env_value, required_env_value};
+use crate::public_data_control_support::required_env_value;
 
 const WORK_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_QUERY_WORK";
-const MEMORY_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_QUERY_MEMORY_MIB";
-const DEFAULT_MEMORY_MIB: u64 = 600;
 const SOURCE: &str = "{source}";
 const TABLE: &str = "{table}";
 
@@ -94,12 +91,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         let line = line.context("failed to read the queries from stdin")?;
         queries.extend(query(&line)?);
     }
-    let memory = optional_env_value(MEMORY_ENV)?
-        .map(|value| value.parse::<u64>())
-        .transpose()
-        .with_context(|| format!("{MEMORY_ENV} is not a number of MiB"))?
-        .unwrap_or(DEFAULT_MEMORY_MIB);
-    let reader = LakehouseReader::open(Path::new(&required_env_value(WORK_ENV)?), memory)?;
+    let reader = LakehouseReader::open(Path::new(&required_env_value(WORK_ENV)?))?;
     for asked in queries {
         let mut answer = Answer {
             table: asked.table.clone(),

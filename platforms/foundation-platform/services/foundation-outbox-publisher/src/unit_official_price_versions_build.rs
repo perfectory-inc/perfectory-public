@@ -32,7 +32,7 @@ use serde_json::json;
 use crate::{
     gold_takeover_sides::sql_path,
     gold_versions_support::{lakehouse_read, write_summary},
-    public_data_control_support::{optional_env_value, required_env_value},
+    public_data_control_support::required_env_value,
 };
 
 const TABLE: &str = "silver.unit_official_price_versions";
@@ -111,7 +111,6 @@ pub(crate) async fn export_sides() -> anyhow::Result<()> {
     );
     let work = required_env_value(&format!("{PREFIX}WORK_DIR"))?;
     let sido = required_env_value(&format!("{PREFIX}SIDO"))?;
-    let memory_limit = optional_env_value(&format!("{PREFIX}MEMORY_LIMIT"))?;
     // A 시도 that is not two digits, or the last code, is refused before anything is read.
     let scope = stage::sido_scope(&sido)?;
     let replaced = industrial_complex_lakehouse_contract_by_table_name(REPLACED)
@@ -124,9 +123,6 @@ pub(crate) async fn export_sides() -> anyhow::Result<()> {
     let work = Path::new(&work);
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
     let connection = duck.connection();
-    if let Some(limit) = &memory_limit {
-        connection.execute("SET memory_limit = ?", [limit.as_str()])?;
-    }
     stage::load(connection, &pins)?;
     let composed = stage::compose(connection, &pins, Some(scope.as_str()))?;
     // Spark's rows of the batch in the 시도: the table is partitioned by it.

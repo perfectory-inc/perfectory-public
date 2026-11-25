@@ -22,9 +22,9 @@ pub(crate) struct LakehouseReader {
 }
 
 impl LakehouseReader {
-    /// A reader whose `DuckDB` keeps its database and spill under `work` and uses at most
-    /// `memory_mib` of memory.
-    pub(crate) fn open(work: &Path, memory_mib: u64) -> anyhow::Result<Self> {
+    /// A reader whose `DuckDB` keeps its database and spill under `work`; its memory is the
+    /// share every stage takes of what the process may still hold (`open_engine`).
+    pub(crate) fn open(work: &Path) -> anyhow::Result<Self> {
         let catalog = LakehouseCatalogConfig::reader_from_env()
             .context("failed to configure the lakehouse catalog with its read-only token")?;
         let storage = R2ObjectStorageConfig::lakehouse_reader_from_env()
@@ -42,7 +42,6 @@ impl LakehouseReader {
             s3_secret_access_key: storage.secret_access_key,
         };
         let stage = DuckDbParquetStage::open_reading_lakehouse(work, &read)?;
-        stage.limit_memory(memory_mib)?;
         Ok(Self {
             catalog: IcebergRestCatalog::new(catalog)
                 .context("failed to build the Iceberg catalog client")?,

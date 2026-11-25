@@ -32,6 +32,7 @@ use lakehouse_infrastructure::IcebergSnapshotManifestList;
 
 use super::DuckDbParquetStage;
 
+mod engine_config;
 mod pinned_head;
 mod table_at;
 
@@ -688,7 +689,8 @@ fn a_stage_refuses_work_that_would_eat_the_disks_reserve() -> anyhow::Result<()>
     const GIB: u64 = 1 << 30;
     let reserve = super::stage_reserve_bytes()?;
     assert_eq!(reserve, 30 * GIB);
-    // 97 GiB free, a 32 GiB spill ceiling: 13 GiB of copy and staged files fit, 40 do not.
+    // 97 GiB free, a third of it the spill ceiling: 13 GiB of copy and staged files fit, 40 do not.
+    assert_eq!(super::disk_share(96 * GIB), 32 * GIB);
     assert!(super::leaves_reserve(97 * GIB, 32 * GIB, 13 * GIB, reserve));
     assert!(!super::leaves_reserve(
         97 * GIB,

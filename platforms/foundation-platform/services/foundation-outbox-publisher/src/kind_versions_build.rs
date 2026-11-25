@@ -66,7 +66,7 @@ use crate::{
     },
     gold_versions_support::{
         contract, lakehouse_read, lakehouse_reader_read, max_row_loss_fraction_of, served_edition,
-        write_summary, MAX_CHANGED_KEY_FRACTION, MEMORY_SHARE, REBUILD_CONTRACT,
+        write_summary, MAX_CHANGED_KEY_FRACTION, REBUILD_CONTRACT,
     },
     public_data_control_support::{optional_env_value, required_env_value},
 };
@@ -562,7 +562,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         lakehouse_read()?
     };
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &read)?;
-    let memory_limit = duck.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
+    let memory_limit = duck.memory_limit_bytes()?;
     duck.require_room(0)?;
     let connection = duck.connection();
     // The instant a time-dependent stage serves as of, in microseconds since the epoch: compared

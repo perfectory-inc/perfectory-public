@@ -705,7 +705,10 @@ fn a_case_detail_object_of_wide_answers_is_read_within_its_memory_budget() -> an
     let directory = tempfile::tempdir()?;
     let source = CourtAuctionSource::compiled()?;
     let stage = DuckDbParquetStage::open(directory.path())?;
-    stage.limit_memory(256)?;
+    // The budget the read is held to: a test sets it on the connection, as the task's cgroup does.
+    stage
+        .connection()
+        .execute_batch("SET memory_limit = '256MiB'")?;
     stage
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;

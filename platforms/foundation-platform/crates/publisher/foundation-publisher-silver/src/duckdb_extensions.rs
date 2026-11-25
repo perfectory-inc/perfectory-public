@@ -18,7 +18,7 @@ use std::{
 };
 
 use anyhow::{ensure, Context};
-use duckdb::{Config, Connection};
+use duckdb::Connection;
 use serde::{Deserialize, Serialize};
 
 const CONTRACT_JSON: &str =
@@ -197,10 +197,7 @@ struct Report<'a> {
 /// Returns whatever [`load`] refuses.
 pub fn verify() -> anyhow::Result<()> {
     let directory = release_directory()?;
-    let config = Config::default()
-        .with("autoload_known_extensions", "false")?
-        .with("autoinstall_known_extensions", "false")?;
-    let connection = Connection::open_in_memory_with_flags(config)?;
+    let connection = crate::duckdb_parquet_stage::open_engine(None, None)?;
     let extensions = load(&connection, &directory)?;
     let report = serde_json::to_string(&Report {
         schema_version: "foundation-platform.lakehouse_engine_extensions_verify.v1",

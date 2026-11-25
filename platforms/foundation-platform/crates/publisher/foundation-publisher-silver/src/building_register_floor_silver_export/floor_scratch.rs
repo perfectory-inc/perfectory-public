@@ -3,14 +3,12 @@ use super::{
     blocking::Cancellation, scratch_blob::ScratchBlobCodec, ExportConfig, JsonlRowWriter,
     ObjectExportReport, SilverRowWriter,
 };
-#[cfg(test)]
-use crate::serving_scratch;
 use crate::{
     bounded_bytes::BoundedBytes, building_register_zip_lines::decode_zip_lines,
-    lakehouse_engine_contract::execution_profile, serving_scratch::CURSOR_BYTES,
+    duckdb_parquet_stage::open_engine, serving_scratch::CURSOR_BYTES,
 };
 use anyhow::{ensure, Context};
-use duckdb::{params, Config, Connection};
+use duckdb::{params, Connection};
 use foundation_normalization_domain::BuildingFloorCounts;
 use lakehouse_application::{
     normalize_building_register_floor_silver_rows_with_title_counts,
@@ -45,31 +43,17 @@ pub(super) struct FloorScratch {
 }
 
 impl FloorScratch {
-    #[cfg(test)]
-    fn new(output: &Path, maximum_bytes: u64) -> anyhow::Result<Self> {
-        Self::with_cancellation(output, maximum_bytes, Cancellation::default())
-    }
-
     pub(super) fn with_cancellation(
         output: &Path,
-        maximum_bytes: u64,
         cancellation: Cancellation,
     ) -> anyhow::Result<Self> {
-        Self::open(output, maximum_bytes, CURSOR_BYTES, cancellation)
+        Self::open(output, CURSOR_BYTES, cancellation)
     }
 
-    #[cfg(test)]
-    fn new_with_cursor_bytes(
-        output: &Path,
-        maximum_bytes: u64,
-        cursor_bytes: usize,
-    ) -> anyhow::Result<Self> {
-        Self::open(output, maximum_bytes, cursor_bytes, Cancellation::default())
-    }
-
+    /// A scratch whose spill and memory are every `DuckDB`'s (`open_engine`): the share of what
+    /// the process may still take, and the share of what the disk of `output` has free.
     fn open(
         output: &Path,
-        maximum_bytes: u64,
         cursor_bytes: usize,
         cancellation: Cancellation,
     ) -> anyhow::Result<Self> {
@@ -77,10 +61,6 @@ impl FloorScratch {
         ensure!(
             (1..=CURSOR_BYTES).contains(&cursor_bytes),
             "invalid floor cursor byte budget"
-        );
-        ensure!(
-            maximum_bytes > 0,
-            "floor spill byte budget must be positive"
         );
         let parent = output
             .parent()
@@ -90,26 +70,7 @@ impl FloorScratch {
         let directory = tempfile::Builder::new()
             .prefix(".floor-scratch-")
             .tempdir_in(parent)?;
-        let profile = execution_profile()?;
-        let config = Config::default()
-            .max_memory(&format!("{}MiB", profile.memory_mib / 2))?
-            .threads(i64::from(profile.cpu_slots))?
-            .with(
-                "temp_directory",
-                directory
-                    .path()
-                    .to_str()
-                    .context("floor spill path must be UTF-8")?,
-            )?
-            .with("autoload_known_extensions", "false")?
-            .with("autoinstall_known_extensions", "false")?;
-        let writer = Connection::open_in_memory_with_flags(config)?;
-        // Apply to the live buffer manager. In 1.5.6 startup configuration can
-        // report this setting while leaving actual spill allocation uncapped.
-        writer.execute(
-            "SET max_temp_directory_size = ?",
-            [format!("{maximum_bytes}B")],
-        )?;
+        let writer = open_engine(None, Some(directory.path()))?;
         // DuckDB must accept the explicit spill directory before external access is disabled.
         writer.execute_batch("SET enable_external_access=false")?;
         let reader = writer.try_clone()?;

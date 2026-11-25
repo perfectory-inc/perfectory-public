@@ -35,9 +35,6 @@ const ALLOW_OTHER_EDITION_ENV: &str =
 const NO_REGISTRY_ENV: &str = "FOUNDATION_PLATFORM_PARCEL_MATCHING_GATE_NO_REGISTRY";
 const PARCEL_SOURCE_CONTRACT: &str =
     include_str!("../../../infra/lakehouse/contracts/vworld-parcel-source-objects.json");
-/// The share of the memory left that the buffer manager takes; the rest is `DuckDB`'s own
-/// structures, inside the bake unit's cap.
-const MEMORY_SHARE: (u64, u64) = (3, 5);
 
 fn flag(name: &str) -> bool {
     std::env::var(name).is_ok_and(|value| value == "1")
@@ -153,7 +150,6 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         work,
         &LakehouseRead::with_reader_keys_from_env()?,
     )?;
-    stage.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
     let made = verdict(
         &stage,
         &sources,

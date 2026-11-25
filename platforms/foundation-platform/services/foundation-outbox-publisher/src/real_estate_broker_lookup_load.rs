@@ -31,10 +31,6 @@ use crate::public_data_control_support::required_env_value;
 
 /// Where the `DuckDB` the load reads with keeps its database and spill (the job's state root).
 const WORK_ENV: &str = "FOUNDATION_PLATFORM_REAL_ESTATE_BROKER_LOOKUP_WORK";
-/// What the load's `DuckDB` may hold before it spills: its unit is capped at 1G (MemoryHigh 921M,
-/// tools/host-memory-budget.contract.json). Measured 2026-11-18 on production: every current office and
-/// member (a first load's read) in a 900m container at this limit, the same rows as without it.
-const DUCKDB_MEMORY_MIB: u64 = 600;
 /// Changed offices per query, so one statement stays a few tens of kilobytes.
 const KEYS_PER_QUERY: usize = 500;
 /// Offices per committed batch: the first load's 106,429 offices are six batches, and a run stopped
@@ -276,8 +272,7 @@ async fn copy_rows(conn: &mut PgConnection, sql: &str, lines: &[String]) -> anyh
 /// Refuses missing configuration, a Silver table without a snapshot, failed reads, and a failed
 /// write; a failed run writes nothing and the next one reads from the same watermark.
 pub async fn run() -> anyhow::Result<()> {
-    let reader =
-        LakehouseReader::open(Path::new(&required_env_value(WORK_ENV)?), DUCKDB_MEMORY_MIB)?;
+    let reader = LakehouseReader::open(Path::new(&required_env_value(WORK_ENV)?))?;
     let mut conn = PgConnection::connect(&required_env_value("DATABASE_URL")?).await?;
     let completed = sqlx::query(
         "SELECT id, office_watermark, member_watermark FROM catalog.real_estate_broker_lookup_load

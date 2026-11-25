@@ -19,9 +19,6 @@ pub(crate) const REBUILD_CONTRACT: &str =
 /// Above this share of the current rows changed in one commit the run stops, unless the code or
 /// the served edition moved, which explains a change of any size (root ADR-0346, ADR-0564 §3-4).
 pub(crate) const MAX_CHANGED_KEY_FRACTION: f64 = 0.5;
-/// The share of the memory left that the buffer manager takes; the rest is `DuckDB`'s own
-/// structures and the commit's uploads (W81b measured a 5.01 GiB peak at a 5 GB limit).
-pub(crate) const MEMORY_SHARE: (u64, u64) = (3, 5);
 
 pub(crate) fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
     industrial_complex_lakehouse_contracts()

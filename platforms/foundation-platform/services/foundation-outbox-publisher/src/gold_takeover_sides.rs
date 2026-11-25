@@ -29,8 +29,8 @@ use std::{io::Read as _, path::Path};
 
 use anyhow::{ensure, Context};
 use foundation_publisher_silver::{
-    duckdb::{Config, Connection},
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LakehouseRead},
+    duckdb::Connection,
+    duckdb_parquet_stage::{open_engine, with_contract_columns, DuckDbParquetStage, LakehouseRead},
 };
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseTableContract, GOLD_VERSIONS_TABLE_SUFFIX,
@@ -292,7 +292,6 @@ async fn shadow_commit(
 pub(crate) async fn export() -> anyhow::Result<()> {
     let table = required_env_value(&format!("{PREFIX}TABLE"))?;
     let work = required_env_value(&format!("{PREFIX}WORK_DIR"))?;
-    let memory_limit = optional_env_value(&format!("{PREFIX}MEMORY_LIMIT"))?;
     let sido =
         optional_env_value(&format!("{PREFIX}SIDO"))?.unwrap_or_else(|| DEFAULT_SIDO.to_owned());
     let replaced_name = table
@@ -324,9 +323,6 @@ pub(crate) async fn export() -> anyhow::Result<()> {
     let work = Path::new(&work);
     let stage = DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)?;
     let connection = stage.connection();
-    if let Some(limit) = &memory_limit {
-        connection.execute("SET memory_limit = ?", [limit.as_str()])?;
-    }
     let reference_source = with_contract_columns(
         connection,
         replaced,
@@ -557,25 +553,8 @@ pub(crate) fn query() -> anyhow::Result<()> {
         .context("cannot read the SQL statement from stdin")?;
     let sql = sql.trim().trim_end_matches(';');
     ensure!(!sql.is_empty(), "no SQL statement on stdin");
-    let connection = Connection::open_in_memory_with_flags(
-        Config::default()
-            .with("autoload_known_extensions", "false")?
-            .with("autoinstall_known_extensions", "false")?,
-    )?;
-    for (name, value) in [
-        (
-            "memory_limit",
-            optional_env_value(&format!("{PREFIX}MEMORY_LIMIT"))?,
-        ),
-        (
-            "temp_directory",
-            optional_env_value(&format!("{PREFIX}TEMP_DIRECTORY"))?,
-        ),
-    ] {
-        if let Some(value) = value {
-            connection.execute(&format!("SET {name} = ?"), [value])?;
-        }
-    }
+    let spill = optional_env_value(&format!("{PREFIX}TEMP_DIRECTORY"))?;
+    let connection = open_engine(None, spill.as_deref().map(Path::new))?;
     for name in ["reference", "candidate"] {
         let path = sql_path(&Path::new(&work).join(format!("{name}.parquet")))?;
         connection.execute_batch(&format!(

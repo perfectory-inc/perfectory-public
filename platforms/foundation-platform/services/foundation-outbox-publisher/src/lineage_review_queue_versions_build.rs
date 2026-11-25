@@ -52,7 +52,7 @@ use crate::{
         FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY,
         VERSION_SEQ_PROPERTY,
     },
-    gold_versions_support::{contract, lakehouse_read, write_summary, MEMORY_SHARE},
+    gold_versions_support::{contract, lakehouse_read, write_summary},
     public_data_control_support::required_env_value,
 };
 
@@ -175,7 +175,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
-    let memory_limit = duck.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
+    let memory_limit = duck.memory_limit_bytes()?;
     let connection = duck.connection();
     let new_pins = NearbyPins(pins.clone());
     let source = Source::Pinned {
