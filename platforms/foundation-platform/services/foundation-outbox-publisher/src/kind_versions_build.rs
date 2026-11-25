@@ -75,7 +75,8 @@ mod checks;
 mod rehearsal;
 mod replaced;
 
-use checks::{explaining, run_national_checks, run_result_checks};
+pub(crate) use checks::{declared, report};
+use checks::{explaining, run_national_checks, run_result_checks, DOCUMENTS_CHECK};
 use rehearsal::Rehearsal;
 use replaced::{replaced_as_of, replaced_edition};
 
@@ -297,6 +298,24 @@ pub(crate) const COURT_AUCTION_BUILD: KindBuild = KindBuild {
     per_sido_commits: false,
 };
 
+/// Every lane the driver builds, by its command (`describe-checks` answers for them).
+pub(crate) const KIND_BUILDS: [&KindBuild; 14] = [
+    &REGISTER_MASTERS_BUILD,
+    &DEMOLITIONS_BUILD,
+    &ENERGY_BUILD,
+    &SUB_PARCELS_BUILD,
+    &BUILDING_PERMITS_BUILD,
+    &PARCEL_PANEL_BUILD,
+    &OWNERSHIP_BUILD,
+    &FACTORIES_BUILD,
+    &PUBLIC_AUCTION_BUILD,
+    &REAL_TRANSACTION_BUILD,
+    &NEARBY_BUILD,
+    &BOUNDARY_SERVED_BUILD,
+    &UNIT_PRICE_BUILD,
+    &COURT_AUCTION_BUILD,
+];
+
 /// Builds and appends `kind`'s changed keys.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
@@ -396,6 +415,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     // together, the batch a commit records, and an explanation judged over every 시도's diff (root
     // ADR-0615 §7).
     let national = stage.national_checks();
+    let declared = declared(kind)?;
     let batch_input = stage.batch_input();
     let explanation = stage.change_explanation();
     ensure!(
@@ -792,7 +812,14 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                     .execute_batch(&explanation.gather_sql)
                     .with_context(|| format!("the explanation of {table} did not gather"))?;
             }
-            let mut refused = run_result_checks(stage, connection, table, sido, &mut checks)?;
+            let mut refused = run_result_checks(
+                stage,
+                connection,
+                (table, sido),
+                &sido_diff,
+                &declared,
+                &mut checks,
+            )?;
             if let Ok(rules) = &document_rules {
                 let found = rules.changed_documents_hold_their_schema(connection, table)?;
                 let result = json!({
@@ -800,7 +827,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                     "breaches": found.refused, "rendered": found.rendered,
                     "samples": found.samples, "blocking": true, "passed": found.refused == 0,
                 });
-                println!("gold-versions-check {result}");
+                report(table, &declared, &result)?;
                 checks.push(result);
                 if found.refused != 0 {
                     refused.push(DOCUMENTS_CHECK);
@@ -994,8 +1021,8 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     run_national_checks(
         &national,
         duck.connection(),
-        table,
-        kind.replaced,
+        (table, kind.replaced),
+        &declared,
         &mut checks,
     )?;
     // A rehearsal stops here: what it built is in its files, and nothing is appended or tagged.
@@ -1223,9 +1250,6 @@ impl Phases {
     }
 }
 
-/// The check every lane's changed documents get: rendered by the lane's renderer and held to its
-/// schema-registry revision.
-const DOCUMENTS_CHECK: &str = "changed_documents_hold_their_schema";
 /// The pins the rebuild contract's `pins_from` of `replaced` names (root ADR-0190, ADR-0564 §6):
 /// the snapshots the host Gold's build-tag commit read of those inputs; none when it names none.
 async fn host_pins(

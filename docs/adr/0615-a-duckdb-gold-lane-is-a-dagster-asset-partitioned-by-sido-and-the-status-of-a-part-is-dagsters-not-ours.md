@@ -400,3 +400,15 @@ ID 집합은 내려놓은 파일만으로 나온다(굽기의 ID 관문은 그 �
 이 ADR 의 파티션(시도)은 PNU 로 키를 가진 Gold 레인의 것이다. Bronze 객체를 읽는 Silver 레인은 파티션을 두지 않는다: 계획기가 빚진 객체를
 고르고 `eager()` 로 돈다. 경매 Silver 는 Bronze 를 형식 지정으로 읽고, 객체 하나를 읽는 메모리는 그 run 의 작은 등급 안이며 넘으면 이유와
 함께 거부한다(ADR-0616 §3-1, 사장 결정 2026-11-25). 상태를 지니는 단위는 여전히 Dagster 의 파티션 하나뿐이다.
+
+**검사가 Dagster 에 닿는 길(§7 "Pipes 줄", W105).** 판 빌드가 알릴 수 있는 검사는 발행기가 스스로 말한다: `describe-checks <명령>…` 이
+레인마다 자산 키(`iceberg/gold/<표>`)와 검사의 이름·차단 여부를 낸다(시도마다의 수 `rows_and_keys` — 차단하지 않는다, 문서 검사
+`changed_documents_hold_their_schema`, 레인의 `result_checks`·`national_checks`). 그 답은 빌드가 검사를 읽는 자리에서 읽으므로 손으로 쓴 둘째
+목록이 없고, 빌드는 그 답에 없는 검사를 알리지 않는다(거부한다). 검사는 공통 모듈 하나(`foundation-outbox-publisher` 의 `pipes`, 경매 Silver
+적재도 쓴다)가 `report_asset_check` 메시지로 만들되, 지금은 줄 앞에 `gold-versions-check ` 를 붙여 낸다: ai-server 의 실행기(`systemd_pipes.py`)는
+선언에 없는 검사를 알린 run 을 실패시키므로 선언과 알림은 함께 켜져야 하고, 그 실행기와 릴리스는 사이 기간을 위해 고치지 않는다.
+**끝 모양(A5, ADR-0616 §7):** AWS 에서 코드 위치의 이미지 빌드가 `describe-checks` 의 답을 매니페스트로 쓰고 정의가 그것에서 검사를 선언하며
+(dbt 매니페스트의 모양: dagster-dbt 는 dbt 가 쓴 manifest 에서 자산과 검사를 정의한다), 알림은 같은 A5 PR 에서 켜진다(접두를 떼고 파티션 = 시도를
+싣는다). 그때까지 시도는 메타데이터의 `sido` 다. 확인한 것: Dagster 의 Rust Pipes 클라이언트가 있다(Dagster community-integrations 의
+`dagster_pipes_rust`, crates.io 0.1.8, 2025-02; README 는 Dagster 컨텍스트에서 읽기, 구체화·검사 알림, 로그를 든다). 발행기는 Pipes 컨텍스트를
+열지 않으므로(ADR-0616 §3) 지금은 쓰지 않는다. A5 PR 이 공통 모듈의 쓰기를 그 클라이언트로 바꿀지 정한다.
