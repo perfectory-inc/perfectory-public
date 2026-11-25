@@ -69,6 +69,28 @@ jobs:
           path: target/supply-chain/
           if-no-files-found: error
           retention-days: 7
+  # Root ADR-0414 (revision 2026-11-25): every advisory on main, filed as a code scanning alert in the
+  # repository's Security tab by the same pinned OSV-Scanner the gate runs. It gates nothing: a pull
+  # request fails only on what its own lockfile changes bring, and the fixes arrive as Renovate pull
+  # requests. A scan that does not complete fails the job; findings do not.
+  osv:
+    name: OSV scan of main (code scanning)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Scan every tracked lockfile
+        run: bash scripts/ci/osv-scan.sh sarif target/supply-chain/osv.sarif
+      - name: File the findings as code scanning alerts
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: target/supply-chain/osv.sarif
+          category: osv-scanner
   # Root ADR-0570: the repository against tools/github (the part the workflow token can read) and
   # Renovate's pulse while main has advisories. The job fails on drift or silence and names each
   # finding in a `repository-drift` annotation; the host's service checks carry it to Slack #alerts

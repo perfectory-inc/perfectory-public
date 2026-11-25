@@ -1,5 +1,12 @@
 {
   "rule": "A synthetic SQL value for a column the seed cannot derive from its type or its CHECK, keyed schema.table.column: a domain rule a trigger or a CHECK across columns enforces. Never a real value. scripts/ci/foundation_postgres_production_shape.py reads it. not_yet_seeded names, with why, each table production holds rows in that the seed cannot fill yet; it only shrinks: a named table that seeds is refused until removed.",
+  "made_by": {
+    "audit.digest": {
+      "why": "A digest checks itself against the audit rows its snapshot covers (audit.digest_follows, root ADR-0584 §2): no synthetic row can, so the seed makes it as the hourly job does, after audit.event holds its row.",
+      "sql": "select count(*) from audit.make_digest();",
+      "after": ["audit.event"]
+    }
+  },
   "session_settings": {
     "foundation.temporal_publisher": "on",
     "foundation.parcel_publication_evidence_sealer": "on"
@@ -8,6 +15,7 @@
     "catalog.real_estate_broker_lookup_load.office_watermark": "'2099-01-01 00:00:00.000000 UTC'",
     "catalog.real_estate_broker_lookup_load.member_watermark": "'2099-01-01 00:00:00.000000 UTC'",
     "catalog.industrial_complex.id": "catalog.industrial_complex_id_for('synthetic')",
+    "catalog.schema_profile.sample_values": "'[]'",
     "catalog.administrative_unit_identifier.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",
     "catalog.administrative_unit_parent.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",
     "serving_postgis.administrative_unit_boundary_publication.source_snapshot_id": "(select source_snapshot_id from catalog.administrative_boundary_revision limit 1)",

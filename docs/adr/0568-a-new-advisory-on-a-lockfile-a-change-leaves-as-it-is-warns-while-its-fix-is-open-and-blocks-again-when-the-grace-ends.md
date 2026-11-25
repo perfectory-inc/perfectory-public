@@ -1,6 +1,6 @@
 # ADR 0568: 바꾸지 않은 lockfile 의 새 권고는 고치는 PR 이 열려 있는 동안 경고이고, 유예가 끝나면 다시 막는다
 
-- Status: Accepted
+- Status: Superseded by ADR-0414 (Revision 2026-11-25: PR·머지 그룹은 OSV-Scanner 자신의 PR 모드로, 그 변경이 들여온 권고에서만 실패한다)
 - Date: 2026-11-18
 - Amends: [ADR-0271](./0271-dependency-updates-arrive-as-renovate-pull-requests-and-main-keeps-one-advisory-issue.md) 4항(대시보드),
   [ADR-0414](./0414-the-osv-allow-list-is-osv-scanner-s-own-config-with-an-expiry.md) 1항(목록에 없는 권고는 게이트를 실패시킨다 — PR·머지 그룹에서는 아래 규칙으로 판정),

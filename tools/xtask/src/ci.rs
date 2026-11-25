@@ -6,14 +6,13 @@
 //! - `osv-gate [--report-path <path>] [repository]` scans every tracked `Cargo.lock` and `pnpm-lock.yaml`
 //!   with the pinned OSV-Scanner under the one allow list `osv-scanner.toml` (root ADR-0414): an advisory
 //!   it does not list, or one whose `ignoreUntil` has passed, fails. Threat model: honest-mistake
-//!   detection, not unpublished flaws or a compromised OSV. In a pull request or a merge group
-//!   (`CHANGE_SCOPE_EVENT`/`CHANGE_SCOPE_BASE`), the findings are judged by what the change did
-//!   (`scripts/ci/osv_change_verdict.py`, root ADR-0568): one in a lockfile the change leaves as it is
-//!   is a warning while an open `security` pull request names it and is inside its grace.
+//!   detection, not unpublished flaws or a compromised OSV. It speaks for main (push, schedule); a pull
+//!   request or a merge group is judged by OSV-Scanner's own PR mode instead (`scripts/ci/osv-scan.sh`,
+//!   root ADR-0414 revision 2026-11-25).
 //! - `cargo-deny <workspace> [--locked] [check flags]` runs `cargo-deny check` in that workspace. In a
-//!   pull request or a merge group that leaves the workspace's `Cargo.lock` and `deny.toml` as they are,
-//!   it checks bans, licenses and sources only: the advisories of a lockfile the change did not touch
-//!   are the OSV gate's above and the daily check's on main (root ADR-0271, ADR-0568).
+//!   pull request or a merge group it checks bans, licenses and sources only: cargo-deny has no mode
+//!   that tells the advisories a change brings from those already on main, so those are OSV-Scanner's
+//!   PR mode above (RustSec is in OSV) and the daily check's on main (root ADR-0271, ADR-0414).
 //! - `postgres-production-shape <database url> <base commit>` (root ADR-0259 §8): when the change touches
 //!   Foundation's migrations or this gate, a self-test (a planted nullable column applies onto seeded
 //!   rows, a planted required one fails), then the change's new migrations onto main's schema holding
@@ -194,20 +193,6 @@ fn scan_and_check(
     if status.code() == Some(0) {
         return Ok(true);
     }
-    // A pull request or a merge group: judged by what the change did (root ADR-0568). The verdict
-    // writes its own annotations; main's runs below keep the `advisory` ones the host reads.
-    if let Some(base) = change_base() {
-        let verdict = Command::new("python3")
-            .arg(root.join("scripts/ci/osv_change_verdict.py"))
-            .arg(&report)
-            .arg("--root")
-            .arg(target)
-            .arg("--base")
-            .arg(&base)
-            .status()
-            .map_err(|error| format!("cannot run the OSV change verdict: {error}"))?;
-        return Ok(verdict.success());
-    }
     // One `advisory` annotation per finding: the host's service checks read them from the daily
     // run on main and page #alerts (root ADR-0278). The report holds only what the allow list does not.
     if std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true") {
@@ -268,30 +253,21 @@ fn changed_paths(root: &Path, base: &str, pathspecs: &[&str]) -> Result<String, 
     )
 }
 
-/// What `cargo-deny check` judges of a change that leaves the lockfile and its config as they are.
+/// What `cargo-deny check` judges of a pull request or a merge group.
 const ONLY_WHAT_A_CHANGE_BRINGS: [&str; 3] = ["bans", "licenses", "sources"];
 
 fn cargo_deny(root: &Path, workspace: &str, rest: &[String]) -> Result<(), String> {
     let (global, flags): (Vec<&String>, Vec<&String>) =
         rest.iter().partition(|arg| arg.as_str() == "--locked");
-    let lock = format!("{workspace}/Cargo.lock");
-    let config = format!("{workspace}/deny.toml");
     let sections: &[&str] = match change_base() {
         None => &[],
-        Some(base) => match changed_paths(root, &base, &[lock.as_str(), config.as_str()]) {
-            Ok(changed) if !changed.trim().is_empty() => &[],
-            Ok(_) => {
-                println!(
-                    "cargo-deny: this change leaves {lock} and {config} as they are, so bans, licenses and \
-sources only; their advisories are the repository OSV gate's and the daily check's on main (root ADR-0568)"
-                );
-                &ONLY_WHAT_A_CHANGE_BRINGS
-            }
-            Err(error) => {
-                println!("cargo-deny: {error}; the change cannot be told apart, every check runs");
-                &[]
-            }
-        },
+        Some(_) => {
+            println!(
+                "cargo-deny: a change is judged by bans, licenses and sources; the advisories it brings are \
+OSV-Scanner's PR mode's, those already on main the daily check's (root ADR-0414)"
+            );
+            &ONLY_WHAT_A_CHANGE_BRINGS
+        }
     };
     succeed(
         Command::new("cargo-deny")
@@ -636,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn a_change_that_leaves_the_lockfile_skips_only_the_advisories() {
+    fn a_change_is_judged_by_bans_licenses_and_sources() {
         assert_eq!(ONLY_WHAT_A_CHANGE_BRINGS, ["bans", "licenses", "sources"]);
         assert!(changed_paths(Path::new("."), "", &["Cargo.lock"]).is_err());
         assert!(changed_paths(Path::new("."), "0000000000", &["Cargo.lock"]).is_err());

@@ -48,6 +48,7 @@
     "fsfe/reuse:6.2.0": "sha256:85462a75c0f8efda09ddd190b92816b70e7662577c8427429e11e1b9f25a992e",
     "ghcr.io/aiven-open/karapace:6.2.4": "sha256:005eda40272a09f34e60605ae40b1c205c0a5119164b8a090a51ad7f939f79f3",
     "ghcr.io/google/cadvisor:v0.60.6": "sha256:b8e7d1093144fd088f425ff003d75a4aa405de075db78dae3bc563730b1bd07a",
+    "ghcr.io/google/osv-scanner-action:v2.7.1": "sha256:3fa25659351c9a5527b30d73b6f3c2ee0bcac106d6220948211d87379d08f243",
     "ghcr.io/opentofu/opentofu:1.13.10": "sha256:f89e790760542e8ca6c168301e7ab7fb0885ea9a4856fb810e75ee02b40ae727",
     "ghcr.io/osgeo/gdal:ubuntu-small-3.10.2": "sha256:a2af3ef63be13b35790ce7a508ff395c409ef7a0b8ddc5ab9685dd4518af9779",
     "ghcr.io/zitadel/zitadel:v2.65.1": "sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c",

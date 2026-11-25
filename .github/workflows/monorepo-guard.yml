@@ -152,16 +152,14 @@ jobs:
       # passes every npm tree (OSV-Scanner 2.5.0 did, measured 2026-11-18).
       - name: The OSV scanner reads every lockfile document
         run: python3 scripts/ci/test_osv_reads_every_lockfile_document.py
-      # Root ADR-0568: a pull request or a merge group is judged by what it changed; a finding in a
-      # lockfile it leaves as it is warns while an open `security` pull request names it, within its grace.
-      - name: OSV change verdict self-test
-        run: python3 scripts/ci/test_osv_change_verdict.py -v
+      # Root ADR-0414 (revision 2026-11-25): a pull request or a merge group fails only on the advisories
+      # its own lockfile changes bring, by OSV-Scanner's own PR mode (base and head scanned, osv-reporter's
+      # diff); main's runs scan everything and page #alerts. The script first refuses a planted advisory.
       - name: Repository OSV vulnerability ratchet
         env:
           CHANGE_SCOPE_EVENT: ${{ github.event_name }}
           CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          GH_TOKEN: ${{ github.token }}
-        run: cargo xtask ci osv-gate --report-path target/supply-chain/osv-report.json
+        run: bash scripts/ci/osv-scan.sh
       # When the ratchet (or anything before it) fails, raise the npm floors the
       # report asks for, regenerate every lock with the pinned toolchain and keep
       # the result as a patch. Nothing is pushed: no workflow holds a write token

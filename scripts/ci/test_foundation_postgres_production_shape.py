@@ -55,6 +55,53 @@ class TheGapListOnlyShrinks(unittest.TestCase):
         self.assertIn("holds no rows", shape.seed_problems([], {"catalog.z": "why"}, self.TABLES)[0])
 
 
+class ASelfVerifyingRecordIsMadeAsProductionMakesIt(unittest.TestCase):
+    """The audit chain (root ADR-0584 §2): an event row leaves its transaction id to its default, the
+    digest is made by its own function after the events hold a row, and the witness follows it."""
+
+    class Database:
+        def __init__(self):
+            self.ran = []
+
+        def column(self, table, name, category, *, generated=False, has_default=False):
+            return {"schema": "audit", "table": table, "column": name, "not_null": True, "has_default": has_default,
+                    "generated": generated, "udt": None, "element": None, "category": category, "length": None}
+
+        def rows(self, sql):
+            if sql == shape.COLUMNS:
+                return [self.column("event", "seq", "bigint", generated=True, has_default=True),
+                        self.column("event", "txid", "xid8", has_default=True),
+                        self.column("event", "object_id", "text"),
+                        self.column("digest", "digest_no", "bigint"),
+                        self.column("digest_witness", "digest_no", "bigint")]
+            if sql == shape.FOREIGN_KEYS:
+                return [{"schema": "audit", "table": "digest_witness", "parent_schema": "audit", "parent": "digest",
+                         "columns": ["digest_no"], "parent_columns": ["digest_no"]}]
+            if sql in (shape.CHECKS, shape.ENUM_FIRST):
+                return [] if sql == shape.CHECKS else {}
+            return [1] if any("make_digest" in ran for ran in self.ran) else []
+
+        def run(self, sql, **_):
+            self.ran.append(sql)
+            return type("Result", (), {"returncode": 0, "stderr": ""})()
+
+    def test_the_digest_is_made_after_the_events_and_before_its_witness(self):
+        db = self.Database()
+        made_by = {"audit.digest": {"sql": "select count(*) from audit.make_digest();", "after": ["audit.event"]}}
+        failures = shape.seed(db, ["audit.digest_witness", "audit.event"], {}, {}, made_by)
+        self.assertEqual(failures, [])
+        event, digest, witness = db.ran
+        self.assertTrue(event.startswith("insert into audit.event (object_id)"), event)
+        self.assertEqual(digest, "select count(*) from audit.make_digest();")
+        self.assertIn("(select digest_no from audit.digest limit 1)", witness)
+
+    def test_a_type_with_no_value_and_no_default_still_names_itself(self):
+        db = self.Database()
+        column = db.column("event", "txid", "xid8")
+        with self.assertRaises(LookupError):
+            shape.column_value(column, [], {}, {})
+
+
 class TheCommittedShape(unittest.TestCase):
     def test_every_gap_is_a_table_production_holds_rows_in(self):
         import json
