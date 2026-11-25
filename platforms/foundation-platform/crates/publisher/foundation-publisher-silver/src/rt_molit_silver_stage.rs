@@ -27,7 +27,7 @@ use anyhow::{bail, ensure, Context};
 use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG};
+use crate::duckdb_parquet_stage::{table_at, DuckDbParquetStage};
 use crate::place_identity_stage::{CODE_CHANGE_TABLE, DONG_NAME_TABLE, PARCEL_TABLE};
 use crate::real_transaction_placement_stage as placement;
 use crate::silver_changes;
@@ -355,14 +355,12 @@ pub fn load_reference(stage: &DuckDbParquetStage, pins: &Pins) -> anyhow::Result
     connection
         .execute_batch(&format!(
             "CREATE OR REPLACE TABLE code_changes AS
-               SELECT kind, old_code, new_code, level, effective_date, source
-               FROM {LAKEHOUSE_CATALOG}.{CODE_CHANGE_TABLE} AT (VERSION => {changes});
+               SELECT kind, old_code, new_code, level, effective_date, source FROM {changes};
              CREATE OR REPLACE TABLE code_names AS
-               SELECT region_cd, full_name, status FROM {LAKEHOUSE_CATALOG}.{DONG_NAME_TABLE} AT (VERSION => {names})
-               WHERE snapshot_date = (SELECT max(snapshot_date)
-                                      FROM {LAKEHOUSE_CATALOG}.{DONG_NAME_TABLE} AT (VERSION => {names}));",
-            changes = pins.code_changes,
-            names = pins.dong_names,
+               SELECT region_cd, full_name, status FROM {names}
+               WHERE snapshot_date = (SELECT max(snapshot_date) FROM {names});",
+            changes = table_at(CODE_CHANGE_TABLE, pins.code_changes),
+            names = table_at(DONG_NAME_TABLE, pins.dong_names),
         ))
         .context("DuckDB failed to read the 법정동 code tables")?;
     reference_from_loaded(stage)
@@ -848,10 +846,7 @@ pub fn read_parcels(
 ) -> anyhow::Result<ParcelsRead> {
     read_parcels_from(
         stage,
-        &format!(
-            "{LAKEHOUSE_CATALOG}.{PARCEL_TABLE} AT (VERSION => {})",
-            pins.parcels
-        ),
+        &table_at(PARCEL_TABLE, pins.parcels),
         &pins.served_snapshot_id,
         parcel_contract,
         objects,

@@ -367,7 +367,7 @@ fn a_field_is_written_as_pythons_json_writes_it() -> anyhow::Result<()> {
     ];
     for (code, python) in cases {
         let ours: String = stage.connection().query_row(
-            "SELECT rt_json_text(chr(?))",
+            "SELECT rt_json_text(chr(CAST(? AS INTEGER)))",
             [i64::from(code)],
             |row| row.get(0),
         )?;
