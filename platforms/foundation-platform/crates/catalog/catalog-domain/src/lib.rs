@@ -86,7 +86,7 @@ pub use industry::{
     ParseIndustryCodeSystemError,
 };
 pub use manufacturer::Manufacturer;
-pub use map_edit::{MapEditError, MapEditGeometry, MapEditOperation};
+pub use map_edit::{check_unit_takes_edits, MapEditError, MapEditGeometry, MapEditOperation};
 pub use marker_tile::{
     MarkerAnchorAlgorithm, MarkerTileContract, MarkerTileContractError, MarkerTileFeature,
     MarkerTileLayer, MarkerTileRequest, ParcelMarkerAnchor, ALL_ACTIVE_MARKER_FILTER_HASH,
