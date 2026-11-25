@@ -385,7 +385,7 @@ fn write_outcome(path: &Path, outcome: &Value) -> anyhow::Result<()> {
 /// `DuckDB` in `work`, and writes the outcome to `summary`; returns the exit code.
 ///
 /// Every step reads: the catalog's register and refs, and the table's rows through `DuckDB` with
-/// the reader pair (`LakehouseRead::read_only_from_env`). The one write is the witness tag when it
+/// the reader pair (`LakehouseRead::from_env`). The one write is the witness tag when it
 /// is missing; once it names the witness, the gate writes nothing but its outcome file.
 ///
 /// # Errors
@@ -420,10 +420,7 @@ pub async fn run(
     // A missing or replaced table, or a broken historical chain, is not a new empty dataset.
     let head = verify_metadata(&witness.gate_witness()?, &registry)?;
     let retained = {
-        let stage = DuckDbParquetStage::open_reading_lakehouse(
-            work,
-            &LakehouseRead::read_only_from_env()?,
-        )?;
+        let stage = DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)?;
         gate.retained(&stage, &registry, head)?
     };
     same_head(&catalog, &registry).await?;

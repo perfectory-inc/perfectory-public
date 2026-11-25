@@ -74,8 +74,11 @@ impl LakehouseCatalogConfig {
         Requirement::Optional(TOKEN_ENV),
     ];
 
-    /// The writer token's name: a `DuckDB` read cannot do without it (`LakehouseRead`).
+    /// The writer token's name.
     pub const WRITER_TOKEN_ENV: &'static str = TOKEN_ENV;
+
+    /// The read-only token's name: what a `DuckDB` read attaches the catalog with (`LakehouseRead`).
+    pub const READER_TOKEN_ENV: &'static str = READER_TOKEN_ENV;
 
     /// What [`Self::reader_from_env`] needs: the same catalog with the read-only token.
     pub const READER_REQUIREMENTS: &'static [Requirement] = &[

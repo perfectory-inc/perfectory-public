@@ -34,6 +34,7 @@ use super::DuckDbParquetStage;
 
 mod engine_config;
 mod pinned_head;
+mod read_only;
 mod table_at;
 
 /// Reads the objects of a table whose location is a local directory.

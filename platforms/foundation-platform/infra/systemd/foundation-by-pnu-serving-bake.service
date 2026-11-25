@@ -17,6 +17,7 @@ WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 EnvironmentFile=-/etc/foundation-platform/by-pnu-bake.env
 # Both lanes, parcel then building, one after the other: side by side they would not fit the host
 # memory budget (root ADR-0138). Both serve section packs since 2026-10-09 (root ADR-0147).

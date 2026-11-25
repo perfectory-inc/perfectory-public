@@ -73,7 +73,7 @@ fn replaced_value(
             .all(|byte| byte.is_ascii_lowercase() || matches!(byte, b'_' | b'.')),
         "{replaced} is not a plain table name"
     );
-    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
+    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)?;
     let rows = foundation_publisher_silver::duckdb_parquet_stage::table_at(replaced, build);
     Ok(duck
         .connection()

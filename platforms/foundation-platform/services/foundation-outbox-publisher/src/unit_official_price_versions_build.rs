@@ -21,7 +21,7 @@ use std::{
 
 use anyhow::{ensure, Context};
 use foundation_publisher_silver::{
-    duckdb_parquet_stage::{table_at, with_contract_columns, DuckDbParquetStage},
+    duckdb_parquet_stage::{table_at, with_contract_columns, DuckDbParquetStage, LakehouseRead},
     unit_official_price_stage::{self as stage, BatchPins, EXCLUSIVE_TABLE, PRICE_TABLE, REPLACED},
     unit_price_stage::batch,
 };
@@ -30,8 +30,7 @@ use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::json;
 
 use crate::{
-    gold_takeover_sides::sql_path,
-    gold_versions_support::{lakehouse_read, write_summary},
+    gold_takeover_sides::sql_path, gold_versions_support::write_summary,
     public_data_control_support::required_env_value,
 };
 
@@ -121,7 +120,7 @@ pub(crate) async fn export_sides() -> anyhow::Result<()> {
     let batch = pins.batch();
 
     let work = Path::new(&work);
-    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
+    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)?;
     let connection = duck.connection();
     stage::load(connection, &pins)?;
     let composed = stage::compose(connection, &pins, Some(scope.as_str()))?;

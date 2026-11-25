@@ -336,8 +336,7 @@ pub(crate) async fn load() -> anyhow::Result<()> {
         .with_context(|| format!("{TABLE} does not exist"))?
         .first()
         .map(|snapshot| snapshot.snapshot_id);
-    // The data files are read with the reader pair, the catalog with the step's token.
-    let read = LakehouseRead::read_only_from_env()?;
+    let read = LakehouseRead::from_env()?;
     let stage = Mutex::new(DuckDbParquetStage::open_reading_lakehouse(&work, &read)?);
     let staged = {
         let stage = stage
