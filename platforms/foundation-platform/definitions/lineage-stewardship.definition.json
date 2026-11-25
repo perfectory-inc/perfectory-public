@@ -739,5 +739,16 @@
         "service": "spark"
       }
     ]
-  }
+  },
+  "asset_checks": [
+    {
+      "asset": "gold-lineage-review-queue-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "47",
+      "reads": [
+        "gold-lineage-review-queue"
+      ]
+    }
+  ]
 }

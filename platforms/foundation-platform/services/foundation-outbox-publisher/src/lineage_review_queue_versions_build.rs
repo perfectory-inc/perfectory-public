@@ -16,7 +16,8 @@
 //!
 //! While the Spark jobs still write `gold.lineage_review_queue` and feed the steward database, this
 //! table is their shadow (root ADR-0564 §6): it reads the inputs that table last recorded
-//! ([`shadow_pins`]), so the takeover verdict compares two engines over one set of inputs, and its
+//! (`gold_versions_commit::shadow_of`, the kind that records its own pins), so the takeover verdict
+//! compares two engines over one set of inputs, and its
 //! first build takes the snapshot pair of each place reference item whose evidence is unchanged from
 //! that table, the history its `MERGE` kept. Nothing reads it until the verdict is equal and the
 //! steward cycle loads its handoff.
@@ -84,84 +85,8 @@ const BUILT_SQL: &str = "CREATE OR REPLACE TABLE built AS \
     FROM kept;";
 
 // one-off: until the queue's takeover PR (the steward cycle loads its handoff from this table and
-// the Spark jobs that write gold.lineage_review_queue are gone): `LINEAGE_SNAPSHOT_PROPERTY`,
-// `SOURCE_SNAPSHOT_PREFIX`, `shadow_pins` and the first build's seed from `REPLACED` go with it.
-/// The property the parcel unit's Spark job records its lineage snapshot under
-/// (`lineage_review_queue_to_gold.LINEAGE_SNAPSHOT_PROPERTY`).
-const LINEAGE_SNAPSHOT_PROPERTY: &str = "foundation.lineage-snapshot-id";
-/// The prefix the place reference job records each source's snapshot under
-/// (`place_reference_queue_to_gold.SNAPSHOT_PREFIX`).
-const SOURCE_SNAPSHOT_PREFIX: &str = "foundation.place-reference-snapshot.";
-
-/// The inputs the Spark queue last read, in place of `heads`: each input's newest recorded snapshot
-/// along `gold.lineage_review_queue`'s `main`, newest first (`recorded_snapshots`). A source its
-/// kept history does not name did not move since (the job reads every source that moved, each run),
-/// so its head stands. Returns the pins and the replaced table's head.
-///
-/// # Errors
-/// The replaced table does not exist or records no lineage snapshot: there is nothing to shadow.
-async fn shadow_pins(
-    catalog: &IcebergRestCatalog,
-    heads: &BTreeMap<String, i64>,
-) -> anyhow::Result<(BTreeMap<String, i64>, i64)> {
-    let history = catalog
-        .load_main_snapshot_history(REPLACED)
-        .await?
-        .with_context(|| format!("{REPLACED} does not exist: there is no queue to shadow"))?;
-    let replaced_head = history
-        .first()
-        .map(|snapshot| snapshot.snapshot_id)
-        .with_context(|| format!("{REPLACED} holds no snapshot"))?;
-    let mut recorded: BTreeMap<String, i64> = BTreeMap::new();
-    for snapshot in &history {
-        for (property, value) in &snapshot.summary {
-            let input = if property == LINEAGE_SNAPSHOT_PROPERTY {
-                LINEAGE_SOURCE
-            } else if let Some(source) = property.strip_prefix(SOURCE_SNAPSHOT_PREFIX) {
-                source
-            } else {
-                continue;
-            };
-            if !recorded.contains_key(input) {
-                let pin: i64 = value.parse().with_context(|| {
-                    format!(
-                        "{REPLACED} snapshot {} records {property}={value}",
-                        snapshot.snapshot_id
-                    )
-                })?;
-                recorded.insert(input.to_owned(), pin);
-            }
-        }
-    }
-    ensure!(
-        recorded.contains_key(LINEAGE_SOURCE),
-        "{REPLACED} records no {LINEAGE_SNAPSHOT_PROPERTY} in its kept history: nothing to shadow"
-    );
-    let pins = heads
-        .iter()
-        .map(|(input, head)| (input.clone(), *recorded.get(input).unwrap_or(head)))
-        .collect();
-    Ok((pins, replaced_head))
-}
-
-/// Every input at its head: the lineage and each place reference source that exists.
-async fn input_heads(catalog: &IcebergRestCatalog) -> anyhow::Result<BTreeMap<String, i64>> {
-    let mut pins = BTreeMap::new();
-    for input in std::iter::once(LINEAGE_SOURCE).chain(queue::place_reference_sources()) {
-        let head = catalog
-            .load_main_snapshot_history(input)
-            .await?
-            .and_then(|history| history.first().map(|snapshot| snapshot.snapshot_id));
-        if let Some(head) = head {
-            pins.insert(input.to_owned(), head);
-        }
-    }
-    ensure!(
-        pins.contains_key(LINEAGE_SOURCE),
-        "{LINEAGE_SOURCE} holds no snapshot: there is no lineage to queue"
-    );
-    Ok(pins)
-}
+// the Spark jobs that write gold.lineage_review_queue are gone): the first build's seed from
+// `REPLACED` goes with it.
 
 fn insert(
     connection: &foundation_publisher_silver::duckdb::Connection,
@@ -214,8 +139,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .with_context(|| format!("{TABLE} does not exist after its creation"))?;
     let base = versions::base(&history)?;
     let head = history.first().map(|snapshot| snapshot.snapshot_id);
-    let at_heads = input_heads(&catalog).await?;
-    let (pins, replaced_head) = shadow_pins(&catalog, &at_heads).await?;
+    let shadow = versions::shadow_of(&catalog, TABLE, REPLACED)
+        .await?
+        .with_context(|| format!("{TABLE} is not a shadow of {REPLACED}"))?;
+    let (pins, replaced_head) = (shadow.pins.clone(), shadow.build);
     let code = queue::code_version();
     if let Some(base) = &base {
         versions::pin(&catalog, TABLE, base.snapshot_id, &base.pins).await?;

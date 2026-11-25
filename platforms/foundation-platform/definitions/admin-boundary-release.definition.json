@@ -61,7 +61,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The place-id release as two tables of appended row versions (root ADR-0113 §8, ADR-0481, ADR-0564 §6-9; scripts/ops/gold-versions-build.sh place-id → publisher build-place-id-versions): gold.place_id_registry_versions and gold.place_id_bridge_versions, the parcel unit from silver.parcel_registry as of the served edition (read once, each region in turn: an id's region is the 시도 of its first row) and the admin unit from the snapshots of silver.administrative_boundaries, both with the legal-dong code crosswalk, computed by DuckDB inside the publisher and appended as the keys whose digest changed, one commit a table. A unit is rebuilt when one of its inputs, the served edition (parcel) or the code moved; nothing to do otherwise. While the Spark release writes gold.place_id_registry and gold.place_id_bridge it is their shadow: it reads the inputs as of the replaced registry's newest commit (the Spark release records no pins). The changelog stays with the Spark release until the switch. It starts no Spark session, so it queues in the duckdb pool on its own unit's memory_claim. Nothing reads it until the takeover PR moves place_id_join.",
+      "description": "The place-id release as two tables of appended row versions (root ADR-0113 §8, ADR-0481, ADR-0564 §6-9; scripts/ops/gold-versions-build.sh place-id → publisher build-place-id-versions): gold.place_id_registry_versions and gold.place_id_bridge_versions, the parcel unit from silver.parcel_registry as of the served edition (read once, each region in turn: an id's region is the 시도 of its first row) and the admin unit from the snapshots of silver.administrative_boundaries, both with the legal-dong code crosswalk, computed by DuckDB inside the publisher and appended as the keys whose digest changed, one commit a table. A unit is rebuilt when one of its inputs, the served edition (parcel) or the code moved; nothing to do otherwise. While the Spark release writes gold.place_id_registry and gold.place_id_bridge it is their shadow: it reads the inputs as of the replaced registry's newest commit (the Spark release records no pins). The changelog stays with the Spark release until the switch. It starts no Spark session, so it queues in the duckdb pool on its own unit's memory_claim. Nothing reads it until the takeover PR moves place_id_join. After a commit (and on later runs until one verdict of each table's head has run to its end) the same unit runs the takeover verdict in 시도 41 (takeover_equal, gold-takeover-verdict.sh), one table a run inside its hour, starting after the table judged last, so each has its turn even when every run commits.",
       "systemd_service": "foundation-gold-versions@place-id.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -390,5 +390,25 @@
         ]
       }
     ]
-  }
+  },
+  "asset_checks": [
+    {
+      "asset": "gold-place-id-registry-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-place-id-registry"
+      ]
+    },
+    {
+      "asset": "gold-place-id-bridge-versions",
+      "check": "takeover_equal",
+      "blocking": true,
+      "sido": "41",
+      "reads": [
+        "gold-place-id-bridge"
+      ]
+    }
+  ]
 }

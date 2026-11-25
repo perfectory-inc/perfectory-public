@@ -99,6 +99,8 @@ takeover_check() {
   declared="$(python3 -I -B "${check}" declared "${run_dir}/summary.json" "${RELEASE_ROOT}/definitions" "${state}")" ||
     return 1
   [ -n "${declared}" ] || return 0
+  # One verdict a run: the unit's hour holds the build and one verdict. A run that built two tables (the
+  # place-id lane) judges the first line, which starts after the table judged last (a record a table).
   read -r table sido <<<"${declared}"
   FOUNDATION_PLATFORM_GOLD_TAKEOVER_MEMORY_LIMIT="${TAKEOVER_MEMORY_LIMIT}" \
     timeout "${TAKEOVER_SECONDS}" bash "$(dirname "${BASH_SOURCE[0]}")/gold-takeover-verdict.sh" \
