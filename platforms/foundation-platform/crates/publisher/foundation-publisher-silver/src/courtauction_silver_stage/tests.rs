@@ -519,7 +519,7 @@ fn search_stage() -> anyhow::Result<(tempfile::TempDir, DuckDbParquetStage, Cour
 
 #[test]
 fn the_search_rows_and_their_offers_are_the_spark_jobs() -> anyhow::Result<()> {
-    let (directory, stage, source) = search_stage()?;
+    let (_directory, stage, source) = search_stage()?;
     let staged = read_object(
         &stage,
         &source,
@@ -557,7 +557,7 @@ fn the_search_rows_and_their_offers_are_the_spark_jobs() -> anyhow::Result<()> {
 
 #[test]
 fn a_search_row_takes_the_code_first_then_its_lot_then_its_road() -> anyhow::Result<()> {
-    let (directory, stage, source) = search_stage()?;
+    let (_directory, stage, source) = search_stage()?;
     read_object(
         &stage,
         &source,
@@ -723,7 +723,7 @@ fn a_case_detail_object_of_wide_answers_is_read_within_its_memory_budget() -> an
 
 #[test]
 fn a_follow_places_again_the_rows_a_code_change_can_move_with_its_record() -> anyhow::Result<()> {
-    let (directory, stage, source) = search_stage()?;
+    let (_directory, stage, source) = search_stage()?;
     read_object(
         &stage,
         &source,
