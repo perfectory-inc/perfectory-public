@@ -222,6 +222,7 @@ enum Command {
     ListRecoveryObjects,
     MediaIndexDelta,
     MediaLadderBacklog,
+    MergePmtilesArchives,
     CollectIndustrialComplexAddressSource,
     CollectIndustrialComplexNoticeAttachments,
     CollectIndustrialLandSaleNotices,
@@ -413,6 +414,39 @@ fn exit_if_provider_side(error: anyhow::Error) -> anyhow::Error {
     error
 }
 
+/// `merge-pmtiles-archives` (root ADR-0613): the tile bake's partition merge on its own, to measure it on
+/// given archives. Every `*.pmtiles` in `FOUNDATION_PLATFORM_PMTILES_MERGE_INPUT_DIRECTORY`, in name order,
+/// into `FOUNDATION_PLATFORM_PMTILES_MERGE_OUTPUT` (a new file), stopped after
+/// `FOUNDATION_PLATFORM_PMTILES_MERGE_DEADLINE_SECONDS` (default 3600). One JSON line of what it did.
+fn merge_pmtiles_archives() -> anyhow::Result<()> {
+    let setting = |name: &str| env::var(name).with_context(|| format!("{name} is not set"));
+    let directory = setting("FOUNDATION_PLATFORM_PMTILES_MERGE_INPUT_DIRECTORY")?;
+    let out = setting("FOUNDATION_PLATFORM_PMTILES_MERGE_OUTPUT")?;
+    let seconds = match env::var("FOUNDATION_PLATFORM_PMTILES_MERGE_DEADLINE_SECONDS") {
+        Ok(value) => value.parse::<u64>().context(
+            "FOUNDATION_PLATFORM_PMTILES_MERGE_DEADLINE_SECONDS is not a number of seconds",
+        )?,
+        Err(_) => 3600,
+    };
+    let started = std::time::Instant::now();
+    let merged = foundation_publisher_tiles::lakehouse_tile_bake::pmtiles_merge::merge_directory(
+        Path::new(&directory),
+        Path::new(&out),
+        started + std::time::Duration::from_secs(seconds),
+    )?;
+    println!(
+        "{}",
+        serde_json::json!({
+            "archives": merged.archives,
+            "tiles": merged.tiles,
+            "copied": merged.copied,
+            "merged": merged.merged,
+            "seconds": started.elapsed().as_secs_f64(),
+        })
+    );
+    Ok(())
+}
+
 /// A refusal of the inputs exits `REFUSED_EXIT_CODE`, so the bakes do not retry it; any other
 /// error returns to exit 1, which they retry (`foundation_publisher_core::refusal`).
 fn exit_if_refused(error: anyhow::Error) -> anyhow::Error {
@@ -484,6 +518,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ListRecoveryObjects => Box::pin(lakehouse_object_listing::run_recovery()),
         Command::MediaIndexDelta => Box::pin(media_index_delta::run()),
         Command::MediaLadderBacklog => Box::pin(media_ladder_backlog::run()),
+        Command::MergePmtilesArchives => Box::pin(async { merge_pmtiles_archives() }),
         Command::CollectIndustrialComplexAddressSource => {
             Box::pin(industrial_complex_address_source_collect::run())
         }
@@ -1030,6 +1065,7 @@ where
         Some("list-recovery-objects") => Ok(Command::ListRecoveryObjects),
         Some("media-index-delta") => Ok(Command::MediaIndexDelta),
         Some("media-ladder-backlog") => Ok(Command::MediaLadderBacklog),
+        Some("merge-pmtiles-archives") => Ok(Command::MergePmtilesArchives),
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)
         }

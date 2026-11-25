@@ -532,3 +532,29 @@ fn the_merge_of_two_baked_partitions_is_what_tile_join_writes() -> anyhow::Resul
     assert_eq!(layers(&reader)?, layers(&reference)?);
     Ok(())
 }
+
+#[test]
+fn a_directory_merges_its_archives_in_name_order_as_the_list_does() -> anyhow::Result<()> {
+    let fixtures =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?).join("tests/fixtures/tile-join");
+    let inputs = tempfile::tempdir()?;
+    // Named so that name order is a then b, beside a file that is not an archive.
+    std::fs::copy(fixtures.join("a.pmtiles"), inputs.path().join("11.pmtiles"))?;
+    std::fs::copy(fixtures.join("b.pmtiles"), inputs.path().join("26.pmtiles"))?;
+    std::fs::write(inputs.path().join("PROVENANCE.txt"), "not an archive")?;
+    let work = tempfile::tempdir()?;
+    let listed = work.path().join("listed.pmtiles");
+    let from_list = merge_archives(
+        &[fixtures.join("a.pmtiles"), fixtures.join("b.pmtiles")],
+        &listed,
+        later(),
+    )?;
+    let out = work.path().join("directory.pmtiles");
+    assert_eq!(merge_directory(inputs.path(), &out, later())?, from_list);
+    assert_eq!(std::fs::read(&out)?, std::fs::read(&listed)?);
+    // An output that exists is refused and left as it was.
+    let refused = merge_directory(inputs.path(), &out, later()).map_err(|error| error.to_string());
+    assert!(refused.is_err_and(|error| error.contains("exists")));
+    assert_eq!(std::fs::read(&out)?, std::fs::read(&listed)?);
+    Ok(())
+}

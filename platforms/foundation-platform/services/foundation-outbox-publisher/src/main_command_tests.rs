@@ -1374,3 +1374,19 @@ fn parses_the_floor_history_check_and_the_floor_load() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn the_pmtiles_merge_takes_its_archives_from_the_environment_not_an_argument() -> anyhow::Result<()>
+{
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "merge-pmtiles-archives"])?,
+        Command::MergePmtilesArchives
+    );
+    assert!(parse_command([
+        "foundation-outbox-publisher",
+        "merge-pmtiles-archives",
+        "a.pmtiles"
+    ])
+    .is_err());
+    Ok(())
+}
