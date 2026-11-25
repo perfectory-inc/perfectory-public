@@ -39,7 +39,7 @@ describe("the web reads what the foundation publishes", () => {
   it("polls the edit overlay of exactly the units the edit store takes edits for", () => {
     expect([...MAP_EDIT_OVERLAY_UNITS].sort()).toEqual(
       Object.entries(connections.map_edit_gateway.units)
-        .filter(([, unit]) => unit.editable)
+        .filter(([, unit]) => (unit as { editable?: boolean }).editable === true)
         .map(([name]) => name)
         .sort(),
     );
