@@ -1,0 +1,59 @@
+# The hand-written Iceberg reader (`foundation_publisher_core::lakehouse_snapshot_scan`, with its
+# `iceberg_scan`, `ranged_parquet` and `shard_plan`, about 2,400 lines) takes no new caller. A new
+# read of a lakehouse table goes through the publisher's DuckDB, whose own Iceberg extension reads
+# it (`DuckDbParquetStage::open_reading_lakehouse`, root ADR-0559 §1), pinned by `table_at`. The scan
+# is deleted once DuckDB's pushdown and `iceberg_metadata()` are measured against what its callers
+# below need (manifest bounds for the by-PNU shard plans, row accounting); until then it is frozen.
+#
+# Prevents: a second reader that must learn every table feature by hand. Before Gold MERGE could
+# write merge-on-read, this reader had to be taught Iceberg position deletes (#959, 2026-10-29,
+# root ADR-0344 §2), and v3 deletion vectors stay forbidden until it learns them too; it decodes
+# no `binary` or `double` column, so the industrial complex boundaries still go through a Spark
+# hand-off (`industrial_complex_boundary_postgis_publish.rs`). DuckDB's reader already reads all of
+# these. Each new caller would be one more thing to move before the reader can go.
+#
+# The callers today are the `paths.exclude` entries below. The list only shrinks: a caller moved to
+# DuckDB leaves it in the same pull request, and adding one is refused in review.
+rules:
+  - id: no-new-caller-of-the-hand-written-iceberg-scan
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      This reads a lakehouse table through the hand-written lakehouse_snapshot_scan, which takes
+      no new caller. Read it with the publisher's DuckDB (DuckDbParquetStage::open_reading_lakehouse
+      and duckdb_parquet_stage::table_at, root ADR-0559 §1).
+    paths:
+      include:
+        - /platforms/foundation-platform/**/*.rs
+        - /tools/semgrep/rules/hand-written-iceberg-scan.rs
+      exclude:
+        # The reader itself.
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/lakehouse_snapshot_scan.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/lakehouse_snapshot_scan/
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/lib.rs
+        # Its callers on 2026-11-25: the list only shrinks.
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/lib.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/by_pnu_serving_rebase.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/parcel_by_pnu_serving_export.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/silver_refresh/land.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/cases.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/detail.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/dividends.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/reports.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/specs.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_boundary_postgis_publish.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_canonical_load.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_gold_profile_export.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_gold_profile_export/document_facts.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_notice_collect.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_land_sale_notice_collect.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/lakehouse_file_shapes.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/lakehouse_inventory.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/lakehouse_partitions.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/media_index_delta.rs
+        - /platforms/foundation-platform/services/foundation-outbox-publisher/src/media_ladder_backlog.rs
+    pattern-regex: \blakehouse_snapshot_scan\b

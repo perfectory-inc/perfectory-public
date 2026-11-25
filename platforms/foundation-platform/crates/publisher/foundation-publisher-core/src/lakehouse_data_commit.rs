@@ -134,7 +134,7 @@ pub struct DataAppend<'a> {
 pub enum AppendOutcome {
     /// The rows are in `snapshot`, which is now `main`.
     Appended {
-        /// The new snapshot, ready for `lakehouse_snapshot_scan`.
+        /// The new snapshot and its manifest list, ready to be read.
         snapshot: IcebergSnapshotManifestList,
         /// The snapshot `main` named before, if any.
         parent_snapshot_id: Option<i64>,
