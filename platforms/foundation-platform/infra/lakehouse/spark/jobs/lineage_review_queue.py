@@ -9,7 +9,9 @@ effect and never shown. An item leaves the queue by data, not by code:
     (decider, reason and time in `evidence_ref`), so the lineage stays the one record of why.
 
 Each item carries its candidates — the non-pending rows for the parcel with their evidence — so
-the reviewer sees what the derivation saw. Pure Python; `lineage_review_queue_to_gold.py` writes it.
+the reviewer sees what the derivation saw. Pure Python. Since the queue's takeover (root ADR-0564 §6-9) the
+publisher builds the parcel queue (`lineage_review_queue_stage`); the legal-dong pairing and `steward_resolved`'s
+readers still use this module.
 """
 
 from __future__ import annotations

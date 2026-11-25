@@ -221,7 +221,11 @@
         }
       },
       "lineage_review_queue_to_gold": {
-        "wave": 3
+        "moved": {
+          "pull_request": 1743,
+          "rows": 22580,
+          "fingerprint": "rows:22580;content_hash_sum:208812642035275285272996"
+        }
       },
       "lineage_steward_fold_to_silver": {
         "moved": {
@@ -271,7 +275,11 @@
         "wave": 3
       },
       "place_reference_queue_to_gold": {
-        "wave": 3
+        "moved": {
+          "pull_request": 1743,
+          "rows": 22580,
+          "fingerprint": "rows:22580;content_hash_sum:208812642035275285272996"
+        }
       },
       "real_transaction_silver_to_gold": {
         "wave": 1

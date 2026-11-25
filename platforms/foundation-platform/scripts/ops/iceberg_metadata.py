@@ -78,7 +78,7 @@ class Catalog:
         self.uri = environ["FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI"].rstrip("/")
         self.warehouse = environ["FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE"]
         self.token = environ[token]
-        # Cloudflare refuses urllib's default User-Agent with 403 (lineage-queue-check.py).
+        # Cloudflare refuses urllib's default User-Agent with 403 (found by the steward queue check, 2026-10).
         self.user_agent = user_agent
         self.prefix = None
 

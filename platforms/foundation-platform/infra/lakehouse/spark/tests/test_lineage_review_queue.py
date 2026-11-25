@@ -104,23 +104,5 @@ class HandoffTest(unittest.TestCase):
         self.assertEqual(first["evidence_etag"], q.evidence_etag(first["status"], first["candidates_json"]))
 
 
-class ReviewQueueJobArgsTest(unittest.TestCase):
-    def test_a_one_sido_run_cannot_rewrite_the_national_queue(self):
-        from lineage_review_queue_to_gold import parse_args, validate_args
-
-        with self.assertRaisesRegex(ValueError, "national queue"):
-            validate_args(parse_args(["--sido", "28", "--allow-non-smoke-write"]))
-
-    def test_a_probe_writes_nothing_so_it_needs_no_write_permission(self):
-        from unittest import mock
-
-        from lineage_review_queue_to_gold import parse_args, validate_args
-
-        with mock.patch("lineage_review_queue_to_gold.assert_catalog_env"):
-            validate_args(parse_args(["--probe-only"]))
-            with self.assertRaisesRegex(ValueError, "allow-non-smoke-write"):
-                validate_args(parse_args([]))
-
-
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,7 @@
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
@@ -20,7 +20,7 @@ use crate::{
 pub const HANDOFF_SCHEMA_VERSION: &str = "foundation-platform.lineage_review_handoff.v1";
 
 /// One item of the queue as handed off.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HandoffItem {
     /// Stable item id.
@@ -42,8 +42,9 @@ pub struct HandoffItem {
     pub evidence_json: Option<String>,
 }
 
-/// A whole queue for one unit.
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+/// A whole queue for one unit: what the publisher writes from the queue's current rows and the steward
+/// database loads (one type for both ends).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewHandoff {
     /// Must be [`HANDOFF_SCHEMA_VERSION`].

@@ -98,13 +98,11 @@ class Declared(unittest.TestCase):
         # A lane that took its table over shadows nothing and declares the check no more (root ADR-0564 §6-4).
         for table in ("gold.parcel_energy_versions", "gold.parcel_register_masters_versions",
                       "gold.parcel_demolitions_versions", "gold.parcel_factories_versions",
-                      "gold.parcel_sub_parcels_versions", "gold.parcel_building_permits_versions"):
+                      "gold.parcel_sub_parcels_versions", "gold.parcel_building_permits_versions",
+                      "gold.lineage_review_queue_versions"):
             with self.subTest(taken_over=table):
                 self.assertEqual(check.declared(run(table=table, shadow_of=None), definitions, {}), [])
                 self.assertEqual(check.declared(run(table=table), definitions, {}), [])
-        # The steward queue's parcel items are in 경상북도 most (2026-11-22: 651 of 859; none in 41).
-        queue = "gold.lineage_review_queue_versions"
-        self.assertEqual(check.declared(run(table=queue), definitions, {}), [(queue, "47")])
         place_ids = ["gold.place_id_registry_versions", "gold.place_id_bridge_versions"]
         self.assertEqual(check.declared(run(table=place_ids[0], tables=place_ids), definitions, {}),
                          [(table, "41") for table in place_ids])

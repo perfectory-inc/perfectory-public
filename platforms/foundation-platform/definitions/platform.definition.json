@@ -1791,12 +1791,10 @@
       "gold-place-id-registry-to-gongzzang-panel",
       "gold-place-id-bridge-to-gongzzang-panel",
       "gold-place-id-changelog-to-gongzzang-panel",
-      "silver-parcel-lineage-to-gold-lineage-review-queue",
       "reference-legal-dong-code-snapshot-to-serving-lineage-stewardship",
       "serving-lineage-stewardship-to-reference-legal-dong-code-change",
-      "gold-lineage-review-queue-to-serving-lineage-stewardship",
       "serving-lineage-stewardship-to-silver-parcel-lineage",
-      "gold-lineage-review-queue-to-steward-review-surface",
+      "gold-lineage-review-queue-versions-to-steward-review-surface",
       "silver-land-use-zone-area-to-zoning-overlay-tiles",
       "silver-parcel-registry-to-gold-parcel-panel"
     ],
