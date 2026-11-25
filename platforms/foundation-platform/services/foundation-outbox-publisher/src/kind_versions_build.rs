@@ -33,7 +33,7 @@ use foundation_publisher_silver::{
     building_permit_stage::BUILDING_PERMITS,
     building_sub_parcel_stage::SUB_PARCELS,
     court_kind_stage::COURT_AUCTION,
-    duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
     factory_kind_stage::FACTORIES,
     kind_versions_stage::{
         build_in_parts, ensure_no_commit_tables, leave_input_batch, load_ranged, load_region,
@@ -62,8 +62,8 @@ use crate::{
         VERSION_SEQ_PROPERTY,
     },
     gold_versions_support::{
-        contract, lakehouse_read, lakehouse_reader_read, max_row_loss_fraction_of, served_edition,
-        write_summary, MAX_CHANGED_KEY_FRACTION, REBUILD_CONTRACT,
+        contract, max_row_loss_fraction_of, served_edition, write_summary,
+        MAX_CHANGED_KEY_FRACTION, REBUILD_CONTRACT,
     },
     public_data_control_support::{optional_env_value, required_env_value},
 };
@@ -506,9 +506,9 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         Err(_) => DocumentRules::load(table).await?,
     };
     let read = if rehearsal.is_some() {
-        lakehouse_reader_read(&catalog_config)?
+        LakehouseRead::with_catalog(&catalog_config)?
     } else {
-        lakehouse_read()?
+        LakehouseRead::from_env()?
     };
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &read)?;
     let memory_limit = duck.memory_limit_bytes()?;

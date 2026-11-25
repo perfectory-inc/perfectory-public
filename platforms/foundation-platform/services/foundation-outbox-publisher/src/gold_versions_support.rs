@@ -1,15 +1,11 @@
 //! What every Gold versions build of the publisher reads besides its own stage: the table contracts,
-//! the rebuild contract's bounds, the served parcel edition, the lakehouse read and the run summary
+//! the rebuild contract's bounds, the served parcel edition and the run summary
 //! (root ADR-0564, ADR-0615 §7). The builds are `kind_versions_build` (every by-PNU kind lane),
 //! `place_id_versions_build` and `lineage_review_queue_versions_build`.
 
 use anyhow::Context;
-use foundation_outbox::object_storage::R2ObjectStorageConfig;
-use foundation_publisher_silver::{
-    duckdb_extensions, duckdb_parquet_stage::LakehouseRead, vworld_parcel_source_contract,
-};
+use foundation_publisher_silver::vworld_parcel_source_contract;
 use lakehouse_domain::{industrial_complex_lakehouse_contracts, LakehouseTableContract};
-use lakehouse_infrastructure::LakehouseCatalogConfig;
 use serde_json::Value;
 
 const PARCEL_SOURCE_CONTRACT: &str =
@@ -57,48 +53,6 @@ pub(crate) fn served_edition() -> anyhow::Result<String> {
         .as_str()
         .context("the served edition view names no edition")?;
     Ok(format!("{prefix}{edition}"))
-}
-
-/// How a build's `DuckDB` session reads the lakehouse: the release's extensions, the catalog and
-/// the R2 read keys the unit loads.
-pub(crate) fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
-    let catalog = LakehouseCatalogConfig::from_env()
-        .context("failed to configure the lakehouse catalog for the Gold build")?;
-    let storage = R2ObjectStorageConfig::from_env()
-        .context("failed to configure lakehouse R2 reads for the Gold build")?;
-    Ok(LakehouseRead {
-        extensions: duckdb_extensions::release_directory()?,
-        catalog_uri: catalog.catalog_uri,
-        warehouse: catalog.warehouse,
-        catalog_token: catalog
-            .catalog_token
-            .context("the lakehouse catalog token is required")?,
-        s3_endpoint: storage.endpoint,
-        s3_access_key_id: storage.access_key_id,
-        s3_secret_access_key: storage.secret_access_key,
-    })
-}
-
-/// The lakehouse read of a run that writes nothing (a rehearsal, a verdict): the data files with the
-/// read-only pair (root ADR-0152), the catalog with the run's own catalog settings (its read-only
-/// token).
-pub(crate) fn lakehouse_reader_read(
-    catalog: &LakehouseCatalogConfig,
-) -> anyhow::Result<LakehouseRead> {
-    let storage = R2ObjectStorageConfig::lakehouse_reader_from_env()
-        .context("failed to configure lakehouse R2 reads with the reader pair")?;
-    Ok(LakehouseRead {
-        extensions: duckdb_extensions::release_directory()?,
-        catalog_uri: catalog.catalog_uri.clone(),
-        warehouse: catalog.warehouse.clone(),
-        catalog_token: catalog
-            .catalog_token
-            .clone()
-            .context("the lakehouse catalog token is required")?,
-        s3_endpoint: storage.endpoint,
-        s3_access_key_id: storage.access_key_id,
-        s3_secret_access_key: storage.secret_access_key,
-    })
 }
 
 /// Writes the run's summary file, what the unit's script and the cut-over's gold step read.

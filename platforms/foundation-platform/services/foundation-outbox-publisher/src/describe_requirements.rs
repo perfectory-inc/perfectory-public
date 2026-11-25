@@ -70,13 +70,15 @@ mod tests {
                 "required FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
                 "required FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
                 "required FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
-                // A DuckDB read cannot do without the token the catalog alone reads optionally.
-                "required FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
+                // The stage's DuckDB reads with reader credentials only; the committer writes.
+                "required FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN",
+                "required FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+                "required FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
             ] {
                 assert!(lines.contains(&line), "{command} lacks `{line}` in {lines:?}");
             }
             assert!(
-                !lines.contains(&"optional FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN"),
+                !lines.contains(&"optional FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN"),
                 "a required name is not also optional"
             );
         }

@@ -21,10 +21,8 @@ use std::{
 };
 
 use anyhow::{ensure, Context};
-use foundation_outbox::object_storage::R2ObjectStorageConfig;
-use foundation_publisher_silver::{
-    duckdb_extensions,
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LakehouseRead},
+use foundation_publisher_silver::duckdb_parquet_stage::{
+    with_contract_columns, DuckDbParquetStage, LakehouseRead,
 };
 use lakehouse_domain::industrial_complex_lakehouse_contracts;
 use lakehouse_infrastructure::{
@@ -164,24 +162,6 @@ fn write_list(path: &Path, keys: &BTreeSet<String>) -> anyhow::Result<()> {
     std::fs::write(path, text).with_context(|| format!("cannot write {}", path.display()))
 }
 
-fn lakehouse_read() -> anyhow::Result<LakehouseRead> {
-    let catalog = LakehouseCatalogConfig::from_env()
-        .context("failed to configure the lakehouse catalog for the change set")?;
-    let storage = R2ObjectStorageConfig::from_env()
-        .context("failed to configure lakehouse R2 reads for the change set")?;
-    Ok(LakehouseRead {
-        extensions: duckdb_extensions::release_directory()?,
-        catalog_uri: catalog.catalog_uri,
-        warehouse: catalog.warehouse,
-        catalog_token: catalog
-            .catalog_token
-            .context("the lakehouse catalog token is required")?,
-        s3_endpoint: storage.endpoint,
-        s3_access_key_id: storage.access_key_id,
-        s3_secret_access_key: storage.secret_access_key,
-    })
-}
-
 /// Writes the change set between the two snapshots the environment names.
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn run() -> anyhow::Result<()> {
@@ -253,7 +233,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        let stage = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
+        let stage = DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)?;
         let connection = stage.connection();
         let removal = latest
             .removal_column

@@ -165,6 +165,23 @@ const fn disk_share(free: u64) -> u64 {
 /// The name a stage that reads the lakehouse attaches its catalog under.
 pub const LAKEHOUSE_CATALOG: &str = "lakehouse";
 
+/// How a stage attaches the lakehouse catalog: read-only.
+///
+/// `DuckDB` refuses every statement that would write an attached database in this mode
+/// ("attached in read-only mode", v2.0.0
+/// `ClientContext`), the Iceberg extension's catalog included (it takes `ATTACH`'s access mode,
+/// duckdb-iceberg `IcebergCatalog`). A `DuckDB` commit would carry none of the summary properties
+/// every reader of a table depends on (root ADR-0559 §4); the publisher commits (root ADR-0560 §2).
+pub const LAKEHOUSE_ACCESS: &str = "READ_ONLY";
+
+/// The statement that attaches `warehouse` at `catalog_uri` as [`LAKEHOUSE_CATALOG`].
+fn attach_lakehouse(warehouse: &str, catalog_uri: &str) -> String {
+    format!(
+        "ATTACH '{warehouse}' AS {LAKEHOUSE_CATALOG} \
+         (TYPE iceberg, ENDPOINT '{catalog_uri}', ACCESS_DELEGATION_MODE 'none', {LAKEHOUSE_ACCESS})"
+    )
+}
+
 mod line_parts;
 pub use line_parts::text_bytes;
 
@@ -194,10 +211,12 @@ pub fn table_at_in(catalog: &str, table: &str, snapshot: i64) -> String {
 pub const PYTHON_VALUES_SQL: &str = include_str!("python_values.sql");
 const QUOTE: char = '\'';
 
-/// What a stage needs to read the lakehouse on R2 (root ADR-0559 §6).
+/// What a stage needs to read the lakehouse on R2 (root ADR-0559 §6): reader credentials only.
 ///
-/// The catalog and its token, and the key pair the data files are read with: the values
-/// `LakehouseCatalogConfig` and `R2ObjectStorageConfig` hold for the publisher's own reads.
+/// The catalog and its token, and the key pair the data files are read with. `DuckDB` never holds
+/// a writer credential: the data files are read with the read-only pair (root ADR-0152), the catalog
+/// is attached `READ_ONLY`, and the commit stays the publisher's own (iceberg-rust `fast_append`,
+/// root ADR-0560 §2).
 pub struct LakehouseRead {
     /// Where the release keeps its extension files (`duckdb_extensions::release_directory`).
     pub extensions: std::path::PathBuf,
@@ -216,54 +235,40 @@ pub struct LakehouseRead {
 }
 
 impl LakehouseRead {
-    /// What [`Self::from_env`] needs: the catalog with its token, which a `DuckDB` read cannot do
-    /// without, and the writer key pair.
+    /// What [`Self::from_env`] needs: the catalog with its read-only token, and the read-only key
+    /// pair. No writer credential is named, so a task whose secrets are made from this answer (the
+    /// AWS task definitions, `describe-requirements`) holds the read-only token and the fallback of
+    /// [`read_catalog_config`] is never taken there.
     #[must_use]
     pub fn requirements() -> Vec<foundation_shared_kernel::env_source::Requirement> {
         use foundation_shared_kernel::env_source::{merged, Requirement};
         let token = [Requirement::Required(
-            lakehouse_infrastructure::LakehouseCatalogConfig::WRITER_TOKEN_ENV,
+            lakehouse_infrastructure::LakehouseCatalogConfig::READER_TOKEN_ENV,
         )];
         merged(&[
-            lakehouse_infrastructure::LakehouseCatalogConfig::WRITER_REQUIREMENTS,
+            lakehouse_infrastructure::LakehouseCatalogConfig::READER_REQUIREMENTS,
             token.as_slice(),
-            foundation_outbox::object_storage::LAKEHOUSE_WRITER_REQUIREMENTS,
+            foundation_outbox::object_storage::LAKEHOUSE_READER_REQUIREMENTS,
         ])
     }
 
-    /// The publisher's own lakehouse settings: the catalog and token `LakehouseCatalogConfig`
-    /// reads, and the key pair `R2ObjectStorageConfig` reads, with this release's extensions.
+    /// The catalog of [`read_catalog_config`] and the read-only key pair, with this release's
+    /// extensions.
     ///
     /// # Errors
     /// Returns an error when a setting is missing; the error never carries a credential.
     pub fn from_env() -> anyhow::Result<Self> {
-        let catalog = lakehouse_infrastructure::LakehouseCatalogConfig::from_env()
-            .context("failed to configure the lakehouse catalog for a DuckDB read")?;
-        let storage = foundation_outbox::object_storage::R2ObjectStorageConfig::from_env()
-            .context("failed to configure lakehouse R2 reads for a DuckDB read")?;
-        Ok(Self {
-            extensions: crate::duckdb_extensions::release_directory()?,
-            catalog_uri: catalog.catalog_uri,
-            warehouse: catalog.warehouse,
-            catalog_token: catalog
-                .catalog_token
-                .context("the lakehouse catalog token is required")?,
-            s3_endpoint: storage.endpoint,
-            s3_access_key_id: storage.access_key_id,
-            s3_secret_access_key: storage.secret_access_key,
-        })
+        Self::with_catalog(&read_catalog_config()?)
     }
 
-    /// [`Self::from_env`] with the read-only key pair for the data files
-    /// (`R2ObjectStorageConfig::lakehouse_reader_from_env`, root ADR-0152): a command that only
-    /// reads never needs the writer pair beside it. The catalog token is the one
-    /// `LakehouseCatalogConfig` reads, as for every other catalog read of the unit.
+    /// `catalog` and the read-only key pair (`R2ObjectStorageConfig::lakehouse_reader_from_env`),
+    /// for a reader that has loaded its catalog settings itself.
     ///
     /// # Errors
     /// Returns an error when a setting is missing; the error never carries a credential.
-    pub fn with_reader_keys_from_env() -> anyhow::Result<Self> {
-        let catalog = lakehouse_infrastructure::LakehouseCatalogConfig::from_env()
-            .context("failed to configure the lakehouse catalog for a DuckDB read")?;
+    pub fn with_catalog(
+        catalog: &lakehouse_infrastructure::LakehouseCatalogConfig,
+    ) -> anyhow::Result<Self> {
         let storage =
             foundation_outbox::object_storage::R2ObjectStorageConfig::lakehouse_reader_from_env()
                 .context(
@@ -271,35 +276,11 @@ impl LakehouseRead {
             )?;
         Ok(Self {
             extensions: crate::duckdb_extensions::release_directory()?,
-            catalog_uri: catalog.catalog_uri,
-            warehouse: catalog.warehouse,
+            catalog_uri: catalog.catalog_uri.clone(),
+            warehouse: catalog.warehouse.clone(),
             catalog_token: catalog
                 .catalog_token
-                .context("the lakehouse catalog token is required")?,
-            s3_endpoint: storage.endpoint,
-            s3_access_key_id: storage.access_key_id,
-            s3_secret_access_key: storage.secret_access_key,
-        })
-    }
-    /// [`Self::with_reader_keys_from_env`] with the catalog of [`read_catalog_config`]: what a step
-    /// that only reads uses, so a verdict run holding the reader credentials alone runs the step's
-    /// own code (`load-industrial-complex-silver`, the FLOOR history check and its dry load).
-    ///
-    /// # Errors
-    /// Returns an error when a setting is missing; the error never carries a credential.
-    pub fn read_only_from_env() -> anyhow::Result<Self> {
-        let catalog = read_catalog_config()?;
-        let storage =
-            foundation_outbox::object_storage::R2ObjectStorageConfig::lakehouse_reader_from_env()
-                .context(
-                "failed to configure lakehouse R2 reads with the reader pair for a DuckDB read",
-            )?;
-        Ok(Self {
-            extensions: crate::duckdb_extensions::release_directory()?,
-            catalog_uri: catalog.catalog_uri,
-            warehouse: catalog.warehouse,
-            catalog_token: catalog
-                .catalog_token
+                .clone()
                 .context("the lakehouse catalog token is required")?,
             s3_endpoint: storage.endpoint,
             s3_access_key_id: storage.access_key_id,
@@ -308,18 +289,23 @@ impl LakehouseRead {
     }
 }
 
-/// The catalog settings a step that only reads uses: the read-only token when the environment
-/// holds one (a verdict run with the reader credentials alone, root ADR-0247), the unit's own
-/// otherwise.
+/// The catalog settings a stage reads with: the read-only token when the environment holds one,
+/// the unit's own token otherwise.
+///
+/// The fallback is for the ai-server units that load no read-only catalog token (it lives in the
+/// `operations-map` group of `config/runtime-secrets.contract.json`); there `DuckDB` still cannot
+/// write, for the catalog is attached `READ_ONLY` and the data files are read with the read-only
+/// pair. An AWS task holds the read-only token, because [`LakehouseRead::requirements`] names it.
 ///
 /// # Errors
 /// Returns an error when a setting is missing or invalid.
 pub fn read_catalog_config() -> anyhow::Result<lakehouse_infrastructure::LakehouseCatalogConfig> {
+    use lakehouse_infrastructure::LakehouseCatalogConfig;
     Ok(
-        if std::env::var_os("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN").is_some() {
-            lakehouse_infrastructure::LakehouseCatalogConfig::reader_from_env()?
+        if std::env::var_os(LakehouseCatalogConfig::READER_TOKEN_ENV).is_some() {
+            LakehouseCatalogConfig::reader_from_env()?
         } else {
-            lakehouse_infrastructure::LakehouseCatalogConfig::from_env()?
+            LakehouseCatalogConfig::from_env()?
         },
     )
 }
@@ -385,7 +371,8 @@ impl DuckDbParquetStage {
     /// nothing is installed or auto-loaded. Unlike [`Self::open`] the database is a file in the
     /// stage directory, so a group's intermediate tables spill to disk instead of the buffer
     /// (root ADR-0559 §7), and external access stays on: reading R2 is the point. The reads are
-    /// by the keys given, never by credentials the catalog vends (a read token is refused them).
+    /// by the keys given, never by credentials the catalog vends (a read token is refused them),
+    /// and the catalog is attached [`LAKEHOUSE_ACCESS`]: no statement of the stage can write it.
     ///
     /// # Errors
     /// Returns an error when the directory cannot be made, an extension does not load, a setting
@@ -427,10 +414,7 @@ impl DuckDbParquetStage {
             ))
             .map_err(|_| anyhow::anyhow!("DuckDB refused the lakehouse credentials"))?;
         connection
-            .execute_batch(&format!(
-                "ATTACH '{}' AS {LAKEHOUSE_CATALOG} (TYPE iceberg, ENDPOINT '{}', ACCESS_DELEGATION_MODE 'none')",
-                read.warehouse, read.catalog_uri
-            ))
+            .execute_batch(&attach_lakehouse(&read.warehouse, &read.catalog_uri))
             .map_err(|_| anyhow::anyhow!("DuckDB could not attach the lakehouse catalog"))?;
         Ok(Self {
             connection,

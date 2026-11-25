@@ -7,10 +7,8 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use anyhow::Context;
-use foundation_outbox::object_storage::R2ObjectStorageConfig;
-use foundation_publisher_silver::{
-    duckdb_extensions,
-    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
+use foundation_publisher_silver::duckdb_parquet_stage::{
+    DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
 };
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 
@@ -27,21 +25,10 @@ impl LakehouseReader {
     pub(crate) fn open(work: &Path) -> anyhow::Result<Self> {
         let catalog = LakehouseCatalogConfig::reader_from_env()
             .context("failed to configure the lakehouse catalog with its read-only token")?;
-        let storage = R2ObjectStorageConfig::lakehouse_reader_from_env()
-            .context("failed to configure lakehouse reads with the read-only key pair")?;
-        let read = LakehouseRead {
-            extensions: duckdb_extensions::release_directory()?,
-            catalog_uri: catalog.catalog_uri.clone(),
-            warehouse: catalog.warehouse.clone(),
-            catalog_token: catalog
-                .catalog_token
-                .clone()
-                .context("the lakehouse catalog's read-only token is required")?,
-            s3_endpoint: storage.endpoint,
-            s3_access_key_id: storage.access_key_id,
-            s3_secret_access_key: storage.secret_access_key,
-        };
-        let stage = DuckDbParquetStage::open_reading_lakehouse(work, &read)?;
+        let stage = DuckDbParquetStage::open_reading_lakehouse(
+            work,
+            &LakehouseRead::with_catalog(&catalog)?,
+        )?;
         Ok(Self {
             catalog: IcebergRestCatalog::new(catalog)
                 .context("failed to build the Iceberg catalog client")?,

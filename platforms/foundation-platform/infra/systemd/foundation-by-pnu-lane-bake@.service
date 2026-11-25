@@ -18,6 +18,7 @@ WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 EnvironmentFile=-/etc/foundation-platform/by-pnu-bake.env
 # The own-producer lane %i, baked alone (root ADR-0303 §2); one instance per lane (root ADR-0418 §8b).
 ExecStart=/opt/foundation-platform/current/scripts/ops/by-pnu-serving-bake.sh %i

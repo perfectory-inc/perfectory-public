@@ -17,7 +17,7 @@ use std::{
 use anyhow::{ensure, Context};
 use foundation_publisher_silver::{
     duckdb::Connection,
-    duckdb_parquet_stage::{DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
     parcel_boundary_served_stage::{handoff_line, GEOMETRY_SRID, UNIT},
     parcel_nearby_stage::{NearbyPins, Source},
 };
@@ -26,7 +26,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::{
-    gold_versions_support::{contract, lakehouse_reader_read},
+    gold_versions_support::contract,
     kind_versions_build::{sido_range, BOUNDARY_SERVED_BUILD},
     public_data_control_support::{optional_env_value, required_env_value},
 };
@@ -159,8 +159,10 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let stage =
-        DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_reader_read(&catalog_config)?)?;
+    let stage = DuckDbParquetStage::open_reading_lakehouse(
+        work,
+        &LakehouseRead::with_catalog(&catalog_config)?,
+    )?;
     let connection = stage.connection();
     let columns = COLUMNS.join(", ");
     // The served rows of one 시도, as a relation: the rehearsal's file, or the snapshot's current rows.

@@ -33,7 +33,9 @@ use anyhow::{ensure, Context};
 use foundation_publisher_core::lakehouse_data_commit::LakehouseDataCommitter;
 use foundation_publisher_silver::{
     duckdb::params,
-    duckdb_parquet_stage::{with_contract_columns, DuckDbParquetStage, LAKEHOUSE_CATALOG},
+    duckdb_parquet_stage::{
+        with_contract_columns, DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG,
+    },
     kind_versions_stage::ensure_no_commit_tables,
     lineage_review_queue_stage::{
         self as queue, load_review_lineage, load_unresolved, parcel_items, place_reference_items,
@@ -52,7 +54,7 @@ use crate::{
         FINGERPRINT_PROPERTY, KEYS_CHANGED_PROPERTY, SOURCE_SNAPSHOTS_PROPERTY,
         VERSION_SEQ_PROPERTY,
     },
-    gold_versions_support::{contract, lakehouse_read, write_summary},
+    gold_versions_support::{contract, write_summary},
     public_data_control_support::required_env_value,
 };
 
@@ -174,7 +176,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
+    let duck = DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)?;
     let memory_limit = duck.memory_limit_bytes()?;
     let connection = duck.connection();
     let new_pins = NearbyPins(pins.clone());

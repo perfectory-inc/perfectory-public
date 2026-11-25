@@ -330,7 +330,7 @@ fn keep_for_verdict(work: &Path, files: &[StagedFile]) -> anyhow::Result<()> {
 /// Loads the edition `source_snapshot_id` the export wrote under `handoff`, in `work`.
 ///
 /// Without `live` nothing is committed: the rows are checked and staged with the read-only
-/// credentials (`LakehouseRead::read_only_from_env`), the staged files are kept under
+/// credentials (`LakehouseRead::from_env`), the staged files are kept under
 /// [`VERDICT_STAGED`] in `work`, and the summary says what would have been appended (the engine
 /// verdict runs this).
 ///
@@ -375,8 +375,7 @@ pub async fn load(
         None => contract_shape(contract)?,
     };
     // The stage (and its staged files) lives until the commit has uploaded them.
-    let stage =
-        DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::read_only_from_env()?)?;
+    let stage = DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)?;
     let staged = stage_edition(
         &stage,
         contract,
