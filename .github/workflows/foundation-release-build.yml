@@ -139,7 +139,8 @@ jobs:
   # job: the same workflow, so the same certificate identity the release is verified by. It starts
   # after the release is published and never holds it back.
   aws-images:
-    needs: [build]
+    needs: [scope, build]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Build and attest the AWS images
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 150
