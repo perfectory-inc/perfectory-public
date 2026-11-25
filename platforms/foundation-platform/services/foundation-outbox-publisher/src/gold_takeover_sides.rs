@@ -43,6 +43,7 @@ use foundation_publisher_by_pnu::building_by_pnu_serving_export::section_packs::
 use crate::{
     gold_documents_check::{DocumentCheck, DocumentRules},
     gold_versions_commit::{shadow_of, Shadow, PER_COMMIT_STAMPS, SOURCE_SNAPSHOTS_PROPERTY},
+    kind_versions_build::{Partitioning, KIND_BUILDS},
     public_data_control_support::{optional_env_value, required_env_value},
 };
 
@@ -62,6 +63,8 @@ const BUILD_STAMPS: &[(&str, &[&str])] = &[
     // The place-id release's run (`parcel-<run>`, `admin-<run>`): the versions tables stamp their own.
     ("gold.place_id_registry", &["release_id"]),
     ("gold.place_id_bridge", &["release_id"]),
+    // The Silver snapshot the industrial-complex catalog's build read, on every row it wrote.
+    ("gold.complex_catalog", &["iceberg_snapshot_id"]),
 ];
 /// The row digest (root ADR-0099): a hash of the bytes a build wrote, which two engines need not
 /// write alike. The verdict compares the content it stands for, as values, and not the digest.
@@ -76,18 +79,32 @@ const SIDO_COLUMNS: [&str; 4] = ["pnu", "region_code", "subject_code", "scope"];
 /// The id a region labelled by `scope` is cut by when a side is read ([`values::Parts::Labelled`]).
 const LABELLED_ID: &str = "place_id";
 
-/// The first of [`SIDO_COLUMNS`] the key holds: the column a side's rows are read by.
-fn sido_column(keys: &[&str]) -> anyhow::Result<&'static str> {
-    SIDO_COLUMNS
+/// The column a side's rows are read by: the first of [`SIDO_COLUMNS`] the key holds, or, for a
+/// whole-table lane whose key names no 시도 (the industrial-complex catalog's complex), the content
+/// column the lane declares (root ADR-0615, revision 2026-11-26).
+fn sido_column(table: &str, keys: &[&str]) -> anyhow::Result<&'static str> {
+    if let Some(column) = SIDO_COLUMNS
         .into_iter()
         .find(|column| keys.contains(column))
-        .with_context(|| format!("no key of {keys:?} holds a 시도 code ({SIDO_COLUMNS:?})"))
+    {
+        return Ok(column);
+    }
+    KIND_BUILDS
+        .iter()
+        .find(|kind| kind.table == table)
+        .and_then(|kind| match kind.partitioning {
+            Partitioning::Whole { sido_column, .. } => Some(sido_column),
+            Partitioning::Sido { .. } => None,
+        })
+        .with_context(|| {
+            format!("no key of {keys:?} holds a 시도 code ({SIDO_COLUMNS:?}) and {table} declares no 시도 column")
+        })
 }
 
 /// How a side is read a part at a time: a 시군구 of its 시도 code, or a region label and the first
 /// character of its ids.
-fn parts(keys: &[&str]) -> anyhow::Result<values::Parts> {
-    let column = sido_column(keys)?;
+fn parts(table: &str, keys: &[&str]) -> anyhow::Result<values::Parts> {
+    let column = sido_column(table, keys)?;
     if column != "scope" {
         return Ok(values::Parts::Code(column));
     }
@@ -103,14 +120,14 @@ fn parts(keys: &[&str]) -> anyhow::Result<values::Parts> {
 
 /// The predicate that keeps the rows of `sido` (two digits) by [`sido_column`], as a range so
 /// `DuckDB` skips the files whose bounds lie outside it.
-fn sido_predicate(keys: &[&str], sido: &str) -> anyhow::Result<String> {
+fn sido_predicate(table: &str, keys: &[&str], sido: &str) -> anyhow::Result<String> {
     let number: u8 = sido
         .parse()
         .ok()
         .filter(|_| sido.len() == 2 && sido.bytes().all(|byte| byte.is_ascii_digit()))
         .with_context(|| format!("the 시도 {sido:?} is not a two-digit code"))?;
     ensure!(number < 99, "the 시도 {sido} has no next code to bound it");
-    let column = sido_column(keys)?;
+    let column = sido_column(table, keys)?;
     Ok(format!(
         "({column} >= '{sido}' AND {column} < '{:02}')",
         number + 1
@@ -315,9 +332,9 @@ pub(crate) async fn export() -> anyhow::Result<()> {
         "{replaced_name}'s columns lack its key {:?}",
         latest.key
     );
-    let parts = parts(latest.key)?;
+    let parts = parts(&table, latest.key)?;
     // A 시도 that is not two digits, or the last code, is refused before anything is read.
-    sido_predicate(latest.key, &sido)?;
+    sido_predicate(&table, latest.key, &sido)?;
     // Loaded before the DuckDB session opens: the session is not `Send` across an await.
     let rules = DocumentRules::load(replaced_name).await?;
     let work = Path::new(&work);
@@ -612,33 +629,41 @@ mod tests {
     #[test]
     fn a_verdict_reads_one_sido_by_the_key_that_holds_it() -> anyhow::Result<()> {
         assert_eq!(
-            sido_predicate(&["pnu"], "41")?,
+            sido_predicate("", &["pnu"], "41")?,
             "(pnu >= '41' AND pnu < '42')"
         );
         assert_eq!(
-            sido_predicate(&["dataset_slug", "region_level", "region_code"], "09")?,
+            sido_predicate("", &["dataset_slug", "region_level", "region_code"], "09")?,
             "(region_code >= '09' AND region_code < '10')"
         );
-        assert!(sido_predicate(&["complex_id"], "41").is_err());
+        assert!(sido_predicate("", &["complex_id"], "41").is_err());
+        // A whole-table lane whose key names no 시도 is read by the column it declares.
+        assert_eq!(
+            sido_predicate("gold.complex_catalog_versions", &["complex_id"], "41")?,
+            "(sido_code >= '41' AND sido_code < '42')"
+        );
         for bad in ["4", "411", "4'", "ab", "+1", "99"] {
-            assert!(sido_predicate(&["pnu"], bad).is_err(), "{bad} was taken");
+            assert!(
+                sido_predicate("", &["pnu"], bad).is_err(),
+                "{bad} was taken"
+            );
         }
         // The place-id release: the parcel unit's region is its `scope`, the admin unit's `national`
         // falls outside every 시도; a region is read a character of its ids at a time.
         let registry = ["unit", "scope", "place_id"];
         assert_eq!(
-            sido_predicate(&registry, "41")?,
+            sido_predicate("", &registry, "41")?,
             "(scope >= '41' AND scope < '42')"
         );
         assert_eq!(
-            parts(&registry)?,
+            parts("", &registry)?,
             values::Parts::Labelled {
                 label: "scope",
                 id: "place_id"
             }
         );
-        assert_eq!(parts(&["pnu"])?, values::Parts::Code("pnu"));
-        assert!(parts(&["unit", "scope"]).is_err());
+        assert_eq!(parts("", &["pnu"])?, values::Parts::Code("pnu"));
+        assert!(parts("", &["unit", "scope"]).is_err());
         Ok(())
     }
 
@@ -661,7 +686,7 @@ mod tests {
                ('d', 'legal_dong', '4199900000', 'month', '209901', 3, 2, 'removed'), \
                ('d', 'sigungu', '11999', 'month', '209901', 4, 1, NULL);",
         )?;
-        let predicate = sido_predicate(latest.key, "41")?;
+        let predicate = sido_predicate("", latest.key, "41")?;
         let mut columns: Vec<&str> = latest.key.to_vec();
         columns.push("n");
         let query = latest.current_rows_sql("v", &columns, &predicate);
@@ -670,7 +695,7 @@ mod tests {
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<_, _>>()?;
         assert_eq!(kept, [("41999".to_owned(), 2)]);
-        assert_eq!(sido_column(latest.key)?, "region_code");
+        assert_eq!(sido_column("", latest.key)?, "region_code");
         Ok(())
     }
 

@@ -31,6 +31,10 @@ pub const GOLD_VERSIONS_REMOVAL_COLUMN: &str = "row_state";
 pub const GOLD_VERSIONS_PNU_PARTITION: &str = "truncate(2, pnu)";
 /// The partition column a replaced Gold has per commit, which its versions table drops.
 const PER_COMMIT_PARTITION: &str = "source_snapshot_id";
+/// The replaced Golds whose versions table has no partition: not keyed by PNU, partitioned per
+/// commit only, and small enough that every reader reads them whole and a build commits them in one
+/// pass. The industrial-complex catalog: 1,442 rows, about 0.6 MB (2026-11-22).
+const UNPARTITIONED: &[&str] = &["gold.complex_catalog"];
 /// The digest of a row's content a commit diffs by: a key is appended when it moved (root ADR-0564
 /// §3, ADR-0099).
 pub const GOLD_VERSIONS_DIGEST_COLUMN: &str = "row_digest";
@@ -49,7 +53,8 @@ fn leak_slice<T>(values: Vec<T>) -> &'static [T] {
 ///
 /// # Errors
 /// Refuses a table that is not a Gold a load replaces rows of by a column key, one that already
-/// has a `version_seq` or `row_state` column, and one left with no partition.
+/// has a `version_seq` or `row_state` column, and one left with no partition that is not declared
+/// small enough to have none.
 pub fn gold_versions_table(
     replaced: &LakehouseTableContract,
 ) -> Result<LakehouseTableContract, String> {
@@ -111,7 +116,7 @@ pub fn gold_versions_table(
             .filter(|column| *column != PER_COMMIT_PARTITION)
             .collect()
     };
-    if partition_spec.is_empty() {
+    if partition_spec.is_empty() && !UNPARTITIONED.contains(&name) {
         return Err(format!(
             "{name} is partitioned by commit only and its key does not start with pnu: its versions \
              table has no partition"
@@ -163,7 +168,8 @@ pub fn gold_versions_table(
 /// the lanes name as constants, not by a kind line (`by_pnu_lanes`). The steward queue is read by the steward
 /// database through its handoff, which the queue's producer writes (root ADR-0115 §9). The place-id
 /// release's registry and bridge are keyed by (unit, scope, id): every kind row's `place_id` is read
-/// from the bridge (`place_id_join`), so they switch with that one reader (root ADR-0483).
+/// from the bridge (`place_id_join`), so they switch with that one reader (root ADR-0483). The
+/// industrial-complex catalog is read whole by the canonical load and the profile and edge exports.
 const VERSIONED_OUTSIDE_THE_LANES: &[&LakehouseTableContract] = &[
     &crate::real_transaction_region_stats::GOLD_REAL_TRANSACTION_REGION_STATS,
     &crate::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED,
@@ -172,6 +178,7 @@ const VERSIONED_OUTSIDE_THE_LANES: &[&LakehouseTableContract] = &[
     &crate::unit_price_panel::GOLD_UNIT_PRICE_PANEL,
     &crate::lakehouse::GOLD_PLACE_ID_REGISTRY,
     &crate::lakehouse::GOLD_PLACE_ID_BRIDGE,
+    &crate::lakehouse::GOLD_COMPLEX_CATALOG,
 ];
 
 /// The versions tables of the Golds outside the by-PNU lanes; empty when one cannot be derived
@@ -366,6 +373,21 @@ mod tests {
         expected.extend(["row_digest", "version_seq", "row_state"]);
         assert_eq!(names, expected);
         assert_eq!(table.partition_spec, [GOLD_VERSIONS_PNU_PARTITION]);
+        assert!(table.quality_gates.contains(&ADDED_DIGEST_GATE));
+        Ok(())
+    }
+
+    #[test]
+    fn the_complex_catalog_has_an_unpartitioned_versions_table() -> Result<(), String> {
+        let table = gold_versions_tables_outside_the_lanes()
+            .iter()
+            .find(|table| table.table_name == "gold.complex_catalog_versions")
+            .ok_or("the industrial-complex catalog has no versions table")?;
+        assert!(table.partition_spec.is_empty());
+        assert_eq!(
+            table.current_row_latest().map(|latest| latest.key),
+            Some(["complex_id"].as_slice())
+        );
         assert!(table.quality_gates.contains(&ADDED_DIGEST_GATE));
         Ok(())
     }

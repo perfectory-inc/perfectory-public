@@ -27,6 +27,8 @@
 # 옛 표의 마지막 발행이 읽은 입력으로; ADR-0564 §6-9).
 # unit-official-price → build-unit-official-price-versions (root ADR-0317 §6: Spark 조합 unit_official_price.py 의
 # 그림자 — 표는 이행이 쓰므로 아무것도 쓰지 않고, 판정이 가장 새 배치를 그 배치의 핀으로 다시 조합해 Spark 의 행과 맞춘다).
+# complex-catalog → build-complex-catalog-versions (root ADR-0426: 산업단지 목록, 1,442행이라 시도 고리 없이 한 번에;
+# 손으로 지은 옛 표라 태그가 없어 같은 길로 가장 새 커밋과 그 시각의 입력을 따른다).
 # 그림자 커밋 뒤에는(그리고 그 머리의 판정이 끝까지 돌 때까지 다음 실행마다) 같은 유닛이 넘겨받기 판정
 # (gold-takeover-verdict.sh)을 선언된 시도에서 돌려 Dagster 의 자산 검사 `takeover_equal` 로 알린다(journal 의
 # Pipes 줄, orchestration/dagster/takeover_checks.py; ADR-0564 §6-3). 판정의 실패는 검사의 것이고 빌드의 커밋은 선다.
@@ -50,6 +52,7 @@ case "${lane}" in
   unit-price) command=build-unit-price-versions ;;
   place-id) command=build-place-id-versions ;;
   unit-official-price) command=build-unit-official-price-versions ;;
+  complex-catalog) command=build-complex-catalog-versions ;;
   *) echo "gold-versions-build: ${lane} has no table of appended row versions the publisher builds" >&2; exit 64 ;;
 esac
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current

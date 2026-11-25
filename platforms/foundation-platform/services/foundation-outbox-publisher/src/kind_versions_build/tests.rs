@@ -59,11 +59,14 @@ const LANES: [&KindBuild; 14] = [
 #[test]
 fn every_lane_s_stage_carries_the_place_id_its_table_has() -> anyhow::Result<()> {
     for kind in LANES {
+        let stage = kind
+            .sido_stage()
+            .context("a lane of LANES is partitioned by 시도")?;
         let has = contract(kind.replaced)?
             .columns
             .iter()
             .any(|column| column.name == "place_id");
-        assert_eq!(has, kind.stage.carries_place_id(), "{}", kind.table);
+        assert_eq!(has, stage.carries_place_id(), "{}", kind.table);
     }
     Ok(())
 }
@@ -97,19 +100,26 @@ fn an_explanation_is_judged_only_where_it_alone_can_explain() {
 fn what_a_lane_declares_beyond_its_sql_fits_how_it_commits() -> anyhow::Result<()> {
     let rebuild: Value = serde_json::from_str(REBUILD_CONTRACT)?;
     for kind in LANES {
-        let national = kind.stage.national_checks();
-        if kind.per_sido_commits {
+        let Partitioning::Sido {
+            stage,
+            per_sido_commits,
+        } = kind.partitioning
+        else {
+            anyhow::bail!("{} is a lane of LANES, partitioned by 시도", kind.table);
+        };
+        let national = stage.national_checks();
+        if per_sido_commits {
             assert!(national.is_empty(), "{}", kind.table);
-            assert!(kind.stage.batch_input().is_none(), "{}", kind.table);
-            assert!(kind.stage.change_explanation().is_none(), "{}", kind.table);
+            assert!(stage.batch_input().is_none(), "{}", kind.table);
+            assert!(stage.change_explanation().is_none(), "{}", kind.table);
         }
-        if let Some(explanation) = kind.stage.change_explanation() {
+        if let Some(explanation) = stage.change_explanation() {
             assert!(
                 explanation
                     .moved
                     .iter()
-                    .all(|input| kind.stage.inputs().contains(input)
-                        && !kind.stage.whole_table_inputs().contains(input)),
+                    .all(|input| stage.inputs().contains(input)
+                        && !stage.whole_table_inputs().contains(input)),
                 "{} explains a move a partial run never sees",
                 kind.table
             );
@@ -122,13 +132,13 @@ fn what_a_lane_declares_beyond_its_sql_fits_how_it_commits() -> anyhow::Result<(
                 kind.replaced
             );
         }
-        if let Some(batch) = kind.stage.batch_input() {
-            assert!(kind.stage.inputs().contains(&batch.input), "{}", kind.table);
+        if let Some(batch) = stage.batch_input() {
+            assert!(stage.inputs().contains(&batch.input), "{}", kind.table);
         }
         // A ranged read has no spool a partial run could compare: its input is whole-table.
-        for read in kind.stage.ranged_reads() {
+        for read in stage.ranged_reads() {
             assert!(
-                kind.stage.whole_table_inputs().contains(&read.input),
+                stage.whole_table_inputs().contains(&read.input),
                 "{} reads {} by its ranges",
                 kind.table,
                 read.input

@@ -51,24 +51,14 @@ pub(crate) fn declared(kind: &KindBuild) -> anyhow::Result<Vec<DeclaredCheck>> {
             blocking: true,
         });
     }
-    found.extend(
-        kind.stage
-            .result_checks()
-            .iter()
-            .map(|check| DeclaredCheck {
-                name: check.name,
-                blocking: check.blocking,
-            }),
-    );
-    found.extend(
-        kind.stage
-            .national_checks()
-            .iter()
-            .map(|check| DeclaredCheck {
-                name: check.name,
-                blocking: check.blocking,
-            }),
-    );
+    found.extend(kind.result_checks().iter().map(|check| DeclaredCheck {
+        name: check.name,
+        blocking: check.blocking,
+    }));
+    found.extend(kind.national_checks().iter().map(|check| DeclaredCheck {
+        name: check.name,
+        blocking: check.blocking,
+    }));
     Ok(found)
 }
 
@@ -117,7 +107,7 @@ fn rows_and_keys(table: &str, sido: &str, diff: &Diff) -> Value {
 /// holds, reports each ([`report`]; a run a check refuses writes no summary), adds them to
 /// `results` and returns the blocking ones that counted a row.
 pub(super) fn run_result_checks(
-    stage: &dyn KindVersionsStage,
+    lane_checks: &[foundation_publisher_silver::kind_versions_stage::ResultCheck],
     connection: &foundation_publisher_silver::duckdb::Connection,
     (table, sido): (&str, &str),
     diff: &Diff,
@@ -128,7 +118,7 @@ pub(super) fn run_result_checks(
     report(table, declared, &counts)?;
     results.push(counts);
     let mut refused = Vec::new();
-    for check in stage.result_checks() {
+    for check in lane_checks {
         let breaches: i64 = connection
             .query_row(&check.sql, [], |row| row.get(0))
             .with_context(|| format!("the check {} of {table} did not run", check.name))?;

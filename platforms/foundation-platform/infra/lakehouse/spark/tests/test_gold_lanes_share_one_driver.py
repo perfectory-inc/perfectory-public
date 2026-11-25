@@ -29,10 +29,12 @@ SKIPPED_DIRS = {"tests", "target"}
 # A spool written by partition, or a call of the shared commit's diff or staging.
 OWN_SPLIT = re.compile(r"PARTITION_BY|\bversions::diff\(|\bversions::stage\(")
 
-# The shared driver: the one spool by 시도 and the one loop that diffs and stages.
+# The shared driver: the one spool by 시도 and the one loop that diffs and stages, and its whole-table
+# path, the one diff of a table no PNU keys (ADR-0615, revision 2026-11-26).
 SHARED = {
     "crates/publisher/foundation-publisher-silver/src/kind_versions_stage.rs",
     "services/foundation-outbox-publisher/src/kind_versions_build.rs",
+    "services/foundation-outbox-publisher/src/kind_versions_build/whole.rs",
 }
 
 # What still does it on its own, and why. Each line goes when its lane moves onto the shared driver.

@@ -85,7 +85,7 @@ mod tests {
             );
             let names = names(one);
             assert_eq!(names.first(), Some(&"rows_and_keys"), "{}", kind.job);
-            for check in kind.stage.result_checks() {
+            for check in kind.result_checks() {
                 assert!(
                     names.contains(&check.name),
                     "{} lacks {}",
@@ -93,7 +93,7 @@ mod tests {
                     check.name
                 );
             }
-            for check in kind.stage.national_checks() {
+            for check in kind.national_checks() {
                 assert!(
                     names.contains(&check.name),
                     "{} lacks {}",
