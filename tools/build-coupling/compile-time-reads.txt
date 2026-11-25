@@ -33,6 +33,7 @@ platforms/foundation-platform/crates/normalization/foundation-normalization-infr
 platforms/foundation-platform/crates/normalization/foundation-normalization-infrastructure/tests/normalization_atomicity.rs:1
 platforms/foundation-platform/crates/normalization/foundation-normalization-infrastructure/tests/normalization_proposal_roundtrip.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/by_pnu_document_records.rs:2
+platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/bronze_line_objects.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/provider_acquisition_plan/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/rt_molit_real_transaction_collect.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/rt_molit_real_transaction_collect/tests.rs:2
