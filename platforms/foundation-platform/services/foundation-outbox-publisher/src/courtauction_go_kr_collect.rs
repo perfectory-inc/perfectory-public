@@ -28,29 +28,24 @@
 
 use std::{
     collections::BTreeMap,
-    io::Write as _,
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use anyhow::{bail, ensure, Context};
+use anyhow::{bail, Context};
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
-use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
+use collection_application::ports::BronzeIngestUnitOfWork;
 use collection_application::{
-    ask, plan_public_data_bulk_file, AskCounts, AskRules, AskTally, Asked, BronzeCommitter,
-    BronzePayload, CourtAuctionSessions, PaceGate, PlannedBronzeObject, PublicDataBulkFileIdentity,
-    PublicDataBulkFilePlan, PublicDataBulkFilePlanInput, SessionRecord, SiteMethod, SiteRequest,
+    ask, AskCounts, AskRules, AskTally, Asked, CourtAuctionSessions, PaceGate, SessionRecord,
+    SiteMethod, SiteRequest,
 };
 use collection_domain::court_auction::{BlockSignals, Pace, PaceRule, RecrawlRule};
-use collection_domain::{
-    source_slug, BronzeObject, IngestionRun, IngestionRunStatus, IngestionTrigger, SourceAuthKind,
-    SourceCatalogEntry, SourcePayloadFormat,
-};
+use collection_domain::{source_slug, SourceAuthKind, SourceCatalogEntry, SourcePayloadFormat};
 use collection_infrastructure::{
     BrowserSessionConfig, BrowserSessionPool, PgBronzeIngestUnitOfWork,
 };
 use foundation_outbox::ObjectStorageService;
-use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
+use foundation_shared_kernel::ids::SourceCatalogId;
 use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
@@ -58,9 +53,10 @@ use sqlx::PgPool;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use crate::bronze_line_objects::{JsonLinesWriter, LineObject, LineObjects, Target};
 use crate::bronze_object_storage::{
     live_write_bronze_object_storage_from_env, live_write_bronze_streaming_object_storage_from_env,
-    live_write_target_preflight, BronzeObjectStorageWriter,
+    live_write_target_preflight,
 };
 use crate::media_store::MediaStore;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
@@ -71,8 +67,6 @@ pub(crate) const CONTRACT_JSON: &str =
 const PROVIDER: &str = "courtauction.go.kr";
 const PREFIX: &str = "FOUNDATION_PLATFORM_COURT_AUCTION";
 const MANIFEST_SCHEMA: &str = "foundation-platform.courtauction_go_kr_collect.v2";
-const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
-const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
 const KST_HOURS: i64 = 9;
 /// This collection's job in orchestration/jobs.v1.json: its window override is `<switches>/<id>.window`.
 const JOB_ID: &str = "court_auction_collect";
@@ -529,115 +523,59 @@ pub(crate) async fn collect(
     Ok((results, stop))
 }
 
-pub(crate) fn gzip_lines(lines: &[String]) -> anyhow::Result<Vec<u8>> {
-    let mut gz = GzLines::default();
-    for line in lines {
-        gz.push(line)?;
-    }
-    gz.finish()
-}
-
-/// Bronze lines gzipped as they are added: a night's 물건상세 lines are held compressed until the
-/// commit, not as text. On 2026-11-12 the first night that asked every in-progress property held
-/// them as text and the unit was killed at its 1G cap after 2 h 9 min (memory peak 1,023.9M), so
-/// nothing of the night landed.
-pub(crate) struct GzLines {
-    encoder: flate2::write::GzEncoder<Vec<u8>>,
-    count: usize,
-}
-
-impl Default for GzLines {
-    fn default() -> Self {
-        Self {
-            encoder: flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()),
-            count: 0,
-        }
-    }
-}
-
-impl std::fmt::Debug for GzLines {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GzLines")
-            .field("count", &self.count)
-            .finish()
-    }
-}
-
-impl GzLines {
-    pub(crate) fn push(&mut self, line: &str) -> anyhow::Result<()> {
-        self.encoder.write_all(line.as_bytes())?;
-        self.encoder.write_all(b"\n")?;
-        self.count += 1;
-        Ok(())
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.count
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        self.count == 0
-    }
-
-    pub(crate) fn finish(self) -> anyhow::Result<Vec<u8>> {
-        Ok(self.encoder.finish()?)
-    }
-}
-
 /// The run's id and every object's `source_snapshot_id`: when the run started.
 pub(crate) fn run_id(at: DateTime<Utc>) -> String {
     at.format("%Y%m%dT%H%M%SZ").to_string()
 }
 
-pub(crate) fn plan(
-    search: &Search,
-    bytes: Vec<u8>,
-    run: IngestionRunId,
-    at: DateTime<Utc>,
-    part: Option<u32>,
-) -> anyhow::Result<PublicDataBulkFilePlan> {
-    // A run's 물건상세 lands in parts, each its own object; the run id stays the key's last part, as
-    // the Silver load reads it.
+/// The provider file id of a search's object of the run started `at`: `<dataset>-<run>`, or with
+/// its `part` `<dataset>-partNNNN-<run>`; the run id stays the key's last part, as the Silver load
+/// reads it.
+pub(crate) fn file_id(search: &Search, at: DateTime<Utc>, part: Option<u32>) -> String {
     let part = part.map(|n| format!("part{n:04}-")).unwrap_or_default();
-    let file_id = format!(
+    format!(
         "{}-{part}{}",
         search.dataset_slug.replace('_', "-"),
         run_id(at).to_ascii_lowercase()
-    );
-    plan_public_data_bulk_file(PublicDataBulkFilePlanInput {
-        source_slug: &source_slug(PROVIDER, &search.dataset_slug)?,
-        ingest_date: at.date_naive(),
-        ingestion_run_id: run,
-        identity: PublicDataBulkFileIdentity {
-            operation: search.operation.clone(),
-            provider_file_period: None,
-            provider_snapshot_date: Some(at.date_naive()),
-            provider_file_id: file_id.clone(),
-            provider_file_name: format!("{file_id}.gz"),
-            provider_updated_at: None,
-        },
-        raw_payload: bytes,
-        content_type: "application/gzip".to_owned(),
-    })
-    .with_context(|| {
-        format!(
-            "failed to plan the Bronze object for {}",
-            search.dataset_slug
-        )
-    })
+    )
 }
 
-fn write_local_copy(output_dir: &Path, plan: &PublicDataBulkFilePlan) -> anyhow::Result<String> {
-    let name = plan
-        .object_key
-        .as_str()
-        .rsplit('/')
-        .next()
-        .context("a Bronze object key has a leaf")?;
-    std::fs::create_dir_all(output_dir.join("objects"))?;
-    let relative = format!("objects/{name}");
-    std::fs::write(output_dir.join(&relative), &plan.raw_payload)?;
-    Ok(relative)
+/// The run's objects of one search, written through the one Bronze line writer (root ADR-0616
+/// §3-1): the 물건상세's objects carry a part number from the first (`parts`), every other search's
+/// only past its first. `night` is what each object records of the run as it closes.
+pub(crate) fn objects_of<'a, Uow, Storage>(
+    search: &'a Search,
+    at: DateTime<Utc>,
+    parts: bool,
+    night: impl Fn() -> JsonValue + Send + Sync + 'a,
+    output_dir: &'a Path,
+    live: Option<(&'a Uow, &'a Storage)>,
+) -> anyhow::Result<JsonLinesWriter<'a, Uow, Storage>>
+where
+    Uow: BronzeIngestUnitOfWork + ?Sized,
+    Storage: ObjectStorageService + ?Sized,
+{
+    JsonLinesWriter::new(
+        LineObjects {
+            source: source_catalog_entry(search, at)?,
+            operation: &search.operation,
+            collected_at: at,
+            file_id: Box::new(move |n| file_id(search, at, (parts || n > 0).then_some(n + 1))),
+            content_qualified: false,
+            params: Box::new(move || json!({ "night": night() })),
+        },
+        Target::of(live, output_dir),
+    )
+}
+
+/// An object's manifest entry.
+pub(crate) fn manifest_entry(object: &LineObject) -> JsonValue {
+    json!({
+        "object_key": object.object_key,
+        "checksum_sha256": object.checksum_sha256,
+        "local_path": object.local_path,
+        "written": object.written,
+    })
 }
 
 /// What the whole run did, recorded with every object it landed: requests, blocks and renewals
@@ -659,8 +597,8 @@ pub(crate) fn night_summary(
     })
 }
 
-/// Commits one search's object, with the night's summary in its ledger row and its run, and
-/// returns its manifest entry.
+/// Commits one search's lines as one object (a search is one group, never split), with the
+/// night's summary in its ledger row and its run, and returns its manifest entry.
 pub(crate) async fn persist<Uow, Storage>(
     search: &Search,
     output_dir: &Path,
@@ -673,109 +611,17 @@ where
     Uow: BronzeIngestUnitOfWork + ?Sized,
     Storage: ObjectStorageService + ?Sized,
 {
-    persist_gzipped(
-        search,
-        output_dir,
-        gzip_lines(lines)?,
-        lines.len(),
-        None,
-        at,
-        night,
-        live,
-    )
-    .await
-}
-
-/// [`persist`] for lines already gzipped (`count` of them).
-pub(crate) async fn persist_gzipped<Uow, Storage>(
-    search: &Search,
-    output_dir: &Path,
-    bytes: Vec<u8>,
-    count: usize,
-    part: Option<u32>,
-    at: DateTime<Utc>,
-    night: &JsonValue,
-    live: Option<(&Uow, &Storage)>,
-) -> anyhow::Result<JsonValue>
-where
-    Uow: BronzeIngestUnitOfWork + ?Sized,
-    Storage: ObjectStorageService + ?Sized,
-{
-    let Some((uow, storage)) = live else {
-        let plan = plan(search, bytes, IngestionRunId::new(Uuid::new_v4()), at, part)?;
-        let local = write_local_copy(output_dir, &plan)?;
-        return Ok(
-            json!({"object_key": plan.object_key.as_str(), "checksum_sha256": plan.checksum_sha256, "local_path": local, "written": false}),
-        );
-    };
-    let writer = BronzeObjectStorageWriter::new(storage);
-    let source = uow
-        .upsert_source_catalog_entry(&source_catalog_entry(search, at)?)
-        .await
-        .with_context(|| format!("failed to upsert the {} source", search.dataset_slug))?;
-    let run = uow
-        .create_ingestion_run(&ingestion_run(source.id, search, night, at))
-        .await
-        .with_context(|| format!("failed to create the {} run", search.dataset_slug))?;
-    let plan = plan(search, bytes, run.id, at, part)?;
-    let outcome = BRONZE_COMMITTER
-        .commit(
-            &writer,
-            uow,
-            PlannedBronzeObject {
-                object_key: plan.object_key.as_str().to_owned(),
-                payload: BronzePayload::InMemory(plan.raw_payload.clone()),
-                content_type: plan.content_type.clone(),
-                cache_control: BRONZE_CACHE_CONTROL.to_owned(),
-                checksum_sha256: plan.checksum_sha256.clone(),
-                record: BronzeObject {
-                    id: BronzeObjectId::new(Uuid::new_v4()),
-                    source_catalog_id: source.id,
-                    ingestion_run_id: run.id,
-                    source_record_id: None,
-                    source_partition_key: Some(plan.source_partition_key.clone()),
-                    source_identity_key: plan.source_identity_key.clone(),
-                    dedupe_key: plan.dedupe_key.clone(),
-                    request_params: with_night(&plan.request_params, count, night),
-                    object_key: plan.object_key.clone(),
-                    checksum_sha256: plan.checksum_sha256.clone(),
-                    content_type: plan.content_type.clone(),
-                    size_bytes: plan.size_bytes,
-                    logical_record_count: u64::try_from(count).ok(),
-                    collected_at: at,
-                    snapshot_period: plan.snapshot_period.clone(),
-                    snapshot_date: plan.snapshot_date,
-                    snapshot_granularity: plan.snapshot_granularity,
-                    snapshot_basis: plan.snapshot_basis,
-                    provider_file_id: None,
-                    provider_file_name: None,
-                    provider_updated_at: None,
-                    effective_date: None,
-                    created_at: at,
-                },
-            },
-        )
-        .await
-        .with_context(|| format!("failed to commit {}", plan.object_key.as_str()))?;
-    ensure!(
-        outcome.checksum_sha256 == plan.checksum_sha256,
-        "Bronze holds different bytes at {}",
-        plan.object_key.as_str()
-    );
-    let local = write_local_copy(output_dir, &plan)?;
-    uow.complete_ingestion_run(CompleteIngestionRunCommand {
-        id: run.id,
-        status: IngestionRunStatus::Succeeded,
-        finished_at: Utc::now(),
-        logical_records_seen: u64::try_from(count).unwrap_or(u64::MAX),
-        objects_written: 1,
-        error_message: None,
-    })
-    .await
-    .with_context(|| format!("failed to complete the {} run", search.dataset_slug))?;
-    Ok(
-        json!({"object_key": plan.object_key.as_str(), "checksum_sha256": plan.checksum_sha256, "local_path": local, "written": true}),
-    )
+    let mut objects = objects_of(search, at, false, || night.clone(), output_dir, live)?;
+    objects.push_group(lines).await?;
+    let landed = objects.finish().await?;
+    match landed.as_slice() {
+        [object] => Ok(manifest_entry(object)),
+        _ => bail!(
+            "{} landed as {} objects: one group is one object",
+            search.dataset_slug,
+            landed.len()
+        ),
+    }
 }
 
 fn source_catalog_entry(search: &Search, now: DateTime<Utc>) -> anyhow::Result<SourceCatalogEntry> {
@@ -800,43 +646,6 @@ fn source_catalog_entry(search: &Search, now: DateTime<Utc>) -> anyhow::Result<S
         updated_at: now,
         version: 1,
     })
-}
-
-/// The object's request parameters with the requests it holds and the night's summary.
-pub(crate) fn with_night(
-    params: &JsonValue,
-    requests_in_object: usize,
-    night: &JsonValue,
-) -> JsonValue {
-    let mut params = params.clone();
-    if let Some(map) = params.as_object_mut() {
-        map.insert("requests_in_object".to_owned(), json!(requests_in_object));
-        map.insert("night".to_owned(), night.clone());
-    }
-    params
-}
-
-fn ingestion_run(
-    source_catalog_id: SourceCatalogId,
-    search: &Search,
-    night: &JsonValue,
-    now: DateTime<Utc>,
-) -> IngestionRun {
-    IngestionRun {
-        id: IngestionRunId::new(Uuid::new_v4()),
-        source_catalog_id,
-        trigger: IngestionTrigger::Scheduled,
-        status: IngestionRunStatus::Running,
-        request_params: json!({"operation": search.operation, "night": night}),
-        started_at: now,
-        finished_at: None,
-        logical_records_seen: 0,
-        objects_written: 0,
-        error_message: None,
-        created_at: now,
-        updated_at: now,
-        version: 1,
-    }
 }
 
 struct Config {
@@ -1271,55 +1080,56 @@ pub async fn run() -> anyhow::Result<()> {
             prefix: detail::photo_prefix(&contract.item_detail)?,
             storage: live.map(|(_, s)| s),
         };
-        // Committed in parts of commit_every_lines, each its own object: a run killed at its memory
-        // cap or its unit's limit keeps every part it committed, and the next run's frontier (the
-        // Silver read record) asks only what is left (root ADR-0352).
-        let mut total = detail::DetailResult::default();
-        let mut parts = 0;
-        for chunk in asked.chunks(contract.item_detail.commit_every_lines.max(1)) {
-            let (result, detail_stop) = detail::collect_details(
-                &contract,
-                &asking,
-                detail_deadline,
-                chunk,
-                &store,
-                Utc::now,
-            )
-            .await?;
-            stop = detail_stop;
-            if !result.lines.is_empty() {
-                parts += 1;
-                let night = night_summary(
-                    asking.tally.counts(),
-                    &pool.sessions(),
-                    &failed,
-                    stop.as_ref(),
-                );
-                let count = result.lines.len();
-                let mut entry = persist_gzipped(
-                    &contract.item_detail.as_search(),
-                    &config.output_dir,
-                    result.lines.finish()?,
-                    count,
-                    Some(parts),
-                    started,
-                    &night,
-                    live,
+        // The 물건상세 go to Bronze as each property is read, one property one group: the writer
+        // closes an object every close_after_seconds (bronze-line-objects.contract.json), so a run
+        // killed at its memory cap or its unit's limit keeps every object it closed, and the next
+        // run's frontier (the Silver read record) asks only what is left (root ADR-0352). Each
+        // object records the night as it closes; the last one, the phase's stop.
+        let detail_search = contract.item_detail.as_search();
+        let detail_stop = std::sync::OnceLock::new();
+        let tally = &asking.tally;
+        let sessions = &pool;
+        let failed_so_far = &failed;
+        let mut writer = objects_of(
+            &detail_search,
+            started,
+            true,
+            || {
+                night_summary(
+                    tally.counts(),
+                    &sessions.sessions(),
+                    failed_so_far,
+                    detail_stop.get(),
                 )
-                .await?;
-                entry["role"] = json!("item_detail");
-                entry["complete"] = json!(stop.is_none());
-                entry["rows"] = json!(result.asked);
-                objects.push(entry);
-            }
-            total.asked += result.asked;
-            total.failed += result.failed;
-            total.photos.absorb(result.photos);
-            total.specs.extend(result.specs);
-            if stop.is_some() {
-                break;
-            }
+            },
+            &config.output_dir,
+            live,
+        )?;
+        let collected = detail::collect_details(
+            &contract,
+            &asking,
+            detail_deadline,
+            &asked,
+            &store,
+            Utc::now,
+            &mut writer,
+        )
+        .await;
+        if let Ok((_, Some(why))) = &collected {
+            let _ = detail_stop.set(why.clone());
         }
+        // What was read is committed, also when the phase failed part way.
+        let landed = writer.finish().await?;
+        let (total, phase_stop) = collected?;
+        stop = phase_stop;
+        for object in &landed {
+            let mut entry = manifest_entry(object);
+            entry["role"] = json!("item_detail");
+            entry["complete"] = json!(stop.is_none());
+            entry["rows"] = json!(object.lines);
+            objects.push(entry);
+        }
+        let parts = landed.len();
         report["asked"] = json!(total.asked);
         report["failed"] = json!(total.failed);
         report["photos"] = json!(total.photos);

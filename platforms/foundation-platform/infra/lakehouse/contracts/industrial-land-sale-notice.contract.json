@@ -1,7 +1,6 @@
 {
   "$comment": "산업용지 분양·처분·공급 공고와 그 첨부 수집의 계약(루트 ADR-0603). 원천 셋 — ILIS 분양공고(전국 등록부), 한국산업단지공단 임대/분양 게시판(공단 자체 단지, ILIS 에 없다), LH 토지 공고(data.go.kr OpenAPI) — 을 같은 꼴로 모은다: 목록에서 아직 끝나지 않은 공고를 새 것부터 묻고, 상세를 받은 그대로 Bronze 에 두고, 첨부는 형식에 상관없이 공용 내용주소 저장소에 한 번만 담는다(ADR-0298, ADR-0484 §2). 수집기 collect-industrial-land-sale-notices(작업 industrial_land_sale_notice_<source>_collect)와 Silver 적재 load-industrial-land-sale-notice-silver(작업 industrial_land_sale_notice_silver)가 이 파일 하나를 읽는다. 글 꺼내기·추출은 여기 없다(ADR-0484 §1).",
   "request_spacing_ms": 0,
-  "commit_every": 50,
   "$stall_minutes": "실행의 유일한 한계(유닛의 TimeoutStartSec 말고): 이 분 동안 아무것도 끝나지 않으면(목록 쪽 답 없음, 끝까지 읽힌 공고 없음) 읽은 묶음을 커밋하고 실패로 끝나 알린다(OnFailure). 실행마다의 공고 수·시간 상한은 없다 — 새 것을 다 모을 때까지 돈다(사장 2026-11-23, 루트 ADR-0603 개정). 요청 하나는 클라이언트가 끊는다(공장설립온라인·KICOX·LH 120 초, ILIS 3 분).",
   "stall_minutes": 15,
   "stop_after_consecutive_failures": 5,
@@ -135,7 +134,7 @@
     }
   },
   "silver_load": {
-    "$comment": "plan-silver-load-objects 가 읽은 기록 표가 아직 기록하지 않은 세 원천의 상세 Bronze 객체를 오래된 것부터 max_objects 개 받는다. 객체 하나 = 한 원천의 공고 commit_every 건. window_days 보다 오래 안 실린 객체가 있으면 적재가 실패해 알린다.",
+    "$comment": "plan-silver-load-objects 가 읽은 기록 표가 아직 기록하지 않은 세 원천의 상세 Bronze 객체를 오래된 것부터 max_objects 개 받는다. 객체 하나 = 한 원천의 한 run 에서 close_after_seconds(bronze-line-objects.contract.json) 동안 읽은 공고. window_days 보다 오래 안 실린 객체가 있으면 적재가 실패해 알린다.",
     "window_days": 3,
     "max_objects": 60
   }

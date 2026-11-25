@@ -1,0 +1,6 @@
+{
+  "$comment": "수집기가 만드는 gzip JSON Lines Bronze 객체의 쓰기 하나(루트 ADR-0616 §3-1; foundation-publisher-collection 의 bronze_line_objects). 수집기는 줄을 그룹 단위로 넘긴다(물건 하나의 물건상세, 고시 하나, 검색 하나 전체). 쓰기는 그룹을 나누지 않고, 채우던 객체의 첫 그룹에서 close_after_seconds 가 지나면 다음 그룹 경계에서 그 객체를 닫는다. Kinesis Data Firehose 의 BufferingHints.IntervalInSeconds, Kafka Connect S3 sink 의 rotate.interval.ms 와 같은 방식이다. 객체 하나는 BronzeCommitter 로 자기 ingestion run 안에서 커밋되므로, 중간에 죽은 run(메모리 초과·유닛 시간 한도·재시작)은 닫은 객체를 모두 지키고, 다음 run 의 frontier 는 남은 것만 묻는다. 멈춤·오류 경로도 읽은 것을 커밋한다. 이 값이 레인마다 있던 줄 수 기준(법원경매 item_detail.commit_every_lines 10,000, 산단 고시·분양 공고 commit_every 50)을 대신한다.",
+  "schema_version": "foundation-platform.bronze_line_objects.v1",
+  "$close_after_seconds": "1,800 초. 법원경매 물건상세는 run 의 시간 예산(collection.session.run_time_budget_seconds 16,000)에서 뒤의 세 단계 예산(sale_specifications·case_documents·appraisal_reports 각 1,800)을 뺀 10,600 초 안에서만 물으므로 하룻밤 객체가 10,600 ÷ 1,800 + 1 = 6 개 이하, silver_load.max_objects 7 안에 든다(courtauction 수집기 시험이 이 관계를 지킨다). 죽은 run 이 잃는 것은 많아야 30 분의 질의다.",
+  "close_after_seconds": 1800
+}

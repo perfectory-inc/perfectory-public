@@ -25,7 +25,7 @@
       "time_limit_minutes": 300,
       "memory_max": "2G",
       "memory_measured_peak": "1024M",
-      "memory_measured": "journal `memory peak` 2026-10-18..11-12: 534M on 2026-11-11 (lists + 1,800 물건상세), then 1,023.9M and oom-kill at the 1G cap on 2026-11-12 after 2 h 9 min, the first night that asked every in-progress property (root ADR-0540 §2) while holding its lines as text; the lines are now held gzipped (GzLines), and the cap leaves the lists (~0.5G) plus the night's compressed lines and in-flight answers room (foundation-court-auction-collect)",
+      "memory_measured": "journal `memory peak` 2026-10-18..11-12: 534M on 2026-11-11 (lists + 1,800 물건상세), then 1,023.9M and oom-kill at the 1G cap on 2026-11-12 after 2 h 9 min, the first night that asked every in-progress property (root ADR-0540 §2) while holding its lines as text; the lines now go gzipped to the one Bronze line writer as they come, which commits an object every close_after_seconds (bronze-line-objects.contract.json), and the cap leaves the lists (~0.5G) plus one open object's compressed lines and in-flight answers room (foundation-court-auction-collect)",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

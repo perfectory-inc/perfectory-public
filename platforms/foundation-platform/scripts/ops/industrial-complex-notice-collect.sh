@@ -4,7 +4,7 @@
 #
 # collect-industrial-complex-notice-attachments 가 고시 목록을 한 번에 받고, Silver 읽은 기록이 끝났다고 하지 않는
 # 고시를 새 것부터 계약(industryland-or-kr.contract.json notice_detail)의 상한·시간 예산 안에서 묻는다. 첨부는 형식에
-# 상관없이 공용 미디어 저장소에 내용 해시로 한 번만 담고, 상세는 commit_every 건마다 Bronze 객체 하나로 커밋한다.
+# 상관없이 공용 미디어 저장소에 내용 해시로 한 번만 담고, 상세는 Bronze 줄 쓰기 하나(bronze-line-objects.contract.json)가 close_after_seconds 마다 객체 하나로 커밋한다.
 # 상세를 하나도 못 읽은 실행만 실패로 끝난다.
 #
 # 적재로 넘기는 것은 없다. 적재(industrial_complex_notice_silver)는 R2 의 Bronze 와 Silver 표의 커밋 기록만 보고

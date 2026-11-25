@@ -5,10 +5,13 @@ use uuid::Uuid;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+use collection_infrastructure::PgBronzeIngestUnitOfWork;
+use foundation_outbox::ObjectStorageService;
+
 use super::{
-    fetch, fetch_past, fetch_standard, openapi_check, owed_past, pass_id, plan, provider_file_id,
-    read_columns, read_metadata, read_past_editions, selected, source_contract, Announced,
-    ContractFile, SourceContract, PREFIX,
+    fetch, fetch_past, fetch_standard, openapi_check, owed_past, pass_id, pass_objects, plan,
+    provider_file_id, read_columns, read_metadata, read_past_editions, selected, source_contract,
+    Announced, ContractFile, SourceContract, PREFIX,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -300,7 +303,7 @@ async fn a_standard_data_pass_asks_the_current_table_and_lands_only_when_its_row
     ];
     standard_download(school, 3, &[rows.to_vec()], &server).await?;
     let mut requests = 0;
-    let (announced, count, bytes) = fetch_standard(
+    let (announced, count, lines) = fetch_standard(
         &contract,
         school,
         &server.uri(),
@@ -314,10 +317,8 @@ async fn a_standard_data_pass_asks_the_current_table_and_lands_only_when_its_row
     // The edition is its rows, whatever order the pages give them in.
     let reordered = [rows[2].clone(), rows[0].clone(), rows[1].clone()];
     assert_eq!(announced.attach_file_id, pass_id(&reordered));
-    let mut text = String::new();
-    flate2::read::GzDecoder::new(bytes.as_slice()).read_to_string(&mut text)?;
-    let kinds = text
-        .lines()
+    let kinds = lines
+        .iter()
         .map(|line| Ok(serde_json::from_str::<serde_json::Value>(line)?["kind"].clone()))
         .collect::<anyhow::Result<Vec<_>>>()?;
     assert_eq!(
@@ -337,17 +338,31 @@ async fn a_standard_data_pass_asks_the_current_table_and_lands_only_when_its_row
     .is_none());
     let at =
         chrono::DateTime::parse_from_rfc3339("2099-01-02T03:04:05Z")?.with_timezone(&chrono::Utc);
-    let planned = plan(
+    let dir = tempfile::tempdir()?;
+    let mut objects = pass_objects::<PgBronzeIngestUnitOfWork, dyn ObjectStorageService>(
+        &contract,
         school,
-        bytes,
-        foundation_shared_kernel::ids::IngestionRunId::new(Uuid::new_v4()),
+        &announced,
         at,
+        dir.path(),
+        None,
     )?;
-    assert!(planned
+    objects.push_group(&lines).await?;
+    let landed = objects.finish().await?;
+    assert_eq!(landed.len(), 1, "a pass is one object");
+    assert!(landed[0]
         .object_key
-        .as_str()
         .starts_with("bronze/source=datagokr__school_location/school-location--sha256-"));
-    assert_eq!(planned.content_type, "application/gzip");
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(
+        std::fs::read(
+            dir.path()
+                .join(landed[0].local_path.as_deref().unwrap_or_default()),
+        )?
+        .as_slice(),
+    )
+    .read_to_string(&mut text)?;
+    assert_eq!(text, format!("{}\n", lines.join("\n")));
     Ok(())
 }
 

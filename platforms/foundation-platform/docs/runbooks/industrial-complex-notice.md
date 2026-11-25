@@ -14,7 +14,7 @@ last_reviewed: 2026-11-11
 
 | 작업 | 단위 | 하는 일 |
 |---|---|---|
-| `industrial_complex_notice_collect` (매시, default_pool) | `foundation-industrial-complex-notice-collect.service` → `scripts/ops/industrial-complex-notice-collect.sh` | `collect-industrial-complex-notice-attachments`: 고시 목록 한 번, `silver.industrial_complex_notice_detail` 이 끝났다고(read) 하지 않는 고시를 새 것부터 계약 `notice_detail` 상한·시간 예산 안에서. 첨부는 형식에 상관없이 공용 미디어 저장소 `sha256/<해시>.<확장자>` 에 한 번(CreateOnly), 상세는 `commit_every` 건마다 Bronze 객체 하나 |
+| `industrial_complex_notice_collect` (매시, default_pool) | `foundation-industrial-complex-notice-collect.service` → `scripts/ops/industrial-complex-notice-collect.sh` | `collect-industrial-complex-notice-attachments`: 고시 목록 한 번, `silver.industrial_complex_notice_detail` 이 끝났다고(read) 하지 않는 고시를 새 것부터 계약 `notice_detail` 상한·시간 예산 안에서. 첨부는 형식에 상관없이 공용 미디어 저장소 `sha256/<해시>.<확장자>` 에 한 번(CreateOnly), 상세는 고시 하나씩 Bronze 줄 쓰기에 넘기고, 쓰기가 `close_after_seconds`(`bronze-line-objects.contract.json`)마다 객체 하나를 커밋 |
 | `industrial_complex_notice_silver` (default_pool, 수집이 Bronze 를 바꾸면) | `foundation-industrial-complex-notice-silver-load.service` → `scripts/ops/industrial-complex-notice-silver-load.sh` | `plan-silver-load-objects` 가 읽은 기록 표가 아직 기록하지 않은 객체를 받고 발행기의 `load-industrial-complex-notice-silver`(발행기 안의 DuckDB, 루트 ADR-0559): 새것·바뀐 첨부 색인 → 읽은 기록, 객체마다 커밋(행이 없는 객체도 기록) |
 
 상태: `/var/lib/foundation-platform/industrial-complex-notice/`(`journal.log`, 실행마다 `runs/<실행>/run.log`).

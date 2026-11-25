@@ -65,7 +65,13 @@ fn the_contract_points_at_the_shared_media_store_and_its_list() -> anyhow::Resul
         contract.notice_detail.read_from,
         lakehouse_domain::SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL.table_name
     );
-    assert!(contract.notice_detail.commit_every <= contract.notice_detail.per_run_limit);
+    // A run's detail objects keep their key form: `<dataset>-<run>-NNN`.
+    let at =
+        chrono::DateTime::parse_from_rfc3339("2099-01-02T16:05:04Z")?.with_timezone(&chrono::Utc);
+    assert_eq!(
+        super::file_id(&contract.notice_detail, at, 0),
+        "industrial-complex-notice-detail-20990102t160504z-000"
+    );
     let payload = json!({"result": {"dataList": [{"ref_seq": 99_002}, {"ref_seq": "99001"}, {}]}});
     assert_eq!(
         listed_notices(&contract.notice_list, &payload)?,

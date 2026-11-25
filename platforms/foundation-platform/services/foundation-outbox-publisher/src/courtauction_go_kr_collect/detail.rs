@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, HashMap};
 use anyhow::Context as _;
 use base64::Engine as _;
 use chrono::{DateTime, NaiveDate, Utc};
+use collection_application::ports::BronzeIngestUnitOfWork;
 use collection_application::{ask, Asked, PaceGate, SiteMethod, SiteRequest};
 use collection_domain::court_auction::{due, fingerprint, CaseView, RecrawlRule};
 use foundation_outbox::ObjectStorageService;
@@ -31,6 +32,7 @@ use sha2::{Digest as _, Sha256};
 use tokio::time::Instant;
 
 use super::{may_ask, Asking, Collection, Search, SourceContract, Stop, KST_HOURS};
+use crate::bronze_line_objects::JsonLinesWriter;
 use crate::media_store::{store_bytes, Stored};
 
 #[derive(Clone, Debug, Deserialize)]
@@ -63,8 +65,6 @@ pub(crate) struct ItemDetail {
     pub(crate) status_field: String,
     pub(crate) result_pointer: String,
     pub(crate) per_run_limit: u32,
-    /// How many 물건상세 lines one Bronze object holds: the run commits each part as it fills.
-    pub(crate) commit_every_lines: usize,
     pub(crate) read_from: String,
     pub(crate) photos: PhotoFields,
 }
@@ -531,11 +531,9 @@ pub(crate) fn read_result(detail: &ItemDetail, body: &str) -> Result<JsonValue, 
     }
 }
 
-/// What the detail phase of one run did.
+/// What the detail phase of one run did; its lines went to Bronze as they came.
 #[derive(Debug, Default)]
 pub(crate) struct DetailResult {
-    /// The night's lines, gzipped as they come (a few MB of text each before the photos leave).
-    pub(crate) lines: super::GzLines,
     pub(crate) asked: u32,
     pub(crate) failed: u32,
     pub(crate) photos: PhotoReport,
@@ -700,16 +698,22 @@ async fn read_one(
 
 /// Asks the 물건상세 of `asked` until `deadline`, as many in flight as the detail's pace group
 /// allows, each answer read and its photos stored while the next are asked (root ADR-0540 §2; an
-/// answer is a few MB of base64, so only the ones in flight are held), and keeps the lines in the
-/// order asked. `now` is asked before every request, as the list searches do.
-pub(crate) async fn collect_details(
+/// answer is a few MB of base64, so only the ones in flight are held), and hands each property's
+/// line to `objects` as its own group, in the order asked. `now` is asked before every request, as
+/// the list searches do.
+pub(crate) async fn collect_details<Uow, Storage>(
     contract: &SourceContract,
     asking: &Asking<'_>,
     deadline: Instant,
     asked: &[Wanted],
     store: &PhotoStore<'_>,
     now: impl Fn() -> DateTime<Utc> + Sync,
-) -> anyhow::Result<(DetailResult, Option<Stop>)> {
+    objects: &mut JsonLinesWriter<'_, Uow, Storage>,
+) -> anyhow::Result<(DetailResult, Option<Stop>)>
+where
+    Uow: BronzeIngestUnitOfWork + ?Sized,
+    Storage: ObjectStorageService + ?Sized,
+{
     let detail = &contract.item_detail;
     let rule = contract
         .collection
@@ -763,7 +767,7 @@ pub(crate) async fn collect_details(
                 result.failed += u32::from(failed);
                 result.photos.absorb(photos);
                 result.specs.extend(spec.map(|spec| *spec));
-                result.lines.push(&line)?;
+                objects.push_group(&[line]).await?;
             }
         }
     }

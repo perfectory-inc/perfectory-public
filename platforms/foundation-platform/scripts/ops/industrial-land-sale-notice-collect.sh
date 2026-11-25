@@ -8,7 +8,7 @@
 #
 # collect-industrial-land-sale-notices 가 원천의 목록을 새 것부터 쪽마다 읽고, Silver 읽은 기록이 같은 목록 지문으로
 # 끝났다고 하지 않는 공고를 계약(industrial-land-sale-notice.contract.json)의 상한·시간 예산 안에서 묻는다. 첨부는
-# 형식에 상관없이 공용 미디어 저장소에 내용 해시로 한 번만 담고, 상세는 commit_every 건마다 Bronze 객체 하나로
+# 형식에 상관없이 공용 미디어 저장소에 내용 해시로 한 번만 담고, 상세는 Bronze 줄 쓰기 하나(bronze-line-objects.contract.json)가 close_after_seconds 마다 객체 하나로
 # 커밋한다. 상세를 하나도 못 읽은 실행만 실패로 끝난다. LH 는 서비스키(data-go-kr 그룹)가 없거나 게이트웨이가
 # 활용신청 전이라고 거부하면 아무것도 쓰기 전에 78 로 끝난다(사장 결정을 기다린다).
 #

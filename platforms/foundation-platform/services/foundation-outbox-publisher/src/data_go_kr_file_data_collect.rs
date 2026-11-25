@@ -56,11 +56,12 @@ use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::bronze_line_objects::{JsonLinesWriter, LineObjects, Target};
 use crate::bronze_object_storage::{
     live_write_bronze_object_storage_from_env, live_write_target_preflight,
     BronzeObjectStorageWriter,
 };
-use crate::data_go_kr_onbid_collect::{gzip_lines, read_answer, Answer, ResultCodes};
+use crate::data_go_kr_onbid_collect::{read_answer, Answer, ResultCodes};
 use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
 
@@ -450,8 +451,7 @@ async fn ask_standard(
 }
 
 /// Asks the current table of one `standard_pages` file and every page of its rows. `None` when its
-/// rows are the last landed pass's; otherwise the pass, its row count and every answer's raw line,
-/// gzipped.
+/// rows are the last landed pass's; otherwise the pass, its row count and every answer's raw line.
 pub(crate) async fn fetch_standard(
     contract: &SourceContract,
     file: &ContractFile,
@@ -459,7 +459,7 @@ pub(crate) async fn fetch_standard(
     spacing: ProviderRequestSpacing,
     requests: &mut usize,
     last: Option<&str>,
-) -> anyhow::Result<Option<(Announced, usize, Vec<u8>)>> {
+) -> anyhow::Result<Option<(Announced, usize, Vec<String>)>> {
     let slug = &file.dataset_slug;
     let standard = file
         .standard
@@ -537,7 +537,7 @@ pub(crate) async fn fetch_standard(
             updated_at: None,
         },
         items.len(),
-        gzip_lines(&lines)?,
+        lines,
     )))
 }
 
@@ -1050,8 +1050,8 @@ async fn collect_one(
     now: DateTime<Utc>,
 ) -> anyhow::Result<Option<JsonValue>> {
     let last = last_accepted(&config.state_dir, file)?;
-    let (fetched, openapi) = if file.format == FileFormat::StandardPages {
-        match fetch_standard(
+    let (mut entry, announced, openapi) = if file.format == FileFormat::StandardPages {
+        let Some((announced, rows, lines)) = fetch_standard(
             contract,
             file,
             &config.base_uri,
@@ -1060,24 +1060,23 @@ async fn collect_one(
             last.as_deref(),
         )
         .await?
-        {
-            Some((announced, rows, bytes)) => {
-                let check = openapi_check(
-                    contract,
-                    file,
-                    &config.openapi_base_uri,
-                    config.service_key.as_deref(),
-                    config.request_spacing,
-                    requests,
-                    rows,
-                )
-                .await;
-                (Some((announced, bytes)), Some(check))
-            }
-            None => (None, None),
-        }
+        else {
+            return Ok(None);
+        };
+        let check = openapi_check(
+            contract,
+            file,
+            &config.openapi_base_uri,
+            config.service_key.as_deref(),
+            config.request_spacing,
+            requests,
+            rows,
+        )
+        .await;
+        let entry = land_pass(contract, file, config, live, &announced, &lines, now).await?;
+        (entry, announced, Some(check))
     } else {
-        let fetched = fetch(
+        let Some((announced, bytes)) = fetch(
             contract,
             file,
             &config.base_uri,
@@ -1085,13 +1084,13 @@ async fn collect_one(
             requests,
             last.as_deref(),
         )
-        .await?;
-        (fetched, None)
+        .await?
+        else {
+            return Ok(None);
+        };
+        let entry = land(contract, file, config, live, &announced, bytes, now).await?;
+        (entry, announced, None)
     };
-    let Some((announced, bytes)) = fetched else {
-        return Ok(None);
-    };
-    let mut entry = land(contract, file, config, live, &announced, bytes, now).await?;
     if live.is_some() {
         let state = state_path(&config.state_dir, file);
         std::fs::create_dir_all(state.parent().context("a state file has a directory")?)?;
@@ -1161,6 +1160,83 @@ async fn collect_past(
         }
     }
     Ok(())
+}
+
+/// The objects of one `standard_pages` pass, written through the one Bronze line writer (root
+/// ADR-0616 §3-1) under the file's content-qualified key: the same rows again are the same object.
+pub(crate) fn pass_objects<'a, Uow, Storage>(
+    contract: &SourceContract,
+    file: &'a ContractFile,
+    announced: &Announced,
+    now: DateTime<Utc>,
+    output_dir: &'a Path,
+    live: Option<(&'a Uow, &'a Storage)>,
+) -> anyhow::Result<JsonLinesWriter<'a, Uow, Storage>>
+where
+    Uow: BronzeIngestUnitOfWork + ?Sized,
+    Storage: ObjectStorageService + ?Sized,
+{
+    let leaf = file.dataset_slug.replace('_', "-");
+    let pass = provider_file_id(file, announced);
+    JsonLinesWriter::new(
+        LineObjects {
+            source: source_catalog_entry(contract, file, now)?,
+            operation: &file.operation,
+            collected_at: now,
+            file_id: Box::new(move |_| leaf.clone()),
+            content_qualified: true,
+            params: Box::new(move || json!({ "pass": pass })),
+        },
+        Target::of(live, output_dir),
+    )
+}
+
+/// Lands one `standard_pages` pass: its answers' lines as one object (a pass is one group, never
+/// split), committed when the run writes, else written only.
+async fn land_pass(
+    contract: &SourceContract,
+    file: &ContractFile,
+    config: &Config,
+    live: Option<&Live>,
+    announced: &Announced,
+    lines: &[String],
+    now: DateTime<Utc>,
+) -> anyhow::Result<JsonValue> {
+    let mut objects = pass_objects(
+        contract,
+        file,
+        announced,
+        now,
+        &config.output_dir,
+        live.map(|live| (&live.uow, live.storage.as_ref())),
+    )?;
+    objects.push_group(lines).await?;
+    let landed = objects.finish().await?;
+    let [object] = landed.as_slice() else {
+        bail!(
+            "{} landed as {} objects: one pass is one object",
+            file.dataset_slug,
+            landed.len()
+        );
+    };
+    tracing::info!(
+        live_write = config.live_write,
+        dataset = %file.dataset_slug,
+        attach_file_id = %announced.attach_file_id,
+        "data.go.kr file collection landed a new edition"
+    );
+    Ok(json!({
+        "dataset_slug": file.dataset_slug,
+        "attach_file_id": announced.attach_file_id,
+        "provider_updated_at": announced.updated_at,
+        "size_bytes": object.size_bytes,
+        "object": {
+            "object_key": object.object_key,
+            "checksum_sha256": object.checksum_sha256,
+            "local_path": object.local_path,
+            "written": object.written,
+        },
+    }))
 }
 
 /// Lands one fetched file: committed to Bronze when the run writes, else planned and copied only.

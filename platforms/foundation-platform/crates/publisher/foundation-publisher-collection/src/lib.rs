@@ -34,6 +34,7 @@ use foundation_publisher_core::{
     free_space, public_data_control_support, r2_command_support, runtime_environment,
 };
 
+pub mod bronze_line_objects;
 pub mod bronze_object_members;
 pub mod bronze_object_storage;
 pub mod bronze_schema_profile;
