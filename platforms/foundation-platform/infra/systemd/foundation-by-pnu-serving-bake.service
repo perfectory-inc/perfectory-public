@@ -37,6 +37,7 @@ TimeoutStartSec=20h
 MemoryHigh=12902M
 MemoryMax=14G
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=4294967296
 MemorySwapMax=0
 # A lane killed at MemoryMax must not stop the other: by default systemd stops the whole unit when
 # one of its processes is OOM-killed. The killed lane still fails the unit, and resumes next run.

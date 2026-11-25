@@ -27,6 +27,7 @@ ReadWritePaths=/var/lib/foundation-platform/industrial-complex-notice
 MemoryHigh=460M
 MemoryMax=512M
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=4294967296
 
 [Install]
 WantedBy=multi-user.target

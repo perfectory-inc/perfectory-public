@@ -29,10 +29,12 @@ declared = load("declared_definitions_for_job_memory", "scripts/catalog/declared
 TEMPLATE = "foundation-x@.service"
 
 
-def job(job_id: str, service: str, memory_max: str | None, **more) -> dict:
+def job(job_id: str, service: str, memory_max: str | None, disk_max: str | None = "1G", **more) -> dict:
     item = {"id": job_id, "systemd_service": service, "time_limit_minutes": 60}
     if memory_max is not None:
         item.update({"memory_max": memory_max, "memory_measured": f"fixture {job_id}"})
+    if disk_max is not None:
+        item.update({"disk_max": disk_max, "disk_measured": f"fixture disk {job_id}"})
     item.update(more)
     return item
 
@@ -52,10 +54,26 @@ class TheJobStatesItsUnitsMemory(unittest.TestCase):
         declared.job_memory(built)
         section = built[declared.MEMORY]["systemd_units"]
         self.assertEqual(section["unit_files"][TEMPLATE],
-                         {"class": "batch", "memory_max": "8G", "measured": "fixture big"})
+                         {"class": "batch", "memory_max": "8G", "measured": "fixture big",
+                          "disk_max": "1G", "disk_measured": "fixture disk big"})
         self.assertEqual(section["unit_files"]["foundation-y.service"]["memory_max"], "512M")
         self.assertEqual(section["instances"], {"foundation-x@small.service": {
-            "class": "batch", "memory_max": "2G", "measured": "fixture small", "measured_peak": "1G"}})
+            "class": "batch", "memory_max": "2G", "measured": "fixture small", "measured_peak": "1G",
+            "disk_max": "1G", "disk_measured": "fixture disk small"}})
+
+    def test_a_template_holds_its_widest_disk_and_an_instance_that_holds_less_gets_its_own(self):
+        # root ADR-0622: the stage opens only where its job's disk_max fits; a template holds the most.
+        built = documents([job("wide", "foundation-x@wide.service", "8G", "17G"),
+                           job("narrow", "foundation-x@narrow.service", "8G", "2G")])
+        declared.job_memory(built)
+        section = built[declared.MEMORY]["systemd_units"]
+        self.assertEqual(section["unit_files"][TEMPLATE]["disk_max"], "17G")
+        self.assertEqual(list(section["instances"]), ["foundation-x@narrow.service"])
+        self.assertEqual(section["instances"]["foundation-x@narrow.service"]["disk_max"], "2G")
+
+    def test_a_job_without_its_disk_is_refused(self):
+        with self.assertRaisesRegex(declared.DefinitionError, "disk_max and disk_measured"):
+            declared.job_memory(documents([job("a", "foundation-y.service", "512M", None)]))
 
     def test_instances_at_the_templates_cap_need_no_entry_of_their_own(self):
         built = documents([job("a", "foundation-x@a.service", "8G"), job("b", "foundation-x@b.service", "8G")])

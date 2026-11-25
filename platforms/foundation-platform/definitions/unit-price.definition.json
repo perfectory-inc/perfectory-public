@@ -26,6 +26,8 @@
       "memory_max": "3G",
       "memory_measured_peak": "308M",
       "memory_measured": "journal `memory peak` 2026-10-18..11-08, 22 runs, highest 2026-11-08 (foundation-by-pnu-unit-price-bake)",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

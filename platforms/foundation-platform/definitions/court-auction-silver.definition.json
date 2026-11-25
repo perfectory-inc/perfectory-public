@@ -23,6 +23,8 @@
       "memory_max": "3G",
       "memory_measured_peak": "1073M",
       "memory_measured": "journal of run 20261122T131039Z (foundation-court-auction-silver-load), the first with the publisher's DuckDB load: memory_peak_bytes 1125220352 (1073 MiB) for the 공통코드, 감정평가서, 매각물건명세서 and 배당요구종기공고 objects. 3G stays until a run that also places the 물건 searches (place_identity_stage reads the served parcels and titles) is measured; then memory_max is set from it (root ADR-0455, ADR-0574)",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "object",
         "limits": [

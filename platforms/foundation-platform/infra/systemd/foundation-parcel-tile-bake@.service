@@ -44,3 +44,4 @@ ReadWritePaths=/data/foundation-platform/tile-bake
 MemoryHigh=1843M
 MemoryMax=2G
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=4294967296

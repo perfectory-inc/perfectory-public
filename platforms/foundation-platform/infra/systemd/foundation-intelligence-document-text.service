@@ -29,6 +29,7 @@ ReadWritePaths=/data/foundation-platform/intelligence-documents
 MemoryHigh=921M
 MemoryMax=1G
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=4294967296
 
 [Install]
 WantedBy=multi-user.target

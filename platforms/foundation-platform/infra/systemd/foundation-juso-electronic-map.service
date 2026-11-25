@@ -26,6 +26,7 @@ ReadWritePaths=/var/lib/foundation-platform/juso-electronic-map /data/foundation
 MemoryHigh=2764M
 MemoryMax=3G
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=1073741824
 
 [Install]
 WantedBy=multi-user.target

@@ -27,6 +27,7 @@ TimeoutStopSec=30
 MemoryHigh=460M
 MemoryMax=512M
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=1073741824
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

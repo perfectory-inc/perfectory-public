@@ -25,6 +25,7 @@ ProtectSystem=strict
 MemoryHigh=1152M
 MemoryMax=1280M
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=1073741824
 
 [Install]
 WantedBy=multi-user.target

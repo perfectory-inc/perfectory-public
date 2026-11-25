@@ -22,6 +22,8 @@
       "time_limit_minutes": 40,
       "memory_max": "3G",
       "memory_measured": "no run yet (added 2026-11-08, root ADR-0429); sized by its author for four 50-megapixel sources decoded and AV1-encoded at a time (root ADR-0427 §2); systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "object",
         "limits": [

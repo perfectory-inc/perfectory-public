@@ -361,7 +361,12 @@ sys.path.insert(0, ci)
 import unit_memory
 path = root / "tools/host-memory-budget.contract.json"
 contract = json.loads(path.read_text())
-files = {"fixture-job.service": json.loads(job_entry),
+job = json.loads(job_entry)
+# A job's unit also names the disk its DuckDB stage holds (root ADR-0622); null leaves it out.
+job.setdefault("disk_max", "1G")
+job.setdefault("disk_measured", "fixture")
+job = {key: value for key, value in job.items() if value is not None}
+files = {"fixture-job.service": job,
          "fixture-alert@.service": {"class": "control", "memory_max": "256M", "measured_peak": "20M", "measured": "fixture"}}
 if extra_entry:
     files.update(json.loads(extra_entry))
@@ -382,6 +387,10 @@ grep -qx 'MemoryHigh=921M' "$fixture/unit-memory/fixture-job.service" && grep -q
   echo "FAIL $name: the rendered job unit lacks MemoryHigh=921M or OOMScoreAdjust=500" >&2
   exit 1
 }
+grep -qx 'Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=1073741824' "$fixture/unit-memory/fixture-job.service" || {
+  echo "FAIL $name: the rendered job unit lacks its declared disk (root ADR-0622)" >&2
+  exit 1
+}
 grep -q '^Memory' < <(sed -n '/^\[Install\]/,$p' "$fixture/unit-memory/fixture-job.service") && {
   echo "FAIL $name: memory lines rendered outside [Service]" >&2
   exit 1
@@ -395,6 +404,8 @@ printf '[Service]\nType=oneshot\n' > "$fixture/unit-memory/fixture-new.service"
 expect_fail "a unit file with no systemd_units entry"
 write_unit_fixture '{"class": "control", "memory_max": "1G", "measured_peak": "300M", "measured": "fixture"}'
 expect_fail "a scheduled job's unit that is not batch"
+write_unit_fixture '{"class": "batch", "memory_max": "1G", "measured_peak": "300M", "measured": "fixture", "disk_max": null, "disk_measured": null}'
+expect_fail "a scheduled job's unit that names no disk_max"
 write_unit_fixture '{"class": "batch", "memory_max": "400M", "measured_peak": "300M", "measured": "fixture"}'
 expect_fail "a cap under 1.5 x its measured peak with no headroom_why"
 write_unit_fixture '{"class": "batch", "memory_max": "400M", "measured_peak": "300M", "measured": "fixture", "headroom_why": "a decided bound"}'
@@ -431,7 +442,7 @@ expect_fail "a critical service whose oom_score_adj is not its class's"
 write_claim_fixture() {
   local cap="$1" usual="$2" class="${3:-batch}" measured="${4:-fixture-model.service}" reserve="${5-{\}}"
   write_unit_fixture '{"class": "batch", "memory_max": "1G", "measured_peak": "300M", "measured": "fixture"}' \
-    "{\"fixture-model.service\": {\"class\": \"${class}\", \"memory_max\": \"${cap}\", \"measured\": \"fixture\"}}" no-render
+    "{\"fixture-model.service\": {\"class\": \"${class}\", \"memory_max\": \"${cap}\", \"measured\": \"fixture\", \"disk_max\": \"1G\", \"disk_measured\": \"fixture\"}}" no-render
   printf '[Service]\nType=exec\nExecStart=/bin/true\n' > "$fixture/unit-memory/fixture-model.service"
   python3 - "$fixture" "$usual" "$measured" "$root/scripts/ci" "$reserve" <<'PY'
 import json, pathlib, sys
@@ -512,9 +523,13 @@ ExecStart=/bin/true
 
 def job(job_id: str, service: str, memory_max: str, **more) -> dict:
     item = {"id": job_id, "systemd_service": service, "time_limit_minutes": 60,
-            "memory_max": memory_max, "memory_measured": f"fixture {job_id}"}
+            "memory_max": memory_max, "memory_measured": f"fixture {job_id}",
+            "disk_max": "1G", "disk_measured": f"fixture disk {job_id}"}
     item.update(more)
     return item
+
+
+DISK = {"disk_max": "1G", "disk_measured": "fixture disk"}
 
 
 class EveryJobsMemoryIsChecked(unittest.TestCase):
@@ -532,7 +547,7 @@ class EveryJobsMemoryIsChecked(unittest.TestCase):
                 "units": "units", "jobs": "jobs.v1.json", "memory_max_over_peak": 1.5, "memory_high_of_max": 0.9,
                 "floor": "128M", "classes": {"batch": {"oom_score_adjust": 500}},
                 "unit_files": {TEMPLATE: {"class": "batch", "memory_max": "8G", "measured": "fixture a",
-                                          "measured_peak": "1G"}},
+                                          "measured_peak": "1G", **DISK}},
                 "instances": {}}}
             unit_memory.write(root, contract)
             found = unit_memory.problems(root, contract)
@@ -553,8 +568,9 @@ class AnInstanceGetsItsDropIn(unittest.TestCase):
         self.contract = {"systemd_units": {
             "units": "units", "jobs": "jobs.v1.json", "memory_max_over_peak": 1.5, "memory_high_of_max": 0.9,
             "floor": "128M", "classes": {"batch": {"oom_score_adjust": 500}},
-            "unit_files": {TEMPLATE: {"class": "batch", "memory_max": "8G", "measured": "fixture big"}},
-            "instances": {"foundation-x@small.service": {"class": "batch", "memory_max": "2G", "measured": "fixture small"}},
+            "unit_files": {TEMPLATE: {"class": "batch", "memory_max": "8G", "measured": "fixture big", **DISK}},
+            "instances": {"foundation-x@small.service": {"class": "batch", "memory_max": "2G", "measured": "fixture small",
+                                                         **DISK}},
         }}
         self.dropin = units / "foundation-x@small.service.d" / unit_memory.DROPIN
 
@@ -567,7 +583,8 @@ class AnInstanceGetsItsDropIn(unittest.TestCase):
         unit_memory.write(self.root, self.contract)
         self.assertEqual(unit_memory.problems(self.root, self.contract), [])
         self.assertEqual(self.dropin.read_text(encoding="utf-8"),
-                         f"{unit_memory.MARK}\n[Service]\nMemoryHigh=1843M\nMemoryMax=2G\n")
+                         f"{unit_memory.MARK}\n[Service]\nMemoryHigh=1843M\nMemoryMax=2G\n"
+                         f"Environment={unit_memory.DISK_ENV}=1073741824\n")
         self.assertIn("MemoryMax=8G", (self.root / "units" / TEMPLATE).read_text(encoding="utf-8"))
         gone = copy.deepcopy(self.contract)
         gone["systemd_units"]["instances"] = {}
@@ -582,6 +599,18 @@ class AnInstanceGetsItsDropIn(unittest.TestCase):
         larger["systemd_units"]["instances"]["foundation-x@small.service"]["memory_max"] = "8G"
         self.assertTrue(any("holds no less than its template" in problem
                             for problem in unit_memory.problems(self.root, larger)))
+
+    def test_an_instance_that_declares_less_disk_than_its_template_gets_its_own(self):
+        # root ADR-0622: the template holds the widest disk; an instance at its memory with less disk
+        # carries its own disk_max in its drop-in.
+        narrow = copy.deepcopy(self.contract)
+        narrow["systemd_units"]["unit_files"][TEMPLATE]["disk_max"] = "17G"
+        narrow["systemd_units"]["instances"]["foundation-x@small.service"]["memory_max"] = "8G"
+        unit_memory.write(self.root, narrow)
+        self.assertEqual(unit_memory.problems(self.root, narrow), [])
+        self.assertIn(f"Environment={unit_memory.DISK_ENV}=1073741824", self.dropin.read_text(encoding="utf-8"))
+        self.assertIn(f"Environment={unit_memory.DISK_ENV}=18253611008",
+                      (self.root / "units" / TEMPLATE).read_text(encoding="utf-8"))
 
 
 unittest.main(argv=["unit_memory"], verbosity=1)

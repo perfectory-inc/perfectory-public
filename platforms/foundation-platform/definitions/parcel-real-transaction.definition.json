@@ -20,6 +20,8 @@
       "time_limit_minutes": 150,
       "memory_max": "512M",
       "memory_measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the script foundation-gold-panel-rebuild.service runs (307M measured, 57 runs); Spark runs in its own capped container; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -82,6 +84,8 @@
       "open_files_measured": "2026-11-23 13:44Z..22:51Z: 11 runs of 11 failed at systemd's default soft limit 1024 with DuckDB's \"Too many open files\" while reading the spool back (1,790 parquet files: 7 tables of 250 to 263 시군구). DuckDB 2.0.0 opens a glob's files ahead of the scan (measured on a 260-file table of the same layout, 8 threads: 340 to 450 handles above the idle process for one table, 530 for the seven in one query; a partitioned write holds under 10), beside the lakehouse connections the run keeps. 65536 is 36 per spooled file, under systemd's hard limit 524288; systemd reports no open-files peak, so it is sized from the file count, not from a peak.",
       "memory_max": "8G",
       "memory_measured": "not measured: no run yet (new job). 8G is the template's, the cap of every foundation-gold-versions@ instance; the shared build holds one 시도's rows and builds one 시군구 of them at a time, and the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (MEMORY_SHARE), so DuckDB spills before the cap. The first shadow run's systemd memory peak replaces this text",
+      "disk_max": "8G",
+      "disk_measured": "not measured: the build holds one 시도's stage database and staged files at a time and checkpoints after each part (root ADR-0599: about 43 GB over 15 시도 before the checkpoint, ~2.9 GB a 시도); 8G is that twice over with the change set. The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -143,6 +147,8 @@
       "memory_max": "5G",
       "memory_measured_peak": "397M",
       "memory_measured": "journal `memory peak` 2026-10-18..11-08, 6 runs, highest 2026-11-08 (foundation-by-pnu-lane-bake@parcel-public-auction)",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

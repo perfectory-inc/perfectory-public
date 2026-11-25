@@ -254,15 +254,17 @@ def generate(platform, definitions, ordered=True):
 
 SIZE = re.compile(r"([0-9]+)([KMG])")
 SIZE_BYTES = {"K": 1 << 10, "M": 1 << 20, "G": 1 << 30}
-# A job's memory, beside its time_limit_minutes (root ADR-0574 §8): its unit's systemd_units entry.
+# A job's memory, beside its time_limit_minutes (root ADR-0574 §8), and the disk its DuckDB stage
+# holds (root ADR-0622): its unit's systemd_units entry.
 JOB_MEMORY = {"memory_max": "memory_max", "memory_measured_peak": "measured_peak",
-              "memory_measured": "measured", "memory_headroom_why": "headroom_why"}
+              "memory_measured": "measured", "memory_headroom_why": "headroom_why",
+              "disk_max": "disk_max", "disk_measured": "disk_measured"}
 
 
-def size_bytes(job_id, raw):
+def size_bytes(job_id, raw, field="memory_max"):
     match = SIZE.fullmatch(raw) if isinstance(raw, str) else None
     if not match:
-        raise DefinitionError(f"job {job_id}: memory_max {raw!r} is not a size like 512M or 4G")
+        raise DefinitionError(f"job {job_id}: {field} {raw!r} is not a size like 512M or 4G")
     return int(match.group(1)) * SIZE_BYTES[match.group(2)]
 
 
@@ -270,10 +272,12 @@ def job_memory(documents):
     """The memory of every job's unit, from the job (root ADR-0574 §8): `systemd_units.unit_files` gets
     each job unit's entry and `systemd_units.instances` the instances of a template that hold less than it.
 
-    A job states its unit's memory once, beside its time limit. A template is held to its largest
-    instance, so an instance no job names can take no more than any job's; an instance with a smaller
-    cap gets its own entry, which scripts/ci/unit_memory.py renders into the instance's drop-in. A unit
-    a job runs that the platform definition also declares is refused: one place.
+    A job states its unit's memory once, beside its time limit, and the disk its DuckDB stage holds
+    (`disk_max`, `disk_measured`; root ADR-0622: the stage opens only where that fits). A template is
+    held to its largest instance in each, so an instance no job names can take no more than any job's;
+    an instance that holds less gets its own entry, which scripts/ci/unit_memory.py renders into the
+    instance's drop-in. A unit a job runs that the platform definition also declares is refused: one
+    place.
     """
     section = documents[MEMORY]["systemd_units"]
     declared = section["unit_files"]
@@ -282,6 +286,10 @@ def job_memory(documents):
         if "memory_max" not in job or "memory_measured" not in job:
             raise DefinitionError(f"job {job['id']}: states memory_max and memory_measured beside time_limit_minutes "
                                   "(root ADR-0574 §8)")
+        if "disk_max" not in job or "disk_measured" not in job:
+            raise DefinitionError(f"job {job['id']}: states disk_max and disk_measured beside memory_max: the most its "
+                                  "DuckDB stage holds on disk, and where that comes from (root ADR-0622)")
+        size_bytes(job["id"], job["disk_max"], "disk_max")
         service = job["systemd_service"]
         name, at, rest = service.partition("@")
         file = f"{name}@.{rest.rsplit('.', 1)[-1]}" if at else service
@@ -299,9 +307,11 @@ def job_memory(documents):
     instances = {}
     for file, held in by_file.items():
         largest = max(held, key=lambda item: item[1])
-        declared[file] = largest[2]
+        widest = max(held, key=lambda item: size_bytes(item[3], item[2]["disk_max"], "disk_max"))
+        template = {**largest[2], "disk_max": widest[2]["disk_max"], "disk_measured": widest[2]["disk_measured"]}
+        declared[file] = template
         for service, cap, entry, _job in held:
-            if "@." in file and cap != largest[1]:
+            if "@." in file and (cap != largest[1] or entry["disk_max"] != template["disk_max"]):
                 instances[service] = entry
     section["unit_files"] = dict(sorted(declared.items()))
     section["instances"] = dict(sorted(instances.items()))

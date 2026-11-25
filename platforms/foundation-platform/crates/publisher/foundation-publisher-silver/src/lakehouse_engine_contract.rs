@@ -32,7 +32,7 @@ struct Contract {
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutionProfile {
-    /// Container memory ceiling in MiB; `DuckDB` uses half for its buffer manager.
+    /// Container memory ceiling in MiB; the `DuckDB` inside takes its share of it from the cgroup.
     pub memory_mib: u32,
     /// Allocated CPU slots.
     pub cpu_slots: u32,

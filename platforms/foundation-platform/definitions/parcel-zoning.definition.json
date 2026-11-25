@@ -24,6 +24,8 @@
       "memory_max": "512M",
       "memory_measured_peak": "308M",
       "memory_measured": "journal `memory peak` 2026-10-18..11-08, 21 runs, highest 2026-11-08 (foundation-gold-kind-rebuild)",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -85,6 +87,8 @@
       "memory_measured_peak": "13517M",
       "memory_measured": "journal `memory peak` 2026-10-18..11-08, 25 runs, highest 2026-10-29 (foundation-by-pnu-serving-bake)",
       "memory_headroom_why": "A bound decided from a measured shard (root ADR-0138): the export refuses a shard over 900,000 rows, whose anonymous peak was 11.1G, so 14G is that peak x1.3; the 13517M journal peak includes page cache, which the kernel reclaims before it kills.",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

@@ -29,8 +29,8 @@ Spark 는 쓰지 않는다(root ADR-0599). 예전의 수동 원격 실행기 `ru
 
 - 상태(입력 ZIP, handoff): `FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT`(`/data/foundation-platform/building-register-floor`).
 - DuckDB 작업 폴더(준비 파일·임시 파일): `FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT`
-  (`/var/lib/foundation-platform/building-register-floor/duckdb`, 시스템 디스크). 디스크 예약은
-  `config/host-layout.contract.json` 의 `duckdb_stage_reserve_bytes` 이고 적재가 시작 전에 확인한다.
+  (`/var/lib/foundation-platform/building-register-floor/duckdb`, 시스템 디스크). 임시 파일의 상한은 열 때 그 디스크
+  여유의 1/3(`duckdb_parquet_stage::DISK_SHARE`)이고, 단계는 그 상한을 빼고도 작업 정의의 `disk_max` 가 남아야 연다.
   두 자리는 `foundation-release.sh` 의 FLOOR 상태 준비가 만들고 유닛 drop-in 의 `ReadWritePaths` 에 있다.
 - 읽기: 표의 데이터 파일은 읽기 전용 키 쌍(`lakehouse-reader.env`)으로 읽는다. 쓰기: 커밋은 기록 토큰으로,
   입력 준비만 기록 키 쌍을 이름으로 받는다. 증인 태그 `foundation-floor-history-witness` 는 이미 증인을 가리키면

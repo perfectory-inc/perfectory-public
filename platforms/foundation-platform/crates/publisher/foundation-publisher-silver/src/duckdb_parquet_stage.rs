@@ -53,14 +53,6 @@ pub const DISK_SHARE: (u64, u64) = (1, 3);
 /// # Errors
 /// The free space of `spill` cannot be measured, or `DuckDB` refuses a setting.
 pub fn open_engine(database: Option<&Path>, spill: Option<&Path>) -> anyhow::Result<Connection> {
-    Ok(open_capped(database, spill)?.0)
-}
-
-/// [`open_engine`], with the spill ceiling it set (`None`: `DuckDB`'s own).
-fn open_capped(
-    database: Option<&Path>,
-    spill: Option<&Path>,
-) -> anyhow::Result<(Connection, Option<u64>)> {
     let config = engine_config(spill)?;
     let connection = match database {
         Some(database) => Connection::open_with_flags(database, config)?,
@@ -70,7 +62,65 @@ fn open_capped(
     if let Some(bytes) = ceiling {
         connection.execute("SET max_temp_directory_size = ?", [format!("{bytes}B")])?;
     }
-    Ok((connection, ceiling))
+    if let (Some(spill), Some(ceiling)) = (spill, ceiling) {
+        require_declared_room(spill, ceiling)?;
+    }
+    Ok(connection)
+}
+
+/// The environment variable a job's unit sets to its definition's `disk_max`, in bytes.
+///
+/// The most its `DuckDB` stage measured holding on disk, its database and staged files
+/// (`disk_measured` says where from). Rendered by `scripts/ci/unit_memory.py` beside the unit's
+/// memory lines.
+pub const DISK_MAX_ENV: &str = "FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES";
+
+/// Refuses to open when the filesystem of `spill`, less the spill `ceiling`, has less free than the
+/// job declares it holds (`DISK_MAX_ENV`). Nothing is checked where no job declares it (a test, a
+/// command run by hand): every job's unit does (`declared_definitions.py` refuses a job without it).
+fn require_declared_room(spill: &Path, ceiling: u64) -> anyhow::Result<()> {
+    let Some(declared) = std::env::var_os(DISK_MAX_ENV) else {
+        return Ok(());
+    };
+    let declared: u64 = declared
+        .to_str()
+        .and_then(|text| text.parse().ok())
+        .with_context(|| format!("{DISK_MAX_ENV} is not a byte count"))?;
+    let measured = existing_ancestor(spill)?;
+    let free = foundation_publisher_core::free_space::free_bytes(measured)?;
+    ensure!(
+        leaves_room(free, ceiling, declared),
+        "the disk of {} has {free} bytes free; this stage may spill {ceiling} and its job declares it holds {declared} more (definition disk_max), which does not fit. Free space, or give the job a larger disk",
+        measured.display()
+    );
+    Ok(())
+}
+
+/// Whether `free` bytes, less a spill `ceiling`, hold what a job declares.
+const fn leaves_room(free: u64, ceiling: u64, declared: u64) -> bool {
+    free.saturating_sub(ceiling) >= declared
+}
+
+/// The nearest part of `path` that exists: a spill directory is made at the first spill.
+fn existing_ancestor(path: &Path) -> anyhow::Result<&Path> {
+    path.ancestors()
+        .find(|path| path.exists())
+        .with_context(|| format!("no part of {} exists", path.display()))
+}
+
+/// The bytes of the files under `directory`.
+fn directory_bytes(directory: &Path) -> std::io::Result<u64> {
+    let mut bytes = 0;
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            bytes += directory_bytes(&entry.path())?;
+        } else if kind.is_file() {
+            bytes += entry.metadata()?.len();
+        }
+    }
+    Ok(bytes)
 }
 
 /// The configuration [`open_engine`] opens with.
@@ -102,12 +152,8 @@ fn spill_ceiling(spill: &Path) -> anyhow::Result<Option<u64>> {
     if !cfg!(unix) {
         return Ok(None);
     }
-    let measured = spill
-        .ancestors()
-        .find(|path| path.exists())
-        .with_context(|| format!("no part of {} exists", spill.display()))?;
     Ok(Some(disk_share(
-        foundation_publisher_core::free_space::free_bytes(measured)?,
+        foundation_publisher_core::free_space::free_bytes(existing_ancestor(spill)?)?,
     )))
 }
 
@@ -284,9 +330,23 @@ pub fn read_catalog_config() -> anyhow::Result<lakehouse_infrastructure::Lakehou
 pub struct DuckDbParquetStage {
     connection: Connection,
     directory: tempfile::TempDir,
-    /// The spill ceiling [`open_engine`] set on the buffer manager (`max_temp_directory_size`):
-    /// what [`Self::require_room`] counts the stage may still write.
-    spill_ceiling: u64,
+}
+
+/// Says, as the stage closes, how many bytes its directory holds (its database, the staged files
+/// it has not dropped, its spill): the measurement a job's `disk_measured` is taken from, by a pull
+/// request that copies the logged value into its definition (nothing is kept between runs).
+impl Drop for DuckDbParquetStage {
+    fn drop(&mut self) {
+        use std::io::Write as _;
+        if let Ok(bytes) = directory_bytes(self.directory.path()) {
+            // The journal keeps it whatever the log filter (the publisher logs errors only by default).
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "duckdb stage closed: disk_bytes={bytes} ({})",
+                self.directory.path().display()
+            );
+        }
+    }
 }
 
 impl DuckDbParquetStage {
@@ -300,7 +360,7 @@ impl DuckDbParquetStage {
             .prefix(".duckdb-stage-")
             .tempdir_in(parent)?;
         let root = sql_path(directory.path())?;
-        let (connection, spill_ceiling) = open_capped(None, Some(&directory.path().join("spill")))?;
+        let connection = open_engine(None, Some(&directory.path().join("spill")))?;
         // The stage directory is the only place a statement may read or write.
         connection.execute_batch(&format!(
             "SET allowed_directories=['{root}']; SET enable_external_access=false"
@@ -308,7 +368,6 @@ impl DuckDbParquetStage {
         Ok(Self {
             connection,
             directory,
-            spill_ceiling: spill_ceiling.unwrap_or(0),
         })
     }
 
@@ -336,7 +395,7 @@ impl DuckDbParquetStage {
         let directory = tempfile::Builder::new()
             .prefix(".duckdb-stage-")
             .tempdir_in(parent)?;
-        let (connection, spill_ceiling) = open_capped(
+        let connection = open_engine(
             Some(&directory.path().join("stage.duckdb")),
             Some(&directory.path().join("spill")),
         )?;
@@ -376,7 +435,6 @@ impl DuckDbParquetStage {
         Ok(Self {
             connection,
             directory,
-            spill_ceiling: spill_ceiling.unwrap_or(0),
         })
     }
 
@@ -384,28 +442,6 @@ impl DuckDbParquetStage {
     #[must_use]
     pub const fn connection(&self) -> &Connection {
         &self.connection
-    }
-
-    /// Refuses work that would eat the reserve of the stage's disk (`config/host-layout.contract.json`
-    /// `duckdb_stage_reserve_bytes`: the disk also holds the runtime Postgres).
-    ///
-    /// `expected_bytes` is what the caller is about to write beside the stage (a release copy, its
-    /// staged files); the stage's own spill may reach its ceiling ([`DISK_SHARE`] of the disk's
-    /// free bytes when it opened) on top of it.
-    ///
-    /// # Errors
-    /// The free space, less the spill ceiling and `expected_bytes`, is under the reserve, or it
-    /// cannot be measured.
-    pub fn require_room(&self, expected_bytes: u64) -> anyhow::Result<()> {
-        let free = foundation_publisher_core::free_space::free_bytes(self.directory.path())?;
-        let spill = self.spill_ceiling;
-        ensure!(
-            leaves_reserve(free, spill, expected_bytes, stage_reserve_bytes()?),
-            "the disk of {} has {free} bytes free; this stage may spill {spill} and expects to write {expected_bytes} more, which would leave less than the {} bytes reserved on that disk (host-layout duckdb_stage_reserve_bytes). Free space or wait for the other stage to finish",
-            self.directory.path().display(),
-            stage_reserve_bytes()?
-        );
-        Ok(())
     }
 
     /// Lets the next statements reuse the blocks of the tables this stage has replaced or dropped.
@@ -660,19 +696,6 @@ fn copy_columns(shape: &TableShape, name: &str) -> anyhow::Result<(String, Strin
         .collect::<Vec<_>>()
         .join(", ");
     Ok((columns, field_ids))
-}
-
-/// The bytes a stage's disk keeps free of stage work, from the host layout contract.
-fn stage_reserve_bytes() -> anyhow::Result<u64> {
-    const HOST_LAYOUT: &str = include_str!("../../../../config/host-layout.contract.json");
-    serde_json::from_str::<serde_json::Value>(HOST_LAYOUT)?["duckdb_stage_reserve_bytes"]
-        .as_u64()
-        .context("host-layout.contract.json declares no duckdb_stage_reserve_bytes")
-}
-
-/// Whether `free` bytes, less a stage's spill ceiling and what it expects to write, keep `reserve`.
-const fn leaves_reserve(free: u64, spill: u64, expected: u64, reserve: u64) -> bool {
-    free.saturating_sub(spill).saturating_sub(expected) >= reserve
 }
 
 /// A pinned table reference with the nullable contract columns it lacks read as NULL.

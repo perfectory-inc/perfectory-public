@@ -27,6 +27,7 @@ ReadWritePaths=/var/lib/foundation-platform/court-auction
 MemoryHigh=2764M
 MemoryMax=3G
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=4294967296
 
 [Install]
 WantedBy=multi-user.target

@@ -35,3 +35,4 @@ ProtectSystem=strict
 MemoryHigh=4608M
 MemoryMax=5G
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=8589934592

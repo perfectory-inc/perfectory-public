@@ -36,8 +36,6 @@
     "datahub-gms": "http://127.0.0.1:18095/health"
   },
   "readiness_reason": "What the owner looks at after the move, besides every container that ran before running again and every container that was healthy before being healthy again.",
-  "duckdb_stage_reserve_bytes": 32212254720,
-  "duckdb_stage_reserve_reason": "The system disk (the SSD) holds the runtime Postgres's data directory (postgres_data) and the work of every DuckDB stage that loads a Silver release (release copy, spill, staged files; root ADR-0599). Before it copies a release, and again once the copy's size is known, a stage refuses unless the disk's free bytes, less its own spill ceiling and the bytes it expects to write, still leave this reserve: 30 GiB. A reserve, not a lower ceiling, because two stages can run at once on the disk and each sees only its own plan.",
   "postgres_data": {
     "path": "/var/lib/foundation-postgres/data",
     "moved_marker": "/var/lib/foundation-postgres/moved",
