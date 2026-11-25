@@ -159,6 +159,13 @@ jobs:
         run: bash scripts/ci/release-build-runner-room.sh
       - name: Install skopeo
         run: bash "$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" skopeo
+      # The linux-aarch64 extension files are pinned downloads too: from the cache when main filled it.
+      - name: Restore pinned release binaries
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/pinned
+          key: pinned-release-binaries-v1-${{ runner.os }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
       - name: Sign in to GitHub's container registry
         env:
           GITHUB_TOKEN: ${{ github.token }}

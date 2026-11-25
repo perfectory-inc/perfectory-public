@@ -572,8 +572,14 @@ sed -n '/^  build:$/,$p' "$test_root/release-signer-two-jobs/foundation-release-
 expect_rejected two-signing-jobs "$test_root/release-signer-two-jobs"
 # Root ADR-0620: the AWS images job is the one other job that may sign, on GitHub's arm64 runner.
 release_signer_fixture release-signer-aws-images
-sed -n '/^  build:$/,$p' "$test_root/release-signer-aws-images/foundation-release-build.yml"   | sed 's/^  build:$/  aws-images:/; s/^    name: Build$/    name: AWS images/; s/^    runs-on: ubuntu-24.04$/    runs-on: ubuntu-24.04-arm/'   >>"$test_root/release-signer-aws-images/foundation-release-build.yml"
-if ! "$checker" "$test_root/release-signer-aws-images" "$test_root/ruleset.json" "$test_root/actions.json"   --semantic-self-test >/dev/null 2>&1; then
+aws_images_workflow="$test_root/release-signer-aws-images/foundation-release-build.yml"
+sed -n '/^  build:$/,$p' "$aws_images_workflow" \
+  | sed 's/^  build:$/  aws-images:/; s/^    name: Build$/    name: AWS images/; s/^    runs-on: ubuntu-24.04$/    runs-on: ubuntu-24.04-arm/' \
+    >"$aws_images_workflow.job"
+cat "$aws_images_workflow.job" >>"$aws_images_workflow"
+rm "$aws_images_workflow.job"
+if ! "$checker" "$test_root/release-signer-aws-images" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
   echo "FAIL workflow-policy-self-test: rejected the AWS images job as the release's second signer" >&2
   exit 1
 fi
