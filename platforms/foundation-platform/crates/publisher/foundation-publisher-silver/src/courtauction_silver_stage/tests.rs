@@ -111,13 +111,28 @@ fn lines(
     Ok(found)
 }
 
+/// The contract figure that reads `role`'s fixture in two parts on `stage`: a part holds at most
+/// half the fixture's lines, so a part boundary falls inside the object.
+fn two_parts(stage: &DuckDbParquetStage, role: Role) -> anyhow::Result<u64> {
+    let text = fixture(&format!("{}.jsonl", role.name()))?;
+    let bytes = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(str::len)
+        .sum::<usize>();
+    Ok(stage.memory_limit_bytes()? / (u64::try_from(bytes)? / 2).max(1))
+}
+
 fn the_staged_rows_are_the_rows_the_spark_job_built(role: Role) -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
-    let source = CourtAuctionSource::compiled()?;
+    let mut source = CourtAuctionSource::compiled()?;
     let stage = DuckDbParquetStage::open(directory.path())?;
     stage
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;
+    // Read in two parts (2026-11-24: an object is read in parts): the rows are still the job's.
+    source.contract["silver_load"]["memory_per_line_byte"]["bytes"] =
+        serde_json::json!(two_parts(&stage, role)?);
     let ingested_at = chrono::Utc
         .with_ymd_and_hms(2099, 1, 2, 3, 4, 5)
         .single()
@@ -843,41 +858,25 @@ fn read_rows(
 }
 
 #[test]
-fn a_role_stages_the_same_rows_read_in_parts_as_read_whole() -> anyhow::Result<()> {
+fn a_search_stages_the_same_rows_read_in_parts_as_read_whole() -> anyhow::Result<()> {
     // 2026-11-24 the load ran out of memory on a whole 394 MiB 물건 검색 object; it now reads an
-    // object in parts. Each fixture is read whole, then in parts of half its lines, so a part
-    // boundary falls inside it. One role of each way of parting: cases grouped (사건상세, and
-    // 현황조사 by round), the 물건상세 grouped with its photos, a search in order with its merge,
-    // and the 매각공고 in order with its once-phase. (A part per group of every role took about a
-    // minute in the dev profile, whose DuckDB plans the role SQL slowly.)
-    for role in [
-        Role::CaseDetail,
-        Role::CaseSurvey,
-        Role::ItemDetail,
-        Role::ItemSearch,
-        Role::SaleNotices,
-    ] {
-        let text = fixture(&format!("{}.jsonl", role.name()))?;
-        let bytes = text
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(str::len)
-            .sum::<usize>();
-        let directory = tempfile::tempdir()?;
-        let stage = DuckDbParquetStage::open(directory.path())?;
-        stage
-            .connection()
-            .execute_batch(&CourtAuctionSource::values_sql())?;
-        let whole = read_rows(&stage, directory.path(), role, None)?;
-        let half = (u64::try_from(bytes)? / 2).max(1);
-        let parted = read_rows(
-            &stage,
-            directory.path(),
-            role,
-            Some(stage.memory_limit_bytes()? / half),
-        )?;
-        assert_eq!(parted, whole, "{}", role.name());
-    }
+    // object in parts. The other roles read their Spark fixtures in two parts
+    // (the_staged_rows_are_the_rows_the_spark_job_built); a search, which has no such fixture, is
+    // read whole and then in two parts, its rows merged and its pages kept across them.
+    let role = Role::ItemSearch;
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage
+        .connection()
+        .execute_batch(&CourtAuctionSource::values_sql())?;
+    let whole = read_rows(&stage, directory.path(), role, None)?;
+    let parted = read_rows(
+        &stage,
+        directory.path(),
+        role,
+        Some(two_parts(&stage, role)?),
+    )?;
+    assert_eq!(parted, whole);
     Ok(())
 }
 
