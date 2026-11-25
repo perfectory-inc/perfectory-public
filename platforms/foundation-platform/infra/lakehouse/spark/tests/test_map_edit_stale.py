@@ -20,7 +20,7 @@ def edit(seq, feature_id, op="upsert", *, base=OLD, pinned=True):
         "change_seq": seq,
         "feature_id": feature_id,
         "op": op,
-        "base_source_snapshot_id": "9000000000000000001" if pinned else None,
+        "base_source_snapshot_id": "900000000000000001" if pinned else None,
         "base_geometry_checksum_sha256": base,
     }
 
@@ -98,7 +98,7 @@ class ResolvePinsTest(unittest.TestCase):
 
         def pin_of(spark, served_table, silver_table, gold, base_checksums):
             self.asked.append(gold)
-            return None if gold == "9000000000000000009" else ("8000000000000000001", {P: OLD})
+            return None if gold == "900000000000000009" else ("800000000000000001", {P: OLD})
 
         common._pin_of = pin_of
 
@@ -107,16 +107,16 @@ class ResolvePinsTest(unittest.TestCase):
 
     def test_each_release_snapshot_is_resolved_once_and_an_unknown_one_leaves_the_pin_empty(self):
         fresh = [
-            {"change_seq": 1, "feature_id": P, "base_served_snapshot_id": "9000000000000000001"},
-            {"change_seq": 2, "feature_id": Q, "base_served_snapshot_id": "9000000000000000001"},
-            {"change_seq": 3, "feature_id": P, "base_served_snapshot_id": "9000000000000000009"},
+            {"change_seq": 1, "feature_id": P, "base_served_snapshot_id": "900000000000000001"},
+            {"change_seq": 2, "feature_id": Q, "base_served_snapshot_id": "900000000000000001"},
+            {"change_seq": 3, "feature_id": P, "base_served_snapshot_id": "900000000000000009"},
             {"change_seq": 4, "feature_id": P, "base_served_snapshot_id": None},
         ]
         pinned = common.resolve_pins(None, served_table="s", silver_table="t", fresh=fresh, base_checksums=dict)
-        self.assertEqual(self.asked, ["9000000000000000001", "9000000000000000009"])
+        self.assertEqual(self.asked, ["900000000000000001", "900000000000000009"])
         self.assertEqual(
             [(row["base_source_snapshot_id"], row["base_geometry_checksum_sha256"]) for row in pinned],
-            [("8000000000000000001", OLD), ("8000000000000000001", None), (None, None), (None, None)],
+            [("800000000000000001", OLD), ("800000000000000001", None), (None, None), (None, None)],
         )
 
 
