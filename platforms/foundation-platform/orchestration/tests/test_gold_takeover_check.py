@@ -88,11 +88,11 @@ class Declared(unittest.TestCase):
     def test_a_commit_clears_the_last_head_s_record(self):
         with tempfile.TemporaryDirectory() as work:
             work = pathlib.Path(work)
-            (work / "summary.json").write_text(json.dumps(run(table="gold.parcel_factories_versions")), encoding="utf-8")
+            (work / "summary.json").write_text(json.dumps(run(table="gold.parcel_panel_versions")), encoding="utf-8")
             state = work / "state.json"
             state.write_text(json.dumps({"completed": True}), encoding="utf-8")
             done = cli("declared", str(work / "summary.json"), str(PLATFORM / "definitions"), str(state))
-            self.assertEqual(done.stdout.split(), ["gold.parcel_factories_versions", "41"])
+            self.assertEqual(done.stdout.split(), ["gold.parcel_panel_versions", "41"])
             self.assertFalse(state.exists())
 
 
