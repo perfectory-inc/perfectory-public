@@ -5,7 +5,10 @@ graph, root ADR-0123) declares, on the graph node whose `table_name` is its `phy
 
 - `contract_columns_present`, when it names columns: every column it names is in the physical table;
 - `contract_allowed_values_<column>`, one per `invalidValues` rule: every present value of the column
-  is one of its `validValues`.
+  is one of its `validValues`;
+- `contract_region_codes_paired`, when it is a Silver table keyed by `pnu`: no row's PNU is under an
+  abolished 법정동 code the change table has no pair for (a Gold reader translates a code only through
+  a pair, so such a row reaches no served parcel).
 
 No asset key, table or column is written here: a rule is added, changed or removed by its contract.
 The quality job's unit (scripts/ops/data-quality-check.py) runs the rules with the publisher's DuckDB
@@ -34,6 +37,8 @@ REPORTER = "data_quality"
 PREFIX = "contract_"
 COLUMNS_PRESENT = PREFIX + "columns_present"
 ALLOWED_VALUES = PREFIX + "allowed_values"
+REGION_CODES_PAIRED = PREFIX + "region_codes_paired"
+PNU = "pnu"
 
 
 def allowed_values_check(column):
@@ -46,6 +51,13 @@ def is_allowed_values(rule):
     return rule.get("metric") == "invalidValues" and "validValues" in (rule.get("arguments") or {})
 
 
+def has_region_rule(table):
+    """Whether the region rule holds for a contract's table: a Silver table keyed by `pnu`
+    (data-quality-check.py reads it the same way)."""
+    return table["physicalName"].startswith("silver.") and any(
+        prop["name"] == PNU for prop in table.get("properties") or [])
+
+
 def rules_of(contract):
     """(physical table, the checks its contract's machine rules make), in the file's column order; a
     column with two allowed-values rules is one check."""
@@ -54,6 +66,7 @@ def rules_of(contract):
     checks = [COLUMNS_PRESENT] if properties else []
     checks += [allowed_values_check(prop["name"]) for prop in properties
                for rule in prop.get("quality") or [] if is_allowed_values(rule)]
+    checks += [REGION_CODES_PAIRED] if has_region_rule(table) else []
     return table["physicalName"], list(dict.fromkeys(checks))
 
 
@@ -79,8 +92,8 @@ def kind_of(check):
     """The kind a contract check is of, or None for any other check. Every check named `contract_*` is
     one: no definition may declare such a name (asset_checks.declared), so the prefix is the rule
     foundation-api reads them by too (facts/dagster.rs)."""
-    if check == COLUMNS_PRESENT:
-        return COLUMNS_PRESENT
+    if check in (COLUMNS_PRESENT, REGION_CODES_PAIRED):
+        return check
     if check.startswith(ALLOWED_VALUES + "_"):
         return ALLOWED_VALUES
     return None
@@ -120,6 +133,12 @@ KINDS = {
     ALLOWED_VALUES: Kind(
         description=("Is every present value of the column one of the values its data contract allows? "
                      "Reported by the quality job (data-quality-check.py); run alone, it re-states the newest report."),
+        evaluate=restate,
+    ),
+    REGION_CODES_PAIRED: Kind(
+        description=("Is every row's PNU under a 법정동 code that is current, or abolished with a pair in the "
+                     "change table? An abolished code with no pair reaches no served parcel. Reported by the "
+                     "quality job (data-quality-check.py); run alone, it re-states the newest report."),
         evaluate=restate,
     ),
 }

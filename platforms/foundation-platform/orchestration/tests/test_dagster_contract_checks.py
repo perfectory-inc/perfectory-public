@@ -51,7 +51,15 @@ class TheContractsDeclareTheChecks(unittest.TestCase):
 
     def test_a_contract_declares_its_columns_and_one_check_per_allowed_values_rule(self):
         self.assertEqual(self.rules(CONTRACT), {"silver.example": ["contract_columns_present",
-                                                                   "contract_allowed_values_kind"]})
+                                                                   "contract_allowed_values_kind",
+                                                                   "contract_region_codes_paired"]})
+
+    def test_only_a_silver_table_keyed_by_pnu_carries_the_region_rule(self):
+        # A Gold table is already under the served codes; a Silver table with no `pnu` has no code to pair.
+        gold = CONTRACT.replace("silver.example", "gold.example")
+        unkeyed = CONTRACT.replace('      - name: "pnu"\n', "")
+        for text, table in ((gold, "gold.example"), (unkeyed, "silver.example")):
+            self.assertNotIn("contract_region_codes_paired", self.rules(text)[table])
 
     def test_the_checks_land_on_the_node_of_the_contract_s_table_and_never_block(self):
         import contract_checks
@@ -61,7 +69,8 @@ class TheContractsDeclareTheChecks(unittest.TestCase):
         declared = contract_checks.declared(GRAPH, keys, self.rules(CONTRACT))
         self.assertEqual([(item.key().to_user_string(), item.check, item.kind, item.blocking) for item in declared], [
             ("iceberg/silver/example", "contract_columns_present", "contract_columns_present", False),
-            ("iceberg/silver/example", "contract_allowed_values_kind", "contract_allowed_values", False)])
+            ("iceberg/silver/example", "contract_allowed_values_kind", "contract_allowed_values", False),
+            ("iceberg/silver/example", "contract_region_codes_paired", "contract_region_codes_paired", False)])
 
     def test_a_contract_whose_table_no_node_names_is_refused(self):
         import contract_checks
@@ -88,7 +97,8 @@ class TheContractsDeclareTheChecks(unittest.TestCase):
               pattern: "^x"
 ''')
         self.assertEqual(self.rules(twice), {"silver.example": ["contract_columns_present",
-                                                                "contract_allowed_values_kind"]})
+                                                                "contract_allowed_values_kind",
+                                                                "contract_region_codes_paired"]})
 
     def test_a_definition_may_not_declare_a_contract_s_check(self):
         import asset_checks
@@ -121,6 +131,8 @@ class TheContractsDeclareTheChecks(unittest.TestCase):
                 reported.add(("/".join(script.asset_key(physical)), script.COLUMNS_PRESENT))
             reported |= {("/".join(script.asset_key(physical)), script.allowed_values_check(field))
                          for field in script.allowed_values(table)}
+            if script.has_region_rule(table):
+                reported.add(("/".join(script.asset_key(physical)), script.REGION_CODES_PAIRED))
         self.assertEqual(reported, declared)
 
     def test_every_real_contract_is_a_check_of_the_code_location(self):

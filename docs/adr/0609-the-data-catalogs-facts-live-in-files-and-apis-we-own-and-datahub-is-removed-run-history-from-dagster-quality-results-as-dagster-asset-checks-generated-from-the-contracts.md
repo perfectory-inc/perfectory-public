@@ -155,3 +155,20 @@ DataHub 는 지금 세 가지 일을 한다. 셋 모두 사실을 만들지 않�
 - **지운 것.** Foundation 의 DataHub GraphQL 호출(`SEARCH_QUERY`·`ENTITY_QUERY`)과 `FOUNDATION_PLATFORM_DATAHUB_GMS_URL` 읽기. 이 PR 뒤
   Foundation 은 DataHub 를 부르지 않는다(품질 작업의 "전에 판정됨" 한 번 묻기만 남고, PR 4 가 지운다).
 - **시험.** `entities.rs`(노드→엔티티, 검색·쪽, 이웃), `iceberg_rest_catalog_adapter.rs`(현재 스키마의 칸, 없는 표). OpenAPI 문서는 두 경로의 태그만 바뀐다(핸들러가 `entities` 모듈로 가서, 다른 하위 모듈의 경로처럼 모듈 이름이 붙는다).
+
+## Revision 2026-11-25: 폐지된 법정동 코드에 짝이 있는가 — `contract_region_codes_paired` (W95)
+
+`pnu` 칸이 있는 Silver 계약마다 검사가 하나 더 붙는다(선언은 계약 파일에서, 판정은 같은 품질 작업이, 기록은 같은 Pipes 줄로).
+가장 새 법정동 전체 표(`reference.legal_dong_code_snapshot`)에 폐지로만 있고 변경표(`reference.legal_dong_code_change`, 루트
+ADR-0145)에 짝이 없는 코드 아래의 행을 센다. 하나라도 있으면 실패다. 종류: 입력 범위(coverage).
+
+- 왜: Gold 는 짝을 거쳐서만 코드를 서빙 판의 코드로 옮긴다. 짝 없는 폐지 코드의 행은 어느 필지에도 닿지 않고, 아무 것도 실패하지
+  않는다. 2026-11-25 에 잰 것: 변경표는 2026 년의 변경만 들고 있었고(짝짓기의 `pairing.floor_date` 20260101), 건축물 멸실 원천은
+  전북을 아직 45(2024-01 폐지)로 보낸다. Silver 에 11,788 행이 있고 Gold 의 52 아래는 0 이었다. 짝 없는 폐지 시군구는 1995~2024 의
+  10 시점에 걸쳐 51 개, 약 14 만 행이다.
+- 판정은 동·리 코드(PNU 의 앞 10 자리)로 한다. 나뉜 시군구(2026-07 인천 중구·서구)는 자기 짝이 없고 동의 짝으로 덮인다.
+- 고치는 곳은 그 Silver 표가 아니라 변경표다. 짝이 붙으면 같은 행으로 통과한다. 그래서 결과는 표의 스냅샷과 "짝 없는 폐지 코드
+  목록"의 지문을 적고, 둘 다 그대로면 다시 세지 않는다.
+- 규칙은 계약의 나이와 상관없이 자기 첫 실행부터 7 일 동안 WARN 이다(`first-checked.json` 의 `<계약>#contract_region_codes_paired`).
+- 비용: 표마다 `pnu` 한 칸의 집계 한 번. Trino 로 69 표 전부가 1 분 50 초였다(11-25). 발행기의 DuckDB(300 MiB)로는 재지 않았다.
+  표 8 개씩 한 번의 발행기 실행으로 센다.

@@ -86,10 +86,12 @@ JSON 스키마로 계약을 검증한다(`validation_errors` 가 0 이어야 한
 |---|---|
 | `contract_allowed_values_<칸>` | 값이 있고 `validValues` 에 없는 행이 하나라도 있으면 실패 |
 | `contract_columns_present` | 계약의 칸이 실제 표에 하나라도 없으면 실패 |
+| `contract_region_codes_paired` | `pnu` 칸이 있는 Silver 표에서, 폐지된 법정동 코드인데 변경표(`reference.legal_dong_code_change`)에 짝이 없는 코드 아래의 행이 하나라도 있으면 실패. 결과에 코드(폐지일)와 행 수가 남는다 |
 
 - 글로 적은 규칙은 돌리지 않고 결과도 적지 않는다.
 - 레이크하우스에 아직 없는 표는 실패가 아니라 "absent" 로 센다(지도의 implemented 는 코드가 있다는 뜻).
 - 처음 판정되는 계약은 7일 동안 WARN 으로만 남긴다(`warned`). 그 뒤와, DataHub 가 전에 판정한 계약은 ERROR 다.
+- `contract_region_codes_paired` 는 계약의 나이와 상관없이 그 규칙이 처음 돈 날부터 7일 동안 WARN 이다. 실패를 고치는 곳은 그 표가 아니라 변경표다(짝이 생기면 같은 행으로 통과한다). Gold 는 짝을 거쳐서만 코드를 옮기므로, 짝 없는 폐지 코드의 행은 어느 서빙 필지에도 닿지 않는다.
   집행되는 규칙이 하나라도 실패하면 작업이 실패로 끝나 알림이 간다.
 - 스냅숏과 규칙 지문이 직전 평가와 같은 표는 다시 세지 않는다. 직전 평가는 Dagster 의 읽기 전용 웹서버에서 읽는다.
 - 결과는 Dagster 화면의 자산 → Checks 와 더니어 운영 현황의 품질 칸(`GET /data-catalog/v1/quality-checks`)에서 본다.
