@@ -9034,6 +9034,231 @@
         "unit": "derived"
       }
     },
+    "gold.complex_catalog_versions": {
+      "table_name": "gold.complex_catalog_versions",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "complex_id"
+        ],
+        "newest_first": [
+          "version_seq"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY complex_id ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "complex_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "official_complex_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "name",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "development_stage",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "kind_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "status_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sido_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sido_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "address_text",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "management_agency_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "developer_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "designated_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "construction_start_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "completion_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "official_area_sqm",
+          "logical_type": "decimal(18,2)",
+          "required": false
+        },
+        {
+          "name": "development_progress_percent",
+          "logical_type": "decimal(5,2)",
+          "required": false
+        },
+        {
+          "name": "lot_sales_status",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "lot_sales_status_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "business_period_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "business_period_start_month",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "business_period_end_month",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "designation_basis_law_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "development_method_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "development_purpose_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "invited_industries_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "calculated_area_sqm",
+          "logical_type": "decimal(18,2)",
+          "required": false
+        },
+        {
+          "name": "parcel_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "boundary_object_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "iceberg_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "version_seq",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "name",
+        "complex_id"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(complex_id, version_seq) unique",
+        "of the current rows: one active row per complex_id",
+        "of the current rows: parcel_count is non-negative",
+        "of the current rows: iceberg_snapshot_id is present",
+        "of the current rows: published_at_utc is present",
+        "of the current rows: row_digest contains content only"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "reference.legal_dong_code_snapshot": {
       "table_name": "reference.legal_dong_code_snapshot",
       "physical_format": "Parquet",

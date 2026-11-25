@@ -335,6 +335,7 @@ enum Command {
     BuildParcelPanelVersions,
     BuildParcelOwnershipVersions,
     BuildParcelFactoriesVersions,
+    BuildComplexCatalogVersions,
     BuildParcelPublicAuctionVersions,
     BuildUnitPriceVersions,
     BuildUnitOfficialPriceVersions,
@@ -793,6 +794,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::BuildParcelOwnershipVersions => {
             Box::pin(kind_versions_build::run(&kind_versions_build::OWNERSHIP_BUILD))
         }
+        Command::BuildComplexCatalogVersions => {
+            Box::pin(kind_versions_build::run(&kind_versions_build::COMPLEX_CATALOG_BUILD))
+        }
         Command::BuildParcelFactoriesVersions => {
             Box::pin(kind_versions_build::run(&kind_versions_build::FACTORIES_BUILD))
         }
@@ -1010,6 +1014,7 @@ where
         Some("build-parcel-panel-versions") => Ok(Command::BuildParcelPanelVersions),
         Some("build-parcel-ownership-versions") => Ok(Command::BuildParcelOwnershipVersions),
         Some("build-parcel-factories-versions") => Ok(Command::BuildParcelFactoriesVersions),
+        Some("build-complex-catalog-versions") => Ok(Command::BuildComplexCatalogVersions),
         Some("build-parcel-public-auction-versions") => {
             Ok(Command::BuildParcelPublicAuctionVersions)
         }

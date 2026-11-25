@@ -32,12 +32,14 @@ use foundation_publisher_silver::{
     building_energy_stage::ENERGY,
     building_permit_stage::BUILDING_PERMITS,
     building_sub_parcel_stage::SUB_PARCELS,
+    complex_catalog_stage,
     court_kind_stage::COURT_AUCTION,
     duckdb_parquet_stage::{DuckDbParquetStage, LakehouseRead, LAKEHOUSE_CATALOG},
     factory_kind_stage::FACTORIES,
     kind_versions_stage::{
         build_in_parts, ensure_no_commit_tables, leave_input_batch, load_ranged, load_region,
-        spool, spool_base, targets_from_spools, KindVersionsStage, PARCEL_SOURCE,
+        spool, spool_base, targets_from_spools, KindVersionsStage, NationalCheck, ResultCheck,
+        PARCEL_SOURCE,
     },
     land_ownership_stage::OWNERSHIP,
     onbid_kind_stage::PUBLIC_AUCTION,
@@ -48,6 +50,7 @@ use foundation_publisher_silver::{
     real_transaction_versions_stage::REAL_TRANSACTION,
     record_kind_stage::{DEMOLITIONS, REGISTER_MASTERS},
     unit_price_stage::UNIT_PRICE,
+    whole_table_stage::WholeTableStage,
 };
 use lakehouse_infrastructure::IcebergRestCatalog;
 use serde_json::{json, Value};
@@ -72,6 +75,7 @@ mod checks;
 mod plan;
 mod rehearsal;
 mod replaced;
+mod whole;
 
 pub(crate) use checks::{declared, report};
 use checks::{explaining, run_national_checks, run_result_checks, DOCUMENTS_CHECK};
@@ -118,20 +122,61 @@ pub(crate) enum Serves {
 }
 
 /// One lane's build: the versions table, what its reader reads (whether this run is a shadow, root
-/// ADR-0564 §6), the table whose columns it carries and whose build a shadow follows, and the stage
-/// that computes it.
+/// ADR-0564 §6), the table whose columns it carries and whose build a shadow follows, and how the
+/// table is cut into the parts that carry state with the stage that computes it.
 pub(crate) struct KindBuild {
     pub table: &'static str,
     pub lane: Serves,
     pub replaced: &'static str,
     pub job: &'static str,
-    pub stage: &'static (dyn KindVersionsStage + Sync),
-    /// Whether each 시도 is its own commit (root ADR-0615 §2-4): the head then records every
-    /// 시도's state, a run that died keeps the 시도 it had committed and the next run builds the
-    /// rest. A lane is switched on its own; `false` is the one commit of the whole table.
-    // one-off: until every kind lane commits a 시도 at a time (ADR-0615 §6): the whole-table
-    // branches of `run` go with it.
-    pub per_sido_commits: bool,
+    pub partitioning: Partitioning,
+}
+
+/// How a lane's table is cut into the parts that carry state (root ADR-0615 §1 and its revision of
+/// 2026-11-26).
+pub(crate) enum Partitioning {
+    /// By 시도: a table keyed by PNU, built a 시군구 at a time.
+    Sido {
+        stage: &'static (dyn KindVersionsStage + Sync),
+        /// Whether each 시도 is its own commit (root ADR-0615 §2-4): the head then records every
+        /// 시도's state, a run that died keeps the 시도 it had committed and the next run builds
+        /// the rest. A lane is switched on its own; `false` is the one commit of the whole table.
+        // one-off: until every kind lane commits a 시도 at a time (ADR-0615 §6): the whole-table
+        // branches of `run` go with it.
+        per_sido_commits: bool,
+    },
+    /// One partition: a table no PNU keys, built whole in one pass and diffed by its versions
+    /// table's current-row key.
+    Whole {
+        stage: &'static (dyn WholeTableStage + Sync),
+        /// The content column that states a row's 시도, by which the takeover verdict picks the 시도
+        /// it compares row by row (root ADR-0564 §6-3): the key names none.
+        sido_column: &'static str,
+    },
+}
+
+impl KindBuild {
+    /// The stage of a lane partitioned by 시도; `None` for a whole-table lane.
+    pub(crate) fn sido_stage(&self) -> Option<&'static (dyn KindVersionsStage + Sync)> {
+        match self.partitioning {
+            Partitioning::Sido { stage, .. } => Some(stage),
+            Partitioning::Whole { .. } => None,
+        }
+    }
+
+    /// The lane's own result checks.
+    pub(crate) fn result_checks(&self) -> Vec<ResultCheck> {
+        match self.partitioning {
+            Partitioning::Sido { stage, .. } => stage.result_checks(),
+            Partitioning::Whole { stage, .. } => stage.result_checks(),
+        }
+    }
+
+    /// The lane's checks of the whole build; a whole-table lane's result checks already judge it.
+    pub(crate) fn national_checks(&self) -> Vec<NationalCheck> {
+        self.sido_stage()
+            .map_or_else(Vec::new, KindVersionsStage::national_checks)
+    }
 }
 
 /// Lane 1: the 총괄표제부 (root ADR-0450).
@@ -140,8 +185,10 @@ pub(crate) const REGISTER_MASTERS_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-register-masters"),
     replaced: "gold.parcel_register_masters",
     job: "build-parcel-register-masters-versions",
-    stage: &REGISTER_MASTERS,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &REGISTER_MASTERS,
+        per_sido_commits: false,
+    },
 };
 
 /// Lane 2: the 철거·멸실 reports (root ADR-0399).
@@ -150,8 +197,10 @@ pub(crate) const DEMOLITIONS_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-demolitions"),
     replaced: "gold.parcel_demolitions",
     job: "build-parcel-demolitions-versions",
-    stage: &DEMOLITIONS,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &DEMOLITIONS,
+        per_sido_commits: false,
+    },
 };
 
 /// Lane 3: the building energy (root ADR-0398).
@@ -160,8 +209,10 @@ pub(crate) const ENERGY_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-energy"),
     replaced: "gold.parcel_energy",
     job: "build-parcel-energy-versions",
-    stage: &ENERGY,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &ENERGY,
+        per_sido_commits: false,
+    },
 };
 
 /// Lane 4: the 부속지번, read from both of a link's parcels (root ADR-0399).
@@ -170,8 +221,10 @@ pub(crate) const SUB_PARCELS_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-sub-parcels"),
     replaced: "gold.parcel_sub_parcels",
     job: "build-parcel-sub-parcels-versions",
-    stage: &SUB_PARCELS,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &SUB_PARCELS,
+        per_sido_commits: false,
+    },
 };
 
 /// Lane 5: the 건축인허가 and the other files of the permit family (root ADR-0451, ADR-0464).
@@ -180,8 +233,10 @@ pub(crate) const BUILDING_PERMITS_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-building-permits"),
     replaced: "gold.parcel_building_permits",
     job: "build-parcel-building-permits-versions",
-    stage: &BUILDING_PERMITS,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &BUILDING_PERMITS,
+        per_sido_commits: false,
+    },
 };
 
 /// The parcel lane's host panel (root ADR-0096, ADR-0564 §9 차례 5): its lane is the host lane, whose
@@ -192,8 +247,10 @@ pub(crate) const PARCEL_PANEL_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel"),
     replaced: "gold.parcel_panel",
     job: "build-parcel-panel-versions",
-    stage: &PANEL,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &PANEL,
+        per_sido_commits: false,
+    },
 };
 
 /// Lane 6: the owners (root ADR-0361).
@@ -202,8 +259,10 @@ pub(crate) const OWNERSHIP_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-ownership"),
     replaced: "gold.parcel_ownership",
     job: "build-parcel-ownership-versions",
-    stage: &OWNERSHIP,
-    per_sido_commits: true,
+    partitioning: Partitioning::Sido {
+        stage: &OWNERSHIP,
+        per_sido_commits: true,
+    },
 };
 
 /// Lane 7: the registered factories (root ADR-0449).
@@ -212,8 +271,10 @@ pub(crate) const FACTORIES_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-factories"),
     replaced: "gold.parcel_factories",
     job: "build-parcel-factories-versions",
-    stage: &FACTORIES,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &FACTORIES,
+        per_sido_commits: false,
+    },
 };
 
 /// Lane 8: the 공매 rounds (root ADR-0287, ADR-0340), built as of an instant.
@@ -222,8 +283,10 @@ pub(crate) const PUBLIC_AUCTION_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-public-auction"),
     replaced: "gold.parcel_public_auction",
     job: "build-parcel-public-auction-versions",
-    stage: &PUBLIC_AUCTION,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &PUBLIC_AUCTION,
+        per_sido_commits: false,
+    },
 };
 
 /// Lane 9: the 실거래 deals (root ADR-0350, ADR-0371): a deal is placed by its address, so the stage
@@ -235,8 +298,10 @@ pub(crate) const REAL_TRANSACTION_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-real-transaction"),
     replaced: "gold.parcel_real_transaction",
     job: "build-parcel-real-transaction-versions",
-    stage: &REAL_TRANSACTION,
-    per_sido_commits: true,
+    partitioning: Partitioning::Sido {
+        stage: &REAL_TRANSACTION,
+        per_sido_commits: true,
+    },
 };
 
 /// The 호 공시가격 (root ADR-0190, ADR-0204): the newest price batch's rows (the stage's
@@ -252,8 +317,10 @@ pub(crate) const NEARBY_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-nearby"),
     replaced: "gold.parcel_nearby",
     job: "build-parcel-nearby-versions",
-    stage: &NEARBY,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &NEARBY,
+        per_sido_commits: false,
+    },
 };
 
 /// The served parcel boundaries (root ADR-0133 §2, ADR-0602): one edition as the source holds it
@@ -265,8 +332,10 @@ pub(crate) const BOUNDARY_SERVED_BUILD: KindBuild = KindBuild {
     lane: Serves::Table(lakehouse_domain::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED.table_name),
     replaced: lakehouse_domain::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED.table_name,
     job: "build-parcel-boundary-served-versions",
-    stage: &SERVED_BOUNDARIES,
-    per_sido_commits: true,
+    partitioning: Partitioning::Sido {
+        stage: &SERVED_BOUNDARIES,
+        per_sido_commits: true,
+    },
 };
 
 /// The candidate edition a rehearsal builds (root ADR-0618 §9).
@@ -280,8 +349,10 @@ pub(crate) const UNIT_PRICE_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("unit-price"),
     replaced: "gold.unit_price",
     job: "build-unit-price-versions",
-    stage: &UNIT_PRICE,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &UNIT_PRICE,
+        per_sido_commits: false,
+    },
 };
 
 /// Lane 9: the 경매 items in progress and sale results (root ADR-0287, ADR-0353, ADR-0540), built as
@@ -291,12 +362,30 @@ pub(crate) const COURT_AUCTION_BUILD: KindBuild = KindBuild {
     lane: Serves::ByPnuLane("parcel-court-auction"),
     replaced: "gold.parcel_court_auction",
     job: "build-parcel-court-auction-versions",
-    stage: &COURT_AUCTION,
-    per_sido_commits: false,
+    partitioning: Partitioning::Sido {
+        stage: &COURT_AUCTION,
+        per_sido_commits: false,
+    },
 };
 
 /// Every lane the driver builds, by its command (`describe-checks` answers for them).
-pub(crate) const KIND_BUILDS: [&KindBuild; 14] = [
+/// The industrial-complex catalog (root ADR-0426): one partition, keyed by its complex (root
+/// ADR-0615, revision 2026-11-26). While its readers read `gold.complex_catalog` it is that table's
+/// shadow (root ADR-0564 §6): the replaced table carries no build tag, so the build reads each input
+/// as of its newest commit (`gold_versions_commit::untagged_shadow`).
+pub(crate) const COMPLEX_CATALOG_BUILD: KindBuild = KindBuild {
+    table: "gold.complex_catalog_versions",
+    // one-off: until the catalog's switch, which moves its readers to this table.
+    lane: Serves::Table(complex_catalog_stage::REPLACED),
+    replaced: complex_catalog_stage::REPLACED,
+    job: "build-complex-catalog-versions",
+    partitioning: Partitioning::Whole {
+        stage: &complex_catalog_stage::CATALOG,
+        sido_column: "sido_code",
+    },
+};
+
+pub(crate) const KIND_BUILDS: [&KindBuild; 15] = [
     &REGISTER_MASTERS_BUILD,
     &DEMOLITIONS_BUILD,
     &ENERGY_BUILD,
@@ -311,12 +400,28 @@ pub(crate) const KIND_BUILDS: [&KindBuild; 14] = [
     &BOUNDARY_SERVED_BUILD,
     &UNIT_PRICE_BUILD,
     &COURT_AUCTION_BUILD,
+    &COMPLEX_CATALOG_BUILD,
 ];
 
 /// Builds and appends `kind`'s changed keys.
-#[allow(clippy::too_many_lines)]
 pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
-    let (table, stage) = (kind.table, kind.stage);
+    match kind.partitioning {
+        Partitioning::Sido {
+            stage,
+            per_sido_commits,
+        } => run_by_sido(kind, stage, per_sido_commits).await,
+        Partitioning::Whole { stage, .. } => whole::run(kind, stage).await,
+    }
+}
+
+/// [`run`] of a lane partitioned by 시도.
+#[allow(clippy::too_many_lines)] // the run in its order: plan, spool, each 시도, commit, report
+async fn run_by_sido(
+    kind: &KindBuild,
+    stage: &'static (dyn KindVersionsStage + Sync),
+    per_sido_commits: bool,
+) -> anyhow::Result<()> {
+    let table = kind.table;
     let started = Instant::now();
     let summary_path = required_env_value(SUMMARY_ENV)?;
     let published_at_utc = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -368,7 +473,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     let batch_input = stage.batch_input();
     let explanation = stage.change_explanation();
     ensure!(
-        !kind.per_sido_commits
+        !per_sido_commits
             || (national.is_empty() && batch_input.is_none() && explanation.is_none()),
         "{table} commits a 시도 at a time: a check of the whole build, a batch read or an explanation \
          of a change holds only for a table committed whole (root ADR-0615 §7)"
@@ -418,10 +523,10 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
     // from, and a 시도 already at the version this run would build is not built again.
     let requested = requested_partitions(optional_env_value(PARTITIONS_ENV)?.as_deref())?;
     ensure!(
-        kind.per_sido_commits || requested.is_none(),
+        per_sido_commits || requested.is_none(),
         "{table} is committed whole: a run of it cannot be asked for some 시도 ({PARTITIONS_ENV})"
     );
-    let mut states = if kind.per_sido_commits {
+    let mut states = if per_sido_commits {
         versions::PartitionStates::of(&history)?
     } else {
         versions::PartitionStates::default()
@@ -660,7 +765,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                     && Some(&from.served_edition) == base.served_edition.as_ref()
             })
         });
-        let whole_sido = every_pnu || !at_base || (kind.per_sido_commits && recorded.is_none());
+        let whole_sido = every_pnu || !at_base || (per_sido_commits && recorded.is_none());
         // The session's connection is borrowed for the 시도's work only: a commit below awaits.
         let named = {
             let connection = duck.connection();
@@ -760,7 +865,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
                     .with_context(|| format!("the explanation of {table} did not gather"))?;
             }
             let mut refused = run_result_checks(
-                stage,
+                &stage.result_checks(),
                 connection,
                 (table, sido),
                 &sido_diff,
@@ -813,7 +918,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
             diff += sido_diff;
             continue;
         }
-        if !kind.per_sido_commits {
+        if !per_sido_commits {
             diff += sido_diff;
             digests += sido_digests;
             files.extend(sido_files);
@@ -996,7 +1101,7 @@ pub(crate) async fn run(kind: &KindBuild) -> anyhow::Result<()> {
         );
         return Ok(());
     }
-    if kind.per_sido_commits {
+    if per_sido_commits {
         if state_owed {
             // The 시도 that had nothing to append: one commit of no file records their state.
             let totals = commit
