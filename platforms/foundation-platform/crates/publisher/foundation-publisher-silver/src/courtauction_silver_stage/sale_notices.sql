@@ -18,7 +18,7 @@ SELECT line_number, json_extract_string(operation, '$') AS operation, request,
                                                   "crrctPbancLst": ["JSON"], "rtrcnPbancLst": ["JSON"]}}}').data AS data
 FROM (SELECT ordinality AS line_number, operation, request, read_outcome, py_truthy(body) AS truthy,
              json_extract_string(body, '$') AS text
-      FROM read_json('{object_path}', format = 'newline_delimited', maximum_object_size = 33554432,
+      FROM read_json('{object_path}', format = 'newline_delimited', records = true, maximum_object_size = 33554432,
                      columns = {operation: 'JSON', request: 'JSON', read_outcome: 'JSON', body: 'JSON'})
            WITH ORDINALITY)
 WHERE coalesce(json_extract_string(read_outcome, '$') = 'read', false)

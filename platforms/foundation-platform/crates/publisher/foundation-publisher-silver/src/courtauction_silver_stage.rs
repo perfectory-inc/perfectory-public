@@ -1145,7 +1145,7 @@ fn search_pages_sql(source: &CourtAuctionSource, role: Role, path: &str) -> anyh
                       CASE WHEN json_valid(text) THEN json_transform(text, '{shape}') END AS b \
                FROM (SELECT ordinality AS line_number, request, http_status, \
                             json_extract_string(body, '$') AS text \
-                     FROM read_json('{path}', format = 'newline_delimited', \
+                     FROM read_json('{path}', format = 'newline_delimited', records = true, \
                                     maximum_object_size = 33554432, \
                                     columns = {{request: 'JSON', http_status: 'JSON', body: 'JSON'}}) \
                           WITH ORDINALITY) \

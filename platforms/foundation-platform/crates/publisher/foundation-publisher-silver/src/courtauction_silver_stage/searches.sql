@@ -15,7 +15,7 @@ WITH answers AS (
          CASE WHEN json_valid(json_extract_string(body, '$'))
               THEN json_transform(json_extract_string(body, '$'), '{"data": {"dlt_srchResult": ["JSON"]}}').data.dlt_srchResult
          END AS l
-  FROM read_json('{object_path}', format = 'newline_delimited', maximum_object_size = 33554432,
+  FROM read_json('{object_path}', format = 'newline_delimited', records = true, maximum_object_size = 33554432,
                  columns = {http_status: 'JSON', body: 'JSON'})
        WITH ORDINALITY
   -- `line.get("http_status") != 200`: the number 200 (a text "200" is no answer).

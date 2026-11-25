@@ -17,7 +17,7 @@ SELECT ordinality AS line_number,
                    'media_format', media_format, 'size_bytes', size_bytes, 'outcome', outcome) AS j,
        coalesce(json_extract_string(read_outcome, '$') = 'read', false) AS read,
        TRY_CAST(CASE WHEN py_truthy(body) THEN json_extract_string(body, '$') END AS JSON) AS body
-FROM read_json('{object_path}', format = 'newline_delimited', maximum_object_size = 33554432,
+FROM read_json('{object_path}', format = 'newline_delimited', records = true, maximum_object_size = 33554432,
                columns = {request: 'JSON', http_status: 'JSON', read_outcome: 'JSON', requested_at_utc: 'JSON',
                           list_fingerprint: 'JSON', photo_count: 'JSON', operation: 'JSON', facts: 'JSON',
                           sha256: 'JSON', media_format: 'JSON', size_bytes: 'JSON', outcome: 'JSON',

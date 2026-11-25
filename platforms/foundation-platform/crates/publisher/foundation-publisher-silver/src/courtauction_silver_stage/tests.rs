@@ -960,7 +960,7 @@ fn only_a_line_that_is_not_json_is_called_one() -> anyhow::Result<()> {
             .connection()
             .execute_batch(&format!(
                 "CREATE OR REPLACE TABLE r AS SELECT * FROM read_json('{}', \
-                 format = 'newline_delimited', columns = {{a: 'JSON'}})",
+                 format = 'newline_delimited', records = true, columns = {{a: 'JSON'}})",
                 sql_path(&path)?
             ))
             .err()
