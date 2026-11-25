@@ -604,7 +604,8 @@ state = pathlib.Path(values['FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT'])
 duckdb = pathlib.Path(values['FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT'])
 approved_namespaces = ('/var/lib/foundation-platform/building-register-floor',
                        '/data/foundation-platform/building-register-floor')
-# The DuckDB stages work on the system disk (root ADR-0599); /data is the slow disk.
+# The DuckDB stages work on the system disk, under its reserve (config/host-layout.contract.json
+# duckdb_stage_reserve_bytes, root ADR-0599); /data is the slow disk.
 system_disk = pathlib.Path(approved_namespaces[0])
 if str(state) not in approved_namespaces:
     fail()

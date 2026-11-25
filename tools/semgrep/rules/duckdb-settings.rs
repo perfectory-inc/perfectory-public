@@ -25,9 +25,9 @@ fn a_setting_by_name(config: Config) -> anyhow::Result<Config> {
     Ok(config.with("memory_limit", "600MiB")?)
 }
 
-fn through_the_one_function(spill: &str) -> anyhow::Result<Connection> {
+fn through_the_one_function(spill: &Path) -> anyhow::Result<Connection> {
     // ok: duckdb-memory-and-threads-come-from-engine-config
-    Ok(Connection::open_in_memory_with_flags(engine_config(Some(spill))?)?)
+    open_engine(None, Some(spill))
 }
 
 fn reading_what_duckdb_holds(connection: &Connection) -> anyhow::Result<String> {

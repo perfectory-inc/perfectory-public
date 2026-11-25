@@ -197,8 +197,7 @@ struct Report<'a> {
 /// Returns whatever [`load`] refuses.
 pub fn verify() -> anyhow::Result<()> {
     let directory = release_directory()?;
-    let connection =
-        Connection::open_in_memory_with_flags(crate::duckdb_parquet_stage::engine_config(None)?)?;
+    let connection = crate::duckdb_parquet_stage::open_engine(None, None)?;
     let extensions = load(&connection, &directory)?;
     let report = serde_json::to_string(&Report {
         schema_version: "foundation-platform.lakehouse_engine_extensions_verify.v1",

@@ -229,7 +229,7 @@ main 을 덮어쓰지 못한다. 비교 커밋은 요약에 `foundation.change-r
 
 ### DuckDB 로 싣는 레인 (루트 ADR-0599)
 
-54개 레인 모두 Spark 와 가지 없이 실린다. 엔진을 고르는 줄은 없다(마지막 레인이 옮겨진 뒤 지웠다). 전유부 면적은 표가 `bucket(32, mgm_bldrgst_pk)` 로 나뉘어, 릴리스의 변경분을 모아 Iceberg 의 버킷 변환으로 버킷마다 파일을 쓴다. 용도지역 도형은 체크섬만 다른 키의 두 도형을 0.1 m 허용 오차로 재서(`wkb_polygons::within_tolerance`) 같은 도형이면 변경으로 치지 않는다. 스테이지의 임시 파일 상한은 DuckDB 의 기본값(그 디스크 남은 자리의 90%, `duckdb_parquet_stage::engine_config`)이다. 비교가 없는 공동주택가격은 릴리스를 통째로 한 번에 싣고, 표제부·전유부는 내보내기가 남긴 지역 파일(JSONL·Parquet)을 읽으며 싣기 전에 일반 대지의 PNU 빈값 비율을 계약의 상한과 견준다(`silver-release-pnu-null-share` 줄). HUB 표는 판 열(`vintage`)로 나뉘어 한 릴리스가 한 파티션이고, `raw_columns` 는 글자 목록으로 읽힌다.
+54개 레인 모두 Spark 와 가지 없이 실린다. 엔진을 고르는 줄은 없다(마지막 레인이 옮겨진 뒤 지웠다). 전유부 면적은 표가 `bucket(32, mgm_bldrgst_pk)` 로 나뉘어, 릴리스의 변경분을 모아 Iceberg 의 버킷 변환으로 버킷마다 파일을 쓴다. 용도지역 도형은 체크섬만 다른 키의 두 도형을 0.1 m 허용 오차로 재서(`wkb_polygons::within_tolerance`) 같은 도형이면 변경으로 치지 않는다. 스테이지는 사본을 뜨기 전과 뜬 뒤에 디스크 여유를 확인한다: 여유에서 임시 상한(열 때 그 디스크 여유의 1/3, `duckdb_parquet_stage::DISK_SHARE`)과 쓸 바이트를 빼고도 `config/host-layout.contract.json` 의 `duckdb_stage_reserve_bytes`(30 GiB, Postgres 와 같은 디스크)가 남지 않으면 거부한다. 비교가 없는 공동주택가격은 릴리스를 통째로 한 번에 싣고, 표제부·전유부는 내보내기가 남긴 지역 파일(JSONL·Parquet)을 읽으며 싣기 전에 일반 대지의 PNU 빈값 비율을 계약의 상한과 견준다(`silver-release-pnu-null-share` 줄). HUB 표는 판 열(`vintage`)로 나뉘어 한 릴리스가 한 파티션이고, `raw_columns` 는 글자 목록으로 읽힌다.
 
 | 단계 | 무엇 | 로그의 줄 |
 |---|---|---|

@@ -403,8 +403,12 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
     // The staged files live as long as the stage: it is kept until the append is done.
     let stage = DuckDbParquetStage::open_reading_lakehouse(&stages, &LakehouseRead::from_env()?)?;
     let started = Instant::now();
+    // The copy's size is not known before it is made; its spill ceiling is.
+    stage.require_room(0)?;
     let (copy, rows) = release_copy(&stage, table_contract, release, &copies)?;
     report.copy_seconds = seconds(started);
+    // The staged files hold at most the copy's rows; a bucketed table gathers them once more.
+    stage.require_room(std::fs::metadata(&copy)?.len().saturating_mul(2))?;
     let copied = release_relation(&copy)?;
     report.release_rows = check_release(
         &stage,
@@ -466,6 +470,9 @@ pub(in crate::remote_lakehouse_job) async fn append_release(
     let main = match head {
         Some(head) if key_buckets(table_contract, &rule).is_some() => {
             let started = Instant::now();
+            // The copy's size is not known before it is made; the stage's spill ceiling is. Asked
+            // here, not in `main_copy`: its test must not depend on the disk of the machine it runs on.
+            stage.require_room(0)?;
             let local = main_copy(&stage, &main, head, &copies)?;
             println!(
                 "silver-refresh {table}: main at snapshot {head} copied once in {:.1} s; every bucket compares with the copy",

@@ -1,7 +1,7 @@
 //! Shared row and transport budgets, independent of the staging engine.
 //!
-//! The spill has no budget here: every `DuckDB` takes `DuckDB`'s own ceiling on the disk it spills
-//! to (`duckdb_parquet_stage::engine_config`).
+//! The spill has no budget here: every `DuckDB` spills at most a share of what its disk has free
+//! (`duckdb_parquet_stage::DISK_SHARE`, `open_engine`).
 use crate::bounded_bytes::MAX_ROW_BYTES;
 
 /// Maximum number of rows in a bounded ZIP batch.

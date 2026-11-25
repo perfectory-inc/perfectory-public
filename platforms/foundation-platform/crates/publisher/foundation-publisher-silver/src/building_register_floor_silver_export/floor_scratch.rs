@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     bounded_bytes::BoundedBytes, building_register_zip_lines::decode_zip_lines,
-    duckdb_parquet_stage::engine_config, serving_scratch::CURSOR_BYTES,
+    duckdb_parquet_stage::open_engine, serving_scratch::CURSOR_BYTES,
 };
 use anyhow::{ensure, Context};
 use duckdb::{params, Connection};
@@ -50,8 +50,8 @@ impl FloorScratch {
         Self::open(output, CURSOR_BYTES, cancellation)
     }
 
-    /// A scratch whose spill and memory are every `DuckDB`'s (`engine_config`): the share of what
-    /// the process may still take, and `DuckDB`'s own spill ceiling on the disk of `output`.
+    /// A scratch whose spill and memory are every `DuckDB`'s (`open_engine`): the share of what
+    /// the process may still take, and the share of what the disk of `output` has free.
     fn open(
         output: &Path,
         cursor_bytes: usize,
@@ -70,13 +70,7 @@ impl FloorScratch {
         let directory = tempfile::Builder::new()
             .prefix(".floor-scratch-")
             .tempdir_in(parent)?;
-        let config = engine_config(Some(
-            directory
-                .path()
-                .to_str()
-                .context("floor spill path must be UTF-8")?,
-        ))?;
-        let writer = Connection::open_in_memory_with_flags(config)?;
+        let writer = open_engine(None, Some(directory.path()))?;
         // DuckDB must accept the explicit spill directory before external access is disabled.
         writer.execute_batch("SET enable_external_access=false")?;
         let reader = writer.try_clone()?;

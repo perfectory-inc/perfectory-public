@@ -67,7 +67,7 @@ JOBS = RELEASE / "orchestration" / "jobs.v1.json"
 GMS = os.environ.get("FOUNDATION_DATA_QUALITY_GMS_URL", "http://127.0.0.1:18095")
 # The admitted release's publisher (admitted-writer-runtime.sh), and where its DuckDB keeps its
 # database and spill: the unit's StateDirectory. Its DuckDB takes the one share of what the unit has
-# left when it opens (duckdb_parquet_stage::engine_config), so this script keeps its room in the 512M.
+# left when it opens (duckdb_parquet_stage::open_engine), so this script keeps its room in the 512M.
 ADMITTED_RUNTIME = pathlib.Path(__file__).resolve().parent / "admitted-writer-runtime.sh"
 STATE = pathlib.Path(os.environ.get("STATE_DIRECTORY", "/var/lib/foundation-data-quality"))
 WORK = STATE / "duckdb"

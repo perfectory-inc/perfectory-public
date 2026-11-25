@@ -238,6 +238,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let duck = DuckDbParquetStage::open_reading_lakehouse(work, &lakehouse_read()?)?;
+    duck.require_room(0)?;
     let memory_limit = duck.memory_limit_bytes()?;
     let connection = duck.connection();
     connection.execute_batch("SET preserve_insertion_order = false;")?;
@@ -314,6 +315,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
             table.digests += digests;
             table.files.extend(files);
         }
+        duck.require_room(0)?;
     }
     drop(spool);
     println!(

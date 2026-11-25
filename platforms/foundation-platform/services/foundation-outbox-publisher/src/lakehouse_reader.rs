@@ -23,7 +23,7 @@ pub(crate) struct LakehouseReader {
 
 impl LakehouseReader {
     /// A reader whose `DuckDB` keeps its database and spill under `work`; its memory is the
-    /// share every stage takes of what the process may still hold (`engine_config`).
+    /// share every stage takes of what the process may still hold (`open_engine`).
     pub(crate) fn open(work: &Path) -> anyhow::Result<Self> {
         let catalog = LakehouseCatalogConfig::reader_from_env()
             .context("failed to configure the lakehouse catalog with its read-only token")?;

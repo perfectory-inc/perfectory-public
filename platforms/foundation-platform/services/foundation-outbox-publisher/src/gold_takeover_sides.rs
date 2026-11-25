@@ -30,9 +30,7 @@ use std::{io::Read as _, path::Path};
 use anyhow::{ensure, Context};
 use foundation_publisher_silver::{
     duckdb::Connection,
-    duckdb_parquet_stage::{
-        engine_config, with_contract_columns, DuckDbParquetStage, LakehouseRead,
-    },
+    duckdb_parquet_stage::{open_engine, with_contract_columns, DuckDbParquetStage, LakehouseRead},
 };
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseTableContract, GOLD_VERSIONS_TABLE_SUFFIX,
@@ -556,7 +554,7 @@ pub(crate) fn query() -> anyhow::Result<()> {
     let sql = sql.trim().trim_end_matches(';');
     ensure!(!sql.is_empty(), "no SQL statement on stdin");
     let spill = optional_env_value(&format!("{PREFIX}TEMP_DIRECTORY"))?;
-    let connection = Connection::open_in_memory_with_flags(engine_config(spill.as_deref())?)?;
+    let connection = open_engine(None, spill.as_deref().map(Path::new))?;
     for name in ["reference", "candidate"] {
         let path = sql_path(&Path::new(&work).join(format!("{name}.parquet")))?;
         connection.execute_batch(&format!(

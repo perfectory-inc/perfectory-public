@@ -71,7 +71,7 @@ platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/c
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/courtauction_silver_stage/tests.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/data_go_kr_file_data_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_extensions.rs:1
-platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage.rs:1
+platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage.rs:2
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/factory_kind_stage/tests.rs:1
 platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/housing_permit_basis_outline_silver_export.rs:1

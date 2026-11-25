@@ -15,7 +15,7 @@
 //! answers `"error"`, and the run goes on to the next.
 //!
 //! The work directory is `FOUNDATION_PLATFORM_LAKEHOUSE_QUERY_WORK` (the calling job's state):
-//! `DuckDB` spills there past its share of what the calling unit may still hold (`engine_config`).
+//! `DuckDB` spills there past its share of what the calling unit may still hold (`open_engine`).
 
 use std::io::BufRead as _;
 use std::path::Path;

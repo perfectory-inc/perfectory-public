@@ -377,6 +377,9 @@ pub async fn load(
     // The stage (and its staged files) lives until the commit has uploaded them.
     let stage =
         DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::read_only_from_env()?)?;
+    // The staged files hold the edition's rows once more, on the stage's disk. Asked here, not in
+    // `stage_edition`: its test must not depend on the disk of the machine it runs on.
+    stage.require_room(0)?;
     let staged = stage_edition(
         &stage,
         contract,

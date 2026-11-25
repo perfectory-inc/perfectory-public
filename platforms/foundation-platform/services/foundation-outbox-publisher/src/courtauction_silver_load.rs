@@ -320,7 +320,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         &plan_root,
         &LakehouseRead::from_env()?,
     )?);
-    // The stage holds a share of what the task holds (`duckdb_parquet_stage::engine_config`): a
+    // The stage holds a share of what the task holds (`duckdb_parquet_stage::open_engine`): a
     // larger class is a larger task, and the read's refusal is measured against this limit.
     let memory_limit = locked(&stage)?.memory_limit_bytes()?;
     locked(&stage)?

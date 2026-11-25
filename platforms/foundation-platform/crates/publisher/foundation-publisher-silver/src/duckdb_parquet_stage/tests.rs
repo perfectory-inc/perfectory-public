@@ -684,6 +684,25 @@ async fn rows_of_a_hash_partitioned_table_are_staged_one_bucket_a_file() -> anyh
     Ok(())
 }
 
+#[test]
+fn a_stage_refuses_work_that_would_eat_the_disks_reserve() -> anyhow::Result<()> {
+    const GIB: u64 = 1 << 30;
+    let reserve = super::stage_reserve_bytes()?;
+    assert_eq!(reserve, 30 * GIB);
+    // 97 GiB free, a third of it the spill ceiling: 13 GiB of copy and staged files fit, 40 do not.
+    assert_eq!(super::disk_share(96 * GIB), 32 * GIB);
+    assert!(super::leaves_reserve(97 * GIB, 32 * GIB, 13 * GIB, reserve));
+    assert!(!super::leaves_reserve(
+        97 * GIB,
+        32 * GIB,
+        40 * GIB,
+        reserve
+    ));
+    // A disk already under the reserve refuses whatever the plan.
+    assert!(!super::leaves_reserve(20 * GIB, 0, 0, reserve));
+    Ok(())
+}
+
 /// One synthetic row of `contract` (PNU under the synthetic 99999 code, 2099 times), every column
 /// filled by its type.
 fn synthetic_row(contract: &LakehouseTableContract) -> anyhow::Result<String> {

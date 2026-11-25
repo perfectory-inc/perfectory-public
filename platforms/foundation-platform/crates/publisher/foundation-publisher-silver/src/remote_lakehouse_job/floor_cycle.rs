@@ -24,8 +24,8 @@ mod native_runtime;
 use super::invocation_cleanup::{self, Job};
 
 const MAX_OUTCOME_BYTES: u64 = 256 * 1024;
-/// Where the cycle's `DuckDB` stages work: the system disk, as the Silver refresh lanes'
-/// (`silver-refresh.sh`).
+/// Where the cycle's `DuckDB` stages work: the system disk (`config/host-layout.contract.json`
+/// `duckdb_stage_reserve_bytes`), as the Silver refresh lanes' (`silver-refresh.sh`).
 const DUCKDB_ROOT_ENV: &str = "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_DUCKDB_ROOT";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
