@@ -26,6 +26,35 @@ struct Contract {
     hadoop: Hadoop,
     serving_parquet: ServingParquetPolicy,
     execution_profile: ExecutionProfile,
+    r2_read: R2ReadPolicy,
+}
+
+/// How a read of R2 retries (root ADR-0102): the numbers every engine's reads take, Spark's
+/// `S3FileIO` and s3a settings (`lakehouse_engine.py`) and the publisher's `DuckDB` (httpfs) alike.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub struct R2ReadPolicy {
+    /// Requests asked again after the first.
+    pub num_retries: u64,
+    /// The first wait, in milliseconds; each later one doubles it.
+    pub min_wait_ms: u64,
+    /// The longest wait, in milliseconds.
+    pub max_wait_ms: u64,
+}
+
+/// The engine contract's `r2_read`.
+/// # Errors
+/// 포함된 공통 엔진 계약의 파싱 또는 검증에 실패하면 오류를 반환한다.
+pub fn r2_read_policy() -> anyhow::Result<R2ReadPolicy> {
+    let contract: Contract = serde_json::from_str(CONTRACT_JSON)?;
+    packages_from(&contract)?;
+    let policy = contract.r2_read;
+    ensure!(
+        policy.num_retries > 0
+            && policy.min_wait_ms > 0
+            && policy.min_wait_ms <= policy.max_wait_ms,
+        "the lakehouse engine contract's r2_read must retry, after a positive wait"
+    );
+    Ok(policy)
 }
 
 /// Native process limits shared by staging and the actual container invocation.

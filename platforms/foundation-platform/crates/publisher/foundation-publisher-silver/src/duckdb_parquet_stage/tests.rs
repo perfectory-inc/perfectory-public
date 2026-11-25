@@ -34,6 +34,7 @@ use super::DuckDbParquetStage;
 
 mod engine_config;
 mod pinned_head;
+mod r2_read;
 mod read_only;
 mod table_at;
 
