@@ -24,6 +24,8 @@
       "time_limit_minutes": 120,
       "memory_max": "3G",
       "memory_measured": "journal `memory peak` 2026-10-18..11-08, 23 runs, highest 308M on 2026-11-08, while its loads ran in the spark container outside this cap. Since root ADR-0559 the parcel-number-change load is the publisher's DuckDB inside this unit (the history's 1.37M events against a file of up to 356k rows): DuckDB spills past half the engine profile (2048 MiB), so the unit is sized as the onbid Silver load, the same stage (2.4G measured 2026-11-20); no such load has run under this cap yet; systemd logs the peak of every run",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -95,6 +97,8 @@
       "memory_measured_peak": "7373M",
       "memory_measured": "its own: run 20261119T152616Z of foundation-gold-versions@parcel-nearby (2026-11-19 15:26-15:51Z, every served parcel, 39,861,511 rows committed in 1500 s), systemd's memory peak 7.2G, swap peak 13.5M; the publisher's own peak in its run log 7,733,563,392 bytes",
       "memory_headroom_why": "The peak follows the cap, not the work: the publisher gives DuckDB three fifths of what the unit has left under MemoryHigh (duckdb_parquet_stage MEMORY_SHARE) and DuckDB fills it and the page cache, so a larger memory_max would only raise the peak. The run fit: no timeout, 13.5M swap, under MemoryMax",
+      "disk_max": "8G",
+      "disk_measured": "not measured: the build holds one 시도's stage database and staged files at a time and checkpoints after each part (root ADR-0599: about 43 GB over 15 시도 before the checkpoint, ~2.9 GB a 시도); 8G is that twice over with the change set. The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

@@ -23,6 +23,8 @@
       "time_limit_minutes": 10,
       "memory_max": "1G",
       "memory_measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as a shell cycle over the control API and Trino; runs logged CPU only; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

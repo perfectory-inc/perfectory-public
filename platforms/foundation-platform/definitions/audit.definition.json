@@ -20,6 +20,8 @@
       "time_limit_minutes": 10,
       "memory_max": "256M",
       "memory_measured": "no run yet (new 2026-11-19, root ADR-0569 §6); sized as the publisher binary with one connection and the importer's rows (about 1,200 on the first run, a few KB each) and one `git log` at a time; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -61,6 +63,8 @@
       "time_limit_minutes": 10,
       "memory_max": "256M",
       "memory_measured": "no run yet (new 2026-11-19, root ADR-0569 §4); sized as the publisher binary with one connection, then the pinned cosign signing one small file (its peak is that of a Go binary, tens of MB); systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

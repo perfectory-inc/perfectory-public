@@ -22,6 +22,8 @@
       "time_limit_minutes": 15,
       "memory_max": "1G",
       "memory_measured": "no run yet (new 2026-11-13, root ADR-0563 §3); the same publisher command ran inside foundation-lineage-stewardship.service under its 512M cap (308M measured, 23 runs) with the catalog's rows alone; sized as it now also holds every complex's document facts while it hashes, below the outbox publisher's native peak (770M measured); systemd logs the peak of every run under this cap",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

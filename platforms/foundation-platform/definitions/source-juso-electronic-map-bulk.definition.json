@@ -23,6 +23,8 @@
       "time_limit_minutes": 120,
       "memory_max": "3G",
       "memory_measured": "never run (root ADR-0475: new, waiting for the approval key); sized as the collector holds one ten-day answer's files in memory and one more copy while it commits each, against the provider's 2,000,000,000-byte file limit for the largest; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "request",
         "limits": [

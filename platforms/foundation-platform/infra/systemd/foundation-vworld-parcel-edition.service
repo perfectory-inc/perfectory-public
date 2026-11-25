@@ -28,6 +28,7 @@ ReadWritePaths=/var/lib/foundation-platform/vworld-parcel-edition
 MemoryHigh=460M
 MemoryMax=512M
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=1073741824
 
 [Install]
 WantedBy=multi-user.target

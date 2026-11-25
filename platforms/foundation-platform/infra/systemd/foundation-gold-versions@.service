@@ -29,6 +29,7 @@ StateDirectory=foundation-gold-versions
 MemoryHigh=7372M
 MemoryMax=8G
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=8589934592
 
 [Install]
 WantedBy=multi-user.target

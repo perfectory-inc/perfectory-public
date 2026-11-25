@@ -26,3 +26,4 @@ ReadWritePaths=/var/lib/foundation-platform/map-edit-fold
 MemoryHigh=691M
 MemoryMax=768M
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=1073741824

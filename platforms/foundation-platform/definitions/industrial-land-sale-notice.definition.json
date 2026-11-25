@@ -22,6 +22,8 @@
       "time_limit_minutes": 120,
       "memory_max": "1G",
       "memory_measured": "977.6M peak (and 383.9M swap) in its first run, 2026-11-22 18:52-22:22Z, under the 1G cap: one detail and its attachments in memory (256 MiB per-file cap, industrial-land-sale-notice.contract.json attachments.max_file_bytes) plus one batch of 50 reads; the peak is the largest file, not the run's length; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -70,6 +72,8 @@
       "time_limit_minutes": 40,
       "memory_max": "1G",
       "memory_measured": "711.0M peak in its first run, 2026-11-22 18:52-19:22Z, under the 1G cap: one detail and its attachments in memory (256 MiB per-file cap, industrial-land-sale-notice.contract.json attachments.max_file_bytes) plus one batch of 50 reads; the peak is the largest file, not the run's length; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -118,6 +122,8 @@
       "time_limit_minutes": 60,
       "memory_max": "1G",
       "memory_measured": "557.8M peak over its five first-fill runs, 2026-11-22 18:52-23:11Z, under the 1G cap: one detail and its attachments in memory (256 MiB per-file cap, industrial-land-sale-notice.contract.json attachments.max_file_bytes) plus one batch of 50 reads; the peak is the largest file, not the run's length; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -166,6 +172,8 @@
       "time_limit_minutes": 40,
       "memory_max": "1G",
       "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice collector (1G), which keeps one detail and its attachments in memory as this one does, under the same 256 MiB per-file cap (industrial-land-sale-notice.contract.json attachments.max_file_bytes), plus at most one batch of 50 reads (a KICOX post page is about 170 KB, a Factory-on notice page about 60 KB); systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -211,6 +219,8 @@
       "time_limit_minutes": 40,
       "memory_max": "512M",
       "memory_measured": "no run yet (new 2026-11-22, root ADR-0603); sized as the ILIS notice Silver load (512M), the same DuckDB stage and append over objects of the same size; systemd logs the peak of every run under this cap",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "object",
         "limits": [

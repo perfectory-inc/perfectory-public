@@ -49,6 +49,8 @@
       "time_limit_minutes": 60,
       "memory_max": "2G",
       "memory_measured": "no run yet (new 2026-11-23, root ADR-0604); sized as the collector holds one file in memory and one more copy while it commits it: the largest edition of the two files this unit collects is 526 MB (the 2021 고용·산재 zip, measured 2026-11-22), so about 1.1 GB at the most, and an NPS month about 115 MB; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "object",
         "limits": [
@@ -95,6 +97,8 @@
       "time_limit_minutes": 60,
       "memory_max": "2G",
       "memory_measured": "no run yet (new 2026-11-23, root ADR-0604); sized as the collector holds one file in memory and one more copy while it commits it: the largest edition is 526 MB (the 2021 zip, measured 2026-11-22), so about 1.1 GB at the most; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "object",
         "limits": [

@@ -28,6 +28,7 @@ TimeoutStopSec=30
 MemoryHigh=691M
 MemoryMax=768M
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=1073741824
 # It counts the host's Docker bridge networks (docker-networks.prom); ProtectHome hides the service
 # user's ~/.docker, so the CLI keeps its config in the unit's private /tmp (as host retention does).
 Environment=DOCKER_CONFIG=/tmp/docker-config

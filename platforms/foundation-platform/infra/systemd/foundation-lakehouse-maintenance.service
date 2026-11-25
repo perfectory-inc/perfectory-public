@@ -47,3 +47,4 @@ ReadWritePaths=/var/lib/foundation-jobs/metrics
 MemoryHigh=460M
 MemoryMax=512M
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=1073741824

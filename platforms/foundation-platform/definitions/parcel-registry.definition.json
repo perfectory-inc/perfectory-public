@@ -22,6 +22,8 @@
       "time_limit_minutes": 150,
       "memory_max": "3G",
       "memory_measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting). Since root ADR-0559 the registry's step is the publisher's DuckDB inside this unit (it was the spark container, 16g driver): DuckDB spills past half the engine profile (2048 MiB), so the unit is sized as the onbid Silver load, the same stage (2.4G measured 2026-11-20); no registry step has run under this cap yet; systemd logs the peak of every run under this cap",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

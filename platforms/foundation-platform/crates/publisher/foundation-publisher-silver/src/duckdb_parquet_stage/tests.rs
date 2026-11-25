@@ -685,22 +685,15 @@ async fn rows_of_a_hash_partitioned_table_are_staged_one_bucket_a_file() -> anyh
 }
 
 #[test]
-fn a_stage_refuses_work_that_would_eat_the_disks_reserve() -> anyhow::Result<()> {
+fn a_stage_opens_only_where_its_jobs_declared_disk_fits() {
     const GIB: u64 = 1 << 30;
-    let reserve = super::stage_reserve_bytes()?;
-    assert_eq!(reserve, 30 * GIB);
-    // 97 GiB free, a third of it the spill ceiling: 13 GiB of copy and staged files fit, 40 do not.
-    assert_eq!(super::disk_share(96 * GIB), 32 * GIB);
-    assert!(super::leaves_reserve(97 * GIB, 32 * GIB, 13 * GIB, reserve));
-    assert!(!super::leaves_reserve(
-        97 * GIB,
-        32 * GIB,
-        40 * GIB,
-        reserve
-    ));
-    // A disk already under the reserve refuses whatever the plan.
-    assert!(!super::leaves_reserve(20 * GIB, 0, 0, reserve));
-    Ok(())
+    // 54 GiB free, a third of it the spill ceiling: a job that declares 30 GiB fits, 40 do not.
+    let ceiling = super::disk_share(54 * GIB);
+    assert_eq!(ceiling, 18 * GIB);
+    assert!(super::leaves_room(54 * GIB, ceiling, 30 * GIB));
+    assert!(!super::leaves_room(54 * GIB, ceiling, 40 * GIB));
+    // A disk already under the spill ceiling fits nothing more.
+    assert!(!super::leaves_room(10 * GIB, 18 * GIB, 1));
 }
 
 /// One synthetic row of `contract` (PNU under the synthetic 99999 code, 2099 times), every column

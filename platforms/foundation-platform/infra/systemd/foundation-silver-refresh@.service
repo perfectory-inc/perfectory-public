@@ -36,6 +36,7 @@ RuntimeDirectory=%N
 MemoryHigh=14745M
 MemoryMax=16G
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=18253611008
 # The largest national export measured by hand took 18 minutes (unit areas, root ADR-0142); the
 # first supervised run of each lane measures the whole run. The bound is what the spark pool's
 # starvation check let five scheduled lanes hold (root ADR-0605 removed it) (orchestration/jobs.v1.json timeout_minutes 160,

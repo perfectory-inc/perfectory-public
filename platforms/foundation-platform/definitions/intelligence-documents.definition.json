@@ -23,6 +23,8 @@
       "memory_max": "1G",
       "memory_measured": "no run under this cap. Its Spark steps ran in a container outside the unit; since root ADR-0559 the plan and the append are the publisher's DuckDB inside it, held to three fifths of what the unit has left when it opens (duckdb_parquet_stage MEMORY_SHARE; a fixed 384 MiB before) over tables of tens of thousands of rows, beside the job script, the Docker client and python3 (306M was the peak of the same shape without DuckDB, foundation-court-auction-silver-load.service). The image has its own cap. The job is paused (2026-11-20); its first run measures this one.",
       "memory_headroom_why": "Not 1.5 x a measured peak: none exists yet. 384 MiB of DuckDB plus the 306M shape is about 700M; 1G leaves a third above it.",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "object",
         "limits": [
@@ -71,6 +73,8 @@
       "memory_max": "1G",
       "memory_measured": "no run under this cap. journal `memory peak` 2026-11-12 20:55Z was 311.2M with its Spark steps in a container outside the unit; since root ADR-0559 the plan, the append and the fold's reads are the publisher's DuckDB inside it, held to 384 MiB by the loader, and the fold rule is python3 over the run's files. The image and the model runtime have their own caps. The job is paused (2026-11-20); its first run measures this one.",
       "memory_headroom_why": "Not 1.5 x a measured peak: none exists yet. 384 MiB of DuckDB plus the 312M measured without it is about 700M; 1G leaves a third above it.",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "object",
         "limits": [

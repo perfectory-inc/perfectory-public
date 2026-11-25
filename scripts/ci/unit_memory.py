@@ -39,7 +39,10 @@ KEYS = ("MemoryHigh", "MemoryMax", "OOMScoreAdjust")
 MARK = "# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit."
 # An instance's memory drop-in, beside the units (root ADR-0574 §8).
 DROPIN = "50-memory.conf"
-ENTRY_KEYS = {"class", "memory_max", "measured_peak", "measured", "headroom_why"}
+ENTRY_KEYS = {"class", "memory_max", "measured_peak", "measured", "headroom_why", "disk_max", "disk_measured"}
+# What a job's DuckDB stage holds on disk at most (its definition's disk_max, root ADR-0622): the stage
+# reads it and opens only where it fits (duckdb_parquet_stage::DISK_MAX_ENV).
+DISK_ENV = "FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES"
 
 
 class UnitMemoryError(ValueError):
@@ -58,6 +61,15 @@ def high_of(memory_max: int, ratio: float) -> str:
     return f"{math.floor(memory_max * ratio / BYTES['M'])}M"
 
 
+def disk_lines(entry: dict) -> list[str]:
+    """The job's declared disk as the environment its DuckDB stage reads; none for a unit no job runs."""
+    return [f"Environment={DISK_ENV}={size(entry['disk_max'])}"] if "disk_max" in entry else []
+
+
+def is_ours(line: str) -> bool:
+    return line == MARK or line.split("=", 1)[0] in KEYS or line.startswith(f"Environment={DISK_ENV}=")
+
+
 def lines_for(entry: dict, section: dict) -> list[str]:
     memory_max = size(entry["memory_max"])
     adjust = section["classes"][entry["class"]]["oom_score_adjust"]
@@ -66,6 +78,7 @@ def lines_for(entry: dict, section: dict) -> list[str]:
         f"MemoryHigh={high_of(memory_max, section['memory_high_of_max'])}",
         f"MemoryMax={entry['memory_max']}",
         f"OOMScoreAdjust={adjust}",
+        *disk_lines(entry),
     ]
 
 
@@ -76,7 +89,7 @@ def render(unit: str, entry: dict, section: dict) -> str:
     writes about its cap stay where they are.
     """
     lines = unit.split("\n")
-    ours = {index for index, line in enumerate(lines) if line == MARK or line.split("=", 1)[0] in KEYS}
+    ours = {index for index, line in enumerate(lines) if is_ours(line)}
     kept = [line for index, line in enumerate(lines) if index not in ours]
     if ours:
         at = min(ours)
@@ -91,13 +104,13 @@ def render(unit: str, entry: dict, section: dict) -> str:
 
 
 def dropin_text(entry: dict, section: dict) -> str:
-    """An instance's drop-in: its own MemoryHigh and MemoryMax over its template's (the class, and so
-    OOMScoreAdjust, is the template's: every job unit is batch)."""
+    """An instance's drop-in: its own MemoryHigh, MemoryMax and declared disk over its template's (the
+    class, and so OOMScoreAdjust, is the template's: every job unit is batch)."""
     memory_max = size(entry["memory_max"])
     return "\n".join([
         MARK, "[Service]",
         f"MemoryHigh={high_of(memory_max, section['memory_high_of_max'])}",
-        f"MemoryMax={entry['memory_max']}", "",
+        f"MemoryMax={entry['memory_max']}", *disk_lines(entry), "",
     ])
 
 
@@ -136,6 +149,12 @@ def entry_problem(entry: dict, section: dict, room: int | None, batch_only: bool
         raise UnitMemoryError("runs a scheduled job (orchestration/jobs.v1.json), so its class is batch: the OOM killer takes jobs first")
     if not isinstance(entry["measured"], str) or not entry["measured"].strip():
         raise UnitMemoryError("measured says where the peak comes from, or why there is none yet")
+    if ("disk_max" in entry) != ("disk_measured" in entry) or (batch_only and "disk_max" not in entry):
+        raise UnitMemoryError("a job's unit names disk_max and disk_measured, the disk its DuckDB stage holds (root ADR-0622)")
+    if "disk_max" in entry:
+        size(entry["disk_max"])
+        if not isinstance(entry["disk_measured"], str) or not entry["disk_measured"].strip():
+            raise UnitMemoryError("disk_measured says where disk_max comes from, or why it is not measured yet")
     cap = size(entry["memory_max"])
     if cap < size(section["floor"]):
         raise UnitMemoryError(f"memory_max {entry['memory_max']} is under the floor {section['floor']}")
@@ -163,7 +182,8 @@ def instance_problems(root: pathlib.Path, section: dict, room: int | None) -> li
             if template is None or template not in section["unit_files"]:
                 raise UnitMemoryError("is not an instance of a template systemd_units declares")
             entry_problem(entry, section, room, True)
-            if size(entry["memory_max"]) >= size(section["unit_files"][template]["memory_max"]):
+            held = section["unit_files"][template]
+            if size(entry["memory_max"]) >= size(held["memory_max"]) and entry.get("disk_max") == held.get("disk_max"):
                 raise UnitMemoryError(f"holds no less than its template {template}: the template says it")
             path = units / f"{service}.d" / DROPIN
             if not path.is_file() or path.read_text(encoding="utf-8") != dropin_text(entry, section):
@@ -179,7 +199,8 @@ def instance_problems(root: pathlib.Path, section: dict, room: int | None) -> li
 def job_entries(root: pathlib.Path, jobs_relative: str) -> dict[str, dict]:
     """{job id: its memory as a systemd_units entry}, for every job that states it (root ADR-0574 §8)."""
     fields = {"memory_max": "memory_max", "memory_measured_peak": "measured_peak",
-              "memory_measured": "measured", "memory_headroom_why": "headroom_why"}
+              "memory_measured": "measured", "memory_headroom_why": "headroom_why",
+              "disk_max": "disk_max", "disk_measured": "disk_measured"}
     jobs = json.loads((root / jobs_relative).read_text(encoding="utf-8"))
     return {job["id"]: {"class": "batch", **{key: job[field] for field, key in fields.items() if field in job}}
             for job in jobs["jobs"] if "memory_max" in job}

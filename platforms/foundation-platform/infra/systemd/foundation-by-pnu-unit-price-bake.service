@@ -37,6 +37,7 @@ TimeoutStartSec=1h
 MemoryHigh=2764M
 MemoryMax=3G
 OOMScoreAdjust=500
+Environment=FOUNDATION_PLATFORM_DUCKDB_DISK_MAX_BYTES=4294967296
 MemorySwapMax=0
 # As the sibling serving bakes: a process killed at MemoryMax fails the script's step, and the script
 # still ends with its `foundation-job-outcome failed ...` line instead of systemd stopping it first.

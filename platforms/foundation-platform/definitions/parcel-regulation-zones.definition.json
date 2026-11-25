@@ -20,6 +20,8 @@
       "time_limit_minutes": 150,
       "memory_max": "512M",
       "memory_measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the script foundation-gold-panel-rebuild.service runs (307M measured, 57 runs); Spark runs in its own capped container; systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (none of the publisher's stage commands is in its unit's scripts), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -65,6 +67,8 @@
       "memory_max": "5G",
       "memory_measured_peak": "397M",
       "memory_measured": "journal `memory peak` 2026-10-18..11-08, 6 runs, highest 2026-11-08 (foundation-by-pnu-lane-bake@parcel-public-auction)",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],

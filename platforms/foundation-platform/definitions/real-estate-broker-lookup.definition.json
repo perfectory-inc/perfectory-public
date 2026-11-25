@@ -22,6 +22,8 @@
       "time_limit_minutes": 30,
       "memory_max": "1G",
       "memory_measured": "no run yet (new 2026-11-12, root ADR-0550); sized as the first load holds every office and person (106,429 + 179,124 rows, a few tens of MB of text) twice, as Trino rows and as COPY lines; later loads hold a few hundred offices; systemd logs the peak of every run under this cap",
+      "disk_max": "4G",
+      "disk_measured": "not measured: computed bound for a job whose command opens a DuckDB stage over tables of thousands to millions of rows (its stage database and staged files). The stage logs `duckdb stage closed: disk_bytes=<n>` as it closes (root ADR-0622); a pull request replaces this bound with the highest logged value, nothing is kept between runs.",
       "per_run_cap": {
         "unit": "run",
         "limits": [],
