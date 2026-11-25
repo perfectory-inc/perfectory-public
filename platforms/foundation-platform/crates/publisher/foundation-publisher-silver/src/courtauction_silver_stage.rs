@@ -19,7 +19,7 @@ use lakehouse_domain::LakehouseTableContract;
 use serde_json::Value;
 
 use crate::data_go_kr_file_data_stage::{self, PlaceInputs};
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, LineParts, PYTHON_VALUES_SQL};
+use crate::duckdb_parquet_stage::{sql_path, text_bytes, DuckDbParquetStage, PYTHON_VALUES_SQL};
 use crate::onbid_silver_stage::{snapshot_id, PLAN_SCHEMA};
 use crate::place_identity_stage;
 use crate::silver_changes::{self, content_columns, table_key};
@@ -119,6 +119,17 @@ impl Role {
             Self::ItemSearch => "item_search",
             Self::SaleResultSearch => "sale_result_search",
         }
+    }
+
+    /// Whether the role's SQL reads its object's file itself: its lines are too long for one read
+    /// to hold them whole (a search's answers of up to 165 KiB, a 매각공고's lists), so it parses each
+    /// body into only what it reads. Every other role reads the file through `lines.sql`.
+    #[must_use]
+    pub const fn reads_its_lines(self) -> bool {
+        matches!(
+            self,
+            Self::ItemSearch | Self::SaleResultSearch | Self::SaleNotices
+        )
     }
 
     /// A 사건 문서, which the contract lists under `case_documents`.
@@ -469,20 +480,22 @@ impl CourtAuctionSource {
         )
     }
 
-    /// The JSON pointer of a line's case number for a role whose statements compare only the lines
-    /// of one case: every partition and join of the case documents and the 물건상세 holds the
-    /// case asked in the line's request, so their objects are read some cases at a time.
+    /// What `role`'s statements took in `DuckDB` memory per byte of an object's text, measured on
+    /// its largest object (`silver_load.memory_per_text_byte`): the shared read refuses an object
+    /// whose text times this is above the stage's memory limit.
     ///
     /// # Errors
-    /// Returns an error when the contract lacks the role's request object.
-    pub fn case_pointer(&self, role: Role) -> anyhow::Result<Option<String>> {
-        if !role.is_case_document() && role != Role::ItemDetail {
-            return Ok(None);
-        }
-        Ok(Some(format!(
-            "/request/{}/csNo",
-            plain_name(self.field(role, "request_object")?)?
-        )))
+    /// Returns an error when the contract records none for the role.
+    pub fn memory_per_text_byte(&self, role: Role) -> anyhow::Result<u64> {
+        self.contract["silver_load"]["memory_per_text_byte"][role.name()]
+            .as_u64()
+            .filter(|bytes| *bytes > 0)
+            .with_context(|| {
+                format!(
+                    "courtauction-go-kr.contract.json records no silver_load.memory_per_text_byte.{}",
+                    role.name()
+                )
+            })
     }
 
     /// A role's SQL with the contract's values in it.
@@ -774,52 +787,72 @@ fn refuse_lines_without_key(
     Ok(())
 }
 
-/// A role's SQL as the statements each part runs and, after `-- @object <tables>`, those run once
-/// over the named tables of every part (a role whose statements compare lines across parts).
-fn phases(sql: &str) -> (&str, Option<(&str, Vec<String>)>) {
-    sql.split_once("-- @object")
-        .map_or((sql, None), |(each, rest)| {
-            let (names, once) = rest.split_once('\n').unwrap_or((rest, ""));
-            (
-                each,
-                Some((once, names.split_whitespace().map(str::to_owned).collect())),
-            )
-        })
+/// Refuses `object` when its text would take more than the stage's memory limit at its role's
+/// measured memory per byte of text: the reason, instead of running out of memory part way.
+fn refuse_above_memory(
+    stage: &DuckDbParquetStage,
+    source: &CourtAuctionSource,
+    object: &PlannedObject,
+) -> anyhow::Result<()> {
+    let per_byte = source.memory_per_text_byte(object.role)?;
+    let text = text_bytes(&object.path)?;
+    let limit = stage.memory_limit_bytes()?;
+    let needs = text.saturating_mul(per_byte);
+    ensure!(
+        needs <= limit,
+        "{}: {} MiB of lines at {per_byte} bytes of memory per byte of text \
+         (silver_load.memory_per_text_byte.{}) need {} MiB, above the stage's {} MiB: the run \
+         takes a larger class, or the role reads its lines in a declared shape (root ADR-0616 §3-1)",
+        object.object_key,
+        text >> 20,
+        object.role.name(),
+        needs >> 20,
+        limit >> 20
+    );
+    Ok(())
 }
 
-/// `lines.sql`'s failure as what it is: only `DuckDB`'s refusal of malformed JSON says a line is
-/// not JSON (2026-11-24 the load reported running out of memory as a line that is not JSON).
-fn lines_failure(error: duckdb::Error, object_key: &str) -> anyhow::Error {
-    let what = if error.to_string().contains("Malformed JSON") {
+/// A read's failure as what it is: `DuckDB`'s refusal of a line that is not JSON, or not a JSON
+/// object, says so; anything else (running out of memory) is `otherwise`, with its own message
+/// (2026-11-24 the load reported running out of memory as a line that is not JSON).
+fn read_failure(error: duckdb::Error, object_key: &str, otherwise: &str) -> anyhow::Error {
+    let message = error.to_string();
+    let what = if message.contains("Malformed JSON") {
         format!("{object_key} holds a line that is not JSON")
+    } else if message.contains("Expected OBJECT") {
+        format!("{object_key} holds a line that is not a JSON object")
     } else {
-        format!("DuckDB failed to read the lines of {object_key}")
+        format!("{otherwise} {object_key}")
     };
     anyhow::Error::new(error).context(what)
 }
 
 /// Reads `object` into one staging table per table its role writes.
 ///
-/// The object is read in the parts the stage holds (`DuckDbParquetStage::read_line_parts`): the
-/// role's statements run on each part, so no statement reads more than a part of the object. A
-/// part keeps whole every case (the case documents and the 물건상세, whose statements compare only
-/// the lines of one case), or, for a role whose SQL ends in `-- @object <tables>`, the statements
-/// before the marker run on each part and those after it once, over the named tables of every
-/// part. Any other role is read whole.
+/// `DuckDB` reads the file itself, typed (root ADR-0616 §3-1). A role whose lines are too long to
+/// be held whole (the searches and the 매각공고, [`Role::reads_its_lines`]) reads it in its own SQL,
+/// its body parsed once into only what it reads. Any other role reads it through `lines.sql`
+/// (`ca_parsed`: the envelope and the body parsed once), after the object is refused when its text
+/// would take more than the stage's memory limit at the role's measured memory per byte of text
+/// ([`CourtAuctionSource::memory_per_text_byte`]): a refusal with that reason, never an
+/// out-of-memory failure part way.
 ///
 /// [`CourtAuctionSource::values_sql`] must have run on the stage.
 ///
 /// # Errors
 /// Refuses what the Spark load stopped on: a line that is not JSON, a read without its key (the
-/// 감정평가서 and 매각물건명세서 records); and a `DuckDB` failure.
+/// 감정평가서 and 매각물건명세서 records); a line that is not a JSON object; an object larger than
+/// the stage holds for its role; and a `DuckDB` failure.
 pub fn read_object(
     stage: &DuckDbParquetStage,
     source: &CourtAuctionSource,
     object: &PlannedObject,
     ingested_at: DateTime<Utc>,
 ) -> anyhow::Result<Vec<StagedTable>> {
+    let path = sql_path(&object.path)?;
     let fill = |sql: &str| -> anyhow::Result<String> {
         Ok(sql
+            .replace("{object_path}", &path)
             .replace("{object_key}", literal(&object.object_key)?)
             .replace("{snapshot_id}", literal(&object.source_snapshot_id)?)
             .replace(
@@ -828,50 +861,35 @@ pub fn read_object(
             ))
     };
     let role_sql = fill(&source.role_sql(object.role)?)?;
-    let (each_part, once) = phases(&role_sql);
-    let pages = matches!(object.role, Role::ItemSearch | Role::SaleResultSearch)
-        .then(|| search_pages_sql(source, object.role))
-        .transpose()?;
-    let case = source
-        .case_pointer(object.role)?
-        .into_iter()
-        .collect::<Vec<_>>();
-    let (parts, mut kept) = match &once {
-        Some((_, handed)) => (LineParts::InOrder, handed.clone()),
-        None if !case.is_empty() => (
-            LineParts::Grouped(&case),
-            object
-                .role
-                .tables()
-                .iter()
-                .map(|&(table, _)| Role::staged(table))
-                .collect(),
-        ),
-        None => (LineParts::Whole, Vec::new()),
-    };
-    kept.extend(pages.as_ref().map(|_| "ca_search_pages".to_owned()));
-    stage.read_line_parts(&object.path, "ca_lines", parts, &kept, || {
+    if !object.role.reads_its_lines() {
+        refuse_above_memory(stage, source, object)?;
         stage
             .connection()
-            .execute_batch(LINES_SQL)
-            .map_err(|error| lines_failure(error, &object.object_key))?;
-        stage
-            .connection()
-            .execute_batch(each_part)
-            .with_context(|| format!("DuckDB failed to build the rows of {}", object.object_key))?;
-        refuse_lines_without_key(stage, object)?;
-        if let Some(sql) = &pages {
-            stage.connection().execute_batch(sql).with_context(|| {
-                format!("DuckDB failed to read the pages of {}", object.object_key)
+            .execute_batch(&fill(LINES_SQL)?)
+            .map_err(|error| {
+                read_failure(
+                    error,
+                    &object.object_key,
+                    "DuckDB failed to read the lines of",
+                )
             })?;
-        }
-        Ok(())
-    })?;
-    if let Some((sql, _)) = &once {
+    }
+    stage
+        .connection()
+        .execute_batch(&role_sql)
+        .map_err(|error| {
+            read_failure(
+                error,
+                &object.object_key,
+                "DuckDB failed to build the rows of",
+            )
+        })?;
+    refuse_lines_without_key(stage, object)?;
+    if matches!(object.role, Role::ItemSearch | Role::SaleResultSearch) {
         stage
             .connection()
-            .execute_batch(sql)
-            .with_context(|| format!("DuckDB failed to build the rows of {}", object.object_key))?;
+            .execute_batch(&search_pages_sql(source, object.role, &path)?)
+            .with_context(|| format!("DuckDB failed to read the pages of {}", object.object_key))?;
     }
     for (table, columns) in object.role.masked() {
         mask_columns(stage, &source.mask, &Role::staged(table), columns)?;
@@ -1078,10 +1096,10 @@ fn search_conditions(
     Ok((conditions.as_slice(), fields))
 }
 
-/// One row per page of a search object's lines (`ca_search_pages`: its line, condition, rows and
-/// `totalCnt`), built from each part's `ca_parsed` by [`read_object`] and read by
-/// [`search_complete`].
-fn search_pages_sql(source: &CourtAuctionSource, role: Role) -> anyhow::Result<String> {
+/// One row per page of the search object at `path` (`ca_search_pages`: its line, condition, rows and
+/// `totalCnt`), read from the file by [`read_object`] (as `searches.sql` reads it: the body parsed
+/// once into the parts a page needs) and read by [`search_complete`].
+fn search_pages_sql(source: &CourtAuctionSource, role: Role, path: &str) -> anyhow::Result<String> {
     let search = source.section(role);
     let (_, fields) = search_conditions(source, role)?;
     let window = search["date_window"].as_object().map(|window| {
@@ -1098,8 +1116,8 @@ fn search_pages_sql(source: &CourtAuctionSource, role: Role) -> anyhow::Result<S
                 .to_owned(),
         )
     });
-    let asked = "coalesce(CASE WHEN py_truthy(json_extract(j, '$.request')) \
-                 THEN json_extract(j, '$.request.dma_srchGdsDtlSrchInfo') END, '{}'::JSON)";
+    let asked = "coalesce(CASE WHEN py_truthy(request) \
+                 THEN json_extract(request, '$.dma_srchGdsDtlSrchInfo') END, '{}'::JSON)";
     let window_ok = match &window {
         Some((start, end)) => {
             plain_name(start)?;
@@ -1115,18 +1133,26 @@ fn search_pages_sql(source: &CourtAuctionSource, role: Role) -> anyhow::Result<S
         .map(|field| format!("coalesce(CAST(json_extract(asked, '$.{field}') AS VARCHAR), 'null')"))
         .collect::<Vec<_>>()
         .join(" || '\u{1f}' || ");
+    // A body is an object when it is JSON whose first character past the blanks is `{` (one parse
+    // less than asking its type); json_transform gives an empty struct for any other JSON.
+    let shape = r#"{"data": {"dlt_srchResult": ["JSON"], "dma_pageInfo": {"totalCnt": "JSON"}}}"#;
     Ok(format!(
         "CREATE OR REPLACE TEMP TABLE ca_search_pages AS \
          SELECT line_number, {key} AS condition, \
-                CASE WHEN json_type(json_extract(data, '$.dlt_srchResult')) = 'ARRAY' \
-                     THEN json_array_length(json_extract(data, '$.dlt_srchResult')) ELSE 0 END AS rows, \
-                ca_whole(json_extract(data, '$.dma_pageInfo.totalCnt')) AS total \
-         FROM (SELECT line_number, j, {asked} AS asked, \
-                      json_extract(TRY_CAST(json_extract_string(j, '$.body') AS JSON), '$.data') AS data \
-               FROM ca_parsed \
-               WHERE json_type(json_extract(j, '$.http_status')) IN ('BIGINT', 'UBIGINT', 'DOUBLE') \
-                 AND TRY_CAST(json_extract(j, '$.http_status') AS DOUBLE) = 200) \
-         WHERE json_type(TRY_CAST(json_extract_string(j, '$.body') AS JSON)) = 'OBJECT' AND ({window_ok})"
+                coalesce(len(b.data.dlt_srchResult), 0) AS rows, \
+                ca_whole(b.data.dma_pageInfo.totalCnt) AS total \
+         FROM (SELECT line_number, {asked} AS asked, text, \
+                      CASE WHEN json_valid(text) THEN json_transform(text, '{shape}') END AS b \
+               FROM (SELECT ordinality AS line_number, request, http_status, \
+                            json_extract_string(body, '$') AS text \
+                     FROM read_json('{path}', format = 'newline_delimited', \
+                                    maximum_object_size = 33554432, \
+                                    columns = {{request: 'JSON', http_status: 'JSON', body: 'JSON'}}) \
+                          WITH ORDINALITY) \
+               WHERE json_type(http_status) IN ('BIGINT', 'UBIGINT', 'DOUBLE') \
+                 AND TRY_CAST(http_status AS DOUBLE) = 200) \
+         WHERE b IS NOT NULL AND left(ltrim(text, ' ' || chr(9) || chr(10) || chr(13)), 1) = '{{' \
+           AND ({window_ok})"
     ))
 }
 

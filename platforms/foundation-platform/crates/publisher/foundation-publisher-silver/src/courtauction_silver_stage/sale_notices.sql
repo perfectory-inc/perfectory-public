@@ -4,41 +4,51 @@
 -- `cancellation`), the last detail line naming the notice winning (an empty list included). Only
 -- read lines whose body is an object with an object `data`. A detail line without its key refuses
 -- the object (the caller checks `ca_notice_detail_lines`).
--- Parameters: {list_operation}, {detail_operation}, {detail_request_object}, {object_key},
+-- Parameters: {object_path}, {list_operation}, {detail_operation}, {detail_request_object}, {object_key},
 -- {snapshot_id}, {ingested_at_epoch_seconds}.
+-- The file is read here, not through lines.sql (root ADR-0616 §3-1): a notice answers up to 130 KiB a
+-- line, and its body is parsed once by json_transform into only what the rows below read (the notice
+-- list, the case count and the three lists, each a list of JSON values), so no statement holds a whole
+-- body. Kept: read lines whose body is an object with an object `data` (`ca_data`); a body is an
+-- object when it is JSON whose first character past the blanks is `{`.
 CREATE OR REPLACE TEMP TABLE ca_notice_answers AS
-SELECT line_number, json_extract_string(j, '$.operation') AS operation, ca_data(body) AS data, j
-FROM ca_parsed
-WHERE read AND ca_data(body) IS NOT NULL;
+SELECT line_number, json_extract_string(operation, '$') AS operation, request,
+       json_transform(text, '{"data": {"dlt_rletDspslPbancLst": ["JSON"],
+                                       "result": {"dspslPbanc": {"csCnt": "JSON", "pbancInfo": {"lst": ["JSON"]}},
+                                                  "crrctPbancLst": ["JSON"], "rtrcnPbancLst": ["JSON"]}}}').data AS data
+FROM (SELECT ordinality AS line_number, operation, request, read_outcome, py_truthy(body) AS truthy,
+             json_extract_string(body, '$') AS text
+      FROM read_json('{object_path}', format = 'newline_delimited', maximum_object_size = 33554432,
+                     columns = {operation: 'JSON', request: 'JSON', read_outcome: 'JSON', body: 'JSON'})
+           WITH ORDINALITY)
+WHERE coalesce(json_extract_string(read_outcome, '$') = 'read', false)
+  AND truthy AND json_valid(text) AND left(ltrim(text, ' ' || chr(9) || chr(10) || chr(13)), 1) = '{'
+  AND json_type(json_extract(text, '$.data')) = 'OBJECT';
 
 -- Each detail line's key, read back from its request, and what the notice rows take from its data:
--- the case count and the three lists, each a list of small objects (the data itself stays in this
--- part: a whole object of them ran the stage out of memory, 2026-11-24).
+-- the case count and the three lists, each of its objects only (`_list`).
 CREATE OR REPLACE TEMP TABLE ca_notice_detail_lines AS
 SELECT line_number,
-       ca_whole(json_extract(ca_object(ca_object(data, '$.result'), '$.dspslPbanc'), '$.csCnt')) AS case_count,
-       ca_objects(json_extract(ca_object(ca_object(ca_object(data, '$.result'), '$.dspslPbanc'), '$.pbancInfo'), '$.lst'))
-         AS sale_list,
-       ca_objects(json_extract(ca_object(data, '$.result'), '$.crrctPbancLst')) AS correction_list,
-       ca_objects(json_extract(ca_object(data, '$.result'), '$.rtrcnPbancLst')) AS cancellation_list,
+       ca_whole(data.result.dspslPbanc.csCnt) AS case_count,
+       list_filter(coalesce(data.result.dspslPbanc.pbancInfo.lst, []), lambda x: json_type(x) = 'OBJECT') AS sale_list,
+       list_filter(coalesce(data.result.crrctPbancLst, []), lambda x: json_type(x) = 'OBJECT') AS correction_list,
+       list_filter(coalesce(data.result.rtrcnPbancLst, []), lambda x: json_type(x) = 'OBJECT') AS cancellation_list,
        py_text(json_extract(asked, '$.cortOfcCd')) AS court_office_code,
        py_text(json_extract(asked, '$.jdbnCd')) AS department_code,
        onbid_ymd(json_extract(asked, '$.dspslDxdyYmd')) AS sale_date,
        py_text(json_extract(asked, '$.bidDvsCd')) AS bid_kind_code
 FROM (SELECT line_number, data,
-             coalesce(CASE WHEN py_truthy(json_extract(j, '$.request'))
-                           THEN json_extract(j, '$.request."{detail_request_object}"') END, '{}'::JSON) AS asked
+             coalesce(CASE WHEN py_truthy(request)
+                           THEN json_extract(request, '$."{detail_request_object}"') END, '{}'::JSON) AS asked
       FROM ca_notice_answers
       WHERE operation = '{detail_operation}');
 
 CREATE OR REPLACE TEMP TABLE ca_notice_listed AS
-WITH lists AS (
-  SELECT line_number, json_extract(data, '$.dlt_rletDspslPbancLst') AS list
-  FROM ca_notice_answers
-  WHERE operation = '{list_operation}' AND json_type(json_extract(data, '$.dlt_rletDspslPbancLst')) = 'ARRAY'
-), listed AS (
+WITH listed AS (
   SELECT line_number, unnest(l) AS item, generate_subscripts(l, 1) AS ordinal
-  FROM (SELECT line_number, ca_objects(list) AS l FROM lists)
+  FROM (SELECT line_number, list_filter(data.dlt_rletDspslPbancLst, lambda x: json_type(x) = 'OBJECT') AS l
+        FROM ca_notice_answers
+        WHERE operation = '{list_operation}' AND data.dlt_rletDspslPbancLst IS NOT NULL)
 )
 SELECT line_number, ordinal, item,
        py_text(json_extract(item, '$.cortOfcCd')) AS court_office_code,
@@ -46,10 +56,7 @@ SELECT line_number, ordinal, item,
        onbid_ymd(json_extract(item, '$.dspslDxdyYmd')) AS sale_date,
        py_text(json_extract(item, '$.bidDvsCd')) AS bid_kind_code
 FROM listed;
-
--- The statements above read one part's lines (duckdb_parquet_stage::LineParts::InOrder); those below
--- compare lines across the object, once, over every part's list rows and detail lines.
--- @object ca_notice_listed ca_notice_detail_lines
+DROP TABLE ca_notice_answers;
 
 CREATE OR REPLACE TEMP TABLE ca_court_auction_sale_notice AS
 WITH notices AS (

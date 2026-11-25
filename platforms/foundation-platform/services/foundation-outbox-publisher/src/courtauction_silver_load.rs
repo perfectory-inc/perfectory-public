@@ -39,6 +39,7 @@ use foundation_publisher_silver::{
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
 use serde_json::{json, Value};
 
+use crate::gold_versions_support::MEMORY_SHARE;
 use crate::onbid_silver_load::{contract, head, locked, pinned, served_snapshot_id};
 use crate::public_data_control_support::required_env_value;
 
@@ -331,6 +332,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         &plan_root,
         &LakehouseRead::from_env()?,
     )?);
+    // The stage holds a share of what the task holds (root ADR-0616 §3-1, §5), not the engine
+    // contract's fixed 2 GiB: a larger class is a larger task, and the read's refusal is measured
+    // against this limit.
+    let memory_limit =
+        locked(&stage)?.use_share_of_available_memory(MEMORY_SHARE.0, MEMORY_SHARE.1)?;
     locked(&stage)?
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())
@@ -378,6 +384,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         "seconds": seconds(started),
         // The unit's limit is set from this (root ADR-0455): the most its cgroup held this run.
         "memory_peak_bytes": process_memory::cgroup_peak_bytes(),
+        // The stage's DuckDB limit this run (none: the engine contract's half, no cgroup to read).
+        "duckdb_memory_limit_bytes": memory_limit,
     });
     println!("courtauction-go-kr-duckdb-summary-json {summary}");
     Ok(())

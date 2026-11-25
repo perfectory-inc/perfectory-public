@@ -1,19 +1,25 @@
--- A line read as the job read it: its number, the JSON, whether it is a read (`read_outcome`), and
--- its body as `json.loads(line.get("body") or "")` read it (None when it is not JSON), parsed once
--- here: a body parsed again in every expression that reads it ran a 20,219-line object out of the
--- stage's memory (2026-11-21).
--- The line, then its body's text, each into a table before the body is parsed: in one statement the
--- CASE over the whole line held a 2,055-line 물건상세 object's parse above 1 GiB (2026-11-22).
-CREATE OR REPLACE TEMP TABLE ca_lines_json AS
-SELECT line_number, CAST(line AS JSON) AS j FROM ca_lines;
-CREATE OR REPLACE TEMP TABLE ca_bodies AS
-SELECT line_number, py_truthy(json_extract(j, '$.body')) AS truthy, json_extract_string(j, '$.body') AS body_text
-FROM ca_lines_json;
+-- An object's lines as the job read them (root ADR-0616 §3-1: the typed read): each line's number, its
+-- envelope as JSON (`j`, without the body), whether it is a read (`read_outcome`), and its body as
+-- `json.loads(line.get("body") or "")` read it (None when it is not JSON), parsed once.
+--
+-- DuckDB reads the file itself (`read_json`): the envelope's fields are declared as JSON, so the
+-- lane's value rules read the same JSON values as before (a missing field and a null one read alike,
+-- as `line.get` read them); `WITH ORDINALITY` numbers the non-blank lines in file order, as the
+-- publisher numbered them. A line that is not JSON, or not an object, refuses the object.
+-- The roles whose lines are too long for this (a search's 165 KiB answers, a notice's lists) read
+-- the file themselves (searches.sql, sale_notices.sql).
+-- Parameters: {object_path}.
 CREATE OR REPLACE TEMP TABLE ca_parsed AS
-SELECT line_number, j,
-       coalesce(json_extract_string(j, '$.read_outcome') = 'read', false) AS read,
-       TRY_CAST(CASE WHEN truthy THEN body_text END AS JSON) AS body
-FROM ca_lines_json JOIN ca_bodies USING (line_number);
-DROP TABLE ca_bodies;
-DROP TABLE ca_lines_json;
-DROP TABLE ca_lines;
+SELECT ordinality AS line_number,
+       json_object('request', request, 'http_status', http_status, 'read_outcome', read_outcome,
+                   'requested_at_utc', requested_at_utc, 'list_fingerprint', list_fingerprint,
+                   'photo_count', photo_count, 'operation', operation, 'facts', facts, 'sha256', sha256,
+                   'media_format', media_format, 'size_bytes', size_bytes, 'outcome', outcome) AS j,
+       coalesce(json_extract_string(read_outcome, '$') = 'read', false) AS read,
+       TRY_CAST(CASE WHEN py_truthy(body) THEN json_extract_string(body, '$') END AS JSON) AS body
+FROM read_json('{object_path}', format = 'newline_delimited', maximum_object_size = 33554432,
+               columns = {request: 'JSON', http_status: 'JSON', read_outcome: 'JSON', requested_at_utc: 'JSON',
+                          list_fingerprint: 'JSON', photo_count: 'JSON', operation: 'JSON', facts: 'JSON',
+                          sha256: 'JSON', media_format: 'JSON', size_bytes: 'JSON', outcome: 'JSON',
+                          body: 'JSON'})
+     WITH ORDINALITY;

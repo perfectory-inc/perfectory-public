@@ -4,19 +4,26 @@
 -- with a `data.dlt_srchResult` list. A row without its key refuses the object (the caller checks
 -- `ca_search_lines`). The PNU is not placed here: `place_rows` hands each row's source code PNU and
 -- its two addresses to the one place-identity resolver (place_identity_stage).
--- Parameters: {code_fields} (`code_of(item, FROM_CODE)` of `item`), {lot_field}, {object_key},
+-- Parameters: {object_path}, {code_fields} (`code_of(item, FROM_CODE)` of `item`), {lot_field}, {object_key},
 -- {snapshot_id}, {ingested_at_epoch_seconds}.
+-- The file is read here, not through lines.sql (root ADR-0616 §3-1): a search answers up to 165 KiB a line,
+-- and its body is parsed once by json_transform straight into the list of 물건 (each a JSON value), so no
+-- statement holds a whole line or a whole body. Line numbers as lines.sql numbers them.
 CREATE OR REPLACE TEMP TABLE ca_search_lines AS
 WITH answers AS (
-  SELECT line_number, json_extract(TRY_CAST(json_extract_string(j, '$.body') AS JSON), '$.data.dlt_srchResult') AS list
-  FROM ca_parsed
+  SELECT ordinality AS line_number,
+         CASE WHEN json_valid(json_extract_string(body, '$'))
+              THEN json_transform(json_extract_string(body, '$'), '{"data": {"dlt_srchResult": ["JSON"]}}').data.dlt_srchResult
+         END AS l
+  FROM read_json('{object_path}', format = 'newline_delimited', maximum_object_size = 33554432,
+                 columns = {http_status: 'JSON', body: 'JSON'})
+       WITH ORDINALITY
   -- `line.get("http_status") != 200`: the number 200 (a text "200" is no answer).
-  WHERE json_type(json_extract(j, '$.http_status')) IN ('BIGINT', 'UBIGINT', 'DOUBLE')
-    AND TRY_CAST(json_extract(j, '$.http_status') AS DOUBLE) = 200
+  WHERE json_type(http_status) IN ('BIGINT', 'UBIGINT', 'DOUBLE')
+    AND TRY_CAST(http_status AS DOUBLE) = 200
 ), listed AS (
   SELECT line_number, unnest(l) AS item, generate_subscripts(l, 1) AS n
-  FROM (SELECT line_number, CASE WHEN json_type(list) = 'ARRAY' THEN json_extract(list, '$[*]') ELSE [] END AS l
-        FROM answers)
+  FROM (SELECT line_number, coalesce(l, []) AS l FROM answers)
 )
 SELECT line_number, n, item,
        trim(coalesce(py_str(json_extract(item, '$.boCd')), 'None'), py_ws()) AS court_office_code,
@@ -70,14 +77,3 @@ SELECT court_office_code, case_no, CAST(property_seq AS INTEGER) AS property_seq
 FROM ca_search_lines
 QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no, property_seq, item_seq
                            ORDER BY line_number DESC, n DESC) = 1;
-
--- Read in parts (duckdb_parquet_stage::LineParts::InOrder), each part kept the row of the last line
--- holding each 물건 among its own lines; across parts the later line wins the same way. Lines never
--- span parts, so the line alone decides. One part: no row changes.
--- @object ca_search_rows
-CREATE OR REPLACE TEMP TABLE ca_search_rows_merged AS
-SELECT * FROM ca_search_rows
-QUALIFY row_number() OVER (PARTITION BY court_office_code, case_no, property_seq, item_seq
-                           ORDER BY source_line_number DESC) = 1;
-DROP TABLE ca_search_rows;
-ALTER TABLE ca_search_rows_merged RENAME TO ca_search_rows;

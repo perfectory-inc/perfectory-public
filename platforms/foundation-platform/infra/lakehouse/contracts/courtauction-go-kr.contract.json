@@ -350,7 +350,20 @@
   "silver_load": {
     "$comment": "What one Silver load may take (plan-silver-load-objects): objects of each search that no commit of its table records, landed within window_days, oldest first, at most max_objects per table (a week of nights). The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it.",
     "window_days": 7,
-    "max_objects": 7
+    "max_objects": 7,
+    "memory_per_text_byte": {
+      "$comment": "What each role's statements took in DuckDB memory per byte of an object's text, read through lines.sql (root ADR-0616 §3-1): the load refuses an object whose text times its role's figure is above the stage's memory limit, with that reason, instead of running out of memory part way. Measured 2026-11-25 on DuckDB 2.0.0 with 2 threads, the role's own SQL and its largest object in the lakehouse: the smallest limit of 2048, 1536, 1280, 1024, 768, 512, 384, 256, 192, 128 MiB at which it passed, over its text bytes, rounded up (case_detail 352 MiB passed at 1280; case_survey 166 MiB at 1024; case_appraisal 26 MiB at 192; case_filings 35 MiB at 512; case_survey_report 13 MiB at 256; item_detail 253 MiB at 768; dividend_notices 54 MiB at 1536; appraisal_reports, sale_specifications and common_codes 2.4, 1.4 and 0.07 MiB at 192, DuckDB's floor). The searches and the sale notices read their own lines (Role::reads_its_lines) and have no figure. Measure a role again when its SQL changes; a role whose objects outgrow its class reads its lines in a declared shape.",
+      "case_detail": 4,
+      "case_survey": 7,
+      "case_appraisal": 8,
+      "case_filings": 15,
+      "case_survey_report": 20,
+      "item_detail": 4,
+      "dividend_notices": 29,
+      "appraisal_reports": 79,
+      "sale_specifications": 135,
+      "common_codes": 2924
+    }
   },
   "pnu_resolution": {
     "$comment": "Root ADR-0382 (ADR-0288 §2 stage 3). The list rows carry the representative parcel's 10-digit legal-dong code in four fields (from_code.legal_dong_code_fields, widths 2+3+3+2) and its lot (from_code.lot_field); code + lot is the row's source PNU (source_code_pnu_raw), carried to the current code by place_identity_resolver.resolve, the code path every parcel source takes. Measured 2026-10-21 on a full list crawl (124,533 rows, read-only): 121,963 (97.9%) assemble; the rest are blank codes or prose lots. A row the code path leaves unresolved falls back to the address (ADR-0280 §4): the 행정구역 names (hjguSido, hjguSigu, hjguDong, hjguRd) with daepyoLotno as a jibun address, else rdNm with buldNo as a road address, through address_pnu.py, whose 시도 prefixes come from the 법정동 code table and its recorded pairs each load (root ADR-0403).",
