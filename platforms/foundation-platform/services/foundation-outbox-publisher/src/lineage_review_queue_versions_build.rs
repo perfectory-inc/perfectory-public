@@ -297,7 +297,8 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         // Nothing to append; the handoff is still the current rows, for a database that never took it.
         let queue_report = match (&handoff_dir, head) {
             (Some(dir), Some(head)) => {
-                let duck = DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)?;
+                let duck =
+                    DuckDbParquetStage::open_reading_lakehouse(work, &LakehouseRead::from_env()?)?;
                 let current =
                     current_rows(duck.connection(), versions_contract, head, &queue_columns)?;
                 write_handoffs(
