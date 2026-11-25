@@ -54,7 +54,8 @@
     "log_group": "/perfectory-platform/dagster",
     "log_retention_days": 30,
     "workspace": "/opt/foundation-platform/current/orchestration/dagster/aws/workspace.yaml",
-    "reason": "Owner approval 2026-11-25 (root ADR-0616 A1): the webserver and the daemon in one always-on Fargate ARM task of 0.5 vCPU and 2 GB (on ai-server the three containers use 687 MiB together). The image is the release's AWS code location by digest (root ADR-0620), given at apply time; the workspace is the AWS code location, which holds no job until A2 moves collectors one at a time. Runs are tasks of their own (EcsRunLauncher), sized per run. No inbound rule and no public address of its own beyond the task's IPv4 for egress; the UI is reached by SSM port forwarding (ECS Exec)."
+    "run_task_definition_prefix": "perfectory-platform-run",
+    "reason": "Owner approval 2026-11-25 (root ADR-0616 A1): the webserver and the daemon in one always-on Fargate ARM task of 0.5 vCPU and 2 GB (on ai-server the three containers use 687 MiB together). The image is the release's AWS code location by digest (root ADR-0620), given at apply time; the workspace is the AWS code location, which holds no job until A2 moves collectors one at a time. Runs are tasks of their own (EcsRunLauncher), sized per run. No inbound rule and no public address of its own beyond the task's IPv4 for egress; the UI is reached by SSM port forwarding (ECS Exec). EcsRunLauncher registers every run's task definition in the family <run_task_definition_prefix>_<hashes> (dagster-aws get_task_definition_family; the prefix is under 32 characters), and Dagster's role may start only that family: never the database bootstrap, which carries the master user's secret."
   },
   "database": {
     "identifier": "perfectory-platform",
