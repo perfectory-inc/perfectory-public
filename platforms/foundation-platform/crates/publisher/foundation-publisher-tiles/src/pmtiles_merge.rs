@@ -438,6 +438,31 @@ fn widen_layer(known: &mut serde_json::Map<String, Value>, other: &serde_json::M
     }
 }
 
+/// The same merge over every `*.pmtiles` in `directory`, in file-name order, into `out`, which must
+/// not exist yet. The publisher's `merge-pmtiles-archives` runs it, so the merge can be measured on
+/// given archives outside a bake (root ADR-0613).
+///
+/// # Errors
+/// As [`merge_archives`]; also when `out` exists or `directory` cannot be listed.
+pub fn merge_directory(directory: &Path, out: &Path, deadline: Instant) -> anyhow::Result<Merged> {
+    ensure!(
+        !out.exists(),
+        "{} exists; the merge writes a new file",
+        out.display()
+    );
+    let mut archives = std::fs::read_dir(directory)
+        .with_context(|| format!("cannot list {}", directory.display()))?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<Vec<_>>>()
+        .with_context(|| format!("cannot list {}", directory.display()))?;
+    archives.retain(|path| {
+        path.extension()
+            .is_some_and(|extension| extension == "pmtiles")
+    });
+    archives.sort();
+    merge_archives(&archives, out, deadline)
+}
+
 /// Merges `archives` (gzip MVT `PMTiles`, each in tile-id order) into `out`, written whole and
 /// synced before this returns. Stops with an error once `deadline` has passed.
 ///
