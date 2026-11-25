@@ -607,7 +607,7 @@
   },
   "platforms/foundation-platform/scripts/ops/lineage-stewardship-cycle.sh": {
    "SC2154": 1,
-   "SC2312": 13
+   "SC2312": 10
   },
   "platforms/foundation-platform/scripts/ops/map-edit-fold.sh": {
    "SC2154": 2
