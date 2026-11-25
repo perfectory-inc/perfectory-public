@@ -297,8 +297,6 @@ describe("Foundation polygon layer setup", () => {
       "complex-edits-fill",
       "complex-edits-outline",
       "parcels-fill",
-      // The parcel edit overlay (root ADR-0112) sits directly above the parcels it hides.
-      "parcels-edits-fill",
     ]);
     expect(mb.sources.has("complex")).toBe(true);
     expect(mb.sources.has("parcels")).toBe(true);
@@ -329,8 +327,6 @@ describe("Foundation polygon layer setup", () => {
       "zoning@z10-fill",
       "zoning@z10-outline",
       "parcels-fill",
-      // The parcel edit overlay (root ADR-0112) sits directly above the parcels it hides.
-      "parcels-edits-fill",
     ]);
     const emptyFilter = ["in", ["get", "layer_code"], ["literal", []]];
     expect(mb.layer("zoning-fill")).toMatchObject({
@@ -378,7 +374,7 @@ describe("Foundation polygon layer setup", () => {
         () => undefined,
       );
 
-      expect(mb.layerIds()).toEqual(["parcels-fill", "parcels-edits-fill"]);
+      expect(mb.layerIds()).toEqual(["parcels-fill"]);
       expect(mb.sources.has("complex")).toBe(false);
       // Silence is what makes "not promoted yet" indistinguishable from "registration threw".
       expect(info.mock.calls.map(([, payload]) => String(payload))).toContainEqual(

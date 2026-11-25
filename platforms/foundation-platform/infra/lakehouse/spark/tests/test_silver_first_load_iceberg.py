@@ -434,9 +434,10 @@ class MapEditLedgerFirstLoadTest(unittest.TestCase):
                   "geometry_checksum_sha256": None, "properties_json": "{}", "editor": "synthetic",
                   "edited_at": "2099-01-01T00:00:00Z"} for seq in (1, 2)]
         now = datetime(2099, 1, 2, tzinfo=timezone.utc)
-        appended, ledger = common.append_to_ledger(self.spark, table, "complex", edits, "batch-1", now)
+        unpinned = list  # the pin needs a served Gold; this proof has none, so every pin stays empty
+        appended, ledger = common.append_to_ledger(self.spark, table, "complex", edits, "batch-1", now, unpinned)
         self.assertEqual((appended, len(ledger)), (2, 2))
-        self.assertEqual(common.append_to_ledger(self.spark, table, "complex", edits, "batch-2", now)[0], 0)
+        self.assertEqual(common.append_to_ledger(self.spark, table, "complex", edits, "batch-2", now, unpinned)[0], 0)
         self.assertEqual(len(main_snapshots(self.spark, table)), 1, "the first edits are one commit")
 
 

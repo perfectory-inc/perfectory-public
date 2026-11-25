@@ -34,10 +34,14 @@ const buildingVersion = readFileSync(
 ).match(/pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "([^"]+)";/)?.[1];
 
 describe("the web reads what the foundation publishes", () => {
-  // Root ADR-0112: the map polls the edit overlay of every unit staff can edit, and only those.
-  it("polls the edit overlay of exactly the units the edit store holds", () => {
+  // Root ADR-0112: the map polls the edit overlay of every unit staff can edit, and only those
+  // (parcel geometry takes none, root ADR-0621 §1).
+  it("polls the edit overlay of exactly the units the edit store takes edits for", () => {
     expect([...MAP_EDIT_OVERLAY_UNITS].sort()).toEqual(
-      Object.keys(connections.map_edit_gateway.units).sort(),
+      Object.entries(connections.map_edit_gateway.units)
+        .filter(([, unit]) => (unit as { editable?: boolean }).editable === true)
+        .map(([name]) => name)
+        .sort(),
     );
   });
 

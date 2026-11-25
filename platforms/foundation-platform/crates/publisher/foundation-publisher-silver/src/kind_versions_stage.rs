@@ -424,12 +424,6 @@ pub trait KindVersionsStage: Sync {
     fn replaced_edition_sql(&self) -> Option<&'static str> {
         None
     }
-    /// The spools whose PNUs the kind builds a row for beside the served parcels' (a parcel an edit
-    /// adds to the served boundaries): a partial run's changed keys are kept when either names them
-    /// ([`targets_from_spools`]). None by default.
-    fn more_served_spools(&self) -> Vec<&'static str> {
-        Vec::new()
-    }
     /// Why the kind's documents cannot be built one 시군구 at a time, when they cannot.
     ///
     /// [`build_in_parts`] shows [`Self::build`] one 시군구 of the loaded 시도 at a time, which holds
@@ -877,12 +871,8 @@ pub fn targets_from_spools(
             ))
             .context("the stage's own rule of changed keys")?;
     }
-    // The served parcels of either side (and what else the kind builds a row for), read once and
-    // probed by the few PNUs named.
-    let served = std::iter::once("served")
-        .chain(stage.more_served_spools())
-        .flat_map(|name| [name.to_owned(), format!("{name}{BASE_SUFFIX}")])
-        .collect::<Vec<_>>();
+    // The served parcels of either side, read once and probed by the few PNUs named.
+    let served = ["served".to_owned(), format!("served{BASE_SUFFIX}")];
     // Each spool on its own: they hold other columns beside `pnu`.
     let served = served
         .iter()

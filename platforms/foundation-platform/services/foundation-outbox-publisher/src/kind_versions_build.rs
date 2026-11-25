@@ -258,11 +258,10 @@ pub(crate) const NEARBY_BUILD: KindBuild = KindBuild {
     per_sido_commits: false,
 };
 
-/// The served parcel boundaries (root ADR-0133 §2, ADR-0602): one edition with every ledgered edit
-/// applied, read a 시도 at a time by its key ranges (the stage's ranged read). A run in which only
-/// the ledger moved is a fold over the PNUs whose final edit state moved. A 시도 is its own commit:
-/// the tile bake's inputs are each 시도's state (root ADR-0618). The tile bake reads the replaced
-/// table until its switch names this one.
+/// The served parcel boundaries (root ADR-0133 §2, ADR-0602): one edition as the source holds it
+/// (parcel geometry takes no edits, root ADR-0621 §1), read a 시도 at a time by its key ranges (the
+/// stage's ranged read). A 시도 is its own commit: the tile bake's inputs are each 시도's state (root
+/// ADR-0618). The tile bake reads the replaced table until its switch names this one.
 pub(crate) const BOUNDARY_SERVED_BUILD: KindBuild = KindBuild {
     table: "gold.parcel_boundary_served_versions",
     lane: Serves::Table(lakehouse_domain::lakehouse::GOLD_PARCEL_BOUNDARY_SERVED.table_name),

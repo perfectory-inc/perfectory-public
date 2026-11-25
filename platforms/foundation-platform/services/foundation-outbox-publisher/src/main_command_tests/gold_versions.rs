@@ -64,7 +64,6 @@ fn build_versions_commands_are_explicit() -> anyhow::Result<()> {
             "build-parcel-court-auction-versions",
             Command::BuildParcelCourtAuctionVersions,
         ),
-        ("append-map-edit-ledger", Command::AppendMapEditLedger),
         (
             "export-parcel-boundary-handoff",
             Command::ExportParcelBoundaryHandoff,

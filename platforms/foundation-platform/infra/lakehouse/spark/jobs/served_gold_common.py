@@ -497,11 +497,11 @@ def stale_counts(stale: dict[int, str], changes: list[dict[str, Any]]) -> dict[s
 
 def append_to_ledger(
     spark: Any, ledger_table: str, unit: str, handoff: list[dict[str, Any]], batch_id: str, now: Any,
-    pin: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
+    pin: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
 ) -> tuple[int, list[dict[str, Any]]]:
     """Appends the unit's unledgered edits once each, then returns every ledgered edit of the unit.
 
-    `pin` adds each fresh edit's pin before it is written (`resolve_pins`); without it the pin is empty.
+    `pin` adds each fresh edit's pin before it is written (`resolve_pins`).
     """
 
     existing = spark.sql(
@@ -510,7 +510,7 @@ def append_to_ledger(
     ).collect()
     ledgered = {int(row["change_seq"]): edit_fingerprint(row.asDict()) for row in existing}
     fresh = new_ledger_rows(ledgered, handoff)
-    if fresh and pin is not None:
+    if fresh:
         fresh = pin(fresh)
     if fresh:
         spark.createDataFrame(

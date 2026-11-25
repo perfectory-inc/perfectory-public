@@ -51,10 +51,11 @@ const MapEditOverlaySchema = z
 export type MapEditOverlay = z.infer<typeof MapEditOverlaySchema>;
 
 /**
- * The polygon units staff can edit: `map_edit_gateway.units` of the foundation connection contract,
- * which `edge-contract.test.ts` holds this list to (root ADR-0112).
+ * The polygon units staff can edit: the `map_edit_gateway.units` of the foundation connection
+ * contract marked `editable`, which `edge-contract.test.ts` holds this list to (root ADR-0112).
+ * Parcel geometry takes no edits, so the map polls no parcels overlay (root ADR-0621 §1).
  */
-export const MAP_EDIT_OVERLAY_UNITS = ["complex", "admin", "parcels"] as const;
+export const MAP_EDIT_OVERLAY_UNITS = ["complex", "admin"] as const;
 
 /** Parses one overlay response and checks it belongs to `unit` and hides every feature it draws. */
 export function parseMapEditOverlay(value: unknown, unit: string): MapEditOverlay {

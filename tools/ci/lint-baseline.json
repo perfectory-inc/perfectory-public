@@ -28,9 +28,6 @@
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/lakehouse_maintenance.py": {
    "F401": 1
   },
-  "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py": {
-   "F401": 1
-  },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_land.py": {
    "B905": 1
   },
@@ -646,8 +643,7 @@
   "platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh": {
    "SC2034": 1,
    "SC2100": 3,
-   "SC2154": 1,
-   "SC2312": 11
+   "SC2312": 10
   },
   "platforms/foundation-platform/scripts/ops/postgres-production-shape.sh": {
    "SC2312": 1
