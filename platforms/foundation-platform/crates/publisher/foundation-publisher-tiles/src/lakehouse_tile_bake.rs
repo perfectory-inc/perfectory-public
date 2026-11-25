@@ -91,8 +91,6 @@ mod partitions;
 pub mod patch;
 #[path = "lakehouse_tile_patch_run.rs"]
 mod patch_run;
-#[path = "pmtiles_write.rs"]
-pub mod pmtiles_write;
 #[path = "lakehouse_tile_bake_upload.rs"]
 mod upload;
 #[path = "lakehouse_tile_bake_work.rs"]

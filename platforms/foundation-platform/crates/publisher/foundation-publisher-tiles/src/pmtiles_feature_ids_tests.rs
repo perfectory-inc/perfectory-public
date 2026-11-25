@@ -1,46 +1,15 @@
-use std::io::Write as _;
+use std::io::{Cursor, Write as _};
 
 use flate2::write::GzEncoder;
-use flate2::Compression;
+use flate2::Compression as Level;
+use pmtiles::{Compression, PmTilesWriter, TileType};
 
 use super::*;
 
-fn varint(out: &mut Vec<u8>, mut value: u64) {
-    loop {
-        let byte = u8::try_from(value & 0x7f).unwrap_or(0);
-        value >>= 7;
-        if value == 0 {
-            out.push(byte);
-            return;
-        }
-        out.push(byte | 0x80);
-    }
-}
-
 pub fn gzip(bytes: &[u8]) -> Vec<u8> {
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    let mut encoder = GzEncoder::new(Vec::new(), Level::fast());
     encoder.write_all(bytes).unwrap_or_default();
     encoder.finish().unwrap_or_default()
-}
-
-fn directory(entries: &[Entry]) -> Vec<u8> {
-    let mut out = Vec::new();
-    varint(&mut out, entries.len() as u64);
-    let mut last = 0;
-    for entry in entries {
-        varint(&mut out, entry.tile_id - last);
-        last = entry.tile_id;
-    }
-    for entry in entries {
-        varint(&mut out, entry.run_length);
-    }
-    for entry in entries {
-        varint(&mut out, entry.length);
-    }
-    for entry in entries {
-        varint(&mut out, entry.offset + 1);
-    }
-    out
 }
 
 /// A synthetic MVT tile: one layer, each feature tagged with an id and one more property.
@@ -79,50 +48,23 @@ pub fn tile(layer: &str, ids: &[&str]) -> Vec<u8> {
     )
 }
 
-/// One tile per (tile id, ids); the root points at one leaf per pair of tiles so the walk descends.
+/// An archive of `tiles` (tile id, stored gzip bytes, in tile-id order) over zooms
+/// `min_zoom..=max_zoom`, as the crate's writer writes it.
 pub fn archive(min_zoom: u8, max_zoom: u8, tiles: &[(u64, Vec<u8>)]) -> Vec<u8> {
-    let mut data = Vec::new();
-    let mut entries = Vec::new();
-    for (tile_id, bytes) in tiles {
-        entries.push(Entry {
-            tile_id: *tile_id,
-            offset: data.len() as u64,
-            length: bytes.len() as u64,
-            run_length: 1,
-        });
-        data.extend_from_slice(bytes);
+    let mut out = Cursor::new(Vec::new());
+    let mut writer = PmTilesWriter::new(TileType::Mvt)
+        .precompressed(Compression::Gzip)
+        .min_zoom(min_zoom)
+        .max_zoom(max_zoom)
+        .create(&mut out)
+        .unwrap();
+    for (id, bytes) in tiles {
+        writer
+            .add_tile(TileCoord::from(TileId::new(*id).unwrap()), bytes)
+            .unwrap();
     }
-    let mut leaves = Vec::new();
-    let mut root = Vec::new();
-    for chunk in entries.chunks(2) {
-        let leaf = gzip(&directory(chunk));
-        root.push(Entry {
-            tile_id: chunk[0].tile_id,
-            offset: leaves.len() as u64,
-            length: leaf.len() as u64,
-            run_length: 0,
-        });
-        leaves.extend_from_slice(&leaf);
-    }
-    let root = gzip(&directory(&root));
-    let root_offset = HEADER_BYTES as u64;
-    let leaves_offset = root_offset + root.len() as u64;
-    let data_offset = leaves_offset + leaves.len() as u64;
-    let mut header = vec![0_u8; HEADER_BYTES];
-    header[..7].copy_from_slice(b"PMTiles");
-    header[7] = 3;
-    header[8..16].copy_from_slice(&root_offset.to_le_bytes());
-    header[16..24].copy_from_slice(&(root.len() as u64).to_le_bytes());
-    header[40..48].copy_from_slice(&leaves_offset.to_le_bytes());
-    header[48..56].copy_from_slice(&(leaves.len() as u64).to_le_bytes());
-    header[56..64].copy_from_slice(&data_offset.to_le_bytes());
-    header[64..72].copy_from_slice(&(data.len() as u64).to_le_bytes());
-    header[97] = COMPRESSION_GZIP;
-    header[98] = COMPRESSION_GZIP;
-    header[99] = TILE_TYPE_MVT;
-    header[100] = min_zoom;
-    header[101] = max_zoom;
-    [header, root, leaves, data].concat()
+    writer.finalize().unwrap();
+    out.into_inner()
 }
 
 fn properties() -> Vec<String> {
@@ -158,30 +100,40 @@ pub fn written(bytes: &[u8]) -> anyhow::Result<tempfile::NamedTempFile> {
 #[test]
 fn tile_ids_follow_the_spec_hilbert_order_and_invert() -> anyhow::Result<()> {
     // The spec's zoom-1 order: (0,0), (0,1), (1,1), (1,0).
-    assert_eq!(tile_id(0, 0, 0), 0);
+    assert_eq!(tile_id(0, 0, 0)?, 0);
     assert_eq!(
         [
-            tile_id(1, 0, 0),
-            tile_id(1, 0, 1),
-            tile_id(1, 1, 1),
-            tile_id(1, 1, 0)
+            tile_id(1, 0, 0)?,
+            tile_id(1, 0, 1)?,
+            tile_id(1, 1, 1)?,
+            tile_id(1, 1, 0)?
         ],
         [1, 2, 3, 4]
     );
-    assert_eq!(tile_id(2, 0, 0), 5);
+    assert_eq!(tile_id(2, 0, 0)?, 5);
     for (zoom, x, y) in [
         (3, 5, 2),
         (14, 9_001, 4_002),
         (16, 65_535, 0),
         (16, 1, 65_535),
     ] {
-        assert_eq!(tile_zxy(tile_id(zoom, x, y))?, (zoom, x, y));
+        assert_eq!(tile_zxy(tile_id(zoom, x, y)?)?, (zoom, x, y));
     }
+    assert!(tile_id(1, 2, 0).is_err(), "x past the zoom");
     Ok(())
 }
 
 #[test]
-fn a_tile_is_found_by_id_through_its_leaf_or_reported_absent() -> anyhow::Result<()> {
+fn a_zoom_range_starts_after_every_lower_zoom() {
+    assert_eq!(zoom_range(0), (0, 1));
+    assert_eq!(zoom_range(1), (1, 5));
+    assert_eq!(zoom_range(2), (5, 21));
+    assert_eq!(zoom_range(3).0, 21);
+}
+
+#[test]
+fn a_tile_is_found_by_id_or_reported_absent_from_a_file_and_from_seekable_bytes(
+) -> anyhow::Result<()> {
     let bytes = archive(
         1,
         2,
@@ -192,58 +144,33 @@ fn a_tile_is_found_by_id_through_its_leaf_or_reported_absent() -> anyhow::Result
             (20, tile("parcel", &["99999-c"])),
         ],
     );
-    let mut archive = Archive::open(std::io::Cursor::new(bytes))?;
-    let found = archive.tile(6)?.context("tile 6")?;
-    assert_eq!(Tile::decode(found.as_slice())?.layers[0].features.len(), 1);
-    assert!(archive.tile(7)?.is_none(), "no entry covers tile 7");
-    assert!(
-        archive.tile(0)?.is_none(),
-        "nothing precedes the first entry"
+    let file = written(&bytes)?;
+    let local = open(file.path())?;
+    let remote = open_seekable(Cursor::new(bytes))?;
+    for found in [super::tile(&local, 6)?, super::tile(&remote, 6)?] {
+        let found = found.context("tile 6")?;
+        assert_eq!(Tile::decode(found.as_ref())?.layers[0].features.len(), 1);
+    }
+    assert_eq!(
+        stored(&local, 6)?.map(|bytes| bytes.to_vec()),
+        Some(tile("parcel", &["99999-b"])),
+        "stored bytes are the tile as written"
     );
-    assert!(archive.tile(21)?.is_none());
+    for id in [7, 0, 21] {
+        assert!(
+            super::tile(&local, id)?.is_none(),
+            "no entry covers tile {id}"
+        );
+        assert!(
+            super::tile(&remote, id)?.is_none(),
+            "no entry covers tile {id}"
+        );
+    }
     Ok(())
 }
 
 #[test]
-fn tile_ids_number_every_lower_zoom_first() {
-    assert_eq!(first_tile_id(0), 0);
-    assert_eq!(first_tile_id(1), 1);
-    assert_eq!(first_tile_id(2), 5);
-    assert_eq!(first_tile_id(3), 21);
-}
-
-#[test]
-fn a_directory_round_trips_including_contiguous_offsets() -> anyhow::Result<()> {
-    let entries = [
-        Entry {
-            tile_id: 5,
-            offset: 0,
-            length: 10,
-            run_length: 1,
-        },
-        Entry {
-            tile_id: 7,
-            offset: 10,
-            length: 4,
-            run_length: 3,
-        },
-    ];
-    let mut bytes = directory(&entries);
-    assert_eq!(decode_directory(&bytes)?, entries);
-    bytes.push(0);
-    assert!(
-        decode_directory(&bytes).is_err(),
-        "trailing bytes are refused"
-    );
-    assert!(
-        decode_directory(&[0x80]).is_err(),
-        "a cut varint is refused"
-    );
-    Ok(())
-}
-
-#[test]
-fn only_the_asked_zoom_is_read_across_leaf_directories() -> anyhow::Result<()> {
+fn only_the_asked_zoom_is_read() -> anyhow::Result<()> {
     // z1 tiles are ids 1..5, z2 tiles 5..21. The z1 tile must not be read when z2 is asked.
     let file = written(&archive(
         1,
@@ -264,16 +191,27 @@ fn only_the_asked_zoom_is_read_across_leaf_directories() -> anyhow::Result<()> {
 }
 
 #[test]
-fn the_header_is_read_as_the_spec_lays_it_out() -> anyhow::Result<()> {
-    let bytes = archive(6, 16, &[]);
-    let header = Header::parse(&bytes)?;
-    assert_eq!((header.min_zoom, header.max_zoom), (6, 16));
-    assert_eq!(header.tile_type, TILE_TYPE_MVT);
-    assert_eq!(header.root_directory.0, HEADER_BYTES as u64);
-    let mut v2 = bytes.clone();
-    v2[7] = 2;
-    assert!(Header::parse(&v2).is_err());
-    assert!(Header::parse(&bytes[..100]).is_err());
+fn a_walk_of_a_range_meets_every_entry_that_overlaps_it_in_order() -> anyhow::Result<()> {
+    let same = tile("parcel", &["99999-a"]);
+    // Ids 5..=7 hold the same bytes: the writer keeps them as one run.
+    let file = written(&archive(
+        1,
+        2,
+        &[
+            (1, tile("parcel", &["99999-low"])),
+            (5, same.clone()),
+            (6, same.clone()),
+            (7, same),
+            (20, tile("parcel", &["99999-c"])),
+        ],
+    ))?;
+    let archive = open(file.path())?;
+    let mut met = Vec::new();
+    for_each_entry(&archive, (6, 21), |entry| {
+        met.push((entry.tile_id(), entry.run_length()));
+        Ok(())
+    })?;
+    assert_eq!(met, [(5, 3), (20, 1)]);
     Ok(())
 }
 

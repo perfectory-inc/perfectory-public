@@ -31,9 +31,9 @@ use anyhow::{bail, ensure, Context as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use super::pmtiles_feature_ids::{
-    self, tile_id, tile_zxy, Archive, COMPRESSION_GZIP, HEADER_BYTES,
-};
+use pmtiles::{Compression, Header, PmTilesWriter, SyncBackend, TileCoord, TileId, TileType};
+
+use super::pmtiles_feature_ids::{self, for_each_entry, stored, tile_id, tile_zxy, Archive};
 use super::{
     for_each_handoff_line, gate::Missing, id_hash, subpixel, CsvOut, ServedIds, ServedLayer,
     ServedRow, ServedSummary,
@@ -702,7 +702,14 @@ pub fn tile_range(bbox: [f32; 4], zoom: u8) -> Option<(u32, u32, u32, u32)> {
 }
 
 /// Every tile id of `zooms` the boxes touch, or `None` once there are more than `limit`.
-pub fn dirty_tiles(boxes: &[[f32; 4]], zooms: (u8, u8), limit: usize) -> Option<BTreeSet<u64>> {
+///
+/// # Errors
+/// A zoom is beyond the deepest tile zoom.
+pub fn dirty_tiles(
+    boxes: &[[f32; 4]],
+    zooms: (u8, u8),
+    limit: usize,
+) -> anyhow::Result<Option<BTreeSet<u64>>> {
     let mut dirty = BTreeSet::new();
     for bbox in boxes {
         for zoom in zooms.0..=zooms.1 {
@@ -711,19 +718,19 @@ pub fn dirty_tiles(boxes: &[[f32; 4]], zooms: (u8, u8), limit: usize) -> Option<
             };
             let span = (u64::from(x1 - x0) + 1) * (u64::from(y1 - y0) + 1);
             if span > limit as u64 {
-                return None;
+                return Ok(None);
             }
             for x in x0..=x1 {
                 for y in y0..=y1 {
-                    dirty.insert(tile_id(zoom, x, y));
+                    dirty.insert(tile_id(zoom, x, y)?);
                 }
             }
             if dirty.len() > limit {
-                return None;
+                return Ok(None);
             }
         }
     }
-    Some(dirty)
+    Ok(Some(dirty))
 }
 
 /// The minzoom ancestors of the dirty tiles: a feature that can appear in a dirty tile touches one.
@@ -776,40 +783,33 @@ pub fn empty_tile() -> anyhow::Result<Vec<u8>> {
     Ok(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()).finish()?)
 }
 
-/// `{}`, gzip: the metadata of a patch with no baked neighbourhood (every dirty tile a tombstone).
-pub fn empty_metadata() -> anyhow::Result<Vec<u8>> {
-    let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    gzip.write_all(b"{}")?;
-    Ok(gzip.finish()?)
-}
-
 /// The cumulative patch's tiles: every dirty tile from the neighbourhood (or the tombstone; with no
 /// neighbourhood every dirty tile is one), then every tile of the previous generation that is not
 /// dirty again. Returns the tiles in id order and how many are tombstones.
-pub fn assemble<N: Read + Seek, P: Read + Seek>(
-    mut neighbourhood: Option<&mut Archive<N>>,
-    previous: Option<&mut Archive<P>>,
+///
+/// # Errors
+/// An archive is not gzip tiles, or cannot be read.
+pub fn assemble<N: SyncBackend + Send + Sync, P: SyncBackend + Send + Sync>(
+    neighbourhood: Option<&Archive<N>>,
+    previous: Option<&Archive<P>>,
     dirty: &BTreeSet<u64>,
 ) -> anyhow::Result<(Vec<(u64, Vec<u8>)>, u64)> {
-    if let Some(archive) = &neighbourhood {
+    if let Some(archive) = neighbourhood {
+        let compression = archive.get_header().tile_compression;
         ensure!(
-            archive.header().tile_compression == COMPRESSION_GZIP,
-            "a patch stores gzip tiles; the neighbourhood bake wrote compression {}",
-            archive.header().tile_compression
+            compression == Compression::Gzip,
+            "a patch stores gzip tiles; the neighbourhood bake wrote {compression:?}"
         );
     }
     let tombstone = empty_tile()?;
     let (mut tiles, mut empty) = (Vec::with_capacity(dirty.len()), 0_u64);
     for id in dirty {
-        let entry = match neighbourhood.as_deref_mut() {
-            Some(archive) => archive
-                .find_entry(*id)?
-                .map(|entry| archive.entry_raw(&entry))
-                .transpose()?,
+        let baked = match neighbourhood {
+            Some(archive) => stored(archive, *id)?,
             None => None,
         };
-        match entry {
-            Some(bytes) => tiles.push((*id, bytes)),
+        match baked {
+            Some(bytes) => tiles.push((*id, bytes.to_vec())),
             None => {
                 tiles.push((*id, tombstone.clone()));
                 empty += 1;
@@ -818,13 +818,16 @@ pub fn assemble<N: Read + Seek, P: Read + Seek>(
     }
     if let Some(previous) = previous {
         ensure!(
-            previous.header().tile_compression == COMPRESSION_GZIP,
+            previous.get_header().tile_compression == Compression::Gzip,
             "the previous patch is not gzip"
         );
         let mut kept = Vec::new();
-        previous.for_each_entry((0, u64::MAX), &mut |archive, entry| {
-            let bytes = archive.entry_raw(&entry)?;
-            for id in entry.tile_id..entry.tile_id.saturating_add(entry.run_length) {
+        for_each_entry(previous, (0, u64::MAX), |entry| {
+            let first = entry.tile_id();
+            let bytes = stored(previous, first)?
+                .with_context(|| format!("tile {first} of the previous patch"))?
+                .to_vec();
+            for id in first..first.saturating_add(u64::from(entry.run_length())) {
                 if !dirty.contains(&id) {
                     if bytes == tombstone {
                         empty += 1;
@@ -840,24 +843,98 @@ pub fn assemble<N: Read + Seek, P: Read + Seek>(
     Ok((tiles, empty))
 }
 
-/// The header template and the stored metadata of a local archive.
-pub fn template_and_metadata(path: &Path) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
-    let bytes = std::fs::read(path)?;
+/// The metadata of a local archive, as its JSON text.
+///
+/// # Errors
+/// The archive cannot be read.
+pub fn metadata(path: &Path) -> anyhow::Result<String> {
+    Ok(pmtiles_feature_ids::open(path)?.get_metadata()?)
+}
+
+/// What a patch repeats of its base's header (root ADR-0323), so a client reads the patch as it
+/// reads the base: the zooms, the bounds and the centre; and what decides whether a patch applies:
+/// how many tiles the base addresses and whether its tiles are gzip.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BaseHeader {
+    pub min_zoom: u8,
+    pub max_zoom: u8,
+    /// West, south, east, north.
+    pub bounds: [f64; 4],
+    /// Longitude, latitude, zoom.
+    pub center: (f64, f64, u8),
+    pub addressed_tiles: u64,
+    pub gzip_tiles: bool,
+}
+
+impl BaseHeader {
+    #[must_use]
+    pub fn of(header: &Header) -> Self {
+        Self {
+            min_zoom: header.min_zoom,
+            max_zoom: header.max_zoom,
+            bounds: [
+                header.min_longitude,
+                header.min_latitude,
+                header.max_longitude,
+                header.max_latitude,
+            ],
+            center: (
+                header.center_longitude,
+                header.center_latitude,
+                header.center_zoom,
+            ),
+            addressed_tiles: header.n_addressed_tiles().map_or(0, u64::from),
+            gzip_tiles: header.tile_compression == Compression::Gzip,
+        }
+    }
+}
+
+/// Writes `tiles` — `(tile id, stored gzip bytes)` in strictly ascending tile-id order — as one
+/// archive at `out`, through the crate's writer: the base's zooms, bounds and centre, and
+/// `metadata` (the writer's `{}` when there is none).
+///
+/// # Errors
+/// The tiles are out of order or one is empty, or the file cannot be written.
+pub fn write_patch(
+    out: &Path,
+    base: &BaseHeader,
+    metadata: Option<&str>,
+    tiles: &[(u64, Vec<u8>)],
+) -> anyhow::Result<()> {
     ensure!(
-        bytes.len() >= HEADER_BYTES,
-        "archive is shorter than a PMTiles header"
+        tiles.windows(2).all(|pair| pair[0].0 < pair[1].0),
+        "tiles must come in strictly ascending tile-id order"
     );
-    let field = |at: usize| -> anyhow::Result<usize> {
-        Ok(usize::try_from(u64::from_le_bytes(
-            bytes[at..at + 8].try_into()?,
-        ))?)
-    };
-    let (offset, length) = (field(24)?, field(32)?);
-    let metadata = bytes
-        .get(offset..offset.checked_add(length).context("metadata overflows")?)
-        .context("metadata runs past the archive")?
-        .to_vec();
-    Ok((bytes[..HEADER_BYTES].to_vec(), metadata))
+    ensure!(
+        tiles.iter().all(|(_, bytes)| !bytes.is_empty()),
+        "a stored tile has at least one byte"
+    );
+    let [west, south, east, north] = base.bounds;
+    let (longitude, latitude, zoom) = base.center;
+    let mut writer = PmTilesWriter::new(TileType::Mvt)
+        .precompressed(Compression::Gzip)
+        .min_zoom(base.min_zoom)
+        .max_zoom(base.max_zoom)
+        .bounds(west, south, east, north)
+        .center(longitude, latitude)
+        .center_zoom(zoom);
+    if let Some(metadata) = metadata {
+        writer = writer.metadata(metadata);
+    }
+    let file = File::create(out).with_context(|| format!("cannot create {}", out.display()))?;
+    let mut target = BufWriter::new(file);
+    let mut stream = writer.create(&mut target)?;
+    for (id, bytes) in tiles {
+        stream.add_tile(TileCoord::from(TileId::new(*id)?), bytes)?;
+    }
+    stream.finalize()?;
+    target.flush()?;
+    target
+        .into_inner()
+        .map_err(|error| error.into_error())?
+        .sync_all()
+        .with_context(|| format!("cannot sync {}", out.display()))?;
+    Ok(())
 }
 
 /// What the patch gate proves.
@@ -878,9 +955,7 @@ pub fn gate_patch(
     changes: &Changes,
     classify_missing: impl FnOnce(&[u128]) -> anyhow::Result<Missing>,
 ) -> anyhow::Result<PatchGate> {
-    let mut header = vec![0_u8; HEADER_BYTES];
-    File::open(archive)?.read_exact(&mut header)?;
-    super::check_pmtiles_header(&header, layer)?;
+    super::check_pmtiles_header(pmtiles_feature_ids::open(archive)?.get_header(), layer)?;
     let mut present = HashSet::new();
     let mut unserved = Vec::new();
     let maxzoom_tiles = pmtiles_feature_ids::for_each_feature_id(

@@ -1,11 +1,10 @@
 //! The archive gate: a PMTiles header that matches the layer, and maxzoom tiles that carry exactly
 //! the served feature ids but the sub-pixel ones (ADR-0262).
 
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 
 use anyhow::{bail, ensure, Context as _};
+use pmtiles::{Compression, Header, TileType};
 
 use super::{
     for_each_handoff_line, id_hash, pmtiles_feature_ids, subpixel, ServedIds, ServedRow,
@@ -26,11 +25,12 @@ pub struct ServedLayer {
 
 /// Checks a PMTiles v3 header: MVT tiles over exactly the layer's zoom range, in compressions the
 /// gate can read.
-pub fn check_pmtiles_header(header: &[u8], layer: &ServedLayer) -> anyhow::Result<()> {
-    use pmtiles_feature_ids::{Header, COMPRESSION_GZIP, COMPRESSION_NONE, TILE_TYPE_MVT};
-    let header = Header::parse(header)?;
+///
+/// # Errors
+/// Any of those differs.
+pub fn check_pmtiles_header(header: &Header, layer: &ServedLayer) -> anyhow::Result<()> {
     ensure!(
-        header.tile_type == TILE_TYPE_MVT,
+        header.tile_type == TileType::Mvt,
         "archive tiles are not MVT"
     );
     ensure!(
@@ -41,13 +41,13 @@ pub fn check_pmtiles_header(header: &[u8], layer: &ServedLayer) -> anyhow::Resul
         layer.tile_min_zoom,
         layer.tile_max_zoom
     );
-    for (what, code) in [
-        ("directory", header.internal_compression),
+    for (what, compression) in [
+        ("directory", header.internal_compression()),
         ("tile", header.tile_compression),
     ] {
         ensure!(
-            [COMPRESSION_NONE, COMPRESSION_GZIP].contains(&code),
-            "archive {what} compression {code} is not one the gate reads"
+            [Compression::None, Compression::Gzip].contains(&compression),
+            "archive {what} compression {compression:?} is not one the gate reads"
         );
     }
     Ok(())
@@ -64,11 +64,7 @@ pub fn gate_archive(
     classify_missing: impl FnOnce(&[u128]) -> anyhow::Result<Missing>,
     observe: &mut dyn FnMut(u64, &str) -> anyhow::Result<()>,
 ) -> anyhow::Result<IdGate> {
-    let mut header = vec![0_u8; pmtiles_feature_ids::HEADER_BYTES];
-    File::open(archive)
-        .and_then(|mut file| file.read_exact(&mut header))
-        .context("archive is shorter than a PMTiles header")?;
-    check_pmtiles_header(&header, layer)?;
+    check_pmtiles_header(pmtiles_feature_ids::open(archive)?.get_header(), layer)?;
     let mut found = vec![0_u64; ids.len().div_ceil(64)];
     let (mut extra, mut extra_named) = (0_u64, Vec::new());
     pmtiles_feature_ids::for_each_feature_id(
@@ -141,13 +137,13 @@ pub fn tile_bytes_gate(
     archive: &Path,
     budget: Option<u64>,
 ) -> anyhow::Result<std::collections::BTreeMap<u8, (u64, u64)>> {
-    let mut archive = pmtiles_feature_ids::Archive::open(File::open(archive)?)?;
+    let archive = pmtiles_feature_ids::open(archive)?;
     let mut largest = std::collections::BTreeMap::<u8, (u64, u64)>::new();
-    archive.for_each_entry((0, u64::MAX), &mut |_, entry| {
-        let (zoom, _, _) = pmtiles_feature_ids::tile_zxy(entry.tile_id)?;
+    pmtiles_feature_ids::for_each_entry(&archive, (0, u64::MAX), |entry| {
+        let (zoom, _, _) = pmtiles_feature_ids::tile_zxy(entry.tile_id())?;
         let slot = largest.entry(zoom).or_default();
-        if entry.length > slot.0 {
-            *slot = (entry.length, entry.tile_id);
+        if u64::from(entry.length()) > slot.0 {
+            *slot = (u64::from(entry.length()), entry.tile_id());
         }
         Ok(())
     })?;
