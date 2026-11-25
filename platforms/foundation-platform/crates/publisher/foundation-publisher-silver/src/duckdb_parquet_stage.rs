@@ -23,9 +23,7 @@ use crate::{lakehouse_engine_contract::execution_profile, serving_scratch};
 pub const LAKEHOUSE_CATALOG: &str = "lakehouse";
 
 mod line_parts;
-pub use line_parts::LineParts;
-#[cfg(test)]
-pub(crate) use line_parts::TEST_PART_BYTES;
+pub use line_parts::text_bytes;
 
 /// `table` of the lakehouse catalog as it was at `snapshot`: a relation a query may alias, join and
 /// filter like any other.
@@ -230,6 +228,13 @@ impl DuckDbParquetStage {
         })
     }
 
+    /// The stage's own directory: the only place an [`Self::open`] stage may read, so a test puts the
+    /// files it reads here.
+    #[cfg(test)]
+    pub(crate) fn directory(&self) -> &Path {
+        self.directory.path()
+    }
+
     /// Opens a `DuckDB` that reads the lakehouse on R2 through its own Iceberg reader, attached as
     /// `LAKEHOUSE_CATALOG`.
     ///
@@ -327,17 +332,6 @@ impl DuckDbParquetStage {
         self.connection
             .execute("SET memory_limit = ?", [format!("{bytes}B")])?;
         Ok(Some(bytes))
-    }
-
-    /// A gzip JSON Lines object as `table(line_number BIGINT, line VARCHAR)`, whole: the non-blank
-    /// lines, numbered from 1, as Python's text reader split them (a `\r\n` ends a line like `\n`).
-    /// A lane whose objects grow reads them in parts ([`Self::read_line_parts`]).
-    ///
-    /// # Errors
-    /// Returns an error when the file is neither gzip nor plain UTF-8 text, `table` is not a plain
-    /// identifier, or `DuckDB` refuses a row.
-    pub fn load_lines(&self, path: &Path, table: &str) -> anyhow::Result<u64> {
-        self.read_line_parts(path, table, LineParts::Whole, &[], || Ok(()))
     }
 
     /// The connection a transform loads its inputs into and computes on.

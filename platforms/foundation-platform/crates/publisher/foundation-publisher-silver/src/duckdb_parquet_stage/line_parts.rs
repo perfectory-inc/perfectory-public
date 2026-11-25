@@ -1,17 +1,10 @@
-//! A JSON Lines object read in parts of a size the stage's memory holds.
+//! A JSON Lines file a Silver load reads, streamed into the stage whole, and the measures a lane
+//! sizes its reads by (the stage's memory limit, a file's text).
 //!
-//! 2026-11-24 21:35Z the court auction Silver load ran out of `DuckDB`'s 2 GiB on one 물건 검색
-//! object (394 MiB of text in 2,435 lines): the stage held the whole object at once, and a
-//! statement that parses JSON holds many times the bytes of the rows it reads at once. Memory grew
-//! with the object, which no limit bounds. Measured on the same `DuckDB` (2.0.0, 2 GiB, 2 threads):
-//! that object's lines and searches pass in parts of 32 MiB and fail in parts of 64 MiB.
-//!
-//! So the stage decides how much of an object is loaded at once, from its own memory limit, and
-//! the caller runs its statements on each part in turn. A lane says only which of its lines must
-//! share a part ([`LineParts`]); the tables it keeps are appended part after part here.
+//! The court auction lane reads its objects with `DuckDB`'s own `read_json` (root ADR-0616 §3-1)
+//! and uses only the measures; the other lanes load their lines here ([`DuckDbParquetStage::load_lines`]).
 
 use std::{
-    collections::HashMap,
     io::{BufRead, BufReader, Read},
     path::Path,
 };
@@ -20,112 +13,34 @@ use anyhow::{ensure, Context};
 
 use super::DuckDbParquetStage;
 
-/// A part holds at most this share of the stage's memory limit in line text: half the share
-/// measured to pass (1/64: 32 MiB of 물건 검색 lines under 2 GiB, 1/32 failed), for the roles whose
-/// statements parse more per byte.
-const PART_SHARE: u64 = 128;
-
-/// Which lines of an object a caller's statements compare, so must be read in one part.
-#[derive(Clone, Copy, Debug)]
-pub enum LineParts<'a> {
-    /// All of them: the object is one part, as large as it is (a lane whose objects stay small).
-    Whole,
-    /// None: parts are runs of lines in file order. A caller that compares lines merges the rows
-    /// its parts kept (the latest line winning, as within a part).
-    InOrder,
-    /// The lines with the same values at these JSON pointers. A line that is not JSON, or has none
-    /// of them, shares a part with every other such line.
-    Grouped(&'a [String]),
-}
-
-#[cfg(test)]
-thread_local! {
-    /// The part size a test sets, to read a small fixture in many parts.
-    pub static TEST_PART_BYTES: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
-}
-
 impl DuckDbParquetStage {
-    /// Reads the JSON Lines object at `path` into `table(line_number BIGINT, line VARCHAR)` one part
-    /// at a time and calls `each` after each part is loaded. The lines are the non-blank ones,
-    /// numbered from 1 through the whole object, as Python's text reader split them (a `\r\n` ends
-    /// a line like `\n`); a part holds its lines with their numbers in the object.
-    ///
-    /// After every part, each table named in `kept` (built by `each`) is appended to the rows the
-    /// earlier parts kept; after the last part, each holds the rows of all of them, in part order.
-    /// The object is streamed, never held whole: one pass to group its lines (none for
-    /// [`LineParts::Whole`]), then one per part. Returns the number of lines.
+    /// A gzip JSON Lines object as `table(line_number BIGINT, line VARCHAR)`, whole: the non-blank
+    /// lines, numbered from 1, as Python's text reader split them (a `\r\n` ends a line like `\n`).
+    /// The file is streamed a line at a time, never held whole as text.
     ///
     /// # Errors
-    /// Returns an error when the file is neither gzip nor plain UTF-8 text, a name is not a plain
-    /// identifier, `each` fails, or `DuckDB` refuses a row.
-    pub fn read_line_parts(
-        &self,
-        path: &Path,
-        table: &str,
-        parts: LineParts<'_>,
-        kept: &[String],
-        mut each: impl FnMut() -> anyhow::Result<()>,
-    ) -> anyhow::Result<u64> {
-        for name in std::iter::once(table).chain(kept.iter().map(String::as_str)) {
-            ensure!(
-                !name.is_empty()
-                    && name
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
-                "{name:?} is not a plain table name"
-            );
-        }
-        let part_of_line = if matches!(parts, LineParts::Whole) {
-            None
-        } else {
-            let bound = self.memory_limit_bytes()? / PART_SHARE;
-            #[cfg(test)]
-            let bound = TEST_PART_BYTES.get().unwrap_or(bound);
-            Some(Grouping::of(path, parts)?.parts(bound))
-        };
-        let count = part_of_line
-            .as_ref()
-            .and_then(|parts| parts.iter().max())
-            .map_or(1, |last| last + 1);
+    /// Returns an error when the file is neither gzip nor plain UTF-8 text, `table` is not a plain
+    /// identifier, or `DuckDB` refuses a row.
+    pub fn load_lines(&self, path: &Path, table: &str) -> anyhow::Result<u64> {
+        ensure!(
+            !table.is_empty()
+                && table
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+            "{table:?} is not a plain table name"
+        );
+        self.connection.execute_batch(&format!(
+            "CREATE OR REPLACE TABLE {table} (line_number BIGINT NOT NULL, line VARCHAR NOT NULL)"
+        ))?;
         let mut lines = 0;
-        for part in 0..count {
-            self.connection.execute_batch(&format!(
-                "CREATE OR REPLACE TABLE {table} (line_number BIGINT NOT NULL, line VARCHAR NOT NULL)"
-            ))?;
-            {
-                let mut appender = self.connection.appender(table)?;
-                for_each_line(path, |number, line| {
-                    lines = number;
-                    if part_of_line
-                        .as_ref()
-                        .is_none_or(|parts| parts[number - 1] == part)
-                    {
-                        appender.append_row(duckdb::params![i64::try_from(number)?, line])?;
-                    }
-                    Ok(())
-                })?;
-                appender.flush()?;
-            }
-            each()?;
-            if count == 1 {
-                break;
-            }
-            for name in kept {
-                let sql = if part == 0 {
-                    format!("CREATE OR REPLACE TEMP TABLE {name}__parts AS SELECT * FROM {name}")
-                } else {
-                    format!("INSERT INTO {name}__parts BY NAME SELECT * FROM {name}")
-                };
-                self.connection
-                    .execute_batch(&format!("{sql}; DROP TABLE {name}"))
-                    .with_context(|| format!("DuckDB failed to keep part {part} of {name}"))?;
-            }
-        }
-        if count > 1 {
-            for name in kept {
-                self.connection
-                    .execute_batch(&format!("ALTER TABLE {name}__parts RENAME TO {name}"))?;
-            }
+        {
+            let mut appender = self.connection.appender(table)?;
+            for_each_line(path, |number, line| {
+                lines = number;
+                appender.append_row(duckdb::params![i64::try_from(number)?, line])?;
+                Ok(())
+            })?;
+            appender.flush()?;
         }
         Ok(u64::try_from(lines)?)
     }
@@ -142,6 +57,16 @@ impl DuckDbParquetStage {
                 })?;
         human_bytes(&text).with_context(|| format!("DuckDB reports its memory limit as {text:?}"))
     }
+}
+
+/// The bytes of text in the gzip or plain file at `path`, uncompressed (counted as it streams).
+///
+/// # Errors
+/// Returns an error when the file cannot be read or its gzip is broken.
+pub fn text_bytes(path: &Path) -> anyhow::Result<u64> {
+    let (mut reader, _) = open_text(path)?;
+    std::io::copy(&mut reader, &mut std::io::sink())
+        .with_context(|| format!("cannot read the text of {}", path.display()))
 }
 
 /// `DuckDB`'s human form of a byte count (`StringUtil::BytesToHumanReadableString`): a number and
@@ -171,82 +96,21 @@ fn human_bytes(text: &str) -> Option<u64> {
     (number >= 0.0).then_some(bytes)
 }
 
-/// Each line's group, and each group's bytes, groups numbered in first-seen order.
-struct Grouping {
-    group_of_line: Vec<usize>,
-    group_bytes: Vec<u64>,
-}
-
-impl Grouping {
-    fn of(path: &Path, parts: LineParts<'_>) -> anyhow::Result<Self> {
-        let mut index = HashMap::<Option<String>, usize>::new();
-        let mut grouping = Self {
-            group_of_line: Vec::new(),
-            group_bytes: Vec::new(),
-        };
-        for_each_line(path, |_, line| {
-            let group = match parts {
-                LineParts::Whole => 0,
-                LineParts::InOrder => grouping.group_bytes.len(),
-                LineParts::Grouped(pointers) => {
-                    let next = index.len();
-                    *index.entry(group_key(line, pointers)).or_insert(next)
-                }
-            };
-            if group == grouping.group_bytes.len() {
-                grouping.group_bytes.push(0);
-            }
-            grouping.group_bytes[group] += u64::try_from(line.len())?;
-            grouping.group_of_line.push(group);
-            Ok(())
-        })?;
-        Ok(grouping)
-    }
-
-    /// Each line's part: groups in first-seen order, a part closed before the group that would
-    /// take it past `bound` (a group larger than `bound` is a part of its own, never cut).
-    fn parts(&self, bound: u64) -> Vec<usize> {
-        let mut part_of_group = Vec::with_capacity(self.group_bytes.len());
-        let (mut part, mut held) = (0, 0_u64);
-        for &bytes in &self.group_bytes {
-            if held > 0 && held + bytes > bound {
-                part += 1;
-                held = 0;
-            }
-            held += bytes;
-            part_of_group.push(part);
-        }
-        self.group_of_line
-            .iter()
-            .map(|&group| part_of_group[group])
-            .collect()
-    }
-}
-
-/// The values at `pointers` of a JSON line, spaces dropped from strings (a coarser key keeps more
-/// lines together, never fewer); `None` for a line that is not JSON or has none of them.
-fn group_key(line: &str, pointers: &[String]) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(line).ok()?;
-    let found = pointers
-        .iter()
-        .map(|pointer| match value.pointer(pointer) {
-            Some(serde_json::Value::String(text)) => {
-                Some(text.chars().filter(|c| !c.is_whitespace()).collect())
-            }
-            Some(other) => Some(other.to_string()),
-            None => None,
-        })
-        .collect::<Vec<Option<String>>>();
-    if found.iter().all(Option::is_none) {
-        return None;
-    }
-    Some(
-        found
-            .into_iter()
-            .map(Option::unwrap_or_default)
-            .collect::<Vec<_>>()
-            .join("\u{1f}"),
-    )
+/// The text of a gzip (by its magic bytes) or plain file, and whether it is gzip.
+fn open_text(path: &Path) -> anyhow::Result<(Box<dyn BufRead>, bool)> {
+    let mut opened =
+        std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
+    let mut magic = [0_u8; 2];
+    // gzip by its magic bytes, plain text otherwise (a run file an image wrote).
+    let gzip = opened.read(&mut magic)? == 2 && magic == [0x1f, 0x8b];
+    let opened =
+        std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
+    let reader: Box<dyn BufRead> = if gzip {
+        Box::new(BufReader::new(flate2::read::MultiGzDecoder::new(opened)))
+    } else {
+        Box::new(BufReader::new(opened))
+    };
+    Ok((reader, gzip))
 }
 
 /// Calls `line` with each non-blank line of the gzip or plain text file and its number from 1.
@@ -254,18 +118,7 @@ fn for_each_line(
     path: &Path,
     mut line: impl FnMut(usize, &str) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let mut file =
-        std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
-    let mut magic = [0_u8; 2];
-    // gzip by its magic bytes, plain text otherwise (a run file an image wrote).
-    let gzip = file.read(&mut magic)? == 2 && magic == [0x1f, 0x8b];
-    let file =
-        std::fs::File::open(path).with_context(|| format!("cannot open {}", path.display()))?;
-    let mut reader: Box<dyn BufRead> = if gzip {
-        Box::new(BufReader::new(flate2::read::GzDecoder::new(file)))
-    } else {
-        Box::new(BufReader::new(file))
-    };
+    let (mut reader, gzip) = open_text(path)?;
     let what = if gzip { "gzip UTF-8" } else { "UTF-8" };
     let (mut text, mut number) = (String::new(), 0);
     loop {
@@ -289,7 +142,9 @@ fn for_each_line(
 
 #[cfg(test)]
 mod tests {
-    use super::{human_bytes, Grouping, LineParts};
+    use std::io::Write as _;
+
+    use super::{human_bytes, text_bytes};
 
     #[test]
     fn duckdb_s_human_limit_is_read_as_bytes() {
@@ -301,30 +156,19 @@ mod tests {
     }
 
     #[test]
-    fn lines_of_one_key_share_a_part_and_parts_follow_the_bound() -> anyhow::Result<()> {
+    fn a_file_s_text_is_counted_uncompressed() -> anyhow::Result<()> {
         let directory = tempfile::tempdir()?;
-        let path = directory.path().join("object.jsonl");
-        let line = |case: &str| {
-            format!("{{\"request\": {{\"r\": {{\"csNo\": \"{case}\"}}}}, \"pad\": \"xxxxxxxx\"}}")
-        };
-        let lines = [
-            line("A"),
-            line("B"),
-            line(" A"),
-            "not json".to_owned(),
-            line("C"),
-            String::new(),
-        ];
-        std::fs::write(&path, lines.join("\n"))?;
-        let pointers = ["/request/r/csNo".to_owned()];
-        let grouped = Grouping::of(&path, LineParts::Grouped(&pointers))?;
-        // A and " A" are one case; the line that is not JSON is a group of its own; the blank line
-        // is not a line.
-        assert_eq!(grouped.group_of_line, vec![0, 1, 0, 2, 3]);
-        assert_eq!(grouped.parts(1), vec![0, 1, 0, 2, 3]);
-        assert_eq!(grouped.parts(u64::MAX), vec![0; 5]);
-        let in_order = Grouping::of(&path, LineParts::InOrder)?;
-        assert_eq!(in_order.parts(1), vec![0, 1, 2, 3, 4]);
+        let plain = directory.path().join("lines.jsonl");
+        std::fs::write(&plain, "{\"a\": 1}\n\n{\"a\": 2}\n")?;
+        assert_eq!(text_bytes(&plain)?, 19);
+        let packed = directory.path().join("lines.jsonl.gz");
+        let mut gzip = flate2::write::GzEncoder::new(
+            std::fs::File::create(&packed)?,
+            flate2::Compression::default(),
+        );
+        gzip.write_all(&[b'x'; 10_000])?;
+        gzip.finish()?;
+        assert_eq!(text_bytes(&packed)?, 10_000);
         Ok(())
     }
 }

@@ -20,7 +20,7 @@ use lakehouse_domain::{
 use super::{
     planned_objects, read_object, CourtAuctionSource, Keep, PlannedObject, Role, PLAN_SCHEMA, ROLES,
 };
-use crate::duckdb_parquet_stage::{DuckDbParquetStage, TEST_PART_BYTES};
+use crate::duckdb_parquet_stage::{sql_path, DuckDbParquetStage};
 use crate::onbid_silver_stage::write;
 
 fn contract(table: &str) -> anyhow::Result<&'static LakehouseTableContract> {
@@ -125,7 +125,7 @@ fn the_staged_rows_are_the_rows_the_spark_job_built(role: Role) -> anyhow::Resul
     let staged = read_object(
         &stage,
         &source,
-        &object(directory.path(), role)?,
+        &object(stage.directory(), role)?,
         ingested_at,
     )?;
     assert_eq!(
@@ -234,7 +234,7 @@ fn a_case_document_read_without_its_case_refuses_the_object() -> anyhow::Result<
     stage
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;
-    let path = directory.path().join("keyless.gz");
+    let path = stage.directory().join("keyless.gz");
     let mut gzip = flate2::write::GzEncoder::new(
         std::fs::File::create(&path)?,
         flate2::Compression::default(),
@@ -268,7 +268,7 @@ fn a_notice_detail_without_its_key_refuses_the_object() -> anyhow::Result<()> {
     stage
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;
-    let path = directory.path().join("keyless.gz");
+    let path = stage.directory().join("keyless.gz");
     let mut gzip = flate2::write::GzEncoder::new(
         std::fs::File::create(&path)?,
         flate2::Compression::default(),
@@ -303,7 +303,7 @@ fn a_report_read_without_its_key_refuses_the_object() -> anyhow::Result<()> {
     stage
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;
-    let path = directory.path().join("keyless.gz");
+    let path = stage.directory().join("keyless.gz");
     let mut gzip = flate2::write::GzEncoder::new(
         std::fs::File::create(&path)?,
         flate2::Compression::default(),
@@ -519,11 +519,11 @@ fn search_stage() -> anyhow::Result<(tempfile::TempDir, DuckDbParquetStage, Cour
 
 #[test]
 fn the_search_rows_and_their_offers_are_the_spark_jobs() -> anyhow::Result<()> {
-    let (directory, stage, source) = search_stage()?;
+    let (_directory, stage, source) = search_stage()?;
     let staged = read_object(
         &stage,
         &source,
-        &object(directory.path(), Role::ItemSearch)?,
+        &object(stage.directory(), Role::ItemSearch)?,
         chrono::Utc::now(),
     )?;
     assert_eq!(staged[0].rows, 5);
@@ -557,11 +557,11 @@ fn the_search_rows_and_their_offers_are_the_spark_jobs() -> anyhow::Result<()> {
 
 #[test]
 fn a_search_row_takes_the_code_first_then_its_lot_then_its_road() -> anyhow::Result<()> {
-    let (directory, stage, source) = search_stage()?;
+    let (_directory, stage, source) = search_stage()?;
     read_object(
         &stage,
         &source,
-        &object(directory.path(), Role::ItemSearch)?,
+        &object(stage.directory(), Role::ItemSearch)?,
         chrono::Utc::now(),
     )?;
     let table = contract("silver.court_auction_item")?;
@@ -615,7 +615,7 @@ fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
         .execute_batch(&CourtAuctionSource::values_sql())?;
     let cases: serde_json::Value = serde_json::from_str(&fixture("item_search_complete.json")?)?;
     for case in cases.as_array().context("cases")? {
-        let path = directory.path().join("case.jsonl");
+        let path = stage.directory().join("case.jsonl");
         let lines = case["lines"]
             .as_array()
             .context("lines")?
@@ -623,11 +623,11 @@ fn a_search_is_complete_as_the_spark_job_judged_it() -> anyhow::Result<()> {
             .map(|line| line.to_string() + "\n")
             .collect::<String>();
         std::fs::write(&path, lines)?;
-        stage.load_lines(&path, "ca_lines")?;
-        stage.connection().execute_batch(super::LINES_SQL)?;
-        stage
-            .connection()
-            .execute_batch(&super::search_pages_sql(&source, Role::ItemSearch)?)?;
+        stage.connection().execute_batch(&super::search_pages_sql(
+            &source,
+            Role::ItemSearch,
+            &sql_path(&path)?,
+        )?)?;
         assert_eq!(
             super::search_complete(&stage, &source, Role::ItemSearch)?,
             case["complete"].as_bool().context("complete")?,
@@ -709,7 +709,7 @@ fn a_case_detail_object_of_wide_answers_is_read_within_its_memory_budget() -> an
     stage
         .connection()
         .execute_batch(&CourtAuctionSource::values_sql())?;
-    let object = large_object(directory.path(), Role::CaseDetail, 0, 150, 10)?;
+    let object = large_object(stage.directory(), Role::CaseDetail, 0, 150, 10)?;
     read_object(&stage, &source, &object, chrono::Utc::now())?;
     let cases: i64 =
         stage
@@ -723,11 +723,11 @@ fn a_case_detail_object_of_wide_answers_is_read_within_its_memory_budget() -> an
 
 #[test]
 fn a_follow_places_again_the_rows_a_code_change_can_move_with_its_record() -> anyhow::Result<()> {
-    let (directory, stage, source) = search_stage()?;
+    let (_directory, stage, source) = search_stage()?;
     read_object(
         &stage,
         &source,
-        &object(directory.path(), Role::ItemSearch)?,
+        &object(stage.directory(), Role::ItemSearch)?,
         chrono::Utc::now(),
     )?;
     let table = contract("silver.court_auction_item")?;
@@ -796,9 +796,72 @@ fn a_follow_places_again_the_rows_a_code_change_can_move_with_its_record() -> an
     Ok(())
 }
 
-/// What `read_object` left of `role`'s object: every staged table's rows (a search's rows and pages:
-/// its staging table is its placement's), each as text, sorted; and a search's completeness.
-fn read_rows(role: Role, part_bytes: Option<u64>) -> anyhow::Result<(Vec<String>, Option<bool>)> {
+/// The rows of `table` on `stage`, each as text, sorted.
+fn sorted_rows(stage: &DuckDbParquetStage, table: &str) -> anyhow::Result<Vec<String>> {
+    let mut found = stage
+        .connection()
+        .prepare(&format!("SELECT CAST(t AS VARCHAR) FROM {table} t"))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    found.sort();
+    Ok(found)
+}
+
+/// The search pages as the load built them from `ca_parsed` before the typed read (2026-11-25):
+/// the oracle of `a_search_reads_its_file_as_lines_sql_read_it`.
+fn pages_before_typed_read(source: &CourtAuctionSource, role: Role) -> anyhow::Result<String> {
+    let search = source.section(role);
+    let (_, fields) = super::search_conditions(source, role)?;
+    let window = search["date_window"].as_object().map(|window| {
+        (
+            window
+                .get("start_field")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            window
+                .get("end_field")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        )
+    });
+    let asked = "coalesce(CASE WHEN py_truthy(json_extract(j, '$.request')) \
+                 THEN json_extract(j, '$.request.dma_srchGdsDtlSrchInfo') END, '{}'::JSON)";
+    let window_ok = window.map_or_else(
+        || "true".to_owned(),
+        |(start, end)| {
+            format!(
+                "py_truthy(json_extract(asked, '$.{start}')) AND py_truthy(json_extract(asked, '$.{end}'))"
+            )
+        },
+    );
+    let key = fields
+        .iter()
+        .map(|field| format!("coalesce(CAST(json_extract(asked, '$.{field}') AS VARCHAR), 'null')"))
+        .collect::<Vec<_>>()
+        .join(" || '\u{1f}' || ");
+    Ok(format!(
+        "CREATE OR REPLACE TEMP TABLE ca_search_pages AS \
+         SELECT line_number, {key} AS condition, \
+                CASE WHEN json_type(json_extract(data, '$.dlt_srchResult')) = 'ARRAY' \
+                     THEN json_array_length(json_extract(data, '$.dlt_srchResult')) ELSE 0 END AS rows, \
+                ca_whole(json_extract(data, '$.dma_pageInfo.totalCnt')) AS total \
+         FROM (SELECT line_number, j, {asked} AS asked, \
+                      json_extract(TRY_CAST(json_extract_string(j, '$.body') AS JSON), '$.data') AS data \
+               FROM ca_parsed \
+               WHERE json_type(json_extract(j, '$.http_status')) IN ('BIGINT', 'UBIGINT', 'DOUBLE') \
+                 AND TRY_CAST(json_extract(j, '$.http_status') AS DOUBLE) = 200) \
+         WHERE json_type(TRY_CAST(json_extract_string(j, '$.body') AS JSON)) = 'OBJECT' AND ({window_ok})"
+    ))
+}
+
+#[test]
+fn a_search_reads_its_file_as_lines_sql_read_it() -> anyhow::Result<()> {
+    // 2026-11-25 a search reads its file itself, typed (root ADR-0616 §3-1); its rows, its pages and
+    // its completeness are the ones lines.sql and the search's first statement of that day built.
+    // The other roles read their file through lines.sql, and their Spark fixtures are their oracle.
+    let role = Role::ItemSearch;
     let directory = tempfile::tempdir()?;
     let source = CourtAuctionSource::compiled()?;
     let stage = DuckDbParquetStage::open(directory.path())?;
@@ -809,71 +872,117 @@ fn read_rows(role: Role, part_bytes: Option<u64>) -> anyhow::Result<(Vec<String>
         .with_ymd_and_hms(2099, 1, 2, 3, 4, 5)
         .single()
         .context("a time")?;
-    TEST_PART_BYTES.set(part_bytes);
-    let staged = read_object(
-        &stage,
-        &source,
-        &object(directory.path(), role)?,
-        ingested_at,
+    let object = object(stage.directory(), role)?;
+    read_object(&stage, &source, &object, ingested_at)?;
+    let typed = (
+        sorted_rows(&stage, "ca_search_rows")?,
+        sorted_rows(&stage, "ca_search_pages")?,
+        super::search_complete(&stage, &source, role)?,
     );
-    TEST_PART_BYTES.set(None);
-    let staged = staged?;
-    let search = matches!(role, Role::ItemSearch | Role::SaleResultSearch);
-    let tables = if search {
-        vec!["ca_search_rows".to_owned(), "ca_search_pages".to_owned()]
-    } else {
-        staged.into_iter().map(|table| table.staged).collect()
-    };
-    let mut rows = Vec::new();
-    for table in tables {
-        let mut found = stage
-            .connection()
-            .prepare(&format!("SELECT CAST(t AS VARCHAR) FROM {table} t"))?
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?;
-        found.sort();
-        rows.extend(found.into_iter().map(|row| format!("{table}: {row}")));
-    }
-    let complete = search
-        .then(|| super::search_complete(&stage, &source, role))
-        .transpose()?;
-    Ok((rows, complete))
+    stage.load_lines(&object.path, "ca_lines")?;
+    stage
+        .connection()
+        .execute_batch(&fixture("before_typed_read/lines.sql")?)?;
+    stage
+        .connection()
+        .execute_batch(&fixture("before_typed_read/search_lines.sql")?)?;
+    let role_sql = source.role_sql(role)?;
+    let rows = &role_sql[role_sql
+        .find("CREATE OR REPLACE TEMP TABLE ca_search_rows")
+        .context("searches.sql builds its rows")?..];
+    stage.connection().execute_batch(
+        &rows
+            .replace("{object_key}", super::literal(&object.object_key)?)
+            .replace("{snapshot_id}", super::literal(&object.source_snapshot_id)?)
+            .replace(
+                "{ingested_at_epoch_seconds}",
+                &ingested_at.timestamp().to_string(),
+            ),
+    )?;
+    stage
+        .connection()
+        .execute_batch(&pages_before_typed_read(&source, role)?)?;
+    let before = (
+        sorted_rows(&stage, "ca_search_rows")?,
+        sorted_rows(&stage, "ca_search_pages")?,
+        super::search_complete(&stage, &source, role)?,
+    );
+    assert!(!typed.0.is_empty(), "the fixture stages rows");
+    assert_eq!(typed, before);
+    Ok(())
 }
 
 #[test]
-fn every_role_stages_the_same_rows_read_in_parts_as_read_whole() -> anyhow::Result<()> {
-    // 2026-11-24 the load ran out of memory on a whole 394 MiB 물건 검색 object; it now reads an
-    // object in parts. Here every group of lines is a part of its own (a case, or a search line).
-    for role in ROLES {
-        if fixture(&format!("{}.jsonl", role.name())).is_err() {
-            continue;
-        }
-        let whole = read_rows(role, None)?;
-        assert_eq!(read_rows(role, Some(1))?, whole, "{}", role.name());
-    }
+fn an_object_larger_than_the_stage_holds_for_its_role_is_refused_with_the_reason(
+) -> anyhow::Result<()> {
+    // The read refuses before it starts rather than running out of memory part way (root ADR-0616
+    // §3-1): here the role's measured figure is so large that any object is above the limit.
+    let role = Role::CaseDetail;
+    let directory = tempfile::tempdir()?;
+    let mut source = CourtAuctionSource::compiled()?;
+    source.contract["silver_load"]["memory_per_text_byte"][role.name()] =
+        serde_json::json!(u64::MAX / 4);
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    stage
+        .connection()
+        .execute_batch(&CourtAuctionSource::values_sql())?;
+    let Err(refused) = read_object(
+        &stage,
+        &source,
+        &object(stage.directory(), role)?,
+        chrono::Utc::now(),
+    ) else {
+        anyhow::bail!("an object above the stage's limit was read");
+    };
+    let refused = format!("{refused:#}");
+    assert!(
+        refused.contains("bytes of memory per byte of text"),
+        "{refused}"
+    );
     Ok(())
 }
 
 #[test]
 fn only_a_line_that_is_not_json_is_called_one() -> anyhow::Result<()> {
     // 2026-11-24 21:35Z the load reported running out of memory as "a line that is not JSON".
-    let failure = |error: duckdb::Error| format!("{:#}", super::lines_failure(error, "k"));
-    let stage_directory = tempfile::tempdir()?;
-    let stage = DuckDbParquetStage::open(stage_directory.path())?;
-    let malformed = stage
-        .connection()
-        .execute_batch(
-            "CREATE TABLE l AS SELECT 'not json' AS line;              CREATE TABLE j AS SELECT CAST(line AS JSON) AS j FROM l",
+    let failure = |error: duckdb::Error| {
+        format!(
+            "{:#}",
+            super::read_failure(error, "k", "DuckDB failed to read the lines of")
         )
-        .err()
-        .context("not JSON is refused")?;
-    assert!(failure(malformed).starts_with("k holds a line that is not JSON"));
-    let other = stage
-        .connection()
-        .execute_batch("SELECT * FROM no_such_table")
-        .err()
-        .context("an absent table is refused")?;
-    let other = failure(other);
+    };
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    let read = |lines: &str| -> anyhow::Result<duckdb::Error> {
+        let path = stage.directory().join("lines.jsonl");
+        std::fs::write(&path, lines)?;
+        stage
+            .connection()
+            .execute_batch(&format!(
+                "CREATE OR REPLACE TABLE r AS SELECT * FROM read_json('{}', \
+                 format = 'newline_delimited', records = true, columns = {{a: 'JSON'}})",
+                sql_path(&path)?
+            ))
+            .err()
+            .context("the read is refused")
+    };
+    let malformed = failure(read("{\"a\": 1}\nnot json\n")?);
+    assert!(
+        malformed.starts_with("k holds a line that is not JSON"),
+        "{malformed}"
+    );
+    let not_an_object = failure(read("{\"a\": 1}\n[1, 2]\n")?);
+    assert!(
+        not_an_object.starts_with("k holds a line that is not a JSON object"),
+        "{not_an_object}"
+    );
+    let other = failure(
+        stage
+            .connection()
+            .execute_batch("SELECT * FROM no_such_table")
+            .err()
+            .context("an absent table is refused")?,
+    );
     assert!(
         other.starts_with("DuckDB failed to read the lines of k"),
         "{other}"
