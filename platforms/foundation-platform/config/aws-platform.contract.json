@@ -17,7 +17,7 @@
     "bucket": "perfectory-platform-tofu-state-091109217099",
     "key": "aws-platform/terraform.tfstate",
     "noncurrent_days": 90,
-    "reason": "The state of an AWS stack lives in its own account: the SSO role that applies it reads and writes it, so no second credential (the R2 keys the host's stacks use) reaches the laptop. Versioned so an apply that went wrong can be rolled back to the earlier state; old versions leave after 90 days. Locked by the S3 backend's own lock file (use_lockfile). The state holds no secret: the database's password is RDS's own (manage_master_user_password), kept in Secrets Manager, and the state holds only that secret's ARN."
+    "reason": "The state of an AWS stack lives in its own account: the SSO role that applies it reads and writes it, so no second credential (the R2 keys the host's stacks use) reaches the laptop. Versioned so an apply that went wrong can be rolled back to the earlier state; old versions leave after 90 days. Locked by the S3 backend's own lock file (use_lockfile). The state holds no secret: the master password is RDS's own (manage_master_user_password) and the Dagster role's is written write-only (secret_string_wo); the state holds only the secrets' ARNs."
   },
   "budget": {
     "name": "perfectory-platform-monthly",
@@ -63,8 +63,10 @@
     "allocated_storage_gb": 20,
     "backup_retention_days": 7,
     "name": "dagster",
-    "username": "dagster",
-    "reason": "Dagster's storage (runs, events, schedules; 1,001 MB on ai-server) on RDS PostgreSQL, one zone, the smallest Graviton class (root ADR-0616 §1, §10: 18.25 USD a month plus 0.131 a GB). In the private subnets only, reached from the tasks' security group only, TLS required (PostgreSQL 15+ on RDS forces SSL by default). RDS keeps the master password in Secrets Manager and rotates it; the Dagster task reads it through its task definition's secrets (the service's own credential, root ADR-0616 §2-8). The Bronze ledger gets its own database on this instance in A1b. Deletion protection and a final snapshot, so neither an apply nor a mistaken delete removes it."
+    "master_username": "platform_admin",
+    "app_username": "dagster",
+    "app_secret": "perfectory-platform/dagster-database",
+    "reason": "Dagster's storage (runs, events, schedules; 1,001 MB on ai-server) on RDS PostgreSQL, one zone, the smallest Graviton class (root ADR-0616 §1, §10: 18.25 USD a month plus 0.131 a GB). In the private subnets only, reached from the tasks' security group only, TLS required (PostgreSQL 15+ on RDS forces SSL by default). Least privilege: Dagster and every run task connect as app_username, a role that owns only this database, with its own secret (app_secret, in the shape Secrets Manager's RDS rotation reads; the password is written write-only, never in the state). The master user (master_username, its password RDS's own in Secrets Manager) is read only by the one-off bootstrap task that creates that role (infra/aws/database-bootstrap.sql). The Bronze ledger gets its own database on this instance in A1b. Deletion protection and a final snapshot, so neither an apply nor a mistaken delete removes it."
   },
   "alarms": {
     "topic": "perfectory-platform-alarms",

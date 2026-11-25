@@ -1,5 +1,5 @@
-# Dagster on AWS with no job yet (root ADR-0616 A1): its cluster, its database, its always-on service
-# (webserver and daemon) and the alarm that says it is not running. Every value is the contract's
+# Dagster on AWS with no job yet (root ADR-0616 A1): its cluster, its database and the role it connects
+# as, its always-on service (webserver and daemon) and the alarm that says it is not running. Every value is the contract's
 # (config/aws-platform.contract.json: ecs, dagster, database, alarms); the image is the release's AWS
 # code location by digest (root ADR-0620), given at apply time. Collectors move in from A2, one at a time.
 
@@ -15,6 +15,8 @@ variable "dagster_image" {
 locals {
   dagster  = local.contract.dagster
   database = local.contract.database
+  # Image pins are the repository's one contract (the bootstrap's postgres client comes from there).
+  versions = jsondecode(file("${path.module}/../../../../tools/technology-versions.contract.json"))
 }
 
 resource "aws_ecs_cluster" "platform" {
@@ -81,7 +83,7 @@ resource "aws_db_instance" "platform" {
   storage_type                = "gp3"
   storage_encrypted           = true
   db_name                     = local.database.name
-  username                    = local.database.username
+  username                    = local.database.master_username
   manage_master_user_password = true
   db_subnet_group_name        = aws_db_subnet_group.platform.name
   vpc_security_group_ids      = [aws_security_group.database.id]
@@ -96,6 +98,33 @@ resource "aws_db_instance" "platform" {
   lifecycle {
     prevent_destroy = true
   }
+}
+
+# The database's own role (database-bootstrap.sql): Dagster and its runs connect as it, never as the
+# master user. Its secret has the shape Secrets Manager's RDS rotation reads, so rotation can be turned
+# on later. The password is generated at apply time and written write-only: it is never in the state.
+# A new password: raise secret_string_wo_version, apply, then run the bootstrap task again.
+resource "aws_secretsmanager_secret" "dagster_database" {
+  name        = local.database.app_secret
+  description = "The Dagster database's own role (not the RDS master user)."
+}
+
+ephemeral "aws_secretsmanager_random_password" "dagster_database" {
+  password_length     = 40
+  exclude_punctuation = true
+}
+
+resource "aws_secretsmanager_secret_version" "dagster_database" {
+  secret_id = aws_secretsmanager_secret.dagster_database.id
+  secret_string_wo = jsonencode({
+    engine   = "postgres"
+    host     = aws_db_instance.platform.address
+    port     = aws_db_instance.platform.port
+    dbname   = local.database.name
+    username = local.database.app_username
+    password = ephemeral.aws_secretsmanager_random_password.dagster_database.random_password
+  })
+  secret_string_wo_version = 1
 }
 
 data "aws_iam_policy_document" "ecs_tasks_assume" {
@@ -113,7 +142,8 @@ data "aws_iam_policy_document" "ecs_tasks_assume" {
   }
 }
 
-# What ECS itself needs to start the task: write its logs and read the database password it injects.
+# What ECS itself needs to start the task: write its logs and read the role's password it injects (only
+# the role's: orchestration/tests/test_aws_dagster_secrets.py holds every block but the bootstrap's to that).
 resource "aws_iam_role" "dagster_execution" {
   name               = "perfectory-platform-dagster-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
@@ -127,7 +157,7 @@ resource "aws_iam_role_policy_attachment" "dagster_execution" {
 data "aws_iam_policy_document" "dagster_execution" {
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_db_instance.platform.master_user_secret[0].secret_arn]
+    resources = [aws_secretsmanager_secret.dagster_database.arn]
   }
 }
 
@@ -212,13 +242,14 @@ locals {
     { name = "DAGSTER_PG_HOST", value = aws_db_instance.platform.address },
     { name = "DAGSTER_PG_PORT", value = tostring(aws_db_instance.platform.port) },
     { name = "DAGSTER_PG_DB", value = local.database.name },
-    { name = "DAGSTER_PG_USERNAME", value = local.database.username },
+    { name = "DAGSTER_PG_USERNAME", value = local.database.app_username },
     # The image a run task runs (EcsRunLauncher refuses to launch without it for a location in this image).
     { name = "DAGSTER_CURRENT_IMAGE", value = var.dagster_image },
   ]
-  # The service's own credential, by reference: the task definition holds the secret's ARN, never the value.
+  # The database role's password, by reference: the task definition holds the secret's ARN, never the
+  # value, and never the master user's (the run tasks inherit this list).
   dagster_secrets = [
-    { name = "DAGSTER_PG_PASSWORD", valueFrom = "${aws_db_instance.platform.master_user_secret[0].secret_arn}:password::" },
+    { name = "DAGSTER_PG_PASSWORD", valueFrom = "${aws_secretsmanager_secret.dagster_database.arn}:password::" },
   ]
   dagster_container = {
     image                  = var.dagster_image
@@ -274,6 +305,80 @@ resource "aws_ecs_task_definition" "dagster" {
       }
     }),
   ])
+  # The role's secret has its value before a task reads it.
+  depends_on = [aws_secretsmanager_secret_version.dagster_database]
+}
+
+# The one-off bootstrap (database-bootstrap.sql) and the only thing that reads the master user's secret:
+# its own execution role injects that and the role's password into one psql run. Started by the runbook,
+# never by Dagster.
+resource "aws_iam_role" "database_bootstrap_execution" {
+  name               = "perfectory-platform-database-bootstrap-execution"
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "database_bootstrap_execution" {
+  role       = aws_iam_role.database_bootstrap_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+data "aws_iam_policy_document" "database_bootstrap_execution" {
+  statement {
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      aws_db_instance.platform.master_user_secret[0].secret_arn,
+      aws_secretsmanager_secret.dagster_database.arn,
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "database_bootstrap_execution" {
+  name   = "database-passwords"
+  role   = aws_iam_role.database_bootstrap_execution.id
+  policy = data.aws_iam_policy_document.database_bootstrap_execution.json
+}
+
+resource "aws_ecs_task_definition" "database_bootstrap" {
+  family                   = "perfectory-platform-database-bootstrap"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.database_bootstrap_execution.arn
+  runtime_platform {
+    cpu_architecture        = "ARM64"
+    operating_system_family = "LINUX"
+  }
+  container_definitions = jsonencode([{
+    name       = "bootstrap"
+    image      = "postgres:17-alpine@${local.versions.container_images["postgres:17-alpine"]}"
+    essential  = true
+    entryPoint = ["sh", "-c"]
+    command    = ["printf '%s' \"$BOOTSTRAP_SQL\" | psql --no-psqlrc --set app_user=\"$APP_USER\" --set db_name=\"$DB_NAME\" --set app_password=\"$APP_PASSWORD\" --file -"]
+    environment = [
+      { name = "PGHOST", value = aws_db_instance.platform.address },
+      { name = "PGPORT", value = tostring(aws_db_instance.platform.port) },
+      { name = "PGUSER", value = local.database.master_username },
+      { name = "PGDATABASE", value = "postgres" },
+      { name = "PGSSLMODE", value = "require" },
+      { name = "APP_USER", value = local.database.app_username },
+      { name = "DB_NAME", value = local.database.name },
+      { name = "BOOTSTRAP_SQL", value = file("${path.module}/database-bootstrap.sql") },
+    ]
+    secrets = [
+      { name = "PGPASSWORD", valueFrom = "${aws_db_instance.platform.master_user_secret[0].secret_arn}:password::" },
+      { name = "APP_PASSWORD", valueFrom = "${aws_secretsmanager_secret.dagster_database.arn}:password::" },
+    ]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.dagster.name
+        awslogs-region        = local.contract.region
+        awslogs-stream-prefix = "database-bootstrap"
+      }
+    }
+  }])
+  depends_on = [aws_secretsmanager_secret_version.dagster_database]
 }
 
 resource "aws_ecs_service" "dagster" {
@@ -331,4 +436,8 @@ output "dagster_service" {
 
 output "alarm_topic_arn" {
   value = aws_sns_topic.alarms.arn
+}
+
+output "database_bootstrap_task_definition" {
+  value = aws_ecs_task_definition.database_bootstrap.family
 }
