@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-25
+last_reviewed: 2026-11-26
 ---
 
 # AWS 플랫폼 계정의 바탕 — 예산·상태 버킷·망을 노트북에서 적용한다
@@ -77,8 +77,10 @@ Dagster 는 RDS 의 master 사용자로 붙지 않는다. `infra/aws/database-bo
 SQL 은 몇 번을 돌려도 같다. 서비스가 처음 뜨기 전에 한 번 돌린다.
 
 ```bash
-# 1) 데이터베이스, 두 비밀, 부트스트랩의 역할·태스크 정의, 그리고 태스크가 DB 에 닿을 규칙만 먼저
+# 1) 데이터베이스, 두 비밀, 부트스트랩의 역할·정책·태스크 정의, 그리고 태스크가 DB 에 닿을 규칙만 먼저
+#    (태스크 정의는 역할만 가리키므로 역할의 정책 둘은 따로 집는다. 없으면 태스크가 비밀을 못 읽는다)
 tofu apply -input=false -target=aws_ecs_task_definition.database_bootstrap -target=aws_ecs_cluster.platform \
+  -target=aws_iam_role_policy.database_bootstrap_execution -target=aws_iam_role_policy_attachment.database_bootstrap_execution \
   -target=aws_vpc_security_group_egress_rule.tasks_https -target=aws_vpc_security_group_egress_rule.tasks_database \
   -target=aws_vpc_security_group_ingress_rule.database_from_tasks
 # 2) 부트스트랩을 한 번 돌리고, 끝 코드가 0 인지 본다(로그: /perfectory-platform/dagster 의 database-bootstrap/…)
