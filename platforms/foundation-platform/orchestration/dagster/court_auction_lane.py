@@ -2,21 +2,12 @@
 
 Today the load is a systemd unit Dagster starts over SSH; scripts/ops/court-auction-silver-load.sh
 plans what is owed, runs the publisher, and says how it went on an outcome line (run_jobs.py). Here
-the same publisher binary is one multi-asset: Dagster starts it as a subprocess, reads the Pipes
-lines it already prints, and records each table it wrote. What the wrapper decided is the asset's:
-
-- what is owed: `plan-silver-load-objects`, once per (table, source), as the wrapper asked it;
-- nothing owed: no table is materialized and nothing downstream starts (every output is skippable);
-- the load: `load-courtauction-go-kr-silver` over the plans, one process, a commit per table;
-- its result checks: the `report_asset_check` lines the load prints (rows per Bronze object, key
-  uniqueness, required columns), logged as the load reported them;
-- a Bronze object that waited longer than the load's window: loaded, then the run fails, so the gap
-  is seen (the wrapper's rule).
-
-It reads no host path, unit, journal or state directory: the work directory is the run's own
-temporary one, the publisher is the program named by `FOUNDATION_PLATFORM_PUBLISHER_BIN`, and the
-object store, catalog and Bronze ledger are whatever the process environment names. The same
-definition runs the binary in a container once the Pipes client is the container platform's.
+the same publisher binary is one multi-asset (publisher_lane.silver_load, which every Silver lane of
+this shape shares): Dagster starts it as a subprocess, reads the Pipes lines it already prints, and
+records each table it wrote. This module says only what the wrapper asked for: the (table, source)
+plans in its order, the window from the source contract, and `load-courtauction-go-kr-silver` over
+the plans, one process, a commit per table. The same definition runs the binary in a container once
+the Pipes client is the container platform's.
 
 NOT part of the code location's definitions (definitions.py): the tables are observed there, written
 by the job `court_auction_silver`, and an asset key has one definition. `lane_definitions()` is this
@@ -24,21 +15,16 @@ lane's own, for the day the job leaves the host.
 """
 
 import json
-import os
-import pathlib
-import subprocess
-import tempfile
 
-import observe_assets
-import systemd_pipes
+import publisher_lane
 
-job_specs = observe_assets.job_specs
+job_specs = publisher_lane.job_specs
 
 JOB_ID = "court_auction_silver"
-PUBLISHER_ENV = "FOUNDATION_PLATFORM_PUBLISHER_BIN"
+PUBLISHER_ENV = publisher_lane.PUBLISHER_ENV
 CONTRACT = job_specs.PLATFORM_ROOT / "infra" / "lakehouse" / "contracts" / "courtauction-go-kr.contract.json"
 SOURCE_PREFIX = "courtauctiongokr__"
-PLAN_COMMAND = "plan-silver-load-objects"
+PLAN_COMMAND = publisher_lane.PLAN_COMMAND
 LOAD_COMMAND = "load-courtauction-go-kr-silver"
 PLAN_ROOT_ENV = "FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT"
 SUMMARY_PREFIX = "courtauction-go-kr-duckdb-summary-json "
@@ -77,113 +63,18 @@ def window(contract=None):
 
 def output_keys(jobs=None, graph=None):
     """The asset keys of the tables the load writes: the job's outputs in the pipeline graph."""
-    if jobs is None or graph is None:
-        jobs, graph = observe_assets.contracts()
-    spec = next(spec for spec in job_specs.load_specs(jobs, graph) if spec.job_id == JOB_ID)
-    return [observe_assets.asset_key(dataset) for dataset in spec.outputs]
-
-
-def publisher(command, env, log):
-    """Runs the publisher's `command` with `env` over the process environment; returns its lines.
-    Every line that is not a Pipes message is the step's log."""
-    from dagster import Failure
-
-    program = os.environ.get(PUBLISHER_ENV)
-    if not program:
-        raise Failure(f"{PUBLISHER_ENV} names no publisher binary")
-    process = subprocess.Popen([program, command], env={**os.environ, **env}, stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
-    lines = []
-    for line in process.stdout:
-        lines.append(line.rstrip("\n"))
-        if systemd_pipes.pipes_message(line) is None:
-            log.info(line.rstrip("\n"))
-    status = process.wait()
-    if status != 0:
-        raise Failure(f"the publisher's {command} exited {status}", metadata={"last_line": lines[-1] if lines else ""})
-    return lines
-
-
-def owed(work, log, contract=None):
-    """Plans every (table, source) into `work`; returns (objects owed, objects that waited past the window)."""
-    days, most = window(contract)
-    count, late = 0, 0
-    for name, table, source in plans(contract):
-        directory = pathlib.Path(work) / name
-        publisher(PLAN_COMMAND, {
-            "FOUNDATION_PLATFORM_SILVER_LOAD_TABLE": table,
-            "FOUNDATION_PLATFORM_SILVER_LOAD_SOURCE_SLUGS": source,
-            "FOUNDATION_PLATFORM_SILVER_LOAD_WINDOW_DAYS": str(days),
-            "FOUNDATION_PLATFORM_SILVER_LOAD_MAX_OBJECTS": str(most),
-            "FOUNDATION_PLATFORM_SILVER_LOAD_OUTPUT_DIR": str(directory),
-        }, log)
-        plan = json.loads((directory / "plan.json").read_text(encoding="utf-8"))
-        count += len(plan["objects"])
-        late += len((plan.get("selection") or {}).get("late", []))
-    return count, late
-
-
-def reported(lines, keys):
-    """(per-table metadata, check evaluations) of the load's Pipes lines. A report on a table the load
-    does not write is refused, as run_jobs refuses it."""
-    from dagster import AssetCheckEvaluation, AssetKey, Failure
-
-    outputs = {AssetKey(list(key.path)) for key in keys}
-    metadata, evaluations = {}, []
-    for line in lines:
-        message = systemd_pipes.pipes_message(line)
-        if message is None:
-            continue
-        params = message.get("params") or {}
-        if message.get("method") not in ("report_asset_materialization", "report_asset_check"):
-            continue
-        key = AssetKey.from_user_string(params.get("asset_key") or "")
-        if key not in outputs:
-            raise Failure(f"the load reported on {key.to_user_string()}, which it does not write")
-        if message["method"] == "report_asset_materialization":
-            metadata.setdefault(key, {}).update(systemd_pipes.raw_metadata(params))
-        else:
-            evaluations.append(AssetCheckEvaluation(
-                asset_key=key, check_name=params.get("check_name") or "", passed=params.get("passed") is True,
-                metadata=systemd_pipes.raw_metadata(params)))
-    return metadata, evaluations
-
-
-def summary_of(lines):
-    """The load's summary line as an object, or {}."""
-    found = next((line for line in reversed(lines) if line.startswith(SUMMARY_PREFIX)), None)
-    return json.loads(found[len(SUMMARY_PREFIX):]) if found else {}
+    return publisher_lane.output_keys(JOB_ID, jobs, graph)
 
 
 def silver(jobs=None, graph=None, contract=None):
     """The multi-asset of the court auction Silver tables."""
-    from dagster import AssetExecutionContext, AssetSpec, Failure, MaterializeResult, multi_asset
-
-    keys = output_keys(jobs, graph)
-
-    @multi_asset(name=JOB_ID, group_name="court_auction", can_subset=False,
-                 specs=[AssetSpec(key, skippable=True, kinds={"iceberg"}) for key in keys],
-                 description="Loads the court auction Bronze objects no load has recorded into the Silver tables, "
-                             "in the publisher's own process.")
-    def court_auction_silver(context: AssetExecutionContext):
-        with tempfile.TemporaryDirectory(prefix="court-auction-silver-") as work:
-            count, late = owed(work, context.log, contract)
-            if count == 0:
-                context.log.info("nothing is owed: no table is written and nothing downstream starts")
-                return
-            lines = publisher(LOAD_COMMAND, {PLAN_ROOT_ENV: work}, context.log)
-        metadata, evaluations = reported(lines, keys)
-        summary = summary_of(lines)
-        for key in keys:
-            yield MaterializeResult(asset_key=key, metadata={**metadata.get(key, {}), "objects_owed": count})
-        for evaluation in evaluations:
-            context.log_event(evaluation)
-        if late:
-            days, _most = window(contract)
-            raise Failure(f"{late} Bronze object(s) waited more than {days} days unloaded; they are loaded now, "
-                          "and this run fails so the gap is seen", metadata={"late": late, "summary": summary})
-
-    return court_auction_silver
+    return publisher_lane.silver_load({
+        "job_id": JOB_ID, "group": "court_auction", "jobs": jobs, "graph": graph,
+        "description": "Loads the court auction Bronze objects no load has recorded into the Silver tables, "
+                       "in the publisher's own process.",
+        "plans": plans(contract), "window": window(contract), "load_command": LOAD_COMMAND,
+        "plan_root_env": PLAN_ROOT_ENV, "summary_prefix": SUMMARY_PREFIX,
+    })
 
 
 def lane_definitions(jobs=None, graph=None, contract=None):

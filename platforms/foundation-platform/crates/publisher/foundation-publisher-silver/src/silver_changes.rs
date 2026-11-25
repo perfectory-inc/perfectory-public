@@ -77,6 +77,24 @@ pub fn current_rows(
     columns: &[&str],
     staged: &str,
 ) -> anyhow::Result<String> {
+    current_rows_within(stage, contract, head, columns, staged, "TRUE")
+}
+
+/// [`current_rows`] of the versions `filter` holds (a predicate over the table's columns, such as
+/// one partition): a load that replaces a part of the table compares with that part alone.
+///
+/// # Errors
+/// Refuses a table that keeps no versions per key; returns a `DuckDB` failure.
+// `{name}` is a placeholder of the SQL text, not a format argument.
+#[allow(clippy::literal_string_with_formatting_args)]
+pub fn current_rows_within(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    head: Option<i64>,
+    columns: &[&str],
+    staged: &str,
+    filter: &str,
+) -> anyhow::Result<String> {
     let Some(head) = head else {
         return Ok(format!(
             "SELECT {} FROM {staged} WHERE false",
@@ -92,7 +110,7 @@ pub fn current_rows(
             "{source}",
             &with_contract_columns(stage.connection(), contract, &pinned)?,
         )
-        .replace("{filter}", "TRUE"))
+        .replace("{filter}", filter))
 }
 
 /// Builds `out` from `staged`: the rows whose key is new or whose `compared` columns differ from every
@@ -332,6 +350,41 @@ pub fn removal_changes(
     complete: bool,
     load: (&str, &str, i64),
 ) -> anyhow::Result<(u64, u64)> {
+    removal_changes_in(stage, contract, head, (staged, out), complete, "TRUE", load)
+}
+
+/// [`removal_changes`] of a load whose object is the whole of one part of the table.
+///
+/// `within` is a predicate over the table's columns: the staged rows are compared with that part's
+/// current rows alone, and a marker goes to each of its keys the object no longer holds. The 실거래
+/// load's: an export is one dataset's whole month (root ADR-0349 §3).
+///
+/// # Errors
+/// Refuses a table that keeps no versions per key; returns a `DuckDB` failure.
+pub fn removal_changes_within(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    head: Option<i64>,
+    staged: &str,
+    out: &str,
+    within: &str,
+    load: (&str, &str, i64),
+) -> anyhow::Result<(u64, u64)> {
+    removal_changes_in(stage, contract, head, (staged, out), true, within, load)
+}
+
+// `{name}` is a placeholder of the SQL text, not a format argument.
+#[allow(clippy::literal_string_with_formatting_args)]
+fn removal_changes_in(
+    stage: &DuckDbParquetStage,
+    contract: &LakehouseTableContract,
+    head: Option<i64>,
+    tables: (&str, &str),
+    complete: bool,
+    within: &str,
+    load: (&str, &str, i64),
+) -> anyhow::Result<(u64, u64)> {
+    let (staged, out) = tables;
     let (object_key, snapshot_id, ingested_at_epoch_seconds) = load;
     ensure!(
         !object_key.contains('\'') && !snapshot_id.contains('\''),
@@ -362,7 +415,7 @@ pub fn removal_changes(
             &REMOVALS_SQL
                 .replace(
                     "{current}",
-                    &current_rows(stage, contract, head, &columns, staged)?,
+                    &current_rows_within(stage, contract, head, &columns, staged, within)?,
                 )
                 .replace("{staged}", staged)
                 .replace("{out}", out)

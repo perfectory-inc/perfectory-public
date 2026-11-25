@@ -46,7 +46,7 @@ const PLAN_ROOT_ENV: &str = "FOUNDATION_PLATFORM_COURT_AUCTION_PLAN_ROOT";
 
 /// The result checks of one table over the run's objects.
 #[derive(Default)]
-struct TableChecks {
+pub(crate) struct TableChecks {
     objects: u64,
     rows: u64,
     /// Objects whose commit added another count of records than the rows staged for it.
@@ -56,7 +56,7 @@ struct TableChecks {
 }
 
 impl TableChecks {
-    fn add(&mut self, object: &str, checks: ResultChecks, added: u64) {
+    pub(crate) fn add(&mut self, object: &str, checks: ResultChecks, added: u64) {
         self.objects += 1;
         self.rows += checks.rows;
         if added != checks.rows {
@@ -67,7 +67,7 @@ impl TableChecks {
     }
 
     /// The Pipes `report_asset_check` lines of the table's three checks.
-    fn pipes_lines(&self, table: &str) -> Vec<Value> {
+    pub(crate) fn pipes_lines(&self, table: &str) -> Vec<Value> {
         let asset = crate::pipes::asset_key(table);
         let line = |check: &str, passed: bool, detail: Value| {
             crate::pipes::asset_check(

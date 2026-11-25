@@ -421,5 +421,31 @@ class FitsItsUnit(unittest.TestCase):
                          {"9999933021100120003", "9999933099100120003"})
 
 
+class DuckDbLaneParityTest(unittest.TestCase):
+    """While this job loads the table on the data host and the publisher's DuckDB load waits for its
+    move to AWS (rt_molit_silver_stage, root ADR-0616 §7 A4), the publisher's column map is this job's:
+    a header both read differently would give one row two contents, one per engine."""
+
+    COLUMNS_SQL = (Path(__file__).resolve().parents[4] / "crates" / "publisher" / "foundation-publisher-silver"
+                   / "src" / "rt_molit_silver_stage" / "columns.sql")
+
+    def test_the_publishers_column_map_is_this_jobs(self):
+        import re  # noqa: PLC0415
+
+        text = self.COLUMNS_SQL.read_text(encoding="utf-8")
+        values = text[text.index("CREATE OR REPLACE TABLE rt_csv_columns"):text.index(") AS t(header, target, area_kind)")]
+        rows = re.findall(r"\('([^']*)', '([^']*)', (NULL|'[^']*')\)", values)
+        theirs = {header: (target, None if kind == "NULL" else kind.strip("'")) for header, target, kind in rows}
+        ours = {header: (column, None) for header, (column, _reader) in job.COLUMNS.items()}
+        ours.update({header: (column, kind) for header, (column, _kind_column, kind) in job.AREAS.items()})
+        land_header, (land_column, _land_kind_column, land_kind) = job.LAND_CONTRACT_AREA
+        ours[land_header] = (land_column, land_kind)
+        self.assertEqual(len(rows), len(theirs), "a header is mapped twice")
+        self.assertEqual(theirs, ours)
+        known = re.search(r"rt_known_elsewhere AS SELECT \* FROM \(VALUES (.*?)\) AS t", text)
+        self.assertIsNotNone(known)
+        self.assertEqual(set(re.findall(r"'([^']*)'", known.group(1))), set(job.KNOWN_ELSEWHERE))
+
+
 if __name__ == "__main__":
     unittest.main()
