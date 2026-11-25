@@ -436,12 +436,15 @@ impl CourtAuctionSource {
     /// `code_of(item, OBJECT_CODE)` as SQL over `item`: the 물건상세's four legal-dong code fields,
     /// each of the list rows' width and all digits, joined; None otherwise.
     fn object_code_sql(&self) -> anyhow::Result<String> {
-        self.code_sql(&self.contract["collection"]["pnu_assembly"]["legal_dong_code_fields"])
+        self.code_sql(
+            &self.contract["collection"]["pnu_assembly"]["legal_dong_code_fields"],
+            |field| format!("json_extract(item, '$.{field}')"),
+        )
     }
 
     /// The 10-digit legal-dong code of `item`'s `fields` (each of the list rows' width, all digits)
-    /// as SQL, None otherwise (`code_of`).
-    fn code_sql(&self, fields: &Value) -> anyhow::Result<String> {
+    /// as SQL, None otherwise (`code_of`); `read` is the SQL of one field of `item` (a JSON value).
+    fn code_sql(&self, fields: &Value, read: impl Fn(&str) -> String) -> anyhow::Result<String> {
         let fields = fields
             .as_array()
             .context("courtauction-go-kr.contract.json has no legal_dong_code_fields")?;
@@ -457,7 +460,7 @@ impl CourtAuctionSource {
         for (field, width) in fields.iter().zip(widths) {
             let field = plain_name(field.as_str().context("a code field is not text")?)?;
             let width = width.as_u64().context("a code width is not a count")?;
-            let part = format!("onbid_or_blank(json_extract(item, '$.{field}'))");
+            let part = format!("onbid_or_blank({})", read(field));
             // shortcut: Python's isdigit() also takes a few non-decimal digits (superscripts); none
             // is a code field's value in the site's answers.
             checks.push(format!("regexp_full_match({part}, '\\p{{Nd}}{{{width}}}')"));
@@ -594,7 +597,10 @@ impl CourtAuctionSource {
                 sql = sql
                     .replace(
                         "{code_fields}",
-                        &self.code_sql(&from_code["legal_dong_code_fields"])?,
+                        // searches.sql declares the 물건's fields: the code fields are among them.
+                        &self.code_sql(&from_code["legal_dong_code_fields"], |field| {
+                            format!("item.{field}")
+                        })?,
                     )
                     .replace(
                         "{lot_field}",
@@ -802,7 +808,7 @@ fn refuse_above_memory(
         needs <= limit,
         "{}: {} MiB of lines at {per_byte} bytes of memory per byte of text \
          (silver_load.memory_per_text_byte.{}) need {} MiB, above the stage's {} MiB: the run \
-         takes a larger class, or the role reads its lines in a declared shape (root ADR-0616 §3-1)",
+         takes a larger class, or the role's read declares a narrower shape (root ADR-0616 §3-1)",
         object.object_key,
         text >> 20,
         object.role.name(),
@@ -832,9 +838,9 @@ fn read_failure(error: duckdb::Error, object_key: &str, otherwise: &str) -> anyh
 /// `DuckDB` reads the file itself, typed (root ADR-0616 §3-1). A role whose lines are too long to
 /// be held whole (the searches and the 매각공고, [`Role::reads_its_lines`]) reads it in its own SQL,
 /// its body parsed once into only what it reads. Any other role reads it through `lines.sql`
-/// (`ca_parsed`: the envelope and the body parsed once), after the object is refused when its text
-/// would take more than the stage's memory limit at the role's measured memory per byte of text
-/// ([`CourtAuctionSource::memory_per_text_byte`]): a refusal with that reason, never an
+/// (`ca_parsed`: the envelope and the body parsed once). Every role's object is first refused when
+/// its text would take more than the stage's memory limit at the role's measured memory per byte of
+/// text ([`CourtAuctionSource::memory_per_text_byte`]): a refusal with that reason, never an
 /// out-of-memory failure part way.
 ///
 /// [`CourtAuctionSource::values_sql`] must have run on the stage.
@@ -861,8 +867,8 @@ pub fn read_object(
             ))
     };
     let role_sql = fill(&source.role_sql(object.role)?)?;
+    refuse_above_memory(stage, source, object)?;
     if !object.role.reads_its_lines() {
-        refuse_above_memory(stage, source, object)?;
         stage
             .connection()
             .execute_batch(&fill(LINES_SQL)?)
@@ -888,7 +894,7 @@ pub fn read_object(
     if matches!(object.role, Role::ItemSearch | Role::SaleResultSearch) {
         stage
             .connection()
-            .execute_batch(&search_pages_sql(source, object.role, &path)?)
+            .execute_batch(&search_pages_sql(source, object.role)?)
             .with_context(|| format!("DuckDB failed to read the pages of {}", object.object_key))?;
     }
     for (table, columns) in object.role.masked() {
@@ -1096,10 +1102,10 @@ fn search_conditions(
     Ok((conditions.as_slice(), fields))
 }
 
-/// One row per page of the search object at `path` (`ca_search_pages`: its line, condition, rows and
-/// `totalCnt`), read from the file by [`read_object`] (as `searches.sql` reads it: the body parsed
-/// once into the parts a page needs) and read by [`search_complete`].
-fn search_pages_sql(source: &CourtAuctionSource, role: Role, path: &str) -> anyhow::Result<String> {
+/// One row per page of the search object (`ca_search_pages`: its line, condition, rows and
+/// `totalCnt`), built by [`read_object`] from the answers `searches.sql` read from the file once
+/// (`ca_search_answers`, dropped here) and read by [`search_complete`].
+fn search_pages_sql(source: &CourtAuctionSource, role: Role) -> anyhow::Result<String> {
     let search = source.section(role);
     let (_, fields) = search_conditions(source, role)?;
     let window = search["date_window"].as_object().map(|window| {
@@ -1133,26 +1139,14 @@ fn search_pages_sql(source: &CourtAuctionSource, role: Role, path: &str) -> anyh
         .map(|field| format!("coalesce(CAST(json_extract(asked, '$.{field}') AS VARCHAR), 'null')"))
         .collect::<Vec<_>>()
         .join(" || '\u{1f}' || ");
-    // A body is an object when it is JSON whose first character past the blanks is `{` (one parse
-    // less than asking its type); json_transform gives an empty struct for any other JSON.
-    let shape = r#"{"data": {"dlt_srchResult": ["JSON"], "dma_pageInfo": {"totalCnt": "JSON"}}}"#;
     Ok(format!(
         "CREATE OR REPLACE TEMP TABLE ca_search_pages AS \
          SELECT line_number, {key} AS condition, \
                 coalesce(len(b.data.dlt_srchResult), 0) AS rows, \
                 ca_whole(b.data.dma_pageInfo.totalCnt) AS total \
-         FROM (SELECT line_number, {asked} AS asked, text, \
-                      CASE WHEN json_valid(text) THEN json_transform(text, '{shape}') END AS b \
-               FROM (SELECT ordinality AS line_number, request, http_status, \
-                            json_extract_string(body, '$') AS text \
-                     FROM read_json('{path}', format = 'newline_delimited', records = true, \
-                                    maximum_object_size = 33554432, \
-                                    columns = {{request: 'JSON', http_status: 'JSON', body: 'JSON'}}) \
-                          WITH ORDINALITY) \
-               WHERE json_type(http_status) IN ('BIGINT', 'UBIGINT', 'DOUBLE') \
-                 AND TRY_CAST(http_status AS DOUBLE) = 200) \
-         WHERE b IS NOT NULL AND left(ltrim(text, ' ' || chr(9) || chr(10) || chr(13)), 1) = '{{' \
-           AND ({window_ok})"
+         FROM (SELECT line_number, {asked} AS asked, b, object_body FROM ca_search_answers) \
+         WHERE b IS NOT NULL AND object_body AND ({window_ok}); \
+         DROP TABLE ca_search_answers;"
     ))
 }
 
