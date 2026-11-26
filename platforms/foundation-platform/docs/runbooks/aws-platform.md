@@ -80,22 +80,26 @@ rm -f "$TF_DATA_DIR/bootstrap.tfstate" "$TF_DATA_DIR/bootstrap.tfstate.backup"
 
 ## 배포 전 단계 (적용마다, 저절로)
 
-적용이 플랫폼을 새 이미지 digest 로 옮길 때, 서비스보다 먼저 일회성 태스크 셋이 차례로 돈다. 데이터 호스트의 compose 가
-배포마다 돌리는 순서 그대로다(부트스트랩 → 마이그레이션 → 권한·마무리). 앞의 것이 끝 코드 0 으로 끝나야 다음이 시작한다.
-하나라도 0 이 아니면 적용이 거기서 실패하고 서비스는 옛 태스크 정의에 그대로 있다. 사람이 따로 돌리는 단계는 없다.
-다음 걸음(A2 뒤, 코디네이터 2026-11-26): 적용 자체도 사람이 돌리지 않는다. main 의 CI 가 GitHub OIDC 역할(오래 사는 키 없음)로 적용한다.
+서비스가 새 태스크 정의로 옮기기 전에 일회성 태스크 둘이 돈다(루트 ADR-0616 §2-4, `infra/aws/foundation-database.tf`). 각 태스크가 멈추고
+그 모든 컨테이너가 끝 코드 0 이어야 다음으로 간다(`infra/aws/pre-deploy.sh`). 하나라도 아니면 적용이 거기서 실패하고 서비스는 옛 태스크
+정의에 그대로 있다. 사람이 따로 돌리는 단계는 없다. 다음 걸음(A2 뒤, 코디네이터 2026-11-26): 적용 자체도 사람이 돌리지 않는다. main 의
+CI 가 GitHub OIDC 역할(오래 사는 키 없음)로 적용한다.
 
-| 순서 | 태스크 | 무엇 | 누구로 |
-| --- | --- | --- | --- |
-| 1 | `perfectory-platform-database-bootstrap` | `database-bootstrap.sql`(Dagster 의 역할), `foundation-bootstrap.sql`(데이터베이스 `foundation`, 역할 셋, 스키마, PostGIS) | master |
-| 2 | `perfectory-platform-foundation-migrate` | 릴리스 런타임 이미지의 `foundation-migrate`(`migrations/` 전부) | `foundation_migrator` |
-| 3 | `perfectory-platform-database-finalize` | `infra/compose/grant-foundation-runtime.sql`(마이그레이터로), `finalize-foundation.sql`(master 로) | 둘 |
+| 순서 | 태스크(컨테이너) | 무엇 | 누구로 | 언제 도나 |
+| --- | --- | --- | --- | --- |
+| 1 | `perfectory-platform-database-bootstrap` | `database-bootstrap.sql`(Dagster 의 역할), `foundation-bootstrap.sql`(데이터베이스 `foundation`, 역할 셋과 비밀번호, 스키마, PostGIS) | master | 그 태스크 정의(SQL 이 그 안에 있다)나 세 비밀번호의 판이 바뀔 때 |
+| 2 | `perfectory-platform-database-migrate`: `open` → `migrate` → `grants` → `finalize`, 앞 것이 0 으로 끝나야 다음이 시작 | `foundation-migrate-open.sql`(CREATE 를 준다), 런타임 이미지의 `foundation-migrate`(`migrations/` 전부), `infra/compose/grant-foundation-runtime.sql`, `infra/compose/finalize-foundation.sql`(CREATE 를 거두고 역할을 검사) | master, 마이그레이터, 마이그레이터, master | 그 태스크 정의가 바뀔 때. 런타임 이미지가 그 안에 있다 |
 
-- 언제 도나: `terraform_data.pre_deploy` 가 바뀔 때다. 두 이미지 digest, 세 태스크 정의의 개정, 세 비밀번호의 판 중 하나가 바뀌면 바뀐다.
-  `tofu plan` 에 `terraform_data.pre_deploy must be replaced` 로 보인다. 경보 같은 다른 자원만 바꾸는 적용에서는 돌지 않는다.
-- 실패하면: 적용 출력의 `FAIL pre-deploy: <태스크> exited <코드>` 와 태스크 ID 를 본다. 로그는 `/perfectory-platform/dagster` 의
-  `database-bootstrap/…`·`foundation-migrate/…`·`database-finalize/…` 다. 스크립트는 로그를 찍지 않는다(psql 의 오류가 비밀번호를 담을 수 있다).
-  고친 PR 을 병합하고 다시 적용한다. 실패한 단계는 tainted 로 남아 다음 적용이 다시 돌린다.
+- 코드 위치 이미지만 바뀐 적용(되돌리기 포함)에서는 둘 다 돌지 않는다. `tofu plan` 에 `terraform_data.database_bootstrap`·
+  `terraform_data.database_migrate must be replaced` 로 보이는 것이 도는 것이다.
+- 마이그레이션은 앞 릴리스를 깨지 않는다(expand/contract, ADR-0616 §2-5): 지우기·이름 바꾸기·형 바꾸기·NOT NULL 은 그것을 읽던 코드가
+  떠난 뒤의 마이그레이션에서, 그 문장 위의 `-- squawk-ignore <규칙>` 과 이유로. PR 의 lint(`scripts/ci/lint_changed.py`, squawk)가 본다.
+- 기다림: 태스크 하나마다 계약의 `database.one_off_wait_minutes` 까지. 그 뒤에는 적용이 실패하지만 태스크는 계속 돈다. 다음 적용은
+  마이그레이터의 잠금(sqlx)을 기다린다.
+- 실패하면: 적용 출력의 `FAIL pre-deploy: <태스크> (task <ID>, <stopCode>) has containers that did not exit 0` 아래의 컨테이너 이름과 끝 코드를
+  본다(시작하지 못한 컨테이너는 `None`). 로그는 `/perfectory-platform/dagster` 의 `database-bootstrap/…`·`database-migrate/<컨테이너>/…` 다.
+  스크립트는 로그를 찍지 않는다(psql 의 오류가 비밀번호를 담을 수 있다). 고친 PR 을 병합하고 다시 적용한다. 실패한 단계는 tainted 로 남아
+  다음 적용이 다시 돌린다.
 - 비밀번호를 바꿀 때: 그 비밀의 `secret_string_wo_version` 을 하나 올리는 PR 을 병합하고 적용한다. 부트스트랩이 새 비밀번호를 맞춘다.
   Dagster 의 비밀번호라면 같은 적용이 그 뒤에 서비스를 다시 띄운다(서비스의 `triggers`). ECS 는 비밀을 태스크가 뜰 때 넣고, run 태스크는 뜰 때마다 읽는다.
 
@@ -184,8 +188,8 @@ tofu plan -input=false -detailed-exitcode   # 0 이면 코드와 계정이 같�
 - Slack: 채널 묶음을 끊으려면 `infra/aws/chatbot.tf` 를 지우는 PR 을 병합하고 적용한다. 경보는 CloudWatch 에 남는다.
 - Dagster: 코드 위치만 앞 릴리스로 되돌린다. 런타임은 지금 것 그대로 둔다:
   `aws-release-images.py <앞 릴리스 커밋> --runtime-commit <지금 커밋> --out "$TF_DATA_DIR/release.tfvars.json"`, 그다음 위의 plan → apply.
-  마이그레이션은 앞으로만 간다: 앞 릴리스의 migrator 는 자기가 모르는 마이그레이션이 적용된 데이터베이스에서 실패하고, 그러면 배포 전 단계가
-  적용을 멈춘다. 스키마를 되돌리는 것은 데이터 호스트처럼 고치는 새 마이그레이션이다.
+  런타임이 그대로라 마이그레이션 태스크는 돌지 않고, 앞 릴리스의 코드는 새 스키마에서 돈다(expand/contract). 마이그레이션은 앞으로만 간다:
+  스키마를 되돌리는 것은 데이터 호스트처럼 고치는 새 마이그레이션이다.
   서비스를 멈추려면 `desired_count` 를 0 으로 하는 PR 을 병합하고 적용한다.
 - 데이터베이스는 삭제 보호와 `prevent_destroy` 다. 지우는 일은 이 런북이 하지 않는다. 마지막 스냅숏 `perfectory-platform-final` 이 남는다.
 - 상태 버킷은 `prevent_destroy` 다. 스택 전체를 내리는 일은 이 런북이 하지 않는다.

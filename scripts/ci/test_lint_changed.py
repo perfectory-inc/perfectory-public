@@ -35,6 +35,12 @@ class Ratchet(unittest.TestCase):
         self.assertEqual(lint.grown(base, {"shellcheck": {"a.sh": {"SC2312": 2}}, "ruff": {"b.py": {"F401": 1}}}),
                          ["ruff: b.py: F401 0 -> 1"])
 
+    def test_the_change_that_brings_a_tool_in_starts_its_section(self):
+        head = {"squawk": {"m.sql": {"ban-drop-column": 1}}}
+        self.assertEqual(lint.grown({"shellcheck": {}, "ruff": {}}, head), [])
+        self.assertEqual(lint.grown({"shellcheck": {}, "ruff": {}, "squawk": {}}, head),
+                         ["squawk: m.sql: ban-drop-column 0 -> 1"])
+
     def test_a_checked_file_that_improved_must_lower_its_baseline(self):
         allowed = {"a.sh": {"SC2312": 2}, "untouched.sh": {"SC2312": 9}}
         self.assertEqual(lint.stale({"a.sh": {"SC2312": 1}}, allowed, ["a.sh"]), ["a.sh: SC2312 baseline 2, now 1"])
@@ -49,12 +55,15 @@ class Ratchet(unittest.TestCase):
         self.assertEqual(lint.gone(baseline, {"shellcheck": ["kept.sh", "deleted.sh"], "ruff": ["old.py"]}), [])
 
     def test_the_settings_pins_baseline_and_checker_are_whole_tree_inputs(self):
-        for path in (".shellcheckrc", "ruff.toml", "tools/shellcheck.env", "tools/ruff.env",
+        for path in (".shellcheckrc", "ruff.toml", ".squawk.toml", "tools/shellcheck.env", "tools/ruff.env", "tools/squawk.env",
                      "tools/pinned-artifacts.json", "tools/ci/lint-baseline.json", "scripts/ci/lint_changed.py"):
             self.assertIn(path, lint.WHOLE_TREE_INPUTS)
 
-    def test_a_missing_baseline_is_empty_for_both_tools(self):
-        self.assertEqual(lint.load_baseline("{}"), {"shellcheck": {}, "ruff": {}})
+    def test_a_missing_baseline_is_empty_for_every_tool(self):
+        self.assertEqual(lint.load_baseline("{}"), {"shellcheck": {}, "ruff": {}, "squawk": {}})
+
+    def test_squawk_reads_the_foundation_migrations_only(self):
+        self.assertEqual(lint.MIGRATIONS, "platforms/foundation-platform/migrations/")
 
 
 if __name__ == "__main__":

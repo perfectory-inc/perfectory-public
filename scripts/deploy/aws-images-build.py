@@ -11,6 +11,9 @@ of the same commit has pushed its release. AWS runs on Graviton, so:
 - the code location (orchestration/dagster/Dockerfile.aws) is built for linux/arm64 only, because only
   AWS runs it: <commit>-aws-code-location. It carries the arm64 publisher and the arm64 DuckDB extension
   files the contract pins, and before anything is pushed its publisher loads them with no network.
+- the images of the version contract that AWS runs but nobody here builds (aws-platform.contract.json
+  images.mirrors: psql's postgres) are copied by their pinned digest into the release package, all
+  platforms and digests preserved, so ECS pulls them from GHCR by that digest and never from Docker Hub;
 - the runtime image (the compose build of services/foundation-api/Dockerfile, the same entry and build
   arguments as the release's) is built for linux/arm64 too, because AWS runs its foundation-migrate before
   every rollout (root ADR-0616 A1b): <commit>-aws-runtime. Before anything is pushed its migrator starts
@@ -67,6 +70,35 @@ def manifest_image():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+VERSIONS_CONTRACT = ROOT / "tools" / "technology-versions.contract.json"
+# Docker Hub's official images live under library/; the version contract names them without it.
+DOCKER_HUB = "docker.io/library/"
+
+
+def mirror_images(repository: str) -> None:
+    """Every image the contract mirrors, at `repository@<its pinned digest>`: copied once, the whole index
+    byte for byte (so the digest is the contract's), and left alone when the registry already holds it."""
+    images = images_contract()
+    pins = json.loads(VERSIONS_CONTRACT.read_text(encoding="utf-8"))["container_images"]
+    for reference in images["mirrors"]:
+        digest = pins[reference]
+        name, tag = reference.split(":", 1)
+        target = f"{repository}@{digest}"
+        present = subprocess.run(["skopeo", "inspect", "--raw", f"docker://{target}"], cwd=PLATFORM_TREE,
+                                 capture_output=True, check=False)
+        if present.returncode == 0 and "sha256:" + hashlib.sha256(present.stdout).hexdigest() == digest:
+            print(f"aws-images: {reference} is mirrored at {target}", flush=True)
+            continue
+        source = f"{name if '/' in name else DOCKER_HUB + name}@{digest}"
+        mirror_tag = images["mirror_tag"].replace("<repository>", name.replace("/", "-")).replace("<tag>", tag)
+        run("skopeo", "copy", "--quiet", "--retry-times", "3", "--all", "--preserve-digests",
+            f"docker://{source}", f"docker://{repository}:{mirror_tag}")
+        stored = "sha256:" + hashlib.sha256(run("skopeo", "inspect", "--raw", f"docker://{target}", capture=True).encode()).hexdigest()
+        if stored != digest:
+            raise SystemExit(f"FAIL aws-images: the mirror of {reference} is {stored}, not the contract's {digest}")
+        print(f"aws-images: mirrored {reference} to {repository}:{mirror_tag} ({digest})", flush=True)
 
 
 def publish_record(out: Path, repository: str) -> int:
@@ -262,6 +294,7 @@ def main() -> int:
     code_location = f"{repository}:{commit}-aws-code-location"
     run("docker", "buildx", "imagetools", "create", "--tag", code_location,
         f"{repository}@{images['code-location-arm64']['oci_manifest']}")
+    mirror_images(repository)
     runtime_tag = f"{repository}:{commit}-aws-runtime"
     run("docker", "buildx", "imagetools", "create", "--tag", runtime_tag,
         f"{repository}@{images['runtime-arm64']['oci_manifest']}")

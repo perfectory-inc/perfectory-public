@@ -990,5 +990,140 @@
    "SC2034": 1,
    "SC2154": 6
   }
+ },
+ "squawk": {
+  "platforms/foundation-platform/migrations/20260725000002_vector_tile_manifest_source_snapshot.sql": {
+   "adding-not-nullable-field": 1
+  },
+  "platforms/foundation-platform/migrations/20260730000002_release_uniqueness_admits_both_source_kinds.sql": {
+   "ban-drop-constraint": 1
+  },
+  "platforms/foundation-platform/migrations/20260731000001_spatial_projection_load_ledger.sql": {
+   "adding-not-nullable-field": 2,
+   "ban-drop-constraint": 3
+  },
+  "platforms/foundation-platform/migrations/20260731000002_publication_revision_ledger.sql": {
+   "adding-not-nullable-field": 1,
+   "ban-drop-column": 1,
+   "ban-drop-constraint": 3
+  },
+  "platforms/foundation-platform/migrations/20260805000001_publication_unit_key_spelling.sql": {
+   "ban-drop-constraint": 1
+  },
+  "platforms/foundation-platform/migrations/20260810000002_drop_parcel_complex_column.sql": {
+   "ban-drop-column": 1,
+   "ban-drop-constraint": 1,
+   "ban-drop-function": 1,
+   "ban-drop-trigger": 1
+  },
+  "platforms/foundation-platform/migrations/20260810000004_parcel_publication_drops_the_complex_code.sql": {
+   "ban-drop-column": 1,
+   "ban-drop-view": 1
+  },
+  "platforms/foundation-platform/migrations/20260811000001_parcel_publication_source_evidence.sql": {
+   "ban-drop-constraint": 1
+  },
+  "platforms/foundation-platform/migrations/20260812000001_parcel_evidence_sealer_capability.sql": {
+   "ban-drop-trigger": 1
+  },
+  "platforms/foundation-platform/migrations/20260814000001_parcel_mirror_run_publication_scope.sql": {
+   "adding-not-nullable-field": 2
+  },
+  "platforms/foundation-platform/migrations/20260818000001_industrial_complex_gold_pointer_addresses_its_profile.sql": {
+   "adding-required-field": 1
+  },
+  "platforms/foundation-platform/migrations/20260818050655_allow_industrial_complex_without_a_bjdong_code.sql": {
+   "ban-drop-not-null": 1
+  },
+  "platforms/foundation-platform/migrations/20260821163536_anchor_a_publication_to_the_object_that_was_collected.sql": {
+   "ban-drop-constraint": 1,
+   "ban-drop-not-null": 1,
+   "renaming-column": 1
+  },
+  "platforms/foundation-platform/migrations/20260821190721_publish_a_repaired_boundary_as_repaired.sql": {
+   "ban-drop-default": 1
+  },
+  "platforms/foundation-platform/migrations/20260824000001_static_tile_build_object_facts.sql": {
+   "ban-drop-constraint": 1
+  },
+  "platforms/foundation-platform/migrations/20260901000001_a_parcel_may_arrive_without_a_use_or_an_area.sql": {
+   "ban-drop-not-null": 2
+  },
+  "platforms/foundation-platform/migrations/20260903000001_a_building_unit_names_the_register_record_it_came_from.sql": {
+   "adding-required-field": 1
+  },
+  "platforms/foundation-platform/migrations/20260903000002_a_building_names_the_register_record_it_came_from.sql": {
+   "adding-required-field": 1
+  },
+  "platforms/foundation-platform/migrations/20260903000003_a_building_may_arrive_without_its_card_filled.sql": {
+   "ban-drop-not-null": 5
+  },
+  "platforms/foundation-platform/migrations/20260907020000_a_transfer_event_is_named_by_three_sequences.sql": {
+   "adding-required-field": 1,
+   "ban-drop-constraint": 1
+  },
+  "platforms/foundation-platform/migrations/20260907050000_a_land_right_belongs_to_a_unit.sql": {
+   "adding-not-nullable-field": 4,
+   "ban-drop-constraint": 1
+  },
+  "platforms/foundation-platform/migrations/20260911010000_unit_official_price_reference_dates.sql": {
+   "renaming-object": 1,
+   "renaming-table": 1
+  },
+  "platforms/foundation-platform/migrations/20260925105649_drop_building_unit_name_mirror.sql": {
+   "ban-drop-column": 1
+  },
+  "platforms/foundation-platform/migrations/20260926152146_retire_r2_duplicated_serving_projections.sql": {
+   "ban-drop-table": 1
+  },
+  "platforms/foundation-platform/migrations/20260926171157_retire_parcel_detail_serving_projections.sql": {
+   "ban-drop-table": 6
+  },
+  "platforms/foundation-platform/migrations/20260927144826_static_release_readdress.sql": {
+   "ban-drop-constraint": 3
+  },
+  "platforms/foundation-platform/migrations/20260928120000_lakehouse_bake.sql": {
+   "ban-drop-constraint": 4
+  },
+  "platforms/foundation-platform/migrations/20261014021000_drop_the_catalog_parcel_building_and_unit_copies.sql": {
+   "ban-drop-constraint": 10,
+   "ban-drop-function": 2,
+   "ban-drop-table": 3,
+   "ban-drop-view": 3
+  },
+  "platforms/foundation-platform/migrations/20261015090000_an_industrial_complex_has_one_id.sql": {
+   "adding-not-nullable-field": 1
+  },
+  "platforms/foundation-platform/migrations/20261016090000_the_lakehouse_complex_id_column_is_dropped.sql": {
+   "ban-drop-column": 1,
+   "ban-drop-constraint": 2
+  },
+  "platforms/foundation-platform/migrations/20261016120000_steward_review_items_have_a_kind.sql": {
+   "ban-drop-constraint": 6
+  },
+  "platforms/foundation-platform/migrations/20261016170000_industrial_complex_edits_enter_the_ledger.sql": {
+   "ban-drop-constraint": 1
+  },
+  "platforms/foundation-platform/migrations/20261020090000_an_operator_may_set_a_jobs_run_window.sql": {
+   "ban-drop-constraint": 2
+  },
+  "platforms/foundation-platform/migrations/20261104090000_a_tile_unit_may_be_born_from_its_first_lakehouse_bake.sql": {
+   "ban-drop-constraint": 2
+  },
+  "platforms/foundation-platform/migrations/20261104120000_an_operator_may_ask_to_promote_a_cadastral_edition.sql": {
+   "ban-drop-constraint": 2
+  },
+  "platforms/foundation-platform/migrations/20261107090000_an_operator_approves_a_cut_over_and_a_full_bake_in_the_console.sql": {
+   "ban-drop-constraint": 2
+  },
+  "platforms/foundation-platform/migrations/20261118120000_a_place_reference_is_a_third_steward_item_kind.sql": {
+   "ban-drop-constraint": 7
+  },
+  "platforms/foundation-platform/migrations/20261119054701_the_audit_chain_is_witnessed_by_its_digest_not_chained_row_by_row.sql": {
+   "ban-alter-identity": 1,
+   "ban-drop-column": 2,
+   "ban-drop-function": 4,
+   "ban-drop-table": 1
+  }
  }
 }

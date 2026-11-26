@@ -97,9 +97,21 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
    `<commit>-aws-images` 로 올린다(ADR-0620). 적용의 입력은 커밋 하나다: `scripts/deploy/aws-release-images.py` 가 그 기록과 기록의 모든
    digest 를 계약(`images`)의 저장소·워크플로·ref 와 그 커밋(`gh attestation verify --source-digest`)에 대해 확인한 뒤에만 digest 를 적고,
    하나라도 아니면 멈춘다. 스택은 계약의 저장소 밖 이미지를 거부한다. 배포는 태스크 정의의 새 개정과 서비스 갱신, 코드 위치 다시 읽기다.
-   스키마 마이그레이션은 그 전에 도는 태스크 하나다.
-5. **작업을 붙잡기.** 마이그레이션이 건드리는 자산의 자동화를 멈추고(센서·예약) 줄에 있는 그 작업의 run 을 끝낸다. 호스트 관문은 없다.
-   "이 자산들만"을 Dagster 가 한 번에 해 주는 기능은 없으므로 이 호출 묶음이 우리 것으로 남는다(§9).
+   스키마는 그 전에 도는 일회성 태스크 둘이 바꾼다(`infra/aws/foundation-database.tf`). 부트스트랩(master)은 역할·비밀번호·데이터베이스를
+   만들고, 제 정의나 비밀번호의 판이 바뀔 때만 돈다. 마이그레이션 태스크는 한 태스크의 컨테이너가 차례로 돈다: open(master 가
+   마이그레이터에게 CREATE 를 준다) → migrate(런타임 이미지의 `foundation-migrate`) → grants(마이그레이터) → finalize(master 가 CREATE 를
+   거둔다). 앞 것이 0 으로 끝나야 다음이 시작하고(ECS `dependsOn` SUCCESS, 시작 시한 없음), 제 정의가 바뀔 때 돈다(런타임 이미지가 그
+   안에 있다). 코드 위치 이미지만 바뀐 배포와 되돌리기는 어느 것도 돌리지 않는다. 적용은 태스크가 멈추고 모든 컨테이너가 0 으로
+   끝나야 서비스를 옮긴다(`infra/aws/pre-deploy.sh`).
+5. **마이그레이션은 앞 릴리스를 깨지 않는다(expand/contract).** 마이그레이션은 옛 서비스와 옛 run 이 도는 동안 적용되고(4), 되돌리기는
+   코드만 되돌리고 스키마는 그대로 둔다. 그래서 마이그레이션은 바로 앞 릴리스의 코드가 그대로 도는 것만 한다: 표·칸·색인을 더한다
+   (새 칸은 NULL 이 되거나 기본값을 갖는다). 지우기·이름 바꾸기·형 바꾸기·NOT NULL 걸기·트리거 지우기는 그것을 읽고 쓰는 코드가 모두
+   떠난 뒤의 릴리스에서 따로 한다(contract 단계). 검사는 squawk 다: `scripts/ci/lint_changed.py` 가 변경이 더한 foundation 마이그레이션을
+   `.squawk.toml` 의 규칙(앞 릴리스를 깨는 것; 잠금·문체 규칙은 뺀다)으로 읽고, 규칙 전의 마이그레이션은 줄기만 하는 기준선에 둔다.
+   contract 단계의 문장은 그 위에 `-- squawk-ignore <규칙>` 과 이유(그것을 읽던 코드가 떠난 릴리스)를 적는다. 그래서 마이그레이션 동안
+   작업을 붙잡는 장치는 두지 않는다. GitLab 의 배포 뒤 마이그레이션(post-deployment migration), Rails `strong_migrations` 의
+   `safety_assured` 와 같은 모양이다(이 둘은 기억으로 적었다). 사고: 2026-10-14 #465 의 지우는 마이그레이션이 배포 중에 실패해 API 가
+   약 30 분 멈췄다.
 6. **Spot.** 다시 돌려도 되는 작업은 `ecs/run_task_kwargs` 로 Fargate Spot 을 쓴다. 중단은 태스크의 죽음이다(7).
 7. **태스크가 죽으면.** run 태스크가 일을 하므로, Spot 중단이나 메모리 초과는 재시도 정책을 쥔 프로세스를 죽인다. 살리는 것은 Dagster 의
    run monitoring(실행기가 태스크의 건강을 묻는다: `launcher.py` `check_run_worker_health`)과 **죽은 run 에 한한** run 재시도다
@@ -353,7 +365,7 @@ ai-server 에서 지금 꺼도 되는 것(서빙 최신이 목표가 아니므�
 | 명령은 제가 읽는 비밀만 받는다 | §2-8 |
 | 꺼진 작업은 아무것도 남기지 않는다 | 정의에 없으면 자산·예약·검사가 없다. 알릴 유닛도 없다 |
 | 생산자 없는 레인은 서빙되지 않는다 | 서빙 자산은 제 생산 자산이 있을 때만 정의된다(공장이 거부한다). 신선도는 자산 검사다 |
-| 배포가 작업을 붙잡고 비우고 다시 시작한다 | §2-5. 빚진 run 의 장부는 없다 |
+| 배포가 작업을 붙잡고 비우고 다시 시작한다 | 붙잡지 않는다: 마이그레이션이 앞 릴리스를 깨지 않는다(§2-5). 빚진 run 의 장부는 없다 |
 | 작업마다 메모리·시간 한도 | 크기 등급(§2-9). 시간은 작업마다 두지 않는다: 원천의 멈춤 규칙과 플랫폼의 run 상한 하나([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §3) |
 
 **기준 레인(W71c 의 경매 레인).** 이 표의 모양을 처음 따르는 레인이다: Bronze 는 원천 슬러그마다 자산, 밤마다의 시간 파티션, 수집기는 `@multi_asset` 하나;
@@ -366,7 +378,6 @@ Silver 28표는 `@multi_asset` 하나; Gold 는 자산 하나. 수집은 [ADR-06
 | 작업 정의와 공장 | 접착제 |
 | IaC(VPC·ECS·RDS·IAM) | Dagster 는 자기가 놓일 곳을 만들지 않는다 |
 | 서명된 digest 만 올리는 릴리스 빌드 | Dagster·ECS 는 이미지를 검증하지 않는다 |
-| 마이그레이션 동안 작업을 붙잡는 호출 묶음 | "이 자산들만 멈춤"이 없다 |
 | 발행기가 Pipes 메시지를 내는 코드 | 프로토콜은 JSON 줄이다. 유지되는 Rust 클라이언트가 있으면 그것을 쓴다(**확인 필요**) |
 | `code_version` 을 digest 에서 내는 한 줄 | `code_version` 은 값을 받을 뿐이다 |
 

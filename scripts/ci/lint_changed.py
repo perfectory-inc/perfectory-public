@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""ShellCheck and ruff over the shell and Python files a change touches, against a baseline that
-only shrinks.
+"""ShellCheck, ruff and squawk over the shell files, Python files and foundation migrations a change
+touches, against a baseline that only shrinks.
 
   lint_changed.py check       the files this change touches (a pull request or the merge queue:
                               CHANGE_SCOPE_BASE...CHANGE_SCOPE_HEAD), or every tracked file
@@ -18,7 +18,15 @@ in prose, and review missed it more than once (2026-10-29: a photo check reporte
 output). ShellCheck's SC2312 (optional check `check-extra-masked-returns`, enabled in .shellcheckrc)
 and ruff's PLW1510 (`subprocess.run` without `check`) are that rule as a tool.
 
-The tools are checksum-pinned (tools/shellcheck.env, tools/ruff.env) and fetched by
+squawk holds a new foundation migration to expand/contract (root ADR-0616 §2-5, .squawk.toml): the rollout
+migrates while the previous release still runs and a rollback moves only the code back, so a migration that
+drops, renames, retypes or newly requires something breaks the release that is running. The incident:
+2026-10-14 #465 merged a drop migration; the deploy's migrate step failed after the API container was
+recreated and the API stayed down about 30 minutes. A contract step that may drop says so on the statement:
+`-- squawk-ignore <rule>` with the release whose code no longer reads it. Migrations are never edited after
+they merge, so a migration a change touches is a new one; the baseline holds the ones from before the rule.
+
+The tools are checksum-pinned (tools/shellcheck.env, tools/ruff.env, tools/squawk.env) and fetched by
 scripts/ci/fetch_pinned.py. ShellCheck publishes no per-architecture Windows asset, so on Windows
 shell files are skipped with a notice unless --shellcheck names an executable; CI (Linux) judges.
 """
@@ -41,11 +49,14 @@ BASELINE = ROOT / "tools" / "ci" / "lint-baseline.json"
 FETCHER = ROOT / "scripts" / "ci" / "fetch_pinned.py"
 SHELL_SUFFIXES = (".sh",)
 PYTHON_SUFFIXES = (".py",)
-TOOLS = ("shellcheck", "ruff")
+# The migrations the expand/contract rule covers: the foundation database's (the data host and AWS).
+MIGRATIONS = "platforms/foundation-platform/migrations/"
+TOOLS = ("shellcheck", "ruff", "squawk")
 # A change to any of these can change the verdict on a file the change does not touch, so it
 # checks every file: the settings, the pins, the baseline and this checker.
 WHOLE_TREE_INPUTS = frozenset({
-    ".shellcheckrc", "ruff.toml", "tools/shellcheck.env", "tools/ruff.env", "tools/pinned-artifacts.json",
+    ".shellcheckrc", "ruff.toml", ".squawk.toml", "tools/shellcheck.env", "tools/ruff.env", "tools/squawk.env",
+    "tools/pinned-artifacts.json",
     "tools/ci/lint-baseline.json", "scripts/ci/lint_changed.py", "scripts/ci/fetch_pinned.py",
 })
 # ShellCheck takes its files as arguments; a batch stays far under any command-line limit.
@@ -87,7 +98,10 @@ def pinned(tool: str, directory: Path) -> Path | None:
         raise SystemExit(f"FAIL lint: fetching {tool}: {(fetched.stderr or fetched.stdout).strip()}")
     names = (tool, f"{tool}.exe")
     target = directory / (names[1] if os.name == "nt" else names[0])
-    if zipfile.is_zipfile(archive):
+    if tool == "squawk":
+        # Published as a bare executable, not an archive.
+        target.write_bytes(archive.read_bytes())
+    elif zipfile.is_zipfile(archive):
         with zipfile.ZipFile(archive) as bundle:
             member = next(name for name in bundle.namelist() if Path(name).name in names)
             target.write_bytes(bundle.read(member))
@@ -138,6 +152,19 @@ def run_ruff(executable: Path, files: list[str]) -> dict[str, dict[str, int]]:
     return count(found)
 
 
+def run_squawk(executable: Path, files: list[str]) -> dict[str, dict[str, int]]:
+    found: list[tuple[str, str]] = []
+    for start in range(0, len(files), BATCH):
+        batch = files[start:start + BATCH]
+        # Exit 1 means "findings"; anything else is squawk itself failing.
+        result = subprocess.run([str(executable), "--config", ".squawk.toml", "--reporter", "json", *batch], cwd=ROOT,
+                                capture_output=True, text=True, encoding="utf-8", check=False)
+        if result.returncode not in (0, 1):
+            raise SystemExit(f"FAIL lint: squawk exited {result.returncode}: {result.stderr.strip()}")
+        found += [(item["file"].replace("\\", "/"), item["rule_name"]) for item in json.loads(result.stdout or "[]")]
+    return count(found)
+
+
 def over(found: dict[str, dict[str, int]], allowed: dict[str, dict[str, int]]) -> list[str]:
     """Every (file, rule) with more findings than the baseline allows that file."""
     return [f"{path}: {code} x{number} (baseline {allowed.get(path, {}).get(code, 0)})"
@@ -145,11 +172,13 @@ def over(found: dict[str, dict[str, int]], allowed: dict[str, dict[str, int]]) -
             if number > allowed.get(path, {}).get(code, 0)]
 
 
-def grown(base: Findings, head: Findings) -> list[str]:
-    """Every baseline entry that is new or larger than at the change's base."""
+def grown(base: dict, head: Findings) -> list[str]:
+    """Every baseline entry that is new or larger than at the change's base. A tool the base's baseline does
+    not have at all is the change that brings that tool in: its first section is the starting point."""
     return [f"{tool}: {path}: {code} {before} -> {number}"
-            for tool in TOOLS for path, codes in head.get(tool, {}).items() for code, number in codes.items()
-            if number > (before := base.get(tool, {}).get(path, {}).get(code, 0))]
+            for tool in TOOLS if base.get(tool) is not None
+            for path, codes in head.get(tool, {}).items() for code, number in codes.items()
+            if number > (before := base[tool].get(path, {}).get(code, 0))]
 
 
 def stale(found: dict[str, dict[str, int]], allowed: dict[str, dict[str, int]], checked: list[str]) -> list[str]:
@@ -166,7 +195,7 @@ def load_baseline(text: str | None = None) -> Findings:
     return {tool: data.get(tool, {}) for tool in TOOLS}
 
 
-def base_baseline() -> Findings | None:
+def base_baseline() -> dict | None:
     """The baseline at the change's base; None when there is no base, or the base has no baseline
     (the change that introduces it). A base that cannot be read is an error, never "no baseline"."""
     base = os.environ.get("CHANGE_SCOPE_BASE", "")
@@ -179,12 +208,13 @@ def base_baseline() -> Findings | None:
         raise SystemExit(f"FAIL lint: cannot read the base {base}: {listed.stderr.strip()}")
     if not listed.stdout.strip():
         return None
-    return load_baseline(git("show", f"{base}:{path}"))
+    data = json.loads(git("show", f"{base}:{path}"))
+    return {tool: data.get(tool) for tool in TOOLS}
 
 
 def gone(baseline: Findings, existing: dict[str, list[str]]) -> list[str]:
     """Baseline entries for files that are no longer tracked: an allowance nothing can use up."""
-    return [f"{tool}: {path}" for tool in TOOLS for path in baseline[tool] if path not in set(existing[tool])]
+    return [f"{tool}: {path}" for tool in TOOLS for path in baseline.get(tool, {}) if path not in set(existing.get(tool, []))]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -192,16 +222,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=("check", "baseline"))
     parser.add_argument("--shellcheck", type=Path, help="use this executable instead of the pinned download")
     parser.add_argument("--ruff", type=Path, help="use this executable instead of the pinned download")
+    parser.add_argument("--squawk", type=Path, help="use this executable instead of the pinned download")
     arguments = parser.parse_args(argv)
     changed = changed_paths() if arguments.command == "check" else None
-    files = {"shellcheck": tracked(SHELL_SUFFIXES), "ruff": tracked(PYTHON_SUFFIXES)}
+    files = {"shellcheck": tracked(SHELL_SUFFIXES), "ruff": tracked(PYTHON_SUFFIXES),
+             "squawk": [path for path in tracked((".sql",)) if path.startswith(MIGRATIONS)]}
     every = {tool: list(paths) for tool, paths in files.items()}
     if changed is not None and changed & WHOLE_TREE_INPUTS:
         changed = None
     if changed is not None:
         files = {tool: [path for path in paths if path in changed] for tool, paths in files.items()}
-    runners = {"shellcheck": run_shellcheck, "ruff": run_ruff}
-    given = {"shellcheck": arguments.shellcheck, "ruff": arguments.ruff}
+    runners = {"shellcheck": run_shellcheck, "ruff": run_ruff, "squawk": run_squawk}
+    given = {"shellcheck": arguments.shellcheck, "ruff": arguments.ruff, "squawk": arguments.squawk}
     found: Findings = {}
     with tempfile.TemporaryDirectory(prefix="lint-") as temporary:
         for tool in TOOLS:
@@ -238,11 +270,13 @@ def main(argv: list[str] | None = None) -> int:
     for line in removed:
         print(f"FAIL lint: the baseline names a file that is gone; remove the entry: {line}", file=sys.stderr)
     if problems or shrink or growth or removed:
-        print("FAIL lint: fix the finding, or silence one line with its reason (`# shellcheck disable=SCnnnn` / `# noqa: CODE`). "
+        print("FAIL lint: fix the finding, or silence one line with its reason (`# shellcheck disable=SCnnnn` / `# noqa: CODE` / "
+              "`-- squawk-ignore <rule>` on a migration's contract step, root ADR-0616 §2-5). "
               "After fixing, `python3 scripts/ci/lint_changed.py baseline` lowers the baseline.", file=sys.stderr)
         return 1
     scope = "the files this change touches" if changed is not None else "every tracked file"
-    print(f"OK lint: {len(files['shellcheck'])} shell and {len(files['ruff'])} Python file(s), {scope}")
+    print(f"OK lint: {len(files['shellcheck'])} shell, {len(files['ruff'])} Python and {len(files['squawk'])} migration "
+          f"file(s), {scope}")
     return 0
 
 

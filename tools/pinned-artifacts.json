@@ -172,6 +172,16 @@
       "target": {"linux": "unknown-linux-gnu", "darwin": "apple-darwin", "windows": "pc-windows-msvc"},
       "extension": {"linux": "tar.gz", "darwin": "tar.gz", "windows": "zip"},
       "url": "https://github.com/astral-sh/ruff/releases/download/{version}/ruff-{arch}-{target}.{extension}"
+    },
+    "squawk": {
+      "ci": ["linux"],
+      "pins": "tools/squawk.env",
+      "version_variable": "SQUAWK_VERSION",
+      "sha256_variable": "SQUAWK_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux", "darwin": "darwin"},
+      "arch": {"x86_64": "x64", "aarch64": "arm64"},
+      "extension": {"linux": "", "darwin": ""},
+      "url": "https://github.com/sbdchd/squawk/releases/download/v{version}/squawk-{os}-{arch}{extension}"
     }
   },
   "contracts": [

@@ -146,7 +146,7 @@ data "aws_iam_policy_document" "ecs_tasks_assume" {
 }
 
 # What ECS itself needs to start the task: write its logs and read the role's password it injects (only
-# the role's: orchestration/tests/test_aws_dagster_secrets.py holds every block but the bootstrap's to that).
+# the role's: orchestration/tests/test_aws_dagster_secrets.py holds every block but the one-off tasks' to that).
 resource "aws_iam_role" "dagster_execution" {
   name               = "perfectory-platform-dagster-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
@@ -362,88 +362,6 @@ resource "aws_ecs_task_definition" "dagster" {
   depends_on = [aws_secretsmanager_secret_version.dagster_database]
 }
 
-# The one-off bootstrap (database-bootstrap.sql, then foundation-bootstrap.sql) and, with finalize, the only
-# thing that reads the master user's secret: its own execution role injects that and the roles' passwords
-# into psql. Started by the rollout's pre-deploy step (foundation-database.tf), never by Dagster.
-resource "aws_iam_role" "database_bootstrap_execution" {
-  name               = "perfectory-platform-database-bootstrap-execution"
-  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
-}
-
-resource "aws_iam_role_policy_attachment" "database_bootstrap_execution" {
-  role       = aws_iam_role.database_bootstrap_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-data "aws_iam_policy_document" "database_bootstrap_execution" {
-  statement {
-    actions = ["secretsmanager:GetSecretValue"]
-    resources = [
-      aws_db_instance.platform.master_user_secret[0].secret_arn,
-      aws_secretsmanager_secret.dagster_database.arn,
-      aws_secretsmanager_secret.foundation_migrator.arn,
-      aws_secretsmanager_secret.foundation_runtime.arn,
-    ]
-  }
-}
-
-resource "aws_iam_role_policy" "database_bootstrap_execution" {
-  name   = "database-passwords"
-  role   = aws_iam_role.database_bootstrap_execution.id
-  policy = data.aws_iam_policy_document.database_bootstrap_execution.json
-}
-
-resource "aws_ecs_task_definition" "database_bootstrap" {
-  family                   = "perfectory-platform-database-bootstrap"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = 256
-  memory                   = 512
-  execution_role_arn       = aws_iam_role.database_bootstrap_execution.arn
-  runtime_platform {
-    cpu_architecture        = "ARM64"
-    operating_system_family = "LINUX"
-  }
-  container_definitions = jsonencode([{
-    name       = "bootstrap"
-    image      = "postgres:17-alpine@${local.versions.container_images["postgres:17-alpine"]}"
-    essential  = true
-    entryPoint = ["sh", "-c"]
-    command    = ["printf '%s' \"$BOOTSTRAP_SQL\" | psql --no-psqlrc --set app_user=\"$APP_USER\" --set db_name=\"$DB_NAME\" --set app_password=\"$APP_PASSWORD\" --file - && printf '%s' \"$FOUNDATION_BOOTSTRAP_SQL\" | psql --no-psqlrc --set db_name=\"$FOUNDATION_DB\" --set migrator_password=\"$MIGRATOR_PASSWORD\" --set runtime_password=\"$RUNTIME_PASSWORD\" --file -"]
-    environment = [
-      { name = "PGHOST", value = aws_db_instance.platform.address },
-      { name = "PGPORT", value = tostring(aws_db_instance.platform.port) },
-      { name = "PGUSER", value = local.database.master_username },
-      { name = "PGDATABASE", value = "postgres" },
-      { name = "PGSSLMODE", value = "require" },
-      { name = "APP_USER", value = local.database.app_username },
-      { name = "DB_NAME", value = local.database.name },
-      { name = "BOOTSTRAP_SQL", value = file("${path.module}/database-bootstrap.sql") },
-      { name = "FOUNDATION_DB", value = local.database.foundation.name },
-      { name = "FOUNDATION_BOOTSTRAP_SQL", value = file("${path.module}/foundation-bootstrap.sql") },
-    ]
-    secrets = [
-      { name = "PGPASSWORD", valueFrom = "${aws_db_instance.platform.master_user_secret[0].secret_arn}:password::" },
-      { name = "APP_PASSWORD", valueFrom = "${aws_secretsmanager_secret.dagster_database.arn}:password::" },
-      { name = "MIGRATOR_PASSWORD", valueFrom = "${aws_secretsmanager_secret.foundation_migrator.arn}:password::" },
-      { name = "RUNTIME_PASSWORD", valueFrom = "${aws_secretsmanager_secret.foundation_runtime.arn}:password::" },
-    ]
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        awslogs-group         = aws_cloudwatch_log_group.dagster.name
-        awslogs-region        = local.contract.region
-        awslogs-stream-prefix = "database-bootstrap"
-      }
-    }
-  }])
-  depends_on = [
-    aws_secretsmanager_secret_version.dagster_database,
-    aws_secretsmanager_secret_version.foundation_migrator,
-    aws_secretsmanager_secret_version.foundation_runtime,
-  ]
-}
-
 resource "aws_ecs_service" "dagster" {
   name                   = local.dagster.service
   cluster                = aws_ecs_cluster.platform.id
@@ -474,9 +392,9 @@ resource "aws_ecs_service" "dagster" {
   triggers = {
     database_password = aws_secretsmanager_secret_version.dagster_database.secret_string_wo_version
   }
-  # The rollout migrates first: the service moves to a new task definition only after the pre-deploy
-  # chain (bootstrap, migrate, grants and finalize) exited 0 (foundation-database.tf).
-  depends_on = [terraform_data.pre_deploy]
+  # The rollout migrates first: the service moves to a new task definition only after the bootstrap and the
+  # migrate task exited 0 (foundation-database.tf).
+  depends_on = [terraform_data.database_migrate]
 }
 
 resource "aws_sns_topic" "alarms" {
@@ -530,8 +448,4 @@ output "dagster_service" {
 
 output "alarm_topic_arn" {
   value = aws_sns_topic.alarms.arn
-}
-
-output "database_bootstrap_task_definition" {
-  value = aws_ecs_task_definition.database_bootstrap.family
 }

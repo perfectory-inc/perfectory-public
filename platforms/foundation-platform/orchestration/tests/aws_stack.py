@@ -146,3 +146,16 @@ def naming(prefix: str) -> list[str]:
     return [address for address, value in blocks()
             if any(reference == prefix or reference.startswith(prefix + ".") or reference.startswith(prefix + "[")
                    for reference in references(value))]
+
+
+def reaching(prefix: str) -> set[str]:
+    """Every address that names `prefix` itself or through locals that do (a local that names it, a block
+    that names that local, and so on): what can carry the value, however many locals it passes through."""
+    found, frontier = set(), [prefix]
+    while frontier:
+        for address in naming(frontier.pop()):
+            if address not in found:
+                found.add(address)
+                if address.startswith("local."):
+                    frontier.append(address)
+    return found

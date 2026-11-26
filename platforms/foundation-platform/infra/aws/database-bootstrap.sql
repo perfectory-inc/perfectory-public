@@ -1,9 +1,10 @@
 -- The Dagster database's own role (root ADR-0616 A1, least privilege): the Dagster service and every
 -- run task connect as it, never as the RDS master user. Run by the bootstrap task as the master user
--- (infra/aws/dagster.tf, docs/runbooks/aws-platform.md), once after the first apply and again after the
--- role's password changes. Idempotent. psql variables: app_user, db_name, app_password (from the role's
--- secret; never written anywhere else).
+-- (infra/aws/foundation-database.tf, docs/runbooks/aws-platform.md) when its definition or a password's
+-- version changes. Idempotent. psql variables: app_user, db_name; the password is the environment's
+-- APP_PASSWORD (the role's secret, injected by ECS), read with \getenv so it is on no command line.
 \set ON_ERROR_STOP on
+\getenv app_password APP_PASSWORD
 
 SELECT format('CREATE ROLE %I LOGIN', :'app_user')
 WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'app_user') \gexec
