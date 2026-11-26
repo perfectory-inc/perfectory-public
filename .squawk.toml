@@ -1,0 +1,35 @@
+# squawk (tools/squawk.env, run by scripts/ci/lint_changed.py over the foundation migrations a change adds):
+# the rules that keep a migration from breaking the release before it (expand/contract, root ADR-0616 §2-5).
+# The rollout migrates while the previous release still runs, and a rollback moves the code back over the
+# new schema, so a migration only adds; a drop, a rename, a type change or a new NOT NULL ships in its own
+# later migration once no running code reads it, with `-- squawk-ignore <rule>` and that reason above it.
+#
+# Excluded: the rules about locks and style, which say nothing about the previous release (each migration
+# runs under sqlx in one transaction, before the service moves).
+pg_version = "17.0"
+assume_in_transaction = true
+excluded_rules = [
+    "adding-field-with-default",
+    "adding-foreign-key-constraint",
+    "adding-serial-primary-key-field",
+    "ban-char-field",
+    "ban-concurrent-index-creation-in-transaction",
+    "constraint-missing-not-valid",
+    "disallowed-unique-constraint",
+    "prefer-bigint-over-int",
+    "prefer-bigint-over-smallint",
+    "prefer-identity",
+    "prefer-robust-stmts",
+    "prefer-text-field",
+    "prefer-timestamp-tz",
+    "require-concurrent-index-creation",
+    "require-concurrent-index-deletion",
+    "require-lock-timeout",
+    "require-statement-timeout",
+    "require-timeout-settings",
+    "transaction-nesting",
+]
+# Off by default, and it breaks the previous release: append-only guards and capability checks are triggers.
+included_rules = [
+    "ban-drop-trigger",
+]

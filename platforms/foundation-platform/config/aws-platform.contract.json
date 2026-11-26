@@ -14,7 +14,9 @@
     "signer_workflow": ".github/workflows/foundation-release-build.yml",
     "source_ref": "refs/heads/main",
     "record_tag": "<commit>-aws-images",
-    "reason": "Where the images AWS runs come from (root ADR-0619 §7, ADR-0620, ADR-0616 §2-4): the release package on GHCR, by digest. The release workflow's aws-images job writes one record per commit (aws-images.json: every image's digest), attests it with the images and publishes it under record_tag. An apply takes one commit: scripts/deploy/aws-release-images.py reads its record and verifies the record and every image it names against this repository, this workflow, this ref and that commit (gh attestation verify) before it writes a digest; infra/aws refuses an image outside this repository."
+    "mirrors": ["postgres:17-alpine"],
+    "mirror_tag": "mirror-<repository>-<tag>",
+    "reason": "Where the images AWS runs come from (root ADR-0619 §7, ADR-0620, ADR-0616 §2-4): the release package on GHCR, by digest. The release workflow's aws-images job writes one record per commit (aws-images.json: every image's digest), attests it with the images and publishes it under record_tag. An apply takes one commit: scripts/deploy/aws-release-images.py reads its record and verifies the record and every image it names against this repository, this workflow, this ref and that commit (gh attestation verify) before it writes a digest; infra/aws refuses an image outside this repository. mirrors: images of the version contract (tools/technology-versions.contract.json container_images) that AWS runs although we do not build them, psql's postgres; the same job copies each by its pinned digest into this repository (skopeo --all --preserve-digests, under mirror_tag), so a task pulls it from here by the same digest and never from Docker Hub (root ADR-0619 §7)."
   },
   "tags": {
     "project": "perfectory-platform",
@@ -73,6 +75,8 @@
     "allocated_storage_gb": 20,
     "max_allocated_storage_gb": 100,
     "backup_retention_days": 7,
+    "one_off_wait_minutes": 60,
+    "one_off_wait_reason": "How long an apply waits for one one-off task (the bootstrap, or the migrate task) to stop before it fails (infra/aws/pre-deploy.sh). It bounds the applier's wait only: a task past it keeps running, and the next apply waits for the migrator's lock (sqlx). Not measured on RDS; the data host runs the same migrations inside its deploy.",
     "name": "dagster",
     "master_username": "platform_admin",
     "app_username": "dagster",

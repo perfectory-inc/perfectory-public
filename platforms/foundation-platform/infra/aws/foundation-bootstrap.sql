@@ -4,9 +4,13 @@
 -- infra/compose/grant-foundation-runtime.sql name. The console's session role is not here: AWS runs no
 -- console. SUPERUSER, REPLICATION and BYPASSRLS are left out: the RDS master may not name them, a role it
 -- creates never has them, and finalize-foundation.sql checks that. Run by the rollout's bootstrap task
--- as the master user, connected to `postgres`, before every migration (infra/aws/pre-deploy.sh).
--- Idempotent. psql variables: db_name, migrator_password, runtime_password (from their secrets).
+-- as the master user, connected to `postgres`, when its definition or a password's version changes
+-- (infra/aws/foundation-database.tf). CREATE for the migrator is granted before each migration by the
+-- migrate task's first step (foundation-migrate-open.sql). Idempotent. psql variable: db_name; the
+-- passwords are the environment's (their secrets, injected by ECS), read with \getenv.
 \set ON_ERROR_STOP on
+\getenv migrator_password MIGRATOR_PASSWORD
+\getenv runtime_password RUNTIME_PASSWORD
 
 SELECT format('CREATE DATABASE %I', :'db_name')
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'db_name') \gexec
@@ -34,10 +38,8 @@ GRANT foundation_migrator TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
 -- migrations and the runtime make temporary tables (20261015090000 does), so TEMPORARY too.
 REVOKE CONNECT, TEMPORARY ON DATABASE :"db_name" FROM PUBLIC;
 GRANT CONNECT, TEMPORARY ON DATABASE :"db_name" TO foundation_migrator, foundation_api, foundation_audit_importer;
--- The migrations create schemas and trusted extensions; finalize-foundation.sql takes CREATE back.
-GRANT CREATE ON DATABASE :"db_name" TO foundation_migrator;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-GRANT USAGE, CREATE ON SCHEMA public TO foundation_migrator;
+GRANT USAGE ON SCHEMA public TO foundation_migrator;
 -- PostGIS is not a trusted extension: it is made here, as on the data host, and the migration's
 -- CREATE EXTENSION IF NOT EXISTS finds it.
 CREATE EXTENSION IF NOT EXISTS postgis;
