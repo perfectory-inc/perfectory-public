@@ -36,6 +36,7 @@ while :; do
 done
 
 # Every container exited 0. A container that never started (its dependency failed) has no exit code.
+# shellcheck disable=SC2016 # the backticks are a JMESPath literal (`0`) for the AWS CLI, not a command substitution
 failed="$(aws ecs describe-tasks --region "$REGION" --cluster "$CLUSTER" --tasks "$task" \
   --query 'tasks[0].containers[?exitCode!=`0`].[name, exitCode]' --output text)"
 if [ -n "$failed" ]; then
