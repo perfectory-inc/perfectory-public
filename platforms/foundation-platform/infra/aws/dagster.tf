@@ -13,6 +13,15 @@ variable "dagster_image" {
   }
 }
 
+variable "dagster_service_image" {
+  description = "The release's AWS Dagster image by digest (the webserver and the daemon: Dagster, its instance and workspace files, no location's code), from the commit's verified record (scripts/deploy/aws-release-images.py writes it). It changes only when its inputs do, so a code release leaves the service running."
+  type        = string
+  validation {
+    condition     = startswith(var.dagster_service_image, "${local.contract.images.repository}@") && can(regex("^sha256:[0-9a-f]{64}$", trimprefix(var.dagster_service_image, "${local.contract.images.repository}@")))
+    error_message = "The image is the contract's release repository (images.repository) by digest: never a tag, never another repository."
+  }
+}
+
 locals {
   dagster  = local.contract.dagster
   database = local.contract.database
@@ -285,16 +294,18 @@ locals {
   # The database role's password, by reference: a task definition holds the secret's ARN, never the value,
   # and never the master user's. The service and every run task (dagster.yaml's run_launcher) name this one.
   dagster_password = "${aws_secretsmanager_secret.dagster_database.arn}:password::"
-  # The service's environment. dagster.yaml's run_launcher registers each run's task definition from the
-  # DAGSTER_RUN_* names, the log group and the password's reference, and hands the four DAGSTER_PG_* on.
-  dagster_environment = [
+  # Where Dagster's storage is: the service, the code servers (code-servers.tf) and every run task.
+  dagster_database_environment = [
     { name = "DAGSTER_PG_HOST", value = aws_db_instance.platform.address },
     { name = "DAGSTER_PG_PORT", value = tostring(aws_db_instance.platform.port) },
     { name = "DAGSTER_PG_DB", value = local.database.name },
     { name = "DAGSTER_PG_USERNAME", value = local.database.app_username },
+  ]
+  # What the service adds: dagster.yaml's run_launcher registers each run's task definition from the
+  # DAGSTER_RUN_* names, the log group and the password's reference, and hands the four DAGSTER_PG_* on. A
+  # run's image is its location's: the code server reports it (code-servers.tf).
+  dagster_environment = [
     { name = "DAGSTER_PG_PASSWORD_SECRET", value = local.dagster_password },
-    # The image a run task runs (EcsRunLauncher refuses to launch without it for a location in this image).
-    { name = "DAGSTER_CURRENT_IMAGE", value = var.dagster_image },
     # The family the launcher registers runs in; the role may start that family only.
     { name = "DAGSTER_RUN_TASK_DEFINITION_PREFIX", value = local.dagster.run_task_definition_prefix },
     { name = "DAGSTER_RUN_TASK_ROLE_ARN", value = aws_iam_role.run_default.arn },
@@ -305,9 +316,9 @@ locals {
     { name = "DAGSTER_PG_PASSWORD", valueFrom = local.dagster_password },
   ]
   dagster_container = {
-    image                  = var.dagster_image
+    image                  = var.dagster_service_image
     essential              = true
-    environment            = local.dagster_environment
+    environment            = concat(local.dagster_database_environment, local.dagster_environment)
     secrets                = local.dagster_secrets
     readonlyRootFilesystem = false
     linuxParameters        = { initProcessEnabled = true }

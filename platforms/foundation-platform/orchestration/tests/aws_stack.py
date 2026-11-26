@@ -67,10 +67,15 @@ def stack() -> dict:
 
 
 @functools.cache
+def yaml_file(path: pathlib.Path) -> dict:
+    """A YAML file of the platform tree as the parser reads it."""
+    [entry] = _parse("yaml", [path])
+    return entry["contents"]
+
+
 def instance() -> dict:
     """orchestration/dagster/aws/dagster.yaml as YAML."""
-    [entry] = _parse("yaml", [INSTANCE])
-    return entry["contents"]
+    return yaml_file(INSTANCE)
 
 
 def contract() -> dict:

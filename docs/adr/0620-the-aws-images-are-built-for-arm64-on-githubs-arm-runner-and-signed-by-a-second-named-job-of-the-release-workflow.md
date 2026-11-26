@@ -102,3 +102,6 @@ ai-server 가 아직 돌리는 이미지는 amd64 도 함께 둔다. 도구는 G
 - §2: 이 잡의 고정 내려받기 캐시는 제 키(`pinned-release-binaries-v1-<os>-<arch>`)를 쓰고 main 에서 스스로 채운다. 두 러너가 같은
   `Linux` 키를 써서 x86 캐시를 받았고, 그 안에 없는 aarch64 파일을 run 마다 망에서 받았다(ADR-0559 §6).
 - §2 의 skopeo 는 그대로 둔다. `docker buildx imagetools` 는 로컬 OCI 레이아웃의 매니페스트를 바이트 그대로 올리지 못한다.
+- §1(2026-11-26, W107 의 둘째): 넷째 이미지는 Dagster 의 것(`orchestration/dagster/Dockerfile.aws-dagster`, linux/arm64 만)이다. 웹서버와
+  데몬이 돌리고 위치의 코드는 없다. 태그는 `aws-dagster-<입력 넷의 해시>` 이고, 그 태그가 패키지에 없을 때만 짓는다. 그래서 코드 릴리스는
+  그 digest 를 바꾸지 않는다(ADR-0616 §2-2). 코드 위치 이미지는 위치의 gRPC 코드 서버와 run 태스크가 돌린다.

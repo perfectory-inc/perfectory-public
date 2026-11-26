@@ -178,6 +178,8 @@ jobs:
       - name: Build, check and publish the AWS images
         env:
           RELEASE_PUBLISHER: ${{ needs.build.outputs.publisher }}
+          # gh attestation verify reads the attestations of a Dagster image an earlier commit built.
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/deploy/aws-images-build.py --out "$RUNNER_TEMP/aws" --repository "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release" --release-publisher "$RELEASE_PUBLISHER"
       # The images and their record (aws-images.json), under one attestation.
       - name: Attest the AWS images

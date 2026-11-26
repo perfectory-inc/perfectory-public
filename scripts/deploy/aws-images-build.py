@@ -11,6 +11,13 @@ of the same commit has pushed its release. AWS runs on Graviton, so:
 - the code location (orchestration/dagster/Dockerfile.aws) is built for linux/arm64 only, because only
   AWS runs it: <commit>-aws-code-location. It carries the arm64 publisher and the arm64 DuckDB extension
   files the contract pins, and before anything is pushed its publisher loads them with no network.
+- the Dagster image (orchestration/dagster/Dockerfile.aws-dagster: the webserver and the daemon, no
+  location's code) is tagged aws-dagster-<hash of its inputs> and built only when that tag is not in the
+  package yet, so its digest, and the Dagster service, stay put across code releases (root ADR-0616 §2-2).
+  A digest found under that tag is taken only once `gh attestation verify` shows this workflow signed it for
+  an earlier commit of main and that commit's inputs hash to the same tag (a signed image of other inputs
+  moved under the tag stops the build); the record names that commit for it, and this run does not sign it
+  again;
 - the images of the version contract that AWS runs but nobody here builds (aws-platform.contract.json
   images.mirrors: psql's postgres) are copied by their pinned digest into the release package, all
   platforms and digests preserved, so ECS pulls them from GHCR by that digest and never from Docker Hub;
@@ -45,6 +52,10 @@ ROOT = Path(__file__).resolve().parents[2]
 PLATFORM_TREE = ROOT / "platforms" / "foundation-platform"
 EXTENSIONS_CONTRACT = PLATFORM_TREE / "infra" / "lakehouse" / "contracts" / "duckdb-extensions.contract.json"
 CODE_LOCATION_DOCKERFILE = "orchestration/dagster/Dockerfile.aws"
+DAGSTER_DOCKERFILE = "orchestration/dagster/Dockerfile.aws-dagster"
+# Everything the Dagster image is made of (paths in the platform tree): its tag is a hash of these bytes.
+DAGSTER_INPUTS = (DAGSTER_DOCKERFILE, "orchestration/dagster/requirements-aws.txt",
+                  "orchestration/dagster/aws/dagster.yaml", "orchestration/dagster/aws/workspace.yaml")
 # The release's compose image that carries the migrator (foundation-release-build.py compose_builds).
 RUNTIME_IMAGE = "foundation-platform-runtime"
 TARGET = "linux/arm64"
@@ -195,6 +206,59 @@ def instance_loads(config: str) -> None:
         "--entrypoint", "python", config, "-c", INSTANCE_CHECK)
 
 
+def dagster_tag(repository: str, read=lambda path: (PLATFORM_TREE / path).read_bytes()) -> str:
+    """repository:aws-dagster-<the first 16 hex of the sha256 over the Dagster image's inputs, name and bytes>.
+    `read` gives a path's bytes: this checkout's by default."""
+    digest = hashlib.sha256()
+    for path in DAGSTER_INPUTS:
+        digest.update(path.encode() + b"\0" + read(path) + b"\0")
+    return f"{repository}:aws-dagster-{digest.hexdigest()[:16]}"
+
+
+def at_commit(commit: str):
+    """A reader of the platform tree's files as `commit` holds them (fetched when the checkout is shallow)."""
+    subprocess.run(["git", "fetch", "--quiet", "--no-tags", "--depth=1", "origin", commit], cwd=PLATFORM_TREE,
+                   check=True, capture_output=True)
+    return lambda path: subprocess.run(["git", "show", f"{commit}:platforms/foundation-platform/{path}"],
+                                       cwd=PLATFORM_TREE, check=True, capture_output=True).stdout
+
+
+def registry_digest(reference: str) -> str | None:
+    """The manifest digest the registry holds under `reference`, or None when there is none."""
+    found = subprocess.run(["skopeo", "inspect", "--raw", f"docker://{reference}"], cwd=PLATFORM_TREE,
+                           capture_output=True, check=False)
+    return "sha256:" + hashlib.sha256(found.stdout).hexdigest() if found.returncode == 0 else None
+
+
+def attested_commit(digest: str) -> str:
+    """The main commit whose release workflow signed `<images.repository>@digest` (gh attestation verify against
+    the contract's repository, workflow and ref, on GitHub's runners). Anything else stops the build."""
+    images = images_contract()
+    repository = images["source_repository"]
+    result = subprocess.run(
+        ["gh", "attestation", "verify", f"oci://{images['repository']}@{digest}", "--repo", repository,
+         "--signer-workflow", f"{repository}/{images['signer_workflow']}", "--source-ref", images["source_ref"],
+         "--deny-self-hosted-runners", "--format", "json"],
+        cwd=PLATFORM_TREE, capture_output=True, text=True, encoding="utf-8", check=False)
+    if result.returncode != 0:
+        raise SystemExit(f"FAIL aws-images: {digest} under the Dagster image's tag is not signed by this workflow: "
+                         f"{(result.stderr or result.stdout).strip()[-400:]}")
+    commits = sorted({entry["verificationResult"]["signature"]["certificate"]["sourceRepositoryDigest"]
+                      for entry in json.loads(result.stdout)})
+    if not commits or not all(re.fullmatch(r"[0-9a-f]{40}", commit) for commit in commits):
+        raise SystemExit(f"FAIL aws-images: the attestation of {digest} names no source commit")
+    return commits[0]
+
+
+def dagster_loads(archive: Path, config: str) -> None:
+    """The Dagster image reads its instance and builds its run launcher (the service runs both)."""
+    loaded = run("docker", "load", "--input", str(archive), capture=True)
+    match = re.search(r"Loaded image ID: (sha256:[0-9a-f]{64})", loaded)
+    if (match.group(1) if match else None) != config:
+        raise SystemExit(f"FAIL aws-images: the loaded Dagster image is not {config}: {loaded.strip()}")
+    instance_loads(config)
+
+
 def migrator_starts(archive: Path, config: str) -> None:
     """The runtime image's migrator runs on this platform: with no database URL it refuses, by name."""
     loaded = run("docker", "load", "--input", str(archive), capture=True)
@@ -272,11 +336,26 @@ def main() -> int:
         _, dockerfile, context, args = runtime
         images["runtime-arm64"], measured["runtime-arm64"] = build.build_image(
             release, "runtime-arm64", dockerfile, context, args, work, blobs, repository, platform=TARGET)
+        dagster_reference = dagster_tag(repository)
+        dagster_found = registry_digest(dagster_reference)
+        dagster_built = dagster_found is None
+        if dagster_built:
+            images["dagster-arm64"], measured["dagster-arm64"] = build.build_image(
+                release, "dagster-arm64", DAGSTER_DOCKERFILE, ".", {}, work, blobs, platform=TARGET)
+        else:
+            dagster_commit = attested_commit(dagster_found)
+            if dagster_tag(repository, at_commit(dagster_commit)) != dagster_reference:
+                raise SystemExit(f"FAIL aws-images: {dagster_reference} holds {dagster_found}, signed for {dagster_commit}, "
+                                 "whose inputs hash to another tag: an image of other inputs was moved under it")
+            print(f"aws-images: {dagster_reference} is already built from these inputs (signed for {dagster_commit}); "
+                  "the service keeps it", flush=True)
         for name, entry in measured.items():
             print(f"aws-images {name}: {entry['seconds']}s peak_memory={entry['peak_memory_bytes']} "
                   f"blob_bytes={entry['blob_bytes']}", flush=True)
         loads_offline(work / "code-location-arm64.oci.tar", images["code-location-arm64"]["config"])
         migrator_starts(work / "runtime-arm64.oci.tar", images["runtime-arm64"]["config"])
+        if dagster_built:
+            dagster_loads(work / "dagster-arm64.oci.tar", images["dagster-arm64"]["config"])
     # One OCI layout over the kept blobs, each manifest named, as the release's own (release-push.sh).
     (out / "oci-layout").write_text('{"imageLayoutVersion": "1.0.0"}\n', encoding="utf-8")
     (out / "index.json").write_text(json.dumps({"schemaVersion": 2, "mediaType": "application/vnd.oci.image.index.v1+json",
@@ -295,6 +374,10 @@ def main() -> int:
     run("docker", "buildx", "imagetools", "create", "--tag", code_location,
         f"{repository}@{images['code-location-arm64']['oci_manifest']}")
     mirror_images(repository)
+    if dagster_built:
+        run("docker", "buildx", "imagetools", "create", "--tag", dagster_reference,
+            f"{repository}@{images['dagster-arm64']['oci_manifest']}")
+        dagster_found, dagster_commit = index_digest(dagster_reference), commit
     runtime_tag = f"{repository}:{commit}-aws-runtime"
     run("docker", "buildx", "imagetools", "create", "--tag", runtime_tag,
         f"{repository}@{images['runtime-arm64']['oci_manifest']}")
@@ -304,13 +387,17 @@ def main() -> int:
         "code-location": {"tag": code_location, "digest": index_digest(code_location), "platforms": [TARGET],
                           TARGET: images["code-location-arm64"]["oci_manifest"]},
         "runtime": {"tag": runtime_tag, "digest": index_digest(runtime_tag), "platforms": [TARGET],
-                    TARGET: images["runtime-arm64"]["oci_manifest"]}},
+                    TARGET: images["runtime-arm64"]["oci_manifest"]},
+        # The digest read once; its signature is its source commit's (this one when this run built it).
+        "dagster": {"tag": dagster_reference, "digest": dagster_found, "platforms": [TARGET],
+                    "source_commit": dagster_commit}},
         "measured": measured}
     (out / RECORD).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     # The images and the record that names them, under one attestation: an apply verifies the record, then
     # each digest in it, against the same workflow, ref and commit.
     (out / "subjects.sha256").write_text("".join(
-        f"{image['digest'].split(':')[1]}  {image['tag']}\n" for image in record["images"].values())
+        f"{image['digest'].split(':')[1]}  {image['tag']}\n" for image in record["images"].values()
+        if image.get("source_commit", commit) == commit)
         + f"{hashlib.sha256((out / RECORD).read_bytes()).hexdigest()}  {RECORD}\n", encoding="utf-8")
     print(json.dumps({name: image["digest"] for name, image in record["images"].items()}, sort_keys=True))
     return 0

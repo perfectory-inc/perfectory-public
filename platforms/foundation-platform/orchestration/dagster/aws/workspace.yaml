@@ -1,6 +1,9 @@
-# The AWS code location (root ADR-0616 A1): loaded in process by the webserver and the daemon of the one
-# Dagster task (infra/aws/dagster.tf), from the image's platform tree.
+# The AWS code locations (root ADR-0616 §1, §2-2): each a gRPC code server of its own ECS service
+# (infra/aws/code-servers.tf), by its name in the private DNS namespace and its port, both the contract's
+# (config/aws-platform.contract.json dagster.namespace, dagster.code_locations; a test holds them equal).
+# The webserver and the daemon load this file from the Dagster image (Dockerfile.aws-dagster).
 load_from:
-  - python_file:
-      relative_path: definitions.py
+  - grpc_server:
+      host: foundation-aws.perfectory-platform.internal
+      port: 4000
       location_name: foundation-aws

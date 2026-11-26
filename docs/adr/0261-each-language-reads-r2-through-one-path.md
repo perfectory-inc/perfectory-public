@@ -42,3 +42,5 @@ R2 는 놀고 있는 연결을 먼저 끊는다. 그 리셋을 견디는 방법(
 - **영역 공용 크레이트**: 영역 간 경로 의존 금지와 충돌. 영역마다 한 곳 + 같은 숫자 + 가드로 충분하다.
 
 2026-11-05: §5 의 `scripts/guard/r2-reads-have-one-path.sh`·`tools/r2-read-paths.contract.json` → 지움. 같은 검사는 Semgrep 규칙 `tools/semgrep/rules/r2-read-paths.yml`(고정 Opengrep 엔진, 가드 `scripts/guard/semgrep-rules.sh`)이 맡고, 영역마다 한 곳은 그 규칙의 `paths.exclude` 다. 결정은 그대로다.
+
+2026-11-26(W107): Python 규칙(`python-reads-r2-through-spark`)이 막는 것은 S3 클라이언트를 만드는 일(`boto3.client("s3")`·`resource("s3")`, 세션의 같은 호출)과 객체 저장소 파일 시스템(s3fs·fsspec·pyarrow.fs)이다. boto3·botocore 의 가져오기 자체는 막지 않는다: AWS 코드 위치(`orchestration/dagster/aws`)가 SNS(경보)·Secrets Manager(run 의 비밀)를 그것으로 부르고 객체 저장소는 읽지 않는다. 결정(R2 읽기는 한 길)은 그대로다.

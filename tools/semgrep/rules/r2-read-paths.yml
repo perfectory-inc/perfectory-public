@@ -30,15 +30,22 @@ rules:
       - pattern: aws_sdk_s3::config::Builder::$CONSTRUCT(...)
       - pattern: aws_sdk_s3::Config::builder(...)
 
+  # An S3 client, not the AWS SDK: the AWS code location (orchestration/dagster/aws) calls AWS services
+  # with boto3 (SNS for its alarms, Secrets Manager for a run's own secrets) and reads no object store
+  # with it. 2026-11-26 (W107): banning `import boto3` itself refused its SNS alarm sensor.
   - id: python-reads-r2-through-spark
     languages: [python]
     severity: ERROR
     message: >-
-      Imports an S3 client. Spark reads R2 through the Iceberg catalog or the s3a settings that
-      lakehouse_engine builds — root ADR-0261.
+      Builds an S3 client or imports an object-store filesystem. Spark reads R2 through the Iceberg
+      catalog or the s3a settings that lakehouse_engine builds — root ADR-0261.
     pattern-either:
-      - pattern: import boto3
-      - pattern: import botocore
+      - pattern: boto3.client("s3", ...)
+      - pattern: boto3.resource("s3", ...)
+      - pattern: $SESSION.client("s3", ...)
+      - pattern: $SESSION.resource("s3", ...)
+      - pattern: boto3.client(service_name="s3", ...)
+      - pattern: $SESSION.client(service_name="s3", ...)
       - pattern: import s3fs
       - pattern: import fsspec
       - pattern: import pyarrow.fs

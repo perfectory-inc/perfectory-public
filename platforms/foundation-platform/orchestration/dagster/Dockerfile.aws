@@ -1,5 +1,6 @@
-# The AWS code location image (root ADR-0616 §2-1, ADR-0619 §7). The Dagster webserver, the daemon
-# and every run task start from it: the run task does the work itself, so it carries the publisher of
+# The AWS code location image (root ADR-0616 §2-1, ADR-0619 §7). The location's gRPC code server
+# (infra/aws/code-servers.tf) and every run task start from it; the webserver and the daemon run the Dagster
+# image (Dockerfile.aws-dagster). The run task does the work itself, so it carries the publisher of
 # the same commit for its own platform, with the DuckDB extension files beside it (the directory the
 # publisher loads them from, duckdb_extensions::release_directory), and the part of the platform tree
 # the definitions and the publisher read. Only AWS runs it, so the release workflow builds it for
