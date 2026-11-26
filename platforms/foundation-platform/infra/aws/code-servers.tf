@@ -27,8 +27,8 @@ resource "aws_service_discovery_service" "code_location" {
     }
   }
   # ECS registers a task once it runs and deregisters it when it stops; the container's own health check
-  # decides when it runs.
-  health_check_custom_config {}
+  # decides when it runs. No health_check_custom_config: Cloud Map stores none for an empty block, so the
+  # plan replaced the service on every apply, and a registered service cannot be deleted.
 }
 
 # The webserver and the daemon call the code servers; both are in the tasks' security group, which still
