@@ -436,7 +436,7 @@
    "F821": 18
   },
   "tools/semgrep/rules/r2-read-paths.py": {
-   "F401": 6,
+   "F401": 4,
    "F821": 6
   }
  },
