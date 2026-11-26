@@ -1,8 +1,18 @@
 # Fixture for tools/semgrep/rules/r2-read-paths.yml (`opengrep scan --test`). Not executed.
-# ruleid: python-reads-r2-through-spark
+# ok: python-reads-r2-through-spark
 import boto3
 # ruleid: python-reads-r2-through-spark
-from botocore.config import Config
+s3 = boto3.client("s3", endpoint_url=endpoint)
+# ruleid: python-reads-r2-through-spark
+bucket = boto3.resource("s3").Bucket(name)
+# ruleid: python-reads-r2-through-spark
+objects = boto3.session.Session().client("s3")
+# ruleid: python-reads-r2-through-spark
+objects = session.client(service_name="s3", region_name="auto")
+# ok: python-reads-r2-through-spark
+alarms = boto3.client("sns")
+# ok: python-reads-r2-through-spark
+secrets = boto3.client("secretsmanager", region_name=region)
 # ruleid: python-reads-r2-through-spark
 import s3fs
 # ruleid: python-reads-r2-through-spark
