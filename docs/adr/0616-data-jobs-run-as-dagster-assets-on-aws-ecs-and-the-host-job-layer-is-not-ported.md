@@ -72,7 +72,7 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
 | Dagster 의 저장소 | RDS PostgreSQL, 단일 AZ | 지금 1,001 MB |
 | run | `EcsRunLauncher`: run 마다 태스크 | — |
 | 이미지 | ECR, digest 로 참조 | 발행기 293 MB, Dagster 554 MB |
-| 비밀(R2 키, 원천 API 키) | Secrets Manager. 일의 진입점이 제 태스크 역할로 읽는다(§2-8). 태스크 정의에는 싣지 않는다 | 지금 `/etc/foundation-platform/*.env` 여덟 |
+| 비밀(R2 키, 원천 API 키) | 레이크하우스 자격은 발급 창구가 레인마다 준다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §2). 원천 API 키는 Secrets Manager 에서 레인의 역할로 읽는다. 태스크 정의에는 싣지 않는다 | 지금 `/etc/foundation-platform/*.env` 여덟 |
 | 로그 | CloudWatch Logs | — |
 | 레이크하우스 | **R2 그대로**(Iceberg 카탈로그도) | AWS → R2 쓰기는 AWS 의 인터넷 송신 요금, R2 → AWS 읽기는 양쪽 무료 |
 | UI 접근 | SSM 포트 포워딩. 공개 주소 없음 | — |
@@ -90,7 +90,7 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
    둘째 태스크(`PipesECSClient`)는 쓰지 않는다. **Spark 작업은 목표에 없다**: AWS 로 가는 것은 DuckDB 로 새로 지은 레인뿐이다.
    ai-server 의 Spark 작업은 그 레인이 넘어가면 꺼지고, 넘어갈 레인이 없는 것은 사장·코디네이터가 끄라고 할 때 꺼진다(열린 질문 2).
 3. **권한은 IAM 이다.** Dagster 의 태스크 역할은 `ecs:RunTask`(정해진 태스크 정의 계열), `iam:PassRole`(정해진 역할), 로그 읽기만 갖는다.
-   일의 태스크 역할은 제 비밀만 읽는다(읽기 키와 쓰기 키는 다른 역할). 강제 명령·SSH 키·`start-scheduled-job.sh`·호스트 허가가 하던 일이다.
+   일의 역할은 레인마다 하나이고 레이크하우스 자격은 발급 창구로만 받는다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §2). 강제 명령·SSH 키·`start-scheduled-job.sh`·호스트 허가가 하던 일이다.
 4. **릴리스 = 이미지 digest.** 릴리스 디렉터리와 `admitted-writer-runtime.sh` 가 하던 확인은 "서명된 digest 만 ECR 에 올리고, 태스크 정의는
    digest 를 가리킨다"가 대신한다. 배포는 태스크 정의의 새 개정과 서비스 갱신, 코드 위치 다시 읽기다. 스키마 마이그레이션은 그 전에 도는 태스크 하나다.
 5. **작업을 붙잡기.** 마이그레이션이 건드리는 자산의 자동화를 멈추고(센서·예약) 줄에 있는 그 작업의 run 을 끝낸다. 호스트 관문은 없다.
@@ -100,10 +100,9 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
    run monitoring(실행기가 태스크의 건강을 묻는다: `launcher.py` `check_run_worker_health`)과 **죽은 run 에 한한** run 재시도다
    (ADR-0565 §3·§9 의 `retry_on_asset_or_op_failure: false` 그대로). 재시도의 표는 §4 에 하나 있다.
 8. **작업마다의 역할과 비밀.** run 태스크는 Dagster 서비스 태스크에서 복제되므로, 그대로면 일이 Dagster 의 역할과 비밀을 물려받는다. 그러지 않는다:
-   - 역할: run 의 태그 `ecs/task_overrides` 가 `{"taskRoleArn": …}` 을 싣는다(`launcher.py:636`). 역할은 작업마다가 아니라 **종류마다**다
-     (읽기만, 레이크하우스 쓰기, 원천 수집). 종류는 작업 정의의 한 낱말이다.
-   - 비밀: 태스크 정의에 싣지 않는다. 일의 진입점이 제 태스크 역할로 Secrets Manager 에서 읽는다. 그래서 역할이 읽을 수 있는 비밀만 읽힌다.
-     Dagster 서비스의 역할은 그 비밀을 읽지 못한다.
+   - 역할: run 의 태그 `ecs/task_overrides` 가 `{"taskRoleArn": …}` 을 싣는다(`launcher.py:636`). 역할은 레인마다 하나다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §2-2).
+   - 비밀: 태스크 정의에 싣지 않는다. 레이크하우스 자격은 발급 창구만 준다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §2). 원천의 비밀은 일의 진입점이 제 역할로
+     Secrets Manager 에서 읽는다. Dagster 서비스의 역할은 어느 것도 읽지 못한다.
    - Dagster 서비스 자신의 DB 비밀번호는 일의 비밀이 아니다(코디네이터 결정 2026-11-25, A1). 서비스의 태스크 정의는 그 비밀의 ARN 만
      `secrets` 의 `valueFrom` 으로 든다. 값은 정의에도 상태 파일에도 없다. run 태스크는 그것을 물려받는다. 실행기가 데몬의 컨테이너
      정의를 복제하고, run 의 프로세스가 사건을 그 DB 에 쓰기 때문이다.
@@ -113,7 +112,7 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
      가 다른 곳에서 master 비밀을 이름 대면 실패한다.
 9. **크기를 run 에 싣는 길.** 선언형 자동화가 만든 run 의 태그는 그 자동화 센서의 `run_tags` 에서 온다
    (`AutomationConditionSensorDefinition(target=…, run_tags=…)`, 1.13.27 에서 확인). 그래서 크기는 작업마다의 수가 아니라 **크기 등급**이다:
-   등급마다 센서 하나가 그 등급의 자산을 고르고 `ecs/cpu`·`ecs/memory`·`ecs/ephemeral_storage`·역할(8)을 싣는다. 예약으로 도는 job 은 job 의 태그다.
+   등급마다 센서 하나가 그 등급의 자산을 고르고 `ecs/cpu`·`ecs/memory`·`ecs/ephemeral_storage`·역할(8, 레인의 것)을 싣는다. 평범한 예약은 없다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §1).
    한 run 은 한 등급의 자산만 품는다.
 
 ### 3. 작업은 자산이다
@@ -228,14 +227,14 @@ W101 의 시제품이 센 121,608 은 키로 줄이기 전의 물건 수다: 검
 
 | 지금(`decide.py`·조정자) | AWS |
 |---|---|
-| 예약, 상류 없음(원천 수집) | `ScheduleDefinition` |
-| 예약, 상류 있음 | `AutomationCondition.on_cron(<제 cron>)` |
+| 예약, 상류 없음(원천 수집) | `cron_tick_passed(신선도 박자).since_last_handled() & ~in_progress()`([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §1). 평범한 `ScheduleDefinition` 은 없다 |
+| 예약, 상류 있음 | `eager()`([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §1) |
 | 입력으로 시작 | `AutomationCondition.eager()` |
 | 코드가 바뀜 | 자산의 `code_version` = 이미지 digest 에서 나온 값, `code_version_changed` |
 | 호스트가 거부한 시작, 줄에 다시 넣기, 놓친 시작 | 없다: 호스트가 없다. run 은 Dagster 의 줄에 있다 |
 | 레인을 처음 켤 때(자동화의 첫 평가 전에 이미 관측된 입력) | 자동으로는 아무것도 요청되지 않는다(같은 실험). 켜는 PR 이 백필을 한 번 내거나, 조건에 "없으면"(`on_missing()` 의 항)을 더한다. 레인마다 어느 쪽인지는 그 레인의 ADR 이 적는다 |
 | 실패 뒤 물러났다 다시(10분 → 4시간) | 길게 물러나는 식은 두지 않는다: 아래 재시도 표 |
-| 관측 자산(파티션 레인의 입력)의 박자 | 그 관측 job 의 `ScheduleDefinition`(레인의 cron). 관측은 가장 작은 등급의 태스크에서 읽기 역할로 돈다 |
+| 관측 자산(파티션 레인의 입력)의 박자 | [ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §1 의 시작 조건(신선도 박자, 진행 중인 run 없음). 관측은 가장 작은 등급의 태스크에서 읽기 역할로 돈다 |
 | 표 머리와 핀을 대조 | 쓰는 일이 모두 Dagster 의 자산이면 필요 없다. 운영자의 일도 Dagster 의 run 으로 한다 |
 
 **재시도 — 세 ADR(0615·0616·0618)의 표는 이것 하나다.**
@@ -337,17 +336,17 @@ ai-server 에서 지금 꺼도 되는 것(서빙 최신이 목표가 아니므�
 
 | 지금 계층이 해 주는 것 | AWS 에서 |
 |---|---|
-| 한 작업은 한 번에 하나, 복사본이 줄에 서지 않는다(11-23: 줄의 93 중 74 가 복사본) | 선언형 자동화는 진행 중인 run 을 기다린다(`in_progress`). 예약으로 도는 job 은 그 job 의 풀 칸 1 이 겹침을 막는다(쿼터 있는 수집기에 필요) |
-| 놓친 예약은 따라잡는다(media_reconcile 43 h) | 조건은 상태라 놓침이 없다. `ScheduleDefinition` 으로 도는 원천은 놓친 틱을 다시 돌지 않는다: 다음 틱이 같은 일을 한다. 그것으로 안 되는 원천은 자산 + `on_cron` 으로 둔다 |
+| 한 작업은 한 번에 하나, 복사본이 줄에 서지 않는다(11-23: 줄의 93 중 74 가 복사본) | 시작 조건의 `~in_progress()` 가 겹침을 막는다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §1) |
+| 놓친 예약은 따라잡는다(media_reconcile 43 h) | 조건은 상태라 놓침이 없다. 틱은 처리될 때까지 남는다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §1) |
 | 나쁜 것 하나가 run 전체를 실패시키지 않는다 | 파티션(밤·시도·접두)마다의 상태. run 안에서 깨진 본문을 다시 받는 것은 수집기의 코드로 남는다 |
 | 명령은 제가 읽는 비밀만 받는다 | §2-8 |
 | 꺼진 작업은 아무것도 남기지 않는다 | 정의에 없으면 자산·예약·검사가 없다. 알릴 유닛도 없다 |
 | 생산자 없는 레인은 서빙되지 않는다 | 서빙 자산은 제 생산 자산이 있을 때만 정의된다(공장이 거부한다). 신선도는 자산 검사다 |
 | 배포가 작업을 붙잡고 비우고 다시 시작한다 | §2-5. 빚진 run 의 장부는 없다 |
-| 작업마다 메모리·시간 한도 | 크기 등급(§2-9)과 run 의 최대 실행 시간(run monitoring 의 `max_runtime`) |
+| 작업마다 메모리·시간 한도 | 크기 등급(§2-9). 시간은 작업마다 두지 않는다: 원천의 멈춤 규칙과 플랫폼의 run 상한 하나([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §3) |
 
 **기준 레인(W71c 의 경매 레인).** 이 표의 모양을 처음 따르는 레인이다: Bronze 는 원천 슬러그마다 자산, 밤마다의 시간 파티션, 수집기는 `@multi_asset` 하나;
-Silver 28표는 `@multi_asset` 하나; Gold 는 자산 하나. 수집은 cron 예약, Silver·Gold 는 `eager()`. 호스트 상태 없음. 검사는 일이 Pipes 로 낸다.
+Silver 28표는 `@multi_asset` 하나; Gold 는 자산 하나. 수집은 [ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §1 의 시작 조건, Silver·Gold 는 `eager()`. 호스트 상태 없음. 검사는 일이 Pipes 로 낸다.
 
 ### 9. 남는 우리 것
 
@@ -424,7 +423,7 @@ Spark 작업은 옮기지 않는다(§2-2). 지금 그대로 옮긴다면 426 h 
 
 **아직 값이 없는 줄.** 파티션 레인의 관측 run(틱마다, 가장 작은 등급), 타일의 굽기 횟수, 타일의 접두별 입력 읽기(ADR-0618 열린 질문 3), Bronze 원장의 디스크, duckdb 작업의 실제 CPU, 타일 태스크의 공인 IPv4, `tiles` 코드 위치의 이미지 보관, 옛 타일 세대의 R2 보관, "이미 맞는 시도"를 다시 보고할 때 하류가 한 번 도는 run, 원천마다 원장 줄을 옮기는 일, CloudWatch 경보, AWS 주소에서의 경매 시험 한 번.
 그래서 사장에게 묻는 것은 둘로 나뉜다: **지금은 A0~A3(수집, 평월 103.2)**, A4~A6 는 위 줄들을 잰 뒤 다시 항목별로.
-재지 못하는 양에는 위를 건다: 계정의 Fargate vCPU 할당량, 줄의 `max_concurrent_runs`, run 의 최대 실행 시간.
+재지 못하는 양에는 위를 건다: 계정의 Fargate vCPU 할당량, 줄의 `max_concurrent_runs`, 플랫폼의 run 상한 하나([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §3).
 
 ## 열린 질문
 
