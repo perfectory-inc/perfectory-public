@@ -71,13 +71,13 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
 | Dagster 웹서버 + 데몬 + 코드 위치 | ECS(Fargate) 서비스 하나, 항상 켬 | 지금 세 컨테이너 합 687 MiB |
 | Dagster 의 저장소 | RDS PostgreSQL, 단일 AZ | 지금 1,001 MB |
 | run | `EcsRunLauncher`: run 마다 태스크 | — |
-| 이미지 | ECR, digest 로 참조 | 발행기 293 MB, Dagster 554 MB |
+| 이미지 | GHCR 의 공개 패키지, digest 로 참조(ADR-0619 §7) | 발행기 293 MB, Dagster 554 MB |
 | 비밀(R2 키, 원천 API 키) | 레이크하우스 자격은 발급 창구가 레인마다 준다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §2). 원천 API 키는 Secrets Manager 에서 레인의 역할로 읽는다. 태스크 정의에는 싣지 않는다 | 지금 `/etc/foundation-platform/*.env` 여덟 |
 | 로그 | CloudWatch Logs | — |
 | 레이크하우스 | **R2 그대로**(Iceberg 카탈로그도) | AWS → R2 쓰기는 AWS 의 인터넷 송신 요금, R2 → AWS 읽기는 양쪽 무료 |
 | UI 접근 | SSM 포트 포워딩. 공개 주소 없음 | — |
 
-계정은 조직의 platform 계정이다(SSO 프로필 `perfectory-org-admin`). 공짱 운영 계정과 286958704196 은 쓰지 않는다.
+계정은 조직의 platform 계정이다(SSO 프로필 `perfectory-platform-prod-admin`, ADR-0619 §3). 공짱 운영 계정과 286958704196 은 쓰지 않는다.
 그 계정과 리전은 ADR-0619 가 `platforms/foundation-platform/config/aws-platform.contract.json` 의 `account`·`region` 에 고정한다. 이 ADR 은 id 를 다시 적지 않고 그것을 따른다.
 
 ### 2. 일을 시작하는 길
@@ -92,8 +92,12 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
 3. **권한은 IAM 이다.** Dagster 의 태스크 역할은 `ecs:RunTask`(run 의 태스크 정의 계열만)와 그 정의의 등록, `iam:PassRole`(계약의 run 경로
    `ecs.run_role_path` 아래 역할만, 제 역할은 거기 없다), 실패한 run 의 로그 읽기(run 계열의 줄만), ECS Exec 를 갖는다. 어느 run 도 이 역할을 갖지 않는다(8).
    일의 역할은 레인마다 하나이고 레이크하우스 자격은 발급 창구로만 받는다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §2). 강제 명령·SSH 키·`start-scheduled-job.sh`·호스트 허가가 하던 일이다.
-4. **릴리스 = 이미지 digest.** 릴리스 디렉터리와 `admitted-writer-runtime.sh` 가 하던 확인은 "서명된 digest 만 ECR 에 올리고, 태스크 정의는
-   digest 를 가리킨다"가 대신한다. 배포는 태스크 정의의 새 개정과 서비스 갱신, 코드 위치 다시 읽기다. 스키마 마이그레이션은 그 전에 도는 태스크 하나다.
+4. **릴리스 = 이미지 digest.** 릴리스 디렉터리와 `admitted-writer-runtime.sh` 가 하던 확인은 "서명을 확인한 digest 만 쓴다"가 대신한다.
+   릴리스 워크플로의 `aws-images` 잡이 커밋마다 모든 이미지의 digest 를 기록(`aws-images.json`)에 적어 이미지와 함께 서명하고, 기록을
+   `<commit>-aws-images` 로 올린다(ADR-0620). 적용의 입력은 커밋 하나다: `scripts/deploy/aws-release-images.py` 가 그 기록과 기록의 모든
+   digest 를 계약(`images`)의 저장소·워크플로·ref 와 그 커밋(`gh attestation verify --source-digest`)에 대해 확인한 뒤에만 digest 를 적고,
+   하나라도 아니면 멈춘다. 스택은 계약의 저장소 밖 이미지를 거부한다. 배포는 태스크 정의의 새 개정과 서비스 갱신, 코드 위치 다시 읽기다.
+   스키마 마이그레이션은 그 전에 도는 태스크 하나다.
 5. **작업을 붙잡기.** 마이그레이션이 건드리는 자산의 자동화를 멈추고(센서·예약) 줄에 있는 그 작업의 run 을 끝낸다. 호스트 관문은 없다.
    "이 자산들만"을 Dagster 가 한 번에 해 주는 기능은 없으므로 이 호출 묶음이 우리 것으로 남는다(§9).
 6. **Spot.** 다시 돌려도 되는 작업은 `ecs/run_task_kwargs` 로 Fargate Spot 을 쓴다. 중단은 태스크의 죽음이다(7).
@@ -294,7 +298,7 @@ W101 의 시제품이 센 121,608 은 키로 줄이기 전의 물건 수다: 검
 
 | 걸음 | 하는 일 | ai-server 에서 끄는 것 |
 |---|---|---|
-| A0 | 사장이 항목별 비용을 본다. 계정·VPC·ECR·RDS·ECS 를 코드(IaC)로 정의한다. 아무것도 만들지 않은 채 검토 | — |
+| A0 | 사장이 항목별 비용을 본다. 계정·VPC·RDS·ECS 를 코드(IaC)로 정의한다(이미지는 GHCR, ADR-0619 §7). 아무것도 만들지 않은 채 검토 | — |
 | A1 | Dagster 를 AWS 에 세운다. 작업 없음. 배포 = 이미지 digest | — |
 | A1b | **Bronze 원장의 자리를 RDS 에 만든다(빈 채로).** 원장(`catalog.bronze_object`·`ingestion_run`)은 원천마다의 줄이다. 한 원천의 줄은 그 수집기와 함께 넘어간다(넘기는 규칙의 "상태를 옮긴다"에 든다). 그래서 어느 때든 한 원천의 원장은 한 곳이고, ai-server 와 RDS 사이에 망을 잇지 않으며, 수집이 멈추는 것은 넘기는 그 원천의 한 박자뿐이다. 스키마는 데이터 호스트와 같은 sqlx 마이그레이션이 만든다(데이터베이스 `foundation`, 정의는 하나; 코디네이터 결정 2026-11-26). 적용이 새 digest 로 옮길 때 서비스보다 먼저 부트스트랩 → 마이그레이션 → 권한·마무리가 돌고, 끝 코드 0 이어야 서비스가 옮긴다(`infra/aws/pre-deploy.sh`). 다음 걸음은 A2 뒤다: 적용을 노트북이 아니라 main 의 CI 가 GitHub OIDC 역할로 한다(오래 사는 키 없음, 사람이 돌리는 배포 없음) | — |
 | A2 | 수집 한 개를 AWS 에서 돌린다: 쿼터도 없고 run 사이 상태도 없는 원천. 아래 "넘기는 규칙"의 겹쳐 돌리기. 경매처럼 주소에 민감한 원천은 그 전에 AWS 주소에서 잰다(§8 J) | 그 작업 하나 |
@@ -331,7 +335,7 @@ ai-server 에서 지금 꺼도 되는 것(서빙 최신이 목표가 아니므�
 | E | 작업 디스크·스필(DuckDB 단계 32 GB 예약, 스풀 16.7 GB, source-sweep 스풀 수십 GB, 타일 굽기는 접두마다 25.0~27.3 GB·나누지 않으면 43.7 GB: `config/tile-bake-containers.contract.json`). 남은 것을 치우는 일도 호스트의 것이다: 2026-11-23~24 에 유닛 한도로 죽은 takeover 판정 run 넷이 `runs/<run>/verdict/` 아래 DuckDB 단계 34.37 GB 를 남겼고, `duckdb-stage-orphans.sh` 는 맨 위 단계만 보므로 그것을 지우지 못했다. 그래서 경계 섀도 빌드가 11-24 13:26Z 부터 SSD 예약에 막혔다(W86d) | 태스크의 임시 디스크. 크기 등급의 `ecs/ephemeral_storage`(20~200 GiB). 호스트 SSD 를 Postgres 와 나누던 예약 수는 없다. 지금 아는 일은 모두 200 GiB 안이다. run 의 작업 공간은 태스크와 함께 사라지므로 남는 단계를 치우는 스크립트(`duckdb-stage-orphans.sh`)는 옮기지 않는다 |
 | F | 메모리 크기를 유닛의 `MemoryMax` 에서 읽는다 | 태스크의 메모리가 cgroup 한도다. 읽는 길은 그대로이고 몫만 태스크 크기 기준으로 |
 | G | 수집기가 Postgres 의 Bronze 원장을 쓴다(`catalog.bronze_object`, `ingestion_run`). Silver 적재 계획이 그것을 읽는다 | **Postgres 를 둔다**: Dagster 의 RDS 인스턴스에 데이터베이스 하나를 더 둔다. 원장을 Iceberg 나 Dagster 파티션으로 옮기는 일은 이 ADR 이 하지 않는다(읽는 쪽이 여럿이다) |
-| H | 호스트의 도구: GDAL 을 `docker run`, 호스트에서 지은 tippecanoe 이미지, 오래 떠 있는 Spark 컨테이너 | 도구는 이미지다(ECR). 도구가 다른 일은 코드 위치가 다르다(§2-2). 호스트에서 짓는 이미지는 없다 |
+| H | 호스트의 도구: GDAL 을 `docker run`, 호스트에서 지은 tippecanoe 이미지, 오래 떠 있는 Spark 컨테이너 | 도구는 이미지다(GHCR 의 공개 패키지, ADR-0619 §7). 도구가 다른 일은 코드 위치가 다르다(§2-2). 호스트에서 짓는 이미지는 없다 |
 | I | 보고: `foundation-job-outcome` 줄, 저널을 Pipes 로, node-exporter 텍스트 파일, 유닛의 `OnFailure` → Slack | Pipes 메시지와 Dagster 의 사건(§6). 유닛이 없으므로 `OnFailure` 도 없다 |
 | J | **망**: 경매 수집기는 사무실의 한국 주소에서 브라우저처럼 묻는다. 사이트는 싫은 세션을 막는다. AWS 주소에서는 재 본 적이 없다 | 아래 문단 |
 
@@ -360,7 +364,7 @@ Silver 28표는 `@multi_asset` 하나; Gold 는 자산 하나. 수집은 [ADR-06
 | 남는 것 | 맡지 못한 기능과 이유 |
 |---|---|
 | 작업 정의와 공장 | 접착제 |
-| IaC(VPC·ECS·RDS·IAM·ECR) | Dagster 는 자기가 놓일 곳을 만들지 않는다 |
+| IaC(VPC·ECS·RDS·IAM) | Dagster 는 자기가 놓일 곳을 만들지 않는다 |
 | 서명된 digest 만 올리는 릴리스 빌드 | Dagster·ECS 는 이미지를 검증하지 않는다 |
 | 마이그레이션 동안 작업을 붙잡는 호출 묶음 | "이 자산들만 멈춤"이 없다 |
 | 발행기가 Pipes 메시지를 내는 코드 | 프로토콜은 JSON 줄이다. 유지되는 Rust 클라이언트가 있으면 그것을 쓴다(**확인 필요**) |
@@ -395,10 +399,10 @@ Silver 28표는 `@multi_asset` 하나; Gold 는 자산 하나. 수집은 [ADR-06
 | 수집 태스크(온비드 4 vCPU / 8 GB 113 h, 나머지 14개 0.5 vCPU / 2 GB 220 h) | 33.0 | 시간·CPU 잼 |
 | 공인 IPv4(NAT 없음) | 5.3 | — |
 | R2 로의 송신(Bronze) | 11.3(평월 90 GB) / 69(일괄 수집이 있던 지난달 548 GB) | 원장에서 잼. 무료 100 GB 는 우리 것이 아니라고 가정 |
-| ECR 약 10 GB | 1.0 | 가정 |
+| 이미지 보관(GHCR 공개 패키지) | 0 | ADR-0619 §7. 2026-11-26 전에는 ECR 약 10 GB 의 1.0 이었다 |
 | CloudWatch Logs 5 GB | 4.0 | 가정(재지 않음) |
 | Secrets Manager 8개 | 3.2 | env 파일 수(입력 목록의 일곱과 `parcel-publication.env`) |
-| **합(수집만)** | **103.2(평월) / 160.9(일괄 수집 달)** | |
+| **합(수집만)** | **102.2(평월) / 159.9(일괄 수집 달)** | 이미지 줄을 뺀 계산(2026-11-26). 사장에게 물은 값은 103.2 / 160.9 였다 |
 
 NAT 게이트웨이와 ALB 는 설계에 없다.
 
@@ -412,7 +416,7 @@ NAT 게이트웨이와 ALB 는 설계에 없다.
 | R2 로의 송신(Silver·Gold 월 195 GB) | 24.6 | 스냅숏 요약 7일 45.5 GB |
 | 로그 5 GB 더 | 3.8 | 가정 |
 | **더해지는 합** | **132.3** | |
-| **수집 + 모든 작업** | **235.5(평월)** | |
+| **수집 + 모든 작업** | **234.5(평월)** | 이미지 줄을 뺀 계산(2026-11-26; 그 전 235.5) |
 
 Spark 작업은 옮기지 않는다(§2-2). 지금 그대로 옮긴다면 426 h 를 4 vCPU / 20 GB 로 약 123 을 더한다(크기는 가정).
 **타일 굽기**(양은 ADR-0618 §8 의 것, 단가는 이 표의 것; 필지 전량 굽기 한 번):
@@ -429,7 +433,7 @@ Spark 작업은 옮기지 않는다(§2-2). 지금 그대로 옮긴다면 426 h 
 필지 판은 한 달에 한 번 바뀌므로 평월에 한 번이다. 이 범위는 작업 계산만이다(API·서빙 저장소 제외).
 
 **아직 값이 없는 줄.** 파티션 레인의 관측 run(틱마다, 가장 작은 등급), 타일의 굽기 횟수, 타일의 접두별 입력 읽기(ADR-0618 열린 질문 3), Bronze 원장의 디스크, duckdb 작업의 실제 CPU, 타일 태스크의 공인 IPv4, `tiles` 코드 위치의 이미지 보관, 옛 타일 세대의 R2 보관, "이미 맞는 시도"를 다시 보고할 때 하류가 한 번 도는 run, 원천마다 원장 줄을 옮기는 일, CloudWatch 경보, AWS 주소에서의 경매 시험 한 번.
-그래서 사장에게 묻는 것은 둘로 나뉜다: **지금은 A0~A3(수집, 평월 103.2)**, A4~A6 는 위 줄들을 잰 뒤 다시 항목별로.
+그래서 사장에게 묻는 것은 둘로 나뉜다: **지금은 A0~A3(수집, 평월 103.2; 이미지 줄을 뺀 지금 계산은 102.2)**, A4~A6 는 위 줄들을 잰 뒤 다시 항목별로.
 재지 못하는 양에는 위를 건다: 계정의 Fargate vCPU 할당량, 줄의 `max_concurrent_runs`, 플랫폼의 run 상한 하나([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §3).
 
 ## 열린 질문
@@ -469,7 +473,7 @@ Spark 작업은 옮기지 않는다(§2-2). 지금 그대로 옮긴다면 426 h 
 
 | 구분 | 내용 |
 |---|---|
-| 기본 기능 | `EcsRunLauncher`, `ecs/*` 태그, `PipesSubprocessClient`, 자산·파티션, `ScheduleDefinition`, `AutomationCondition` 과 그 센서의 `run_tags`, `RetryPolicy`, run monitoring 과 run 재시도, last-update 신선도 검사, 자산 검사; ECS·IAM·RDS·ECR·Secrets Manager·CloudWatch |
+| 기본 기능 | `EcsRunLauncher`, `ecs/*` 태그, `PipesSubprocessClient`, 자산·파티션, `ScheduleDefinition`, `AutomationCondition` 과 그 센서의 `run_tags`, `RetryPolicy`, run monitoring 과 run 재시도, last-update 신선도 검사, 자산 검사; ECS·IAM·RDS·Secrets Manager·CloudWatch, GHCR 공개 패키지와 `gh attestation verify` |
 | 임시 | 옮기는 동안 ai-server 에 남는 수집과 그 계층 |
 | 운영 | 정의 → 공장, IaC, 서명된 digest 릴리스, 발행기의 Pipes 메시지 |
 

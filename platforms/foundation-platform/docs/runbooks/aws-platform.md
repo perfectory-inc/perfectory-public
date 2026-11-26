@@ -8,8 +8,9 @@ last_reviewed: 2026-11-26
 # AWS 플랫폼 계정의 바탕 — 예산·상태 버킷·망을 노트북에서 적용한다
 
 [루트 ADR-0619](../../../../docs/adr/0619-the-aws-platform-account-is-one-opentofu-stack-pinned-to-its-account-with-its-budget-first-and-images-from-ghcr.md).
-데이터 작업이 옮겨 갈 계정(루트 ADR-0616, 검토 중)의 바탕이다. `infra/aws/main.tf` 는 `config/aws-platform.contract.json` 만 읽는다.
-값을 바꾸려면 계약을 PR 로 바꾸고, 병합된 main 에서 아래대로 적용한다. 호스트는 이 스택을 적용하지 않는다.
+데이터 작업이 옮겨 갈 계정(루트 ADR-0616, 검토 중)의 바탕이다. 계정·이름·크기·이미지의 자리는 `config/aws-platform.contract.json` 이
+정하고, `infra/aws` 는 그것과 버전 계약(`tools/technology-versions.contract.json`)·호스트와 같은 SQL 파일을 읽는다. 포트·시각 같은 기계적인
+수는 `.tf` 에 있다. 값을 바꾸려면 PR 로 바꾸고, 병합된 main 에서 아래대로 적용한다. 호스트는 이 스택을 적용하지 않는다.
 
 ## 결론
 
@@ -18,7 +19,7 @@ last_reviewed: 2026-11-26
 | 월 예산 `perfectory-platform-monthly`(실제 100·150, 예측 150 USD 를 넘으면 메일) | AWS Budgets | 이 스택. 계정의 첫 자원 |
 | 상태 버킷 `perfectory-platform-tofu-state-091109217099` | S3, 같은 계정 | 이 스택(처음 한 번은 아래 절차) |
 | VPC `perfectory-platform`(/16, 주소 블록은 적용 때 `TF_VAR_vpc_cidr`), 공개 서브넷 둘(태스크), 사설 서브넷 둘(DB), 인터넷 게이트웨이 | VPC, ap-northeast-2a·2c | 이 스택. NAT·ALB 없음. VPC·서브넷은 `prevent_destroy` |
-| Dagster(A1, [루트 ADR-0616](../../../../docs/adr/0616-data-jobs-run-as-dagster-assets-on-aws-ecs-and-the-host-job-layer-is-not-ported.md)): ECS 클러스터 `perfectory-platform`, 늘 켠 서비스 `dagster`(웹서버 + 데몬, Fargate ARM 0.5 vCPU / 2 GB), run 마다 태스크(`EcsRunLauncher`: 레인이 역할을 주지 않으면 정책 없는 기본 run 역할, 동시에 10 개·수집 3·Silver 1 까지) | ECS, 공개 서브넷(들어오는 규칙 없음) | 이 스택(`infra/aws/dagster.tf`). 이미지는 적용 때 `TF_VAR_dagster_image`(릴리스의 `<commit>-aws-code-location` digest). 일은 아직 없다 |
+| Dagster(A1, [루트 ADR-0616](../../../../docs/adr/0616-data-jobs-run-as-dagster-assets-on-aws-ecs-and-the-host-job-layer-is-not-ported.md)): ECS 클러스터 `perfectory-platform`, 늘 켠 서비스 `dagster`(웹서버 + 데몬, Fargate ARM 0.5 vCPU / 2 GB), run 마다 태스크(`EcsRunLauncher`: 레인이 역할을 주지 않으면 정책 없는 기본 run 역할, 동시에 10 개·수집 3·Silver 1 까지) | ECS, 공개 서브넷(들어오는 규칙 없음) | 이 스택(`infra/aws/dagster.tf`). 이미지는 적용할 릴리스 커밋 하나의 확인한 기록에서(아래 '이미지 고르기'). 일은 아직 없다 |
 | Dagster 의 저장소: RDS PostgreSQL 17 `perfectory-platform`(db.t4g.micro, 20 GB 에서 스스로 100 GB 까지, 사설 서브넷만) | RDS. Dagster 와 그 run 은 이 데이터베이스만 가진 역할 `dagster` 로 붙는다(비밀 `perfectory-platform/dagster-database`, 상태 파일에 없다). master 의 비밀은 부트스트랩·마무리 태스크만 읽는다 | 이 스택. 삭제 보호·마지막 스냅숏·`prevent_destroy` |
 | Bronze 원장의 자리(A1b): 같은 인스턴스의 데이터베이스 `foundation`. 데이터 호스트와 같은 스키마(같은 sqlx 마이그레이션), 빈 채로 | RDS. 마이그레이터 `foundation_migrator`(스키마의 주인)와 런타임 역할 `foundation_api`(줄만), 비밀은 각자 (`perfectory-platform/foundation-migrator`·`foundation-runtime`, 상태 파일에 없다) | 이 스택(`infra/aws/foundation-database.tf`). 스키마는 적용이 마이그레이션한다(아래 '배포 전 단계') |
 | 경보 `perfectory-platform-dagster-not-running`(10 분 동안 Dagster 태스크가 없으면)·`perfectory-platform-database-storage-low`(디스크가 늘지 못하고 1 GiB 밑) → SNS `perfectory-platform-alarms` → Slack 채널 하나 | CloudWatch·SNS(ap-northeast-2). 채널 묶음 AWS Chatbot `perfectory-platform-alarms` 는 그 서비스의 제어 리전 us-east-2 | 이 스택(`infra/aws/chatbot.tf`). 저장하는 토큰은 없다. 사장이 Slack 작업 공간을 콘솔에서 한 번 허가한다(아래 'Slack 으로 잇기'). 작업 공간·채널 ID 는 적용 때 `TF_VAR_slack_team_id`·`TF_VAR_slack_channel_id` |
@@ -27,7 +28,9 @@ last_reviewed: 2026-11-26
 
 ## 적용 (병합된 main 에서)
 
-OpenTofu 는 1.13.9(`tools/technology-versions.contract.json` 의 `ghcr.io/opentofu/opentofu:1.13.9` 와 같은 판)다. 작업 디렉터리는 저장소 밖에 둔다.
+OpenTofu 는 버전 계약의 판이다(`tools/technology-versions.contract.json` 의 `ghcr.io/opentofu/opentofu:<판>`; 모든 스택의 `required_version` 이
+그 판이고 `scripts/guard/container-images-match-the-contract.sh` 가 같은지 본다). 노트북의 `tofu` 도 그 판을 설치한다. 작업 디렉터리는 저장소 밖에 둔다.
+`gh` 는 로그인해 있어야 한다(서명 확인).
 
 ```bash
 cd platforms/foundation-platform/infra/aws
@@ -42,15 +45,14 @@ export TF_VAR_budget_alert_emails='["<계정의 등록 주소>"]'
 #    처음 한 번만 사람이 고른다: 우리가 잇는 어떤 망과도 겹치지 않는 RFC 1918 의 /16.
 export TF_VAR_vpc_cidr="$(aws ec2 describe-vpcs --filters Name=tag:Name,Values=perfectory-platform   --query 'Vpcs[0].CidrBlock' --output text)"
 test "$TF_VAR_vpc_cidr" != None   # 처음 적용이면 위 줄 대신 고른 블록을 넣는다
-# 4) 이미지: 돌릴 릴리스 한 커밋의 AWS 코드 위치와 런타임을 digest 로(아래 '이미지 고르기').
-export TF_VAR_dagster_image="ghcr.io/perfectory-inc/foundation-release@${digest[code-location]}"
-export TF_VAR_runtime_image="ghcr.io/perfectory-inc/foundation-release@${digest[runtime]}"
+# 4) 이미지: 돌릴 릴리스 커밋 하나. 그 기록과 모든 이미지의 서명을 확인한 뒤에만 digest 를 적는다(아래 '이미지 고르기').
+python3 ../../../../scripts/deploy/aws-release-images.py <돌릴 main 커밋> --out "$TF_DATA_DIR/release.tfvars.json"
 # 5) 경보의 Slack 작업 공간과 채널: 이은 설정에서 읽어 온다(처음이면 아래 'Slack 으로 잇기').
 chatbot() { aws chatbot describe-slack-channel-configurations --region us-east-2 \
   --query "SlackChannelConfigurations[?ConfigurationName=='perfectory-platform-alarms'] | [0].$1" --output text; }
 export TF_VAR_slack_team_id="$(chatbot SlackTeamId)" TF_VAR_slack_channel_id="$(chatbot SlackChannelId)"
 tofu init -input=false
-tofu plan -input=false -out="$TF_DATA_DIR/plan"
+tofu plan -input=false -var-file="$TF_DATA_DIR/release.tfvars.json" -out="$TF_DATA_DIR/plan"
 tofu apply "$TF_DATA_DIR/plan"
 rm -f "$TF_DATA_DIR/plan"   # 계획 파일에는 변수 값이 든다
 ```
@@ -99,22 +101,14 @@ rm -f "$TF_DATA_DIR/bootstrap.tfstate" "$TF_DATA_DIR/bootstrap.tfstate.backup"
 
 ## 이미지 고르기 (적용마다)
 
-서비스와 그 run 태스크는 릴리스의 AWS 코드 위치 이미지를, 마이그레이션은 같은 릴리스의 AWS 런타임 이미지를 digest 로 돈다(루트 ADR-0620).
-태그 `<commit>-aws-code-location`·`<commit>-aws-runtime` 은 그 커밋의 릴리스 워크플로 `aws-images` 잡이 만들고 서명한다.
-둘은 한 커밋의 것이다. 태그를 digest 로 읽고, 서명을 확인한 digest 만 적용한다.
+서비스와 그 run 태스크는 릴리스의 AWS 코드 위치 이미지를, 마이그레이션은 런타임 이미지를 digest 로 돈다(루트 ADR-0620, ADR-0616 §2-4).
+입력은 릴리스 커밋 하나다. 그 커밋의 릴리스 워크플로 `aws-images` 잡이 모든 이미지의 digest 를 기록(`aws-images.json`)에 적고, 이미지와
+함께 서명하고, `<commit>-aws-images` 로 올린다. `scripts/deploy/aws-release-images.py` 가:
 
-```bash
-commit=<돌릴 main 커밋>
-token="$(curl -s 'https://ghcr.io/token?scope=repository:perfectory-inc/foundation-release:pull' | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')"
-declare -A digest
-for image in code-location runtime; do
-  digest[$image]="$(curl -sI -H "Authorization: Bearer $token" -H 'Accept: application/vnd.oci.image.index.v1+json' \
-    "https://ghcr.io/v2/perfectory-inc/foundation-release/manifests/$commit-aws-$image" \
-    | tr -d '\r' | awk -F': ' 'tolower($1)=="docker-content-digest"{print $2}')"
-  gh attestation verify "oci://ghcr.io/perfectory-inc/foundation-release@${digest[$image]}" --repo perfectory-inc/perfectory-public \
-    --signer-workflow perfectory-inc/perfectory-public/.github/workflows/foundation-release-build.yml
-done
-```
+1. 그 기록을 레지스트리에서 익명으로 읽는다.
+2. 기록과 기록이 적은 모든 이미지를 `gh attestation verify` 로 확인한다: 계약(`images`)의 저장소·워크플로·ref 가 그 커밋에서
+   (`--source-digest`), GitHub 러너에서 서명했는가. 하나라도 아니면 아무것도 적지 않고 멈춘다.
+3. `dagster_image`(코드 위치)와 `runtime_image`(런타임)를 digest 로 `--out` 에 적는다. 스택은 계약의 저장소 밖 이미지를 거부한다.
 
 새 digest 로 적용하면 태스크 정의의 새 개정이 생기고 서비스가 옛 태스크를 멈춘 뒤 새 태스크를 띄운다(데몬은 언제나 하나).
 그 사이 몇 분은 Dagster 가 없다. 일이 들어온 뒤(A2)에는 진행 중인 run 태스크는 그대로 돈다.
@@ -188,7 +182,8 @@ tofu plan -input=false -detailed-exitcode   # 0 이면 코드와 계정이 같�
 - 예산·망: 계약이나 `main.tf` 를 되돌리는 PR 을 병합하고 위의 적용을 한다. 망을 지우는 적용은 그 안에 태스크·DB 가 없을 때만 된다.
 - 상태: 버킷은 버전을 지닌다(지난 판은 90일). 잘못된 적용 뒤의 상태는 그 객체의 앞 판으로 되돌린다.
 - Slack: 채널 묶음을 끊으려면 `infra/aws/chatbot.tf` 를 지우는 PR 을 병합하고 적용한다. 경보는 CloudWatch 에 남는다.
-- Dagster: 앞 릴리스의 코드 위치 digest 로 `TF_VAR_dagster_image` 만 되돌리고 다시 적용한다. `TF_VAR_runtime_image` 는 지금 것 그대로 둔다.
+- Dagster: 코드 위치만 앞 릴리스로 되돌린다. 런타임은 지금 것 그대로 둔다:
+  `aws-release-images.py <앞 릴리스 커밋> --runtime-commit <지금 커밋> --out "$TF_DATA_DIR/release.tfvars.json"`, 그다음 위의 plan → apply.
   마이그레이션은 앞으로만 간다: 앞 릴리스의 migrator 는 자기가 모르는 마이그레이션이 적용된 데이터베이스에서 실패하고, 그러면 배포 전 단계가
   적용을 멈춘다. 스키마를 되돌리는 것은 데이터 호스트처럼 고치는 새 마이그레이션이다.
   서비스를 멈추려면 `desired_count` 를 0 으로 하는 PR 을 병합하고 적용한다.

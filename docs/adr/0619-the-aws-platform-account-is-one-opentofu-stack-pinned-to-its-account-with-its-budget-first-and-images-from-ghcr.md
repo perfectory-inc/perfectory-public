@@ -130,3 +130,17 @@ AWS 에서 도는 이미지(발행기, Dagster 코드 위치)는 `ghcr.io` 의 �
 | 기본 기능 | OpenTofu S3 백엔드(`use_lockfile`), AWS 공급자의 `allowed_account_ids`·`default_tags`, AWS Budgets 메일, VPC·인터넷 게이트웨이, GHCR 공개 패키지 |
 | 임시 | 노트북에서 SSO 역할로 적용(CI 적용의 범위가 정해질 때까지) |
 | 운영 | `infra/aws` 스택과 `config/aws-platform.contract.json`, 런북 `aws-platform.md` |
+
+2026-11-26 개정 주(W107). 결정은 그대로다. 본문이 코드와 다르던 곳:
+
+- 머리말·§1: 스택은 이 계약 말고도 버전 계약(`tools/technology-versions.contract.json`)과 호스트의 SQL 파일을 읽고, 포트·시각 같은
+  기계적인 수는 `.tf` 에 둔다. 머리말의 "§6(GHCR)" 은 §7 이다. ADR-0616 의 이미지 줄은 이제 GHCR 이다.
+- §3: 콘솔에서 하는 일이 하나 있다. 사장이 Slack 작업 공간을 AWS Chatbot 에 한 번 허가한다(ADR-0616 §6, 런북 'Slack 으로 잇기').
+- §4: 비밀의 값은 OpenTofu 가 적용 때 만들어 write-only 로 쓴다(`ephemeral` + `secret_string_wo`). 상태에는 없다. 사람이 넣는 값은
+  Cloudflare 토큰뿐이다(ADR-0623).
+- §5: Slack 으로 가는 길은 정해졌다. AWS Chatbot 이고 저장하는 토큰은 없다(ADR-0616 §6).
+- §7: 두 플랫폼으로 짓는 것은 발행기 색인뿐이다. 코드 위치와 런타임은 linux/arm64 만이다(ADR-0620). 적용은 커밋 하나의 서명된 기록에서
+  digest 를 읽고, 기록과 모든 이미지의 서명을 그 커밋에 대해 확인한다(ADR-0616 §2-4, `scripts/deploy/aws-release-images.py`).
+- OpenTofu 의 판은 버전 계약의 `ghcr.io/opentofu/opentofu` 이고, 모든 스택의 `required_version` 이 그 판이다
+  (`scripts/catalog/sync-container-images.py`). 2026-11-25 이미지가 1.13.10 으로 올랐는데(#1620) 네 스택은 1.13.9 를 요구한 채 남았고,
+  그 이미지는 그 스택들을 거부한다.

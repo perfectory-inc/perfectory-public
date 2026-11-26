@@ -5,11 +5,11 @@
 # given at apply time. Collectors move in from A2, one at a time.
 
 variable "dagster_image" {
-  description = "The release's AWS code-location image by digest (ghcr.io/<owner>/foundation-release@sha256:...), the digest of that release's <commit>-aws-code-location (aws-images.json, signed by the release workflow). The service runs it, and every run task Dagster launches runs it too."
+  description = "The release's AWS code-location image by digest, from the commit's verified record (scripts/deploy/aws-release-images.py writes it). The service runs it, and every run task Dagster launches runs it too."
   type        = string
   validation {
-    condition     = can(regex("^ghcr\\.io/[a-z0-9._-]+/[a-z0-9._-]+@sha256:[0-9a-f]{64}$", var.dagster_image))
-    error_message = "The image is a GHCR reference by digest, never a tag."
+    condition     = startswith(var.dagster_image, "${local.contract.images.repository}@") && can(regex("^sha256:[0-9a-f]{64}$", trimprefix(var.dagster_image, "${local.contract.images.repository}@")))
+    error_message = "The image is the contract's release repository (images.repository) by digest: never a tag, never another repository."
   }
 }
 

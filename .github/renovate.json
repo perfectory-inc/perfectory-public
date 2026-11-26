@@ -75,6 +75,19 @@
       "extractVersionTemplate": "^(?<version>\\d+\\.\\d+\\.\\d+)-scala2\\.12-java17-python3-ubuntu$"
     },
     {
+      "description": "The OpenTofu version every stack requires is the opentofu image's (scripts/catalog/sync-container-images.py checks they are equal), so it moves in the same group branch as the image copies.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^platforms/foundation-platform/infra/[^/]+/main\\.tf$/"
+      ],
+      "matchStrings": [
+        "required_version = \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "depNameTemplate": "ghcr.io/opentofu/opentofu",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
       "description": "Every copy of a pinned image reference, the same pattern scripts/catalog/sync-container-images.py checks against the contract.",
       "customType": "regex",
       "managerFilePatterns": ["/.*/"],

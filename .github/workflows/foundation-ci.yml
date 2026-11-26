@@ -120,8 +120,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}
-          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-
       # scripts/ci/apt-install.sh keeps the .deb files it had to download here; a hit installs this
       # job's packages with no network (the 2026-11-11 Ubuntu mirror outage).
       - name: Restore apt package cache
@@ -274,8 +274,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}
-          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-
       # scripts/ci/apt-install.sh keeps the .deb files it had to download here; a hit installs this
       # job's packages with no network (the 2026-11-11 Ubuntu mirror outage).
       - name: Restore apt package cache
@@ -400,8 +400,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}
-          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-
       # main fills and saves the Windows cache of pinned release binaries this job restores
       # (root ADR-0197; the Linux cache is filled by the repository guard). A key that already
       # exists is left alone (the save warns and succeeds), so this writes once per pin set.
@@ -415,7 +415,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}-${{ hashFiles('tools/pinned-artifacts.json', 'tools/*.env', 'platforms/foundation-platform/config/static-release-toolchain.contract.json', 'platforms/foundation-platform/infra/lakehouse/contracts/duckdb-extensions.contract.json') }}
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/pinned-artifacts.json', 'tools/*.env', 'platforms/foundation-platform/config/static-release-toolchain.contract.json', 'platforms/foundation-platform/infra/lakehouse/contracts/duckdb-extensions.contract.json') }}
 
       - name: Select Windows static-release toolchain gate
         working-directory: ${{ github.workspace }}
@@ -489,8 +489,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}
-          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Set up Rust
         working-directory: ${{ github.workspace }}
@@ -1016,8 +1016,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}
-          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-
       - name: Set up sccache
         working-directory: ${{ runner.temp }}
         shell: bash
@@ -1186,8 +1186,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}
-          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-
       # The engine's Spark packages (Iceberg, Hadoop's S3 layer, Sedona: 508 MB of jars) are Ivy's cache,
       # saved from main and keyed by the engine contract: scripts/ci/spark-packages.sh then resolves them
       # with no network. 2026-11-19: Maven Central refused the runners, Ivy reported "module not found",

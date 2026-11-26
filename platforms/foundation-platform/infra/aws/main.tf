@@ -1,8 +1,10 @@
 # The base of the AWS platform account (root ADR-0619), where the data jobs move (root ADR-0616): the
 # account's monthly budget, the state bucket this stack keeps its state in, and the network the tasks
-# and the database will sit in; Dagster's place (root ADR-0616 A1) is dagster.tf. Every value is read
-# from config/aws-platform.contract.json; nothing is copied here. The provider refuses every account
-# but the contract's, so an apply under the wrong profile stops before it reads or changes anything.
+# and the database will sit in; Dagster's place (root ADR-0616 A1) is dagster.tf. The account, the names,
+# the sizes and where the images come from are config/aws-platform.contract.json's; the stack also reads
+# the version contract and the host's own SQL files, and keeps mechanical constants (ports, timings) in
+# its .tf files. The provider refuses every account but the contract's, so an apply under the wrong
+# profile stops before it reads or changes anything.
 # Applied from the laptop with the SSO profile after the PR merges (docs/runbooks/aws-platform.md);
 # no host applies it.
 
@@ -11,7 +13,7 @@ locals {
 }
 
 terraform {
-  required_version = "1.13.9"
+  required_version = "1.13.10"
   required_providers {
     aws = {
       source  = "hashicorp/aws"

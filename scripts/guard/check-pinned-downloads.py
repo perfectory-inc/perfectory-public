@@ -25,8 +25,8 @@ RESTORE_STEP = (
     "        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0\n"
     "        with:\n"
     f"          path: {CACHE_PATH}\n"
-    "          key: pinned-release-binaries-v1-${{ runner.os }}\n"
-    "          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-\n"
+    "          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}\n"
+    "          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-\n"
 )
 XTASK_ENTRY = "cargo xtask verify"
 SCRIPT_SUFFIXES = (".sh", ".py", ".rs", ".ps1")

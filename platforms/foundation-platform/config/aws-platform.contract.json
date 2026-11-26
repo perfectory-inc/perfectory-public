@@ -1,5 +1,5 @@
 {
-  "$comment": "Root ADR-0619. The base of the AWS account the data jobs move to (root ADR-0616): which account, which region, the tags every resource carries, the state bucket, the account's monthly budget, the network, and Dagster's place: its cluster, service, database and alarm (root ADR-0616 A1). infra/aws/main.tf reads this file and nothing else decides these values; the provider refuses every other account (allowed_account_ids), so an apply under the wrong profile stops before it reads or changes anything. Applied from the laptop with the SSO profile after the PR merges (docs/runbooks/aws-platform.md); nothing applies it on the data host.",
+  "$comment": "Root ADR-0619. The base of the AWS account the data jobs move to (root ADR-0616): which account, which region, the tags every resource carries, the state bucket, the account's monthly budget, the network, and Dagster's place: its cluster, service, database and alarm (root ADR-0616 A1). infra/aws reads this file for the account, the names, the sizes and where its images come from (it also reads the version contract and the host's SQL files, and keeps mechanical constants such as ports and timings in its .tf files); the provider refuses every other account (allowed_account_ids), so an apply under the wrong profile stops before it reads or changes anything. Applied from the laptop with the SSO profile after the PR merges (docs/runbooks/aws-platform.md); nothing applies it on the data host.",
   "schema_version": "foundation-platform.aws_platform.v1",
   "decision": "docs/adr/0619-the-aws-platform-account-is-one-opentofu-stack-pinned-to-its-account-with-its-budget-first-and-images-from-ghcr.md",
   "account": {
@@ -8,6 +8,14 @@
     "reason": "The organization's platform account (made 2026-11-09 for the Seoul front door, root ADR-0461). The management account and the old gongzzang production account are never targets: they are not listed here, so the provider refuses them."
   },
   "region": "ap-northeast-2",
+  "images": {
+    "repository": "ghcr.io/perfectory-inc/foundation-release",
+    "source_repository": "perfectory-inc/perfectory-public",
+    "signer_workflow": ".github/workflows/foundation-release-build.yml",
+    "source_ref": "refs/heads/main",
+    "record_tag": "<commit>-aws-images",
+    "reason": "Where the images AWS runs come from (root ADR-0619 §7, ADR-0620, ADR-0616 §2-4): the release package on GHCR, by digest. The release workflow's aws-images job writes one record per commit (aws-images.json: every image's digest), attests it with the images and publishes it under record_tag. An apply takes one commit: scripts/deploy/aws-release-images.py reads its record and verifies the record and every image it names against this repository, this workflow, this ref and that commit (gh attestation verify) before it writes a digest; infra/aws refuses an image outside this repository."
+  },
   "tags": {
     "project": "perfectory-platform",
     "managed-by": "opentofu",
