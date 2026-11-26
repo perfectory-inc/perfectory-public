@@ -5,7 +5,6 @@ locals {
   collect          = local.contract.collect
   project          = local.contract.tags.project
   vendor_name      = "${local.project}-r2-vend"
-  run_role_path    = "/${local.project}/run/"
   lakehouse_bucket = jsondecode(file("${path.module}/../../config/r2-connections.contract.json")).connections.lakehouse.expected_values.FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET
   vendor_lanes     = { for id, lane in local.collect.lanes : id => { write_prefixes = lane.write_prefixes, read_tables = lane.read_tables } }
 }
@@ -108,12 +107,12 @@ resource "aws_lambda_alias" "lane" {
   function_version = aws_lambda_function.r2_vend.version
 }
 
-# A lane's run role, under the run path the launcher passes (B1): it may invoke its own alias and read the
+# A lane's run role, under the contract's run path, the only one Dagster may pass (dagster.tf): it may invoke its own alias and read the
 # foundation database's runtime secret, nothing else. Its R2 rights are the vendor's credentials'.
 resource "aws_iam_role" "lane" {
   for_each           = local.collect.lanes
   name               = "${local.project}-${each.value.role}"
-  path               = local.run_role_path
+  path               = local.contract.ecs.run_role_path
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
 }
 
