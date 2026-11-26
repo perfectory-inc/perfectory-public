@@ -86,8 +86,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}
-          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-
       # The engine's Spark packages (Iceberg, Hadoop's S3 layer, Sedona: 508 MB of jars) are Ivy's cache,
       # saved from main and keyed by the engine contract: scripts/ci/spark-packages.sh then resolves them
       # with no network. 2026-11-19: Maven Central refused the runners, Ivy reported "module not found",
@@ -160,9 +160,9 @@ jobs:
         run: bash scripts/ci/release-build-runner-room.sh
       - name: Install skopeo
         run: bash "$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" skopeo
-      # The linux-aarch64 extension files are pinned downloads too, from this runner's own cache: its key
-      # names the architecture, because runner.os is Linux on both runners and the x86 cache holds no
-      # aarch64 file (root ADR-0559 §6). This job fills and saves it on main, below.
+      # The linux-aarch64 extension files are pinned downloads too, from this runner's own cache: every
+      # pinned cache's key names the architecture, because runner.os is Linux on both runners and the x86
+      # cache holds no aarch64 file (root ADR-0559 §6). This job saves what it fetched on main, below.
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -189,9 +189,8 @@ jobs:
         run: python3 scripts/deploy/aws-images-build.py --publish-record --out "$RUNNER_TEMP/aws" --repository "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release"
       - name: Report what was built
         run: cat "$RUNNER_TEMP/aws/aws-images.json" >>"$GITHUB_STEP_SUMMARY"
-      - name: Fill pinned release binaries
-        if: github.event_name == 'push' || github.event_name == 'schedule'
-        run: python3 scripts/ci/fetch_pinned.py prefetch --prune
+      # Only the files this job fetched (the aarch64 extension files), not every aarch64 pin: the pinned
+      # family's cache budget (tools/ci/actions-cache-budget.contract.json) has no room for a second full set.
       - name: Save pinned release binaries
         if: github.event_name == 'push' || github.event_name == 'schedule'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

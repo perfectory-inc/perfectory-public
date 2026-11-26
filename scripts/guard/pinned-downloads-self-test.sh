@@ -67,7 +67,7 @@ sed -i '/Restore pinned release binaries/,/restore-keys:/d' "$fixture/repo/.gith
 expect_refused "a job that downloads without restoring the cache" "without first restoring"
 
 make_fixture
-sed -i 's/pinned-release-binaries-v1-\${{ runner.os }}-$/pinned-release-binaries-v2-/' \
+sed -i 's/pinned-release-binaries-v1-\${{ runner.os }}-\${{ runner.arch }}-$/pinned-release-binaries-v2-/' \
   "$fixture/repo/.github/workflows/demo.yml"
 expect_refused "a restore step with a drifted key" "differs from the one restore step"
 

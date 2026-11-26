@@ -54,8 +54,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}
-          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-
       # main and the daily run fill and save the cache every job that downloads a pinned release
       # binary restores (root ADR-0197); pull requests and merge groups only read it, so a cold
       # runner meeting one 5xx from the release CDN no longer fails a pull request. The fetcher
@@ -70,7 +70,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/perfectory/pinned
-          key: pinned-release-binaries-v1-${{ runner.os }}-${{ hashFiles('tools/pinned-artifacts.json', 'tools/*.env', 'platforms/foundation-platform/config/static-release-toolchain.contract.json', 'platforms/foundation-platform/infra/lakehouse/contracts/duckdb-extensions.contract.json') }}
+          key: pinned-release-binaries-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('tools/pinned-artifacts.json', 'tools/*.env', 'platforms/foundation-platform/config/static-release-toolchain.contract.json', 'platforms/foundation-platform/infra/lakehouse/contracts/duckdb-extensions.contract.json') }}
       - name: Set up Rust
         working-directory: ${{ github.workspace }}
         shell: bash

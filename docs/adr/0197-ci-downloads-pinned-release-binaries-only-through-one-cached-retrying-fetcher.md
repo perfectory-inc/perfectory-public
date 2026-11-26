@@ -85,3 +85,5 @@ cargo-chef, RAON 에이전트 `.deb`)도 CI 잡이 아니므로 여기서 다루
 - `scripts/ci/install-cargo-deny.sh` → `cargo xtask ci install-cargo-deny`(`tools/xtask/src/ci.rs`, #798)
 
 2026-11-06: 릴리스 자산 URL(`releases/download`)을 고정 내려받기 밖에서 쓰지 않는다는 검사는 `scripts/guard/check-pinned-downloads.py` 에서 Semgrep 규칙 `tools/semgrep/rules/pinned-downloads.yml`(고정 Opengrep 엔진, 가드 `scripts/guard/semgrep-rules.sh`)로 옮겼다. 내려받는 작업이 먼저 캐시를 복원하는지는 워크플로 작업 구조의 성질이라 그 파이썬 가드에 남는다. 결정은 그대로다.
+
+2026-11-26(W107): 캐시의 키는 아키텍처도 이름한다: `pinned-release-binaries-v1-<OS>-<아키텍처>-<핀 파일 해시>`(복원은 `…-<OS>-<아키텍처>-` 접두). 릴리스 워크플로의 arm 잡(`aws-images`, 루트 ADR-0620)이 `runner.os` 가 같은 `Linux` 라 x86 캐시를 받아 그 안에 없는 aarch64 파일을 run 마다 망에서 받았다. 그 잡은 제가 받은 파일만 main 에서 저장한다(모든 aarch64 핀을 채우지 않는다). 결정은 그대로다.
