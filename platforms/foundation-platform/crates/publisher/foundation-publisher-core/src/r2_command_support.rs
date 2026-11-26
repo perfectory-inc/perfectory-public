@@ -134,6 +134,7 @@ fn r2_config_from_env_file_with_credentials(
             .unwrap_or_else(|| "auto".to_owned()),
         access_key_id: required_value_from_dotenv_or_env(&values, access_key_env)?,
         secret_access_key: required_value_from_dotenv_or_env(&values, secret_key_env)?,
+        session_token: None,
         namespace: R2KeyNamespace::from_env()?,
     })
 }
