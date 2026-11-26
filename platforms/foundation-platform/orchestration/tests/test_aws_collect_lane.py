@@ -75,8 +75,9 @@ class TheLaneCarriesNoTimeNumber(unittest.TestCase):
     def test_its_run_carries_its_own_role_under_the_run_path_and_the_platform_ceiling(self):
         tags = collect_lane.run_tags(self.platform, JOB, self.lane)
         role = json.loads(tags["ecs/task_overrides"])["taskRoleArn"]
-        self.assertEqual(role, f"arn:aws:iam::{self.platform['account']['id']}:role/perfectory-platform/run/"
+        self.assertEqual(role, f"arn:aws:iam::{self.platform['account']['id']}:role{self.platform['ecs']['run_role_path']}"
                                f"perfectory-platform-{self.lane['role']}")
+        self.assertEqual(role, f"arn:aws:iam::091109217099:role/perfectory-platform/run/perfectory-platform-{self.lane['role']}")
         self.assertEqual(tags["dagster/max_runtime"], "86400")
         self.assertEqual((tags[collect_lane.KIND_TAG], tags[collect_lane.LANE_TAG]), ("collect", JOB))
         size = self.platform["collect"]["size_classes"][self.lane["size"]]

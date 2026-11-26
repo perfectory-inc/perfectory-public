@@ -66,9 +66,9 @@ def vendor_function(platform):
 
 
 def lane_role_arn(platform, lane):
-    """The lane's run role, under the run path the launcher passes (infra/aws/collect.tf)."""
+    """The lane's run role, under the contract's run path, the only one Dagster may pass (infra/aws/collect.tf)."""
     project = platform["tags"]["project"]
-    return f"arn:aws:iam::{platform['account']['id']}:role/{project}/run/{project}-{lane['role']}"
+    return f"arn:aws:iam::{platform['account']['id']}:role{platform['ecs']['run_role_path']}{project}-{lane['role']}"
 
 
 def run_tags(platform, job_id, lane):
