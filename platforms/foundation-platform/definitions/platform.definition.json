@@ -112,6 +112,10 @@
           "mode": "0755"
         },
         {
+          "path": "/var/lib/foundation-platform/industrial-complex-canonical",
+          "mode": "0755"
+        },
+        {
           "path": "/var/lib/foundation-platform/industrial-complex-edge",
           "mode": "0755"
         },
