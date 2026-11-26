@@ -111,6 +111,18 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
      역할로 붙고, 그 역할은 제 비밀을 갖는다. 비밀번호는 적용 때 만들어 write-only 로 쓴다. master 의 비밀은 그 역할을 만드는
      일회성 부트스트랩 태스크의 실행 역할만 읽는다(`infra/aws/database-bootstrap.sql`). `orchestration/tests/test_aws_dagster_secrets.py`
      가 다른 곳에서 master 비밀을 이름 대면 실패한다.
+   - 레이크하우스에 닿는 길은 하나다: 자격 발급 함수(코디네이터 결정 2026-11-26, 안 B). Lake Formation·Unity Catalog 처럼 범위를 정한
+     자격을 나눠 주는 표준 방식이다. 함수 `perfectory-platform-r2-vend` 만 Cloudflare 토큰 둘(민팅, 카탈로그 읽기)을 읽는다.
+     일은 제 레인 이름으로 그 함수를 부를 수만 있다. 함수는 계약의 그 레인 범위로 다음을 돌려준다.
+     - 쓰기 임시 자격: 그 레인의 쓰기 접두사, 시간 한도 + 여유.
+     - 읽는 표마다 현재 스냅숏: `metadata_location`·manifest list·snapshot id·시각.
+     - 읽기 임시 자격: 그 표들의 위치만.
+     그래서 어느 일도 카탈로그 토큰을 지니지 않는다. 그 토큰은 버킷 전체를 읽는다: R2 Data Catalog 는 버킷 단위 저장소 권한을
+     요구한다. 제 레인이 아니면 법원경매 Bronze 를 읽을 수 없다.
+     발행기는 그것을 카탈로그 제공자 `vended`(`FOUNDATION_PLATFORM_LAKEHOUSE_VENDED_TABLES`)로 읽는다. 손으로 쓴 독자는 manifest list 로,
+     A4·A5 의 DuckDB 단계는 같은 발급의 `metadata_location` 을 `iceberg_scan` 으로 읽는다. 그때는 읽기 임시 자격을 S3 비밀로 쓰고,
+     카탈로그를 READ_ONLY 로 ATTACH 하지 않는다. AWS 에는 이것 밖의 레이크하우스 접근 길을 두지 않는다.
+     천장: 오케스트레이터가 뚫리면 어느 레인의 이름으로든 함수를 부를 수 있다. 닿는 것은 레인 범위들의 합이고, 버킷도 토큰도 아니다.
 9. **크기를 run 에 싣는 길.** 선언형 자동화가 만든 run 의 태그는 그 자동화 센서의 `run_tags` 에서 온다
    (`AutomationConditionSensorDefinition(target=…, run_tags=…)`, 1.13.27 에서 확인). 그래서 크기는 작업마다의 수가 아니라 **크기 등급**이다:
    등급마다 센서 하나가 그 등급의 자산을 고르고 `ecs/cpu`·`ecs/memory`·`ecs/ephemeral_storage`·역할(8)을 싣는다. 예약으로 도는 job 은 job 의 태그다.

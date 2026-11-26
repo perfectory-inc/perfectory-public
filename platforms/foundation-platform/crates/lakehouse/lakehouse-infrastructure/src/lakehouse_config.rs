@@ -15,6 +15,10 @@ const TOKEN_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN";
 /// The read-only catalog token (`foundation-platform-lakehouse-catalog-reader-prod`, root ADR-0247).
 const READER_TOKEN_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN";
 
+/// With the `vended` provider, the snapshots a credential vendor resolved for this run (root
+/// ADR-0616 A2): a JSON object `{table: {snapshot_id, snapshot_timestamp_ms, manifest_list_location,
+/// metadata_location} | null}` that stands for the catalog, so the run holds no catalog token.
+const VENDED_TABLES_ENV: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_VENDED_TABLES";
 /// Default read-only Iceberg table used by live lakehouse smoke tests.
 pub const DEFAULT_LAKEHOUSE_SMOKE_TABLE: &str = "silver.industrial_complexes";
 
@@ -25,6 +29,11 @@ pub enum LakehouseCatalogProvider {
     R2DataCatalog,
     /// Generic Apache Iceberg REST catalog.
     IcebergRest,
+    /// The current snapshots a credential vendor resolved for this run (root ADR-0616 A2). No catalog
+    /// is reached and no catalog token is held: the run's own tables' current snapshots answer, every
+    /// other call is refused. The vendor's tables are read with its read-only credentials, scoped to
+    /// those tables' locations.
+    Vended,
 }
 
 impl LakehouseCatalogProvider {
@@ -36,6 +45,7 @@ impl LakehouseCatalogProvider {
         match raw {
             "r2_data_catalog" => Ok(Self::R2DataCatalog),
             "iceberg_rest" => Ok(Self::IcebergRest),
+            "vended" => Ok(Self::Vended),
             other => Err(LakehouseCatalogConfigError::UnknownProvider(
                 other.to_owned(),
             )),
@@ -48,6 +58,7 @@ impl LakehouseCatalogProvider {
         match self {
             Self::R2DataCatalog => "r2_data_catalog",
             Self::IcebergRest => "iceberg_rest",
+            Self::Vended => "vended",
         }
     }
 }
@@ -63,6 +74,24 @@ pub struct LakehouseCatalogConfig {
     pub warehouse: String,
     /// Optional bearer token or provider token used by the infra adapter.
     pub catalog_token: Option<String>,
+    /// With the `vended` provider, each table's current snapshot as the vendor resolved it (`None`
+    /// for a table with no current snapshot); `None` with every other provider.
+    pub vended_tables: Option<BTreeMap<String, Option<VendedSnapshot>>>,
+}
+
+/// One table's current snapshot as a credential vendor resolved it (root ADR-0616 A2). A `DuckDB`
+/// stage reads the table from `metadata_location` (`iceberg_scan`), the hand-written reader from
+/// `manifest_list_location`.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
+pub struct VendedSnapshot {
+    /// The table's current snapshot.
+    pub snapshot_id: i64,
+    /// The snapshot's `timestamp-ms`.
+    pub snapshot_timestamp_ms: i64,
+    /// Storage location of the snapshot's manifest list.
+    pub manifest_list_location: String,
+    /// Storage location of the table metadata document the snapshot was read from.
+    pub metadata_location: String,
 }
 
 impl LakehouseCatalogConfig {
@@ -86,7 +115,10 @@ impl LakehouseCatalogConfig {
         Requirement::Required(CATALOG_URI_ENV),
         Requirement::Required(WAREHOUSE_ENV),
         Requirement::Optional(READER_TOKEN_ENV),
+        Requirement::Optional(VENDED_TABLES_ENV),
     ];
+    /// With the `vended` provider, the vendor's tables (root ADR-0616 A2).
+    pub const VENDED_TABLES_ENV: &'static str = VENDED_TABLES_ENV;
 
     /// Reads lakehouse catalog settings from process environment variables.
     ///
@@ -129,16 +161,26 @@ impl LakehouseCatalogConfig {
         vars: &BTreeMap<String, String>,
         token_env: &'static str,
     ) -> Result<Self, LakehouseCatalogConfigError> {
-        let provider = required_env(vars, PROVIDER_ENV)?;
+        let provider = LakehouseCatalogProvider::from_wire(required_env(vars, PROVIDER_ENV)?)?;
         let catalog_uri = required_env(vars, CATALOG_URI_ENV)?;
         let warehouse = required_env(vars, WAREHOUSE_ENV)?;
-        let catalog_token = optional_env(vars, token_env);
+        // The vended provider holds no token, whatever the process holds: it never asks the catalog.
+        let (catalog_token, vended_tables) = if provider == LakehouseCatalogProvider::Vended {
+            let tables =
+                serde_json::from_str(required_env(vars, VENDED_TABLES_ENV)?).map_err(|error| {
+                    LakehouseCatalogConfigError::InvalidVendedTables(error.to_string())
+                })?;
+            (None, Some(tables))
+        } else {
+            (optional_env(vars, token_env), None)
+        };
 
         Ok(Self {
-            provider: LakehouseCatalogProvider::from_wire(provider)?,
+            provider,
             catalog_uri: catalog_uri.to_owned(),
             warehouse: warehouse.to_owned(),
             catalog_token,
+            vended_tables,
         })
     }
 }
@@ -156,6 +198,10 @@ impl std::fmt::Debug for LakehouseCatalogConfig {
             .field("catalog_uri", &self.catalog_uri)
             .field("warehouse", &self.warehouse)
             .field("catalog_token", &token)
+            .field(
+                "vended_tables",
+                &self.vended_tables.as_ref().map(BTreeMap::len),
+            )
             .finish()
     }
 }
@@ -171,6 +217,9 @@ pub enum LakehouseCatalogConfigError {
     #[error("unknown lakehouse catalog provider: {0}")]
     UnknownProvider(String),
 
+    /// The vendor's tables are not the JSON object the `vended` provider reads.
+    #[error("FOUNDATION_PLATFORM_LAKEHOUSE_VENDED_TABLES is not the vended tables object: {0}")]
+    InvalidVendedTables(String),
     /// A live smoke table name is ambiguous or unsafe.
     #[error("invalid lakehouse smoke table name: {0}")]
     InvalidSmokeTableName(String),

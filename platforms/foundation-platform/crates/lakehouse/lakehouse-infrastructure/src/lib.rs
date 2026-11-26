@@ -35,6 +35,7 @@ pub use iceberg_rest_catalog::{
 pub use lakehouse_batch_audit::{PgLakehouseBatchRunAudit, PgLakehouseBatchRunRepository};
 pub use lakehouse_config::{
     live_lakehouse_smoke_enabled, validate_lakehouse_smoke_table_name, LakehouseCatalogConfig,
-    LakehouseCatalogConfigError, LakehouseCatalogProvider, DEFAULT_LAKEHOUSE_SMOKE_TABLE,
+    LakehouseCatalogConfigError, LakehouseCatalogProvider, VendedSnapshot,
+    DEFAULT_LAKEHOUSE_SMOKE_TABLE,
 };
 pub use lakehouse_registry::{PgLakehouseRegistryRepository, PgLakehouseRegistryUnitOfWork};

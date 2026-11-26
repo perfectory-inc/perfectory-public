@@ -17,6 +17,7 @@ fn config(server: &MockServer) -> LakehouseCatalogConfig {
         catalog_uri: server.uri(),
         warehouse: "foundation-platform".to_owned(),
         catalog_token: Some("secret-token".to_owned()),
+        vended_tables: None,
     }
 }
 
@@ -26,6 +27,7 @@ fn config_with_uri(catalog_uri: String) -> LakehouseCatalogConfig {
         catalog_uri,
         warehouse: "foundation-platform".to_owned(),
         catalog_token: Some("secret-token".to_owned()),
+        vended_tables: None,
     }
 }
 

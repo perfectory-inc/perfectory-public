@@ -19,7 +19,7 @@ use lakehouse_domain::{LakehouseError, LakehouseTableContract};
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use crate::lakehouse_config::{LakehouseCatalogConfig, LakehouseCatalogProvider};
+use crate::lakehouse_config::{LakehouseCatalogConfig, LakehouseCatalogProvider, VendedSnapshot};
 use outbound_http_infrastructure::RequestCircuitBreaker;
 use outbound_http_infrastructure::{
     classify_response, execute_retryable, redact_transport_error, shared_http_client, AttemptError,
@@ -265,6 +265,13 @@ impl IcebergRestCatalog {
     }
 
     async fn catalog_prefix(&self) -> Result<String, LakehouseError> {
+        // Every catalog request is built on the prefix: the vended provider asks none.
+        if self.config.provider == LakehouseCatalogProvider::Vended {
+            return Err(LakehouseError::Upstream(
+                "the vended catalog answers only the current snapshots of its run's tables; this call needs the catalog"
+                    .to_owned(),
+            ));
+        }
         if let Some(prefix) = self.catalog_prefix.get() {
             return Ok(prefix.clone());
         }
@@ -409,6 +416,9 @@ impl IcebergRestCatalog {
         &self,
         table_name: &str,
     ) -> Result<Option<IcebergSnapshotManifestList>, LakehouseError> {
+        if let Some(tables) = &self.config.vended_tables {
+            return vended_current_snapshot(tables, table_name);
+        }
         let Some(payload) = self.load_table_response(table_name).await? else {
             return Ok(None);
         };
@@ -1352,6 +1362,24 @@ fn manifest_list_of(
         manifest_list_location,
         metadata_location: payload.metadata_location,
     })
+}
+
+/// The current snapshot the vendor resolved for `table_name`: none when the table had no current
+/// snapshot, an error for a table the run was not given (root ADR-0616 A2).
+fn vended_current_snapshot(
+    tables: &BTreeMap<String, Option<VendedSnapshot>>,
+    table_name: &str,
+) -> Result<Option<IcebergSnapshotManifestList>, LakehouseError> {
+    let vended = tables.get(table_name).ok_or_else(|| {
+        LakehouseError::Upstream(format!("{table_name} was not vended for this run"))
+    })?;
+    Ok(vended.as_ref().map(|snapshot| IcebergSnapshotManifestList {
+        table_name: table_name.to_owned(),
+        snapshot_id: snapshot.snapshot_id,
+        snapshot_timestamp_ms: snapshot.snapshot_timestamp_ms,
+        manifest_list_location: snapshot.manifest_list_location.clone(),
+        metadata_location: snapshot.metadata_location.clone(),
+    }))
 }
 
 /// The snapshot `main` names: its reference, or the current snapshot of metadata that carries no

@@ -171,6 +171,7 @@ pub fn lakehouse_catalog_config_from_env_file(
             &values,
             "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN",
         )?,
+        vended_tables: None,
     })
 }
 
