@@ -89,7 +89,8 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
    코드 위치를 따로 둔다: `data`(발행기)와 `tiles`(발행기 + GDAL + tippecanoe, ADR-0618). 이쪽도 run 태스크가 일을 하고 `ecs/*` 태그가 그대로 든다.
    둘째 태스크(`PipesECSClient`)는 쓰지 않는다. **Spark 작업은 목표에 없다**: AWS 로 가는 것은 DuckDB 로 새로 지은 레인뿐이다.
    ai-server 의 Spark 작업은 그 레인이 넘어가면 꺼지고, 넘어갈 레인이 없는 것은 사장·코디네이터가 끄라고 할 때 꺼진다(열린 질문 2).
-3. **권한은 IAM 이다.** Dagster 의 태스크 역할은 `ecs:RunTask`(정해진 태스크 정의 계열), `iam:PassRole`(정해진 역할), 로그 읽기만 갖는다.
+3. **권한은 IAM 이다.** Dagster 의 태스크 역할은 `ecs:RunTask`(run 의 태스크 정의 계열만)와 그 정의의 등록, `iam:PassRole`(계약의 run 경로
+   `ecs.run_role_path` 아래 역할만, 제 역할은 거기 없다), 실패한 run 의 로그 읽기(run 계열의 줄만), ECS Exec 를 갖는다. 어느 run 도 이 역할을 갖지 않는다(8).
    일의 역할은 레인마다 하나이고 레이크하우스 자격은 발급 창구로만 받는다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §2). 강제 명령·SSH 키·`start-scheduled-job.sh`·호스트 허가가 하던 일이다.
 4. **릴리스 = 이미지 digest.** 릴리스 디렉터리와 `admitted-writer-runtime.sh` 가 하던 확인은 "서명된 digest 만 ECR 에 올리고, 태스크 정의는
    digest 를 가리킨다"가 대신한다. 배포는 태스크 정의의 새 개정과 서비스 갱신, 코드 위치 다시 읽기다. 스키마 마이그레이션은 그 전에 도는 태스크 하나다.
@@ -99,13 +100,17 @@ Dagster 자신: 웹서버 222 MiB, 데몬 255 MiB, 읽기 전용 웹서버 210 M
 7. **태스크가 죽으면.** run 태스크가 일을 하므로, Spot 중단이나 메모리 초과는 재시도 정책을 쥔 프로세스를 죽인다. 살리는 것은 Dagster 의
    run monitoring(실행기가 태스크의 건강을 묻는다: `launcher.py` `check_run_worker_health`)과 **죽은 run 에 한한** run 재시도다
    (ADR-0565 §3·§9 의 `retry_on_asset_or_op_failure: false` 그대로). 재시도의 표는 §4 에 하나 있다.
-8. **작업마다의 역할과 비밀.** run 태스크는 Dagster 서비스 태스크에서 복제되므로, 그대로면 일이 Dagster 의 역할과 비밀을 물려받는다. 그러지 않는다:
+8. **작업마다의 역할과 비밀.** run 태스크는 서비스의 복제가 아니다. 실행기는 run 의 태스크 정의를 인스턴스 설정(`dagster.yaml` 의
+   `run_launcher.task_definition`)으로 등록한다(dagster-aws 0.29.27: 그 매핑이 있으면 지금 태스크를 복제하지 않는다). 그 태스크 역할은 정책이
+   없는 기본 run 역할이라, 레인이 제 역할을 주지 않은 run 은 아무것에도 닿지 않는다(닫힌 쪽으로 실패). run 이 가질 수 있는 역할(기본 역할,
+   run 의 실행 역할, 레인마다의 역할)은 모두 계약의 run 경로 아래에 있다. 2026-11-26 까지는 복제였고, 그래서 모든 run 이 Dagster 의 역할
+   (태스크 정의의 등록·시작·멈춤, 역할 넘기기, ECS Exec)을 가졌다(W107 검토). 그 위에서:
    - 역할: run 의 태그 `ecs/task_overrides` 가 `{"taskRoleArn": …}` 을 싣는다(`launcher.py:636`). 역할은 레인마다 하나다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §2-2).
    - 비밀: 태스크 정의에 싣지 않는다. 레이크하우스 자격은 발급 창구만 준다([ADR-0623](./0623-an-aws-job-starts-by-condition-reaches-the-lakehouse-through-short-credentials-vended-per-lane-and-has-no-time-number-of-its-own.md) §2). 원천의 비밀은 일의 진입점이 제 역할로
      Secrets Manager 에서 읽는다. Dagster 서비스의 역할은 어느 것도 읽지 못한다.
    - Dagster 서비스 자신의 DB 비밀번호는 일의 비밀이 아니다(코디네이터 결정 2026-11-25, A1). 서비스의 태스크 정의는 그 비밀의 ARN 만
-     `secrets` 의 `valueFrom` 으로 든다. 값은 정의에도 상태 파일에도 없다. run 태스크는 그것을 물려받는다. 실행기가 데몬의 컨테이너
-     정의를 복제하고, run 의 프로세스가 사건을 그 DB 에 쓰기 때문이다.
+     `secrets` 의 `valueFrom` 으로 든다. 값은 정의에도 상태 파일에도 없다. run 의 태스크 정의도 같은 ARN 을 든다(인스턴스 설정의 `secrets`):
+     run 의 프로세스가 사건을 그 DB 에 쓰기 때문이다. 그것을 넣는 run 의 실행 역할은 이 비밀과 run 계열의 로그 줄만 쓴다.
    - 그래서 그 비밀은 RDS 의 master 사용자의 것이 아니다(최소 권한, 코디네이터 결정 2026-11-25). Dagster 는 제 데이터베이스만 가진
      역할로 붙고, 그 역할은 제 비밀을 갖는다. 비밀번호는 적용 때 만들어 write-only 로 쓴다. master 의 비밀은 그 역할을 만드는
      일회성 부트스트랩 태스크의 실행 역할만 읽는다(`infra/aws/database-bootstrap.sql`). `orchestration/tests/test_aws_dagster_secrets.py`
@@ -253,7 +258,9 @@ W101 의 시제품이 센 121,608 은 키로 줄이기 전의 물건 수다: 검
 
 - 메모리는 태스크의 크기다. 한 작업이 넘으면 그 태스크만 죽는다. 호스트 예산·메모리 claim·`every-container-has-a-memory-cap` 의 작업 부분은 없다.
 - 풀은 남의 한계에만 쓴다. `spark 1`·`duckdb 2` 같은 "기계가 작아서"의 풀은 없다. 지금 아는 풀은 셋뿐이다: 쿼터가 있거나 겹치면 안 되는 수집기마다 칸 1(§8 의 표), 타일의 `release` 칸 1(ADR-0618), 그리고 원천 제공자가 동시 접속을 세는 경우 그 제공자마다. Gold 레인의 커밋 충돌에는 풀을 두지 않는다: 일이 낙관적으로 다시 커밋한다(ADR-0615 2-4).
-- 그 결과 동시에 도는 태스크 수에 위가 없다. 돈의 위는 계정의 Fargate vCPU 할당량과 줄의 `max_concurrent_runs` 로 건다(값은 비용 승인과 함께).
+- 위는 줄에 건다(`dagster.yaml` 의 `concurrency.runs`). 남의 한계 하나가 이미 있다: Dagster 의 저장소와 Bronze 원장이 함께 쓰는 db.t4g.micro
+  하나의 연결(약 80, 계산). 그래서 run 은 모두 10 개까지, 그중 원장을 쓰는 종류(태그 `perfectory-platform/kind`)는 수집 3·Silver 1 까지다.
+  계산은 그 파일에 있다. 한도를 넘는 run 은 줄에서 기다린다. 돈의 위는 그 줄과 계정의 Fargate vCPU 할당량이다.
 
 ### 6. 보고·신선도·경보
 

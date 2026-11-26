@@ -89,6 +89,43 @@ def loads_offline(archive: Path, config: str) -> None:
         "verify-lakehouse-engine-extensions")
     run("docker", "run", "--rm", "--network", "none", "--entrypoint", "python", config, "-c",
         "import dagster, dagster_aws, dagster_postgres; print('aws-images: dagster', dagster.__version__)")
+    instance_loads(config)
+
+
+# The names infra/aws/dagster.tf gives the service, with stand-in values: the check reads the instance's
+# own file and builds its run launcher with the library in the image, which reaches no network on build.
+INSTANCE_ENVIRONMENT = {
+    "AWS_DEFAULT_REGION": "ap-northeast-2",
+    "DAGSTER_PG_HOST": "database.invalid", "DAGSTER_PG_PORT": "5432", "DAGSTER_PG_DB": "dagster",
+    "DAGSTER_PG_USERNAME": "dagster", "DAGSTER_PG_PASSWORD": "stand-in",
+    "DAGSTER_PG_PASSWORD_SECRET": "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:stand-in:password::",
+    "DAGSTER_RUN_TASK_ROLE_ARN": "arn:aws:iam::000000000000:role/stand-in/run/default",
+    "DAGSTER_RUN_EXECUTION_ROLE_ARN": "arn:aws:iam::000000000000:role/stand-in/run/execution",
+    "DAGSTER_LOG_GROUP": "/stand-in/dagster",
+}
+INSTANCE_CHECK = """
+import os
+import yaml
+from dagster._core.instance.config import dagster_instance_config
+from dagster._core.launcher import RunLauncher
+from dagster._serdes.config_class import ConfigurableClassData
+config, _ = dagster_instance_config(os.environ["DAGSTER_HOME"])
+launcher = config["run_launcher"]
+built = ConfigurableClassData(launcher["module"], launcher["class"], yaml.dump(launcher.get("config") or {})).rehydrate(as_type=RunLauncher)
+assert built.secrets_tags == [], "the launcher would list the account's secrets"
+assert built.task_role_arn == os.environ["DAGSTER_RUN_TASK_ROLE_ARN"], "a run would carry the service's role"
+print("aws-images: the instance loads and its run launcher builds:", type(built).__name__)
+"""
+
+
+def instance_loads(config: str) -> None:
+    """The image's dagster.yaml is one Dagster accepts, and its EcsRunLauncher builds with the contract's run
+    prefix (dagster-aws refuses a prefix over 16 characters only when it builds the launcher: 2026-11-26 the
+    live 23-character prefix would have stopped the first run on AWS)."""
+    prefix = json.loads((PLATFORM_TREE / "config" / "aws-platform.contract.json").read_text(encoding="utf-8"))["dagster"]["run_task_definition_prefix"]
+    environment = {**INSTANCE_ENVIRONMENT, "DAGSTER_RUN_TASK_DEFINITION_PREFIX": prefix}
+    run("docker", "run", "--rm", "--network", "none", *[f"--env={name}={value}" for name, value in environment.items()],
+        "--entrypoint", "python", config, "-c", INSTANCE_CHECK)
 
 
 def migrator_starts(archive: Path, config: str) -> None:
