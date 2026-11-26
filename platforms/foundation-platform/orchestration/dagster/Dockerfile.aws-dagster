@@ -1,0 +1,26 @@
+# The AWS Dagster image (root ADR-0616 §1, §2-2): the webserver and the daemon of the always-on service
+# (infra/aws/dagster.tf). It holds Dagster and its AWS libraries, the instance (aws/dagster.yaml) and the
+# workspace (aws/workspace.yaml) and no location's code: each code location is a gRPC code server of its own
+# image (Dockerfile.aws, infra/aws/code-servers.tf). The release workflow tags it by a hash of exactly these
+# inputs and builds it only when that tag is not there yet (scripts/deploy/aws-images-build.py), so its digest
+# and the service stay put across code releases. linux/arm64 only: only AWS runs it (root ADR-0620).
+FROM python:3.14.10-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DAGSTER_HOME=/opt/dagster/home
+
+# Wheels only, every one checked against the lock's hashes: the same lock as the code location's.
+COPY orchestration/dagster/requirements-aws.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt \
+    && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin dagster \
+    && mkdir -p /opt/dagster/home \
+    && chown dagster:dagster /opt/dagster/home
+
+COPY orchestration/dagster/aws/dagster.yaml /opt/dagster/home/dagster.yaml
+COPY orchestration/dagster/aws/workspace.yaml /opt/dagster/workspace.yaml
+
+USER dagster
+WORKDIR /opt/dagster

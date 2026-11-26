@@ -39,7 +39,7 @@ def digest(text):
 def record(commit):
     return {"schema_version": "foundation-platform.aws_images.v1", "source_commit": commit, "images": {
         name: {"digest": digest(f"{commit}-{name}"), "tag": f"x:{commit}-aws-{name}"}
-        for name in ("publisher", "code-location", "runtime")}}
+        for name in ("publisher", "code-location", "runtime", "dagster")}}
 
 
 def layer(payload):
@@ -100,11 +100,12 @@ class AnApplyTakesOnlyVerifiedImages(unittest.TestCase):
         gh = Gh()
         self.run_script(Registry({COMMIT: record(COMMIT)}), gh, COMMIT)
         written = json.loads(self.out.read_text(encoding="utf-8"))
-        self.assertEqual(written, {"dagster_image": f"{self.images['repository']}@{digest(f'{COMMIT}-code-location')}",
+        self.assertEqual(written, {"dagster_service_image": f"{self.images['repository']}@{digest(f'{COMMIT}-dagster')}",
+                                   "dagster_image": f"{self.images['repository']}@{digest(f'{COMMIT}-code-location')}",
                                    "runtime_image": f"{self.images['repository']}@{digest(f'{COMMIT}-runtime')}"})
         targets = [call[3] for call in gh.calls]
         self.assertTrue(targets[0].endswith("aws-images.json"), "the record is verified first")
-        self.assertEqual(len(targets), 4, "the record and its three images")
+        self.assertEqual(len(targets), 5, "the record and its four images")
         for call in gh.calls:
             self.assertEqual(call[call.index("--source-digest") + 1], COMMIT)
             self.assertEqual(call[call.index("--source-ref") + 1], self.images["source_ref"])
@@ -125,6 +126,15 @@ class AnApplyTakesOnlyVerifiedImages(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.run_script(Registry({COMMIT: record(COMMIT)}, corrupt=[COMMIT]), Gh(), COMMIT)
         self.assertFalse(self.out.exists())
+
+    def test_an_image_an_earlier_commit_built_is_verified_against_that_commit(self):
+        reused = record(COMMIT)
+        reused["images"]["dagster"]["source_commit"] = OLDER
+        gh = Gh()
+        self.run_script(Registry({COMMIT: reused}), gh, COMMIT)
+        sources = {call[3]: call[call.index("--source-digest") + 1] for call in gh.calls}
+        self.assertEqual(sources[f"oci://{self.images['repository']}@{digest(f'{COMMIT}-dagster')}"], OLDER)
+        self.assertEqual(sources[f"oci://{self.images['repository']}@{digest(f'{COMMIT}-runtime')}"], COMMIT)
 
     def test_a_rollback_keeps_the_newer_runtime(self):
         self.run_script(Registry({OLDER: record(OLDER), COMMIT: record(COMMIT)}), Gh(), OLDER, "--runtime-commit", COMMIT)

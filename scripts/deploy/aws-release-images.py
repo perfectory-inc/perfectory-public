@@ -9,8 +9,11 @@ published by the release workflow's aws-images job), names every image of that c
 1. reads the record from the registry, anonymously (the package is public);
 2. verifies the record, then every image it names, with `gh attestation verify`: signed by the contract's
    workflow of the contract's repository, from the contract's ref, built from that very commit
-   (`--source-digest`), on a GitHub-hosted runner. Any check that does not pass stops it;
-3. writes `dagster_image` (the code location) and `runtime_image` (the migrator) by digest.
+   (`--source-digest`), on a GitHub-hosted runner. An image the record says an earlier commit built (the
+   Dagster image, built only when its inputs change) is verified against that commit. Any check that does
+   not pass stops it;
+3. writes `dagster_service_image` (the webserver and the daemon), `dagster_image` (the code location's code
+   server and its runs) and `runtime_image` (the migrator) by digest.
 
 `--runtime-commit`: the runtime image from another release, verified the same way. A rollback moves the
 code location back and keeps the newer runtime: migrations only go forward (docs/runbooks/aws-platform.md).
@@ -40,7 +43,7 @@ RECORD = "aws-images.json"
 COMMIT = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 # The record's image whose digest each variable takes.
-VARIABLES = {"dagster_image": "code-location", "runtime_image": "runtime"}
+VARIABLES = {"dagster_service_image": "dagster", "dagster_image": "code-location", "runtime_image": "runtime"}
 
 
 def images_contract() -> dict:
@@ -84,7 +87,7 @@ def verify(images: dict, commit: str, target: str) -> None:
         ["gh", "attestation", "verify", target, "--repo", repository,
          "--signer-workflow", f"{repository}/{images['signer_workflow']}", "--source-ref", images["source_ref"],
          "--source-digest", commit, "--deny-self-hosted-runners"],
-        capture_output=True, text=True, check=False)
+        capture_output=True, text=True, encoding="utf-8", check=False)
     if result.returncode != 0:
         raise SystemExit(f"FAIL aws-release-images: {target} is not attested by {images['signer_workflow']} of "
                          f"{repository} at {images['source_ref']} for {commit}:\n{(result.stderr or result.stdout).strip()[-800:]}")
@@ -102,7 +105,10 @@ def verified_digests(images: dict, commit: str, directory: Path) -> dict[str, st
     for name, image in record["images"].items():
         if not DIGEST.fullmatch(image.get("digest", "")):
             raise SystemExit(f"FAIL aws-release-images: {name} in the record of {commit} has no sha256 digest")
-        verify(images, commit, f"oci://{images['repository']}@{image['digest']}")
+        source = image.get("source_commit", commit)
+        if not COMMIT.fullmatch(source):
+            raise SystemExit(f"FAIL aws-release-images: {name} in the record of {commit} names no source commit")
+        verify(images, source, f"oci://{images['repository']}@{image['digest']}")
         digests[name] = image["digest"]
     return digests
 
@@ -122,7 +128,7 @@ def main() -> int:
         directory = Path(temporary)
         code = verified_digests(images, arguments.commit, directory)
         runtime = code if runtime_commit == arguments.commit else verified_digests(images, runtime_commit, directory)
-    chosen = {"dagster_image": code[VARIABLES["dagster_image"]], "runtime_image": runtime[VARIABLES["runtime_image"]]}
+    chosen = {name: (runtime if name == "runtime_image" else code)[image] for name, image in VARIABLES.items()}
     variables = {name: f"{images['repository']}@{digest}" for name, digest in chosen.items()}
     arguments.out.write_text(json.dumps(variables, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"aws-release-images: wrote {arguments.out}: code location of {arguments.commit}, runtime of {runtime_commit}")
