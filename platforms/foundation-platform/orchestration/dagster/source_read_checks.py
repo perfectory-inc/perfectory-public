@@ -24,10 +24,6 @@ by the time it ran again. Nothing here names a host, a unit or a file: the check
 
 import datetime
 
-import observe_assets
-
-job_specs = observe_assets.job_specs
-
 GROUP = "source_reads"
 KEY_PREFIX = "source_read"
 CHECK_JOB = "foundation_source_read_freshness"

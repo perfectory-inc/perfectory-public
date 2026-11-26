@@ -90,6 +90,13 @@
   },
   "collect": {
     "credential_ttl_seconds": 3600,
+    "run_ceiling_seconds": 86400,
+    "size_classes": {
+      "small": {
+        "cpu": 512,
+        "memory": 2048
+      }
+    },
     "lanes": {
       "industrial_land_sale_notice_ilis_collect": {
         "role": "collect-ilis",
@@ -102,7 +109,19 @@
         ],
         "read_tables": [
           "silver.industrial_land_sale_notice_read"
-        ]
+        ],
+        "size": "small",
+        "command": "collect-industrial-land-sale-notices",
+        "asset_key": [
+          "perfectory",
+          "source-industrial-land-sale-notice"
+        ],
+        "environment": {
+          "FOUNDATION_PLATFORM_INDUSTRIAL_LAND_SALE_NOTICE_SOURCE": "ilis",
+          "FOUNDATION_PLATFORM_INDUSTRIAL_LAND_SALE_NOTICE_LIVE_WRITE": "1"
+        },
+        "output_dir_env": "FOUNDATION_PLATFORM_INDUSTRIAL_LAND_SALE_NOTICE_OUTPUT_DIR",
+        "summary_prefix": "industrial-land-sale-notice-summary-json "
       }
     }
   }
