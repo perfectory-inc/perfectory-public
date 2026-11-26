@@ -109,5 +109,23 @@
       "reason": "AWS Chatbot (Amazon Q Developer in chat applications) has its control plane in four Regions (us-east-2, us-west-2, ap-southeast-1, eu-west-1), none of them ap-northeast-2, and its console in us-east-2 only. The channel configuration is managed through us-east-2; the topic and the alarms stay in the account's Region (one configuration takes topics of any Region). The service stores its configurations in those four Regions and may process a notification in any of them."
     },
     "reason": "Every alarm of this account publishes to one SNS topic. Urgent alarms go to Slack (owner, 2026-11-20) through AWS Chatbot (owner, 2026-11-26): the topic is bound to one Slack channel and no token or webhook is stored. Which alarms reach Slack is which alarms publish to the topic, in code (first: Dagster not running). The owner authorizes the Slack workspace once in the console; the workspace and channel ids are apply-time variables, not in this public repository."
+  },
+  "collect": {
+    "credential_ttl_seconds": 3600,
+    "lanes": {
+      "industrial_land_sale_notice_ilis_collect": {
+        "role": "collect-ilis",
+        "source_contract": "industrial-land-sale-notice.contract.json",
+        "source": "ilis",
+        "write_prefixes": [
+          "bronze/source=industrylandorkr__industrial_land_sale_notice_list/",
+          "bronze/source=industrylandorkr__industrial_land_sale_notice_detail/",
+          "onbid/media/"
+        ],
+        "read_tables": [
+          "silver.industrial_land_sale_notice_read"
+        ]
+      }
+    }
   }
 }
