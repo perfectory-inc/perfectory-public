@@ -16,8 +16,6 @@
 # parcel → build-parcel-panel-versions (root ADR-0096, ADR-0564 §9 차례 5: 필지 레인의 호스트 패널, 같은 그림자 길).
 # parcel-ownership → build-parcel-ownership-versions (root ADR-0361, 같은 그림자 길).
 # parcel-factories → build-parcel-factories-versions (root ADR-0449, 같은 그림자 길).
-# lineage-review-queue → build-lineage-review-queue-versions (root ADR-0113 §10·0483 §5, 레인 밖 표: 스튜어드 큐,
-# ADR-0564 §6-9; 선언된 판정 검사가 없다).
 # parcel-public-auction → build-parcel-public-auction-versions (root ADR-0287·0340, 같은 그림자 길; 빌드 시각이 입력).
 # parcel-court-auction → build-parcel-court-auction-versions (root ADR-0287·0353·0540, 같은 길; 빌드 시각이 입력).
 # parcel-real-transaction → build-parcel-real-transaction-versions (root ADR-0350·0371, 같은 그림자 길: 거래는
@@ -59,7 +57,6 @@ case "${lane}" in
   parcel) command=build-parcel-panel-versions ;;
   parcel-ownership) command=build-parcel-ownership-versions ;;
   parcel-factories) command=build-parcel-factories-versions ;;
-  lineage-review-queue) command=build-lineage-review-queue-versions ;;
   parcel-public-auction) command=build-parcel-public-auction-versions ;;
   parcel-court-auction) command=build-parcel-court-auction-versions ;;
   parcel-real-transaction) command=build-parcel-real-transaction-versions ;;
