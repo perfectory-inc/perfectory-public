@@ -99,7 +99,7 @@ class Declared(unittest.TestCase):
         for table in ("gold.parcel_energy_versions", "gold.parcel_register_masters_versions",
                       "gold.parcel_demolitions_versions", "gold.parcel_factories_versions",
                       "gold.parcel_sub_parcels_versions", "gold.parcel_building_permits_versions",
-                      "gold.lineage_review_queue_versions"):
+                      "gold.lineage_review_queue_versions", "gold.complex_catalog_versions"):
             with self.subTest(taken_over=table):
                 self.assertEqual(check.declared(run(table=table, shadow_of=None), definitions, {}), [])
                 self.assertEqual(check.declared(run(table=table), definitions, {}), [])
