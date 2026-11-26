@@ -99,7 +99,7 @@ def migrator_starts(archive: Path, config: str) -> None:
         raise SystemExit(f"FAIL aws-images: the loaded runtime is not {config}: {loaded.strip()}")
     result = subprocess.run(["docker", "run", "--rm", "--network", "none", "--entrypoint",
                              "/usr/local/bin/foundation-migrate", config], cwd=PLATFORM_TREE, text=True,
-                            capture_output=True)
+                            capture_output=True, check=False)
     if result.returncode == 0 or "FOUNDATION_MIGRATOR_DATABASE_URL is required" not in result.stderr + result.stdout:
         raise SystemExit(f"FAIL aws-images: the runtime's migrator did not start as expected "
                          f"(exit {result.returncode}): {(result.stderr + result.stdout).strip()[-400:]}")
