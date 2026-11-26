@@ -30,8 +30,10 @@ GRANT foundation_migrator TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
 
 \connect :"db_name"
 \set ON_ERROR_STOP on
+-- The three roles get what PUBLIC has on the data host, where only CONNECT is revoked from PUBLIC:
+-- migrations and the runtime make temporary tables (20261015090000 does), so TEMPORARY too.
 REVOKE CONNECT, TEMPORARY ON DATABASE :"db_name" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"db_name" TO foundation_migrator, foundation_api, foundation_audit_importer;
+GRANT CONNECT, TEMPORARY ON DATABASE :"db_name" TO foundation_migrator, foundation_api, foundation_audit_importer;
 -- The migrations create schemas and trusted extensions; finalize-foundation.sql takes CREATE back.
 GRANT CREATE ON DATABASE :"db_name" TO foundation_migrator;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
