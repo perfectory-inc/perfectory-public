@@ -9,7 +9,7 @@
 # R2 connection contract (generated from definitions/platform.definition.json).
 
 terraform {
-  required_version = "1.13.9"
+  required_version = "1.13.10"
   required_providers {
     aws = {
       source  = "hashicorp/aws"

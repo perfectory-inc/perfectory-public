@@ -17,9 +17,11 @@ of the same commit has pushed its release. AWS runs on Graviton, so:
   with no network and asks for its database URL.
 
 Every manifest is pushed by digest into the release package (public, so ECS pulls it anonymously) and
-read back; subjects.sha256 names the three digests the job then attests.
+read back; subjects.sha256 names the three digests and the record the job then attests. After the
+attestation, `--publish-record` puts the record up as <commit>-aws-images (config/aws-platform.contract.json
+images.record_tag): the one input an apply reads (scripts/deploy/aws-release-images.py, root ADR-0616 §2-4).
 
-    <out>/subjects.sha256    sha256 and name of each image, for actions/attest-build-provenance
+    <out>/subjects.sha256    sha256 and name of each image and of aws-images.json, for actions/attest-build-provenance
     <out>/aws-images.json    foundation-platform.aws_images.v1: each image's tag, digest and platforms
 """
 
@@ -47,6 +49,39 @@ TARGET = "linux/arm64"
 TARGET_KEY = "linux-aarch64"
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 SCHEMA = "foundation-platform.aws_images.v1"
+RECORD = "aws-images.json"
+AWS_CONTRACT = PLATFORM_TREE / "config" / "aws-platform.contract.json"
+
+
+def images_contract() -> dict:
+    """Where AWS takes its images from: the repository and the record's tag (aws-platform.contract.json)."""
+    return json.loads(AWS_CONTRACT.read_text(encoding="utf-8"))["images"]
+
+
+def record_tag(commit: str) -> str:
+    return images_contract()["record_tag"].replace("<commit>", commit)
+
+
+def manifest_image():
+    spec = importlib.util.spec_from_file_location("release_manifest_image", ROOT / "scripts/ci/release-manifest-image.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def publish_record(out: Path, repository: str) -> int:
+    """The attested record as one small image, <commit>-aws-images, read back by digest. A rerun of the same
+    commit replaces it, as it replaces that commit's image tags; every record an apply reads is attested."""
+    record = json.loads((out / RECORD).read_text(encoding="utf-8"))
+    commit = record["source_commit"]
+    if record.get("schema_version") != SCHEMA or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise SystemExit(f"FAIL aws-images: {out / RECORD} is not a {SCHEMA} record of one commit")
+    with tempfile.TemporaryDirectory(prefix="aws-images-record-") as temporary:
+        layout = Path(temporary) / "layout"
+        digest = manifest_image().write_image(out, layout, (RECORD,), "aws-images")
+        push(layout, "aws-images", digest, f"{repository}:{record_tag(commit)}")
+    print(f"aws-images: {repository}:{record_tag(commit)} {digest}", flush=True)
+    return 0
 
 
 def release_build():
@@ -160,12 +195,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--repository", required=True, help="ghcr.io/<owner>/<release package>")
-    parser.add_argument("--release-publisher", required=True,
+    parser.add_argument("--release-publisher",
                         help="the release's linux/amd64 publisher manifest digest (the release job's output)")
+    parser.add_argument("--publish-record", action="store_true",
+                        help="publish <out>/aws-images.json as the commit's record, once the job has attested it")
     arguments = parser.parse_args()
+    if arguments.repository != images_contract()["repository"]:
+        raise SystemExit(f"FAIL aws-images: {arguments.repository} is not the contract's images.repository")
+    if arguments.publish_record:
+        return publish_record(arguments.out, arguments.repository)
     if platform.machine().lower() not in ("aarch64", "arm64"):
         raise SystemExit("FAIL aws-images: build on the arm64 runner; the publisher is never emulated")
-    if not DIGEST.fullmatch(arguments.release_publisher):
+    if not DIGEST.fullmatch(arguments.release_publisher or ""):
         raise SystemExit("FAIL aws-images: --release-publisher is not a sha256 digest")
     if not re.fullmatch(r"ghcr\.io/[a-z0-9._-]+/[a-z0-9._-]+", arguments.repository):
         raise SystemExit(f"FAIL aws-images: {arguments.repository} is not ghcr.io/<owner>/<package>")
@@ -232,9 +273,12 @@ def main() -> int:
         "runtime": {"tag": runtime_tag, "digest": index_digest(runtime_tag), "platforms": [TARGET],
                     TARGET: images["runtime-arm64"]["oci_manifest"]}},
         "measured": measured}
-    (out / "aws-images.json").write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (out / RECORD).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # The images and the record that names them, under one attestation: an apply verifies the record, then
+    # each digest in it, against the same workflow, ref and commit.
     (out / "subjects.sha256").write_text("".join(
-        f"{image['digest'].split(':')[1]}  {image['tag']}\n" for image in record["images"].values()), encoding="utf-8")
+        f"{image['digest'].split(':')[1]}  {image['tag']}\n" for image in record["images"].values())
+        + f"{hashlib.sha256((out / RECORD).read_bytes()).hexdigest()}  {RECORD}\n", encoding="utf-8")
     print(json.dumps({name: image["digest"] for name, image in record["images"].items()}, sort_keys=True))
     return 0
 

@@ -6,8 +6,14 @@ the repository uses. Compose files, Dockerfiles and scripts still spell the full
 Docker cannot read the contract -- but they are copies of it, the way generated documents are:
 
     --check   every `repository:tag@sha256:...` in a tracked file is in the list with that digest,
-              and every entry in the list is used somewhere (exit 1 otherwise)
-    --write   rewrite every reference to the digest the list states (after you change a digest)
+              and every entry in the list is used somewhere (exit 1 otherwise); and every OpenTofu
+              stack's `required_version` is the tag of the list's OpenTofu image
+    --write   rewrite every reference to the digest the list states (after you change a digest), and
+              every `required_version` to that tag
+
+The OpenTofu version is the image's because the data host applies its stacks in that image and the
+laptop installs that version. 2026-11-25 Renovate (#1620) moved the image to 1.13.10 and left the four
+stacks at `required_version = "1.13.9"`, which that image refuses ("Unsupported OpenTofu Core version").
 
 To move to a new tag, change the entry's key and digest in the contract, replace the old
 `repository:tag` in the files that use it, then run --write and --check.
@@ -32,6 +38,9 @@ FIXTURE_FILES = {
     "scripts/guard/container-images-match-the-contract-self-test.sh",
 }
 SKIPPED_SUFFIXES = (".lock", "pnpm-lock.yaml", ".png", ".jpg", ".pmtiles")
+OPENTOFU = "ghcr.io/opentofu/opentofu"
+# OpenTofu's `terraform { required_version = "<version>" }`: the one attribute, as `tofu fmt` writes it.
+REQUIRED_VERSION = re.compile(r'^(?P<lead>\s*required_version\s*=\s*")(?P<version>[^"]*)(?P<tail>")', re.MULTILINE)
 
 
 def tracked_files(root):
@@ -68,6 +77,35 @@ def scan(root):
     return found
 
 
+def opentofu_version(images):
+    """The tag of the list's one OpenTofu image, or None when the list has none."""
+    tags = [ref.split(":", 1)[1] for ref in images if ref.split(":", 1)[0] == OPENTOFU]
+    if len(tags) > 1:
+        sys.exit(f"{CONTRACT} lists {OPENTOFU} more than once: {tags}")
+    return tags[0] if tags else None
+
+
+def stack_versions(root, version, write):
+    """(errors, rewritten) for every tracked OpenTofu file whose required_version is not `version`."""
+    errors, rewritten = [], 0
+    for path in tracked_files(root):
+        if not path.endswith(".tf"):
+            continue
+        text = (root / path).read_text(encoding="utf-8")
+        found = [match.group("version") for match in REQUIRED_VERSION.finditer(text)]
+        if not found or found == [version] * len(found):
+            continue
+        if version is None:
+            errors.append(f"{path}: requires OpenTofu {found}, but {CONTRACT} lists no {OPENTOFU} image")
+        elif write:
+            (root / path).write_text(REQUIRED_VERSION.sub(lambda m: m.group("lead") + version + m.group("tail"), text),
+                                     encoding="utf-8", newline="")
+            rewritten += 1
+        else:
+            errors.append(f"{path}: required_version {found}, the contract's {OPENTOFU} is {version}")
+    return errors, rewritten
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -96,6 +134,9 @@ def main():
             rewritten += 1
     for ref in sorted(set(images) - used):
         errors.append(f"{CONTRACT}: {ref} is listed but no tracked file uses it")
+    version_errors, version_rewritten = stack_versions(root, opentofu_version(images), args.write)
+    errors.extend(version_errors)
+    rewritten += version_rewritten
 
     if errors:
         for error in errors:

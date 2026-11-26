@@ -55,4 +55,26 @@ expect fail "an image the contract does not list"
 contract "\"fixture/db:1.0\": \"sha256:$a\", \"fixture/unused:1.0\": \"sha256:$b\""
 expect fail "a contract entry no file uses"
 
+# An OpenTofu stack requires the version of the list's OpenTofu image (2026-11-25: #1620 moved the image
+# and left four stacks on the old required_version, which that image refuses).
+mkdir -p "$repo/infra/stack"
+stack() {
+  printf 'terraform {\n  required_version = "%s"\n}\n' "$1" >"$repo/infra/stack/main.tf"
+  printf '# applied in ghcr.io/opentofu/opentofu:1.13.10@sha256:%s\n' "$a" >"$repo/stack/apply.sh"
+  fixture_git "$repo" add -A
+}
+contract "\"fixture/db:1.0\": \"sha256:$a\", \"ghcr.io/opentofu/opentofu:1.13.10\": \"sha256:$a\""
+stack 1.13.10
+expect pass "a stack that requires the image's OpenTofu"
+
+stack 1.13.9
+expect fail "a stack that requires another OpenTofu than the image's"
+
+python3 "$sync" --write --root "$repo" >/dev/null
+grep -q 'required_version = "1.13.10"' "$repo/infra/stack/main.tf" || {
+  echo "FAIL $name: --write did not move required_version to the image's OpenTofu" >&2
+  exit 1
+}
+expect pass "the required_version --write rewrote"
+
 echo "OK $name"

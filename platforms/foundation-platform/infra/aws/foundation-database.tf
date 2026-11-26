@@ -8,11 +8,11 @@
 # at the first that does not exit 0 (pre-deploy.sh). Values are the contract's (database.foundation).
 
 variable "runtime_image" {
-  description = "The same release's AWS runtime image by digest (ghcr.io/<owner>/foundation-release@sha256:...), the digest of its <commit>-aws-runtime (aws-images.json, signed by the release workflow): foundation-migrate runs from it. A rollout gives the same commit's code location as dagster_image; a rollback moves dagster_image only and keeps this one, since migrations only go forward."
+  description = "The release's AWS runtime image by digest, from a verified record (scripts/deploy/aws-release-images.py writes it): foundation-migrate runs from it. A rollout takes it from the same commit as dagster_image; a rollback keeps the newer one (--runtime-commit), since migrations only go forward."
   type        = string
   validation {
-    condition     = can(regex("^ghcr\\.io/[a-z0-9._-]+/[a-z0-9._-]+@sha256:[0-9a-f]{64}$", var.runtime_image))
-    error_message = "The image is a GHCR reference by digest, never a tag."
+    condition     = startswith(var.runtime_image, "${local.contract.images.repository}@") && can(regex("^sha256:[0-9a-f]{64}$", trimprefix(var.runtime_image, "${local.contract.images.repository}@")))
+    error_message = "The image is the contract's release repository (images.repository) by digest: never a tag, never another repository."
   }
 }
 

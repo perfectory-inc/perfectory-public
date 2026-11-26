@@ -7,7 +7,7 @@
 # console's compose service (compose.console.yml DAWNEER_BIND).
 
 terraform {
-  required_version = "1.13.9"
+  required_version = "1.13.10"
   required_providers {
     cloudflare = {
       source  = "cloudflare/cloudflare"

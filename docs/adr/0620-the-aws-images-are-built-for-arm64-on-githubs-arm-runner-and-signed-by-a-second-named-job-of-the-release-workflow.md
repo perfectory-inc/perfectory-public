@@ -92,3 +92,13 @@ ai-server 가 아직 돌리는 이미지는 amd64 도 함께 둔다. 도구는 G
 | 기본 기능 | GitHub 의 arm64 러너, BuildKit `--platform`·이름 있는 빌드 문맥(`oci-layout://`), `imagetools create`, `attest-build-provenance` |
 | 임시 | 발행기 색인의 amd64(ai-server 가 릴리스를 돌리는 동안) |
 | 운영 | `aws-images` 잡, `aws-images-build.py`, `Dockerfile.aws`, `requirements-aws.txt`, 정책의 `release_signing_jobs` |
+
+2026-11-26 개정 주(W107). 결정은 그대로다. 본문이 코드와 다르던 곳과 더한 것:
+
+- §1: 이미지는 셋이다. 런타임(`services/foundation-api/Dockerfile` 의 compose 빌드, linux/arm64 만, `<commit>-aws-runtime`)이
+  foundation-migrate 를 싣는다(ADR-0616 A1b). 플랫폼마다의 매니페스트도 `<commit>-aws-<이름>-arm64` 로 올라간다.
+- §2: 서명하는 주제에 기록(`aws-images.json`)이 더해지고, 서명 뒤에 그 기록이 `<commit>-aws-images` 로 올라간다. 적용은 그것 하나를
+  입력으로 받는다(ADR-0616 §2-4).
+- §2: 이 잡의 고정 내려받기 캐시는 제 키(`pinned-release-binaries-v1-<os>-<arch>`)를 쓰고 main 에서 스스로 채운다. 두 러너가 같은
+  `Linux` 키를 써서 x86 캐시를 받았고, 그 안에 없는 aarch64 파일을 run 마다 망에서 받았다(ADR-0559 §6).
+- §2 의 skopeo 는 그대로 둔다. `docker buildx imagetools` 는 로컬 OCI 레이아웃의 매니페스트를 바이트 그대로 올리지 못한다.
