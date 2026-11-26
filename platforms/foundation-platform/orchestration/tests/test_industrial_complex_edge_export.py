@@ -47,8 +47,10 @@ class TheJob(unittest.TestCase):
         entry = next(job for job in json.loads(DEPENDENCIES.read_text(encoding="utf-8"))["jobs"]
                      if job["id"] == "industrial_complex_edge_export")
         self.assertEqual({read["node_id"] for read in entry["reads"]},
-                         {"gold-complex-catalog", "gold-complex-document-facts"})
-        self.assertLessEqual({"intelligence_document_fact", "lineage_stewardship"}, set(entry["producers"]))
+                         {"gold-complex-catalog-versions", "gold-complex-document-facts"})
+        # The catalog's build since its takeover (root ADR-0564 §6, W103), no longer the lineage cycle.
+        self.assertLessEqual({"intelligence_document_fact", "gold_complex_catalog_versions_build"},
+                             set(entry["producers"]))
 
     def test_the_lineage_cycle_no_longer_exports(self):
         cycle = (PLATFORM / "scripts/ops/lineage-stewardship-cycle.sh").read_text(encoding="utf-8")

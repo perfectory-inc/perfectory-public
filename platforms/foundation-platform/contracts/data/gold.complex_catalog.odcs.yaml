@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다."
+  purpose: "산업단지 제공용 프로필. 넘겨받기(루트 ADR-0564 §6, W103) 뒤로는 쓰지 않고 남긴다(쌓기만 한다): 정본 적재와 프로필·엣지 내보내기는 gold.complex_catalog_versions 의 현재 행을 읽는다."
 team:
   name: "foundation-platform"
 servers:
@@ -182,7 +182,4 @@ customProperties:
       - "name"
       - "complex_id"
   - property: "upstreamDatasets"
-    value:
-      - "reference.legal_dong_code_change"
-      - "reference.legal_dong_code_snapshot"
-      - "silver.industrial_complexes"
+    value: []

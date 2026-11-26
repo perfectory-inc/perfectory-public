@@ -2,6 +2,54 @@
   "$schema": "scripts/catalog/definition.v1.schema.json",
   "definition": "foundation-platform.definition.v1",
   "group": "serving-industrial-complex",
+  "jobs": [
+    {
+      "id": "industrial_complex_canonical_load",
+      "dagster_group": "gold",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The industrial-complex canonical load (root ADR-0040, ADR-0426; scripts/ops/industrial-complex-canonical-load.sh → publisher load-industrial-complex-canonical): the publisher reads the current rows of gold.complex_catalog_versions and inserts or updates catalog.industrial_complex by official complex code, keeping each row's id; nothing is deleted. Its own job since the catalog's takeover (root ADR-0564 §6, W103): it was a step of the lineage cycle after the Spark region-code merge, and the versions build now follows the code pairs on every build, so the load follows that build's `changed`. `changed` when a row was inserted or updated, otherwise `unchanged`.",
+      "systemd_service": "foundation-industrial-complex-canonical-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-complex-canonical"
+      ],
+      "schedule": "40 11 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 15,
+      "memory_max": "1G",
+      "memory_measured": "no run yet as its own job (W103); the same publisher command ran inside foundation-lineage-stewardship.service after the region-code merge with the catalog's 1,442 rows, under that unit's cap; sized as the edge export, which reads the same rows through the same reader (1G); systemd logs the peak of every run under this cap",
+      "disk_max": "1G",
+      "disk_measured": "not measured: runs no DuckDB stage (load-industrial-complex-canonical reads the catalog through the snapshot reader and writes Postgres), so the stage's open check never reads it; 1G is its share of a task's disk on AWS beside its state_paths.",
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 60,
+          "estimated_from": "computed, not measured: one read of the catalog's current rows (1,442 complexes) and one upsert transaction of them into catalog.industrial_complex"
+        }
+      },
+      "pool": "default_pool",
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-complex-catalog-versions-to-serving-industrial-complex"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-27T00:00:00Z",
+      "dagster_stage": "dagster",
+      "started_once_after_deploy": true,
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when a complex's current row changes: its source row, or the code pairs its region codes follow. That it keeps finishing is the done bound."
+      }
+    }
+  ],
   "assets": [
     {
       "id": "serving-industrial-complex",
@@ -19,13 +67,15 @@
   ],
   "dependencies": [
     {
-      "from": "silver-industrial-complexes",
+      "from": "gold-complex-catalog-versions",
       "to": "serving-industrial-complex",
       "relation": "feeds",
       "status": "implemented",
       "via": [
-        "load-industrial-complex-canonical"
-      ]
+        "platforms/foundation-platform/scripts/ops/industrial-complex-canonical-load.sh",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_canonical_load.rs"
+      ],
+      "description": "판을 쌓는 표의 현재 행(계약의 규칙, 루트 ADR-0267)을 공식 단지 코드로 넣거나 고친다(루트 ADR-0040). 그 표의 빌드가 `changed` 를 알리면 돈다(루트 ADR-0564 §6)."
     }
   ]
 }

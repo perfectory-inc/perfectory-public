@@ -55,6 +55,7 @@ mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
 mod canonical_release_proof;
 mod code_go_kr_legal_dong_collect;
+mod complex_catalog_current;
 #[cfg(unix)]
 mod courtauction_go_kr_collect;
 mod courtauction_silver_load;

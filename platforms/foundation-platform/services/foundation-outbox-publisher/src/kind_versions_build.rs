@@ -368,15 +368,12 @@ pub(crate) const COURT_AUCTION_BUILD: KindBuild = KindBuild {
     },
 };
 
-/// Every lane the driver builds, by its command (`describe-checks` answers for them).
 /// The industrial-complex catalog (root ADR-0426): one partition, keyed by its complex (root
-/// ADR-0615, revision 2026-11-26). While its readers read `gold.complex_catalog` it is that table's
-/// shadow (root ADR-0564 §6): the replaced table carries no build tag, so the build reads each input
-/// as of its newest commit (`gold_versions_commit::untagged_shadow`).
+/// ADR-0615, revision 2026-11-26). Its readers (the canonical load and the profile export) read this
+/// table's current rows since the takeover (root ADR-0564 §6, W103): the build is no shadow.
 pub(crate) const COMPLEX_CATALOG_BUILD: KindBuild = KindBuild {
     table: "gold.complex_catalog_versions",
-    // one-off: until the catalog's switch, which moves its readers to this table.
-    lane: Serves::Table(complex_catalog_stage::REPLACED),
+    lane: Serves::Table("gold.complex_catalog_versions"),
     replaced: complex_catalog_stage::REPLACED,
     job: "build-complex-catalog-versions",
     partitioning: Partitioning::Whole {
@@ -385,6 +382,7 @@ pub(crate) const COMPLEX_CATALOG_BUILD: KindBuild = KindBuild {
     },
 };
 
+/// Every lane the driver builds, by its command (`describe-checks` answers for them).
 pub(crate) const KIND_BUILDS: [&KindBuild; 15] = [
     &REGISTER_MASTERS_BUILD,
     &DEMOLITIONS_BUILD,

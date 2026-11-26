@@ -842,33 +842,6 @@ class RegionOptionalContractTest(unittest.TestCase):
         # Only string columns; a timestamp has no empty-string failure mode.
         self.assertNotIn("valid_from_utc", gated)
 
-    def test_industrial_complex_jobs_read_partitioning_from_the_contract(self) -> None:
-        for job, partition_name, sort_name in (
-            (
-                "industrial_complex_silver_to_gold.py",
-                "GOLD_PARTITION_COLUMNS",
-                "GOLD_SORT_COLUMNS",
-            ),
-        ):
-            with self.subTest(job=job):
-                tree = ast.parse((JOBS_DIR / job).read_text(encoding="utf-8"))
-                assignments = {
-                    target.id: node.value
-                    for node in ast.walk(tree)
-                    if isinstance(node, (ast.Assign, ast.AnnAssign))
-                    for target in (
-                        node.targets if isinstance(node, ast.Assign) else [node.target]
-                    )
-                    if isinstance(target, ast.Name)
-                }
-                for name, helper in (
-                    (partition_name, "partition_column_names"),
-                    (sort_name, "sort_order"),
-                ):
-                    value = assignments[name]
-                    self.assertIsInstance(value, ast.Call)
-                    self.assertIsInstance(value.func, ast.Name)
-                    self.assertEqual(value.func.id, helper)
 
 
 class DeclaredGeometrySridTest(unittest.TestCase):

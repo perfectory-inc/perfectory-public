@@ -49,11 +49,18 @@
       "inputs": ["scripts/ops/publish-outbox.sh", "scripts/ops/admitted-writer-runtime.sh", "scripts/ops/database-url.sh",
                  "infra/systemd/foundation-outbox-publish.service", "crates/foundation-outbox", "migrations"]
     },
+    "start-once.industrial_complex_canonical_load": {
+      "inputs": ["scripts/ops/industrial-complex-canonical-load.sh", "scripts/ops/admitted-writer-runtime.sh", "scripts/ops/database-url.sh",
+                 "scripts/ops/job-journal.sh", "infra/systemd/foundation-industrial-complex-canonical-load.service",
+                 "services/foundation-outbox-publisher/src/industrial_complex_canonical_load.rs",
+                 "services/foundation-outbox-publisher/src/complex_catalog_current.rs"]
+    },
     "start-once.industrial_complex_edge_export": {
       "inputs": ["scripts/ops/industrial-complex-edge-export.sh", "scripts/ops/admitted-writer-runtime.sh", "scripts/ops/job-journal.sh",
                  "infra/systemd/foundation-industrial-complex-edge-export.service",
                  "services/foundation-outbox-publisher/src/industrial_complex_gold_profile_export.rs",
                  "services/foundation-outbox-publisher/src/industrial_complex_gold_profile_export",
+                 "services/foundation-outbox-publisher/src/complex_catalog_current.rs",
                  "crates/publisher/foundation-publisher-core/src/industrial_complex_gold_profile_store.rs"]
     },
     "start-once.map_edit_fold_admin": {

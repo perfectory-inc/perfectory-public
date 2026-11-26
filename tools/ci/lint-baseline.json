@@ -21,10 +21,6 @@
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/gold_code_version.py": {
    "B007": 1
   },
-  "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py": {
-   "B905": 1,
-   "F401": 1
-  },
   "platforms/foundation-platform/infra/lakehouse/spark/jobs/lakehouse_maintenance.py": {
    "F401": 1
   },
@@ -61,12 +57,6 @@
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_apartment_price_contract.py": {
    "E402": 1
   },
-  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_building_panel.py": {
-   "F401": 1
-  },
-  "platforms/foundation-platform/infra/lakehouse/spark/tests/test_building_panel_args.py": {
-   "F401": 1
-  },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_changelog_spark.py": {
    "E731": 2
   },
@@ -98,8 +88,7 @@
    "E402": 1
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_panel_snapshot_pins.py": {
-   "B023": 2,
-   "F401": 1
+   "B023": 2
   },
   "platforms/foundation-platform/infra/lakehouse/spark/tests/test_parcel_boundaries_layout_iceberg.py": {
    "B905": 1
@@ -607,7 +596,7 @@
   },
   "platforms/foundation-platform/scripts/ops/lineage-stewardship-cycle.sh": {
    "SC2154": 1,
-   "SC2312": 10
+   "SC2312": 7
   },
   "platforms/foundation-platform/scripts/ops/map-edit-fold.sh": {
    "SC2154": 2
