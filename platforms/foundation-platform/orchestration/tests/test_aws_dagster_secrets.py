@@ -2,9 +2,11 @@
 
 EcsRunLauncher copies the daemon's container definition into every run task, so whatever secret the
 service's task definition names, every job would carry. infra/aws/dagster.tf therefore gives Dagster the
-database role's own secret, and only the one-off bootstrap reads the master user's. A later edit that
-names the master secret anywhere else (the service's secrets, its execution role, a shared local) fails here.
-Nor may Dagster start the bootstrap: its role starts only the family EcsRunLauncher registers runs in.
+database role's own secret, and only the one-off bootstrap and finalize read the master user's. A later
+edit that names the master secret anywhere else (the service's secrets, its execution role, a shared
+local) fails here. Nor may Dagster start the bootstrap: its role starts only the family EcsRunLauncher
+registers runs in. The foundation database's migrator secret (A1b, infra/aws/foundation-database.tf) is
+held the same way, and the rollout migrates before the service moves.
 """
 
 import json
@@ -13,17 +15,20 @@ import re
 import unittest
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
-STACK = PLATFORM / "infra" / "aws" / "dagster.tf"
+STACK = PLATFORM / "infra" / "aws"
 CONTRACT = PLATFORM / "config" / "aws-platform.contract.json"
 INSTANCE = PLATFORM / "orchestration" / "dagster" / "aws" / "dagster.yaml"
 HEADER = re.compile(r'^(resource|data|ephemeral|variable|output|locals)\b(?:\s+"([^"]+)")?(?:\s+"([^"]+)")?\s*\{\s*$')
 MASTER = "master_user_secret"
 APP = "aws_secretsmanager_secret.dagster_database"
+MIGRATOR = "aws_secretsmanager_secret.foundation_migrator"
+# The one-off tasks that run as the master user (bootstrap, and finalize after the migrations).
+MASTER_READERS = ("database_bootstrap", "database_finalize")
 
 
 def blocks(text: str) -> list[tuple[str, str]]:
-    """(header, body) of each top-level block. The file is `tofu fmt`'s: a top-level block opens on a line
-    of its own at column 0 and closes with a `}` alone at column 0."""
+    """(header, body) of each top-level block. The files are `tofu fmt`'s: a top-level block opens on a
+    line of its own at column 0 and closes with a `}` alone at column 0."""
     found, header, body = [], None, []
     for line in text.splitlines():
         if header is None:
@@ -37,26 +42,45 @@ def blocks(text: str) -> list[tuple[str, str]]:
             continue
         body.append(line)
     if header is not None:
-        raise AssertionError(f"{STACK.name}: block {header!r} never closes")
+        raise AssertionError(f"{STACK}: block {header!r} never closes")
     return found
 
 
 class DagsterNeverCarriesTheMasterSecret(unittest.TestCase):
     def setUp(self) -> None:
-        self.blocks = blocks(STACK.read_text(encoding="utf-8"))
+        self.blocks = [block for path in sorted(STACK.glob("*.tf")) for block in blocks(path.read_text(encoding="utf-8"))]
         self.by_header = dict(self.blocks)
 
     def test_the_parser_sees_the_stack(self) -> None:
         headers = [header for header, _ in self.blocks]
         self.assertIn("resource aws_ecs_task_definition dagster", headers)
         self.assertIn("resource aws_ecs_task_definition database_bootstrap", headers)
-        self.assertGreater(len(headers), 20)
+        self.assertIn("resource aws_ecs_task_definition foundation_migrate", headers)
+        self.assertIn("resource terraform_data pre_deploy", headers)
+        self.assertGreater(len(headers), 40)
 
     def test_only_the_bootstrap_names_the_master_secret(self) -> None:
         naming = [header for header, body in self.blocks if MASTER in body]
         self.assertTrue(naming, "the bootstrap reads the master secret, so some block names it")
         for header in naming:
-            self.assertTrue(header.split()[-1].startswith("database_bootstrap"), f"{header} names the master secret")
+            self.assertTrue(header.split()[-1].startswith(MASTER_READERS), f"{header} names the master secret")
+
+    def test_only_the_rollout_tasks_name_the_migrator_secret(self) -> None:
+        naming = [header.split()[-1] for header, body in self.blocks if f"{MIGRATOR}." in body]
+        self.assertIn("foundation_migrate", naming)
+        for name in naming:
+            self.assertTrue(name.startswith(("foundation_migrator", "foundation_migrate", *MASTER_READERS)),
+                            f"{name} names the migrator secret")
+
+    def test_the_rollout_migrates_before_the_service_moves(self) -> None:
+        service = self.by_header["resource aws_ecs_service dagster"]
+        self.assertIn("depends_on = [terraform_data.pre_deploy]", service)
+        step = self.by_header["resource terraform_data pre_deploy"]
+        for trigger in ("var.dagster_image", "var.runtime_image"):
+            self.assertIn(trigger, step, "a new image digest runs the chain")
+        chain = re.search(r"TASK_DEFINITIONS = join\(\" \", \[for task in \[(.*?)\]", step, re.S).group(1)
+        self.assertEqual(re.findall(r"aws_ecs_task_definition\.(\w+)", chain),
+                         ["database_bootstrap", "foundation_migrate", "database_finalize"])
 
     def test_the_service_reads_the_role_secret_and_nothing_else(self) -> None:
         policy = self.by_header["data aws_iam_policy_document dagster_execution"]

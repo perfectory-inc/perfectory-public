@@ -19,7 +19,8 @@ last_reviewed: 2026-11-26
 | 상태 버킷 `perfectory-platform-tofu-state-091109217099` | S3, 같은 계정 | 이 스택(처음 한 번은 아래 절차) |
 | VPC `perfectory-platform`(/16, 주소 블록은 적용 때 `TF_VAR_vpc_cidr`), 공개 서브넷 둘(태스크), 사설 서브넷 둘(DB), 인터넷 게이트웨이 | VPC, ap-northeast-2a·2c | 이 스택. NAT·ALB 없음. VPC·서브넷은 `prevent_destroy` |
 | Dagster(A1, [루트 ADR-0616](../../../../docs/adr/0616-data-jobs-run-as-dagster-assets-on-aws-ecs-and-the-host-job-layer-is-not-ported.md)): ECS 클러스터 `perfectory-platform`, 늘 켠 서비스 `dagster`(웹서버 + 데몬, Fargate ARM 0.5 vCPU / 2 GB), run 마다 태스크(`EcsRunLauncher`) | ECS, 공개 서브넷(들어오는 규칙 없음) | 이 스택(`infra/aws/dagster.tf`). 이미지는 적용 때 `TF_VAR_dagster_image`(릴리스의 `<commit>-aws-code-location` digest). 일은 아직 없다 |
-| Dagster 의 저장소: RDS PostgreSQL 17 `perfectory-platform`(db.t4g.micro, 20 GB, 사설 서브넷만) | RDS. Dagster 와 그 run 은 이 데이터베이스만 가진 역할 `dagster` 로 붙는다(비밀 `perfectory-platform/dagster-database`, 상태 파일에 없다). master 의 비밀은 부트스트랩 태스크만 읽는다 | 이 스택. 삭제 보호·마지막 스냅숏·`prevent_destroy` |
+| Dagster 의 저장소: RDS PostgreSQL 17 `perfectory-platform`(db.t4g.micro, 20 GB, 사설 서브넷만) | RDS. Dagster 와 그 run 은 이 데이터베이스만 가진 역할 `dagster` 로 붙는다(비밀 `perfectory-platform/dagster-database`, 상태 파일에 없다). master 의 비밀은 부트스트랩·마무리 태스크만 읽는다 | 이 스택. 삭제 보호·마지막 스냅숏·`prevent_destroy` |
+| Bronze 원장의 자리(A1b): 같은 인스턴스의 데이터베이스 `foundation`. 데이터 호스트와 같은 스키마(같은 sqlx 마이그레이션), 빈 채로 | RDS. 마이그레이터 `foundation_migrator`(스키마의 주인)와 런타임 역할 `foundation_api`(줄만), 비밀은 각자 (`perfectory-platform/foundation-migrator`·`foundation-runtime`, 상태 파일에 없다) | 이 스택(`infra/aws/foundation-database.tf`). 스키마는 적용이 마이그레이션한다(아래 '배포 전 단계') |
 | 경보 `perfectory-platform-dagster-not-running`(10 분 동안 Dagster 태스크가 없으면) → SNS `perfectory-platform-alarms` → Slack 채널 하나 | CloudWatch·SNS(ap-northeast-2). 채널 묶음 AWS Chatbot `perfectory-platform-alarms` 는 그 서비스의 제어 리전 us-east-2 | 이 스택(`infra/aws/chatbot.tf`). 저장하는 토큰은 없다. 사장이 Slack 작업 공간을 콘솔에서 한 번 허가한다(아래 'Slack 으로 잇기'). 작업 공간·채널 ID 는 적용 때 `TF_VAR_slack_team_id`·`TF_VAR_slack_channel_id` |
 | 예산 메일 주소 | 적용할 때의 환경 변수 `TF_VAR_budget_alert_emails` | 사람이 적용할 때 준다. 파일·저장소에 적지 않는다(공개 저장소) |
 | 프런트 도어의 CloudFront 전용 예산 `perfectory-cdn-free-tier` | AWS Budgets | `infra/cdn`(호스트의 엣지 적용, [엣지 설정](./edge-settings.md)) |
@@ -41,8 +42,9 @@ export TF_VAR_budget_alert_emails='["<계정의 등록 주소>"]'
 #    처음 한 번만 사람이 고른다: 우리가 잇는 어떤 망과도 겹치지 않는 RFC 1918 의 /16.
 export TF_VAR_vpc_cidr="$(aws ec2 describe-vpcs --filters Name=tag:Name,Values=perfectory-platform   --query 'Vpcs[0].CidrBlock' --output text)"
 test "$TF_VAR_vpc_cidr" != None   # 처음 적용이면 위 줄 대신 고른 블록을 넣는다
-# 4) Dagster 의 이미지: 돌릴 릴리스의 AWS 코드 위치를 digest 로(아래 'Dagster 의 이미지 고르기').
-export TF_VAR_dagster_image="ghcr.io/perfectory-inc/foundation-release@$digest"
+# 4) 이미지: 돌릴 릴리스 한 커밋의 AWS 코드 위치와 런타임을 digest 로(아래 '이미지 고르기').
+export TF_VAR_dagster_image="ghcr.io/perfectory-inc/foundation-release@${digest[code-location]}"
+export TF_VAR_runtime_image="ghcr.io/perfectory-inc/foundation-release@${digest[runtime]}"
 # 5) 경보의 Slack 작업 공간과 채널: 이은 설정에서 읽어 온다(처음이면 아래 'Slack 으로 잇기').
 chatbot() { aws chatbot describe-slack-channel-configurations --region us-east-2 \
   --query "SlackChannelConfigurations[?ConfigurationName=='perfectory-platform-alarms'] | [0].$1" --output text; }
@@ -74,47 +76,45 @@ tofu plan -input=false -detailed-exitcode   # 0 = 바뀔 것 없음. 옮긴 상�
 rm -f "$TF_DATA_DIR/bootstrap.tfstate" "$TF_DATA_DIR/bootstrap.tfstate.backup"
 ```
 
-## Dagster 의 데이터베이스 역할 (A1 처음 한 번, 그리고 그 비밀번호를 바꾼 뒤)
+## 배포 전 단계 (적용마다, 저절로)
 
-Dagster 는 RDS 의 master 사용자로 붙지 않는다. `infra/aws/database-bootstrap.sql` 이 이 데이터베이스만 가진 역할을 만들고 비밀번호를 맞춘다.
-그 SQL 은 일회성 태스크 `perfectory-platform-database-bootstrap` 이 master 로 돌린다. master 의 비밀을 읽는 것은 그 태스크의 실행 역할뿐이다.
-SQL 은 몇 번을 돌려도 같다. 서비스가 처음 뜨기 전에 한 번 돌린다.
+적용이 플랫폼을 새 이미지 digest 로 옮길 때, 서비스보다 먼저 일회성 태스크 셋이 차례로 돈다. 데이터 호스트의 compose 가
+배포마다 돌리는 순서 그대로다(부트스트랩 → 마이그레이션 → 권한·마무리). 앞의 것이 끝 코드 0 으로 끝나야 다음이 시작한다.
+하나라도 0 이 아니면 적용이 거기서 실패하고 서비스는 옛 태스크 정의에 그대로 있다. 사람이 따로 돌리는 단계는 없다.
+다음 걸음(A2 뒤, 코디네이터 2026-11-26): 적용 자체도 사람이 돌리지 않는다. main 의 CI 가 GitHub OIDC 역할(오래 사는 키 없음)로 적용한다.
 
-```bash
-# 1) 데이터베이스, 두 비밀, 부트스트랩의 역할·정책·태스크 정의, 그리고 태스크가 DB 에 닿을 규칙만 먼저
-#    (태스크 정의는 역할만 가리키므로 역할의 정책 둘은 따로 집는다. 없으면 태스크가 비밀을 못 읽는다)
-tofu apply -input=false -target=aws_ecs_task_definition.database_bootstrap -target=aws_ecs_cluster.platform \
-  -target=aws_iam_role_policy.database_bootstrap_execution -target=aws_iam_role_policy_attachment.database_bootstrap_execution \
-  -target=aws_vpc_security_group_egress_rule.tasks_https -target=aws_vpc_security_group_egress_rule.tasks_database \
-  -target=aws_vpc_security_group_ingress_rule.database_from_tasks
-# 2) 부트스트랩을 한 번 돌리고, 끝 코드가 0 인지 본다(로그: /perfectory-platform/dagster 의 database-bootstrap/…)
-sg="$(aws ec2 describe-security-groups --filters Name=group-name,Values=perfectory-platform-tasks --query 'SecurityGroups[0].GroupId' --output text)"
-subnet="$(aws ec2 describe-subnets --filters Name=tag:Name,Values=perfectory-platform-public-ap-northeast-2a --query 'Subnets[0].SubnetId' --output text)"
-task="$(aws ecs run-task --cluster perfectory-platform --task-definition perfectory-platform-database-bootstrap --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[$subnet],securityGroups=[$sg],assignPublicIp=ENABLED}" --query 'tasks[0].taskArn' --output text)"
-aws ecs wait tasks-stopped --cluster perfectory-platform --tasks "$task"
-aws ecs describe-tasks --cluster perfectory-platform --tasks "$task" --query 'tasks[0].containers[0].exitCode' --output text   # 0
-# 3) 이제 나머지(서비스·경보)
-tofu apply -input=false
-```
+| 순서 | 태스크 | 무엇 | 누구로 |
+| --- | --- | --- | --- |
+| 1 | `perfectory-platform-database-bootstrap` | `database-bootstrap.sql`(Dagster 의 역할), `foundation-bootstrap.sql`(데이터베이스 `foundation`, 역할 셋, 스키마, PostGIS) | master |
+| 2 | `perfectory-platform-foundation-migrate` | 릴리스 런타임 이미지의 `foundation-migrate`(`migrations/` 전부) | `foundation_migrator` |
+| 3 | `perfectory-platform-database-finalize` | `infra/compose/grant-foundation-runtime.sql`(마이그레이터로), `finalize-foundation.sql`(master 로) | 둘 |
 
-비밀번호를 바꿀 때: `dagster.tf` 의 `secret_string_wo_version` 을 하나 올리는 PR 을 병합하고 적용한다. 그다음 위 2) 를 돌리고,
-서비스가 새 비밀번호로 다시 뜨게 한다(`aws ecs update-service --cluster perfectory-platform --service dagster --force-new-deployment`).
-ECS 는 비밀을 태스크가 뜰 때 넣는다.
+- 언제 도나: `terraform_data.pre_deploy` 가 바뀔 때다. 두 이미지 digest, 세 태스크 정의의 개정, 세 비밀번호의 판 중 하나가 바뀌면 바뀐다.
+  `tofu plan` 에 `terraform_data.pre_deploy must be replaced` 로 보인다. 경보 같은 다른 자원만 바꾸는 적용에서는 돌지 않는다.
+- 실패하면: 적용 출력의 `FAIL pre-deploy: <태스크> exited <코드>` 와 태스크 ID 를 본다. 로그는 `/perfectory-platform/dagster` 의
+  `database-bootstrap/…`·`foundation-migrate/…`·`database-finalize/…` 다. 스크립트는 로그를 찍지 않는다(psql 의 오류가 비밀번호를 담을 수 있다).
+  고친 PR 을 병합하고 다시 적용한다. 실패한 단계는 tainted 로 남아 다음 적용이 다시 돌린다.
+- 비밀번호를 바꿀 때: 그 비밀의 `secret_string_wo_version` 을 하나 올리는 PR 을 병합하고 적용한다. 부트스트랩이 새 비밀번호를 맞춘다.
+  Dagster 의 비밀번호라면 서비스도 새 비밀번호로 다시 떠야 한다(`aws ecs update-service --cluster perfectory-platform --service dagster --force-new-deployment`).
+  ECS 는 비밀을 태스크가 뜰 때 넣는다.
 
-## Dagster 의 이미지 고르기 (A1, 적용마다)
+## 이미지 고르기 (적용마다)
 
-서비스와 그 run 태스크는 릴리스의 AWS 코드 위치 이미지를 digest 로 돈다(루트 ADR-0620). 태그 `<commit>-aws-code-location` 은
-그 커밋의 릴리스 워크플로 `aws-images` 잡이 만들고 서명한다. 태그를 digest 로 읽고, 서명을 확인한 digest 만 적용한다.
+서비스와 그 run 태스크는 릴리스의 AWS 코드 위치 이미지를, 마이그레이션은 같은 릴리스의 AWS 런타임 이미지를 digest 로 돈다(루트 ADR-0620).
+태그 `<commit>-aws-code-location`·`<commit>-aws-runtime` 은 그 커밋의 릴리스 워크플로 `aws-images` 잡이 만들고 서명한다.
+둘은 한 커밋의 것이다. 태그를 digest 로 읽고, 서명을 확인한 digest 만 적용한다.
 
 ```bash
 commit=<돌릴 main 커밋>
 token="$(curl -s 'https://ghcr.io/token?scope=repository:perfectory-inc/foundation-release:pull' | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')"
-digest="$(curl -sI -H "Authorization: Bearer $token" -H 'Accept: application/vnd.oci.image.index.v1+json' \
-  "https://ghcr.io/v2/perfectory-inc/foundation-release/manifests/$commit-aws-code-location" \
-  | tr -d '\r' | awk -F': ' 'tolower($1)=="docker-content-digest"{print $2}')"
-gh attestation verify "oci://ghcr.io/perfectory-inc/foundation-release@$digest" --repo perfectory-inc/perfectory-public \
-  --signer-workflow perfectory-inc/perfectory-public/.github/workflows/foundation-release-build.yml
+declare -A digest
+for image in code-location runtime; do
+  digest[$image]="$(curl -sI -H "Authorization: Bearer $token" -H 'Accept: application/vnd.oci.image.index.v1+json' \
+    "https://ghcr.io/v2/perfectory-inc/foundation-release/manifests/$commit-aws-$image" \
+    | tr -d '\r' | awk -F': ' 'tolower($1)=="docker-content-digest"{print $2}')"
+  gh attestation verify "oci://ghcr.io/perfectory-inc/foundation-release@${digest[$image]}" --repo perfectory-inc/perfectory-public \
+    --signer-workflow perfectory-inc/perfectory-public/.github/workflows/foundation-release-build.yml
+done
 ```
 
 새 digest 로 적용하면 태스크 정의의 새 개정이 생기고 서비스가 옛 태스크를 멈춘 뒤 새 태스크를 띄운다(데몬은 언제나 하나).
@@ -188,6 +188,9 @@ tofu plan -input=false -detailed-exitcode   # 0 이면 코드와 계정이 같�
 - 예산·망: 계약이나 `main.tf` 를 되돌리는 PR 을 병합하고 위의 적용을 한다. 망을 지우는 적용은 그 안에 태스크·DB 가 없을 때만 된다.
 - 상태: 버킷은 버전을 지닌다(지난 판은 90일). 잘못된 적용 뒤의 상태는 그 객체의 앞 판으로 되돌린다.
 - Slack: 채널 묶음을 끊으려면 `infra/aws/chatbot.tf` 를 지우는 PR 을 병합하고 적용한다. 경보는 CloudWatch 에 남는다.
-- Dagster: 앞 릴리스의 digest 로 `TF_VAR_dagster_image` 를 주고 다시 적용한다. 서비스를 멈추려면 `desired_count` 를 0 으로 하는 PR 을 병합하고 적용한다.
+- Dagster: 앞 릴리스의 코드 위치 digest 로 `TF_VAR_dagster_image` 만 되돌리고 다시 적용한다. `TF_VAR_runtime_image` 는 지금 것 그대로 둔다.
+  마이그레이션은 앞으로만 간다: 앞 릴리스의 migrator 는 자기가 모르는 마이그레이션이 적용된 데이터베이스에서 실패하고, 그러면 배포 전 단계가
+  적용을 멈춘다. 스키마를 되돌리는 것은 데이터 호스트처럼 고치는 새 마이그레이션이다.
+  서비스를 멈추려면 `desired_count` 를 0 으로 하는 PR 을 병합하고 적용한다.
 - 데이터베이스는 삭제 보호와 `prevent_destroy` 다. 지우는 일은 이 런북이 하지 않는다. 마지막 스냅숏 `perfectory-platform-final` 이 남는다.
 - 상태 버킷은 `prevent_destroy` 다. 스택 전체를 내리는 일은 이 런북이 하지 않는다.
