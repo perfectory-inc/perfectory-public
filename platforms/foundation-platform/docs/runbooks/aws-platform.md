@@ -153,6 +153,49 @@ aws cloudwatch set-alarm-state --alarm-name perfectory-platform-dagster-not-runn
 
 Slack 이 앱 승인을 요구하면 작업 공간 관리자가 승인한다. 채널을 바꾸려면 `TF_VAR_slack_channel_id` 만 바꿔 적용한다.
 
+## 자격 발급 창구 (레이크하우스 자격, ADR-0623 §2)
+
+AWS 의 일이 레이크하우스(R2)에 닿는 길은 함수 하나다(`tofu output -raw credential_vendor`). Cloudflare 토큰 둘은 그 함수만 읽는다.
+레인마다 그 함수의 alias 와 run 역할이 하나씩 있다(`tofu output lane_roles`, 경로 `/perfectory-platform/run/`). 레인의 run 은 제 alias 만 부른다.
+
+- `pin`: run 마다 한 번 부른다. 레인이 읽는 표들의 현재 스냅숏을 준다(`metadata_location`·manifest list). run 은 끝까지 그 스냅숏을 읽는다.
+- `credentials`: R2 임시 자격 증명과 만료(`expiration`)를 준다. 쓰기는 레인의 쓰기 접두사에만, 읽기는 그 표들의 위치에만 된다.
+  유효 시간은 계약의 `collect.credential_ttl_seconds` 하나다. 범위가 비면 거부하고, 버킷 전체로 넓히지 않는다.
+- 접근은 태스크가 끝나고 한 유효 시간 안에 끝난다. 한 자격을 일찍 철회하는 길은 R2 에 없다.
+
+### 사장이 한 번 하는 것: Cloudflare 토큰 둘을 넣기
+
+토큰 둘은 코디네이터가 Cloudflare 에서 AWS 전용으로 만든다.
+- 민팅: `Workers R2 Storage Bucket Item Write`, 레이크하우스 버킷 하나.
+- 카탈로그 읽기: `Workers R2 Data Catalog Read` + `Workers R2 Storage Bucket Item Read`, 같은 버킷.
+
+그 값을 넣는 것은 사장이 노트북의 PowerShell 에서 한다. 값은 화면·명령 기록·디스크에 남지 않는다.
+비밀 이름은 `tofu output credential_vendor_secrets` 와 같다. 민팅 비밀은 `<계정 ID>:<토큰>` 한 줄이다. 따옴표가 없어 PowerShell 5.1 이 그대로 넘긴다.
+
+```powershell
+$account = Read-Host 'Cloudflare 계정 ID'
+$secure = Read-Host '민팅 토큰' -AsSecureString
+$value = $account + ':' + [System.Net.NetworkCredential]::new('', $secure).Password
+aws secretsmanager put-secret-value --profile perfectory-platform-prod-admin --region ap-northeast-2 --secret-id perfectory-platform/r2-mint-token --secret-string $value --query VersionId --output text
+$secure = Read-Host '카탈로그 읽기 토큰' -AsSecureString
+$value = [System.Net.NetworkCredential]::new('', $secure).Password
+aws secretsmanager put-secret-value --profile perfectory-platform-prod-admin --region ap-northeast-2 --secret-id perfectory-platform/r2-catalog-reader-token --secret-string $value --query VersionId --output text
+Remove-Variable value, secure, account
+```
+
+넣기 전에는 함수가 `inert` 라고 답한다. 레인은 그것을 실패하는 검사로 보인다. 토큰을 바꿀 때도 같은 명령이다. 다음 부름부터 새 값을 쓴다.
+
+### 확인과 비상
+
+```bash
+# 함수의 기록: 부름마다 한 줄 {"vend": {lane, run_id, call, expiration | inert | refused}}. 값은 없다.
+MSYS_NO_PATHCONV=1 aws logs tail "/aws/lambda/$(tofu output -raw credential_vendor)" --since 1h
+```
+
+- 거부: 레인의 run 은 `refused` 의 문장으로 실패한다(HTTP 코드와 Cloudflare 오류 코드만, 값은 없다).
+- 비상(토큰이 샌 것 같을 때): Cloudflare 에서 그 부모 토큰을 돌리고(roll) 새 값을 위 명령으로 넣는다.
+  이미 발급된 임시 자격이 그것으로 죽는지는 확인되지 않았다(ADR-0623 §2-6). 늦어도 한 유효 시간 뒤에 끝난다.
+
 ## Dagster 의 UI 열기 (SSM 포트 포워딩)
 
 공개 주소도 부하 분산기도 없다. ECS Exec 의 SSM 세션으로 노트북의 포트를 웹서버로 잇는다. AWS CLI 의 Session Manager 플러그인이 있어야 한다.
