@@ -144,3 +144,5 @@ AWS 에서 도는 이미지(발행기, Dagster 코드 위치)는 `ghcr.io` 의 �
 - OpenTofu 의 판은 버전 계약의 `ghcr.io/opentofu/opentofu` 이고, 모든 스택의 `required_version` 이 그 판이다
   (`scripts/catalog/sync-container-images.py`). 2026-11-25 이미지가 1.13.10 으로 올랐는데(#1620) 네 스택은 1.13.9 를 요구한 채 남았고,
   그 이미지는 그 스택들을 거부한다.
+
+2026-11-27 개정 주(W101). 사장이 월 예산 한도를 150 에서 200 USD 로 올렸다. 메일은 실제 100·200, 예측 200 USD 에서 간다. §5 의 나머지(첫 자원, 메일 주소는 적용 때의 변수)는 그대로이고, 값은 계약 `budget` 에 있다.

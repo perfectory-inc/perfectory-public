@@ -16,7 +16,7 @@ last_reviewed: 2026-11-26
 
 | 무엇 | 어디 | 누가 만드나 |
 | --- | --- | --- |
-| 월 예산 `perfectory-platform-monthly`(실제 100·150, 예측 150 USD 를 넘으면 메일) | AWS Budgets | 이 스택. 계정의 첫 자원 |
+| 월 예산 `perfectory-platform-monthly`(한도 200, 실제 100·200, 예측 200 USD 를 넘으면 메일) | AWS Budgets | 이 스택. 계정의 첫 자원 |
 | 상태 버킷 `perfectory-platform-tofu-state-091109217099` | S3, 같은 계정 | 이 스택(처음 한 번은 아래 절차) |
 | VPC `perfectory-platform`(/16, 주소 블록은 적용 때 `TF_VAR_vpc_cidr`), 공개 서브넷 둘(태스크), 사설 서브넷 둘(DB), 인터넷 게이트웨이 | VPC, ap-northeast-2a·2c | 이 스택. NAT·ALB 없음. VPC·서브넷은 `prevent_destroy` |
 | Dagster(A1, [루트 ADR-0616](../../../../docs/adr/0616-data-jobs-run-as-dagster-assets-on-aws-ecs-and-the-host-job-layer-is-not-ported.md)): ECS 클러스터 `perfectory-platform`, 늘 켠 서비스 `dagster`(웹서버 + 데몬, Fargate ARM 0.5 vCPU / 2 GB), run 마다 태스크(`EcsRunLauncher`: 레인이 역할을 주지 않으면 정책 없는 기본 run 역할, 동시에 10 개·수집 3·Silver 1 까지) | ECS, 공개 서브넷(들어오는 규칙 없음) | 이 스택(`infra/aws/dagster.tf`). 이미지는 적용할 릴리스 커밋 하나의 확인한 기록에서(아래 '이미지 고르기'). 일은 아직 없다 |

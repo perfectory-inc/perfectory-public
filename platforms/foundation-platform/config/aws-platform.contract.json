@@ -31,13 +31,13 @@
   },
   "budget": {
     "name": "perfectory-platform-monthly",
-    "limit_usd": "150",
+    "limit_usd": "200",
     "notifications": [
       { "type": "ACTUAL", "over_usd": "100" },
-      { "type": "ACTUAL", "over_usd": "150" },
-      { "type": "FORECASTED", "over_usd": "150" }
+      { "type": "ACTUAL", "over_usd": "200" },
+      { "type": "FORECASTED", "over_usd": "200" }
     ],
-    "reason": "Owner approval 2026-11-25: collection on AWS at about 92 USD a month on ARM, 160 in a month with a bulk collection (root ADR-0616 §10, re-stated at Fargate ARM prices). Actual spend past 100 is the first notice, past 150 the second; a forecast past 150 tells before the month ends. The budget mails the account's own registered address (a variable at apply time, never committed: this repository is public); budget mail needs no confirmation. Budgets without actions cost nothing."
+    "reason": "Owner approval 2026-11-25: collection on AWS at about 92 USD a month on ARM, 160 in a month with a bulk collection (root ADR-0616 §10, re-stated at Fargate ARM prices); the owner raised the limit to 200 on 2026-11-27. Actual spend past 100 is the first notice, past 200 the second; a forecast past 200 tells before the month ends. The budget mails the account's own registered address (a variable at apply time, never committed: this repository is public); budget mail needs no confirmation. Budgets without actions cost nothing."
   },
   "network": {
     "vpc_prefix_length": 16,
