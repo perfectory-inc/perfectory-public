@@ -17,6 +17,11 @@ terraform {
       source  = "hashicorp/aws"
       version = "6.72.0"
     }
+    # The credential vendor's package (collect.tf).
+    archive = {
+      source  = "hashicorp/archive"
+      version = "2.8.1"
+    }
   }
   # In the account itself, made by this stack (the runbook's first apply runs on a local state and
   # moves it here). OpenTofu resolves locals in the backend at init.

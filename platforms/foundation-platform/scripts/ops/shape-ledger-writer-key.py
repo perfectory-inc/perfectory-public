@@ -26,11 +26,12 @@ import json
 import os
 import pathlib
 import sys
-import urllib.error
-import urllib.request
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
-API = "https://api.cloudflare.com/client/v4"
+# The one copy of the mint code is the AWS credential vendor's module (root ADR-0623 §2-11).
+sys.path.insert(0, str(PLATFORM / "infra" / "aws" / "r2-vend"))
+import r2_credentials  # noqa: E402
+
 TOKEN_NAME = "FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN"
 ACCOUNT_NAME = "CLOUDFLARE_ACCOUNT_ID"
 PREFIX = "shape-ledger/"
@@ -64,36 +65,15 @@ def account_token(platform: pathlib.Path = PLATFORM, root: pathlib.Path = pathli
     return values.get(TOKEN_NAME, "").strip(), values.get(ACCOUNT_NAME, "").strip()
 
 
-def cloudflare(token: str, method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
-    request = urllib.request.Request(f"{API}{path}", method=method,
-                                     data=None if body is None else json.dumps(body).encode(),
-                                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return response.status, json.load(response)
-    except urllib.error.HTTPError as error:
-        return error.code, json.loads(error.read() or b"{}")
-
-
-def mint(token: str, account: str, name: str, call=cloudflare, prefix: str = PREFIX) -> dict:
+def mint(token: str, account: str, name: str, call=r2_credentials.cloudflare, prefix: str = PREFIX) -> dict:
     """The temporary credentials of `name`/`prefix`, read and write, TTL_SECONDS; raises with the
     HTTP status (never a value) when Cloudflare refuses."""
     if prefix not in PREFIXES:
         raise RuntimeError(f"no key is minted for the prefix {prefix!r}; only {', '.join(PREFIXES)}")
-    status, verified = call(token, "GET", "/user/tokens/verify")
-    if status != 200:
-        raise RuntimeError(f"the account token does not verify (HTTP {status})")
-    # The parent of a temporary credential is an R2 access key: an API token's is its id.
-    status, answer = call(token, "POST", f"/accounts/{account}/r2/temp-access-credentials", {
-        "bucket": name, "parentAccessKeyId": verified["result"]["id"], "permission": "object-read-write",
-        "ttlSeconds": TTL_SECONDS, "prefixes": [prefix]})
-    if status != 200 or not answer.get("success"):
-        codes = [error.get("code") for error in answer.get("errors") or []]
-        raise RuntimeError(f"R2 refused temporary credentials for {name}/{prefix} (HTTP {status}, codes {codes})")
-    result = answer["result"]
+    result = r2_credentials.mint(token, account, name, "object-read-write", [prefix], TTL_SECONDS, call)
     return {"endpoint": f"https://{account}.r2.cloudflarestorage.com", "bucket": name, "prefix": prefix,
-            "access_key_id": result["accessKeyId"], "secret_access_key": result["secretAccessKey"],
-            "session_token": result["sessionToken"], "ttl_seconds": TTL_SECONDS}
+            "access_key_id": result["access_key_id"], "secret_access_key": result["secret_access_key"],
+            "session_token": result["session_token"], "ttl_seconds": TTL_SECONDS}
 
 
 def write_key(directory: pathlib.Path, key: dict, user: str | None) -> pathlib.Path:

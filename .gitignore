@@ -26,6 +26,8 @@ __pycache__/
 # given at apply time) and the override file the AWS stack's first apply uses
 # (platforms/foundation-platform/docs/runbooks/aws-platform.md). This repository is public.
 .terraform/
+# The AWS stack's vendor package, zipped by OpenTofu's archive_file at plan time.
+platforms/foundation-platform/infra/aws/.build/
 *.tfstate
 *.tfstate.*
 *.tfvars
