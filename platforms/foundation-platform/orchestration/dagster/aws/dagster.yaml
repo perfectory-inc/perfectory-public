@@ -1,6 +1,6 @@
 # The Dagster instance on AWS (root ADR-0616 §1-§2, A1). The image puts this file in DAGSTER_HOME
 # (Dockerfile.aws); infra/aws/dagster.tf gives the database's address and the password, which RDS keeps
-# in Secrets Manager and ECS injects.
+# in Secrets Manager and ECS injects, and every name a run task needs.
 storage:
   postgres:
     postgres_db:
@@ -21,27 +21,102 @@ run_coordinator:
   module: dagster._core.run_coordinator
   class: QueuedRunCoordinator
 
-# Every run is an ECS task of its own (root ADR-0616 §2-1), its task definition derived from the daemon's
-# container (cluster, subnets, security group, roles, environment and secrets), with the image the code
-# location says (DAGSTER_CURRENT_IMAGE). A run's size and role come from its tags (§2-8, §2-9).
+# The run queue's limits (root ADR-0616 §5). They guard the one db.t4g.micro that holds Dagster's storage and
+# the Bronze ledger: about 80 connections (RDS's LEAST(DBInstanceClassMemory/9531392, 5000) on 1 GiB, computed,
+# not read), of which the service keeps about 15. A run's own worker holds one or two at a time
+# (dagster-postgres 0.29.27 opens them with NullPool); a run that reads or writes the ledger adds the
+# publisher's pool, sqlx's default ten. So at most 10 runs, of which 3 collectors and 1 Silver load
+# (W101's lanes tag `perfectory-platform/kind`): 4 × 12 + 6 × 2 = 60. A run past a limit waits in the queue.
+concurrency:
+  runs:
+    max_concurrent_runs: 10
+    tag_concurrency_limits:
+      - key: perfectory-platform/kind
+        value: collect
+        limit: 3
+      - key: perfectory-platform/kind
+        value: silver
+        limit: 1
+
+# Every run is an ECS task of its own (root ADR-0616 §2-1). Its task definition is this one, not a copy of
+# the service's (dagster-aws 0.29.27: a `task_definition` mapping registers a definition from it): the
+# role a run gets when its lane names none is the default run role, which has no policy, so a run reaches
+# only what its lane's role gives it (`ecs/task_overrides`, §2-8). Its execution role injects only the
+# database role's password, which a run needs to write its events. Network: the service task's subnet and
+# security group (use_current_ecs_task_config). Image: the code location's. Size: its tags (§2-9).
 run_launcher:
   module: dagster_aws.ecs
   class: EcsRunLauncher
   config:
     use_current_ecs_task_config: true
+    task_definition:
+      task_role_arn:
+        env: DAGSTER_RUN_TASK_ROLE_ARN
+      execution_role_arn:
+        env: DAGSTER_RUN_EXECUTION_ROLE_ARN
+      log_group:
+        env: DAGSTER_LOG_GROUP
+      requires_compatibilities: [FARGATE]
+      runtime_platform:
+        cpuArchitecture: ARM64
+        operatingSystemFamily: LINUX
+    env_vars:
+      - DAGSTER_PG_HOST
+      - DAGSTER_PG_PORT
+      - DAGSTER_PG_DB
+      - DAGSTER_PG_USERNAME
+    secrets:
+      - name: DAGSTER_PG_PASSWORD
+        valueFrom:
+          env: DAGSTER_PG_PASSWORD_SECRET
+    # A job reads its own secrets with its own role (§2-8). The default ("dagster") would list every
+    # secret of the account at each launch, which Dagster's role may not (dagster-aws 0.29.27
+    # get_tagged_secrets: secretsmanager:ListSecrets).
+    secrets_tag: ~
     include_sidecars: false
     # The run task definitions' family prefix; Dagster's role may start no other family (infra/aws/dagster.tf).
+    # dagster-aws 0.29.27 refuses a prefix over 16 characters when it builds the launcher.
     task_definition_prefix:
       env: DAGSTER_RUN_TASK_DEFINITION_PREFIX
 
 # A run task that died (Spot, memory) is found by the launcher's health check and failed; a dead run is
-# retried once, a run whose asset or op failed is not (root ADR-0616 §2-7, ADR-0565 §3).
+# retried once, a run whose asset or op failed is not (root ADR-0616 §2-7, ADR-0565 §3). A run whose task
+# has not started in ten minutes (a cold pull of the code location image from GHCR) is failed, and so is
+# one past the platform's one ceiling, the one-day freshness promise (root ADR-0623 §3).
 run_monitoring:
   enabled: true
+  start_timeout_seconds: 600
+  max_runtime_seconds: 86400
 run_retries:
   enabled: true
   max_retries: 1
   retry_on_asset_or_op_failure: false
+
+# A run's output lives in CloudWatch Logs: its task definition logs to the platform's log group under the
+# run family's stream prefix, and the task's end does not lose it. Dagster keeps no copy (no bucket, and no
+# right for a run's role to write one); the UI shows a run's events, which are in the database.
+compute_logs:
+  module: dagster._core.storage.noop_compute_log_manager
+  class: NoOpComputeLogManager
+
+# Ticks of the start conditions and sensors are kept 90 days, a tick that did nothing a week, so they do not
+# fill the database (Dagster keeps every one but the skipped sensor ticks by default).
+retention:
+  schedule:
+    purge_after_days:
+      skipped: 7
+      success: 90
+      failure: 90
+  sensor:
+    purge_after_days:
+      skipped: 7
+      success: 90
+      failure: 90
+  auto_materialize:
+    purge_after_days:
+      skipped: 7
+      success: 90
+      failure: 90
 
 telemetry:
   enabled: false

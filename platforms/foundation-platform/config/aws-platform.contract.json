@@ -45,7 +45,8 @@
   },
   "ecs": {
     "cluster": "perfectory-platform",
-    "reason": "One cluster for the Dagster service and every run task it launches (root ADR-0616 §1-§2). Container Insights stays off: the alarm reads the service metrics ECS publishes for free."
+    "run_role_path": "/perfectory-platform/run/",
+    "reason": "One cluster for the Dagster service and every run task it launches (root ADR-0616 §1-§2). Container Insights stays off: the alarm reads the service metrics ECS publishes for free. Every role a run task may carry (the default run role with no policy, the run execution role, each lane's role) is under run_role_path, and Dagster may pass a role under that path and no other."
   },
   "dagster": {
     "service": "dagster",
@@ -54,14 +55,15 @@
     "log_group": "/perfectory-platform/dagster",
     "log_retention_days": 30,
     "workspace": "/opt/foundation-platform/current/orchestration/dagster/aws/workspace.yaml",
-    "run_task_definition_prefix": "perfectory-platform-run",
-    "reason": "Owner approval 2026-11-25 (root ADR-0616 A1): the webserver and the daemon in one always-on Fargate ARM task of 0.5 vCPU and 2 GB (on ai-server the three containers use 687 MiB together). The image is the release's AWS code location by digest (root ADR-0620), given at apply time; the workspace is the AWS code location, which holds no job until A2 moves collectors one at a time. Runs are tasks of their own (EcsRunLauncher), sized per run. No inbound rule and no public address of its own beyond the task's IPv4 for egress; the UI is reached by SSM port forwarding (ECS Exec). EcsRunLauncher registers every run's task definition in the family <run_task_definition_prefix>_<hashes> (dagster-aws get_task_definition_family; the prefix is under 32 characters), and Dagster's role may start only that family: never the database bootstrap, which carries the master user's secret."
+    "run_task_definition_prefix": "platform-run",
+    "reason": "Owner approval 2026-11-25 (root ADR-0616 A1): the webserver and the daemon in one always-on Fargate ARM task of 0.5 vCPU and 2 GB (on ai-server the three containers use 687 MiB together). The image is the release's AWS code location by digest (root ADR-0620), given at apply time; the workspace is the AWS code location, which holds no job until A2 moves collectors one at a time. Runs are tasks of their own (EcsRunLauncher), sized per run. No inbound rule and no public address of its own beyond the task's IPv4 for egress; the UI is reached by SSM port forwarding (ECS Exec). EcsRunLauncher registers every run's task definition in the family <run_task_definition_prefix>_<hashes> (dagster-aws get_task_definition_family; dagster-aws 0.29.27 refuses a prefix over 16 characters when it builds the launcher), and Dagster's role may start only that family: never the database bootstrap, which carries the master user's secret."
   },
   "database": {
     "identifier": "perfectory-platform",
     "engine_version": "17",
     "instance_class": "db.t4g.micro",
     "allocated_storage_gb": 20,
+    "max_allocated_storage_gb": 100,
     "backup_retention_days": 7,
     "name": "dagster",
     "master_username": "platform_admin",
@@ -75,7 +77,7 @@
       "runtime_secret": "perfectory-platform/foundation-runtime",
       "reason": "The Bronze ledger's place (root ADR-0616 A1b, coordinator 2026-11-26): the data host's foundation schema on this instance, made by the same sqlx migrations (foundation-migrate from the release's arm64 runtime image), empty until a collector moves in (A2). The role names are the ones the migrations and infra/compose/grant-foundation-runtime.sql name (the runtime role is the one the collectors connect as on the data host). The migrator owns the schema; the runtime role reads and writes rows; each has its own secret, written write-only. Every rollout runs bootstrap, migrate, grants and finalize before the service moves (infra/aws/pre-deploy.sh)."
     },
-    "reason": "Dagster's storage (runs, events, schedules; 1,001 MB on ai-server) on RDS PostgreSQL, one zone, the smallest Graviton class (root ADR-0616 §1, §10: 18.25 USD a month plus 0.131 a GB). In the private subnets only, reached from the tasks' security group only, TLS required (PostgreSQL 15+ on RDS forces SSL by default). Least privilege: Dagster and every run task connect as app_username, a role that owns only this database, with its own secret (app_secret, in the shape Secrets Manager's RDS rotation reads; the password is written write-only, never in the state). The master user (master_username, its password RDS's own in Secrets Manager) is read only by the one-off bootstrap task that creates that role (infra/aws/database-bootstrap.sql). The Bronze ledger has its own database on this instance (foundation). Deletion protection and a final snapshot, so neither an apply nor a mistaken delete removes it."
+    "reason": "Dagster's storage (runs, events, schedules; 1,001 MB on ai-server) on RDS PostgreSQL, one zone, the smallest Graviton class (root ADR-0616 §1, §10: 18.25 USD a month plus 0.131 a GB). The disk grows by itself up to max_allocated_storage_gb (RDS storage autoscaling, no cost until it grows; at the ceiling 13.1 USD a month): on ai-server the ledger's schema `catalog` is 527 MB and Dagster's storage 1,001 MB (measured 2026-11-26). In the private subnets only, reached from the tasks' security group only, TLS required (PostgreSQL 15+ on RDS forces SSL by default). Least privilege: Dagster and every run task connect as app_username, a role that owns only this database, with its own secret (app_secret, in the shape Secrets Manager's RDS rotation reads; the password is written write-only, never in the state). The master user (master_username, its password RDS's own in Secrets Manager) is read only by the one-off bootstrap task that creates that role (infra/aws/database-bootstrap.sql). The Bronze ledger has its own database on this instance (foundation). Deletion protection and a final snapshot, so neither an apply nor a mistaken delete removes it."
   },
   "alarms": {
     "topic": "perfectory-platform-alarms",

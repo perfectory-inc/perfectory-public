@@ -1,7 +1,8 @@
-# Dagster on AWS with no job yet (root ADR-0616 A1): its cluster, its database and the role it connects
-# as, its always-on service (webserver and daemon) and the alarm that says it is not running. Every value is the contract's
-# (config/aws-platform.contract.json: ecs, dagster, database, alarms); the image is the release's AWS
-# code location by digest (root ADR-0620), given at apply time. Collectors move in from A2, one at a time.
+# Dagster on AWS (root ADR-0616 A1): its cluster, its database and the role it connects as, its always-on
+# service (webserver and daemon), the roles its run tasks may carry, and the alarms that say it is not
+# running or its disk is filling. Names and sizes are the contract's (config/aws-platform.contract.json:
+# ecs, dagster, database, alarms); the image is the release's AWS code location by digest (root ADR-0620),
+# given at apply time. Collectors move in from A2, one at a time.
 
 variable "dagster_image" {
   description = "The release's AWS code-location image by digest (ghcr.io/<owner>/foundation-release@sha256:...), the digest of that release's <commit>-aws-code-location (aws-images.json, signed by the release workflow). The service runs it, and every run task Dagster launches runs it too."
@@ -80,6 +81,7 @@ resource "aws_db_instance" "platform" {
   engine_version              = local.database.engine_version
   instance_class              = local.database.instance_class
   allocated_storage           = local.database.allocated_storage_gb
+  max_allocated_storage       = local.database.max_allocated_storage_gb
   storage_type                = "gp3"
   storage_encrypted           = true
   db_name                     = local.database.name
@@ -103,7 +105,8 @@ resource "aws_db_instance" "platform" {
 # The database's own role (database-bootstrap.sql): Dagster and its runs connect as it, never as the
 # master user. Its secret has the shape Secrets Manager's RDS rotation reads, so rotation can be turned
 # on later. The password is generated at apply time and written write-only: it is never in the state.
-# A new password: raise secret_string_wo_version, apply, then run the bootstrap task again.
+# A new password: raise secret_string_wo_version and apply. The rollout's bootstrap sets it, then the
+# service starts again with it (the service's triggers); a run task reads it when it starts.
 resource "aws_secretsmanager_secret" "dagster_database" {
   name        = local.database.app_secret
   description = "The Dagster database's own role (not the RDS master user)."
@@ -167,9 +170,9 @@ resource "aws_iam_role_policy" "dagster_execution" {
   policy = data.aws_iam_policy_document.dagster_execution.json
 }
 
-# What Dagster does (root ADR-0616 §2-3): launch and watch its run tasks in this cluster, register the run
-# task definitions EcsRunLauncher derives from its own, pass its two roles to them, and let an operator in
-# by ECS Exec. It reads no job's secret.
+# What Dagster does (root ADR-0616 §2-3): launch and watch its run tasks in this cluster, register their task
+# definitions, pass them a role under the run path and nothing else, read a failed run's last log lines, and
+# let an operator in by ECS Exec. It reads no job's secret, and no run carries its role.
 resource "aws_iam_role" "dagster" {
   name               = "perfectory-platform-dagster"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
@@ -205,20 +208,24 @@ data "aws_iam_policy_document" "dagster" {
     ]
     resources = ["*"]
   }
+  # A run's task definition names the run execution role and the default run role; a lane's run overrides
+  # the task role with its own (ecs/task_overrides). All of them are under the run path, Dagster's own are not.
   statement {
-    sid       = "PassItsRolesToRuns"
+    sid       = "PassRunRoles"
     actions   = ["iam:PassRole"]
-    resources = [aws_iam_role.dagster.arn, aws_iam_role.dagster_execution.arn]
+    resources = ["arn:aws:iam::${local.contract.account.id}:role${local.contract.ecs.run_role_path}*"]
     condition {
       test     = "StringEquals"
       variable = "iam:PassedToService"
       values   = ["ecs-tasks.amazonaws.com"]
     }
   }
+  # Run monitoring quotes a failed run's last lines (dagster-aws get_task_logs): the run family's streams only,
+  # never the one-off tasks' or the service's own.
   statement {
     sid       = "ReadRunLogs"
     actions   = ["logs:GetLogEvents"]
-    resources = ["${aws_cloudwatch_log_group.dagster.arn}:*"]
+    resources = ["${aws_cloudwatch_log_group.dagster.arn}:log-stream:${local.dagster.run_task_definition_prefix}_*"]
   }
   statement {
     sid = "EcsExec"
@@ -238,22 +245,64 @@ resource "aws_iam_role_policy" "dagster" {
   policy = data.aws_iam_policy_document.dagster.json
 }
 
+# The roles a run task carries (root ADR-0616 §2-3, §2-8), under the contract's run path. The default task
+# role has no policy: a run whose lane names no role of its own reaches nothing. Fail closed, so no lane
+# has to remember to narrow its run. A lane's own role lives under the same path (collect.tf).
+resource "aws_iam_role" "run_default" {
+  name               = "perfectory-platform-run-default"
+  path               = local.contract.ecs.run_role_path
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+}
+
+# What ECS needs to start a run task: write its log stream and inject the database role's password, which
+# the run's worker writes its events with. Nothing else, no registry: the images are public on GHCR.
+resource "aws_iam_role" "run_execution" {
+  name               = "perfectory-platform-run-execution"
+  path               = local.contract.ecs.run_role_path
+  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+}
+
+data "aws_iam_policy_document" "run_execution" {
+  statement {
+    sid       = "WriteRunLogs"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["${aws_cloudwatch_log_group.dagster.arn}:log-stream:${local.dagster.run_task_definition_prefix}_*"]
+  }
+  statement {
+    sid       = "InjectTheDatabaseRolePassword"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.dagster_database.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "run_execution" {
+  name   = "run-execution"
+  role   = aws_iam_role.run_execution.id
+  policy = data.aws_iam_policy_document.run_execution.json
+}
+
 locals {
-  # The run tasks EcsRunLauncher starts copy the daemon's container definition, so they inherit these.
+  # The database role's password, by reference: a task definition holds the secret's ARN, never the value,
+  # and never the master user's. The service and every run task (dagster.yaml's run_launcher) name this one.
+  dagster_password = "${aws_secretsmanager_secret.dagster_database.arn}:password::"
+  # The service's environment. dagster.yaml's run_launcher registers each run's task definition from the
+  # DAGSTER_RUN_* names, the log group and the password's reference, and hands the four DAGSTER_PG_* on.
   dagster_environment = [
     { name = "DAGSTER_PG_HOST", value = aws_db_instance.platform.address },
     { name = "DAGSTER_PG_PORT", value = tostring(aws_db_instance.platform.port) },
     { name = "DAGSTER_PG_DB", value = local.database.name },
     { name = "DAGSTER_PG_USERNAME", value = local.database.app_username },
+    { name = "DAGSTER_PG_PASSWORD_SECRET", value = local.dagster_password },
     # The image a run task runs (EcsRunLauncher refuses to launch without it for a location in this image).
     { name = "DAGSTER_CURRENT_IMAGE", value = var.dagster_image },
     # The family the launcher registers runs in; the role may start that family only.
     { name = "DAGSTER_RUN_TASK_DEFINITION_PREFIX", value = local.dagster.run_task_definition_prefix },
+    { name = "DAGSTER_RUN_TASK_ROLE_ARN", value = aws_iam_role.run_default.arn },
+    { name = "DAGSTER_RUN_EXECUTION_ROLE_ARN", value = aws_iam_role.run_execution.arn },
+    { name = "DAGSTER_LOG_GROUP", value = aws_cloudwatch_log_group.dagster.name },
   ]
-  # The database role's password, by reference: the task definition holds the secret's ARN, never the
-  # value, and never the master user's (the run tasks inherit this list).
   dagster_secrets = [
-    { name = "DAGSTER_PG_PASSWORD", valueFrom = "${aws_secretsmanager_secret.dagster_database.arn}:password::" },
+    { name = "DAGSTER_PG_PASSWORD", valueFrom = local.dagster_password },
   ]
   dagster_container = {
     image                  = var.dagster_image
@@ -416,6 +465,15 @@ resource "aws_ecs_service" "dagster" {
     security_groups  = [aws_security_group.tasks.id]
     assign_public_ip = true
   }
+  # The apply waits until the new task runs and fails if ECS rolled the deployment back (AWS provider
+  # 6.72.0 waitServiceStable: ROLLBACK_SUCCESSFUL is an error), so a green apply means the new task runs.
+  wait_for_steady_state = true
+  # ECS injects the password when a task starts: a new password starts the service again, after the
+  # bootstrap set it (depends_on below).
+  force_new_deployment = true
+  triggers = {
+    database_password = aws_secretsmanager_secret_version.dagster_database.secret_string_wo_version
+  }
   # The rollout migrates first: the service moves to a new task definition only after the pre-deploy
   # chain (bootstrap, migrate, grants and finalize) exited 0 (foundation-database.tf).
   depends_on = [terraform_data.pre_deploy]
@@ -439,6 +497,25 @@ resource "aws_cloudwatch_metric_alarm" "dagster_not_running" {
   threshold           = 1
   comparison_operator = "LessThanThreshold"
   treat_missing_data  = "breaching"
+  alarm_actions       = [aws_sns_topic.alarms.arn]
+  ok_actions          = [aws_sns_topic.alarms.arn]
+}
+
+# The disk grows by itself (max_allocated_storage): RDS adds storage when less than 10 % is free. This alarm
+# is below that, so it fires only when the disk could not grow: at its ceiling, or within the six hours RDS
+# waits between two growths. A full disk stops Dagster and every collector at once.
+resource "aws_cloudwatch_metric_alarm" "database_storage_low" {
+  alarm_name          = "perfectory-platform-database-storage-low"
+  alarm_description   = "The platform database has less than 1 GiB free and its disk did not grow."
+  namespace           = "AWS/RDS"
+  metric_name         = "FreeStorageSpace"
+  dimensions          = { DBInstanceIdentifier = aws_db_instance.platform.identifier }
+  statistic           = "Minimum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1073741824
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "missing"
   alarm_actions       = [aws_sns_topic.alarms.arn]
   ok_actions          = [aws_sns_topic.alarms.arn]
 }
