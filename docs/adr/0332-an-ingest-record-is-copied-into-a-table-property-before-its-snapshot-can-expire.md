@@ -111,3 +111,5 @@ Silver 적재기는 무엇을 이미 실었는지를 Iceberg 스냅숏 요약 `f
   Iceberg `expire_snapshots` 가 하는 파일 정리를 잃는다. 2번의 순서로 같은 불변식이 선다.
 - **만료 보호만 계속 믿기**: 지금 그 보호 때문에 기록이 있는 표 27개가 30일 보존을 받지 못한다. 보호를 풀거나 다른
   길로 만료하는 순간 중복이 생긴다.
+
+2026-11-27 (W109c): Lakekeeper 로 옮긴 표에서는 적재 기록을 표 속성으로 복사하지 않고 같은 커밋에 싣는다: 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) §6 P3.

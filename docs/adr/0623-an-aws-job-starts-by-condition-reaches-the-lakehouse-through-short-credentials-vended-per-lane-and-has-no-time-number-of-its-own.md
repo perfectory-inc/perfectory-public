@@ -118,3 +118,5 @@ A2 의 첫 수집기 초안(#1758)은 손으로 정한 수 하나(40 분)에 세
 12 개(0.54 %)가 24 시간, 9 개가 12 시간 안에 목록을 떠났다(중앙 167.7 시간). 회차는 입찰이 끝나면 목록을 떠나고, 목록이 보여 주지 않은
 회차는 입찰 결과를 묻지 않으므로 하루 박자는 그것을 영영 잃는다. 사장은 그 손실을 받아들였다. 박자와 그 까닭은 원천 계약의 `beat` 가
 적는다(시각은 호출 예산이 세는 KST 하루가 시작한 직후, 00:10 KST).
+
+2026-11-27 (W109c): §2-8 의 `metadata_location` 위 `iceberg_scan` 은 카탈로그 읽기가 대신하고, §2-10 에 열려 있던 Silver·Gold 커밋 길은 Lakekeeper 다: 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) §2·결정 10-2.

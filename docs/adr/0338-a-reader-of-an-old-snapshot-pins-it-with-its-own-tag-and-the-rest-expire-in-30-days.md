@@ -177,3 +177,5 @@ ADR-0332 가 적재 기록을 표 속성으로 옮겼다. 그래서 기록은 �
    고정값으로 모았다. `gold.parcel_land_rights`·`gold.parcel_transfer_history` 의 객체 manifest(객체 0개, 2026-10-12
    스냅숏 반영)가 30일을 넘긴 날부터 거부가 시작됐고, 객체 0개인 나머지 레인 14개가 차례로 따라올 것이었다. 래퍼는 이제
    `section_packs` 가 있으면 그것만, 없으면 `published` 를 모은다.
+
+2026-11-27 (W109c): 지키는 것은 그대로다. Lakekeeper 로 옮긴 표에서는 참조 보존(`max-ref-age-ms`)의 태그가 지킨다: 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) 결정 10-1, P4.

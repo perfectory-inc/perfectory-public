@@ -11,6 +11,8 @@ set -euo pipefail
 export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 
 here="$(cd "$(dirname "$0")" && pwd -P)"
+# Git Bash on Windows: python3 there is Windows' own and reads C:/ paths, not /c/ ones.
+if command -v cygpath >/dev/null; then here="$(cygpath -m "$here")"; fi
 contract="$here/../../config/lakekeeper-dev.contract.json"
 platform="$here/../../config/aws-platform.contract.json"
 name="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["name"])' "$contract")"

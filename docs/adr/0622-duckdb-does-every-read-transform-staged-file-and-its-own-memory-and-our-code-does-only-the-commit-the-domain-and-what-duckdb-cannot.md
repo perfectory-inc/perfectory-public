@@ -154,3 +154,5 @@ ADR 의 결정), 유지보수 컨테이너 하나가 남는다. 자세한 것은
 개정 메모(2026-11-27, 코디네이터 결정): §2 의 "스레드" 줄은 [ADR-0616](./0616-data-jobs-run-as-dagster-assets-on-aws-ecs-and-the-host-job-layer-is-not-ported.md)
 §3-1 이 고친다. 스레드는 `DuckDB` 의 수(cgroup 의 CPU 할당)와 한도 1 GB 마다 하나(`MEMORY_PER_THREAD`) 중 작은 것이다. 2026-11-26 CPU 할당이
 없는 유닛에서 1.4 GiB 아래 20 스레드가 경매 Silver 를 메모리 초과로 멈췄다. 단계마다의 설정이 아니라 `open_engine` 한 곳이다(결정 4 그대로).
+
+2026-11-27 (W109c): §2 의 `ATTACH` 는 Lakekeeper 의 OAuth2 비밀과 벤딩 자격으로 하고, 정비 실행기의 이름은 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) §2·§5 를 따른다.

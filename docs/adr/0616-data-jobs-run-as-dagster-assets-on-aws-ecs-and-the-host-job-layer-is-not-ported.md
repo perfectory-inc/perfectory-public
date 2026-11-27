@@ -554,3 +554,5 @@ Spark 작업은 옮기지 않는다(§2-2). 지금 그대로 옮긴다면 426 h 
 기준 레인(`platforms/foundation-platform/orchestration/dagster/court_auction_lane.py`, 그 시험
 `platforms/foundation-platform/orchestration/tests/test_dagster_court_auction_lane.py`). 없는 것: 열린 질문 1·2·4·6·7·9·10·12 의 답,
 §10 에서 값이 없는 줄(A4~A6 의 비용).
+
+2026-11-27 (W109c): 카탈로그는 AWS 의 자체 호스팅 Lakekeeper 이고 데이터는 R2 에 그대로이며, 표 정비는 상류 정비 컨테이너 하나다: 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) §1·§5.

@@ -1,5 +1,5 @@
 {
-  "$comment": "The Lakekeeper dev rig (W109, coordinator 2026-11-27): the catalog the owner chose as the end state if the cutover-gate tests pass (self-hosted open-source Lakekeeper, no Plus), built in dev only to run those tests. infra/aws-lakekeeper-dev reads this file for its names and sizes and config/aws-platform.contract.json for the account, the region, the tags, the state bucket and the platform's network and database. Every name says lakekeeper-dev. Destroyed when the tests are done; the catalog ADR (0624) is written after them.",
+  "$comment": "The Lakekeeper dev rig (W109, coordinator 2026-11-27): the catalog the owner chose as the end state if the cutover-gate tests pass (self-hosted open-source Lakekeeper, no Plus), built in dev only to run those tests. infra/aws-lakekeeper-dev reads this file for its names and sizes and config/aws-platform.contract.json for the account, the region, the tags, the state bucket and the platform's network and database. Every name says lakekeeper-dev. Kept as the upgrade canary until T8 and T17 are done (coordinator 2026-11-27, decision 6): every Lakekeeper or OpenFGA version lands here first and passes upgrade_canary before it is pinned for anything else; destroyed after that, per root ADR-0624.",
   "schema_version": "foundation-platform.lakekeeper_dev.v1",
   "state_key": "lakekeeper-dev/terraform.tfstate",
   "name": "perfectory-lakekeeper-dev",
@@ -18,13 +18,14 @@
     "cpu": 256,
     "memory": 512,
     "grpc_port": 8081,
-    "max_open_connections": 4,
-    "max_idle_connections": 2,
-    "reason": "OpenFGA v1.14 (the version Lakekeeper v0.15.1 tests against; 1.11 or later is required), its own service so that it can be stopped alone (T7: every call is refused while it is down). One task in dev; Lakekeeper's Helm chart runs as many as catalog replicas. Lakekeeper reaches it by gRPC with a pre-shared key."
+    "max_open_connections": 16,
+    "max_idle_connections": 16,
+    "min_open_connections": 16,
+    "reason": "OpenFGA v1.14 (the version Lakekeeper v0.15.1 tests against; 1.11 or later is required), its own service so that it can be stopped alone (T7: every call is refused while it is down). One task in dev; Lakekeeper's Helm chart runs as many as catalog replicas. Lakekeeper reaches it by gRPC with a pre-shared key. Its database pool is this contract's value (decision 4, 2026-11-27): with 4 open connections 50 concurrent table loads all got 503 (each check passed OpenFGA's 3-second deadline waiting for a connection) while 10 concurrent all passed, so dev runs 16, all opened at start and kept (min_open_connections: with 4 idle and 16 open, the first burst of 50 after a quiet spell still got 49 of 100 503s, OpenFGA p95 3.3 s while it opened connections on the micro instance, and the next burst passed 200 of 200 at p95 88 ms). Prod gets its own database instance sized from these measurements, never the platform's shared micro (root ADR-0624)."
   },
   "databases": {
     "catalog": { "name": "lakekeeper_dev", "username": "lakekeeper_dev", "connection_limit": 20 },
-    "authz": { "name": "openfga_dev", "username": "openfga_dev", "connection_limit": 6 },
+    "authz": { "name": "openfga_dev", "username": "openfga_dev", "connection_limit": 20 },
     "reason": "Each its own database and login on the platform's RDS instance (coordinator 2026-11-27), never the Dagster or ledger ones. The login owns its database, so its migrations create what they need (Lakekeeper's five extensions are trusted on PostgreSQL 17). Each password is generated at apply time and written write-only, never in the state. The connection limits keep the rig from starving Dagster on the shared instance."
   },
   "identity": {
@@ -43,11 +44,32 @@
   "warehouse": {
     "bucket": "foundation-platform-lakehouse-dev",
     "region": "apac",
-    "key_prefix": "",
+    "key_prefix": "tables",
     "layout": { "type": "full-hierarchy", "namespace": "{name}", "tabular": "{name}" },
     "delete_profile": { "type": "soft", "expiration-seconds": 600 },
     "namespaces": ["silver", "gold"],
-    "reason": "The one warehouse is the dev bucket, never a prod bucket, named after its bucket, with namespaces silver and gold and tables at <namespace>/<table>/ (concepts brief 'Lakehouse catalog', Q2 and disagreement 5): no key prefix, and a full-hierarchy layout of names only (upstream storage-layout, v0.15.1), which T3 checks. Soft deletion with a 10-minute expiry, so T11a sees undrop and purge in one sitting. region is an R2 location hint, as upstream's R2 section asks. Made by the warehouse task (probes.tf: the operator's probe that alone reads the R2 credential, warehouse.tf), not by OpenTofu: Lakekeeper takes the credential through its API and keeps it encrypted in its own database. Its R2 credential is a new Cloudflare account API token of this rig only, R2 Admin Read & Write (owner decision 2026-11-27, option A; upstream: temp-access-credentials accepts no other), never the existing CLOUDFLARE_API_TOKEN."
+    "reason": "The one warehouse is the dev bucket, never a prod bucket, named after its bucket, with namespaces silver and gold and tables at tables/<namespace>/<table>/: a full-hierarchy layout of names only (upstream storage-layout, v0.15.1), which T3 checks, under a tables-only key prefix (decision 2, 2026-11-27): Lakekeeper refuses a table location outside its warehouse, so with the prefix no table can be placed in bronze/, media/ or any other area of the bucket, the operator's included (T4), and only the reconciler creates tables. A storage profile's key prefix cannot change (upstream S3Profile::update_with), so the warehouse is dropped and made again to change it (probe step warehouse-drop). Soft deletion with a 10-minute expiry, so T11a sees undrop and purge in one sitting. region is an R2 location hint, as upstream's R2 section asks. Made by the warehouse task (probes.tf: the operator's probe that alone reads the R2 credential, warehouse.tf), not by OpenTofu: Lakekeeper takes the credential through its API and keeps it encrypted in its own database. Its R2 credential is a new Cloudflare account API token of this rig only, R2 Admin Read & Write (owner decision 2026-11-27, option A; upstream: temp-access-credentials accepts no other), never the existing CLOUDFLARE_API_TOKEN."
+  },
+  "upgrade_canary": {
+    "steps": [
+      { "test": "T1", "run": ["bootstrap", "health"] },
+      { "test": "T3", "run": ["bootstrap", "lake-setup"] },
+      { "test": "T4", "run": ["bootstrap", "lake-escape-create"] },
+      { "test": "T4", "run": ["lane-a", "lake-escape-create"] },
+      { "test": "T5", "run": ["lane-a", "lake-scope"] },
+      { "test": "T6", "run": ["lane-a", "identity"] },
+      { "test": "T6", "run": ["outsider", "identity"] },
+      { "test": "T7", "run": ["lane-a", "authz-denied"] },
+      { "test": "T8", "run": ["bootstrap", "lake-vended-keys"] },
+      { "test": "T8", "run": ["rust", "check-lakehouse-catalog-writes"] },
+      { "test": "T9", "run": ["lane-a", "lake-duckdb"] },
+      { "test": "T13", "run": ["lane-a", "lake-mints", "100", "10"] },
+      { "test": "T31", "run": ["lane-a", "lake-privileges"], "known_failure": "write also allows schema and property changes (upstream: write = data, schema, partition, sort, properties, branches, tags, history). Table shape is held by the reconciler's drift check in fail mode instead (decision 1, root ADR-0624); a pass here means upstream narrowed write, and the decision is looked at again." },
+      { "test": "T33", "run": ["lane-a", "lake-history", "101"] },
+      { "test": "T36", "run": ["lane-a", "lake-escape"], "known_failure": "a commit pointing at another table's files is accepted until the first release that holds lakekeeper#2217 (closed 2026-11-26, after v0.15.1). A pass here means that release is in: pin it in tools/technology-versions.contract.json and drop this entry (decision 3, root ADR-0624)." },
+      { "test": "T22", "run": ["logscan", "60"] }
+    ],
+    "reason": "The dev rig is the upgrade canary (concepts brief 'Lakehouse catalog' M10, decision 6): a new Lakekeeper or OpenFGA version is applied here first and pinned only when canary.sh passes. Each step is a probe run (probe.sh); a known_failure is expected to fail and is strict: when it passes the canary fails too, so the pin, the decision and this list move together. The rust step needs the code_location_image of the release under test (docs/runbooks/lakekeeper-dev.md)."
   },
   "reason": "Named dev everywhere, in its own state and its own ECS cluster. It reads the platform stack's VPC, public subnets and database by name and adds only ingress rules to the database's security group. The internal endpoint is private DNS (Cloud Map), the way the Dagster code servers are reached: no load balancer (root ADR-0616 §1). Probes run as one-off tasks from inside the VPC, one task definition per principal, and print results, never a secret or a token."
 }
