@@ -158,7 +158,7 @@ pub enum TableNameError {
         /// The declared namespaces.
         namespaces: Vec<String>,
     },
-    /// The words are not lowercase snake_case.
+    /// The words are not lowercase `snake_case`.
     #[error("{0}: a table name is lowercase snake_case words, `{IDENTIFIER_PATTERN}` (root ADR-0626 rule 3)")]
     Grammar(String),
     /// A storage, version, date, environment or test word.
