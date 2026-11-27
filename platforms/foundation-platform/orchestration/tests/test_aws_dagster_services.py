@@ -6,6 +6,11 @@ were the two essential containers of one task of 0.5 vCPU and 2 GB: neither coul
 webserver that died stopped the daemon with it, and every deploy, which stops the one daemon first, took the UI
 down too. Dagster 1.13 (deploying-dagster-as-a-service): a deployment may run several webservers and a single
 daemon.
+
+Every always-on service is named before it outgrows its task (root ADR-0574 §5, contract alarms.near_limit):
+on ai-server foundation-api sat at its memory cap for two weeks and was killed 69 times (root ADR-0573), and the
+daemon stood at 379 of its 384 MiB on 2026-11-19. On AWS the sizes are Fargate's smallest, and the daemon's
+CPU grows with every lane's sensors.
 """
 
 import unittest
@@ -53,6 +58,32 @@ class EveryProcessIsItsOwnService(unittest.TestCase):
         self.assertIn("aws_ecs_service.dagster", references(alarm["dimensions"]))
         self.assertIn("each.key", references(alarm["alarm_name"]))
         self.assertEqual(alarm["alarm_actions"], ["${aws_sns_topic.alarms.arn}"])
+
+
+class EveryAlwaysOnServiceIsNamedNearItsLimit(unittest.TestCase):
+    def test_every_always_on_service_has_a_memory_and_a_cpu_alarm(self):
+        services = references(body("local.always_on_services"))
+        self.assertIn("aws_ecs_service.dagster", services)
+        self.assertIn("aws_ecs_service.code_server", services)
+        self.assertIn("local.dagster.services", services)
+        self.assertIn("local.code_locations", services)
+        near = body("local.near_limit")
+        self.assertEqual(sorted(near), ["cpu", "memory"])
+        self.assertEqual((near["memory"]["metric"], near["memory"]["statistic"]), ("MemoryUtilization", "Maximum"))
+        self.assertEqual((near["cpu"]["metric"], near["cpu"]["statistic"]), ("CPUUtilization", "Average"))
+        alarm = body("aws_cloudwatch_metric_alarm.near_limit")
+        self.assertIn("local.always_on_services", references(alarm["for_each"]))
+        self.assertIn("local.near_limit", references(alarm["for_each"]))
+        self.assertEqual(alarm["alarm_actions"], ["${aws_sns_topic.alarms.arn}"])
+
+    def test_the_thresholds_are_the_contracts(self):
+        near = body("local.near_limit")
+        self.assertEqual(near["memory"]["percent"], "${local.contract.alarms.near_limit.memory_percent}")
+        self.assertEqual(near["cpu"]["percent"], "${local.contract.alarms.near_limit.cpu_percent}")
+        declared = aws_stack.contract()["alarms"]["near_limit"]
+        for key in ("memory_percent", "cpu_percent"):
+            self.assertTrue(0 < declared[key] < 100, key)
+        self.assertIn("local.near_limit", references(body("aws_cloudwatch_metric_alarm.near_limit")["threshold"]))
 
 
 if __name__ == "__main__":
