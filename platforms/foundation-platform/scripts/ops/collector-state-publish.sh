@@ -13,6 +13,10 @@
 # written is written by the next run. The writer key is the unit's own lakehouse writer key, which the collector
 # already holds; the copy runs in the pinned aws-cli image, as the parcel-number-change read-back does.
 
+# The publisher of such a job ends its run log with `foundation-run-usage seconds=.. peak_rss_kib=..
+# r2_bytes_written=..`, as its AWS lane does, so the two copies are measured the same way (main.rs RUN_USAGE_ENV).
+export FOUNDATION_PLATFORM_RUN_USAGE=1
+
 collector_state_publish() {
   local job="$1" state="$2" scratch="$3" stamp digest last marker tarball prefix uid gid
   [ -d "${state}" ] && [ -n "${job}" ] && [ -d "${scratch}" ] || return 0

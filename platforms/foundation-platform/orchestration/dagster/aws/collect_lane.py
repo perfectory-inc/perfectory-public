@@ -258,6 +258,8 @@ def environment(lane, credentials, url, keys, work):
     env = {
         "FOUNDATION_PLATFORM_RUNTIME_ENV": "production",
         "FOUNDATION_PLATFORM_EXECUTION_CONTEXT": "service",
+        # Its last line: time, peak RSS and bytes landed, measured as the host copy measures them.
+        "FOUNDATION_PLATFORM_RUN_USAGE": "1",
         "FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER": "r2",
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT": endpoint(credentials),
         "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET": credentials["bucket"],
