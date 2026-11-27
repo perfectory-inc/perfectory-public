@@ -1414,7 +1414,8 @@ fn reconcile_lakehouse_catalog_command_is_explicit() -> anyhow::Result<()> {
 
 #[test]
 fn every_run_ends_with_its_time_peak_memory_and_landed_bytes() {
-    let status = "Name:\tfoundation-outb\nVmPeak:\t 9000000 kB\nVmHWM:\t  469120 kB\nVmRSS:\t  12000 kB\n";
+    let status =
+        "Name:\tfoundation-outb\nVmPeak:\t 9000000 kB\nVmHWM:\t  469120 kB\nVmRSS:\t  12000 kB\n";
     assert_eq!(
         run_usage_line(
             std::time::Duration::from_millis(544_300),
