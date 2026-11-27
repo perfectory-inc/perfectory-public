@@ -3,6 +3,21 @@
 # so a probe can act as no one but itself: the shape a lane's run would have. The probe's task has no role: it
 # calls nothing of AWS. probe.sh runs one step and prints its result lines (they never hold a token or a secret).
 # Probes and their names live only in dev.
+#
+# The rust probe (T8, and a step of the upgrade canary) is the release's own publisher: the AWS code-location
+# image, by digest, given at apply time from the commit's verified record (scripts/deploy/aws-release-images.py
+# writes it as dagster_image). It runs check-lakehouse-catalog-writes as the operator, with no storage key: the
+# writer path of that very binary against this catalog. With no image given there is no rust probe.
+
+variable "code_location_image" {
+  description = "The release's AWS code-location image by digest (aws-release-images.py's dagster_image), whose publisher the rust probe runs; null: no rust probe."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.code_location_image == null || (startswith(coalesce(var.code_location_image, "-"), "${local.platform.images.repository}@") && can(regex("^sha256:[0-9a-f]{64}$", trimprefix(coalesce(var.code_location_image, "-"), "${local.platform.images.repository}@"))))
+    error_message = "The image is the platform contract's release repository (images.repository) by digest: never a tag, never another repository."
+  }
+}
 
 locals {
   probe_image = replace("public.ecr.aws/docker/library/python:3.14.10-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b", "/:[^:/@]+@/", "@")
@@ -14,6 +29,9 @@ locals {
     } },
     { anonymous = { principal = "anonymous", secret = null, declared = false, r2 = false } },
     { warehouse = { principal = "bootstrap", secret = aws_secretsmanager_secret.principal["bootstrap"].arn, declared = true, r2 = true } },
+    { for name in var.code_location_image == null ? [] : ["rust"] : name => {
+      principal = "bootstrap", secret = aws_secretsmanager_secret.principal["bootstrap"].arn, declared = true, r2 = false
+    } },
   )
   probe_environment = {
     CATALOG_URL = local.catalog_url
@@ -86,7 +104,7 @@ resource "aws_iam_role_policy" "probe_execution" {
 }
 
 resource "aws_ecs_task_definition" "probe" {
-  for_each                 = local.probes
+  for_each                 = { for name, probe in local.probes : name => probe if name != "rust" }
   family                   = "${local.name}-probe-${each.key}"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -119,6 +137,42 @@ resource "aws_ecs_task_definition" "probe" {
     ] : [])
     readonlyRootFilesystem = true
     mountPoints            = [{ sourceVolume = "work", containerPath = "/work", readOnly = false }]
+    logConfiguration       = local.logs["probe"]
+  }])
+  depends_on = [aws_secretsmanager_secret_version.principal]
+}
+
+# The publisher's own posture on AWS: its code-location runs keep a writable root file system (infra/aws).
+resource "aws_ecs_task_definition" "rust_probe" {
+  for_each                 = { for name, probe in local.probes : name => probe if name == "rust" }
+  family                   = "${local.name}-probe-${each.key}"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.probe_execution[each.key].arn
+  runtime_platform {
+    cpu_architecture        = "ARM64"
+    operating_system_family = "LINUX"
+  }
+  container_definitions = jsonencode([{
+    name       = each.key
+    image      = var.code_location_image
+    essential  = true
+    entryPoint = ["/opt/foundation-platform/release/foundation-outbox-publisher"]
+    command    = ["check-lakehouse-catalog-writes"]
+    environment = [for key, value in {
+      LAKEHOUSE_CHECK_CATALOG_URI = "${local.catalog_url}/catalog"
+      LAKEHOUSE_CHECK_WAREHOUSE   = local.dev.warehouse.bucket
+      LAKEHOUSE_CHECK_TOKEN_URI   = local.token_url
+      LAKEHOUSE_CHECK_SCOPE       = local.catalog_scope
+      LAKEHOUSE_CHECK_TABLE       = "silver.w109_rust_smoke"
+    } : { name = key, value = value }]
+    secrets = [
+      { name = "LAKEHOUSE_CHECK_CLIENT_ID", valueFrom = "${each.value.secret}:client_id::" },
+      { name = "LAKEHOUSE_CHECK_CLIENT_SECRET", valueFrom = "${each.value.secret}:client_secret::" },
+    ]
+    readonlyRootFilesystem = false
     logConfiguration       = local.logs["probe"]
   }])
   depends_on = [aws_secretsmanager_secret_version.principal]
