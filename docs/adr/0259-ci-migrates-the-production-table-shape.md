@@ -145,3 +145,5 @@ requests 쓰기)을 만들어 `env-set` 으로 새 그룹에 두고, 이 작업�
 자격은 저장소의 유일한 쓰기 계정(`scripts/github/check-publication-authority.sh`)이 만든 이 저장소 한정 fine-grained 토큰을
 `shape-ledger-pr` 그룹(`FOUNDATION_PLATFORM_SHAPE_LEDGER_GITHUB_TOKEN`, 선택)에 둔다 — 새 주체가 아니다. 토큰이 없으면 이유에
 "손으로 복사" 를 적고 같은 규칙으로 기다림·실패한다. 여러 열을 묶는 CHECK 를 가진 새 표의 seed 힌트는 사람 몫으로 남는다.
+
+2026-11-27 (W109c): Lakekeeper 로 옮긴 표의 모양은 조정기의 드리프트 검사(fail 모드)가 지킨다: 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) §6 A6. 옮기기 전의 표는 이 ADR 그대로다.

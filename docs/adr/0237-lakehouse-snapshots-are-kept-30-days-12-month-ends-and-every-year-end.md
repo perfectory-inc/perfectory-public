@@ -61,3 +61,5 @@
 - **브랜치로 보존**: 브랜치는 쓰기 대상이 될 수 있다. 읽기 전용 기준점은 태그가 Iceberg 의 의도된 도구다.
 - **보존 기간을 표 속성(`history.expire.max-snapshot-age-ms`)으로**: 작업이 `older_than` 을 직접 넘기므로 두 곳이
   된다. 계약 한 곳에 둔다.
+
+2026-11-27 (W109c): 지키는 것은 그대로다. Lakekeeper 로 옮긴 표에서는 참조 보존(`max-ref-age-ms`)의 태그가 지킨다: 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) 결정 10-1, P4.

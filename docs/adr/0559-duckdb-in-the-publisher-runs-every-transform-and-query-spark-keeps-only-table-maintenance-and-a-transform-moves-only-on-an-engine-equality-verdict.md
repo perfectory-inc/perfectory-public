@@ -268,3 +268,5 @@ ADR 의 다른 판정(전용 비교 작업, `engine_equality.py` 의 바이트 �
   결정으로 남고, 태그로 지킨다.
 - 표를 쓰는 자산 뒤에 유지보수를 두는 순서는 Dagster 가 정한다.
 - 같은 날 ADR-0616 §2-2 의 "Spark 작업은 목표에 없다"에 이 컨테이너 하나를 예외로 적었고, ADR-0622 의 열린 질문 2 를 이것으로 닫았다.
+
+2026-11-27 (W109c): §9 의 정비를 돌리는 것은 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) §5 가 정한다: 상류 그대로의 Spark 정비 실행기 하나가 Lakekeeper 의 벤딩 자격으로 돌고, Spark 장부는 그 하나에서 끝난다.

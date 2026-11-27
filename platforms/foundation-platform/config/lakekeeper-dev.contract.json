@@ -63,7 +63,7 @@
       { "test": "T8", "run": ["bootstrap", "lake-vended-keys"] },
       { "test": "T8", "run": ["rust", "check-lakehouse-catalog-writes"] },
       { "test": "T9", "run": ["lane-a", "lake-duckdb"] },
-      { "test": "T13", "run": ["lane-a", "lake-mints", "100", "50"] },
+      { "test": "T13", "run": ["lane-a", "lake-mints", "100", "10"] },
       { "test": "T31", "run": ["lane-a", "lake-privileges"], "known_failure": "write also allows schema and property changes (upstream: write = data, schema, partition, sort, properties, branches, tags, history). Table shape is held by the reconciler's drift check in fail mode instead (decision 1, root ADR-0624); a pass here means upstream narrowed write, and the decision is looked at again." },
       { "test": "T33", "run": ["lane-a", "lake-history", "101"] },
       { "test": "T36", "run": ["lane-a", "lake-escape"], "known_failure": "a commit pointing at another table's files is accepted until the first release that holds lakekeeper#2217 (closed 2026-11-26, after v0.15.1). A pass here means that release is in: pin it in tools/technology-versions.contract.json and drop this entry (decision 3, root ADR-0624)." },

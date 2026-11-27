@@ -1,11 +1,11 @@
 # ADR 0624: 레이크하우스 카탈로그는 자체 호스팅 오픈소스 Lakekeeper 다 — Lakekeeper 는 표의 포인터와 커밋, 표마다의 자격, 권한 확인, 표 보호와 권한 감사만 맡고, 나머지는 표준 도구가, 우리 코드는 계약·조정기·생성기만 맡는다
 
-- Status: Proposed (첫 초안, W109b. 코디네이터가 사장에게 가져간 뒤 Accepted. 근거: dev 리그 시험 W109 #1772·#1775, W109b #1777, 브레인스토밍 `concepts_brief.lakekeeper-to-the-limit.md`)
+- Status: Accepted (사장 2026-11-27. 근거: dev 리그 시험 W109 #1772·#1775, W109b #1777, 브레인스토밍 `concepts_brief.lakekeeper-to-the-limit.md`)
 - Date: 2026-11-27
 - 다루는 것: Silver·Gold 표의 카탈로그(무엇을 Lakekeeper 가, Dagster·DuckDB·iceberg-rust·AWS 가, 우리 코드가 하는가), 레인의 규칙과 그것을 지키는 검사,
   전환의 순서와 걸음마다의 시험, 표 정비를 돌리는 것, 비용.
 - 다루지 않는 것: Bronze·`media/` 같은 객체 영역(ADR-0623 의 발급 창구 그대로), 타일, gongzzang 의 카탈로그, Lakekeeper Plus 의 구매(비용만 적는다).
-- Accepted 되면 고치는 곳(그 자리에는 이 ADR 을 가리키는 한 줄만 남는다):
+- 이 ADR 이 대신하는 곳(그 자리에는 이 ADR 을 가리키는 날짜 붙은 한 줄을 남겼다):
   [ADR-0559](./0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md) §9(정비를 돌리는 것의 이름, 장부는 1 에서 끝난다),
   [ADR-0616](./0616-data-jobs-run-as-dagster-assets-on-aws-ecs-and-the-host-job-layer-is-not-ported.md) :76·:78(카탈로그는 AWS, 데이터는 R2)·:93(상류 정비 컨테이너 하나),
   [ADR-0622](./0622-duckdb-does-every-read-transform-staged-file-and-its-own-memory-and-our-code-does-only-the-commit-the-domain-and-what-duckdb-cannot.md) §2(벤딩 자격으로 `ATTACH`)·:109,
@@ -13,7 +13,7 @@
   [ADR-0332](./0332-an-ingest-record-is-copied-into-a-table-property-before-its-snapshot-can-expire.md)(적재 기록은 같은 커밋에),
   [ADR-0619](./0619-the-aws-platform-account-is-one-opentofu-stack-pinned-to-its-account-with-its-budget-first-and-images-from-ghcr.md) §4 의 "상태에는 비밀이 없다"(결정 5).
   [ADR-0259](./0259-ci-migrates-the-production-table-shape.md) 는 조정기의 드리프트 검사(A6)가 대신한다.
-  [ADR-0237](./0237-lakehouse-snapshots-are-kept-30-days-12-month-ends-and-every-year-end.md)·[ADR-0338](./0338-a-reader-of-an-old-snapshot-pins-it-with-its-own-tag-and-the-rest-expire-in-30-days.md) 은 열린 사장 결정 ㉠ 을 따른다.
+  [ADR-0237](./0237-lakehouse-snapshots-are-kept-30-days-12-month-ends-and-every-year-end.md)·[ADR-0338](./0338-a-reader-of-an-old-snapshot-pins-it-with-its-own-tag-and-the-rest-expire-in-30-days.md) 이 지키는 것은 그대로이고, 지키는 수단이 결정 10-1(㉠)의 태그다.
 
 ## Context
 
@@ -78,7 +78,7 @@ BatchCheck 하나가 DB 질의를 최대 346 번 한다. 공유 RDS(db.t4g.micro
 | 자격 | load-table 에서 표마다 R2 자격(`select` 는 읽기, `write` 는 읽기·쓰기), TTL·갱신 끝점·캐시 | — | load-table 의 자격만 쓴다. `s3.*` 키·`TYPE s3` 비밀·`'none'` 모드 없음 | 객체 영역(`bronze/`, `media/`)은 ADR-0623 의 발급 창구 | TTL 상수 하나(Lakekeeper 와 창구), 창구의 객체 쪽, R2 클라이언트의 세션 토큰, 정적 R2 키가 있으면 시작 거부 |
 | 기계 신원 | OIDC JWT 확인(발급자 여럿 가능) | — | OAuth2 client credentials(DuckDB·iceberg-rust 확인) | 레인마다 Cognito 클라이언트, 그 비밀은 그 레인의 역할만 읽는다 | 선언에서 레인마다 클라이언트를 만드는 IaC |
 | 누가 어느 표를 쓰나 | OpenFGA: 입력에 `select`, 출력에 `write`. `create`·`modify` 는 조정기만 | — | — | — | 파이프라인 그래프에서 권한을 만드는 생성기 하나, 표마다 드리프트 확인 |
-| 창고·네임스페이스·보호·소프트 삭제 | 저장하고 지킨다, 위치 규칙 | — | — | OpenTofu 공급자(미리보기, 열린 사장 결정 ㉣) 또는 부트스트랩 태스크 | 값 |
+| 창고·네임스페이스·보호·소프트 삭제 | 저장하고 지킨다, 위치 규칙 | — | — | OpenTofu 는 조정기 태스크를 만든다(미리보기 공급자는 쓰지 않는다, 결정 10-4) | 값과 조정기 |
 | 표 만들기·스키마·속성 | 창고 안, 겹침 없음, 빈 위치에만 | 조정기를 자산 하나로 | iceberg-rust 의 `create_table`·스키마 변경(기억, T30) | — | 계약과 조정기 하나. 보존·파일 크기 속성도 조정기가 쓴다 |
 | 커밋과 참조 | 원자적 커밋, assert-ref | — | iceberg-rust `fast_append`. 참조는 REST 호출 넷(iceberg-rust 0.11 에 공개 호출이 없다) | — | 배치 토큰을 같은 커밋에, 태그 이름, `delete_unnamed` 와 그 실패의 지표 |
 | 읽기 | 읽기 벤딩 | — | DuckDB `ATTACH (TYPE iceberg)`, 스냅숏 id 나 태그로 | — | SQL 만 |
@@ -89,7 +89,7 @@ BatchCheck 하나가 DB 질의를 최대 346 번 한다. 공유 RDS(db.t4g.micro
 | 바뀐 행 | — | — | — | — | 도메인 코드(`__changes`, `gold_versions_change_set`, `silver_changes`) |
 | 계보 | — | 자산 그래프 | — | — | 파이프라인 그래프의 선언된 의존 |
 | 감사 | 권한 감사 로그(stdout, 일부는 Plus) | run 로그 | 스냅숏 요약 | CloudWatch Logs | 사람의 행동만 해시 사슬에 |
-| 카탈로그 화면 | Console(사람 발급자가 있어야, LoQE 끔) | UI | — | — | Dawneer 도메인 화면과 깊은 링크 |
+| 카탈로그 화면 | Console 은 열지 않는다(사람 발급자가 없다, 결정 10-7) | UI | — | — | Dawneer 도메인 화면 |
 
 이 표는 기계가 읽는 꼴로도 둔다: `lakehouse-engine.contract.json` 의 `engines.jobs` 블록 하나이고, 이 절은 그것을 가리킨다(P0).
 
@@ -118,7 +118,8 @@ BatchCheck 하나가 DB 질의를 최대 346 번 한다. 공유 RDS(db.t4g.micro
    쓴다(우리 커미터는 `<표 위치>/data/` 에만 올린다). T36 은 업그레이드 카나리아의 엄격한 알려진 실패다: 통과하면 카나리아가 실패하고, 그것이 핀할 때를 알린다.
 4. **T13(OpenFGA 연결 4 개).** OpenFGA 의 풀 크기는 계약값이다(dev `authz.max_open_connections`·`min_open_connections`). 운영은 공유 micro 가 아니라
    제 DB 인스턴스를 잰 값으로 정한다(§8), 부하가 자라면 §7 의 순서로 간다. dev 는 풀 16 을 시작 때 열어 두고 T13 이 동시 50 에서 통과했다. 연결을 여는 동안(유휴 4)의 첫 묶음은 49/100 이
-   503 이었으므로, 풀은 시작 때 다 연다.
+   503 이었으므로, 풀은 시작 때 다 연다. 업그레이드 카나리아는 공유 micro 위에서 T13 을 동시 10 으로 돈다(동시 50 은 거기서 간헐이고, 그것은 판의
+   회귀가 아니라 공유 DB 의 크기다). 동시 50 의 T13 은 운영의 제 DB 위에서 A1 에서 돈다.
 5. **Cognito 클라이언트 비밀이 OpenTofu 상태에 든다.** 받아들인다: 상태는 계정 안의 암호화된 버킷이고(SSE-S3, 공개 접근 차단, TLS 만, ADR-0619 §4),
    접근이 좁다. ADR-0619 §4 의 "상태에는 비밀이 없다" 는 이 예외를 적은 문장으로 바뀐다. 비밀의 값은 Secrets Manager 에도 들고, 레인의 역할만 읽는다.
 6. **리그는 T8·T17 이 끝날 때까지 남는다.** 그동안 업그레이드 카나리아다(`canary.sh`, 계약의 `upgrade_canary`). 비용은 §8.
@@ -150,19 +151,19 @@ BatchCheck 하나가 DB 질의를 최대 346 번 한다. 공유 RDS(db.t4g.micro
 | P7 | 정적 키 지움, 세션 토큰, DuckDB 벤딩 모드, 시작 거부 | P2, P6 | T18, T8 의 음성 | 환경 되돌림 | 정적 키 읽기 셋 |
 | P8 | 조정기 하나가 표를 만들고 바꾼다 | 선언 = 실물 목록 | T30 | revert | 레인의 만들기 14 곳, Spark `ensure_contract_table`, 배포 때 스키마 이전 |
 | P9 | 쓰는 쪽이 Dagster 자산, 그 materialization 이 방아쇠 | ADR-0616 의 쓰는 쪽 | T34 | 예약 다시 | `asset_reconcile.py`, `iceberg_metadata.py`, `decide.py` |
-| P10 | DataHub·`lineage.py` 지움, Trino 를 지우면 그 검사를 DuckDB 로(열린 사장 결정 ㉤) | Dagster 가 간선을 보임 | 같은 검사 결과 | revert | DataHub 44 파일, `lineage.py`, Trino |
+| P10 | DataHub·`lineage.py` 지움, Trino 를 거두고 그 검사를 DuckDB 로(결정 10-5) | Dagster 가 간선을 보임 | 같은 검사 결과 | revert | DataHub 44 파일, `lineage.py`, Trino |
 
 **전환 관문.** dev 리그가 개정된 T1~T9, T11a, T12~T16, T22, T31~T33, T35, T36 을 통과한다(T31·T36 은 결정 1·3 의 꼴로).
 
 | # | 걸음 | 앞 조건 | 증거 | 되돌리기 | 지우는 것 |
 | --- | --- | --- | --- | --- | --- |
-| A1 | 운영 Lakekeeper·OpenFGA·발급자·조정기. 그다음 구성 요소마다 복사 또는 다시 짓기, 비교, 전환 | 전환 관문 | T17 | 설정을 Basin 으로(얼려 둔다). Lakekeeper 에서 쓴 정본 표는 역 `INSERT … SELECT` | 그 구성 요소의 Basin 표 |
+| A1 | 운영 Lakekeeper·OpenFGA·발급자·조정기(dev 와 같은 모듈에 운영의 입력, `infra/aws-lakekeeper`). 그다음 구성 요소마다 복사 또는 다시 짓기, 비교, 전환 | 전환 관문 | T17, 동시 50 의 T13 | 설정을 Basin 으로(얼려 둔다). Lakekeeper 에서 쓴 정본 표는 역 `INSERT … SELECT` | 그 구성 요소의 Basin 표 |
 | A2 | 창구의 핀 호출·`read_tables`·`iceberg_catalog.py` | 그 레인이 읽는 표가 Lakekeeper 에 | T5, T9, T33 | revert | 78 줄과 핀 코드 |
 | A3 | 카탈로그 토큰·제공자 enum·헤더 스위치·`__r2_data_catalog` 문자열 | 모든 구성 요소가 옮김 | T6, T7, Basin 호출 0 | — | 약 70 파일 |
 | A4 | 권한은 만든다, 레인은 `write` 만, 닫힌 실패 | A1 | T31(결정 1), T32, T7 | revert | 레인의 `modify` |
 | A5 | 정비 실행기가 Lakekeeper 벤딩으로, 운영에서 고아 지우기 | T11b | T11b, T15 | 자산 멈춤 | (Plus 를 사면 Spark 정비) |
 | A6 | 모양 장부·스키마 이전·알려진 드리프트 목록이 조정기의 드리프트 검사(fail) | A4 | fail 모드의 T30 | report 모드 | ADR-0259 의 파일 |
-| A7 | 콘솔의 카탈로그 경로를 깊은 링크로 | 사람 발급자 | T37 | revert | `entities.rs`·`facts.rs` 의 카탈로그 부분, `snapshots.rs` |
+| A7 | 콘솔의 카탈로그 경로를 깊은 링크로 | 사람 발급자(출시 때 없다, 결정 10-7: 그때까지 이 걸음은 서지 않는다) | T37 | revert | `entities.rs`·`facts.rs` 의 카탈로그 부분, `snapshots.rs` |
 | A8 | 감사 로그를 CloudWatch 로 | A1 | T22 | — | — |
 | A9 | Basin 끔, `__r2_data_catalog/` 지움 | Basin 의 고정·읽기 0 | T19 | 없음 | 제공자 갈래와 문자열 |
 
@@ -182,6 +183,9 @@ T29, T29b(검사와 `published` 태그로 게시), T30, T34, T37, T38(만료 없
    통과할 수 있다(이미 준 벤딩 자격이 회수로 죽지 않는 것과 같은 꼴, T7). 그 길이는 사장에게 보고하는 값이다.
 5. **더 큰 전용 운영 DB** 는 마지막이다(§8 의 db.t4g.small 에서 다음 등급으로).
 
+이 순서와 따로, 운영 DB 는 지금 Single-AZ 이고 출시 때 Multi-AZ 를 켠다(사장 2026-11-27). 그것은 계약값 하나(`database.multi_az`)이고
+RDS 가 대기 복제본을 제자리에서 만든다: 데이터 이동이 없다. 그때까지 자동 백업과 시점 복원(PITR)이 지킨다.
+
 운영을 세울 때 경보를 함께 둔다(ADR-0616 의 경보 길, Slack): RDS 의 `DatabaseConnections` 가 `max_connections` 의 정한 몫을 넘을 때,
 `FreeableMemory` 가 바닥에 닿을 때, OpenFGA 확인 지연(로그의 `grpc_req_complete` `query_duration_ms` 에서 CloudWatch 지표 필터로 p95)이
 Lakekeeper 의 기한에 다가갈 때, Lakekeeper 의 `AuthorizationBackendError`(503, 감사 로그의 `internal_authorization_error`)가 하나라도 날 때.
@@ -199,16 +203,16 @@ Cloud Map·호스팅 영역 0.80, 로그 약 1.5, Cognito 토큰 약 1, 일회�
 | --- | --- | --- |
 | Lakekeeper | 2 × 0.25 vCPU / 0.5 GB(잰 값: 메모리 18 MB, CPU 21 %), 두 AZ | 16.58 |
 | OpenFGA | 2 × 0.25 vCPU / 0.5 GB(CPU 45 % at 동시 100), Lakekeeper 와 같은 수 | 16.58 |
-| 제 RDS(결정 4) | db.t4g.small Multi-AZ, gp3 20 GB(micro 공유에서 여유 메모리 최저 84 MB; 이 둘만의 연결은 Lakekeeper 2 × 8 + OpenFGA 2 × 16 = 48) | 74.46 + 5.24 = 79.70 |
+| 제 RDS(결정 4) | db.t4g.small, gp3 20 GB, 자동 백업·PITR(micro 공유에서 여유 메모리 최저 84 MB; 이 둘만의 연결은 Lakekeeper 2 × 8 + OpenFGA 2 × 16 = 48). 지금 Single-AZ(0.051/h, gp3 0.131/GB-월), 출시 때 Multi-AZ(0.102/h, 0.262/GB-월). 백업은 DB 크기까지 무료 | 지금 37.23 + 2.62 = 39.85, 출시 뒤 74.46 + 5.24 = 79.70 |
 | 공인 IPv4 | 태스크 넷 × 0.005/h | 14.60 |
 | Secrets Manager | 0.40 × (암호화 키·로그인 둘·사전 공유 키 = 4, 그리고 레인마다 하나; 레인 60 이면) | 25.60 |
 | Cognito 토큰 | 0.00225 × run 마다 하나 이상, 월 3,000~15,000 | 7~34 |
 | 정비 실행기 | 상류 Spark 2 vCPU / 8 GB 하루 약 1.5 시간(잰 값 아님) | 약 5 |
 | 로그·Cloud Map | 감사 로그 월 약 2 GB × 0.76, 호스팅 영역 | 약 2.3 |
-| 합 | | **약 167~196** |
+| 합 | | **지금(Single-AZ) 약 128~155, 출시 뒤(Multi-AZ) 약 167~195** |
 
-Single-AZ RDS 면 약 40 USD 줄고, 장애 조치(T14 의 남은 부분)는 시험할 수 없게 된다. 플랫폼 계정의 예산은 150 USD 다(ADR-0619 §5): 운영 카탈로그를
-만들기 전에 사장이 예산을 본다. Plus 는 사지 않으므로 그 값은 적지 않는다.
+Single-AZ 와 Multi-AZ 의 차는 월 39.85 USD 다. Single-AZ 동안 RDS 장애 조치(T14 의 남은 부분)는 시험할 수 없다: 출시 때 Multi-AZ 를 켜고 돌린다.
+플랫폼 계정의 예산은 200 USD 다(ADR-0619 §5 의 2026-11-27 개정, #1768). Plus 는 사지 않으므로 그 값은 적지 않는다.
 
 ### 9. 낱말
 
@@ -219,15 +223,24 @@ Single-AZ RDS 면 약 40 USD 줄고, 장애 조치(T14 의 남은 부분)는 시
 - **벤딩(vending)**: 카탈로그가 load-table 에서 표 하나의 짧은 저장 자격을 주는 것. **창구**: ADR-0623 의 객체 영역 발급 함수.
 - **방아쇠**(다음 일을 시작시키는 것)와 **바뀐 행**(row change set)은 다른 것이다.
 
-### 10. 열린 사장 결정(브레인스토밍 §6 의 남은 것, 권고)
+### 10. 사장 결정(2026-11-27, 브레인스토밍 §6 의 남은 것)
 
-- ㉠ 파생 표의 월말·연말 이력(ADR-0237)과 만료 바닥(ADR-0338): 참조 보존의 태그로 지킬지(권고), 거둘지.
-- ㉡ 순서: Lakekeeper 가 AWS 의 첫 Silver·Gold 커밋 전에 선다(권고). 아니면 Basin 위 AWS 를 먼저, 쓰기 토큰의 서면 예외와 함께.
-- ㉢ 감사: Lakekeeper 로그와 스냅숏 요약을 CloudWatch 에(권고), 아니면 커밋도 해시 사슬에.
-- ㉣ 미리보기 OpenTofu 공급자(v0.5.0)로 창고·네임스페이스·역할을: 받아들일지, 부트스트랩 태스크가 할지.
-- ㉤ Trino: 거둘지(권고), OPA 다리로 둘지.
-- ㉥ 복구: R2 의 쓰는 자격은 표 파일을 지울 수 있다. "Bronze 에서 다시 짓기" 로 충분한지, Bronze 로 다시 지을 수 없는 표를 복제할지.
-- 사람의 Console 발급자(A7 의 앞 조건).
+1. **㉠ 이력.** 파생 표의 월말·연말 이력(ADR-0237)과 만료 바닥(ADR-0338)은 지킨다(사장 결정 2026-10-14 그대로). 지키는 수단은 참조 보존
+   (`max-ref-age-ms`)의 태그다(P4). 우리 코드의 보존 목록은 없다.
+2. **㉡ 순서.** Lakekeeper 가 AWS 의 첫 Silver·Gold 커밋 전에 선다. Basin 위의 AWS 커밋 길도, 버킷 쓰기 토큰의 예외도 없다.
+3. **㉢ 감사.** Lakekeeper 의 로그와 스냅숏 요약이 CloudWatch Logs 로 간다(A8). 커밋은 해시 사슬에 넣지 않는다: 해시 사슬은 사람의 행동만이다.
+4. **㉣ 창고·네임스페이스·표·권한을 만드는 것.** 미리보기 OpenTofu 공급자는 쓰지 않는다. OpenTofu 는 부트스트랩·조정기 태스크를 만들고, 그 태스크가
+   창고·네임스페이스(`silver`, `gold`)·선언된 표·레인 선언에서 만든 권한을 만들고 드리프트를 fail 모드로 확인한다(§2, P8, A4, A6).
+5. **㉤ Trino** 는 거둔다(P10). OPA 다리는 두지 않는다.
+6. **㉥ 복구.** 표는 Bronze 에서 다시 짓는다. Bronze 로 다시 지을 수 없는 표만 복제한다. 그 목록은 손으로 적지 않고 파이프라인 그래프에서 나온다:
+   `feeds` 간선을 거슬러 원천 묶음(Bronze)에만 닿지 않는 표다. 2026-11-27 의 목록:
+   - Bronze 밖에서 오는 것: `silver.map_edit_ledger`(지도 편집 저장소, 사람의 편집). 그것을 읽는 `gold.industrial_complex_boundary_served`·
+     `gold.administrative_boundary_served`·`gold.map_edit_stale` 은 그 원장과 Bronze 로 다시 짓는다.
+   - 그래프가 입력을 적지 않은 것(입력을 적으면 목록에서 빠진다): `silver.complex_parcel_memberships`, `gold.complex_catalog`,
+     `gold.complex_spatial_locator`, `gold.parcel_sub_parcels`, `gold.parcel_energy`, `gold.parcel_demolitions`, `gold.lineage_review_queue`,
+     `gold.parcel_building_permits`, `gold.parcel_factories`, `gold.parcel_nearby`, `gold.parcel_register_masters`,
+     `gold.real_transaction_region_stats_versions`.
+7. **사람의 Console 발급자** 는 출시 때 없다. Dawneer 가 하나의 콘솔이다. A7 은 사람 발급자가 생길 때까지 서지 않는다.
 
 ## Consequences
 
@@ -235,10 +248,11 @@ Single-AZ RDS 면 약 40 USD 줄고, 장애 조치(T14 의 남은 부분)는 시
 - Spark 장부는 1 에서 끝난다(정비 실행기). 우리 정비 작업(947 줄)의 도메인 규칙은 P3·P4 에서 커밋·태그·표 속성으로 옮겨야 실행기를 갈 수 있다.
 - 우리가 새로 짓는 것: 조정기 하나(약 200~250 줄, 표·권한·드리프트), 파이프라인 그래프에서 권한·창구 범위를 만드는 생성기 하나, `engines.jobs` 블록, 위 semgrep 규칙.
 - 우리가 지우는 것: 손으로 쓴 읽기(약 2,415 줄), 우리 REST 전송(1,472 줄 중 전송 부분), 카탈로그 폴링(1,605 줄), 흩어진 표 만들기, 창구의 표 쪽, DataHub, Trino JDBC.
-- 비용: dev 약 43 USD/월(결정 6 동안), 운영 약 167~196 USD/월(추정). 예산 150 USD 는 운영 카탈로그 전에 사장이 본다.
+- 비용: dev 약 43 USD/월(결정 6 동안), 운영 약 128~155 USD/월(Single-AZ, 지금), 출시 뒤 약 167~195 USD/월(Multi-AZ). 플랫폼 계정 예산은 200 USD 다.
 - 위험: Lakekeeper 는 1.0 전이고 회사 하나가 만든다(dev 가 업그레이드 카나리아, 데이터 호출은 REST 명세만, 나가는 길은 register). #2217 전까지 커밋의 위치 검사는
   우리 커미터에 달렸다. OpenFGA 와 RDS 가 모든 표 호출의 길에 선다(OpenFGA 가 내리면 모두 503, T7).
-- 확인하지 못한 것: RDS 장애 조치와 DB 스냅숏 복원(T14·T15 의 남은 부분), 자격보다 긴 스캔과 두 자격에 걸친 multipart(T12), T17(A1), T25~T30·T34·T37·T38.
+- 확인하지 못한 것: RDS 장애 조치(T14 의 남은 부분, 출시 때 Multi-AZ 에서)와 DB 스냅숏 복원(T15 의 남은 부분), 자격보다 긴 스캔과 두 자격에 걸친
+  multipart(T12), T17·동시 50 의 T13(A1), T25~T30·T34·T37·T38.
 
 ## 기각한 대안
 
@@ -260,9 +274,9 @@ Single-AZ RDS 면 약 40 USD 줄고, 장애 조치(T14 의 남은 부분)는 시
 | IAM 바깥 연합을 첫 기계 신원으로 | Lakekeeper 에 IAM 로그인이 없고, 엔진마다 받아 오는 접착 코드가 든다 |
 | 기계 신원을 위해 Zitadel 을 AWS 로 | 그 일에 필요 없다 |
 | LoQE | 브라우저에 자격을 두고 버킷 CORS 가 든다 |
-| Basin 을 위한 "vended" 제공자 | ㉡ 이 권고대로면 버리는 일이다 |
+| Basin 을 위한 "vended" 제공자 | 결정 10-2(㉡): Basin 위의 AWS 커밋 길이 없으니 버리는 일이다 |
 | dev 에서 T17 을 위해 Basin 읽기 비밀을 옮기거나 노트북에서 포트 포워딩 | 결정 7: A1 의 실제 꼴에서 돈다 |
 
-2026-11-27: 사장 검토 전 — Proposed 유지. 남은 것: 사장의 승인, 열린 사장 결정 ㉠~㉥ 과 사람의 Console 발급자(§10), T17(A1 에서), T25~T30·T34·T37·T38.
-main 에 있는 것: dev 리그와 그 탐침·업그레이드 카나리아(`infra/aws-lakekeeper-dev`, #1772·#1775·#1777), T8 명령(`check-lakehouse-catalog-writes`), REST 카탈로그 열기 모듈
-(`lakehouse_rest_catalog`). 운영 카탈로그·조정기·생성기·`engines.jobs` 블록·§3 의 검사는 아직 없다.
+2026-11-27: 사장 승인(Accepted), §10 의 열린 결정은 결정으로 옮겼다. main 에 있는 것: dev 리그와 그 탐침·업그레이드 카나리아(`infra/aws-lakekeeper-dev`,
+#1772·#1775·#1777, #1780 이 되돌린 것을 W109c 가 되살렸다), T8 명령(`check-lakehouse-catalog-writes`), REST 카탈로그 열기 모듈(`lakehouse_rest_catalog`).
+운영 카탈로그(A1)는 W109c 가 짓는다.

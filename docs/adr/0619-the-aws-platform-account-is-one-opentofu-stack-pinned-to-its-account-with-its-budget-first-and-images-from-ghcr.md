@@ -146,3 +146,5 @@ AWS 에서 도는 이미지(발행기, Dagster 코드 위치)는 `ghcr.io` 의 �
   그 이미지는 그 스택들을 거부한다.
 
 2026-11-27 개정 주(W101). 사장이 월 예산 한도를 150 에서 200 USD 로 올렸다. 메일은 실제 100·200, 예측 200 USD 에서 간다. §5 의 나머지(첫 자원, 메일 주소는 적용 때의 변수)는 그대로이고, 값은 계약 `budget` 에 있다.
+
+2026-11-27 개정 주(W109c). §4 의 "상태에는 비밀이 없다" 에 예외가 하나 있다: Cognito 앱 클라이언트의 비밀은 Lakekeeper 스택의 상태에 든다(공급자에 쓰기 전용 꼴이 없다). 상태 버킷은 이 계정 안에서 암호화·공개 차단·TLS 만이고, 값은 Secrets Manager 에도 들어 그 레인의 역할만 읽는다: 루트 [ADR-0624](./0624-the-lakehouse-catalog-is-self-hosted-open-source-lakekeeper-and-it-holds-only-table-pointers-commits-credentials-grants-and-protection.md) 결정 4-5.
