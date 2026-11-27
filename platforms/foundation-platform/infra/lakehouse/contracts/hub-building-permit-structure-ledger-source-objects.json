@@ -105,7 +105,7 @@
       "meaning": "건폐율 원문(%)"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_permit_structure_ledger",
+  "handoff_prefix": "work/hubgokr__building_permit_structure_ledger",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

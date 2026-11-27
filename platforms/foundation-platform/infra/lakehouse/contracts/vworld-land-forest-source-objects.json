@@ -6,7 +6,7 @@
   "dataset_series": "AL_D003",
   "field_layout_authority": "Provider CSV headers, EUC-KR: 고유번호,법정동코드,법정동명,지번,대장구분코드,대장구분명,지목코드,지목명,면적,소유구분코드,소유구분명,소유(공유)인수,축척구분코드,축척구분명,데이터기준일자,원천시도시군구코드 (root ADR-0088). 소유구분 is a category code (개인/국유/공유 등), not owner identity.",
   "why_this_file_exists": "Harvest vintages of the same sido pile up; loading two would double every forest parcel, and all but one 시도 would look complete while one is missing.",
-  "handoff_prefix": "silver-handoff/vworldkr__land_forest",
+  "handoff_prefix": "work/vworldkr__land_forest",
   "handoff_suffix": ".jsonl.gz",
   "silver_refresh": {
     "$comment": "foundation-silver-refresh@land-forest-ledger.service 의 실행 값(root ADR-0169 §3 ③). 판은 load branch 에 통째로 올린 뒤(첫 묶음 overwrite, 나머지 append, ADR-0183) main 에 발행하지 않고, compare 가 main 의 현재 행과 키마다 비교해 바뀐 키의 행 전부와 사라진 키의 삭제 표시만 main 에 append 한다(ADR-0275, ADR-0311). content_columns 는 판마다 바뀌는 열(data_reference_date, 적재 열)을 넣지 않는다. source_snapshot_id 는 source 의 slug 를 하이픈으로 쓴 것, ':' 와 판이다(손 적재가 쓴 값과 같다).",

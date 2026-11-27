@@ -22,8 +22,9 @@ use serde::Deserialize;
 /// A rendition ladder: which longest sides, in which formats (root ADR-0427 §2).
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Spec {
-    /// Names the ladder in rendition keys; a change to anything below takes a new version.
-    pub version: String,
+    /// The ladder's number in rendition keys (`rendition/ladder=<n>/`, root ADR-0626 rule 4); a change to
+    /// anything below takes a new ladder.
+    pub ladder: u32,
     /// The longest side, in pixels, of each rung (a source smaller than a rung is kept at its size).
     pub widths: Vec<u32>,
     /// Every rung is encoded in each of these, in this order.

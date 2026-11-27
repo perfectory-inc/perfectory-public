@@ -226,13 +226,13 @@ pub async fn run(env: &str, layout: Layout) -> anyhow::Result<()> {
     );
     let prefix = required_env(&format!("{env}_OUTPUT_OBJECT_PREFIX"))?;
     ensure!(
-        prefix.starts_with("silver-handoff/")
+        prefix.starts_with("work/")
             && !prefix.ends_with('/')
             && !prefix.contains([',', '\n', '\r', '\t', '\\'])
             && prefix
                 .split('/')
                 .all(|part| !part.is_empty() && part != "." && part != ".."),
-        "output prefix must be a canonical silver-handoff key"
+        "output prefix must be a canonical work/ key"
     );
     let config = Config {
         input_object_key: key.clone(),
@@ -343,7 +343,7 @@ fn convert<R: Read + Seek>(
     let member = zip_stream::open(source, |name| layout.accepts_member(name))?;
     let mut report = Report::new(config, layout);
     report.sigungu_crosswalk = sigungu_crosswalk.provenance().clone();
-    let attempt = format!("{}/attempt={}", config.object_stem()?, Uuid::new_v4());
+    let attempt = format!("{}/run={}", config.object_stem()?, Uuid::new_v4());
     // To the second and `Z`, as every other export writes it: the load refuses any other form
     // (2026-11-21: nine lanes failed on `...829434156+00:00`).
     let ingested_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);

@@ -63,7 +63,7 @@
       "meaning": "처리일자(승인 및 처리일자) 원문; 빈칸 509 행·네 자리 101 행 등 여덟 자리가 아닌 행이 있다"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_maintenance_regular_inspection_history",
+  "handoff_prefix": "work/hubgokr__building_maintenance_regular_inspection_history",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

@@ -43,7 +43,7 @@ fn summary_json(profile_url_template: Option<&str>) -> serde_json::Value {
             "official_complex_code": "446400",
             "current_version": "018f0000-0000-7000-8000-000000000001",
             "profile_object_key":
-                "gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000001.json",
+                "serving/industrial_complex/profile/018f0000-0000-7000-8000-000000000001.json",
             "profile_url": serde_json::Value::Null,
             "profile_size_bytes": 1401,
             "profile_row_count": 1,
@@ -88,7 +88,7 @@ fn reads_the_publish_inputs_the_export_wrote() -> anyhow::Result<()> {
     );
     assert_eq!(
         artifact.profile_object_key,
-        "gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000001.json"
+        "serving/industrial_complex/profile/018f0000-0000-7000-8000-000000000001.json"
     );
     assert_eq!(artifact.profile_size_bytes, 1401);
     assert_eq!(artifact.profile_row_count, 1);

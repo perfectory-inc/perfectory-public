@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn the_same_entries_write_no_generation_and_a_change_writes_the_next() -> anyhow::Result<()> {
-        let key = "gold/industrial-complex/profiles/0196e7e0-3c20-7000-8000-100000000003.json";
+        let key = "serving/industrial_complex/profile/0196e7e0-3c20-7000-8000-100000000003.json";
         let one = |name: &str| -> anyhow::Result<_> {
             let row = row(name, "999990000000000001");
             entry(&row, key.to_owned(), content_sha256(&row)?)

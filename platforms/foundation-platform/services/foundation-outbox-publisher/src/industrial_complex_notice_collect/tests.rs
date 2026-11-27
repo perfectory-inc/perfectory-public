@@ -57,10 +57,7 @@ fn the_frontier_is_the_unsettled_notices_newest_first_within_the_limit() {
 #[test]
 fn the_contract_points_at_the_shared_media_store_and_its_list() -> anyhow::Result<()> {
     let contract = source_contract()?;
-    assert_eq!(
-        attachment_prefix(&contract.attachments)?.as_str(),
-        "onbid/media"
-    );
+    assert_eq!(attachment_prefix(&contract.attachments)?.as_str(), "media");
     assert_eq!(
         contract.notice_detail.read_from,
         lakehouse_domain::SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL.table_name
@@ -175,7 +172,7 @@ async fn a_notice_stores_every_attachment_once_and_annotates_its_line() -> anyho
         )?
     );
     let pdf_key = format!(
-        "onbid/media/sha256/{}.pdf",
+        "media/display/sha256/{}.pdf",
         files[0]["sha256"].as_str().unwrap_or_default()
     );
     assert!(storage.read_object_sha256(&pdf_key).await?.is_some());

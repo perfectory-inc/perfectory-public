@@ -343,7 +343,7 @@ fn the_lane_contracts_say_how_each_lane_runs() -> anyhow::Result<()> {
     assert_eq!(price.load.write_mode, WriteMode::Append);
     assert_eq!(
         price.handoff_prefix.as_deref(),
-        Some("silver-handoff/hubgokr__building_register_apartment_price")
+        Some("work/hubgokr__building_register_apartment_price")
     );
     Ok(())
 }
@@ -598,7 +598,7 @@ fn a_release_the_table_lacks_is_exported_and_loaded() -> anyhow::Result<()> {
 }
 
 const PRICE: &str = "hubgokr__building_register_apartment_price";
-const PRICE_PREFIX: &str = "silver-handoff/hubgokr__building_register_apartment_price";
+const PRICE_PREFIX: &str = "work/hubgokr__building_register_apartment_price";
 
 fn price_release(day: &str) -> anyhow::Result<Release> {
     release::select(&roles(&[("source", PRICE)]), &[object(PRICE, day, None)?])
@@ -628,7 +628,7 @@ fn hub_manifest(release: &Release, parts: &[u64]) -> anyhow::Result<HubManifest>
             .enumerate()
             .map(|(index, rows)| HubPart {
                 object_key: format!(
-                    "{PRICE_PREFIX}/{stem}/attempt=synthetic/part-{:04}.jsonl.gz",
+                    "{PRICE_PREFIX}/{stem}/run=synthetic/part-{:04}.jsonl.gz",
                     index + 1
                 ),
                 rows: *rows,
@@ -683,13 +683,11 @@ fn a_manifest_of_another_release_or_with_broken_parts_is_refused() -> anyhow::Re
     let breaks: Vec<Box<dyn Fn(&mut HubManifest)>> = vec![
         Box::new(|m| m.status = "partial".to_owned()),
         Box::new(|m| m.vintage = "209906".to_owned()),
-        Box::new(|m| m.output_object_prefix = "silver-handoff/other".to_owned()),
+        Box::new(|m| m.output_object_prefix = "work/other".to_owned()),
         Box::new(|m| m.rows_emitted += 1),
         Box::new(|m| m.parts.swap(0, 1)),
         Box::new(|m| {
-            m.parts[1].object_key = m.parts[1]
-                .object_key
-                .replace("attempt=synthetic", "attempt=other")
+            m.parts[1].object_key = m.parts[1].object_key.replace("run=synthetic", "run=other")
         }),
         Box::new(|m| m.parts[0].rows = 11),
         Box::new(|m| m.pnu_bad += 1),
@@ -754,7 +752,7 @@ fn the_unit_areas_load_part_by_part() -> anyhow::Result<()> {
     assert_eq!(contract.load.write_mode, WriteMode::Append);
     assert_eq!(
         contract.handoff_prefix.as_deref(),
-        Some("silver-handoff/hubgokr__building_register_exclusive_common_area")
+        Some("work/hubgokr__building_register_exclusive_common_area")
     );
     assert!(
         contract.export_chunk_rows.is_some(),
@@ -785,14 +783,17 @@ fn the_unit_areas_load_part_by_part() -> anyhow::Result<()> {
     assert_eq!(env[&key("OUTPUT_FORMAT")], "r2-parts");
     assert_eq!(
         env[&key("OUTPUT_OBJECT_PREFIX")],
-        "silver-handoff/hubgokr__building_register_exclusive_common_area"
+        "work/hubgokr__building_register_exclusive_common_area"
     );
     assert_eq!(env[&key("CHUNK_ROWS")], "1000000");
     // 2026-11-07 07:00: the part path named its object by the role `source`, which this lane
     // calls `unit_area`, and every run stopped at "the release has no source object".
     assert_eq!(
-        manifest_key(contract.handoff_prefix.as_deref().context("prefix")?, &release)?,
-        "silver-handoff/hubgokr__building_register_exclusive_common_area/OPN20990720SYNTHETIC/manifest.json"
+        manifest_key(
+            contract.handoff_prefix.as_deref().context("prefix")?,
+            &release
+        )?,
+        "work/hubgokr__building_register_exclusive_common_area/OPN20990720SYNTHETIC/manifest.json"
     );
     Ok(())
 }

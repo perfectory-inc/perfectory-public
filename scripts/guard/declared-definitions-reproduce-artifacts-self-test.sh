@@ -17,6 +17,10 @@ inputs=(
   "platforms/foundation-platform/orchestration/dags/dagster_writes.py"
   "platforms/foundation-platform/infra/datahub/dataset_names.py"
   "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json"
+  # The naming registry's consumers G1 holds to its areas (root ADR-0626 §1).
+  "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.contract.json"
+  "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+  "platforms/foundation-platform/config/aws-platform.contract.json"
 )
 test_root="$(mktemp -d)"
 # Git Bash on Windows: one spelling of the path that bash and Python both read the same way.

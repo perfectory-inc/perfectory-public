@@ -10,7 +10,7 @@ import { IndustrialComplexGoldProfileSchema } from "./complex-profile.generated"
  * connection contract; `edge-contract.test.ts` holds this to it. The edge answers `no-cache` with an
  * ETag, so the browser revalidates it (304 while unchanged) rather than downloading it again.
  */
-export const COMPLEX_INDEX_PATH = "gold/industrial-complex/index.json";
+export const COMPLEX_INDEX_PATH = "serving/industrial_complex/index/current.json";
 
 export type ComplexIndex = z.infer<typeof IndustrialComplexIndexSchema>;
 

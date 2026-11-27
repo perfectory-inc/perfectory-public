@@ -17,7 +17,7 @@ Worker·바인딩 이름, 버킷 연결, 키 뿌리·UUID 패턴·접미사, COR
 정책의 유일한 정의다. `wrangler.jsonc`는 `config:render`가 만드는 투영이므로 손으로 고치지 않는다.
 
 - 허용: `GET`, `HEAD`, `OPTIONS`와 정확한
-  `/gold/industrial-complex/profiles/{artifact_id}.json`
+  `/serving/industrial_complex/profile/{artifact_id}.json`
 - 거부: 질의 문자열, 다른 접두어·경로 조각, 상위 경로 거슬러 오르기는 404; 다른 메서드는 405; 허용되지 않은 출처는 403
 - 캐시: 계약의 `cache_control`(불변); 객체는 새로 만들기만 하며 새 판본은 새 산출물 주소
 - 조건부 요청: R2·캐시 API 의 ETag 와 `If-None-Match` 판단을 쓰고 일치하면 304

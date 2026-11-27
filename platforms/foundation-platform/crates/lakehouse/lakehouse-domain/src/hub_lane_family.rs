@@ -374,7 +374,7 @@ fn source_document(
         "has_header": false,
         "column_count": entry.column_count,
         "columns": layout,
-        "handoff_prefix": format!("silver-handoff/{source_slug}"),
+        "handoff_prefix": format!("work/{source_slug}"),
         "handoff_suffix": ".jsonl.gz",
         "handoff_layout": "manifest_parts",
         "rows_per_part": file.defaults.rows_per_part,

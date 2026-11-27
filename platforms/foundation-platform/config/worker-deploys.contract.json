@@ -56,7 +56,7 @@
       "smoke": {
         "kind": "http",
         "hostname": "profiles.gongzzang.app",
-        "path": "/gold/industrial-complex/profiles/00000000-0000-0000-0000-000000000000.json",
+        "path": "/serving/industrial_complex/profile/00000000-0000-0000-0000-000000000000.json",
         "status": 404,
         "reason": "the gateway block names no hostname (the custom domain is attached in the dashboard and the Wrangler config has no routes, so a deploy leaves it alone); an artifact id of the contract's shape that no profile has, which the Worker looks up in the bucket"
       }

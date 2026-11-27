@@ -326,7 +326,7 @@ async fn a_line_settles_whole_reuses_stored_urls_and_stops_at_a_line_boundary() 
     let http = reqwest::Client::new();
     let media_fields = fields();
     let settings = |per_run_limit| MirrorSettings {
-        object_prefix: "onbid/media",
+        object_prefix: "media",
         url_host: &host,
         max_file_bytes: 1024,
         daily_limit: 100,
@@ -452,7 +452,7 @@ async fn a_run_that_runs_out_mid_way_stores_every_items_photos_before_any_apprai
     // without a photo; photos first spends 8 on every item's photos and 1 on A's appraisal.
     let media_fields = fields();
     let settings = MirrorSettings {
-        object_prefix: "onbid/media",
+        object_prefix: "media",
         url_host: &host,
         max_file_bytes: 1024,
         daily_limit: 100,
@@ -551,7 +551,7 @@ async fn every_lines_thumbnails_land_before_any_original_and_an_original_complet
     let storage = foundation_outbox::FileObjectStorage::new(root)?;
     let media_fields = fields();
     let settings = |per_run_limit| MirrorSettings {
-        object_prefix: "onbid/media",
+        object_prefix: "media",
         url_host: &host,
         max_file_bytes: 1024,
         daily_limit: 100,
@@ -657,7 +657,7 @@ async fn a_thumbnail_sized_original_is_counted_and_the_ladder_is_made_from_the_t
         run_time_budget_seconds: 60,
     };
     let settings = MirrorSettings {
-        object_prefix: "onbid/media",
+        object_prefix: "media",
         url_host: &host,
         max_file_bytes: 1 << 20,
         daily_limit: 100,
@@ -696,8 +696,8 @@ async fn a_thumbnail_sized_original_is_counted_and_the_ladder_is_made_from_the_t
         .is_none());
     let manifest = storage.get_object_bytes(
         foundation_shared_kernel::rendition_manifest_key(
-            &foundation_shared_kernel::ObjectKeyPrefix::parse("onbid/media")?,
-            &spec()?.version,
+            &foundation_shared_kernel::ObjectKeyPrefix::parse("media")?,
+            spec()?.ladder,
             &foundation_shared_kernel::Sha256Hex::of(&thumbnail_bytes),
         )?
         .as_str(),
@@ -759,7 +759,7 @@ async fn one_run(
         run_time_budget_seconds: 60,
     };
     let settings = MirrorSettings {
-        object_prefix: "onbid/media",
+        object_prefix: "media",
         url_host: &host,
         max_file_bytes: 1 << 20,
         daily_limit: 100,
@@ -823,7 +823,7 @@ async fn a_bitmap_photo_is_kept_as_received_and_shown_through_its_png_master() -
     assert_eq!(photo["source_sha256"], json!(source.as_str()));
     assert_eq!(photo["source_media_format"], json!("bmp"));
     assert_eq!(photo["source_size_bytes"], json!(received.len()));
-    let prefix = ObjectKeyPrefix::parse("onbid/media")?;
+    let prefix = ObjectKeyPrefix::parse("media")?;
     // The bitmap is kept byte for byte, outside the served store.
     assert_eq!(
         storage.get_object_bytes(source_key(&prefix, &source, MediaFormat::Bmp)?.as_str())?,
@@ -842,7 +842,7 @@ async fn a_bitmap_photo_is_kept_as_received_and_shown_through_its_png_master() -
         .get_object_bytes(
             rendition_manifest_key(
                 &prefix,
-                &crate::media_renditions::spec()?.version,
+                crate::media_renditions::spec()?.ladder,
                 &master_hash
             )?
             .as_str()

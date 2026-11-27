@@ -55,7 +55,7 @@
       "meaning": "층번호 원문; 숫자로 강제 변환하지 않는다"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_register_exclusive_unit",
+  "handoff_prefix": "work/hubgokr__building_register_exclusive_unit",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

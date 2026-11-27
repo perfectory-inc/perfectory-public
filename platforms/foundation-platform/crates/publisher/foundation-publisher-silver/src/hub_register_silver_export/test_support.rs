@@ -44,7 +44,7 @@ pub(super) fn convert_fixture_via(
             vintage: layout.vintage_of(&input_object_key)?,
             input_object_key,
             output_prefix: OutputSink::R2Object(format!(
-                "silver-handoff/{}",
+                "work/{}",
                 layout.source.trim_start_matches("bronze/source=")
             )),
             source_snapshot_id: "SYNTHETIC-test".into(),

@@ -39,7 +39,7 @@ fn rule() -> LandRule {
         completeness: Completeness::Sido,
         listed_regions: Vec::new(),
         snapshot_label: "vworldkr-land-individual-price".to_owned(),
-        handoff_prefix: format!("silver-handoff/{PRICE}"),
+        handoff_prefix: format!("work/{PRICE}"),
         handoff_suffix: ".jsonl.gz".to_owned(),
     }
 }
@@ -51,7 +51,7 @@ fn zone_rule() -> LandRule {
         completeness: Completeness::National,
         listed_regions: Vec::new(),
         snapshot_label: "vworldkr-land-use-zone-code".to_owned(),
-        handoff_prefix: format!("silver-handoff/{ZONE}"),
+        handoff_prefix: format!("work/{ZONE}"),
         handoff_suffix: ".jsonl.gz".to_owned(),
     }
 }
@@ -555,7 +555,7 @@ fn every_land_contract_is_a_land_lane_of_its_export() -> anyhow::Result<()> {
         assert!(contract.load.input_file_batch_size > 0);
         assert_eq!(
             rule.handoff_prefix,
-            format!("silver-handoff/{}", rule.source),
+            format!("work/{}", rule.source),
             "{}",
             lane.id()
         );
@@ -785,10 +785,7 @@ fn each_object_is_exported_to_its_own_handoff_under_the_release_id() -> anyhow::
     let rule = contract.land.clone().context("a land rule")?;
     let object = ledger(PRICE, "SYNTHETIC-01", 1, None)?;
     let handoff = rule.handoff_key(&object)?;
-    assert_eq!(
-        handoff,
-        format!("silver-handoff/{PRICE}/SYNTHETIC-01.jsonl.gz")
-    );
+    assert_eq!(handoff, format!("work/{PRICE}/SYNTHETIC-01.jsonl.gz"));
     let ExportKind::Land { env_prefix } = contract.kind else {
         anyhow::bail!("a land kind");
     };

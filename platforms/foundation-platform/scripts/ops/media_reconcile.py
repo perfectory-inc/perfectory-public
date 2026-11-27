@@ -4,7 +4,7 @@
 
     media_reconcile.py compare <state dir> <delta.json> <listing.jsonl> <report dir> <metrics file>
 
-The onbid collector writes each photo or attachment once, to `<object_prefix>/sha256/<hash>.<ext>`
+The onbid collector writes each photo or attachment once, to `<object_prefix>/display/sha256/<hash>.<ext>`
 (data-go-kr-onbid.contract.json `media`, foundation-shared-kernel media.rs), and the Silver load
 indexes it in `media.reconcile.index_tables` (공매 and 경매 photos and the industrial complex notice
 attachments share the store, root ADR-0429, ADR-0484); a parcel page shows a photo from the index's
@@ -61,7 +61,7 @@ def settings(contract_path: Path = CONTRACT) -> dict:
     media = json.loads(contract_path.read_text(encoding="utf-8"))["media"]
     reconcile = media["reconcile"]
     return {
-        "prefix": media["object_prefix"].rstrip("/") + "/sha256/",
+        "prefix": media["object_prefix"].rstrip("/") + "/display/sha256/",
         # Every Silver index that names a key of the one store (root ADR-0429): 공매 and 경매 photos
         # share the prefix, so a key either names is referenced. The set is the state's identity.
         "index_tables": list(reconcile["index_tables"]),

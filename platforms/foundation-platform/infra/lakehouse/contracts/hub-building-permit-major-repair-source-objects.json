@@ -57,7 +57,7 @@
       "meaning": "대수선변경구분코드명 원문(증설·해체·수선·변경)"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_permit_major_repair",
+  "handoff_prefix": "work/hubgokr__building_permit_major_repair",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

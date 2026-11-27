@@ -431,7 +431,7 @@ pub(super) fn validate_manifest(
         .file_name()
         .strip_suffix(".zip")
         .context("a hub source is a ZIP")?;
-    let base = format!("{prefix}/{stem}/attempt=");
+    let base = format!("{prefix}/{stem}/run=");
     let mut attempt = None;
     for (index, part) in manifest.parts.iter().enumerate() {
         let rest = part

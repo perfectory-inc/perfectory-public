@@ -2,8 +2,11 @@
 //!
 //! A source's photos and attachments are stored once by the hash of their bytes, under one store
 //! shared by every parcel source (root ADR-0290 §7 for court auction, ADR-0296 §2 for public
-//! auction). This module is the pure part — magic-byte format detection and the key scheme
-//! `<prefix>/sha256/<hash>.<ext>` — with no I/O. The capture side differs per source (base64 decode
+//! auction). This module is the pure part — magic-byte format detection and the key scheme under the
+//! one media store `media/` (root ADR-0626 §6-1): `<prefix>/display/sha256/<hash>.<ext>` for what the
+//! edge serves, `<prefix>/received/sha256/…` for a received file no screen reads,
+//! `<prefix>/document/sha256/…` for a court document, `<prefix>/rendition/ladder=<n>/…` for a display
+//! ladder — with no I/O. The capture side differs per source (base64 decode
 //! for court auction, file-URL download for public auction). The write is a content-addressed
 //! write-once object (`put_object` CreateOnly + sha256 metadata), NOT a per-object Bronze ledger row
 //! (ADR-0298); the silver photo table is the reference index. Both sources reuse the format and key
@@ -281,7 +284,8 @@ pub enum Sha256HexError {
     NotLowercaseHex,
 }
 
-/// Builds the content-addressed media object key `<prefix>/sha256/<hash>.<ext>` (ADR-0290 §7).
+/// Builds the content-addressed media object key `<prefix>/display/sha256/<hash>.<ext>` (ADR-0290 §7;
+/// the form words are root ADR-0626 §6-1's), the served store.
 ///
 /// The same bytes always resolve to the same key, so a photo seen in many rounds is stored once.
 ///
@@ -294,15 +298,31 @@ pub fn content_addressed_key(
 ) -> Result<ObjectKey, ObjectKeyError> {
     let prefix = prefix.as_str().trim_end_matches('/');
     ObjectKey::parse(&format!(
-        "{prefix}/sha256/{}.{}",
+        "{prefix}/display/sha256/{}.{}",
         hash.as_str(),
         format.extension()
     ))
 }
 
-/// The key of a received file no screen reads (root ADR-0503): `<prefix>/sources/sha256/<hash>.<ext>`.
+/// The key of a court document (root ADR-0626 §6-3): `<prefix>/document/sha256/<hash>.pdf`.
 ///
-/// Kept byte for byte and write-once like every stored file, but outside `<prefix>/sha256/`, the
+/// # Errors
+/// Returns [`ObjectKeyError`] when the composed key is not a valid object key.
+pub fn document_key(
+    prefix: &ObjectKeyPrefix,
+    hash: &Sha256Hex,
+) -> Result<ObjectKey, ObjectKeyError> {
+    let prefix = prefix.as_str().trim_end_matches('/');
+    ObjectKey::parse(&format!(
+        "{prefix}/document/sha256/{}.{}",
+        hash.as_str(),
+        MediaFormat::Pdf.extension()
+    ))
+}
+
+/// The key of a received file no screen reads (root ADR-0503): `<prefix>/received/sha256/<hash>.<ext>`.
+///
+/// Kept byte for byte and write-once like every stored file, but outside `<prefix>/display/`, the
 /// served store the edge reads and the media reconciler lists: what stands for it there is its
 /// display master.
 ///
@@ -315,7 +335,7 @@ pub fn source_key(
 ) -> Result<ObjectKey, ObjectKeyError> {
     let prefix = prefix.as_str().trim_end_matches('/');
     ObjectKey::parse(&format!(
-        "{prefix}/sources/sha256/{}.{}",
+        "{prefix}/received/sha256/{}.{}",
         hash.as_str(),
         format.extension()
     ))
@@ -323,21 +343,21 @@ pub fn source_key(
 
 /// The key of one display rendition of a stored source (root ADR-0427).
 ///
-/// `<prefix>/renditions/<version>/<source sha256>/<width>.<ext>`: a rendition is named by its source
-/// and the ladder version, not by its own bytes, so a page can name it from the source's hash alone.
+/// `<prefix>/rendition/ladder=<ladder>/<source sha256>/<width>.<ext>`: a rendition is named by its
+/// source and the ladder, not by its own bytes, so a page can name it from the source's hash alone.
 ///
 /// # Errors
 /// Returns [`ObjectKeyError`] when the composed key is not a valid object key.
 pub fn rendition_key(
     prefix: &ObjectKeyPrefix,
-    version: &str,
+    ladder: u32,
     source: &Sha256Hex,
     width: u32,
     format: MediaFormat,
 ) -> Result<ObjectKey, ObjectKeyError> {
     let prefix = prefix.as_str().trim_end_matches('/');
     ObjectKey::parse(&format!(
-        "{prefix}/renditions/{version}/{}/{width}.{}",
+        "{prefix}/rendition/ladder={ladder}/{}/{width}.{}",
         source.as_str(),
         format.extension()
     ))
@@ -345,18 +365,18 @@ pub fn rendition_key(
 
 /// The key of a source's ladder manifest, written after every rendition (root ADR-0427).
 ///
-/// `<prefix>/renditions/<version>/<source sha256>.json`: its presence means the ladder is whole.
+/// `<prefix>/rendition/ladder=<ladder>/<source sha256>.json`: its presence means the ladder is whole.
 ///
 /// # Errors
 /// Returns [`ObjectKeyError`] when the composed key is not a valid object key.
 pub fn rendition_manifest_key(
     prefix: &ObjectKeyPrefix,
-    version: &str,
+    ladder: u32,
     source: &Sha256Hex,
 ) -> Result<ObjectKey, ObjectKeyError> {
     let prefix = prefix.as_str().trim_end_matches('/');
     ObjectKey::parse(&format!(
-        "{prefix}/renditions/{version}/{}.json",
+        "{prefix}/rendition/ladder={ladder}/{}.json",
         source.as_str()
     ))
 }
@@ -433,29 +453,28 @@ mod tests {
         }
         let hash = Sha256Hex::of(b"bitmap");
         assert_eq!(
-            super::source_key(
-                &ObjectKeyPrefix::parse("onbid/media")?,
-                &hash,
-                MediaFormat::Bmp
-            )?
-            .as_str(),
-            format!("onbid/media/sources/sha256/{}.bmp", hash.as_str())
+            super::source_key(&ObjectKeyPrefix::parse("media")?, &hash, MediaFormat::Bmp)?.as_str(),
+            format!("media/received/sha256/{}.bmp", hash.as_str())
         );
         Ok(())
     }
 
     #[test]
     fn names_a_rendition_by_its_source_and_version() -> Result<(), Box<dyn std::error::Error>> {
-        let prefix = ObjectKeyPrefix::parse("onbid/media")?;
+        let prefix = ObjectKeyPrefix::parse("media")?;
         let source = Sha256Hex::of(b"source");
         assert_eq!(source, Sha256Hex::parse(source.as_str())?);
         assert_eq!(
-            super::rendition_key(&prefix, "r1", &source, 400, MediaFormat::Avif)?.as_str(),
-            format!("onbid/media/renditions/r1/{}/400.avif", source.as_str())
+            super::rendition_key(&prefix, 1, &source, 400, MediaFormat::Avif)?.as_str(),
+            format!("media/rendition/ladder=1/{}/400.avif", source.as_str())
         );
         assert_eq!(
-            super::rendition_manifest_key(&prefix, "r1", &source)?.as_str(),
-            format!("onbid/media/renditions/r1/{}.json", source.as_str())
+            super::rendition_manifest_key(&prefix, 1, &source)?.as_str(),
+            format!("media/rendition/ladder=1/{}.json", source.as_str())
+        );
+        assert_eq!(
+            super::document_key(&prefix, &source)?.as_str(),
+            format!("media/document/sha256/{}.pdf", source.as_str())
         );
         for format in [
             MediaFormat::Jpeg,
@@ -555,24 +574,24 @@ mod tests {
     #[test]
     fn builds_the_content_addressed_key_once_per_content() {
         let h = "0123456789abcdef".repeat(4); // 64 hex chars
-        let key = ObjectKeyPrefix::parse("onbid/media")
+        let key = ObjectKeyPrefix::parse("media")
             .ok()
             .zip(Sha256Hex::parse(&h).ok())
             .and_then(|(prefix, hash)| {
                 content_addressed_key(&prefix, &hash, MediaFormat::Jpeg).ok()
             })
             .map(|k| k.as_str().to_owned());
-        assert_eq!(key, Some(format!("onbid/media/sha256/{h}.jpg")));
+        assert_eq!(key, Some(format!("media/display/sha256/{h}.jpg")));
     }
 
     #[test]
     fn a_trailing_slash_on_the_prefix_does_not_double() {
         let h = "0123456789abcdef".repeat(4);
-        let key = ObjectKeyPrefix::parse("onbid/media/")
+        let key = ObjectKeyPrefix::parse("media/")
             .ok()
             .zip(Sha256Hex::parse(&h).ok())
             .and_then(|(prefix, hash)| content_addressed_key(&prefix, &hash, MediaFormat::Pdf).ok())
             .map(|k| k.as_str().to_owned());
-        assert_eq!(key, Some(format!("onbid/media/sha256/{h}.pdf")));
+        assert_eq!(key, Some(format!("media/display/sha256/{h}.pdf")));
     }
 }

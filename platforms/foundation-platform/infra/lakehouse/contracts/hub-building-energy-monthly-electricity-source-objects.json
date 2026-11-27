@@ -54,7 +54,7 @@
       "meaning": "사용량 원문(단위는 제공자 명세로 확인한 화면 PR 이 적는다)"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_energy_monthly_electricity",
+  "handoff_prefix": "work/hubgokr__building_energy_monthly_electricity",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

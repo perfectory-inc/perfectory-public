@@ -1062,12 +1062,12 @@ mod tests {
                 "editions": {{
                     "209912": {{
                         "granularity_counts": {{"sido": 1, "sigungu": {sigungu_count}}},
-                        "handoff_prefix": "silver-handoff/vworldkr__parcel",
+                        "handoff_prefix": "work/vworldkr__parcel",
                         "objects": [{objects}]
                     }},
                     "209901": {{
                         "granularity_counts": {{"sido": 0, "sigungu": 1}},
-                        "handoff_prefix": "silver-handoff/vworldkr__parcel/edition=209901",
+                        "handoff_prefix": "work/vworldkr__parcel/edition=209901",
                         "objects": [{{"object_key": "bronze/source=vworldkr__parcel/20991231DS99991-7.zip", "granularity": "sigungu"}}]
                     }}
                 }}
@@ -1087,7 +1087,7 @@ mod tests {
         assert_eq!(objects.len(), 2);
         assert_eq!(
             objects[0].object_key,
-            "silver-handoff/vworldkr__parcel/20991231DS99990-1.jsonl.gz"
+            "work/vworldkr__parcel/20991231DS99990-1.jsonl.gz"
         );
         assert_eq!(objects[0].row_count, None);
         Ok(())

@@ -8,7 +8,7 @@ import connectionContract from "../../../config/r2-connections.contract.json";
 import { parseAllowedOrigins } from "../src/index";
 
 const PROFILE_ID = "00000000-0000-7000-8000-000000000001";
-const PROFILE_KEY = `gold/industrial-complex/profiles/${PROFILE_ID}.json`;
+const PROFILE_KEY = `serving/industrial_complex/profile/${PROFILE_ID}.json`;
 const PROFILE_URL = `https://profiles.example.test/${PROFILE_KEY}`;
 const ALLOWED_ORIGIN = "https://app.example.test";
 const SECOND_ALLOWED_ORIGIN = "https://admin.example.test";
@@ -70,7 +70,7 @@ describe("foundation profile gateway", () => {
   it("missing canonical profile returns 404", async () => {
     if (runtime === undefined) throw new Error("Miniflare did not start");
     const response = await runtime.dispatchFetch(
-      "https://profiles.example.test/gold/industrial-complex/profiles/018f0000-0000-7000-8000-000000000002.json",
+      "https://profiles.example.test/serving/industrial_complex/profile/018f0000-0000-7000-8000-000000000002.json",
     );
     expect(response.status).toBe(404);
   });
@@ -78,9 +78,9 @@ describe("foundation profile gateway", () => {
   it.each([
     "https://profiles.example.test/bronze/vworld/2026/raw.jsonl",
     "https://profiles.example.test/silver/industrial-complexes/part-0.parquet",
-    `https://profiles.example.test/gold/industrial-complex/profiles/nested/${PROFILE_ID}.json`,
-    "https://profiles.example.test/gold/industrial-complex/profiles/latest.json",
-    "https://profiles.example.test/gold/industrial-complex/profiles/not-a-uuid.json",
+    `https://profiles.example.test/serving/industrial_complex/profile/nested/${PROFILE_ID}.json`,
+    "https://profiles.example.test/serving/industrial_complex/profile/latest.json",
+    "https://profiles.example.test/serving/industrial_complex/profile/not-a-uuid.json",
     `${PROFILE_URL}?download=1`,
   ])("non-profile paths return 404: %s", async (url) => {
     if (runtime === undefined) throw new Error("Miniflare did not start");
@@ -88,11 +88,11 @@ describe("foundation profile gateway", () => {
   });
 
   it.each([
-    `https://profiles.example.test/gold/industrial-complex/profiles/../../bronze/x`,
-    `https://profiles.example.test/gold/industrial-complex/profiles/%2e%2e/%2e%2e/bronze/x`,
-    `https://profiles.example.test/gold/industrial-complex/profiles/%252e%252e/%252e%252e/bronze/x`,
-    `https://profiles.example.test/gold/industrial-complex/profiles/${PROFILE_ID}%2f..%2fbronze.json`,
-    `https://profiles.example.test/gold/industrial-complex/profiles/${PROFILE_ID}%252f..%252fbronze.json`,
+    `https://profiles.example.test/serving/industrial_complex/profile/../../bronze/x`,
+    `https://profiles.example.test/serving/industrial_complex/profile/%2e%2e/%2e%2e/bronze/x`,
+    `https://profiles.example.test/serving/industrial_complex/profile/%252e%252e/%252e%252e/bronze/x`,
+    `https://profiles.example.test/serving/industrial_complex/profile/${PROFILE_ID}%2f..%2fbronze.json`,
+    `https://profiles.example.test/serving/industrial_complex/profile/${PROFILE_ID}%252f..%252fbronze.json`,
   ])("traversal forms return 404: %s", async (url) => {
     if (runtime === undefined) throw new Error("Miniflare did not start");
     expect((await runtime.dispatchFetch(url)).status).toBe(404);

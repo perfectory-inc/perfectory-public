@@ -182,7 +182,9 @@
           "bronze/source=datagokr__onbid_item_bid_result/",
           "bronze/source=datagokr__onbid_real_estate_item/",
           "bronze/source=datagokr__onbid_real_estate_item_detail/",
-          "onbid/media/"
+          "media/display/",
+          "media/received/",
+          "media/rendition/"
         ]
       },
       "employment_insurance_workplace_collect": {

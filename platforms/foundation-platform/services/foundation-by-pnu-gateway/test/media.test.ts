@@ -10,7 +10,7 @@ import { startGateway, TEST_WORKER_VERSION } from "./miniflare";
 const MEDIA = connectionContract.parcel_media;
 const BINDING = MEDIA.r2_binding;
 const HASH = "a".repeat(64);
-const KEY = `onbid/media/sha256/${HASH}.jpg`;
+const KEY = `media/display/sha256/${HASH}.jpg`;
 const BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0x01]);
 
 describe("the parcel edge serves content-addressed media", () => {
@@ -55,7 +55,7 @@ describe("the parcel edge serves content-addressed media", () => {
 	it("serves a rendition under its source hash with its stored type", async () => {
 		if (runtime === undefined) throw new Error("Miniflare did not start");
 		const ladder = MEDIA.renditions;
-		const key = `onbid/media/renditions/${ladder.version}/${HASH}/${ladder.widths[0]}.avif`;
+		const key = `media/rendition/ladder=${ladder.ladder}/${HASH}/${ladder.widths[0]}.avif`;
 		const bucket = await runtime.getR2Bucket(BINDING);
 		await bucket.put(key, BYTES, {
 			httpMetadata: { contentType: "image/avif" },
@@ -69,27 +69,43 @@ describe("the parcel edge serves content-addressed media", () => {
 		expect(
 			(
 				await get(
-					`onbid/media/renditions/${ladder.version}/${HASH}/${ladder.widths[0]}.svg`,
+					`media/rendition/ladder=${ladder.ladder}/${HASH}/${ladder.widths[0]}.svg`,
 				)
 			).status,
 		).toBe(404);
 	});
 
-	// Root ADR-0503: a BMP or TIFF photo is kept as received under sources/ and never served; its PNG
-	// display master in sha256/ is what the screens read.
+	// Root ADR-0503: a BMP or TIFF photo is kept as received under received/ and never served; its PNG
+	// display master in display/sha256/ is what the screens read (root ADR-0626 §6-1).
 	it("never serves a kept source a browser cannot show, even when it is stored", async () => {
 		if (runtime === undefined) throw new Error("Miniflare did not start");
 		const bucket = await runtime.getR2Bucket(BINDING);
-		const kept = `onbid/media/sources/sha256/${HASH}.bmp`;
+		const kept = `media/received/sha256/${HASH}.bmp`;
 		await bucket.put(kept, new Uint8Array([0x42, 0x4d, 0x00]), {
 			httpMetadata: { contentType: "image/bmp" },
 		});
 		expect((await get(kept)).status).toBe(404);
-		expect((await get(`onbid/media/sha256/${HASH}.bmp`)).status).toBe(404);
+		expect((await get(`media/display/sha256/${HASH}.bmp`)).status).toBe(404);
+	});
+
+	// Root ADR-0626 §6-3: the court's sale-specification PDFs are public (the owner, 2026-11-28).
+	it("serves a court document by its hash path", async () => {
+		if (runtime === undefined) throw new Error("Miniflare did not start");
+		const bucket = await runtime.getR2Bucket(BINDING);
+		const document = `media/document/sha256/${HASH}.pdf`;
+		await bucket.put(document, new Uint8Array([0x25, 0x50, 0x44, 0x46]), {
+			httpMetadata: { contentType: "application/pdf" },
+		});
+		expect((await get(document)).status).toBe(200);
+		expect((await get(`media/document/sha256/${HASH}.jpg`)).status).toBe(404);
+	});
+
+	it("does not serve the old media root", async () => {
+		expect((await get(`onbid/media/sha256/${HASH}.jpg`)).status).toBe(404);
 	});
 
 	it("404s a hash with no stored object", async () => {
-		expect((await get(`onbid/media/sha256/${"b".repeat(64)}.jpg`)).status).toBe(
+		expect((await get(`media/display/sha256/${"b".repeat(64)}.jpg`)).status).toBe(
 			404,
 		);
 	});
@@ -103,10 +119,10 @@ describe("the parcel edge serves content-addressed media", () => {
 	it("does not treat a malformed media path as media — it falls through to a 404", async () => {
 		// A short hash, an unknown extension, and a query string each fail the one hash rule, so they are
 		// not served as a blob; the by-PNU lanes do not match the path either, so the answer is 404.
-		expect((await get(`onbid/media/sha256/${"a".repeat(63)}.jpg`)).status).toBe(
+		expect((await get(`media/display/sha256/${"a".repeat(63)}.jpg`)).status).toBe(
 			404,
 		);
-		expect((await get(`onbid/media/sha256/${HASH}.svg`)).status).toBe(404);
+		expect((await get(`media/display/sha256/${HASH}.svg`)).status).toBe(404);
 		expect((await get(`${KEY}?x=1`)).status).toBe(404);
 	});
 });

@@ -130,7 +130,7 @@ pub(super) fn build_with_facts(
 /// Derives the artifact identity from the snapshot and complex it describes and the digest of its
 /// content.
 ///
-/// A UUIDv5 keeps `gold/industrial-complex/profiles/{artifact_id}.json` (FP-ADR-0005) while
+/// A UUIDv5 keeps `serving/industrial_complex/profile/{artifact_id}.json` (FP-ADR-0005) while
 /// making the address a function of what the object holds: a re-run of the same inputs is the same
 /// key and bytes (idempotent), and any other body is another key, so a create-only key is never
 /// asked to hold two bodies.
@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(
             first.object_key,
             format!(
-                "gold/industrial-complex/profiles/{}.json",
+                "serving/industrial_complex/profile/{}.json",
                 first.artifact_id
             )
         );

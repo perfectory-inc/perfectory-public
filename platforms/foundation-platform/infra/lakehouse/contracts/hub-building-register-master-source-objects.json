@@ -84,7 +84,7 @@
       "meaning": "사용승인일 YYYYMMDD 또는 빈칸"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_register_master",
+  "handoff_prefix": "work/hubgokr__building_register_master",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

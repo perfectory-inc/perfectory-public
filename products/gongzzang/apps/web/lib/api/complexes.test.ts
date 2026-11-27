@@ -3,7 +3,7 @@ import { COMPLEX_INDEX_PATH, fetchComplex, wholeSquareMetres } from "./complexes
 
 // Root ADR-0456: the panel reads the index on the parcel edge, then the profile it names. Synthetic ids.
 const ID = "0196e7e0-3c20-5000-8000-000000000001";
-const PROFILE = "gold/industrial-complex/profiles/0196e7e0-3c20-5000-9000-000000000001.json";
+const PROFILE = "serving/industrial_complex/profile/0196e7e0-3c20-5000-9000-000000000001.json";
 
 const index = {
   schema_version: "foundation-platform.industrial_complex_index.v1",

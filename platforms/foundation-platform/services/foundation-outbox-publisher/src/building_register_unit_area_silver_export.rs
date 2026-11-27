@@ -131,7 +131,7 @@ fn export_handoff_via(
                     .chunk_rows
                     .context("an r2-parts export names its CHUNK_ROWS, the rows of one part")?,
             )?,
-            attempt: format!("attempt={}", uuid::Uuid::new_v4()),
+            attempt: format!("run={}", uuid::Uuid::new_v4()),
         };
         SilverRowWriter::R2Parts(Box::new(r2_parts::PartWriter::new(layout, open)?))
     } else {
@@ -873,7 +873,7 @@ mod tests {
             "mart_djy_06.txt",
             payload.as_bytes(),
         )?;
-        let prefix = "silver-handoff/hubgokr__building_register_exclusive_common_area";
+        let prefix = "work/hubgokr__building_register_exclusive_common_area";
         let outputs = root.join("r2");
         // R2 keys land as local files: the writer only sees the sink it is handed.
         let open: OpenSink<'_> = Box::new(|output| {
@@ -926,7 +926,7 @@ mod tests {
         for (index, part) in parts.iter().enumerate() {
             let key = part["object_key"].as_str().context("part key")?;
             assert!(
-                key.starts_with(&format!("{prefix}/OPN209912310000000002/attempt="))
+                key.starts_with(&format!("{prefix}/OPN209912310000000002/run="))
                     && key.ends_with(&format!("/part-{:04}.jsonl.gz", index + 1)),
                 "{key}"
             );
@@ -961,7 +961,7 @@ mod tests {
             )
             .as_bytes(),
         )?;
-        for (prefix, chunk) in [(None, Some(2)), (Some("silver-handoff/x"), None)] {
+        for (prefix, chunk) in [(None, Some(2)), (Some("work/x"), None)] {
             let config = UnitAreaExportConfig {
                 bronze_local_object_root: root.clone(),
                 source_slug: DEFAULT_SOURCE_SLUG.to_owned(),

@@ -6,7 +6,7 @@
   "dataset_series": "AL_D172",
   "field_layout_authority": "Provider CSV header, EUC-KR, comma-delimited, fields double-quoted where they hold a comma, 12 columns (measured 2026-11-11 from AL_D172_00_20261109.csv, 179,124 rows, every row 12 fields under RFC 4180; 641 rows split into 13-14 on a bare comma): 법정동코드(5-digit 시군구, the registering authority),법정동명,등록번호(the office),사업자상호,중개업자명,중개업자종별코드,중개업자종별명(공인중개사 122,683 · 중개보조원 54,180 · 중개인 1,546 · 법인 704 · blank 11),자격증번호(blank on 55,711 rows: 중개보조원 hold none, and 168 공인중개사 rows),자격증취득일,직위구분코드,직위구분명(대표 106,429 · 일반 72,323 · 이사 268 · 감사 104),데이터기준일자. A person has no provider key: 41 rows repeat whole and 2,873 자격증번호 appear more than once, so an office's roster is one version keyed (시군구, 등록번호), as the office register is.",
   "why_this_file_exists": "The provider publishes a whole new national roster every day (2026-10-28..11-09 in the ledger, one per day) under object names (20171128DS00162-19.zip) that do not say the day; loading two would double every person, and the office register shares the prefix.",
-  "handoff_prefix": "silver-handoff/vworldkr__real_estate_broker",
+  "handoff_prefix": "work/vworldkr__real_estate_broker",
   "handoff_suffix": ".jsonl.gz",
   "silver_refresh": {
     "$comment": "foundation-silver-refresh@real-estate-broker-member.service 의 실행 값(root ADR-0169 §3 ③, ADR-0511 §4). 판(하루 한 파일)은 load branch 에 통째로 올린 뒤 main 에 발행하지 않고, compare 가 시도(시군구 코드 앞 두 자리)마다 main 의 현재 행과 키(시군구, 등록번호)마다 비교해 소속 인원이 바뀐 사무소의 모든 행과 없어진 사무소의 삭제 표시만 changes branch 를 거쳐 main 에 올린다(ADR-0275, ADR-0318). content_columns 는 판마다 바뀌는 열(data_reference_date, 적재 열)을 넣지 않는다. source_snapshot_id 는 source 의 slug 를 하이픈으로 쓴 것, ':' 와 판이다.",

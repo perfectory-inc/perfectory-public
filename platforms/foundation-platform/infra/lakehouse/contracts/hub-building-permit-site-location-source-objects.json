@@ -72,7 +72,7 @@
       "meaning": "지목명 원문(대·전·답·임야·공장용지 등)"
     }
   },
-  "handoff_prefix": "silver-handoff/hubgokr__building_permit_site_location",
+  "handoff_prefix": "work/hubgokr__building_permit_site_location",
   "handoff_suffix": ".jsonl.gz",
   "handoff_layout": "manifest_parts",
   "rows_per_part": 1000000,

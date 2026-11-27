@@ -108,7 +108,7 @@ def media_keys(document: Any, prefix: str) -> Iterator[str]:
     if isinstance(document, dict):
         sha, extension = document.get("sha256"), document.get("media_format")
         if isinstance(sha, str) and SHA256.fullmatch(sha) and isinstance(extension, str):
-            yield f"{prefix}/sha256/{sha}.{extension}"
+            yield f"{prefix}/display/sha256/{sha}.{extension}"
         for value in document.values():
             yield from media_keys(value, prefix)
     elif isinstance(document, list):

@@ -508,12 +508,11 @@ fn classify_key(key: &str) -> Classification {
             reason: "Legacy Gold layout must be checked against Catalog pointers before migration or deletion.",
         };
     }
-    if key.starts_with("silver-handoff/") {
+    if key.starts_with("work/") {
         return Classification {
-            name: "silver_handoff_artifact",
+            name: "work_artifact",
             action: "keep",
-            reason:
-                "Silver handoff artifact is a replayable national promotion input or audit output.",
+            reason: "Scratch of one run (a Silver lane's parts of one Bronze object), expired by the work/ lifecycle rule (root ADR-0626 §6-1).",
         };
     }
     if is_legacy_date_partitioned_bronze_key(key) {
@@ -573,11 +572,132 @@ fn classify_key(key: &str) -> Classification {
         };
     }
 
-    Classification {
-        name: "unknown",
-        action: "review",
-        reason: "No Foundation Platform R2 ownership rule matched this object.",
+    // G6 (root ADR-0626 §7): what no rule above names is held to the areas the naming registry declares.
+    // Prevents what W106 found only by a hand inventory: dropped-table folders and debris prefixes.
+    if is_media_key(key) {
+        return Classification {
+            name: "media_object",
+            action: "keep",
+            reason: "Content-addressed media under its form (display, received, document, rendition ladder; root ADR-0626 §6-1).",
+        };
     }
+    match declared_area_status(key) {
+        // A live area is no blanket keep: a key its own grammar above did not name surfaces.
+        Some(AreaStatus::Live) => Classification {
+            name: "unknown",
+            action: "review",
+            reason: "Object lies in a live area of the naming registry, but no rule of that area names it.",
+        },
+        Some(AreaStatus::Retiring) => Classification {
+            name: "retiring_area",
+            action: "review",
+            reason: "Object lies in an area a root ADR-0626 move retires; it is expired once its copy is verified and no writer is left.",
+        },
+        None => Classification {
+            name: "undeclared_prefix",
+            action: "review",
+            reason: "Object lies in no area of the naming registry (config/naming.contract.json): declare its area or delete it.",
+        },
+    }
+}
+
+/// `media/display|received/sha256/<hex>.<ext>`, `media/document/sha256/<hex>.pdf` and
+/// `media/rendition/ladder=<n>/<hex>/<width>.<format>` or `…/<hex>.json` (root ADR-0626 §6-1).
+fn is_media_key(key: &str) -> bool {
+    fn hex64(text: &str) -> bool {
+        text.len() == 64
+            && text
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    }
+    fn hashed(file: &str, extension: Option<&str>) -> bool {
+        file.split_once('.').is_some_and(|(hash, ext)| {
+            hex64(hash)
+                && extension.map_or(
+                    !ext.is_empty() && ext.bytes().all(|b| b.is_ascii_alphanumeric()),
+                    |want| ext == want,
+                )
+        })
+    }
+    if let Some(file) = key
+        .strip_prefix("media/display/sha256/")
+        .or_else(|| key.strip_prefix("media/received/sha256/"))
+    {
+        return hashed(file, None);
+    }
+    if let Some(file) = key.strip_prefix("media/document/sha256/") {
+        return hashed(file, Some("pdf"));
+    }
+    let Some(rest) = key.strip_prefix("media/rendition/ladder=") else {
+        return false;
+    };
+    let Some((ladder, rest)) = rest.split_once('/') else {
+        return false;
+    };
+    if ladder.is_empty() || !ladder.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    match rest.split_once('/') {
+        None => hashed(rest, Some("json")),
+        Some((hash, rung)) => {
+            hex64(hash)
+                && rung.split_once('.').is_some_and(|(width, format)| {
+                    !width.is_empty()
+                        && width.bytes().all(|b| b.is_ascii_digit())
+                        && matches!(format, "avif" | "webp")
+                })
+        }
+    }
+}
+
+/// The naming registry's areas (root ADR-0626 §1), generated, never committed (root ADR-0418).
+const NAMING_CONTRACT: &str = include_str!("../../../config/naming.contract.json");
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AreaStatus {
+    Live,
+    Retiring,
+}
+
+#[derive(Deserialize)]
+struct NamingAreas {
+    areas: std::collections::BTreeMap<String, AreaEntry>,
+}
+
+#[derive(Deserialize)]
+struct AreaEntry {
+    prefix: String,
+    status: String,
+}
+
+fn declared_areas() -> &'static [(String, AreaStatus)] {
+    static AREAS: std::sync::OnceLock<Vec<(String, AreaStatus)>> = std::sync::OnceLock::new();
+    AREAS.get_or_init(|| {
+        serde_json::from_str::<NamingAreas>(NAMING_CONTRACT)
+            .map(|naming| {
+                naming
+                    .areas
+                    .into_values()
+                    .filter_map(|area| {
+                        let status = match area.status.as_str() {
+                            "live" => AreaStatus::Live,
+                            "retiring" => AreaStatus::Retiring,
+                            _ => return None,
+                        };
+                        Some((area.prefix, status))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
+fn declared_area_status(key: &str) -> Option<AreaStatus> {
+    declared_areas()
+        .iter()
+        .filter(|(prefix, _)| key.starts_with(prefix.as_str()))
+        .max_by_key(|(prefix, _)| prefix.len())
+        .map(|(_, status)| *status)
 }
 
 pub fn find_bronze_orphans(
@@ -1026,6 +1146,37 @@ mod tests {
             let classification = classify_key(junk);
             assert_eq!(classification.name, "unknown", "junk key was kept: {junk}");
             assert_eq!(classification.action, "review");
+        }
+    }
+
+    #[test]
+    fn media_keys_are_kept_by_their_form_and_other_keys_are_held_to_the_declared_areas() {
+        let sha = "a".repeat(64);
+        for key in [
+            format!("media/display/sha256/{sha}.jpg"),
+            format!("media/received/sha256/{sha}.bmp"),
+            format!("media/document/sha256/{sha}.pdf"),
+            format!("media/rendition/ladder=1/{sha}/400.avif"),
+            format!("media/rendition/ladder=1/{sha}.json"),
+        ] {
+            assert_eq!(classify_key(&key).name, "media_object", "{key}");
+        }
+        for (key, name) in [
+            (format!("media/document/sha256/{sha}.jpg"), "unknown"),
+            (
+                format!("media/rendition/ladder=x/{sha}/400.avif"),
+                "unknown",
+            ),
+            (format!("onbid/media/sha256/{sha}.jpg"), "retiring_area"),
+            (
+                "silver-handoff/x/part-0001.jsonl.gz".to_owned(),
+                "retiring_area",
+            ),
+            ("tiles-slice-proof/x".to_owned(), "undeclared_prefix"),
+        ] {
+            let classification = classify_key(&key);
+            assert_eq!(classification.name, name, "{key}");
+            assert_eq!(classification.action, "review", "{key}");
         }
     }
 

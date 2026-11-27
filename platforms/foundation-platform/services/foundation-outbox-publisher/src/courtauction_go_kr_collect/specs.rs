@@ -27,7 +27,7 @@ use serde_json::{json, Value as JsonValue};
 use tokio::time::Instant;
 
 use super::{may_ask, Asking, Search, Stop};
-use crate::media_store::{spool_response, store_spooled_shown, MediaStore, Stored};
+use crate::media_store::{spool_response, store_spooled_document, MediaStore, Stored};
 
 /// When the screen opens a specification: `date_field` less `days_before`, for one bid kind.
 #[derive(Clone, Debug, Deserialize)]
@@ -550,7 +550,7 @@ async fn fetch_one(
     {
         return Ok(Some((Outcome::Captcha, None, facts)));
     }
-    let stored = store_spooled_shown(&spooled, &on.prefix, store).await?;
+    let stored = store_spooled_document(&spooled, &on.prefix, store).await?;
     let outcome = match &stored {
         Stored::New(_) | Stored::Deduplicated(_) => Outcome::Stored,
         Stored::Gone => Outcome::Gone,
@@ -688,15 +688,16 @@ mod tests {
     }
 
     #[test]
-    fn the_contract_names_the_viewer_and_a_prefix_the_edge_does_not_serve() {
+    fn the_contract_names_the_viewer_and_the_public_document_store() {
         let contract = contract();
         let specs = &contract.sale_specifications;
         assert_eq!(
             specs.reads_from,
             "silver.court_auction_sale_specification_read"
         );
+        // Public, as the court lets anyone download them (owner 2026-11-28, root ADR-0626 §6-3).
         let prefix = specs.prefix().expect("prefix");
-        assert!(!prefix.as_str().starts_with("onbid/media"));
+        assert_eq!(prefix.as_str(), "media");
         assert_eq!(specs.viewer.base_url, "https://ecfs.scourt.go.kr");
     }
 

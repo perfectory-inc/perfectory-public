@@ -59,6 +59,23 @@ def lines(diff):
     return found
 
 
+def prefetch(raw):
+    """Fetches every blob the history read below needs in one request, as git's own partial clone does
+    (`fetch --filter=blob:none --stdin <promisor>`): a blobless checkout otherwise fetches each commit's blobs
+    by itself. Measured 2026-11-28 on a blobless clone: 125 commits of the platform definition, 93 s cold
+    and 1 s warm; CI took 33 s of a 20 s budget (#1791). `--raw` reads only trees, which the clone has.
+    A full clone has no promisor remote and fetches nothing."""
+    remotes = [line.split(".")[1] for line in subprocess.run(
+        ["git", "config", "--get-regexp", r"^remote\..*\.promisor$"], capture_output=True, text=True).stdout.splitlines()
+        if line.endswith(" true")]
+    blobs = {field for line in raw.splitlines() if line.startswith(":")
+             for field in line.split()[2:4] if field.strip("0")}
+    if remotes and blobs:
+        subprocess.run(["git", "-c", "fetch.negotiationAlgorithm=noop", "fetch", "-q", "--no-tags",
+                        "--no-write-fetch-head", "--recurse-submodules=no", "--filter=blob:none", "--stdin",
+                        remotes[0]], input=("\n".join(sorted(blobs)) + "\n").encode(), capture_output=True, check=False)
+
+
 def is_named(sha, subject, named):
     """Whether a message of the pull request names this commit as reverted: by its sha (7+ characters) or by
     the pull request number its squash subject ends with, `(#N)`."""
@@ -83,6 +100,7 @@ deleting = sorted(path for path, (_, gone) in changed.items() if gone)
 if not deleting:
     print("OK a-pull-request-undoes-no-merged-commit: the pull request deletes no line")
     sys.exit(0)
+prefetch(git("log", f"--since={since}", "--raw", "--no-abbrev", "--no-renames", "--format=", fork, "--", *deleting))
 recent = git("log", f"--since={since}", "--patch", "--no-renames", "-U0", "--format=%x00%H%x09%s", fork, "--",
              *deleting).split("\x00")[1:]
 undone = []
