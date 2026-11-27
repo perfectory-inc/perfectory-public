@@ -319,3 +319,80 @@ fn a_sido_predicate_is_a_range_per_prefix_and_refuses_anything_else() -> anyhow:
     }
     Ok(())
 }
+
+/// One line per history row `derive.sql` reads, sorted.
+fn history_lines(stage: &DuckDbParquetStage, query: &str) -> anyhow::Result<Vec<String>> {
+    let mut lines = stage
+        .connection()
+        .prepare(&format!(
+            "SELECT concat_ws('|', pnu, transfer_history_seq, coalesce(reason_code, 'NULL')) FROM ({query})"
+        ))?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    lines.sort();
+    Ok(lines)
+}
+
+// The history is read through its contract's own current-rows query (root ADR-0564 §4), which an
+// `inputs.sql` of its own copied by hand until 2026-11-28, with the removal column named in it.
+#[test]
+fn the_history_read_is_its_contracts_current_rows_in_the_groups_sido() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let stage = DuckDbParquetStage::open(directory.path())?;
+    let history = &lakehouse_domain::SILVER_LAND_TRANSFER_HISTORY;
+    let removal = crate::silver_changes::removal_column(history).context("a removal column")?;
+    // A key read in two releases, one whose newest row is a removal marker, one with two rows in
+    // its newest release, one loaded twice (the later load current), and one outside sido 99.
+    crate::duckdb_parquet_stage::contract_table(
+        stage.connection(),
+        history,
+        "history_versions",
+        &format!(
+            "SELECT pnu, transfer_history_seq, reason_code, source_snapshot_id, \
+               TIMESTAMPTZ '2099-01-01 00:00:00+00' + to_days(loaded) AS ingested_at_utc, \
+               marker AS {removal}, 'r' AS source_record_id \
+             FROM (VALUES \
+               ('9999910100100010000', 1, '10', 'v1', 0, NULL), \
+               ('9999910100100010000', 1, '20', 'v2', 0, NULL), \
+               ('9999910100100020000', 1, '10', 'v1', 0, NULL), \
+               ('9999910100100020000', 1, NULL, 'v2', 0, '{}'), \
+               ('9999910100100030000', 1, '30', 'v2', 0, NULL), \
+               ('9999910100100030000', 1, '31', 'v2', 0, NULL), \
+               ('9999910100100040000', 2, '40', 'v2', 0, NULL), \
+               ('9999910100100040000', 2, '41', 'v2', 1, NULL), \
+               ('9888810100100010000', 1, '50', 'v2', 0, NULL)) \
+             v(pnu, transfer_history_seq, reason_code, source_snapshot_id, loaded, marker)",
+            crate::silver_changes::REMOVED
+        ),
+    )?;
+    let sido = in_sido("pnu", &["99".to_owned()])?;
+    let expected = [
+        "9999910100100010000|1|20",
+        "9999910100100030000|1|30",
+        "9999910100100030000|1|31",
+        "9999910100100040000|2|41",
+    ];
+    assert_eq!(
+        history_lines(
+            &stage,
+            &super::history_rows(stage.connection(), "history_versions", &sido)?
+        )?,
+        expected
+    );
+    // A snapshot from before the removal column reads it as NULL: the same rows but the removed
+    // key's, whose marker it does not hold.
+    stage.connection().execute_batch(&format!(
+        "CREATE TABLE history_before AS SELECT * EXCLUDE ({removal}) FROM history_versions \
+         WHERE {removal} IS NULL"
+    ))?;
+    let mut before = expected.to_vec();
+    before.insert(1, "9999910100100020000|1|10");
+    assert_eq!(
+        history_lines(
+            &stage,
+            &super::history_rows(stage.connection(), "history_before", &sido)?
+        )?,
+        before
+    );
+    Ok(())
+}

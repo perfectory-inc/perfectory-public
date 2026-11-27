@@ -19,13 +19,13 @@ use lakehouse_domain::LakehouseTableContract;
 use crate::{
     data_go_kr_file_data_stage::{column_names, epoch, literal},
     duckdb_parquet_stage::{sql_path, DuckDbParquetStage},
+    silver_changes::REMOVED,
 };
 
 const COMPARE_SQL: &str = include_str!("release_compare_stage/compare.sql");
 /// Written by the load, never by the source: comparing them would make every row look changed.
 const LOAD_COLUMNS: [&str; 3] = ["source_record_id", "source_snapshot_id", "ingested_at_utc"];
 const INSTANT_COLUMN: &str = "ingested_at_utc";
-const REMOVED: &str = "removed";
 
 /// How one table's releases are compared: its row key, its order of versions and its content.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -808,7 +808,7 @@ pub fn copy_release(
         // An export writes the columns it derives. A column of the table it does not write (the
         // removal column, set only by a compare's marker) is null, as a JSON Lines handoff's
         // missing key is; a required one that is missing is refused. 2026-11-21: the units'
-        // Parquet has no `row_state`, and the lane's first run here failed on it.
+        // Parquet has no removal column, and the lane's first run here failed on it.
         let mut statement = stage
             .connection()
             .prepare(&format!(

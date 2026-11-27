@@ -781,7 +781,7 @@ pub fn store_only(
     )))
 }
 
-/// The table the build appends to: the Gold's columns but `version_seq` and `row_state`.
+/// The table the build appends to: the Gold's columns but its version and removal columns.
 const BUILT_TABLE: &str = "CREATE OR REPLACE TABLE built (pnu VARCHAR, nearby_json VARCHAR, \
     attached_via VARCHAR, place_id VARCHAR, row_digest VARCHAR, source_snapshot_id VARCHAR, \
     published_at_utc VARCHAR);";

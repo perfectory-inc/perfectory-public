@@ -70,8 +70,6 @@ pub const SOURCE_DATASETS: [&str; 1] = ["courtauction.go.kr"];
 pub const SOURCE_ATTRIBUTION: &str = "대한민국법원 법원경매정보";
 /// The site's in-progress flag of an item served.
 const IN_PROGRESS: &str = "Y";
-/// The removal marker of the item list (root ADR-0275).
-const REMOVED: &str = "removed";
 
 /// The kind's spool: one row per served item or sale result and PNU, with its entry.
 const ENTRIES: &str = "entries";
@@ -722,11 +720,12 @@ impl KindVersionsStage for CourtAuctionKind {
         for (table, _) in DOCUMENTS {
             connection.execute_batch(&named_view(table)?)?;
         }
-        // The items in progress as of the build's day, and every sale result, placed as one.
+        // The items in progress as of the build's day, and every sale result, placed as one. The
+        // item rows are the table's current rows (`load_current`): a removed item has none.
         connection.execute_batch(&format!(
             "CREATE OR REPLACE TEMP TABLE auction_rows AS \
                SELECT *, 'round' AS _kind FROM item_rows \
-               WHERE (row_state IS NULL OR row_state <> '{REMOVED}') AND item_in_progress_yn = '{IN_PROGRESS}' \
+               WHERE item_in_progress_yn = '{IN_PROGRESS}' \
                  AND sale_date IS NOT NULL \
                  AND sale_date >= CAST(make_timestamp((SELECT instant_us FROM as_of)) AS DATE) \
              UNION ALL BY NAME \

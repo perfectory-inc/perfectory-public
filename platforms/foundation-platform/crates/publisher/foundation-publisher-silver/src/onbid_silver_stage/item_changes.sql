@@ -8,7 +8,7 @@
 -- current rows at the head the append is pinned on, every column), {key_matches} and
 -- {content_matches} (`c.x IS NOT DISTINCT FROM s.x` per key / content column), {complete}
 -- (true when the pass read every combination), {columns}, {marker_columns} (the current row's
--- columns, with `row_state`, `source_snapshot_id`, `ingested_at_utc` and `source_record_id` this
+-- columns, with the removal column, `source_snapshot_id`, `ingested_at_utc` and `source_record_id` this
 -- load's).
 -- Output: onbid_changes.
 

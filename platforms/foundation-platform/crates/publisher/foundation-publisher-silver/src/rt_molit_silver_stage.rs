@@ -312,23 +312,23 @@ fn sql_type(logical: &str) -> anyhow::Result<&'static str> {
 fn parsed_columns(
     contract: &LakehouseTableContract,
 ) -> anyhow::Result<Vec<(&'static str, &'static str)>> {
+    let removal = silver_changes::removal_column(contract);
     contract
         .columns
         .iter()
-        .filter(|column| !ADDED_COLUMNS.contains(&column.name))
+        .filter(|column| !ADDED_COLUMNS.contains(&column.name) && removal != Some(column.name))
         .map(|column| Ok((column.name, sql_type(column.logical_type)?)))
         .collect()
 }
 
-/// Columns the placement and the load write, not the export.
-const ADDED_COLUMNS: [&str; 7] = [
+/// Columns the placement and the load write, not the export; the load writes the removal column too.
+const ADDED_COLUMNS: [&str; 6] = [
     "legal_dong_code",
     "pnu",
     "place_identity_grade",
     "pnu_unresolved_reason",
     "source_snapshot_id",
     "ingested_at_utc",
-    "row_state",
 ];
 
 /// The snapshots a run reads its placing inputs at (each its head when the run starts), and the
@@ -934,10 +934,12 @@ pub fn place_export(
 ) -> anyhow::Result<Linked> {
     plain(&object.source_snapshot_id, "the snapshot id")?;
     let connection = stage.connection();
+    let removal = silver_changes::removal_column(contract);
     let columns = contract
         .columns
         .iter()
         .map(|column| match column.name {
+            name if removal == Some(name) => format!("NULL::VARCHAR AS {name}"),
             "legal_dong_code" => "rt_current_code AS legal_dong_code".to_owned(),
             "pnu_unresolved_reason" => {
                 "CASE WHEN pnu IS NULL THEN coalesce(rt_reason, pnu_unresolved_reason) END \
@@ -950,7 +952,6 @@ pub fn place_export(
             "ingested_at_utc" => {
                 format!("to_timestamp({ingested_at_epoch_seconds}) AS ingested_at_utc")
             }
-            "row_state" => "NULL::VARCHAR AS row_state".to_owned(),
             name => name.to_owned(),
         })
         .collect::<Vec<_>>()
