@@ -262,3 +262,7 @@ Single-AZ RDS 면 약 40 USD 줄고, 장애 조치(T14 의 남은 부분)는 시
 | LoQE | 브라우저에 자격을 두고 버킷 CORS 가 든다 |
 | Basin 을 위한 "vended" 제공자 | ㉡ 이 권고대로면 버리는 일이다 |
 | dev 에서 T17 을 위해 Basin 읽기 비밀을 옮기거나 노트북에서 포트 포워딩 | 결정 7: A1 의 실제 꼴에서 돈다 |
+
+2026-11-27: 사장 검토 전 — Proposed 유지. 남은 것: 사장의 승인, 열린 사장 결정 ㉠~㉥ 과 사람의 Console 발급자(§10), T17(A1 에서), T25~T30·T34·T37·T38.
+main 에 있는 것: dev 리그와 그 탐침·업그레이드 카나리아(`infra/aws-lakekeeper-dev`, #1772·#1775·#1777), T8 명령(`check-lakehouse-catalog-writes`), REST 카탈로그 열기 모듈
+(`lakehouse_rest_catalog`). 운영 카탈로그·조정기·생성기·`engines.jobs` 블록·§3 의 검사는 아직 없다.
