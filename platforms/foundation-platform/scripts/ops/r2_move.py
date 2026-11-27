@@ -244,10 +244,17 @@ def retrying(call: Callable, *args, **kwargs):
         try:
             return call(*args, **kwargs)
         except (botocore.exceptions.SSLError, botocore.exceptions.ConnectionError,
-                botocore.exceptions.ReadTimeoutError, botocore.exceptions.ConnectionClosedError):
+                botocore.exceptions.ReadTimeoutError, botocore.exceptions.ConnectionClosedError) as error:
+            with _RETRIES_LOCK:
+                _RETRIES[0] += 1
+                if _RETRIES[0] % 100 == 1:
+                    print(f"retry: {_RETRIES[0]} dropped calls so far ({type(error).__name__})", file=sys.stderr, flush=True)
             if attempt == 9:
                 raise
             time.sleep(min(60, 2 ** attempt))
+
+
+_RETRIES, _RETRIES_LOCK = [0], threading.Lock()
 
 
 def put_create_only(name: str, key: str, body: bytes, **extra) -> None:

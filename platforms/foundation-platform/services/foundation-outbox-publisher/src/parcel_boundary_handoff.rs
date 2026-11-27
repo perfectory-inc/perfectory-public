@@ -371,10 +371,7 @@ mod tests {
 
         assert_eq!(evidence.object_count, 2);
         assert_eq!(evidence.expected_row_count, 3);
-        assert_eq!(
-            evidence.objects[1].object_key,
-            "work/a/part-0002.jsonl"
-        );
+        assert_eq!(evidence.objects[1].object_key, "work/a/part-0002.jsonl");
         Ok(())
     }
 
@@ -447,10 +444,7 @@ mod tests {
             properties["handoff_source_record_id"],
             "national-promotion:vworld-shard-0001"
         );
-        assert_eq!(
-            properties["source_object_key"],
-            "work/a/part-0001.jsonl"
-        );
+        assert_eq!(properties["source_object_key"], "work/a/part-0001.jsonl");
         assert_eq!(properties["bbox"]["min_x"], 127.123_470_234_40);
         Ok(())
     }

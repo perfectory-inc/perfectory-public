@@ -29,7 +29,8 @@ Cloudflare R2 bucket의 현재 object를 읽기 전용으로 수집한 뒤 Found
 | by-PNU 서빙 키(manifest·base 객체·patch 객체·교체된 manifest 이력, pack 레인 manifest·이력) | `*_by_pnu_serving_*` | `keep` | `r2_layout::by_pnu` 가 알아보는 키 (루트 ADR-0147·0141·0190) |
 | `gold/vector-tiles/artifacts/`, `gold/vector-tiles/manifests/`, `gold/vector-tiles/releases/`, `gold/parcel-marker-anchors/artifacts/` | `runtime_spatial_artifact` | `keep` | 불변 공간 산출물·manifest |
 | `gold/v<숫자>/…`, `gold/parcel-marker-anchor-pbf/`, `gold/parcel-marker-anchor-aggregate-pbf/`, `gold/parcel-marker-anchor-runtime/`, `artifacts/` 밖의 `gold/parcel-marker-anchors/` | `legacy_gold_artifact` | `review` | 옛 Gold 배치. **보호 대상이 아니다** — 아래 "보호되는 것과 아닌 것" |
-| `silver-handoff/` | `silver_handoff_artifact` | `keep` | 재생 가능한 승격 입력·감사 출력 |
+| `work/` | `work_artifact` | `keep` | 한 번의 실행의 작업 공간(Silver 레인의 Bronze 객체 하나의 부분), work/ 관리 규칙으로 만료(루트 ADR-0626 §6-1). 2026-11-28 까지는 `silver-handoff/` |
+| `media/display|received/sha256/<hex>.<ext>`, `media/document/sha256/<hex>.pdf`, `media/rendition/ladder=<n>/…` | `media_object` | `keep` | 미디어 저장소 하나의 꼴(루트 ADR-0626 §6-1) |
 | `bronze/source=*/ingest_date=*/run_id=*/partition=*` | `legacy_date_partitioned_bronze` | `review` | legacy date-partitioned Bronze object; migrate before deletion |
 | `bronze/source=…` 중 키 계약 위반 | `legacy_bronze_path_contract` | `review` | 메타데이터를 Catalog 로 옮기고 bytes 를 보존한 뒤에만 정리 |
 | `bronze/source=*/run_id=*/partition=*` (`catalog.bronze_object` 에 있음) | `current_bronze_contract` | `keep` | source/run_id/partition Bronze object contract |
@@ -40,7 +41,9 @@ Cloudflare R2 bucket의 현재 object를 읽기 전용으로 수집한 뒤 Found
 | `gold/staging/` | `staging_gold_artifact` | `delete_candidate` | 장기 보존 대상이 아닌 staging artifact |
 | `bronze/YYYY-MM/` | `legacy_uncontracted_bronze` | `delete_candidate` | 현재 Bronze 계약 밖의 legacy 날짜형 prefix |
 | `*smoke*` | `smoke_artifact` | `delete_candidate` | 남아 있으면 정리 가능한 smoke artifact |
-| 기타 (예: `gold/vector-tiles/runtime-manifest.json`) | `unknown` | `review` | 사람이 소유권을 확인해야 하는 object |
+| 등록부의 retiring 영역(`onbid/media/`, `courtauction-go-kr/`, `gold/`, `silver-handoff/`, `collector-state/`) | `retiring_area` | `review` | ADR-0626 의 이동이 옮긴 것. 확인 뒤 관리 규칙으로 만료 |
+| live 영역 안이지만 위 규칙이 이름하지 않음 | `unknown` | `review` | 영역이 있다고 통째로 남기지 않는다 |
+| 등록부의 어느 영역에도 없음 (예: `tiles-slice-proof/`) | `undeclared_prefix` | `review` | 영역을 선언하거나 지운다(G6, 루트 ADR-0626 §7) |
 
 ## 실행
 
