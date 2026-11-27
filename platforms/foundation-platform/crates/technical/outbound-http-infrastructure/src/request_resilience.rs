@@ -124,6 +124,26 @@ pub const VWORLD_FILE: ResiliencePolicy = ResiliencePolicy {
     circuit_breaker: RequestCircuitBreakerPolicy::DEFAULT,
 };
 
+/// Resilience policy for a data.go.kr file download (the portal's `fileDownload.do`).
+///
+/// One attempt is the request, its status and its whole body, bounded by the caller's client
+/// timeout; a body the portal cuts mid-transfer, a 5xx or a 429 is asked again.
+///
+/// 2026-11-26 12:59-13:07Z the pension workplace collector's sixteenth earlier edition stalled for
+/// eight minutes and the portal closed the connection (`error decoding response body`): one cut
+/// body failed the run, with fifteen editions already landed. The backoff is longer than the API
+/// policies' because the portal is a file server that has just dropped a large transfer.
+pub const DATA_GO_KR_FILE: ResiliencePolicy = ResiliencePolicy {
+    connect_timeout: Duration::from_secs(30),
+    read_timeout: Duration::from_mins(1),
+    total_timeout: None,
+    max_attempts: 3,
+    initial_backoff: Duration::from_secs(30),
+    max_backoff: Duration::from_mins(5),
+    jitter: true,
+    circuit_breaker: RequestCircuitBreakerPolicy::DEFAULT,
+};
+
 /// Resilience policy for the Iceberg REST catalog (R2 Data Catalog or any standard REST
 /// catalog).
 ///

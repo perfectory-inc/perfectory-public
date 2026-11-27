@@ -155,8 +155,6 @@ resource "aws_ecs_task_definition" "authz" {
       { name = "OPENFGA_AUTHN_METHOD", value = "preshared" },
       { name = "OPENFGA_DATASTORE_MAX_OPEN_CONNS", value = tostring(local.authz.max_open_connections) },
       { name = "OPENFGA_DATASTORE_MAX_IDLE_CONNS", value = tostring(local.authz.max_idle_connections) },
-      # Opened at start and kept (PostgreSQL only): a burst never waits for new connections (T13).
-      { name = "OPENFGA_DATASTORE_MIN_OPEN_CONNS", value = tostring(local.authz.min_open_connections) },
       # Lakekeeper's production advice for OpenFGA (upstream authorization-openfga, "OpenFGA in Production").
       { name = "OPENFGA_CACHE_CONTROLLER_ENABLED", value = "true" },
       { name = "OPENFGA_CHECK_QUERY_CACHE_ENABLED", value = "true" },
