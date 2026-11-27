@@ -34,7 +34,7 @@ dev 는 관문 시험을 돌린 리그(W109)이고 탐침이 있다. prod 는 Si
 cd platforms/foundation-platform/infra/aws-lakekeeper
 env=dev                                   # 또는 prod
 export AWS_PROFILE=perfectory-platform-prod-admin
-export TF_DATA_DIR="$HOME/.cache/perfectory/tofu/lakekeeper-$env"   # Git Bash 에서는 C:/Users/... 꼴로(MSYS 가 /c/... 를 바꾸지 않을 때 tofu.exe 가 못 읽는다)
+export TF_DATA_DIR="$HOME/.cache/perfectory/tofu/lakekeeper-$env"   # Git Bash 에서는 드라이브 문자 꼴(cygpath -m)로: MSYS_NO_PATHCONV=1 이면 tofu.exe 가 /c/... 꼴을 못 읽는다
 tofu init -input=false -var environment=$env
 tofu plan -input=false -var environment=$env -out="$TF_DATA_DIR/plan"   # dev: 플랫폼 스택에는 데이터베이스 보안 그룹의 들어오는 규칙만 더한다
 tofu apply "$TF_DATA_DIR/plan"
