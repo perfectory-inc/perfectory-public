@@ -43,9 +43,18 @@ pub struct LakehouseObjectReader {
 
 impl LakehouseObjectReader {
     /// Builds a reader from the configured lakehouse R2 connection.
+    ///
+    /// With the read-only key pair when the process holds one (a run on AWS mints it scoped to
+    /// reading, root ADR-0616 A2); otherwise with the writer pair, as a host unit holds it.
     pub fn from_env() -> anyhow::Result<Self> {
-        let config =
-            R2ObjectStorageConfig::from_env().context("failed to configure lakehouse R2 reads")?;
+        let read_only = std::env::var("FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID")
+            .is_ok_and(|value| !value.trim().is_empty());
+        let config = if read_only {
+            R2ObjectStorageConfig::lakehouse_reader_from_env()
+        } else {
+            R2ObjectStorageConfig::from_env()
+        }
+        .context("failed to configure lakehouse R2 reads")?;
         let bucket_name = config.bucket_name.clone();
         Ok(Self {
             storage: R2ObjectStorage::from_config(config),

@@ -264,6 +264,7 @@ fn client(endpoint: String, namespace: R2KeyNamespace) -> R2ObjectStorage {
         region: "auto".to_owned(),
         access_key_id: "local-access".to_owned(),
         secret_access_key: "local-secret".to_owned(),
+        session_token: None,
         namespace,
     })
 }

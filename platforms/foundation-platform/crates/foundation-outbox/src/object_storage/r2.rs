@@ -203,6 +203,10 @@ pub struct R2ObjectStorageConfig {
     pub access_key_id: String,
     /// R2 secret access key.
     pub secret_access_key: String,
+    /// The session token of R2's temporary credentials (`POST /accounts/{id}/r2/temp-access-credentials`),
+    /// which a run mints for its own prefixes and time limit (root ADR-0476, ADR-0616 A2); `None` for
+    /// an API token's key pair.
+    pub session_token: Option<String>,
     /// The part of the bucket this client may name (root ADR-0177).
     pub namespace: R2KeyNamespace,
 }
@@ -247,6 +251,7 @@ impl R2ObjectStorageConfig {
             secret_access_key: required_env(
                 "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY",
             )?,
+            session_token: None,
             namespace: R2KeyNamespace::from_env()?,
         })
     }
@@ -270,7 +275,7 @@ impl R2ObjectStorage {
         let credentials = Credentials::new(
             config.access_key_id,
             config.secret_access_key,
-            None,
+            config.session_token,
             None,
             "foundation-platform-r2",
         );

@@ -19,6 +19,9 @@ const WRITER_KEY: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID";
 const WRITER_SECRET: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY";
 const READER_KEY: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID";
 const READER_SECRET: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY";
+// With R2's temporary credentials, the key pair's session token (root ADR-0616 A2).
+const WRITER_SESSION: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SESSION_TOKEN";
+const READER_SESSION: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SESSION_TOKEN";
 
 /// What reading and writing the lakehouse bucket needs: the writer key pair.
 pub const LAKEHOUSE_WRITER_REQUIREMENTS: &[Requirement] = &[
@@ -26,6 +29,7 @@ pub const LAKEHOUSE_WRITER_REQUIREMENTS: &[Requirement] = &[
     Requirement::Required(BUCKET),
     Requirement::Required(WRITER_KEY),
     Requirement::Required(WRITER_SECRET),
+    Requirement::Optional(WRITER_SESSION),
     Requirement::Optional(REGION),
     Requirement::Optional(RUNTIME_ENVIRONMENT_ENV),
     Requirement::Optional(STAGING_MULTIPART_THRESHOLD_ENV),
@@ -37,6 +41,7 @@ pub const LAKEHOUSE_READER_REQUIREMENTS: &[Requirement] = &[
     Requirement::Required(BUCKET),
     Requirement::Required(READER_KEY),
     Requirement::Required(READER_SECRET),
+    Requirement::Optional(READER_SESSION),
     Requirement::Optional(REGION),
     Requirement::Optional(RUNTIME_ENVIRONMENT_ENV),
     Requirement::Optional(STAGING_MULTIPART_THRESHOLD_ENV),
@@ -55,6 +60,7 @@ impl R2ObjectStorageConfig {
             LAKEHOUSE_WRITER_REQUIREMENTS,
             WRITER_KEY,
             WRITER_SECRET,
+            WRITER_SESSION,
         )
     }
 
@@ -70,6 +76,7 @@ impl R2ObjectStorageConfig {
             LAKEHOUSE_READER_REQUIREMENTS,
             READER_KEY,
             READER_SECRET,
+            READER_SESSION,
         )
     }
 }
@@ -79,6 +86,7 @@ fn lakehouse_from(
     requirements: &[Requirement],
     key: &str,
     secret: &str,
+    session: &str,
 ) -> Result<R2ObjectStorageConfig, PublishError> {
     if let Some(unmet) = first_unmet(requirements, source) {
         return Err(PublishError::Infrastructure(unmet_message(unmet)));
@@ -99,6 +107,7 @@ fn lakehouse_from(
         region: source.get(REGION).unwrap_or_else(|| "auto".to_owned()),
         access_key_id: held(key)?,
         secret_access_key: held(secret)?,
+        session_token: source.get(session),
         namespace: R2KeyNamespace::from_settings(
             source.get(RUNTIME_ENVIRONMENT_ENV).as_deref(),
             source.get(STAGING_MULTIPART_THRESHOLD_ENV).as_deref(),
@@ -196,6 +205,43 @@ mod tests {
             "https://synthetic.r2.cloudflarestorage.com"
         );
         assert_eq!(config.region, "auto");
+        Ok(())
+    }
+
+    #[test]
+    fn a_pair_takes_its_own_session_token_and_none_without_one() -> Result<(), PublishError> {
+        for (requirements, load, session) in [
+            (
+                LAKEHOUSE_WRITER_REQUIREMENTS,
+                loaders()[0].1,
+                WRITER_SESSION,
+            ),
+            (
+                LAKEHOUSE_READER_REQUIREMENTS,
+                loaders()[1].1,
+                READER_SESSION,
+            ),
+        ] {
+            let mut source = exactly(requirements);
+            assert_eq!(
+                load(&source)?.session_token,
+                None,
+                "an API token's pair has none"
+            );
+            source.insert(session.to_owned(), "synthetic-session".to_owned());
+            assert_eq!(
+                load(&source)?.session_token.as_deref(),
+                Some("synthetic-session"),
+                "{session}"
+            );
+        }
+        // Neither pair takes the other's token.
+        let mut writer = exactly(LAKEHOUSE_WRITER_REQUIREMENTS);
+        writer.insert(READER_SESSION.to_owned(), "synthetic-session".to_owned());
+        assert_eq!(
+            R2ObjectStorageConfig::lakehouse_writer_from(&writer)?.session_token,
+            None
+        );
         Ok(())
     }
 
