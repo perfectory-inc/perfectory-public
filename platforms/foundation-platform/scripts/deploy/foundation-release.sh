@@ -25,9 +25,9 @@ prune_program="/opt/perfectory-control/current/platforms/foundation-platform/scr
 floor_carry_program="/opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release-floor-carry.py"
 
 release_root="${FOUNDATION_PLATFORM_RELEASE_ROOT:-/opt/foundation-platform}"
-# What the release does under the host's host_scope (root ADR-0625).
+# What the release does under the host's host_scope (root ADR-0625): the release now current's own.
 # shellcheck source=host-scope.sh
-source "$(dirname "${BASH_SOURCE[0]}")/host-scope.sh"
+host_scope_functions() { source "${release_root}/current/scripts/deploy/host-scope.sh"; }
 state_root="${FOUNDATION_PLATFORM_STATE_ROOT:-/var/lib/foundation-platform}"
 releases_dir="${release_root}/releases"
 # Mutable inputs live beside the immutable releases, keyed by release id (root ADR-0134 §3):
@@ -122,8 +122,7 @@ install_scheduler_access() {
     chown "${scheduler_account}:${scheduler_account}" "${scheduler_home}/.ssh/authorized_keys"
     chmod 0600 "${scheduler_home}/.ssh/authorized_keys"
   fi
-  # Exact command lines, one start and one stop per service of a job this host runs (enabled and in its
-  # host_scope, job_specs.on_host, root ADR-0625); nothing else.
+  # Exact command lines, one start and one stop per service of a job this host runs (job_specs.on_host).
   staged="$(mktemp)"
   python3 -I -B - "${jobs_file}" "${scheduler_account}" "${release_root}/current/orchestration/dags" >"${staged}" <<'PY'
 import re, sys
@@ -1217,6 +1216,7 @@ apply_datahub() {
   assert_current_release
   local runtime="${release_root}/current/scripts/deploy/datahub-runtime.sh" work changed
   # Under host_scope collection it is stopped, not removed (host-scope.sh, root ADR-0625).
+  host_scope_functions
   if datahub_stopped_by_scope; then return 0; fi
   # The state is the contract's datahub.state_dir; a host installed elsewhere is adopted once.
   python3 -I -B "${release_root}/current/scripts/deploy/datahub_state.py" adopt
@@ -1330,6 +1330,7 @@ case "${command}" in
     ;;
   trino)
     [[ "$#" == 1 ]] || usage
+    host_scope_functions
     # shellcheck source=trino-follows-the-release.sh
     source "${release_root}/current/scripts/deploy/trino-follows-the-release.sh"
     apply_trino
@@ -1414,6 +1415,7 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     systemctl enable --now foundation-identity-backup.timer foundation-identity-backup-freshness.timer \
       foundation-identity-restore-drill.timer
     # A job the host_scope leaves out runs no more here (host-scope.sh, root ADR-0625).
+    host_scope_functions
     stop_off_host_jobs
     # A unit that failed before its retry policy was installed gets the retry it never had, now
     # rather than at its next timer (root ADR-0445 §5; job_units.py unretried-failed); never one the

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Sourced by foundation-release.sh `trino` (it provides release_root and assert_current_release).
+# Sourced by foundation-release.sh `trino` (it provides release_root, assert_current_release and, from
+# host-scope.sh, host_scope_of_release).
 # Trino follows the release (root ADR-0504). Its container mounts files of the release it was
 # created from and nothing recreated it on deploy, so a merged memory limit waited for the next crash
 # (2026-11-11: the kernel killed Trino at 16.55GB under the old limits). `up -d` recreates it when
@@ -35,7 +36,7 @@ trino_files_digest() {
 
 apply_trino() {
   assert_current_release
-  local before after attempt
+  local before after attempt scope running
   # The container and when it started: `up` leaves both alone, starts a stopped container, or
   # recreates it, and after the last two Trino is not answering yet.
   if ! before="$(docker inspect -f '{{.Id}} {{.State.StartedAt}}' "${trino_container}" 2>/dev/null)"; then
@@ -44,13 +45,11 @@ apply_trino() {
   fi
   # Only the asset checks of derived jobs still read it (root ADR-0565): a host that runs no derived
   # compute stops it and keeps the container, which `up -d` starts again under host_scope all (root ADR-0625).
-  if [[ "$(host_scope_of_release)" != all ]]; then
-    if [[ "$(docker inspect -f '{{.State.Running}}' "${trino_container}")" == true ]]; then
-      docker stop "${trino_container}" >/dev/null
-      printf 'trino: host_scope %s: stopped, not removed (root ADR-0625)\n' "$(host_scope_of_release)"
-    else
-      printf 'trino: host_scope %s: already stopped\n' "$(host_scope_of_release)"
-    fi
+  scope="$(host_scope_of_release)"
+  if [[ "${scope}" != all ]]; then
+    running="$(docker inspect -f '{{.State.Running}}' "${trino_container}")"
+    [[ "${running}" != true ]] || docker stop "${trino_container}" >/dev/null
+    printf 'trino: host_scope %s: stopped, not removed (root ADR-0625)\n' "${scope}"
     return 0
   fi
   install -d -m 1777 "$(host_layout_value trino_spill)"
