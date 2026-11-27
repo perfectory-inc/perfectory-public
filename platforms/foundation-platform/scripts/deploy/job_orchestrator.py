@@ -62,8 +62,11 @@ class Unreachable(Unanswered):
 
 
 def decided(jobs):
-    """The enabled job ids Dagster decides, in job-list order."""
-    return [job["id"] for job in jobs["jobs"] if job["enabled"] and job.get("dagster_stage", "airflow") == "dagster"]
+    """The job ids Dagster decides that run on this host (job_specs.runs_on_host, root ADR-0625), in job-list
+    order: a job the host_scope leaves out has no sensor (orchestration/dagster/decide.py), so there is none
+    to hold, release or start."""
+    here = job_specs.runs_on_host(jobs)
+    return [job["id"] for job in jobs["jobs"] if job["id"] in here and job.get("dagster_stage", "airflow") == "dagster"]
 
 
 def poster(socket_path=None):

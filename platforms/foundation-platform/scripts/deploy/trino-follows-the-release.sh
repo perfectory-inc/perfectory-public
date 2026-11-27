@@ -42,6 +42,17 @@ apply_trino() {
     printf 'trino: no container on this host; nothing follows the release\n'
     return 0
   fi
+  # Only the asset checks of derived jobs still read it (root ADR-0565): a host that runs no derived
+  # compute stops it and keeps the container, which `up -d` starts again under host_scope all (root ADR-0625).
+  if [[ "$(host_scope_of_release)" != all ]]; then
+    if [[ "$(docker inspect -f '{{.State.Running}}' "${trino_container}")" == true ]]; then
+      docker stop "${trino_container}" >/dev/null
+      printf 'trino: host_scope %s: stopped, not removed (root ADR-0625)\n' "$(host_scope_of_release)"
+    else
+      printf 'trino: host_scope %s: already stopped\n' "$(host_scope_of_release)"
+    fi
+    return 0
+  fi
   install -d -m 1777 "$(host_layout_value trino_spill)"
   trino_compose up -d --no-deps trino
   after="$(docker inspect -f '{{.Id}} {{.State.StartedAt}}' "${trino_container}")"

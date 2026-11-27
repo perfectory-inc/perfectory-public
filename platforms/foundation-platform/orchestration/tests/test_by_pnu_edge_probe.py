@@ -253,8 +253,11 @@ class TheUnits(unittest.TestCase):
         files = [line.split("=", 1)[1] for line in unit.splitlines() if line.startswith("EnvironmentFile=")]
         self.assertTrue(files and all(f.startswith("-/etc/foundation-platform/") and f.endswith("-serving-monitor.env")
                                       for f in files), files)
-        release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
-        self.assertRegex(release, r"(?m)^\s*systemctl enable --now .*\bfoundation-by-pnu-edge-probe\.timer$")
+        # The release enables it where the host runs derived compute and leaves it off under host_scope
+        # collection (scripts/deploy/host-scope.sh, root ADR-0625).
+        scope = (PLATFORM / "scripts/deploy/host-scope.sh").read_text(encoding="utf-8")
+        self.assertRegex(scope, r"(?m)^\s*derived_timers=\(.*\bfoundation-by-pnu-edge-probe\.timer\b")
+        self.assertIn('systemctl enable --now "${derived_timers[@]}"', scope)
 
     def test_the_worker_deploy_runs_this_probe_and_retries_when_it_changes(self):
         deploy = (PLATFORM / "scripts/deploy/worker_autodeploy.py").read_text(encoding="utf-8")
@@ -329,5 +332,6 @@ class TheWeeklyScreen(EdgeFixture):
         self.assertIn("by-pnu-edge-probe.py --screen\n", unit)
         self.assertIn("OnFailure=foundation-unit-failed@%n.service\n", unit)
         self.assertIn("X-Foundation-Owner=serving\n", unit)
-        release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
-        self.assertRegex(release, r"(?m)^\s*systemctl enable --now foundation-by-pnu-screen-probe\.timer$")
+        scope = (PLATFORM / "scripts/deploy/host-scope.sh").read_text(encoding="utf-8")
+        self.assertRegex(scope, r"(?m)^\s*derived_timers=\(.*\bfoundation-by-pnu-screen-probe\.timer\b")
+        self.assertIn('systemctl enable --now "${derived_timers[@]}"', scope)

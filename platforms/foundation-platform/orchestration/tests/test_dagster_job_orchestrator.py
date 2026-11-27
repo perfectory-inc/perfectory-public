@@ -252,6 +252,10 @@ class TheJobsDagsterDecides(unittest.TestCase):
         self.assertEqual(self.run_main("pause", dagster=lambda *_: self.fail("asked"))[0], 0)
         # A start reads its tags from the release's whole list (launch_tags), so it names a real job.
         real = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))
+        # A host whose host_scope leaves the job out holds no sensor of it and starts it nowhere (root ADR-0625).
+        if real.get("host_scope", "all") != "all":
+            self.assertEqual(self.run_main("start", "gold_panel_rebuild", dagster=dagster, listing=real)[0], 64)
+        real = dict(real, host_scope="all")
         status, out, _ = self.run_main("start", "gold_panel_rebuild", dagster=dagster, listing=real)
         self.assertEqual((status, out), (0, "job-orchestrator: started gold_panel_rebuild as Dagster run run-1\n"))
         self.assertEqual(dagster.told[-1][1]["executionMetadata"]["tags"][0], {"key": "foundation/run-kind", "value": "triggered"})

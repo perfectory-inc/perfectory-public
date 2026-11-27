@@ -131,9 +131,11 @@ class TheUnpauseOrder(unittest.TestCase):
     """Root ADR-0179: a deploy unpauses every reader before the job whose outputs start it."""
 
     def test_the_real_list_unpauses_each_reader_before_its_producers(self):
-        order = job_specs.unpause_order()
         jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
         graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+        # The order is the job graph's whatever the host runs (root ADR-0625): read with every job in scope.
+        jobs = dict(jobs, host_scope="all")
+        order = job_specs.unpause_order(jobs, graph)
         feeds = job_specs.producers(jobs, graph)
         enabled = {job["id"]: job for job in jobs["jobs"] if job["enabled"]}
         self.assertEqual(sorted(order), sorted(enabled))
@@ -146,6 +148,73 @@ class TheUnpauseOrder(unittest.TestCase):
                         self.assertLess(order.index(reader), order.index(producer))
         # The pair that dropped the event on 2026-10-10.
         self.assertLess(order.index("by_pnu_serving_bake"), order.index("gold_panel_rebuild"))
+
+    def test_a_deploy_unpauses_only_the_jobs_the_host_runs(self):
+        # Root ADR-0625: a job the host_scope leaves out stays paused, whoever deploys.
+        jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+        graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(job_specs.unpause_order(jobs, graph)), sorted(job_specs.runs_on_host(jobs, graph)))
+
+
+class TheHostScope(unittest.TestCase):
+    """Root ADR-0625, 2026-11-27: ai-server runs only collection and what it needs. The class of a job is
+    computed from the job list and the pipeline graph, so the one switch (host_scope) decides it all."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jobs, cls.graph = real_inputs()
+        cls.classes = job_specs.host_classes(cls.jobs, cls.graph)
+
+    def test_every_collector_is_collection_and_what_collection_needs_is_kept(self):
+        for job in self.jobs["jobs"]:
+            if job["dagster_group"] == job_specs.COLLECTION_GROUP:
+                self.assertEqual(self.classes[job["id"]], "collection", job["id"])
+        kept = {job_id for job_id, kind in self.classes.items() if kind in ("collection_support", "service")}
+        # The coordinator's list of 2026-11-27: the Silver the collectors read their owed work from, the
+        # two jobs that land Bronze themselves, the reconciler that judges the collectors, the outbox and
+        # the audit chain.
+        self.assertEqual(kept, {"court_auction_silver", "industrial_complex_notice_silver",
+                                "industrial_land_sale_notice_silver", "data_go_kr_file_data", "registered_factory",
+                                "asset_reconcile", "outbox_publish", "audit_digest", "audit_import"})
+        self.assertEqual(self.classes["gold_panel_rebuild"], "derived")
+        self.assertEqual(self.classes["silver_refresh_land_ownership"], "derived")
+
+    def test_the_scope_decides_which_enabled_jobs_run_here(self):
+        enabled = {job["id"] for job in self.jobs["jobs"] if job["enabled"]}
+        everywhere = dict(self.jobs, host_scope="all")
+        self.assertEqual(job_specs.runs_on_host(everywhere), enabled)
+        collection = dict(self.jobs, host_scope="collection")
+        here = job_specs.runs_on_host(collection, self.graph)
+        self.assertEqual(here, {job_id for job_id in enabled if self.classes[job_id] != "derived"})
+        specs = {spec.job_id: spec for spec in job_specs.load_specs(collection, self.graph)}
+        self.assertEqual({job_id for job_id, spec in specs.items() if spec.runs_on_host}, here)
+
+    def test_the_host_view_switches_off_what_the_scope_leaves_out(self):
+        collection = dict(self.jobs, host_scope="collection")
+        view = {job["id"]: job for job in job_specs.on_host(collection, self.graph)["jobs"]}
+        self.assertFalse(view["gold_panel_rebuild"]["enabled"])
+        self.assertTrue(view["gold_panel_rebuild"]["host_scope_off"])
+        self.assertIn("host_scope collection", view["gold_panel_rebuild"]["disabled_reason"])
+        self.assertNotIn("enabled_since", view["gold_panel_rebuild"])
+        self.assertTrue(view["court_auction_collect"]["enabled"])
+        self.assertNotIn("host_scope_off", view["court_auction_collect"])
+        # The reconciler stays and reconciles none of the derived jobs it did.
+        self.assertEqual(view["asset_reconcile"]["reconciles"], [])
+        # A job that is off and derived is still out: an operator's run-now of it is refused.
+        self.assertTrue(view["parcel_tile_bake"]["host_scope_off"])
+        self.assertEqual(job_specs.on_host(dict(self.jobs, host_scope="all"))["jobs"],
+                         dict(self.jobs, host_scope="all")["jobs"])
+
+    def test_an_unknown_scope_is_refused(self):
+        with self.assertRaises(job_specs.JobListError):
+            job_specs.runs_on_host(dict(self.jobs, host_scope="ai"))
+
+    def test_the_rendered_dependencies_say_each_jobs_class_and_whether_it_runs_here(self):
+        document = job_specs.dependency_document(self.jobs, self.graph)
+        here = job_specs.runs_on_host(self.jobs, self.graph)
+        for entry in document["jobs"]:
+            self.assertEqual(entry["host_class"], self.classes[entry["id"]])
+            self.assertEqual(entry["runs_on_host"], entry["id"] in here)
 
 
 class AnEventAPausedReaderMissedIsOwed(unittest.TestCase):

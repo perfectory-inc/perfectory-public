@@ -829,6 +829,8 @@ groups:
         labels:
           severity: ticket
           service: data-flow
+          # The media reconciler is derived compute: off with it (root ADR-0625, inhibit_rules).
+          computed_by: derived
         annotations:
           summary: '미디어 색인이 이름 대는 사진·첨부 {{ $value }}개가 R2 에 없어요({{ $labels.prefix }}) — 필지 화면에서 깨진 사진으로 보여요. /var/lib/foundation-platform/media-reconcile/reports 의 마지막 보고서 missing 을 보세요'
           runbook: docs/runbooks/media-reconcile.md
@@ -838,6 +840,8 @@ groups:
         labels:
           severity: ticket
           service: data-flow
+          # The media reconciler is derived compute: off with it (root ADR-0625, inhibit_rules).
+          computed_by: derived
         annotations:
           summary: 'R2 에 어느 색인 줄도 이름 대지 않는 미디어가 {{ $value }}개 있어요({{ $labels.prefix }}) — 수집 run 이 커밋 없이 끝났거나 Silver 적재가 밀렸어요. 마지막 보고서 orphans 를 보세요'
           runbook: docs/runbooks/media-reconcile.md
@@ -850,6 +854,8 @@ groups:
         labels:
           severity: ticket
           service: data-flow
+          # The media reconciler is derived compute: off with it (root ADR-0625, inhibit_rules).
+          computed_by: derived
         annotations:
           summary: 미디어 대조기(media_reconcile)가 30시간 넘게 비교하지 않았어요. journalctl -u foundation-media-reconcile.service 를 보세요
           runbook: docs/runbooks/media-reconcile.md
@@ -1187,3 +1193,18 @@ groups:
         annotations:
           summary: 데이터 흐름 지도가 30분째 작업 실행 기록을 못 읽어요 — 문제가 생겨도 알림이 안 와요
           runbook: docs/runbooks/operations-map.md
+
+  # Root ADR-0625. While the host's host_scope keeps only collection and what it needs, derived compute
+  # does not run here and its pages would only say so: served data aging past its budget, the media
+  # reconciler silent. This alert is the inhibition's source (alertmanager.yml inhibit_rules); it
+  # notifies no one (route inhibition-only). The asset reconciler writes the series from jobs.v1.json.
+  - name: foundation-host-scope
+    rules:
+      - alert: FoundationHostRunsNoDerivedCompute
+        expr: foundation_host_runs_derived_compute == 0
+        labels:
+          severity: none
+          service: host-scope
+        annotations:
+          summary: 이 호스트는 수집과 그에 필요한 것만 돌려요(host_scope collection) — 파생 계산의 신선도 경보는 꺼 둬요
+          runbook: docs/runbooks/asset-reconcile.md

@@ -259,7 +259,8 @@ def evaluator(spec, run_limit_seconds, clock=time.time, reconcilers=()):
 
 
 def sensors(jobs=None, graph=None):
-    """One sensor per job Dagster decides, each starting the job's Dagster job (run_jobs.py)."""
+    """One sensor per job Dagster decides that runs on this host (job_specs.runs_on_host, root ADR-0625), each
+    starting the job's Dagster job (run_jobs.py). A job the host_scope leaves out has none: nothing decides it."""
     from dagster import DefaultSensorStatus, sensor
 
     if jobs is None or graph is None:
@@ -269,10 +270,10 @@ def sensors(jobs=None, graph=None):
     # Who may say a job is owed a run: the jobs that reconcile or requeue it, once Dagster runs them.
     starters = {spec.job_id: [other for other in specs if other.dagster_stage in job_specs.DAGSTER_RUNS
                               and spec.job_id in job_specs.started_for(jobs, by_id[other.job_id])]
-                for spec in specs if spec.dagster_stage == "dagster"}
+                for spec in specs if spec.dagster_stage == "dagster" and spec.runs_on_host}
     return [sensor(name=SENSOR_PREFIX + spec.job_id, job_name=spec.dagster_job, minimum_interval_seconds=SENSOR_SECONDS,
                    default_status=DefaultSensorStatus.RUNNING,
                    description=f"Decides when {spec.job_id} runs (root ADR-0431 §3, orchestration/dagster/decide.py)")(
                 evaluator(spec, 60 * job_specs.run_limit_minutes(by_id[spec.job_id]),
                           reconcilers=starters[spec.job_id]))
-            for spec in specs if spec.dagster_stage == "dagster"]
+            for spec in specs if spec.dagster_stage == "dagster" and spec.runs_on_host]

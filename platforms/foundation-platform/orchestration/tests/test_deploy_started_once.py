@@ -34,10 +34,12 @@ class TheJobsADeployStartsOnce(unittest.TestCase):
         program = script.split("jobs_of() {\n", 1)[1].split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
         waited = subprocess.run([sys.executable, "-c", program, "started-once", str(JOBS)],
                                 capture_output=True, text=True, check=True).stdout.split()
-        jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
+        listing = json.loads(JOBS.read_text(encoding="utf-8"))
+        # Only a job this host runs (job_specs.runs_on_host, root ADR-0625): the deploy starts no other.
+        here = job_specs.runs_on_host(listing)
         expected = []
-        for job in jobs:
-            if job["enabled"] and job.get("started_once_after_deploy"):
+        for job in listing["jobs"]:
+            if job["id"] in here and job.get("started_once_after_deploy"):
                 expected += [job["systemd_service"], str(job_specs.run_limit_minutes(job)), job["id"]]
         self.assertTrue(expected)
         self.assertEqual(waited, expected)

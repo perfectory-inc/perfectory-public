@@ -68,6 +68,12 @@ DAGSTER_RUNS = ("proxied", "dagster")
 # its switched-on jobs reach `dagster` in one PR, and reverting that PR is the rollback (dagster_groups).
 DAGSTER_GROUPS = ("gold", "silver", "collect", "operations")
 COMPARED = ("shadow", "proxied")
+# What this host runs (jobs.v1.json `host_scope`, root ADR-0625): `all`, or only `collection`, the jobs whose
+# runs lose source data for good when they stop, and what those runs need. A job's class is read from the
+# pipeline graph and the job list (host_classes), never written down per job.
+HOST_SCOPES = {"all": ("collection", "collection_support", "service", "derived"),
+               "collection": ("collection", "collection_support", "service")}
+COLLECTION_GROUP = "collect"
 # The Dagster names (dagster_writes.py, which the writable webserver's gate also reads, root ADR-0565 §8):
 # a `proxied` job's run (root ADR-0431 §5) is Airflow's `run` task asking Dagster to launch the job's
 # Dagster job, DAGSTER_JOB_PREFIX + its id, and Dagster runs the unit through the host's forced command
@@ -148,6 +154,7 @@ class JobSpec:
     requeues: tuple = ()  # the jobs whose refused starts it starts again from the start queue (root ADR-0462)
     dagster_stage: str = "airflow"  # DAGSTER_STAGES
     dagster_group: str = ""  # DAGSTER_GROUPS
+    runs_on_host: bool = True  # enabled and in the host's scope (runs_on_host, root ADR-0625)
     priority: int = 100  # the value of its priority class (root ADR-0435)
     default_priority: int = 100  # the value of the `default` class: where a run after a failure queues
 
@@ -900,6 +907,104 @@ def producers(jobs, graph):
     }
 
 
+def host_scope(jobs):
+    """What this host runs (jobs.v1.json `host_scope`, root ADR-0625): one of HOST_SCOPES, absent `all`."""
+    value = jobs.get("host_scope", "all")
+    if value not in HOST_SCOPES:
+        raise JobListError(f"host_scope must be one of {sorted(HOST_SCOPES)}, not {value!r}")
+    return value
+
+
+def host_classes(jobs, graph):
+    """Job id -> its class on a host (root ADR-0625), read from the job list and the pipeline graph alone.
+
+    - `collection`: a job of the collect group. Some sources keep no past (monthly parcel editions, zoning,
+      the court auction, Onbid, the sale notices): what a stopped collector did not land is lost for good.
+    - `collection_support`: a job collection needs. It writes what a collection job reads (the Silver a
+      collector computes its owed reads from), it lands Bronze itself (it writes a source group), or it
+      reconciles the host's jobs (the reconciler folds the outcome ledger into the collectors' pages, root
+      ADR-0480, ADR-0614).
+    - `service`: a job that drains a Postgres record no job writes, one the platform's own transactions keep
+      (the outbox, which every Bronze landing writes; the audit chain). It makes no data.
+    - `derived`: everything else. Bronze is kept, so what it makes can be made again anywhere.
+    """
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    carried = job_nodes(jobs, graph)
+    collectors = {job["id"] for job in jobs["jobs"] if job.get("dagster_group") == COLLECTION_GROUP}
+    collector_reads = {node for job_id in collectors for node in carried[job_id][0]}
+    written = {node for _, writes in carried.values() for node in writes}
+    classes = {}
+    for job in jobs["jobs"]:
+        reads, writes = carried[job["id"]]
+        if job["id"] in collectors:
+            classes[job["id"]] = "collection"
+        elif (set(writes) & collector_reads or any(nodes[node]["type"] == "source_group" for node in writes)
+              or "reconciles" in job):
+            classes[job["id"]] = "collection_support"
+        elif any(nodes[node]["type"] == "serving_group" and node not in written for node in reads):
+            classes[job["id"]] = "service"
+        else:
+            classes[job["id"]] = "derived"
+    return classes
+
+
+def runs_on_host(jobs, graph=None):
+    """The ids of the jobs this host runs: enabled, and of a class its host_scope keeps (root ADR-0625).
+
+    The one answer every start path reads: the host's forced command, the scheduler's sudoers, Dagster's
+    sensors, the deploy's lists and start-once gate, the Airflow pauses and the reconciler. Under `all` it is
+    every enabled job and needs no graph; otherwise `graph` defaults to the one beside this file (GRAPH).
+    """
+    kept = kept_on_host(jobs, graph)
+    return {job["id"] for job in jobs["jobs"] if job["enabled"] and job["id"] in kept}
+
+
+def kept_on_host(jobs, graph=None):
+    """The ids of the jobs whose class this host's host_scope keeps, switched on or not (root ADR-0625): an
+    operator's run-now of a job that is off is still refused when its class is not kept."""
+    scope = host_scope(jobs)
+    if scope == "all":
+        return {job["id"] for job in jobs["jobs"]}
+    graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
+    classes = host_classes(jobs, graph)
+    return {job_id for job_id, kind in classes.items() if kind in HOST_SCOPES[scope]}
+
+
+def on_host(jobs, graph=None):
+    """The job list as this host runs it: a copy in which a job its host_scope leaves out is off (`enabled`
+    false, `host_scope_off` true, the scope as its `disabled_reason`) and the reconciler reconciles only jobs
+    that run here.
+
+    For the readers of `enabled` that run nothing themselves (the forced command, the sudoers, the deploy,
+    the Airflow pauses, the reconciler's metrics); load_specs takes the list as it is written. Under `all`
+    it is the list unchanged."""
+    kept, here = kept_on_host(jobs, graph), runs_on_host(jobs, graph)
+    view = json.loads(json.dumps(jobs))
+    scope = host_scope(jobs)
+    for job in view["jobs"]:
+        if job["id"] not in kept:
+            job["host_scope_off"] = True
+            if job["enabled"]:
+                job["enabled"] = False
+                job.pop("enabled_since", None)
+                job["disabled_reason"] = (f"host_scope {scope}: this host runs only {', '.join(HOST_SCOPES[scope])} "
+                                          "jobs (root ADR-0625)")
+        if "reconciles" in job:
+            job["reconciles"] = [name for name in job["reconciles"] if name in here]
+    return view
+
+
+def on_host_file(jobs_path):
+    """on_host of the job list at `jobs_path`, with the pipeline graph of the same tree
+    (<tree>/orchestration/jobs.v1.json beside <tree>/docs/catalog/pipeline-graph.v1.json)."""
+    path = pathlib.Path(jobs_path)
+    jobs = json.loads(path.read_text(encoding="utf-8"))
+    if host_scope(jobs) == "all":
+        return jobs
+    graph = path.resolve().parents[1] / "docs" / "catalog" / "pipeline-graph.v1.json"
+    return on_host(jobs, json.loads(graph.read_text(encoding="utf-8")))
+
+
 def dependency_document(jobs=None, graph=None):
     """The job dependencies as foundation-api serves them: rendered here, never derived twice.
 
@@ -913,6 +1018,8 @@ def dependency_document(jobs=None, graph=None):
     nodes = {node["id"]: node for node in graph["nodes"]}
     feeders = producers(jobs, graph)
     carried = job_nodes(jobs, graph)
+    classes = host_classes(jobs, graph)
+    here = runs_on_host(jobs, graph)
 
     def described(node_ids):
         return [
@@ -937,6 +1044,9 @@ def dependency_document(jobs=None, graph=None):
                 "producers": feeders[job["id"]],
                 "reads": described(carried[job["id"]][0]),
                 "writes": described(carried[job["id"]][1]),
+                # Its class and whether the host runs it under its host_scope (root ADR-0625).
+                "host_class": classes[job["id"]],
+                "runs_on_host": job["id"] in here,
             }
             for job in jobs["jobs"]
         ],
@@ -959,7 +1069,9 @@ def unpause_order(jobs=None, graph=None):
     """
     jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
     graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
-    enabled = [job for job in jobs["jobs"] if job["enabled"]]
+    # Only the jobs this host runs: a job its host_scope leaves out stays paused (root ADR-0625).
+    here = runs_on_host(jobs, graph)
+    enabled = [job for job in jobs["jobs"] if job["id"] in here]
     feeds = producers(jobs, graph)
     position = {job["id"]: index for index, job in enumerate(enabled)}
     readers = {job["id"]: [other["id"] for other in enabled
@@ -1036,6 +1148,7 @@ def load_specs(jobs=None, graph=None):
     for job in jobs["jobs"]:
         priority_weight(job)
     weights = queue_weights(jobs, feeders)
+    here = runs_on_host(jobs, graph)
 
     specs, seen_ids, seen_services = [], set(), set()
     for job in jobs["jobs"]:
@@ -1147,6 +1260,7 @@ def load_specs(jobs=None, graph=None):
                 requeues=requeues,
                 dagster_stage=dagster_stage(job, jobs),
                 dagster_group=dagster_group(job),
+                runs_on_host=job_id in here,
                 priority=jobs["priority_classes"][priority_class(jobs, job, job_id)]["value"],
                 default_priority=jobs["priority_classes"]["default"]["value"],
             )
@@ -1174,6 +1288,16 @@ if __name__ == "__main__":
     elif len(sys.argv) == 3 and sys.argv[1] == "--writer":
         # The job that makes a pipeline-graph node, or nothing (root ADR-0333: one job, one asset).
         print(writer_of(sys.argv[2]) or "")
+    elif len(sys.argv) == 3 and sys.argv[1] == "--on-host":
+        # The job list at the path as this host runs it (on_host, root ADR-0625), for readers that are not Python.
+        print(json.dumps(on_host_file(sys.argv[2]), ensure_ascii=False))
+    elif sys.argv[1:] == ["--host-classes"]:
+        # Each job, its class and whether this host runs it: what an operator reads before a scope change.
+        listing = json.loads(JOBS.read_text(encoding="utf-8"))
+        layout = json.loads(GRAPH.read_text(encoding="utf-8"))
+        here = runs_on_host(listing, layout)
+        for job_id, kind in host_classes(listing, layout).items():
+            print(job_id, kind, "runs" if job_id in here else "off")
     elif sys.argv[1:] == ["--outcome-line"]:
         # Reads a run's journal on stdin; prints its outcome line, or nothing (root ADR-0260 §2).
         line = outcome_line(sys.stdin.buffer.read())
@@ -1181,4 +1305,5 @@ if __name__ == "__main__":
             print(line)
     else:
         sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies | --check-state-roots"
-                 " | --state-root <job id> | --writer <node id> | --outcome-line")
+                 " | --state-root <job id> | --writer <node id> | --on-host <jobs.v1.json> | --host-classes"
+                 " | --outcome-line")

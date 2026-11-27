@@ -37,7 +37,9 @@ def spec_of(job_id):
 
 def before_any_switch(jobs):
     """The job list as it was before a group switched (root ADR-0583 §1: Gold has): every job Dagster
-    decides back at `shadow`, so a test can switch one job alone."""
+    decides back at `shadow`, so a test can switch one job alone, on a host that runs every job
+    (host_scope all; the scope has its own test, TheHostScope)."""
+    jobs["host_scope"] = "all"
     for job in jobs["jobs"]:
         if job.get("dagster_stage") == "dagster":
             job["dagster_stage"] = "shadow"
@@ -282,6 +284,29 @@ class TheOwedRunsTest(unittest.TestCase):
             with self.assertRaises(observe_assets.job_specs.JobListError):
                 decide.sensors(jobs, graph)
         self.assertEqual(seen, [[reconciler["id"]]])
+
+
+@unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
+class TheHostScope(unittest.TestCase):
+    """Root ADR-0625: a job the host's host_scope leaves out has no sensor, so nothing decides it here; a job
+    that runs on the host keeps its own."""
+
+    def test_only_the_jobs_the_host_runs_have_a_sensor(self):
+        import observe_assets
+
+        import decide
+
+        jobs, graph = (copy.deepcopy(value) for value in observe_assets.contracts())
+        jobs["host_scope"] = "collection"
+        here = observe_assets.job_specs.runs_on_host(jobs, graph)
+        named = {sensor.name for sensor in decide.sensors(jobs, graph)}
+        decided = {job["id"] for job in jobs["jobs"] if job.get("dagster_stage") == "dagster"}
+        self.assertEqual(named, {decide.SENSOR_PREFIX + job_id for job_id in decided & here})
+        self.assertIn(decide.SENSOR_PREFIX + "court_auction_collect", named)
+        self.assertNotIn(decide.SENSOR_PREFIX + "gold_panel_rebuild", named)
+        jobs["host_scope"] = "all"
+        everywhere = {sensor.name for sensor in decide.sensors(jobs, graph)}
+        self.assertIn(decide.SENSOR_PREFIX + "gold_panel_rebuild", everywhere)
 
 
 @unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)

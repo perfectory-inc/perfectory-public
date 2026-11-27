@@ -44,6 +44,7 @@
       "priority_weight": 10,
       "retries": 0,
       "pipeline_graph_edges": [
+        "data-go-kr-file-collection-to-source-data-go-kr-file-data",
         "source-data-go-kr-file-data-to-silver-registered-factory"
       ],
       "enabled": true,

@@ -43,8 +43,10 @@ sys.dont_write_bytecode = True
 PLATFORM = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PLATFORM / "scripts" / "deploy"))
 sys.path.insert(0, str(PLATFORM / "scripts" / "ops"))
+sys.path.insert(0, str(PLATFORM / "orchestration" / "dags"))
 
 import job_outcomes  # noqa: E402
+import job_specs  # noqa: E402
 import job_units  # noqa: E402
 from job_outcomes import cron_period_seconds  # noqa: E402
 # What the asset reconciler folded from the outcome ledger (root ADR-0480), read instead of the ledger.
@@ -250,7 +252,9 @@ def failure_reason(unit: str, before: float) -> str | None:
 
 def main(argv: list[str]) -> int:
     now = time.time()
-    jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
+    # The list as this host runs it (job_specs.on_host, root ADR-0625): a job its host_scope leaves out is
+    # off here, and the report shows it as off, not as late.
+    jobs = job_specs.on_host_file(JOBS)["jobs"]
     by_id = {job["id"]: job for job in jobs}
     try:
         api = samples(urllib.request.urlopen(API_METRICS, timeout=30).read().decode("utf-8"))
