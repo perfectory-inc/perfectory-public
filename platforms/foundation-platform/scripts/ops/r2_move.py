@@ -347,10 +347,14 @@ def cmd_manifest(plan: Plan, out: pathlib.Path, stamp: str, upload: bool, thread
     return summary
 
 
-def read_manifest(path: pathlib.Path) -> Iterator[dict]:
+def read_manifest(path: pathlib.Path, part: tuple[int, int] = (0, 1)) -> Iterator[dict]:
+    """The manifest's lines; with `part` (k, n) only every n-th line from the k-th, so n processes share one
+    manifest (one process holds about 48 connections from the laptop before R2 drops them, 2026-11-28)."""
+    k, n = part
     with gzip.open(path, "rt", encoding="utf-8") as handle:
-        for line in handle:
-            yield json.loads(line)
+        for index, line in enumerate(handle):
+            if index % n == k:
+                yield json.loads(line)
 
 
 def same_object(head: dict, line: dict) -> bool:
@@ -501,6 +505,13 @@ def cmd_expired(plan: Plan, prefixes: list[str], remove: bool) -> dict:
     return {"prefixes_with_objects_left": sorted(p for p, c in left.items() if c), "rules_removed": removed}
 
 
+def part(text: str) -> tuple[int, int]:
+    k, n = (int(x) for x in text.split("/"))
+    if not 0 <= k < n:
+        raise MoveError(f"--part {text}: K/N with 0 <= K < N")
+    return k, n
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=("manifest", "copy", "rewrite", "verify", "expire", "expired"))
@@ -511,6 +522,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--threads", type=int, default=64)
     parser.add_argument("--sample", type=int, default=200)
     parser.add_argument("--remove-empty-rules", action="store_true")
+    parser.add_argument("--part", default="0/1", help="copy, verify: K/N, every N-th manifest line from the K-th")
     parser.add_argument("--since", type=dt.datetime.fromisoformat,
                         help="manifest: only keys last modified after this UTC instant (a delta)")
     args = parser.parse_args(argv)
@@ -518,11 +530,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "manifest":
         result = cmd_manifest(plan, args.manifest, args.stamp, not args.no_upload, args.threads, args.since)
     elif args.command == "copy":
-        result = cmd_copy(read_manifest(args.manifest), args.threads)
+        result = cmd_copy(read_manifest(args.manifest, part(args.part)), args.threads)
     elif args.command == "rewrite":
         result = cmd_rewrite(plan, read_manifest(args.manifest))
     elif args.command == "verify":
-        result = cmd_verify(plan, read_manifest(args.manifest), args.threads, args.sample)
+        result = cmd_verify(plan, read_manifest(args.manifest, part(args.part)), args.threads, args.sample)
         stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         put_create_only(bucket(), evidence_key(plan, args.stamp, f".verify-{stamp}.json"),
                         (json.dumps(result, indent=2) + "\n").encode("utf-8"), ContentType="application/json")
