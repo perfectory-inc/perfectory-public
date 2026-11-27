@@ -280,3 +280,8 @@ Single-AZ 와 Multi-AZ 의 차는 월 39.85 USD 다. Single-AZ 동안 RDS 장애
 2026-11-27: 사장 승인(Accepted), §10 의 열린 결정은 결정으로 옮겼다. main 에 있는 것: dev 리그와 그 탐침·업그레이드 카나리아(`infra/aws-lakekeeper-dev`,
 #1772·#1775·#1777, #1780 이 되돌린 것을 W109c 가 되살렸다), T8 명령(`check-lakehouse-catalog-writes`), REST 카탈로그 열기 모듈(`lakehouse_rest_catalog`).
 운영 카탈로그(A1)는 W109c 가 짓는다.
+
+2026-11-27 (W109c): `infra/aws-lakekeeper-dev` → `infra/aws-lakekeeper`, `docs/runbooks/lakekeeper-dev.md` → `docs/runbooks/lakekeeper.md`: dev 와 prod 가
+한 스택이고 입력은 `environment` 하나, 차이는 두 계약(`config/lakekeeper-dev.contract.json`·`config/lakekeeper-prod.contract.json`)에 있다. A1 의 운영
+카탈로그를 그 스택의 prod 로 적용했다(제 RDS db.t4g.small Single-AZ·자동 백업 7 일·PITR, Lakekeeper 둘·OpenFGA 둘, Cognito, 경보 다섯, 창고 R2 자격의
+빈 칸). 조정기는 `reconcile-lakehouse-catalog` 이고, prod 의 창고는 사장이 새 토큰 `perfectory-lakekeeper-prod` 를 넣은 뒤에 만든다.
